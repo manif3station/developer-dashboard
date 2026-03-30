@@ -1,0 +1,37 @@
+name: Test
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Perl
+        uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: '5.38'
+
+      - name: Install dependencies
+        run: |
+          curl -L https://cpanmin.us | perl - --sudo App::cpanminus
+          cpanm --installdeps --notest .
+          cpanm --notest Devel::Cover
+
+      - name: Run tests
+        run: |
+          prove -lr t
+
+      - name: Verify lib coverage
+        run: |
+          cover -delete
+          HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
+          report="$(cover -report text -select_re '^lib/' -coverage statement -coverage subroutine)"
+          printf '%s\n' "$report"
+          printf '%s\n' "$report" | grep -F "Total                                       100.0  100.0  100.0"

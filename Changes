@@ -1,0 +1,7 @@
+Revision history for Developer Dashboard
+
+0.34  2026-03-30
+
+    - reset the release history to a fresh baseline for the open-source package
+    - restored the Dist::Zilla distribution metadata
+    - kept the current Developer Dashboard runtime, tests, and documentation aligned to version 0.34

@@ -1,0 +1,71 @@
+name: Release To CPAN
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      PAUSE_USER: ${{ secrets.PAUSE_USER }}
+      PAUSE_PASS: ${{ secrets.PAUSE_PASS }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Perl
+        uses: shogo82148/actions-setup-perl@v1
+        with:
+          perl-version: '5.38'
+
+      - name: Install cpanm
+        run: |
+          curl -L https://cpanmin.us | perl - --sudo App::cpanminus
+
+      - name: Install release dependencies
+        run: |
+          cpanm --installdeps --notest .
+          cpanm --notest Devel::Cover
+          cpanm --notest Dist::Zilla
+          cpanm --notest Dist::Zilla::Plugin::ManifestSkip
+          cpanm --notest Dist::Zilla::Plugin::PkgVersion
+          cpanm --notest CPAN::Uploader
+
+      - name: Run tests
+        run: |
+          prove -lr t
+
+      - name: Verify coverage
+        run: |
+          cover -delete
+          HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
+          cover -report text -select_re '^lib/' -coverage statement -coverage subroutine
+
+      - name: Build distribution tarball
+        run: |
+          dzil build
+
+      - name: Locate distribution artifact
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="$(ls -1t .build/*.tar.gz | head -n 1)"
+          if [ -z "${artifact}" ]; then
+            echo "No distribution tarball was created" >&2
+            exit 1
+          fi
+          echo "artifact=${artifact}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to PAUSE
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${PAUSE_USER:-}" ] || [ -z "${PAUSE_PASS:-}" ]; then
+            echo "PAUSE_USER and PAUSE_PASS secrets are required" >&2
+            exit 1
+          fi
+          cpan-upload -u "$PAUSE_USER" -p "$PAUSE_PASS" "${{ steps.artifact.outputs.artifact }}"

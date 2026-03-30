@@ -1,0 +1,200 @@
+package Developer::Dashboard::DockerCompose;
+
+use strict;
+use warnings;
+
+use Capture::Tiny qw(capture);
+use Cwd qw(cwd);
+use File::Spec;
+
+use Developer::Dashboard::JSON qw(json_encode);
+
+# new(%args)
+# Constructs the docker compose resolver and launcher.
+# Input: config, paths, and plugins objects.
+# Output: Developer::Dashboard::DockerCompose object.
+sub new {
+    my ( $class, %args ) = @_;
+    my $config  = $args{config}  || die 'Missing config';
+    my $paths   = $args{paths}   || die 'Missing path registry';
+    my $plugins = $args{plugins} || die 'Missing plugin manager';
+    return bless {
+        config  => $config,
+        paths   => $paths,
+        plugins => $plugins,
+    }, $class;
+}
+
+# resolve(%args)
+# Resolves the effective docker compose context and overlay stack.
+# Input: optional project_root, addons, modes, services, and compose args.
+# Output: hash reference describing files, env, layers, precedence, and final command.
+sub resolve {
+    my ( $self, %args ) = @_;
+    my $project_root = $args{project_root} || $self->{paths}->current_project_root || cwd();
+    my $docker_cfg   = $self->{config}->docker_config;
+    my $plugin_cfg   = $self->{plugins}->docker_config;
+    my @compose_files = ();
+    my @layers;
+
+    my @base = $self->_discover_base_files($project_root);
+    push @compose_files, @base;
+    push @layers, { name => 'base', files => [@base] };
+
+    my @project_overlays = ( @{ $plugin_cfg->{files} || [] }, @{ $docker_cfg->{files} || [] }, @{ $docker_cfg->{project_overlays} || [] } );
+    push @compose_files, @project_overlays;
+    push @layers, { name => 'project', files => [@project_overlays] } if @project_overlays;
+
+    my @addons = @{ $args{addons} || [] };
+    my @modes  = @{ $args{modes}  || [] };
+    my @services = @{ $args{services} || [] };
+
+    my %addon_map = (
+        %{ $plugin_cfg->{addons} || {} },
+        %{ $docker_cfg->{addons} || {} },
+    );
+    my %mode_map = (
+        %{ $plugin_cfg->{modes} || {} },
+        %{ $docker_cfg->{modes} || {} },
+    );
+    my %service_map = (
+        %{ $plugin_cfg->{services} || {} },
+        %{ $docker_cfg->{services} || {} },
+    );
+
+    my @service_files;
+    for my $service (@services) {
+        my $def = $service_map{$service};
+        next if ref($def) ne 'HASH';
+        push @service_files, @{ $def->{files} || [] } if ref( $def->{files} ) eq 'ARRAY';
+    }
+    push @compose_files, @service_files;
+    push @layers, { name => 'service', files => [@service_files] } if @service_files;
+
+    my @addon_files;
+    for my $addon (@addons) {
+        my $def = $addon_map{$addon};
+        next if ref($def) ne 'HASH';
+        push @addon_files, @{ $def->{files} || [] } if ref( $def->{files} ) eq 'ARRAY';
+        push @modes, @{ $def->{modes} || [] } if ref( $def->{modes} ) eq 'ARRAY';
+    }
+    push @compose_files, @addon_files;
+    push @layers, { name => 'addon', files => [@addon_files] } if @addon_files;
+
+    my @mode_files;
+    for my $mode (@modes) {
+        my $def = $mode_map{$mode};
+        next if ref($def) ne 'HASH';
+        push @mode_files, @{ $def->{files} || [] } if ref( $def->{files} ) eq 'ARRAY';
+    }
+    push @compose_files, @mode_files;
+    push @layers, { name => 'mode', files => [@mode_files] } if @mode_files;
+
+    my @files;
+    my %seen;
+    for my $file (@compose_files) {
+        next if !defined $file || $file eq '';
+        $file = File::Spec->catfile( $project_root, $file ) if !File::Spec->file_name_is_absolute($file);
+        next if $seen{$file}++;
+        push @files, $file if -f $file;
+    }
+
+    my %env = (
+        %{ $plugin_cfg->{env} || {} },
+        %{ $docker_cfg->{env} || {} },
+    );
+    for my $addon (@addons) {
+        my $def = $addon_map{$addon};
+        next if ref($def) ne 'HASH' || ref( $def->{env} ) ne 'HASH';
+        @env{ keys %{ $def->{env} } } = values %{ $def->{env} };
+    }
+    for my $mode (@modes) {
+        my $def = $mode_map{$mode};
+        next if ref($def) ne 'HASH' || ref( $def->{env} ) ne 'HASH';
+        @env{ keys %{ $def->{env} } } = values %{ $def->{env} };
+    }
+
+    my @passthrough = @{ $args{args} || [] };
+    my @command = ('docker', 'compose');
+    for my $file (@files) {
+        push @command, '-f', $file;
+    }
+    push @command, @passthrough;
+
+    return {
+        project_root => $project_root,
+        addons       => \@addons,
+        modes        => \@modes,
+        services     => \@services,
+        files        => \@files,
+        env          => \%env,
+        command      => \@command,
+        layers       => \@layers,
+        precedence   => [ qw(base project service addon mode) ],
+    };
+}
+
+# run(%args)
+# Executes the resolved docker compose command or returns dry-run data.
+# Input: same resolution arguments plus optional dry_run flag.
+# Output: resolution hash reference with stdout/stderr/exit_code when executed.
+sub run {
+    my ( $self, %args ) = @_;
+    my $resolved = $self->resolve(%args);
+    return $resolved if $args{dry_run};
+
+    my $old = cwd();
+    chdir $resolved->{project_root} or die "Unable to chdir to $resolved->{project_root}: $!";
+    local @ENV{ keys %{ $resolved->{env} } } = values %{ $resolved->{env} } if %{ $resolved->{env} };
+    my ( $stdout, $stderr, $exit_code ) = capture {
+        system @{ $resolved->{command} };
+        return $? >> 8;
+    };
+    chdir $old or die "Unable to restore cwd to $old: $!";
+
+    return {
+        %$resolved,
+        stdout    => $stdout,
+        stderr    => $stderr,
+        exit_code => $exit_code,
+    };
+}
+
+# _discover_base_files($root)
+# Finds standard base compose files under a project root.
+# Input: project root directory path.
+# Output: ordered list of existing compose file paths.
+sub _discover_base_files {
+    my ( $self, $root ) = @_;
+    my @candidates = qw(compose.yml compose.yaml docker-compose.yml docker-compose.yaml);
+    return grep { -f $_ } map { File::Spec->catfile( $root, $_ ) } @candidates;
+}
+
+1;
+
+__END__
+
+=head1 NAME
+
+Developer::Dashboard::DockerCompose - compose resolver and launcher
+
+=head1 SYNOPSIS
+
+  my $docker = Developer::Dashboard::DockerCompose->new(
+      config  => $config,
+      paths   => $paths,
+      plugins => $plugins,
+  );
+
+=head1 DESCRIPTION
+
+This module resolves layered docker compose inputs into a final transparent
+docker compose command line and can optionally execute it.
+
+=head1 METHODS
+
+=head2 new, resolve, run
+
+Construct, resolve, and optionally execute compose operations.
+
+=cut

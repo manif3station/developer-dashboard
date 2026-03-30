@@ -1,0 +1,11 @@
+requires 'JSON::XS';
+requires 'Capture::Tiny';
+requires 'Getopt::Long';
+requires 'Digest::SHA';
+requires 'MIME::Base64';
+requires 'IO::Compress::Gzip';
+requires 'IO::Uncompress::Gunzip';
+requires 'HTTP::Daemon';
+requires 'HTTP::Status';
+requires 'Template';
+requires 'URI::Escape';
