@@ -2,6 +2,7 @@
 
 ## 2026-03-30
 
+- Fixed shell path navigation drift so `cdr` and `which_dir` resolve named dashboard paths such as `bookmarks_root` before falling back to project-name search.
 - Fixed docker-compose config sprawl by restoring old-style isolated service-folder discovery under the dashboard docker config root, so per-service compose files can live outside the merged JSON config.
 - Fixed docker overlay path rigidity by expanding `${VAR}` and `$VAR` placeholders in configured compose file paths, restoring old-style `DDDC`-driven global config patterns.
 - Fixed nested config merge loss so repo-local docker config extends global docker service, addon, mode, and env maps instead of replacing them wholesale.

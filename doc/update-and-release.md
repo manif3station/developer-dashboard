@@ -130,8 +130,8 @@ dzil build
 Before publishing to PAUSE, validate the exact tarball that will ship:
 
 ```bash
-tar -tzf Developer-Dashboard-0.46.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.46.tar.gz -v
+tar -tzf Developer-Dashboard-0.47.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.47.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

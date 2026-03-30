@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.46';
+our $VERSION = '0.47';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.46
+0.47
 
 =head1 INTRODUCTION
 
@@ -316,6 +316,7 @@ Initialize the runtime:
 Inspect resolved paths:
 
   dashboard paths
+  dashboard path resolve bookmarks_root
 
 Render shell bootstrap:
 
@@ -591,8 +592,8 @@ C<dashboard> command inside the clean Perl container.
 
 Before uploading a release artifact, validate the exact tarball that will ship:
 
-  tar -tzf Developer-Dashboard-0.46.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.46.tar.gz -v
+  tar -tzf Developer-Dashboard-0.47.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.47.tar.gz -v
 
 The harness also:
 

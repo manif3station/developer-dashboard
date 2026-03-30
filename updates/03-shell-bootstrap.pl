@@ -26,7 +26,10 @@ print {$fh} <<'BASH';
 # Developer Dashboard shell bootstrap
 dd_cdr() {
   local target
-  target="$(dashboard path locate "$@" | perl -MJSON::XS -0777 -ne 'my $a=JSON::XS->new->decode($_); print $a->[0] // q{}')"
+  target="$(dashboard path resolve "$1" 2>/dev/null || true)"
+  if [ -z "$target" ]; then
+    target="$(dashboard path locate "$@" | perl -MJSON::XS -0777 -ne 'my $a=JSON::XS->new->decode($_); print $a->[0] // q{}')"
+  fi
   if [ -n "$target" ]; then
     cd "$target"
   fi

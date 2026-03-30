@@ -647,7 +647,10 @@ elsif ( $cmd eq 'shell' ) {
         print <<'BASH';
 cdr() {
   local target
-  target="$(dashboard path locate "$@" | perl -MJSON::XS -0777 -ne 'my $a=JSON::XS->new->decode($_); print $a->[0] // q{}')"
+  target="$(dashboard path resolve "$1" 2>/dev/null || true)"
+  if [ -z "$target" ]; then
+    target="$(dashboard path locate "$@" | perl -MJSON::XS -0777 -ne 'my $a=JSON::XS->new->decode($_); print $a->[0] // q{}')"
+  fi
   if [ -n "$target" ]; then
     cd "$target"
   fi
@@ -658,7 +661,7 @@ dd_cdr() {
 }
 
 which_dir() {
-  dashboard path locate "$@"
+  dashboard path resolve "$1" 2>/dev/null || dashboard path locate "$@"
 }
 
 export PS1='$(dashboard ps1 --jobs \j --mode compact)'

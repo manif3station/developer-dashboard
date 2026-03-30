@@ -54,6 +54,16 @@ like( $usage_stdout . $usage_stderr, qr/SYNOPSIS|dashboard init/, 'dashboard wit
 my $help = _run("$perl -Ilib bin/dashboard help");
 like($help, qr/Description:/, 'dashboard help renders the fuller POD help');
 
+my $bookmarks_root = _run("$perl -Ilib bin/dashboard path resolve bookmarks_root");
+is( $bookmarks_root, File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'dashboards' ) . "\n", 'dashboard path resolve supports bookmarks_root alias' );
+
+my $shell_bootstrap = _run("$perl -Ilib bin/dashboard shell bash");
+like( $shell_bootstrap, qr/dashboard path resolve \"\$1\"/, 'dashboard shell bootstrap resolves named path aliases before project search' );
+my $which_dir_bookmarks = _run("bash -lc 'eval \"\$($perl -Ilib bin/dashboard shell bash)\"; which_dir bookmarks_root'");
+is( $which_dir_bookmarks, $bookmarks_root, 'which_dir resolves bookmarks_root through the shell helper' );
+my $cdr_bookmarks = _run("bash -lc 'eval \"\$($perl -Ilib bin/dashboard shell bash)\"; cdr bookmarks_root; pwd'");
+is( $cdr_bookmarks, $bookmarks_root, 'cdr navigates to bookmarks_root through the shell helper' );
+
 my $open_root = File::Spec->catdir( $ENV{HOME}, 'open-file-fixtures' );
 make_path($open_root);
 my $open_target = File::Spec->catfile( $open_root, 'alpha-notes.txt' );
