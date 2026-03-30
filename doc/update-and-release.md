@@ -113,6 +113,8 @@ The extension layer now includes:
 - action execution through the page action runner
 - project-aware Docker Compose resolution through `dashboard docker compose`
 
+Compose overlay file paths declared in dashboard JSON config can now use `${VAR}` or `$VAR` placeholders, for example `${DDDC}/compose.green.yaml`.
+
 ## Release To PAUSE
 
 The GitHub workflow:
@@ -128,8 +130,8 @@ dzil build
 Before publishing to PAUSE, validate the exact tarball that will ship:
 
 ```bash
-tar -tzf Developer-Dashboard-0.44.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.44.tar.gz -v
+tar -tzf Developer-Dashboard-0.45.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.45.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

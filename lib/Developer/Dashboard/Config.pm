@@ -74,16 +74,25 @@ sub merged {
     my $global = $self->load_global;
     my $repo   = $self->load_repo;
 
-    my %merged = (%$global);
-    for my $key ( keys %$repo ) {
-        if ( ref( $global->{$key} ) eq 'HASH' && ref( $repo->{$key} ) eq 'HASH' ) {
-            $merged{$key} = {
-                %{ $global->{$key} || {} },
-                %{ $repo->{$key} || {} },
-            };
+    return $self->_merge_hashes( $global, $repo );
+}
+
+# _merge_hashes($left, $right)
+# Recursively merges configuration hashes so nested config domains can extend each other.
+# Input: two hash references where right-hand values override left-hand values.
+# Output: merged hash reference.
+sub _merge_hashes {
+    my ( $self, $left, $right ) = @_;
+    $left  ||= {};
+    $right ||= {};
+
+    my %merged = (%{$left});
+    for my $key ( keys %{$right} ) {
+        if ( ref( $left->{$key} ) eq 'HASH' && ref( $right->{$key} ) eq 'HASH' ) {
+            $merged{$key} = $self->_merge_hashes( $left->{$key}, $right->{$key} );
             next;
         }
-        $merged{$key} = $repo->{$key};
+        $merged{$key} = $right->{$key};
     }
 
     return \%merged;

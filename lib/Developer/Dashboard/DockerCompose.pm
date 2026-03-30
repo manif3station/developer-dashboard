@@ -94,6 +94,7 @@ sub resolve {
     my %seen;
     for my $file (@compose_files) {
         next if !defined $file || $file eq '';
+        $file = $self->_expand_env_path($file);
         $file = File::Spec->catfile( $project_root, $file ) if !File::Spec->file_name_is_absolute($file);
         next if $seen{$file}++;
         push @files, $file if -f $file;
@@ -132,6 +133,20 @@ sub resolve {
         layers       => \@layers,
         precedence   => [ qw(base project service addon mode) ],
     };
+}
+
+# _expand_env_path($path)
+# Expands ${VAR} and $VAR environment placeholders in configured compose file paths.
+# Input: file path string that may contain environment variable placeholders.
+# Output: expanded file path string.
+sub _expand_env_path {
+    my ( $self, $path ) = @_;
+    return $path if !defined $path || $path eq '';
+
+    $path =~ s/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/defined $ENV{$1} ? $ENV{$1} : ''/ge;
+    $path =~ s/\$([A-Za-z_][A-Za-z0-9_]*)/defined $ENV{$1} ? $ENV{$1} : ''/ge;
+
+    return $path;
 }
 
 # run(%args)

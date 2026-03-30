@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.44';
+our $VERSION = '0.45';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.44
+0.45
 
 =head1 INTRODUCTION
 
@@ -433,6 +433,10 @@ Include addons or modes:
 
   dashboard docker compose --addon mailhog --mode dev up -d
 
+Configured docker overlay file paths support environment-variable expansion
+such as C<${DDDC}/compose.green.yaml> or C<$DDDC/compose.green.yaml> before
+the dashboard resolves absolute versus project-relative paths.
+
 =head2 Prompt Integration
 
 Render prompt text directly:
@@ -580,8 +584,8 @@ C<dashboard> command inside the clean Perl container.
 
 Before uploading a release artifact, validate the exact tarball that will ship:
 
-  tar -tzf Developer-Dashboard-0.44.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.44.tar.gz -v
+  tar -tzf Developer-Dashboard-0.45.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.45.tar.gz -v
 
 The harness also:
 

@@ -335,6 +335,8 @@ Include addons or modes:
 dashboard docker compose --addon mailhog --mode dev up -d
 ```
 
+Configured docker overlay file paths support environment-variable expansion such as `${DDDC}/compose.green.yaml` or `$DDDC/compose.green.yaml` before the dashboard resolves absolute versus project-relative paths.
+
 ### Prompt Integration
 
 Render prompt text directly:
@@ -432,8 +434,8 @@ installs the tarball with `cpanm`, and then exercises the installed
 Before uploading a release artifact, validate the exact tarball that will ship:
 
 ```bash
-tar -tzf Developer-Dashboard-0.44.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.44.tar.gz -v
+tar -tzf Developer-Dashboard-0.45.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.45.tar.gz -v
 ```
 
 The harness also:

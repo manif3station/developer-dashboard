@@ -78,6 +78,7 @@ Developer Dashboard is a project-neutral local developer runtime.
 
 - `Developer::Dashboard::DockerCompose`
   Resolves compose base files plus explicit project, service, addon, and mode overlays, env injection, and the final `docker compose` command.
+  Configured overlay file paths also expand `${VAR}` and `$VAR` placeholders before absolute or project-relative resolution.
 
 ## Runtime Model
 

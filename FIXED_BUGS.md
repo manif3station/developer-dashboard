@@ -2,6 +2,8 @@
 
 ## 2026-03-30
 
+- Fixed docker overlay path rigidity by expanding `${VAR}` and `$VAR` placeholders in configured compose file paths, restoring old-style `DDDC`-driven global config patterns.
+- Fixed nested config merge loss so repo-local docker config extends global docker service, addon, mode, and env maps instead of replacing them wholesale.
 - Fixed root-editor bookmark persistence so posting a legacy instruction document with `BOOKMARK: index` now saves the page immediately and makes `/app/index` resolve it instead of failing with `Page 'index' not found`.
 - Fixed tarball test drift by teaching the release-facing tests to fall back to shipped META.json when `dist.ini` is intentionally absent from the built archive.
 - Fixed YAML query command naming by renaming the mistaken `yjq` command to `pyq` across the CLI, standalone executable, tests, and release documentation.
