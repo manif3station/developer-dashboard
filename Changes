@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.43  2026-03-30
+
+    - fixed release-tarball tests so they validate shipped metadata from META.json when dist.ini is intentionally excluded from the archive
+    - versioned the release forward so the corrected 0.43 tarball no longer fails its own shipped test suite under cpanm
+
 0.42  2026-03-30
 
     - renamed the YAML query command from `yjq` to `pyq` across the dashboard subcommand, standalone executable, tests, and documentation because `yjq` was a typo

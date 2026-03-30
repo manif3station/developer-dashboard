@@ -1,15 +1,12 @@
 use strict;
 use warnings;
 
+use Developer::Dashboard::JSON qw(json_decode);
 use Test::More;
 
 open my $pm_fh, '<', 'lib/Developer/Dashboard.pm' or die $!;
 my $pm = do { local $/; <$pm_fh> };
 close $pm_fh;
-
-open my $dist_fh, '<', 'dist.ini' or die $!;
-my $dist = do { local $/; <$dist_fh> };
-close $dist_fh;
 
 open my $changes_fh, '<', 'Changes' or die $!;
 my $changes = do { local $/; <$changes_fh> };
@@ -27,11 +24,35 @@ open my $release_doc_fh, '<', 'doc/update-and-release.md' or die $!;
 my $release_doc = do { local $/; <$release_doc_fh> };
 close $release_doc_fh;
 
+my $meta = {};
+if ( -f 'META.json' ) {
+    open my $meta_fh, '<', 'META.json' or die $!;
+    $meta = json_decode( do { local $/; <$meta_fh> } );
+    close $meta_fh;
+}
+
+my $dist = '';
+if ( -f 'dist.ini' ) {
+    open my $dist_fh, '<', 'dist.ini' or die $!;
+    $dist = do { local $/; <$dist_fh> };
+    close $dist_fh;
+}
+
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '0.42', 'module version bumped for the release fix' );
-like( $dist, qr/^version = \Q$version\E$/m, 'dist.ini version matches module version' );
+is( $version, '0.43', 'module version bumped for the release fix' );
 like( $changes, qr/^\Q$version\E\s+\d{4}-\d{2}-\d{2}$/m, 'Changes top entry matches module version' );
+
+if ( %{$meta} ) {
+    is( $meta->{version}, $version, 'META.json version matches module version' );
+    ok( exists $meta->{prereqs}{runtime}, 'META.json includes shipped runtime prerequisite metadata' );
+}
+elsif ( $dist ne '' ) {
+    like( $dist, qr/^version = \Q$version\E$/m, 'dist.ini version matches module version when META.json is absent' );
+}
+else {
+    fail('either META.json or dist.ini must be available for release metadata checks');
+}
 
 for my $script (qw(bin/dashboard bin/of bin/open-file bin/pjq bin/pyq bin/ptomq bin/pjp)) {
     like( $makefile, qr/'\Q$script\E'/, "Makefile.PL ships $script" );

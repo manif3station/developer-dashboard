@@ -1,6 +1,7 @@
 use strict;
 use warnings;
 
+use Developer::Dashboard::JSON qw(json_decode);
 use Test::More;
 
 ok( -f 'doc/integration-test-plan.md', 'integration test plan document exists' );
@@ -53,11 +54,21 @@ like( $host, qr/LOCAL_DZIL.*build/s, 'host launcher builds the tarball on the ho
 like( $host, qr/DASHBOARD_TARBALL/, 'host launcher exports the tarball path for docker compose' );
 like( $host, qr/run --build --rm blank-env/, 'host launcher rebuilds the blank image before running integration' );
 
-open my $dist_fh, '<', 'dist.ini' or die $!;
-my $dist = do { local $/; <$dist_fh> };
-close $dist_fh;
-like( $dist, qr/exclude_filename = Makefile\.PL/, 'dist.ini excludes checked-in Makefile.PL from dzil gather phase' );
-like( $dist, qr/\[AutoPrereqs\]/, 'dist.ini includes AutoPrereqs for built distribution dependencies' );
+if ( -f 'dist.ini' ) {
+    open my $dist_fh, '<', 'dist.ini' or die $!;
+    my $dist = do { local $/; <$dist_fh> };
+    close $dist_fh;
+    like( $dist, qr/exclude_filename = Makefile\.PL/, 'dist.ini excludes checked-in Makefile.PL from dzil gather phase' );
+    like( $dist, qr/\[AutoPrereqs\]/, 'dist.ini includes AutoPrereqs for built distribution dependencies' );
+}
+else {
+    ok( !-f 'dist.ini', 'release tarball excludes dist.ini from shipped assets' );
+    open my $meta_fh, '<', 'META.json' or die $!;
+    my $meta = json_decode( do { local $/; <$meta_fh> } );
+    close $meta_fh;
+    ok( exists $meta->{prereqs}, 'META.json ships generated prerequisite metadata in the tarball' );
+    ok( exists $meta->{prereqs}{runtime}, 'META.json keeps runtime prerequisite sections in the tarball' );
+}
 
 done_testing;
 
