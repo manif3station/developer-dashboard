@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.62';
+our $VERSION = '0.65';
 
 1;
 
@@ -13,15 +13,20 @@ __END__
 
 =head1 NAME
 
-Developer::Dashboard - project-neutral local developer dashboard runtime
+Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.62
+0.65
 
 =head1 INTRODUCTION
 
-Developer::Dashboard is a local-first developer toolkit intended to be reusable across unrelated projects.
+Developer::Dashboard gives a developer one place to organize the moving parts of day-to-day work.
+
+It brings together browser pages, saved notes, helper actions, collectors,
+prompt indicators, path aliases, open-file shortcuts, data query tools, and
+Docker Compose helpers so local development can stay centered around one
+consistent home instead of a pile of disconnected scripts and tabs.
 
 Release tarballs contain installable runtime artifacts only; local Dist::Zilla release-builder configuration is kept out of the shipped archive.
 Frequently used built-in commands such as C<of>, C<open-file>, C<pjq>, C<pyq>,
@@ -94,9 +99,33 @@ update scripts and release packaging for CPAN distribution
 
 =back
 
-The core distribution is intentionally project-neutral.
+Developer Dashboard is meant to become the developer's working home:
 
-Project-specific behavior should be added through configuration, startup collector definitions, saved pages, and optional plugins.
+=over 4
+
+=item *
+
+a local dashboard page that can hold links, notes, forms, actions, and
+rendered output
+
+=item *
+
+a prompt layer that shows live status for the things you care about
+
+=item *
+
+a command surface for opening files, jumping to known paths, querying data, and
+running repeatable local tasks
+
+=item *
+
+a configurable runtime that can adapt to each codebase without losing one
+familiar entrypoint
+
+=back
+
+Project-specific behavior is added through configuration, startup collector
+definitions, saved pages, and optional plugins.
 
 =head1 DOCUMENTATION
 

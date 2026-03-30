@@ -1,10 +1,12 @@
 # Developer Dashboard
 
-Project-neutral local developer dashboard runtime.
+A local home for development work.
 
 ## Introduction
 
-Developer Dashboard is a local-first developer toolkit intended to be reusable across unrelated projects.
+Developer Dashboard gives a developer one place to organize the moving parts of day-to-day work.
+
+It brings together browser pages, saved notes, helper actions, collectors, prompt indicators, path aliases, open-file shortcuts, data query tools, and Docker Compose helpers so local development can stay centered around one consistent home instead of a pile of disconnected scripts and tabs.
 
 Release tarballs contain installable runtime artifacts only; local Dist::Zilla release-builder configuration is kept out of the shipped archive.
 Frequently used built-in commands such as `of`, `open-file`, `pjq`, `pyq`, `ptomq`, and `pjp` are also installed as standalone executables so they can run directly without loading the full `dashboard` runtime.
@@ -26,9 +28,14 @@ It provides a small ecosystem for:
 - plugin-loaded providers, path aliases, and compose overlays
 - update scripts and release packaging for CPAN distribution
 
-The core distribution is intentionally project-neutral.
+Developer Dashboard is meant to become the developer's working home:
 
-Project-specific behavior should be added through configuration, startup collector definitions, saved pages, and optional plugins.
+- a local dashboard page that can hold links, notes, forms, actions, and rendered output
+- a prompt layer that shows live status for the things you care about
+- a command surface for opening files, jumping to known paths, querying data, and running repeatable local tasks
+- a configurable runtime that can adapt to each codebase without losing one familiar entrypoint
+
+Project-specific behavior is added through configuration, startup collector definitions, saved pages, and optional plugins.
 
 ## Documentation
 
@@ -488,8 +495,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.62.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.62.tar.gz -v
+tar -tzf Developer-Dashboard-0.65.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.65.tar.gz -v
 ```
 
 The harness also:
@@ -505,11 +512,11 @@ The harness also:
 
 ### Is this tied to a specific company or codebase?
 
-No. The core distribution is intended to be reusable for any project.
+No. It is meant to give an individual developer one familiar working home that can travel across the projects they touch.
 
 ### Where should project-specific behavior live?
 
-In configuration, startup collector definitions, saved pages, and optional extensions. The core should stay generic.
+In configuration, startup collector definitions, saved pages, and optional extensions. That keeps the main dashboard experience stable while still letting each project add the local pages, checks, paths, and helpers it needs.
 
 ### Is the software spec implemented?
 
@@ -559,7 +566,7 @@ It expects these GitHub Actions secrets:
 The workflow:
 
 1. checks out the repo
-2. installs Perl, Dist::Zilla, and release dependencies
+2. installs Perl, release dependencies, `App::Cmd`, and Dist::Zilla
 3. builds the CPAN distribution tarball with `dzil build`
 4. uploads the tarball to PAUSE
 

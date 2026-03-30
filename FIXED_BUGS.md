@@ -2,6 +2,10 @@
 
 ## 2026-03-30
 
+- Fixed tarball release-test drift by skipping GitHub workflow assertions in built archives where `.github/workflows/release-cpan.yml` is intentionally not shipped.
+- Fixed release-test timing flakiness by giving the managed-loop sorting regression a short bounded wait for forked test loops to become visible on slower hosts.
+- Fixed GitHub CPAN release workflow bootstrap drift by installing `App::Cmd` before `Dist::Zilla`, so release jobs no longer fail on missing `App::Cmd::*` modules during dependency setup.
+- Fixed top-level documentation positioning drift by rewriting the README, main POD, and architecture guide to explain the real value of Developer Dashboard as a developer home instead of abstract "project-neutral" wording.
 - Fixed release hygiene drift by making old `Developer-Dashboard-*.tar.gz` artifacts an explicit cleanup step before each new build, instead of leaving stale tarballs around between release validations.
 - Fixed release cleanup drift further by removing stale `Developer-Dashboard-*` Dist::Zilla build directories before each new build, instead of leaving old extracted release trees behind in the repository root.
 - Fixed collector execution rigidity by allowing collector jobs to run Perl via a `code` field while keeping `command` as shell execution, so host checks and other local probes no longer need to abuse shell strings for embedded Perl.

@@ -170,8 +170,12 @@ PAGE
         print {$fh} $pid;
         close $fh;
     }
-    sleep 1;
-    my @loops = $runner->running_loops;
+    my @loops;
+    for ( 1 .. 10 ) {
+        @loops = $runner->running_loops;
+        last if @loops == @names;
+        select undef, undef, undef, 0.2;
+    }
     is_deeply(
         [ map { $_->{name} } @loops ],
         [ sort @names ],

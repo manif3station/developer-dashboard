@@ -29,6 +29,7 @@ jobs:
         run: |
           cpanm --installdeps --notest .
           cpanm --notest Devel::Cover
+          cpanm --notest App::Cmd
           cpanm --notest Dist::Zilla
           cpanm --notest Dist::Zilla::Plugin::ManifestSkip
           cpanm --notest Dist::Zilla::Plugin::PkgVersion

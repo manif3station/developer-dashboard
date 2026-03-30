@@ -1,5 +1,22 @@
 Revision history for Developer Dashboard
 
+0.65  2026-03-31
+
+    - fixed the tarball-facing release metadata test so workflow-specific checks are skipped when `.github` is intentionally absent from the built archive
+    - hardened the managed-loop sort regression with a short bounded wait so slower build hosts still observe the forked test loops before asserting sort order
+    - kept the GitHub release workflow bootstrap fix and developer-home documentation refresh in the shipped release after the first 0.64 artifact exposed those tarball-only test gaps
+
+0.64  2026-03-31
+
+    - fixed the GitHub release workflow by bootstrapping `App::Cmd` before `Dist::Zilla`, preventing CPAN release jobs from failing on missing `App::Cmd::*` modules during release dependency installation
+    - rewrote the top-level README and main Developer::Dashboard POD positioning to describe the product as a developer home instead of abstract project-neutral infrastructure
+    - aligned the architecture guide intro and release documentation with the same developer-focused value statement and release bootstrap guidance
+
+0.63  2026-03-31
+
+    - rewrote the top-level README and main Developer::Dashboard POD positioning to describe the product as a developer home instead of abstract project-neutral infrastructure
+    - aligned the architecture guide intro with the same developer-focused value statement so the documentation speaks to day-to-day usage and purpose
+
 0.62  2026-03-30
 
     - preserved raw Template Toolkit placeholders in editor and source views instead of rewriting `HTML:` sections with rendered output after a POST

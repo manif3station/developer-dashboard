@@ -1,6 +1,10 @@
 # Architecture
 
-Developer Dashboard is a project-neutral local developer runtime.
+Developer Dashboard is a local home for development work.
+
+It is designed to give a developer one familiar place to keep pages, helpers,
+status checks, prompt indicators, path shortcuts, and local automation close to
+the code they work on every day.
 
 ## Core Services
 
