@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.53';
+our $VERSION = '0.54';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.53
+0.54
 
 =head1 INTRODUCTION
 
@@ -285,6 +285,7 @@ Or install from a checkout with:
 
 Build the distribution:
 
+  rm -f Developer-Dashboard-*.tar.gz
   dzil build
 
 Run the CLI directly from the repository:
@@ -599,10 +600,14 @@ C<dzil build>, starts a blank container with only that tarball mounted into it,
 installs the tarball with C<cpanm>, and then exercises the installed
 C<dashboard> command inside the clean Perl container.
 
-Before uploading a release artifact, validate the exact tarball that will ship:
+Before uploading a release artifact, remove older tarballs first so only the
+current release artifact remains, then validate the exact tarball that will
+ship:
 
-  tar -tzf Developer-Dashboard-0.53.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.53.tar.gz -v
+  rm -f Developer-Dashboard-*.tar.gz
+  dzil build
+  tar -tzf Developer-Dashboard-0.54.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.54.tar.gz -v
 
 The harness also:
 

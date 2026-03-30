@@ -150,6 +150,7 @@ make install
 Build the distribution:
 
 ```bash
+rm -f Developer-Dashboard-*.tar.gz
 dzil build
 ```
 
@@ -437,11 +438,13 @@ This integration path builds the distribution tarball on the host with
 installs the tarball with `cpanm`, and then exercises the installed
 `dashboard` command inside the clean Perl container.
 
-Before uploading a release artifact, validate the exact tarball that will ship:
+Before uploading a release artifact, remove older tarballs first so only the current release artifact remains, then validate the exact tarball that will ship:
 
 ```bash
-tar -tzf Developer-Dashboard-0.53.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.53.tar.gz -v
+rm -f Developer-Dashboard-*.tar.gz
+dzil build
+tar -tzf Developer-Dashboard-0.54.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.54.tar.gz -v
 ```
 
 The harness also:
