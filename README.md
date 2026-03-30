@@ -6,6 +6,9 @@ Project-neutral local developer dashboard runtime.
 
 Developer Dashboard is a local-first developer toolkit intended to be reusable across unrelated projects.
 
+Release tarballs contain installable runtime artifacts only; local Dist::Zilla release-builder configuration is kept out of the shipped archive.
+Frequently used built-in commands such as `of`, `open-file`, `pjq`, `yjq`, `ptomq`, and `pjp` are also installed as standalone executables so they can run directly without loading the full `dashboard` runtime.
+
 It provides a small ecosystem for:
 
 - saved and transient dashboard pages built from the original bookmark-file shape
@@ -59,6 +62,9 @@ Project-specific behavior should be added through configuration, startup collect
 
 - `dashboard pjq`, `dashboard yjq`, `dashboard ptomq`, and `dashboard pjp`
   Parse JSON, YAML, TOML, and Java properties input, then optionally extract a dotted path and print a scalar or canonical JSON.
+
+- standalone `of`, `open-file`, `pjq`, `yjq`, `ptomq`, and `pjp`
+  Provide the same behavior directly, without proxying through the main `dashboard` command.
 
 - `Developer::Dashboard::RuntimeManager`
   Manages the background web service and collector lifecycle with process-title validation, `pkill`-style fallback shutdown, and restart orchestration.

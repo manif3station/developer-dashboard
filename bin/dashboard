@@ -6,35 +6,55 @@ use warnings;
 use Cwd qw(cwd);
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
-use File::Find ();
 use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);
 use Pod::Usage qw(pod2usage);
-use TOML::Tiny ();
-use YAML::XS ();
 
-use Developer::Dashboard::Auth;
-use Developer::Dashboard::ActionRunner;
-use Developer::Dashboard::Codec qw(encode_payload decode_payload);
-use Developer::Dashboard::CollectorRunner;
-use Developer::Dashboard::Collector;
-use Developer::Dashboard::Config;
-use Developer::Dashboard::DockerCompose;
-use Developer::Dashboard::FileRegistry;
-use Developer::Dashboard::IndicatorStore;
-use Developer::Dashboard::JSON qw(json_encode);
-use Developer::Dashboard::PageDocument;
-use Developer::Dashboard::PageRuntime;
-use Developer::Dashboard::PageResolver;
-use Developer::Dashboard::PageStore;
-use Developer::Dashboard::PathRegistry;
-use Developer::Dashboard::PluginManager;
-use Developer::Dashboard::Prompt;
-use Developer::Dashboard::RuntimeManager;
-use Developer::Dashboard::SessionStore;
-use Developer::Dashboard::UpdateManager;
-use Developer::Dashboard::Web::App;
-use Developer::Dashboard::Web::Server;
+my $cmd = shift @ARGV || '';
+
+if ( $cmd eq '' ) {
+    pod2usage(
+        -exitval => 1,
+        -verbose => 99,
+        -sections => [ qw(NAME SYNOPSIS) ],
+    );
+}
+elsif ( $cmd eq 'help' || $cmd eq '--help' || $cmd eq '-h' ) {
+    pod2usage(
+        -exitval => 0,
+        -verbose => 99,
+    );
+}
+
+if ( my $builtin = _standalone_builtin_executable($cmd) ) {
+    exec { $^X } $^X, $builtin, @ARGV;
+    die "Unable to exec $builtin: $!";
+}
+
+require Developer::Dashboard::Auth;
+require Developer::Dashboard::ActionRunner;
+require Developer::Dashboard::Codec;
+Developer::Dashboard::Codec->import(qw(encode_payload decode_payload));
+require Developer::Dashboard::CollectorRunner;
+require Developer::Dashboard::Collector;
+require Developer::Dashboard::Config;
+require Developer::Dashboard::DockerCompose;
+require Developer::Dashboard::FileRegistry;
+require Developer::Dashboard::IndicatorStore;
+require Developer::Dashboard::JSON;
+Developer::Dashboard::JSON->import(qw(json_encode));
+require Developer::Dashboard::PageDocument;
+require Developer::Dashboard::PageRuntime;
+require Developer::Dashboard::PageResolver;
+require Developer::Dashboard::PageStore;
+require Developer::Dashboard::PathRegistry;
+require Developer::Dashboard::PluginManager;
+require Developer::Dashboard::Prompt;
+require Developer::Dashboard::RuntimeManager;
+require Developer::Dashboard::SessionStore;
+require Developer::Dashboard::UpdateManager;
+require Developer::Dashboard::Web::App;
+require Developer::Dashboard::Web::Server;
 
 my $paths = Developer::Dashboard::PathRegistry->new(
     workspace_roots => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
@@ -51,8 +71,8 @@ my $runner     = Developer::Dashboard::CollectorRunner->new(
 );
 my $plugins    = Developer::Dashboard::PluginManager->new( paths => $paths );
 my $config     = Developer::Dashboard::Config->new(
-    files => $files,
-    paths => $paths,
+    files   => $files,
+    paths   => $paths,
     plugins => $plugins,
 );
 my $pages      = Developer::Dashboard::PageStore->new( paths => $paths );
@@ -67,38 +87,38 @@ my $page_runtime = Developer::Dashboard::PageRuntime->new(
         %{ $plugins->path_aliases },
     },
 );
-my $auth       = Developer::Dashboard::Auth->new(
+my $auth = Developer::Dashboard::Auth->new(
     files => $files,
     paths => $paths,
 );
-my $actions    = Developer::Dashboard::ActionRunner->new(
+my $actions = Developer::Dashboard::ActionRunner->new(
     files => $files,
     paths => $paths,
 );
-my $resolver   = Developer::Dashboard::PageResolver->new(
+my $resolver = Developer::Dashboard::PageResolver->new(
     actions => $actions,
     config  => $config,
     pages   => $pages,
     paths   => $paths,
     plugins => $plugins,
 );
-my $docker     = Developer::Dashboard::DockerCompose->new(
+my $docker = Developer::Dashboard::DockerCompose->new(
     config  => $config,
     paths   => $paths,
     plugins => $plugins,
 );
-my $prompt     = Developer::Dashboard::Prompt->new(
+my $prompt = Developer::Dashboard::Prompt->new(
     paths      => $paths,
     indicators => $indicators,
 );
-my $sessions   = Developer::Dashboard::SessionStore->new( paths => $paths );
-my $updater    = Developer::Dashboard::UpdateManager->new(
+my $sessions = Developer::Dashboard::SessionStore->new( paths => $paths );
+my $updater = Developer::Dashboard::UpdateManager->new(
     config => $config,
     files  => $files,
     paths  => $paths,
     runner => $runner,
 );
-my $runtime    = Developer::Dashboard::RuntimeManager->new(
+my $runtime = Developer::Dashboard::RuntimeManager->new(
     app_builder => sub {
         my (%args) = @_;
         my $web_auth = Developer::Dashboard::Auth->new( files => $files, paths => $paths );
@@ -124,22 +144,6 @@ my $runtime    = Developer::Dashboard::RuntimeManager->new(
     paths  => $paths,
     runner => $runner,
 );
-
-my $cmd = shift @ARGV || '';
-
-if ( $cmd eq '' ) {
-    pod2usage(
-        -exitval => 1,
-        -verbose => 99,
-        -sections => [ qw(NAME SYNOPSIS) ],
-    );
-}
-elsif ( $cmd eq 'help' || $cmd eq '--help' || $cmd eq '-h' ) {
-    pod2usage(
-        -exitval => 0,
-        -verbose => 99,
-    );
-}
 
 if ( $cmd eq 'ps1' ) {
     my $jobs = 0;
@@ -214,12 +218,6 @@ elsif ( $cmd eq 'path' ) {
         print json_encode(\%out);
         exit 0;
     }
-}
-elsif ( $cmd eq 'of' || $cmd eq 'open-file' ) {
-    _run_open_file_command( paths => $paths, args => \@ARGV );
-}
-elsif ( $cmd eq 'pjq' || $cmd eq 'yjq' || $cmd eq 'ptomq' || $cmd eq 'pjp' ) {
-    _run_data_query_command( command => $cmd, args => \@ARGV );
 }
 elsif ( $cmd eq 'encode' ) {
     local $/;
@@ -677,365 +675,19 @@ else {
     }
 }
 
-# _run_open_file_command(%args)
-# Resolves and opens or prints matching files from a direct path, file:line reference, or search scope.
-# Input: path registry object and mutable argv array reference.
-# Output: exits after printing matches or execing the configured editor.
-sub _run_open_file_command {
-    my (%args) = @_;
-    my $paths = $args{paths} || die 'Missing path registry';
-    my @argv  = @{ $args{args} || [] };
-    my $print = 0;
-    my $line  = 0;
-    my $editor = '';
+# _standalone_builtin_executable($cmd)
+# Resolves a standalone built-in command executable that should be exec'd before loading the heavy runtime.
+# Input: top-level dashboard subcommand string.
+# Output: executable path string or undef when the command stays in the main script.
+sub _standalone_builtin_executable {
+    my ($cmd) = @_;
+    return if !$cmd;
 
-    GetOptionsFromArray(
-        \@argv,
-        'print!'  => \$print,
-        'line=i'  => \$line,
-        'editor=s'=> \$editor,
-    );
-
-    die "Usage: dashboard open-file [--print] [--line N] [--editor CMD] <file|scope> [pattern...]\n"
-      if !@argv;
-
-    my ( $line_override, @matches ) = _resolve_open_file_matches(
-        paths => $paths,
-        args  => \@argv,
-    );
-    $line ||= $line_override || 0;
-
-    die "No files found\n" if !@matches;
-
-    my $editor_cmd = $editor || $ENV{VISUAL} || $ENV{EDITOR} || '';
-    if ( $print || !$editor_cmd ) {
-        print join( "\n", @matches ), "\n";
-        exit 0;
-    }
-
-    my @command = split /\s+/, $editor_cmd;
-    push @command, "+$line" if $line;
-    push @command, @matches;
-    exec { $command[0] } @command;
-    die "Unable to exec $editor_cmd: $!";
-}
-
-# _resolve_open_file_matches(%args)
-# Resolves direct file targets or recursive search matches for the open-file command.
-# Input: path registry object and argv array reference.
-# Output: list containing optional line number and matched file path strings.
-sub _resolve_open_file_matches {
-    my (%args) = @_;
-    my $paths = $args{paths} || die 'Missing path registry';
-    my @argv  = @{ $args{args} || [] };
-
-    my $first = shift @argv;
-    my $line  = 0;
-
-    if ( defined $first && $first =~ /^(.+):(\d+)(?::\d+)?$/ ) {
-        my ( $file, $parsed_line ) = ( $1, $2 );
-        if ( -f $file ) {
-            return ( $parsed_line, $file );
-        }
-    }
-
-    if ( defined $first && -f $first ) {
-        return ( $line, $first );
-    }
-
-    if ( defined $first ) {
-        my @named_matches = _named_source_matches(
-            paths => $paths,
-            name  => $first,
-        );
-        return ( $line, @named_matches ) if @named_matches;
-    }
-
-    my $scope;
-    my @patterns;
-
-    if ( defined $first ) {
-        $scope = eval { $paths->resolve_dir($first) };
-        $scope = $first if !$scope && -d $first;
-    }
-
-    if ( $scope && -d $scope ) {
-        @patterns = @argv;
-    }
-    else {
-        $scope = $paths->current_project_root || cwd();
-        @patterns = grep { defined && $_ ne '' } ( $first, @argv );
-    }
-
-    my @files;
-    File::Find::find(
-        {
-            no_chdir => 1,
-            wanted   => sub {
-                return if !-f $_;
-                my $path = $File::Find::name;
-                for my $pattern (@patterns) {
-                    next if !defined $pattern || $pattern eq '';
-                    return if $path !~ /\Q$pattern\E/i;
-                }
-                push @files, $path;
-            },
-        },
-        $scope,
-    );
-
-    my %seen;
-    @files = grep { !$seen{$_}++ } sort @files;
-    return ( $line, @files );
-}
-
-# _named_source_matches(%args)
-# Resolves Perl module names or Java class names to matching source files.
-# Input: path registry object and logical package/class name string.
-# Output: sorted list of matching file path strings.
-sub _named_source_matches {
-    my (%args) = @_;
-    my $paths = $args{paths} || die 'Missing path registry';
-    my $name  = $args{name}  || return;
-
-    my @roots = _open_file_roots( paths => $paths );
-    my @matches;
-
-    if ( $name =~ /::/ ) {
-        my $relative = File::Spec->catfile( split /::/, $name ) . '.pm';
-        @matches = _existing_named_files( roots => \@roots, relative => $relative );
-    }
-    elsif ( $name =~ /^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/ ) {
-        my $relative = File::Spec->catfile( split /\./, $name ) . '.java';
-        @matches = _existing_named_files(
-            roots     => \@roots,
-            relative  => $relative,
-            prefixes  => [
-                '',
-                File::Spec->catdir('src'),
-                File::Spec->catdir( 'src', 'main', 'java' ),
-                File::Spec->catdir( 'src', 'test', 'java' ),
-            ],
-        );
-    }
-
-    return @matches;
-}
-
-# _open_file_roots(%args)
-# Builds the ordered root list used for module/class source resolution.
-# Input: path registry object.
-# Output: sorted list of unique directory path strings.
-sub _open_file_roots {
-    my (%args) = @_;
-    my $paths = $args{paths} || die 'Missing path registry';
-    my @roots = (
-        cwd(),
-        scalar( $paths->current_project_root || () ),
-        $paths->workspace_roots,
-        $paths->project_roots,
-        @INC,
-    );
-
-    my %seen;
-    return grep { defined && $_ ne '' && -d $_ && !$seen{$_}++ } @roots;
-}
-
-# _existing_named_files(%args)
-# Resolves a relative source path below a set of candidate roots.
-# Input: array reference of roots, relative file path string, and optional prefixes array reference.
-# Output: sorted list of existing file path strings.
-sub _existing_named_files {
-    my (%args) = @_;
-    my $roots    = $args{roots} || [];
-    my $relative = $args{relative} || return;
-    my $prefixes = $args{prefixes} || [''];
-    my @found;
-    my %seen;
-
-    for my $root (@$roots) {
-        for my $prefix (@$prefixes) {
-            my $file = $prefix eq ''
-              ? File::Spec->catfile( $root, $relative )
-              : File::Spec->catfile( $root, $prefix, $relative );
-            next if !-f $file || $seen{$file}++;
-            push @found, $file;
-        }
-    }
-
-    return sort @found;
-}
-
-# _run_data_query_command(%args)
-# Parses structured input, optionally extracts a dotted path, and prints canonical JSON or a scalar.
-# Input: command name plus mutable argv array reference.
-# Output: exits after printing the selected value.
-sub _run_data_query_command {
-    my (%args) = @_;
-    my $command = $args{command} || die 'Missing command';
-    my @argv    = @{ $args{args} || [] };
-    my ( $path, $file ) = _split_query_args(@argv);
-
-    my $raw = _read_query_input($file);
-    my $data = _parse_query_input(
-        command => $command,
-        text    => $raw,
-    );
-    my $value = $path eq '' ? $data : _extract_query_path( $data, $path );
-    _print_query_value($value);
-    exit 0;
-}
-
-# _split_query_args(@argv)
-# Separates an optional file path from an optional query path without requiring a fixed argument order.
-# Input: raw command-line arguments.
-# Output: list containing query path string and file path string.
-sub _split_query_args {
-    my (@argv) = @_;
-    my $file = '';
-    my @rest;
-
-    for my $arg (@argv) {
-        if ( !$file && defined $arg && -f $arg ) {
-            $file = $arg;
-            next;
-        }
-        push @rest, $arg;
-    }
-
-    my $path = @rest ? $rest[0] : '';
-    return ( $path, $file );
-}
-
-# _read_query_input($file)
-# Reads query input from a file path or STDIN.
-# Input: optional file path string.
-# Output: full input text string.
-sub _read_query_input {
-    my ($file) = @_;
-    if ($file) {
-        open my $fh, '<', $file or die "Unable to read $file: $!";
-        local $/;
-        return <$fh>;
-    }
-
-    local $/;
-    return scalar <STDIN>;
-}
-
-# _parse_query_input(%args)
-# Dispatches to the format-specific parser for a structured data query command.
-# Input: command name and raw text string.
-# Output: parsed Perl scalar, array ref, or hash ref.
-sub _parse_query_input {
-    my (%args) = @_;
-    my $command = $args{command} || die 'Missing command';
-    my $text    = $args{text} // '';
-
-    return Developer::Dashboard::JSON::json_decode($text) if $command eq 'pjq';
-    return YAML::XS::Load($text) if $command eq 'yjq';
-    return TOML::Tiny::from_toml($text) if $command eq 'ptomq';
-    return _parse_java_properties($text) if $command eq 'pjp';
-
-    die "Unsupported data query command '$command'\n";
-}
-
-# _extract_query_path($data, $path)
-# Traverses a dotted path through nested hashes and arrays.
-# Input: parsed Perl data structure and dotted path string.
-# Output: selected Perl value or dies when the path is invalid.
-sub _extract_query_path {
-    my ( $data, $path ) = @_;
-    return $data if !defined $path || $path eq '' || $path eq '$d' || $path eq '.';
-    $path =~ s/^\$d\.?//;
-
-    my @parts = grep { defined && $_ ne '' } split /\./, $path;
-    my $value = $data;
-
-    while (@parts) {
-        if ( ref($value) eq 'HASH' ) {
-            my $remaining = join '.', @parts;
-            if ( exists $value->{$remaining} ) {
-                return $value->{$remaining};
-            }
-        }
-
-        my $part = shift @parts;
-        if ( ref($value) eq 'HASH' ) {
-            die "Missing path segment '$part'\n" if !exists $value->{$part};
-            $value = $value->{$part};
-            next;
-        }
-        if ( ref($value) eq 'ARRAY' ) {
-            die "Array index '$part' is invalid\n" if $part !~ /^\d+$/ || $part > $#$value;
-            $value = $value->[$part];
-            next;
-        }
-        die "Path '$path' does not resolve through a nested structure\n";
-    }
-
-    return $value;
-}
-
-# _print_query_value($value)
-# Emits a scalar as text or complex structures as canonical JSON.
-# Input: Perl scalar, array ref, or hash ref.
-# Output: prints to STDOUT and returns true.
-sub _print_query_value {
-    my ($value) = @_;
-    if ( ref($value) ) {
-        print json_encode($value), "\n";
-        return 1;
-    }
-    print defined $value ? $value : '';
-    print "\n";
-    return 1;
-}
-
-# _parse_java_properties($text)
-# Parses a Java properties document into a flat hash.
-# Input: raw properties text string.
-# Output: hash reference of key to value mappings.
-sub _parse_java_properties {
-    my ($text) = @_;
-    my %props;
-    my @lines = split /\n/, $text // '';
-    my $pending = '';
-
-    for my $line (@lines) {
-        $line =~ s/\r$//;
-        next if $line =~ /^\s*[#!]/;
-        if ( $line =~ s/\\$// ) {
-            $pending .= $line;
-            next;
-        }
-        $line = $pending . $line;
-        $pending = '';
-        next if $line =~ /^\s*$/;
-
-        my ( $key, $value ) = split /\s*[:=]\s*|\s+/, $line, 2;
-        $key   = '' if !defined $key;
-        $value = '' if !defined $value;
-        $key   =~ s/^\s+|\s+$//g;
-        $value =~ s/^\s+|\s+$//g;
-        $props{$key} = _unescape_properties($value);
-    }
-
-    return \%props;
-}
-
-# _unescape_properties($text)
-# Decodes simple Java-properties escape sequences.
-# Input: escaped property value string.
-# Output: unescaped value string.
-sub _unescape_properties {
-    my ($text) = @_;
-    $text =~ s/\\t/\t/g;
-    $text =~ s/\\n/\n/g;
-    $text =~ s/\\r/\r/g;
-    $text =~ s/\\f/\f/g;
-    $text =~ s/\\\\/\\/g;
-    return $text;
+    my %map = map { $_ => $_ } qw(of open-file pjq yjq ptomq pjp);
+    my $name = $map{$cmd} || return;
+    my $path = File::Spec->catfile( $Bin, $name );
+    return if !-f $path;
+    return $path;
 }
 
 pod2usage(

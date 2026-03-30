@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.38';
+our $VERSION = '0.40';
 
 1;
 
@@ -17,11 +17,16 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.38
+0.40
 
 =head1 INTRODUCTION
 
 Developer::Dashboard is a local-first developer toolkit intended to be reusable across unrelated projects.
+
+Release tarballs contain installable runtime artifacts only; local Dist::Zilla release-builder configuration is kept out of the shipped archive.
+Frequently used built-in commands such as C<of>, C<open-file>, C<pjq>, C<yjq>,
+C<ptomq>, and C<pjp> are also installed as standalone executables so they can
+run directly without loading the full C<dashboard> runtime.
 
 It provides a small ecosystem for:
 
@@ -139,6 +144,12 @@ matches under a resolved scope.
 C<dashboard pjq>, C<dashboard yjq>, C<dashboard ptomq>, and C<dashboard pjp>
 parse JSON, YAML, TOML, and Java properties input, then optionally extract a
 dotted path and print a scalar or canonical JSON.
+
+=item * Standalone CLI Commands
+
+Standalone C<of>, C<open-file>, C<pjq>, C<yjq>, C<ptomq>, and C<pjp> provide
+the same behavior directly without proxying through the main C<dashboard>
+command.
 
 =item * Runtime Manager
 

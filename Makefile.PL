@@ -8,7 +8,15 @@ WriteMakefile(
     VERSION_FROM => 'lib/Developer/Dashboard.pm',
     ABSTRACT     => 'Project-neutral local developer dashboard runtime',
     AUTHOR       => 'Developer Dashboard Contributors',
-    EXE_FILES    => ['bin/dashboard'],
+    EXE_FILES    => [
+        'bin/dashboard',
+        'bin/of',
+        'bin/open-file',
+        'bin/pjq',
+        'bin/yjq',
+        'bin/ptomq',
+        'bin/pjp',
+    ],
     PREREQ_PM    => {
         'strict'                => 0,
         'warnings'              => 0,

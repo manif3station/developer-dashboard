@@ -10,6 +10,8 @@ my @modules = qw(
   Developer::Dashboard::FileRegistry
   Developer::Dashboard::Codec
   Developer::Dashboard::JSON
+  Developer::Dashboard::CLI::OpenFile
+  Developer::Dashboard::CLI::Query
   Developer::Dashboard::IndicatorStore
   Developer::Dashboard::Collector
   Developer::Dashboard::CollectorRunner

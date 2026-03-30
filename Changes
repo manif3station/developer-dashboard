@@ -1,5 +1,15 @@
 Revision history for Developer Dashboard
 
+0.40  2026-03-30
+
+    - split `dashboard of`, `dashboard open-file`, `dashboard pjq`, `dashboard yjq`, `dashboard ptomq`, and `dashboard pjp` into standalone installed executables so those common paths no longer load the full dashboard runtime
+    - made the main `dashboard` script dispatch those built-in commands to sibling executables early for a lighter startup path
+    - fixed the host-tarball integration harness so it honors a supplied tarball path instead of always rebuilding first
+
+0.39  2026-03-30
+
+    - removed `dist.ini` from the Dist::Zilla release tarball so installed machines only receive runtime artifacts and not local release-builder configuration
+
 0.38  2026-03-30
 
     - added built-in `dashboard pjq`, `dashboard yjq`, `dashboard ptomq`, and `dashboard pjp` commands for JSON, YAML, TOML, and Java properties querying

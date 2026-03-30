@@ -52,6 +52,9 @@ Developer Dashboard is a project-neutral local developer runtime.
 - `dashboard pjq` / `dashboard yjq` / `dashboard ptomq` / `dashboard pjp`
   Parse JSON, YAML, TOML, and Java properties input and optionally traverse a dotted path before printing a scalar or canonical JSON. File-path and query-path argument order is interchangeable, and `$d` selects the full parsed document.
 
+- standalone `of` / `open-file` / `pjq` / `yjq` / `ptomq` / `pjp`
+  Are installed as direct executables as well as proxied `dashboard` subcommands, so common CLI flows can avoid loading the full dashboard runtime.
+
 - `Developer::Dashboard::PageDocument`
   Canonical page model for saved, transient, and legacy bookmark pages.
 

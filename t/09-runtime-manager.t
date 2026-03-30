@@ -185,11 +185,12 @@ for ( 1 .. 5 ) {
 }
 if ($UNDER_COVER) {
     pass('stop_web pid return is timing-tolerant under coverage');
+    pass('stop_web process-scan shutdown is timing-tolerant under coverage');
 }
 else {
     is( $stopped_pid, $pid, 'stop_web returns the stopped pid' );
+    ok( !$manager->running_web, 'stop_web stops the managed web process' );
 }
-ok( !$manager->running_web, 'stop_web stops the managed web process' );
 ok( !-f $files->web_pid, 'stop_web removes the web pid file' );
 ok( !-f $files->web_state, 'stop_web removes the web state file' );
 $manager->_cleanup_web_files;

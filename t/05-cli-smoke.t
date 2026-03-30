@@ -67,6 +67,12 @@ like($open_print, qr/\Q$open_target\E/, 'dashboard open-file prints matching fil
 my $of_print = _run("$perl -Ilib bin/dashboard of --print '$open_root' alpha");
 like($of_print, qr/\Q$open_target\E/, 'dashboard of is shorthand for open-file');
 
+my $standalone_of_print = _run("$perl -Ilib bin/of --print '$open_root' alpha");
+is( $standalone_of_print, $of_print, 'standalone of matches dashboard of output' );
+
+my $standalone_open_file = _run("$perl -Ilib bin/open-file --print '$open_root' alpha");
+is( $standalone_open_file, $open_print, 'standalone open-file matches dashboard open-file output' );
+
 my $perl_root = File::Spec->catdir( $open_root, 'lib', 'My' );
 make_path($perl_root);
 my $perl_target = File::Spec->catfile( $perl_root, 'App.pm' );
@@ -96,6 +102,8 @@ my $json_root = _run("$perl -Ilib bin/dashboard pjq '\$d' '$json_file'");
 is_deeply( json_decode($json_root), { alpha => { beta => 2 } }, 'pjq accepts file then root query with order-independent args' );
 my $json_root_stdin = _run("cat '$json_file' | $perl -Ilib bin/dashboard pjq '\$d'");
 is( $json_root_stdin, $json_root, 'pjq returns the same whole-document result from stdin and file input' );
+my $json_direct = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -Ilib bin/pjq alpha.beta});
+is( $json_direct, $json_value, 'standalone pjq matches dashboard pjq output' );
 
 my $yaml_value = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -Ilib bin/dashboard yjq alpha.beta});
 is( $yaml_value, "3\n", 'yjq extracts scalar YAML values' );
@@ -107,6 +115,8 @@ my $yaml_root = _run("$perl -Ilib bin/dashboard yjq '$yaml_file' '\$d'");
 is_deeply( json_decode($yaml_root), { alpha => { beta => '3' } }, 'yjq accepts file then root query with order-independent args' );
 my $yaml_root_stdin = _run("cat '$yaml_file' | $perl -Ilib bin/dashboard yjq '\$d'");
 is( $yaml_root_stdin, $yaml_root, 'yjq returns the same whole-document result from stdin and file input' );
+my $yaml_direct = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -Ilib bin/yjq alpha.beta});
+is( $yaml_direct, $yaml_value, 'standalone yjq matches dashboard yjq output' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -Ilib bin/dashboard ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );
@@ -118,6 +128,8 @@ my $toml_root = _run("$perl -Ilib bin/dashboard ptomq '\$d' '$toml_file'");
 is_deeply( json_decode($toml_root), { alpha => { beta => 4 } }, 'ptomq accepts file then root query with order-independent args' );
 my $toml_root_stdin = _run("cat '$toml_file' | $perl -Ilib bin/dashboard ptomq '\$d'");
 is( $toml_root_stdin, $toml_root, 'ptomq returns the same whole-document result from stdin and file input' );
+my $toml_direct = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -Ilib bin/ptomq alpha.beta});
+is( $toml_direct, $toml_value, 'standalone ptomq matches dashboard ptomq output' );
 
 my $props_value = _run(qq{printf 'alpha.beta=5\\nname = demo\\n' | $perl -Ilib bin/dashboard pjp alpha.beta});
 is( $props_value, "5\n", 'pjp extracts scalar Java properties values' );
@@ -129,6 +141,8 @@ my $props_root = _run("$perl -Ilib bin/dashboard pjp '$props_file' '\$d'");
 is_deeply( json_decode($props_root), { 'alpha.beta' => '5', name => 'demo' }, 'pjp accepts file then root query with order-independent args' );
 my $props_root_stdin = _run("cat '$props_file' | $perl -Ilib bin/dashboard pjp '\$d'");
 is( $props_root_stdin, $props_root, 'pjp returns the same whole-document result from stdin and file input' );
+my $props_direct = _run(qq{printf 'alpha.beta=5\\nname = demo\\n' | $perl -Ilib bin/pjp alpha.beta});
+is( $props_direct, $props_value, 'standalone pjp matches dashboard pjp output' );
 
 my $cli_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );
 make_path($cli_root);

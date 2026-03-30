@@ -2,6 +2,10 @@
 
 ## 2026-03-30
 
+- Fixed CLI startup weight by splitting the open-file and structured-data query built-ins into standalone installed executables instead of always loading the full `dashboard` runtime.
+- Fixed proxy CLI dispatch so `dashboard of`, `dashboard open-file`, `dashboard pjq`, `dashboard yjq`, `dashboard ptomq`, and `dashboard pjp` now exec their lightweight sibling executables early.
+- Fixed blank-container harness drift so `integration/blank-env/run-host-integration.sh` honors a supplied host tarball instead of rebuilding unconditionally.
+- Fixed release-artifact drift by excluding `dist.ini` from the Dist::Zilla tarball so install targets do not receive local release-builder configuration.
 - Fixed structured-data CLI gaps by adding built-in JSON, YAML, TOML, and Java-properties query commands with dotted-path extraction.
 - Fixed structured-data query consistency so file-path and query-path argument order is interchangeable and `$d` selects the full parsed document across JSON, YAML, TOML, and Java-properties commands.
 - Fixed CLI navigation gaps by adding built-in `dashboard of` and `dashboard open-file` commands with direct file, `file:line`, Perl module, Java class, and recursive pattern resolution.
