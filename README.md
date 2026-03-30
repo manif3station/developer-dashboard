@@ -54,6 +54,9 @@ Project-specific behavior should be added through configuration, startup collect
 - `Developer::Dashboard::Web::App` and `Developer::Dashboard::Web::Server`
   Provide the minimal local browser interface, including exact-loopback admin trust and helper login sessions.
 
+- `dashboard of` and `dashboard open-file`
+  Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches under a resolved scope.
+
 - `Developer::Dashboard::RuntimeManager`
   Manages the background web service and collector lifecycle with process-title validation, `pkill`-style fallback shutdown, and restart orchestration.
 
@@ -85,6 +88,20 @@ Unknown top-level subcommands can be provided by executable files under
 `~/.developer-dashboard/cli`. For example, `dashboard foobar a b` will exec
 `~/.developer-dashboard/cli/foobar` with `a b` as argv, while preserving
 stdin, stdout, and stderr.
+
+### Open File Commands
+
+`dashboard of` is the shorthand name for `dashboard open-file`.
+
+These commands support:
+
+- direct file paths
+- `file:line` references
+- Perl module names such as `My::Module`
+- Java class names such as `com.example.App`
+- recursive pattern searches inside a resolved directory alias or path
+
+If `VISUAL` or `EDITOR` is set, `dashboard of` and `dashboard open-file` will exec that editor unless `--print` is used.
 
 ## Manual
 
@@ -118,6 +135,8 @@ Run the CLI directly from the repository:
 ```bash
 perl -Ilib bin/dashboard init
 perl -Ilib bin/dashboard auth add-user <username> <password>
+perl -Ilib bin/dashboard of --print My::Module
+perl -Ilib bin/dashboard open-file --print com.example.App
 perl -Ilib bin/dashboard update
 perl -Ilib bin/dashboard serve
 perl -Ilib bin/dashboard stop
@@ -151,6 +170,15 @@ Render shell bootstrap:
 
 ```bash
 dashboard shell bash
+```
+
+Resolve or open files from the CLI:
+
+```bash
+dashboard of --print My::Module
+dashboard open-file --print com.example.App
+dashboard open-file --print path/to/file.txt
+dashboard open-file --print bookmarks welcome
 ```
 
 Start the local app:

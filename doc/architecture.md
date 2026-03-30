@@ -46,6 +46,9 @@ Developer Dashboard is a project-neutral local developer runtime.
 - `dashboard`
   Canonical command-line entrypoint for runtime, page, collector, prompt, and user CLI extension operations.
 
+- `dashboard of` / `dashboard open-file`
+  Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches below a resolved scope, then print or exec the configured editor.
+
 - `Developer::Dashboard::PageDocument`
   Canonical page model for saved, transient, and legacy bookmark pages.
 

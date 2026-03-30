@@ -2,6 +2,7 @@
 
 ## 2026-03-30
 
+- Fixed CLI navigation gaps by adding built-in `dashboard of` and `dashboard open-file` commands with direct file, `file:line`, Perl module, Java class, and recursive pattern resolution.
 - Fixed CLI extensibility gaps by dispatching unknown top-level `dashboard` subcommands to executable programs in `~/.developer-dashboard/cli` with argv and stdin passthrough.
 - Fixed prompt fallback drift by removing the invented `DD` status marker from blank installs with no indicators.
 - Fixed test-fixture hygiene by replacing the remaining dummy helper login passphrases in tests, integration assets, and POD examples with neutral placeholder values.

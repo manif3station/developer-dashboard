@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.36';
+our $VERSION = '0.37';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.36
+0.37
 
 =head1 INTRODUCTION
 
@@ -128,6 +128,12 @@ L<Developer::Dashboard::IndicatorStore> and L<Developer::Dashboard::Prompt> expo
 
 L<Developer::Dashboard::Web::App> and L<Developer::Dashboard::Web::Server> provide the minimal local browser interface, including exact-loopback admin trust and helper login sessions.
 
+=item * Open File Commands
+
+C<dashboard of> and C<dashboard open-file> resolve direct files, C<file:line>
+references, Perl module names, Java class names, and recursive file-pattern
+matches under a resolved scope.
+
 =item * Runtime Manager
 
 L<Developer::Dashboard::RuntimeManager> manages the background web service and collector lifecycle with process-title validation, C<pkill>-style fallback shutdown, and restart orchestration.
@@ -173,6 +179,39 @@ F<~/.developer-dashboard/cli>. For example, C<dashboard foobar a b> will exec
 F<~/.developer-dashboard/cli/foobar> with C<a b> as argv, while preserving
 stdin, stdout, and stderr.
 
+=head2 Open File Commands
+
+C<dashboard of> is the shorthand name for C<dashboard open-file>.
+
+These commands support:
+
+=over 4
+
+=item *
+
+direct file paths
+
+=item *
+
+C<file:line> references
+
+=item *
+
+Perl module names such as C<My::Module>
+
+=item *
+
+Java class names such as C<com.example.App>
+
+=item *
+
+recursive pattern searches inside a resolved directory alias or path
+
+=back
+
+If C<VISUAL> or C<EDITOR> is set, C<dashboard of> and
+C<dashboard open-file> will exec that editor unless C<--print> is used.
+
 =head1 MANUAL
 
 =head2 Installation
@@ -198,6 +237,8 @@ Run the CLI directly from the repository:
 
   perl -Ilib bin/dashboard init
   perl -Ilib bin/dashboard auth add-user <username> <password>
+  perl -Ilib bin/dashboard of --print My::Module
+  perl -Ilib bin/dashboard open-file --print com.example.App
   perl -Ilib bin/dashboard update
   perl -Ilib bin/dashboard serve
   perl -Ilib bin/dashboard stop
@@ -223,6 +264,13 @@ Inspect resolved paths:
 Render shell bootstrap:
 
   dashboard shell bash
+
+Resolve or open files from the CLI:
+
+  dashboard of --print My::Module
+  dashboard open-file --print com.example.App
+  dashboard open-file --print path/to/file.txt
+  dashboard open-file --print bookmarks welcome
 
 Start the local app:
 

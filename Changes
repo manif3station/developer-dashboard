@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.37  2026-03-30
+
+    - added built-in `dashboard of` and `dashboard open-file` commands for direct files, `file:line` targets, recursive pattern search, Perl module lookup, and Java class lookup
+    - added CLI smoke and unit coverage for open-file shorthand behavior plus module and Java class resolution
+
 0.36  2026-03-30
 
     - added user CLI extension dispatch so unknown top-level `dashboard` subcommands exec matching programs from `~/.developer-dashboard/cli`

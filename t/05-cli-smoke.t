@@ -2,14 +2,17 @@ use strict;
 use warnings;
 
 use Capture::Tiny qw(capture);
+use Cwd qw(getcwd);
 use File::Path qw(make_path);
 use File::Spec;
 use Test::More;
 use File::Temp qw(tempdir);
 
 local $ENV{HOME} = tempdir(CLEANUP => 1);
+local $ENV{PERL5LIB} = join ':', grep { defined && $_ ne '' } '/home/mv/perl5/lib/perl5', ( $ENV{PERL5LIB} || () );
 
 my $perl = $^X;
+my $repo = getcwd();
 
 my $init = _run("$perl -Ilib bin/dashboard init");
 like($init, qr/runtime_root/, 'dashboard init works');
@@ -49,6 +52,38 @@ like( $usage_stdout . $usage_stderr, qr/SYNOPSIS|dashboard init/, 'dashboard wit
 
 my $help = _run("$perl -Ilib bin/dashboard help");
 like($help, qr/Description:/, 'dashboard help renders the fuller POD help');
+
+my $open_root = File::Spec->catdir( $ENV{HOME}, 'open-file-fixtures' );
+make_path($open_root);
+my $open_target = File::Spec->catfile( $open_root, 'alpha-notes.txt' );
+open my $open_fh, '>', $open_target or die "Unable to write $open_target: $!";
+print {$open_fh} "alpha\n";
+close $open_fh;
+
+my $open_print = _run("$perl -Ilib bin/dashboard open-file --print '$open_root' alpha");
+like($open_print, qr/\Q$open_target\E/, 'dashboard open-file prints matching files');
+
+my $of_print = _run("$perl -Ilib bin/dashboard of --print '$open_root' alpha");
+like($of_print, qr/\Q$open_target\E/, 'dashboard of is shorthand for open-file');
+
+my $perl_root = File::Spec->catdir( $open_root, 'lib', 'My' );
+make_path($perl_root);
+my $perl_target = File::Spec->catfile( $perl_root, 'App.pm' );
+open my $perl_fh, '>', $perl_target or die "Unable to write $perl_target: $!";
+print {$perl_fh} "package My::App;\n1;\n";
+close $perl_fh;
+local $ENV{PERL5LIB} = join ':', grep { defined && $_ ne '' } File::Spec->catdir( $open_root, 'lib' ), $ENV{PERL5LIB};
+my $perl_module = _run("$perl -Ilib bin/dashboard open-file --print My::App");
+like($perl_module, qr/\Q$perl_target\E/, 'dashboard open-file resolves Perl module names');
+
+my $java_root = File::Spec->catdir( $open_root, 'src', 'com', 'example' );
+make_path($java_root);
+my $java_target = File::Spec->catfile( $java_root, 'App.java' );
+open my $java_fh, '>', $java_target or die "Unable to write $java_target: $!";
+print {$java_fh} "package com.example;\nclass App {}\n";
+close $java_fh;
+my $java_class = _run("cd '$open_root' && $perl -I'$repo/lib' '$repo/bin/dashboard' open-file --print com.example.App");
+like($java_class, qr/\Q$java_target\E/, 'dashboard open-file resolves Java class names');
 
 my $cli_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );
 make_path($cli_root);
