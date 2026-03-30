@@ -360,6 +360,11 @@ Collector indicators follow the collector exit code automatically: `0` stores
 an `ok` indicator state and any non-zero exit code stores `error`.
 When `indicator.name` is omitted, the collector name is reused automatically.
 When `indicator.label` is omitted, it defaults to that same name.
+Configured collector indicators are now seeded immediately, so prompt and page
+status strips show them before the first collector run. Before a collector has
+produced real output it appears as missing. Prompt output renders an explicit
+status glyph in front of the collector icon, so successful checks show `✅🔑`
+style fragments and failing or not-yet-run checks show `🚨🔑` style fragments.
 
 ### Docker Compose
 
@@ -482,8 +487,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.60.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.60.tar.gz -v
+tar -tzf Developer-Dashboard-0.61.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.61.tar.gz -v
 ```
 
 The harness also:

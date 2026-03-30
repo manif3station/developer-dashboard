@@ -80,12 +80,13 @@ sub _indicator_parts {
     my @indicator_parts;
     for my $indicator ( $self->{indicators}->list_indicators ) {
         next if exists $indicator->{prompt_visible} && !$indicator->{prompt_visible};
+        my $status_icon = $self->{indicators}->prompt_status_icon($indicator);
         my $icon = defined $indicator->{icon} ? $indicator->{icon} : '';
         my $label = defined $indicator->{label} ? $indicator->{label} : $indicator->{name};
         my $stale = $self->{indicators}->is_stale( $indicator, max_age => $max_age ) ? 1 : 0;
         my $part = $mode eq 'extended'
-          ? ($icon ? "$icon$label" : $label)
-          : ($icon || substr( $label, 0, 1 ));
+          ? join( '', grep { defined && $_ ne '' } $status_icon, $icon, $label )
+          : join( '', grep { defined && $_ ne '' } $status_icon, ( $icon || substr( $label, 0, 1 ) ) );
         if ($color) {
             my $status = $indicator->{status} || '';
             my $ansi = $stale ? "\e[33m" : $status =~ /^(ok|clean)$/ ? "\e[32m" : $status =~ /^(missing|error|dirty|down)$/ ? "\e[31m" : "\e[36m";

@@ -76,6 +76,8 @@ my $config     = Developer::Dashboard::Config->new(
     paths   => $paths,
     plugins => $plugins,
 );
+my $collector_jobs = $config->collectors;
+my $synced_collector_indicators = $indicators->sync_collectors($collector_jobs);
 my $pages      = Developer::Dashboard::PageStore->new( paths => $paths );
 $pages->migrate_legacy_json_pages;
 $paths->register_named_paths( $config->path_aliases );
@@ -322,14 +324,14 @@ elsif ( $cmd eq 'collector' ) {
     }
     elsif ( $action eq 'run' ) {
         my $name = shift @ARGV || die "Usage: dashboard collector run <name>\n";
-        my ($job) = grep { $_->{name} eq $name } @{ $config->collectors };
+        my ($job) = grep { $_->{name} eq $name } @{$collector_jobs};
         die "Unknown collector '$name'\n" if !$job;
         print json_encode( $runner->run_once($job) );
         exit 0;
     }
     elsif ( $action eq 'start' ) {
         my $name = shift @ARGV || die "Usage: dashboard collector start <name>\n";
-        my ($job) = grep { $_->{name} eq $name } @{ $config->collectors };
+        my ($job) = grep { $_->{name} eq $name } @{$collector_jobs};
         die "Unknown collector '$name'\n" if !$job;
         my $pid = $runner->start_loop($job);
         print "$pid\n";
@@ -343,7 +345,7 @@ elsif ( $cmd eq 'collector' ) {
     }
     elsif ( $action eq 'restart' ) {
         my $name = shift @ARGV || die "Usage: dashboard collector restart <name>\n";
-        my ($job) = grep { $_->{name} eq $name } @{ $config->collectors };
+        my ($job) = grep { $_->{name} eq $name } @{$collector_jobs};
         die "Unknown collector '$name'\n" if !$job;
         $runner->stop_loop($name);
         my $pid = $runner->start_loop($job);

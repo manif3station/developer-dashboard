@@ -33,7 +33,7 @@ $indicators->set_indicator(
     alias          => '🐳',
     label          => 'Docker',
     icon           => '🐳',
-    page_status_icon => '&#x1F7E2;',
+    page_status_icon => '&#x2705;',
     status         => 'ok',
     priority       => 10,
     prompt_visible => 1,
@@ -45,7 +45,7 @@ is($items[0]{name}, 'docker', 'indicator stored');
 
 my $rendered = $prompt->render(jobs => 2, cwd => '/tmp/project');
 like($rendered, qr/\[\w{3}|\[/, 'prompt rendered');
-like($rendered, qr/\] 🐳 /, 'compact prompt includes the indicator icon');
+like($rendered, qr/\] ✅🐳 /, 'compact prompt includes status glyph plus indicator icon');
 like($rendered, qr/\(2 jobs\)/, 'job count included');
 
 $indicators->set_indicator(
@@ -60,14 +60,15 @@ $indicators->mark_stale('stale');
 my $extended = $prompt->render(jobs => 0, cwd => '/tmp/project', mode => 'extended', max_age => 10);
 like($extended, qr/SStale/, 'extended prompt still renders stale indicators');
 unlike($extended, qr/SStale!/, 'extended prompt does not append invented stale punctuation');
+like($extended, qr/✅🐳Docker/, 'extended prompt includes status glyph plus icon and label');
 my $colored = $prompt->render(jobs => 0, cwd => '/tmp/project', color => 1);
 like($colored, qr/\e\[/, 'prompt can render ANSI color escapes');
 my $page_payload = $indicators->page_header_payload;
 is_deeply(
     $page_payload->{array},
     [
-        { prog => 'docker', alias => '🐳', status => '&#x1F7E2;' },
-        { prog => 'stale',  alias => 'Stale',  status => '&#x1F7E2;' },
+        { prog => 'docker', alias => '🐳', status => '&#x2705;' },
+        { prog => 'stale',  alias => 'Stale',  status => '&#x2705;' },
     ],
     'page header payload renders legacy status-plus-alias entries',
 );

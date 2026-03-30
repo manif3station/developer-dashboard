@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.61  2026-03-30
+
+    - seeded configured collector indicators before the first run so prompt and page status views show all declared checks immediately as missing until they report
+    - prefixed collector prompt fragments with explicit success and failure glyphs (`✅` and `🚨`) so collector health is visible without relying on icon meaning alone
+    - added CLI and unit coverage for seeded collector indicators and prompt status glyph rendering
+
 0.60  2026-03-30
 
     - added collector `code` support so collector jobs can run Perl directly while leaving `command` as shell execution

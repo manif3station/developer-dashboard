@@ -12,21 +12,42 @@ use Developer::Dashboard::JSON qw(json_encode json_decode);
 my $STATUS_ICONS = {
     ok => {
         yes     => '&#x2705;',
-        running => '&#x1F7E2;',
-        secure  => '&#x1F510;',
-        ok      => '&#x1F7E2;',
-        clean   => '&#x1F7E2;',
+        running => '&#x2705;',
+        secure  => '&#x2705;',
+        ok      => '&#x2705;',
+        clean   => '&#x2705;',
     },
     error => {
-        wrong     => '&#x274C;',
-        stopped   => '&#x1F534;',
-        paused    => '&#x1F6D1;',
-        insecure  => '&#x1F513;',
-        reloading => '&#x1F525;',
-        missing   => '&#x1F534;',
-        error     => '&#x274C;',
-        dirty     => '&#x1F525;',
-        down      => '&#x1F534;',
+        wrong     => '&#x1F6A8;',
+        stopped   => '&#x1F6A8;',
+        paused    => '&#x1F6A8;',
+        insecure  => '&#x1F6A8;',
+        reloading => '&#x1F6A8;',
+        missing   => '&#x1F6A8;',
+        error     => '&#x1F6A8;',
+        dirty     => '&#x1F6A8;',
+        down      => '&#x1F6A8;',
+    },
+};
+
+my $PROMPT_STATUS_ICONS = {
+    ok => {
+        yes     => '✅',
+        running => '✅',
+        secure  => '✅',
+        ok      => '✅',
+        clean   => '✅',
+    },
+    error => {
+        wrong     => '🚨',
+        stopped   => '🚨',
+        paused    => '🚨',
+        insecure  => '🚨',
+        reloading => '🚨',
+        missing   => '🚨',
+        error     => '🚨',
+        dirty     => '🚨',
+        down      => '🚨',
     },
 };
 
@@ -95,6 +116,45 @@ sub list_indicators {
     closedir $dh;
 
     return sort { ($a->{priority} || 999) <=> ($b->{priority} || 999) || $a->{name} cmp $b->{name} } @items;
+}
+
+# sync_collectors($jobs)
+# Seeds or refreshes indicator records declared by collector config without
+# clobbering live status from previous collector runs.
+# Input: array reference of collector job hash references.
+# Output: array reference of indicator hashes that were written.
+sub sync_collectors {
+    my ( $self, $jobs ) = @_;
+    return [] if ref($jobs) ne 'ARRAY';
+
+    my @written;
+    for my $job ( @{$jobs} ) {
+        next if ref($job) ne 'HASH';
+        next if ref( $job->{indicator} ) ne 'HASH';
+
+        my $name = $job->{indicator}{name} || $job->{name} || next;
+        my $existing = eval { $self->get_indicator($name) } || {};
+        my $label = defined $job->{indicator}{label} && $job->{indicator}{label} ne ''
+          ? $job->{indicator}{label}
+          : $name;
+        my %candidate = (
+            %{$existing},
+            %{ $job->{indicator} },
+            name           => $name,
+            label          => $label,
+            status         => defined $existing->{status} && $existing->{status} ne '' ? $existing->{status} : 'missing',
+            prompt_visible => exists $job->{indicator}{prompt_visible}
+              ? $job->{indicator}{prompt_visible}
+              : exists $existing->{prompt_visible}
+              ? $existing->{prompt_visible}
+              : 1,
+        );
+        if ( !$self->_indicator_matches( $existing, \%candidate ) ) {
+            push @written, $self->set_indicator( $name, %candidate );
+        }
+    }
+
+    return \@written;
 }
 
 # mark_stale($name, %opts)
@@ -211,6 +271,15 @@ sub page_header_payload {
     };
 }
 
+# prompt_status_icon($indicator)
+# Resolves the prompt status glyph for one indicator record.
+# Input: indicator hash reference.
+# Output: plain-text status glyph or empty string.
+sub prompt_status_icon {
+    my ( $self, $indicator ) = @_;
+    return $self->_status_icon_for( $indicator, $PROMPT_STATUS_ICONS );
+}
+
 # _page_status_icon($indicator)
 # Resolves the page-header status icon for one indicator record.
 # Input: indicator hash reference.
@@ -219,9 +288,37 @@ sub _page_status_icon {
     my ( $self, $indicator ) = @_;
     return '' if ref($indicator) ne 'HASH';
     return $indicator->{page_status_icon} if defined $indicator->{page_status_icon} && $indicator->{page_status_icon} ne '';
+    return $self->_status_icon_for( $indicator, $STATUS_ICONS );
+}
+
+# _indicator_matches($existing, $candidate)
+# Compares persisted and candidate indicator fields to avoid rewriting files on
+# every dashboard prompt render.
+# Input: existing and candidate indicator hash references.
+# Output: boolean true when the stored record already matches.
+sub _indicator_matches {
+    my ( $self, $existing, $candidate ) = @_;
+    return 0 if ref($existing) ne 'HASH' || ref($candidate) ne 'HASH';
+    for my $key ( qw(name label alias icon status priority prompt_visible page_status_icon) ) {
+        my $left  = exists $existing->{$key}  ? $existing->{$key}  : undef;
+        my $right = exists $candidate->{$key} ? $candidate->{$key} : undef;
+        $left  = '' if !defined $left;
+        $right = '' if !defined $right;
+        return 0 if $left ne $right;
+    }
+    return 1;
+}
+
+# _status_icon_for($indicator, $map)
+# Maps indicator status strings to either page-header or prompt glyphs.
+# Input: indicator hash reference and icon lookup map.
+# Output: resolved glyph string or the indicator icon as a fallback.
+sub _status_icon_for {
+    my ( $self, $indicator, $map ) = @_;
+    return '' if ref($indicator) ne 'HASH';
     my $status = defined $indicator->{status} ? lc $indicator->{status} : '';
-    return $STATUS_ICONS->{ok}{$status}    if exists $STATUS_ICONS->{ok}{$status};
-    return $STATUS_ICONS->{error}{$status} if exists $STATUS_ICONS->{error}{$status};
+    return $map->{ok}{$status}    if exists $map->{ok}{$status};
+    return $map->{error}{$status} if exists $map->{error}{$status};
     return defined $indicator->{icon} ? $indicator->{icon} : '';
 }
 

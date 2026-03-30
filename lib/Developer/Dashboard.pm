@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.60';
+our $VERSION = '0.61';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.60
+0.61
 
 =head1 INTRODUCTION
 
@@ -475,7 +475,12 @@ Collector indicators follow the collector exit code automatically: C<0>
 stores an C<ok> indicator state and any non-zero exit code stores C<error>.
 When C<indicator.name> is omitted, the collector name is reused
 automatically. When C<indicator.label> is omitted, it defaults to that same
-name.
+name. Configured collector indicators are seeded immediately, so prompt and
+page status strips show them before the first collector run. Before a
+collector has produced real output it appears as missing. Prompt output
+renders an explicit status glyph in front of the collector icon, so
+successful checks show fragments such as C<✅🔑> while failing or not-yet-run
+checks show fragments such as C<🚨🔑>.
 
 =head2 Docker Compose
 

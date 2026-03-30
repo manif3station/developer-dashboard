@@ -489,12 +489,13 @@ PAGE
         status         => 'ok',
         prompt_visible => 1,
     );
-    is( $app->_prompt_summary, '&#x1F7E2;&#x1F433;', 'web app top status summary renders indicator status and alias pairs' );
+    is( $app->_prompt_summary, '&#x2705;&#x1F433;', 'web app top status summary renders indicator status and alias pairs' );
 }
 
 {
     my $error_icon = $indicator_store->_page_status_icon( { status => 'error' } );
-    is( $error_icon, '&#x274C;', 'indicator store resolves explicit error icon mappings' );
+    is( $error_icon, '&#x1F6A8;', 'indicator store resolves explicit error icon mappings' );
+    is( $indicator_store->prompt_status_icon( { status => 'ok' } ), '✅', 'indicator store resolves prompt success glyphs' );
     my $fallback_icon = $indicator_store->_page_status_icon( { status => 'unknown', icon => 'X' } );
     is( $fallback_icon, 'X', 'indicator store falls back to explicit icon when no mapping exists' );
 }

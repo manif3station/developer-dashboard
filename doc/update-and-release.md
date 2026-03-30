@@ -66,7 +66,11 @@ perl -Ilib bin/dashboard collector inspect example.collector
 Collector definitions may use either a shell `command` string or Perl `code`
 string. If a collector defines an `indicator`, the collector name now supplies
 the default indicator name and label automatically, so an icon-only indicator
-block is enough for the common case. Release validation should cover whichever
+block is enough for the common case. Collector indicators are also seeded
+before the first run, so prompt and page status views show configured checks
+immediately as missing until a collector reports a real exit code. Prompt
+rendering prefixes the collector icon with `✅` for healthy checks and `🚨`
+for failing or missing checks. Release validation should cover whichever
 execution mode a new feature touches.
 
 Render prompt in extended colored mode:
@@ -141,8 +145,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.60.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.60.tar.gz -v
+tar -tzf Developer-Dashboard-0.61.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.61.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

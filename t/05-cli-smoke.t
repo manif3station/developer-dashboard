@@ -17,6 +17,37 @@ my $repo = getcwd();
 
 my $init = _run("$perl -Ilib bin/dashboard init");
 like($init, qr/runtime_root/, 'dashboard init works');
+my $global_config_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'config.json' );
+open my $seeded_config_fh, '>', $global_config_file or die "Unable to write $global_config_file: $!";
+print {$seeded_config_fh} <<'JSON';
+{
+   "collectors" : [
+      {
+         "name" : "example.collector",
+         "command" : "printf 'example collector output\\n'",
+         "cwd" : "home",
+         "interval" : 60
+      },
+      {
+         "name" : "vpn",
+         "code" : "return 0;",
+         "cwd" : "home",
+         "indicator" : {
+            "icon" : "🔑"
+         }
+      },
+      {
+         "name" : "docker.collector",
+         "command" : "docker ps",
+         "cwd" : "home",
+         "indicator" : {
+            "icon" : "🐳"
+         }
+      }
+   ]
+}
+JSON
+close $seeded_config_fh;
 
 my $pages = _run("$perl -Ilib bin/dashboard page list");
 like($pages, qr/welcome/, 'welcome page listed');
@@ -38,6 +69,8 @@ like($indicator_refresh, qr/docker|project|git/, 'indicator refresh-core works')
 
 my $ps1 = _run("$perl -Ilib bin/dashboard ps1 --jobs 1");
 like($ps1, qr/\(1 jobs\)|developer-dashboard:master| D /, 'ps1 command works');
+like($ps1, qr/🚨🔑/, 'ps1 seeds configured collector indicators before their first run');
+like($ps1, qr/🚨🐳/, 'ps1 shows all configured collector indicators, not just previously-run collectors');
 my $ps1_extended = _run("$perl -Ilib bin/dashboard ps1 --jobs 1 --mode extended --color");
 like($ps1_extended, qr/\e\[|\(1 jobs\)/, 'ps1 supports extended/color modes');
 
@@ -61,7 +94,6 @@ make_path($custom_path_root);
 my $path_add = _run("$perl -Ilib bin/dashboard path add foobar '$custom_path_root'");
 like( $path_add, qr/"name"\s*:\s*"foobar"/, 'dashboard path add stores a custom alias' );
 like( $path_add, qr/\Q$custom_path_root\E/, 'dashboard path add reports the stored target path' );
-my $global_config_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'config.json' );
 open my $global_config_fh, '<', $global_config_file or die "Unable to read $global_config_file: $!";
 my $global_config = do { local $/; <$global_config_fh> };
 close $global_config_fh;

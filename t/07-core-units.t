@@ -417,21 +417,25 @@ $indicators->set_indicator(
     label          => 'Zulu',
     priority       => 99,
     icon           => '',
+    status         => 'ok',
     prompt_visible => 1,
 );
 $indicators->set_indicator(
     'alpha',
     priority       => 1,
+    status         => 'ok',
     prompt_visible => 0,
 );
 $indicators->set_indicator(
     'beta',
     priority => 0,
+    status   => 'ok',
 );
 $indicators->set_indicator(
     'zulu',
     label          => 'Zulu Updated',
     priority       => 99,
+    status         => 'ok',
     prompt_visible => 1,
 );
 my $indicator = $indicators->get_indicator('zulu');
@@ -444,6 +448,50 @@ close $broken_indicator;
 
 my @indicator_names = map { $_->{name} } $indicators->list_indicators;
 is_deeply( \@indicator_names, [ 'alpha', 'zulu', 'beta' ], 'list_indicators sorts by priority and skips invalid JSON' );
+my $synced = $indicators->sync_collectors(
+    [
+        {
+            name      => 'vpn',
+            indicator => {
+                icon => '🔑',
+            },
+        },
+        {
+            name      => 'docker.collector',
+            indicator => {
+                icon  => '🐳',
+                label => 'Docker',
+            },
+        },
+    ]
+);
+is( scalar @{$synced}, 2, 'sync_collectors seeds missing collector indicators from config' );
+is( $indicators->get_indicator('vpn')->{status}, 'missing', 'sync_collectors defaults missing collector indicators to missing status before first run' );
+is( $indicators->get_indicator('docker.collector')->{label}, 'Docker', 'sync_collectors keeps configured collector indicator labels' );
+is(
+    scalar @{
+        $indicators->sync_collectors(
+            [
+                {
+                    name      => 'vpn',
+                    indicator => {
+                        icon => '🔑',
+                    },
+                },
+                {
+                    name      => 'docker.collector',
+                    indicator => {
+                        icon  => '🐳',
+                        label => 'Docker',
+                    },
+                },
+            ]
+        )
+    },
+    0,
+    'sync_collectors skips rewriting indicators when the stored config-backed indicator already matches',
+);
+is( scalar @{ $indicators->sync_collectors([]) }, 0, 'sync_collectors ignores empty collector lists' );
 
 my $prompt = Developer::Dashboard::Prompt->new( paths => $paths, indicators => $indicators );
 dies_like( sub { Developer::Dashboard::Prompt->new( paths => $paths ) }, qr/Missing indicator store/, 'prompt requires indicators' );
@@ -459,14 +507,15 @@ like( $plain_prompt, qr/\]\s+~/, 'prompt still renders the cwd when no indicator
 unlike( $plain_prompt, qr/\bDD\b/, 'prompt omits the DD fallback when no indicators exist' );
 
 my $prompt_output = $prompt->render( jobs => 3, cwd => File::Spec->catdir( $home, 'named-path' ) );
-like( $prompt_output, qr/Z b/, 'compact prompt includes indicator icons in priority order' );
+like( $prompt_output, qr/🚨🐳/, 'compact prompt includes missing collector status glyphs' );
+like( $prompt_output, qr/✅Z ✅b/, 'compact prompt includes success status glyphs in priority order' );
 unlike( $prompt_output, qr/alpha/, 'prompt skips hidden indicators' );
 like( $prompt_output, qr/~\/named-path/, 'prompt shortens home directory to tilde' );
 like( $prompt_output, qr/\(3 jobs\)/, 'prompt appends job suffix' );
 like(
     Developer::Dashboard::Prompt->new( paths => $paths, indicators => $indicators )->render( jobs => 0, mode => 'extended' ),
-    qr/beta/,
-    'extended prompt uses indicator names when labels are missing',
+    qr/✅beta/,
+    'extended prompt prefixes indicator labels with success status glyphs when labels are missing',
 );
 {
     no warnings 'redefine';
