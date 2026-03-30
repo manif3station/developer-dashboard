@@ -1,5 +1,12 @@
 Revision history for Developer Dashboard
 
+0.60  2026-03-30
+
+    - added collector `code` support so collector jobs can run Perl directly while leaving `command` as shell execution
+    - kept collector indicators driven by collector exit code for both shell-command and Perl-code collectors
+    - defaulted collector indicator names and labels from the collector name so `indicator: { "icon": "..." }` is sufficient for common status checks
+    - documented the two collector execution modes in the README, POD, and release notes
+
 0.59  2026-03-30
 
     - fixed release cleanup drift by removing stale `Developer-Dashboard-*` Dist::Zilla build directories as well as old tarballs before each new build

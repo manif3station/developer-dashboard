@@ -40,7 +40,7 @@ sub run_once {
     my ( $self, $job ) = @_;
     die 'Collector job must be a hash' if ref($job) ne 'HASH';
     my $name = $job->{name} || die 'Collector job missing name';
-    my $cmd  = $job->{command} || die "Collector '$name' missing command";
+    my ( $mode, $source ) = $self->_collector_source($job);
 
     my $cwd = $job->{cwd} || cwd();
     if ( !File::Spec->file_name_is_absolute($cwd) && $self->{paths}->can($cwd) ) {
@@ -54,7 +54,9 @@ sub run_once {
         $name,
         {
             name       => $name,
-            command    => $cmd,
+            command    => $job->{command},
+            code       => $job->{code},
+            mode       => $mode,
             cwd        => $cwd,
             interval   => $job->{interval},
             cron       => $job->{cron},
@@ -75,8 +77,9 @@ sub run_once {
         }
     );
 
-    my ( $stdout, $stderr, $exit_code, $timed_out ) = $self->_run_command(
-        cmd        => $cmd,
+    my ( $stdout, $stderr, $exit_code, $timed_out ) = $self->_run_job(
+        mode       => $mode,
+        source     => $source,
         cwd        => $cwd,
         env        => $job->{env},
         timeout_ms => $job->{timeout_ms} || ( $job->{timeout} ? $job->{timeout} * 1000 : undef ),
@@ -93,9 +96,15 @@ sub run_once {
         timed_out  => $timed_out,
     );
     if ( $self->{indicators} && ref( $job->{indicator} ) eq 'HASH' ) {
+        my $indicator_name = $job->{indicator}{name} || $name;
+        my $indicator_label = defined $job->{indicator}{label} && $job->{indicator}{label} ne ''
+          ? $job->{indicator}{label}
+          : $indicator_name;
         $self->{indicators}->set_indicator(
-            $job->{indicator}{name} || $name,
+            $indicator_name,
             %{ $job->{indicator} },
+            name => $indicator_name,
+            label => $indicator_label,
             status => $exit_code ? 'error' : 'ok',
             prompt_visible => exists $job->{indicator}{prompt_visible} ? $job->{indicator}{prompt_visible} : 1,
         );
@@ -108,6 +117,30 @@ sub run_once {
         stderr    => $stderr,
         timed_out => $timed_out ? 1 : 0,
     };
+}
+
+# _collector_source($job)
+# Resolves whether a collector should execute shell command text or Perl code.
+# Input: collector job hash reference.
+# Output: list of execution mode string and source text string.
+sub _collector_source {
+    my ( $self, $job ) = @_;
+    return ( 'command', $job->{command} ) if defined $job->{command} && $job->{command} ne '';
+    return ( 'code', $job->{code} ) if defined $job->{code} && $job->{code} ne '';
+    my $name = ref($job) eq 'HASH' ? ( $job->{name} || '(unnamed)' ) : '(unnamed)';
+    die "Collector '$name' missing command or code";
+}
+
+# _run_job(%args)
+# Dispatches collector execution to shell-command or Perl-code mode.
+# Input: mode string, source text, cwd path, env hash, and timeout_ms.
+# Output: list of stdout, stderr, exit_code, and timed_out flag.
+sub _run_job {
+    my ( $self, %args ) = @_;
+    my $mode = $args{mode} || die 'Missing collector mode';
+    return $self->_run_command(%args) if $mode eq 'command';
+    return $self->_run_code(%args) if $mode eq 'code';
+    die "Unknown collector mode '$mode'";
 }
 
 # start_loop($job)
@@ -518,7 +551,7 @@ sub _cron_match {
 # Output: list of stdout, stderr, exit_code, and timed_out flag.
 sub _run_command {
     my ( $self, %args ) = @_;
-    my $cmd        = $args{cmd};
+    my $cmd        = $args{source};
     my $cwd        = $args{cwd};
     my $env        = ref( $args{env} ) eq 'HASH' ? $args{env} : {};
     my $timeout_ms = $args{timeout_ms} || 30_000;
@@ -541,6 +574,44 @@ sub _run_command {
         }
         alarm(0);
         return $ok;
+    };
+    alarm(0);
+    chdir $old or die "Unable to restore cwd to $old: $!";
+    return ( $stdout, $stderr, $exit_code, $timed_out );
+}
+
+# _run_code(%args)
+# Executes Perl collector code with captured stdout/stderr and timeout handling.
+# Input: source code string, cwd path, env hash, and timeout_ms.
+# Output: list of stdout, stderr, exit_code, and timed_out flag.
+sub _run_code {
+    my ( $self, %args ) = @_;
+    my $code       = $args{source};
+    my $cwd        = $args{cwd};
+    my $env        = ref( $args{env} ) eq 'HASH' ? $args{env} : {};
+    my $timeout_ms = $args{timeout_ms} || 30_000;
+
+    my $old = cwd();
+    chdir $cwd or die "Unable to chdir to $cwd: $!";
+    local @ENV{ keys %$env } = values %$env if %$env;
+    my $timed_out = 0;
+    my ( $stdout, $stderr, $exit_code ) = capture {
+        local $SIG{ALRM} = sub { die "__COLLECTOR_TIMEOUT__\n" };
+        alarm( int( ( $timeout_ms + 999 ) / 1000 ) );
+        my $result = eval $code;
+        if ($@) {
+            if ( $@ =~ /__COLLECTOR_TIMEOUT__/ ) {
+                $timed_out = 1;
+                alarm(0);
+                return 124;
+            }
+            my $error = $@;
+            print STDERR $error;
+            alarm(0);
+            return 255;
+        }
+        alarm(0);
+        return ( defined $result && $result =~ /\A-?\d+\z/ ) ? $result : 0;
     };
     alarm(0);
     chdir $old or die "Unable to restore cwd to $old: $!";
@@ -611,8 +682,8 @@ Developer::Dashboard::CollectorRunner - collector execution and loop management
 =head1 DESCRIPTION
 
 This module runs collector jobs on demand and as managed background loops. It
-handles scheduling, timeout enforcement, process naming, and persisted loop
-state.
+handles scheduling, timeout enforcement, process naming, persisted loop
+state, shell-command collectors, and Perl-code collectors.
 
 =head1 METHODS
 

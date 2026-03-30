@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.59';
+our $VERSION = '0.60';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.59
+0.60
 
 =head1 INTRODUCTION
 
@@ -434,6 +434,48 @@ Run a collector once:
 List collector status:
 
   dashboard collector list
+
+Collector jobs support two execution fields:
+
+=over 4
+
+=item *
+
+C<command> runs a shell command string through C<sh -c>
+
+=item *
+
+C<code> runs Perl code directly inside the collector runtime
+
+=back
+
+Example collector definitions:
+
+  {
+    "collectors": [
+      {
+        "name": "shell.example",
+        "command": "printf 'shell collector\n'",
+        "cwd": "home",
+        "interval": 60
+      },
+      {
+        "name": "perl.example",
+        "code": "print qq(perl collector\n); return 0;",
+        "cwd": "home",
+        "interval": 60,
+        "indicator": {
+          "icon": "P"
+        }
+      }
+    ]
+  }
+
+Collector indicators follow the collector exit code automatically: C<0>
+stores an C<ok> indicator state and any non-zero exit code stores C<error>.
+When C<indicator.name> is omitted, the collector name is reused
+automatically. When C<indicator.label> is omitted, it defaults to that same
+name.
 
 =head2 Docker Compose
 

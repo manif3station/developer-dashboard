@@ -539,9 +539,11 @@ close $startup_skip;
 }
 chdir $original_cwd or die $!;
 
+my $collector_indicators = Developer::Dashboard::IndicatorStore->new( paths => $paths );
 my $runner = Developer::Dashboard::CollectorRunner->new(
     collectors => $collector,
     files      => $files,
+    indicators => $collector_indicators,
     paths      => $paths,
 );
 my $under_cover = ( $ENV{HARNESS_PERL_SWITCHES} || '' ) =~ /Devel::Cover/ ? 1 : 0;
@@ -551,7 +553,7 @@ dies_like( sub { Developer::Dashboard::CollectorRunner->new( collectors => $coll
 
 dies_like( sub { $runner->run_once('bad') }, qr/must be a hash/, 'run_once requires hash jobs' );
 dies_like( sub { $runner->run_once( {} ) }, qr/missing name/, 'run_once requires job name' );
-dies_like( sub { $runner->run_once( { name => 'bad' } ) }, qr/missing command/, 'run_once requires command' );
+dies_like( sub { $runner->run_once( { name => 'bad' } ) }, qr/missing command or code/, 'run_once requires command or code' );
 dies_like(
     sub {
         $runner->run_once(
@@ -576,6 +578,7 @@ my $run_result = $runner->run_once(
 is( $run_result->{exit_code}, 2, 'run_once returns command exit code' );
 is( $run_result->{stdout}, "out\n", 'run_once captures stdout' );
 like( $run_result->{stderr}, qr/err/, 'run_once captures stderr' );
+is( $collector->read_job('stderr.collector')->{mode}, 'command', 'run_once persists shell collector mode in job metadata' );
 is(
     $runner->run_once(
         {
@@ -587,6 +590,34 @@ is(
     '',
     'run_once returns empty stderr when the command does not write to stderr',
 );
+my $code_result = $runner->run_once(
+    {
+        name      => 'code.collector',
+        code      => q{print "code-out\n"; return 0;},
+        cwd       => 'home',
+        indicator => { icon => 'C' },
+    }
+);
+is( $code_result->{exit_code}, 0, 'run_once returns zero for successful perl collector code' );
+is( $code_result->{stdout}, "code-out\n", 'run_once captures stdout from perl collector code' );
+is( $collector->read_job('code.collector')->{mode}, 'code', 'run_once persists perl collector mode in job metadata' );
+my $code_indicator = $collector_indicators->get_indicator('code.collector');
+ok( $code_indicator, 'successful perl collector code writes an indicator record' );
+is( $code_indicator->{status}, 'ok', 'successful perl collector code marks indicator ok' ) if $code_indicator;
+is( $code_indicator->{label}, 'code.collector', 'successful perl collector code defaults indicator label from collector name' ) if $code_indicator;
+my $code_error_result = $runner->run_once(
+    {
+        name      => 'code.collector.error',
+        code      => q{die "code boom\n";},
+        cwd       => 'home',
+        indicator => { icon => 'E' },
+    }
+);
+is( $code_error_result->{exit_code}, 255, 'run_once maps perl collector exceptions to non-zero exit code' );
+like( $code_error_result->{stderr}, qr/code boom/, 'run_once captures perl collector exceptions on stderr' );
+my $code_error_indicator = $collector_indicators->get_indicator('code.collector.error');
+ok( $code_error_indicator, 'failing perl collector code writes an indicator record' );
+is( $code_error_indicator->{status}, 'error', 'failing perl collector code marks indicator error' ) if $code_error_indicator;
 like( $runner->_process_title('demo'), qr/^dashboard collector: demo$/, '_process_title formats managed process names' );
 ok( !defined $runner->loop_state('missing-loop-state'), 'loop_state returns undef for missing state files' );
 ok( !$runner->_is_managed_loop( undef, 'demo' ), '_is_managed_loop rejects missing pids' );

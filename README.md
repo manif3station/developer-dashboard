@@ -327,6 +327,40 @@ List collector status:
 dashboard collector list
 ```
 
+Collector jobs support two execution fields:
+
+- `command` runs a shell command string through `sh -c`
+- `code` runs Perl code directly inside the collector runtime
+
+Example collector definitions:
+
+```json
+{
+  "collectors": [
+    {
+      "name": "shell.example",
+      "command": "printf 'shell collector\\n'",
+      "cwd": "home",
+      "interval": 60
+    },
+    {
+      "name": "perl.example",
+      "code": "print qq(perl collector\\n); return 0;",
+      "cwd": "home",
+      "interval": 60,
+      "indicator": {
+        "icon": "P"
+      }
+    }
+  ]
+}
+```
+
+Collector indicators follow the collector exit code automatically: `0` stores
+an `ok` indicator state and any non-zero exit code stores `error`.
+When `indicator.name` is omitted, the collector name is reused automatically.
+When `indicator.label` is omitted, it defaults to that same name.
+
 ### Docker Compose
 
 Inspect the resolved compose stack without running Docker:
@@ -448,8 +482,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.59.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.59.tar.gz -v
+tar -tzf Developer-Dashboard-0.60.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.60.tar.gz -v
 ```
 
 The harness also:

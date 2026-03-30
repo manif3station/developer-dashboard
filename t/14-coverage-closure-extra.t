@@ -86,7 +86,7 @@ PAGE
     my $timeout_dir = File::Spec->catdir( $home, 'timeout-run' );
     make_path($timeout_dir);
     my ( $stdout, $stderr, $exit_code, $timed_out ) = $runner->_run_command(
-        cmd        => q{perl -e "sleep 2"},
+        source     => q{perl -e "sleep 2"},
         cwd        => $timeout_dir,
         timeout_ms => 50,
     );
@@ -97,6 +97,19 @@ PAGE
     ok( Developer::Dashboard::CollectorRunner::_cron_match( '*/5', 10 ), 'collector cron step matches divisible values' );
     ok( !Developer::Dashboard::CollectorRunner::_cron_match( '*/5', 3 ), 'collector cron step does not match unrelated values' );
     ok( !Developer::Dashboard::CollectorRunner::_cron_match( '9', 3 ), 'collector cron exact value can fail to match' );
+
+    my ( $code_stdout, $code_stderr, $code_exit, $code_timed_out ) = $runner->_run_code(
+        source     => q{sleep 2; return 0;},
+        cwd        => $timeout_dir,
+        timeout_ms => 50,
+    );
+    is( $code_exit, 124, 'collector perl-code timeout returns 124' );
+    ok( $code_timed_out, 'collector perl-code timeout is marked as timed out' );
+    is( $code_stdout, '', 'collector perl-code timeout leaves stdout empty' );
+    is( $code_stderr, '', 'collector perl-code timeout leaves stderr empty' );
+
+    my $mode_error = eval { $runner->_run_job( mode => 'bogus', source => '1', cwd => $timeout_dir ); 1 } ? '' : $@;
+    like( $mode_error, qr/Unknown collector mode 'bogus'/, 'collector runner rejects unknown execution modes' );
 }
 
 {

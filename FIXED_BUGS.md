@@ -4,6 +4,8 @@
 
 - Fixed release hygiene drift by making old `Developer-Dashboard-*.tar.gz` artifacts an explicit cleanup step before each new build, instead of leaving stale tarballs around between release validations.
 - Fixed release cleanup drift further by removing stale `Developer-Dashboard-*` Dist::Zilla build directories before each new build, instead of leaving old extracted release trees behind in the repository root.
+- Fixed collector execution rigidity by allowing collector jobs to run Perl via a `code` field while keeping `command` as shell execution, so host checks and other local probes no longer need to abuse shell strings for embedded Perl.
+- Fixed collector indicator verbosity by defaulting the indicator name and label from the collector name, so simple checks no longer need to repeat the same identifier in multiple indicator fields.
 - Fixed shared-config path portability by storing custom home-relative path aliases as `$HOME/...` in global config and expanding them back to concrete local paths at runtime.
 - Fixed installed shell path resolution so named aliases stored as `$HOME/...` expand correctly during `dashboard path resolve`, `which_dir`, and `cdr` instead of being returned literally.
 - Fixed isolated docker compose folder precedence so each folder contributes `development.compose.yml` when present, otherwise `compose.yml`, and auto-scanned folders can be vetoed with `disabled.yml`.

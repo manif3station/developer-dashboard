@@ -314,6 +314,16 @@ my $collector_result = $runner->run_once(
 );
 is( $collector_result->{exit_code}, 0, 'collector runner executes collector jobs from named cwd aliases' );
 is( $indicators->get_indicator('coverage.collector')->{prompt_visible}, 1, 'collector indicator defaults prompt visibility to true' );
+my $collector_code_result = $runner->run_once(
+    {
+        name      => 'coverage.collector.code',
+        code      => q{return 0;},
+        cwd       => 'home',
+        interval  => 2,
+        indicator => { name => 'coverage.collector.code', icon => 'K' },
+    }
+);
+is( $collector_code_result->{exit_code}, 0, 'collector runner executes perl code collectors from named cwd aliases' );
 ok( $runner->_job_is_due( { schedule => 'cron', cron => '* * * * *' }, 'coverage.collector' ), 'collector runner treats cron jobs as due on first slot' );
 ok( !$runner->_cron_due( 'bogus', 'coverage.collector' ), 'collector runner rejects invalid cron expressions' );
 my @now = localtime();
