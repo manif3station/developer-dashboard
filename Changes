@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.62  2026-03-30
+
+    - preserved raw Template Toolkit placeholders in editor and source views instead of rewriting `HTML:` sections with rendered output after a POST
+    - kept render and play flows using prepared TT output while edit and source flows now return the original bookmark text
+    - added a web regression for `HTML: <h1>[% title %]</h1>` so TT placeholders stay intact through the browser editor round-trip
+
 0.61  2026-03-30
 
     - seeded configured collector indicators before the first run so prompt and page status views show all declared checks immediately as missing until they report

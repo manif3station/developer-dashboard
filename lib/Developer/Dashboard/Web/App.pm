@@ -98,6 +98,7 @@ sub handle {
         if ( exists $body_params{instruction} || exists $params{instruction} ) {
             my $instruction = exists $body_params{instruction} ? $body_params{instruction} : $params{instruction};
             my $page = Developer::Dashboard::PageDocument->from_instruction($instruction);
+            $page->{meta}{raw_instruction} = $instruction;
             my $source_kind = 'transient';
             if ( exists $body_params{instruction} && ( $page->as_hash->{id} || '' ) ne '' ) {
                 $self->{pages}->save_page($page);
@@ -122,6 +123,7 @@ sub handle {
         }
         if ( my $token = $params{token} ) {
             my $page = $self->{pages}->load_transient_page($token);
+            $page->{meta}{raw_instruction} = $page->canonical_instruction;
             my $mode = $params{mode} || 'edit';
             $page = $self->_page_with_runtime_state(
                 $page,
@@ -214,6 +216,7 @@ sub handle {
 
     if ( $path =~ m{^/page/([^/]+)/source$} ) {
         my $page = $self->_load_named_page($1);
+        $page->{meta}{raw_instruction} = $page->canonical_instruction;
         $page = $self->_page_with_runtime_state(
             $page,
             query_params => \%params,
@@ -227,11 +230,12 @@ sub handle {
             source          => $page->{meta}{source_kind} || 'saved',
             runtime_context => { params => { %params, %body_params } },
         );
-        return [ 200, 'text/plain; charset=utf-8', $page->canonical_instruction ];
+        return [ 200, 'text/plain; charset=utf-8', $page->{meta}{raw_instruction} || $page->canonical_instruction ];
     }
 
     if ( $path =~ m{^/page/([^/]+)/edit$} ) {
         my $page = $self->_load_named_page($1);
+        $page->{meta}{raw_instruction} = $page->canonical_instruction;
         $page = $self->_page_with_runtime_state(
             $page,
             query_params => \%params,
@@ -273,6 +277,7 @@ sub handle {
 
     if ( $path =~ m{^/page/([^/]+)$} ) {
         my $page = $self->_load_named_page($1);
+        $page->{meta}{raw_instruction} = $page->canonical_instruction;
         $page = $self->_page_with_runtime_state(
             $page,
             query_params => \%params,
@@ -349,9 +354,10 @@ sub _blank_editor_response {
 # Output: response array reference.
 sub _page_response {
     my ( $self, $page, $mode ) = @_;
+    my $source = $page->{meta}{raw_instruction} || $page->canonical_instruction;
 
     if ( $mode eq 'source' ) {
-        return [ 200, 'text/plain; charset=utf-8', $page->canonical_instruction ];
+        return [ 200, 'text/plain; charset=utf-8', $source ];
     }
     if ( $mode eq 'render' ) {
         return [ 200, 'text/html; charset=utf-8', $self->_render_page_html( $page, 'render' ) ];
@@ -366,7 +372,7 @@ sub _page_response {
 # Output: HTML string.
 sub _edit_html {
     my ( $self, $page ) = @_;
-    my $source = $page->canonical_instruction;
+    my $source = $page->{meta}{raw_instruction} || $page->canonical_instruction;
     $source =~ s/&/&amp;/g;
     $source =~ s/</&lt;/g;
     $source =~ s/>/&gt;/g;

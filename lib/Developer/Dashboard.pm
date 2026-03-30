@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.61';
+our $VERSION = '0.62';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.61
+0.62
 
 =head1 INTRODUCTION
 
@@ -413,6 +413,11 @@ immediately.
 The browser editor highlights directive sections, HTML, CSS, JavaScript, and
 Perl C<CODE*> content directly inside the editing surface rather than in a
 separate preview pane.
+
+Edit and source views preserve raw Template Toolkit placeholders inside
+C<HTML:> and C<FORM.TT:> sections, so values such as C<[% title %]> are kept
+in the bookmark source instead of being rewritten to rendered HTML after a
+browser save.
 
 Page C<TITLE:> values only populate the HTML C<E<lt>titleE<gt>> element. If a
 bookmark should show its title in the page body, add it explicitly inside

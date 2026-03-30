@@ -302,6 +302,7 @@ Bookmark documents use the original separator-line format with directive headers
 Posting a bookmark document with `BOOKMARK: some-id` back through the root editor now saves it to the bookmark store so `/app/some-id` resolves it immediately.
 
 The browser editor highlights directive sections, HTML, CSS, JavaScript, and Perl `CODE*` content directly inside the editing surface rather than in a separate preview pane.
+Edit and source views preserve raw Template Toolkit placeholders inside `HTML:` and `FORM.TT:` sections, so values such as `[% title %]` are kept in the bookmark source instead of being rewritten to rendered HTML after a browser save.
 
 Page `TITLE:` values only populate the HTML `<title>` element. If a bookmark should show its title in the page body, add it explicitly inside `HTML:`, for example with `[% title %]`.
 
@@ -487,8 +488,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.61.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.61.tar.gz -v
+tar -tzf Developer-Dashboard-0.62.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.62.tar.gz -v
 ```
 
 The harness also:
