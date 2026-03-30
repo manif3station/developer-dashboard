@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-03-31
+
+- Fixed documentation value drift by rewriting the README, main POD, and architecture guide intro to explain what a developer actually gets from Developer Dashboard, how the web UI, collectors, prompt indicators, CLI helpers, and Docker tooling fit together, and why the product works as a developer home across mixed-language projects.
+- Fixed web-access documentation gaps by documenting the default `0.0.0.0:7890` bind, passwordless exact `127.0.0.1` admin access, and helper-tier sharing model explicitly in the README and POD.
+- Fixed module-description thinness by expanding the documented purpose of the `Developer::Dashboard::*` modules so readers can understand how the runtime is assembled without reading the whole source tree first.
+
 ## 2026-03-30
 
 - Fixed main POD encoding drift by declaring UTF-8 before the documented Unicode collector status glyph examples, so POD parsers no longer warn about non-ASCII content appearing before an encoding declaration.

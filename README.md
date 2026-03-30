@@ -6,6 +6,8 @@ A local home for development work.
 
 Developer Dashboard gives a developer one place to organize the moving parts of day-to-day work.
 
+Without it, local development usually ends up spread across shell history, ad-hoc scripts, browser bookmarks, half-remembered file paths, one-off health checks, and project-specific Docker commands. With it, those pieces can live behind one entrypoint: a browser home, a prompt status layer, and a CLI toolchain that all read from the same runtime.
+
 It brings together browser pages, saved notes, helper actions, collectors, prompt indicators, path aliases, open-file shortcuts, data query tools, and Docker Compose helpers so local development can stay centered around one consistent home instead of a pile of disconnected scripts and tabs.
 
 Release tarballs contain installable runtime artifacts only; local Dist::Zilla release-builder configuration is kept out of the shipped archive.
@@ -35,6 +37,73 @@ Developer Dashboard is meant to become the developer's working home:
 - a command surface for opening files, jumping to known paths, querying data, and running repeatable local tasks
 - a configurable runtime that can adapt to each codebase without losing one familiar entrypoint
 
+### What You Get
+
+- a browser interface on port `7890` for pages, status, editing, and helper access
+- a shell entrypoint for file navigation, page operations, collectors, indicators, auth, and Docker Compose
+- saved runtime state that lets the browser, prompt, and CLI all see the same prepared information
+- a place to collect project-specific shortcuts without rebuilding your daily workflow for every repo
+
+### Web Interface And Access Model
+
+Run the web interface with:
+
+```bash
+dashboard serve
+```
+
+By default it listens on `0.0.0.0:7890`, so you can open it in a browser at:
+
+```text
+http://127.0.0.1:7890/
+```
+
+The access model is deliberate:
+
+- exact numeric loopback admin access on `127.0.0.1` does not require a password
+- helper access is for everyone else, including `localhost`, other hosts, and other machines on the network
+- helper logins let you share the dashboard safely without turning every browser request into full local-admin access
+
+In practice that means the developer at the machine gets friction-free local admin access, while shared or forwarded access is forced through explicit helper accounts.
+
+### Collectors, Indicators, And PS1
+
+Collectors are background or on-demand jobs that prepare state for the rest of the dashboard. A collector can run a shell command or a Perl snippet, then store stdout, stderr, exit code, and timestamps as file-backed runtime data.
+
+That prepared state drives indicators. Indicators are the short status records used by:
+
+- the shell prompt rendered by `dashboard ps1`
+- the top-right status strip in the web interface
+- CLI inspection commands such as `dashboard indicator list`
+
+This matters because prompt and browser status should be cheap to render. Instead of re-running a Docker check, VPN probe, or project health command every time the prompt draws, a collector prepares the answer once and the rest of the system reads the cached result.
+
+### Why It Works As A Developer Home
+
+The pieces are designed to reinforce each other:
+
+- pages give you a browser home for links, notes, forms, and actions
+- collectors prepare state for indicators and prompt rendering
+- indicators summarize that state in both the browser and the shell
+- path aliases, open-file helpers, and data query commands shorten the jump from “I know what I need” to “I am at the file or value now”
+- Docker Compose helpers keep recurring container workflows behind the same `dashboard` entrypoint
+
+That combination makes the dashboard useful as a real daily base instead of just another utility script.
+
+### Not Just For Perl
+
+Developer Dashboard is implemented in Perl, but it is not only for Perl developers.
+
+It is useful anywhere a developer needs:
+
+- a local browser home
+- repeatable health checks and status indicators
+- path shortcuts and file-opening helpers
+- JSON, YAML, TOML, or properties inspection from the CLI
+- a consistent Docker Compose wrapper
+
+The toolchain already understands Perl module names, Java class names, direct files, structured-data formats, and project-local compose flows, so it suits mixed-language teams and polyglot repositories as well as Perl-heavy work.
+
 Project-specific behavior is added through configuration, startup collector definitions, saved pages, and optional plugins.
 
 ## Documentation
@@ -42,46 +111,46 @@ Project-specific behavior is added through configuration, startup collector defi
 ### Main Concepts
 
 - `Developer::Dashboard::PathRegistry`
-  Resolves logical runtime, config, dashboard, collector, and indicator directories.
+  Resolves the runtime roots that everything else depends on, such as dashboards, config, collectors, indicators, plugins, logs, cache, and startup files.
 
 - `Developer::Dashboard::FileRegistry`
-  Resolves stable logical files on top of the path registry.
+  Resolves stable file locations on top of the path registry so the rest of the system can read and write well-known runtime files without duplicating path logic.
 
 - `Developer::Dashboard::PageDocument` and `Developer::Dashboard::PageStore`
-  Implement the saved and transient page model.
+  Implement the saved and transient page model, including bookmark-style source documents, encoded transient pages, and persistent bookmark storage.
 
 - `Developer::Dashboard::PageResolver` and `Developer::Dashboard::PluginManager`
-  Resolve saved pages, provider pages, plugin-defined aliases, and extension packs.
+  Resolve saved pages, provider pages, plugin-defined aliases, and extension packs so browser pages and actions can come from both built-in and plugin-backed sources.
 
 - `Developer::Dashboard::ActionRunner`
-  Executes built-in actions and trusted local command actions with cwd, env, timeout, background support, and encoded action transport.
+  Executes built-in actions and trusted local command actions with cwd, env, timeout, background support, and encoded action transport, letting pages act as operational dashboards instead of static documents.
 
 - `Developer::Dashboard::Collector` and `Developer::Dashboard::CollectorRunner`
-  Implement file-backed prepared-data jobs with managed loop metadata, timeout/env handling, interval and cron-style scheduling, process-title validation, duplicate prevention, and collector inspection data.
+  Implement file-backed prepared-data jobs with managed loop metadata, timeout/env handling, interval and cron-style scheduling, process-title validation, duplicate prevention, and collector inspection data. This is the prepared-state layer that feeds indicators, prompt status, and operational pages.
 
 - `Developer::Dashboard::IndicatorStore` and `Developer::Dashboard::Prompt`
-  Expose cached state to shell prompts and dashboards, including compact versus extended prompt rendering, stale-state marking, and generic built-in indicator refresh.
+  Expose cached state to shell prompts and dashboards, including compact versus extended prompt rendering, stale-state marking, generic built-in indicator refresh, and page-header status payloads for the web UI.
 
 - `Developer::Dashboard::Web::App` and `Developer::Dashboard::Web::Server`
-  Provide the minimal local browser interface, including exact-loopback admin trust and helper login sessions.
+  Provide the browser interface on port `7890`, including the root editor, page rendering, login/logout, helper sessions, and the exact-loopback admin trust model.
 
 - `dashboard of` and `dashboard open-file`
-  Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches under a resolved scope.
+  Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches under a resolved scope so the dashboard can shorten navigation work across different stacks.
 
 - `dashboard pjq`, `dashboard pyq`, `dashboard ptomq`, and `dashboard pjp`
-  Parse JSON, YAML, TOML, and Java properties input, then optionally extract a dotted path and print a scalar or canonical JSON.
+  Parse JSON, YAML, TOML, and Java properties input, then optionally extract a dotted path and print a scalar or canonical JSON, giving the CLI a small data-inspection toolkit that fits naturally into shell workflows.
 
 - standalone `of`, `open-file`, `pjq`, `pyq`, `ptomq`, and `pjp`
-  Provide the same behavior directly, without proxying through the main `dashboard` command.
+  Provide the same behavior directly, without proxying through the main `dashboard` command, for lighter-weight shell usage.
 
 - `Developer::Dashboard::RuntimeManager`
-  Manages the background web service and collector lifecycle with process-title validation, `pkill`-style fallback shutdown, and restart orchestration.
+  Manages the background web service and collector lifecycle with process-title validation, `pkill`-style fallback shutdown, and restart orchestration, tying the browser and prepared-state loops together as one runtime.
 
 - `Developer::Dashboard::UpdateManager`
-  Runs ordered update scripts and restarts validated collector loops when needed.
+  Runs ordered update scripts and restarts validated collector loops when needed, giving the runtime a controlled bootstrap and upgrade path.
 
 - `Developer::Dashboard::DockerCompose`
-  Resolves project-aware compose files, explicit overlay layers, services, addons, modes, env injection, and the final `docker compose` command.
+  Resolves project-aware compose files, explicit overlay layers, services, addons, modes, env injection, and the final `docker compose` command so container workflows can live inside the same dashboard ecosystem instead of in separate wrapper scripts.
 
 ### Environment Variables
 
@@ -495,8 +564,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.67.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.67.tar.gz -v
+tar -tzf Developer-Dashboard-0.68.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.68.tar.gz -v
 ```
 
 The harness also:

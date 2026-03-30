@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.67';
+our $VERSION = '0.68';
 
 1;
 
@@ -19,11 +19,17 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.67
+0.68
 
 =head1 INTRODUCTION
 
 Developer::Dashboard gives a developer one place to organize the moving parts of day-to-day work.
+
+Without it, local development usually ends up spread across shell history,
+ad-hoc scripts, browser bookmarks, half-remembered file paths, one-off health
+checks, and project-specific Docker commands. With it, those pieces can live
+behind one entrypoint: a browser home, a prompt status layer, and a CLI
+toolchain that all read from the same runtime.
 
 It brings together browser pages, saved notes, helper actions, collectors,
 prompt indicators, path aliases, open-file shortcuts, data query tools, and
@@ -126,6 +132,165 @@ familiar entrypoint
 
 =back
 
+=head2 What You Get
+
+=over 4
+
+=item *
+
+a browser interface on port C<7890> for pages, status, editing, and helper
+access
+
+=item *
+
+a shell entrypoint for file navigation, page operations, collectors,
+indicators, auth, and Docker Compose
+
+=item *
+
+saved runtime state that lets the browser, prompt, and CLI all see the same
+prepared information
+
+=item *
+
+a place to collect project-specific shortcuts without rebuilding your daily
+workflow for every repo
+
+=back
+
+=head2 Web Interface And Access Model
+
+Run the web interface with:
+
+  dashboard serve
+
+By default it listens on C<0.0.0.0:7890>, so you can open it in a browser at:
+
+  http://127.0.0.1:7890/
+
+The access model is deliberate:
+
+=over 4
+
+=item *
+
+exact numeric loopback admin access on C<127.0.0.1> does not require a
+password
+
+=item *
+
+helper access is for everyone else, including C<localhost>, other hosts, and
+other machines on the network
+
+=item *
+
+helper logins let you share the dashboard safely without turning every browser
+request into full local-admin access
+
+=back
+
+In practice that means the developer at the machine gets friction-free local
+admin access, while shared or forwarded access is forced through explicit
+helper accounts.
+
+=head2 Collectors, Indicators, And PS1
+
+Collectors are background or on-demand jobs that prepare state for the rest of
+the dashboard. A collector can run a shell command or a Perl snippet, then
+store stdout, stderr, exit code, and timestamps as file-backed runtime data.
+
+That prepared state drives indicators. Indicators are the short status records
+used by:
+
+=over 4
+
+=item *
+
+the shell prompt rendered by C<dashboard ps1>
+
+=item *
+
+the top-right status strip in the web interface
+
+=item *
+
+CLI inspection commands such as C<dashboard indicator list>
+
+=back
+
+This matters because prompt and browser status should be cheap to render.
+Instead of re-running a Docker check, VPN probe, or project health command
+every time the prompt draws, a collector prepares the answer once and the rest
+of the system reads the cached result.
+
+=head2 Why It Works As A Developer Home
+
+The pieces are designed to reinforce each other:
+
+=over 4
+
+=item *
+
+pages give you a browser home for links, notes, forms, and actions
+
+=item *
+
+collectors prepare state for indicators and prompt rendering
+
+=item *
+
+indicators summarize that state in both the browser and the shell
+
+=item *
+
+path aliases, open-file helpers, and data query commands shorten the jump from
+I know what I need to I am at the file or value now
+
+=item *
+
+Docker Compose helpers keep recurring container workflows behind the same
+C<dashboard> entrypoint
+
+=back
+
+That combination makes the dashboard useful as a real daily base instead of
+just another utility script.
+
+=head2 Not Just For Perl
+
+Developer Dashboard is implemented in Perl, but it is not only for Perl
+developers.
+
+It is useful anywhere a developer needs:
+
+=over 4
+
+=item *
+
+a local browser home
+
+=item *
+
+repeatable health checks and status indicators
+
+=item *
+
+path shortcuts and file-opening helpers
+
+=item *
+
+JSON, YAML, TOML, or properties inspection from the CLI
+
+=item *
+
+a consistent Docker Compose wrapper
+
+=back
+
+The toolchain already understands Perl module names, Java class names, direct
+files, structured-data formats, and project-local compose flows, so it suits
+mixed-language teams and polyglot repositories as well as Perl-heavy work.
+
 Project-specific behavior is added through configuration, startup collector
 definitions, saved pages, and optional plugins.
 
@@ -137,65 +302,98 @@ definitions, saved pages, and optional plugins.
 
 =item * Path Registry
 
-L<Developer::Dashboard::PathRegistry> resolves logical runtime, config, dashboard, collector, and indicator directories.
+L<Developer::Dashboard::PathRegistry> resolves the runtime roots that
+everything else depends on, such as dashboards, config, collectors,
+indicators, plugins, logs, cache, and startup files.
 
 =item * File Registry
 
-L<Developer::Dashboard::FileRegistry> resolves stable logical files on top of the path registry.
+L<Developer::Dashboard::FileRegistry> resolves stable file locations on top of
+the path registry so the rest of the system can read and write well-known
+runtime files without duplicating path logic.
 
 =item * Page Model
 
-L<Developer::Dashboard::PageDocument> and L<Developer::Dashboard::PageStore> implement the saved/transient page model.
+L<Developer::Dashboard::PageDocument> and L<Developer::Dashboard::PageStore>
+implement the saved and transient page model, including bookmark-style source
+documents, encoded transient pages, and persistent bookmark storage.
 
 =item * Page Resolver and Plugins
 
-L<Developer::Dashboard::PageResolver> and L<Developer::Dashboard::PluginManager> resolve saved pages, provider pages, plugin-defined aliases, and extension packs.
+L<Developer::Dashboard::PageResolver> and
+L<Developer::Dashboard::PluginManager> resolve saved pages, provider pages,
+plugin-defined aliases, and extension packs so browser pages and actions can
+come from both built-in and plugin-backed sources.
 
 =item * Actions
 
-L<Developer::Dashboard::ActionRunner> executes built-in actions and trusted local command actions with cwd, env, timeout, background support, and encoded action transport.
+L<Developer::Dashboard::ActionRunner> executes built-in actions and trusted
+local command actions with cwd, env, timeout, background support, and encoded
+action transport, letting pages act as operational dashboards instead of static
+documents.
 
 =item * Collectors
 
-L<Developer::Dashboard::Collector> and L<Developer::Dashboard::CollectorRunner> implement file-backed prepared-data jobs with managed loop metadata, timeout/env handling, interval and cron-style scheduling, process-title validation, duplicate prevention, and collector inspection data.
+L<Developer::Dashboard::Collector> and
+L<Developer::Dashboard::CollectorRunner> implement file-backed prepared-data
+jobs with managed loop metadata, timeout/env handling, interval and cron-style
+scheduling, process-title validation, duplicate prevention, and collector
+inspection data. This is the prepared-state layer that feeds indicators,
+prompt status, and operational pages.
 
 =item * Indicators and Prompt
 
-L<Developer::Dashboard::IndicatorStore> and L<Developer::Dashboard::Prompt> expose cached state to shell prompts and dashboards, including compact versus extended prompt rendering, stale-state marking, and generic built-in indicator refresh.
+L<Developer::Dashboard::IndicatorStore> and L<Developer::Dashboard::Prompt>
+expose cached state to shell prompts and dashboards, including compact versus
+extended prompt rendering, stale-state marking, generic built-in indicator
+refresh, and page-header status payloads for the web UI.
 
 =item * Web Layer
 
-L<Developer::Dashboard::Web::App> and L<Developer::Dashboard::Web::Server> provide the minimal local browser interface, including exact-loopback admin trust and helper login sessions.
+L<Developer::Dashboard::Web::App> and
+L<Developer::Dashboard::Web::Server> provide the browser interface on port
+C<7890>, including the root editor, page rendering, login/logout, helper
+sessions, and the exact-loopback admin trust model.
 
 =item * Open File Commands
 
 C<dashboard of> and C<dashboard open-file> resolve direct files, C<file:line>
 references, Perl module names, Java class names, and recursive file-pattern
-matches under a resolved scope.
+matches under a resolved scope so the dashboard can shorten navigation work
+across different stacks.
 
 =item * Data Query Commands
 
 C<dashboard pjq>, C<dashboard pyq>, C<dashboard ptomq>, and C<dashboard pjp>
 parse JSON, YAML, TOML, and Java properties input, then optionally extract a
-dotted path and print a scalar or canonical JSON.
+dotted path and print a scalar or canonical JSON, giving the CLI a small
+data-inspection toolkit that fits naturally into shell workflows.
 
 =item * Standalone CLI Commands
 
 Standalone C<of>, C<open-file>, C<pjq>, C<pyq>, C<ptomq>, and C<pjp> provide
-the same behavior directly without proxying through the main C<dashboard>
-command.
+the same behavior directly, without proxying through the main C<dashboard>
+command, for lighter-weight shell usage.
 
 =item * Runtime Manager
 
-L<Developer::Dashboard::RuntimeManager> manages the background web service and collector lifecycle with process-title validation, C<pkill>-style fallback shutdown, and restart orchestration.
+L<Developer::Dashboard::RuntimeManager> manages the background web service and
+collector lifecycle with process-title validation, C<pkill>-style fallback
+shutdown, and restart orchestration, tying the browser and prepared-state
+loops together as one runtime.
 
 =item * Update Manager
 
-L<Developer::Dashboard::UpdateManager> runs ordered update scripts and restarts validated collector loops when needed.
+L<Developer::Dashboard::UpdateManager> runs ordered update scripts and
+restarts validated collector loops when needed, giving the runtime a
+controlled bootstrap and upgrade path.
 
 =item * Docker Compose Resolver
 
-L<Developer::Dashboard::DockerCompose> resolves project-aware compose files, explicit overlay layers, services, addons, modes, env injection, and the final C<docker compose> command.
+L<Developer::Dashboard::DockerCompose> resolves project-aware compose files,
+explicit overlay layers, services, addons, modes, env injection, and the
+final C<docker compose> command so container workflows can live inside the
+same dashboard ecosystem instead of in separate wrapper scripts.
 
 =back
 
@@ -316,7 +514,7 @@ Or install from a checkout with:
 
 Build the distribution:
 
-  rm -f Developer-Dashboard-*.tar.gz
+  rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
   dzil build
 
 Run the CLI directly from the repository:

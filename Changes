@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.68  2026-03-31
+
+    - expanded the README and main Developer::Dashboard POD to explain the product as a developer home, including what the web UI, helper/admin split, collectors, indicators, prompt rendering, CLI helpers, and Docker tooling offer together
+    - clarified that the browser interface listens on port 7890, exact numeric loopback on 127.0.0.1 is passwordless admin access, and helper accounts are the safe sharing tier for every other browser route
+    - added richer module-level descriptions across the README, POD, and architecture guide so the Developer::Dashboard::* surfaces describe their role in the overall ecosystem instead of reading like disconnected internals
+
 0.67  2026-03-31
 
     - fixed the main Developer::Dashboard POD to declare `=encoding UTF-8` before the documented Unicode status glyph examples, preventing POD parsers from reporting non-ASCII content before the encoding declaration

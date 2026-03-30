@@ -6,6 +6,12 @@ It is designed to give a developer one familiar place to keep pages, helpers,
 status checks, prompt indicators, path shortcuts, and local automation close to
 the code they work on every day.
 
+Without it, the browser, shell prompt, collector scripts, Docker Compose
+wrappers, and file-navigation shortcuts often drift into separate tools with
+separate rules. The architecture here is meant to keep those surfaces tied to
+one runtime so the browser, prompt, and CLI can behave like one developer home
+instead of a loose pile of utilities.
+
 ## Core Services
 
 - `Developer::Dashboard::PathRegistry`
@@ -39,13 +45,17 @@ the code they work on every day.
   Stores prompt/dashboard indicators as file-backed state and can refresh generic built-in indicators.
 
 - `Developer::Dashboard::Auth`
-  Manages helper users and enforces the exact-loopback trust tier.
+  Manages helper users and enforces the exact-loopback trust tier so local
+  admin access on `127.0.0.1` stays friction-free while shared access still
+  requires helper authentication.
 
 - `Developer::Dashboard::SessionStore`
   Stores helper browser sessions as file-backed state.
 
 - `Developer::Dashboard::Prompt`
-  Renders `PS1` output from cached indicator state in compact or extended mode, with optional color and stale-state marking.
+  Renders `PS1` output from cached indicator state in compact or extended mode,
+  with optional color and stale-state marking, so prompt redraws stay cheap and
+  do not rerun expensive health checks.
 
 - `dashboard`
   Canonical command-line entrypoint for runtime, page, collector, prompt, and user CLI extension operations.
@@ -72,7 +82,9 @@ the code they work on every day.
   Applies Template Toolkit rendering for `HTML` and `FORM.TT`, then executes legacy `CODE*` sections inside one throwaway sandpit package per page run and captures their output for page rendering.
 
 - `Developer::Dashboard::Web::App`
-  Resolves the root free-form editor, saved page, transient page, login, logout, `/apps`, and legacy `/app/<name>` routes.
+  Resolves the root free-form editor, saved page, transient page, login,
+  logout, `/apps`, and legacy `/app/<name>` routes, giving the browser side a
+  working home page plus helper-safe sharing.
 
 - `Developer::Dashboard::Web::Server`
   Minimal HTTP server for browsing saved and transient pages, defaulting to bind `0.0.0.0:7890`.
@@ -92,6 +104,13 @@ The architecture follows a producer/consumer pattern:
 - indicators and pages read cached state
 - prompt rendering reads cached state only
 - update scripts bootstrap runtime state and shell integration
+
+That connection matters to the product story:
+
+- collectors prepare the answer once
+- indicators summarize it in the browser and prompt
+- pages and actions give the browser a working home instead of a static note page
+- CLI helpers move the developer directly to files, paths, and container commands
 
 Collector loops are managed explicitly:
 
