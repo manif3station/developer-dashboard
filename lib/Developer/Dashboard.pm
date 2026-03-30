@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.66';
+our $VERSION = '0.67';
 
 1;
 
@@ -11,13 +11,15 @@ __END__
 
 =pod
 
+=encoding UTF-8
+
 =head1 NAME
 
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.66
+0.67
 
 =head1 INTRODUCTION
 

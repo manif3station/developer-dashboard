@@ -2,6 +2,7 @@
 
 ## 2026-03-30
 
+- Fixed main POD encoding drift by declaring UTF-8 before the documented Unicode collector status glyph examples, so POD parsers no longer warn about non-ASCII content appearing before an encoding declaration.
 - Fixed GitHub release-runner dependency fragility further by preinstalling the full `App::Cmd` prerequisite chain before `Dist::Zilla`, so fresh Ubuntu runners do not depend on cpanm resolving that stack in one brittle step.
 - Fixed tarball release-test drift by skipping GitHub workflow assertions in built archives where `.github/workflows/release-cpan.yml` is intentionally not shipped.
 - Fixed release-test timing flakiness by giving the managed-loop sorting regression a short bounded wait for forked test loops to become visible on slower hosts.

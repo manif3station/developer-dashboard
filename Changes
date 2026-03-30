@@ -1,5 +1,9 @@
 Revision history for Developer Dashboard
 
+0.67  2026-03-31
+
+    - fixed the main Developer::Dashboard POD to declare `=encoding UTF-8` before the documented Unicode status glyph examples, preventing POD parsers from reporting non-ASCII content before the encoding declaration
+
 0.66  2026-03-31
 
     - hardened the GitHub CPAN release workflow further by preinstalling the full `App::Cmd` prerequisite chain before `Dist::Zilla`, avoiding fragile on-the-fly dependency resolution on fresh Ubuntu runners
