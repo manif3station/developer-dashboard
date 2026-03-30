@@ -29,6 +29,13 @@ jobs:
         run: |
           cpanm --installdeps --notest .
           cpanm --notest Devel::Cover
+          cpanm --notest Capture::Tiny
+          cpanm --notest Sub::Install Data::OptList Params::Util
+          cpanm --notest Sub::Exporter Sub::Exporter::Util
+          cpanm --notest Module::Runtime Try::Tiny Module::Implementation
+          cpanm --notest Dist::CheckConflicts Package::Stash::XS Package::Stash Class::Load
+          cpanm --notest Getopt::Long Getopt::Long::Descriptive
+          cpanm --notest IO::TieCombine String::RewritePrefix Module::Pluggable::Object
           cpanm --notest App::Cmd
           cpanm --notest Dist::Zilla
           cpanm --notest Dist::Zilla::Plugin::ManifestSkip

@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.66  2026-03-31
+
+    - hardened the GitHub CPAN release workflow further by preinstalling the full `App::Cmd` prerequisite chain before `Dist::Zilla`, avoiding fragile on-the-fly dependency resolution on fresh Ubuntu runners
+    - documented that explicit release bootstrap path in the README and release guide after validating it inside a blank Ubuntu 24.04 container
+
 0.65  2026-03-31
 
     - fixed the tarball-facing release metadata test so workflow-specific checks are skipped when `.github` is intentionally absent from the built archive

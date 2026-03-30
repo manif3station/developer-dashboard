@@ -2,6 +2,7 @@
 
 ## 2026-03-30
 
+- Fixed GitHub release-runner dependency fragility further by preinstalling the full `App::Cmd` prerequisite chain before `Dist::Zilla`, so fresh Ubuntu runners do not depend on cpanm resolving that stack in one brittle step.
 - Fixed tarball release-test drift by skipping GitHub workflow assertions in built archives where `.github/workflows/release-cpan.yml` is intentionally not shipped.
 - Fixed release-test timing flakiness by giving the managed-loop sorting regression a short bounded wait for forked test loops to become visible on slower hosts.
 - Fixed GitHub CPAN release workflow bootstrap drift by installing `App::Cmd` before `Dist::Zilla`, so release jobs no longer fail on missing `App::Cmd::*` modules during dependency setup.

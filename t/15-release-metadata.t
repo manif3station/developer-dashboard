@@ -47,7 +47,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '0.65', 'module version bumped for tarball-safe workflow checks and developer-home release' );
+is( $version, '0.66', 'module version bumped for hardened workflow bootstrap release' );
 like( $changes, qr/^\Q$version\E\s+\d{4}-\d{2}-\d{2}$/m, 'Changes top entry matches module version' );
 
 if ( %{$meta} ) {
@@ -72,9 +72,11 @@ like( $release_doc, qr/tar -tzf Developer-Dashboard-\Q$version\E\.tar\.gz/, 'rel
 like( $release_doc, qr/rm -rf Developer-Dashboard-\* Developer-Dashboard-\*\.tar\.gz/, 'release doc documents old build directory and tarball cleanup before building a release' );
 if ( $workflow ne '' ) {
     like( $workflow, qr/cpanm --notest App::Cmd/, 'release workflow bootstraps App::Cmd before Dist::Zilla' );
+    like( $workflow, qr/Module::Pluggable::Object/, 'release workflow preinstalls the App::Cmd dependency chain explicitly' );
 }
 else {
     pass('release workflow checks are skipped in built tarballs without .github metadata');
+    pass('dependency-chain workflow checks are skipped in built tarballs without .github metadata');
 }
 
 done_testing;

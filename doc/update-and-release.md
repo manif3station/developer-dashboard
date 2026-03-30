@@ -146,8 +146,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.65.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.65.tar.gz -v
+tar -tzf Developer-Dashboard-0.66.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.66.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:
@@ -157,7 +157,7 @@ and uploads the resulting tarball to PAUSE using:
 
 stored as GitHub Actions secrets.
 
-The release workflow bootstraps C<App::Cmd> before C<Dist::Zilla> so fresh GitHub runners do not fail during release dependency installation when C<Dist::Zilla> pulls in C<App::Cmd::*> modules.
+The release workflow bootstraps the C<App::Cmd> dependency chain explicitly before C<Dist::Zilla>, including modules such as C<Module::Pluggable::Object>, C<Getopt::Long::Descriptive>, C<Class::Load>, and C<IO::TieCombine>, so fresh GitHub runners do not fail during release dependency installation when C<Dist::Zilla> pulls in the C<App::Cmd::*> stack.
 
 Runtime JSON handling is implemented with `JSON::XS`, including the shell bootstrap helper used by `dashboard shell bash`.
 

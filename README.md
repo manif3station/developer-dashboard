@@ -495,8 +495,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.65.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.65.tar.gz -v
+tar -tzf Developer-Dashboard-0.66.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.66.tar.gz -v
 ```
 
 The harness also:
@@ -566,7 +566,7 @@ It expects these GitHub Actions secrets:
 The workflow:
 
 1. checks out the repo
-2. installs Perl, release dependencies, `App::Cmd`, and Dist::Zilla
+2. installs Perl, release dependencies, the explicit `App::Cmd` prerequisite chain, and Dist::Zilla
 3. builds the CPAN distribution tarball with `dzil build`
 4. uploads the tarball to PAUSE
 
