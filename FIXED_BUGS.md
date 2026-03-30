@@ -2,6 +2,7 @@
 
 ## 2026-03-30
 
+- Fixed tarball metadata test drift by teaching the release check to accept both repository and Dist::Zilla-generated Makefile.PL quoting for shipped executables.
 - Fixed shell path navigation drift so `cdr` and `which_dir` resolve named dashboard paths such as `bookmarks_root` before falling back to project-name search.
 - Fixed docker-compose config sprawl by restoring old-style isolated service-folder discovery under the dashboard docker config root, so per-service compose files can live outside the merged JSON config.
 - Fixed docker overlay path rigidity by expanding `${VAR}` and `$VAR` placeholders in configured compose file paths, restoring old-style `DDDC`-driven global config patterns.

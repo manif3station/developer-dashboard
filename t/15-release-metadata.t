@@ -40,7 +40,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '0.47', 'module version bumped for the release fix' );
+is( $version, '0.48', 'module version bumped for the release fix' );
 like( $changes, qr/^\Q$version\E\s+\d{4}-\d{2}-\d{2}$/m, 'Changes top entry matches module version' );
 
 if ( %{$meta} ) {
@@ -55,7 +55,7 @@ else {
 }
 
 for my $script (qw(bin/dashboard bin/of bin/open-file bin/pjq bin/pyq bin/ptomq bin/pjp)) {
-    like( $makefile, qr/'\Q$script\E'/, "Makefile.PL ships $script" );
+    like( $makefile, qr/["']\Q$script\E["']/, "Makefile.PL ships $script" );
 }
 
 like( $readme, qr/cpanm \/tmp\/Developer-Dashboard-\Q$version\E\.tar\.gz -v/, 'README documents tarball install verification' );
