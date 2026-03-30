@@ -3,6 +3,8 @@
 ## 2026-03-30
 
 - Fixed release hygiene drift by making old `Developer-Dashboard-*.tar.gz` artifacts an explicit cleanup step before each new build, instead of leaving stale tarballs around between release validations.
+- Fixed shared-config path portability by storing custom home-relative path aliases as `$HOME/...` in global config and expanding them back to concrete local paths at runtime.
+- Fixed installed shell path resolution so named aliases stored as `$HOME/...` expand correctly during `dashboard path resolve`, `which_dir`, and `cdr` instead of being returned literally.
 - Fixed isolated docker compose folder precedence so each folder contributes `development.compose.yml` when present, otherwise `compose.yml`, and auto-scanned folders can be vetoed with `disabled.yml`.
 - Fixed docker compose CLI passthrough parsing so real docker compose flags such as `-d` and `--build` are no longer misread as dashboard wrapper options like `dry-run` before the final command is executed.
 - Fixed non-dry-run docker compose execution so `dashboard docker compose ...` now `exec`s the resolved `docker compose` command and streams normal compose output instead of printing a dashboard JSON envelope.

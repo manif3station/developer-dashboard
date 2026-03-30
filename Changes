@@ -1,9 +1,10 @@
 Revision history for Developer Dashboard
 
-0.56  2026-03-30
+0.58  2026-03-30
 
-    - added persistent `dashboard path add <name> <path>` and `dashboard path del <name>` commands so users can manage custom `cdr` and `which_dir` aliases without editing config files by hand
-    - made repeated path adds and deletes idempotent so existing aliases can be re-added and missing aliases can be removed without error
+    - made persisted custom path aliases portable by storing home-relative targets with `$HOME` in global config while expanding them back to concrete local paths when resolved
+    - kept `dashboard path add <name> <path>` and `dashboard path del <name>` idempotent so existing aliases can be re-added and missing aliases can be removed without error
+    - fixed named-path resolution so stored `$HOME/...` aliases expand correctly in installed shells and `cdr` continues to work from the tarball artifact
 
 0.55  2026-03-30
 

@@ -175,7 +175,7 @@ sub path_aliases {
     my ($self) = @_;
     my $cfg = $self->merged;
     return {} if ref( $cfg->{path_aliases} ) ne 'HASH';
-    return { %{ $cfg->{path_aliases} } };
+    return $self->_expand_path_aliases( $cfg->{path_aliases} );
 }
 
 # global_path_aliases()
@@ -186,7 +186,7 @@ sub global_path_aliases {
     my ($self) = @_;
     my $cfg = $self->load_global;
     return {} if ref( $cfg->{path_aliases} ) ne 'HASH';
-    return { %{ $cfg->{path_aliases} } };
+    return $self->_expand_path_aliases( $cfg->{path_aliases} );
 }
 
 # save_global_path_alias($name, $path)
@@ -200,12 +200,13 @@ sub save_global_path_alias {
 
     my $cfg = $self->load_global;
     $cfg->{path_aliases} = {} if ref( $cfg->{path_aliases} ) ne 'HASH';
-    $cfg->{path_aliases}{$name} = $path;
+    my $stored_path = $self->_normalize_home_path($path);
+    $cfg->{path_aliases}{$name} = $stored_path;
     $self->save_global($cfg);
 
     return {
         name => $name,
-        path => $path,
+        path => $self->_expand_config_path($stored_path),
     };
 }
 
@@ -226,6 +227,53 @@ sub remove_global_path_alias {
         name    => $name,
         removed => $removed,
     };
+}
+
+# _normalize_home_path($path)
+# Rewrites home-relative absolute paths into portable $HOME-prefixed config values.
+# Input: path string that may live under the current home directory.
+# Output: path string suitable for config persistence.
+sub _normalize_home_path {
+    my ( $self, $path ) = @_;
+    return $path if !defined $path || $path eq '';
+
+    my $home = $self->{paths}->home;
+    return $path if !defined $home || $home eq '';
+    return '$HOME' if $path eq $home;
+
+    my $home_prefix = $home . '/';
+    return '$HOME/' . substr( $path, length($home_prefix) ) if index( $path, $home_prefix ) == 0;
+
+    return $path;
+}
+
+# _expand_config_path($path)
+# Expands stored $HOME-style config paths back into concrete local filesystem paths.
+# Input: stored path string that may start with $HOME or ~.
+# Output: expanded path string for runtime use.
+sub _expand_config_path {
+    my ( $self, $path ) = @_;
+    return $path if !defined $path || $path eq '';
+
+    my $home = $self->{paths}->home;
+    return $home if defined $home && $path eq '$HOME';
+    return $home . substr( $path, 5 ) if defined $home && $path =~ /^\$HOME(?=\/)/;
+    return $home . substr( $path, 1 ) if defined $home && $path =~ /^~/;
+
+    return $path;
+}
+
+# _expand_path_aliases($aliases)
+# Expands stored path-alias targets into runtime-ready absolute paths.
+# Input: hash reference of alias-to-path mappings.
+# Output: hash reference with expanded path values.
+sub _expand_path_aliases {
+    my ( $self, $aliases ) = @_;
+    my %expanded;
+    for my $name ( keys %{ $aliases || {} } ) {
+        $expanded{$name} = $self->_expand_config_path( $aliases->{$name} );
+    }
+    return \%expanded;
 }
 
 # docker_config()

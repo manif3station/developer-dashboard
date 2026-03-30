@@ -446,12 +446,13 @@ sub _ensure_dir {
 }
 
 # _expand_home($path)
-# Expands a leading tilde using the configured home directory.
-# Input: path string.
+# Expands leading home shorthands used by config and env values.
+# Input: path string that may start with ~ or $HOME.
 # Output: expanded path string.
 sub _expand_home {
     my ( $self, $path ) = @_;
     return $path if !defined $path;
+    $path =~ s/^\$HOME(?=\/|$)/$self->{home}/;
     $path =~ s/^~/$self->{home}/;
     return $path;
 }

@@ -164,6 +164,8 @@ is_deeply(
     'locate_projects ignores empty search terms and non-directories',
 );
 is( $paths->_expand_home(undef), undef, '_expand_home leaves undefined values unchanged' );
+is( $paths->_expand_home('$HOME/shared-path'), File::Spec->catdir( $home, 'shared-path' ), '_expand_home expands leading $HOME tokens' );
+is( $paths->_expand_home('$HOME'), $home, '_expand_home expands a bare $HOME token' );
 
 dies_like( sub { $paths->collector_dir('') }, qr/Missing collector name/, 'collector_dir requires a name' );
 dies_like( sub { $paths->indicator_dir('') }, qr/Missing indicator name/, 'indicator_dir requires a name' );
@@ -222,13 +224,49 @@ my $saved_global = {
 $config->save_global($saved_global);
 is_deeply( $config->load_global, $saved_global, 'save_global round-trips config content' );
 my $global_alias_config = Developer::Dashboard::Config->new( files => $files, paths => $paths, repo_root => $home );
-$global_alias_config->save_global_path_alias( 'foo', '~/foo-path' );
-is_deeply( $global_alias_config->global_path_aliases, { foo => '~/foo-path' }, 'global_path_aliases returns only persisted global aliases' );
-is_deeply( $global_alias_config->path_aliases, { foo => '~/foo-path' }, 'path_aliases includes persisted global aliases when no repo override exists' );
+$global_alias_config->save_global_path_alias( 'foo', File::Spec->catdir( $home, 'foo-path' ) );
 is_deeply(
-    $global_alias_config->save_global_path_alias( 'foo', '~/foo-path-updated' ),
-    { name => 'foo', path => '~/foo-path-updated' },
+    $global_alias_config->load_global->{path_aliases},
+    { foo => '$HOME/foo-path' },
+    'save_global_path_alias stores home-relative paths using $HOME for portability',
+);
+is_deeply(
+    $global_alias_config->global_path_aliases,
+    { foo => File::Spec->catdir( $home, 'foo-path' ) },
+    'global_path_aliases expands stored $HOME paths back to concrete local paths',
+);
+is_deeply(
+    $global_alias_config->path_aliases,
+    { foo => File::Spec->catdir( $home, 'foo-path' ) },
+    'path_aliases includes expanded global aliases when no repo override exists',
+);
+is_deeply(
+    $global_alias_config->save_global_path_alias( 'foo', File::Spec->catdir( $home, 'foo-path-updated' ) ),
+    { name => 'foo', path => File::Spec->catdir( $home, 'foo-path-updated' ) },
     'save_global_path_alias updates existing aliases idempotently',
+);
+is_deeply(
+    $global_alias_config->load_global->{path_aliases},
+    { foo => '$HOME/foo-path-updated' },
+    'save_global_path_alias keeps updated home-relative paths portable in the stored config',
+);
+is( $global_alias_config->_normalize_home_path($home), '$HOME', '_normalize_home_path rewrites the exact home directory to $HOME' );
+is( $global_alias_config->_normalize_home_path('/opt/shared-path'), '/opt/shared-path', '_normalize_home_path leaves non-home absolute paths unchanged' );
+is( $global_alias_config->_expand_config_path('$HOME'), $home, '_expand_config_path expands a bare $HOME token' );
+is(
+    $global_alias_config->_expand_config_path('~/tilde-path'),
+    File::Spec->catdir( $home, 'tilde-path' ),
+    '_expand_config_path expands tilde-prefixed paths for compatibility',
+);
+is(
+    $global_alias_config->_expand_config_path('/opt/shared-path'),
+    '/opt/shared-path',
+    '_expand_config_path leaves non-home absolute paths unchanged',
+);
+is_deeply(
+    $global_alias_config->_expand_path_aliases(),
+    {},
+    '_expand_path_aliases returns an empty hash for missing alias maps',
 );
 is_deeply(
     $global_alias_config->remove_global_path_alias('foo'),

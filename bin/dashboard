@@ -670,12 +670,13 @@ elsif ( $cmd eq 'restart' ) {
 elsif ( $cmd eq 'shell' ) {
     my $shell = shift @ARGV || 'bash';
     if ( $shell eq 'bash' ) {
-        print <<'BASH';
+        my $dashboard_cmd = _shell_dashboard_command();
+        my $bootstrap = <<'BASH';
 cdr() {
   local target
-  target="$(dashboard path resolve "$1" 2>/dev/null || true)"
+  target="$(__DASHBOARD_CMD__ path resolve "$1" 2>/dev/null || true)"
   if [ -z "$target" ]; then
-    target="$(dashboard path locate "$@" | perl -MJSON::XS -0777 -ne 'my $a=JSON::XS->new->decode($_); print $a->[0] // q{}')"
+    target="$(__DASHBOARD_CMD__ path locate "$@" | perl -MJSON::XS -0777 -ne 'my $a=JSON::XS->new->decode($_); print $a->[0] // q{}')"
   fi
   if [ -n "$target" ]; then
     cd "$target"
@@ -687,11 +688,13 @@ dd_cdr() {
 }
 
 which_dir() {
-  dashboard path resolve "$1" 2>/dev/null || dashboard path locate "$@"
+  __DASHBOARD_CMD__ path resolve "$1" 2>/dev/null || __DASHBOARD_CMD__ path locate "$@"
 }
 
-export PS1='$(dashboard ps1 --jobs \j --mode compact)'
+export PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact)'
 BASH
+        $bootstrap =~ s/__DASHBOARD_CMD__/$dashboard_cmd/g;
+        print $bootstrap;
         exit 0;
     }
     die "Unsupported shell '$shell'\n";
@@ -717,6 +720,33 @@ sub _standalone_builtin_executable {
     my $path = File::Spec->catfile( $Bin, $name );
     return if !-f $path;
     return $path;
+}
+
+# _shell_dashboard_command()
+# Builds a shell-safe command that re-invokes the current dashboard entrypoint.
+# Input: none.
+# Output: shell command string suitable for generated shell bootstrap helpers.
+sub _shell_dashboard_command {
+    my $script = File::Spec->rel2abs($0);
+    my $repo_lib = File::Spec->rel2abs( File::Spec->catdir( $Bin, '..', 'lib' ) );
+    if ( -f File::Spec->catfile( $repo_lib, 'Developer', 'Dashboard.pm' ) ) {
+        return join ' ',
+          _shell_quote($^X),
+          '-I' . _shell_quote($repo_lib),
+          _shell_quote($script);
+    }
+    return _shell_quote($script);
+}
+
+# _shell_quote($value)
+# Quotes a single shell token for safe interpolation into generated shell helpers.
+# Input: scalar string.
+# Output: single-quoted shell token string.
+sub _shell_quote {
+    my ($value) = @_;
+    $value = '' if !defined $value;
+    $value =~ s/'/'\\''/g;
+    return "'$value'";
 }
 
 pod2usage(

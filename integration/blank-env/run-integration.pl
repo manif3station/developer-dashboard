@@ -134,7 +134,7 @@ BOOKMARK
     _assert_match( $ps1->{stdout}, qr/fake-project|jobs/, 'dashboard ps1 renders prompt text for fake project' );
 
     my $shell = _run_shell( 'dashboard shell bash', 'dashboard shell bash' );
-    _assert_match( $shell->{stdout}, qr/dashboard ps1/, 'dashboard shell bash emits shell integration' );
+    _assert_match( $shell->{stdout}, qr/path resolve "\$1"|ps1 --jobs/, 'dashboard shell bash emits shell integration' );
 
     my $config_init = _run_shell( 'dashboard config init', 'dashboard config init' );
     _assert_match( $config_init->{stdout}, qr/config\.json/, 'dashboard config init writes config file' );

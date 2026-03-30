@@ -195,7 +195,7 @@ dashboard path add foobar /tmp/foobar
 dashboard path del foobar
 ```
 
-Custom path aliases are stored in the global dashboard config so shell helpers such as `cdr foobar` and `which_dir foobar` keep working across sessions. Re-adding an existing alias updates it without error, and deleting a missing alias is also safe.
+Custom path aliases are stored in the global dashboard config so shell helpers such as `cdr foobar` and `which_dir foobar` keep working across sessions. When a saved alias points inside your home directory, the stored config uses `$HOME/...` instead of a hard-coded absolute home path so a shared `~/.developer-dashboard` folder remains portable across different developer accounts. Re-adding an existing alias updates it without error, and deleting a missing alias is also safe.
 
 Render shell bootstrap:
 
@@ -448,8 +448,8 @@ Before uploading a release artifact, remove older tarballs first so only the cur
 ```bash
 rm -f Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.56.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.56.tar.gz -v
+tar -tzf Developer-Dashboard-0.58.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.58.tar.gz -v
 ```
 
 The harness also:
