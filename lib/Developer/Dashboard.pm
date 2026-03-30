@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.48';
+our $VERSION = '0.50';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.48
+0.50
 
 =head1 INTRODUCTION
 
@@ -433,13 +433,20 @@ Inspect the resolved compose stack without running Docker:
 Include addons or modes:
 
   dashboard docker compose --addon mailhog --mode dev up -d
+  dashboard docker compose config green
+  dashboard docker compose config
 
 The resolver also supports old-style isolated service folders without adding
 entries to dashboard JSON config. If
 C<~/.developer-dashboard/config/docker/green/compose.yml> exists,
-C<dashboard docker compose --service green ...> will pick it up automatically.
-If C<development.compose.yml> exists in the same service folder, it is also
-included when any C<--mode> is requested.
+C<dashboard docker compose config green> or
+C<dashboard docker compose up green> will pick it up automatically by
+inferring service names from the passthrough compose args before the real
+C<docker compose> command is assembled. If no service name is passed, the
+resolver scans isolated service folders and preloads only folders that contain
+an activation marker such as C<active> or C<.active>. If
+C<development.compose.yml> exists in the same service folder, it is also
+included automatically for that service.
 
 During compose execution the dashboard exports C<DDDC> as
 C<~/.developer-dashboard/config/docker>, so compose YAML can keep using
@@ -592,8 +599,8 @@ C<dashboard> command inside the clean Perl container.
 
 Before uploading a release artifact, validate the exact tarball that will ship:
 
-  tar -tzf Developer-Dashboard-0.48.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.48.tar.gz -v
+  tar -tzf Developer-Dashboard-0.50.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.50.tar.gz -v
 
 The harness also:
 

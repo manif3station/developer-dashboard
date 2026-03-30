@@ -334,9 +334,11 @@ Include addons or modes:
 
 ```bash
 dashboard docker compose --addon mailhog --mode dev up -d
+dashboard docker compose config green
+dashboard docker compose config
 ```
 
-The resolver also supports old-style isolated service folders without adding entries to dashboard JSON config. If `~/.developer-dashboard/config/docker/green/compose.yml` exists, `dashboard docker compose --service green ...` will pick it up automatically. If `development.compose.yml` exists in the same service folder, it is also included when any `--mode` is requested.
+The resolver also supports old-style isolated service folders without adding entries to dashboard JSON config. If `~/.developer-dashboard/config/docker/green/compose.yml` exists, `dashboard docker compose config green` or `dashboard docker compose up green` will pick it up automatically by inferring service names from the passthrough compose args before the real `docker compose` command is assembled. If no service name is passed, the resolver scans isolated service folders and preloads only folders that contain an activation marker such as `active` or `.active`. If `development.compose.yml` exists in the same service folder, it is also included automatically for that service.
 
 During compose execution the dashboard exports `DDDC` as `~/.developer-dashboard/config/docker`, so compose YAML can keep using `${DDDC}` paths inside the YAML itself.
 
@@ -437,8 +439,8 @@ installs the tarball with `cpanm`, and then exercises the installed
 Before uploading a release artifact, validate the exact tarball that will ship:
 
 ```bash
-tar -tzf Developer-Dashboard-0.48.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.48.tar.gz -v
+tar -tzf Developer-Dashboard-0.50.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.50.tar.gz -v
 ```
 
 The harness also:

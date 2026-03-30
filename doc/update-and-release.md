@@ -113,7 +113,7 @@ The extension layer now includes:
 - action execution through the page action runner
 - project-aware Docker Compose resolution through `dashboard docker compose`
 
-Compose setup can now stay isolated in service folders under `~/.developer-dashboard/config/docker/<service>/compose.yml` without adding JSON config entries, and `development.compose.yml` in the same folder is included whenever `--mode` is used. The compose runtime also exports `DDDC` as that global docker config root so YAML can continue to use `${DDDC}` paths internally.
+Compose setup can now stay isolated in service folders under `~/.developer-dashboard/config/docker/<service>/compose.yml` without adding JSON config entries, and the wrapper infers service names from passthrough docker compose args such as `config green` before building the final `docker compose` command. When no service name is passed, the resolver scans isolated service folders and preloads only folders that contain an activation marker such as `active` or `.active`. `development.compose.yml` in the same folder is also included automatically for that service. The compose runtime also exports `DDDC` as that global docker config root so YAML can continue to use `${DDDC}` paths internally.
 
 ## Release To PAUSE
 
@@ -130,8 +130,8 @@ dzil build
 Before publishing to PAUSE, validate the exact tarball that will ship:
 
 ```bash
-tar -tzf Developer-Dashboard-0.48.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.48.tar.gz -v
+tar -tzf Developer-Dashboard-0.50.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.50.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

@@ -35,6 +35,7 @@ sub resolve {
     my $docker_cfg   = $self->{config}->docker_config;
     my $plugin_cfg   = $self->{plugins}->docker_config;
     my $docker_root  = $self->_docker_config_root;
+    my @passthrough  = @{ $args{args} || [] };
     my @compose_files = ();
     my @layers;
 
@@ -62,6 +63,20 @@ sub resolve {
         %{ $plugin_cfg->{services} || {} },
         %{ $docker_cfg->{services} || {} },
     );
+    my @inferred_services = $self->_infer_services_from_args(
+        args         => \@passthrough,
+        project_root => $project_root,
+        service_map  => \%service_map,
+    );
+    my %service_seen;
+    @services = grep { !$service_seen{$_}++ } ( @services, @inferred_services );
+    if ( !@services ) {
+        my @active_services = $self->_discover_active_services(
+            project_root => $project_root,
+            service_map  => \%service_map,
+        );
+        @services = grep { !$service_seen{$_}++ } @active_services;
+    }
 
     my @service_files;
     for my $service (@services) {
@@ -124,7 +139,6 @@ sub resolve {
         @env{ keys %{ $def->{env} } } = values %{ $def->{env} };
     }
 
-    my @passthrough = @{ $args{args} || [] };
     my @command = ('docker', 'compose');
     for my $file (@files) {
         push @command, '-f', $file;
@@ -175,7 +189,6 @@ sub _discover_service_files {
     my ( $self, %args ) = @_;
     my $service      = $args{service} || return;
     my $project_root = $args{project_root} || cwd();
-    my $modes        = $args{modes} || [];
 
     my @roots = (
         File::Spec->catdir( $project_root, '.developer-dashboard', 'docker' ),
@@ -192,13 +205,107 @@ sub _discover_service_files {
         my $compose = File::Spec->catfile( $service_root, 'compose.yml' );
         push @files, $compose if -f $compose && !$seen{$compose}++;
 
-        next if !@{$modes};
-
         my $development = File::Spec->catfile( $service_root, 'development.compose.yml' );
         push @files, $development if -f $development && !$seen{$development}++;
     }
 
     return @files;
+}
+
+# _discover_active_services(%args)
+# Lists isolated services that are explicitly marked active when no service is selected in the command.
+# Input: project_root and optional service_map hash reference.
+# Output: ordered list of active service name strings.
+sub _discover_active_services {
+    my ( $self, %args ) = @_;
+    my @services = $self->_discover_service_names(%args);
+    return grep {
+        $self->_service_folder_is_active(
+            project_root => $args{project_root},
+            service      => $_,
+        )
+    } @services;
+}
+
+# _discover_service_names(%args)
+# Lists known compose service names from config maps and isolated service folders.
+# Input: project_root and optional service_map hash reference.
+# Output: sorted list of service name strings.
+sub _discover_service_names {
+    my ( $self, %args ) = @_;
+    my $project_root = $args{project_root} || cwd();
+    my $service_map  = $args{service_map} || {};
+    my %names = map { $_ => 1 } grep { defined && $_ ne '' } keys %{$service_map};
+
+    for my $root (
+        File::Spec->catdir( $project_root, '.developer-dashboard', 'docker' ),
+        $self->_docker_config_root,
+      )
+    {
+        next if !-d $root;
+        opendir my $dh, $root or next;
+        while ( my $entry = readdir $dh ) {
+            next if $entry eq '.' || $entry eq '..';
+            next if !-d File::Spec->catdir( $root, $entry );
+            $names{$entry} = 1;
+        }
+        closedir $dh;
+    }
+
+    return sort keys %names;
+}
+
+# _service_folder_is_active(%args)
+# Checks whether an isolated service folder opts into automatic compose inclusion.
+# Input: service name and optional project_root.
+# Output: boolean true when the service folder contains an activation marker.
+sub _service_folder_is_active {
+    my ( $self, %args ) = @_;
+    my $service      = $args{service} || return 0;
+    my $project_root = $args{project_root} || cwd();
+    my @markers      = qw(active .active enabled .enabled);
+
+    for my $root (
+        File::Spec->catdir( $project_root, '.developer-dashboard', 'docker' ),
+        $self->_docker_config_root,
+      )
+    {
+        next if !defined $root || $root eq '';
+        my $service_root = File::Spec->catdir( $root, $service );
+        next if !-d $service_root;
+        for my $marker (@markers) {
+            return 1 if -f File::Spec->catfile( $service_root, $marker );
+        }
+    }
+
+    return 0;
+}
+
+# _infer_services_from_args(%args)
+# Infers service names from passthrough docker compose arguments before the real command is executed.
+# Input: args array reference, project_root, and optional service_map hash reference.
+# Output: ordered list of inferred service name strings.
+sub _infer_services_from_args {
+    my ( $self, %args ) = @_;
+    my $argv         = $args{args} || [];
+    my $project_root = $args{project_root} || cwd();
+    my $service_map  = $args{service_map} || {};
+    my %known = map { $_ => 1 } $self->_discover_service_names(
+        project_root => $project_root,
+        service_map  => $service_map,
+    );
+
+    my @services;
+    my %seen;
+    for my $arg ( @{$argv} ) {
+        next if !defined $arg || $arg eq '';
+        next if $arg =~ /^-/;
+        next if !$known{$arg};
+        next if $seen{$arg}++;
+        push @services, $arg;
+    }
+
+    return @services;
 }
 
 # run(%args)

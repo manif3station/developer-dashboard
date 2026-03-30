@@ -2,6 +2,8 @@
 
 ## 2026-03-30
 
+- Fixed isolated docker compose activation so plain passthrough commands such as `dashboard docker compose config` preload only isolated service folders explicitly marked active, while service names mentioned in passthrough args such as `config green` are still inferred before the real docker compose command is built.
+- Fixed compose passthrough drift so service names mentioned after `dashboard docker compose` are inferred before the real docker compose command is built, and isolated `development.compose.yml` service overlays are included automatically.
 - Fixed tarball metadata test drift by teaching the release check to accept both repository and Dist::Zilla-generated Makefile.PL quoting for shipped executables.
 - Fixed shell path navigation drift so `cdr` and `which_dir` resolve named dashboard paths such as `bookmarks_root` before falling back to project-name search.
 - Fixed docker-compose config sprawl by restoring old-style isolated service-folder discovery under the dashboard docker config root, so per-service compose files can live outside the merged JSON config.
