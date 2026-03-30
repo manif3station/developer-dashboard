@@ -1,6 +1,6 @@
 Revision history for Developer Dashboard
 
-0.52  2026-03-30
+0.53  2026-03-30
 
     - fixed `dashboard docker compose` option parsing so real docker compose flags such as `-d` and `--build` pass through untouched instead of being treated as wrapper options
     - auto-loaded isolated `config/docker/*` service folders by default when no service name is passed, while skipping folders that contain `disabled.yml`

@@ -576,7 +576,7 @@ elsif ( $cmd eq 'docker' ) {
         my @services;
         my $project_root = '';
         my $dry_run = 0;
-        Getopt::Long::Configure('pass_through');
+        Getopt::Long::Configure(qw(pass_through no_getopt_compat no_auto_abbrev));
         GetOptionsFromArray(
             \@ARGV,
             'addon=s@'   => \@addons,
@@ -585,7 +585,7 @@ elsif ( $cmd eq 'docker' ) {
             'project=s'  => \$project_root,
             'dry-run!'   => \$dry_run,
         );
-        Getopt::Long::Configure('no_pass_through');
+        Getopt::Long::Configure(qw(no_pass_through getopt_compat auto_abbrev));
         my $result = $docker->run(
             addons       => \@addons,
             args         => \@ARGV,

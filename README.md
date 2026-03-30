@@ -440,8 +440,8 @@ installs the tarball with `cpanm`, and then exercises the installed
 Before uploading a release artifact, validate the exact tarball that will ship:
 
 ```bash
-tar -tzf Developer-Dashboard-0.52.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.52.tar.gz -v
+tar -tzf Developer-Dashboard-0.53.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.53.tar.gz -v
 ```
 
 The harness also:

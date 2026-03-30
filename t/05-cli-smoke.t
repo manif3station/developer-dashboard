@@ -72,6 +72,7 @@ print {$docker_green_fh} "services:\n  green:\n    image: alpine\n";
 close $docker_green_fh;
 my $docker_dry_run = _run("$perl -Ilib bin/dashboard docker compose --dry-run up -d --build green");
 my $docker_dry_run_data = json_decode($docker_dry_run);
+ok( grep( { $_ eq '-d' } @{ $docker_dry_run_data->{command} } ), 'dashboard docker compose leaves short docker passthrough flags such as -d untouched' );
 ok( grep( { $_ eq '--build' } @{ $docker_dry_run_data->{command} } ), 'dashboard docker compose leaves docker passthrough flags such as --build untouched' );
 ok( grep( { $_ eq 'green' } @{ $docker_dry_run_data->{services} } ), 'dashboard docker compose still infers service names from passthrough args when docker flags are present' );
 
