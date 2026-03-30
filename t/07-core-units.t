@@ -391,7 +391,8 @@ my $plain_prompt = Developer::Dashboard::Prompt->new(
     paths      => $plain_paths,
     indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
 )->render( cwd => File::Spec->catdir( $plain_home, 'here' ) );
-like( $plain_prompt, qr/\] DD ~/, 'prompt falls back to DD with no indicators' );
+like( $plain_prompt, qr/\]\s+~/, 'prompt still renders the cwd when no indicators exist' );
+unlike( $plain_prompt, qr/\bDD\b/, 'prompt omits the DD fallback when no indicators exist' );
 
 my $prompt_output = $prompt->render( jobs => 3, cwd => File::Spec->catdir( $home, 'named-path' ) );
 like( $prompt_output, qr/Z b/, 'compact prompt includes indicator icons in priority order' );

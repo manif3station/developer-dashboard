@@ -2,6 +2,7 @@
 
 ## 2026-03-30
 
+- Fixed prompt fallback drift by removing the invented `DD` status marker from blank installs with no indicators.
 - Fixed test-fixture hygiene by replacing the remaining dummy helper login passphrases in tests, integration assets, and POD examples with neutral placeholder values.
 - Fixed helper chrome drift by showing the authenticated helper username in the top-right user marker instead of always rendering the local system account.
 - Fixed Devel::Cover harness drift by making the daemon-style collector loop tests coverage-safe instead of letting covered child processes break TAP completion in `t/07-core-units.t`.

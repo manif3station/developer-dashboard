@@ -44,7 +44,7 @@ sub render {
         mode    => $mode,
     );
 
-    my $status = @indicator_parts ? join( ' ', @indicator_parts ) : 'DD';
+    my $status = @indicator_parts ? join( ' ', @indicator_parts ) : '';
     my $project_label = $project ? basename($project) : '';
     my $branch = $self->_git_branch($project);
     my $jobs_suffix = $jobs ? " ($jobs jobs)" : '';
@@ -60,7 +60,11 @@ sub render {
     }
     my $project_suffix = $context ? " {$context}" : '';
 
-    return sprintf "[%s] %s %s%s\n> ", scalar localtime, $status, $cwd, $jobs_suffix . $project_suffix;
+    return sprintf "[%s]%s %s%s\n> ",
+      scalar localtime,
+      ( $status ne '' ? " $status" : '' ),
+      $cwd,
+      $jobs_suffix . $project_suffix;
 }
 
 # _indicator_parts(%args)

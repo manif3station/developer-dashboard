@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.35  2026-03-30
+
+    - removed the stale `DD` prompt fallback so blank installs no longer show an invented status token before any indicators exist
+    - added prompt coverage that verifies the empty-indicator case still renders the cwd without the old `DD` marker
+
 0.34  2026-03-30
 
     - reset the release history to a fresh baseline for the open-source package
