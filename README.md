@@ -8,6 +8,7 @@ Developer Dashboard is a local-first developer toolkit intended to be reusable a
 
 Release tarballs contain installable runtime artifacts only; local Dist::Zilla release-builder configuration is kept out of the shipped archive.
 Frequently used built-in commands such as `of`, `open-file`, `pjq`, `yjq`, `ptomq`, and `pjp` are also installed as standalone executables so they can run directly without loading the full `dashboard` runtime.
+Before publishing a release, the built tarball should be smoke-tested with `cpanm` from the artifact itself so the shipped archive matches the fixed source tree.
 
 It provides a small ecosystem for:
 
@@ -426,6 +427,13 @@ This integration path builds the distribution tarball on the host with
 `dzil build`, starts a blank container with only that tarball mounted into it,
 installs the tarball with `cpanm`, and then exercises the installed
 `dashboard` command inside the clean Perl container.
+
+Before uploading a release artifact, validate the exact tarball that will ship:
+
+```bash
+tar -tzf Developer-Dashboard-0.41.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.41.tar.gz -v
+```
 
 The harness also:
 

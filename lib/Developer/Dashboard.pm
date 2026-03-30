@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.40';
+our $VERSION = '0.41';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.40
+0.41
 
 =head1 INTRODUCTION
 
@@ -27,6 +27,9 @@ Release tarballs contain installable runtime artifacts only; local Dist::Zilla r
 Frequently used built-in commands such as C<of>, C<open-file>, C<pjq>, C<yjq>,
 C<ptomq>, and C<pjp> are also installed as standalone executables so they can
 run directly without loading the full C<dashboard> runtime.
+Before publishing a release, the built tarball should be smoke-tested with
+C<cpanm> from the artifact itself so the shipped archive matches the fixed
+source tree.
 
 It provides a small ecosystem for:
 
@@ -570,6 +573,11 @@ This integration path builds the distribution tarball on the host with
 C<dzil build>, starts a blank container with only that tarball mounted into it,
 installs the tarball with C<cpanm>, and then exercises the installed
 C<dashboard> command inside the clean Perl container.
+
+Before uploading a release artifact, validate the exact tarball that will ship:
+
+  tar -tzf Developer-Dashboard-0.41.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.41.tar.gz -v
 
 The harness also:
 

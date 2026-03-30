@@ -2,6 +2,8 @@
 
 ## 2026-03-30
 
+- Fixed release-version drift by cutting a fresh `0.41` artifact for the already-correct standalone CLI and integration assets instead of reusing the stale `0.40` tarball.
+- Fixed release-metadata drift by adding a regression test that keeps `lib/Developer/Dashboard.pm`, `dist.ini`, `Changes`, shipped executable entries, and tarball verification guidance aligned.
 - Fixed CLI startup weight by splitting the open-file and structured-data query built-ins into standalone installed executables instead of always loading the full `dashboard` runtime.
 - Fixed proxy CLI dispatch so `dashboard of`, `dashboard open-file`, `dashboard pjq`, `dashboard yjq`, `dashboard ptomq`, and `dashboard pjp` now exec their lightweight sibling executables early.
 - Fixed blank-container harness drift so `integration/blank-env/run-host-integration.sh` honors a supplied host tarball instead of rebuilding unconditionally.

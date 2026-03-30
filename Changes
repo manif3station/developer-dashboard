@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.41  2026-03-30
+
+    - versioned the release forward so the fixed standalone CLI and blank-container integration assets ship under a fresh CPAN artifact instead of reusing the stale 0.40 tarball
+    - added release metadata coverage that keeps lib/Developer/Dashboard.pm, dist.ini, Changes, Makefile.PL executable shipping, and tarball verification guidance aligned
+    - documented the explicit tarball verification step with `tar -tzf` and `cpanm /tmp/Developer-Dashboard-0.41.tar.gz -v` before publishing to PAUSE
+
 0.40  2026-03-30
 
     - split `dashboard of`, `dashboard open-file`, `dashboard pjq`, `dashboard yjq`, `dashboard ptomq`, and `dashboard pjp` into standalone installed executables so those common paths no longer load the full dashboard runtime

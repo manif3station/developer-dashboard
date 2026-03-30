@@ -124,6 +124,13 @@ builds the release using Dist::Zilla:
 dzil build
 ```
 
+Before publishing to PAUSE, validate the exact tarball that will ship:
+
+```bash
+tar -tzf Developer-Dashboard-0.41.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.41.tar.gz -v
+```
+
 and uploads the resulting tarball to PAUSE using:
 
 - `PAUSE_USER`
