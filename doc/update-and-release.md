@@ -126,17 +126,17 @@ The GitHub workflow:
 builds the release using Dist::Zilla:
 
 ```bash
-rm -f Developer-Dashboard-*.tar.gz
+rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
 ```
 
-Before publishing to PAUSE, remove older tarballs first so only the current release artifact remains, then validate the exact tarball that will ship:
+Before publishing to PAUSE, remove older build directories and tarballs first so only the current release artifact remains, then validate the exact tarball that will ship:
 
 ```bash
-rm -f Developer-Dashboard-*.tar.gz
+rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.58.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.58.tar.gz -v
+tar -tzf Developer-Dashboard-0.59.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.59.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

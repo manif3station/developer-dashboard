@@ -20,7 +20,7 @@ else
   export PATH="$LOCAL_PERL5/bin:$PATH"
 
   cd "$ROOT_DIR"
-  rm -f Developer-Dashboard-*.tar.gz
+  rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
   "$LOCAL_DZIL" build
 
   TARBALL="$(ls -1t Developer-Dashboard-*.tar.gz | head -n1)"

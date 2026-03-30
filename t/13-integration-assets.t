@@ -50,7 +50,7 @@ open my $host_fh, '<', 'integration/blank-env/run-host-integration.sh' or die $!
 my $host = do { local $/; <$host_fh> };
 close $host_fh;
 like( $host, qr/\.perl5/, 'host launcher bootstraps a local perl toolchain when needed' );
-like( $host, qr/rm -f Developer-Dashboard-\*\.tar\.gz/, 'host launcher removes old release tarballs before building a new one' );
+like( $host, qr/rm -rf Developer-Dashboard-\* Developer-Dashboard-\*\.tar\.gz/, 'host launcher removes old release build directories and tarballs before building a new one' );
 like( $host, qr/LOCAL_DZIL.*build/s, 'host launcher builds the tarball on the host with Dist::Zilla' );
 like( $host, qr/DASHBOARD_TARBALL/, 'host launcher exports the tarball path for docker compose' );
 like( $host, qr/run --build --rm blank-env/, 'host launcher rebuilds the blank image before running integration' );

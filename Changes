@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.59  2026-03-30
+
+    - fixed release cleanup drift by removing stale `Developer-Dashboard-*` Dist::Zilla build directories as well as old tarballs before each new build
+    - updated the blank-environment release helper and release documentation to enforce full build-artifact cleanup before tarball verification
+
 0.58  2026-03-30
 
     - made persisted custom path aliases portable by storing home-relative targets with `$HOME` in global config while expanding them back to concrete local paths when resolved

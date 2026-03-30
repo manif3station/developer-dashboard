@@ -40,7 +40,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '0.58', 'module version bumped for portable path alias shell-resolution release' );
+is( $version, '0.59', 'module version bumped for build-directory cleanup release' );
 like( $changes, qr/^\Q$version\E\s+\d{4}-\d{2}-\d{2}$/m, 'Changes top entry matches module version' );
 
 if ( %{$meta} ) {
@@ -59,10 +59,10 @@ for my $script (qw(bin/dashboard bin/of bin/open-file bin/pjq bin/pyq bin/ptomq 
 }
 
 like( $readme, qr/cpanm \/tmp\/Developer-Dashboard-\Q$version\E\.tar\.gz -v/, 'README documents tarball install verification' );
-like( $readme, qr/rm -f Developer-Dashboard-\*\.tar\.gz/, 'README documents old tarball cleanup before building a release' );
+like( $readme, qr/rm -rf Developer-Dashboard-\* Developer-Dashboard-\*\.tar\.gz/, 'README documents old build directory and tarball cleanup before building a release' );
 like( $release_doc, qr/cpanm \/tmp\/Developer-Dashboard-\Q$version\E\.tar\.gz -v/, 'release doc documents tarball install verification' );
 like( $release_doc, qr/tar -tzf Developer-Dashboard-\Q$version\E\.tar\.gz/, 'release doc documents tarball content verification' );
-like( $release_doc, qr/rm -f Developer-Dashboard-\*\.tar\.gz/, 'release doc documents old tarball cleanup before building a release' );
+like( $release_doc, qr/rm -rf Developer-Dashboard-\* Developer-Dashboard-\*\.tar\.gz/, 'release doc documents old build directory and tarball cleanup before building a release' );
 
 done_testing;
 
