@@ -178,6 +178,56 @@ sub path_aliases {
     return { %{ $cfg->{path_aliases} } };
 }
 
+# global_path_aliases()
+# Returns only the user-global configured path aliases.
+# Input: none.
+# Output: hash reference of global path aliases.
+sub global_path_aliases {
+    my ($self) = @_;
+    my $cfg = $self->load_global;
+    return {} if ref( $cfg->{path_aliases} ) ne 'HASH';
+    return { %{ $cfg->{path_aliases} } };
+}
+
+# save_global_path_alias($name, $path)
+# Persists or updates a user-global path alias without disturbing other config domains.
+# Input: alias name string and target path string.
+# Output: hash reference containing the stored alias mapping.
+sub save_global_path_alias {
+    my ( $self, $name, $path ) = @_;
+    die 'Missing path alias name' if !defined $name || $name eq '';
+    die 'Missing path alias target' if !defined $path || $path eq '';
+
+    my $cfg = $self->load_global;
+    $cfg->{path_aliases} = {} if ref( $cfg->{path_aliases} ) ne 'HASH';
+    $cfg->{path_aliases}{$name} = $path;
+    $self->save_global($cfg);
+
+    return {
+        name => $name,
+        path => $path,
+    };
+}
+
+# remove_global_path_alias($name)
+# Deletes a user-global path alias when present and otherwise remains idempotent.
+# Input: alias name string.
+# Output: hash reference containing alias name and removal flag.
+sub remove_global_path_alias {
+    my ( $self, $name ) = @_;
+    die 'Missing path alias name' if !defined $name || $name eq '';
+
+    my $cfg = $self->load_global;
+    $cfg->{path_aliases} = {} if ref( $cfg->{path_aliases} ) ne 'HASH';
+    my $removed = delete $cfg->{path_aliases}{$name} ? 1 : 0;
+    $self->save_global($cfg);
+
+    return {
+        name    => $name,
+        removed => $removed,
+    };
+}
+
 # docker_config()
 # Returns docker compose configuration from merged configuration.
 # Input: none.
@@ -222,7 +272,7 @@ configuration for Developer Dashboard.
 
 =head1 METHODS
 
-=head2 new, load_global, save_global, load_repo, merged, collectors, startup_collectors, path_aliases, docker_config, providers
+=head2 new, load_global, save_global, load_repo, merged, collectors, startup_collectors, path_aliases, global_path_aliases, save_global_path_alias, remove_global_path_alias, docker_config, providers
 
 Load and expose configuration domains used by the runtime.
 

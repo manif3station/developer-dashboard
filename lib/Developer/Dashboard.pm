@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.55';
+our $VERSION = '0.56';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.55
+0.56
 
 =head1 INTRODUCTION
 
@@ -318,6 +318,13 @@ Inspect resolved paths:
 
   dashboard paths
   dashboard path resolve bookmarks_root
+  dashboard path add foobar /tmp/foobar
+  dashboard path del foobar
+
+Custom path aliases are stored in the global dashboard config so shell
+helpers such as C<cdr foobar> and C<which_dir foobar> keep working across
+sessions. Re-adding an existing alias updates it without error, and deleting
+a missing alias is also safe.
 
 Render shell bootstrap:
 
@@ -609,8 +616,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.55.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.55.tar.gz -v
+  tar -tzf Developer-Dashboard-0.56.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.56.tar.gz -v
 
 The harness also:
 

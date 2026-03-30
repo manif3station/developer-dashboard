@@ -179,6 +179,7 @@ elsif ( $cmd eq 'paths' ) {
         config_root    => $paths->config_root,
         startup_root   => $paths->startup_root,
         current_project_root => scalar $paths->current_project_root,
+        %{ $paths->named_paths },
     );
     print json_encode(\%out);
     exit 0;
@@ -193,6 +194,22 @@ elsif ( $cmd eq 'path' ) {
     elsif ( $action eq 'locate' ) {
         my @found = $paths->locate_projects(@ARGV);
         print json_encode( \@found );
+        exit 0;
+    }
+    elsif ( $action eq 'add' ) {
+        my $name = shift @ARGV || die "Usage: dashboard path add <name> <path>\n";
+        my $path = shift @ARGV || die "Usage: dashboard path add <name> <path>\n";
+        my $saved = $config->save_global_path_alias( $name, $path );
+        $paths->register_named_paths( { $name => $path } );
+        $saved->{resolved} = $paths->resolve_dir($name);
+        print json_encode($saved);
+        exit 0;
+    }
+    elsif ( $action eq 'del' ) {
+        my $name = shift @ARGV || die "Usage: dashboard path del <name>\n";
+        my $deleted = $config->remove_global_path_alias($name);
+        $paths->unregister_named_path($name);
+        print json_encode($deleted);
         exit 0;
     }
     elsif ( $action eq 'project-root' ) {
@@ -215,6 +232,7 @@ elsif ( $cmd eq 'path' ) {
             startup      => $paths->startup_root,
             collectors   => $paths->collectors_root,
             indicators   => $paths->indicators_root,
+            %{ $paths->named_paths },
         );
         print json_encode(\%out);
         exit 0;
@@ -722,6 +740,8 @@ dashboard - command-line entrypoint for Developer Dashboard
   dashboard paths
   dashboard path list
   dashboard path resolve <name>
+  dashboard path add <name> <path>
+  dashboard path del <name>
   dashboard path locate <term...>
   dashboard path project-root
   dashboard of [--print] [--line N] [--editor CMD] <file|scope> [pattern...]

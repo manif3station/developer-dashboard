@@ -56,6 +56,17 @@ like($help, qr/Description:/, 'dashboard help renders the fuller POD help');
 
 my $bookmarks_root = _run("$perl -Ilib bin/dashboard path resolve bookmarks_root");
 is( $bookmarks_root, File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'dashboards' ) . "\n", 'dashboard path resolve supports bookmarks_root alias' );
+my $custom_path_root = File::Spec->catdir( $ENV{HOME}, 'custom-path-root' );
+make_path($custom_path_root);
+my $path_add = _run("$perl -Ilib bin/dashboard path add foobar '$custom_path_root'");
+like( $path_add, qr/"name"\s*:\s*"foobar"/, 'dashboard path add stores a custom alias' );
+like( $path_add, qr/\Q$custom_path_root\E/, 'dashboard path add reports the stored target path' );
+my $path_add_again = _run("$perl -Ilib bin/dashboard path add foobar '$custom_path_root'");
+like( $path_add_again, qr/"name"\s*:\s*"foobar"/, 'dashboard path add is idempotent when the alias already exists' );
+my $foobar_resolved = _run("$perl -Ilib bin/dashboard path resolve foobar");
+is( $foobar_resolved, $custom_path_root . "\n", 'dashboard path resolve supports user-defined aliases' );
+my $path_list = _run("$perl -Ilib bin/dashboard path list");
+like( $path_list, qr/"foobar"\s*:\s*"\Q$custom_path_root\E"/, 'dashboard path list includes user-defined aliases' );
 
 my $shell_bootstrap = _run("$perl -Ilib bin/dashboard shell bash");
 like( $shell_bootstrap, qr/dashboard path resolve \"\$1\"/, 'dashboard shell bootstrap resolves named path aliases before project search' );
@@ -63,6 +74,13 @@ my $which_dir_bookmarks = _run("bash -lc 'eval \"\$($perl -Ilib bin/dashboard sh
 is( $which_dir_bookmarks, $bookmarks_root, 'which_dir resolves bookmarks_root through the shell helper' );
 my $cdr_bookmarks = _run("bash -lc 'eval \"\$($perl -Ilib bin/dashboard shell bash)\"; cdr bookmarks_root; pwd'");
 is( $cdr_bookmarks, $bookmarks_root, 'cdr navigates to bookmarks_root through the shell helper' );
+my $cdr_foobar = _run("bash -lc 'eval \"\$($perl -Ilib bin/dashboard shell bash)\"; cdr foobar; pwd'");
+is( $cdr_foobar, $custom_path_root . "\n", 'cdr navigates to a user-defined alias through the shell helper' );
+my $path_del = _run("$perl -Ilib bin/dashboard path del foobar");
+like( $path_del, qr/"name"\s*:\s*"foobar"/, 'dashboard path del reports the removed alias' );
+like( $path_del, qr/"removed"\s*:\s*1/, 'dashboard path del removes existing aliases' );
+my $path_del_again = _run("$perl -Ilib bin/dashboard path del foobar");
+like( $path_del_again, qr/"removed"\s*:\s*0/, 'dashboard path del is idempotent for missing aliases' );
 
 my $docker_green_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'config', 'docker', 'green' );
 make_path($docker_green_root);

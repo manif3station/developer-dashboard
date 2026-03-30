@@ -55,6 +55,26 @@ sub register_named_paths {
     return $self;
 }
 
+# unregister_named_path($name)
+# Removes a logical path alias from the in-memory registry when present.
+# Input: alias name string.
+# Output: registry object.
+sub unregister_named_path {
+    my ( $self, $name ) = @_;
+    return $self if !defined $name || $name eq '';
+    delete $self->{named_paths}{$name};
+    return $self;
+}
+
+# named_paths()
+# Returns the currently registered logical path aliases.
+# Input: none.
+# Output: hash reference of alias-to-path mappings.
+sub named_paths {
+    my ($self) = @_;
+    return { %{ $self->{named_paths} || {} } };
+}
+
 # runtime_root()
 # Returns the main runtime root directory.
 # Input: none.

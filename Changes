@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.56  2026-03-30
+
+    - added persistent `dashboard path add <name> <path>` and `dashboard path del <name>` commands so users can manage custom `cdr` and `which_dir` aliases without editing config files by hand
+    - made repeated path adds and deletes idempotent so existing aliases can be re-added and missing aliases can be removed without error
+
 0.55  2026-03-30
 
     - fixed `dashboard docker compose` option parsing so real docker compose flags such as `-d` and `--build` pass through untouched instead of being treated as wrapper options

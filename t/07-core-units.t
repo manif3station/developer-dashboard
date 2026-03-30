@@ -86,6 +86,11 @@ is( $paths->resolve_dir('bookmarks_root'), $paths->dashboards_root, 'resolve_dir
 is( $paths->resolve_dir('cli_root'), $paths->cli_root, 'resolve_dir accepts cli_root' );
 is( $paths->resolve_dir('/tmp'), '/tmp', 'resolve_dir returns absolute paths as-is' );
 is( $paths->resolve_dir('named'), File::Spec->catdir( $home, 'named-path' ), 'resolve_dir expands named paths' );
+is_deeply( $paths->named_paths, { named => '~/named-path' }, 'named_paths exposes registered aliases' );
+$paths->register_named_paths( { extra => '~/extra-path' } );
+is( $paths->resolve_dir('extra'), File::Spec->catdir( $home, 'extra-path' ), 'register_named_paths adds aliases after construction' );
+$paths->unregister_named_path('extra');
+dies_like( sub { $paths->resolve_dir('extra') }, qr/Unknown directory name/, 'unregister_named_path removes aliases from the registry' );
 dies_like( sub { $paths->resolve_dir('') }, qr/Missing path name/, 'resolve_dir rejects missing names' );
 dies_like( sub { $paths->resolve_dir('missing-name') }, qr/Unknown directory name/, 'resolve_dir rejects unknown names' );
 
@@ -216,6 +221,25 @@ my $saved_global = {
 };
 $config->save_global($saved_global);
 is_deeply( $config->load_global, $saved_global, 'save_global round-trips config content' );
+my $global_alias_config = Developer::Dashboard::Config->new( files => $files, paths => $paths, repo_root => $home );
+$global_alias_config->save_global_path_alias( 'foo', '~/foo-path' );
+is_deeply( $global_alias_config->global_path_aliases, { foo => '~/foo-path' }, 'global_path_aliases returns only persisted global aliases' );
+is_deeply( $global_alias_config->path_aliases, { foo => '~/foo-path' }, 'path_aliases includes persisted global aliases when no repo override exists' );
+is_deeply(
+    $global_alias_config->save_global_path_alias( 'foo', '~/foo-path-updated' ),
+    { name => 'foo', path => '~/foo-path-updated' },
+    'save_global_path_alias updates existing aliases idempotently',
+);
+is_deeply(
+    $global_alias_config->remove_global_path_alias('foo'),
+    { name => 'foo', removed => 1 },
+    'remove_global_path_alias removes existing aliases',
+);
+is_deeply(
+    $global_alias_config->remove_global_path_alias('foo'),
+    { name => 'foo', removed => 0 },
+    'remove_global_path_alias is idempotent for missing aliases',
+);
 $config->save_global;
 is_deeply( $config->load_global, {}, 'save_global defaults to an empty hash when no config is provided' );
 $config->save_global($saved_global);
