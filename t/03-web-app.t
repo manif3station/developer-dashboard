@@ -118,6 +118,20 @@ like($body1d, qr/123/, 'form-urlencoded root editor can execute opted-in transie
 unlike($body1d, qr/"instruction"\s*:/, 'form-urlencoded update does not pollute stash with instruction text');
 unlike($body1d, qr/"request_host"\s*:/, 'form-urlencoded update does not persist request metadata');
 
+my ($code1d_bookmark, undef, $body1d_bookmark) = @{ $app->handle(
+    path        => '/',
+    method      => 'POST',
+    body        => 'instruction=TITLE%3A%20Developer%20Dashboard%0A%3A--------------------------------------------------------------------------------%3A%0ABOOKMARK%3A%20index%0A%3A--------------------------------------------------------------------------------%3A%0ASTASH%3A%20%0A%3A--------------------------------------------------------------------------------%3A%0AHTML%3A%20HERE%0A',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is($code1d_bookmark, 200, 'posted bookmark instruction route ok');
+ok( -f File::Spec->catfile( $paths->dashboards_root, 'index' ), 'root editor saves posted bookmark instructions to the bookmark store' );
+like($body1d_bookmark, qr/BOOKMARK:\s+index/s, 'posted bookmark response preserves the bookmark id');
+my ($code1d_saved, undef, $body1d_saved) = @{ $app->handle(path => '/app/index', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($code1d_saved, 200, 'legacy /app/index route loads a bookmark saved from the root editor');
+like($body1d_saved, qr/HERE/, 'legacy /app/index route renders the saved bookmark body');
+
 my $highlight_source = join "\n",
     'TITLE: Highlight Demo',
     ':--------------------------------------------------------------------------------:',

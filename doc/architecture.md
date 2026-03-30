@@ -123,6 +123,7 @@ Page source compatibility is explicit:
 - `CODE*` blocks run through the legacy page runtime and their `STDOUT` is appended to the page while `STDERR` is shown as red error output
 - one generated sandpit package is reused across `CODE*` blocks for a single render, then destroyed so package globals do not leak into later requests
 - `/` with no bookmark path opens the free-form instruction editor directly
+- posting a root-editor document with `BOOKMARK: some-id` persists it as a saved bookmark so `/app/some-id` can load it on the next request
 - `/apps` redirects to `/app/index`
 - edit and render views include shared top chrome with share/source links plus the original status-plus-alias indicator strip, refreshed from `/system/status`, alongside the local user, a machine IP link chosen from the active interfaces, and a browser-updated date/time
 - the editor view auto-submits the bookmark form on textarea change/blur instead of relying on a visible update button

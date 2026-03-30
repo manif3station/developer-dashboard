@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.43';
+our $VERSION = '0.44';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.43
+0.44
 
 =head1 INTRODUCTION
 
@@ -394,6 +394,10 @@ Bookmark documents use the original separator-line format with directive
 headers such as C<TITLE:>, C<STASH:>, C<HTML:>, C<FORM.TT:>, C<FORM:>, and
 C<CODE1:>.
 
+Posting a bookmark document with C<BOOKMARK: some-id> back through the root
+editor now saves it to the bookmark store so C</app/some-id> resolves it
+immediately.
+
 The browser editor highlights directive sections, HTML, CSS, JavaScript, and
 Perl C<CODE*> content directly inside the editing surface rather than in a
 separate preview pane.
@@ -576,8 +580,8 @@ C<dashboard> command inside the clean Perl container.
 
 Before uploading a release artifact, validate the exact tarball that will ship:
 
-  tar -tzf Developer-Dashboard-0.43.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.43.tar.gz -v
+  tar -tzf Developer-Dashboard-0.44.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.44.tar.gz -v
 
 The harness also:
 

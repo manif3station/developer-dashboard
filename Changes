@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.44  2026-03-30
+
+    - fixed root-editor bookmark persistence so posting a legacy instruction document with `BOOKMARK: index` saves the page to the bookmark store and makes `/app/index` resolve immediately
+    - added a web regression that proves bookmarked root-editor posts are written to storage and load back through the legacy `/app/<name>` route
+
 0.43  2026-03-30
 
     - fixed release-tarball tests so they validate shipped metadata from META.json when dist.ini is intentionally excluded from the archive

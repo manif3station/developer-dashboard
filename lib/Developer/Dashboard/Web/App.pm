@@ -98,7 +98,12 @@ sub handle {
         if ( exists $body_params{instruction} || exists $params{instruction} ) {
             my $instruction = exists $body_params{instruction} ? $body_params{instruction} : $params{instruction};
             my $page = Developer::Dashboard::PageDocument->from_instruction($instruction);
-            $page->{meta}{source_kind} = 'transient';
+            my $source_kind = 'transient';
+            if ( exists $body_params{instruction} && ( $page->as_hash->{id} || '' ) ne '' ) {
+                $self->{pages}->save_page($page);
+                $source_kind = 'saved';
+            }
+            $page->{meta}{source_kind} = $source_kind;
             my $mode = $params{mode} || $body_params{mode} || 'edit';
             $page = $self->_page_with_runtime_state(
                 $page,
@@ -110,7 +115,7 @@ sub handle {
             );
             $page = $self->{runtime}->prepare_page(
                 page            => $page,
-                source          => 'transient',
+                source          => $source_kind,
                 runtime_context => { params => { %params, %body_params } },
             );
             return $self->_page_response( $page, $mode );

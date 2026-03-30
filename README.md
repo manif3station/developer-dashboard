@@ -293,6 +293,7 @@ dashboard action run system-status paths
 ```
 
 Bookmark documents use the original separator-line format with directive headers such as `TITLE:`, `STASH:`, `HTML:`, `FORM.TT:`, `FORM:`, and `CODE1:`.
+Posting a bookmark document with `BOOKMARK: some-id` back through the root editor now saves it to the bookmark store so `/app/some-id` resolves it immediately.
 
 The browser editor highlights directive sections, HTML, CSS, JavaScript, and Perl `CODE*` content directly inside the editing surface rather than in a separate preview pane.
 
@@ -431,8 +432,8 @@ installs the tarball with `cpanm`, and then exercises the installed
 Before uploading a release artifact, validate the exact tarball that will ship:
 
 ```bash
-tar -tzf Developer-Dashboard-0.43.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.43.tar.gz -v
+tar -tzf Developer-Dashboard-0.44.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.44.tar.gz -v
 ```
 
 The harness also:

@@ -2,6 +2,7 @@
 
 ## 2026-03-30
 
+- Fixed root-editor bookmark persistence so posting a legacy instruction document with `BOOKMARK: index` now saves the page immediately and makes `/app/index` resolve it instead of failing with `Page 'index' not found`.
 - Fixed tarball test drift by teaching the release-facing tests to fall back to shipped META.json when `dist.ini` is intentionally absent from the built archive.
 - Fixed YAML query command naming by renaming the mistaken `yjq` command to `pyq` across the CLI, standalone executable, tests, and release documentation.
 - Fixed release-version drift by cutting a fresh `0.41` artifact for the already-correct standalone CLI and integration assets instead of reusing the stale `0.40` tarball.

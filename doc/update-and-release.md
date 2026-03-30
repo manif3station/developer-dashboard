@@ -31,6 +31,7 @@ perl -Ilib bin/dashboard serve
 ```
 
 The root path now opens the free-form bookmark editor directly, and `/apps` redirects to `/app/index`.
+If the posted editor content includes `BOOKMARK: some-id`, that post now persists the bookmark document so `/app/some-id` works immediately after saving from `/`.
 
 Create a helper login user:
 
@@ -127,8 +128,8 @@ dzil build
 Before publishing to PAUSE, validate the exact tarball that will ship:
 
 ```bash
-tar -tzf Developer-Dashboard-0.43.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.43.tar.gz -v
+tar -tzf Developer-Dashboard-0.44.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.44.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:
