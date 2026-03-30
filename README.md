@@ -57,6 +57,9 @@ Project-specific behavior should be added through configuration, startup collect
 - `dashboard of` and `dashboard open-file`
   Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches under a resolved scope.
 
+- `dashboard pjq`, `dashboard yjq`, `dashboard ptomq`, and `dashboard pjp`
+  Parse JSON, YAML, TOML, and Java properties input, then optionally extract a dotted path and print a scalar or canonical JSON.
+
 - `Developer::Dashboard::RuntimeManager`
   Manages the background web service and collector lifecycle with process-title validation, `pkill`-style fallback shutdown, and restart orchestration.
 
@@ -103,6 +106,19 @@ These commands support:
 
 If `VISUAL` or `EDITOR` is set, `dashboard of` and `dashboard open-file` will exec that editor unless `--print` is used.
 
+### Data Query Commands
+
+These built-in commands parse structured text and optionally extract a dotted path:
+
+- `dashboard pjq [path] [file]` for JSON
+- `dashboard yjq [path] [file]` for YAML
+- `dashboard ptomq [path] [file]` for TOML
+- `dashboard pjp [path] [file]` for Java properties
+
+If the selected value is a hash or array, the command prints canonical JSON. If the selected value is a scalar, it prints the scalar plus a trailing newline.
+
+The file path and query path are order-independent, and `$d` selects the whole parsed document. For example, `cat file.json | dashboard pjq '$d'` and `dashboard pjq file.json '$d'` return the same result. The same contract applies to `yjq`, `ptomq`, and `pjp`.
+
 ## Manual
 
 ### Installation
@@ -137,6 +153,8 @@ perl -Ilib bin/dashboard init
 perl -Ilib bin/dashboard auth add-user <username> <password>
 perl -Ilib bin/dashboard of --print My::Module
 perl -Ilib bin/dashboard open-file --print com.example.App
+printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
+printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard yjq alpha.beta
 perl -Ilib bin/dashboard update
 perl -Ilib bin/dashboard serve
 perl -Ilib bin/dashboard stop
@@ -179,6 +197,16 @@ dashboard of --print My::Module
 dashboard open-file --print com.example.App
 dashboard open-file --print path/to/file.txt
 dashboard open-file --print bookmarks welcome
+```
+
+Query structured files from the CLI:
+
+```bash
+printf '{"alpha":{"beta":2}}' | dashboard pjq alpha.beta
+printf 'alpha:\n  beta: 3\n' | dashboard yjq alpha.beta
+printf '[alpha]\nbeta = 4\n' | dashboard ptomq alpha.beta
+printf 'alpha.beta=5\n' | dashboard pjp alpha.beta
+dashboard pjq file.json '$d'
 ```
 
 Start the local app:

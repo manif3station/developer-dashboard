@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.37';
+our $VERSION = '0.38';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.37
+0.38
 
 =head1 INTRODUCTION
 
@@ -134,6 +134,12 @@ C<dashboard of> and C<dashboard open-file> resolve direct files, C<file:line>
 references, Perl module names, Java class names, and recursive file-pattern
 matches under a resolved scope.
 
+=item * Data Query Commands
+
+C<dashboard pjq>, C<dashboard yjq>, C<dashboard ptomq>, and C<dashboard pjp>
+parse JSON, YAML, TOML, and Java properties input, then optionally extract a
+dotted path and print a scalar or canonical JSON.
+
 =item * Runtime Manager
 
 L<Developer::Dashboard::RuntimeManager> manages the background web service and collector lifecycle with process-title validation, C<pkill>-style fallback shutdown, and restart orchestration.
@@ -212,6 +218,40 @@ recursive pattern searches inside a resolved directory alias or path
 If C<VISUAL> or C<EDITOR> is set, C<dashboard of> and
 C<dashboard open-file> will exec that editor unless C<--print> is used.
 
+=head2 Data Query Commands
+
+These built-in commands parse structured text and optionally extract a dotted
+path:
+
+=over 4
+
+=item *
+
+C<dashboard pjq [path] [file]> for JSON
+
+=item *
+
+C<dashboard yjq [path] [file]> for YAML
+
+=item *
+
+C<dashboard ptomq [path] [file]> for TOML
+
+=item *
+
+C<dashboard pjp [path] [file]> for Java properties
+
+=back
+
+If the selected value is a hash or array, the command prints canonical JSON.
+If the selected value is a scalar, it prints the scalar plus a trailing
+newline.
+
+The file path and query path are order-independent, and C<$d> selects the
+whole parsed document. For example, C<cat file.json | dashboard pjq '$d'> and
+C<dashboard pjq file.json '$d'> return the same result. The same contract
+applies to C<yjq>, C<ptomq>, and C<pjp>.
+
 =head1 MANUAL
 
 =head2 Installation
@@ -239,6 +279,8 @@ Run the CLI directly from the repository:
   perl -Ilib bin/dashboard auth add-user <username> <password>
   perl -Ilib bin/dashboard of --print My::Module
   perl -Ilib bin/dashboard open-file --print com.example.App
+  printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
+  printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard yjq alpha.beta
   perl -Ilib bin/dashboard update
   perl -Ilib bin/dashboard serve
   perl -Ilib bin/dashboard stop
@@ -271,6 +313,14 @@ Resolve or open files from the CLI:
   dashboard open-file --print com.example.App
   dashboard open-file --print path/to/file.txt
   dashboard open-file --print bookmarks welcome
+
+Query structured files from the CLI:
+
+  printf '{"alpha":{"beta":2}}' | dashboard pjq alpha.beta
+  printf 'alpha:\n  beta: 3\n' | dashboard yjq alpha.beta
+  printf '[alpha]\nbeta = 4\n' | dashboard ptomq alpha.beta
+  printf 'alpha.beta=5\n' | dashboard pjp alpha.beta
+  dashboard pjq file.json '$d'
 
 Start the local app:
 

@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.38  2026-03-30
+
+    - added built-in `dashboard pjq`, `dashboard yjq`, `dashboard ptomq`, and `dashboard pjp` commands for JSON, YAML, TOML, and Java properties querying
+    - added smoke coverage for scalar extraction across all four structured-data query commands
+    - made the structured-data query commands accept file and query arguments in either order and added `$d` as the explicit whole-document selector
+
 0.37  2026-03-30
 
     - added built-in `dashboard of` and `dashboard open-file` commands for direct files, `file:line` targets, recursive pattern search, Perl module lookup, and Java class lookup

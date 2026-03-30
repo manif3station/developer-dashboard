@@ -1,4 +1,6 @@
 requires 'JSON::XS';
+requires 'YAML::XS';
+requires 'TOML::Tiny';
 requires 'Capture::Tiny';
 requires 'Getopt::Long';
 requires 'Digest::SHA';

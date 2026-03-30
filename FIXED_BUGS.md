@@ -2,6 +2,8 @@
 
 ## 2026-03-30
 
+- Fixed structured-data CLI gaps by adding built-in JSON, YAML, TOML, and Java-properties query commands with dotted-path extraction.
+- Fixed structured-data query consistency so file-path and query-path argument order is interchangeable and `$d` selects the full parsed document across JSON, YAML, TOML, and Java-properties commands.
 - Fixed CLI navigation gaps by adding built-in `dashboard of` and `dashboard open-file` commands with direct file, `file:line`, Perl module, Java class, and recursive pattern resolution.
 - Fixed CLI extensibility gaps by dispatching unknown top-level `dashboard` subcommands to executable programs in `~/.developer-dashboard/cli` with argv and stdin passthrough.
 - Fixed prompt fallback drift by removing the invented `DD` status marker from blank installs with no indicators.

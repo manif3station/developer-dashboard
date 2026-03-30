@@ -3,6 +3,7 @@ use warnings;
 
 use Capture::Tiny qw(capture);
 use Cwd qw(getcwd);
+use Developer::Dashboard::JSON qw(json_decode);
 use File::Path qw(make_path);
 use File::Spec;
 use Test::More;
@@ -84,6 +85,50 @@ print {$java_fh} "package com.example;\nclass App {}\n";
 close $java_fh;
 my $java_class = _run("cd '$open_root' && $perl -I'$repo/lib' '$repo/bin/dashboard' open-file --print com.example.App");
 like($java_class, qr/\Q$java_target\E/, 'dashboard open-file resolves Java class names');
+
+my $json_value = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -Ilib bin/dashboard pjq alpha.beta});
+is( $json_value, "2\n", 'pjq extracts scalar JSON values' );
+my $json_file = File::Spec->catfile( $open_root, 'sample.json' );
+open my $json_fh, '>', $json_file or die "Unable to write $json_file: $!";
+print {$json_fh} qq|{"alpha":{"beta":2}}|;
+close $json_fh;
+my $json_root = _run("$perl -Ilib bin/dashboard pjq '\$d' '$json_file'");
+is_deeply( json_decode($json_root), { alpha => { beta => 2 } }, 'pjq accepts file then root query with order-independent args' );
+my $json_root_stdin = _run("cat '$json_file' | $perl -Ilib bin/dashboard pjq '\$d'");
+is( $json_root_stdin, $json_root, 'pjq returns the same whole-document result from stdin and file input' );
+
+my $yaml_value = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -Ilib bin/dashboard yjq alpha.beta});
+is( $yaml_value, "3\n", 'yjq extracts scalar YAML values' );
+my $yaml_file = File::Spec->catfile( $open_root, 'sample.yaml' );
+open my $yaml_fh, '>', $yaml_file or die "Unable to write $yaml_file: $!";
+print {$yaml_fh} "alpha:\n  beta: 3\n";
+close $yaml_fh;
+my $yaml_root = _run("$perl -Ilib bin/dashboard yjq '$yaml_file' '\$d'");
+is_deeply( json_decode($yaml_root), { alpha => { beta => '3' } }, 'yjq accepts file then root query with order-independent args' );
+my $yaml_root_stdin = _run("cat '$yaml_file' | $perl -Ilib bin/dashboard yjq '\$d'");
+is( $yaml_root_stdin, $yaml_root, 'yjq returns the same whole-document result from stdin and file input' );
+
+my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -Ilib bin/dashboard ptomq alpha.beta});
+is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );
+my $toml_file = File::Spec->catfile( $open_root, 'sample.toml' );
+open my $toml_fh, '>', $toml_file or die "Unable to write $toml_file: $!";
+print {$toml_fh} "[alpha]\nbeta = 4\n";
+close $toml_fh;
+my $toml_root = _run("$perl -Ilib bin/dashboard ptomq '\$d' '$toml_file'");
+is_deeply( json_decode($toml_root), { alpha => { beta => 4 } }, 'ptomq accepts file then root query with order-independent args' );
+my $toml_root_stdin = _run("cat '$toml_file' | $perl -Ilib bin/dashboard ptomq '\$d'");
+is( $toml_root_stdin, $toml_root, 'ptomq returns the same whole-document result from stdin and file input' );
+
+my $props_value = _run(qq{printf 'alpha.beta=5\\nname = demo\\n' | $perl -Ilib bin/dashboard pjp alpha.beta});
+is( $props_value, "5\n", 'pjp extracts scalar Java properties values' );
+my $props_file = File::Spec->catfile( $open_root, 'sample.properties' );
+open my $props_fh, '>', $props_file or die "Unable to write $props_file: $!";
+print {$props_fh} "alpha.beta=5\nname = demo\n";
+close $props_fh;
+my $props_root = _run("$perl -Ilib bin/dashboard pjp '$props_file' '\$d'");
+is_deeply( json_decode($props_root), { 'alpha.beta' => '5', name => 'demo' }, 'pjp accepts file then root query with order-independent args' );
+my $props_root_stdin = _run("cat '$props_file' | $perl -Ilib bin/dashboard pjp '\$d'");
+is( $props_root_stdin, $props_root, 'pjp returns the same whole-document result from stdin and file input' );
 
 my $cli_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );
 make_path($cli_root);

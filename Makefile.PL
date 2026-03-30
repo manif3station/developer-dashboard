@@ -20,6 +20,8 @@ WriteMakefile(
         'File::Find'            => 0,
         'Getopt::Long'          => 0,
         'JSON::XS'              => 0,
+        'YAML::XS'              => 0,
+        'TOML::Tiny'            => 0,
         'Capture::Tiny'         => 0,
         'Digest::SHA'           => 0,
         'MIME::Base64'          => 0,
