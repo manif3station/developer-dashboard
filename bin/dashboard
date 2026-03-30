@@ -8,6 +8,7 @@ use FindBin qw($Bin);
 use lib "$Bin/../lib";
 use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);
+use Getopt::Long ();
 use Pod::Usage qw(pod2usage);
 
 my $cmd = shift @ARGV || '';
@@ -575,6 +576,7 @@ elsif ( $cmd eq 'docker' ) {
         my @services;
         my $project_root = '';
         my $dry_run = 0;
+        Getopt::Long::Configure('pass_through');
         GetOptionsFromArray(
             \@ARGV,
             'addon=s@'   => \@addons,
@@ -583,6 +585,7 @@ elsif ( $cmd eq 'docker' ) {
             'project=s'  => \$project_root,
             'dry-run!'   => \$dry_run,
         );
+        Getopt::Long::Configure('no_pass_through');
         my $result = $docker->run(
             addons       => \@addons,
             args         => \@ARGV,

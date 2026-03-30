@@ -338,9 +338,10 @@ dashboard docker compose config green
 dashboard docker compose config
 ```
 
-The resolver also supports old-style isolated service folders without adding entries to dashboard JSON config. If `~/.developer-dashboard/config/docker/green/compose.yml` exists, `dashboard docker compose config green` or `dashboard docker compose up green` will pick it up automatically by inferring service names from the passthrough compose args before the real `docker compose` command is assembled. If no service name is passed, the resolver scans isolated service folders and preloads only folders that contain an activation marker such as `active` or `.active`. If `development.compose.yml` exists in the same service folder, it is also included automatically for that service.
+The resolver also supports old-style isolated service folders without adding entries to dashboard JSON config. If `~/.developer-dashboard/config/docker/green/compose.yml` exists, `dashboard docker compose config green` or `dashboard docker compose up green` will pick it up automatically by inferring service names from the passthrough compose args before the real `docker compose` command is assembled. If no service name is passed, the resolver scans isolated service folders and preloads every non-disabled folder. If a folder contains `disabled.yml` it is skipped. Each isolated folder contributes `development.compose.yml` when present, otherwise `compose.yml`.
 
 During compose execution the dashboard exports `DDDC` as `~/.developer-dashboard/config/docker`, so compose YAML can keep using `${DDDC}` paths inside the YAML itself.
+Wrapper flags such as `--service`, `--addon`, `--mode`, `--project`, and `--dry-run` are consumed first, and all remaining docker compose flags such as `-d` and `--build` pass straight through to the real `docker compose` command.
 
 ### Prompt Integration
 
@@ -439,8 +440,8 @@ installs the tarball with `cpanm`, and then exercises the installed
 Before uploading a release artifact, validate the exact tarball that will ship:
 
 ```bash
-tar -tzf Developer-Dashboard-0.50.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.50.tar.gz -v
+tar -tzf Developer-Dashboard-0.52.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.52.tar.gz -v
 ```
 
 The harness also:

@@ -64,6 +64,17 @@ is( $which_dir_bookmarks, $bookmarks_root, 'which_dir resolves bookmarks_root th
 my $cdr_bookmarks = _run("bash -lc 'eval \"\$($perl -Ilib bin/dashboard shell bash)\"; cdr bookmarks_root; pwd'");
 is( $cdr_bookmarks, $bookmarks_root, 'cdr navigates to bookmarks_root through the shell helper' );
 
+my $docker_green_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'config', 'docker', 'green' );
+make_path($docker_green_root);
+open my $docker_green_fh, '>', File::Spec->catfile( $docker_green_root, 'development.compose.yml' )
+  or die "Unable to write docker green development compose file: $!";
+print {$docker_green_fh} "services:\n  green:\n    image: alpine\n";
+close $docker_green_fh;
+my $docker_dry_run = _run("$perl -Ilib bin/dashboard docker compose --dry-run up -d --build green");
+my $docker_dry_run_data = json_decode($docker_dry_run);
+ok( grep( { $_ eq '--build' } @{ $docker_dry_run_data->{command} } ), 'dashboard docker compose leaves docker passthrough flags such as --build untouched' );
+ok( grep( { $_ eq 'green' } @{ $docker_dry_run_data->{services} } ), 'dashboard docker compose still infers service names from passthrough args when docker flags are present' );
+
 my $open_root = File::Spec->catdir( $ENV{HOME}, 'open-file-fixtures' );
 make_path($open_root);
 my $open_target = File::Spec->catfile( $open_root, 'alpha-notes.txt' );

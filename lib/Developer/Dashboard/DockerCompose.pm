@@ -71,11 +71,11 @@ sub resolve {
     my %service_seen;
     @services = grep { !$service_seen{$_}++ } ( @services, @inferred_services );
     if ( !@services ) {
-        my @active_services = $self->_discover_active_services(
+        my @auto_services = $self->_discover_enabled_services(
             project_root => $project_root,
             service_map  => \%service_map,
         );
-        @services = grep { !$service_seen{$_}++ } @active_services;
+        @services = grep { !$service_seen{$_}++ } @auto_services;
     }
 
     my @service_files;
@@ -182,13 +182,17 @@ sub _docker_config_root {
 }
 
 # _discover_service_files(%args)
-# Discovers old-style isolated compose files for a named service from repo-local and global docker config roots.
-# Input: service name, project_root, and optional modes array reference.
-# Output: ordered list of discovered compose file paths.
+# Discovers the preferred old-style isolated compose file for a named service from repo-local and global docker config roots.
+# Input: service name and optional project_root.
+# Output: ordered list of discovered compose file paths, preferring development.compose.yml over compose.yml per folder.
 sub _discover_service_files {
     my ( $self, %args ) = @_;
     my $service      = $args{service} || return;
     my $project_root = $args{project_root} || cwd();
+    return if $self->_service_folder_is_disabled(
+        project_root => $project_root,
+        service      => $service,
+    );
 
     my @roots = (
         File::Spec->catdir( $project_root, '.developer-dashboard', 'docker' ),
@@ -202,25 +206,28 @@ sub _discover_service_files {
         my $service_root = File::Spec->catdir( $root, $service );
         next if !-d $service_root;
 
+        my $development = File::Spec->catfile( $service_root, 'development.compose.yml' );
+        if ( -f $development ) {
+            push @files, $development if !$seen{$development}++;
+            next;
+        }
+
         my $compose = File::Spec->catfile( $service_root, 'compose.yml' );
         push @files, $compose if -f $compose && !$seen{$compose}++;
-
-        my $development = File::Spec->catfile( $service_root, 'development.compose.yml' );
-        push @files, $development if -f $development && !$seen{$development}++;
     }
 
     return @files;
 }
 
-# _discover_active_services(%args)
-# Lists isolated services that are explicitly marked active when no service is selected in the command.
+# _discover_enabled_services(%args)
+# Lists isolated services that should be auto-loaded when no service is selected in the command.
 # Input: project_root and optional service_map hash reference.
-# Output: ordered list of active service name strings.
-sub _discover_active_services {
+# Output: ordered list of auto-loaded service name strings.
+sub _discover_enabled_services {
     my ( $self, %args ) = @_;
     my @services = $self->_discover_service_names(%args);
     return grep {
-        $self->_service_folder_is_active(
+        !$self->_service_folder_is_disabled(
             project_root => $args{project_root},
             service      => $_,
         )
@@ -255,15 +262,14 @@ sub _discover_service_names {
     return sort keys %names;
 }
 
-# _service_folder_is_active(%args)
-# Checks whether an isolated service folder opts into automatic compose inclusion.
+# _service_folder_is_disabled(%args)
+# Checks whether an isolated service folder opts out of automatic compose inclusion.
 # Input: service name and optional project_root.
-# Output: boolean true when the service folder contains an activation marker.
-sub _service_folder_is_active {
+# Output: boolean true when the service folder contains a disabled.yml marker.
+sub _service_folder_is_disabled {
     my ( $self, %args ) = @_;
     my $service      = $args{service} || return 0;
     my $project_root = $args{project_root} || cwd();
-    my @markers      = qw(active .active enabled .enabled);
 
     for my $root (
         File::Spec->catdir( $project_root, '.developer-dashboard', 'docker' ),
@@ -273,9 +279,7 @@ sub _service_folder_is_active {
         next if !defined $root || $root eq '';
         my $service_root = File::Spec->catdir( $root, $service );
         next if !-d $service_root;
-        for my $marker (@markers) {
-            return 1 if -f File::Spec->catfile( $service_root, $marker );
-        }
+        return 1 if -f File::Spec->catfile( $service_root, 'disabled.yml' );
     }
 
     return 0;

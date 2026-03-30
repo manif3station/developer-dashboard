@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.50';
+our $VERSION = '0.52';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.50
+0.52
 
 =head1 INTRODUCTION
 
@@ -443,14 +443,16 @@ C<dashboard docker compose config green> or
 C<dashboard docker compose up green> will pick it up automatically by
 inferring service names from the passthrough compose args before the real
 C<docker compose> command is assembled. If no service name is passed, the
-resolver scans isolated service folders and preloads only folders that contain
-an activation marker such as C<active> or C<.active>. If
-C<development.compose.yml> exists in the same service folder, it is also
-included automatically for that service.
+resolver scans isolated service folders and preloads every non-disabled folder.
+If a folder contains C<disabled.yml> it is skipped. Each isolated folder
+contributes C<development.compose.yml> when present, otherwise C<compose.yml>.
 
 During compose execution the dashboard exports C<DDDC> as
 C<~/.developer-dashboard/config/docker>, so compose YAML can keep using
-C<${DDDC}> paths inside the YAML itself.
+C<${DDDC}> paths inside the YAML itself. Wrapper flags such as
+C<--service>, C<--addon>, C<--mode>, C<--project>, and C<--dry-run> are
+consumed first, and all remaining docker compose flags such as C<-d> and
+C<--build> pass straight through to the real C<docker compose> command.
 
 =head2 Prompt Integration
 
@@ -599,8 +601,8 @@ C<dashboard> command inside the clean Perl container.
 
 Before uploading a release artifact, validate the exact tarball that will ship:
 
-  tar -tzf Developer-Dashboard-0.50.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.50.tar.gz -v
+  tar -tzf Developer-Dashboard-0.52.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.52.tar.gz -v
 
 The harness also:
 

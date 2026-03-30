@@ -2,6 +2,8 @@
 
 ## 2026-03-30
 
+- Fixed isolated docker compose folder precedence so each folder contributes `development.compose.yml` when present, otherwise `compose.yml`, and auto-scanned folders can be vetoed with `disabled.yml`.
+- Fixed docker compose CLI passthrough parsing so real docker compose flags such as `-d` and `--build` are no longer rejected as dashboard wrapper options before the final command is executed.
 - Fixed isolated docker compose activation so plain passthrough commands such as `dashboard docker compose config` preload only isolated service folders explicitly marked active, while service names mentioned in passthrough args such as `config green` are still inferred before the real docker compose command is built.
 - Fixed compose passthrough drift so service names mentioned after `dashboard docker compose` are inferred before the real docker compose command is built, and isolated `development.compose.yml` service overlays are included automatically.
 - Fixed tarball metadata test drift by teaching the release check to accept both repository and Dist::Zilla-generated Makefile.PL quoting for shipped executables.

@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.52  2026-03-30
+
+    - fixed `dashboard docker compose` option parsing so real docker compose flags such as `-d` and `--build` pass through untouched instead of being treated as wrapper options
+    - auto-loaded isolated `config/docker/*` service folders by default when no service name is passed, while skipping folders that contain `disabled.yml`
+    - made isolated service folders contribute `development.compose.yml` when present, otherwise `compose.yml`, matching the old one-file-per-service precedence
+
 0.50  2026-03-30
 
     - scanned isolated docker service folders for activation markers when no service name is passed, so plain commands such as `dashboard docker compose config` preload only active isolated overlays before calling docker compose

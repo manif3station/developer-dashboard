@@ -86,14 +86,18 @@ close $global_green_fh;
 open my $global_green_dev_fh, '>', File::Spec->catfile( $global_docker_root, 'development.compose.yml' ) or die $!;
 print {$global_green_dev_fh} "services:\n  green:\n    environment:\n      GREEN_DEV: 1\n";
 close $global_green_dev_fh;
-open my $global_green_active_fh, '>', File::Spec->catfile( $global_docker_root, 'active' ) or die $!;
-print {$global_green_active_fh} "1\n";
-close $global_green_active_fh;
 my $global_blue_root = File::Spec->catdir( $home, '.developer-dashboard', 'config', 'docker', 'blue' );
 make_path($global_blue_root);
 open my $global_blue_fh, '>', File::Spec->catfile( $global_blue_root, 'compose.yml' ) or die $!;
 print {$global_blue_fh} "services:\n  blue:\n    image: alpine\n";
 close $global_blue_fh;
+open my $global_blue_disabled_fh, '>', File::Spec->catfile( $global_blue_root, 'disabled.yml' ) or die $!;
+close $global_blue_disabled_fh;
+my $global_purple_root = File::Spec->catdir( $home, '.developer-dashboard', 'config', 'docker', 'purple' );
+make_path($global_purple_root);
+open my $global_purple_fh, '>', File::Spec->catfile( $global_purple_root, 'compose.yml' ) or die $!;
+print {$global_purple_fh} "services:\n  purple:\n    image: alpine\n";
+close $global_purple_fh;
 
 my $paths = Developer::Dashboard::PathRegistry->new(
     home => $home,
@@ -324,8 +328,8 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
     ok( grep( { /compose\.dev\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes mode overlay' );
     ok( grep( { /compose\.mailhog\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes config addon overlay' );
     ok( grep( { /compose\.debugger\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes plugin addon overlay' );
-    ok( grep( { /green\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver discovers isolated service compose files from the global docker config root' );
-    ok( grep( { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes isolated development compose overlays automatically for selected services' );
+    ok( !grep( { /green\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver prefers isolated development compose files over compose.yml for selected services' );
+    ok( grep( { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes isolated development compose files automatically for selected services' );
     is( $resolved->{env}{APP_MODE}, 'dev', 'docker compose resolver merges mode env' );
     is( $resolved->{env}{DDDC}, File::Spec->catdir( $paths->config_root, 'docker' ), 'docker compose resolver exports DDDC as the global docker config root' );
     is( $resolved->{env}{MAILHOG_ENABLED}, '1', 'docker compose resolver merges addon env' );
@@ -333,9 +337,9 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
     is_deeply( [ @{ $resolved->{command} }[0,1] ], [ 'docker', 'compose' ], 'docker compose resolver produces docker compose command' );
     is_deeply( $resolved->{precedence}, [ qw(base project service addon mode) ], 'docker compose resolver exposes overlay precedence' );
     is(
-        ( grep { /green\/compose\.yml$/ } @{ $resolved->{files} } )[0],
-        File::Spec->catfile( $paths->config_root, 'docker', 'green', 'compose.yml' ),
-        'docker compose resolver resolves isolated service folders from the global docker config root',
+        ( grep { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } )[0],
+        File::Spec->catfile( $paths->config_root, 'docker', 'green', 'development.compose.yml' ),
+        'docker compose resolver resolves isolated service folders from the global docker config root with development compose precedence',
     );
     ok( grep( { $_ eq 'green' } @{ $resolved->{services} } ), 'docker compose resolver infers service names from passthrough docker compose args' );
     is( $resolved->{command}[-1], 'green', 'docker compose resolver preserves passthrough docker compose service args' );
@@ -353,11 +357,13 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
         args => ['config'],
     );
     chdir $old or die $!;
-    ok( grep( { $_ eq 'green' } @{ $resolved->{services} } ), 'docker compose resolver auto-loads active isolated services when no service is specified' );
-    ok( !grep( { $_ eq 'blue' } @{ $resolved->{services} } ), 'docker compose resolver skips isolated services without an activation marker' );
-    ok( grep( { /green\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes active isolated service compose files during plain docker compose passthrough' );
-    ok( grep( { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes active isolated development overlays during plain docker compose passthrough' );
-    ok( !grep( { /blue\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver does not include inactive isolated compose folders' );
+    ok( grep( { $_ eq 'green' } @{ $resolved->{services} } ), 'docker compose resolver auto-loads isolated services by default when no service is specified' );
+    ok( grep( { $_ eq 'purple' } @{ $resolved->{services} } ), 'docker compose resolver auto-loads isolated services without requiring activation markers' );
+    ok( !grep( { $_ eq 'blue' } @{ $resolved->{services} } ), 'docker compose resolver skips isolated services marked disabled' );
+    ok( !grep( { /green\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver omits compose.yml when a matching isolated development compose file exists during plain docker compose passthrough' );
+    ok( grep( { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes isolated development compose files during plain docker compose passthrough' );
+    ok( grep( { /purple\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes non-disabled isolated compose folders during plain docker compose passthrough' );
+    ok( !grep( { /blue\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver does not include disabled isolated compose folders' );
     is( $resolved->{command}[-1], 'config', 'docker compose resolver preserves passthrough config invocation with active auto-discovery' );
 }
 
