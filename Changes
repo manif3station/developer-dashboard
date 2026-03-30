@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.46  2026-03-30
+
+    - restored old-style isolated docker service discovery so `dashboard docker compose --service <name>` automatically loads `~/.developer-dashboard/config/docker/<name>/compose.yml` when it exists
+    - added support for `development.compose.yml` alongside isolated service folders when a compose mode is requested
+    - exported `DDDC` as the global docker config root during compose resolution so compose YAML can keep using `${DDDC}` paths internally
+
 0.45  2026-03-30
 
     - expanded environment variables such as `${DDDC}` and `$DDDC` inside configured docker compose overlay file paths before path resolution

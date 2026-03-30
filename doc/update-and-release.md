@@ -113,7 +113,7 @@ The extension layer now includes:
 - action execution through the page action runner
 - project-aware Docker Compose resolution through `dashboard docker compose`
 
-Compose overlay file paths declared in dashboard JSON config can now use `${VAR}` or `$VAR` placeholders, for example `${DDDC}/compose.green.yaml`.
+Compose setup can now stay isolated in service folders under `~/.developer-dashboard/config/docker/<service>/compose.yml` without adding JSON config entries, and `development.compose.yml` in the same folder is included whenever `--mode` is used. The compose runtime also exports `DDDC` as that global docker config root so YAML can continue to use `${DDDC}` paths internally.
 
 ## Release To PAUSE
 
@@ -130,8 +130,8 @@ dzil build
 Before publishing to PAUSE, validate the exact tarball that will ship:
 
 ```bash
-tar -tzf Developer-Dashboard-0.45.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.45.tar.gz -v
+tar -tzf Developer-Dashboard-0.46.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.46.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

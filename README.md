@@ -335,7 +335,9 @@ Include addons or modes:
 dashboard docker compose --addon mailhog --mode dev up -d
 ```
 
-Configured docker overlay file paths support environment-variable expansion such as `${DDDC}/compose.green.yaml` or `$DDDC/compose.green.yaml` before the dashboard resolves absolute versus project-relative paths.
+The resolver also supports old-style isolated service folders without adding entries to dashboard JSON config. If `~/.developer-dashboard/config/docker/green/compose.yml` exists, `dashboard docker compose --service green ...` will pick it up automatically. If `development.compose.yml` exists in the same service folder, it is also included when any `--mode` is requested.
+
+During compose execution the dashboard exports `DDDC` as `~/.developer-dashboard/config/docker`, so compose YAML can keep using `${DDDC}` paths inside the YAML itself.
 
 ### Prompt Integration
 
@@ -434,8 +436,8 @@ installs the tarball with `cpanm`, and then exercises the installed
 Before uploading a release artifact, validate the exact tarball that will ship:
 
 ```bash
-tar -tzf Developer-Dashboard-0.45.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.45.tar.gz -v
+tar -tzf Developer-Dashboard-0.46.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.46.tar.gz -v
 ```
 
 The harness also:

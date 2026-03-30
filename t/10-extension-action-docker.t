@@ -78,11 +78,14 @@ close $project_overlay_fh;
 open my $service_overlay_fh, '>', File::Spec->catfile( $repo, 'compose.worker.yaml' ) or die $!;
 print {$service_overlay_fh} "services:\n  worker:\n    image: perl:latest\n";
 close $service_overlay_fh;
-my $global_config_root = File::Spec->catdir( $home, '.developer-dashboard', 'config' );
-make_path($global_config_root);
-open my $global_green_fh, '>', File::Spec->catfile( $global_config_root, 'compose.green.yaml' ) or die $!;
+my $global_docker_root = File::Spec->catdir( $home, '.developer-dashboard', 'config', 'docker', 'green' );
+make_path($global_docker_root);
+open my $global_green_fh, '>', File::Spec->catfile( $global_docker_root, 'compose.yml' ) or die $!;
 print {$global_green_fh} "services:\n  green:\n    extra_hosts:\n      - host.docker.internal:host-gateway\n";
 close $global_green_fh;
+open my $global_green_dev_fh, '>', File::Spec->catfile( $global_docker_root, 'development.compose.yml' ) or die $!;
+print {$global_green_dev_fh} "services:\n  green:\n    environment:\n      GREEN_DEV: 1\n";
+close $global_green_dev_fh;
 
 my $paths = Developer::Dashboard::PathRegistry->new(
     home => $home,
@@ -90,17 +93,6 @@ my $paths = Developer::Dashboard::PathRegistry->new(
     workspace_roots => [ File::Spec->catdir( $home, 'projects' ) ],
 );
 my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
-local $ENV{DDDC} = $paths->config_root;
-my $global_cfg = {
-    docker => {
-        services => {
-            green => {
-                files => ['${DDDC}/compose.green.yaml'],
-            },
-        },
-    },
-};
-$files->write( global_config => Developer::Dashboard::JSON::json_encode($global_cfg) );
 
 open my $plugin_fh, '>', File::Spec->catfile( $paths->plugins_root, 'demo.json' ) or die $!;
 print {$plugin_fh} <<'JSON';
@@ -324,16 +316,18 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
     ok( grep( { /compose\.dev\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes mode overlay' );
     ok( grep( { /compose\.mailhog\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes config addon overlay' );
     ok( grep( { /compose\.debugger\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes plugin addon overlay' );
-    ok( grep( { /compose\.green\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver expands environment variables in configured service overlay paths' );
+    ok( grep( { /green\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver discovers isolated service compose files from the global docker config root' );
+    ok( grep( { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes isolated development compose overlays when modes are requested' );
     is( $resolved->{env}{APP_MODE}, 'dev', 'docker compose resolver merges mode env' );
+    is( $resolved->{env}{DDDC}, File::Spec->catdir( $paths->config_root, 'docker' ), 'docker compose resolver exports DDDC as the global docker config root' );
     is( $resolved->{env}{MAILHOG_ENABLED}, '1', 'docker compose resolver merges addon env' );
     is( $resolved->{env}{DEBUGGER_ENABLED}, '1', 'docker compose resolver merges plugin addon env' );
     is_deeply( [ @{ $resolved->{command} }[0,1] ], [ 'docker', 'compose' ], 'docker compose resolver produces docker compose command' );
     is_deeply( $resolved->{precedence}, [ qw(base project service addon mode) ], 'docker compose resolver exposes overlay precedence' );
     is(
-        ( grep { /compose\.green\.yaml$/ } @{ $resolved->{files} } )[0],
-        File::Spec->catfile( $paths->config_root, 'compose.green.yaml' ),
-        'docker compose resolver resolves ${DDDC} overlays against the global config root',
+        ( grep { /green\/compose\.yml$/ } @{ $resolved->{files} } )[0],
+        File::Spec->catfile( $paths->config_root, 'docker', 'green', 'compose.yml' ),
+        'docker compose resolver resolves isolated service folders from the global docker config root',
     );
 }
 

@@ -34,6 +34,7 @@ sub resolve {
     my $project_root = $args{project_root} || $self->{paths}->current_project_root || cwd();
     my $docker_cfg   = $self->{config}->docker_config;
     my $plugin_cfg   = $self->{plugins}->docker_config;
+    my $docker_root  = $self->_docker_config_root;
     my @compose_files = ();
     my @layers;
 
@@ -67,6 +68,13 @@ sub resolve {
         my $def = $service_map{$service};
         next if ref($def) ne 'HASH';
         push @service_files, @{ $def->{files} || [] } if ref( $def->{files} ) eq 'ARRAY';
+    }
+    for my $service (@services) {
+        push @service_files, $self->_discover_service_files(
+            service      => $service,
+            project_root => $project_root,
+            modes        => \@modes,
+        );
     }
     push @compose_files, @service_files;
     push @layers, { name => 'service', files => [@service_files] } if @service_files;
@@ -103,6 +111,7 @@ sub resolve {
     my %env = (
         %{ $plugin_cfg->{env} || {} },
         %{ $docker_cfg->{env} || {} },
+        DDDC => $docker_root,
     );
     for my $addon (@addons) {
         my $def = $addon_map{$addon};
@@ -147,6 +156,49 @@ sub _expand_env_path {
     $path =~ s/\$([A-Za-z_][A-Za-z0-9_]*)/defined $ENV{$1} ? $ENV{$1} : ''/ge;
 
     return $path;
+}
+
+# _docker_config_root()
+# Returns the dashboard docker configuration root used for isolated service folders.
+# Input: none.
+# Output: absolute directory path string.
+sub _docker_config_root {
+    my ($self) = @_;
+    return File::Spec->catdir( $self->{paths}->config_root, 'docker' );
+}
+
+# _discover_service_files(%args)
+# Discovers old-style isolated compose files for a named service from repo-local and global docker config roots.
+# Input: service name, project_root, and optional modes array reference.
+# Output: ordered list of discovered compose file paths.
+sub _discover_service_files {
+    my ( $self, %args ) = @_;
+    my $service      = $args{service} || return;
+    my $project_root = $args{project_root} || cwd();
+    my $modes        = $args{modes} || [];
+
+    my @roots = (
+        File::Spec->catdir( $project_root, '.developer-dashboard', 'docker' ),
+        $self->_docker_config_root,
+    );
+
+    my @files;
+    my %seen;
+    for my $root (@roots) {
+        next if !defined $root || $root eq '';
+        my $service_root = File::Spec->catdir( $root, $service );
+        next if !-d $service_root;
+
+        my $compose = File::Spec->catfile( $service_root, 'compose.yml' );
+        push @files, $compose if -f $compose && !$seen{$compose}++;
+
+        next if !@{$modes};
+
+        my $development = File::Spec->catfile( $service_root, 'development.compose.yml' );
+        push @files, $development if -f $development && !$seen{$development}++;
+    }
+
+    return @files;
 }
 
 # run(%args)

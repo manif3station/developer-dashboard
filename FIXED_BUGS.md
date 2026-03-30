@@ -2,6 +2,7 @@
 
 ## 2026-03-30
 
+- Fixed docker-compose config sprawl by restoring old-style isolated service-folder discovery under the dashboard docker config root, so per-service compose files can live outside the merged JSON config.
 - Fixed docker overlay path rigidity by expanding `${VAR}` and `$VAR` placeholders in configured compose file paths, restoring old-style `DDDC`-driven global config patterns.
 - Fixed nested config merge loss so repo-local docker config extends global docker service, addon, mode, and env maps instead of replacing them wholesale.
 - Fixed root-editor bookmark persistence so posting a legacy instruction document with `BOOKMARK: index` now saves the page immediately and makes `/app/index` resolve it instead of failing with `Page 'index' not found`.
