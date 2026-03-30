@@ -44,7 +44,7 @@ Developer Dashboard is a project-neutral local developer runtime.
   Renders `PS1` output from cached indicator state in compact or extended mode, with optional color and stale-state marking.
 
 - `dashboard`
-  Canonical command-line entrypoint for runtime, page, collector, and prompt operations.
+  Canonical command-line entrypoint for runtime, page, collector, prompt, and user CLI extension operations.
 
 - `Developer::Dashboard::PageDocument`
   Canonical page model for saved, transient, and legacy bookmark pages.
@@ -136,6 +136,12 @@ The core supports compatibility-style environment overrides for project customiz
   Startup collector-definition root.
 
 Startup definitions are read as JSON files and merged into the collector set.
+
+The runtime also supports user CLI extensions:
+
+- unknown top-level `dashboard` subcommands are resolved from `~/.developer-dashboard/cli`
+- the matching executable receives the remaining argv unchanged
+- stdin, stdout, and stderr are preserved through `exec`
 
 ## Packaging
 

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.35';
+our $VERSION = '0.36';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.35
+0.36
 
 =head1 INTRODUCTION
 
@@ -166,6 +166,13 @@ Override the startup collector-definition root.
 
 =back
 
+=head2 User CLI Extensions
+
+Unknown top-level subcommands can be provided by executable files under
+F<~/.developer-dashboard/cli>. For example, C<dashboard foobar a b> will exec
+F<~/.developer-dashboard/cli/foobar> with C<a b> as argv, while preserving
+stdin, stdout, and stderr.
+
 =head1 MANUAL
 
 =head2 Installation
@@ -195,6 +202,13 @@ Run the CLI directly from the repository:
   perl -Ilib bin/dashboard serve
   perl -Ilib bin/dashboard stop
   perl -Ilib bin/dashboard restart
+
+User CLI extensions can be tested from the repository too:
+
+  mkdir -p ~/.developer-dashboard/cli
+  printf '#!/bin/sh\ncat\n' > ~/.developer-dashboard/cli/foobar
+  chmod +x ~/.developer-dashboard/cli/foobar
+  printf 'hello\n' | perl -Ilib bin/dashboard foobar
 
 =head2 First Run
 

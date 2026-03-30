@@ -79,6 +79,13 @@ The distribution supports these compatibility-style customization variables:
 - `DEVELOPER_DASHBOARD_STARTUP`
   Override the startup collector-definition root.
 
+### User CLI Extensions
+
+Unknown top-level subcommands can be provided by executable files under
+`~/.developer-dashboard/cli`. For example, `dashboard foobar a b` will exec
+`~/.developer-dashboard/cli/foobar` with `a b` as argv, while preserving
+stdin, stdout, and stderr.
+
 ## Manual
 
 ### Installation
@@ -115,6 +122,15 @@ perl -Ilib bin/dashboard update
 perl -Ilib bin/dashboard serve
 perl -Ilib bin/dashboard stop
 perl -Ilib bin/dashboard restart
+```
+
+User CLI extensions can be tested from the repository too:
+
+```bash
+mkdir -p ~/.developer-dashboard/cli
+printf '#!/bin/sh\ncat\n' > ~/.developer-dashboard/cli/foobar
+chmod +x ~/.developer-dashboard/cli/foobar
+printf 'hello\n' | perl -Ilib bin/dashboard foobar
 ```
 
 ### First Run

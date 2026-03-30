@@ -132,6 +132,15 @@ sub plugins_root {
     return $self->_ensure_dir( File::Spec->catdir( $self->runtime_root, 'plugins' ) );
 }
 
+# cli_root()
+# Returns the user CLI extension directory.
+# Input: none.
+# Output: directory path string.
+sub cli_root {
+    my ($self) = @_;
+    return $self->_ensure_dir( File::Spec->catdir( $self->runtime_root, 'cli' ) );
+}
+
 # collectors_root()
 # Returns the collectors state root directory.
 # Input: none.

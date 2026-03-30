@@ -2,6 +2,8 @@ use strict;
 use warnings;
 
 use Capture::Tiny qw(capture);
+use File::Path qw(make_path);
+use File::Spec;
 use Test::More;
 use File::Temp qw(tempdir);
 
@@ -47,6 +49,29 @@ like( $usage_stdout . $usage_stderr, qr/SYNOPSIS|dashboard init/, 'dashboard wit
 
 my $help = _run("$perl -Ilib bin/dashboard help");
 like($help, qr/Description:/, 'dashboard help renders the fuller POD help');
+
+my $cli_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );
+make_path($cli_root);
+my $ext = File::Spec->catfile( $cli_root, 'foobar' );
+open my $ext_fh, '>', $ext or die "Unable to write $ext: $!";
+print {$ext_fh} <<'SH';
+#!/bin/sh
+input="$(cat)"
+printf 'argv:%s|stdin:%s\n' "$*" "$input"
+SH
+close $ext_fh;
+chmod 0755, $ext or die "Unable to chmod $ext: $!";
+
+my ( $ext_stdout, $ext_stderr, $ext_exit ) = capture {
+    open my $pipe, '|-', $perl, '-Ilib', 'bin/dashboard', 'foobar', 'one', 'two'
+      or die "Unable to exec dashboard extension: $!";
+    print {$pipe} "hello-extension";
+    close $pipe or die "dashboard extension failed: $!";
+    return $? >> 8;
+};
+is( $ext_exit, 0, 'user CLI extension exits successfully' );
+is( $ext_stderr, '', 'user CLI extension keeps stderr clean' );
+like( $ext_stdout, qr/^argv:one two\|stdin:hello-extension$/m, 'user CLI extension receives argv and stdin passthrough' );
 
 done_testing;
 

@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.36  2026-03-30
+
+    - added user CLI extension dispatch so unknown top-level `dashboard` subcommands exec matching programs from `~/.developer-dashboard/cli`
+    - added CLI smoke coverage for argv and stdin passthrough into user-provided dashboard extension executables
+
 0.35  2026-03-30
 
     - removed the stale `DD` prompt fallback so blank installs no longer show an invented status token before any indicators exist
