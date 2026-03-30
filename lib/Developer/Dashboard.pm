@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.54';
+our $VERSION = '0.55';
 
 1;
 
@@ -17,7 +17,7 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.54
+0.55
 
 =head1 INTRODUCTION
 
@@ -454,6 +454,9 @@ C<${DDDC}> paths inside the YAML itself. Wrapper flags such as
 C<--service>, C<--addon>, C<--mode>, C<--project>, and C<--dry-run> are
 consumed first, and all remaining docker compose flags such as C<-d> and
 C<--build> pass straight through to the real C<docker compose> command.
+When C<--dry-run> is omitted, the dashboard hands off with C<exec> so the
+terminal sees the normal streaming output from C<docker compose> itself
+instead of a dashboard JSON wrapper.
 
 =head2 Prompt Integration
 
@@ -606,8 +609,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.54.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.54.tar.gz -v
+  tar -tzf Developer-Dashboard-0.55.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.55.tar.gz -v
 
 The harness also:
 

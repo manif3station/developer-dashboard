@@ -75,6 +75,19 @@ my $docker_dry_run_data = json_decode($docker_dry_run);
 ok( grep( { $_ eq '-d' } @{ $docker_dry_run_data->{command} } ), 'dashboard docker compose leaves short docker passthrough flags such as -d untouched' );
 ok( grep( { $_ eq '--build' } @{ $docker_dry_run_data->{command} } ), 'dashboard docker compose leaves docker passthrough flags such as --build untouched' );
 ok( grep( { $_ eq 'green' } @{ $docker_dry_run_data->{services} } ), 'dashboard docker compose still infers service names from passthrough args when docker flags are present' );
+my $fake_bin = File::Spec->catdir( $ENV{HOME}, 'fake-bin' );
+make_path($fake_bin);
+my $fake_docker = File::Spec->catfile( $fake_bin, 'docker' );
+open my $fake_docker_fh, '>', $fake_docker or die "Unable to write $fake_docker: $!";
+print {$fake_docker_fh} <<'SH';
+#!/bin/sh
+printf 'DOCKER:%s\n' "$*"
+SH
+close $fake_docker_fh;
+chmod 0755, $fake_docker or die "Unable to chmod $fake_docker: $!";
+my $docker_exec_output = _run("PATH='$fake_bin':\"\$PATH\" $perl -Ilib bin/dashboard docker compose up -d --build green");
+like( $docker_exec_output, qr/^DOCKER:compose /m, 'dashboard docker compose execs the real docker command for non-dry-run invocations' );
+unlike( $docker_exec_output, qr/\"command\"\s*:/, 'dashboard docker compose no longer prints JSON envelopes for non-dry-run invocations' );
 
 my $open_root = File::Spec->catdir( $ENV{HOME}, 'open-file-fixtures' );
 make_path($open_root);

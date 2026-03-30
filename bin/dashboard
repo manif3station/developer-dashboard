@@ -586,16 +586,21 @@ elsif ( $cmd eq 'docker' ) {
             'dry-run!'   => \$dry_run,
         );
         Getopt::Long::Configure(qw(no_pass_through getopt_compat auto_abbrev));
-        my $result = $docker->run(
+        my $result = $docker->resolve(
             addons       => \@addons,
             args         => \@ARGV,
-            dry_run      => $dry_run,
             modes        => \@modes,
             services     => \@services,
             project_root => $project_root || undef,
         );
-        print json_encode($result);
-        exit 0;
+        if ($dry_run) {
+            print json_encode($result);
+            exit 0;
+        }
+        chdir $result->{project_root} or die "Unable to chdir to $result->{project_root}: $!";
+        local @ENV{ keys %{ $result->{env} } } = values %{ $result->{env} } if %{ $result->{env} };
+        exec @{ $result->{command} };
+        die "Unable to exec docker compose: $!";
     }
 }
 elsif ( $cmd eq 'serve' ) {

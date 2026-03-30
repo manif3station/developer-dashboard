@@ -314,6 +314,27 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
         paths   => $paths,
         plugins => $plugins,
     );
+    local $ENV{DD_TEST_DOCKER_ROOT} = File::Spec->catdir( $home, '.developer-dashboard', 'config', 'docker' );
+    is(
+        $docker->_expand_env_path('${DD_TEST_DOCKER_ROOT}/green/compose.yml'),
+        File::Spec->catfile( $ENV{DD_TEST_DOCKER_ROOT}, 'green', 'compose.yml' ),
+        'docker compose resolver expands defined braced environment variables in configured compose paths',
+    );
+    is(
+        $docker->_expand_env_path('${DD_TEST_DOCKER_MISSING}green/compose.yml'),
+        'green/compose.yml',
+        'docker compose resolver collapses undefined braced environment variables in configured compose paths',
+    );
+    is(
+        $docker->_expand_env_path('$DD_TEST_DOCKER_ROOT/green/compose.yml'),
+        File::Spec->catfile( $ENV{DD_TEST_DOCKER_ROOT}, 'green', 'compose.yml' ),
+        'docker compose resolver expands defined bare environment variables in configured compose paths',
+    );
+    is(
+        $docker->_expand_env_path('$DD_TEST_DOCKER_MISSING' . 'green/compose.yml'),
+        '/compose.yml',
+        'docker compose resolver collapses undefined bare environment variables in configured compose paths',
+    );
     my $resolved = $docker->resolve(
         addons => [ 'mailhog', 'debugger' ],
         args   => [ 'config', 'green' ],

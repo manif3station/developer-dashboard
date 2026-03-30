@@ -114,6 +114,7 @@ The extension layer now includes:
 - project-aware Docker Compose resolution through `dashboard docker compose`
 
 Compose setup can now stay isolated in service folders under `~/.developer-dashboard/config/docker/<service>/compose.yml` without adding JSON config entries, and the wrapper infers service names from passthrough docker compose args such as `config green` before building the final `docker compose` command. When no service name is passed, the resolver scans isolated service folders and preloads every non-disabled folder. A folder containing `disabled.yml` is skipped. Each isolated folder contributes `development.compose.yml` when present, otherwise `compose.yml`. The compose runtime also exports `DDDC` as that global docker config root so YAML can continue to use `${DDDC}` paths internally. Wrapper-only flags are consumed first and remaining docker compose flags such as `-d` and `--build` pass through untouched.
+Without `--dry-run`, the wrapper now hands off with `exec`, so terminal users see the normal streaming output from `docker compose` itself instead of a dashboard JSON wrapper.
 
 ## Release To PAUSE
 
@@ -133,8 +134,8 @@ Before publishing to PAUSE, remove older tarballs first so only the current rele
 ```bash
 rm -f Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.54.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.54.tar.gz -v
+tar -tzf Developer-Dashboard-0.55.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.55.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

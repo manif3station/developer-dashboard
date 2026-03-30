@@ -343,6 +343,7 @@ The resolver also supports old-style isolated service folders without adding ent
 
 During compose execution the dashboard exports `DDDC` as `~/.developer-dashboard/config/docker`, so compose YAML can keep using `${DDDC}` paths inside the YAML itself.
 Wrapper flags such as `--service`, `--addon`, `--mode`, `--project`, and `--dry-run` are consumed first, and all remaining docker compose flags such as `-d` and `--build` pass straight through to the real `docker compose` command.
+Without `--dry-run`, the dashboard hands off with `exec`, so you see the normal streaming output from `docker compose` itself instead of a dashboard JSON wrapper.
 
 ### Prompt Integration
 
@@ -443,8 +444,8 @@ Before uploading a release artifact, remove older tarballs first so only the cur
 ```bash
 rm -f Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.54.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.54.tar.gz -v
+tar -tzf Developer-Dashboard-0.55.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.55.tar.gz -v
 ```
 
 The harness also:
