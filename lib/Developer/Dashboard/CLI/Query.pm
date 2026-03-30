@@ -81,7 +81,7 @@ sub _parse_query_input {
     my $text    = $args{text} // '';
 
     return json_decode($text)           if $command eq 'pjq';
-    return YAML::XS::Load($text)        if $command eq 'yjq';
+    return YAML::XS::Load($text)        if $command eq 'pyq';
     return TOML::Tiny::from_toml($text) if $command eq 'ptomq';
     return _parse_java_properties($text) if $command eq 'pjp';
 
@@ -213,7 +213,7 @@ Developer::Dashboard::CLI::Query - standalone structured-data query command supp
 =head1 DESCRIPTION
 
 Provides the lightweight shared implementation behind the standalone
-C<pjq>, C<yjq>, C<ptomq>, and C<pjp> executables and the proxied
+C<pjq>, C<pyq>, C<ptomq>, and C<pjp> executables and the proxied
 C<dashboard ...> command paths.
 
 =cut

@@ -49,10 +49,10 @@ Developer Dashboard is a project-neutral local developer runtime.
 - `dashboard of` / `dashboard open-file`
   Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches below a resolved scope, then print or exec the configured editor.
 
-- `dashboard pjq` / `dashboard yjq` / `dashboard ptomq` / `dashboard pjp`
+- `dashboard pjq` / `dashboard pyq` / `dashboard ptomq` / `dashboard pjp`
   Parse JSON, YAML, TOML, and Java properties input and optionally traverse a dotted path before printing a scalar or canonical JSON. File-path and query-path argument order is interchangeable, and `$d` selects the full parsed document.
 
-- standalone `of` / `open-file` / `pjq` / `yjq` / `ptomq` / `pjp`
+- standalone `of` / `open-file` / `pjq` / `pyq` / `ptomq` / `pjp`
   Are installed as direct executables as well as proxied `dashboard` subcommands, so common CLI flows can avoid loading the full dashboard runtime.
 
 - `Developer::Dashboard::PageDocument`

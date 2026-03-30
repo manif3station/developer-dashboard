@@ -7,7 +7,7 @@ Project-neutral local developer dashboard runtime.
 Developer Dashboard is a local-first developer toolkit intended to be reusable across unrelated projects.
 
 Release tarballs contain installable runtime artifacts only; local Dist::Zilla release-builder configuration is kept out of the shipped archive.
-Frequently used built-in commands such as `of`, `open-file`, `pjq`, `yjq`, `ptomq`, and `pjp` are also installed as standalone executables so they can run directly without loading the full `dashboard` runtime.
+Frequently used built-in commands such as `of`, `open-file`, `pjq`, `pyq`, `ptomq`, and `pjp` are also installed as standalone executables so they can run directly without loading the full `dashboard` runtime.
 Before publishing a release, the built tarball should be smoke-tested with `cpanm` from the artifact itself so the shipped archive matches the fixed source tree.
 
 It provides a small ecosystem for:
@@ -61,10 +61,10 @@ Project-specific behavior should be added through configuration, startup collect
 - `dashboard of` and `dashboard open-file`
   Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches under a resolved scope.
 
-- `dashboard pjq`, `dashboard yjq`, `dashboard ptomq`, and `dashboard pjp`
+- `dashboard pjq`, `dashboard pyq`, `dashboard ptomq`, and `dashboard pjp`
   Parse JSON, YAML, TOML, and Java properties input, then optionally extract a dotted path and print a scalar or canonical JSON.
 
-- standalone `of`, `open-file`, `pjq`, `yjq`, `ptomq`, and `pjp`
+- standalone `of`, `open-file`, `pjq`, `pyq`, `ptomq`, and `pjp`
   Provide the same behavior directly, without proxying through the main `dashboard` command.
 
 - `Developer::Dashboard::RuntimeManager`
@@ -118,13 +118,13 @@ If `VISUAL` or `EDITOR` is set, `dashboard of` and `dashboard open-file` will ex
 These built-in commands parse structured text and optionally extract a dotted path:
 
 - `dashboard pjq [path] [file]` for JSON
-- `dashboard yjq [path] [file]` for YAML
+- `dashboard pyq [path] [file]` for YAML
 - `dashboard ptomq [path] [file]` for TOML
 - `dashboard pjp [path] [file]` for Java properties
 
 If the selected value is a hash or array, the command prints canonical JSON. If the selected value is a scalar, it prints the scalar plus a trailing newline.
 
-The file path and query path are order-independent, and `$d` selects the whole parsed document. For example, `cat file.json | dashboard pjq '$d'` and `dashboard pjq file.json '$d'` return the same result. The same contract applies to `yjq`, `ptomq`, and `pjp`.
+The file path and query path are order-independent, and `$d` selects the whole parsed document. For example, `cat file.json | dashboard pjq '$d'` and `dashboard pjq file.json '$d'` return the same result. The same contract applies to `pyq`, `ptomq`, and `pjp`.
 
 ## Manual
 
@@ -161,7 +161,7 @@ perl -Ilib bin/dashboard auth add-user <username> <password>
 perl -Ilib bin/dashboard of --print My::Module
 perl -Ilib bin/dashboard open-file --print com.example.App
 printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
-printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard yjq alpha.beta
+printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard pyq alpha.beta
 perl -Ilib bin/dashboard update
 perl -Ilib bin/dashboard serve
 perl -Ilib bin/dashboard stop
@@ -210,7 +210,7 @@ Query structured files from the CLI:
 
 ```bash
 printf '{"alpha":{"beta":2}}' | dashboard pjq alpha.beta
-printf 'alpha:\n  beta: 3\n' | dashboard yjq alpha.beta
+printf 'alpha:\n  beta: 3\n' | dashboard pyq alpha.beta
 printf '[alpha]\nbeta = 4\n' | dashboard ptomq alpha.beta
 printf 'alpha.beta=5\n' | dashboard pjp alpha.beta
 dashboard pjq file.json '$d'
@@ -431,8 +431,8 @@ installs the tarball with `cpanm`, and then exercises the installed
 Before uploading a release artifact, validate the exact tarball that will ship:
 
 ```bash
-tar -tzf Developer-Dashboard-0.41.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.41.tar.gz -v
+tar -tzf Developer-Dashboard-0.42.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.42.tar.gz -v
 ```
 
 The harness also:

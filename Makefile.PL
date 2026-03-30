@@ -13,7 +13,7 @@ WriteMakefile(
         'bin/of',
         'bin/open-file',
         'bin/pjq',
-        'bin/yjq',
+        'bin/pyq',
         'bin/ptomq',
         'bin/pjp',
     ],

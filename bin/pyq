@@ -12,7 +12,7 @@ use Developer::Dashboard::CLI::Query qw(run_query_command);
 # Runs the standalone YAML query executable.
 # Input: command-line arguments from @ARGV and optional STDIN.
 # Output: prints the selected YAML value, then exits.
-run_query_command( command => 'yjq', args => \@ARGV );
+run_query_command( command => 'pyq', args => \@ARGV );
 
 __END__
 
@@ -20,14 +20,14 @@ __END__
 
 =head1 NAME
 
-yjq - standalone YAML query command for Developer Dashboard
+pyq - standalone YAML query command for Developer Dashboard
 
 =head1 SYNOPSIS
 
-  yjq [path] [file]
+  pyq [path] [file]
 
 =head1 DESCRIPTION
 
-This is the lightweight standalone executable behind C<dashboard yjq>.
+This is the lightweight standalone executable behind C<dashboard pyq>.
 
 =cut

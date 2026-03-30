@@ -29,11 +29,11 @@ close $release_doc_fh;
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '0.41', 'module version bumped for the release fix' );
+is( $version, '0.42', 'module version bumped for the release fix' );
 like( $dist, qr/^version = \Q$version\E$/m, 'dist.ini version matches module version' );
 like( $changes, qr/^\Q$version\E\s+\d{4}-\d{2}-\d{2}$/m, 'Changes top entry matches module version' );
 
-for my $script (qw(bin/dashboard bin/of bin/open-file bin/pjq bin/yjq bin/ptomq bin/pjp)) {
+for my $script (qw(bin/dashboard bin/of bin/open-file bin/pjq bin/pyq bin/ptomq bin/pjp)) {
     like( $makefile, qr/'\Q$script\E'/, "Makefile.PL ships $script" );
 }
 

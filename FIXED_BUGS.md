@@ -2,6 +2,7 @@
 
 ## 2026-03-30
 
+- Fixed YAML query command naming by renaming the mistaken `yjq` command to `pyq` across the CLI, standalone executable, tests, and release documentation.
 - Fixed release-version drift by cutting a fresh `0.41` artifact for the already-correct standalone CLI and integration assets instead of reusing the stale `0.40` tarball.
 - Fixed release-metadata drift by adding a regression test that keeps `lib/Developer/Dashboard.pm`, `dist.ini`, `Changes`, shipped executable entries, and tarball verification guidance aligned.
 - Fixed CLI startup weight by splitting the open-file and structured-data query built-ins into standalone installed executables instead of always loading the full `dashboard` runtime.

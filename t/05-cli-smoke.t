@@ -105,18 +105,18 @@ is( $json_root_stdin, $json_root, 'pjq returns the same whole-document result fr
 my $json_direct = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -Ilib bin/pjq alpha.beta});
 is( $json_direct, $json_value, 'standalone pjq matches dashboard pjq output' );
 
-my $yaml_value = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -Ilib bin/dashboard yjq alpha.beta});
-is( $yaml_value, "3\n", 'yjq extracts scalar YAML values' );
+my $yaml_value = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -Ilib bin/dashboard pyq alpha.beta});
+is( $yaml_value, "3\n", 'pyq extracts scalar YAML values' );
 my $yaml_file = File::Spec->catfile( $open_root, 'sample.yaml' );
 open my $yaml_fh, '>', $yaml_file or die "Unable to write $yaml_file: $!";
 print {$yaml_fh} "alpha:\n  beta: 3\n";
 close $yaml_fh;
-my $yaml_root = _run("$perl -Ilib bin/dashboard yjq '$yaml_file' '\$d'");
-is_deeply( json_decode($yaml_root), { alpha => { beta => '3' } }, 'yjq accepts file then root query with order-independent args' );
-my $yaml_root_stdin = _run("cat '$yaml_file' | $perl -Ilib bin/dashboard yjq '\$d'");
-is( $yaml_root_stdin, $yaml_root, 'yjq returns the same whole-document result from stdin and file input' );
-my $yaml_direct = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -Ilib bin/yjq alpha.beta});
-is( $yaml_direct, $yaml_value, 'standalone yjq matches dashboard yjq output' );
+my $yaml_root = _run("$perl -Ilib bin/dashboard pyq '$yaml_file' '\$d'");
+is_deeply( json_decode($yaml_root), { alpha => { beta => '3' } }, 'pyq accepts file then root query with order-independent args' );
+my $yaml_root_stdin = _run("cat '$yaml_file' | $perl -Ilib bin/dashboard pyq '\$d'");
+is( $yaml_root_stdin, $yaml_root, 'pyq returns the same whole-document result from stdin and file input' );
+my $yaml_direct = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -Ilib bin/pyq alpha.beta});
+is( $yaml_direct, $yaml_value, 'standalone pyq matches dashboard pyq output' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -Ilib bin/dashboard ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );

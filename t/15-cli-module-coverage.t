@@ -169,7 +169,7 @@ my $json_data = Developer::Dashboard::CLI::Query::_parse_query_input(
 is_deeply( $json_data, { alpha => { beta => [ 1, 2 ], gamma => 'ok' } }, 'JSON query parsing works' );
 
 my $yaml_data = Developer::Dashboard::CLI::Query::_parse_query_input(
-    command => 'yjq',
+    command => 'pyq',
     text    => "alpha:\n  beta: 3\n",
 );
 is_deeply( $yaml_data, { alpha => { beta => 3 } }, 'YAML query parsing works' );

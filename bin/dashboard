@@ -683,7 +683,7 @@ sub _standalone_builtin_executable {
     my ($cmd) = @_;
     return if !$cmd;
 
-    my %map = map { $_ => $_ } qw(of open-file pjq yjq ptomq pjp);
+    my %map = map { $_ => $_ } qw(of open-file pjq pyq ptomq pjp);
     my $name = $map{$cmd} || return;
     my $path = File::Spec->catfile( $Bin, $name );
     return if !-f $path;
@@ -716,7 +716,7 @@ dashboard - command-line entrypoint for Developer Dashboard
   dashboard of [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
   dashboard open-file [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
   dashboard pjq [path] [file]
-  dashboard yjq [path] [file]
+  dashboard pyq [path] [file]
   dashboard ptomq [path] [file]
   dashboard pjp [path] [file]
   dashboard encode < input.txt
@@ -803,7 +803,7 @@ pattern matching
 
 =item *
 
-built-in C<dashboard pjq> / C<dashboard yjq> / C<dashboard ptomq> /
+built-in C<dashboard pjq> / C<dashboard pyq> / C<dashboard ptomq> /
 C<dashboard pjp> parsing for JSON, YAML, TOML, and Java properties input
 
 =back

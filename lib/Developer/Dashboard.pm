@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.41';
+our $VERSION = '0.42';
 
 1;
 
@@ -17,14 +17,14 @@ Developer::Dashboard - project-neutral local developer dashboard runtime
 
 =head1 VERSION
 
-0.41
+0.42
 
 =head1 INTRODUCTION
 
 Developer::Dashboard is a local-first developer toolkit intended to be reusable across unrelated projects.
 
 Release tarballs contain installable runtime artifacts only; local Dist::Zilla release-builder configuration is kept out of the shipped archive.
-Frequently used built-in commands such as C<of>, C<open-file>, C<pjq>, C<yjq>,
+Frequently used built-in commands such as C<of>, C<open-file>, C<pjq>, C<pyq>,
 C<ptomq>, and C<pjp> are also installed as standalone executables so they can
 run directly without loading the full C<dashboard> runtime.
 Before publishing a release, the built tarball should be smoke-tested with
@@ -144,13 +144,13 @@ matches under a resolved scope.
 
 =item * Data Query Commands
 
-C<dashboard pjq>, C<dashboard yjq>, C<dashboard ptomq>, and C<dashboard pjp>
+C<dashboard pjq>, C<dashboard pyq>, C<dashboard ptomq>, and C<dashboard pjp>
 parse JSON, YAML, TOML, and Java properties input, then optionally extract a
 dotted path and print a scalar or canonical JSON.
 
 =item * Standalone CLI Commands
 
-Standalone C<of>, C<open-file>, C<pjq>, C<yjq>, C<ptomq>, and C<pjp> provide
+Standalone C<of>, C<open-file>, C<pjq>, C<pyq>, C<ptomq>, and C<pjp> provide
 the same behavior directly without proxying through the main C<dashboard>
 command.
 
@@ -245,7 +245,7 @@ C<dashboard pjq [path] [file]> for JSON
 
 =item *
 
-C<dashboard yjq [path] [file]> for YAML
+C<dashboard pyq [path] [file]> for YAML
 
 =item *
 
@@ -264,7 +264,7 @@ newline.
 The file path and query path are order-independent, and C<$d> selects the
 whole parsed document. For example, C<cat file.json | dashboard pjq '$d'> and
 C<dashboard pjq file.json '$d'> return the same result. The same contract
-applies to C<yjq>, C<ptomq>, and C<pjp>.
+applies to C<pyq>, C<ptomq>, and C<pjp>.
 
 =head1 MANUAL
 
@@ -294,7 +294,7 @@ Run the CLI directly from the repository:
   perl -Ilib bin/dashboard of --print My::Module
   perl -Ilib bin/dashboard open-file --print com.example.App
   printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
-  printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard yjq alpha.beta
+  printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard pyq alpha.beta
   perl -Ilib bin/dashboard update
   perl -Ilib bin/dashboard serve
   perl -Ilib bin/dashboard stop
@@ -331,7 +331,7 @@ Resolve or open files from the CLI:
 Query structured files from the CLI:
 
   printf '{"alpha":{"beta":2}}' | dashboard pjq alpha.beta
-  printf 'alpha:\n  beta: 3\n' | dashboard yjq alpha.beta
+  printf 'alpha:\n  beta: 3\n' | dashboard pyq alpha.beta
   printf '[alpha]\nbeta = 4\n' | dashboard ptomq alpha.beta
   printf 'alpha.beta=5\n' | dashboard pjp alpha.beta
   dashboard pjq file.json '$d'
@@ -576,8 +576,8 @@ C<dashboard> command inside the clean Perl container.
 
 Before uploading a release artifact, validate the exact tarball that will ship:
 
-  tar -tzf Developer-Dashboard-0.41.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.41.tar.gz -v
+  tar -tzf Developer-Dashboard-0.42.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.42.tar.gz -v
 
 The harness also:
 

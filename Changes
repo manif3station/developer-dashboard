@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.42  2026-03-30
+
+    - renamed the YAML query command from `yjq` to `pyq` across the dashboard subcommand, standalone executable, tests, and documentation because `yjq` was a typo
+    - versioned the release forward so the published tarball name matches the corrected command surface
+
 0.41  2026-03-30
 
     - versioned the release forward so the fixed standalone CLI and blank-container integration assets ship under a fresh CPAN artifact instead of reusing the stale 0.40 tarball
