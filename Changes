@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.70  2026-03-31
+
+    - fixed bookmark Template Toolkit rendering so `[% title %]` receives the `TITLE:` value inside `HTML:` and `FORM.TT:` sections
+    - fixed transient play and view-source URLs so they keep the raw bookmark instruction text instead of baking rendered values such as `[% stash.foo %]` into `1` after a render pass
+
 0.69  2026-03-31
 
     - fixed the browser editor boot path so raw Template Toolkit tokens such as `[% title %]` remain intact in `HTML:` sections after the page JavaScript initializes the editor and syntax highlight overlay

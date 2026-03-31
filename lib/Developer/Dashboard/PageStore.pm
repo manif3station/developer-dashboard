@@ -98,6 +98,9 @@ sub encode_page {
     if ( ref($page) ne 'Developer::Dashboard::PageDocument' ) {
         $page = Developer::Dashboard::PageDocument->from_hash($page);
     }
+    my $raw_instruction = $page->{meta}{raw_instruction};
+    return encode_payload($raw_instruction)
+      if defined $raw_instruction && $raw_instruction ne '';
     return encode_payload( $page->canonical_instruction );
 }
 

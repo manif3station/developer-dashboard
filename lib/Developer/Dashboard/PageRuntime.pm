@@ -154,12 +154,19 @@ sub _render_templates {
         my $template = $layout->{$field};
         next if !defined $template || $template eq '';
         my $rendered = '';
+        my $page_data = $page->as_hash;
         my $ok = $tt->process(
             \$template,
             {
                 app    => $page,
                 parts  => $page,
+                page   => $page_data,
                 stash  => $state,
+                id     => $page_data->{id},
+                title  => $page_data->{title},
+                description => $page_data->{description},
+                mode   => $page_data->{mode},
+                icon   => $page_data->{icon},
                 ENV    => \%ENV,
                 SYSTEM => $system,
                 env    => \%ENV,

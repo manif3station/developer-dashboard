@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.69';
+our $VERSION = '0.70';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.69
+0.70
 
 =head1 INTRODUCTION
 
@@ -647,6 +647,13 @@ Edit and source views preserve raw Template Toolkit placeholders inside
 C<HTML:> and C<FORM.TT:> sections, so values such as C<[% title %]> are kept
 in the bookmark source instead of being rewritten to rendered HTML after a
 browser save.
+
+Template Toolkit rendering exposes the page title as C<title>, so a bookmark
+with C<TITLE: Sample Dashboard> can reference it directly inside C<HTML:> or
+C<FORM.TT:> with C<[% title %]>. Transient play and view-source links are
+also encoded from the raw bookmark instruction text when it is available, so
+C<[% stash.foo %]> stays in source views instead of being baked into the
+rendered scalar value after a render pass.
 
 Page C<TITLE:> values only populate the HTML C<E<lt>titleE<gt>> element. If a
 bookmark should show its title in the page body, add it explicitly inside

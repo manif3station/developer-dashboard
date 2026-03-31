@@ -2,6 +2,8 @@
 
 ## 2026-03-31
 
+- Fixed bookmark Template Toolkit context by exposing the page title as `title`, so `[% title %]` in `HTML:` now renders the `TITLE:` value.
+- Fixed transient bookmark source drift by encoding play/view-source links from the raw instruction text when it exists, so `[% stash.foo %]` no longer collapses into rendered output such as `1` after visiting render mode.
 - Fixed browser editor source drift further by making the editor boot script and initial syntax overlay use the raw bookmark instruction text instead of a prepared page body, so `[% ... %]` Template Toolkit tokens no longer disappear after the editor finishes loading.
 - Fixed documentation value drift by rewriting the README, main POD, and architecture guide intro to explain what a developer actually gets from Developer Dashboard, how the web UI, collectors, prompt indicators, CLI helpers, and Docker tooling fit together, and why the product works as a developer home across mixed-language projects.
 - Fixed web-access documentation gaps by documenting the default `0.0.0.0:7890` bind, passwordless exact `127.0.0.1` admin access, and helper-tier sharing model explicitly in the README and POD.
