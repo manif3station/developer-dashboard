@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.82';
+our $VERSION = '0.83';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.82
+0.83
 
 =head1 INTRODUCTION
 
@@ -113,6 +113,11 @@ Developer Dashboard is meant to become the developer's working home:
 
 =item *
 
+shared nav fragments from saved C<nav/*.tt> bookmarks rendered between the top
+chrome and the main page body on other saved pages
+
+=item *
+
 a local dashboard page that can hold links, notes, forms, actions, and
 rendered output
 
@@ -131,6 +136,49 @@ a configurable runtime that can adapt to each codebase without losing one
 familiar entrypoint
 
 =back
+
+=head2 Shared Nav Fragments
+
+If C<nav/*.tt> files exist under the saved bookmark root, every non-nav page
+render includes them between the top chrome and the main page body.
+
+For the default runtime that means files such as:
+
+=over 4
+
+=item *
+
+F<~/.developer-dashboard/dashboards/nav/foo.tt>
+
+=item *
+
+F<~/.developer-dashboard/dashboards/nav/bar.tt>
+
+=back
+
+And with route access such as:
+
+=over 4
+
+=item *
+
+C</app/nav/foo.tt>
+
+=item *
+
+C</page/nav/foo.tt/edit>
+
+=item *
+
+C</page/nav/foo.tt/source>
+
+=back
+
+The bookmark editor can save those nested ids directly, for example
+C<BOOKMARK: nav/foo.tt>. On a page like C</app/index>, the direct C<nav/*.tt>
+files are loaded in sorted filename order, rendered through the normal page
+runtime, and inserted above the page body. Non-C<.tt> files and subdirectories
+under C<nav/> are ignored by that shared-nav renderer.
 
 =head2 What You Get
 
@@ -965,8 +1013,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.82.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.82.tar.gz -v
+  tar -tzf Developer-Dashboard-0.83.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.83.tar.gz -v
 
 The harness also:
 

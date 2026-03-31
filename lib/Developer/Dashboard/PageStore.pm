@@ -4,7 +4,8 @@ use strict;
 use warnings;
 
 use File::Spec;
-use File::Basename qw(basename);
+use File::Basename qw(basename dirname);
+use File::Path qw(make_path);
 use URI::Escape qw(uri_escape);
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
@@ -42,6 +43,8 @@ sub save_page {
 
     my $id = $page->as_hash->{id} || die 'Saved pages require an id';
     my $file = $self->page_file($id);
+    my $dir = dirname($file);
+    make_path($dir) if !-d $dir;
     open my $fh, '>', $file or die "Unable to save $file: $!";
     print {$fh} $page->canonical_instruction;
     close $fh;

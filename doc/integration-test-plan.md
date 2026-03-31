@@ -64,6 +64,7 @@ The integration run creates:
   - `DEVELOPER_DASHBOARD_STARTUP`
 - a saved page named `sample`
 - a saved legacy bookmark page named `project-home`
+- shared nav bookmark pages under `nav/*.tt`
 - a helper user for explicit add/remove testing
 - a second helper user for browser login/logout cleanup testing
 - a temporary Compose project under `/tmp`
@@ -90,12 +91,13 @@ The integration run creates:
 18. Start the installed web service.
 19. Confirm exact-loopback access reaches the editor page in Chromium.
 20. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
-21. Confirm non-loopback self-access reaches the helper login page in Chromium.
-22. Log in as a helper through the HTTP helper flow.
-23. Confirm helper page chrome shows `Logout`.
-24. Log out and confirm the helper account is removed.
-25. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
-26. Stop the runtime and confirm the web service is gone.
+21. Confirm the browser inserts sorted rendered `nav/*.tt` bookmark fragments between the top chrome and the main page body.
+22. Confirm non-loopback self-access reaches the helper login page in Chromium.
+23. Log in as a helper through the HTTP helper flow.
+24. Confirm helper page chrome shows `Logout`.
+25. Log out and confirm the helper account is removed.
+26. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
+27. Stop the runtime and confirm the web service is gone.
 
 ## Expected Results
 
@@ -110,6 +112,7 @@ The integration run creates:
 - a healthy startup collector still reports `ok` and stays green in `dashboard indicator list`, `dashboard ps1`, and `/system/status`
 - the web service serves the root editor on `127.0.0.1:7890`
 - the browser can load both the editor and a saved fake-project bookmark page from the fake project bookmark directory
+- the browser sees sorted shared `nav/*.tt` fragments above the main page body on that fake-project bookmark page
 - non-loopback access produces the helper login page
 - helper logout removes both the helper session and the helper account
 - `dashboard stop` leaves no active listener on port `7890`

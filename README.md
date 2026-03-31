@@ -175,6 +175,28 @@ Unknown top-level subcommands can be provided by executable files under
 `~/.developer-dashboard/cli/foobar` with `a b` as argv, while preserving
 stdin, stdout, and stderr.
 
+### Shared Nav Fragments
+
+If `nav/*.tt` files exist under the saved bookmark root, every non-nav page
+render includes them between the top chrome and the main page body.
+
+For the default runtime that means files such as:
+
+- `~/.developer-dashboard/dashboards/nav/foo.tt`
+- `~/.developer-dashboard/dashboards/nav/bar.tt`
+
+And with route access such as:
+
+- `/app/nav/foo.tt`
+- `/page/nav/foo.tt/edit`
+- `/page/nav/foo.tt/source`
+
+The bookmark editor can save those nested ids directly, for example
+`BOOKMARK: nav/foo.tt`. On a page like `/app/index`, the direct `nav/*.tt`
+files are loaded in sorted filename order, rendered through the normal page
+runtime, and inserted above the page body. Non-`.tt` files and subdirectories
+under `nav/` are ignored by that shared-nav renderer.
+
 ### Open File Commands
 
 `dashboard of` is the shorthand name for `dashboard open-file`.
@@ -616,8 +638,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.82.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.82.tar.gz -v
+tar -tzf Developer-Dashboard-0.83.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.83.tar.gz -v
 ```
 
 The harness also:

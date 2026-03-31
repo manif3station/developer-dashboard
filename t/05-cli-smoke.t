@@ -294,7 +294,7 @@ my $update_result_data = json_decode($update_result);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update uses the common command hook path and captures stdout from executable update files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update captures stderr from executable update files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update skips non-executable files in the update command folder' );
-is( _run("$perl -Ilib bin/dashboard version"), "0.82\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -Ilib bin/dashboard version"), "0.83\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -Ilib bin/dashboard ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );

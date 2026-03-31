@@ -72,6 +72,8 @@ The web tests also cover the access model:
 - forwarding of response headers such as `Location` and `Set-Cookie`
 - root free-form editor behavior at `/`
 - posted instruction handling through `/`
+- nested saved bookmark ids such as `nav/foo.tt` through `/app/...` and `/page/...`
+- shared `nav/*.tt` bookmark rendering between top chrome and the main page body in sorted filename order
 - `/apps -> /app/index` compatibility
 - top chrome rendering on edit and legacy render pages
 

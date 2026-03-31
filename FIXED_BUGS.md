@@ -2,6 +2,9 @@
 
 ## 2026-03-31
 
+- Fixed nested bookmark route drift by letting saved page routes accept ids such as `nav/foo.tt`, so bookmark-editor pages and source routes work for subdirectory-backed saved bookmarks instead of only one path segment.
+- Fixed nested bookmark save failures by creating parent directories automatically for saved ids such as `nav/foo.tt`, so bookmark-editor saves can write shared nav pages without manual directory setup.
+- Fixed shared page-nav composition by rendering direct `nav/*.tt` bookmark files in sorted filename order between the top chrome and the main page body on other saved pages, while still keeping `/app/nav/foo.tt` itself as a normal editable bookmark page.
 - Fixed unconfigured `Folder` runtime drift by making `Folder->dd` and AUTOLOAD-backed root aliases such as `Folder->runtime_root` lazily bootstrap the default dashboard path registry from `HOME`, so compatibility code sees the same runtime root as `dashboard paths` before explicit `configure()`.
 - Fixed `Folder` naming drift by teaching `AUTOLOAD` to resolve `runtime_root`, `bookmarks_root`, `config_root`, and `startup_root` through the existing legacy aliases, so compatibility code can use the same root-style names shown by `dashboard paths`.
 - Fixed blank-container integration contamination by delaying `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_STARTUP` until after `cpanm` finishes installing the tarball, so the shipped test suite still runs against a clean runtime.

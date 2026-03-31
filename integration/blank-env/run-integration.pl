@@ -111,6 +111,26 @@ STASH: {}
 HTML: <div id="project-marker">Fake Project Home</div>
 BOOKMARK
     );
+    _write_text(
+        File::Spec->catfile( $bookmarks, 'nav', 'alpha.tt' ),
+        <<'BOOKMARK'
+TITLE: Alpha Nav
+:--------------------------------------------------------------------------------:
+BOOKMARK: nav/alpha.tt
+:--------------------------------------------------------------------------------:
+HTML: <div id="nav-alpha">Alpha Nav</div>
+BOOKMARK
+    );
+    _write_text(
+        File::Spec->catfile( $bookmarks, 'nav', 'beta.tt' ),
+        <<'BOOKMARK'
+TITLE: Beta Nav
+:--------------------------------------------------------------------------------:
+BOOKMARK: nav/beta.tt
+:--------------------------------------------------------------------------------:
+HTML: <div id="nav-beta">Beta Nav</div>
+BOOKMARK
+    );
 
     _run_shell( 'init fake project git repo', 'git init ' . _shell_quote($project) );
 
@@ -129,7 +149,7 @@ BOOKMARK
     _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
 
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
-    _assert_match( $version->{stdout}, qr/^0\.82$/m, 'dashboard version reports the installed runtime version' );
+    _assert_match( $version->{stdout}, qr/^0\.83$/m, 'dashboard version reports the installed runtime version' );
 
     my $init = _run_shell( 'dashboard init', 'dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
@@ -304,6 +324,11 @@ SH
     my $project_dom = _run_browser_dom( 'browser fake project page', 'http://127.0.0.1:7890/app/project-home', user_data_dir => $profile );
     _assert_match( $project_dom, qr/project-marker/, 'browser renders fake project bookmark page' );
     _assert_match( $project_dom, qr/Fake Project Home/, 'browser renders fake project bookmark content' );
+    _assert_match( $project_dom, qr/dashboard-nav-items/, 'browser renders shared nav container on fake project bookmark page' );
+    _assert_match( $project_dom, qr/nav-alpha/, 'browser renders the first shared nav bookmark fragment' );
+    _assert_match( $project_dom, qr/nav-beta/, 'browser renders the second shared nav bookmark fragment' );
+    _assert( index( $project_dom, 'nav-alpha' ) < index( $project_dom, 'nav-beta' ), 'browser renders shared nav bookmark fragments in sorted filename order' );
+    _assert( index( $project_dom, 'dashboard-nav-items' ) < index( $project_dom, 'project-marker' ), 'browser renders shared nav fragments before the main page body' );
 
     my $container_ip = _trim( _run_shell( 'container ip', q{hostname -I | awk '{print $1}'} )->{stdout} );
     _assert( $container_ip ne '', 'container ip discovered for helper-access path' );

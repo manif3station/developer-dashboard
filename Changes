@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.83  2026-03-31
+
+    - added nested saved bookmark route support so `/app/nav/foo.tt`, `/page/nav/foo.tt/edit`, and `/page/nav/foo.tt/source` work like any other saved bookmark id
+    - fixed saved bookmark persistence for nested ids by creating parent directories automatically when bookmark ids contain path separators such as `nav/foo.tt`
+    - added shared `nav/*.tt` bookmark rendering so direct `.tt` files under the saved bookmark `nav/` folder render in sorted filename order between the top chrome and the main page body on other saved pages
+
 0.82  2026-03-31
 
     - fixed unconfigured legacy `Folder` access so `Folder->dd` and AUTOLOAD-backed root aliases such as `Folder->runtime_root` lazily bootstrap the default dashboard path registry from `$HOME` instead of dying or returning placeholder state
