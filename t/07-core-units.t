@@ -400,12 +400,21 @@ make_path( File::Spec->catdir( $paths->collectors_root, 'broken.collector' ) );
 open my $broken_status, '>', File::Spec->catfile( $paths->collectors_root, 'broken.collector', 'status.json' ) or die $!;
 print {$broken_status} "{broken\n";
 close $broken_status;
+ok( !defined $collector->read_status('broken.collector'), 'read_status returns undef for invalid collector status json' );
+$collector->write_status(
+    'broken.collector',
+    {
+        enabled => 1,
+        running => 1,
+    }
+);
+is( $collector->read_status('broken.collector')->{running}, 1, 'write_status recovers by overwriting invalid collector status json' );
 
 my @collectors = $collector->list_collectors;
 is_deeply(
     [ map { $_->{name} } @collectors ],
-    [ 'alpha.collector', 'beta.collector' ],
-    'list_collectors sorts valid collector status and skips invalid files',
+    [ 'alpha.collector', 'beta.collector', 'broken.collector' ],
+    'list_collectors sorts collector status and includes a collector once invalid status is repaired',
 );
 
 my $indicators = Developer::Dashboard::IndicatorStore->new( paths => $paths );
@@ -667,6 +676,30 @@ like( $code_error_result->{stderr}, qr/code boom/, 'run_once captures perl colle
 my $code_error_indicator = $collector_indicators->get_indicator('code.collector.error');
 ok( $code_error_indicator, 'failing perl collector code writes an indicator record' );
 is( $code_error_indicator->{status}, 'error', 'failing perl collector code marks indicator error' ) if $code_error_indicator;
+my $isolated_broken = $runner->run_once(
+    {
+        name      => 'isolated.collector.broken',
+        code      => q{this is broken perl code},
+        cwd       => 'home',
+        indicator => { name => 'isolated.indicator.broken', label => 'Broken', icon => 'B' },
+    }
+);
+my $isolated_healthy = $runner->run_once(
+    {
+        name      => 'isolated.collector.healthy',
+        command   => q{printf 'healthy ok'},
+        cwd       => 'home',
+        indicator => { name => 'isolated.indicator.healthy', label => 'Healthy', icon => 'H' },
+    }
+);
+is( $isolated_broken->{exit_code}, 255, 'broken collector still fails with a non-zero exit code in the isolation scenario' );
+is( $isolated_healthy->{exit_code}, 0, 'healthy collector still succeeds after a broken collector run' );
+is( $collector_indicators->get_indicator('isolated.indicator.broken')->{status}, 'error', 'broken collector isolation scenario leaves its indicator red' );
+is( $collector_indicators->get_indicator('isolated.indicator.healthy')->{status}, 'ok', 'healthy collector isolation scenario leaves its indicator green' );
+my $collector_prompt = Developer::Dashboard::Prompt->new( paths => $paths, indicators => $collector_indicators );
+my $collector_prompt_output = $collector_prompt->render( jobs => 0, cwd => $home );
+like( $collector_prompt_output, qr/🚨B/, 'prompt keeps the broken collector status visible in the isolation scenario' );
+like( $collector_prompt_output, qr/✅H/, 'prompt keeps the healthy collector status visible in the isolation scenario' );
 like( $runner->_process_title('demo'), qr/^dashboard collector: demo$/, '_process_title formats managed process names' );
 ok( !defined $runner->loop_state('missing-loop-state'), 'loop_state returns undef for missing state files' );
 ok( !$runner->_is_managed_loop( undef, 'demo' ), '_is_managed_loop rejects missing pids' );

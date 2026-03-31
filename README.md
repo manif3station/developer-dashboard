@@ -458,6 +458,10 @@ status strips show them before the first collector run. Before a collector has
 produced real output it appears as missing. Prompt output renders an explicit
 status glyph in front of the collector icon, so successful checks show `✅🔑`
 style fragments and failing or not-yet-run checks show `🚨🔑` style fragments.
+The blank-environment integration flow also keeps a regression for mixed
+startup collector health: one intentionally broken Perl collector must stay
+red without stopping a second healthy collector from staying green in
+`dashboard indicator list`, `dashboard ps1`, and `/system/status`.
 
 ### Docker Compose
 
@@ -580,8 +584,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.72.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.72.tar.gz -v
+tar -tzf Developer-Dashboard-0.73.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.73.tar.gz -v
 ```
 
 The harness also:
@@ -589,6 +593,7 @@ The harness also:
 - creates a fake project wired through `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_STARTUP`
 - verifies the installed CLI works against that fake project through the mounted tarball install
 - extracts the same tarball inside the container so `dashboard update` runs from artifact contents instead of the live repo
+- verifies collector failure isolation with one intentionally broken Perl startup collector and one healthy startup collector, and confirms the healthy indicator still stays green after `dashboard restart`
 - starts the installed web service
 - uses headless Chromium to verify the root editor, a saved fake-project bookmark page from the fake project bookmark directory, and the helper login page
 - verifies helper logout cleanup and runtime restart and stop behavior

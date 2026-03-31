@@ -72,7 +72,7 @@ The integration run creates:
 
 1. Build the distribution tarball on the host with `dzil build`.
 2. Start the blank container with only that host-built tarball mounted into it.
-3. Install the mounted tarball with `cpanm --notest`.
+3. Install the mounted tarball with `cpanm`.
 4. Extract the same tarball inside the container so update scripts can run from the built artifact contents.
 5. Verify the installed CLI responds to `dashboard help`.
 6. Verify bare `dashboard` returns usage output.
@@ -81,18 +81,19 @@ The integration run creates:
 9. Run `dashboard update` from the extracted tarball tree and confirm the update pipeline completes in the clean container.
 10. Exercise path, prompt, shell, encode/decode, and indicator commands.
 11. Exercise collector write/run/read/start/restart/stop flows, including a fake-project startup collector definition.
-12. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
-13. Exercise builtin action execution.
-14. Exercise docker compose dry-run resolution against a temporary project.
-15. Start the installed web service.
-16. Confirm exact-loopback access reaches the editor page in Chromium.
-17. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
-18. Confirm non-loopback self-access reaches the helper login page in Chromium.
-19. Log in as a helper through the HTTP helper flow.
-20. Confirm helper page chrome shows `Logout`.
-21. Log out and confirm the helper account is removed.
-22. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
-23. Stop the runtime and confirm the web service is gone.
+12. Restart the installed runtime with one intentionally broken Perl startup collector and one healthy startup collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state.
+13. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
+14. Exercise builtin action execution.
+15. Exercise docker compose dry-run resolution against a temporary project.
+16. Start the installed web service.
+17. Confirm exact-loopback access reaches the editor page in Chromium.
+18. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
+19. Confirm non-loopback self-access reaches the helper login page in Chromium.
+20. Log in as a helper through the HTTP helper flow.
+21. Confirm helper page chrome shows `Logout`.
+22. Log out and confirm the helper account is removed.
+23. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
+24. Stop the runtime and confirm the web service is gone.
 
 ## Expected Results
 
@@ -102,6 +103,8 @@ The integration run creates:
 - `dashboard update` succeeds in the container from the extracted tarball contents
 - the installed `dashboard` binary works without `perl -Ilib`
 - the fake project directories become the active bookmark, config, and startup roots
+- a broken startup Perl collector reports an error without stopping other startup collectors
+- a healthy startup collector still reports `ok` and stays green in `dashboard indicator list`, `dashboard ps1`, and `/system/status`
 - the web service serves the root editor on `127.0.0.1:7890`
 - the browser can load both the editor and a saved fake-project bookmark page from the fake project bookmark directory
 - non-loopback access produces the helper login page

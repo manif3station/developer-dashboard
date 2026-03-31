@@ -122,7 +122,10 @@ sub read_status {
     return if !-f $file;
     open my $fh, '<', $file or die "Unable to read $file: $!";
     local $/;
-    return json_decode(<$fh>);
+    my $raw = <$fh>;
+    my $data = eval { json_decode($raw) };
+    return $data if !$@;
+    return;
 }
 
 # read_output($name)

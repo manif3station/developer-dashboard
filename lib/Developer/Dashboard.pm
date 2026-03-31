@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.72';
+our $VERSION = '0.73';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.72
+0.73
 
 =head1 INTRODUCTION
 
@@ -731,6 +731,10 @@ collector has produced real output it appears as missing. Prompt output
 renders an explicit status glyph in front of the collector icon, so
 successful checks show fragments such as C<✅🔑> while failing or not-yet-run
 checks show fragments such as C<🚨🔑>.
+The blank-environment integration flow also keeps a regression for mixed
+startup collector health: one intentionally broken Perl collector must stay
+red without stopping a second healthy collector from staying green in
+C<dashboard indicator list>, C<dashboard ps1>, and C</system/status>.
 
 =head2 Docker Compose
 
@@ -916,14 +920,15 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.58.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.58.tar.gz -v
+  tar -tzf Developer-Dashboard-0.73.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.73.tar.gz -v
 
 The harness also:
 
 - creates a fake project wired through C<DEVELOPER_DASHBOARD_BOOKMARKS>, C<DEVELOPER_DASHBOARD_CONFIGS>, and C<DEVELOPER_DASHBOARD_STARTUP>
 - verifies the installed CLI works against that fake project through the mounted tarball install
 - extracts the same tarball inside the container so C<dashboard update> runs from artifact contents instead of the live repo
+- verifies collector failure isolation with one intentionally broken Perl startup collector and one healthy startup collector, and confirms the healthy indicator still stays green after C<dashboard restart>
 - starts the installed web service
 - uses headless Chromium to verify the root editor, a saved fake-project bookmark page from the fake project bookmark directory, and the helper login page
 - verifies helper logout cleanup and runtime restart and stop behavior

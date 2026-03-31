@@ -15,11 +15,13 @@ my $plan = do { local $/; <$plan_fh> };
 close $plan_fh;
 like( $plan, qr/dzil build/, 'integration plan covers host dzil build' );
 like( $plan, qr/cpanm/, 'integration plan covers cpanm install' );
+unlike( $plan, qr/cpanm --notest/, 'integration plan no longer skips tarball install tests with cpanm --notest' );
 like( $plan, qr/dashboard serve/, 'integration plan covers installed web lifecycle' );
 like( $plan, qr/helper logout/i, 'integration plan covers helper logout cleanup' );
 like( $plan, qr/Chromium|browser/i, 'integration plan covers browser-backed verification' );
 like( $plan, qr/DEVELOPER_DASHBOARD_BOOKMARKS/, 'integration plan covers fake-project env overrides' );
 like( $plan, qr/host-built tarball/i, 'integration plan requires host-built tarball flow' );
+like( $plan, qr/broken collector|broken Perl collector|healthy collector/i, 'integration plan covers collector failure isolation' );
 like( $plan, qr/run-host-integration\.sh/, 'integration plan points to the host-side launcher' );
 
 open my $runner_fh, '<', 'integration/blank-env/run-integration.pl' or die $!;
@@ -30,6 +32,10 @@ like( $runner, qr/tar -xzf/, 'integration runner extracts the tarball inside the
 like( $runner, qr/dashboard update/, 'integration runner exercises dashboard update' );
 like( $runner, qr/dashboard docker compose --project .* --dry-run config/, 'integration runner exercises docker compose dry-run' );
 like( $runner, qr/dashboard auth add-user helper_login helper-login-pass-123/, 'integration runner exercises helper login path' );
+unlike( $runner, qr/cpanm --notest/, 'integration runner installs the tarball without cpanm --notest' );
+like( $runner, qr/broken\.collector/, 'integration runner provisions a broken startup collector regression case' );
+like( $runner, qr/healthy\.collector/, 'integration runner provisions a healthy startup collector regression case' );
+like( $runner, qr/dashboard indicator list after restart/, 'integration runner checks indicator isolation after restart' );
 like( $runner, qr/chromium.*--headless/s, 'integration runner uses headless Chromium for browser checks' );
 like( $runner, qr/DEVELOPER_DASHBOARD_BOOKMARKS/, 'integration runner exports fake-project env overrides' );
 like( $runner, qr/__END__/, 'integration runner carries POD trailer' );

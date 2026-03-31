@@ -67,6 +67,40 @@ JSON
     );
 
     _write_text(
+        File::Spec->catfile( $startup, 'broken.collector.json' ),
+        <<'JSON'
+{
+  "name": "broken.collector",
+  "code": "this is broken perl code",
+  "cwd": "home",
+  "interval": 1,
+  "indicator": {
+    "name": "broken.indicator",
+    "label": "Broken",
+    "icon": "B"
+  }
+}
+JSON
+    );
+
+    _write_text(
+        File::Spec->catfile( $startup, 'healthy.collector.json' ),
+        <<'JSON'
+{
+  "name": "healthy.collector",
+  "command": "printf 'healthy startup collector output\n'",
+  "cwd": "home",
+  "interval": 1,
+  "indicator": {
+    "name": "healthy.indicator",
+    "label": "Healthy",
+    "icon": "H"
+  }
+}
+JSON
+    );
+
+    _write_text(
         File::Spec->catfile( $bookmarks, 'project-home' ),
         <<'BOOKMARK'
 TITLE: Project Home
@@ -81,7 +115,7 @@ BOOKMARK
 
     _run_shell( 'init fake project git repo', 'git init ' . _shell_quote($project) );
 
-    my $install = _run_shell( 'cpanm install host-built tarball', 'cpanm --notest ' . _shell_quote($tarball) );
+    my $install = _run_shell( 'cpanm install host-built tarball', 'cpanm ' . _shell_quote($tarball) );
     _assert( $install->{exit_code} == 0, 'cpanm installed host-built distribution tarball' );
 
     my $bare = _run_shell( 'dashboard bare usage', 'dashboard', allow_fail => 1 );
@@ -287,6 +321,26 @@ BOOKMARK
     my $restart = _run_shell( 'dashboard restart', 'cd ' . _shell_quote($source_root) . ' && dashboard restart' );
     _assert_match( $restart->{stdout}, qr/"web_pid"\s*:/, 'dashboard restart returns structured lifecycle data' );
     _wait_for_http( 'http://127.0.0.1:7890/', 200 );
+
+    sleep 2;
+
+    my $restart_collectors = _run_shell( 'dashboard collector list after restart', 'dashboard collector list' );
+    _assert_match( $restart_collectors->{stdout}, qr/"name"\s*:\s*"broken\.collector"/, 'restart keeps the broken startup collector visible in collector state' );
+    _assert_match( $restart_collectors->{stdout}, qr/"name"\s*:\s*"healthy\.collector"/, 'restart keeps the healthy startup collector visible in collector state' );
+    _assert_match( $restart_collectors->{stdout}, qr/"name"\s*:\s*"broken\.collector"(?s:.*?)"last_exit_code"\s*:\s*(?!0)\d+/, 'broken startup collector keeps a non-zero exit code after restart' );
+    _assert_match( $restart_collectors->{stdout}, qr/"name"\s*:\s*"healthy\.collector"(?s:.*?)"last_exit_code"\s*:\s*0/, 'healthy startup collector stays green after restart' );
+
+    my $restart_indicators = _run_shell( 'dashboard indicator list after restart', 'dashboard indicator list' );
+    _assert_match( $restart_indicators->{stdout}, qr/"name"\s*:\s*"broken\.indicator"(?s:.*?)"status"\s*:\s*"error"/, 'broken startup collector indicator stays red after restart' );
+    _assert_match( $restart_indicators->{stdout}, qr/"name"\s*:\s*"healthy\.indicator"(?s:.*?)"status"\s*:\s*"ok"/, 'healthy startup collector indicator stays green after restart' );
+
+    my $restart_ps1 = _run_shell( 'dashboard ps1 after restart', 'cd ' . _shell_quote($project) . ' && dashboard ps1 --jobs 0 --cwd ' . _shell_quote($project) );
+    _assert_match( $restart_ps1->{stdout}, qr/🚨B/, 'prompt keeps the broken startup collector visible after restart' );
+    _assert_match( $restart_ps1->{stdout}, qr/✅H/, 'prompt keeps the healthy startup collector visible after restart' );
+
+    my $restart_status = _run_shell( 'curl system status after restart', q{curl -fsS http://127.0.0.1:7890/system/status} );
+    _assert_match( $restart_status->{stdout}, qr/"prog"\s*:\s*"broken\.indicator"/, 'system status payload includes the broken startup collector indicator' );
+    _assert_match( $restart_status->{stdout}, qr/"prog"\s*:\s*"healthy\.indicator"/, 'system status payload includes the healthy startup collector indicator' );
 
     my $stop = _run_shell( 'dashboard stop', 'dashboard stop' );
     _assert_match( $stop->{stdout}, qr/"web_pid"\s*:/, 'dashboard stop returns structured lifecycle data' );

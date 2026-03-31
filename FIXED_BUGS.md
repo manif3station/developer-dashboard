@@ -2,6 +2,9 @@
 
 ## 2026-03-31
 
+- Fixed collector state recovery so a malformed persisted `status.json` for a collector such as `vpn` is treated as missing state and is overwritten on the next write instead of crashing collector startup during `dashboard restart`.
+- Fixed collector-failure regression coverage by adding a blank-environment and unit test scenario where one broken Perl startup collector stays red without stopping a second healthy collector or its green indicator state.
+- Fixed tarball-install validation drift by removing `cpanm --notest` from the blank-environment integration flow, so the shipped artifact is exercised with install-time tests enabled.
 - Fixed legacy bookmark runtime output so `CODE1: { a => 1 }` now both merges `{ a => 1 }` into stash for Template Toolkit rendering and dumps the returned structure into the visible runtime output area.
 - Fixed legacy bookmark runtime order so `CODE*` blocks execute before Template Toolkit rendering, allowing returned hashes such as `{ a => 1 }` to feed `[% stash.a %]` in page HTML.
 - Fixed the `hide` helper so `hide print $a` keeps the printed stdout while suppressing the Perl return value instead of dropping the whole block output.
