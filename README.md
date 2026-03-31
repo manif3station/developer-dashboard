@@ -235,6 +235,7 @@ Run the CLI directly from the repository:
 ```bash
 perl -Ilib bin/dashboard init
 perl -Ilib bin/dashboard auth add-user <username> <password>
+perl -Ilib bin/dashboard version
 perl -Ilib bin/dashboard of --print My::Module
 perl -Ilib bin/dashboard open-file --print com.example.App
 printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
@@ -276,6 +277,8 @@ custom command can provide its real executable as
 directory is run in sorted filename order, non-executable files are skipped,
 and if the directory does not exist yet the command returns `{}`. It uses the
 same top-level command-hook path as every other `dashboard <command>`.
+
+Use `dashboard version` to print the installed Developer Dashboard version.
 
 ### First Run
 
@@ -607,8 +610,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.77.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.77.tar.gz -v
+tar -tzf Developer-Dashboard-0.78.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.78.tar.gz -v
 ```
 
 The harness also:

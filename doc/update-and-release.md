@@ -5,6 +5,7 @@
 Run:
 
 ```bash
+perl -Ilib bin/dashboard version
 mkdir -p ~/.developer-dashboard/cli/update
 printf '#!/bin/sh\necho runtime-update\n' > ~/.developer-dashboard/cli/update/01-runtime
 chmod +x ~/.developer-dashboard/cli/update/01-runtime
@@ -20,6 +21,8 @@ This executes ordered scripts from `~/.developer-dashboard/cli/update`:
 
 `dashboard update` uses the same top-level command-hook path as every other
 dashboard subcommand.
+
+Use `dashboard version` to print the installed Developer Dashboard version.
 
 ## Local Usage
 
@@ -151,8 +154,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.77.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.77.tar.gz -v
+tar -tzf Developer-Dashboard-0.78.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.78.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

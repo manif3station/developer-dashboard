@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.78  2026-03-31
+
+    - added `dashboard version` so installed runtimes can report the shipped Developer Dashboard version directly
+    - kept `dashboard update` printing the common RESULT JSON map from the per-command hook runner
+    - updated tests and docs for the version command and explicit update output behavior
+
 0.77  2026-03-31
 
     - changed `dashboard update` to use the same top-level command hook path as every other `dashboard <command>` under `~/.developer-dashboard/cli/update`

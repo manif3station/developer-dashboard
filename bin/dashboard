@@ -42,6 +42,7 @@ Developer::Dashboard::Codec->import(qw(encode_payload decode_payload));
 require Developer::Dashboard::CollectorRunner;
 require Developer::Dashboard::Collector;
 require Developer::Dashboard::Config;
+require Developer::Dashboard;
 require Developer::Dashboard::DockerCompose;
 require Developer::Dashboard::FileRegistry;
 require Developer::Dashboard::IndicatorStore;
@@ -443,6 +444,10 @@ elsif ( $cmd eq 'init' ) {
 }
 elsif ( $cmd eq 'update' ) {
     print( ( defined $ENV{RESULT} ? $ENV{RESULT} : json_encode( {} ) ), "\n" );
+    exit 0;
+}
+elsif ( $cmd eq 'version' ) {
+    print $Developer::Dashboard::VERSION, "\n";
     exit 0;
 }
 elsif ( $cmd eq 'page' ) {

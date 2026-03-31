@@ -127,6 +127,9 @@ BOOKMARK
     my $help = _run_shell( 'dashboard help', 'dashboard help' );
     _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
 
+    my $version = _run_shell( 'dashboard version', 'dashboard version' );
+    _assert_match( $version->{stdout}, qr/^0\.78$/m, 'dashboard version reports the installed runtime version' );
+
     my $init = _run_shell( 'dashboard init', 'dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
     _assert_match( $init_data->{runtime_root} || '', qr/\.developer-dashboard/, 'dashboard init returns runtime root' );

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.77';
+our $VERSION = '0.78';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.77
+0.78
 
 =head1 INTRODUCTION
 
@@ -530,6 +530,7 @@ Run the CLI directly from the repository:
 
   perl -Ilib bin/dashboard init
   perl -Ilib bin/dashboard auth add-user <username> <password>
+  perl -Ilib bin/dashboard version
   perl -Ilib bin/dashboard of --print My::Module
   perl -Ilib bin/dashboard open-file --print com.example.App
   printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
@@ -567,6 +568,8 @@ F<~/.developer-dashboard/cli/update>. Any regular executable file in that
 directory is run in sorted filename order, non-executable files are skipped,
 and if that directory does not exist yet the command returns C<{}>. It uses the
 same top-level command-hook path as every other C<dashboard E<lt>commandE<gt>>.
+
+Use C<dashboard version> to print the installed Developer Dashboard version.
 
 =head2 First Run
 
@@ -951,8 +954,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.77.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.77.tar.gz -v
+  tar -tzf Developer-Dashboard-0.78.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.78.tar.gz -v
 
 The harness also:
 

@@ -76,29 +76,31 @@ The integration run creates:
 4. Extract the same tarball inside the container for the rest of the installed-command checks.
 5. Verify the installed CLI responds to `dashboard help`.
 6. Verify bare `dashboard` returns usage output.
-7. Create a fake project root with bookmark, config, and startup directories and export the dashboard override variables toward them.
-8. Run `dashboard init` and confirm runtime roots and starter pages exist.
-9. Seed `~/.developer-dashboard/cli/update` in the clean container with an executable file, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes.
-10. Exercise path, prompt, shell, encode/decode, and indicator commands.
-11. Exercise collector write/run/read/start/restart/stop flows, including a fake-project startup collector definition.
-12. Restart the installed runtime with one intentionally broken Perl startup collector and one healthy startup collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state.
-13. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
-14. Exercise builtin action execution.
-15. Exercise docker compose dry-run resolution against a temporary project.
-16. Start the installed web service.
-17. Confirm exact-loopback access reaches the editor page in Chromium.
-18. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
-19. Confirm non-loopback self-access reaches the helper login page in Chromium.
-20. Log in as a helper through the HTTP helper flow.
-21. Confirm helper page chrome shows `Logout`.
-22. Log out and confirm the helper account is removed.
-23. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
-24. Stop the runtime and confirm the web service is gone.
+7. Verify `dashboard version` reports the installed runtime version.
+8. Create a fake project root with bookmark, config, and startup directories and export the dashboard override variables toward them.
+9. Run `dashboard init` and confirm runtime roots and starter pages exist.
+10. Seed `~/.developer-dashboard/cli/update` in the clean container with an executable file, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes.
+11. Exercise path, prompt, shell, encode/decode, and indicator commands.
+12. Exercise collector write/run/read/start/restart/stop flows, including a fake-project startup collector definition.
+13. Restart the installed runtime with one intentionally broken Perl startup collector and one healthy startup collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state.
+14. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
+15. Exercise builtin action execution.
+16. Exercise docker compose dry-run resolution against a temporary project.
+17. Start the installed web service.
+18. Confirm exact-loopback access reaches the editor page in Chromium.
+19. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
+20. Confirm non-loopback self-access reaches the helper login page in Chromium.
+21. Log in as a helper through the HTTP helper flow.
+22. Confirm helper page chrome shows `Logout`.
+23. Log out and confirm the helper account is removed.
+24. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
+25. Stop the runtime and confirm the web service is gone.
 
 ## Expected Results
 
 - every covered command exits successfully except bare `dashboard`, which should
   return usage with a non-zero status
+- `dashboard version` reports the installed release version
 - `dashboard init` creates starter state without requiring manual setup
 - `dashboard update` succeeds in the container from `~/.developer-dashboard/cli/update` through the normal command-hook path
 - the installed `dashboard` binary works without `perl -Ilib`

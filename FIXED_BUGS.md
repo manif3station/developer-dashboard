@@ -2,6 +2,8 @@
 
 ## 2026-03-31
 
+- Fixed installed-version visibility by adding `dashboard version`, so an installed runtime can report its shipped Developer Dashboard version without inspecting module files.
+- Fixed update-output ambiguity by documenting and testing that `dashboard update` prints the common RESULT JSON map directly.
 - Fixed runtime update architecture drift by making `dashboard update` use the same top-level command hook path as every other `dashboard <command>` instead of delegating command-folder execution to `UpdateManager`.
 - Fixed runtime update execution drift by making `dashboard update` run any executable regular file in `~/.developer-dashboard/cli/update` while still skipping non-executable files.
 - Fixed update-path drift by moving `dashboard update` to `~/.developer-dashboard/cli/update`, so runtime-managed update scripts no longer depend on the current working directory or the repo-local `./updates` folder.
