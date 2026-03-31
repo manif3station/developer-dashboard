@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.87';
+our $VERSION = '0.88';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.87
+0.88
 
 =head1 INTRODUCTION
 
@@ -595,9 +595,11 @@ Run the CLI directly from the repository:
   perl -Ilib bin/dashboard open-file --print com.example.App
   printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
   printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard pyq alpha.beta
-  mkdir -p ~/.developer-dashboard/cli/update
-  printf '#!/bin/sh\necho runtime-update\n' > ~/.developer-dashboard/cli/update/01-runtime
-  chmod +x ~/.developer-dashboard/cli/update/01-runtime
+  mkdir -p ~/.developer-dashboard/cli/update.d
+  printf '#!/usr/bin/env perl\nprint $ENV{RESULT} // q{}\n' > ~/.developer-dashboard/cli/update
+  chmod +x ~/.developer-dashboard/cli/update
+  printf '#!/bin/sh\necho runtime-update\n' > ~/.developer-dashboard/cli/update.d/01-runtime
+  chmod +x ~/.developer-dashboard/cli/update.d/01-runtime
   perl -Ilib bin/dashboard update
   perl -Ilib bin/dashboard serve
   perl -Ilib bin/dashboard stop
@@ -622,12 +624,16 @@ non-executable files are skipped, and the captured stdout/stderr from the hook
 files are accumulated into C<$ENV{RESULT}> as JSON for later hooks and the
 final command. Directory-backed custom commands can use
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run> as the actual executable.
+If a subcommand does not have a built-in implementation, the real command can
+be supplied as F<~/.developer-dashboard/cli/E<lt>commandE<gt>> or
+F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>.
 
-C<dashboard update> now reads its ordered update scripts from
-F<~/.developer-dashboard/cli/update>. Any regular executable file in that
-directory is run in sorted filename order, non-executable files are skipped,
-and if that directory does not exist yet the command returns C<{}>. It uses the
-same top-level command-hook path as every other C<dashboard E<lt>commandE<gt>>.
+If you want C<dashboard update>, provide it as a normal user command at
+F<~/.developer-dashboard/cli/update> or
+F<~/.developer-dashboard/cli/update/run>. Its hook files can live under
+F<~/.developer-dashboard/cli/update> or
+F<~/.developer-dashboard/cli/update.d>, and the real command receives the
+final C<RESULT> JSON through the environment after those hook files run.
 
 Use C<dashboard version> to print the installed Developer Dashboard version.
 
@@ -1002,11 +1008,15 @@ breaking TAP from daemon-style child processes.
 
 =head2 Updating Runtime State
 
-Run the ordered update pipeline:
+Run your user-provided update command:
 
   dashboard update
 
-This performs runtime bootstrap, dependency refresh, shell bootstrap generation, and collector restart orchestration.
+If F<~/.developer-dashboard/cli/update> or
+F<~/.developer-dashboard/cli/update/run> exists, C<dashboard update> runs that
+command after any sorted hook files from
+F<~/.developer-dashboard/cli/update> or
+F<~/.developer-dashboard/cli/update.d>.
 
 =head2 Blank Environment Integration
 
@@ -1025,14 +1035,14 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.87.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.87.tar.gz -v
+  tar -tzf Developer-Dashboard-0.88.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.88.tar.gz -v
 
 The harness also:
 
 - creates a fake project wired through C<DEVELOPER_DASHBOARD_BOOKMARKS>, C<DEVELOPER_DASHBOARD_CONFIGS>, and C<DEVELOPER_DASHBOARD_STARTUP>
 - verifies the installed CLI works against that fake project through the mounted tarball install
-- seeds F<~/.developer-dashboard/cli/update> inside the container so C<dashboard update> exercises the same top-level command-hook path as every other subcommand
+- seeds a user-provided F<~/.developer-dashboard/cli/update> command plus F<~/.developer-dashboard/cli/update.d> hooks inside the container so C<dashboard update> exercises the same top-level command-hook path as every other subcommand
 - verifies collector failure isolation with one intentionally broken Perl startup collector and one healthy startup collector, and confirms the healthy indicator still stays green after C<dashboard restart>
 - starts the installed web service
 - uses headless Chromium to verify the root editor, a saved fake-project bookmark page from the fake project bookmark directory, and the helper login page

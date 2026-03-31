@@ -182,6 +182,7 @@ The runtime also supports user CLI extensions:
 - executable hook files from that directory run in sorted filename order before the real command starts
 - non-executable files in the hook directory are skipped
 - hook `stdout` and `stderr` stream live to the terminal while also being accumulated into `RESULT` JSON for later hooks and the final command
+- there is no special built-in `update` path; `dashboard update` is just another user-provided command when `~/.developer-dashboard/cli/update` or `~/.developer-dashboard/cli/update/run` exists
 - directory-backed custom commands can use `~/.developer-dashboard/cli/<command>/run` as the final executable after hooks complete
 
 ## Packaging

@@ -290,6 +290,16 @@ like( $custom_result_data->{'00-pre.pl'}{stderr}, qr/custom-hook-err/, 'director
 
 my $update_hook_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'update.d' );
 make_path($update_hook_root);
+my $update_command = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'update' );
+open my $update_command_fh, '>', $update_command or die "Unable to write $update_command: $!";
+print {$update_command_fh} <<'PL';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+print $ENV{RESULT} // '';
+PL
+close $update_command_fh;
+chmod 0755, $update_command or die "Unable to chmod $update_command: $!";
 my $update_hook = File::Spec->catfile( $update_hook_root, '01-cpan' );
 open my $update_hook_fh, '>', $update_hook or die "Unable to write $update_hook: $!";
 print {$update_hook_fh} <<'PL';
@@ -308,16 +318,16 @@ my ( $update_stdout, $update_stderr, $update_exit ) = capture {
     system 'sh', '-c', "$perl -Ilib bin/dashboard update";
     return $? >> 8;
 };
-is( $update_exit, 0, 'dashboard update command succeeds' );
-like( $update_stdout, qr/^Test/s, 'dashboard update streams hook stdout before returning RESULT json' );
+is( $update_exit, 0, 'dashboard update custom command succeeds' );
+like( $update_stdout, qr/^Test/s, 'dashboard update custom command streams hook stdout before returning RESULT json' );
 like( $update_stderr, qr/warned/, 'dashboard update streams hook stderr live' );
 my ($update_json) = $update_stdout =~ /(\{[\s\S]*\})\s*\z/;
-ok( defined $update_json, 'dashboard update leaves trailing RESULT json after streamed hook output' );
+ok( defined $update_json, 'dashboard update custom command leaves trailing RESULT json after streamed hook output' );
 my $update_result_data = json_decode($update_json);
-is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update uses the common command hook path and captures stdout from executable update files' );
-like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update captures stderr from executable update files' );
-ok( !exists $update_result_data->{'data.file'}, 'dashboard update skips non-executable files in the update command folder' );
-is( _run("$perl -Ilib bin/dashboard version"), "0.87\n", 'dashboard version prints the installed dashboard version' );
+is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
+like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
+ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
+is( _run("$perl -Ilib bin/dashboard version"), "0.88\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -Ilib bin/dashboard ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );

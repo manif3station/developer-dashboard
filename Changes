@@ -1,5 +1,9 @@
 Revision history for Developer Dashboard
 
+0.88  2026-03-31
+    - removed the built-in `dashboard update` branch so `update` behaves like any other user-supplied top-level command
+    - kept `dashboard update` working through a user-provided `~/.developer-dashboard/cli/update` command plus sorted hook files from `update` or `update.d`
+
 0.87  2026-03-31
 
     - added `.d` hook-directory aliases so `~/.developer-dashboard/cli/<command>.d/` behaves the same as `~/.developer-dashboard/cli/<command>/` for top-level command hooks

@@ -449,10 +449,6 @@ elsif ( $cmd eq 'version' ) {
     print $Developer::Dashboard::VERSION, "\n";
     exit 0;
 }
-elsif ( $cmd eq 'update' ) {
-    print( ( defined $ENV{RESULT} ? $ENV{RESULT} : json_encode( {} ) ), "\n" );
-    exit 0;
-}
 elsif ( $cmd eq 'page' ) {
     my $action = shift @ARGV || '';
     if ( $action eq 'new' ) {
@@ -999,6 +995,9 @@ accumulated into C<$ENV{RESULT}> as JSON, and non-executable files are
 skipped. Built-in commands such as C<dashboard pjq> use the same hook
 location. A directory-backed custom command may provide its real executable as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>; that runner receives the
-final C<$ENV{RESULT}> value after the hook files finish.
+final C<$ENV{RESULT}> value after the hook files finish. If a subcommand does
+not have a built-in implementation, the real command can be supplied as
+F<~/.developer-dashboard/cli/E<lt>commandE<gt>> or
+F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>.
 
 Run C<dashboard> with no arguments for the quick synopsis, or C<dashboard help> for the full POD-backed manual.

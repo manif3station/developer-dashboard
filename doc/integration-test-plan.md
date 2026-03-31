@@ -25,7 +25,7 @@ The integration run covers these command families:
 
 - host packaging: `dzil build`
 - installation: `cpanm <tarball>`
-- bootstrap: `dashboard init`, `dashboard update`
+- bootstrap: `dashboard init`, user-provided `dashboard update`
 - help and prompt: `dashboard`, `dashboard help`, `dashboard ps1`, `dashboard shell bash`
 - paths: `dashboard paths`, `dashboard path list`, `dashboard path resolve`, `dashboard path project-root`
 - encoding: `dashboard encode`, `dashboard decode`
@@ -81,7 +81,7 @@ The integration run creates:
 8. Verify `dashboard version` reports the installed runtime version.
 9. Create a fake project root with bookmark, config, and startup directories and export the dashboard override variables toward them.
 10. Run `dashboard init` and confirm runtime roots and starter pages exist.
-11. Seed `~/.developer-dashboard/cli/update` in the clean container with an executable file, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes.
+11. Seed a user-provided `~/.developer-dashboard/cli/update` command plus `~/.developer-dashboard/cli/update.d` hooks in the clean container, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes.
 12. Exercise path, prompt, shell, encode/decode, and indicator commands.
 13. Exercise collector write/run/read/start/restart/stop flows, including a fake-project startup collector definition.
 14. Restart the installed runtime with one intentionally broken Perl startup collector and one healthy startup collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state.
@@ -105,7 +105,7 @@ The integration run creates:
   return usage with a non-zero status
 - `dashboard version` reports the installed release version
 - `dashboard init` creates starter state without requiring manual setup
-- `dashboard update` succeeds in the container from `~/.developer-dashboard/cli/update` through the normal command-hook path
+- `dashboard update` succeeds in the container from a user-provided `~/.developer-dashboard/cli/update` command through the normal command-hook path
 - the installed `dashboard` binary works without `perl -Ilib`
 - the fake project directories become the active bookmark, config, and startup roots
 - a broken startup Perl collector reports an error without stopping other startup collectors

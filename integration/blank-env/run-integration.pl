@@ -149,7 +149,7 @@ BOOKMARK
     _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
 
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
-    _assert_match( $version->{stdout}, qr/^0\.87$/m, 'dashboard version reports the installed runtime version' );
+    _assert_match( $version->{stdout}, qr/^0\.88$/m, 'dashboard version reports the installed runtime version' );
 
     my $init = _run_shell( 'dashboard init', 'dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
@@ -157,6 +157,17 @@ BOOKMARK
     _assert( grep { $_ eq 'welcome' } @{ $init_data->{pages} || [] }, 'dashboard init seeds welcome page' );
 
     make_path($update_root);
+    _write_text(
+        File::Spec->catfile( $cli_root, 'update' ),
+        <<'PL'
+#!/usr/bin/env perl
+use strict;
+use warnings;
+print $ENV{RESULT} // '';
+PL
+    );
+    chmod 0755, File::Spec->catfile( $cli_root, 'update' )
+      or die "Unable to chmod runtime update command: $!";
     _write_text(
         File::Spec->catfile( $update_root, '01-runtime-update' ),
         <<'SH'
@@ -175,10 +186,10 @@ SH
 
     my $update = _run_shell( 'dashboard update', 'dashboard update' );
     my $update_data = _decode_json_tail( $update->{stdout} );
-    _assert( ref($update_data) eq 'HASH', 'dashboard update returns structured trailing json summary from the common command hook path' );
-    _assert( scalar(keys %{$update_data}) == 1, 'dashboard update ran the seeded runtime update script only' );
-    _assert( exists $update_data->{'01-runtime-update'}, 'dashboard update reports the runtime update script filename' );
-    _assert_match( $update_data->{'01-runtime-update'}{stdout} || '', qr/runtime update ok/, 'dashboard update captures runtime update script stdout' );
+    _assert( ref($update_data) eq 'HASH', 'dashboard update custom command returns structured trailing json summary from the common command hook path' );
+    _assert( scalar(keys %{$update_data}) == 1, 'dashboard update custom command ran the seeded runtime update script only' );
+    _assert( exists $update_data->{'01-runtime-update'}, 'dashboard update custom command reports the runtime update script filename' );
+    _assert_match( $update_data->{'01-runtime-update'}{stdout} || '', qr/runtime update ok/, 'dashboard update custom command captures runtime update script stdout' );
 
     my $paths = _run_shell( 'dashboard paths', 'dashboard paths' );
     _assert_match( $paths->{stdout}, qr/"runtime_root"/, 'dashboard paths returns runtime json' );

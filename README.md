@@ -306,11 +306,11 @@ custom command can provide its real executable as
 `~/.developer-dashboard/cli/<command>/run`, and that runner receives the final
 `RESULT` environment variable.
 
-`dashboard update` now reads its ordered update scripts from
-`~/.developer-dashboard/cli/update`. Any regular executable file in that
-directory is run in sorted filename order, non-executable files are skipped,
-and if the directory does not exist yet the command returns `{}`. It uses the
-same top-level command-hook path as every other `dashboard <command>`.
+If you want `dashboard update`, provide it as a normal user command at
+`~/.developer-dashboard/cli/update` or `~/.developer-dashboard/cli/update/run`.
+Its hook files can live under `~/.developer-dashboard/cli/update/` or
+`~/.developer-dashboard/cli/update.d/`, and the real command receives the
+final `RESULT` JSON through the environment after those hook files run.
 
 Use `dashboard version` to print the installed Developer Dashboard version.
 
@@ -624,13 +624,15 @@ Example:
 
 ### Updating Runtime State
 
-Run the ordered update pipeline:
+Run your user-provided update command:
 
 ```bash
 dashboard update
 ```
 
-This performs runtime bootstrap, dependency refresh, shell bootstrap generation, and collector restart orchestration.
+If `~/.developer-dashboard/cli/update` or `~/.developer-dashboard/cli/update/run`
+exists, `dashboard update` runs that command after any sorted hook files from
+`~/.developer-dashboard/cli/update/` or `~/.developer-dashboard/cli/update.d/`.
 
 ### Blank Environment Integration
 
@@ -650,15 +652,15 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.87.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.87.tar.gz -v
+tar -tzf Developer-Dashboard-0.88.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.88.tar.gz -v
 ```
 
 The harness also:
 
 - creates a fake project wired through `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_STARTUP`
 - verifies the installed CLI works against that fake project through the mounted tarball install
-- seeds `~/.developer-dashboard/cli/update` inside the container so `dashboard update` exercises the same top-level command-hook path as every other subcommand
+- seeds a user-provided `~/.developer-dashboard/cli/update` command plus `~/.developer-dashboard/cli/update.d` hooks inside the container so `dashboard update` exercises the same top-level command-hook path as every other subcommand
 - verifies collector failure isolation with one intentionally broken Perl startup collector and one healthy startup collector, and confirms the healthy indicator still stays green after `dashboard restart`
 - starts the installed web service
 - uses headless Chromium to verify the root editor, a saved fake-project bookmark page from the fake project bookmark directory, and the helper login page
