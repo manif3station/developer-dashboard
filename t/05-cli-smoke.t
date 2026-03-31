@@ -241,8 +241,15 @@ open my $pjq_hook_skipped_fh, '>', $pjq_hook_skipped or die "Unable to write $pj
 print {$pjq_hook_skipped_fh} "skip\n";
 close $pjq_hook_skipped_fh;
 chmod 0600, $pjq_hook_skipped or die "Unable to chmod $pjq_hook_skipped: $!";
-my $pjq_hooked = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -Ilib bin/dashboard pjq alpha.beta});
-is( $pjq_hooked, "2\n", 'dashboard pjq still runs normally when command hook files exist' );
+my ( $pjq_hooked_stdout, $pjq_hooked_stderr, $pjq_hooked_exit ) = capture {
+    system 'sh', '-c', qq{printf '{"alpha":{"beta":2}}' | $perl -Ilib bin/dashboard pjq alpha.beta};
+    return $? >> 8;
+};
+is( $pjq_hooked_exit, 0, 'dashboard pjq succeeds when command hook files exist' );
+like( $pjq_hooked_stdout, qr/^hook-one\n/s, 'dashboard pjq streams hook stdout before the main command output' );
+like( $pjq_hooked_stdout, qr/hook-two\n2\n\z/s, 'dashboard pjq keeps the main command output after streamed hook stdout' );
+like( $pjq_hooked_stderr, qr/hook-one-err\n/, 'dashboard pjq streams hook stderr live' );
+like( $pjq_hooked_stderr, qr/hook-two-err\n/, 'dashboard pjq keeps later hook stderr visible' );
 open my $pjq_hook_result_fh, '<', $pjq_hook_result or die "Unable to read $pjq_hook_result: $!";
 is( do { local $/; <$pjq_hook_result_fh> }, "hook-one\n", 'later built-in command hooks can read the accumulated RESULT JSON from earlier hook output' );
 close $pjq_hook_result_fh;
@@ -268,8 +275,16 @@ print $ENV{RESULT} // '';
 PL
 close $custom_run_fh;
 chmod 0755, $custom_run or die "Unable to chmod $custom_run: $!";
-my $custom_result = _run("$perl -Ilib bin/dashboard inspect-result");
-my $custom_result_data = json_decode($custom_result);
+my ( $custom_stdout, $custom_stderr, $custom_exit ) = capture {
+    system 'sh', '-c', "$perl -Ilib bin/dashboard inspect-result";
+    return $? >> 8;
+};
+is( $custom_exit, 0, 'directory-backed custom command succeeds after hook streaming' );
+like( $custom_stdout, qr/^custom-hook\n/s, 'directory-backed custom command streams hook stdout before the final RESULT json' );
+like( $custom_stderr, qr/custom-hook-err\n/, 'directory-backed custom command streams hook stderr live' );
+my ($custom_json) = $custom_stdout =~ /(\{[\s\S]*\})\s*\z/;
+ok( defined $custom_json, 'directory-backed custom command leaves trailing RESULT json after streamed hook output' );
+my $custom_result_data = json_decode($custom_json);
 is( $custom_result_data->{'00-pre.pl'}{stdout}, "custom-hook\n", 'directory-backed custom commands receive RESULT JSON from their hook files' );
 like( $custom_result_data->{'00-pre.pl'}{stderr}, qr/custom-hook-err/, 'directory-backed custom command RESULT keeps captured hook stderr' );
 
@@ -289,12 +304,20 @@ open my $update_skip_fh, '>', $update_skip or die "Unable to write $update_skip:
 print {$update_skip_fh} "skip\n";
 close $update_skip_fh;
 chmod 0600, $update_skip or die "Unable to chmod $update_skip: $!";
-my $update_result = _run("$perl -Ilib bin/dashboard update");
-my $update_result_data = json_decode($update_result);
+my ( $update_stdout, $update_stderr, $update_exit ) = capture {
+    system 'sh', '-c', "$perl -Ilib bin/dashboard update";
+    return $? >> 8;
+};
+is( $update_exit, 0, 'dashboard update command succeeds' );
+like( $update_stdout, qr/^Test/s, 'dashboard update streams hook stdout before returning RESULT json' );
+like( $update_stderr, qr/warned/, 'dashboard update streams hook stderr live' );
+my ($update_json) = $update_stdout =~ /(\{[\s\S]*\})\s*\z/;
+ok( defined $update_json, 'dashboard update leaves trailing RESULT json after streamed hook output' );
+my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update uses the common command hook path and captures stdout from executable update files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update captures stderr from executable update files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update skips non-executable files in the update command folder' );
-is( _run("$perl -Ilib bin/dashboard version"), "0.85\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -Ilib bin/dashboard version"), "0.86\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -Ilib bin/dashboard ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );

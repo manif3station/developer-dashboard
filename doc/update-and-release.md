@@ -17,7 +17,8 @@ This executes ordered scripts from `~/.developer-dashboard/cli/update`:
 1. sorted by filename
 2. running any regular executable file
 3. skipping non-executable files
-4. returning `{}` when the directory does not exist yet
+4. streaming each hook file's stdout and stderr live while still accumulating `RESULT` JSON
+5. returning `{}` when the directory does not exist yet
 
 `dashboard update` uses the same top-level command-hook path as every other
 dashboard subcommand.
@@ -159,8 +160,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.85.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.85.tar.gz -v
+tar -tzf Developer-Dashboard-0.86.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.86.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

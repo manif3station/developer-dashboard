@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.86  2026-03-31
+
+    - changed the top-level command hook runner so executable files under `~/.developer-dashboard/cli/<command>` stream stdout and stderr live to the terminal instead of buffering silently until the command finishes
+    - kept the live-streamed hook output accumulated into `RESULT` JSON so later hook files and the final command still receive the full per-hook stdout, stderr, and exit code payloads
+    - updated smoke and integration-facing documentation for the new visible hook progress behavior
+
 0.85  2026-03-31
 
     - fixed bookmark Template Toolkit environment so saved pages and shared `nav/*.tt` fragments receive `env.current_page` for the active request path instead of only raw process environment values

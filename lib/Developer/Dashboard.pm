@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.85';
+our $VERSION = '0.86';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.85
+0.86
 
 =head1 INTRODUCTION
 
@@ -487,9 +487,9 @@ stdin, stdout, and stderr.
 
 Per-command hook files can live under F<~/.developer-dashboard/cli/E<lt>commandE<gt>>.
 Executable files in that directory are run in sorted filename order before the
-real command runs, non-executable files are skipped, and the captured
-C<stdout> and C<stderr> from each hook are accumulated into C<RESULT> as JSON.
-Built-in commands such as C<dashboard pjq> use the same hook directory. A
+real command runs, non-executable files are skipped, and each hook now streams
+its own C<stdout> and C<stderr> live to the terminal while still accumulating
+those channels into C<RESULT> as JSON. Built-in commands such as C<dashboard pjq> use the same hook directory. A
 directory-backed custom command can provide its real executable as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>, and that runner receives
 the final C<RESULT> environment variable.
@@ -1022,8 +1022,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.85.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.85.tar.gz -v
+  tar -tzf Developer-Dashboard-0.86.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.86.tar.gz -v
 
 The harness also:
 

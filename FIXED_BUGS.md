@@ -2,6 +2,8 @@
 
 ## 2026-03-31
 
+- Fixed CLI hook progress visibility by replacing the buffered command-hook capture path with a streaming runner, so users can see hook stdout and stderr as each executable file runs instead of staring at a blank terminal until the command finishes.
+- Fixed CLI hook RESULT propagation by keeping the streamed stdout and stderr accumulated into the final per-hook JSON blob, so later hooks and the real command still receive structured `RESULT` data after visible progress output.
 - Fixed bookmark Template Toolkit context for saved pages and shared nav fragments by setting `env.current_page` to the active request path, so TT conditionals no longer see only the raw process environment and can branch on routes such as `/app/index`.
 - Fixed bookmark runtime-context exposure by adding `env.runtime_context.current_page`, so nav fragments and bookmark pages can read the current route from the same runtime-context hash used during rendering.
 - Fixed CPAN metadata gaps by adding explicit Dist::Zilla `provides` and repository resources, so generated META files declare shipped modules and the source repository instead of leaving Kwalitee warnings for missing metadata.

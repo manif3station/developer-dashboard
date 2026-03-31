@@ -4,14 +4,17 @@ use strict;
 use warnings;
 
 use Cwd qw(cwd);
-use Capture::Tiny qw(capture);
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
 use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);
 use Getopt::Long ();
+use IO::Handle ();
+use IO::Select ();
+use IPC::Open3 qw(open3);
 use JSON::XS ();
 use Pod::Usage qw(pod2usage);
+use Symbol qw(gensym);
 
 my $cmd = shift @ARGV || '';
 _prime_command_result_env( $cmd, @ARGV ) if $cmd ne '';
@@ -753,24 +756,72 @@ sub _prime_command_result_env {
         next if !-f $path || !-x $path;
         next if $entry eq 'run';
 
-        my ( $stdout, $stderr, $exit_code ) = capture {
-            open my $stdin, '<', '/dev/null' or die "Unable to open /dev/null for hook stdin: $!";
-            local *STDIN = $stdin;
-            system { $path } $path, @argv;
-            return $? >> 8;
-        };
-
+        my $hook_result = _run_command_hook_streaming( $path, @argv );
         $results{$entry} = {
-            stdout => defined $stdout ? $stdout : '',
-            stderr => defined $stderr ? $stderr : '',
+            stdout => $hook_result->{stdout},
+            stderr => $hook_result->{stderr},
         };
-        $results{$entry}{exit_code} = $exit_code if defined $exit_code;
+        $results{$entry}{exit_code} = $hook_result->{exit_code} if defined $hook_result->{exit_code};
         $ENV{RESULT} = JSON::XS->new->canonical->encode( \%results );
     }
     closedir $dh;
 
     delete $ENV{RESULT} if !%results;
     return 1;
+}
+
+# _run_command_hook_streaming($path, @argv)
+# Runs one executable hook file, streams its stdout/stderr live, and captures
+# both channels for RESULT JSON propagation.
+# Input: executable path plus remaining dashboard argv list.
+# Output: hash reference with stdout, stderr, and exit_code.
+sub _run_command_hook_streaming {
+    my ( $path, @argv ) = @_;
+    open my $stdin, '<', '/dev/null' or die "Unable to open /dev/null for hook stdin: $!";
+    my $stderr = gensym();
+    my $stdout;
+    my $pid = open3( $stdin, $stdout, $stderr, $path, @argv );
+    close $stdin;
+
+    my $selector = IO::Select->new( $stdout, $stderr );
+    my $stdout_fd = fileno($stdout);
+    my $stderr_fd = fileno($stderr);
+    my $stdout_text = '';
+    my $stderr_text = '';
+    local $| = 1;
+    STDOUT->autoflush(1);
+    STDERR->autoflush(1);
+
+    while ( my @ready = $selector->can_read ) {
+        for my $fh (@ready) {
+            my $buffer = '';
+            my $read = sysread( $fh, $buffer, 8192 );
+            if ( !defined $read || $read == 0 ) {
+                $selector->remove($fh);
+                close $fh;
+                next;
+            }
+
+            if ( fileno($fh) == $stdout_fd ) {
+                print STDOUT $buffer;
+                $stdout_text .= $buffer;
+                next;
+            }
+
+            if ( fileno($fh) == $stderr_fd ) {
+                print STDERR $buffer;
+                $stderr_text .= $buffer;
+                next;
+            }
+        }
+    }
+
+    waitpid( $pid, 0 );
+    return {
+        stdout    => $stdout_text,
+        stderr    => $stderr_text,
+        exit_code => $? >> 8,
+    };
 }
 
 # _command_hook_root($cmd)
@@ -937,10 +988,11 @@ stdin, stdout, and stderr.
 Per-command hook files can also be placed in
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>>. Executable files in that
 directory are run in sorted filename order before the real command runs,
-their captured stdout and stderr are accumulated into C<$ENV{RESULT}> as JSON,
-and non-executable files are skipped. Built-in commands such as C<dashboard pjq>
-use the same hook location. A directory-backed custom command may provide its
-real executable as F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>; that
-runner receives the final C<$ENV{RESULT}> value after the hook files finish.
+their stdout and stderr stream live to the terminal while still being
+accumulated into C<$ENV{RESULT}> as JSON, and non-executable files are
+skipped. Built-in commands such as C<dashboard pjq> use the same hook
+location. A directory-backed custom command may provide its real executable as
+F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>; that runner receives the
+final C<$ENV{RESULT}> value after the hook files finish.
 
 Run C<dashboard> with no arguments for the quick synopsis, or C<dashboard help> for the full POD-backed manual.
