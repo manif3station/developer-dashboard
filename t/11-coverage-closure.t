@@ -346,7 +346,14 @@ my $runtime_page = Developer::Dashboard::PageDocument->new(
 my $runtime_result = $runtime->run_code_blocks( page => $runtime_page, source => 'saved' );
 is( $runtime_page->as_hash->{state}{beta}, 'two', 'page runtime merges returned hash values into page state' );
 like( join( '', @{ $runtime_result->{outputs} } ), qr/OUT/, 'page runtime captures printed output' );
+like( join( '', @{ $runtime_result->{outputs} } ), qr/beta => 'two'/, 'page runtime dumps returned hash values into runtime output' );
 unlike( join( '', @{ $runtime_result->{outputs} } ), qr/OUT1/, 'page runtime does not append Perl print return values to output' );
+is( $runtime->_runtime_value_text(undef), '', 'runtime value serializer ignores undefined values' );
+is( $runtime->_runtime_value_text('plain text'), '', 'runtime value serializer ignores non-reference scalar values' );
+like( $runtime->_runtime_value_text( [ 'one', { two => 2 } ] ), qr/\[\s+'one',\s+\{\s+two => 2\s+\}\s+\]/s, 'runtime value serializer formats array values for runtime output' );
+is( Developer::Dashboard::PageRuntime::_runtime_legacy_value(undef), 'undef', 'legacy runtime serializer formats undefined values explicitly' );
+is( Developer::Dashboard::PageRuntime::_runtime_legacy_value(12), 12, 'legacy runtime serializer leaves numeric scalars unquoted' );
+is( Developer::Dashboard::PageRuntime::_runtime_legacy_value(q{it's}), q{'it\\'s'}, 'legacy runtime serializer quotes plain strings safely' );
 
 my $silent_merge_page = Developer::Dashboard::PageDocument->new(
     meta => {
@@ -358,7 +365,9 @@ my $silent_merge_page = Developer::Dashboard::PageDocument->new(
     },
 );
 my $silent_merge_result = $runtime->run_code_blocks( page => $silent_merge_page, source => 'saved' );
-is( join( '', @{ $silent_merge_result->{outputs} } ), 'hello world', 'state-only CODE blocks stay silent and later CODE blocks can use merged stash values' );
+like( join( '', @{ $silent_merge_result->{outputs} } ), qr/foo => 'hello'/, 'returned hash values are dumped into runtime output' );
+like( join( '', @{ $silent_merge_result->{outputs} } ), qr/bar => 'world'/, 'later returned hash values are also dumped into runtime output' );
+like( join( '', @{ $silent_merge_result->{outputs} } ), qr/hello world/, 'later CODE blocks can still use merged stash values' );
 
 my $same_page_package_page = Developer::Dashboard::PageDocument->new(
     meta => {
@@ -398,6 +407,20 @@ my $hide_result = $runtime->run_code_blocks(
 );
 is_deeply( $hide_result->{outputs}, [], 'page runtime hide helper suppresses block output' );
 
+my $legacy_hide_signal_result = $runtime->run_code_blocks(
+    page => Developer::Dashboard::PageDocument->new(
+        meta => {
+            codes => [
+                { id => 'CODE1', body => 'die "__DD_HIDE__";' },
+                { id => 'CODE2', body => 'print "after-hide";' },
+            ],
+        },
+    ),
+    source => 'saved',
+);
+is( join( '', @{ $legacy_hide_signal_result->{outputs} } ), 'after-hide', 'page runtime still honors legacy hide sentinel errors by skipping only the current block' );
+is_deeply( $legacy_hide_signal_result->{errors}, [], 'legacy hide sentinel does not surface as a visible error' );
+
 my $prepare_merge_page = Developer::Dashboard::PageDocument->new(
     title  => 'Developer Dashboard',
     layout => { body => '<h1>[% title %]</h1>[% stash.a %]' },
@@ -413,7 +436,8 @@ my $prepare_merge_result = $runtime->prepare_page(
     source => 'saved',
 );
 like( $prepare_merge_result->{layout}{body}, qr{<h1>Developer Dashboard</h1>1}, 'prepare_page renders returned CODE hash values into HTML stash data' );
-is( join( '', @{ $prepare_merge_result->{meta}{runtime_outputs} || [] } ), '1', 'hide print keeps printed output but suppresses the print return value' );
+like( join( '', @{ $prepare_merge_result->{meta}{runtime_outputs} || [] } ), qr/a => 1/, 'returned CODE hash values are dumped into rendered runtime output' );
+like( join( '', @{ $prepare_merge_result->{meta}{runtime_outputs} || [] } ), qr/1/, 'hide print keeps printed output but suppresses the print return value' );
 
 my $stop_result = $runtime->run_code_blocks(
     page => Developer::Dashboard::PageDocument->new(

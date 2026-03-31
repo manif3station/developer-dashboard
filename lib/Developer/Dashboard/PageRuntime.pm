@@ -109,8 +109,9 @@ sub run_code_blocks {
                     if ( ref($value) eq 'HASH' ) {
                         $page->merge_state($value);
                         $state = $page->{state};
-                        next;
                     }
+                    next if ref($value) ne 'HASH' && ref($value) ne 'ARRAY';
+                    push @outputs, $self->_runtime_value_text($value);
                 }
             }
 
@@ -129,6 +130,17 @@ sub run_code_blocks {
         outputs => \@outputs,
         errors  => \@errors,
     };
+}
+
+# _runtime_value_text($value)
+# Serializes a returned runtime value for in-page output after CODE execution.
+# Input: returned Perl scalar reference from a CODE block.
+# Output: Perl-ish text string.
+sub _runtime_value_text {
+    my ( $self, $value ) = @_;
+    return '' if !defined $value;
+    return '' if ref($value) ne 'HASH' && ref($value) ne 'ARRAY';
+    return _runtime_legacy_value($value);
 }
 
 # _render_templates(%args)
@@ -400,6 +412,33 @@ sub _escape_html {
     $text =~ s/</&lt;/g;
     $text =~ s/>/&gt;/g;
     $text =~ s/"/&quot;/g;
+    return $text;
+}
+
+# _runtime_legacy_value($value)
+# Serializes a Perl scalar, array, or hash into a Perl-ish runtime text form.
+# Input: scalar, array reference, or hash reference.
+# Output: Perl-ish text string.
+sub _runtime_legacy_value {
+    my ($value) = @_;
+    return 'undef' if !defined $value;
+    if ( ref($value) eq 'ARRAY' ) {
+        return "[\n  " . join( ",\n  ", map { _runtime_legacy_value($_) } @$value ) . "\n]";
+    }
+    if ( ref($value) eq 'HASH' ) {
+        return "{\n  " . join( ",\n  ", map { sprintf "%s => %s", $_, _runtime_legacy_value( $value->{$_} ) } sort keys %$value ) . "\n}";
+    }
+    return $value =~ /\A-?\d+(?:\.\d+)?\z/ ? $value : "'" . _runtime_legacy_quote($value) . "'";
+}
+
+# _runtime_legacy_quote($text)
+# Escapes a scalar string for runtime Perl-ish single-quoted output.
+# Input: text string.
+# Output: escaped string.
+sub _runtime_legacy_quote {
+    my ($text) = @_;
+    $text =~ s/\\/\\\\/g;
+    $text =~ s/'/\\'/g;
     return $text;
 }
 

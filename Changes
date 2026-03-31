@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.72  2026-03-31
+
+    - fixed legacy bookmark runtime output so returned hashes and arrays from `CODE*` blocks are dumped into the visible runtime output area while still merging into stash for Template Toolkit rendering
+    - documented that `CODE1: { a => 1 }` now both feeds `[% stash.a %]` and shows a legacy-style dumped value, while `CODE2: hide print $a` still keeps the printed `1`
+
 0.71  2026-03-31
 
     - fixed bookmark runtime order so `CODE*` blocks run before Template Toolkit rendering and returned hashes can feed `[% stash.* %]` in `HTML:` and `FORM.TT:`

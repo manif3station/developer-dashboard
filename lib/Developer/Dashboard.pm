@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.71';
+our $VERSION = '0.72';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.71
+0.72
 
 =head1 INTRODUCTION
 
@@ -657,9 +657,12 @@ rendered scalar value after a render pass.
 
 Legacy C<CODE*> blocks now run before Template Toolkit rendering during
 C<prepare_page>, so a block such as C<CODE1: { a => 1 }> can feed
-C<[% stash.a %]> in the page body. The C<hide> helper no longer discards
-already-printed STDOUT, so C<CODE2: hide print $a> keeps the printed value
-while suppressing the Perl return value from affecting later merge logic.
+C<[% stash.a %]> in the page body. Returned hash and array values are also
+dumped into the runtime output area, so C<CODE1: { a => 1 }> both populates
+stash and shows the legacy-style dumped value below the rendered page body.
+The C<hide> helper no longer discards already-printed STDOUT, so
+C<CODE2: hide print $a> keeps the printed value while suppressing the Perl
+return value from affecting later merge logic.
 
 Page C<TITLE:> values only populate the HTML C<E<lt>titleE<gt>> element. If a
 bookmark should show its title in the page body, add it explicitly inside

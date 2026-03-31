@@ -143,8 +143,8 @@ Page source compatibility is explicit:
 - bookmark files serialize back to the original `KEY: ...` plus divider-line syntax
 - legacy `KEY: ...` documents separated by the original divider line are supported directly
 - `HTML` and `FORM.TT` are rendered through Template Toolkit with access to `stash`, `ENV`, and `SYSTEM`
-- `TITLE` populates the document `<title>` only and is not injected into the page body automatically
-- `CODE*` blocks run through the legacy page runtime and their `STDOUT` is appended to the page while `STDERR` is shown as red error output
+- `TITLE` populates the document `<title>` and is exposed to Template Toolkit as `title`, but it is not injected into the page body automatically
+- `CODE*` blocks run through the legacy page runtime, merge returned hashes into stash, dump returned hash and array values into the runtime output area, append printed `STDOUT` to the page, and show `STDERR` as red error output
 - one generated sandpit package is reused across `CODE*` blocks for a single render, then destroyed so package globals do not leak into later requests
 - `/` with no bookmark path opens the free-form instruction editor directly
 - posting a root-editor document with `BOOKMARK: some-id` persists it as a saved bookmark so `/app/some-id` can load it on the next request
