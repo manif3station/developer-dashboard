@@ -1,8 +1,11 @@
 Revision history for Developer Dashboard
 
-0.73  2026-03-31
+0.74  2026-03-31
 
     - fixed collector startup recovery so malformed persisted collector `status.json` files are treated as missing state and are overwritten cleanly on the next status write instead of crashing `dashboard restart`
+
+0.73  2026-03-31
+
     - added unit and blank-container integration regressions for mixed collector health so one broken Perl startup collector must not stop a second healthy collector or its green indicator state
     - changed the blank-environment tarball install step to run `cpanm` with tests enabled instead of using `--notest`
     - documented the collector-failure isolation regression and full tarball-install expectation in the README, main POD, and integration plan

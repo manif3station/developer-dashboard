@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.73';
+our $VERSION = '0.74';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.73
+0.74
 
 =head1 INTRODUCTION
 
@@ -920,8 +920,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.73.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.73.tar.gz -v
+  tar -tzf Developer-Dashboard-0.74.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.74.tar.gz -v
 
 The harness also:
 
