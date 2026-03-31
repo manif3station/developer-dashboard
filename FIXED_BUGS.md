@@ -2,6 +2,8 @@
 
 ## 2026-03-31
 
+- Fixed CLI hook extensibility by letting every `dashboard <command>` use an optional `~/.developer-dashboard/cli/<command>` hook directory where executable files run in sorted filename order, non-executable files are skipped, and captured `stdout`/`stderr` are exposed to later hooks and the final command through `RESULT` JSON.
+- Fixed custom CLI directory support by allowing `~/.developer-dashboard/cli/<command>/run` to serve as the real executable for directory-backed custom commands after the hook files finish.
 - Fixed collector state recovery so a malformed persisted `status.json` for a collector such as `vpn` is treated as missing state and is overwritten on the next write instead of crashing collector startup during `dashboard restart`.
 - Fixed collector-failure regression coverage by adding a blank-environment and unit test scenario where one broken Perl startup collector stays red without stopping a second healthy collector or its green indicator state.
 - Fixed tarball-install validation drift by removing `cpanm --notest` from the blank-environment integration flow, so the shipped artifact is exercised with install-time tests enabled.

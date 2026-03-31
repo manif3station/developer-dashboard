@@ -53,6 +53,8 @@ The extension tests also cover:
 - provider page resolution
 - trusted versus transient action execution policy
 - encoded action payload execution
+- built-in CLI hook directories under `~/.developer-dashboard/cli/<command>` with sorted executable-only hook execution and `RESULT` JSON propagation
+- directory-backed custom commands through `~/.developer-dashboard/cli/<command>/run`
 - Docker Compose file, project, service, addon, mode, and env resolution
 - legacy bookmark syntax parsing, placeholder rendering, `TITLE` head-only rendering, and sandpit-isolated `CODE*` execution
 

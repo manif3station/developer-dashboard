@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.75  2026-03-31
+
+    - added per-command CLI hook directories under `~/.developer-dashboard/cli/<command>` so built-in and custom commands can pre-run executable hook files in sorted filename order and receive the accumulated `RESULT` JSON environment variable
+    - added directory-backed custom CLI commands via `~/.developer-dashboard/cli/<command>/run` while still skipping non-executable files in the same hook directory
+    - documented the per-command CLI hook flow in the README, main POD, architecture guide, and testing guide
+
 0.74  2026-03-31
 
     - fixed collector startup recovery so malformed persisted collector `status.json` files are treated as missing state and are overwritten cleanly on the next status write instead of crashing `dashboard restart`

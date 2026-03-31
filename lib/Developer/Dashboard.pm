@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.74';
+our $VERSION = '0.75';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.74
+0.75
 
 =head1 INTRODUCTION
 
@@ -428,6 +428,15 @@ F<~/.developer-dashboard/cli>. For example, C<dashboard foobar a b> will exec
 F<~/.developer-dashboard/cli/foobar> with C<a b> as argv, while preserving
 stdin, stdout, and stderr.
 
+Per-command hook files can live under F<~/.developer-dashboard/cli/E<lt>commandE<gt>>.
+Executable files in that directory are run in sorted filename order before the
+real command runs, non-executable files are skipped, and the captured
+C<stdout> and C<stderr> from each hook are accumulated into C<RESULT> as JSON.
+Built-in commands such as C<dashboard pjq> use the same hook directory. A
+directory-backed custom command can provide its real executable as
+F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>, and that runner receives
+the final C<RESULT> environment variable.
+
 =head2 Open File Commands
 
 C<dashboard of> is the shorthand name for C<dashboard open-file>.
@@ -536,6 +545,19 @@ User CLI extensions can be tested from the repository too:
   printf '#!/bin/sh\ncat\n' > ~/.developer-dashboard/cli/foobar
   chmod +x ~/.developer-dashboard/cli/foobar
   printf 'hello\n' | perl -Ilib bin/dashboard foobar
+
+  mkdir -p ~/.developer-dashboard/cli/pjq
+  printf '#!/usr/bin/env perl\nprint "seed\\n";\n' > ~/.developer-dashboard/cli/pjq/00-seed.pl
+  chmod +x ~/.developer-dashboard/cli/pjq/00-seed.pl
+  printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
+
+Each top-level dashboard command can also use an optional hook directory at
+F<~/.developer-dashboard/cli/E<lt>commandE<gt>>. Executable files from that
+directory run in sorted filename order before the real command starts,
+non-executable files are skipped, and the captured stdout/stderr from the hook
+files are accumulated into C<$ENV{RESULT}> as JSON for later hooks and the
+final command. Directory-backed custom commands can use
+F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run> as the actual executable.
 
 =head2 First Run
 
@@ -920,8 +942,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.74.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.74.tar.gz -v
+  tar -tzf Developer-Dashboard-0.75.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.75.tar.gz -v
 
 The harness also:
 

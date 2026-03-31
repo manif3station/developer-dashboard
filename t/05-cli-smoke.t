@@ -208,6 +208,71 @@ is( $yaml_root_stdin, $yaml_root, 'pyq returns the same whole-document result fr
 my $yaml_direct = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -Ilib bin/pyq alpha.beta});
 is( $yaml_direct, $yaml_value, 'standalone pyq matches dashboard pyq output' );
 
+my $pjq_hook_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'pjq' );
+make_path($pjq_hook_root);
+my $pjq_hook_one = File::Spec->catfile( $pjq_hook_root, '00-first.pl' );
+open my $pjq_hook_one_fh, '>', $pjq_hook_one or die "Unable to write $pjq_hook_one: $!";
+print {$pjq_hook_one_fh} <<'PL';
+#!/usr/bin/env perl
+print "hook-one\n";
+warn "hook-one-err\n";
+PL
+close $pjq_hook_one_fh;
+chmod 0755, $pjq_hook_one or die "Unable to chmod $pjq_hook_one: $!";
+my $pjq_hook_two = File::Spec->catfile( $pjq_hook_root, '01-second.pl' );
+my $pjq_hook_result = File::Spec->catfile( $ENV{HOME}, 'pjq-hook-result.txt' );
+open my $pjq_hook_two_fh, '>', $pjq_hook_two or die "Unable to write $pjq_hook_two: $!";
+print {$pjq_hook_two_fh} <<"PL";
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use JSON::XS qw(decode_json);
+my \$result = decode_json( \$ENV{RESULT} || '{}' );
+open my \$fh, '>', '$pjq_hook_result' or die \$!;
+print {\$fh} \$result->{'00-first.pl'}{stdout};
+close \$fh;
+print "hook-two\n";
+warn "hook-two-err\n";
+PL
+close $pjq_hook_two_fh;
+chmod 0755, $pjq_hook_two or die "Unable to chmod $pjq_hook_two: $!";
+my $pjq_hook_skipped = File::Spec->catfile( $pjq_hook_root, 'data.file' );
+open my $pjq_hook_skipped_fh, '>', $pjq_hook_skipped or die "Unable to write $pjq_hook_skipped: $!";
+print {$pjq_hook_skipped_fh} "skip\n";
+close $pjq_hook_skipped_fh;
+chmod 0600, $pjq_hook_skipped or die "Unable to chmod $pjq_hook_skipped: $!";
+my $pjq_hooked = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -Ilib bin/dashboard pjq alpha.beta});
+is( $pjq_hooked, "2\n", 'dashboard pjq still runs normally when command hook files exist' );
+open my $pjq_hook_result_fh, '<', $pjq_hook_result or die "Unable to read $pjq_hook_result: $!";
+is( do { local $/; <$pjq_hook_result_fh> }, "hook-one\n", 'later built-in command hooks can read the accumulated RESULT JSON from earlier hook output' );
+close $pjq_hook_result_fh;
+
+my $custom_dir_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'inspect-result' );
+make_path($custom_dir_root);
+my $custom_hook = File::Spec->catfile( $custom_dir_root, '00-pre.pl' );
+open my $custom_hook_fh, '>', $custom_hook or die "Unable to write $custom_hook: $!";
+print {$custom_hook_fh} <<'PL';
+#!/usr/bin/env perl
+print "custom-hook\n";
+warn "custom-hook-err\n";
+PL
+close $custom_hook_fh;
+chmod 0755, $custom_hook or die "Unable to chmod $custom_hook: $!";
+my $custom_run = File::Spec->catfile( $custom_dir_root, 'run' );
+open my $custom_run_fh, '>', $custom_run or die "Unable to write $custom_run: $!";
+print {$custom_run_fh} <<'PL';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+print $ENV{RESULT} // '';
+PL
+close $custom_run_fh;
+chmod 0755, $custom_run or die "Unable to chmod $custom_run: $!";
+my $custom_result = _run("$perl -Ilib bin/dashboard inspect-result");
+my $custom_result_data = json_decode($custom_result);
+is( $custom_result_data->{'00-pre.pl'}{stdout}, "custom-hook\n", 'directory-backed custom commands receive RESULT JSON from their hook files' );
+like( $custom_result_data->{'00-pre.pl'}{stderr}, qr/custom-hook-err/, 'directory-backed custom command RESULT keeps captured hook stderr' );
+
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -Ilib bin/dashboard ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );
 my $toml_file = File::Spec->catfile( $open_root, 'sample.toml' );

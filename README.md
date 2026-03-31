@@ -252,7 +252,21 @@ mkdir -p ~/.developer-dashboard/cli
 printf '#!/bin/sh\ncat\n' > ~/.developer-dashboard/cli/foobar
 chmod +x ~/.developer-dashboard/cli/foobar
 printf 'hello\n' | perl -Ilib bin/dashboard foobar
+
+mkdir -p ~/.developer-dashboard/cli/pjq
+printf '#!/usr/bin/env perl\nprint "seed\\n";\n' > ~/.developer-dashboard/cli/pjq/00-seed.pl
+chmod +x ~/.developer-dashboard/cli/pjq/00-seed.pl
+printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
 ```
+
+Per-command hook files can live under `~/.developer-dashboard/cli/<command>/`.
+Executable files in that directory are run in sorted filename order before the
+real command runs, non-executable files are skipped, and the captured `stdout`
+and `stderr` from each hook are accumulated into `RESULT` as JSON. Built-in
+commands such as `dashboard pjq` use the same hook directory. A directory-backed
+custom command can provide its real executable as
+`~/.developer-dashboard/cli/<command>/run`, and that runner receives the final
+`RESULT` environment variable.
 
 ### First Run
 
@@ -584,8 +598,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.74.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.74.tar.gz -v
+tar -tzf Developer-Dashboard-0.75.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.75.tar.gz -v
 ```
 
 The harness also:

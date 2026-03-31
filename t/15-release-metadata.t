@@ -47,7 +47,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '0.74', 'module version bumped for collector status recovery release' );
+is( $version, '0.75', 'module version bumped for CLI hook directory release' );
 like( $changes, qr/^\Q$version\E\s+\d{4}-\d{2}-\d{2}$/m, 'Changes top entry matches module version' );
 
 if ( %{$meta} ) {
