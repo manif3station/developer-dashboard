@@ -73,12 +73,12 @@ The integration run creates:
 1. Build the distribution tarball on the host with `dzil build`.
 2. Start the blank container with only that host-built tarball mounted into it.
 3. Install the mounted tarball with `cpanm`.
-4. Extract the same tarball inside the container so update scripts can run from the built artifact contents.
+4. Extract the same tarball inside the container for the rest of the installed-command checks.
 5. Verify the installed CLI responds to `dashboard help`.
 6. Verify bare `dashboard` returns usage output.
 7. Create a fake project root with bookmark, config, and startup directories and export the dashboard override variables toward them.
 8. Run `dashboard init` and confirm runtime roots and starter pages exist.
-9. Run `dashboard update` from the extracted tarball tree and confirm the update pipeline completes in the clean container.
+9. Seed `~/.developer-dashboard/cli/update` in the clean container with an executable file, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes.
 10. Exercise path, prompt, shell, encode/decode, and indicator commands.
 11. Exercise collector write/run/read/start/restart/stop flows, including a fake-project startup collector definition.
 12. Restart the installed runtime with one intentionally broken Perl startup collector and one healthy startup collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state.
@@ -100,7 +100,7 @@ The integration run creates:
 - every covered command exits successfully except bare `dashboard`, which should
   return usage with a non-zero status
 - `dashboard init` creates starter state without requiring manual setup
-- `dashboard update` succeeds in the container from the extracted tarball contents
+- `dashboard update` succeeds in the container from `~/.developer-dashboard/cli/update` through the normal command-hook path
 - the installed `dashboard` binary works without `perl -Ilib`
 - the fake project directories become the active bookmark, config, and startup roots
 - a broken startup Perl collector reports an error without stopping other startup collectors

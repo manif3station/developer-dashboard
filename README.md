@@ -239,6 +239,9 @@ perl -Ilib bin/dashboard of --print My::Module
 perl -Ilib bin/dashboard open-file --print com.example.App
 printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
 printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard pyq alpha.beta
+mkdir -p ~/.developer-dashboard/cli/update
+printf '#!/bin/sh\necho runtime-update\n' > ~/.developer-dashboard/cli/update/01-runtime
+chmod +x ~/.developer-dashboard/cli/update/01-runtime
 perl -Ilib bin/dashboard update
 perl -Ilib bin/dashboard serve
 perl -Ilib bin/dashboard stop
@@ -267,6 +270,12 @@ commands such as `dashboard pjq` use the same hook directory. A directory-backed
 custom command can provide its real executable as
 `~/.developer-dashboard/cli/<command>/run`, and that runner receives the final
 `RESULT` environment variable.
+
+`dashboard update` now reads its ordered update scripts from
+`~/.developer-dashboard/cli/update`. Any regular executable file in that
+directory is run in sorted filename order, non-executable files are skipped,
+and if the directory does not exist yet the command returns `{}`. It uses the
+same top-level command-hook path as every other `dashboard <command>`.
 
 ### First Run
 
@@ -598,15 +607,15 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.75.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.75.tar.gz -v
+tar -tzf Developer-Dashboard-0.77.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.77.tar.gz -v
 ```
 
 The harness also:
 
 - creates a fake project wired through `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_STARTUP`
 - verifies the installed CLI works against that fake project through the mounted tarball install
-- extracts the same tarball inside the container so `dashboard update` runs from artifact contents instead of the live repo
+- seeds `~/.developer-dashboard/cli/update` inside the container so `dashboard update` exercises the same top-level command-hook path as every other subcommand
 - verifies collector failure isolation with one intentionally broken Perl startup collector and one healthy startup collector, and confirms the healthy indicator still stays green after `dashboard restart`
 - starts the installed web service
 - uses headless Chromium to verify the root editor, a saved fake-project bookmark page from the fake project bookmark directory, and the helper login page

@@ -21,6 +21,8 @@ sub main {
     my $cookie   = '/tmp/developer-dashboard-cookies.txt';
     my $compose  = '/tmp/developer-dashboard-compose-project';
     my $project  = '/tmp/fake-project';
+    my $cli_root = File::Spec->catdir( $home, '.developer-dashboard', 'cli' );
+    my $update_root = File::Spec->catdir( $cli_root, 'update' );
     my $bookmarks = File::Spec->catdir( $project, 'bookmarks' );
     my $configs   = File::Spec->catdir( $project, 'configs' );
     my $startup   = File::Spec->catdir( $project, 'startup' );
@@ -130,9 +132,29 @@ BOOKMARK
     _assert_match( $init_data->{runtime_root} || '', qr/\.developer-dashboard/, 'dashboard init returns runtime root' );
     _assert( grep { $_ eq 'welcome' } @{ $init_data->{pages} || [] }, 'dashboard init seeds welcome page' );
 
-    my $update = _run_shell( 'dashboard update', 'cd ' . _shell_quote($source_root) . ' && dashboard update' );
+    make_path($update_root);
+    _write_text(
+        File::Spec->catfile( $update_root, '01-runtime-update' ),
+        <<'SH'
+#!/bin/sh
+printf 'runtime update ok\n'
+SH
+    );
+    chmod 0755, File::Spec->catfile( $update_root, '01-runtime-update' )
+      or die "Unable to chmod runtime update script: $!";
+    _write_text(
+        File::Spec->catfile( $update_root, '02-data.file' ),
+        "skip\n"
+    );
+    chmod 0600, File::Spec->catfile( $update_root, '02-data.file' )
+      or die "Unable to chmod runtime update data file: $!";
+
+    my $update = _run_shell( 'dashboard update', 'dashboard update' );
     my $update_data = _decode_json_tail( $update->{stdout} );
-    _assert( ref($update_data) eq 'ARRAY', 'dashboard update returns structured trailing json summary from extracted tarball source' );
+    _assert( ref($update_data) eq 'HASH', 'dashboard update returns structured trailing json summary from the common command hook path' );
+    _assert( scalar(keys %{$update_data}) == 1, 'dashboard update ran the seeded runtime update script only' );
+    _assert( exists $update_data->{'01-runtime-update'}, 'dashboard update reports the runtime update script filename' );
+    _assert_match( $update_data->{'01-runtime-update'}{stdout} || '', qr/runtime update ok/, 'dashboard update captures runtime update script stdout' );
 
     my $paths = _run_shell( 'dashboard paths', 'dashboard paths' );
     _assert_match( $paths->{stdout}, qr/"runtime_root"/, 'dashboard paths returns runtime json' );

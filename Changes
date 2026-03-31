@@ -1,5 +1,17 @@
 Revision history for Developer Dashboard
 
+0.77  2026-03-31
+
+    - changed `dashboard update` to use the same top-level command hook path as every other `dashboard <command>` under `~/.developer-dashboard/cli/update`
+    - kept update hook execution based on executable regular files in sorted filename order while skipping non-executable files
+    - changed `dashboard update` output to return the common RESULT hash instead of a separate updater-managed step list
+
+0.76  2026-03-31
+
+    - changed `dashboard update` to execute runtime-managed scripts from `~/.developer-dashboard/cli/update` instead of the repository-local `./updates` directory
+    - made `dashboard update` return an empty result set when no runtime update directory exists instead of dying on a missing folder
+    - updated tests, docs, and blank-container integration coverage to exercise the runtime CLI update directory flow directly
+
 0.75  2026-03-31
 
     - added per-command CLI hook directories under `~/.developer-dashboard/cli/<command>` so built-in and custom commands can pre-run executable hook files in sorted filename order and receive the accumulated `RESULT` JSON environment variable

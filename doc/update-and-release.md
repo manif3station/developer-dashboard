@@ -5,16 +5,21 @@
 Run:
 
 ```bash
+mkdir -p ~/.developer-dashboard/cli/update
+printf '#!/bin/sh\necho runtime-update\n' > ~/.developer-dashboard/cli/update/01-runtime
+chmod +x ~/.developer-dashboard/cli/update/01-runtime
 perl -Ilib bin/dashboard update
 ```
 
-This executes ordered scripts from `updates/`:
+This executes ordered scripts from `~/.developer-dashboard/cli/update`:
 
-1. bootstrap runtime config and starter pages
-2. refresh Perl dependencies with `cpanm --installdeps .`
-3. write shell bootstrap and append it to the user shell rc file if needed
+1. sorted by filename
+2. running any regular executable file
+3. skipping non-executable files
+4. returning `{}` when the directory does not exist yet
 
-The update manager also stops running collectors before updates and restarts them afterward.
+`dashboard update` uses the same top-level command-hook path as every other
+dashboard subcommand.
 
 ## Local Usage
 
@@ -146,8 +151,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.75.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.75.tar.gz -v
+tar -tzf Developer-Dashboard-0.77.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.77.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

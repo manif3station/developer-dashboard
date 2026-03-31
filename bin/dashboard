@@ -56,7 +56,6 @@ require Developer::Dashboard::PluginManager;
 require Developer::Dashboard::Prompt;
 require Developer::Dashboard::RuntimeManager;
 require Developer::Dashboard::SessionStore;
-require Developer::Dashboard::UpdateManager;
 require Developer::Dashboard::Web::App;
 require Developer::Dashboard::Web::Server;
 
@@ -118,12 +117,6 @@ my $prompt = Developer::Dashboard::Prompt->new(
     indicators => $indicators,
 );
 my $sessions = Developer::Dashboard::SessionStore->new( paths => $paths );
-my $updater = Developer::Dashboard::UpdateManager->new(
-    config => $config,
-    files  => $files,
-    paths  => $paths,
-    runner => $runner,
-);
 my $runtime = Developer::Dashboard::RuntimeManager->new(
     app_builder => sub {
         my (%args) = @_;
@@ -449,7 +442,7 @@ elsif ( $cmd eq 'init' ) {
     exit 0;
 }
 elsif ( $cmd eq 'update' ) {
-    print json_encode( $updater->run );
+    print( ( defined $ENV{RESULT} ? $ENV{RESULT} : json_encode( {} ) ), "\n" );
     exit 0;
 }
 elsif ( $cmd eq 'page' ) {

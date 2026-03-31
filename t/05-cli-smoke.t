@@ -273,6 +273,28 @@ my $custom_result_data = json_decode($custom_result);
 is( $custom_result_data->{'00-pre.pl'}{stdout}, "custom-hook\n", 'directory-backed custom commands receive RESULT JSON from their hook files' );
 like( $custom_result_data->{'00-pre.pl'}{stderr}, qr/custom-hook-err/, 'directory-backed custom command RESULT keeps captured hook stderr' );
 
+my $update_hook_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'update' );
+make_path($update_hook_root);
+my $update_hook = File::Spec->catfile( $update_hook_root, '01-cpan' );
+open my $update_hook_fh, '>', $update_hook or die "Unable to write $update_hook: $!";
+print {$update_hook_fh} <<'PL';
+#!/usr/bin/env perl
+print "Test";
+warn "warned\n";
+PL
+close $update_hook_fh;
+chmod 0755, $update_hook or die "Unable to chmod $update_hook: $!";
+my $update_skip = File::Spec->catfile( $update_hook_root, 'data.file' );
+open my $update_skip_fh, '>', $update_skip or die "Unable to write $update_skip: $!";
+print {$update_skip_fh} "skip\n";
+close $update_skip_fh;
+chmod 0600, $update_skip or die "Unable to chmod $update_skip: $!";
+my $update_result = _run("$perl -Ilib bin/dashboard update");
+my $update_result_data = json_decode($update_result);
+is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update uses the common command hook path and captures stdout from executable update files' );
+like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update captures stderr from executable update files' );
+ok( !exists $update_result_data->{'data.file'}, 'dashboard update skips non-executable files in the update command folder' );
+
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -Ilib bin/dashboard ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );
 my $toml_file = File::Spec->catfile( $open_root, 'sample.toml' );

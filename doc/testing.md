@@ -92,5 +92,5 @@ The integration flow also:
 
 - creates a fake project through `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_STARTUP`
 - verifies installed CLI and saved bookmarks from that fake project plus startup collectors from that fake project
-- extracts the same tarball inside the container so `dashboard update` runs against built artifact contents
+- seeds `~/.developer-dashboard/cli/update` inside the container and verifies `dashboard update` uses the same executable command-hook path as every other top-level subcommand
 - uses headless Chromium to validate the editor, the saved fake-project bookmark page, and the helper login page

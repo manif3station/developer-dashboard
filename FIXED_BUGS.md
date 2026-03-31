@@ -2,6 +2,10 @@
 
 ## 2026-03-31
 
+- Fixed runtime update architecture drift by making `dashboard update` use the same top-level command hook path as every other `dashboard <command>` instead of delegating command-folder execution to `UpdateManager`.
+- Fixed runtime update execution drift by making `dashboard update` run any executable regular file in `~/.developer-dashboard/cli/update` while still skipping non-executable files.
+- Fixed update-path drift by moving `dashboard update` to `~/.developer-dashboard/cli/update`, so runtime-managed update scripts no longer depend on the current working directory or the repo-local `./updates` folder.
+- Fixed missing-update-dir failures by making `dashboard update` return `{}` when `~/.developer-dashboard/cli/update` does not exist yet.
 - Fixed CLI hook extensibility by letting every `dashboard <command>` use an optional `~/.developer-dashboard/cli/<command>` hook directory where executable files run in sorted filename order, non-executable files are skipped, and captured `stdout`/`stderr` are exposed to later hooks and the final command through `RESULT` JSON.
 - Fixed custom CLI directory support by allowing `~/.developer-dashboard/cli/<command>/run` to serve as the real executable for directory-backed custom commands after the hook files finish.
 - Fixed collector state recovery so a malformed persisted `status.json` for a collector such as `vpn` is treated as missing state and is overwritten on the next write instead of crashing collector startup during `dashboard restart`.
