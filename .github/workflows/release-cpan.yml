@@ -39,6 +39,7 @@ jobs:
           cpanm --notest App::Cmd
           cpanm --notest Dist::Zilla
           cpanm --notest Dist::Zilla::Plugin::ManifestSkip
+          cpanm --notest Dist::Zilla::Plugin::MetaProvides::Package
           cpanm --notest Dist::Zilla::Plugin::PkgVersion
           cpanm --notest CPAN::Uploader
 

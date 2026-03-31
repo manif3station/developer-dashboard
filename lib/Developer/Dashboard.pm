@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.83';
+our $VERSION = '0.84';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.83
+0.84
 
 =head1 INTRODUCTION
 
@@ -43,6 +43,9 @@ run directly without loading the full C<dashboard> runtime.
 Before publishing a release, the built tarball should be smoke-tested with
 C<cpanm> from the artifact itself so the shipped archive matches the fixed
 source tree.
+Repository metadata should also keep explicit repository links, shipped module
+C<provides>, and root F<SECURITY.md> / F<CONTRIBUTING.md> policy files aligned
+for CPAN and Kwalitee consumers.
 
 It provides a small ecosystem for:
 
@@ -1013,8 +1016,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.83.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.83.tar.gz -v
+  tar -tzf Developer-Dashboard-0.84.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.84.tar.gz -v
 
 The harness also:
 
@@ -1060,7 +1063,7 @@ Because prompt rendering, dashboards, and wrappers should consume prepared state
 
 =head2 How are CPAN releases built?
 
-The repository is set up to build release artifacts with Dist::Zilla and upload them to PAUSE from GitHub Actions.
+The repository is set up to build release artifacts with Dist::Zilla, including explicit C<provides> metadata generation, and upload them to PAUSE from GitHub Actions.
 
 =head2 What JSON implementation does the project use?
 

@@ -2,6 +2,8 @@
 
 ## 2026-03-31
 
+- Fixed CPAN metadata gaps by adding explicit Dist::Zilla `provides` and repository resources, so generated META files declare shipped modules and the source repository instead of leaving Kwalitee warnings for missing metadata.
+- Fixed policy-document gaps by adding root `SECURITY.md` and `CONTRIBUTING.md` files, with a vulnerability-reporting contact and contributor workflow guidance for the published distribution.
 - Fixed nested bookmark route drift by letting saved page routes accept ids such as `nav/foo.tt`, so bookmark-editor pages and source routes work for subdirectory-backed saved bookmarks instead of only one path segment.
 - Fixed nested bookmark save failures by creating parent directories automatically for saved ids such as `nav/foo.tt`, so bookmark-editor saves can write shared nav pages without manual directory setup.
 - Fixed shared page-nav composition by rendering direct `nav/*.tt` bookmark files in sorted filename order between the top chrome and the main page body on other saved pages, while still keeping `/app/nav/foo.tt` itself as a normal editable bookmark page.
@@ -130,7 +132,7 @@
 - Fixed session hardening gaps by expiring helper sessions automatically, binding them to the originating remote address, and storing them with `0600` permissions.
 - Fixed web-response hardening gaps by adding CSP, no-store, frame-deny, nosniff, no-referrer, and no-store headers to the local HTTP server.
 - Fixed documentation hygiene by removing literal password examples and replacing them with placeholders.
-- Fixed repository hygiene outside `OLD_CODE` by confirming the active tree is clear of the banned company-specific references.
+- Fixed repository hygiene outside the read-only legacy reference tree by confirming the active tree is clear of the banned company-specific references.
 
 - Fixed old bookmark route drift by adding generic `/app/<name>` forwarding for saved bookmark files and saved URL bookmark entries.
 - Fixed old ajax compatibility drift by adding a generic `/ajax` token execution path in the new dashboard runtime.

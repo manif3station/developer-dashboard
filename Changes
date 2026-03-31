@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.84  2026-03-31
+
+    - added explicit Dist::Zilla metadata for `provides` and repository resources so generated META files satisfy CPAN Kwalitee checks for shipped modules and source repository links
+    - added root `SECURITY.md` and `CONTRIBUTING.md` guidance, including a vulnerability-reporting contact and contributor workflow expectations
+    - updated release metadata tests and docs to keep repository metadata and contributor/security policy files aligned with future releases
+
 0.83  2026-03-31
 
     - added nested saved bookmark route support so `/app/nav/foo.tt`, `/page/nav/foo.tt/edit`, and `/page/nav/foo.tt/source` work like any other saved bookmark id

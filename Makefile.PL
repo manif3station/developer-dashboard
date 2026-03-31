@@ -45,7 +45,15 @@ WriteMakefile(
     LICENSE      => 'perl',
     META_MERGE   => {
         resources => {
-            repository => 'https://example.invalid/developer-dashboard',
+            homepage   => 'https://github.mf/manif3station/developer-dashboard',
+            bugtracker => {
+                web => 'https://github.mf/manif3station/developer-dashboard/issues',
+            },
+            repository => {
+                type => 'git',
+                url  => 'git@github.mf:manif3station/developer-dashboard.git',
+                web  => 'https://github.mf/manif3station/developer-dashboard',
+            },
         },
     },
 );
