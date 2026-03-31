@@ -827,6 +827,7 @@ sub _escape_html {
 sub _render_page_html {
     my ( $self, $page, $mode ) = @_;
     $page->with_mode( $mode || 'render' );
+    my $request_context = $page->{meta}{request_context} || {};
     my %action_urls;
     for my $action ( @{ $page->as_hash->{actions} || [] } ) {
         next if ref($action) ne 'HASH' || !$action->{id};
@@ -844,7 +845,10 @@ sub _render_page_html {
     my $page_url = ( $page->{meta}{source_kind} || '' ) eq 'transient'
       ? $self->{pages}->editable_url($page)
       : '/page/' . ( $page->as_hash->{id} || '' );
-    my $runtime_context = { params => { %{ $page->{state} || {} } } };
+    my $runtime_context = {
+        params       => { %{ $page->{state} || {} } },
+        current_page => $request_context->{path} || '',
+    };
     return $page->render_html(
         action_urls => \%action_urls,
         page_url    => $page_url,
@@ -887,6 +891,7 @@ sub _nav_items_html {
     return '' if !@entries;
 
     my @items;
+    my $current_page = $args{runtime_context}{current_page} || '';
     for my $entry (@entries) {
         my $nav_id = 'nav/' . $entry;
         my $nav_page = eval { $self->_load_named_page($nav_id) };
@@ -902,7 +907,10 @@ sub _nav_items_html {
                 headers      => { host => $self->{_current_request_context}{host} || '' },
             ),
             source          => $nav_page->{meta}{source_kind} || 'saved',
-            runtime_context => $args{runtime_context} || { params => {} },
+            runtime_context => {
+                %{ $args{runtime_context} || { params => {} } },
+                current_page => $current_page,
+            },
         );
         my $fragment = $self->_page_fragment_html($nav_page);
         next if $fragment eq '';

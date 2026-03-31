@@ -118,7 +118,7 @@ TITLE: Alpha Nav
 :--------------------------------------------------------------------------------:
 BOOKMARK: nav/alpha.tt
 :--------------------------------------------------------------------------------:
-HTML: <div id="nav-alpha">Alpha Nav</div>
+HTML: [% IF env.current_page == '/app/project-home' %]<div id="nav-alpha">Alpha Nav Current</div>[% ELSE %]<a id="nav-alpha" href="/app/project-home">Alpha Nav Link</a>[% END %]
 BOOKMARK
     );
     _write_text(
@@ -128,7 +128,7 @@ TITLE: Beta Nav
 :--------------------------------------------------------------------------------:
 BOOKMARK: nav/beta.tt
 :--------------------------------------------------------------------------------:
-HTML: <div id="nav-beta">Beta Nav</div>
+HTML: <div id="nav-beta">[% env.current_page %] / [% env.runtime_context.current_page %]</div>
 BOOKMARK
     );
 
@@ -149,7 +149,7 @@ BOOKMARK
     _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
 
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
-    _assert_match( $version->{stdout}, qr/^0\.84$/m, 'dashboard version reports the installed runtime version' );
+    _assert_match( $version->{stdout}, qr/^0\.85$/m, 'dashboard version reports the installed runtime version' );
 
     my $init = _run_shell( 'dashboard init', 'dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
@@ -325,8 +325,8 @@ SH
     _assert_match( $project_dom, qr/project-marker/, 'browser renders fake project bookmark page' );
     _assert_match( $project_dom, qr/Fake Project Home/, 'browser renders fake project bookmark content' );
     _assert_match( $project_dom, qr/dashboard-nav-items/, 'browser renders shared nav container on fake project bookmark page' );
-    _assert_match( $project_dom, qr/nav-alpha/, 'browser renders the first shared nav bookmark fragment' );
-    _assert_match( $project_dom, qr/nav-beta/, 'browser renders the second shared nav bookmark fragment' );
+    _assert_match( $project_dom, qr/Alpha Nav Current/, 'browser renders shared nav TT output against the outer page path' );
+    _assert_match( $project_dom, qr{<div id="nav-beta">/app/project-home / /app/project-home</div>}, 'browser exposes current_page through env and env.runtime_context for shared nav TT fragments' );
     _assert( index( $project_dom, 'nav-alpha' ) < index( $project_dom, 'nav-beta' ), 'browser renders shared nav bookmark fragments in sorted filename order' );
     _assert( index( $project_dom, 'dashboard-nav-items' ) < index( $project_dom, 'project-marker' ), 'browser renders shared nav fragments before the main page body' );
 

@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.85  2026-03-31
+
+    - fixed bookmark Template Toolkit environment so saved pages and shared `nav/*.tt` fragments receive `env.current_page` for the active request path instead of only raw process environment values
+    - exposed the active request path again as `env.runtime_context.current_page`, keeping the rest of the request-time runtime context available to bookmark and nav Template Toolkit code
+    - added web regression coverage for nav Template Toolkit conditionals so a fragment such as `[% IF env.current_page == '/app/index' %]...[% END %]` renders against the outer page path
+
 0.84  2026-03-31
 
     - added explicit Dist::Zilla metadata for `provides` and repository resources so generated META files satisfy CPAN Kwalitee checks for shipped modules and source repository links

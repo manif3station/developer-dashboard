@@ -151,6 +151,7 @@ Page source compatibility is explicit:
 - `/apps` redirects to `/app/index`
 - edit and render views include shared top chrome with share/source links plus the original status-plus-alias indicator strip, refreshed from `/system/status`, alongside the local user, a machine IP link chosen from the active interfaces, and a browser-updated date/time
 - direct `nav/*.tt` saved bookmarks are treated as shared nav fragments, so `/app/nav/foo.tt` remains editable like any other bookmark while non-nav pages insert the sorted rendered `nav/*.tt` outputs between the top chrome and the main page body
+- bookmark Template Toolkit rendering exposes `env.current_page` and `env.runtime_context.current_page`, so saved pages and nav fragments can branch on the active request path without losing the rest of the runtime context
 - the editor view auto-submits the bookmark form on textarea change/blur instead of relying on a visible update button
 - the editor shows in-place syntax highlighting inside the same editing surface for directive, HTML, CSS, JavaScript, and Perl `CODE*` content
 

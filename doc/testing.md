@@ -74,6 +74,7 @@ The web tests also cover the access model:
 - posted instruction handling through `/`
 - nested saved bookmark ids such as `nav/foo.tt` through `/app/...` and `/page/...`
 - shared `nav/*.tt` bookmark rendering between top chrome and the main page body in sorted filename order
+- Template Toolkit conditional rendering for shared nav fragments and saved pages using `env.current_page` and `env.runtime_context.current_page`
 - `/apps -> /app/index` compatibility
 - top chrome rendering on edit and legacy render pages
 

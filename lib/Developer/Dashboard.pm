@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.84';
+our $VERSION = '0.85';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.84
+0.85
 
 =head1 INTRODUCTION
 
@@ -182,6 +182,12 @@ C<BOOKMARK: nav/foo.tt>. On a page like C</app/index>, the direct C<nav/*.tt>
 files are loaded in sorted filename order, rendered through the normal page
 runtime, and inserted above the page body. Non-C<.tt> files and subdirectories
 under C<nav/> are ignored by that shared-nav renderer.
+
+Shared nav fragments and normal bookmark pages both render through Template
+Toolkit with C<env.current_page> set to the active request path, such as
+C</app/index>. The same path is also available as
+C<env.runtime_context.current_page>, alongside the rest of the request-time
+runtime context.
 
 =head2 What You Get
 
@@ -1016,8 +1022,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.84.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.84.tar.gz -v
+  tar -tzf Developer-Dashboard-0.85.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.85.tar.gz -v
 
 The harness also:
 

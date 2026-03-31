@@ -200,6 +200,12 @@ files are loaded in sorted filename order, rendered through the normal page
 runtime, and inserted above the page body. Non-`.tt` files and subdirectories
 under `nav/` are ignored by that shared-nav renderer.
 
+Shared nav fragments and normal bookmark pages both render through Template
+Toolkit with `env.current_page` set to the active request path, such as
+`/app/index`. The same path is also available as
+`env.runtime_context.current_page`, alongside the rest of the request-time
+runtime context.
+
 ### Open File Commands
 
 `dashboard of` is the shorthand name for `dashboard open-file`.
@@ -641,8 +647,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.84.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.84.tar.gz -v
+tar -tzf Developer-Dashboard-0.85.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.85.tar.gz -v
 ```
 
 The harness also:

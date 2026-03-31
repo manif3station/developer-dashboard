@@ -69,14 +69,14 @@ $store->save_page($legacy_page);
 my $nav_alpha = Developer::Dashboard::PageDocument->new(
     id     => 'nav/alpha.tt',
     title  => 'Alpha Nav',
-    layout => { body => '<a href="/alpha">Alpha [% stash.name %]</a>' },
+    layout => { body => '[% IF env.current_page == \'/app/index\' %]Home[% ELSE %]<a href="/app/index">Home</a>[% END %]' },
 );
 $store->save_page($nav_alpha);
 
 my $nav_beta = Developer::Dashboard::PageDocument->new(
     id     => 'nav/beta.tt',
     title  => 'Beta Nav',
-    layout => { body => '<a href="/beta">Beta [% stash.name %]</a>' },
+    layout => { body => 'nav-current=[% env.current_page %] nav-rt=[% env.runtime_context.current_page %]' },
 );
 $store->save_page($nav_beta);
 
@@ -136,7 +136,7 @@ unlike($body1d, qr/"request_host"\s*:/, 'form-urlencoded update does not persist
 my ($code1d_bookmark, undef, $body1d_bookmark) = @{ $app->handle(
     path        => '/',
     method      => 'POST',
-    body        => 'instruction=TITLE%3A%20Developer%20Dashboard%0A%3A--------------------------------------------------------------------------------%3A%0ABOOKMARK%3A%20index%0A%3A--------------------------------------------------------------------------------%3A%0ASTASH%3A%20%0A%3A--------------------------------------------------------------------------------%3A%0AHTML%3A%20HERE%0A',
+    body        => 'instruction=TITLE%3A%20Developer%20Dashboard%0A%3A--------------------------------------------------------------------------------%3A%0ABOOKMARK%3A%20index%0A%3A--------------------------------------------------------------------------------%3A%0ASTASH%3A%20%0A%3A--------------------------------------------------------------------------------%3A%0AHTML%3A%20HERE%20%5B%25%20env.current_page%20%25%5D%20%5B%25%20env.runtime_context.current_page%20%25%5D%0A',
     remote_addr => '127.0.0.1',
     headers     => { host => '127.0.0.1' },
 ) };
@@ -145,8 +145,10 @@ ok( -f File::Spec->catfile( $paths->dashboards_root, 'index' ), 'root editor sav
 like($body1d_bookmark, qr/BOOKMARK:\s+index/s, 'posted bookmark response preserves the bookmark id');
 my ($code1d_saved, undef, $body1d_saved) = @{ $app->handle(path => '/app/index', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code1d_saved, 200, 'legacy /app/index route loads a bookmark saved from the root editor');
-like($body1d_saved, qr/HERE/, 'legacy /app/index route renders the saved bookmark body');
+like($body1d_saved, qr/HERE \/app\/index \/app\/index/, 'legacy /app/index route renders the saved bookmark body with current page context');
 like($body1d_saved, qr/class="dashboard-nav-items"/, 'saved page render includes shared nav section when nav tt pages exist');
+like($body1d_saved, qr{<li data-nav-id="nav/alpha\.tt">Home</li>}s, 'shared nav fragments evaluate Template Toolkit conditionals against the current page');
+like($body1d_saved, qr/nav-current=\/app\/index nav-rt=\/app\/index/, 'shared nav fragments receive env.current_page and env.runtime_context.current_page');
 
 my ($code1d_nav, undef, $body1d_nav) = @{ $app->handle(
     path        => '/',
@@ -242,12 +244,12 @@ unlike($body2, qr/id="logout-url"/, 'admin route does not render logout link');
 my ($code2b, undef, $body2b) = @{ $app->handle(path => '/page/welcome', query => 'name=Michael', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code2b, 200, 'saved page with query state route ok');
 like($body2b, qr/Michael/, 'query parameters are merged into page state during render');
-like($body2b, qr/Alpha Michael/s, 'shared nav fragments receive the same runtime stash as the main page');
-like($body2b, qr/Beta Michael/s, 'each shared nav tt bookmark is rendered on the page');
+like($body2b, qr{<li data-nav-id="nav/alpha\.tt"><a href="/app/index">Home</a></li>}s, 'shared nav TT fragments render conditional output against non-index pages');
+like($body2b, qr/nav-current=\/page\/welcome nav-rt=\/page\/welcome/s, 'shared nav TT fragments receive the current page path on non-index pages');
 my $nav_pos = index($body2b, 'class="dashboard-nav-items"');
 my $body_pos = index($body2b, '<section class="body">');
-my $alpha_pos = index($body2b, 'Alpha Michael');
-my $beta_pos = index($body2b, 'Beta Michael');
+my $alpha_pos = index($body2b, 'data-nav-id="nav/alpha.tt"');
+my $beta_pos = index($body2b, 'data-nav-id="nav/beta.tt"');
 ok($nav_pos > -1 && $nav_pos < $body_pos, 'shared nav section renders before the main page body');
 ok($alpha_pos > -1 && $beta_pos > $alpha_pos, 'shared nav tt bookmarks render in sorted filename order');
 unlike($body2, qr/id="play-url"/, 'render mode does not render play link');

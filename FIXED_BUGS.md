@@ -2,6 +2,8 @@
 
 ## 2026-03-31
 
+- Fixed bookmark Template Toolkit context for saved pages and shared nav fragments by setting `env.current_page` to the active request path, so TT conditionals no longer see only the raw process environment and can branch on routes such as `/app/index`.
+- Fixed bookmark runtime-context exposure by adding `env.runtime_context.current_page`, so nav fragments and bookmark pages can read the current route from the same runtime-context hash used during rendering.
 - Fixed CPAN metadata gaps by adding explicit Dist::Zilla `provides` and repository resources, so generated META files declare shipped modules and the source repository instead of leaving Kwalitee warnings for missing metadata.
 - Fixed policy-document gaps by adding root `SECURITY.md` and `CONTRIBUTING.md` files, with a vulnerability-reporting contact and contributor workflow guidance for the published distribution.
 - Fixed nested bookmark route drift by letting saved page routes accept ids such as `nav/foo.tt`, so bookmark-editor pages and source routes work for subdirectory-backed saved bookmarks instead of only one path segment.
