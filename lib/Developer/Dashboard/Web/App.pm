@@ -372,7 +372,8 @@ sub _page_response {
 # Output: HTML string.
 sub _edit_html {
     my ( $self, $page ) = @_;
-    my $source = $page->{meta}{raw_instruction} || $page->canonical_instruction;
+    my $raw_source = $page->{meta}{raw_instruction} || $page->canonical_instruction;
+    my $source = $raw_source;
     $source =~ s/&/&amp;/g;
     $source =~ s/</&lt;/g;
     $source =~ s/>/&gt;/g;
@@ -625,9 +626,9 @@ HTML
 
     $html =~ s/__TITLE__/$title/g;
     $html =~ s/__TOP_CHROME__/$self->_top_chrome_html( $page, \%$urls )/ge;
-    $html =~ s/__INITIAL_HIGHLIGHT__/$self->_highlight_instruction_html( $page->canonical_instruction )/ge;
+    $html =~ s/__INITIAL_HIGHLIGHT__/$self->_highlight_instruction_html($raw_source)/ge;
     $html =~ s/__SOURCE__/$source/g;
-    $html =~ s/__SOURCE_JSON__/json_encode( $page->canonical_instruction )/ge;
+    $html =~ s/__SOURCE_JSON__/json_encode($raw_source)/ge;
     return $html;
 }
 

@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.69  2026-03-31
+
+    - fixed the browser editor boot path so raw Template Toolkit tokens such as `[% title %]` remain intact in `HTML:` sections after the page JavaScript initializes the editor and syntax highlight overlay
+    - added a web regression that checks the editor boot script and initial highlight both use the raw bookmark instruction text instead of the already-rendered page body
+
 0.68  2026-03-31
 
     - expanded the README and main Developer::Dashboard POD to explain the product as a developer home, including what the web UI, helper/admin split, collectors, indicators, prompt rendering, CLI helpers, and Docker tooling offer together

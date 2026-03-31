@@ -47,7 +47,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '0.68', 'module version bumped for developer-home documentation refresh release' );
+is( $version, '0.69', 'module version bumped for browser TT editor source preservation release' );
 like( $changes, qr/^\Q$version\E\s+\d{4}-\d{2}-\d{2}$/m, 'Changes top entry matches module version' );
 
 if ( %{$meta} ) {

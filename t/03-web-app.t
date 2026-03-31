@@ -135,13 +135,15 @@ like($body1d_saved, qr/HERE/, 'legacy /app/index route renders the saved bookmar
 my ($code1d_tt, undef, $body1d_tt) = @{ $app->handle(
     path        => '/',
     method      => 'POST',
-    body        => 'instruction=TITLE%3A%20PBS%20Dashboard%0A%3A--------------------------------------------------------------------------------%3A%0ABOOKMARK%3A%20index%0A%3A--------------------------------------------------------------------------------%3A%0AHTML%3A%20%3Ch1%3E%5B%25%20title%20%25%5D%3C%2Fh1%3E%0A%0AHello%20World%0A',
+    body        => 'instruction=TITLE%3A%20Sample%20Dashboard%0A%3A--------------------------------------------------------------------------------%3A%0ABOOKMARK%3A%20index%0A%3A--------------------------------------------------------------------------------%3A%0AHTML%3A%20%3Ch1%3E%5B%25%20title%20%25%5D%3C%2Fh1%3E%0A%0AHello%20World%0A',
     remote_addr => '127.0.0.1',
     headers     => { host => '127.0.0.1' },
 ) };
 is($code1d_tt, 200, 'posted TT bookmark instruction route ok');
 like($body1d_tt, qr/\[% title %\]/, 'editor preserves TT placeholders in the posted source view');
 like($body1d_tt, qr/HTML:\s*&lt;h1&gt;\[% title %\]&lt;\/h1&gt;/s, 'editor textarea keeps TT placeholders inside HTML sections');
+like($body1d_tt, qr/ddEditor\.value = "[^"]*\[% title %\][^"]*"\s*;\s*ddRenderEditor/s, 'editor boot script keeps TT placeholders in the browser-loaded instruction text');
+like($body1d_tt, qr/instruction-highlight[\s\S]*?\[% title %\]/s, 'editor syntax highlight is built from raw TT bookmark source');
 my ($code1d_tt_source, $type1d_tt_source, $body1d_tt_source) = @{ $app->handle(
     path        => '/page/index/source',
     query       => '',

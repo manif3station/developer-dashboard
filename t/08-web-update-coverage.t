@@ -93,7 +93,10 @@ like( $saved_render_body, qr/body text/, 'saved page route renders bookmark body
 
 my ( $escaped_code, undef, $escaped_body ) = @{ $app->handle( path => '/', query => "token=$token&name=hello%20world&empty", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $escaped_code, 200, 'query parser tolerates values without equals signs' );
-like( $escaped_body, qr/hello world/, 'query parser handles uri-unescaped values without breaking rendering' );
+like( $escaped_body, qr/\[% stash\.name %\]/, 'edit mode keeps raw TT source instead of pre-rendered HTML after query parsing' );
+my ( $escaped_render_code, undef, $escaped_render_body ) = @{ $app->handle( path => '/', query => "mode=render&token=$token&name=hello%20world&empty", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+is( $escaped_render_code, 200, 'render mode route still responds with success after query parsing' );
+like( $escaped_render_body, qr/hello world/, 'render mode still applies query-decoded TT state when rendering' );
 is( $app->handle( query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } )->[0], 200, 'handle defaults the path to root when omitted' );
 my %parsed = Developer::Dashboard::Web::App::_parse_query('=value&encoded%20key=hello%20world');
 is_deeply( \%parsed, { 'encoded key' => 'hello world' }, '_parse_query skips empty keys and decodes URI escapes' );
