@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.70';
+our $VERSION = '0.71';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.70
+0.71
 
 =head1 INTRODUCTION
 
@@ -654,6 +654,12 @@ C<FORM.TT:> with C<[% title %]>. Transient play and view-source links are
 also encoded from the raw bookmark instruction text when it is available, so
 C<[% stash.foo %]> stays in source views instead of being baked into the
 rendered scalar value after a render pass.
+
+Legacy C<CODE*> blocks now run before Template Toolkit rendering during
+C<prepare_page>, so a block such as C<CODE1: { a => 1 }> can feed
+C<[% stash.a %]> in the page body. The C<hide> helper no longer discards
+already-printed STDOUT, so C<CODE2: hide print $a> keeps the printed value
+while suppressing the Perl return value from affecting later merge logic.
 
 Page C<TITLE:> values only populate the HTML C<E<lt>titleE<gt>> element. If a
 bookmark should show its title in the page body, add it explicitly inside

@@ -398,6 +398,23 @@ my $hide_result = $runtime->run_code_blocks(
 );
 is_deeply( $hide_result->{outputs}, [], 'page runtime hide helper suppresses block output' );
 
+my $prepare_merge_page = Developer::Dashboard::PageDocument->new(
+    title  => 'Developer Dashboard',
+    layout => { body => '<h1>[% title %]</h1>[% stash.a %]' },
+    meta   => {
+        codes => [
+            { id => 'CODE1', body => '{ a => 1 }' },
+            { id => 'CODE2', body => 'hide print $a' },
+        ],
+    },
+);
+my $prepare_merge_result = $runtime->prepare_page(
+    page   => $prepare_merge_page,
+    source => 'saved',
+);
+like( $prepare_merge_result->{layout}{body}, qr{<h1>Developer Dashboard</h1>1}, 'prepare_page renders returned CODE hash values into HTML stash data' );
+is( join( '', @{ $prepare_merge_result->{meta}{runtime_outputs} || [] } ), '1', 'hide print keeps printed output but suppresses the print return value' );
+
 my $stop_result = $runtime->run_code_blocks(
     page => Developer::Dashboard::PageDocument->new(
         meta => { codes => [ { id => 'CODE1', body => 'stop("halt");' }, { id => 'CODE2', body => 'print "later";' } ] },

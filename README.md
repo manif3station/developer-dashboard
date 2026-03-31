@@ -387,6 +387,12 @@ encoded from the raw bookmark instruction text when it is available, so
 `[% stash.foo %]` stays in source views instead of being baked into the
 rendered scalar value after a render pass.
 
+Legacy `CODE*` blocks now run before Template Toolkit rendering during
+`prepare_page`, so a block such as `CODE1: { a => 1 }` can feed
+`[% stash.a %]` in the page body. The `hide` helper no longer discards
+already-printed STDOUT, so `CODE2: hide print $a` keeps the printed value
+while suppressing the Perl return value from affecting later merge logic.
+
 Page `TITLE:` values only populate the HTML `<title>` element. If a bookmark should show its title in the page body, add it explicitly inside `HTML:`, for example with `[% title %]`.
 
 `/apps` redirects to `/app/index`, and `/app/<name>` can load either a saved bookmark document or a saved ajax/url bookmark file.
@@ -571,8 +577,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.70.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.70.tar.gz -v
+tar -tzf Developer-Dashboard-0.71.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.71.tar.gz -v
 ```
 
 The harness also:

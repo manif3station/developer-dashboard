@@ -25,7 +25,7 @@ sub new {
 }
 
 # prepare_page(%args)
-# Applies Template Toolkit rendering and executes legacy CODE blocks.
+# Executes legacy CODE blocks, then applies Template Toolkit rendering.
 # Input: page document, source kind, and runtime context hash.
 # Output: updated page document object.
 sub prepare_page {
@@ -35,11 +35,6 @@ sub prepare_page {
     my $source = $args{source} || 'saved';
     my $runtime_context = $args{runtime_context} || {};
 
-    $self->_render_templates(
-        page            => $page,
-        runtime_context => $runtime_context,
-    );
-
     my $runtime = $self->run_code_blocks(
         page            => $page,
         source          => $source,
@@ -48,6 +43,10 @@ sub prepare_page {
 
     $page->{meta}{runtime_outputs} = $runtime->{outputs};
     $page->{meta}{runtime_errors}  = $runtime->{errors};
+    $self->_render_templates(
+        page            => $page,
+        runtime_context => $runtime_context,
+    );
     return $page;
 }
 
@@ -330,8 +329,8 @@ sub stash {
 
 sub hide {
     my (\$input) = \@_;
-    stash(\$input || {});
-    die "__DD_HIDE__";
+    stash(\$input) if ref(\$input) eq 'HASH';
+    return "__DD_HIDE__";
 }
 
 sub void {

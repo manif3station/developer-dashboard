@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.71  2026-03-31
+
+    - fixed bookmark runtime order so `CODE*` blocks run before Template Toolkit rendering and returned hashes can feed `[% stash.* %]` in `HTML:` and `FORM.TT:`
+    - fixed the `hide` helper so `hide print $a` keeps the printed stdout while suppressing the Perl return value instead of dropping the whole block output
+
 0.70  2026-03-31
 
     - fixed bookmark Template Toolkit rendering so `[% title %]` receives the `TITLE:` value inside `HTML:` and `FORM.TT:` sections

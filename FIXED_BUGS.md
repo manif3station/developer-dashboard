@@ -2,6 +2,8 @@
 
 ## 2026-03-31
 
+- Fixed legacy bookmark runtime order so `CODE*` blocks execute before Template Toolkit rendering, allowing returned hashes such as `{ a => 1 }` to feed `[% stash.a %]` in page HTML.
+- Fixed the `hide` helper so `hide print $a` keeps the printed stdout while suppressing the Perl return value instead of dropping the whole block output.
 - Fixed bookmark Template Toolkit context by exposing the page title as `title`, so `[% title %]` in `HTML:` now renders the `TITLE:` value.
 - Fixed transient bookmark source drift by encoding play/view-source links from the raw instruction text when it exists, so `[% stash.foo %]` no longer collapses into rendered output such as `1` after visiting render mode.
 - Fixed browser editor source drift further by making the editor boot script and initial syntax overlay use the raw bookmark instruction text instead of a prepared page body, so `[% ... %]` Template Toolkit tokens no longer disappear after the editor finishes loading.
