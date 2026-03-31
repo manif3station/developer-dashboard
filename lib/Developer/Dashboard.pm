@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.80';
+our $VERSION = '0.82';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.80
+0.82
 
 =head1 INTRODUCTION
 
@@ -599,7 +599,9 @@ deleting a missing alias is also safe.
 Legacy C<Folder> compatibility also accepts the modern root-style names
 through C<AUTOLOAD>, so older code can use either C<Folder-E<gt>dd> or
 C<Folder-E<gt>runtime_root>, and likewise C<bookmarks_root>,
-C<config_root>, and C<startup_root>.
+C<config_root>, and C<startup_root>. Before C<Folder-E<gt>configure(...)>
+runs, those runtime-backed names lazily bootstrap a default dashboard path
+registry from C<$HOME> instead of dying.
 
 Render shell bootstrap:
 
@@ -963,8 +965,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.80.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.80.tar.gz -v
+  tar -tzf Developer-Dashboard-0.82.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.82.tar.gz -v
 
 The harness also:
 

@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.82  2026-03-31
+
+    - fixed unconfigured legacy `Folder` access so `Folder->dd` and AUTOLOAD-backed root aliases such as `Folder->runtime_root` lazily bootstrap the default dashboard path registry from `$HOME` instead of dying or returning placeholder state
+    - added legacy helper coverage for the unconfigured `Folder` runtime access path so installed compatibility wrappers match `dashboard paths` even before explicit runtime wiring is applied
+
 0.80  2026-03-31
 
     - fixed legacy `Folder` compatibility so AUTOLOAD resolves `runtime_root`, `bookmarks_root`, `config_root`, and `startup_root` through the existing legacy alias methods instead of rejecting the modern path names shown by `dashboard paths`

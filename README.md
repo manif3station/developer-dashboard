@@ -303,7 +303,7 @@ dashboard path del foobar
 
 Custom path aliases are stored in the global dashboard config so shell helpers such as `cdr foobar` and `which_dir foobar` keep working across sessions. When a saved alias points inside your home directory, the stored config uses `$HOME/...` instead of a hard-coded absolute home path so a shared `~/.developer-dashboard` folder remains portable across different developer accounts. Re-adding an existing alias updates it without error, and deleting a missing alias is also safe.
 
-Legacy `Folder` compatibility also accepts the modern root-style names through `AUTOLOAD`, so older code can use either `Folder->dd` or `Folder->runtime_root`, and likewise `bookmarks_root`, `config_root`, and `startup_root`.
+Legacy `Folder` compatibility also accepts the modern root-style names through `AUTOLOAD`, so older code can use either `Folder->dd` or `Folder->runtime_root`, and likewise `bookmarks_root`, `config_root`, and `startup_root`. Before `Folder->configure(...)` runs, those runtime-backed names lazily bootstrap a default dashboard path registry from `HOME` instead of dying.
 
 Render shell bootstrap:
 
@@ -616,8 +616,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.80.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.80.tar.gz -v
+tar -tzf Developer-Dashboard-0.82.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.82.tar.gz -v
 ```
 
 The harness also:

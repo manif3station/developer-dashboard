@@ -2,6 +2,7 @@
 
 ## 2026-03-31
 
+- Fixed unconfigured `Folder` runtime drift by making `Folder->dd` and AUTOLOAD-backed root aliases such as `Folder->runtime_root` lazily bootstrap the default dashboard path registry from `HOME`, so compatibility code sees the same runtime root as `dashboard paths` before explicit `configure()`.
 - Fixed `Folder` naming drift by teaching `AUTOLOAD` to resolve `runtime_root`, `bookmarks_root`, `config_root`, and `startup_root` through the existing legacy aliases, so compatibility code can use the same root-style names shown by `dashboard paths`.
 - Fixed blank-container integration contamination by delaying `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_STARTUP` until after `cpanm` finishes installing the tarball, so the shipped test suite still runs against a clean runtime.
 - Fixed installed-version visibility by adding `dashboard version`, so an installed runtime can report its shipped Developer Dashboard version without inspecting module files.
