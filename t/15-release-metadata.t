@@ -55,17 +55,19 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '0.88', 'module version bumped for removing the builtin update branch' );
+is( $version, '0.89', 'module version bumped for explicit JSON::XS runtime prereq release' );
 like( $changes, qr/^\Q$version\E\s+\d{4}-\d{2}-\d{2}$/m, 'Changes top entry matches module version' );
 
 if ( %{$meta} ) {
     is( $meta->{version}, $version, 'META.json version matches module version' );
     ok( exists $meta->{prereqs}{runtime}, 'META.json includes shipped runtime prerequisite metadata' );
+    ok( exists $meta->{prereqs}{runtime}{requires}{'JSON::XS'}, 'META.json runtime prerequisites include JSON::XS explicitly' );
     ok( exists $meta->{provides} && keys %{ $meta->{provides} || {} }, 'META.json includes explicit provides metadata' );
     is( $meta->{resources}{repository}{web}, 'https://github.mf/manif3station/developer-dashboard', 'META.json includes repository web metadata' );
 }
 elsif ( $dist ne '' ) {
     like( $dist, qr/^version = \Q$version\E$/m, 'dist.ini version matches module version when META.json is absent' );
+    like( $dist, qr/^JSON::XS = 0$/m, 'dist.ini declares JSON::XS as an explicit runtime prerequisite' );
     like( $dist, qr/^\[MetaProvides::Package\]$/m, 'dist.ini enables explicit provides metadata generation' );
     like( $dist, qr/^\[MetaResources\]$/m, 'dist.ini enables explicit repository metadata generation' );
     like( $dist, qr/^repository\.web = https:\/\/github\.mf\/manif3station\/developer-dashboard$/m, 'dist.ini declares repository web metadata' );

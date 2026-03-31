@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.88';
+our $VERSION = '0.89';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.88
+0.89
 
 =head1 INTRODUCTION
 
@@ -1035,8 +1035,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.88.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.88.tar.gz -v
+  tar -tzf Developer-Dashboard-0.89.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.89.tar.gz -v
 
 The harness also:
 
@@ -1083,6 +1083,10 @@ Because prompt rendering, dashboards, and wrappers should consume prepared state
 =head2 How are CPAN releases built?
 
 The repository is set up to build release artifacts with Dist::Zilla, including explicit C<provides> metadata generation, and upload them to PAUSE from GitHub Actions.
+
+Runtime release metadata pins C<JSON::XS> explicitly in Dist::Zilla so built
+tarballs declare the JSON backend dependency even if automatic prerequisite
+scanning misses it during PAUSE installs.
 
 =head2 What JSON implementation does the project use?
 

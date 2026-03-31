@@ -164,8 +164,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.88.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.88.tar.gz -v
+tar -tzf Developer-Dashboard-0.89.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.89.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:
@@ -182,6 +182,9 @@ explicit C<provides> section, and the repository root should ship
 F<SECURITY.md> and F<CONTRIBUTING.md>.
 
 Runtime JSON handling is implemented with `JSON::XS`, including the shell bootstrap helper used by `dashboard shell bash`.
+The Dist::Zilla runtime prerequisite list pins `JSON::XS` explicitly so PAUSE
+and other clean-install test environments always see that dependency in the
+built tarball metadata.
 
 Command-output capture is implemented with `Capture::Tiny` `capture`, with exit codes returned from the capture block. The core runtime does not currently make outbound HTTP client requests.
 

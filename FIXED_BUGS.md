@@ -186,3 +186,4 @@
 - Fixed plugin discovery by correcting the duplicate-file guard so first-seen plugin JSON files are actually loaded.
 - Fixed Docker Compose resolution by correcting the duplicate-file guard so discovered compose files and overlays survive into the final stack.
 - Fixed command-routing drift by removing the special built-in `dashboard update` branch, so `update` now behaves like any other user-provided top-level command while still receiving `RESULT` from its ordered hook files.
+- Fixed missing PAUSE test dependency metadata by pinning `JSON::XS` explicitly in the Dist::Zilla runtime prerequisites, so clean tarball installs always declare the JSON backend module.

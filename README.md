@@ -652,8 +652,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.88.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.88.tar.gz -v
+tar -tzf Developer-Dashboard-0.89.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.89.tar.gz -v
 ```
 
 The harness also:
@@ -701,6 +701,10 @@ Because prompt rendering, dashboards, and wrappers should consume prepared state
 ### How are CPAN releases built?
 
 The repository is set up to build release artifacts with Dist::Zilla and upload them to PAUSE from GitHub Actions.
+
+The Dist::Zilla runtime prerequisite list now pins `JSON::XS` explicitly so
+the built tarball always declares the JSON backend dependency for PAUSE test
+installs.
 
 ### What JSON implementation does the project use?
 

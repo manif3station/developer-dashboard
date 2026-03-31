@@ -28,6 +28,8 @@ The coverage-closure suite includes managed collector loop start/stop paths unde
 Branch and condition reports are still generated and should be used to drive new edge-case tests, especially when adding new runtime modules.
 
 JSON behavior is exercised through the shared `Developer::Dashboard::JSON` wrapper, which now uses `JSON::XS`.
+Release metadata checks also verify that built tarball runtime prerequisites
+explicitly include `JSON::XS`.
 
 Command execution paths are exercised through `Capture::Tiny` `capture` wrappers that return exit codes from the capture block itself rather than reading `$?` afterward.
 

@@ -1,5 +1,9 @@
 Revision history for Developer Dashboard
 
+0.89  2026-04-01
+    - added an explicit Dist::Zilla runtime prerequisite for `JSON::XS` so the built tarball always declares the JSON backend dependency for PAUSE installs
+    - extended release metadata coverage to assert the shipped runtime prereqs include `JSON::XS`
+
 0.88  2026-03-31
     - removed the built-in `dashboard update` branch so `update` behaves like any other user-supplied top-level command
     - kept `dashboard update` working through a user-provided `~/.developer-dashboard/cli/update` command plus sorted hook files from `update` or `update.d`

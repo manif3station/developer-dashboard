@@ -68,6 +68,7 @@ if ( -f 'dist.ini' ) {
     close $dist_fh;
     like( $dist, qr/exclude_filename = Makefile\.PL/, 'dist.ini excludes checked-in Makefile.PL from dzil gather phase' );
     like( $dist, qr/\[AutoPrereqs\]/, 'dist.ini includes AutoPrereqs for built distribution dependencies' );
+    like( $dist, qr/^JSON::XS = 0$/m, 'dist.ini pins JSON::XS explicitly for built distribution runtime metadata' );
 }
 else {
     ok( !-f 'dist.ini', 'release tarball excludes dist.ini from shipped assets' );
@@ -76,6 +77,7 @@ else {
     close $meta_fh;
     ok( exists $meta->{prereqs}, 'META.json ships generated prerequisite metadata in the tarball' );
     ok( exists $meta->{prereqs}{runtime}, 'META.json keeps runtime prerequisite sections in the tarball' );
+    ok( exists $meta->{prereqs}{runtime}{requires}{'JSON::XS'}, 'META.json keeps JSON::XS in shipped runtime prerequisites' );
 }
 
 done_testing;
