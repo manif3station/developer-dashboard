@@ -169,6 +169,15 @@ sub _resolve_path {
     my ( $class, $where ) = @_;
     return if !defined $where || $where eq '';
     return $where if File::Spec->file_name_is_absolute($where) || -d $where;
+    my %legacy_aliases = (
+        runtime_root   => 'dd',
+        bookmarks_root => 'bookmarks',
+        config_root    => 'configs',
+        startup_root   => 'startup',
+    );
+    if ( my $legacy = $legacy_aliases{$where} ) {
+        return $class->$legacy() if $class->can($legacy);
+    }
     return $class->$where() if $class->can($where);
     return $ALIASES{$where} if defined $ALIASES{$where};
     my $env = 'DEVELOPER_DASHBOARD_PATH_' . uc($where);

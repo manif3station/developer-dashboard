@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.79';
+our $VERSION = '0.80';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.79
+0.80
 
 =head1 INTRODUCTION
 
@@ -596,6 +596,11 @@ shared F<~/.developer-dashboard> tree remains portable across different
 developer accounts. Re-adding an existing alias updates it without error, and
 deleting a missing alias is also safe.
 
+Legacy C<Folder> compatibility also accepts the modern root-style names
+through C<AUTOLOAD>, so older code can use either C<Folder-E<gt>dd> or
+C<Folder-E<gt>runtime_root>, and likewise C<bookmarks_root>,
+C<config_root>, and C<startup_root>.
+
 Render shell bootstrap:
 
   dashboard shell bash
@@ -958,8 +963,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.79.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.79.tar.gz -v
+  tar -tzf Developer-Dashboard-0.80.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.80.tar.gz -v
 
 The harness also:
 

@@ -44,9 +44,13 @@ Folder->configure(
 is( Folder->home, $home, 'Folder home resolves current home' );
 ok( Folder->tmp, 'Folder tmp resolves a temp dir' );
 is( Folder->dd, $paths->runtime_root, 'Folder dd resolves runtime root' );
+is( Folder->runtime_root, $paths->runtime_root, 'Folder AUTOLOAD resolves runtime_root through the legacy runtime alias' );
 is( Folder->bookmarks, $paths->dashboards_root, 'Folder bookmarks resolves dashboards root' );
+is( Folder->bookmarks_root, $paths->dashboards_root, 'Folder AUTOLOAD resolves bookmarks_root through the legacy bookmarks alias' );
 is( Folder->configs, $paths->config_root, 'Folder configs resolves config root' );
+is( Folder->config_root, $paths->config_root, 'Folder AUTOLOAD resolves config_root through the legacy configs alias' );
 is( Folder->startup, $paths->startup_root, 'Folder startup resolves startup root' );
+is( Folder->startup_root, $paths->startup_root, 'Folder AUTOLOAD resolves startup_root through the legacy startup alias' );
 ok( -d Folder->postman, 'Folder postman creates the neutral postman directory' );
 
 my $cd_result = Folder->cd(

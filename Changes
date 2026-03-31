@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.80  2026-03-31
+
+    - fixed legacy `Folder` compatibility so AUTOLOAD resolves `runtime_root`, `bookmarks_root`, `config_root`, and `startup_root` through the existing legacy alias methods instead of rejecting the modern path names shown by `dashboard paths`
+    - added legacy helper coverage for the root-style `Folder` names so installed compatibility code can call the same runtime path names exposed by the CLI
+
 0.79  2026-03-31
 
     - fixed the blank-container integration harness so fake-project dashboard override env vars are applied only after `cpanm` finishes installing the tarball
