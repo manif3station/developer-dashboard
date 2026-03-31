@@ -38,9 +38,6 @@ sub main {
     local $ENV{HOME}                   = $home;
     local $ENV{PERL_MM_USE_DEFAULT}    = 1;
     local $ENV{NONINTERACTIVE_TESTING} = 1;
-    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS} = $bookmarks;
-    local $ENV{DEVELOPER_DASHBOARD_CONFIGS}   = $configs;
-    local $ENV{DEVELOPER_DASHBOARD_STARTUP}   = $startup;
 
     _run_shell( 'extract host-built tarball', "tar -xzf " . _shell_quote($tarball) . ' -C ' . _shell_quote($dist_dir) );
     my $source_root = _single_subdir($dist_dir);
@@ -120,6 +117,10 @@ BOOKMARK
     my $install = _run_shell( 'cpanm install host-built tarball', 'cpanm ' . _shell_quote($tarball) );
     _assert( $install->{exit_code} == 0, 'cpanm installed host-built distribution tarball' );
 
+    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS} = $bookmarks;
+    local $ENV{DEVELOPER_DASHBOARD_CONFIGS}   = $configs;
+    local $ENV{DEVELOPER_DASHBOARD_STARTUP}   = $startup;
+
     my $bare = _run_shell( 'dashboard bare usage', 'dashboard', allow_fail => 1 );
     _assert( $bare->{exit_code} != 0, 'bare dashboard returns non-zero usage exit' );
     _assert_match( $bare->{stdout}, qr/Usage:/, 'bare dashboard prints usage output' );
@@ -128,7 +129,7 @@ BOOKMARK
     _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
 
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
-    _assert_match( $version->{stdout}, qr/^0\.78$/m, 'dashboard version reports the installed runtime version' );
+    _assert_match( $version->{stdout}, qr/^0\.79$/m, 'dashboard version reports the installed runtime version' );
 
     my $init = _run_shell( 'dashboard init', 'dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
@@ -350,10 +351,18 @@ SH
     sleep 2;
 
     my $restart_collectors = _run_shell( 'dashboard collector list after restart', 'dashboard collector list' );
-    _assert_match( $restart_collectors->{stdout}, qr/"name"\s*:\s*"broken\.collector"/, 'restart keeps the broken startup collector visible in collector state' );
-    _assert_match( $restart_collectors->{stdout}, qr/"name"\s*:\s*"healthy\.collector"/, 'restart keeps the healthy startup collector visible in collector state' );
-    _assert_match( $restart_collectors->{stdout}, qr/"name"\s*:\s*"broken\.collector"(?s:.*?)"last_exit_code"\s*:\s*(?!0)\d+/, 'broken startup collector keeps a non-zero exit code after restart' );
-    _assert_match( $restart_collectors->{stdout}, qr/"name"\s*:\s*"healthy\.collector"(?s:.*?)"last_exit_code"\s*:\s*0/, 'healthy startup collector stays green after restart' );
+    my $restart_collectors_data = decode_json( $restart_collectors->{stdout} );
+    my %restart_collectors_by_name = map { ( $_->{name} || '' ) => $_ } @{$restart_collectors_data};
+    _assert( exists $restart_collectors_by_name{'broken.collector'}, 'restart keeps the broken startup collector visible in collector state' );
+    _assert( exists $restart_collectors_by_name{'healthy.collector'}, 'restart keeps the healthy startup collector visible in collector state' );
+    my $broken_exit_code = defined $restart_collectors_by_name{'broken.collector'}{last_exit_code}
+      ? $restart_collectors_by_name{'broken.collector'}{last_exit_code}
+      : 0;
+    my $healthy_exit_code = defined $restart_collectors_by_name{'healthy.collector'}{last_exit_code}
+      ? $restart_collectors_by_name{'healthy.collector'}{last_exit_code}
+      : 255;
+    _assert( $broken_exit_code != 0, 'broken startup collector keeps a non-zero exit code after restart' );
+    _assert( $healthy_exit_code == 0, 'healthy startup collector stays green after restart' );
 
     my $restart_indicators = _run_shell( 'dashboard indicator list after restart', 'dashboard indicator list' );
     _assert_match( $restart_indicators->{stdout}, qr/"name"\s*:\s*"broken\.indicator"(?s:.*?)"status"\s*:\s*"error"/, 'broken startup collector indicator stays red after restart' );

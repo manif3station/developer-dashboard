@@ -280,6 +280,10 @@ same top-level command-hook path as every other `dashboard <command>`.
 
 Use `dashboard version` to print the installed Developer Dashboard version.
 
+The blank-container integration harness applies fake-project dashboard override
+environment variables only after `cpanm` finishes installing the tarball so the
+shipped test suite still runs against a clean runtime.
+
 ### First Run
 
 Initialize the runtime:
@@ -610,8 +614,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.78.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.78.tar.gz -v
+tar -tzf Developer-Dashboard-0.79.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.79.tar.gz -v
 ```
 
 The harness also:

@@ -73,28 +73,29 @@ The integration run creates:
 1. Build the distribution tarball on the host with `dzil build`.
 2. Start the blank container with only that host-built tarball mounted into it.
 3. Install the mounted tarball with `cpanm`.
-4. Extract the same tarball inside the container for the rest of the installed-command checks.
-5. Verify the installed CLI responds to `dashboard help`.
-6. Verify bare `dashboard` returns usage output.
-7. Verify `dashboard version` reports the installed runtime version.
-8. Create a fake project root with bookmark, config, and startup directories and export the dashboard override variables toward them.
-9. Run `dashboard init` and confirm runtime roots and starter pages exist.
-10. Seed `~/.developer-dashboard/cli/update` in the clean container with an executable file, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes.
-11. Exercise path, prompt, shell, encode/decode, and indicator commands.
-12. Exercise collector write/run/read/start/restart/stop flows, including a fake-project startup collector definition.
-13. Restart the installed runtime with one intentionally broken Perl startup collector and one healthy startup collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state.
-14. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
-15. Exercise builtin action execution.
-16. Exercise docker compose dry-run resolution against a temporary project.
-17. Start the installed web service.
-18. Confirm exact-loopback access reaches the editor page in Chromium.
-19. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
-20. Confirm non-loopback self-access reaches the helper login page in Chromium.
-21. Log in as a helper through the HTTP helper flow.
-22. Confirm helper page chrome shows `Logout`.
-23. Log out and confirm the helper account is removed.
-24. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
-25. Stop the runtime and confirm the web service is gone.
+4. Apply fake-project override environment variables only after that install step succeeds so the tarball's own tests still run against a clean runtime.
+5. Extract the same tarball inside the container for the rest of the installed-command checks.
+6. Verify the installed CLI responds to `dashboard help`.
+7. Verify bare `dashboard` returns usage output.
+8. Verify `dashboard version` reports the installed runtime version.
+9. Create a fake project root with bookmark, config, and startup directories and export the dashboard override variables toward them.
+10. Run `dashboard init` and confirm runtime roots and starter pages exist.
+11. Seed `~/.developer-dashboard/cli/update` in the clean container with an executable file, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes.
+12. Exercise path, prompt, shell, encode/decode, and indicator commands.
+13. Exercise collector write/run/read/start/restart/stop flows, including a fake-project startup collector definition.
+14. Restart the installed runtime with one intentionally broken Perl startup collector and one healthy startup collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state.
+15. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
+16. Exercise builtin action execution.
+17. Exercise docker compose dry-run resolution against a temporary project.
+18. Start the installed web service.
+19. Confirm exact-loopback access reaches the editor page in Chromium.
+20. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
+21. Confirm non-loopback self-access reaches the helper login page in Chromium.
+22. Log in as a helper through the HTTP helper flow.
+23. Confirm helper page chrome shows `Logout`.
+24. Log out and confirm the helper account is removed.
+25. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
+26. Stop the runtime and confirm the web service is gone.
 
 ## Expected Results
 

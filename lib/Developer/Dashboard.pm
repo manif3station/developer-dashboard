@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.78';
+our $VERSION = '0.79';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.78
+0.79
 
 =head1 INTRODUCTION
 
@@ -571,6 +571,10 @@ same top-level command-hook path as every other C<dashboard E<lt>commandE<gt>>.
 
 Use C<dashboard version> to print the installed Developer Dashboard version.
 
+The blank-container integration harness applies fake-project dashboard override
+environment variables only after C<cpanm> finishes installing the tarball so
+the shipped test suite still runs against a clean runtime.
+
 =head2 First Run
 
 Initialize the runtime:
@@ -954,8 +958,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.78.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.78.tar.gz -v
+  tar -tzf Developer-Dashboard-0.79.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.79.tar.gz -v
 
 The harness also:
 

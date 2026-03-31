@@ -91,6 +91,7 @@ installs the tarball with `cpanm`, and then exercises the installed
 The integration flow also:
 
 - creates a fake project through `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_STARTUP`
+- applies those fake-project overrides only after `cpanm` completes, so the tarball's own test phase still runs against a clean runtime
 - verifies installed CLI and saved bookmarks from that fake project plus startup collectors from that fake project
 - verifies `dashboard version` reports the installed runtime version
 - seeds `~/.developer-dashboard/cli/update` inside the container and verifies `dashboard update` uses the same executable command-hook path as every other top-level subcommand

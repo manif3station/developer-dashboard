@@ -38,6 +38,7 @@ like( $runner, qr/healthy\.collector/, 'integration runner provisions a healthy 
 like( $runner, qr/dashboard indicator list after restart/, 'integration runner checks indicator isolation after restart' );
 like( $runner, qr/chromium.*--headless/s, 'integration runner uses headless Chromium for browser checks' );
 like( $runner, qr/DEVELOPER_DASHBOARD_BOOKMARKS/, 'integration runner exports fake-project env overrides' );
+like( $runner, qr/cpanm install host-built tarball.*DEVELOPER_DASHBOARD_BOOKMARKS/s, 'integration runner applies fake-project env overrides after the tarball install step' );
 like( $runner, qr/__END__/, 'integration runner carries POD trailer' );
 
 open my $docker_fh, '<', 'integration/blank-env/Dockerfile' or die $!;

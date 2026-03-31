@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+0.79  2026-03-31
+
+    - fixed the blank-container integration harness so fake-project dashboard override env vars are applied only after `cpanm` finishes installing the tarball
+    - kept the installed tarball test phase running in a clean environment, preventing the fake project from breaking shipped tests that expect an empty runtime
+    - updated integration asset coverage and release metadata for the new integration-harness fix release
+
 0.78  2026-03-31
 
     - added `dashboard version` so installed runtimes can report the shipped Developer Dashboard version directly
