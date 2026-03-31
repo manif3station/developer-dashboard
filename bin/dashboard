@@ -445,12 +445,12 @@ elsif ( $cmd eq 'init' ) {
     );
     exit 0;
 }
-elsif ( $cmd eq 'update' ) {
-    print( ( defined $ENV{RESULT} ? $ENV{RESULT} : json_encode( {} ) ), "\n" );
-    exit 0;
-}
 elsif ( $cmd eq 'version' ) {
     print $Developer::Dashboard::VERSION, "\n";
+    exit 0;
+}
+elsif ( $cmd eq 'update' ) {
+    print( ( defined $ENV{RESULT} ? $ENV{RESULT} : json_encode( {} ) ), "\n" );
     exit 0;
 }
 elsif ( $cmd eq 'page' ) {
@@ -827,10 +827,15 @@ sub _run_command_hook_streaming {
 # _command_hook_root($cmd)
 # Resolves the per-command hook directory under the runtime CLI extension root.
 # Input: top-level command name string.
-# Output: directory path string.
+# Output: directory path string, preferring <command>/ over <command>.d/.
 sub _command_hook_root {
     my ($cmd) = @_;
-    return File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', $cmd );
+    return '' if !defined $cmd || $cmd eq '';
+    my $plain_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', $cmd );
+    return $plain_root if -d $plain_root;
+    my $d_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', $cmd . '.d' );
+    return $d_root if -d $d_root;
+    return $plain_root;
 }
 
 # _shell_dashboard_command()
@@ -985,8 +990,9 @@ F<~/.developer-dashboard/cli>. For example, C<dashboard foobar a b> will exec
 F<~/.developer-dashboard/cli/foobar> with C<a b> as argv, while preserving
 stdin, stdout, and stderr.
 
-Per-command hook files can also be placed in
-F<~/.developer-dashboard/cli/E<lt>commandE<gt>>. Executable files in that
+Per-command hook files can also be placed in either
+F<~/.developer-dashboard/cli/E<lt>commandE<gt>> or
+F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d>. Executable files in that
 directory are run in sorted filename order before the real command runs,
 their stdout and stderr stream live to the terminal while still being
 accumulated into C<$ENV{RESULT}> as JSON, and non-executable files are

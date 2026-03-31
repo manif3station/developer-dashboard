@@ -6,13 +6,14 @@ Run:
 
 ```bash
 perl -Ilib bin/dashboard version
-mkdir -p ~/.developer-dashboard/cli/update
-printf '#!/bin/sh\necho runtime-update\n' > ~/.developer-dashboard/cli/update/01-runtime
-chmod +x ~/.developer-dashboard/cli/update/01-runtime
+mkdir -p ~/.developer-dashboard/cli/update.d
+printf '#!/bin/sh\necho runtime-update\n' > ~/.developer-dashboard/cli/update.d/01-runtime
+chmod +x ~/.developer-dashboard/cli/update.d/01-runtime
 perl -Ilib bin/dashboard update
 ```
 
-This executes ordered scripts from `~/.developer-dashboard/cli/update`:
+This executes ordered scripts from either `~/.developer-dashboard/cli/update`
+or `~/.developer-dashboard/cli/update.d`:
 
 1. sorted by filename
 2. running any regular executable file
@@ -160,8 +161,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.86.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.86.tar.gz -v
+tar -tzf Developer-Dashboard-0.87.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.87.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

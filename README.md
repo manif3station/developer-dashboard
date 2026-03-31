@@ -294,11 +294,13 @@ chmod +x ~/.developer-dashboard/cli/pjq/00-seed.pl
 printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
 ```
 
-Per-command hook files can live under `~/.developer-dashboard/cli/<command>/`.
-Executable files in that directory are run in sorted filename order before the
-real command runs, non-executable files are skipped, and each hook now streams
-its own `stdout` and `stderr` live to the terminal while still accumulating
-those channels into `RESULT` as JSON. Built-in
+Per-command hook files can live under either
+`~/.developer-dashboard/cli/<command>/` or
+`~/.developer-dashboard/cli/<command>.d/`. Executable files in that directory
+are run in sorted filename order before the real command runs,
+non-executable files are skipped, and each hook now streams its own `stdout`
+and `stderr` live to the terminal while still accumulating those channels into
+`RESULT` as JSON. Built-in
 commands such as `dashboard pjq` use the same hook directory. A directory-backed
 custom command can provide its real executable as
 `~/.developer-dashboard/cli/<command>/run`, and that runner receives the final
@@ -648,8 +650,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.86.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.86.tar.gz -v
+tar -tzf Developer-Dashboard-0.87.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.87.tar.gz -v
 ```
 
 The harness also:

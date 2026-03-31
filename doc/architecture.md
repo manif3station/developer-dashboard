@@ -178,7 +178,7 @@ The runtime also supports user CLI extensions:
 - unknown top-level `dashboard` subcommands are resolved from `~/.developer-dashboard/cli`
 - the matching executable receives the remaining argv unchanged
 - stdin, stdout, and stderr are preserved through `exec`
-- every top-level command also has an optional hook directory at `~/.developer-dashboard/cli/<command>`
+- every top-level command also has an optional hook directory at `~/.developer-dashboard/cli/<command>` or `~/.developer-dashboard/cli/<command>.d`
 - executable hook files from that directory run in sorted filename order before the real command starts
 - non-executable files in the hook directory are skipped
 - hook `stdout` and `stderr` stream live to the terminal while also being accumulated into `RESULT` JSON for later hooks and the final command

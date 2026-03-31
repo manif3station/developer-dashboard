@@ -208,7 +208,7 @@ is( $yaml_root_stdin, $yaml_root, 'pyq returns the same whole-document result fr
 my $yaml_direct = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -Ilib bin/pyq alpha.beta});
 is( $yaml_direct, $yaml_value, 'standalone pyq matches dashboard pyq output' );
 
-my $pjq_hook_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'pjq' );
+my $pjq_hook_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'pjq.d' );
 make_path($pjq_hook_root);
 my $pjq_hook_one = File::Spec->catfile( $pjq_hook_root, '00-first.pl' );
 open my $pjq_hook_one_fh, '>', $pjq_hook_one or die "Unable to write $pjq_hook_one: $!";
@@ -288,7 +288,7 @@ my $custom_result_data = json_decode($custom_json);
 is( $custom_result_data->{'00-pre.pl'}{stdout}, "custom-hook\n", 'directory-backed custom commands receive RESULT JSON from their hook files' );
 like( $custom_result_data->{'00-pre.pl'}{stderr}, qr/custom-hook-err/, 'directory-backed custom command RESULT keeps captured hook stderr' );
 
-my $update_hook_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'update' );
+my $update_hook_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'update.d' );
 make_path($update_hook_root);
 my $update_hook = File::Spec->catfile( $update_hook_root, '01-cpan' );
 open my $update_hook_fh, '>', $update_hook or die "Unable to write $update_hook: $!";
@@ -317,7 +317,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update uses the common command hook path and captures stdout from executable update files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update captures stderr from executable update files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update skips non-executable files in the update command folder' );
-is( _run("$perl -Ilib bin/dashboard version"), "0.86\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -Ilib bin/dashboard version"), "0.87\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -Ilib bin/dashboard ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );

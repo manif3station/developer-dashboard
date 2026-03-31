@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.87  2026-03-31
+
+    - added `.d` hook-directory aliases so `~/.developer-dashboard/cli/<command>.d/` behaves the same as `~/.developer-dashboard/cli/<command>/` for top-level command hooks
+    - updated smoke and blank-environment integration coverage so the shipped runtime accepts `.d` hook folders for command preprocessing
+
 0.86  2026-03-31
 
     - changed the top-level command hook runner so executable files under `~/.developer-dashboard/cli/<command>` stream stdout and stderr live to the terminal instead of buffering silently until the command finishes

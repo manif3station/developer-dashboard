@@ -22,7 +22,7 @@ sub main {
     my $compose  = '/tmp/developer-dashboard-compose-project';
     my $project  = '/tmp/fake-project';
     my $cli_root = File::Spec->catdir( $home, '.developer-dashboard', 'cli' );
-    my $update_root = File::Spec->catdir( $cli_root, 'update' );
+    my $update_root = File::Spec->catdir( $cli_root, 'update.d' );
     my $bookmarks = File::Spec->catdir( $project, 'bookmarks' );
     my $configs   = File::Spec->catdir( $project, 'configs' );
     my $startup   = File::Spec->catdir( $project, 'startup' );
@@ -149,7 +149,7 @@ BOOKMARK
     _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
 
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
-    _assert_match( $version->{stdout}, qr/^0\.86$/m, 'dashboard version reports the installed runtime version' );
+    _assert_match( $version->{stdout}, qr/^0\.87$/m, 'dashboard version reports the installed runtime version' );
 
     my $init = _run_shell( 'dashboard init', 'dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
