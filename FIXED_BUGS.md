@@ -2,6 +2,8 @@
 
 ## 2026-04-01
 
+- Fixed blank-environment integration log silence by streaming long-running command stdout and stderr live from the runner, so `cpanm` install/test work and Chromium-backed browser checks no longer look hung while they are still progressing.
+- Fixed blank-environment integration version drift by reading the expected installed version from the extracted tarball instead of hard-coding a stale release number in the runner.
 - Fixed saved bookmark local static-file lookup so `/js/*`, `/css/*`, and `/others/*` now resolve both the effective runtime `dashboard/public/...` tree and `dashboards/public/...`, making saved local assets such as `dashboards/public/js/jquery.js` work after browser saves.
 - Fixed legacy bookmark section parsing so a standalone `---` line ends the current legacy section, preventing trailing pasted prose from being compiled into `CODE*` blocks or echoed back into the bookmark editor.
 - Fixed saved bookmark editor routing so browser updates from `/page/<id>/edit` keep saving through the named bookmark route and keep the Play link on `/page/<id>` instead of a transient `token=` URL when transient web tokens are disabled.

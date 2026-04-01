@@ -3,11 +3,13 @@
 use strict;
 use warnings;
 
-use Capture::Tiny qw(capture);
 use File::Basename qw(dirname);
 use File::Path qw(make_path remove_tree);
 use File::Spec;
+use IO::Select;
+use IPC::Open3 qw(open3);
 use JSON::XS qw(decode_json);
+use Symbol qw(gensym);
 use Time::HiRes qw(sleep time);
 
 # main()
@@ -44,6 +46,8 @@ sub main {
     _run_shell( 'extract host-built tarball', "tar -xzf " . _shell_quote($tarball) . ' -C ' . _shell_quote($dist_dir) );
     my $source_root = _single_subdir($dist_dir);
     _assert( defined $source_root && -d $source_root, 'extracted tarball produced one source root' );
+    my $expected_version = _distribution_version($source_root);
+    _assert( defined $expected_version && $expected_version ne '', 'extracted tarball exposes a distribution version' );
 
     _write_text(
         File::Spec->catfile( $compose, 'compose.yaml' ),
@@ -156,7 +160,7 @@ BOOKMARK
     _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
 
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
-    _assert_match( $version->{stdout}, qr/^0\.99$/m, 'dashboard version reports the installed runtime version' );
+    _assert_match( $version->{stdout}, qr/^\Q$expected_version\E$/m, 'dashboard version reports the installed runtime version' );
 
     my $init = _run_shell( 'dashboard init', 'cd ' . _shell_quote($project) . ' && dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
@@ -507,19 +511,45 @@ JSON
 }
 
 # _run_shell($label, $command, %opts)
-# Runs one shell command, captures stdout and stderr, and returns structured command results.
+# Runs one shell command, streams stdout and stderr live, and returns structured command results.
 # Input: human label, shell command string, and optional allow_fail flag.
 # Output: hash reference with command, stdout, stderr, and exit_code.
 sub _run_shell {
     my ( $label, $command, %opts ) = @_;
     print "==> $label\n";
     print "    $command\n";
-    my ( $stdout, $stderr, $exit_code ) = capture {
-        system 'sh', '-lc', $command;
-        return $? >> 8;
-    };
-    print $stdout if defined $stdout && $stdout ne '';
-    print STDERR $stderr if defined $stderr && $stderr ne '';
+    my $stderr_fh = gensym();
+    my $pid = open3( undef, my $stdout_fh, $stderr_fh, 'sh', '-lc', $command );
+    my $selector = IO::Select->new( $stdout_fh, $stderr_fh );
+    my $stdout = '';
+    my $stderr = '';
+    my $stdout_fd = fileno($stdout_fh);
+    my $stderr_fd = fileno($stderr_fh);
+
+    while ( my @ready = $selector->can_read ) {
+        for my $fh (@ready) {
+            my $buffer = '';
+            my $read = sysread( $fh, $buffer, 8192 );
+            if ( !defined $read || $read == 0 ) {
+                $selector->remove($fh);
+                close $fh;
+                next;
+            }
+            if ( defined fileno($fh) && fileno($fh) == $stdout_fd ) {
+                $stdout .= $buffer;
+                print $buffer;
+                next;
+            }
+            if ( defined fileno($fh) && fileno($fh) == $stderr_fd ) {
+                $stderr .= $buffer;
+                print STDERR $buffer;
+                next;
+            }
+        }
+    }
+
+    waitpid( $pid, 0 );
+    my $exit_code = $? >> 8;
     if ( !$opts{allow_fail} && $exit_code != 0 ) {
         die "Command failed for [$label] with exit $exit_code\n";
     }
@@ -592,6 +622,20 @@ sub _single_subdir {
     my @dirs = grep { -d File::Spec->catdir( $dir, $_ ) } @children;
     return if @dirs != 1;
     return File::Spec->catdir( $dir, $dirs[0] );
+}
+
+# _distribution_version($source_root)
+# Reads the extracted distribution version from the main module file.
+# Input: extracted source root directory path string.
+# Output: version string or undef when it cannot be found.
+sub _distribution_version {
+    my ($source_root) = @_;
+    return if !defined $source_root || $source_root eq '';
+    my $module = File::Spec->catfile( $source_root, 'lib', 'Developer', 'Dashboard.pm' );
+    return if !-f $module;
+    my $text = _read_text($module);
+    return $1 if $text =~ /our \$VERSION = '([^']+)'/;
+    return;
 }
 
 # _decode_json_tail($text)

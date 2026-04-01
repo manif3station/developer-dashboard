@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.03  2026-04-01
+    - fixed the blank-environment integration runner so long-running commands stream stdout and stderr live instead of buffering silently through the wrapper, making fresh-container `cpanm` and browser-backed verification progress visible
+    - fixed the blank-environment integration runner to derive the expected installed version from the extracted tarball instead of hard-coding a release number, so the clean-container flow keeps working across version bumps
+    - re-ran the host-built tarball blank-environment integration flow successfully, including the headless Chromium browser checks
+
 1.02  2026-04-01
     - fixed saved bookmark static asset lookup so `/js/*`, `/css/*`, and `/others/*` can resolve files from the effective runtime public tree and from `dashboards/public/...`, keeping saved local assets such as `dashboards/public/js/jquery.js` available after browser saves
     - fixed legacy bookmark parsing so a standalone `---` line also terminates the current legacy section, preventing pasted prose after `CODE*` blocks from being compiled and shown as runtime syntax errors or leaked back into the editor
