@@ -147,6 +147,7 @@ Page source compatibility is explicit:
 - posting a root-editor document with `BOOKMARK: some-id` persists it as a saved bookmark so `/app/some-id` can load it on the next request
 - `/apps` redirects to `/app/index`
 - transient browser execution from `/?token=...`, `/action?atoken=...`, and legacy `/ajax?token=...` is disabled by default and only re-enabled when `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is truthy
+- saved bookmark `Ajax` helper calls can avoid transient tokens by supplying `file => 'name.json'`, which stores the code under the runtime cache and emits `/ajax?page=<bookmark>&file=<name>&type=...`
 - edit and render views include shared top chrome with share/source links plus the original status-plus-alias indicator strip, refreshed from `/system/status`, alongside the local user, a machine IP link chosen from the active interfaces, and a browser-updated date/time
 - direct `nav/*.tt` saved bookmarks are treated as shared nav fragments, so `/app/nav/foo.tt` remains editable like any other bookmark while non-nav pages insert the sorted rendered `nav/*.tt` outputs between the top chrome and the main page body
 - bookmark Template Toolkit rendering exposes `env.current_page` and `env.runtime_context.current_page`, so saved pages and nav fragments can branch on the active request path without losing the rest of the runtime context

@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.96  2026-04-01
+    - changed saved bookmark `Ajax` helper calls to support explicit `file => 'name.json'` routes, storing the handler code under the runtime cache and emitting `/ajax?page=...&file=...` endpoints that stay usable while transient token urls are disabled
+    - kept transient `/ajax?token=...` support for transient pages behind the existing transient-url opt-in, while making saved bookmark ajax handlers work under the default deny policy
+    - extended unit, metadata, and blank-environment integration coverage for saved bookmark Ajax file routing
+
 0.95  2026-04-01
     - disabled browser execution of transient `token=` and `atoken=` payloads by default, so only saved bookmark-file routes execute unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled explicitly
     - kept saved bookmark posts and saved page routes working while rejecting transient root-editor runs, encoded action URLs, and legacy `/ajax?token=...` requests with an explicit `403` policy response

@@ -9,6 +9,7 @@ use URI::Escape qw(uri_escape);
 use lib 'lib';
 
 use Developer::Dashboard::Auth;
+use Developer::Dashboard::Codec qw(encode_payload);
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::IndicatorStore;
 use Developer::Dashboard::PageDocument;
@@ -331,31 +332,23 @@ HTML: <script>var configs = {};</script>
 :--------------------------------------------------------------------------------:
 CODE1: Ajax jvar => 'configs.demo.endpoint', type => 'json', code => q{
   print j { ok => 1 };
-};
+}, file => 'demo.json';
 PAGE
 $store->save_page($legacy_ajax_page);
 
 my ($code6, undef, $body6) = @{ $app->handle(path => '/app/legacy-ajax', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code6, 200, 'legacy /app route renders bookmark');
-like($body6, qr/set_chain_value\(configs,'demo\.endpoint','\/ajax\?token=/, 'legacy Ajax helper injects config endpoint');
+like($body6, qr/set_chain_value\(configs,'demo\.endpoint','\/ajax\?page=legacy-ajax&file=demo\.json&type=json/, 'legacy Ajax helper injects a saved bookmark ajax endpoint when a file is supplied');
+ok( -f File::Spec->catfile( $paths->cache_root, 'ajax', 'legacy-ajax', 'demo.json' ), 'legacy Ajax helper stores the saved bookmark ajax code under the runtime cache' );
 
-my ($ajax_token) = $body6 =~ m{/ajax\?token=([^&]+)&type=json};
-ok($ajax_token, 'legacy ajax token extracted from rendered page');
-{
-    local $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} = 0;
-    my ($blocked_ajax_code, $blocked_ajax_type, $blocked_ajax_body) = @{ $app->handle(path => '/ajax', query => "token=$ajax_token&type=json", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
-    is($blocked_ajax_code, 403, 'legacy ajax token route is denied when transient token URLs are disabled');
-    like($blocked_ajax_type, qr/text\/plain/, 'legacy ajax token denial returns plain text');
-    like($blocked_ajax_body, qr/Transient token URLs are disabled/, 'legacy ajax token denial explains the policy');
-}
-my ($code7, $type7, $body7) = @{ $app->handle(path => '/ajax', query => "token=$ajax_token&type=json", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
-is($code7, 200, 'legacy ajax endpoint executes');
+my ($code7, $type7, $body7) = @{ $app->handle(path => '/ajax', query => "page=legacy-ajax&file=demo.json&type=json", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($code7, 200, 'legacy ajax endpoint executes through the saved bookmark ajax file route');
 like($type7, qr/application\/json/, 'legacy ajax endpoint returns json type');
 like($body7, qr/"ok"\s*:\s*1/, 'legacy ajax endpoint returns encoded payload output');
 
 {
     open my $fh, '>', $store->page_file('legacy-forward') or die $!;
-    print {$fh} '/ajax?type=text&token=' . $ajax_token;
+    print {$fh} '/ajax?type=text&page=legacy-ajax&file=demo.json';
     close $fh;
 }
 my ($code8, $type8, $body8) = @{ $app->handle(path => '/app/legacy-forward', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
@@ -365,12 +358,21 @@ like($body8, qr/"ok"\s*:\s*1/, 'forwarded saved-url bookmark reaches ajax payloa
 
 {
     open my $fh, '>', $store->page_file('legacy-forward-override') or die $!;
-    print {$fh} '/ajax?type=text&token=' . $ajax_token . '&status=default';
+    print {$fh} '/ajax?type=text&page=legacy-ajax&file=demo.json&status=default';
     close $fh;
 }
 my ($code9, undef, $body9) = @{ $app->handle(path => '/app/legacy-forward-override', query => 'status=override', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code9, 200, 'legacy /app saved-url forwarding with override works');
 like($body9, qr/"ok"\s*:\s*1/, 'forwarded saved-url override still reaches ajax payload');
+
+{
+    local $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} = 0;
+    my $manual_ajax_token = uri_escape( encode_payload(q{print j { blocked => 1 };}) );
+    my ($blocked_ajax_code, $blocked_ajax_type, $blocked_ajax_body) = @{ $app->handle(path => '/ajax', query => "token=$manual_ajax_token&type=json", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+    is($blocked_ajax_code, 403, 'legacy ajax token route is denied when transient token URLs are disabled');
+    like($blocked_ajax_type, qr/text\/plain/, 'legacy ajax token denial returns plain text');
+    like($blocked_ajax_body, qr/Transient token URLs are disabled/, 'legacy ajax token denial explains the policy');
+}
 
 $auth->add_user( username => 'helper_user', password => 'helper-pass-123' );
 my $helper_session = $sessions->create(

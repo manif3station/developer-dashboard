@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.95';
+our $VERSION = '0.96';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.95
+0.96
 
 =head1 INTRODUCTION
 
@@ -508,6 +508,13 @@ That means links such as:
 return a C<403> unless C<DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS> is enabled.
 Saved bookmark-file routes such as C</app/index>, C</page/index>, and
 C</page/index/action/...> continue to work without that flag.
+
+Legacy C<Ajax> helper calls inside saved bookmark C<CODE*> blocks should use
+an explicit C<file =E<gt> 'name.json'> argument. When a saved page supplies that
+name, the helper stores the Ajax Perl code under the runtime cache and emits a
+stable saved-bookmark endpoint such as
+C</ajax?page=some-bookmark&file=name.json&type=json>. That keeps bookmark Ajax
+workflows usable even while transient token URLs stay disabled by default.
 
 =head2 User CLI Extensions
 
@@ -1085,8 +1092,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.95.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.95.tar.gz -v
+  tar -tzf Developer-Dashboard-0.96.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.96.tar.gz -v
 
 The harness also:
 

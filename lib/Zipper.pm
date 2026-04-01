@@ -4,11 +4,15 @@ use strict;
 use warnings;
 
 use Exporter 'import';
+use File::Basename qw(dirname);
+use File::Path qw(make_path);
+use File::Spec;
 use URI::Escape qw(uri_escape);
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
 
 our @EXPORT = qw(zip unzip _cmdx _cmdp __cmdx acmdx Ajax);
+our $AJAX_CONTEXT = {};
 
 # zip($text)
 # Encodes a text payload to the legacy token structure.
@@ -62,6 +66,27 @@ sub acmdx {
 sub Ajax {
     my %args = @_;
     die "jvar is required" if !$args{jvar};
+    my $context = ref($AJAX_CONTEXT) eq 'HASH' ? $AJAX_CONTEXT : {};
+    if ( ( $context->{source} || '' ) eq 'saved' && ( $context->{page_id} || '' ) ne '' ) {
+        my $file = $args{file} || '';
+        if ( $file eq '' && !( $context->{allow_transient_urls} || 0 ) ) {
+            die "file is required for saved bookmark Ajax when transient URL tokens are disabled";
+        }
+        if ( $file ne '' ) {
+            my $saved = _saved_ajax_url_and_store(
+                file         => $file,
+                page_id      => $context->{page_id},
+                runtime_root => $context->{runtime_root} || '',
+                type         => $args{type} || 'json',
+                code         => $args{code} // '',
+                base_url     => $args{base_url} || '',
+            );
+            my ( $root, $path ) = split /\./, $args{jvar}, 2;
+            $path ||= '';
+            print sprintf qq{<script>set_chain_value(%s,'%s','%s')</script>}, $root, $path, $saved->{url};
+            return 'HIDE-THIS';
+        }
+    }
     my $ajax = acmdx(
         %args,
         path => '/ajax',
@@ -71,6 +96,68 @@ sub Ajax {
     $path ||= '';
     print sprintf qq{<script>set_chain_value(%s,'%s','%s')</script>}, $root, $path, $ajax->{url}{tokenised};
     return 'HIDE-THIS';
+}
+
+# saved_ajax_file_path(%args)
+# Resolves the runtime cache file path for a saved bookmark Ajax handler.
+# Input: runtime_root, page_id, and file name.
+# Output: absolute file path string.
+sub saved_ajax_file_path {
+    my (%args) = @_;
+    my $runtime_root = $args{runtime_root} || die 'runtime_root is required';
+    my $page_id      = $args{page_id}      || die 'page_id is required';
+    my $file         = _validate_saved_ajax_file( $args{file} );
+    return File::Spec->catfile( $runtime_root, 'cache', 'ajax', split( '/', $page_id ), split( '/', $file ) );
+}
+
+# load_saved_ajax_code(%args)
+# Loads stored code for a saved bookmark Ajax handler.
+# Input: runtime_root, page_id, and file name.
+# Output: code string or undef when missing.
+sub load_saved_ajax_code {
+    my (%args) = @_;
+    my $path = saved_ajax_file_path(%args);
+    return if !-f $path;
+    open my $fh, '<', $path or die "Unable to read $path: $!";
+    local $/;
+    my $code = <$fh>;
+    close $fh;
+    return $code;
+}
+
+# _saved_ajax_url_and_store(%args)
+# Stores saved bookmark Ajax code and returns the stable runtime URL.
+# Input: runtime_root, page_id, file, type, code, and optional base_url.
+# Output: hash reference with url and file path.
+sub _saved_ajax_url_and_store {
+    my (%args) = @_;
+    my $path = saved_ajax_file_path(%args);
+    my $dir = dirname($path);
+    make_path($dir) if !-d $dir;
+    open my $fh, '>', $path or die "Unable to write $path: $!";
+    print {$fh} defined $args{code} ? $args{code} : '';
+    close $fh;
+    my $query = sprintf '/ajax?page=%s&file=%s&type=%s',
+      uri_escape( $args{page_id} ),
+      uri_escape( _validate_saved_ajax_file( $args{file} ) ),
+      uri_escape( $args{type} || 'json' );
+    return {
+        path => $path,
+        url  => ( $args{base_url} || '' ) . $query,
+    };
+}
+
+# _validate_saved_ajax_file($file)
+# Validates a relative saved bookmark Ajax file name for stable runtime storage.
+# Input: requested file name string.
+# Output: normalized relative file name string.
+sub _validate_saved_ajax_file {
+    my ($file) = @_;
+    die "file is required" if !defined $file || $file eq '';
+    die "file must be relative" if File::Spec->file_name_is_absolute($file);
+    die "file contains invalid parent traversal" if $file =~ m{(?:\A|/)\.\.(?:/|\z)};
+    die "file contains invalid characters" if $file !~ m{\A[A-Za-z0-9][A-Za-z0-9._/-]*\z};
+    return $file;
 }
 
 # __cmdx($type, $code)

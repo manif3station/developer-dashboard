@@ -80,7 +80,9 @@ sub run_code_blocks {
             my $result = eval {
                 $self->_run_single_block(
                     code            => $code,
+                    page            => $page,
                     sandpit         => $sandpit,
+                    source          => $args{source} || '',
                     state           => $state,
                     runtime_context => $args{runtime_context} || {},
                 );
@@ -202,6 +204,8 @@ sub _render_templates {
                     my ($code) = @_;
                     my $result = $self->_run_single_block(
                         code            => $code,
+                        page            => $page,
+                        source          => $args{source} || '',
                         state           => $state,
                         runtime_context => $args{runtime_context} || {},
                     );
@@ -269,6 +273,15 @@ sub _run_single_block {
     my $package = $sandpit->{package} || die 'Missing sandpit package';
     my $wrapped_code = $self->_code_header($state) . $code;
     my @returns;
+    local $Zipper::AJAX_CONTEXT = {
+        allow_transient_urls => (
+            defined $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS}
+              && $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} =~ /\A(?:1|true|yes|on)\z/i
+        ) ? 1 : 0,
+        page_id      => $args{page} && ref( $args{page} ) ? ( $args{page}->as_hash->{id} || '' ) : '',
+        runtime_root => $self->{paths} ? $self->{paths}->runtime_root : '',
+        source       => $args{source} || '',
+    };
     my ( $stdout, $stderr, $exit_code ) = capture {
         @returns = $package->__run_code($wrapped_code);
         return $?;

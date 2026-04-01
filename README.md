@@ -190,6 +190,13 @@ return a `403` unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled.
 Saved bookmark-file routes such as `/app/index`, `/page/index`, and
 `/page/index/action/...` continue to work without that flag.
 
+Legacy `Ajax` helper calls inside saved bookmark `CODE*` blocks should use an
+explicit `file => 'name.json'` argument. When a saved page supplies that name,
+the helper stores the Ajax Perl code under the runtime cache and emits a stable
+saved-bookmark endpoint such as `/ajax?page=some-bookmark&file=name.json&type=json`.
+That keeps bookmark Ajax workflows usable even while transient token URLs stay
+disabled by default.
+
 
 ### User CLI Extensions
 
@@ -663,8 +670,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.95.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.95.tar.gz -v
+tar -tzf Developer-Dashboard-0.96.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.96.tar.gz -v
 ```
 
 The harness also:

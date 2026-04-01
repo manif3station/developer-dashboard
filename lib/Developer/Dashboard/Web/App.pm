@@ -14,6 +14,7 @@ use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageRuntime;
 use Developer::Dashboard::Codec qw(decode_payload);
+use Zipper ();
 
 # new(%args)
 # Constructs the browser-facing dashboard web application.
@@ -1102,7 +1103,6 @@ sub _build_query {
 sub _legacy_ajax_response {
     my ( $self, %args ) = @_;
     my $params = $args{params} || {};
-    my $token = $params->{token} || return [ 400, 'text/plain; charset=utf-8', "missing token\n" ];
     my $type  = $params->{type} || 'html';
     my %types = (
         html => 'text/html; charset=utf-8',
@@ -1114,8 +1114,26 @@ sub _legacy_ajax_response {
         yaml => 'text/plain; charset=utf-8',
         xslt => 'application/xml; charset=utf-8',
     );
-    my $code = eval { decode_payload($token) };
-    return [ 400, 'text/plain; charset=utf-8', "$@" ] if $@;
+    my $code;
+    if ( my $token = $params->{token} ) {
+        $code = eval { decode_payload($token) };
+        return [ 400, 'text/plain; charset=utf-8', "$@" ] if $@;
+    }
+    elsif ( ( $params->{page} || '' ) ne '' && ( $params->{file} || '' ) ne '' ) {
+        my $runtime_root = $self->{pages}{paths} ? $self->{pages}{paths}->runtime_root : '';
+        $code = eval {
+            Zipper::load_saved_ajax_code(
+                file         => $params->{file},
+                page_id      => $params->{page},
+                runtime_root => $runtime_root,
+            );
+        };
+        return [ 400, 'text/plain; charset=utf-8', "$@" ] if $@;
+        return [ 404, 'text/plain; charset=utf-8', "Ajax handler not found\n" ] if !defined $code || $code eq '';
+    }
+    else {
+        return [ 400, 'text/plain; charset=utf-8', "missing token\n" ];
+    }
     my $page = Developer::Dashboard::PageDocument->new(
         title => 'Legacy Ajax',
         meta  => {
@@ -1141,6 +1159,7 @@ sub _legacy_ajax_response {
 sub _legacy_ajax_allowed {
     my ( $self, $params ) = @_;
     return 1 if ref($params) ne 'HASH';
+    return 1 if ( $params->{page} || '' ) ne '' && ( $params->{file} || '' ) ne '';
     return 1 if ( $params->{token} || '' ) eq '';
     return _transient_url_tokens_allowed();
 }

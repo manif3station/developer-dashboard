@@ -168,6 +168,28 @@ is( $not_found_code, 404, 'unknown routes return not found' );
 like( $not_found_type, qr/text\/plain/, 'not found route emits plain text' );
 like( $not_found_body, qr/Not found/, 'not found route returns a plain error body' );
 
+my ( $ajax_missing_code, $ajax_missing_type, $ajax_missing_body ) = @{ $app->handle( path => '/ajax', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+is( $ajax_missing_code, 400, 'legacy ajax route rejects requests without token or saved file parameters' );
+like( $ajax_missing_type, qr/text\/plain/, 'legacy ajax missing-parameter route returns plain text' );
+like( $ajax_missing_body, qr/missing token/, 'legacy ajax missing-parameter route explains the missing token' );
+
+{
+    local $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} = 1;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::App::decode_payload = sub { die "forced decode failure\n" };
+    my ( $ajax_bad_token_code, $ajax_bad_token_type, $ajax_bad_token_body ) = @{ $app->handle( path => '/ajax', query => 'token=known-good-token&type=json', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    is( $ajax_bad_token_code, 400, 'legacy ajax route rejects decode failures cleanly' );
+    like( $ajax_bad_token_type, qr/text\/plain/, 'legacy ajax decode-failure route returns plain text' );
+    like( $ajax_bad_token_body, qr/forced decode failure/, 'legacy ajax decode-failure route returns the decode error text' );
+}
+
+{
+    my ( $ajax_bad_file_code, $ajax_bad_file_type, $ajax_bad_file_body ) = @{ $app->handle( path => '/ajax', query => 'page=sample&file=..%2Fbad&type=json', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    is( $ajax_bad_file_code, 400, 'legacy ajax route rejects invalid saved bookmark ajax file names cleanly' );
+    like( $ajax_bad_file_type, qr/text\/plain/, 'legacy ajax invalid saved-file route returns plain text' );
+    like( $ajax_bad_file_body, qr/invalid parent traversal/, 'legacy ajax invalid saved-file route returns the validation error text' );
+}
+
 is( $auth->trust_tier( remote_addr => '127.0.0.1', host => '127.0.0.1:7890' ), 'admin', 'exact loopback with numeric host is admin' );
 is( $auth->trust_tier( remote_addr => '127.0.0.1', host => 'localhost:7890' ), 'helper', 'localhost is not trusted as admin' );
 is( $auth->trust_tier( remote_addr => '10.0.0.8', host => '127.0.0.1:7890' ), 'helper', 'non-loopback client is helper' );

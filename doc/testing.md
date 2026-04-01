@@ -82,6 +82,7 @@ The web tests also cover the access model:
 - `/apps -> /app/index` compatibility
 - top chrome rendering on edit and legacy render pages
 - denial of browser `token=` and `atoken=` execution for transient page and action payloads, plus legacy `/ajax?token=...`, when the transient URL opt-in env var is absent
+- saved bookmark `Ajax file => ...` handlers through `/ajax?page=...&file=...`, including runtime cache storage and blank-env verification under the default deny policy
 
 ## Blank Environment Integration
 

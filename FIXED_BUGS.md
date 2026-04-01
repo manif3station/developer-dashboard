@@ -2,6 +2,7 @@
 
 ## 2026-04-01
 
+- Fixed saved bookmark Ajax breakage under the transient-url hardening policy by adding named `file => ...` Ajax handlers that store code under the runtime cache and execute through `/ajax?page=...&file=...` without requiring transient tokens.
 - Fixed browser token-execution exposure by disabling transient `/?token=...`, `/action?atoken=...`, and legacy `/ajax?token=...` routes by default, so opening an untrusted localhost link no longer runs transient payloads unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled explicitly.
 - Fixed root-editor policy drift by continuing to allow posted bookmark files while rejecting unsaved transient root-editor execution when transient URL tokens are disabled.
 - Fixed `Folder->dd` and `Folder->runtime_root` returning a doubled `~/.developer-dashboard/.developer-dashboard` path when the current working directory was already inside the home runtime repository.

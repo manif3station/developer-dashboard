@@ -95,6 +95,33 @@ my ( $ajax_stdout, undef, $ajax_result ) = capture {
 };
 like( $ajax_stdout, qr/set_chain_value/, 'Ajax prints the legacy config-binding script' );
 is( $ajax_result, 'HIDE-THIS', 'Ajax returns the legacy hide marker' );
+{
+    local $Zipper::AJAX_CONTEXT = {
+        source               => 'saved',
+        page_id              => 'coverage-page',
+        runtime_root         => $paths->runtime_root,
+        allow_transient_urls => 0,
+    };
+    my ( $saved_ajax_stdout, undef, $saved_ajax_result ) = capture {
+        return Ajax(
+            jvar => 'configs.coverage.saved',
+            file => 'coverage.json',
+            code => 'print qq{{"ok":1}};',
+        );
+    };
+    like( $saved_ajax_stdout, qr{/ajax\?page=coverage-page&file=coverage\.json&type=json}, 'Ajax prints a saved bookmark ajax url when a file name is supplied' );
+    is( $saved_ajax_result, 'HIDE-THIS', 'saved bookmark Ajax still returns the hide marker' );
+    ok( -f Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, page_id => 'coverage-page', file => 'coverage.json' ), 'saved bookmark Ajax stores the named ajax code file under the runtime cache' );
+    is( Zipper::load_saved_ajax_code( runtime_root => $paths->runtime_root, page_id => 'coverage-page', file => 'coverage.json' ), 'print qq{{"ok":1}};', 'saved bookmark Ajax stored code can be loaded back from runtime cache' );
+    my $saved_ajax_error = eval {
+        Ajax(
+            jvar => 'configs.coverage.saved',
+            code => 'print qq{{"ok":1}};',
+        );
+        '';
+    } || $@;
+    like( $saved_ajax_error, qr/file is required/, 'saved bookmark Ajax requires a file name when transient token urls are disabled' );
+}
 
 is_deeply( je( j( { ok => 1 } ) ), { ok => 1 }, 'DataHelper je decodes JSON created by j' );
 is_deeply( Developer::Dashboard::PageDocument::_decode_structured_json('{"ok":1}'), { ok => 1 }, 'PageDocument structured JSON decoder returns parsed hashes' );
