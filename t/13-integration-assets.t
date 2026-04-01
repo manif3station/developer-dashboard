@@ -33,8 +33,8 @@ like( $runner, qr/dashboard update/, 'integration runner exercises dashboard upd
 like( $runner, qr/dashboard docker compose --project .* --dry-run config/, 'integration runner exercises docker compose dry-run' );
 like( $runner, qr/dashboard auth add-user helper_login helper-login-pass-123/, 'integration runner exercises helper login path' );
 unlike( $runner, qr/cpanm --notest/, 'integration runner installs the tarball without cpanm --notest' );
-like( $runner, qr/broken\.collector/, 'integration runner provisions a broken startup collector regression case' );
-like( $runner, qr/healthy\.collector/, 'integration runner provisions a healthy startup collector regression case' );
+like( $runner, qr/broken\.collector/, 'integration runner provisions a broken config collector regression case' );
+like( $runner, qr/healthy\.collector/, 'integration runner provisions a healthy config collector regression case' );
 like( $runner, qr/dashboard indicator list after restart/, 'integration runner checks indicator isolation after restart' );
 like( $runner, qr/chromium.*--headless/s, 'integration runner uses headless Chromium for browser checks' );
 like( $runner, qr/DEVELOPER_DASHBOARD_BOOKMARKS/, 'integration runner exports fake-project env overrides' );

@@ -11,17 +11,15 @@ use Developer::Dashboard::JSON qw(json_encode);
 
 # new(%args)
 # Constructs the docker compose resolver and launcher.
-# Input: config, paths, and plugins objects.
+# Input: config and paths objects.
 # Output: Developer::Dashboard::DockerCompose object.
 sub new {
     my ( $class, %args ) = @_;
-    my $config  = $args{config}  || die 'Missing config';
-    my $paths   = $args{paths}   || die 'Missing path registry';
-    my $plugins = $args{plugins} || die 'Missing plugin manager';
+    my $config = $args{config} || die 'Missing config';
+    my $paths  = $args{paths}  || die 'Missing path registry';
     return bless {
-        config  => $config,
-        paths   => $paths,
-        plugins => $plugins,
+        config => $config,
+        paths  => $paths,
     }, $class;
 }
 
@@ -32,10 +30,9 @@ sub new {
 sub resolve {
     my ( $self, %args ) = @_;
     my $project_root = $args{project_root} || $self->{paths}->current_project_root || cwd();
-    my $docker_cfg   = $self->{config}->docker_config;
-    my $plugin_cfg   = $self->{plugins}->docker_config;
-    my $docker_root  = $self->_docker_config_root;
-    my @passthrough  = @{ $args{args} || [] };
+    my $docker_cfg  = $self->{config}->docker_config;
+    my $docker_root = $self->_docker_config_root;
+    my @passthrough = @{ $args{args} || [] };
     my @compose_files = ();
     my @layers;
 
@@ -43,7 +40,7 @@ sub resolve {
     push @compose_files, @base;
     push @layers, { name => 'base', files => [@base] };
 
-    my @project_overlays = ( @{ $plugin_cfg->{files} || [] }, @{ $docker_cfg->{files} || [] }, @{ $docker_cfg->{project_overlays} || [] } );
+    my @project_overlays = ( @{ $docker_cfg->{files} || [] }, @{ $docker_cfg->{project_overlays} || [] } );
     push @compose_files, @project_overlays;
     push @layers, { name => 'project', files => [@project_overlays] } if @project_overlays;
 
@@ -52,15 +49,12 @@ sub resolve {
     my @services = @{ $args{services} || [] };
 
     my %addon_map = (
-        %{ $plugin_cfg->{addons} || {} },
         %{ $docker_cfg->{addons} || {} },
     );
     my %mode_map = (
-        %{ $plugin_cfg->{modes} || {} },
         %{ $docker_cfg->{modes} || {} },
     );
     my %service_map = (
-        %{ $plugin_cfg->{services} || {} },
         %{ $docker_cfg->{services} || {} },
     );
     my @inferred_services = $self->_infer_services_from_args(
@@ -124,7 +118,6 @@ sub resolve {
     }
 
     my %env = (
-        %{ $plugin_cfg->{env} || {} },
         %{ $docker_cfg->{env} || {} },
         DDDC => $docker_root,
     );

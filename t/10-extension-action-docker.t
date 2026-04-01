@@ -18,7 +18,6 @@ use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageResolver;
 use Developer::Dashboard::PageStore;
 use Developer::Dashboard::PathRegistry;
-use Developer::Dashboard::PluginManager;
 use Developer::Dashboard::SessionStore;
 use Developer::Dashboard::Web::App;
 
@@ -57,13 +56,25 @@ print {$repo_cfg} <<'JSON';
     }
   },
   "path_aliases": {
-    "repo_alias": "~/projects/demo-app"
+    "repo_alias": "~/projects/demo-app",
+    "shared_alias": "~/projects/demo-app"
   },
   "providers": [
     {
       "id": "repo-provider",
       "title": "Repo Provider",
       "body": "from config provider"
+    },
+    {
+      "id": "shared-provider",
+      "page": {
+        "id": "shared-provider",
+        "title": "Shared Provider",
+        "layout": { "body": "from config page provider" },
+        "actions": [
+          { "id": "show_state", "label": "Show State", "kind": "builtin", "builtin": "page.state", "safe": 1 }
+        ]
+      }
     }
   ]
 }
@@ -105,60 +116,18 @@ my $paths = Developer::Dashboard::PathRegistry->new(
     workspace_roots => [ File::Spec->catdir( $home, 'projects' ) ],
 );
 my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
-
-open my $plugin_fh, '>', File::Spec->catfile( $paths->plugins_root, 'demo.json' ) or die $!;
-print {$plugin_fh} <<'JSON';
-{
-  "path_aliases": {
-    "plugin_alias": "~/projects/demo-app"
-  },
-  "providers": [
-    {
-      "id": "plugin-provider",
-      "page": {
-        "id": "plugin-provider",
-        "title": "Plugin Provider",
-        "layout": { "body": "from plugin provider" },
-        "actions": [
-          { "id": "show_state", "label": "Show State", "kind": "builtin", "builtin": "page.state", "safe": 1 }
-        ]
-      }
-    }
-  ],
-  "collectors": [
-    { "name": "plugin.collector", "command": "printf plugin", "cwd": "home", "interval": 5 }
-  ],
-  "docker": {
-    "addons": {
-      "debugger": {
-        "files": ["compose.debugger.yaml"],
-        "env": { "DEBUGGER_ENABLED": "1" }
-      }
-    }
-  }
-}
-JSON
-close $plugin_fh;
 open my $plugin_compose_fh, '>', File::Spec->catfile( $repo, 'compose.debugger.yaml' ) or die $!;
 print {$plugin_compose_fh} "services:\n  debugger:\n    image: alpine\n";
 close $plugin_compose_fh;
 
-my $plugins = Developer::Dashboard::PluginManager->new( paths => $paths );
 my $old_cwd = Cwd::getcwd();
 chdir $repo or die $!;
-my $config  = Developer::Dashboard::Config->new( files => $files, paths => $paths, plugins => $plugins );
+my $config  = Developer::Dashboard::Config->new( files => $files, paths => $paths );
 $paths->register_named_paths( $config->path_aliases );
-$paths->register_named_paths( $plugins->path_aliases );
 chdir $old_cwd or die $!;
 
-my @plugin_files = $plugins->plugin_files;
-my @plugin_defs  = $plugins->plugins;
-is( scalar(@plugin_files), 1, 'plugin manager finds plugin files' );
-is( scalar(@plugin_defs), 1, 'plugin manager decodes plugin hashes' );
 is( $paths->resolve_dir('repo_alias'), $repo, 'config path alias resolves through path registry' );
-is( $paths->resolve_dir('plugin_alias'), $repo, 'plugin path alias resolves through path registry' );
-is( $plugins->collectors->[0]{name}, 'plugin.collector', 'plugin manager exposes plugin collectors' );
-ok( $plugins->docker_config->{addons}{debugger}, 'plugin manager exposes docker addon config' );
+is( $paths->resolve_dir('shared_alias'), $repo, 'config path aliases can carry shared extension paths through the path registry' );
 
 my $pages = Developer::Dashboard::PageStore->new( paths => $paths );
 my $actions = Developer::Dashboard::ActionRunner->new( files => $files, paths => $paths );
@@ -167,16 +136,15 @@ my $resolver = Developer::Dashboard::PageResolver->new(
     config  => $config,
     pages   => $pages,
     paths   => $paths,
-    plugins => $plugins,
 );
 
 my @page_ids = $resolver->list_pages;
 ok( grep( { $_ eq 'system-status' } @page_ids ), 'builtin provider page is listed' );
-ok( grep( { $_ eq 'plugin-provider' } @page_ids ), 'plugin provider page is listed' );
+ok( grep( { $_ eq 'shared-provider' } @page_ids ), 'config page provider is listed' );
 ok( grep( { $_ eq 'repo-provider' } @page_ids ), 'config provider page is listed' );
 
-my $provider_page = $resolver->load_named_page('plugin-provider');
-is( $provider_page->as_hash->{title}, 'Plugin Provider', 'plugin provider resolves to a page document' );
+my $provider_page = $resolver->load_named_page('shared-provider');
+is( $provider_page->as_hash->{title}, 'Shared Provider', 'config page provider resolves to a page document' );
 is( $provider_page->{meta}{source_kind}, 'provider', 'provider page is marked as provider sourced' );
 
 my $saved_page = Developer::Dashboard::PageDocument->new(
@@ -312,7 +280,6 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
     my $docker = Developer::Dashboard::DockerCompose->new(
         config  => $config,
         paths   => $paths,
-        plugins => $plugins,
     );
     local $ENV{DD_TEST_DOCKER_ROOT} = File::Spec->catdir( $home, '.developer-dashboard', 'config', 'docker' );
     is(
@@ -336,7 +303,7 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
         'docker compose resolver collapses undefined bare environment variables in configured compose paths',
     );
     my $resolved = $docker->resolve(
-        addons => [ 'mailhog', 'debugger' ],
+        addons => [ 'mailhog' ],
         args   => [ 'config', 'green' ],
         modes  => ['dev'],
         services => ['worker'],
@@ -348,13 +315,11 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
     ok( grep( { /compose\.worker\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes service overlay' );
     ok( grep( { /compose\.dev\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes mode overlay' );
     ok( grep( { /compose\.mailhog\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes config addon overlay' );
-    ok( grep( { /compose\.debugger\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes plugin addon overlay' );
     ok( !grep( { /green\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver prefers isolated development compose files over compose.yml for selected services' );
     ok( grep( { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes isolated development compose files automatically for selected services' );
     is( $resolved->{env}{APP_MODE}, 'dev', 'docker compose resolver merges mode env' );
     is( $resolved->{env}{DDDC}, File::Spec->catdir( $paths->config_root, 'docker' ), 'docker compose resolver exports DDDC as the global docker config root' );
     is( $resolved->{env}{MAILHOG_ENABLED}, '1', 'docker compose resolver merges addon env' );
-    is( $resolved->{env}{DEBUGGER_ENABLED}, '1', 'docker compose resolver merges plugin addon env' );
     is_deeply( [ @{ $resolved->{command} }[0,1] ], [ 'docker', 'compose' ], 'docker compose resolver produces docker compose command' );
     is_deeply( $resolved->{precedence}, [ qw(base project service addon mode) ], 'docker compose resolver exposes overlay precedence' );
     is(
@@ -372,7 +337,6 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
     my $docker = Developer::Dashboard::DockerCompose->new(
         config  => $config,
         paths   => $paths,
-        plugins => $plugins,
     );
     my $resolved = $docker->resolve(
         args => ['config'],
@@ -398,9 +362,9 @@ my $app = Developer::Dashboard::Web::App->new(
     sessions => $sessions,
 );
 
-my ( $provider_code, undef, $provider_body ) = @{ $app->handle( path => '/page/plugin-provider', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+my ( $provider_code, undef, $provider_body ) = @{ $app->handle( path => '/page/shared-provider', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $provider_code, 200, 'provider page renders through web app' );
-like( $provider_body, qr/Plugin Provider/, 'provider page content is rendered' );
+like( $provider_body, qr/Shared Provider/, 'provider page content is rendered' );
 
 my ( $state_render_code, undef, $state_render_body ) = @{ $app->handle( path => '/page/action-page', query => 'filter=active', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $state_render_code, 200, 'saved page render with query state succeeds' );
@@ -484,7 +448,7 @@ __END__
 
 =head1 DESCRIPTION
 
-This test verifies plugin extensions, page actions, encoded action transport,
-and docker compose resolution behavior.
+This test verifies config-driven extensions, page actions, encoded action
+transport, and docker compose resolution behavior.
 
 =cut

@@ -114,7 +114,6 @@ Customize runtime locations:
 ```bash
 export DEVELOPER_DASHBOARD_BOOKMARKS="$HOME/my-dd-pages"
 export DEVELOPER_DASHBOARD_CONFIGS="$HOME/my-dd-config"
-export DEVELOPER_DASHBOARD_STARTUP="$HOME/my-dd-startup"
 export DEVELOPER_DASHBOARD_CHECKERS="docker.health:repo.status"
 ```
 
@@ -136,15 +135,15 @@ Security baseline:
 
 The extension layer now includes:
 
-- JSON plugin packs in the global or repo-local plugins directory
-- provider pages resolved through the page resolver
+- config-backed provider pages resolved through the page resolver
 - action execution through the page action runner
+- user CLI hook directories under `~/.developer-dashboard/cli`
 - project-aware Docker Compose resolution through `dashboard docker compose`
 
 Compose setup can now stay isolated in service folders under `~/.developer-dashboard/config/docker/<service>/compose.yml` without adding JSON config entries, and the wrapper infers service names from passthrough docker compose args such as `config green` before building the final `docker compose` command. When no service name is passed, the resolver scans isolated service folders and preloads every non-disabled folder. A folder containing `disabled.yml` is skipped. Each isolated folder contributes `development.compose.yml` when present, otherwise `compose.yml`. The compose runtime also exports `DDDC` as that global docker config root so YAML can continue to use `${DDDC}` paths internally. Wrapper-only flags are consumed first and remaining docker compose flags such as `-d` and `--build` pass through untouched.
 Without `--dry-run`, the wrapper now hands off with `exec`, so terminal users see the normal streaming output from `docker compose` itself instead of a dashboard JSON wrapper.
 Path aliases can now be managed from the CLI with `dashboard path add <name> <path>` and `dashboard path del <name>`. These commands persist user-defined aliases in the global config, and both repeated adds and repeated deletes are intentionally idempotent. When an added path lives under the current home directory, the stored config rewrites it to `$HOME/...` so a shared dashboard config directory does not hard-code one developer's absolute home path.
-Legacy `Folder` compatibility now also accepts the root-style names exposed by `dashboard paths`, so `Folder->runtime_root`, `Folder->bookmarks_root`, `Folder->config_root`, and `Folder->startup_root` resolve through the existing legacy aliases without adding separate wrapper methods. Before `Folder->configure(...)` runs, those runtime-backed names now lazily bootstrap a default dashboard path registry from `HOME` instead of dying.
+Legacy `Folder` compatibility now also accepts the root-style names exposed by `dashboard paths`, so `Folder->runtime_root`, `Folder->bookmarks_root`, and `Folder->config_root` resolve through the existing legacy aliases without adding separate wrapper methods. Before `Folder->configure(...)` runs, those runtime-backed names now lazily bootstrap a default dashboard path registry from `HOME` instead of dying.
 
 ## Release To PAUSE
 
@@ -164,8 +163,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.89.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.89.tar.gz -v
+tar -tzf Developer-Dashboard-0.90.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.90.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

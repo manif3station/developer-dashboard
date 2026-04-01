@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.89';
+our $VERSION = '0.90';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.89
+0.90
 
 =head1 INTRODUCTION
 
@@ -102,7 +102,7 @@ action execution with trusted and safer page boundaries
 
 =item *
 
-plugin-loaded providers, path aliases, and compose overlays
+config-backed providers, path aliases, and compose overlays
 
 =item *
 
@@ -348,8 +348,8 @@ The toolchain already understands Perl module names, Java class names, direct
 files, structured-data formats, and project-local compose flows, so it suits
 mixed-language teams and polyglot repositories as well as Perl-heavy work.
 
-Project-specific behavior is added through configuration, startup collector
-definitions, saved pages, and optional plugins.
+Project-specific behavior is added through configuration, saved pages, and
+user CLI extensions.
 
 =head1 DOCUMENTATION
 
@@ -361,7 +361,7 @@ definitions, saved pages, and optional plugins.
 
 L<Developer::Dashboard::PathRegistry> resolves the runtime roots that
 everything else depends on, such as dashboards, config, collectors,
-indicators, plugins, logs, cache, and startup files.
+indicators, CLI hooks, logs, and cache.
 
 =item * File Registry
 
@@ -375,12 +375,11 @@ L<Developer::Dashboard::PageDocument> and L<Developer::Dashboard::PageStore>
 implement the saved and transient page model, including bookmark-style source
 documents, encoded transient pages, and persistent bookmark storage.
 
-=item * Page Resolver and Plugins
+=item * Page Resolver
 
-L<Developer::Dashboard::PageResolver> and
-L<Developer::Dashboard::PluginManager> resolve saved pages, provider pages,
-plugin-defined aliases, and extension packs so browser pages and actions can
-come from both built-in and plugin-backed sources.
+L<Developer::Dashboard::PageResolver> resolves saved pages and provider pages
+so browser pages and actions can come from both built-in and config-backed
+sources.
 
 =item * Actions
 
@@ -471,10 +470,6 @@ Filter enabled collector/checker names.
 =item * C<DEVELOPER_DASHBOARD_CONFIGS>
 
 Override the config root.
-
-=item * C<DEVELOPER_DASHBOARD_STARTUP>
-
-Override the startup collector-definition root.
 
 =back
 
@@ -664,10 +659,10 @@ deleting a missing alias is also safe.
 
 Legacy C<Folder> compatibility also accepts the modern root-style names
 through C<AUTOLOAD>, so older code can use either C<Folder-E<gt>dd> or
-C<Folder-E<gt>runtime_root>, and likewise C<bookmarks_root>,
-C<config_root>, and C<startup_root>. Before C<Folder-E<gt>configure(...)>
-runs, those runtime-backed names lazily bootstrap a default dashboard path
-registry from C<$HOME> instead of dying.
+C<Folder-E<gt>runtime_root>, and likewise C<bookmarks_root> and
+C<config_root>. Before C<Folder-E<gt>configure(...)> runs, those
+runtime-backed names lazily bootstrap a default dashboard path registry from
+C<$HOME> instead of dying.
 
 Render shell bootstrap:
 
@@ -843,8 +838,8 @@ renders an explicit status glyph in front of the collector icon, so
 successful checks show fragments such as C<✅🔑> while failing or not-yet-run
 checks show fragments such as C<🚨🔑>.
 The blank-environment integration flow also keeps a regression for mixed
-startup collector health: one intentionally broken Perl collector must stay
-red without stopping a second healthy collector from staying green in
+collector health: one intentionally broken Perl collector must stay red
+without stopping a second healthy collector from staying green in
 C<dashboard indicator list>, C<dashboard ps1>, and C</system/status>.
 
 =head2 Docker Compose
@@ -976,13 +971,11 @@ Limits enabled collector or checker jobs to a colon-separated list of names.
 
 Overrides the config directory.
 
-=item * C<DEVELOPER_DASHBOARD_STARTUP>
-
-Overrides the startup collector-definition directory.
-
 =back
 
-Startup collector definitions are read from C<*.json> files in C<DEVELOPER_DASHBOARD_STARTUP>. A startup file may contain either a single collector object or an array of collector objects.
+Collector definitions come only from dashboard configuration JSON, so config
+remains the single source of truth for path aliases, providers, collectors,
+and Docker compose overlays.
 
 =head2 Testing And Coverage
 
@@ -1035,15 +1028,15 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.89.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.89.tar.gz -v
+  tar -tzf Developer-Dashboard-0.90.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.90.tar.gz -v
 
 The harness also:
 
-- creates a fake project wired through C<DEVELOPER_DASHBOARD_BOOKMARKS>, C<DEVELOPER_DASHBOARD_CONFIGS>, and C<DEVELOPER_DASHBOARD_STARTUP>
+- creates a fake project wired through C<DEVELOPER_DASHBOARD_BOOKMARKS> and C<DEVELOPER_DASHBOARD_CONFIGS>
 - verifies the installed CLI works against that fake project through the mounted tarball install
 - seeds a user-provided F<~/.developer-dashboard/cli/update> command plus F<~/.developer-dashboard/cli/update.d> hooks inside the container so C<dashboard update> exercises the same top-level command-hook path as every other subcommand
-- verifies collector failure isolation with one intentionally broken Perl startup collector and one healthy startup collector, and confirms the healthy indicator still stays green after C<dashboard restart>
+- verifies collector failure isolation with one intentionally broken Perl config collector and one healthy config collector, and confirms the healthy indicator still stays green after C<dashboard restart>
 - starts the installed web service
 - uses headless Chromium to verify the root editor, a saved fake-project bookmark page from the fake project bookmark directory, and the helper login page
 - verifies helper logout cleanup and runtime restart and stop behavior
@@ -1056,15 +1049,14 @@ No. The core distribution is intended to be reusable for any project.
 
 =head2 Where should project-specific behavior live?
 
-In configuration, startup collector definitions, saved pages, and optional extensions. The core should stay generic.
+In configuration, saved pages, and user CLI extensions. The core should stay generic.
 
 =head2 Is the software spec implemented?
 
-The current distribution implements the core runtime, page engine, action runner, plugin/provider loader, prompt and collector system, web lifecycle manager, and Docker Compose resolver described by the software spec.
+The current distribution implements the core runtime, page engine, action runner, provider loader, prompt and collector system, web lifecycle manager, and Docker Compose resolver described by the software spec.
 
 What remains intentionally lightweight is breadth, not architecture:
 
-- plugin packs are JSON-based rather than a larger CPAN plugin API
 - provider pages and action handlers are implemented in a compact v1 form
 - legacy bookmarks are supported, with Template Toolkit rendering and one clean sandpit package per page run so C<CODE*> blocks can share state within a bookmark render without leaking runtime globals into later requests
 

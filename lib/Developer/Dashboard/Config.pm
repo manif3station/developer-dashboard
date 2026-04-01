@@ -9,8 +9,8 @@ use Cwd qw(cwd);
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 
 # new(%args)
-# Constructs a configuration loader bound to files, paths, and plugins.
-# Input: files and paths objects, plus optional plugins and repo_root.
+# Constructs a configuration loader bound to files and paths.
+# Input: files and paths objects, plus optional repo_root.
 # Output: Developer::Dashboard::Config object.
 sub new {
     my ( $class, %args ) = @_;
@@ -19,7 +19,6 @@ sub new {
     return bless {
         files => $files,
         paths => $paths,
-        plugins => $args{plugins},
         repo_root => $args{repo_root},
     }, $class;
 }
@@ -99,7 +98,7 @@ sub _merge_hashes {
 }
 
 # collectors()
-# Returns all configured collectors after config/plugin/startup merging.
+# Returns all configured collectors from merged configuration.
 # Input: none.
 # Output: array reference of collector job hash references.
 sub collectors {
@@ -111,58 +110,10 @@ sub collectors {
         push @jobs, @{ $cfg->{collectors} };
     }
 
-    if ( $self->{plugins} ) {
-        push @jobs, @{ $self->{plugins}->collectors };
-    }
-
-    if ( ref( $cfg->{plugins} ) eq 'ARRAY' ) {
-        for my $plugin ( @{ $cfg->{plugins} } ) {
-            next if ref($plugin) ne 'HASH';
-            push @jobs, @{ $plugin->{collectors} || [] } if ref( $plugin->{collectors} ) eq 'ARRAY';
-        }
-    }
-
-    push @jobs, @{ $self->startup_collectors };
-
     if ( my $filter = $ENV{DEVELOPER_DASHBOARD_CHECKERS} ) {
         my %wanted = map { $_ => 1 } grep { defined && $_ ne '' } split /:/, $filter;
         @jobs = grep { ref($_) eq 'HASH' && $wanted{ $_->{name} } } @jobs;
     }
-
-    return \@jobs;
-}
-
-# startup_collectors()
-# Loads collector definitions from the startup directory.
-# Input: none.
-# Output: array reference of collector job hash references.
-sub startup_collectors {
-    my ($self) = @_;
-    my $root = $self->{paths}->startup_root;
-    return [] if !-d $root;
-
-    opendir my $dh, $root or die "Unable to open startup root $root: $!";
-    my @jobs;
-
-    while ( my $entry = readdir $dh ) {
-        next if $entry eq '.' || $entry eq '..';
-        next if $entry !~ /\.json$/;
-
-        my $file = File::Spec->catfile( $root, $entry );
-        next if !-f $file;
-
-        open my $fh, '<', $file or die "Unable to read $file: $!";
-        local $/;
-        my $data = json_decode(<$fh>);
-
-        if ( ref($data) eq 'HASH' ) {
-            push @jobs, $data;
-        }
-        elsif ( ref($data) eq 'ARRAY' ) {
-            push @jobs, grep { ref($_) eq 'HASH' } @$data;
-        }
-    }
-    closedir $dh;
 
     return \@jobs;
 }
@@ -296,7 +247,6 @@ sub providers {
     my $cfg = $self->merged;
     my @providers = ();
     push @providers, @{ $cfg->{providers} } if ref( $cfg->{providers} ) eq 'ARRAY';
-    push @providers, @{ $self->{plugins}->providers } if $self->{plugins};
     return \@providers;
 }
 
@@ -315,12 +265,12 @@ Developer::Dashboard::Config - merged configuration loader
 
 =head1 DESCRIPTION
 
-This module loads and merges global, repo-local, startup, and plugin-backed
-configuration for Developer Dashboard.
+This module loads and merges global and repo-local configuration for Developer
+Dashboard.
 
 =head1 METHODS
 
-=head2 new, load_global, save_global, load_repo, merged, collectors, startup_collectors, path_aliases, global_path_aliases, save_global_path_alias, remove_global_path_alias, docker_config, providers
+=head2 new, load_global, save_global, load_repo, merged, collectors, path_aliases, global_path_aliases, save_global_path_alias, remove_global_path_alias, docker_config, providers
 
 Load and expose configuration domains used by the runtime.
 

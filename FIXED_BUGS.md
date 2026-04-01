@@ -2,6 +2,8 @@
 
 ## 2026-03-31
 
+- Fixed configuration drift by removing separate startup and plugin extension roots, so collectors, providers, path aliases, and docker overlays now come from dashboard config JSON as the single source of truth.
+- Fixed blank-environment override drift by moving the fake-project collector regression setup into config JSON instead of a separate startup directory, so the installed runtime exercises the same configured collector path used in normal operation.
 - Fixed CLI hook directory naming drift by accepting both `~/.developer-dashboard/cli/<command>/` and `~/.developer-dashboard/cli/<command>.d/` as equivalent hook folders, so either naming style runs the same executable files before the main command.
 - Fixed CLI hook progress visibility by replacing the buffered command-hook capture path with a streaming runner, so users can see hook stdout and stderr as each executable file runs instead of staring at a blank terminal until the command finishes.
 - Fixed CLI hook RESULT propagation by keeping the streamed stdout and stderr accumulated into the final per-hook JSON blob, so later hooks and the real command still receive structured `RESULT` data after visible progress output.

@@ -30,7 +30,7 @@ It provides a small ecosystem for:
 - project and path discovery helpers
 - a lightweight local web interface
 - action execution with trusted and safer page boundaries
-- plugin-loaded providers, path aliases, and compose overlays
+- config-backed providers, path aliases, and compose overlays
 - update scripts and release packaging for CPAN distribution
 
 Developer Dashboard is meant to become the developer's working home:
@@ -107,14 +107,14 @@ It is useful anywhere a developer needs:
 
 The toolchain already understands Perl module names, Java class names, direct files, structured-data formats, and project-local compose flows, so it suits mixed-language teams and polyglot repositories as well as Perl-heavy work.
 
-Project-specific behavior is added through configuration, startup collector definitions, saved pages, and optional plugins.
+Project-specific behavior is added through configuration, saved pages, and user CLI extensions.
 
 ## Documentation
 
 ### Main Concepts
 
 - `Developer::Dashboard::PathRegistry`
-  Resolves the runtime roots that everything else depends on, such as dashboards, config, collectors, indicators, plugins, logs, cache, and startup files.
+  Resolves the runtime roots that everything else depends on, such as dashboards, config, collectors, indicators, CLI hooks, logs, and cache.
 
 - `Developer::Dashboard::FileRegistry`
   Resolves stable file locations on top of the path registry so the rest of the system can read and write well-known runtime files without duplicating path logic.
@@ -122,8 +122,8 @@ Project-specific behavior is added through configuration, startup collector defi
 - `Developer::Dashboard::PageDocument` and `Developer::Dashboard::PageStore`
   Implement the saved and transient page model, including bookmark-style source documents, encoded transient pages, and persistent bookmark storage.
 
-- `Developer::Dashboard::PageResolver` and `Developer::Dashboard::PluginManager`
-  Resolve saved pages, provider pages, plugin-defined aliases, and extension packs so browser pages and actions can come from both built-in and plugin-backed sources.
+- `Developer::Dashboard::PageResolver`
+  Resolves saved pages and provider pages so browser pages and actions can come from both built-in and config-backed sources.
 
 - `Developer::Dashboard::ActionRunner`
   Executes built-in actions and trusted local command actions with cwd, env, timeout, background support, and encoded action transport, letting pages act as operational dashboards instead of static documents.
@@ -168,8 +168,6 @@ The distribution supports these compatibility-style customization variables:
 - `DEVELOPER_DASHBOARD_CONFIGS`
   Override the config root.
 
-- `DEVELOPER_DASHBOARD_STARTUP`
-  Override the startup collector-definition root.
 
 ### User CLI Extensions
 
@@ -337,7 +335,7 @@ dashboard path del foobar
 
 Custom path aliases are stored in the global dashboard config so shell helpers such as `cdr foobar` and `which_dir foobar` keep working across sessions. When a saved alias points inside your home directory, the stored config uses `$HOME/...` instead of a hard-coded absolute home path so a shared `~/.developer-dashboard` folder remains portable across different developer accounts. Re-adding an existing alias updates it without error, and deleting a missing alias is also safe.
 
-Legacy `Folder` compatibility also accepts the modern root-style names through `AUTOLOAD`, so older code can use either `Folder->dd` or `Folder->runtime_root`, and likewise `bookmarks_root`, `config_root`, and `startup_root`. Before `Folder->configure(...)` runs, those runtime-backed names lazily bootstrap a default dashboard path registry from `HOME` instead of dying.
+Legacy `Folder` compatibility also accepts the modern root-style names through `AUTOLOAD`, so older code can use either `Folder->dd` or `Folder->runtime_root`, and likewise `bookmarks_root` and `config_root`. Before `Folder->configure(...)` runs, those runtime-backed names lazily bootstrap a default dashboard path registry from `HOME` instead of dying.
 
 Render shell bootstrap:
 
@@ -525,7 +523,7 @@ produced real output it appears as missing. Prompt output renders an explicit
 status glyph in front of the collector icon, so successful checks show `✅🔑`
 style fragments and failing or not-yet-run checks show `🚨🔑` style fragments.
 The blank-environment integration flow also keeps a regression for mixed
-startup collector health: one intentionally broken Perl collector must stay
+collector health isolation: one intentionally broken Perl collector must stay
 red without stopping a second healthy collector from staying green in
 `dashboard indicator list`, `dashboard ps1`, and `/system/status`.
 
@@ -604,23 +602,7 @@ After installing with `cpanm`, the runtime can be customized with these environm
 - `DEVELOPER_DASHBOARD_CONFIGS`
   Overrides the config directory.
 
-- `DEVELOPER_DASHBOARD_STARTUP`
-  Overrides the startup collector-definition directory.
-
-Startup collector definitions are read from `*.json` files in `DEVELOPER_DASHBOARD_STARTUP`. A startup file may contain either a single collector object or an array of collector objects.
-
-Example:
-
-```json
-[
-  {
-    "name": "docker.health",
-    "command": "docker ps",
-    "cwd": "home",
-    "interval": 30
-  }
-]
-```
+Collector definitions now come only from dashboard configuration JSON, so config remains the single source of truth for saved path aliases, providers, collectors, and Docker compose overlays.
 
 ### Updating Runtime State
 
@@ -652,16 +634,16 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.89.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.89.tar.gz -v
+tar -tzf Developer-Dashboard-0.90.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.90.tar.gz -v
 ```
 
 The harness also:
 
-- creates a fake project wired through `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_STARTUP`
+- creates a fake project wired through `DEVELOPER_DASHBOARD_BOOKMARKS` and `DEVELOPER_DASHBOARD_CONFIGS`
 - verifies the installed CLI works against that fake project through the mounted tarball install
 - seeds a user-provided `~/.developer-dashboard/cli/update` command plus `~/.developer-dashboard/cli/update.d` hooks inside the container so `dashboard update` exercises the same top-level command-hook path as every other subcommand
-- verifies collector failure isolation with one intentionally broken Perl startup collector and one healthy startup collector, and confirms the healthy indicator still stays green after `dashboard restart`
+- verifies collector failure isolation with one intentionally broken Perl config collector and one healthy config collector, and confirms the healthy indicator still stays green after `dashboard restart`
 - starts the installed web service
 - uses headless Chromium to verify the root editor, a saved fake-project bookmark page from the fake project bookmark directory, and the helper login page
 - verifies helper logout cleanup and runtime restart and stop behavior
@@ -674,15 +656,14 @@ No. It is meant to give an individual developer one familiar working home that c
 
 ### Where should project-specific behavior live?
 
-In configuration, startup collector definitions, saved pages, and optional extensions. That keeps the main dashboard experience stable while still letting each project add the local pages, checks, paths, and helpers it needs.
+In configuration, saved pages, and user CLI extensions. That keeps the main dashboard experience stable while still letting each project add the local pages, checks, paths, and helpers it needs.
 
 ### Is the software spec implemented?
 
-The current distribution implements the core runtime, page engine, action runner, plugin/provider loader, prompt and collector system, web lifecycle manager, and Docker Compose resolver described by the software spec.
+The current distribution implements the core runtime, page engine, action runner, provider loader, prompt and collector system, web lifecycle manager, and Docker Compose resolver described by the software spec.
 
 What remains intentionally lightweight is breadth, not architecture:
 
-- plugin packs are JSON-based rather than a larger CPAN plugin API
 - provider pages and action handlers are implemented in a compact v1 form
 - legacy bookmarks are supported, with Template Toolkit rendering and one clean sandpit package per page run so `CODE*` blocks can share state within a bookmark render without leaking runtime globals into later requests
 

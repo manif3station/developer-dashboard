@@ -57,11 +57,10 @@ The integration run creates:
 
 - a temporary home directory under `/tmp`
 - a fake project root under `/tmp/fake-project`
-- fake project `bookmarks`, `configs`, and `startup` directories
+- fake project `bookmarks` and `configs` directories
 - environment-variable overrides for:
   - `DEVELOPER_DASHBOARD_BOOKMARKS`
   - `DEVELOPER_DASHBOARD_CONFIGS`
-  - `DEVELOPER_DASHBOARD_STARTUP`
 - a saved page named `sample`
 - a saved legacy bookmark page named `project-home`
 - shared nav bookmark pages under `nav/*.tt`
@@ -79,12 +78,12 @@ The integration run creates:
 6. Verify the installed CLI responds to `dashboard help`.
 7. Verify bare `dashboard` returns usage output.
 8. Verify `dashboard version` reports the installed runtime version.
-9. Create a fake project root with bookmark, config, and startup directories and export the dashboard override variables toward them.
+9. Create a fake project root with bookmark and config directories and export the dashboard override variables toward them.
 10. Run `dashboard init` and confirm runtime roots and starter pages exist.
 11. Seed a user-provided `~/.developer-dashboard/cli/update` command plus `~/.developer-dashboard/cli/update.d` hooks in the clean container, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes.
 12. Exercise path, prompt, shell, encode/decode, and indicator commands.
-13. Exercise collector write/run/read/start/restart/stop flows, including a fake-project startup collector definition.
-14. Restart the installed runtime with one intentionally broken Perl startup collector and one healthy startup collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state.
+13. Exercise collector write/run/read/start/restart/stop flows, including fake-project config collector definitions.
+14. Restart the installed runtime with one intentionally broken Perl config collector and one healthy config collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state.
 15. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
 16. Exercise builtin action execution.
 17. Exercise docker compose dry-run resolution against a temporary project.
@@ -107,9 +106,9 @@ The integration run creates:
 - `dashboard init` creates starter state without requiring manual setup
 - `dashboard update` succeeds in the container from a user-provided `~/.developer-dashboard/cli/update` command through the normal command-hook path
 - the installed `dashboard` binary works without `perl -Ilib`
-- the fake project directories become the active bookmark, config, and startup roots
-- a broken startup Perl collector reports an error without stopping other startup collectors
-- a healthy startup collector still reports `ok` and stays green in `dashboard indicator list`, `dashboard ps1`, and `/system/status`
+- the fake project directories become the active bookmark and config roots
+- a broken config Perl collector reports an error without stopping other configured collectors
+- a healthy config collector still reports `ok` and stays green in `dashboard indicator list`, `dashboard ps1`, and `/system/status`
 - the web service serves the root editor on `127.0.0.1:7890`
 - the browser can load both the editor and a saved fake-project bookmark page from the fake project bookmark directory
 - the browser sees sorted shared `nav/*.tt` fragments above the main page body on that fake-project bookmark page

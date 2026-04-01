@@ -80,15 +80,6 @@ sub postman {
     return $dir;
 }
 
-# startup()
-# Returns the dashboard startup directory.
-# Input: none.
-# Output: directory path string.
-sub startup {
-    my $paths = _paths_obj();
-    return $paths && $paths->can('startup_root') ? $paths->startup_root : '';
-}
-
 # _paths_obj()
 # Returns the configured paths object or lazily builds a default runtime path registry.
 # Input: none.
@@ -197,7 +188,6 @@ sub _resolve_path {
         runtime_root   => 'dd',
         bookmarks_root => 'bookmarks',
         config_root    => 'configs',
-        startup_root   => 'startup',
     );
     if ( my $legacy = $legacy_aliases{$where} ) {
         return $class->$legacy() if $class->can($legacy);
@@ -243,7 +233,7 @@ code that expects a C<Folder> package.
 
 =head1 METHODS
 
-=head2 configure, home, tmp, dd, bookmarks, configs, startup, cd, ls, locate
+=head2 configure, home, tmp, dd, bookmarks, configs, cd, ls, locate
 
 Configure and resolve compatibility folders.
 

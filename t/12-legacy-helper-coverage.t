@@ -56,8 +56,6 @@ is( Folder->bookmarks, $paths->dashboards_root, 'Folder bookmarks resolves dashb
 is( Folder->bookmarks_root, $paths->dashboards_root, 'Folder AUTOLOAD resolves bookmarks_root through the legacy bookmarks alias' );
 is( Folder->configs, $paths->config_root, 'Folder configs resolves config root' );
 is( Folder->config_root, $paths->config_root, 'Folder AUTOLOAD resolves config_root through the legacy configs alias' );
-is( Folder->startup, $paths->startup_root, 'Folder startup resolves startup root' );
-is( Folder->startup_root, $paths->startup_root, 'Folder AUTOLOAD resolves startup_root through the legacy startup alias' );
 ok( -d Folder->postman, 'Folder postman creates the neutral postman directory' );
 
 my $cd_result = Folder->cd(

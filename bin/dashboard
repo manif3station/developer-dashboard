@@ -56,7 +56,6 @@ require Developer::Dashboard::PageRuntime;
 require Developer::Dashboard::PageResolver;
 require Developer::Dashboard::PageStore;
 require Developer::Dashboard::PathRegistry;
-require Developer::Dashboard::PluginManager;
 require Developer::Dashboard::Prompt;
 require Developer::Dashboard::RuntimeManager;
 require Developer::Dashboard::SessionStore;
@@ -76,25 +75,16 @@ my $runner     = Developer::Dashboard::CollectorRunner->new(
     indicators => $indicators,
     paths      => $paths,
 );
-my $plugins    = Developer::Dashboard::PluginManager->new( paths => $paths );
-my $config     = Developer::Dashboard::Config->new(
-    files   => $files,
-    paths   => $paths,
-    plugins => $plugins,
-);
+my $config     = Developer::Dashboard::Config->new( files => $files, paths => $paths );
 my $collector_jobs = $config->collectors;
 my $synced_collector_indicators = $indicators->sync_collectors($collector_jobs);
 my $pages      = Developer::Dashboard::PageStore->new( paths => $paths );
 $pages->migrate_legacy_json_pages;
 $paths->register_named_paths( $config->path_aliases );
-$paths->register_named_paths( $plugins->path_aliases );
 my $page_runtime = Developer::Dashboard::PageRuntime->new(
     files   => $files,
     paths   => $paths,
-    aliases => {
-        %{ $config->path_aliases },
-        %{ $plugins->path_aliases },
-    },
+    aliases => $config->path_aliases,
 );
 my $auth = Developer::Dashboard::Auth->new(
     files => $files,
@@ -109,12 +99,10 @@ my $resolver = Developer::Dashboard::PageResolver->new(
     config  => $config,
     pages   => $pages,
     paths   => $paths,
-    plugins => $plugins,
 );
 my $docker = Developer::Dashboard::DockerCompose->new(
     config  => $config,
     paths   => $paths,
-    plugins => $plugins,
 );
 my $prompt = Developer::Dashboard::Prompt->new(
     paths      => $paths,
@@ -174,12 +162,10 @@ elsif ( $cmd eq 'paths' ) {
         logs_root      => $paths->logs_root,
         dashboards_root=> $paths->dashboards_root,
         bookmarks_root => $paths->bookmarks_root,
-        plugins_root   => $paths->plugins_root,
         cli_root       => $paths->cli_root,
         collectors_root=> $paths->collectors_root,
         indicators_root=> $paths->indicators_root,
         config_root    => $paths->config_root,
-        startup_root   => $paths->startup_root,
         current_project_root => scalar $paths->current_project_root,
         %{ $paths->named_paths },
     );
@@ -228,10 +214,8 @@ elsif ( $cmd eq 'path' ) {
             logs         => $paths->logs_root,
             dashboards   => $paths->dashboards_root,
             bookmarks    => $paths->bookmarks_root,
-            plugins      => $paths->plugins_root,
             cli          => $paths->cli_root,
             config       => $paths->config_root,
-            startup      => $paths->startup_root,
             collectors   => $paths->collectors_root,
             indicators   => $paths->indicators_root,
             %{ $paths->named_paths },
@@ -958,7 +942,7 @@ trusted and safer page actions
 
 =item *
 
-plugin-loaded providers and aliases
+config-backed providers and aliases
 
 =item *
 

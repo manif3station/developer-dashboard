@@ -55,13 +55,14 @@ ok( -d $paths->state_root, 'state root created' );
 ok( -d $paths->cache_root, 'cache root created' );
 ok( -d $paths->logs_root, 'logs root created' );
 ok( -d $paths->dashboards_root, 'dashboards root created' );
-ok( -d $paths->plugins_root, 'plugins root created' );
 ok( -d $paths->cli_root, 'cli root created' );
 ok( -d $paths->collectors_root, 'collectors root created' );
 ok( -d $paths->indicators_root, 'indicators root created' );
+ok( -d $paths->sessions_root, 'sessions root created' );
 ok( -d $paths->temp_root, 'temp root created' );
 ok( -d $paths->config_root, 'config root created' );
-ok( -d $paths->startup_root, 'startup root created' );
+ok( -d $paths->auth_root, 'auth root created' );
+ok( -d $paths->users_root, 'users root created' );
 ok( !defined $paths->project_root_for( File::Spec->catdir( $home, 'not-a-repo' ) ), 'project_root_for returns undef outside repos' );
 
 is( $paths->home, $home, 'home accessor works' );
@@ -84,6 +85,7 @@ is( $resolved_home, $home, 'resolve_dir resolves method-backed names' );
 is( $paths->resolve_dir('bookmarks'), $paths->dashboards_root, 'resolve_dir accepts legacy bookmarks alias' );
 is( $paths->resolve_dir('bookmarks_root'), $paths->dashboards_root, 'resolve_dir accepts legacy bookmarks_root alias' );
 is( $paths->resolve_dir('cli_root'), $paths->cli_root, 'resolve_dir accepts cli_root' );
+is( $paths->resolve_dir('sessions_root'), $paths->sessions_root, 'resolve_dir accepts sessions_root' );
 is( $paths->resolve_dir('/tmp'), '/tmp', 'resolve_dir returns absolute paths as-is' );
 is( $paths->resolve_dir('named'), File::Spec->catdir( $home, 'named-path' ), 'resolve_dir expands named paths' );
 is_deeply( $paths->named_paths, { named => '~/named-path' }, 'named_paths exposes registered aliases' );
@@ -97,6 +99,11 @@ dies_like( sub { $paths->resolve_dir('missing-name') }, qr/Unknown directory nam
 my $project_match = $paths->resolve_any( 'missing-name', 'workspace_roots', 'home' );
 is( $project_match, $home, 'resolve_any returns first existing directory' );
 ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef when nothing resolves' );
+{
+    chdir $home or die $!;
+    is( $paths->repo_dashboard_root, undef, 'repo_dashboard_root returns undef outside a repo' );
+    chdir $original_cwd or die $!;
+}
 
 my $named_dir = $paths->resolve_dir('named');
 ok( !defined scalar $paths->ls('named'), 'ls returns undef for missing directory' );
@@ -547,53 +554,42 @@ print {$repo_cfg} <<'JSON';
       "name": "repo.collector",
       "command": "printf 'repo'",
       "cwd": "home"
+    },
+    {
+      "name": "config.two",
+      "command": "printf 'two'",
+      "cwd": "home"
     }
   ]
 }
 JSON
 close $repo_cfg;
 
-make_path( $paths->startup_root );
-open my $startup_hash, '>', File::Spec->catfile( $paths->startup_root, 'one.json' ) or die $!;
-print {$startup_hash} <<'JSON';
 {
-  "name": "startup.one",
-  "command": "printf 'one'",
-  "cwd": "home"
-}
-JSON
-close $startup_hash;
-
-open my $startup_array, '>', File::Spec->catfile( $paths->startup_root, 'two.json' ) or die $!;
-print {$startup_array} <<'JSON';
-[
-  {
-    "name": "startup.two",
-    "command": "printf 'two'",
-    "cwd": "home"
-  },
-  "skip"
-]
-JSON
-close $startup_array;
-
-open my $startup_skip, '>', File::Spec->catfile( $paths->startup_root, 'skip.txt' ) or die $!;
-print {$startup_skip} "skip\n";
-close $startup_skip;
-
-{
-    local $ENV{DEVELOPER_DASHBOARD_CHECKERS} = 'repo.collector:startup.two';
+    local $ENV{DEVELOPER_DASHBOARD_CHECKERS} = 'repo.collector:config.two';
     chdir $repo or die $!;
-    is_deeply( $config->load_repo, { default_mode => 'source', collectors => [ { name => 'repo.collector', command => q{printf 'repo'}, cwd => 'home' } ] }, 'load_repo reads repo-local configuration' );
+    is( $paths->current_project_root, $repo, 'current_project_root resolves the active git repo' );
+    is( $paths->repo_dashboard_root, File::Spec->catdir( $repo, '.developer-dashboard' ), 'repo_dashboard_root resolves and creates the repo dashboard directory' );
+    is_deeply(
+        $config->load_repo,
+        {
+            default_mode => 'source',
+            collectors   => [
+                { name => 'repo.collector', command => q{printf 'repo'}, cwd => 'home' },
+                { name => 'config.two',     command => q{printf 'two'},  cwd => 'home' },
+            ],
+        },
+        'load_repo reads repo-local configuration',
+    );
     is( $config->merged->{default_mode}, 'source', 'merged gives repo config precedence over global config' );
     my $collectors = $config->collectors;
-    is_deeply( [ map { $_->{name} } @$collectors ], [ 'repo.collector', 'startup.two' ], 'collector filter follows colon-separated legacy semantics' );
+    is_deeply( [ map { $_->{name} } @$collectors ], [ 'repo.collector', 'config.two' ], 'collector filter follows colon-separated legacy semantics' );
 }
 {
-    local $ENV{DEVELOPER_DASHBOARD_CHECKERS} = 'repo.collector::startup.two';
+    local $ENV{DEVELOPER_DASHBOARD_CHECKERS} = 'repo.collector::config.two';
     chdir $repo or die $!;
     my $collectors = $config->collectors;
-    is_deeply( [ map { $_->{name} } @$collectors ], [ 'repo.collector', 'startup.two' ], 'collector filter ignores blank checker names' );
+    is_deeply( [ map { $_->{name} } @$collectors ], [ 'repo.collector', 'config.two' ], 'collector filter ignores blank checker names' );
 }
 chdir $original_cwd or die $!;
 
@@ -975,13 +971,13 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     is_deeply( [ $runner->running_loops ], [], 'running_loops prunes stale pidfiles' );
 }
 
-my @empty_startup = @{ Developer::Dashboard::Config->new(
+my $empty_config = Developer::Dashboard::Config->new(
     files => Developer::Dashboard::FileRegistry->new(
         paths => Developer::Dashboard::PathRegistry->new( home => tempdir(CLEANUP => 1) )
     ),
     paths => Developer::Dashboard::PathRegistry->new( home => tempdir(CLEANUP => 1) ),
-)->startup_collectors };
-is_deeply( \@empty_startup, [], 'startup_collectors returns an empty list without startup files' );
+);
+is_deeply( $empty_config->collectors, [], 'collectors returns an empty list without configured jobs' );
 
 dies_like( sub { Developer::Dashboard::UpdateManager->new }, qr/Missing config/, 'update manager requires config' );
 

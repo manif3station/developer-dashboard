@@ -16,7 +16,6 @@ my @modules = qw(
   Developer::Dashboard::Collector
   Developer::Dashboard::CollectorRunner
   Developer::Dashboard::Config
-  Developer::Dashboard::PluginManager
   Developer::Dashboard::ActionRunner
   Developer::Dashboard::PageResolver
   Developer::Dashboard::PageRuntime

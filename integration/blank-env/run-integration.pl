@@ -25,7 +25,6 @@ sub main {
     my $update_root = File::Spec->catdir( $cli_root, 'update.d' );
     my $bookmarks = File::Spec->catdir( $project, 'bookmarks' );
     my $configs   = File::Spec->catdir( $project, 'configs' );
-    my $startup   = File::Spec->catdir( $project, 'startup' );
     my $profile   = '/tmp/developer-dashboard-browser-profile';
 
     _assert( -f $tarball, 'host-built tarball is mounted into the container' );
@@ -54,47 +53,39 @@ YAML
     );
 
     _write_text(
-        File::Spec->catfile( $startup, 'fake.startup.collector.json' ),
+        File::Spec->catfile( $configs, 'config.json' ),
         <<'JSON'
 {
-  "name": "fake.startup.collector",
-  "command": "printf 'fake startup collector output\n'",
-  "cwd": "home",
-  "interval": 30
-}
-JSON
-    );
-
-    _write_text(
-        File::Spec->catfile( $startup, 'broken.collector.json' ),
-        <<'JSON'
-{
-  "name": "broken.collector",
-  "code": "this is broken perl code",
-  "cwd": "home",
-  "interval": 1,
-  "indicator": {
-    "name": "broken.indicator",
-    "label": "Broken",
-    "icon": "B"
-  }
-}
-JSON
-    );
-
-    _write_text(
-        File::Spec->catfile( $startup, 'healthy.collector.json' ),
-        <<'JSON'
-{
-  "name": "healthy.collector",
-  "command": "printf 'healthy startup collector output\n'",
-  "cwd": "home",
-  "interval": 1,
-  "indicator": {
-    "name": "healthy.indicator",
-    "label": "Healthy",
-    "icon": "H"
-  }
+  "collectors": [
+    {
+      "name": "fake.config.collector",
+      "command": "printf 'fake config collector output\n'",
+      "cwd": "home",
+      "interval": 30
+    },
+    {
+      "name": "broken.collector",
+      "code": "this is broken perl code",
+      "cwd": "home",
+      "interval": 1,
+      "indicator": {
+        "name": "broken.indicator",
+        "label": "Broken",
+        "icon": "B"
+      }
+    },
+    {
+      "name": "healthy.collector",
+      "command": "printf 'healthy config collector output\n'",
+      "cwd": "home",
+      "interval": 1,
+      "indicator": {
+        "name": "healthy.indicator",
+        "label": "Healthy",
+        "icon": "H"
+      }
+    }
+  ]
 }
 JSON
     );
@@ -139,8 +130,6 @@ BOOKMARK
 
     local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS} = $bookmarks;
     local $ENV{DEVELOPER_DASHBOARD_CONFIGS}   = $configs;
-    local $ENV{DEVELOPER_DASHBOARD_STARTUP}   = $startup;
-
     my $bare = _run_shell( 'dashboard bare usage', 'dashboard', allow_fail => 1 );
     _assert( $bare->{exit_code} != 0, 'bare dashboard returns non-zero usage exit' );
     _assert_match( $bare->{stdout}, qr/Usage:/, 'bare dashboard prints usage output' );
@@ -149,7 +138,7 @@ BOOKMARK
     _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
 
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
-    _assert_match( $version->{stdout}, qr/^0\.89$/m, 'dashboard version reports the installed runtime version' );
+    _assert_match( $version->{stdout}, qr/^0\.90$/m, 'dashboard version reports the installed runtime version' );
 
     my $init = _run_shell( 'dashboard init', 'dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
@@ -195,7 +184,7 @@ SH
     _assert_match( $paths->{stdout}, qr/"runtime_root"/, 'dashboard paths returns runtime json' );
     _assert_match( $paths->{stdout}, qr/\Q$bookmarks\E/, 'dashboard paths reflects fake bookmark override' );
     _assert_match( $paths->{stdout}, qr/\Q$configs\E/, 'dashboard paths reflects fake config override' );
-    _assert_match( $paths->{stdout}, qr/\Q$startup\E/, 'dashboard paths reflects fake startup override' );
+    _assert_match( $paths->{stdout}, qr/\Q$cli_root\E/, 'dashboard paths reflects the runtime cli root' );
 
     my $path_list = _run_shell( 'dashboard path list', 'dashboard path list' );
     _assert_match( $path_list->{stdout}, qr/"runtime"/, 'dashboard path list returns named paths' );
@@ -229,6 +218,49 @@ SH
 
     my $config_init = _run_shell( 'dashboard config init', 'dashboard config init' );
     _assert_match( $config_init->{stdout}, qr/config\.json/, 'dashboard config init writes config file' );
+    _write_text(
+        File::Spec->catfile( $configs, 'config.json' ),
+        <<'JSON'
+{
+  "collectors": [
+    {
+      "name": "example.collector",
+      "command": "printf 'example collector output\n'",
+      "cwd": "home",
+      "interval": 60
+    },
+    {
+      "name": "fake.config.collector",
+      "command": "printf 'fake config collector output\n'",
+      "cwd": "home",
+      "interval": 30
+    },
+    {
+      "name": "broken.collector",
+      "code": "this is broken perl code",
+      "cwd": "home",
+      "interval": 1,
+      "indicator": {
+        "name": "broken.indicator",
+        "label": "Broken",
+        "icon": "B"
+      }
+    },
+    {
+      "name": "healthy.collector",
+      "command": "printf 'healthy config collector output\n'",
+      "cwd": "home",
+      "interval": 1,
+      "indicator": {
+        "name": "healthy.indicator",
+        "label": "Healthy",
+        "icon": "H"
+      }
+    }
+  ]
+}
+JSON
+    );
 
     my $config_show = _run_shell( 'dashboard config show', 'dashboard config show' );
     _assert_match( $config_show->{stdout}, qr/"collectors"/, 'dashboard config show includes collectors' );
@@ -273,12 +305,12 @@ SH
     my $collector_run = _run_shell( 'dashboard collector run', 'dashboard collector run example.collector' );
     _assert_match( $collector_run->{stdout}, qr/"exit_code"\s*:\s*0/, 'dashboard collector run succeeds for example collector' );
 
-    my $fake_collector_run = _run_shell( 'dashboard collector run fake.startup.collector', 'dashboard collector run fake.startup.collector' );
-    _assert_match( $fake_collector_run->{stdout}, qr/"exit_code"\s*:\s*0/, 'dashboard collector run succeeds for fake project startup collector' );
+    my $fake_collector_run = _run_shell( 'dashboard collector run fake.config.collector', 'dashboard collector run fake.config.collector' );
+    _assert_match( $fake_collector_run->{stdout}, qr/"exit_code"\s*:\s*0/, 'dashboard collector run succeeds for fake project config collector' );
 
     my $collector_list = _run_shell( 'dashboard collector list', 'dashboard collector list' );
     _assert_match( $collector_list->{stdout}, qr/example\.collector|manual\.collector/, 'dashboard collector list shows stored collectors' );
-    _assert_match( $collector_list->{stdout}, qr/fake\.startup\.collector/, 'dashboard collector list shows fake project startup collector' );
+    _assert_match( $collector_list->{stdout}, qr/fake\.config\.collector/, 'dashboard collector list shows fake project config collector' );
 
     my $collector_job = _run_shell( 'dashboard collector job', 'dashboard collector job example.collector' );
     _assert_match( $collector_job->{stdout}, qr/"command"/, 'dashboard collector job returns job metadata' );
@@ -389,28 +421,28 @@ SH
     my $restart_collectors = _run_shell( 'dashboard collector list after restart', 'dashboard collector list' );
     my $restart_collectors_data = decode_json( $restart_collectors->{stdout} );
     my %restart_collectors_by_name = map { ( $_->{name} || '' ) => $_ } @{$restart_collectors_data};
-    _assert( exists $restart_collectors_by_name{'broken.collector'}, 'restart keeps the broken startup collector visible in collector state' );
-    _assert( exists $restart_collectors_by_name{'healthy.collector'}, 'restart keeps the healthy startup collector visible in collector state' );
+    _assert( exists $restart_collectors_by_name{'broken.collector'}, 'restart keeps the broken config collector visible in collector state' );
+    _assert( exists $restart_collectors_by_name{'healthy.collector'}, 'restart keeps the healthy config collector visible in collector state' );
     my $broken_exit_code = defined $restart_collectors_by_name{'broken.collector'}{last_exit_code}
       ? $restart_collectors_by_name{'broken.collector'}{last_exit_code}
       : 0;
     my $healthy_exit_code = defined $restart_collectors_by_name{'healthy.collector'}{last_exit_code}
       ? $restart_collectors_by_name{'healthy.collector'}{last_exit_code}
       : 255;
-    _assert( $broken_exit_code != 0, 'broken startup collector keeps a non-zero exit code after restart' );
-    _assert( $healthy_exit_code == 0, 'healthy startup collector stays green after restart' );
+    _assert( $broken_exit_code != 0, 'broken config collector keeps a non-zero exit code after restart' );
+    _assert( $healthy_exit_code == 0, 'healthy config collector stays green after restart' );
 
     my $restart_indicators = _run_shell( 'dashboard indicator list after restart', 'dashboard indicator list' );
-    _assert_match( $restart_indicators->{stdout}, qr/"name"\s*:\s*"broken\.indicator"(?s:.*?)"status"\s*:\s*"error"/, 'broken startup collector indicator stays red after restart' );
-    _assert_match( $restart_indicators->{stdout}, qr/"name"\s*:\s*"healthy\.indicator"(?s:.*?)"status"\s*:\s*"ok"/, 'healthy startup collector indicator stays green after restart' );
+    _assert_match( $restart_indicators->{stdout}, qr/"name"\s*:\s*"broken\.indicator"(?s:.*?)"status"\s*:\s*"error"/, 'broken config collector indicator stays red after restart' );
+    _assert_match( $restart_indicators->{stdout}, qr/"name"\s*:\s*"healthy\.indicator"(?s:.*?)"status"\s*:\s*"ok"/, 'healthy config collector indicator stays green after restart' );
 
     my $restart_ps1 = _run_shell( 'dashboard ps1 after restart', 'cd ' . _shell_quote($project) . ' && dashboard ps1 --jobs 0 --cwd ' . _shell_quote($project) );
-    _assert_match( $restart_ps1->{stdout}, qr/🚨B/, 'prompt keeps the broken startup collector visible after restart' );
-    _assert_match( $restart_ps1->{stdout}, qr/✅H/, 'prompt keeps the healthy startup collector visible after restart' );
+    _assert_match( $restart_ps1->{stdout}, qr/🚨B/, 'prompt keeps the broken config collector visible after restart' );
+    _assert_match( $restart_ps1->{stdout}, qr/✅H/, 'prompt keeps the healthy config collector visible after restart' );
 
     my $restart_status = _run_shell( 'curl system status after restart', q{curl -fsS http://127.0.0.1:7890/system/status} );
-    _assert_match( $restart_status->{stdout}, qr/"prog"\s*:\s*"broken\.indicator"/, 'system status payload includes the broken startup collector indicator' );
-    _assert_match( $restart_status->{stdout}, qr/"prog"\s*:\s*"healthy\.indicator"/, 'system status payload includes the healthy startup collector indicator' );
+    _assert_match( $restart_status->{stdout}, qr/"prog"\s*:\s*"broken\.indicator"/, 'system status payload includes the broken config collector indicator' );
+    _assert_match( $restart_status->{stdout}, qr/"prog"\s*:\s*"healthy\.indicator"/, 'system status payload includes the healthy config collector indicator' );
 
     my $stop = _run_shell( 'dashboard stop', 'dashboard stop' );
     _assert_match( $stop->{stdout}, qr/"web_pid"\s*:/, 'dashboard stop returns structured lifecycle data' );

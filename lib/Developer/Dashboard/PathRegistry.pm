@@ -143,15 +143,6 @@ sub bookmarks_root {
     return $self->dashboards_root;
 }
 
-# plugins_root()
-# Returns the plugins root directory.
-# Input: none.
-# Output: directory path string.
-sub plugins_root {
-    my ($self) = @_;
-    return $self->_ensure_dir( File::Spec->catdir( $self->runtime_root, 'plugins' ) );
-}
-
 # cli_root()
 # Returns the user CLI extension directory.
 # Input: none.
@@ -209,18 +200,6 @@ sub config_root {
     return $self->_ensure_dir( File::Spec->catdir( $self->runtime_root, 'config' ) );
 }
 
-# startup_root()
-# Returns the startup collector definition directory.
-# Input: none.
-# Output: directory path string.
-sub startup_root {
-    my ($self) = @_;
-    if ( my $dir = $ENV{DEVELOPER_DASHBOARD_STARTUP} ) {
-        return $self->_ensure_dir( $self->_expand_home($dir) );
-    }
-    return $self->_ensure_dir( File::Spec->catdir( $self->runtime_root, 'startup' ) );
-}
-
 # auth_root()
 # Returns the auth configuration directory.
 # Input: none.
@@ -238,16 +217,6 @@ sub repo_dashboard_root {
     my ($self) = @_;
     my $repo = $self->current_project_root or return;
     return $self->_ensure_dir( File::Spec->catdir( $repo, '.developer-dashboard' ) );
-}
-
-# repo_plugins_root()
-# Returns the repo-local plugin root for the active project.
-# Input: none.
-# Output: directory path string or undef.
-sub repo_plugins_root {
-    my ($self) = @_;
-    my $root = $self->repo_dashboard_root or return;
-    return $self->_ensure_dir( File::Spec->catdir( $root, 'plugins' ) );
 }
 
 # users_root()

@@ -1,5 +1,9 @@
 Revision history for Developer Dashboard
 
+0.90  2026-04-01
+    - removed startup collector files and plugin packs so dashboard configuration JSON is the single source of truth for collectors, providers, path aliases, and docker overlays
+    - removed startup and plugin paths from the runtime surface, legacy Folder aliases, blank-environment integration flow, and supporting documentation
+
 0.89  2026-04-01
     - added an explicit Dist::Zilla runtime prerequisite for `JSON::XS` so the built tarball always declares the JSON backend dependency for PAUSE installs
     - extended release metadata coverage to assert the shipped runtime prereqs include `JSON::XS`

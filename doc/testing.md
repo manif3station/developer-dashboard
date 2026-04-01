@@ -51,7 +51,7 @@ The runtime-manager tests also cover:
 
 The extension tests also cover:
 
-- plugin file loading and path alias registration
+- config-backed path alias registration
 - provider page resolution
 - trusted versus transient action execution policy
 - encoded action payload execution
@@ -95,9 +95,9 @@ installs the tarball with `cpanm`, and then exercises the installed
 
 The integration flow also:
 
-- creates a fake project through `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_STARTUP`
+- creates a fake project through `DEVELOPER_DASHBOARD_BOOKMARKS` and `DEVELOPER_DASHBOARD_CONFIGS`
 - applies those fake-project overrides only after `cpanm` completes, so the tarball's own test phase still runs against a clean runtime
-- verifies installed CLI and saved bookmarks from that fake project plus startup collectors from that fake project
+- verifies installed CLI and saved bookmarks from that fake project plus config collectors from that fake project
 - verifies `dashboard version` reports the installed runtime version
 - seeds a user-provided `~/.developer-dashboard/cli/update` command plus `~/.developer-dashboard/cli/update.d` hooks inside the container and verifies `dashboard update` uses the same executable command-hook path as every other top-level subcommand
 - uses headless Chromium to validate the editor, the saved fake-project bookmark page, and the helper login page

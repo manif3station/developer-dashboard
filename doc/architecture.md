@@ -26,9 +26,6 @@ instead of a loose pile of utilities.
 - `Capture::Tiny`
   Captures external command output for collectors, updater scripts, and smoke-test command execution.
 
-- `Developer::Dashboard::PluginManager`
-  Loads JSON-based extension packs from global and repo-local plugin directories.
-
 - `Developer::Dashboard::ActionRunner`
   Executes built-in actions and trusted command actions with cwd, env, timeout, background support, and encoded action payload transport.
 
@@ -168,10 +165,6 @@ The core supports compatibility-style environment overrides for project customiz
 - `DEVELOPER_DASHBOARD_CONFIGS`
   Config root.
 
-- `DEVELOPER_DASHBOARD_STARTUP`
-  Startup collector-definition root.
-
-Startup definitions are read as JSON files and merged into the collector set.
 
 The runtime also supports user CLI extensions:
 
