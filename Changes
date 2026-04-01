@@ -1,5 +1,8 @@
 Revision history for Developer Dashboard
 
+0.94  2026-04-01
+    - fixed `Folder->dd` and `Folder->runtime_root` so they keep the home runtime root unchanged when the current working directory is already inside `~/.developer-dashboard`, instead of appending a second `.developer-dashboard`
+
 0.93  2026-04-01
     - made a project-local `./.developer-dashboard` tree the first runtime lookup root for bookmarks, config, CLI commands and hooks, auth users, sessions, and isolated docker service folders, while still falling back to `~/.developer-dashboard` when the project-local item is missing
     - seeded sanitized `api-dashboard` and `db-dashboard` bookmark pages during `dashboard init` alongside `welcome`, keeping the pages editable as normal saved bookmarks without carrying forward legacy company-specific text or credentials

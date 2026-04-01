@@ -30,6 +30,14 @@ use Zipper qw(zip unzip _cmdx _cmdp __cmdx acmdx Ajax);
 
 is( Folder->dd, File::Spec->catdir( $home, '.developer-dashboard' ), 'Folder dd lazily bootstraps the runtime root before configure' );
 is( Folder->runtime_root, File::Spec->catdir( $home, '.developer-dashboard' ), 'Folder runtime_root lazily bootstraps through AUTOLOAD before configure' );
+{
+    my $runtime_home = File::Spec->catdir( $home, '.developer-dashboard' );
+    make_path( File::Spec->catdir( $runtime_home, '.git' ) );
+    chdir $runtime_home or die "Unable to chdir to $runtime_home: $!";
+    is( Folder->dd, $runtime_home, 'Folder dd does not append a nested runtime root when cwd is the home runtime repository' );
+    is( Folder->runtime_root, $runtime_home, 'Folder runtime_root stays at the home runtime root when cwd is the home runtime repository' );
+    chdir $home or die "Unable to chdir to $home: $!";
+}
 
 my $workspace = File::Spec->catdir( $home, 'workspace' );
 my $project   = File::Spec->catdir( $workspace, 'demo' );

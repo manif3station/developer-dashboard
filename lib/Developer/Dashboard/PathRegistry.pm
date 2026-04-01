@@ -102,6 +102,8 @@ sub home_runtime_root {
 sub project_runtime_root {
     my ($self) = @_;
     my $repo = $self->current_project_root or return;
+    my $home_runtime = File::Spec->catdir( $self->home, '.developer-dashboard' );
+    return if $repo eq $home_runtime;
     my $root = File::Spec->catdir( $repo, '.developer-dashboard' );
     return -d $root ? $root : undef;
 }
