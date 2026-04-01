@@ -217,6 +217,13 @@ sub handle {
         return [ 200, 'image/webp', '' ];
     }
 
+    # Serve static files from public directory (js, css, others)
+    if ( $path =~ m{^/(js|css|others)/(.+)$} ) {
+        my $type = $1;
+        my $file = uri_unescape($2);
+        return $self->_serve_static_file( $type, $file );
+    }
+
     if ( $path =~ m{^/app/(.+)$} ) {
         return $self->_legacy_app_response(
             id           => $1,
@@ -1471,6 +1478,96 @@ sub _expired_session_cookie {
     return 'dashboard_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0';
 }
 
+# _serve_static_file($type, $filename)
+# Serves static files from the public directory (js, css, others).
+# Input: $type (js, css, or others), $filename (requested filename).
+# Output: array reference of status code, content type, body.
+sub _serve_static_file {
+    my ( $self, $type, $filename ) = @_;
+
+    # Prevent directory traversal attacks
+    return [ 400, 'text/plain; charset=utf-8', "Bad Request\n" ]
+        if $filename =~ /\.\./;
+
+    my $public_dir = File::Spec->catdir(
+        $ENV{HOME} || $ENV{USERPROFILE} || '/root',
+        '.developer-dashboard',
+        'dashboard',
+        'public',
+        $type
+    );
+
+    my $file_path = File::Spec->catfile( $public_dir, $filename );
+
+    # Verify file is within the public directory
+    my $real_path = eval { File::Spec->rel2abs($file_path) } || '';
+    my $quoted_public = quotemeta($public_dir);
+    return [ 403, 'text/plain; charset=utf-8', "Forbidden\n" ]
+        if $real_path !~ /^$quoted_public\//;
+
+    # Check if file exists and is readable
+    return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
+        if !-f $file_path || !-r $file_path;
+
+    # Determine content type
+    my $content_type = $self->_get_content_type( $type, $filename );
+
+    # Read and return file
+    open my $fh, '<', $file_path or return [ 500, 'text/plain; charset=utf-8', "Internal Server Error\n" ];
+    my $content = do { local $/; <$fh> };
+    close $fh;
+
+    return [ 200, $content_type, $content ];
+}
+
+# _get_content_type($type, $filename)
+# Determines the MIME type based on file type and extension.
+# Input: $type (js, css, or others), $filename (requested filename).
+# Output: MIME type string.
+sub _get_content_type {
+    my ( $self, $type, $filename ) = @_;
+
+    if ( $type eq 'js' ) {
+        return 'application/javascript; charset=utf-8';
+    }
+    elsif ( $type eq 'css' ) {
+        return 'text/css; charset=utf-8';
+    }
+    elsif ( $filename =~ /\.json$/i ) {
+        return 'application/json; charset=utf-8';
+    }
+    elsif ( $filename =~ /\.xml$/i ) {
+        return 'application/xml; charset=utf-8';
+    }
+    elsif ( $filename =~ /\.txt$/i ) {
+        return 'text/plain; charset=utf-8';
+    }
+    elsif ( $filename =~ /\.html?$/i ) {
+        return 'text/html; charset=utf-8';
+    }
+    elsif ( $filename =~ /\.svg$/i ) {
+        return 'image/svg+xml';
+    }
+    elsif ( $filename =~ /\.png$/i ) {
+        return 'image/png';
+    }
+    elsif ( $filename =~ /\.jpe?g$/i ) {
+        return 'image/jpeg';
+    }
+    elsif ( $filename =~ /\.gif$/i ) {
+        return 'image/gif';
+    }
+    elsif ( $filename =~ /\.webp$/i ) {
+        return 'image/webp';
+    }
+    elsif ( $filename =~ /\.ico$/i ) {
+        return 'image/x-icon';
+    }
+    else {
+        return 'application/octet-stream';
+    }
+}
+
 1;
 
 __END__
@@ -1490,12 +1587,33 @@ Developer::Dashboard::Web::App - local web application for Developer Dashboard
 =head1 DESCRIPTION
 
 This module handles the browser-facing dashboard routes, helper login flow,
-page rendering modes, and page/action execution endpoints.
+page rendering modes, and page/action execution endpoints. It also provides
+static file serving for JavaScript, CSS, and other assets from the public
+directory structure (~/.developer-dashboard/dashboard/public/{js,css,others}).
 
 =head1 METHODS
 
 =head2 new, handle
 
 Construct and dispatch the local web application.
+
+=head2 _serve_static_file($type, $filename)
+
+Serves static files from the public directory.
+
+Input: $type (js, css, or others subdirectory), $filename (requested filename).
+Output: array reference of [status_code, content_type, body].
+
+Security: Prevents directory traversal attacks and verifies files are within
+the public directory before serving.
+
+=head2 _get_content_type($type, $filename)
+
+Determines the MIME type for a file based on its type and extension.
+
+Input: $type (js, css, or others), $filename (requested filename).
+Output: MIME type string suitable for Content-Type header.
+
+Supports: JS, CSS, JSON, XML, HTML, SVG, PNG, JPEG, GIF, WebP, ICO, and others.
 
 =cut

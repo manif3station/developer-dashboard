@@ -1,5 +1,14 @@
 Revision history for Developer Dashboard
 
+1.00  2026-04-01
+    - added static file serving for public directory (js, css, others) at ~/.developer-dashboard/dashboard/public/{js,css,others}/
+    - added routes /js/*, /css/*, /others/* to serve static files with automatic MIME type detection
+    - included jQuery 4.0.0 minified in public/js/ to eliminate CDN dependencies
+    - implemented directory traversal attack prevention and file boundary validation
+    - added comprehensive unit tests for static file serving and MIME type detection (18 tests)
+    - added documentation for static file serving in doc/static-file-serving.md
+    - extended web app POD documentation with _serve_static_file and _get_content_type methods
+
 0.99  2026-04-01
     - moved saved bookmark `Ajax(file => ...)` storage into `.developer-dashboard/dashboards/ajax/...`, so named handlers live under the saved bookmark tree instead of the runtime cache
     - changed saved bookmark `Ajax(file => ...)` calls without `code => ...` to point at an existing executable in that ajax tree instead of overwriting it with an empty generated file
