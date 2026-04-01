@@ -281,6 +281,33 @@ sub handle {
         return [ 200, 'text/plain; charset=utf-8', $page->{meta}{raw_instruction} || $page->canonical_instruction ];
     }
 
+    if ( $path =~ m{^/page/(.+)/edit$} && $method eq 'POST' ) {
+        my $requested_id = $1;
+        my $instruction = exists $body_params{instruction} ? $body_params{instruction} : $params{instruction};
+        if ( defined $instruction ) {
+            my $page = Developer::Dashboard::PageDocument->from_instruction($instruction);
+            $page->{meta}{raw_instruction} = $instruction;
+            $page->{id} ||= $requested_id;
+            $page->{meta}{source_kind} = 'saved';
+            $self->{pages}->save_page($page);
+            my $mode = $params{mode} || $body_params{mode} || 'edit';
+            $page = $self->_page_with_runtime_state(
+                $page,
+                query_params => \%params,
+                body_params  => \%body_params,
+                path         => $path,
+                remote_addr  => $args{remote_addr},
+                headers      => $headers,
+            );
+            $page = $self->{runtime}->prepare_page(
+                page            => $page,
+                source          => 'saved',
+                runtime_context => { params => { %params, %body_params } },
+            );
+            return $self->_page_response( $page, $mode );
+        }
+    }
+
     if ( $path =~ m{^/page/(.+)/edit$} ) {
         my $page = $self->_load_named_page($1);
         $page->{meta}{raw_instruction} = $page->canonical_instruction;
@@ -426,11 +453,15 @@ sub _edit_html {
     $source =~ s/</&lt;/g;
     $source =~ s/>/&gt;/g;
 
+    my $page_id = $page->as_hash->{id} || '';
+    my $is_saved = ( $page->{meta}{source_kind} || '' ) ne 'transient' && $page_id ne '';
+    my $page_url = $is_saved ? '/page/' . $page_id : '';
     my $urls = {
-        edit   => $self->{pages}->editable_url($page),
-        render => $self->{pages}->render_url($page),
-        source => $self->{pages}->editable_url($page),
+        edit   => $is_saved ? $page_url . '/edit' : $self->{pages}->editable_url($page),
+        render => $is_saved ? $page_url : $self->{pages}->render_url($page),
+        source => $is_saved ? $page_url . '/edit' : $self->{pages}->editable_url($page),
     };
+    my $form_action = $is_saved ? $page_url . '/edit' : '/';
 
     my $title = $page->as_hash->{title};
     $title =~ s/&/&amp;/g;
@@ -513,7 +544,7 @@ sub _edit_html {
 <body>
 <main>
   __TOP_CHROME__
-  <form method="post" action="/" id="instruction-form">
+  <form method="post" action="__FORM_ACTION__" id="instruction-form">
     <div class="editor-stack">
       <pre class="editor-overlay" id="instruction-highlight" aria-hidden="true">__INITIAL_HIGHLIGHT__</pre>
       <textarea class="instruction-editor" id="instruction-editor" name="instruction" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off">__SOURCE__</textarea>
@@ -677,6 +708,7 @@ HTML
     $html =~ s/__INITIAL_HIGHLIGHT__/$self->_highlight_instruction_html($raw_source)/ge;
     $html =~ s/__SOURCE__/$source/g;
     $html =~ s/__SOURCE_JSON__/json_encode($raw_source)/ge;
+    $html =~ s/__FORM_ACTION__/$form_action/g;
     return $html;
 }
 

@@ -53,6 +53,7 @@ perl -Ilib bin/dashboard serve
 
 The root path now opens the free-form bookmark editor directly, and `/apps` redirects to `/app/index`.
 If the posted editor content includes `BOOKMARK: some-id`, that post now persists the bookmark document so `/app/some-id` works immediately after saving from `/`.
+Saved bookmark editor routes such as `/page/some-id/edit` must keep posting back to that named route and keep their Play links on `/page/some-id`, even when transient `token=` URLs are disabled by default.
 Edit and source routes must preserve raw Template Toolkit placeholders in bookmark source, so browser saves of `HTML:` or `FORM.TT:` content such as `[% title %]` should be verified as source-stable as well as render-correct.
 
 Create a helper login user:
@@ -168,8 +169,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.00.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.00.tar.gz -v
+tar -tzf Developer-Dashboard-1.01.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.01.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

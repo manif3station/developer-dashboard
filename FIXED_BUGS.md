@@ -2,6 +2,9 @@
 
 ## 2026-04-01
 
+- Fixed saved bookmark editor routing so browser updates from `/page/<id>/edit` keep saving through the named bookmark route and keep the Play link on `/page/<id>` instead of a transient `token=` URL when transient web tokens are disabled.
+- Fixed CLI startup side effects by deferring bookmark migration, configured path-alias loading, and collector indicator sync until commands that need them actually run, reducing surprise runtime-directory creation during unrelated commands.
+- Fixed local-runtime creation drift by keeping `dashboard restart` in a plain git repo on the home runtime instead of creating a new project-local `.developer-dashboard` tree unless that repo has already opted in.
 - Fixed saved bookmark Ajax process drift by running stored `Ajax(file => ...)` handlers as real processes, so normal `print`, `warn`, `die`, `system`, and `exec` output flows back to the browser through the same live stream.
 - Fixed saved bookmark `/ajax` buffering by executing the stored Perl code directly and streaming raw output to the browser, so ajax progress appears live instead of waiting for a fully buffered response.
 - Fixed saved bookmark Ajax file placement by storing named `file => ...` handlers under `.developer-dashboard/dashboards/ajax/...`, so bookmark Ajax files live beside the saved bookmark tree instead of under the runtime cache.

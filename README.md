@@ -189,6 +189,10 @@ That means links such as:
 return a `403` unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled.
 Saved bookmark-file routes such as `/app/index`, `/page/index`, and
 `/page/index/action/...` continue to work without that flag.
+Saved bookmark editor pages also stay on their named `/page/<id>/edit` and
+`/page/<id>` routes when you save from the browser, so editing an existing
+bookmark file does not fall back to transient `token=` URLs under the default
+deny policy.
 
 Legacy `Ajax` helper calls inside saved bookmark `CODE*` blocks should use an
 explicit `file => 'name.json'` argument. When a saved page supplies that name,
@@ -614,6 +618,10 @@ The browser security model follows the legacy local-first trust concept:
 The editor and rendered pages also include a shared top chrome with share/source links on the left and the original status-plus-alias indicator strip on the right, refreshed from `/system/status`. That top-right area also includes the local username, the current host or IP link, and the current date/time in the same spirit as the old local dashboard chrome.
 The displayed address is discovered from the machine interfaces, preferring a VPN-style address when one is active, and the date/time is refreshed in the browser with JavaScript.
 The bookmark editor also follows the old auto-submit flow, so the form submits when the textarea changes and loses focus instead of showing a manual update button.
+For saved bookmark files, that browser save posts back to the named
+`/page/<id>/edit` route and keeps the Play link on `/page/<id>` instead of a
+transient `token=` URL, so updates still work while transient URLs are
+disabled.
 - helper access requires a login backed by local file-based user and session records
 
 This keeps the fast path for exact loopback access while making non-canonical or remote access explicit.
@@ -676,8 +684,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.00.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.00.tar.gz -v
+tar -tzf Developer-Dashboard-1.01.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.01.tar.gz -v
 ```
 
 The harness also:

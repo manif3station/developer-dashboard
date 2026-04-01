@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.01  2026-04-01
+    - fixed saved bookmark editor posts so `/page/<id>/edit` saves keep using named saved-bookmark routes and `/page/<id>` play links instead of falling back to transient `token=` URLs when transient web tokens are disabled
+    - reduced CLI startup side effects by deferring configured path-alias loading, saved-page migration, and collector-indicator sync until commands that actually need them run
+    - extended web and CLI regressions for saved bookmark browser edits under the transient-url deny policy and for `dashboard restart` avoiding accidental project-local `.developer-dashboard` creation in repos that have not opted in
+
 1.00  2026-04-01
     - added static file serving for public directory (js, css, others) at ~/.developer-dashboard/dashboard/public/{js,css,others}/
     - added routes /js/*, /css/*, /others/* to serve static files with automatic MIME type detection

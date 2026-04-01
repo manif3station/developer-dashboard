@@ -388,7 +388,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.00\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.01\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );
@@ -438,6 +438,22 @@ my ( $ext_stdout, $ext_stderr, $ext_exit ) = capture {
 is( $ext_exit, 0, 'user CLI extension exits successfully' );
 is( $ext_stderr, '', 'user CLI extension keeps stderr clean' );
 like( $ext_stdout, qr/^argv:one two\|stdin:hello-extension$/m, 'user CLI extension receives argv and stdin passthrough' );
+
+my $plain_repo = File::Spec->catdir( $ENV{HOME}, 'projects', 'plain-restart-project' );
+make_path( File::Spec->catdir( $plain_repo, '.git' ) );
+my ( $plain_restart_stdout, $plain_restart_stderr, $plain_restart_exit ) = capture {
+    system 'sh', '-c', "cd '$plain_repo' && $perl -I'$repo/lib' '$repo/bin/dashboard' restart --host 127.0.0.1 --port 17891";
+    return $? >> 8;
+};
+is( $plain_restart_exit, 0, 'dashboard restart succeeds from a repo without a project-local dashboard root' );
+unlike( $plain_restart_stderr, qr/\S/, 'dashboard restart keeps stderr clean in a repo without a project-local dashboard root' );
+ok( !-d File::Spec->catdir( $plain_repo, '.developer-dashboard' ), 'dashboard restart does not create a project-local .developer-dashboard tree in repos that have not opted in' );
+my ( undef, $plain_stop_stderr, $plain_stop_exit ) = capture {
+    system $perl, '-I' . $lib, $dashboard, 'stop';
+    return $? >> 8;
+};
+is( $plain_stop_exit, 0, 'dashboard stop succeeds after the plain-repo restart check' );
+unlike( $plain_stop_stderr, qr/\S/, 'dashboard stop keeps stderr clean after the plain-repo restart check' );
 
 my $project_root = File::Spec->catdir( $ENV{HOME}, 'projects', 'local-cli-project' );
 make_path( File::Spec->catdir( $project_root, '.git' ) );

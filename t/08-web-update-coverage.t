@@ -100,6 +100,28 @@ like( $source_body, qr/^TITLE:\s+Sample/m, 'source route returns canonical instr
 my ( $saved_edit_code, undef, $saved_edit_body ) = @{ $app->handle( path => '/page/sample/edit', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $saved_edit_code, 200, 'saved edit route responds with success' );
 like( $saved_edit_body, qr/Right Click Copy &amp; Share or Bookmark This Page/, 'saved edit route includes top chrome links' );
+like( $saved_edit_body, qr{<form method="post" action="/page/sample/edit" id="instruction-form">}, 'saved edit route posts back to the named bookmark edit path' );
+like( $saved_edit_body, qr{<a href="/page/sample" id="play-url">Play</a>}, 'saved edit route exposes a saved-page play link instead of a transient token url' );
+
+my $updated_instruction = join "\n",
+    'TITLE: Sample',
+    ':--------------------------------------------------------------------------------:',
+    'BOOKMARK: sample',
+    ':--------------------------------------------------------------------------------:',
+    'HTML: updated saved bookmark body',
+    '';
+my ( $saved_update_code, undef, $saved_update_body ) = @{ $app->handle(
+    path        => '/page/sample/edit',
+    method      => 'POST',
+    body        => 'instruction=' . uri_escape($updated_instruction),
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is( $saved_update_code, 200, 'saved edit post route responds with success while transient urls remain disabled' );
+like( $saved_update_body, qr/updated saved bookmark body/, 'saved edit post route returns the updated bookmark editor content' );
+my ( $saved_updated_source_code, undef, $saved_updated_source_body ) = @{ $app->handle( path => '/page/sample/source', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+is( $saved_updated_source_code, 200, 'saved source route still responds after a saved edit post' );
+like( $saved_updated_source_body, qr/^HTML:\s+updated saved bookmark body$/m, 'saved edit post route persists the updated bookmark source text' );
 
 my ( $saved_source_code, undef, $saved_source_body ) = @{ $app->handle( path => '/page/sample/source', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $saved_source_code, 200, 'saved source route responds with success' );
@@ -108,7 +130,7 @@ unlike( $saved_source_body, qr/request_host|request_path|request_remote_addr/, '
 
 my ( $saved_render_code, undef, $saved_render_body ) = @{ $app->handle( path => '/page/sample', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $saved_render_code, 200, 'saved render route responds with success' );
-like( $saved_render_body, qr/body text/, 'saved page route renders bookmark body content' );
+like( $saved_render_body, qr/updated saved bookmark body/, 'saved page route renders the latest saved bookmark body content' );
 is(
     $app->_nav_items_html(
         page            => $page,

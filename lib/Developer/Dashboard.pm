@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.00';
+our $VERSION = '1.01';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.00
+1.01
 
 =head1 INTRODUCTION
 
@@ -507,7 +507,11 @@ That means links such as:
 
 return a C<403> unless C<DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS> is enabled.
 Saved bookmark-file routes such as C</app/index>, C</page/index>, and
-C</page/index/action/...> continue to work without that flag.
+C</page/index/action/...> continue to work without that flag. Saved bookmark
+editor pages also stay on their named C</page/E<lt>idE<gt>/edit> and
+C</page/E<lt>idE<gt>> routes when you save from the browser, so editing an
+existing bookmark file does not fall back to transient C<token=> URLs under the
+default deny policy.
 
 Legacy C<Ajax> helper calls inside saved bookmark C<CODE*> blocks should use
 an explicit C<file =E<gt> 'name.json'> argument. When a saved page supplies that
@@ -984,6 +988,10 @@ That top-right area also includes the local username, the current host or IP
 link, and the current date/time in the same spirit as the old local dashboard chrome.
 The displayed address is discovered from the machine interfaces, preferring a VPN-style address when one is active, and the date/time is refreshed in the browser with JavaScript.
 The bookmark editor also follows the old auto-submit flow, so the form submits when the textarea changes and loses focus instead of showing a manual update button.
+For saved bookmark files, that browser save posts back to the named
+C</page/E<lt>idE<gt>/edit> route and keeps the Play link on
+C</page/E<lt>idE<gt>> instead of a transient C<token=> URL, so updates still
+work while transient URLs are disabled.
 
 The default web bind is C<0.0.0.0:7890>. Trust is still decided from the request origin and host header, not from the listen address.
 

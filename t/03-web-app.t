@@ -234,21 +234,20 @@ like($type1d_tt_source, qr/text\/plain/, 'saved TT bookmark source route returns
 like($body1d_tt_source, qr/^HTML:\s+<h1>\[% title %\]<\/h1> \[% stash\.foo %\]$/m, 'saved TT bookmark source route preserves raw TT placeholders');
 my ($play_url_tt) = $body1d_tt =~ m{<a href="([^"]+)" id="play-url">Play</a>};
 ok($play_url_tt, 'TT bookmark play url extracted');
-my ($play_query_tt) = $play_url_tt =~ /\?(.*)\z/;
+is($play_url_tt, '/page/index', 'saved TT bookmark play url stays on the named saved route');
 my ($code1d_tt_render, undef, $body1d_tt_render) = @{ $app->handle(
-    path        => '/',
-    query       => $play_query_tt,
+    path        => '/page/index',
+    query       => '',
     remote_addr => '127.0.0.1',
     headers     => { host => '127.0.0.1' },
 ) };
 is($code1d_tt_render, 200, 'TT bookmark play route ok');
 like($body1d_tt_render, qr{<h1>\s*Sample Dashboard\s*</h1>\s*1}s, 'TT render receives TITLE and STASH values');
 my ($tt_view_source_url) = $body1d_tt_render =~ m{<a href="([^"]+)" id="view-source-url">View Source</a>};
-ok($tt_view_source_url, 'TT render exposes a transient view source link');
-my ($tt_view_source_query) = $tt_view_source_url =~ /\?(.*)\z/;
+is($tt_view_source_url, '/page/index/edit', 'TT render exposes a saved bookmark view source link');
 my ($code1d_tt_view_source, $type1d_tt_view_source, $body1d_tt_view_source) = @{ $app->handle(
-    path        => '/',
-    query       => $tt_view_source_query,
+    path        => '/page/index/edit',
+    query       => '',
     remote_addr => '127.0.0.1',
     headers     => { host => '127.0.0.1' },
 ) };

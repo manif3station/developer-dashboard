@@ -76,12 +76,14 @@ The web tests also cover the access model:
 - forwarding of response headers such as `Location` and `Set-Cookie`
 - root free-form editor behavior at `/`
 - posted instruction handling through `/`, including default denial of unsaved transient execution unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled
+- saved bookmark browser edits through `/page/<id>/edit`, including named-route saves and non-transient play links when transient URL execution stays disabled
 - nested saved bookmark ids such as `nav/foo.tt` through `/app/...` and `/page/...`
 - shared `nav/*.tt` bookmark rendering between top chrome and the main page body in sorted filename order
 - Template Toolkit conditional rendering for shared nav fragments and saved pages using `env.current_page` and `env.runtime_context.current_page`
 - `/apps -> /app/index` compatibility
 - top chrome rendering on edit and legacy render pages
 - denial of browser `token=` and `atoken=` execution for transient page and action payloads, plus legacy `/ajax?token=...`, when the transient URL opt-in env var is absent
+- absence of accidental project-local `.developer-dashboard` creation when `dashboard restart` runs inside a git repo that has not opted into a local dashboard root
 - saved bookmark `Ajax file => ...` handlers through `/ajax/<file>?type=...`, including `dashboards/ajax/...` storage, direct process-backed streamed ajax execution for both `stdout` and `stderr`, and blank-env verification under the default deny policy
 
 ## Blank Environment Integration

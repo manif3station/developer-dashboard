@@ -7,6 +7,7 @@ use Test::More tests => 18;
 use File::Temp qw(tempdir);
 use File::Spec;
 use Cwd qw(cwd);
+use lib 'lib';
 
 # Test the static files serving functionality
 BEGIN {
