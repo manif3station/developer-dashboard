@@ -80,7 +80,7 @@ The integration run creates:
 8. Verify `dashboard version` reports the installed runtime version.
 9. Create a fake project root with bookmark and config directories and export the dashboard override variables toward them.
 10. Run `dashboard init` and confirm runtime roots and starter pages exist.
-11. Seed a user-provided `~/.developer-dashboard/cli/update` command plus `~/.developer-dashboard/cli/update.d` hooks in the clean container, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes.
+11. Seed a user-provided `~/.developer-dashboard/cli/update` command plus `~/.developer-dashboard/cli/update.d` hooks in the clean container, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes, including later-hook reads through `Runtime::Result`.
 12. Exercise path, prompt, shell, encode/decode, and indicator commands.
 13. Exercise collector write/run/read/start/restart/stop flows, including fake-project config collector definitions.
 14. Restart the installed runtime with one intentionally broken Perl config collector and one healthy config collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state.

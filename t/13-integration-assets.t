@@ -22,6 +22,7 @@ like( $plan, qr/Chromium|browser/i, 'integration plan covers browser-backed veri
 like( $plan, qr/DEVELOPER_DASHBOARD_BOOKMARKS/, 'integration plan covers fake-project env overrides' );
 like( $plan, qr/host-built tarball/i, 'integration plan requires host-built tarball flow' );
 like( $plan, qr/broken collector|broken Perl collector|healthy collector/i, 'integration plan covers collector failure isolation' );
+like( $plan, qr/Runtime::Result/, 'integration plan covers Runtime::Result-based hook verification' );
 like( $plan, qr/run-host-integration\.sh/, 'integration plan points to the host-side launcher' );
 
 open my $runner_fh, '<', 'integration/blank-env/run-integration.pl' or die $!;
@@ -30,6 +31,7 @@ close $runner_fh;
 like( $runner, qr/Developer-Dashboard\.tar\.gz/, 'integration runner consumes mounted tarball artifact' );
 like( $runner, qr/tar -xzf/, 'integration runner extracts the tarball inside the container' );
 like( $runner, qr/dashboard update/, 'integration runner exercises dashboard update' );
+like( $runner, qr/Runtime::Result/, 'integration runner exercises Runtime::Result-aware hook chaining' );
 like( $runner, qr/dashboard docker compose --project .* --dry-run config/, 'integration runner exercises docker compose dry-run' );
 like( $runner, qr/dashboard auth add-user helper_login helper-login-pass-123/, 'integration runner exercises helper login path' );
 unlike( $runner, qr/cpanm --notest/, 'integration runner installs the tarball without cpanm --notest' );

@@ -37,6 +37,7 @@ sub main {
     local $ENV{HOME}                   = $home;
     local $ENV{PERL_MM_USE_DEFAULT}    = 1;
     local $ENV{NONINTERACTIVE_TESTING} = 1;
+    local $ENV{PERL_CANARY_STABILITY_NOPROMPT} = 1;
 
     _run_shell( 'extract host-built tarball', "tar -xzf " . _shell_quote($tarball) . ' -C ' . _shell_quote($dist_dir) );
     my $source_root = _single_subdir($dist_dir);
@@ -138,7 +139,7 @@ BOOKMARK
     _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
 
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
-    _assert_match( $version->{stdout}, qr/^0\.90$/m, 'dashboard version reports the installed runtime version' );
+    _assert_match( $version->{stdout}, qr/^0\.92$/m, 'dashboard version reports the installed runtime version' );
 
     my $init = _run_shell( 'dashboard init', 'dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
@@ -167,18 +168,32 @@ SH
     chmod 0755, File::Spec->catfile( $update_root, '01-runtime-update' )
       or die "Unable to chmod runtime update script: $!";
     _write_text(
-        File::Spec->catfile( $update_root, '02-data.file' ),
+        File::Spec->catfile( $update_root, '02-runtime-result.pl' ),
+        <<'PL'
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Runtime::Result;
+print Runtime::Result::stdout('01-runtime-update');
+PL
+    );
+    chmod 0755, File::Spec->catfile( $update_root, '02-runtime-result.pl' )
+      or die "Unable to chmod runtime result script: $!";
+    _write_text(
+        File::Spec->catfile( $update_root, '03-data.file' ),
         "skip\n"
     );
-    chmod 0600, File::Spec->catfile( $update_root, '02-data.file' )
+    chmod 0600, File::Spec->catfile( $update_root, '03-data.file' )
       or die "Unable to chmod runtime update data file: $!";
 
     my $update = _run_shell( 'dashboard update', 'dashboard update' );
     my $update_data = _decode_json_tail( $update->{stdout} );
     _assert( ref($update_data) eq 'HASH', 'dashboard update custom command returns structured trailing json summary from the common command hook path' );
-    _assert( scalar(keys %{$update_data}) == 1, 'dashboard update custom command ran the seeded runtime update script only' );
+    _assert( scalar(keys %{$update_data}) == 2, 'dashboard update custom command ran the seeded executable runtime update scripts only' );
     _assert( exists $update_data->{'01-runtime-update'}, 'dashboard update custom command reports the runtime update script filename' );
+    _assert( exists $update_data->{'02-runtime-result.pl'}, 'dashboard update custom command reports the result-aware runtime update script filename' );
     _assert_match( $update_data->{'01-runtime-update'}{stdout} || '', qr/runtime update ok/, 'dashboard update custom command captures runtime update script stdout' );
+    _assert_match( $update_data->{'02-runtime-result.pl'}{stdout} || '', qr/runtime update ok/, 'dashboard update custom command exposes the prior hook result to later hook scripts' );
 
     my $paths = _run_shell( 'dashboard paths', 'dashboard paths' );
     _assert_match( $paths->{stdout}, qr/"runtime_root"/, 'dashboard paths returns runtime json' );

@@ -1,5 +1,14 @@
 Revision history for Developer Dashboard
 
+0.92  2026-04-01
+    - hardened blank-environment tarball installation by exporting PERL_CANARY_STABILITY_NOPROMPT and the other noninteractive installer flags during clean-container cpanm runs
+    - kept the Runtime::Result hook-chain helper release intact while making the blank integration path safe against interactive dependency prompts from the JSON::XS toolchain
+
+0.91  2026-04-01
+    - formalized per-hook RESULT rewrites between sorted CLI hook executions so each later hook sees the JSON result of earlier hook scripts
+    - added Runtime::Result as a Perl helper for decoding RESULT and reading prior hook stdout, stderr, exit codes, and the last recorded hook entry
+    - extended blank-environment integration coverage so dashboard update proves later executable hooks can react to earlier hook output through Runtime::Result
+
 0.90  2026-04-01
     - removed startup collector files and plugin packs so dashboard configuration JSON is the single source of truth for collectors, providers, path aliases, and docker overlays
     - removed startup and plugin paths from the runtime surface, legacy Folder aliases, blank-environment integration flow, and supporting documentation

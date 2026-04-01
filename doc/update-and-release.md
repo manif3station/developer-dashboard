@@ -7,7 +7,7 @@ Run:
 ```bash
 perl -Ilib bin/dashboard version
 mkdir -p ~/.developer-dashboard/cli/update.d
-printf '#!/usr/bin/env perl\nprint $ENV{RESULT} // q{}\n' > ~/.developer-dashboard/cli/update
+printf '#!/usr/bin/env perl\nuse Runtime::Result;\nprint Runtime::Result::stdout(q{01-runtime});\nprint $ENV{RESULT} // q{}\n' > ~/.developer-dashboard/cli/update
 chmod +x ~/.developer-dashboard/cli/update
 printf '#!/bin/sh\necho runtime-update\n' > ~/.developer-dashboard/cli/update.d/01-runtime
 chmod +x ~/.developer-dashboard/cli/update.d/01-runtime
@@ -21,11 +21,15 @@ or `~/.developer-dashboard/cli/update.d`:
 2. running any regular executable file
 3. skipping non-executable files
 4. streaming each hook file's stdout and stderr live while still accumulating `RESULT` JSON
-5. passing the final `RESULT` JSON to the real command
+5. rewriting `RESULT` after each hook so later hook files can react to earlier output
+6. passing the final `RESULT` JSON to the real command
 
 `dashboard update` has no special built-in path. If you want it, provide it as
 a normal user command and let its hook files run through the same top-level
 command-hook path as every other dashboard subcommand.
+
+Perl hook scripts can use `Runtime::Result` to decode `RESULT` and read
+structured hook output without hand-parsing the JSON blob.
 
 Use `dashboard version` to print the installed Developer Dashboard version.
 
@@ -163,8 +167,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.90.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.90.tar.gz -v
+tar -tzf Developer-Dashboard-0.92.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.92.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

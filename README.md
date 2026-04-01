@@ -302,7 +302,10 @@ and `stderr` live to the terminal while still accumulating those channels into
 commands such as `dashboard pjq` use the same hook directory. A directory-backed
 custom command can provide its real executable as
 `~/.developer-dashboard/cli/<command>/run`, and that runner receives the final
-`RESULT` environment variable.
+`RESULT` environment variable. After each hook finishes, `dashboard` rewrites
+`RESULT` before the next sorted hook starts, so later hook scripts can react to
+earlier hook output. Perl hook scripts can read that JSON through
+`Runtime::Result`.
 
 If you want `dashboard update`, provide it as a normal user command at
 `~/.developer-dashboard/cli/update` or `~/.developer-dashboard/cli/update/run`.
@@ -634,15 +637,15 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.90.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.90.tar.gz -v
+tar -tzf Developer-Dashboard-0.92.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.92.tar.gz -v
 ```
 
 The harness also:
 
 - creates a fake project wired through `DEVELOPER_DASHBOARD_BOOKMARKS` and `DEVELOPER_DASHBOARD_CONFIGS`
 - verifies the installed CLI works against that fake project through the mounted tarball install
-- seeds a user-provided `~/.developer-dashboard/cli/update` command plus `~/.developer-dashboard/cli/update.d` hooks inside the container so `dashboard update` exercises the same top-level command-hook path as every other subcommand
+- seeds a user-provided `~/.developer-dashboard/cli/update` command plus `~/.developer-dashboard/cli/update.d` hooks inside the container so `dashboard update` exercises the same top-level command-hook path as every other subcommand, including later-hook reads through `Runtime::Result`
 - verifies collector failure isolation with one intentionally broken Perl config collector and one healthy config collector, and confirms the healthy indicator still stays green after `dashboard restart`
 - starts the installed web service
 - uses headless Chromium to verify the root editor, a saved fake-project bookmark page from the fake project bookmark directory, and the helper login page

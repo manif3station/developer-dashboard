@@ -2,6 +2,9 @@
 
 ## 2026-03-31
 
+- Fixed blank-environment install stalls by exporting `PERL_CANARY_STABILITY_NOPROMPT` alongside the other noninteractive installer variables, so clean-container `cpanm` runs do not hang on dependency prompts from the `JSON::XS` toolchain.
+- Fixed CLI hook state visibility by rewriting `RESULT` after each executable hook finishes, so the next sorted hook can react to the accumulated JSON from earlier hook runs instead of only the final command seeing it.
+- Fixed Perl hook ergonomics by adding `Runtime::Result`, so hook scripts can read prior hook stdout, stderr, exit codes, and the last hook entry without hand-decoding the raw `RESULT` JSON string.
 - Fixed configuration drift by removing separate startup and plugin extension roots, so collectors, providers, path aliases, and docker overlays now come from dashboard config JSON as the single source of truth.
 - Fixed blank-environment override drift by moving the fake-project collector regression setup into config JSON instead of a separate startup directory, so the installed runtime exercises the same configured collector path used in normal operation.
 - Fixed CLI hook directory naming drift by accepting both `~/.developer-dashboard/cli/<command>/` and `~/.developer-dashboard/cli/<command>.d/` as equivalent hook folders, so either naming style runs the same executable files before the main command.

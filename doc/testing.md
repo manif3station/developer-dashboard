@@ -55,7 +55,7 @@ The extension tests also cover:
 - provider page resolution
 - trusted versus transient action execution policy
 - encoded action payload execution
-- CLI hook directories under `~/.developer-dashboard/cli/<command>` or `~/.developer-dashboard/cli/<command>.d` with sorted executable-only hook execution, live streamed hook progress, and `RESULT` JSON propagation
+- CLI hook directories under `~/.developer-dashboard/cli/<command>` or `~/.developer-dashboard/cli/<command>.d` with sorted executable-only hook execution, live streamed hook progress, per-hook `RESULT` rewrites between hook runs, and `Runtime::Result` helper coverage
 - directory-backed custom commands through `~/.developer-dashboard/cli/<command>/run`
 - Docker Compose file, project, service, addon, mode, and env resolution
 - legacy bookmark syntax parsing, placeholder rendering, `TITLE` head-only rendering, and sandpit-isolated `CODE*` execution
@@ -99,5 +99,5 @@ The integration flow also:
 - applies those fake-project overrides only after `cpanm` completes, so the tarball's own test phase still runs against a clean runtime
 - verifies installed CLI and saved bookmarks from that fake project plus config collectors from that fake project
 - verifies `dashboard version` reports the installed runtime version
-- seeds a user-provided `~/.developer-dashboard/cli/update` command plus `~/.developer-dashboard/cli/update.d` hooks inside the container and verifies `dashboard update` uses the same executable command-hook path as every other top-level subcommand
+- seeds a user-provided `~/.developer-dashboard/cli/update` command plus `~/.developer-dashboard/cli/update.d` hooks inside the container and verifies `dashboard update` uses the same executable command-hook path as every other top-level subcommand, including later-hook reads through `Runtime::Result`
 - uses headless Chromium to validate the editor, the saved fake-project bookmark page, and the helper login page

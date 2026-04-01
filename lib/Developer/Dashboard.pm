@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.90';
+our $VERSION = '0.92';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.90
+0.92
 
 =head1 INTRODUCTION
 
@@ -490,7 +490,12 @@ channels into C<RESULT> as JSON. Built-in commands such as C<dashboard pjq>
 use the same hook directory. A
 directory-backed custom command can provide its real executable as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>, and that runner receives
-the final C<RESULT> environment variable.
+the final C<RESULT> environment variable. After each hook finishes, the updated
+C<RESULT> JSON is written back into the environment before the next sorted hook
+starts, so later hook scripts can react to earlier hook output.
+
+Perl hook code can use C<Runtime::Result> to decode C<RESULT> safely and read
+per-hook C<stdout>, C<stderr>, exit codes, or the last recorded hook entry.
 
 =head2 Open File Commands
 
@@ -591,7 +596,7 @@ Run the CLI directly from the repository:
   printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
   printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard pyq alpha.beta
   mkdir -p ~/.developer-dashboard/cli/update.d
-  printf '#!/usr/bin/env perl\nprint $ENV{RESULT} // q{}\n' > ~/.developer-dashboard/cli/update
+  printf '#!/usr/bin/env perl\nuse Runtime::Result;\nprint Runtime::Result::stdout(q{01-runtime});\nprint $ENV{RESULT} // q{}\n' > ~/.developer-dashboard/cli/update
   chmod +x ~/.developer-dashboard/cli/update
   printf '#!/bin/sh\necho runtime-update\n' > ~/.developer-dashboard/cli/update.d/01-runtime
   chmod +x ~/.developer-dashboard/cli/update.d/01-runtime
@@ -629,6 +634,8 @@ F<~/.developer-dashboard/cli/update/run>. Its hook files can live under
 F<~/.developer-dashboard/cli/update> or
 F<~/.developer-dashboard/cli/update.d>, and the real command receives the
 final C<RESULT> JSON through the environment after those hook files run.
+Each later hook also sees the latest rewritten C<RESULT> from the earlier hook
+set, and Perl code can read that payload through C<Runtime::Result>.
 
 Use C<dashboard version> to print the installed Developer Dashboard version.
 
@@ -1028,14 +1035,14 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.90.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.90.tar.gz -v
+  tar -tzf Developer-Dashboard-0.92.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.92.tar.gz -v
 
 The harness also:
 
 - creates a fake project wired through C<DEVELOPER_DASHBOARD_BOOKMARKS> and C<DEVELOPER_DASHBOARD_CONFIGS>
 - verifies the installed CLI works against that fake project through the mounted tarball install
-- seeds a user-provided F<~/.developer-dashboard/cli/update> command plus F<~/.developer-dashboard/cli/update.d> hooks inside the container so C<dashboard update> exercises the same top-level command-hook path as every other subcommand
+- seeds a user-provided F<~/.developer-dashboard/cli/update> command plus F<~/.developer-dashboard/cli/update.d> hooks inside the container so C<dashboard update> exercises the same top-level command-hook path as every other subcommand, including later-hook reads through C<Runtime::Result>
 - verifies collector failure isolation with one intentionally broken Perl config collector and one healthy config collector, and confirms the healthy indicator still stays green after C<dashboard restart>
 - starts the installed web service
 - uses headless Chromium to verify the root editor, a saved fake-project bookmark page from the fake project bookmark directory, and the helper login page

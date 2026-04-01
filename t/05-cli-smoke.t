@@ -3,11 +3,12 @@ use warnings;
 
 use Capture::Tiny qw(capture);
 use Cwd qw(getcwd);
-use Developer::Dashboard::JSON qw(json_decode);
+use Developer::Dashboard::JSON qw(json_decode json_encode);
 use File::Path qw(make_path);
 use File::Spec;
-use Test::More;
 use File::Temp qw(tempdir);
+use Runtime::Result;
+use Test::More;
 
 local $ENV{HOME} = tempdir(CLEANUP => 1);
 local $ENV{PERL5LIB} = join ':', grep { defined && $_ ne '' } '/home/mv/perl5/lib/perl5', ( $ENV{PERL5LIB} || () );
@@ -226,10 +227,10 @@ print {$pjq_hook_two_fh} <<"PL";
 #!/usr/bin/env perl
 use strict;
 use warnings;
-use JSON::XS qw(decode_json);
-my \$result = decode_json( \$ENV{RESULT} || '{}' );
+use lib '$repo/lib';
+use Runtime::Result;
 open my \$fh, '>', '$pjq_hook_result' or die \$!;
-print {\$fh} \$result->{'00-first.pl'}{stdout};
+print {\$fh} Runtime::Result::stdout('00-first.pl');
 close \$fh;
 print "hook-two\n";
 warn "hook-two-err\n";
@@ -253,6 +254,45 @@ like( $pjq_hooked_stderr, qr/hook-two-err\n/, 'dashboard pjq keeps later hook st
 open my $pjq_hook_result_fh, '<', $pjq_hook_result or die "Unable to read $pjq_hook_result: $!";
 is( do { local $/; <$pjq_hook_result_fh> }, "hook-one\n", 'later built-in command hooks can read the accumulated RESULT JSON from earlier hook output' );
 close $pjq_hook_result_fh;
+
+local $ENV{RESULT} = json_encode(
+    {
+        '00-first.pl' => {
+            stdout    => "hook-one\n",
+            stderr    => "hook-one-err\n",
+            exit_code => 0,
+        },
+        '01-second.pl' => {
+            stdout    => "hook-two\n",
+            stderr    => "hook-two-err\n",
+            exit_code => 0,
+        },
+    }
+);
+is_deeply( Runtime::Result::current(), json_decode( $ENV{RESULT} ), 'Runtime::Result decodes RESULT into a hash' );
+is_deeply( [ Runtime::Result::names() ], [ '00-first.pl', '01-second.pl' ], 'Runtime::Result lists stored hook names in sorted order' );
+ok( Runtime::Result::has('00-first.pl'), 'Runtime::Result detects known hook names' );
+ok( !Runtime::Result::has('99-missing.pl'), 'Runtime::Result rejects missing hook names' );
+is( Runtime::Result::stdout('00-first.pl'), "hook-one\n", 'Runtime::Result returns stored hook stdout' );
+is( Runtime::Result::stderr('01-second.pl'), "hook-two-err\n", 'Runtime::Result returns stored hook stderr' );
+is( Runtime::Result::exit_code('01-second.pl'), 0, 'Runtime::Result returns stored hook exit codes' );
+is( Runtime::Result::last_name(), '01-second.pl', 'Runtime::Result returns the last sorted hook name' );
+is_deeply( Runtime::Result::last_entry(), json_decode( $ENV{RESULT} )->{'01-second.pl'}, 'Runtime::Result returns the last sorted hook entry' );
+local $ENV{RESULT} = '{';
+my $invalid_json_error = do {
+    local $@;
+    eval { Runtime::Result::current() };
+    $@;
+};
+like( $invalid_json_error, qr/at character offset|malformed JSON string/i, 'Runtime::Result surfaces invalid RESULT json decoding errors' );
+local $ENV{RESULT} = json_encode( [ 1, 2, 3 ] );
+my $non_hash_error = do {
+    local $@;
+    eval { Runtime::Result::current() };
+    $@;
+};
+like( $non_hash_error, qr/RESULT must decode to a hash/, 'Runtime::Result rejects non-hash RESULT payloads' );
+delete $ENV{RESULT};
 
 my $custom_dir_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'inspect-result' );
 make_path($custom_dir_root);
@@ -327,7 +367,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -Ilib bin/dashboard version"), "0.90\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -Ilib bin/dashboard version"), "0.92\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -Ilib bin/dashboard ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );
