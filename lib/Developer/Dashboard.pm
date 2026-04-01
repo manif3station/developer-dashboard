@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.01';
+our $VERSION = '1.02';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.01
+1.02
 
 =head1 INTRODUCTION
 
@@ -526,6 +526,10 @@ can rely on normal C<print>, C<warn>, C<die>, C<system>, and C<exec> process
 behaviour instead of a buffered JSON wrapper.
 If C<code =E<gt> ...> is omitted, C<Ajax(file =E<gt> 'name')> targets the
 existing executable at C<dashboards/ajax/name> instead of rewriting it.
+Static files referenced by saved bookmarks are resolved from the effective
+runtime public tree first and then from the saved bookmark root, so a file such
+as C<dashboards/public/js/jquery.js> is available at C</js/jquery.js> without
+requiring a separate home-runtime copy.
 
 =head2 User CLI Extensions
 
@@ -992,6 +996,9 @@ For saved bookmark files, that browser save posts back to the named
 C</page/E<lt>idE<gt>/edit> route and keeps the Play link on
 C</page/E<lt>idE<gt>> instead of a transient C<token=> URL, so updates still
 work while transient URLs are disabled.
+Legacy bookmark parsing also treats a standalone C<---> line as a section
+break, preventing pasted prose after a code block from being compiled into the
+saved C<CODE*> body.
 
 The default web bind is C<0.0.0.0:7890>. Trust is still decided from the request origin and host header, not from the listen address.
 
@@ -1107,7 +1114,7 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.99.tar.gz | grep run-host-integration.sh
+  tar -tzf Developer-Dashboard-1.02.tar.gz | grep run-host-integration.sh
   cpanm /tmp/Developer-Dashboard-0.99.tar.gz -v
 
 The harness also:

@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.02  2026-04-01
+    - fixed saved bookmark static asset lookup so `/js/*`, `/css/*`, and `/others/*` can resolve files from the effective runtime public tree and from `dashboards/public/...`, keeping saved local assets such as `dashboards/public/js/jquery.js` available after browser saves
+    - fixed legacy bookmark parsing so a standalone `---` line also terminates the current legacy section, preventing pasted prose after `CODE*` blocks from being compiled and shown as runtime syntax errors or leaked back into the editor
+    - added regressions for markdown-style legacy section breaks and for static file lookup from both runtime and bookmark-root public directories
+
 1.01  2026-04-01
     - fixed saved bookmark editor posts so `/page/<id>/edit` saves keep using named saved-bookmark routes and `/page/<id>` play links instead of falling back to transient `token=` URLs when transient web tokens are disabled
     - reduced CLI startup side effects by deferring configured path-alias loading, saved-page migration, and collector-indicator sync until commands that actually need them run

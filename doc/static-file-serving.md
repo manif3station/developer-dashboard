@@ -6,7 +6,16 @@ The Developer Dashboard now serves static files (JavaScript, CSS, images, and ot
 
 ## Directory Structure
 
-Static files are served from:
+Static files are served from the effective lookup roots in this order:
+
+1. `./.developer-dashboard/dashboard/public/...` when the current project has opted into a project-local runtime
+2. `~/.developer-dashboard/dashboard/public/...`
+3. the saved bookmark root `dashboards/public/...` for assets that ship beside saved bookmark files
+
+The URL paths stay the same regardless of which on-disk root satisfies the
+request.
+
+Example layout:
 ```
 ~/.developer-dashboard/dashboard/public/
 ├── js/          - JavaScript files
@@ -39,16 +48,19 @@ Reference static files in bookmark HTML or page instructions using these URL pat
 
 ## Adding New Files
 
-1. Copy your files to the appropriate directory:
+1. Copy your files to one of the appropriate directories:
    ```bash
-   # JavaScript
+   # JavaScript under the runtime public tree
    cp my-library.js ~/.developer-dashboard/dashboard/public/js/
    
-   # CSS
+   # CSS under the runtime public tree
    cp my-styles.css ~/.developer-dashboard/dashboard/public/css/
    
-   # Images or other assets
+   # Images or other assets under the runtime public tree
    cp image.png ~/.developer-dashboard/dashboard/public/others/
+
+   # Bookmark-local JavaScript shipped with saved pages
+   cp jquery.js ~/.developer-dashboard/dashboards/public/js/
    ```
 
 2. Reference them in your bookmark HTML:
@@ -185,9 +197,15 @@ Additional files can be added as needed. There are no built-in size restrictions
 
 ### File Not Found (404)
 - Verify the file exists in the correct directory:
+  - `./.developer-dashboard/dashboard/public/js/` for project-local JavaScript
   - `~/.developer-dashboard/dashboard/public/js/` for JavaScript
+  - `./.developer-dashboard/dashboard/public/css/` for project-local CSS
   - `~/.developer-dashboard/dashboard/public/css/` for CSS
+  - `./.developer-dashboard/dashboard/public/others/` for project-local assets
   - `~/.developer-dashboard/dashboard/public/others/` for other files
+  - `./.developer-dashboard/dashboards/public/js/` for bookmark-local JavaScript
+  - `./.developer-dashboard/dashboards/public/css/` for bookmark-local CSS
+  - `./.developer-dashboard/dashboards/public/others/` for bookmark-local assets
 - Check that the filename in the URL matches exactly (case-sensitive on Unix/Linux)
 - Ensure the file has read permissions
 

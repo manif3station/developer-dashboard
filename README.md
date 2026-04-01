@@ -206,6 +206,10 @@ it means bookmark Ajax code can rely on normal `print`, `warn`, `die`,
 `system`, and `exec` process behaviour instead of a buffered JSON wrapper.
 If `code => ...` is omitted, `Ajax(file => 'name')` targets the existing
 executable at `dashboards/ajax/name` instead of rewriting it.
+Static files referenced by saved bookmarks are resolved from the effective
+runtime public tree first and then from the saved bookmark root, so a file such
+as `dashboards/public/js/jquery.js` is available at `/js/jquery.js` without
+requiring a separate home-runtime copy.
 
 
 ### User CLI Extensions
@@ -622,6 +626,9 @@ For saved bookmark files, that browser save posts back to the named
 `/page/<id>/edit` route and keeps the Play link on `/page/<id>` instead of a
 transient `token=` URL, so updates still work while transient URLs are
 disabled.
+Legacy bookmark parsing also treats a standalone `---` line as a section
+break, preventing pasted prose after a code block from being compiled into the
+saved `CODE*` body.
 - helper access requires a login backed by local file-based user and session records
 
 This keeps the fast path for exact loopback access while making non-canonical or remote access explicit.
@@ -684,8 +691,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.01.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.01.tar.gz -v
+tar -tzf Developer-Dashboard-1.02.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.02.tar.gz -v
 ```
 
 The harness also:

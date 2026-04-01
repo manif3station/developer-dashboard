@@ -55,7 +55,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.01', 'module version bumped for bookmark editor and runtime bootstrap release' );
+is( $version, '1.02', 'module version bumped for static file and legacy parser fix release' );
 like( $readme, qr/Ajax` helper calls inside saved bookmark `CODE\*` blocks should use an\s+explicit `file => 'name\.json'` argument/s, 'README documents the saved bookmark Ajax file requirement' );
 like( $pm, qr/Legacy C<Ajax> helper calls inside saved bookmark C<CODE\*> blocks should use\s+an explicit C<file =E<gt> 'name\.json'> argument/s, 'main POD documents the saved bookmark Ajax file requirement' );
 like( $readme, qr/stores the Ajax Perl code under the saved dashboard ajax tree/s, 'README documents the saved bookmark Ajax storage location' );

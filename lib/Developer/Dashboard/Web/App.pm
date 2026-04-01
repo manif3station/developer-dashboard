@@ -1521,25 +1521,18 @@ sub _serve_static_file {
     return [ 400, 'text/plain; charset=utf-8', "Bad Request\n" ]
         if $filename =~ /\.\./;
 
-    my $public_dir = File::Spec->catdir(
-        $ENV{HOME} || $ENV{USERPROFILE} || '/root',
-        '.developer-dashboard',
-        'dashboard',
-        'public',
-        $type
-    );
-
-    my $file_path = File::Spec->catfile( $public_dir, $filename );
-
-    # Verify file is within the public directory
-    my $real_path = eval { File::Spec->rel2abs($file_path) } || '';
-    my $quoted_public = quotemeta($public_dir);
-    return [ 403, 'text/plain; charset=utf-8', "Forbidden\n" ]
-        if $real_path !~ /^$quoted_public\//;
-
-    # Check if file exists and is readable
-    return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
-        if !-f $file_path || !-r $file_path;
+    my @public_roots = $self->_static_file_roots($type);
+    my $file_path = '';
+    for my $public_dir (@public_roots) {
+        my $candidate = File::Spec->catfile( $public_dir, $filename );
+        my $real_path = eval { File::Spec->rel2abs($candidate) } || '';
+        my $quoted_public = quotemeta($public_dir);
+        next if $real_path !~ /^$quoted_public(?:\/|\z)/;
+        next if !-f $candidate || !-r $candidate;
+        $file_path = $candidate;
+        last;
+    }
+    return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ] if $file_path eq '';
 
     # Determine content type
     my $content_type = $self->_get_content_type( $type, $filename );
@@ -1550,6 +1543,40 @@ sub _serve_static_file {
     close $fh;
 
     return [ 200, $content_type, $content ];
+}
+
+# _static_file_roots($type)
+# Returns candidate public directories for static file serving in lookup order.
+# Input: asset type string such as js, css, or others.
+# Output: ordered list of directory path strings.
+sub _static_file_roots {
+    my ( $self, $type ) = @_;
+    my @roots;
+    my %seen;
+
+    my $paths = $self->{pages} && ref( $self->{pages} ) eq 'Developer::Dashboard::PageStore'
+      ? $self->{pages}{paths}
+      : undef;
+    if ($paths) {
+        for my $runtime_root ( $paths->runtime_roots ) {
+            my $root = File::Spec->catdir( $runtime_root, 'dashboard', 'public', $type );
+            push @roots, $root if !$seen{$root}++;
+        }
+        for my $dashboards_root ( $paths->dashboards_roots ) {
+            my $root = File::Spec->catdir( $dashboards_root, 'public', $type );
+            push @roots, $root if !$seen{$root}++;
+        }
+    }
+
+    my $home_root = File::Spec->catdir(
+        $ENV{HOME} || $ENV{USERPROFILE} || '/root',
+        '.developer-dashboard',
+        'dashboard',
+        'public',
+        $type
+    );
+    push @roots, $home_root if !$seen{$home_root}++;
+    return @roots;
 }
 
 # _get_content_type($type, $filename)

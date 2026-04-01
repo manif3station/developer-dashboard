@@ -2,6 +2,8 @@
 
 ## 2026-04-01
 
+- Fixed saved bookmark local static-file lookup so `/js/*`, `/css/*`, and `/others/*` now resolve both the effective runtime `dashboard/public/...` tree and `dashboards/public/...`, making saved local assets such as `dashboards/public/js/jquery.js` work after browser saves.
+- Fixed legacy bookmark section parsing so a standalone `---` line ends the current legacy section, preventing trailing pasted prose from being compiled into `CODE*` blocks or echoed back into the bookmark editor.
 - Fixed saved bookmark editor routing so browser updates from `/page/<id>/edit` keep saving through the named bookmark route and keep the Play link on `/page/<id>` instead of a transient `token=` URL when transient web tokens are disabled.
 - Fixed CLI startup side effects by deferring bookmark migration, configured path-alias loading, and collector indicator sync until commands that need them actually run, reducing surprise runtime-directory creation during unrelated commands.
 - Fixed local-runtime creation drift by keeping `dashboard restart` in a plain git repo on the home runtime instead of creating a new project-local `.developer-dashboard` tree unless that repo has already opted in.

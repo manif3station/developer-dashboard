@@ -395,7 +395,8 @@ sub _decode_stash_section {
 sub _parse_legacy_sections {
     my ($text) = @_;
     my %sections;
-    my @parts = split /\Q$LEGACY_SEP\E\s*\n?/, $text;
+    my $markdown_sep = qr{^\s*---\s*$}m;
+    my @parts = split /(?:\Q$LEGACY_SEP\E\s*\n?|$markdown_sep)/, $text;
     for my $part (@parts) {
         $part =~ s/\A[\r\n\s]+//;
         $part =~ s/[\r\n\s]+\z//;

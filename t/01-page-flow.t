@@ -57,6 +57,20 @@ is($legacy_page->as_hash->{state}{name}, 'Michael', 'legacy page syntax parses s
 like($legacy_page->canonical_instruction, qr/^TITLE: Legacy Example/m, 'legacy page preserves legacy syntax on canonical output');
 is(scalar(@{ $legacy_page->as_hash->{meta}{codes} || [] }), 1, 'legacy lowercase code sections are parsed');
 
+my $legacy_with_markdown_tail = <<'PAGE';
+TITLE: Legacy Separator
+:--------------------------------------------------------------------------------:
+HTML: <div>ok</div>
+:--------------------------------------------------------------------------------:
+CODE1: print 123;
+---
+This trailing prose should not be compiled as CODE1.
+PAGE
+
+my $markdown_sep_page = Developer::Dashboard::PageDocument->from_instruction($legacy_with_markdown_tail);
+is(scalar(@{ $markdown_sep_page->as_hash->{meta}{codes} || [] }), 1, 'standalone markdown separators still terminate legacy sections');
+is($markdown_sep_page->as_hash->{meta}{codes}[0]{body}, 'print 123;', 'markdown separator keeps trailing prose out of CODE bodies');
+
 like($store->editable_url($page), qr{^\Q/?token=\E}, 'editable url generated');
 like($store->render_url($page), qr{mode=render}, 'render url generated');
 like($store->source_url($page), qr{mode=source}, 'source url generated');

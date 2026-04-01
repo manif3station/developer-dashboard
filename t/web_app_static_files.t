@@ -3,11 +3,13 @@
 use strict;
 use warnings;
 
-use Test::More tests => 18;
+use Test::More;
 use File::Temp qw(tempdir);
 use File::Spec;
 use Cwd qw(cwd);
 use lib 'lib';
+use Developer::Dashboard::PageStore;
+use Developer::Dashboard::PathRegistry;
 
 # Test the static files serving functionality
 BEGIN {
@@ -118,33 +120,44 @@ sub create_mock_app {
     is($response->[0], 404, 'Nonexistent file returns 404');
 }
 
-# Test: _serve_static_file with actual file (if it exists)
-SKIP: {
-    my $public_dir = File::Spec->catdir(
-        $ENV{HOME} || $ENV{USERPROFILE} || '/root',
-        '.developer-dashboard',
-        'dashboard',
-        'public',
-        'js'
-    );
-    
-    skip "Public directory not found", 3 unless -d $public_dir;
-    
-    # Create a test file
+# Test: _serve_static_file resolves runtime-root dashboard/public assets
+{
+    local $ENV{HOME} = tempdir(CLEANUP => 1);
+    my $paths = Developer::Dashboard::PathRegistry->new(home => $ENV{HOME});
+    my $store = Developer::Dashboard::PageStore->new(paths => $paths);
+    my $public_dir = File::Spec->catdir( $paths->runtime_root, 'dashboard', 'public', 'js' );
+    mkdir File::Spec->catdir( $paths->runtime_root, 'dashboard' ) or die $! if !-d File::Spec->catdir( $paths->runtime_root, 'dashboard' );
+    mkdir File::Spec->catdir( $paths->runtime_root, 'dashboard', 'public' ) or die $! if !-d File::Spec->catdir( $paths->runtime_root, 'dashboard', 'public' );
+    mkdir $public_dir or die $! if !-d $public_dir;
     my $test_file = File::Spec->catfile($public_dir, 'test.js');
     open my $fh, '>', $test_file or die "Cannot create test file: $!";
-    print $fh 'console.log("test");';
+    print {$fh} 'console.log("runtime");';
     close $fh;
-    
-    my $app = create_mock_app();
+
+    my $app = create_mock_app( pages => $store );
     my $response = $app->_serve_static_file('js', 'test.js');
-    
-    is($response->[0], 200, 'Valid file returns 200');
-    is($response->[1], 'application/javascript; charset=utf-8', 'Correct content type');
-    is($response->[2], 'console.log("test");', 'File content correct');
-    
-    # Clean up
-    unlink $test_file;
+    is($response->[0], 200, 'runtime public file returns 200');
+    is($response->[1], 'application/javascript; charset=utf-8', 'runtime public file keeps javascript content type');
+    is($response->[2], 'console.log("runtime");', 'runtime public file content is served');
+}
+
+# Test: _serve_static_file resolves dashboards/public assets
+{
+    local $ENV{HOME} = tempdir(CLEANUP => 1);
+    my $paths = Developer::Dashboard::PathRegistry->new(home => $ENV{HOME});
+    my $store = Developer::Dashboard::PageStore->new(paths => $paths);
+    my $public_dir = File::Spec->catdir( $paths->dashboards_root, 'public', 'js' );
+    mkdir File::Spec->catdir( $paths->dashboards_root, 'public' ) or die $! if !-d File::Spec->catdir( $paths->dashboards_root, 'public' );
+    mkdir $public_dir or die $! if !-d $public_dir;
+    my $test_file = File::Spec->catfile($public_dir, 'bookmark-local.js');
+    open my $fh, '>', $test_file or die "Cannot create test file: $!";
+    print {$fh} 'console.log("bookmark-local");';
+    close $fh;
+
+    my $app = create_mock_app( pages => $store );
+    my $response = $app->_serve_static_file('js', 'bookmark-local.js');
+    is($response->[0], 200, 'dashboards public file returns 200');
+    is($response->[2], 'console.log("bookmark-local");', 'dashboards public file content is served');
 }
 
 done_testing();
