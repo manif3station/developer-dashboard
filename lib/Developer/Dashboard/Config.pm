@@ -29,11 +29,14 @@ sub new {
 # Output: configuration hash reference.
 sub load_global {
     my ($self) = @_;
-    my $file = $self->{files}->global_config;
-    return {} if !-f $file;
-    open my $fh, '<', $file or die "Unable to read $file: $!";
-    local $/;
-    return json_decode(<$fh>);
+    my $merged = {};
+    for my $file ( reverse $self->_global_config_files ) {
+        next if !-f $file;
+        open my $fh, '<', $file or die "Unable to read $file: $!";
+        local $/;
+        $merged = $self->_merge_hashes( $merged, json_decode(<$fh>) );
+    }
+    return $merged;
 }
 
 # save_global($config)
@@ -42,7 +45,7 @@ sub load_global {
 # Output: written file path string.
 sub save_global {
     my ( $self, $config ) = @_;
-    my $file = $self->{files}->global_config;
+    my $file = $self->_global_config_file;
     open my $fh, '>', $file or die "Unable to write $file: $!";
     print {$fh} json_encode( $config || {} );
     close $fh;
@@ -248,6 +251,24 @@ sub providers {
     my @providers = ();
     push @providers, @{ $cfg->{providers} } if ref( $cfg->{providers} ) eq 'ARRAY';
     return \@providers;
+}
+
+# _global_config_file()
+# Returns the writable global configuration file path for the effective runtime root.
+# Input: none.
+# Output: writable configuration file path string.
+sub _global_config_file {
+    my ($self) = @_;
+    return File::Spec->catfile( $self->{paths}->config_root, 'config.json' );
+}
+
+# _global_config_files()
+# Returns the global configuration file candidates in effective lookup order.
+# Input: none.
+# Output: ordered list of configuration file path strings.
+sub _global_config_files {
+    my ($self) = @_;
+    return map { File::Spec->catfile( $_, 'config.json' ) } $self->{paths}->config_roots;
 }
 
 1;

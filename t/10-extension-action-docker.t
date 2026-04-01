@@ -23,6 +23,7 @@ use Developer::Dashboard::Web::App;
 
 my $home = tempdir(CLEANUP => 1);
 local $ENV{HOME} = $home;
+chdir $home or die "Unable to chdir to $home: $!";
 
 my $repo = File::Spec->catdir( $home, 'projects', 'demo-app' );
 make_path( File::Spec->catdir( $repo, '.git' ) );
@@ -109,6 +110,11 @@ make_path($global_purple_root);
 open my $global_purple_fh, '>', File::Spec->catfile( $global_purple_root, 'compose.yml' ) or die $!;
 print {$global_purple_fh} "services:\n  purple:\n    image: alpine\n";
 close $global_purple_fh;
+my $local_docker_green_root = File::Spec->catdir( $repo, '.developer-dashboard', 'docker', 'green' );
+make_path($local_docker_green_root);
+open my $local_green_dev_fh, '>', File::Spec->catfile( $local_docker_green_root, 'development.compose.yml' ) or die $!;
+print {$local_green_dev_fh} "services:\n  green:\n    environment:\n      GREEN_DEV: local\n";
+close $local_green_dev_fh;
 
 my $paths = Developer::Dashboard::PathRegistry->new(
     home => $home,
@@ -318,14 +324,14 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
     ok( !grep( { /green\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver prefers isolated development compose files over compose.yml for selected services' );
     ok( grep( { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes isolated development compose files automatically for selected services' );
     is( $resolved->{env}{APP_MODE}, 'dev', 'docker compose resolver merges mode env' );
-    is( $resolved->{env}{DDDC}, File::Spec->catdir( $paths->config_root, 'docker' ), 'docker compose resolver exports DDDC as the global docker config root' );
+    is( $resolved->{env}{DDDC}, File::Spec->catdir( $repo, '.developer-dashboard', 'config', 'docker' ), 'docker compose resolver exports DDDC as the effective project-local docker config root' );
     is( $resolved->{env}{MAILHOG_ENABLED}, '1', 'docker compose resolver merges addon env' );
     is_deeply( [ @{ $resolved->{command} }[0,1] ], [ 'docker', 'compose' ], 'docker compose resolver produces docker compose command' );
     is_deeply( $resolved->{precedence}, [ qw(base project service addon mode) ], 'docker compose resolver exposes overlay precedence' );
     is(
         ( grep { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } )[0],
-        File::Spec->catfile( $paths->config_root, 'docker', 'green', 'development.compose.yml' ),
-        'docker compose resolver resolves isolated service folders from the global docker config root with development compose precedence',
+        File::Spec->catfile( $repo, '.developer-dashboard', 'docker', 'green', 'development.compose.yml' ),
+        'docker compose resolver prefers project-local isolated service folders over the home fallback root',
     );
     ok( grep( { $_ eq 'green' } @{ $resolved->{services} } ), 'docker compose resolver infers service names from passthrough docker compose args' );
     is( $resolved->{command}[-1], 'green', 'docker compose resolver preserves passthrough docker compose service args' );

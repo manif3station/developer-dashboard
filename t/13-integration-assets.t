@@ -19,7 +19,7 @@ unlike( $plan, qr/cpanm --notest/, 'integration plan no longer skips tarball ins
 like( $plan, qr/dashboard serve/, 'integration plan covers installed web lifecycle' );
 like( $plan, qr/helper logout/i, 'integration plan covers helper logout cleanup' );
 like( $plan, qr/Chromium|browser/i, 'integration plan covers browser-backed verification' );
-like( $plan, qr/DEVELOPER_DASHBOARD_BOOKMARKS/, 'integration plan covers fake-project env overrides' );
+like( $plan, qr/\.developer-dashboard/, 'integration plan covers fake-project local runtime overrides' );
 like( $plan, qr/host-built tarball/i, 'integration plan requires host-built tarball flow' );
 like( $plan, qr/broken collector|broken Perl collector|healthy collector/i, 'integration plan covers collector failure isolation' );
 like( $plan, qr/Runtime::Result/, 'integration plan covers Runtime::Result-based hook verification' );
@@ -39,8 +39,8 @@ like( $runner, qr/broken\.collector/, 'integration runner provisions a broken co
 like( $runner, qr/healthy\.collector/, 'integration runner provisions a healthy config collector regression case' );
 like( $runner, qr/dashboard indicator list after restart/, 'integration runner checks indicator isolation after restart' );
 like( $runner, qr/chromium.*--headless/s, 'integration runner uses headless Chromium for browser checks' );
-like( $runner, qr/DEVELOPER_DASHBOARD_BOOKMARKS/, 'integration runner exports fake-project env overrides' );
-like( $runner, qr/cpanm install host-built tarball.*DEVELOPER_DASHBOARD_BOOKMARKS/s, 'integration runner applies fake-project env overrides after the tarball install step' );
+like( $runner, qr/\.developer-dashboard/, 'integration runner provisions a fake-project local runtime tree' );
+like( $runner, qr/cpanm install host-built tarball.*dashboard init.*api-dashboard/s, 'integration runner builds the fake-project local runtime only after the tarball install step' );
 like( $runner, qr/__END__/, 'integration runner carries POD trailer' );
 
 open my $docker_fh, '<', 'integration/blank-env/Dockerfile' or die $!;

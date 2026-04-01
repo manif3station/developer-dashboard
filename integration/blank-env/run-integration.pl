@@ -21,11 +21,13 @@ sub main {
     my $cookie   = '/tmp/developer-dashboard-cookies.txt';
     my $compose  = '/tmp/developer-dashboard-compose-project';
     my $project  = '/tmp/fake-project';
-    my $cli_root = File::Spec->catdir( $home, '.developer-dashboard', 'cli' );
+    my $runtime_root = File::Spec->catdir( $project, '.developer-dashboard' );
+    my $cli_root = File::Spec->catdir( $runtime_root, 'cli' );
     my $update_root = File::Spec->catdir( $cli_root, 'update.d' );
-    my $bookmarks = File::Spec->catdir( $project, 'bookmarks' );
-    my $configs   = File::Spec->catdir( $project, 'configs' );
+    my $bookmarks = File::Spec->catdir( $runtime_root, 'dashboards' );
+    my $configs   = File::Spec->catdir( $runtime_root, 'config' );
     my $profile   = '/tmp/developer-dashboard-browser-profile';
+    my $project_cd = 'cd ' . _shell_quote($project) . ' && ';
 
     _assert( -f $tarball, 'host-built tarball is mounted into the container' );
     _reset_dir($dist_dir);
@@ -129,8 +131,6 @@ BOOKMARK
     my $install = _run_shell( 'cpanm install host-built tarball', 'cpanm ' . _shell_quote($tarball) );
     _assert( $install->{exit_code} == 0, 'cpanm installed host-built distribution tarball' );
 
-    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS} = $bookmarks;
-    local $ENV{DEVELOPER_DASHBOARD_CONFIGS}   = $configs;
     my $bare = _run_shell( 'dashboard bare usage', 'dashboard', allow_fail => 1 );
     _assert( $bare->{exit_code} != 0, 'bare dashboard returns non-zero usage exit' );
     _assert_match( $bare->{stdout}, qr/Usage:/, 'bare dashboard prints usage output' );
@@ -139,12 +139,14 @@ BOOKMARK
     _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
 
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
-    _assert_match( $version->{stdout}, qr/^0\.92$/m, 'dashboard version reports the installed runtime version' );
+    _assert_match( $version->{stdout}, qr/^0\.93$/m, 'dashboard version reports the installed runtime version' );
 
-    my $init = _run_shell( 'dashboard init', 'dashboard init' );
+    my $init = _run_shell( 'dashboard init', 'cd ' . _shell_quote($project) . ' && dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
     _assert_match( $init_data->{runtime_root} || '', qr/\.developer-dashboard/, 'dashboard init returns runtime root' );
     _assert( grep { $_ eq 'welcome' } @{ $init_data->{pages} || [] }, 'dashboard init seeds welcome page' );
+    _assert( grep { $_ eq 'api-dashboard' } @{ $init_data->{pages} || [] }, 'dashboard init seeds api-dashboard page' );
+    _assert( grep { $_ eq 'db-dashboard' } @{ $init_data->{pages} || [] }, 'dashboard init seeds db-dashboard page' );
 
     make_path($update_root);
     _write_text(
@@ -186,7 +188,7 @@ PL
     chmod 0600, File::Spec->catfile( $update_root, '03-data.file' )
       or die "Unable to chmod runtime update data file: $!";
 
-    my $update = _run_shell( 'dashboard update', 'dashboard update' );
+    my $update = _run_shell( 'dashboard update', 'cd ' . _shell_quote($project) . ' && dashboard update' );
     my $update_data = _decode_json_tail( $update->{stdout} );
     _assert( ref($update_data) eq 'HASH', 'dashboard update custom command returns structured trailing json summary from the common command hook path' );
     _assert( scalar(keys %{$update_data}) == 2, 'dashboard update custom command ran the seeded executable runtime update scripts only' );
@@ -195,19 +197,19 @@ PL
     _assert_match( $update_data->{'01-runtime-update'}{stdout} || '', qr/runtime update ok/, 'dashboard update custom command captures runtime update script stdout' );
     _assert_match( $update_data->{'02-runtime-result.pl'}{stdout} || '', qr/runtime update ok/, 'dashboard update custom command exposes the prior hook result to later hook scripts' );
 
-    my $paths = _run_shell( 'dashboard paths', 'dashboard paths' );
+    my $paths = _run_shell( 'dashboard paths', 'cd ' . _shell_quote($project) . ' && dashboard paths' );
     _assert_match( $paths->{stdout}, qr/"runtime_root"/, 'dashboard paths returns runtime json' );
     _assert_match( $paths->{stdout}, qr/\Q$bookmarks\E/, 'dashboard paths reflects fake bookmark override' );
     _assert_match( $paths->{stdout}, qr/\Q$configs\E/, 'dashboard paths reflects fake config override' );
     _assert_match( $paths->{stdout}, qr/\Q$cli_root\E/, 'dashboard paths reflects the runtime cli root' );
 
-    my $path_list = _run_shell( 'dashboard path list', 'dashboard path list' );
+    my $path_list = _run_shell( 'dashboard path list', 'cd ' . _shell_quote($project) . ' && dashboard path list' );
     _assert_match( $path_list->{stdout}, qr/"runtime"/, 'dashboard path list returns named paths' );
 
-    my $path_resolve = _run_shell( 'dashboard path resolve home', 'dashboard path resolve home' );
+    my $path_resolve = _run_shell( 'dashboard path resolve home', 'cd ' . _shell_quote($project) . ' && dashboard path resolve home' );
     _assert_match( $path_resolve->{stdout}, qr/^\Q$home\E/m, 'dashboard path resolve home returns integration home' );
 
-    my $bookmark_resolve = _run_shell( 'dashboard path resolve bookmarks', 'dashboard path resolve bookmarks' );
+    my $bookmark_resolve = _run_shell( 'dashboard path resolve bookmarks', 'cd ' . _shell_quote($project) . ' && dashboard path resolve bookmarks' );
     _assert_match( $bookmark_resolve->{stdout}, qr/^\Q$bookmarks\E/m, 'dashboard path resolve bookmarks returns fake project bookmark root' );
 
     my $path_project = _run_shell( 'dashboard path project-root', 'cd ' . _shell_quote($project) . ' && dashboard path project-root' );
@@ -277,89 +279,89 @@ PL
 JSON
     );
 
-    my $config_show = _run_shell( 'dashboard config show', 'dashboard config show' );
+    my $config_show = _run_shell( 'dashboard config show', $project_cd . 'dashboard config show' );
     _assert_match( $config_show->{stdout}, qr/"collectors"/, 'dashboard config show includes collectors' );
 
-    my $page_new = _run_shell( 'dashboard page new', q{dashboard page new sample "Sample Page"} );
+    my $page_new = _run_shell( 'dashboard page new', $project_cd . q{dashboard page new sample "Sample Page"} );
     _assert_match( $page_new->{stdout}, qr/^TITLE:\s+Sample Page/m, 'dashboard page new emits bookmark instruction text' );
 
     _write_text( '/tmp/sample.bookmark', $page_new->{stdout} );
-    my $page_save = _run_shell( 'dashboard page save', q{dashboard page save sample < /tmp/sample.bookmark} );
+    my $page_save = _run_shell( 'dashboard page save', $project_cd . q{dashboard page save sample < /tmp/sample.bookmark} );
     _assert_match( $page_save->{stdout}, qr/sample$/, 'dashboard page save writes bookmark file' );
     _assert( -f File::Spec->catfile( $bookmarks, 'sample' ), 'dashboard page save wrote into fake project bookmark root' );
 
-    my $page_list = _run_shell( 'dashboard page list', 'dashboard page list' );
+    my $page_list = _run_shell( 'dashboard page list', $project_cd . 'dashboard page list' );
     _assert_match( $page_list->{stdout}, qr/"sample"/, 'dashboard page list includes saved sample page' );
     _assert_match( $page_list->{stdout}, qr/"project-home"/, 'dashboard page list includes fake project bookmark page' );
 
-    my $page_show = _run_shell( 'dashboard page show', 'dashboard page show sample' );
+    my $page_show = _run_shell( 'dashboard page show', $project_cd . 'dashboard page show sample' );
     _assert_match( $page_show->{stdout}, qr/^BOOKMARK:\s+sample/m, 'dashboard page show returns canonical bookmark source' );
 
-    my $page_encode = _run_shell( 'dashboard page encode', 'dashboard page encode sample' );
+    my $page_encode = _run_shell( 'dashboard page encode', $project_cd . 'dashboard page encode sample' );
     my $token = _trim( $page_encode->{stdout} );
     _assert( $token ne '', 'dashboard page encode returns a token' );
 
-    my $page_decode = _run_shell( 'dashboard page decode', 'dashboard page decode ' . _shell_quote($token) );
+    my $page_decode = _run_shell( 'dashboard page decode', $project_cd . 'dashboard page decode ' . _shell_quote($token) );
     _assert_match( $page_decode->{stdout}, qr/^BOOKMARK:\s+sample/m, 'dashboard page decode restores bookmark source' );
 
-    my $page_urls = _run_shell( 'dashboard page urls', 'dashboard page urls sample' );
+    my $page_urls = _run_shell( 'dashboard page urls', $project_cd . 'dashboard page urls sample' );
     _assert_match( $page_urls->{stdout}, qr/"render"/, 'dashboard page urls returns edit and render links' );
 
-    my $page_render = _run_shell( 'dashboard page render', 'dashboard page render sample' );
+    my $page_render = _run_shell( 'dashboard page render', $project_cd . 'dashboard page render sample' );
     _assert_match( $page_render->{stdout}, qr/Replace this body with your own page content/, 'dashboard page render produces html output' );
 
-    my $page_source = _run_shell( 'dashboard page source', 'dashboard page source sample' );
+    my $page_source = _run_shell( 'dashboard page source', $project_cd . 'dashboard page source sample' );
     _assert_match( $page_source->{stdout}, qr/^BOOKMARK:\s+sample/m, 'dashboard page source returns instruction text' );
 
-    my $action = _run_shell( 'dashboard action run system-status paths', 'dashboard action run system-status paths' );
+    my $action = _run_shell( 'dashboard action run system-status paths', $project_cd . 'dashboard action run system-status paths' );
     _assert_match( $action->{stdout}, qr/runtime/, 'dashboard action run executes builtin action' );
 
-    my $collector_write = _run_shell( 'dashboard collector write-result', q{printf 'manual-output' | dashboard collector write-result manual.collector 0} );
+    my $collector_write = _run_shell( 'dashboard collector write-result', $project_cd . q{printf 'manual-output' | dashboard collector write-result manual.collector 0} );
     _assert( $collector_write->{exit_code} == 0, 'dashboard collector write-result accepts manual output' );
 
-    my $collector_run = _run_shell( 'dashboard collector run', 'dashboard collector run example.collector' );
+    my $collector_run = _run_shell( 'dashboard collector run', $project_cd . 'dashboard collector run example.collector' );
     _assert_match( $collector_run->{stdout}, qr/"exit_code"\s*:\s*0/, 'dashboard collector run succeeds for example collector' );
 
-    my $fake_collector_run = _run_shell( 'dashboard collector run fake.config.collector', 'dashboard collector run fake.config.collector' );
+    my $fake_collector_run = _run_shell( 'dashboard collector run fake.config.collector', $project_cd . 'dashboard collector run fake.config.collector' );
     _assert_match( $fake_collector_run->{stdout}, qr/"exit_code"\s*:\s*0/, 'dashboard collector run succeeds for fake project config collector' );
 
-    my $collector_list = _run_shell( 'dashboard collector list', 'dashboard collector list' );
+    my $collector_list = _run_shell( 'dashboard collector list', $project_cd . 'dashboard collector list' );
     _assert_match( $collector_list->{stdout}, qr/example\.collector|manual\.collector/, 'dashboard collector list shows stored collectors' );
     _assert_match( $collector_list->{stdout}, qr/fake\.config\.collector/, 'dashboard collector list shows fake project config collector' );
 
-    my $collector_job = _run_shell( 'dashboard collector job', 'dashboard collector job example.collector' );
+    my $collector_job = _run_shell( 'dashboard collector job', $project_cd . 'dashboard collector job example.collector' );
     _assert_match( $collector_job->{stdout}, qr/"command"/, 'dashboard collector job returns job metadata' );
 
-    my $collector_status = _run_shell( 'dashboard collector status', 'dashboard collector status example.collector' );
+    my $collector_status = _run_shell( 'dashboard collector status', $project_cd . 'dashboard collector status example.collector' );
     _assert_match( $collector_status->{stdout}, qr/"enabled"/, 'dashboard collector status returns status data' );
 
-    my $collector_output = _run_shell( 'dashboard collector output', 'dashboard collector output example.collector' );
+    my $collector_output = _run_shell( 'dashboard collector output', $project_cd . 'dashboard collector output example.collector' );
     _assert_match( $collector_output->{stdout}, qr/example collector output/, 'dashboard collector output returns prepared output' );
 
-    my $collector_inspect = _run_shell( 'dashboard collector inspect', 'dashboard collector inspect example.collector' );
+    my $collector_inspect = _run_shell( 'dashboard collector inspect', $project_cd . 'dashboard collector inspect example.collector' );
     _assert_match( $collector_inspect->{stdout}, qr/"job"|"status"|"output"/, 'dashboard collector inspect returns combined view' );
 
-    my $collector_start = _run_shell( 'dashboard collector start', 'dashboard collector start example.collector' );
+    my $collector_start = _run_shell( 'dashboard collector start', $project_cd . 'dashboard collector start example.collector' );
     _assert_match( $collector_start->{stdout}, qr/\d+/, 'dashboard collector start returns a pid' );
 
     sleep 2;
 
-    my $collector_restart = _run_shell( 'dashboard collector restart', 'dashboard collector restart example.collector' );
+    my $collector_restart = _run_shell( 'dashboard collector restart', $project_cd . 'dashboard collector restart example.collector' );
     _assert_match( $collector_restart->{stdout}, qr/\d+/, 'dashboard collector restart returns a pid' );
 
-    my $collector_stop = _run_shell( 'dashboard collector stop', 'dashboard collector stop example.collector' );
+    my $collector_stop = _run_shell( 'dashboard collector stop', $project_cd . 'dashboard collector stop example.collector' );
     _assert_match( $collector_stop->{stdout}, qr/\d+/, 'dashboard collector stop returns the stopped pid' );
 
-    my $collector_log = _run_shell( 'dashboard collector log', 'dashboard collector log' );
+    my $collector_log = _run_shell( 'dashboard collector log', $project_cd . 'dashboard collector log' );
     _assert( defined $collector_log->{stdout}, 'dashboard collector log returns log text' );
 
-    my $auth_add = _run_shell( 'dashboard auth add-user', q{dashboard auth add-user explicit_helper explicit-pass-123} );
+    my $auth_add = _run_shell( 'dashboard auth add-user', $project_cd . q{dashboard auth add-user explicit_helper explicit-pass-123} );
     _assert_match( $auth_add->{stdout}, qr/"username"\s*:\s*"explicit_helper"/, 'dashboard auth add-user creates helper user' );
 
-    my $auth_list = _run_shell( 'dashboard auth list-users', 'dashboard auth list-users' );
+    my $auth_list = _run_shell( 'dashboard auth list-users', $project_cd . 'dashboard auth list-users' );
     _assert_match( $auth_list->{stdout}, qr/"explicit_helper"/, 'dashboard auth list-users includes explicit helper' );
 
-    my $auth_remove = _run_shell( 'dashboard auth remove-user', 'dashboard auth remove-user explicit_helper' );
+    my $auth_remove = _run_shell( 'dashboard auth remove-user', $project_cd . 'dashboard auth remove-user explicit_helper' );
     _assert_match( $auth_remove->{stdout}, qr/"removed"\s*:\s*"explicit_helper"/, 'dashboard auth remove-user removes explicit helper' );
 
     my $docker_dry = _run_shell(
@@ -369,7 +371,7 @@ JSON
     _assert_match( $docker_dry->{stdout}, qr/"command"\s*:/, 'dashboard docker compose dry-run returns resolved command' );
     _assert_match( $docker_dry->{stdout}, qr/compose\.yaml/, 'dashboard docker compose dry-run includes compose file' );
 
-    my $serve = _run_shell( 'dashboard serve', 'dashboard serve' );
+    my $serve = _run_shell( 'dashboard serve', $project_cd . 'dashboard serve' );
     _assert_match( $serve->{stdout}, qr/"pid"\s*:/, 'dashboard serve starts background web service' );
     _wait_for_http( 'http://127.0.0.1:7890/', 200 );
 
@@ -400,7 +402,7 @@ JSON
     my $helper_dom = _run_browser_dom( 'browser helper root', "http://$container_ip:7890/", user_data_dir => $profile );
     _assert_match( $helper_dom, qr/action="\/login"/, 'browser helper root renders login form' );
 
-    _run_shell( 'dashboard auth add helper-login user', q{dashboard auth add-user helper_login helper-login-pass-123} );
+    _run_shell( 'dashboard auth add helper-login user', $project_cd . q{dashboard auth add-user helper_login helper-login-pass-123} );
     my $login = _run_shell(
         'helper login',
         'curl -sS -c ' . _shell_quote($cookie) .
@@ -424,16 +426,16 @@ JSON
     _assert( $helper_logout->{exit_code} == 0, 'helper logout request completed' );
     _assert_match( _read_text('/tmp/helper-logout.headers'), qr/^HTTP\/1\.1 302/m, 'helper logout redirects to login' );
 
-    my $post_logout_users = _run_shell( 'dashboard auth list-users after logout', 'dashboard auth list-users' );
+    my $post_logout_users = _run_shell( 'dashboard auth list-users after logout', $project_cd . 'dashboard auth list-users' );
     _assert( $post_logout_users->{stdout} !~ /helper_login/, 'helper logout removes helper account from auth store' );
 
-    my $restart = _run_shell( 'dashboard restart', 'cd ' . _shell_quote($source_root) . ' && dashboard restart' );
+    my $restart = _run_shell( 'dashboard restart', $project_cd . 'dashboard restart' );
     _assert_match( $restart->{stdout}, qr/"web_pid"\s*:/, 'dashboard restart returns structured lifecycle data' );
     _wait_for_http( 'http://127.0.0.1:7890/', 200 );
 
     sleep 2;
 
-    my $restart_collectors = _run_shell( 'dashboard collector list after restart', 'dashboard collector list' );
+    my $restart_collectors = _run_shell( 'dashboard collector list after restart', $project_cd . 'dashboard collector list' );
     my $restart_collectors_data = decode_json( $restart_collectors->{stdout} );
     my %restart_collectors_by_name = map { ( $_->{name} || '' ) => $_ } @{$restart_collectors_data};
     _assert( exists $restart_collectors_by_name{'broken.collector'}, 'restart keeps the broken config collector visible in collector state' );
@@ -447,7 +449,7 @@ JSON
     _assert( $broken_exit_code != 0, 'broken config collector keeps a non-zero exit code after restart' );
     _assert( $healthy_exit_code == 0, 'healthy config collector stays green after restart' );
 
-    my $restart_indicators = _run_shell( 'dashboard indicator list after restart', 'dashboard indicator list' );
+    my $restart_indicators = _run_shell( 'dashboard indicator list after restart', $project_cd . 'dashboard indicator list' );
     _assert_match( $restart_indicators->{stdout}, qr/"name"\s*:\s*"broken\.indicator"(?s:.*?)"status"\s*:\s*"error"/, 'broken config collector indicator stays red after restart' );
     _assert_match( $restart_indicators->{stdout}, qr/"name"\s*:\s*"healthy\.indicator"(?s:.*?)"status"\s*:\s*"ok"/, 'healthy config collector indicator stays green after restart' );
 
@@ -459,7 +461,7 @@ JSON
     _assert_match( $restart_status->{stdout}, qr/"prog"\s*:\s*"broken\.indicator"/, 'system status payload includes the broken config collector indicator' );
     _assert_match( $restart_status->{stdout}, qr/"prog"\s*:\s*"healthy\.indicator"/, 'system status payload includes the healthy config collector indicator' );
 
-    my $stop = _run_shell( 'dashboard stop', 'dashboard stop' );
+    my $stop = _run_shell( 'dashboard stop', $project_cd . 'dashboard stop' );
     _assert_match( $stop->{stdout}, qr/"web_pid"\s*:/, 'dashboard stop returns structured lifecycle data' );
     my $stopped = _run_shell(
         'curl after stop',

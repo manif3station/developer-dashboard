@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+0.93  2026-04-01
+    - made a project-local `./.developer-dashboard` tree the first runtime lookup root for bookmarks, config, CLI commands and hooks, auth users, sessions, and isolated docker service folders, while still falling back to `~/.developer-dashboard` when the project-local item is missing
+    - seeded sanitized `api-dashboard` and `db-dashboard` bookmark pages during `dashboard init` alongside `welcome`, keeping the pages editable as normal saved bookmarks without carrying forward legacy company-specific text or credentials
+    - moved the blank-environment integration flow onto a real fake-project `./.developer-dashboard` tree so the tarball install verifies the same local-over-home precedence model used by the shipped runtime
+
 0.92  2026-04-01
     - hardened blank-environment tarball installation by exporting PERL_CANARY_STABILITY_NOPROMPT and the other noninteractive installer flags during clean-container cpanm runs
     - kept the Runtime::Result hook-chain helper release intact while making the blank integration path safe against interactive dependency prompts from the JSON::XS toolchain

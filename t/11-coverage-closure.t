@@ -38,6 +38,7 @@ sub dies_like {
 
 my $home = tempdir(CLEANUP => 1);
 local $ENV{HOME} = $home;
+chdir $home or die "Unable to chdir to $home: $!";
 
 my $repo = File::Spec->catdir( $home, 'projects', 'coverage-app' );
 my $bin  = File::Spec->catdir( $home, 'bin' );

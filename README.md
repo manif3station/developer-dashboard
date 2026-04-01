@@ -10,6 +10,8 @@ Without it, local development usually ends up spread across shell history, ad-ho
 
 It brings together browser pages, saved notes, helper actions, collectors, prompt indicators, path aliases, open-file shortcuts, data query tools, and Docker Compose helpers so local development can stay centered around one consistent home instead of a pile of disconnected scripts and tabs.
 
+When the current project contains `./.developer-dashboard`, that tree becomes the first runtime lookup root for dashboard-managed files. The home runtime under `~/.developer-dashboard` stays as the fallback base, so project-local bookmarks, config, CLI hooks, helper users, sessions, and isolated docker service folders can override home defaults without losing shared fallback data that is not redefined locally.
+
 Release tarballs contain installable runtime artifacts only; local Dist::Zilla release-builder configuration is kept out of the shipped archive.
 Frequently used built-in commands such as `of`, `open-file`, `pjq`, `pyq`, `ptomq`, and `pjp` are also installed as standalone executables so they can run directly without loading the full `dashboard` runtime.
 Before publishing a release, the built tarball should be smoke-tested with `cpanm` from the artifact itself so the shipped archive matches the fixed source tree.
@@ -172,9 +174,9 @@ The distribution supports these compatibility-style customization variables:
 ### User CLI Extensions
 
 Unknown top-level subcommands can be provided by executable files under
-`~/.developer-dashboard/cli`. For example, `dashboard foobar a b` will exec
-`~/.developer-dashboard/cli/foobar` with `a b` as argv, while preserving
-stdin, stdout, and stderr.
+`./.developer-dashboard/cli` first and then `~/.developer-dashboard/cli`.
+For example, `dashboard foobar a b` will exec the first matching
+`cli/foobar` with `a b` as argv, while preserving stdin, stdout, and stderr.
 
 ### Shared Nav Fragments
 
@@ -293,8 +295,9 @@ printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
 ```
 
 Per-command hook files can live under either
-`~/.developer-dashboard/cli/<command>/` or
-`~/.developer-dashboard/cli/<command>.d/`. Executable files in that directory
+`./.developer-dashboard/cli/<command>/` or
+`./.developer-dashboard/cli/<command>.d/` first, then the same paths under
+`~/.developer-dashboard/cli/`. Executable files in the selected directory
 are run in sorted filename order before the real command runs,
 non-executable files are skipped, and each hook now streams its own `stdout`
 and `stderr` live to the terminal while still accumulating those channels into
@@ -308,16 +311,16 @@ earlier hook output. Perl hook scripts can read that JSON through
 `Runtime::Result`.
 
 If you want `dashboard update`, provide it as a normal user command at
-`~/.developer-dashboard/cli/update` or `~/.developer-dashboard/cli/update/run`.
-Its hook files can live under `~/.developer-dashboard/cli/update/` or
-`~/.developer-dashboard/cli/update.d/`, and the real command receives the
-final `RESULT` JSON through the environment after those hook files run.
+`./.developer-dashboard/cli/update` or `./.developer-dashboard/cli/update/run`
+first, with the home runtime as fallback. Its hook files can live under
+`update/` or `update.d/`, and the real command receives the final `RESULT`
+JSON through the environment after those hook files run.
 
 Use `dashboard version` to print the installed Developer Dashboard version.
 
-The blank-container integration harness applies fake-project dashboard override
-environment variables only after `cpanm` finishes installing the tarball so the
-shipped test suite still runs against a clean runtime.
+The blank-container integration harness now installs the tarball first and then
+builds a fake-project `./.developer-dashboard` tree so the shipped test suite
+still starts from a clean runtime before exercising project-local overrides.
 
 ### First Run
 
@@ -336,7 +339,7 @@ dashboard path add foobar /tmp/foobar
 dashboard path del foobar
 ```
 
-Custom path aliases are stored in the global dashboard config so shell helpers such as `cdr foobar` and `which_dir foobar` keep working across sessions. When a saved alias points inside your home directory, the stored config uses `$HOME/...` instead of a hard-coded absolute home path so a shared `~/.developer-dashboard` folder remains portable across different developer accounts. Re-adding an existing alias updates it without error, and deleting a missing alias is also safe.
+Custom path aliases are stored in the effective dashboard config root so shell helpers such as `cdr foobar` and `which_dir foobar` keep working across sessions. When a project-local `./.developer-dashboard` tree exists, alias writes go there first; otherwise they go to the home runtime. When a saved alias points inside your home directory, the stored config uses `$HOME/...` instead of a hard-coded absolute home path so a shared fallback runtime remains portable across different developer accounts. Re-adding an existing alias updates it without error, and deleting a missing alias is also safe.
 
 Legacy `Folder` compatibility also accepts the modern root-style names through `AUTOLOAD`, so older code can use either `Folder->dd` or `Folder->runtime_root`, and likewise `bookmarks_root` and `config_root`. Before `Folder->configure(...)` runs, those runtime-backed names lazily bootstrap a default dashboard path registry from `HOME` instead of dying.
 
@@ -546,9 +549,9 @@ dashboard docker compose config green
 dashboard docker compose config
 ```
 
-The resolver also supports old-style isolated service folders without adding entries to dashboard JSON config. If `~/.developer-dashboard/config/docker/green/compose.yml` exists, `dashboard docker compose config green` or `dashboard docker compose up green` will pick it up automatically by inferring service names from the passthrough compose args before the real `docker compose` command is assembled. If no service name is passed, the resolver scans isolated service folders and preloads every non-disabled folder. If a folder contains `disabled.yml` it is skipped. Each isolated folder contributes `development.compose.yml` when present, otherwise `compose.yml`.
+The resolver also supports old-style isolated service folders without adding entries to dashboard JSON config. If `./.developer-dashboard/docker/green/compose.yml` exists in the current project it wins; otherwise the resolver falls back to `~/.developer-dashboard/config/docker/green/compose.yml`. `dashboard docker compose config green` or `dashboard docker compose up green` will pick it up automatically by inferring service names from the passthrough compose args before the real `docker compose` command is assembled. If no service name is passed, the resolver scans isolated service folders and preloads every non-disabled folder. If a folder contains `disabled.yml` it is skipped. Each isolated folder contributes `development.compose.yml` when present, otherwise `compose.yml`.
 
-During compose execution the dashboard exports `DDDC` as `~/.developer-dashboard/config/docker`, so compose YAML can keep using `${DDDC}` paths inside the YAML itself.
+During compose execution the dashboard exports `DDDC` as the effective config-root docker directory for the current runtime, so compose YAML can keep using `${DDDC}` paths inside the YAML itself.
 Wrapper flags such as `--service`, `--addon`, `--mode`, `--project`, and `--dry-run` are consumed first, and all remaining docker compose flags such as `-d` and `--build` pass straight through to the real `docker compose` command.
 Without `--dry-run`, the dashboard hands off with `exec`, so you see the normal streaming output from `docker compose` itself instead of a dashboard JSON wrapper.
 
@@ -619,6 +622,9 @@ If `~/.developer-dashboard/cli/update` or `~/.developer-dashboard/cli/update/run
 exists, `dashboard update` runs that command after any sorted hook files from
 `~/.developer-dashboard/cli/update/` or `~/.developer-dashboard/cli/update.d/`.
 
+`dashboard init` seeds three editable starter bookmarks when they are missing:
+`welcome`, `api-dashboard`, and `db-dashboard`.
+
 ### Blank Environment Integration
 
 Run the host-built tarball integration flow with:
@@ -637,15 +643,15 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.92.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.92.tar.gz -v
+tar -tzf Developer-Dashboard-0.93.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.93.tar.gz -v
 ```
 
 The harness also:
 
-- creates a fake project wired through `DEVELOPER_DASHBOARD_BOOKMARKS` and `DEVELOPER_DASHBOARD_CONFIGS`
+- creates a fake project with its own `./.developer-dashboard` runtime tree
 - verifies the installed CLI works against that fake project through the mounted tarball install
-- seeds a user-provided `~/.developer-dashboard/cli/update` command plus `~/.developer-dashboard/cli/update.d` hooks inside the container so `dashboard update` exercises the same top-level command-hook path as every other subcommand, including later-hook reads through `Runtime::Result`
+- seeds a user-provided fake-project `./.developer-dashboard/cli/update` command plus `update.d` hooks inside the container so `dashboard update` exercises the same top-level command-hook path as every other subcommand, including later-hook reads through `Runtime::Result`
 - verifies collector failure isolation with one intentionally broken Perl config collector and one healthy config collector, and confirms the healthy indicator still stays green after `dashboard restart`
 - starts the installed web service
 - uses headless Chromium to verify the root editor, a saved fake-project bookmark page from the fake project bookmark directory, and the helper login page

@@ -39,6 +39,10 @@ make_path( File::Spec->catdir( $workspace, 'Alpha-App', '.git' ) );
 make_path( File::Spec->catdir( $workspace, '.hidden' ) );
 make_path( File::Spec->catdir( $projects, 'Alpha-App' ) );
 make_path( File::Spec->catdir( $projects, 'Beta App' ) );
+my $local_repo = File::Spec->catdir( $home, 'projects', 'Local-App' );
+make_path( File::Spec->catdir( $local_repo, '.git' ) );
+make_path( File::Spec->catdir( $local_repo, '.developer-dashboard' ) );
+chdir $home or die $!;
 
 my $paths = Developer::Dashboard::PathRegistry->new(
     home            => $home,
@@ -102,8 +106,54 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
 {
     chdir $home or die $!;
     is( $paths->repo_dashboard_root, undef, 'repo_dashboard_root returns undef outside a repo' );
-    chdir $original_cwd or die $!;
+    chdir $home or die $!;
 }
+{
+    chdir $local_repo or die $!;
+    is( $paths->project_runtime_root, File::Spec->catdir( $local_repo, '.developer-dashboard' ), 'project_runtime_root resolves only when the repo already contains a dashboard root' );
+    is( $paths->runtime_root, File::Spec->catdir( $local_repo, '.developer-dashboard' ), 'runtime_root prefers the project-local dashboard root when present' );
+    is_deeply(
+        [ $paths->runtime_roots ],
+        [
+            File::Spec->catdir( $local_repo, '.developer-dashboard' ),
+            File::Spec->catdir( $home, '.developer-dashboard' ),
+        ],
+        'runtime_roots returns project-local then home fallback roots',
+    );
+    is( $paths->dashboards_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'dashboards' ), 'dashboards_root writes to the project-local runtime when present' );
+    is( $paths->cli_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'cli' ), 'cli_root writes to the project-local runtime when present' );
+    is( $paths->config_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'config' ), 'config_root writes to the project-local runtime when present' );
+    is( $paths->users_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'config', 'auth', 'users' ), 'users_root writes to the project-local runtime when present' );
+    is( $paths->sessions_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'state', 'sessions' ), 'sessions_root writes to the project-local runtime when present' );
+    chdir $home or die $!;
+}
+{
+    chdir $local_repo or die $!;
+    is_deeply(
+        [ $paths->cli_roots ],
+        [
+            File::Spec->catdir( $local_repo, '.developer-dashboard', 'cli' ),
+            File::Spec->catdir( $home, '.developer-dashboard', 'cli' ),
+        ],
+        'cli_roots returns project-local then home fallback roots',
+    );
+    chdir $home or die $!;
+}
+
+{
+    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS} = '~/bookmarks-env';
+    is_deeply(
+        [ $paths->dashboards_roots ],
+        [ File::Spec->catdir( $home, 'bookmarks-env' ) ],
+        'dashboards_roots honors the bookmarks environment override',
+    );
+}
+
+is_deeply(
+    Developer::Dashboard::PathRegistry->new( home => $home )->named_paths,
+    {},
+    'named_paths returns an empty hash when no aliases are configured',
+);
 
 my $named_dir = $paths->resolve_dir('named');
 ok( !defined scalar $paths->ls('named'), 'ls returns undef for missing directory' );
@@ -125,7 +175,7 @@ my $with_dir_result = $paths->with_dir(
     }
 );
 is( $with_dir_result, 'ok', 'with_dir returns scalar result' );
-is( cwd(), $original_cwd, 'with_dir restores original cwd after scalar call' );
+is( cwd(), $home, 'with_dir restores original cwd after scalar call' );
 
 my @with_dir_list = $paths->with_dir(
     'named',
@@ -147,7 +197,7 @@ dies_like(
     qr/boom/,
     'with_dir rethrows callback exceptions',
 );
-is( cwd(), $original_cwd, 'with_dir restores cwd after callback errors' );
+is( cwd(), $home, 'with_dir restores cwd after callback errors' );
 
 my @located = $paths->locate_projects('alpha');
 is_deeply(
@@ -366,6 +416,33 @@ print {$skip_json} "skip\n";
 close $skip_json;
 is_deeply( [ sort grep { $_ ne 'skip.txt' } $page_store->list_saved_pages ], ['page-one'], 'list_saved_pages includes saved bookmark files' );
 
+my $home_only_page = Developer::Dashboard::PageDocument->new(
+    id     => 'shared-page',
+    title  => 'Home Shared Page',
+    layout => { body => 'from home root' },
+);
+$page_store->save_page($home_only_page);
+{
+    chdir $local_repo or die $!;
+    my $local_store = Developer::Dashboard::PageStore->new( paths => $paths );
+    is( $local_store->read_saved_entry('shared-page'), $home_only_page->canonical_instruction, 'page store falls back to the home bookmark root when a project-local page is missing' );
+    my $local_override_page = Developer::Dashboard::PageDocument->new(
+        id     => 'shared-page',
+        title  => 'Local Shared Page',
+        layout => { body => 'from local root' },
+    );
+    my $local_only_page = Developer::Dashboard::PageDocument->new(
+        id     => 'local-only',
+        title  => 'Local Only Page',
+        layout => { body => 'local page body' },
+    );
+    $local_store->save_page($local_override_page);
+    $local_store->save_page($local_only_page);
+    is( $local_store->load_saved_page('shared-page')->as_hash->{title}, 'Local Shared Page', 'page store prefers project-local bookmark files over the home fallback' );
+    is_deeply( [ $local_store->list_saved_pages ], [ 'local-only', 'page-one', 'shared-page' ], 'page store lists the project-local union of bookmark ids with local overrides taking precedence' );
+    chdir $home or die $!;
+}
+
 my $collector = Developer::Dashboard::Collector->new( paths => $paths );
 dies_like( sub { Developer::Dashboard::Collector->new }, qr/Missing paths registry/, 'collector requires paths' );
 my $collector_paths = $collector->collector_paths('alpha.collector');
@@ -542,9 +619,38 @@ like(
     );
     like( $branch_prompt, qr/\{Alpha-App:master\}/, 'prompt includes repo name and git branch' );
 }
+{
+    my $git_repo = File::Spec->catdir( $home, 'prompt-git-repo' );
+    make_path($git_repo);
+    system( 'git', 'init', '-q', $git_repo ) == 0 or die 'git init failed';
+    system( 'git', '-C', $git_repo, 'config', 'user.email', 'prompt@example.test' ) == 0 or die 'git config user.email failed';
+    system( 'git', '-C', $git_repo, 'config', 'user.name', 'Prompt Coverage' ) == 0 or die 'git config user.name failed';
+    open my $git_file_fh, '>', File::Spec->catfile( $git_repo, 'README' ) or die $!;
+    print {$git_file_fh} "prompt coverage\n";
+    close $git_file_fh;
+    system( 'git', '-C', $git_repo, 'add', 'README' ) == 0 or die 'git add failed';
+    system( 'git', '-C', $git_repo, 'commit', '-q', '-m', 'init' ) == 0 or die 'git commit failed';
+
+    my $cwd_before = cwd();
+    chdir $git_repo or die $!;
+    my $rendered_from_cwd = Developer::Dashboard::Prompt->new(
+        paths      => $plain_paths,
+        indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
+    )->render;
+    chdir $cwd_before or die $!;
+
+    like( $rendered_from_cwd, qr/prompt-git-repo/, 'prompt render uses the current working directory when cwd is omitted' );
+
+    my $detected_branch = Developer::Dashboard::Prompt->new(
+        paths      => $plain_paths,
+        indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
+    )->_git_branch($git_repo);
+    ok( defined $detected_branch && $detected_branch ne '', 'prompt detects a git branch from a real repository' );
+}
 
 my $repo = File::Spec->catdir( $home, 'repo-for-config' );
 make_path( File::Spec->catdir( $repo, '.git' ) );
+make_path( File::Spec->catdir( $repo, '.developer-dashboard' ) );
 open my $repo_cfg, '>', File::Spec->catfile( $repo, '.developer-dashboard.json' ) or die $!;
 print {$repo_cfg} <<'JSON';
 {
@@ -564,12 +670,48 @@ print {$repo_cfg} <<'JSON';
 }
 JSON
 close $repo_cfg;
+my $home_config_file = File::Spec->catfile( $home, '.developer-dashboard', 'config', 'config.json' );
+make_path( File::Spec->catdir( $home, '.developer-dashboard', 'config' ) );
+open my $home_cfg, '>', $home_config_file or die $!;
+print {$home_cfg} <<'JSON';
+{
+  "path_aliases": {
+    "home_only": "~/home-only"
+  },
+  "collectors": [
+    {
+      "name": "home.collector",
+      "command": "printf 'home'",
+      "cwd": "home"
+    }
+  ]
+}
+JSON
+close $home_cfg;
+my $local_config_file = File::Spec->catfile( $repo, '.developer-dashboard', 'config', 'config.json' );
+make_path( File::Spec->catdir( $repo, '.developer-dashboard', 'config' ) );
+open my $local_cfg, '>', $local_config_file or die $!;
+print {$local_cfg} <<'JSON';
+{
+  "path_aliases": {
+    "local_only": "~/local-only"
+  },
+  "collectors": [
+    {
+      "name": "local.collector",
+      "command": "printf 'local'",
+      "cwd": "home"
+    }
+  ]
+}
+JSON
+close $local_cfg;
 
 {
     local $ENV{DEVELOPER_DASHBOARD_CHECKERS} = 'repo.collector:config.two';
     chdir $repo or die $!;
     is( $paths->current_project_root, $repo, 'current_project_root resolves the active git repo' );
-    is( $paths->repo_dashboard_root, File::Spec->catdir( $repo, '.developer-dashboard' ), 'repo_dashboard_root resolves and creates the repo dashboard directory' );
+    is( $paths->repo_dashboard_root, File::Spec->catdir( $repo, '.developer-dashboard' ), 'repo_dashboard_root resolves an existing repo dashboard directory' );
     is_deeply(
         $config->load_repo,
         {
@@ -581,9 +723,33 @@ close $repo_cfg;
         },
         'load_repo reads repo-local configuration',
     );
+    is_deeply(
+        $config->load_global,
+        {
+            path_aliases => {
+                home_only  => '~/home-only',
+                local_only => '~/local-only',
+            },
+            collectors => [
+                { name => 'local.collector', command => q{printf 'local'}, cwd => 'home' },
+            ],
+        },
+        'load_global gives the project-local runtime config precedence while still merging nested hash domains such as path aliases',
+    );
     is( $config->merged->{default_mode}, 'source', 'merged gives repo config precedence over global config' );
     my $collectors = $config->collectors;
     is_deeply( [ map { $_->{name} } @$collectors ], [ 'repo.collector', 'config.two' ], 'collector filter follows colon-separated legacy semantics' );
+    my $global_aliases = $config->global_path_aliases;
+    is( $global_aliases->{home_only}, File::Spec->catdir( $home, 'home-only' ), 'global_path_aliases keeps the home runtime fallback aliases' );
+    is( $global_aliases->{local_only}, File::Spec->catdir( $home, 'local-only' ), 'global_path_aliases includes project-local runtime aliases' );
+    my $saved_global = $config->save_global(
+        {
+            path_aliases => {
+                saved_here => '~/saved-here',
+            },
+        }
+    );
+    is( $saved_global, $local_config_file, 'save_global writes into the project-local runtime config when it exists' );
 }
 {
     local $ENV{DEVELOPER_DASHBOARD_CHECKERS} = 'repo.collector::config.two';
@@ -592,6 +758,39 @@ close $repo_cfg;
     is_deeply( [ map { $_->{name} } @$collectors ], [ 'repo.collector', 'config.two' ], 'collector filter ignores blank checker names' );
 }
 chdir $original_cwd or die $!;
+
+{
+    require Developer::Dashboard::Auth;
+    require Developer::Dashboard::SessionStore;
+    my $auth = Developer::Dashboard::Auth->new( files => $files, paths => $paths );
+    my $sessions = Developer::Dashboard::SessionStore->new( paths => $paths );
+    my $home_user_root = File::Spec->catdir( $home, '.developer-dashboard', 'config', 'auth', 'users' );
+    make_path($home_user_root);
+    open my $home_user, '>', File::Spec->catfile( $home_user_root, 'fallback.json' ) or die $!;
+    print {$home_user} qq|{"username":"fallback","role":"helper","salt":"one","password_hash":"two","updated_at":"2026-01-01T00:00:00Z"}|;
+    close $home_user;
+    my $home_session_root = File::Spec->catdir( $home, '.developer-dashboard', 'state', 'sessions' );
+    make_path($home_session_root);
+    open my $home_session, '>', File::Spec->catfile( $home_session_root, 'fallback-session.json' ) or die $!;
+    print {$home_session} qq|{"session_id":"fallback-session","username":"fallback","role":"helper","remote_addr":"","created_at":"2026-01-01T00:00:00Z","expires_at":"2099-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}|;
+    close $home_session;
+
+    chdir $local_repo or die $!;
+    ok( $auth->get_user('fallback'), 'auth falls back to the home runtime user store when the local runtime does not define the user' );
+    my $created_user = $auth->add_user( username => 'localhelper', password => 'helper-pass-123' );
+    is( $created_user->{username}, 'localhelper', 'auth add_user writes local runtime users successfully' );
+    ok( -f File::Spec->catfile( $local_repo, '.developer-dashboard', 'config', 'auth', 'users', 'localhelper.json' ), 'auth add_user writes to the project-local runtime user store when available' );
+    my @users = $auth->list_users;
+    is_deeply( [ map { $_->{username} } @users ], [ 'fallback', 'localhelper' ], 'auth list_users returns the project-local and home fallback union' );
+    ok( $sessions->get('fallback-session'), 'session store falls back to the home runtime session root when a local record is missing' );
+    my $created_session = $sessions->create( username => 'localhelper', role => 'helper' );
+    ok( -f File::Spec->catfile( $local_repo, '.developer-dashboard', 'state', 'sessions', $created_session->{session_id} . '.json' ), 'session store writes new sessions to the project-local runtime when available' );
+    $auth->remove_user('fallback');
+    ok( !defined $auth->get_user('fallback'), 'auth remove_user removes matching records from all runtime roots' );
+    $sessions->delete('fallback-session');
+    ok( !defined $sessions->get('fallback-session'), 'session delete removes matching records from all runtime roots' );
+    chdir $home or die $!;
+}
 
 my $collector_indicators = Developer::Dashboard::IndicatorStore->new( paths => $paths );
 my $runner = Developer::Dashboard::CollectorRunner->new(

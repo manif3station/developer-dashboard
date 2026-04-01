@@ -33,9 +33,9 @@ structured hook output without hand-parsing the JSON blob.
 
 Use `dashboard version` to print the installed Developer Dashboard version.
 
-The blank-container integration harness applies fake-project dashboard override
-environment variables only after `cpanm` finishes installing the tarball so the
-shipped test suite still runs against a clean runtime.
+The blank-container integration harness now installs the tarball first and then
+builds a fake-project `./.developer-dashboard` tree so the shipped test suite
+still starts from a clean runtime before exercising project-local overrides.
 
 ## Local Usage
 
@@ -144,10 +144,11 @@ The extension layer now includes:
 - user CLI hook directories under `~/.developer-dashboard/cli`
 - project-aware Docker Compose resolution through `dashboard docker compose`
 
-Compose setup can now stay isolated in service folders under `~/.developer-dashboard/config/docker/<service>/compose.yml` without adding JSON config entries, and the wrapper infers service names from passthrough docker compose args such as `config green` before building the final `docker compose` command. When no service name is passed, the resolver scans isolated service folders and preloads every non-disabled folder. A folder containing `disabled.yml` is skipped. Each isolated folder contributes `development.compose.yml` when present, otherwise `compose.yml`. The compose runtime also exports `DDDC` as that global docker config root so YAML can continue to use `${DDDC}` paths internally. Wrapper-only flags are consumed first and remaining docker compose flags such as `-d` and `--build` pass through untouched.
+Compose setup can now stay isolated in service folders under `./.developer-dashboard/docker/<service>/compose.yml` for the current project, with `~/.developer-dashboard/config/docker/<service>/compose.yml` as the fallback. The wrapper infers service names from passthrough docker compose args such as `config green` before building the final `docker compose` command. When no service name is passed, the resolver scans isolated service folders and preloads every non-disabled folder. A folder containing `disabled.yml` is skipped. Each isolated folder contributes `development.compose.yml` when present, otherwise `compose.yml`. The compose runtime also exports `DDDC` as the effective config-root docker directory for the current runtime so YAML can continue to use `${DDDC}` paths internally. Wrapper-only flags are consumed first and remaining docker compose flags such as `-d` and `--build` pass through untouched.
 Without `--dry-run`, the wrapper now hands off with `exec`, so terminal users see the normal streaming output from `docker compose` itself instead of a dashboard JSON wrapper.
-Path aliases can now be managed from the CLI with `dashboard path add <name> <path>` and `dashboard path del <name>`. These commands persist user-defined aliases in the global config, and both repeated adds and repeated deletes are intentionally idempotent. When an added path lives under the current home directory, the stored config rewrites it to `$HOME/...` so a shared dashboard config directory does not hard-code one developer's absolute home path.
+Path aliases can now be managed from the CLI with `dashboard path add <name> <path>` and `dashboard path del <name>`. These commands persist user-defined aliases in the effective config root, using a project-local `./.developer-dashboard` tree first when it exists and otherwise the home runtime. Both repeated adds and repeated deletes are intentionally idempotent. When an added path lives under the current home directory, the stored config rewrites it to `$HOME/...` so a shared dashboard config directory does not hard-code one developer's absolute home path.
 Legacy `Folder` compatibility now also accepts the root-style names exposed by `dashboard paths`, so `Folder->runtime_root`, `Folder->bookmarks_root`, and `Folder->config_root` resolve through the existing legacy aliases without adding separate wrapper methods. Before `Folder->configure(...)` runs, those runtime-backed names now lazily bootstrap a default dashboard path registry from `HOME` instead of dying.
+`dashboard init` now seeds `welcome`, `api-dashboard`, and `db-dashboard` as editable saved bookmarks when those ids are missing.
 
 ## Release To PAUSE
 
@@ -167,8 +168,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.92.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.92.tar.gz -v
+tar -tzf Developer-Dashboard-0.93.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.93.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

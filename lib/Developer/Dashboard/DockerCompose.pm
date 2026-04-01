@@ -174,6 +174,15 @@ sub _docker_config_root {
     return File::Spec->catdir( $self->{paths}->config_root, 'docker' );
 }
 
+# _home_docker_config_root()
+# Returns the home-backed docker configuration root used as the fallback for isolated service folders.
+# Input: none.
+# Output: absolute directory path string.
+sub _home_docker_config_root {
+    my ($self) = @_;
+    return File::Spec->catdir( $self->{paths}->home_runtime_root, 'config', 'docker' );
+}
+
 # _discover_service_files(%args)
 # Discovers the preferred old-style isolated compose file for a named service from repo-local and global docker config roots.
 # Input: service name and optional project_root.
@@ -187,9 +196,9 @@ sub _discover_service_files {
         service      => $service,
     );
 
-    my @roots = (
-        File::Spec->catdir( $project_root, '.developer-dashboard', 'docker' ),
-        $self->_docker_config_root,
+    my @roots = $self->_service_lookup_roots(
+        project_root => $project_root,
+        service      => $service,
     );
 
     my @files;
@@ -239,7 +248,7 @@ sub _discover_service_names {
 
     for my $root (
         File::Spec->catdir( $project_root, '.developer-dashboard', 'docker' ),
-        $self->_docker_config_root,
+        $self->_home_docker_config_root,
       )
     {
         next if !-d $root;
@@ -263,19 +272,29 @@ sub _service_folder_is_disabled {
     my ( $self, %args ) = @_;
     my $service      = $args{service} || return 0;
     my $project_root = $args{project_root} || cwd();
-
-    for my $root (
-        File::Spec->catdir( $project_root, '.developer-dashboard', 'docker' ),
-        $self->_docker_config_root,
-      )
-    {
-        next if !defined $root || $root eq '';
-        my $service_root = File::Spec->catdir( $root, $service );
-        next if !-d $service_root;
-        return 1 if -f File::Spec->catfile( $service_root, 'disabled.yml' );
-    }
+    my @roots = $self->_service_lookup_roots(
+        project_root => $project_root,
+        service      => $service,
+    );
+    return 0 if !@roots;
+    my $service_root = File::Spec->catdir( $roots[0], $service );
+    return 1 if -f File::Spec->catfile( $service_root, 'disabled.yml' );
 
     return 0;
+}
+
+# _service_lookup_roots(%args)
+# Returns the docker roots that should be searched for one isolated service with project-local precedence over home runtime fallbacks.
+# Input: service name and optional project_root.
+# Output: ordered list of docker root directory path strings.
+sub _service_lookup_roots {
+    my ( $self, %args ) = @_;
+    my $service      = $args{service} || return;
+    my $project_root = $args{project_root} || cwd();
+    my $project_docker_root = File::Spec->catdir( $project_root, '.developer-dashboard', 'docker' );
+    my $project_service_root = File::Spec->catdir( $project_docker_root, $service );
+    return ($project_docker_root) if -d $project_service_root;
+    return ( $self->_home_docker_config_root );
 }
 
 # _infer_services_from_args(%args)

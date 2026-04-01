@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-01
+
+- Fixed runtime-root precedence drift by making a project-local `./.developer-dashboard` tree the first lookup root for bookmarks, config, CLI commands and hooks, auth users, sessions, and isolated docker service folders, while still falling back to `~/.developer-dashboard` when the local item is absent.
+- Fixed local bookmark seeding gaps by adding sanitized `api-dashboard` and `db-dashboard` starter pages to `dashboard init`, so the runtime ships editable built-in request and SQL workspaces without carrying forward company-specific or credential-bearing legacy bookmark content.
+- Fixed blank-environment parity drift by moving the integration harness onto a real fake-project `./.developer-dashboard` tree instead of env-var bookmark/config overrides, so the tarball install exercises the same local-over-home runtime precedence as the shipped code.
+
 ## 2026-03-31
 
 - Fixed blank-environment install stalls by exporting `PERL_CANARY_STABILITY_NOPROMPT` alongside the other noninteractive installer variables, so clean-container `cpanm` runs do not hang on dependency prompts from the `JSON::XS` toolchain.

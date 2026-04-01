@@ -76,14 +76,50 @@ sub named_paths {
 }
 
 # runtime_root()
-# Returns the main runtime root directory.
+# Returns the effective runtime root directory.
 # Input: none.
-# Output: directory path string.
+# Output: project-local runtime directory when available, otherwise the home runtime directory.
 sub runtime_root {
+    my ($self) = @_;
+    return $self->project_runtime_root || $self->home_runtime_root;
+}
+
+# home_runtime_root()
+# Returns the home-backed runtime root directory.
+# Input: none.
+# Output: home runtime directory path string.
+sub home_runtime_root {
     my ($self) = @_;
     return $self->_ensure_dir(
         File::Spec->catdir( $self->home, '.developer-dashboard' )
     );
+}
+
+# project_runtime_root()
+# Returns the active project-local runtime root when the project already contains one.
+# Input: none.
+# Output: project-local runtime directory path string or undef when absent.
+sub project_runtime_root {
+    my ($self) = @_;
+    my $repo = $self->current_project_root or return;
+    my $root = File::Spec->catdir( $repo, '.developer-dashboard' );
+    return -d $root ? $root : undef;
+}
+
+# runtime_roots()
+# Returns the effective runtime roots in lookup order.
+# Input: none.
+# Output: ordered list of runtime root directory path strings.
+sub runtime_roots {
+    my ($self) = @_;
+    my @roots;
+    my %seen;
+    for my $root ( $self->project_runtime_root, $self->home_runtime_root ) {
+        next if !defined $root || $root eq '';
+        next if $seen{$root}++;
+        push @roots, $root;
+    }
+    return @roots;
 }
 
 # state_root()
@@ -125,6 +161,18 @@ sub dashboards_root {
     return $self->_ensure_dir( File::Spec->catdir( $self->runtime_root, 'dashboards' ) );
 }
 
+# dashboards_roots()
+# Returns the bookmark roots in effective lookup order.
+# Input: none.
+# Output: ordered list of bookmark root directory path strings.
+sub dashboards_roots {
+    my ($self) = @_;
+    if ( my $dir = $ENV{DEVELOPER_DASHBOARD_BOOKMARKS} ) {
+        return ( $self->_ensure_dir( $self->_expand_home($dir) ) );
+    }
+    return map { $self->_ensure_dir( File::Spec->catdir( $_, 'dashboards' ) ) } $self->runtime_roots;
+}
+
 # bookmarks()
 # Returns the legacy bookmark directory alias.
 # Input: none.
@@ -150,6 +198,15 @@ sub bookmarks_root {
 sub cli_root {
     my ($self) = @_;
     return $self->_ensure_dir( File::Spec->catdir( $self->runtime_root, 'cli' ) );
+}
+
+# cli_roots()
+# Returns the CLI extension roots in effective lookup order.
+# Input: none.
+# Output: ordered list of CLI root directory path strings.
+sub cli_roots {
+    my ($self) = @_;
+    return map { $self->_ensure_dir( File::Spec->catdir( $_, 'cli' ) ) } $self->runtime_roots;
 }
 
 # collectors_root()
@@ -179,6 +236,15 @@ sub sessions_root {
     return $self->_ensure_dir( File::Spec->catdir( $self->state_root, 'sessions' ) );
 }
 
+# sessions_roots()
+# Returns the session storage roots in effective lookup order.
+# Input: none.
+# Output: ordered list of session root directory path strings.
+sub sessions_roots {
+    my ($self) = @_;
+    return map { $self->_ensure_dir( File::Spec->catdir( $_, 'state', 'sessions' ) ) } $self->runtime_roots;
+}
+
 # temp_root()
 # Returns the runtime temporary directory.
 # Input: none.
@@ -200,6 +266,18 @@ sub config_root {
     return $self->_ensure_dir( File::Spec->catdir( $self->runtime_root, 'config' ) );
 }
 
+# config_roots()
+# Returns the configuration roots in effective lookup order.
+# Input: none.
+# Output: ordered list of configuration root directory path strings.
+sub config_roots {
+    my ($self) = @_;
+    if ( my $dir = $ENV{DEVELOPER_DASHBOARD_CONFIGS} ) {
+        return ( $self->_ensure_dir( $self->_expand_home($dir) ) );
+    }
+    return map { $self->_ensure_dir( File::Spec->catdir( $_, 'config' ) ) } $self->runtime_roots;
+}
+
 # auth_root()
 # Returns the auth configuration directory.
 # Input: none.
@@ -209,14 +287,22 @@ sub auth_root {
     return $self->_ensure_dir( File::Spec->catdir( $self->config_root, 'auth' ) );
 }
 
+# auth_roots()
+# Returns the auth configuration roots in effective lookup order.
+# Input: none.
+# Output: ordered list of auth root directory path strings.
+sub auth_roots {
+    my ($self) = @_;
+    return map { $self->_ensure_dir( File::Spec->catdir( $_, 'auth' ) ) } $self->config_roots;
+}
+
 # repo_dashboard_root()
 # Returns the repo-local dashboard root for the active project.
 # Input: none.
 # Output: directory path string or undef.
 sub repo_dashboard_root {
     my ($self) = @_;
-    my $repo = $self->current_project_root or return;
-    return $self->_ensure_dir( File::Spec->catdir( $repo, '.developer-dashboard' ) );
+    return $self->project_runtime_root;
 }
 
 # users_root()
@@ -226,6 +312,15 @@ sub repo_dashboard_root {
 sub users_root {
     my ($self) = @_;
     return $self->_ensure_dir( File::Spec->catdir( $self->auth_root, 'users' ) );
+}
+
+# users_roots()
+# Returns the helper-user roots in effective lookup order.
+# Input: none.
+# Output: ordered list of user storage directory path strings.
+sub users_roots {
+    my ($self) = @_;
+    return map { $self->_ensure_dir( File::Spec->catdir( $_, 'users' ) ) } $self->auth_roots;
 }
 
 # current_project_root()

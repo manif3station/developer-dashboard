@@ -21,6 +21,7 @@ use Developer::Dashboard::SessionStore;
 use Developer::Dashboard::Web::App;
 my $home = tempdir(CLEANUP => 1);
 local $ENV{HOME} = $home;
+chdir $home or die "Unable to chdir to $home: $!";
 my $auto_projects = File::Spec->catdir( $home, 'projects' );
 make_path($auto_projects);
 

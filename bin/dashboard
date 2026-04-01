@@ -156,6 +156,8 @@ if ( $cmd eq 'ps1' ) {
 elsif ( $cmd eq 'paths' ) {
     my %out = (
         home           => $paths->home,
+        home_runtime_root => $paths->home_runtime_root,
+        project_runtime_root => scalar $paths->project_runtime_root,
         runtime_root   => $paths->runtime_root,
         state_root     => $paths->state_root,
         cache_root     => $paths->cache_root,
@@ -208,6 +210,8 @@ elsif ( $cmd eq 'path' ) {
     elsif ( $action eq 'list' ) {
         my %out = (
             home         => $paths->home,
+            home_runtime => $paths->home_runtime_root,
+            project_runtime => scalar $paths->project_runtime_root,
             runtime      => $paths->runtime_root,
             state        => $paths->state_root,
             cache        => $paths->cache_root,
@@ -400,24 +404,9 @@ elsif ( $cmd eq 'init' ) {
     );
 
     my @pages = $pages->list_saved_pages;
-    if ( !grep { $_ eq 'welcome' } @pages ) {
-        my $page = Developer::Dashboard::PageDocument->new(
-            id          => 'welcome',
-            title       => 'Welcome to Developer Dashboard',
-            description => 'A project-neutral local dashboard starter page.',
-            layout      => {
-                body => "Developer Dashboard is ready.\n\nUse dashboard page new/save to create more pages.\nUse dashboard serve to browse them.\nUse dashboard collector run to refresh prepared data.\nUse dashboard ps1 from your shell to render prompt status.",
-            },
-            state => {
-                project => '',
-            },
-            actions => [
-                { id => 'serve', label => 'Run dashboard serve' },
-                { id => 'ps1',   label => 'Use dashboard ps1 in your shell' },
-            ],
-        );
-        $pages->save_page($page);
-    }
+    _seed_init_page( $pages, \@pages, _welcome_page() );
+    _seed_init_page( $pages, \@pages, _api_dashboard_page() );
+    _seed_init_page( $pages, \@pages, _db_dashboard_page() );
 
     print json_encode(
         {
@@ -686,7 +675,7 @@ BASH
     die "Unsupported shell '$shell'\n";
 }
 else {
-    my $user_cli = File::Spec->catfile( $paths->cli_root, $cmd );
+    my $user_cli = _custom_command_path($cmd);
     if ( -d $user_cli ) {
         my $run = File::Spec->catfile( $user_cli, 'run' );
         if ( -f $run && -x $run ) {
@@ -811,11 +800,284 @@ sub _run_command_hook_streaming {
 sub _command_hook_root {
     my ($cmd) = @_;
     return '' if !defined $cmd || $cmd eq '';
-    my $plain_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', $cmd );
-    return $plain_root if -d $plain_root;
-    my $d_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', $cmd . '.d' );
-    return $d_root if -d $d_root;
-    return $plain_root;
+    for my $root ( _cli_runtime_roots() ) {
+        my $plain_root = File::Spec->catdir( $root, $cmd );
+        return $plain_root if -d $plain_root;
+        my $d_root = File::Spec->catdir( $root, $cmd . '.d' );
+        return $d_root if -d $d_root;
+    }
+    return File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', $cmd );
+}
+
+# _custom_command_path($cmd)
+# Resolves the effective custom command path from project-local and home CLI roots.
+# Input: top-level command name string.
+# Output: file or directory path string.
+sub _custom_command_path {
+    my ($cmd) = @_;
+    return '' if !defined $cmd || $cmd eq '';
+    for my $root ( _cli_runtime_roots() ) {
+        my $path = File::Spec->catfile( $root, $cmd );
+        return $path if -e $path;
+    }
+    return File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', $cmd );
+}
+
+# _cli_runtime_roots()
+# Returns project-local then home CLI roots for top-level command resolution before the heavy runtime loads.
+# Input: none.
+# Output: ordered list of CLI root directory path strings.
+sub _cli_runtime_roots {
+    my @roots;
+    my %seen;
+    my $cwd = cwd();
+    my $project_root = _project_root_for($cwd);
+    for my $root (
+        ( defined $project_root && -d File::Spec->catdir( $project_root, '.developer-dashboard' )
+            ? File::Spec->catdir( $project_root, '.developer-dashboard', 'cli' )
+            : () ),
+        File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' ),
+      )
+    {
+        next if !defined $root || $root eq '';
+        next if $seen{$root}++;
+        push @roots, $root;
+    }
+    return @roots;
+}
+
+# _project_root_for($start_dir)
+# Resolves the nearest project root containing a .git directory.
+# Input: starting directory path string.
+# Output: project root directory path string or undef.
+sub _project_root_for {
+    my ($dir) = @_;
+    while ($dir) {
+        return $dir if -d File::Spec->catdir( $dir, '.git' );
+        my $parent = File::Spec->catdir( $dir, File::Spec->updir );
+        $parent = Cwd::abs_path($parent) if $parent ne $dir;
+        last if !$parent || $parent eq $dir;
+        $dir = $parent;
+    }
+    return;
+}
+
+# _seed_init_page($pages, $known_ids, $page)
+# Saves one seeded page when it does not already exist in the effective bookmark roots.
+# Input: page store, array reference of known ids, and page document object.
+# Output: true when the page already existed or was written.
+sub _seed_init_page {
+    my ( $pages, $known_ids, $page ) = @_;
+    my $id = $page->as_hash->{id} || return 1;
+    return 1 if grep { $_ eq $id } @{ $known_ids || [] };
+    $pages->save_page($page);
+    push @{ $known_ids || [] }, $id;
+    return 1;
+}
+
+# _welcome_page()
+# Builds the seeded welcome bookmark page for dashboard init.
+# Input: none.
+# Output: Developer::Dashboard::PageDocument object.
+sub _welcome_page {
+    return Developer::Dashboard::PageDocument->new(
+        id          => 'welcome',
+        title       => 'Welcome to Developer Dashboard',
+        description => 'A project-neutral local dashboard starter page.',
+        layout      => {
+            body => "Developer Dashboard is ready.\n\nUse dashboard page new/save to create more pages.\nUse dashboard serve to browse them.\nUse dashboard collector run to refresh prepared data.\nUse dashboard ps1 from your shell to render prompt status.",
+        },
+        state => {
+            project => '',
+        },
+        actions => [
+            { id => 'serve', label => 'Run dashboard serve' },
+            { id => 'ps1',   label => 'Use dashboard ps1 in your shell' },
+        ],
+    );
+}
+
+# _api_dashboard_page()
+# Builds the seeded API dashboard bookmark page inspired by the legacy request workspace without carrying forward sensitive defaults.
+# Input: none.
+# Output: Developer::Dashboard::PageDocument object.
+sub _api_dashboard_page {
+    return Developer::Dashboard::PageDocument->new(
+        id          => 'api-dashboard',
+        title       => 'API Dashboard',
+        description => 'A generic request workspace for trying endpoints with headers, body content, and response inspection.',
+        layout      => {
+            body => <<'HTML',
+<style>
+.api-dashboard-grid { display:grid; gap:16px; }
+.api-dashboard-card { border:1px solid #d9d3c7; padding:16px; background:#fffaf1; }
+.api-dashboard-row { display:grid; gap:12px; grid-template-columns: 140px 1fr; align-items:center; margin-bottom:12px; }
+.api-dashboard-row input, .api-dashboard-row select, .api-dashboard-row textarea { width:100%; box-sizing:border-box; padding:10px; font-family: monospace; }
+.api-dashboard-actions { display:flex; gap:12px; flex-wrap:wrap; }
+.api-dashboard-response { min-height:220px; white-space:pre-wrap; overflow:auto; background:#1f2a2e; color:#f4efe3; padding:12px; }
+</style>
+<div class="api-dashboard-grid">
+  <section class="api-dashboard-card">
+    <h2>Request</h2>
+    <div class="api-dashboard-row">
+      <label for="api-method">Method</label>
+      <select id="api-method">
+        <option>GET</option>
+        <option>POST</option>
+        <option>PUT</option>
+        <option>PATCH</option>
+        <option>DELETE</option>
+      </select>
+    </div>
+    <div class="api-dashboard-row">
+      <label for="api-url">URL</label>
+      <input id="api-url" placeholder="https://example.test/api" value="">
+    </div>
+    <div class="api-dashboard-row">
+      <label for="api-headers">Headers</label>
+      <textarea id="api-headers" rows="5" placeholder='{"Authorization":"Bearer ..."}'></textarea>
+    </div>
+    <div class="api-dashboard-row">
+      <label for="api-body">Body</label>
+      <textarea id="api-body" rows="8" placeholder='{"hello":"world"}'></textarea>
+    </div>
+    <div class="api-dashboard-actions">
+      <button type="button" id="api-send">Send Request</button>
+      <button type="button" id="api-clear">Clear Response</button>
+    </div>
+  </section>
+  <section class="api-dashboard-card">
+    <h2>Response</h2>
+    <div id="api-meta"></div>
+    <pre id="api-response" class="api-dashboard-response">Ready.</pre>
+  </section>
+</div>
+<script>
+(function () {
+  const methodEl = document.getElementById('api-method');
+  const urlEl = document.getElementById('api-url');
+  const headersEl = document.getElementById('api-headers');
+  const bodyEl = document.getElementById('api-body');
+  const responseEl = document.getElementById('api-response');
+  const metaEl = document.getElementById('api-meta');
+  document.getElementById('api-clear').addEventListener('click', function () {
+    metaEl.textContent = '';
+    responseEl.textContent = 'Ready.';
+  });
+  document.getElementById('api-send').addEventListener('click', async function () {
+    const url = urlEl.value.trim();
+    if (!url) {
+      responseEl.textContent = 'Enter a URL first.';
+      return;
+    }
+    let headers = {};
+    if (headersEl.value.trim()) {
+      try {
+        headers = JSON.parse(headersEl.value);
+      } catch (error) {
+        responseEl.textContent = 'Header JSON error: ' + error.message;
+        return;
+      }
+    }
+    const options = {
+      method: methodEl.value,
+      headers: headers
+    };
+    if (bodyEl.value.trim()) {
+      options.body = bodyEl.value;
+    }
+    responseEl.textContent = 'Sending request...';
+    metaEl.textContent = '';
+    try {
+      const started = Date.now();
+      const response = await fetch(url, options);
+      const text = await response.text();
+      metaEl.textContent = response.status + ' ' + response.statusText + ' in ' + (Date.now() - started) + 'ms';
+      responseEl.textContent = text;
+    } catch (error) {
+      responseEl.textContent = 'Request failed: ' + error.message;
+    }
+  });
+}());
+</script>
+HTML
+        },
+        state => {},
+        actions => [
+            { id => 'source', label => 'View Source', kind => 'builtin', builtin => 'page.source', safe => 1 },
+        ],
+    );
+}
+
+# _db_dashboard_page()
+# Builds the seeded DB dashboard bookmark page as a neutral SQL workspace without embedding connection details or credentials.
+# Input: none.
+# Output: Developer::Dashboard::PageDocument object.
+sub _db_dashboard_page {
+    return Developer::Dashboard::PageDocument->new(
+        id          => 'db-dashboard',
+        title       => 'DB Dashboard',
+        description => 'A generic SQL scratchpad and result workspace with no bundled credentials or vendor-specific defaults.',
+        layout      => {
+            body => <<'HTML',
+<style>
+.db-dashboard-grid { display:grid; gap:16px; }
+.db-dashboard-card { border:1px solid #d9d3c7; padding:16px; background:#fffaf1; }
+.db-dashboard-row { display:grid; gap:12px; margin-bottom:12px; }
+.db-dashboard-row input, .db-dashboard-row textarea { width:100%; box-sizing:border-box; padding:10px; font-family: monospace; }
+.db-dashboard-toolbar { display:flex; gap:12px; flex-wrap:wrap; }
+.db-dashboard-result { min-height:220px; white-space:pre-wrap; overflow:auto; background:#1f2a2e; color:#f4efe3; padding:12px; }
+</style>
+<div class="db-dashboard-grid">
+  <section class="db-dashboard-card">
+    <h2>Connection Notes</h2>
+    <div class="db-dashboard-row">
+      <label for="db-target">Target</label>
+      <input id="db-target" placeholder="Write the target database or environment name">
+    </div>
+    <div class="db-dashboard-row">
+      <label for="db-query">SQL</label>
+      <textarea id="db-query" rows="12" placeholder="select now();"></textarea>
+    </div>
+    <div class="db-dashboard-toolbar">
+      <button type="button" id="db-preview">Preview Query</button>
+      <button type="button" id="db-clear">Clear</button>
+    </div>
+  </section>
+  <section class="db-dashboard-card">
+    <h2>Scratch Output</h2>
+    <pre id="db-result" class="db-dashboard-result">Write a query and preview it here. Execution is intentionally left to your own project-specific tooling.</pre>
+  </section>
+</div>
+<script>
+(function () {
+  const targetEl = document.getElementById('db-target');
+  const queryEl = document.getElementById('db-query');
+  const resultEl = document.getElementById('db-result');
+  document.getElementById('db-clear').addEventListener('click', function () {
+    targetEl.value = '';
+    queryEl.value = '';
+    resultEl.textContent = 'Write a query and preview it here. Execution is intentionally left to your own project-specific tooling.';
+  });
+  document.getElementById('db-preview').addEventListener('click', function () {
+    const target = targetEl.value.trim() || '(unspecified target)';
+    const query = queryEl.value.trim() || '(empty query)';
+    resultEl.textContent = [
+      'Target: ' + target,
+      '',
+      'SQL Preview:',
+      query
+    ].join('\n');
+  });
+}());
+</script>
+HTML
+        },
+        state => {},
+        actions => [
+            { id => 'source', label => 'View Source', kind => 'builtin', builtin => 'page.source', safe => 1 },
+        ],
+    );
 }
 
 # _shell_dashboard_command()

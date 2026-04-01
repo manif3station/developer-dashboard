@@ -57,6 +57,8 @@ The extension tests also cover:
 - encoded action payload execution
 - CLI hook directories under `~/.developer-dashboard/cli/<command>` or `~/.developer-dashboard/cli/<command>.d` with sorted executable-only hook execution, live streamed hook progress, per-hook `RESULT` rewrites between hook runs, and `Runtime::Result` helper coverage
 - directory-backed custom commands through `~/.developer-dashboard/cli/<command>/run`
+- project-local `./.developer-dashboard` precedence over the home fallback for bookmarks, config, CLI commands and hooks, auth users, sessions, and isolated docker service folders
+- seeded `dashboard init` starter pages for `welcome`, `api-dashboard`, and `db-dashboard`
 - Docker Compose file, project, service, addon, mode, and env resolution
 - legacy bookmark syntax parsing, placeholder rendering, `TITLE` head-only rendering, and sandpit-isolated `CODE*` execution
 
@@ -95,9 +97,9 @@ installs the tarball with `cpanm`, and then exercises the installed
 
 The integration flow also:
 
-- creates a fake project through `DEVELOPER_DASHBOARD_BOOKMARKS` and `DEVELOPER_DASHBOARD_CONFIGS`
-- applies those fake-project overrides only after `cpanm` completes, so the tarball's own test phase still runs against a clean runtime
-- verifies installed CLI and saved bookmarks from that fake project plus config collectors from that fake project
+- creates a fake project with its own `./.developer-dashboard` runtime tree
+- creates that fake-project runtime tree only after `cpanm` completes, so the tarball's own test phase still runs against a clean runtime
+- verifies installed CLI and saved bookmarks from that fake project's local runtime plus config collectors from that same runtime root
 - verifies `dashboard version` reports the installed runtime version
-- seeds a user-provided `~/.developer-dashboard/cli/update` command plus `~/.developer-dashboard/cli/update.d` hooks inside the container and verifies `dashboard update` uses the same executable command-hook path as every other top-level subcommand, including later-hook reads through `Runtime::Result`
+- seeds a user-provided fake-project `./.developer-dashboard/cli/update` command plus `update.d` hooks inside the container and verifies `dashboard update` uses the same executable command-hook path as every other top-level subcommand, including later-hook reads through `Runtime::Result`
 - uses headless Chromium to validate the editor, the saved fake-project bookmark page, and the helper login page
