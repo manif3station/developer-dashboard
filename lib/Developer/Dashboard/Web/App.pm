@@ -1115,41 +1115,61 @@ sub _legacy_ajax_response {
         xslt => 'application/xml; charset=utf-8',
     );
     my $code;
+    my $saved_path = '';
     if ( my $token = $params->{token} ) {
         $code = eval { decode_payload($token) };
         return [ 400, 'text/plain; charset=utf-8', "$@" ] if $@;
     }
     elsif ( ( $params->{page} || '' ) ne '' && ( $params->{file} || '' ) ne '' ) {
         my $runtime_root = $self->{pages}{paths} ? $self->{pages}{paths}->runtime_root : '';
-        $code = eval {
-            Zipper::load_saved_ajax_code(
+        $saved_path = eval {
+            Zipper::saved_ajax_file_path(
                 file         => $params->{file},
                 page_id      => $params->{page},
                 runtime_root => $runtime_root,
             );
         };
         return [ 400, 'text/plain; charset=utf-8', "$@" ] if $@;
-        return [ 404, 'text/plain; charset=utf-8', "Ajax handler not found\n" ] if !defined $code || $code eq '';
+        return [ 404, 'text/plain; charset=utf-8', "Ajax handler not found\n" ] if $saved_path eq '' || !-f $saved_path;
     }
     else {
         return [ 400, 'text/plain; charset=utf-8', "missing token\n" ];
     }
     my $page = Developer::Dashboard::PageDocument->new(
+        id    => ( $params->{page} || '' ),
         title => 'Legacy Ajax',
-        meta  => {
-            source_format => 'legacy',
-            codes => [ { id => 'CODE0', body => $code } ],
+    );
+    return [
+        200,
+        $types{$type} || 'text/plain; charset=utf-8',
+        {
+            stream => sub {
+                my ($writer) = @_;
+                if ($saved_path ne '') {
+                    $self->{runtime}->stream_saved_ajax_file(
+                        path          => $saved_path,
+                        page          => $params->{page} || '',
+                        type          => $type,
+                        params        => $params,
+                        stdout_writer => $writer,
+                        stderr_writer => $writer,
+                    );
+                    return;
+                }
+                my $result = $self->{runtime}->stream_code_block(
+                    code            => $code,
+                    page            => $page,
+                    source          => 'transient',
+                    state           => {},
+                    runtime_context => { params => $params },
+                    stdout_writer   => $writer,
+                    stderr_writer   => $writer,
+                    return_writer   => $writer,
+                );
+                $writer->( $result->{error} ) if defined $result->{error} && $result->{error} ne '';
+            },
         },
-    );
-    $page = $self->{runtime}->prepare_page(
-        page            => $page,
-        source          => 'saved',
-        runtime_context => { params => $params },
-    );
-    my $body = join '', @{ $page->{meta}{runtime_outputs} || [] };
-    my $errors = join '', @{ $page->{meta}{runtime_errors} || [] };
-    $body .= $errors if $errors ne '';
-    return [ 200, $types{$type} || 'text/plain; charset=utf-8', $body ];
+    ];
 }
 
 # _legacy_ajax_allowed($params)

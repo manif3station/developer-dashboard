@@ -1,5 +1,15 @@
 Revision history for Developer Dashboard
 
+0.98  2026-04-01
+    - changed saved bookmark `/ajax?page=...&file=...` handlers to execute the stored runtime-cache file as a real process, defaulting to Perl unless the file starts with a shebang
+    - streamed both saved-handler `stdout` and `stderr` back to the browser directly, so `print`, `warn`, `die`, `system`, and `exec` behave like the old playground progress stream instead of a buffered JSON-style response
+    - extended unit, metadata, and blank-environment integration coverage for process-backed ajax streaming and shebang-backed saved handlers
+
+0.97  2026-04-01
+    - changed legacy `/ajax` execution to run bookmark Ajax Perl code directly and stream raw output chunks back to the browser instead of buffering through a page render pass
+    - changed saved bookmark `Ajax file => ...` handlers to preserve live browser progress updates while transient token urls remain disabled by default
+    - extended app, server, metadata, and coverage tests for streamed `/ajax` responses and saved bookmark file handlers
+
 0.96  2026-04-01
     - changed saved bookmark `Ajax` helper calls to support explicit `file => 'name.json'` routes, storing the handler code under the runtime cache and emitting `/ajax?page=...&file=...` endpoints that stay usable while transient token urls are disabled
     - kept transient `/ajax?token=...` support for transient pages behind the existing transient-url opt-in, while making saved bookmark ajax handlers work under the default deny policy

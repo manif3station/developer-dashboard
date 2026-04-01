@@ -90,15 +90,29 @@ sub serve_daemon {
                 $headers = {};
             }
 
+            my %base_headers = (
+                'Content-Type'            => $type,
+                'X-Frame-Options'        => 'DENY',
+                'X-Content-Type-Options' => 'nosniff',
+                'Referrer-Policy'        => 'no-referrer',
+                'Cache-Control'          => 'no-store',
+                'Content-Security-Policy' => q{default-src 'self' 'unsafe-inline' data:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'},
+                %{ $headers || {} },
+            );
+
+            if ( ref($body) eq 'HASH' && ref( $body->{stream} ) eq 'CODE' ) {
+                $self->_send_streaming_response(
+                    conn    => $conn,
+                    code    => $code,
+                    headers => \%base_headers,
+                    stream  => $body->{stream},
+                );
+                last;
+            }
+
             my $response = HTTP::Response->new($code);
-            $response->header( 'Content-Type' => $type );
-            $response->header( 'X-Frame-Options' => 'DENY' );
-            $response->header( 'X-Content-Type-Options' => 'nosniff' );
-            $response->header( 'Referrer-Policy' => 'no-referrer' );
-            $response->header( 'Cache-Control' => 'no-store' );
-            $response->header( 'Content-Security-Policy' => q{default-src 'self' 'unsafe-inline' data:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'} );
-            for my $name ( sort keys %{ $headers || {} } ) {
-                $response->header( $name => $headers->{$name} );
+            for my $name ( sort keys %base_headers ) {
+                $response->header( $name => $base_headers{$name} );
             }
             $response->header( 'Content-Length' => length($body) );
             $response->content($body);
@@ -107,6 +121,34 @@ sub serve_daemon {
         $conn->close;
         undef $conn;
     }
+    return 1;
+}
+
+# _send_streaming_response(%args)
+# Sends a live streaming HTTP response body to one client connection.
+# Input: client connection, status code, header hash, and stream callback.
+# Output: true value after the response body has been written.
+sub _send_streaming_response {
+    my ( $self, %args ) = @_;
+    my $conn    = $args{conn}    || die 'Missing connection';
+    my $code    = $args{code}    || 200;
+    my $headers = $args{headers} || {};
+    my $stream  = $args{stream}  || die 'Missing stream callback';
+
+    $conn->send_basic_header( $code, status_message($code) || '' );
+    for my $name ( sort keys %{$headers} ) {
+        $conn->print( $name . ': ' . $headers->{$name} . "\015\012" );
+    }
+    $conn->print("Connection: close\015\012\015\012");
+
+    my $writer = sub {
+        my ($chunk) = @_;
+        return 1 if !defined $chunk || $chunk eq '';
+        $conn->print($chunk);
+        return 1;
+    };
+
+    eval { $stream->($writer); 1 } or $writer->($@);
     return 1;
 }
 

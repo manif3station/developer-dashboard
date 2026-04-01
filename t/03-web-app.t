@@ -20,6 +20,14 @@ use Developer::Dashboard::Prompt;
 use Developer::Dashboard::SessionStore;
 use Developer::Dashboard::Web::App;
 
+sub drain_stream_body {
+    my ($body) = @_;
+    return $body if ref($body) ne 'HASH' || ref( $body->{stream} ) ne 'CODE';
+    my $output = '';
+    $body->{stream}->( sub { $output .= $_[0] if defined $_[0] } );
+    return $output;
+}
+
 local $ENV{HOME} = tempdir(CLEANUP => 1);
 
 my $paths = Developer::Dashboard::PathRegistry->new;
@@ -344,7 +352,7 @@ ok( -f File::Spec->catfile( $paths->cache_root, 'ajax', 'legacy-ajax', 'demo.jso
 my ($code7, $type7, $body7) = @{ $app->handle(path => '/ajax', query => "page=legacy-ajax&file=demo.json&type=json", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code7, 200, 'legacy ajax endpoint executes through the saved bookmark ajax file route');
 like($type7, qr/application\/json/, 'legacy ajax endpoint returns json type');
-like($body7, qr/"ok"\s*:\s*1/, 'legacy ajax endpoint returns encoded payload output');
+like(drain_stream_body($body7), qr/"ok"\s*:\s*1/, 'legacy ajax endpoint returns encoded payload output as a stream');
 
 {
     open my $fh, '>', $store->page_file('legacy-forward') or die $!;
@@ -354,7 +362,7 @@ like($body7, qr/"ok"\s*:\s*1/, 'legacy ajax endpoint returns encoded payload out
 my ($code8, $type8, $body8) = @{ $app->handle(path => '/app/legacy-forward', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code8, 200, 'legacy /app saved-url forwarding works');
 like($type8, qr/text\/plain/, 'forwarded saved-url bookmark preserves content type');
-like($body8, qr/"ok"\s*:\s*1/, 'forwarded saved-url bookmark reaches ajax payload');
+like(drain_stream_body($body8), qr/"ok"\s*:\s*1/, 'forwarded saved-url bookmark reaches ajax payload through the stream response');
 
 {
     open my $fh, '>', $store->page_file('legacy-forward-override') or die $!;
@@ -363,7 +371,7 @@ like($body8, qr/"ok"\s*:\s*1/, 'forwarded saved-url bookmark reaches ajax payloa
 }
 my ($code9, undef, $body9) = @{ $app->handle(path => '/app/legacy-forward-override', query => 'status=override', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code9, 200, 'legacy /app saved-url forwarding with override works');
-like($body9, qr/"ok"\s*:\s*1/, 'forwarded saved-url override still reaches ajax payload');
+like(drain_stream_body($body9), qr/"ok"\s*:\s*1/, 'forwarded saved-url override still reaches ajax payload through the stream response');
 
 {
     local $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} = 0;
@@ -372,6 +380,14 @@ like($body9, qr/"ok"\s*:\s*1/, 'forwarded saved-url override still reaches ajax 
     is($blocked_ajax_code, 403, 'legacy ajax token route is denied when transient token URLs are disabled');
     like($blocked_ajax_type, qr/text\/plain/, 'legacy ajax token denial returns plain text');
     like($blocked_ajax_body, qr/Transient token URLs are disabled/, 'legacy ajax token denial explains the policy');
+}
+{
+    local $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} = 1;
+    my $manual_ajax_token = uri_escape( encode_payload(q{die "token ajax died\n";}) );
+    my ($manual_ajax_error_code, $manual_ajax_error_type, $manual_ajax_error_body) = @{ $app->handle(path => '/ajax', query => "token=$manual_ajax_token&type=text", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+    is($manual_ajax_error_code, 200, 'legacy ajax token runtime errors still return the streaming response shape');
+    like($manual_ajax_error_type, qr/text\/plain/, 'legacy ajax token runtime errors keep the requested content type');
+    like(drain_stream_body($manual_ajax_error_body), qr/token ajax died/, 'legacy ajax token runtime errors stream the runtime error text');
 }
 
 $auth->add_user( username => 'helper_user', password => 'helper-pass-123' );

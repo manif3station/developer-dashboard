@@ -17,6 +17,7 @@ use Developer::Dashboard::CollectorRunner;
 use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PageDocument;
+use Developer::Dashboard::PageRuntime;
 use Developer::Dashboard::PageStore;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::SessionStore;
@@ -30,12 +31,21 @@ sub dies_like {
     like( $error, $pattern, $label );
 }
 
+sub drain_stream_body {
+    my ($body) = @_;
+    return $body if ref($body) ne 'HASH' || ref( $body->{stream} ) ne 'CODE';
+    my $output = '';
+    $body->{stream}->( sub { $output .= $_[0] if defined $_[0] } );
+    return $output;
+}
+
 my $home = tempdir(CLEANUP => 1);
 local $ENV{HOME} = $home;
 chdir $home or die "Unable to chdir to $home: $!";
 my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
 my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
 my $store = Developer::Dashboard::PageStore->new( paths => $paths );
+my $runtime = Developer::Dashboard::PageRuntime->new( paths => $paths );
 my $auth = Developer::Dashboard::Auth->new( files => $files, paths => $paths );
 my $sessions = Developer::Dashboard::SessionStore->new( paths => $paths );
 
@@ -49,6 +59,7 @@ $store->save_page($page);
 my $app = Developer::Dashboard::Web::App->new(
     auth     => $auth,
     pages    => $store,
+    runtime  => $runtime,
     sessions => $sessions,
 );
 dies_like( sub { Developer::Dashboard::Web::App->new( pages => $store, sessions => $sessions ) }, qr/Missing auth store/, 'web app requires auth store' );
@@ -190,6 +201,68 @@ like( $ajax_missing_body, qr/missing token/, 'legacy ajax missing-parameter rout
     like( $ajax_bad_file_body, qr/invalid parent traversal/, 'legacy ajax invalid saved-file route returns the validation error text' );
 }
 
+{
+    my $streaming_page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE');
+BOOKMARK: ajax-stream
+:--------------------------------------------------------------------------------:
+HTML: <script>var configs = {};</script>
+:--------------------------------------------------------------------------------:
+CODE1: Ajax jvar => 'configs.demo.endpoint', type => 'text', file => 'stream.txt', code => q{
+  print "first\n";
+  print "second\n";
+};
+PAGE
+    $store->save_page($streaming_page);
+    my ( undef, undef, undef ) = @{ $app->handle( path => '/app/ajax-stream', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    my ( $ajax_stream_code, $ajax_stream_type, $ajax_stream_body ) = @{ $app->handle( path => '/ajax', query => 'page=ajax-stream&file=stream.txt&type=text', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    is( $ajax_stream_code, 200, 'legacy ajax saved-file route responds successfully for streaming output' );
+    like( $ajax_stream_type, qr/text\/plain/, 'legacy ajax saved-file route keeps the requested content type for streaming output' );
+    is( drain_stream_body($ajax_stream_body), "first\nsecond\n", 'legacy ajax saved-file route streams raw printed output without page buffering' );
+}
+
+{
+    my $process_page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE');
+BOOKMARK: ajax-process
+:--------------------------------------------------------------------------------:
+HTML: <script>var configs = {};</script>
+:--------------------------------------------------------------------------------:
+CODE1: Ajax jvar => 'configs.demo.endpoint', type => 'text', file => 'process-endpoint.json', code => q{
+print "perl-start\n";
+warn "perl-warn\n";
+system 'sh', '-c', 'printf "child-out\n"; printf "child-err\n" >&2';
+die "perl-die\n";
+};
+PAGE
+    $store->save_page($process_page);
+    my ( undef, undef, undef ) = @{ $app->handle( path => '/app/ajax-process', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    my ( $ajax_process_code, $ajax_process_type, $ajax_process_body ) = @{ $app->handle( path => '/ajax', query => 'page=ajax-process&file=process-endpoint.json&type=text', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    my $ajax_process_output = drain_stream_body($ajax_process_body);
+    is( $ajax_process_code, 200, 'legacy ajax saved-file process route responds successfully for mixed stdout and stderr output' );
+    like( $ajax_process_type, qr/text\/plain/, 'legacy ajax saved-file process route keeps the requested content type' );
+    like( $ajax_process_output, qr/perl-start/, 'legacy ajax saved-file process route streams direct perl stdout' );
+    like( $ajax_process_output, qr/perl-warn/, 'legacy ajax saved-file process route streams perl stderr warnings' );
+    like( $ajax_process_output, qr/child-out/, 'legacy ajax saved-file process route streams child process stdout' );
+    like( $ajax_process_output, qr/child-err/, 'legacy ajax saved-file process route streams child process stderr' );
+    like( $ajax_process_output, qr/perl-die/, 'legacy ajax saved-file process route streams uncaught perl die output' );
+}
+
+{
+    my $shebang_page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE');
+BOOKMARK: ajax-shebang
+:--------------------------------------------------------------------------------:
+HTML: <script>var configs = {};</script>
+:--------------------------------------------------------------------------------:
+CODE1: Ajax jvar => 'configs.demo.endpoint', type => 'text', file => 'script-runner', code => qq{#!/bin/sh\nprintf 'shell-out\\n'\nprintf 'shell-err\\n' >&2\n};
+PAGE
+    $store->save_page($shebang_page);
+    my ( undef, undef, undef ) = @{ $app->handle( path => '/app/ajax-shebang', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    my ( $ajax_shebang_code, undef, $ajax_shebang_body ) = @{ $app->handle( path => '/ajax', query => 'page=ajax-shebang&file=script-runner&type=text', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    my $ajax_shebang_output = drain_stream_body($ajax_shebang_body);
+    is( $ajax_shebang_code, 200, 'legacy ajax saved-file route executes shebang scripts directly' );
+    like( $ajax_shebang_output, qr/shell-out/, 'legacy ajax saved-file route streams direct executable stdout' );
+    like( $ajax_shebang_output, qr/shell-err/, 'legacy ajax saved-file route streams direct executable stderr' );
+}
+
 is( $auth->trust_tier( remote_addr => '127.0.0.1', host => '127.0.0.1:7890' ), 'admin', 'exact loopback with numeric host is admin' );
 is( $auth->trust_tier( remote_addr => '127.0.0.1', host => 'localhost:7890' ), 'helper', 'localhost is not trusted as admin' );
 is( $auth->trust_tier( remote_addr => '10.0.0.8', host => '127.0.0.1:7890' ), 'helper', 'non-loopback client is helper' );
@@ -288,9 +361,11 @@ is( $default_server->{port}, 7890, 'web server keeps default port 7890' );
     sub content { $_[0]->{content} = $_[1]; return }
 
     package Local::FakeConnection;
-    sub new { bless { requests => $_[1], sent => [], closed => 0 }, $_[0] }
+    sub new { bless { requests => $_[1], sent => [], closed => 0, printed => '', basic_headers => [] }, $_[0] }
     sub get_request { shift @{ $_[0]->{requests} } }
     sub send_response { push @{ $_[0]->{sent} }, $_[1]; return }
+    sub send_basic_header { push @{ $_[0]->{basic_headers} }, [ $_[1], $_[2] ]; return }
+    sub print { $_[0]->{printed} .= join '', @_[ 1 .. $#_ ]; return 1 }
     sub close { $_[0]->{closed} = 1; return }
     sub peerhost { $_[0]->{peerhost} || '127.0.0.1' }
 
@@ -387,6 +462,49 @@ my $conn_header = Local::FakeConnection->new(
 }
 is( $conn_header->{sent}[0]{headers}{Location}, '/login', 'server forwards custom Location headers from the app' );
 is( $conn_header->{sent}[0]{headers}{'Set-Cookie'}, 'dashboard_session=abc', 'server forwards custom Set-Cookie headers from the app' );
+
+my $streaming_app = bless {}, 'Local::StreamingApp';
+{
+    no warnings 'once';
+    *Local::StreamingApp::handle = sub {
+        return [
+            200,
+            'text/plain; charset=utf-8',
+            {
+                stream => sub {
+                    my ($writer) = @_;
+                    $writer->("alpha\n");
+                    $writer->("beta\n");
+                },
+            },
+            { 'X-Test' => 'streaming' },
+        ];
+    };
+}
+my $streaming_server = Developer::Dashboard::Web::Server->new( app => $streaming_app );
+my $conn_stream = Local::FakeConnection->new(
+    [
+        Local::FakeRequest->new(
+            {
+                uri => Local::FakeURI->new( { path => '/ajax', query => '' } ),
+                headers => { Host => '127.0.0.1:7890' },
+            }
+        ),
+    ]
+);
+{
+    no warnings 'redefine';
+    local *HTTP::Daemon::new = sub { Local::FakeDaemon->new(@_) };
+    local @Local::FakeDaemon::connections = ($conn_stream);
+    local *STDOUT;
+    open STDOUT, '>', \my $captured or die $!;
+    $streaming_server->run;
+}
+is( scalar @{ $conn_stream->{sent} }, 0, 'streaming response path bypasses buffered send_response' );
+is_deeply( $conn_stream->{basic_headers}[0], [ 200, 'OK' ], 'streaming response writes the basic HTTP status header directly' );
+like( $conn_stream->{printed}, qr/Content-Type: text\/plain; charset=utf-8\r\n/, 'streaming response writes the content type header directly' );
+like( $conn_stream->{printed}, qr/X-Test: streaming\r\n/, 'streaming response writes custom headers directly' );
+like( $conn_stream->{printed}, qr/alpha\nbeta\n/, 'streaming response writes streamed body chunks directly to the connection' );
 
 my $failing_app = bless {}, 'Local::FailingApp';
 {

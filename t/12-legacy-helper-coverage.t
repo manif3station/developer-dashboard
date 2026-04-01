@@ -2,6 +2,7 @@ use strict;
 use warnings;
 
 use Capture::Tiny qw(capture);
+use Errno qw(EINTR EIO);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -15,6 +16,7 @@ use Developer::Dashboard::Auth;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageRuntime;
+use Developer::Dashboard::PageRuntime::StreamHandle;
 use Developer::Dashboard::PageStore;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::SessionStore;
@@ -112,6 +114,7 @@ is( $ajax_result, 'HIDE-THIS', 'Ajax returns the legacy hide marker' );
     like( $saved_ajax_stdout, qr{/ajax\?page=coverage-page&file=coverage\.json&type=json}, 'Ajax prints a saved bookmark ajax url when a file name is supplied' );
     is( $saved_ajax_result, 'HIDE-THIS', 'saved bookmark Ajax still returns the hide marker' );
     ok( -f Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, page_id => 'coverage-page', file => 'coverage.json' ), 'saved bookmark Ajax stores the named ajax code file under the runtime cache' );
+    ok( -x Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, page_id => 'coverage-page', file => 'coverage.json' ), 'saved bookmark Ajax marks the stored runtime cache file executable' );
     is( Zipper::load_saved_ajax_code( runtime_root => $paths->runtime_root, page_id => 'coverage-page', file => 'coverage.json' ), 'print qq{{"ok":1}};', 'saved bookmark Ajax stored code can be loaded back from runtime cache' );
     my $saved_ajax_error = eval {
         Ajax(
@@ -154,6 +157,213 @@ is( $modern_page->render_template('ignored'), $modern_page, 'render_template com
 like( $modern_page->canonical_json, qr/Modern Title/, 'canonical_json serializes page content' );
 
 my $runtime = Developer::Dashboard::PageRuntime->new( paths => $paths );
+{
+    my $buffer = '';
+    local *STREAM;
+    tie *STREAM, 'Developer::Dashboard::PageRuntime::StreamHandle', writer => sub { $buffer .= $_[0] if defined $_[0] };
+    print STREAM "alpha", undef, "beta";
+    printf STREAM "%s-%s", 'gamma', 'delta';
+    close STREAM;
+    untie *STREAM;
+    is( $buffer, 'alphabetagamma-delta', 'stream handle forwards print and printf output chunks to the callback' );
+}
+{
+    local *STREAM;
+    tie *STREAM, 'Developer::Dashboard::PageRuntime::StreamHandle';
+    print STREAM 'ignored-default-writer';
+    close STREAM;
+    untie *STREAM;
+    pass('stream handle accepts the default no-op writer');
+}
+{
+    my $streamed = '';
+    my $stream_page = Developer::Dashboard::PageDocument->new( id => 'stream-direct' );
+    my $stream_result = $runtime->stream_code_block(
+        code          => 'print "streamed";',
+        page          => $stream_page,
+        source        => 'saved',
+        state         => {},
+        runtime_context => {},
+        stdout_writer => sub { $streamed .= $_[0] if defined $_[0] },
+    );
+    is( $streamed, 'streamed', 'stream_code_block forwards printed stdout chunks directly' );
+    is( $stream_result->{error}, '', 'stream_code_block leaves the trailing error text empty on success' );
+}
+{
+    my $returned = '';
+    my $stream_page = Developer::Dashboard::PageDocument->new( id => 'stream-return-writer' );
+    my $stream_result = $runtime->stream_code_block(
+        code            => 'return { ok => 1 };',
+        page            => $stream_page,
+        source          => 'saved',
+        state           => {},
+        runtime_context => {},
+        return_writer   => sub { $returned .= $_[0] if defined $_[0] },
+    );
+    like( $returned, qr/ok => 1/, 'stream_code_block forwards structured return values through the optional return writer' );
+    is( $stream_result->{error}, '', 'stream_code_block leaves the trailing error text empty when using a return writer' );
+}
+{
+    my $stream_page = Developer::Dashboard::PageDocument->new( id => 'stream-default-writers' );
+    my $stream_result = $runtime->stream_code_block(
+        code            => 'return { ok => 1 };',
+        page            => $stream_page,
+        source          => 'saved',
+        state           => {},
+        runtime_context => {},
+    );
+    is_deeply( $stream_result->{returns}, [ { ok => 1 } ], 'stream_code_block works with the default no-op stream writers' );
+}
+is( Developer::Dashboard::PageRuntime::_noop_writer('ignored'), '', '_noop_writer accepts ignored streamed chunks' );
+like( $runtime->_runtime_value_text( { ok => 1 } ), qr/ok => 1/, '_runtime_value_text renders structured runtime values' );
+{
+    my $saved_path = Zipper::saved_ajax_file_path(
+        runtime_root => $paths->runtime_root,
+        page_id      => 'coverage-page',
+        file         => 'coverage.json',
+    );
+    is_deeply(
+        [ ( $runtime->_saved_ajax_command( path => $saved_path ) )[ 0, 1 ] ],
+        [ $^X, '-e' ],
+        '_saved_ajax_command defaults saved Ajax files without shebangs to the Perl bootstrap interpreter path',
+    );
+    my %saved_env = $runtime->_saved_ajax_env(
+        path   => $saved_path,
+        page   => 'coverage-page',
+        type   => 'text',
+        params => { a => '1 2', b => 'ok' },
+    );
+    is( $saved_env{DEVELOPER_DASHBOARD_AJAX_PAGE}, 'coverage-page', '_saved_ajax_env exposes the saved bookmark id' );
+    like( $saved_env{DEVELOPER_DASHBOARD_AJAX_PARAMS}, qr/"a"\s*:\s*"1 2"/, '_saved_ajax_env encodes request params as JSON' );
+    like( $saved_env{QUERY_STRING}, qr/a=1%202/, '_saved_ajax_env rebuilds a query string for child process use' );
+}
+{
+    my $shebang_file = File::Spec->catfile( $paths->cache_root, 'ajax', 'coverage-page', 'shebang-handler' );
+    open my $fh, '>', $shebang_file or die $!;
+    print {$fh} "#!/bin/sh\nprintf 'ok\\n'\n";
+    close $fh;
+    chmod 0700, $shebang_file or die $!;
+    is_deeply( [ $runtime->_saved_ajax_command( path => $shebang_file ) ], [ $shebang_file ], '_saved_ajax_command executes shebang saved Ajax files directly' );
+}
+{
+    my $saved_path = File::Spec->catfile( $paths->cache_root, 'ajax', 'coverage-page', 'process-runner.pl' );
+    open my $fh, '>', $saved_path or die $!;
+    print {$fh} "print qq{process-out\\n}; warn qq{process-err\\n}; system 'sh', '-c', 'printf \"child-out\\\\n\"; printf \"child-err\\\\n\" >&2'; die qq{process-die\\n};";
+    close $fh;
+    chmod 0700, $saved_path or die $!;
+    my $streamed = '';
+    my $stream_result = $runtime->stream_saved_ajax_file(
+        path          => $saved_path,
+        page          => 'coverage-page',
+        type          => 'text',
+        params        => { page => 'coverage-page', file => 'process-runner.pl', type => 'text' },
+        stdout_writer => sub { $streamed .= $_[0] if defined $_[0] },
+        stderr_writer => sub { $streamed .= $_[0] if defined $_[0] },
+    );
+    like( $streamed, qr/process-out/, 'stream_saved_ajax_file forwards direct perl stdout' );
+    like( $streamed, qr/process-err/, 'stream_saved_ajax_file forwards direct perl stderr' );
+    like( $streamed, qr/child-out/, 'stream_saved_ajax_file forwards child stdout' );
+    like( $streamed, qr/child-err/, 'stream_saved_ajax_file forwards child stderr' );
+    like( $streamed, qr/process-die/, 'stream_saved_ajax_file forwards uncaught perl die text' );
+    ok( $stream_result->{exit_code} != 0, 'stream_saved_ajax_file reports the failing process exit code' );
+}
+{
+    my $stdout_chunk = '';
+    pipe my $stdout_reader, my $stdout_writer_handle or die $!;
+    print {$stdout_writer_handle} 'chunk-out';
+    close $stdout_writer_handle;
+    my $select = IO::Select->new($stdout_reader);
+    $runtime->_drain_saved_ajax_ready_handle(
+        fh            => $stdout_reader,
+        path          => 'stdout-path',
+        select        => $select,
+        stdout        => $stdout_reader,
+        stdout_writer => sub { $stdout_chunk .= $_[0] if defined $_[0] },
+        stderr_writer => sub { die "unexpected stderr callback" },
+    );
+    is( $stdout_chunk, 'chunk-out', '_drain_saved_ajax_ready_handle forwards stdout chunks to the stdout writer' );
+}
+{
+    my $stderr_chunk = '';
+    pipe my $stdout_reader, my $stdout_writer_handle or die $!;
+    pipe my $stderr_reader, my $stderr_writer_handle or die $!;
+    print {$stderr_writer_handle} 'chunk-err';
+    close $stderr_writer_handle;
+    close $stdout_writer_handle;
+    my $select = IO::Select->new($stderr_reader);
+    $runtime->_drain_saved_ajax_ready_handle(
+        fh            => $stderr_reader,
+        path          => 'stderr-path',
+        select        => $select,
+        stdout        => $stdout_reader,
+        stdout_writer => sub { die "unexpected stdout callback" },
+        stderr_writer => sub { $stderr_chunk .= $_[0] if defined $_[0] },
+    );
+    is( $stderr_chunk, 'chunk-err', '_drain_saved_ajax_ready_handle forwards non-stdout chunks to the stderr writer' );
+}
+{
+    my $stderr_chunk = '';
+    pipe my $fh, my $writer_handle or die $!;
+    close $writer_handle;
+    my $select = IO::Select->new($fh);
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::PageRuntime::_stream_sysread = sub {
+            $! = EINTR;
+            return undef;
+        };
+        $runtime->_drain_saved_ajax_ready_handle(
+            fh            => $fh,
+            path          => 'eintr-path',
+            select        => $select,
+            stdout        => $fh,
+            stdout_writer => sub { die "unexpected stdout callback" },
+            stderr_writer => sub { $stderr_chunk .= $_[0] if defined $_[0] },
+        );
+    }
+    is( $stderr_chunk, '', '_drain_saved_ajax_ready_handle quietly retries EINTR reads without surfacing an error chunk' );
+}
+{
+    my $stderr_chunk = '';
+    pipe my $fh, my $writer_handle or die $!;
+    close $writer_handle;
+    my $select = IO::Select->new($fh);
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::PageRuntime::_stream_sysread = sub {
+            $! = EIO;
+            return undef;
+        };
+        $runtime->_drain_saved_ajax_ready_handle(
+            fh            => $fh,
+            path          => 'error-path',
+            select        => $select,
+            stdout        => $fh,
+            stdout_writer => sub { die "unexpected stdout callback" },
+            stderr_writer => sub { $stderr_chunk .= $_[0] if defined $_[0] },
+        );
+    }
+    like( $stderr_chunk, qr/Unable to read ajax stream for error-path/, '_drain_saved_ajax_ready_handle surfaces real read errors through the stderr writer' );
+}
+{
+    my $class_page = Developer::Dashboard::PageDocument->new( layout => { body => 'plain body' } );
+    my $prepared_class = Developer::Dashboard::PageRuntime->prepare_page(
+        page            => $class_page,
+        runtime_context => {},
+    );
+    is( $prepared_class->{layout}{body}, 'plain body', 'prepare_page also works when called as a class method' );
+}
+{
+    my $empty_page = Developer::Dashboard::PageDocument->new;
+    my $class_runtime = Developer::Dashboard::PageRuntime->run_code_blocks( page => $empty_page );
+    is_deeply( $class_runtime, { outputs => [], errors => [] }, 'run_code_blocks also works when called as a class method with no code blocks' );
+}
+{
+    my $sandpit = $runtime->_new_sandpit();
+    ok( $sandpit->{package}, '_new_sandpit creates a package even when called with default state and runtime context' );
+    ok( !$runtime->_destroy_sandpit('not-a-sandpit'), '_destroy_sandpit returns quietly for invalid inputs' );
+    $runtime->_destroy_sandpit($sandpit);
+}
 my $prepared = $runtime->prepare_page(
     page => $modern_page,
     source => 'saved',

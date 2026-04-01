@@ -114,8 +114,11 @@ BOOKMARK: legacy-ajax
 :--------------------------------------------------------------------------------:
 HTML: <script>var configs = {};</script>
 :--------------------------------------------------------------------------------:
-CODE1: Ajax jvar => 'configs.project.endpoint', type => 'json', file => 'project-endpoint.json', code => q{
-  print j { ok => 1, source => 'saved-file' };
+CODE1: Ajax jvar => 'configs.project.endpoint', type => 'text', file => 'project-endpoint.json', code => q{
+print "saved-start\n";
+warn "saved-warn\n";
+system 'sh', '-c', 'printf "saved-child-out\n"; printf "saved-child-err\n" >&2';
+die "saved-die\n";
 };
 BOOKMARK
     );
@@ -153,7 +156,7 @@ BOOKMARK
     _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
 
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
-    _assert_match( $version->{stdout}, qr/^0\.96$/m, 'dashboard version reports the installed runtime version' );
+    _assert_match( $version->{stdout}, qr/^0\.98$/m, 'dashboard version reports the installed runtime version' );
 
     my $init = _run_shell( 'dashboard init', 'cd ' . _shell_quote($project) . ' && dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
@@ -411,10 +414,13 @@ JSON
     _assert( index( $project_dom, 'nav-alpha' ) < index( $project_dom, 'nav-beta' ), 'browser renders shared nav bookmark fragments in sorted filename order' );
     _assert( index( $project_dom, 'dashboard-nav-items' ) < index( $project_dom, 'project-marker' ), 'browser renders shared nav fragments before the main page body' );
     my $legacy_ajax_page = _run_shell( 'curl legacy ajax saved page', q{curl -fsS http://127.0.0.1:7890/app/legacy-ajax} );
-    _assert_match( $legacy_ajax_page->{stdout}, qr{/ajax\?page=legacy-ajax&file=project-endpoint\.json&type=json}, 'saved bookmark Ajax renders a stable file-backed ajax endpoint by default' );
-    my $legacy_ajax_saved = _run_shell( 'curl saved bookmark ajax endpoint', q{curl -fsS 'http://127.0.0.1:7890/ajax?page=legacy-ajax&file=project-endpoint.json&type=json'} );
-    _assert_match( $legacy_ajax_saved->{stdout}, qr/"ok"\s*:\s*1/, 'saved bookmark ajax endpoint executes through the file-backed route' );
-    _assert_match( $legacy_ajax_saved->{stdout}, qr/"source"\s*:\s*"saved-file"/, 'saved bookmark ajax endpoint returns the stored handler output' );
+    _assert_match( $legacy_ajax_page->{stdout}, qr{/ajax\?page=legacy-ajax&file=project-endpoint\.json&type=text}, 'saved bookmark Ajax renders a stable file-backed ajax endpoint by default' );
+    my $legacy_ajax_saved = _run_shell( 'curl saved bookmark ajax endpoint', q{curl -fsS 'http://127.0.0.1:7890/ajax?page=legacy-ajax&file=project-endpoint.json&type=text'} );
+    _assert_match( $legacy_ajax_saved->{stdout}, qr/saved-start/, 'saved bookmark ajax endpoint streams direct perl stdout' );
+    _assert_match( $legacy_ajax_saved->{stdout}, qr/saved-warn/, 'saved bookmark ajax endpoint streams perl stderr warnings' );
+    _assert_match( $legacy_ajax_saved->{stdout}, qr/saved-child-out/, 'saved bookmark ajax endpoint streams child stdout' );
+    _assert_match( $legacy_ajax_saved->{stdout}, qr/saved-child-err/, 'saved bookmark ajax endpoint streams child stderr' );
+    _assert_match( $legacy_ajax_saved->{stdout}, qr/saved-die/, 'saved bookmark ajax endpoint streams uncaught perl die output' );
 
     my $container_ip = _trim( _run_shell( 'container ip', q{hostname -I | awk '{print $1}'} )->{stdout} );
     _assert( $container_ip ne '', 'container ip discovered for helper-access path' );

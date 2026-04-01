@@ -2,6 +2,8 @@
 
 ## 2026-04-01
 
+- Fixed saved bookmark Ajax process drift by running stored `Ajax(file => ...)` handlers as real processes, so normal `print`, `warn`, `die`, `system`, and `exec` output flows back to the browser through the same live stream.
+- Fixed saved bookmark `/ajax` buffering by executing the stored Perl code directly and streaming raw output to the browser, so ajax progress appears live instead of waiting for a fully buffered response.
 - Fixed saved bookmark Ajax breakage under the transient-url hardening policy by adding named `file => ...` Ajax handlers that store code under the runtime cache and execute through `/ajax?page=...&file=...` without requiring transient tokens.
 - Fixed browser token-execution exposure by disabling transient `/?token=...`, `/action?atoken=...`, and legacy `/ajax?token=...` routes by default, so opening an untrusted localhost link no longer runs transient payloads unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled explicitly.
 - Fixed root-editor policy drift by continuing to allow posted bookmark files while rejecting unsaved transient root-editor execution when transient URL tokens are disabled.

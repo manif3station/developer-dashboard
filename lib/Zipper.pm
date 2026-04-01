@@ -137,6 +137,7 @@ sub _saved_ajax_url_and_store {
     open my $fh, '>', $path or die "Unable to write $path: $!";
     print {$fh} defined $args{code} ? $args{code} : '';
     close $fh;
+    chmod 0700, $path or die "Unable to chmod $path: $!";
     my $query = sprintf '/ajax?page=%s&file=%s&type=%s',
       uri_escape( $args{page_id} ),
       uri_escape( _validate_saved_ajax_file( $args{file} ) ),
@@ -211,6 +212,8 @@ older bookmark code without carrying forward any project-specific logic.
 
 =head2 zip, unzip, acmdx, Ajax, __cmdx, _cmdx, _cmdp
 
-Encode and decode token payloads and generate legacy-style ajax links.
+Encode and decode token payloads and generate legacy-style ajax links. Saved
+bookmark Ajax file handlers are stored under the runtime cache as executable
+files so the web runtime can run them as real processes.
 
 =cut

@@ -194,8 +194,12 @@ Legacy `Ajax` helper calls inside saved bookmark `CODE*` blocks should use an
 explicit `file => 'name.json'` argument. When a saved page supplies that name,
 the helper stores the Ajax Perl code under the runtime cache and emits a stable
 saved-bookmark endpoint such as `/ajax?page=some-bookmark&file=name.json&type=json`.
-That keeps bookmark Ajax workflows usable even while transient token URLs stay
-disabled by default.
+Those saved Ajax handlers run the stored file as a real process, defaulting to
+Perl unless the file starts with a shebang, and stream both `stdout` and
+`stderr` back to the browser as they happen. That keeps bookmark Ajax
+workflows usable even while transient token URLs stay disabled by default, and
+it means bookmark Ajax code can rely on normal `print`, `warn`, `die`,
+`system`, and `exec` process behaviour instead of a buffered JSON wrapper.
 
 
 ### User CLI Extensions
@@ -670,8 +674,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.96.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.96.tar.gz -v
+tar -tzf Developer-Dashboard-0.98.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.98.tar.gz -v
 ```
 
 The harness also:
