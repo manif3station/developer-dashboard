@@ -55,7 +55,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '0.94', 'module version bumped for Folder home-runtime path fix release' );
+is( $version, '0.95', 'module version bumped for transient web token hardening release' );
 like( $changes, qr/^\Q$version\E\s+\d{4}-\d{2}-\d{2}$/m, 'Changes top entry matches module version' );
 
 if ( %{$meta} ) {
@@ -83,10 +83,12 @@ for my $script (qw(bin/dashboard bin/of bin/open-file bin/pjq bin/pyq bin/ptomq 
 like( $readme, qr/cpanm \/tmp\/Developer-Dashboard-\Q$version\E\.tar\.gz -v/, 'README documents tarball install verification' );
 like( $readme, qr/rm -rf Developer-Dashboard-\* Developer-Dashboard-\*\.tar\.gz/, 'README documents old build directory and tarball cleanup before building a release' );
 like( $readme, qr/http:\/\/127\.0\.0\.1:7890\//, 'README documents the default local browser URL' );
+like( $readme, qr/DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS/, 'README documents the transient web token opt-in environment variable' );
 like( $readme, qr/exact numeric loopback admin access on `127\.0\.0\.1` does not require a password/, 'README documents passwordless exact-loopback admin access' );
 like( $readme, qr/helper access is for everyone else/, 'README documents helper-tier browser access' );
 like( $readme, qr/### Not Just For Perl/, 'README documents non-Perl suitability explicitly' );
 like( $pm, qr/http:\/\/127\.0\.0\.1:7890\//, 'main POD documents the default local browser URL' );
+like( $pm, qr/DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS/, 'main POD documents the transient web token opt-in environment variable' );
 like( $pm, qr/exact numeric loopback admin access on C<127\.0\.0\.1> does not require a\s+password/, 'main POD documents passwordless exact-loopback admin access' );
 like( $pm, qr/helper access is for everyone else/, 'main POD documents helper-tier browser access' );
 like( $pm, qr/=head2 Not Just For Perl/, 'main POD documents non-Perl suitability explicitly' );

@@ -452,6 +452,19 @@ PAGE
         permissions => { allow_untrusted_actions => 1 },
     );
     my $token = $store->encode_page($transient_action_page);
+    my ( $blocked_status, $blocked_type, $blocked_body ) = @{ $app->handle(
+        path        => '/action',
+        method      => 'POST',
+        query       => '',
+        body        => 'token=' . uri_escape($token) . '&id=page-state',
+        remote_addr => '127.0.0.1',
+        headers     => { host => '127.0.0.1' },
+    ) };
+    is( $blocked_status, 403, 'transient action fallback route is denied by default' );
+    like( $blocked_type, qr/text\/plain/, 'transient action fallback denial returns plain-text content type' );
+    like( $blocked_body, qr/Transient token URLs are disabled/, 'transient action fallback denial explains the policy' );
+
+    local $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} = 1;
     my ( $status, $type, $body ) = @{ $app->handle(
         path        => '/action',
         method      => 'POST',

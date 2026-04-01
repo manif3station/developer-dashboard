@@ -170,6 +170,26 @@ The distribution supports these compatibility-style customization variables:
 - `DEVELOPER_DASHBOARD_CONFIGS`
   Override the config root.
 
+- `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS`
+  Allow browser execution of transient `/?token=...`, `/action?atoken=...`, and legacy `/ajax?token=...` payloads. The default is off, so the web UI only executes saved bookmark files unless this is set to a truthy value such as `1`, `true`, `yes`, or `on`.
+
+
+### Transient Web Token Policy
+
+Transient page tokens still exist for CLI workflows such as `dashboard page encode`
+and `dashboard page decode`, but browser routes that execute a transient payload
+from `token=` or `atoken=` are disabled by default.
+
+That means links such as:
+
+- `http://127.0.0.1:7890/?token=...`
+- `http://127.0.0.1:7890/action?atoken=...`
+- `http://127.0.0.1:7890/ajax?token=...`
+
+return a `403` unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled.
+Saved bookmark-file routes such as `/app/index`, `/page/index`, and
+`/page/index/action/...` continue to work without that flag.
+
 
 ### User CLI Extensions
 
@@ -643,8 +663,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-0.94.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-0.94.tar.gz -v
+tar -tzf Developer-Dashboard-0.95.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-0.95.tar.gz -v
 ```
 
 The harness also:

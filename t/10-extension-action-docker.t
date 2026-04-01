@@ -388,9 +388,23 @@ my ( $encoded_action_code, $encoded_action_type, $encoded_action_body ) = @{ $ap
     remote_addr => '127.0.0.1',
     headers     => { host => '127.0.0.1' },
 ) };
-is( $encoded_action_code, 200, 'encoded action route executes' );
-like( $encoded_action_type, qr/application\/json/, 'encoded action route returns json' );
-like( $encoded_action_body, qr/"alpha"\s*:\s*"one"/, 'encoded action route returns page state' );
+is( $encoded_action_code, 403, 'encoded action route is denied by default' );
+like( $encoded_action_type, qr/text\/plain/, 'encoded action route denial returns plain text' );
+like( $encoded_action_body, qr/Transient token URLs are disabled/, 'encoded action route denial explains the policy' );
+
+{
+    local $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} = 1;
+    my ( $allowed_encoded_action_code, $allowed_encoded_action_type, $allowed_encoded_action_body ) = @{ $app->handle(
+        path        => '/action',
+        method      => 'POST',
+        query       => 'atoken=' . uri_escape($atoken),
+        remote_addr => '127.0.0.1',
+        headers     => { host => '127.0.0.1' },
+    ) };
+    is( $allowed_encoded_action_code, 200, 'encoded action route executes when transient token URLs are enabled' );
+    like( $allowed_encoded_action_type, qr/application\/json/, 'encoded action route returns json when transient token URLs are enabled' );
+    like( $allowed_encoded_action_body, qr/"alpha"\s*:\s*"one"/, 'encoded action route returns page state when transient token URLs are enabled' );
+}
 
 my $transient_safe = Developer::Dashboard::PageDocument->new(
     title   => 'Transient Safe',
@@ -404,16 +418,29 @@ my $token = $actions->encode_action_payload(
     page   => $transient_safe,
     source => 'transient',
 );
-my ( $transient_code, $transient_type, $transient_body ) = @{ $app->handle(
+my ( $transient_blocked_code, undef, $transient_blocked_body ) = @{ $app->handle(
     path        => '/action',
     method      => 'POST',
     query       => 'atoken=' . uri_escape($token),
     remote_addr => '127.0.0.1',
     headers     => { host => '127.0.0.1' },
 ) };
-is( $transient_code, 200, 'transient encoded builtin action route executes for safe actions' );
-like( $transient_type, qr/application\/json/, 'transient encoded builtin action route returns json' );
-like( $transient_body, qr/"beta"\s*:\s*"two"/, 'transient encoded builtin action route returns action output' );
+is( $transient_blocked_code, 403, 'transient encoded builtin action route is denied by default' );
+like( $transient_blocked_body, qr/Transient token URLs are disabled/, 'transient encoded builtin action denial explains the policy' );
+
+{
+    local $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} = 1;
+    my ( $transient_code, $transient_type, $transient_body ) = @{ $app->handle(
+        path        => '/action',
+        method      => 'POST',
+        query       => 'atoken=' . uri_escape($token),
+        remote_addr => '127.0.0.1',
+        headers     => { host => '127.0.0.1' },
+    ) };
+    is( $transient_code, 200, 'transient encoded builtin action route executes for safe actions when transient token URLs are enabled' );
+    like( $transient_type, qr/application\/json/, 'transient encoded builtin action route returns json when transient token URLs are enabled' );
+    like( $transient_body, qr/"beta"\s*:\s*"two"/, 'transient encoded builtin action route returns action output when transient token URLs are enabled' );
+}
 
 my ( $missing_action_code ) = @{ $app->handle(
     path        => '/page/action-page/action/missing',

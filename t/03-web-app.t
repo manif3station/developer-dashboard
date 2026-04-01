@@ -87,6 +87,40 @@ unlike($body1, qr/Saved pages live under/, 'root route no longer renders landing
 unlike($body1, qr/>Update</, 'root route does not render manual update button');
 like($body1, qr/addEventListener\('change', function\(\) \{\s*ddForm\.submit\(\);/s, 'root route auto-submits textarea changes on blur');
 
+my $saved_token = uri_escape( $store->encode_page($page) );
+my ($code1_forbidden_post, $type1_forbidden_post, $body1_forbidden_post) = @{ $app->handle(
+    path        => '/',
+    method      => 'POST',
+    body        => 'instruction=TITLE%3A%20Posted%20Page%0A%3A--------------------------------------------------------------------------------%3A%0AHTML%3A%20posted%20body%0A',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is($code1_forbidden_post, 403, 'posted transient instruction route is denied by default');
+like($type1_forbidden_post, qr/text\/plain/, 'posted transient instruction denial returns plain text');
+like($body1_forbidden_post, qr/Transient token URLs are disabled/, 'posted transient instruction denial explains the policy');
+
+my ($code1_forbidden_token, undef, $body1_forbidden_token) = @{ $app->handle(
+    path        => '/',
+    query       => "mode=render&token=$saved_token",
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is($code1_forbidden_token, 403, 'tokenized transient page route is denied by default');
+like($body1_forbidden_token, qr/Transient token URLs are disabled/, 'tokenized transient page denial explains the policy');
+
+my ($code1_allowed_bookmark, undef, $body1_allowed_bookmark) = @{ $app->handle(
+    path        => '/',
+    method      => 'POST',
+    body        => 'instruction=TITLE%3A%20Saved%20From%20Default%20Policy%0A%3A--------------------------------------------------------------------------------%3A%0ABOOKMARK%3A%20allowed-under-default%0A%3A--------------------------------------------------------------------------------%3A%0AHTML%3A%20saved%20body%0A',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is($code1_allowed_bookmark, 200, 'posted bookmark instruction is still allowed when transient URLs are disabled');
+like($body1_allowed_bookmark, qr/saved body/, 'posted bookmark instruction still renders after it is saved');
+ok( -f File::Spec->catfile( $paths->dashboards_root, 'allowed-under-default' ), 'posted bookmark instruction still persists bookmark files when transient URLs are disabled' );
+
+local $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} = 1;
+
 my ($code1b, undef, $body1b) = @{ $app->handle(
     path        => '/',
     method      => 'POST',
@@ -255,7 +289,7 @@ ok($alpha_pos > -1 && $beta_pos > $alpha_pos, 'shared nav tt bookmarks render in
 unlike($body2, qr/id="play-url"/, 'render mode does not render play link');
 like($body2, qr{href="/page/welcome/edit"[^>]+id="view-source-url"}, 'render mode view source points to edit route');
 
-my $token = uri_escape( $store->encode_page($page) );
+my $token = $saved_token;
 my ($code3, $type3, $body3) = @{ $app->handle(path => '/', query => "mode=source&token=$token", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code3, 200, 'transient source route ok');
 like($type3, qr/text\/plain/, 'source mode returns plain text instructions');
@@ -307,6 +341,13 @@ like($body6, qr/set_chain_value\(configs,'demo\.endpoint','\/ajax\?token=/, 'leg
 
 my ($ajax_token) = $body6 =~ m{/ajax\?token=([^&]+)&type=json};
 ok($ajax_token, 'legacy ajax token extracted from rendered page');
+{
+    local $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} = 0;
+    my ($blocked_ajax_code, $blocked_ajax_type, $blocked_ajax_body) = @{ $app->handle(path => '/ajax', query => "token=$ajax_token&type=json", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+    is($blocked_ajax_code, 403, 'legacy ajax token route is denied when transient token URLs are disabled');
+    like($blocked_ajax_type, qr/text\/plain/, 'legacy ajax token denial returns plain text');
+    like($blocked_ajax_body, qr/Transient token URLs are disabled/, 'legacy ajax token denial explains the policy');
+}
 my ($code7, $type7, $body7) = @{ $app->handle(path => '/ajax', query => "token=$ajax_token&type=json", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code7, 200, 'legacy ajax endpoint executes');
 like($type7, qr/application\/json/, 'legacy ajax endpoint returns json type');

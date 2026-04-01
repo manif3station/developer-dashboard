@@ -2,6 +2,8 @@
 
 ## 2026-04-01
 
+- Fixed browser token-execution exposure by disabling transient `/?token=...`, `/action?atoken=...`, and legacy `/ajax?token=...` routes by default, so opening an untrusted localhost link no longer runs transient payloads unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled explicitly.
+- Fixed root-editor policy drift by continuing to allow posted bookmark files while rejecting unsaved transient root-editor execution when transient URL tokens are disabled.
 - Fixed `Folder->dd` and `Folder->runtime_root` returning a doubled `~/.developer-dashboard/.developer-dashboard` path when the current working directory was already inside the home runtime repository.
 - Fixed runtime-root precedence drift by making a project-local `./.developer-dashboard` tree the first lookup root for bookmarks, config, CLI commands and hooks, auth users, sessions, and isolated docker service folders, while still falling back to `~/.developer-dashboard` when the local item is absent.
 - Fixed local bookmark seeding gaps by adding sanitized `api-dashboard` and `db-dashboard` starter pages to `dashboard init`, so the runtime ships editable built-in request and SQL workspaces without carrying forward company-specific or credential-bearing legacy bookmark content.

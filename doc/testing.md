@@ -75,12 +75,13 @@ The web tests also cover the access model:
 - helper session remote-address binding and expiry validation paths
 - forwarding of response headers such as `Location` and `Set-Cookie`
 - root free-form editor behavior at `/`
-- posted instruction handling through `/`
+- posted instruction handling through `/`, including default denial of unsaved transient execution unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled
 - nested saved bookmark ids such as `nav/foo.tt` through `/app/...` and `/page/...`
 - shared `nav/*.tt` bookmark rendering between top chrome and the main page body in sorted filename order
 - Template Toolkit conditional rendering for shared nav fragments and saved pages using `env.current_page` and `env.runtime_context.current_page`
 - `/apps -> /app/index` compatibility
 - top chrome rendering on edit and legacy render pages
+- denial of browser `token=` and `atoken=` execution for transient page and action payloads, plus legacy `/ajax?token=...`, when the transient URL opt-in env var is absent
 
 ## Blank Environment Integration
 
@@ -102,4 +103,5 @@ The integration flow also:
 - verifies installed CLI and saved bookmarks from that fake project's local runtime plus config collectors from that same runtime root
 - verifies `dashboard version` reports the installed runtime version
 - seeds a user-provided fake-project `./.developer-dashboard/cli/update` command plus `update.d` hooks inside the container and verifies `dashboard update` uses the same executable command-hook path as every other top-level subcommand, including later-hook reads through `Runtime::Result`
+- verifies the installed web app denies `/?token=...` browser execution by default while saved bookmark routes still render
 - uses headless Chromium to validate the editor, the saved fake-project bookmark page, and the helper login page

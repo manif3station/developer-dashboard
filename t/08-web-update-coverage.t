@@ -65,6 +65,13 @@ is( $apps_code, 302, '/apps redirects to default index bookmark' );
 is( $apps_headers->{Location}, '/app/index', '/apps uses index bookmark as default target' );
 
 my $token = uri_escape( $store->encode_page($page) );
+my ( $blocked_code, $blocked_type, $blocked_body ) = @{ $app->handle( path => '/', query => "token=$token", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+is( $blocked_code, 403, 'transient edit route is denied by default' );
+like( $blocked_type, qr/text\/plain/, 'denied transient edit route returns plain text' );
+like( $blocked_body, qr/Transient token URLs are disabled/, 'denied transient edit route explains the policy' );
+
+local $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} = 1;
+
 my ( $edit_code, $edit_type, $edit_body ) = @{ $app->handle( path => '/', query => "token=$token", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $edit_code, 200, 'transient edit route responds with success' );
 like( $edit_body, qr/<textarea[^>]*name="instruction"/, 'edit route renders editable source textarea' );

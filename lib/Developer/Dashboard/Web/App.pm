@@ -35,6 +35,27 @@ sub new {
     }, $class;
 }
 
+# _transient_url_tokens_allowed()
+# Reports whether tokenized transient web execution is enabled by environment.
+# Input: none.
+# Output: boolean true when DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS enables transient web tokens.
+sub _transient_url_tokens_allowed {
+    return defined $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS}
+      && $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} =~ /\A(?:1|true|yes|on)\z/i;
+}
+
+# _transient_url_forbidden_response()
+# Builds the default-deny response for tokenized transient web execution.
+# Input: none.
+# Output: response array reference with a 403 plain-text error.
+sub _transient_url_forbidden_response {
+    return [
+        403,
+        'text/plain; charset=utf-8',
+        "Transient token URLs are disabled. Save the page as a bookmark file or set DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS=1.\n",
+    ];
+}
+
 # handle(%args)
 # Dispatches a single normalized web request into the dashboard app.
 # Input: request path, query, method, headers, body, and remote address.
@@ -100,8 +121,12 @@ sub handle {
             my $instruction = exists $body_params{instruction} ? $body_params{instruction} : $params{instruction};
             my $page = Developer::Dashboard::PageDocument->from_instruction($instruction);
             $page->{meta}{raw_instruction} = $instruction;
+            my $page_id = $page->as_hash->{id} || '';
+            if ( $page_id eq '' && !_transient_url_tokens_allowed() ) {
+                return _transient_url_forbidden_response();
+            }
             my $source_kind = 'transient';
-            if ( exists $body_params{instruction} && ( $page->as_hash->{id} || '' ) ne '' ) {
+            if ( exists $body_params{instruction} && $page_id ne '' ) {
                 $self->{pages}->save_page($page);
                 $source_kind = 'saved';
             }
@@ -123,6 +148,7 @@ sub handle {
             return $self->_page_response( $page, $mode );
         }
         if ( my $token = $params{token} ) {
+            return _transient_url_forbidden_response() if !_transient_url_tokens_allowed();
             my $page = $self->{pages}->load_transient_page($token);
             $page->{meta}{raw_instruction} = $page->canonical_instruction;
             my $mode = $params{mode} || 'edit';
@@ -155,6 +181,7 @@ sub handle {
     }
 
     if ( $path eq '/ajax' ) {
+        return _transient_url_forbidden_response() if !$self->_legacy_ajax_allowed( { %params, %body_params } );
         return $self->_legacy_ajax_response(
             params       => { %params, %body_params },
             remote_addr  => $args{remote_addr},
@@ -191,12 +218,14 @@ sub handle {
 
     if ( $path eq '/action' && $method eq 'POST' ) {
         if ( my $atoken = $params{atoken} ) {
+            return _transient_url_forbidden_response() if !_transient_url_tokens_allowed();
             return $self->_encoded_action_response(
                 token  => $atoken,
                 params => { %params, %body_params },
             );
         }
         my $token = exists $params{token} ? $params{token} : ( $body_params{token} || '' );
+        return _transient_url_forbidden_response() if $token ne '' && !_transient_url_tokens_allowed();
         my $id    = exists $params{id}    ? $params{id}    : ( $body_params{id}    || '' );
         my $page  = $self->{pages}->load_transient_page($token);
         $page = $self->_page_with_runtime_state(
@@ -828,6 +857,7 @@ sub _render_page_html {
     my ( $self, $page, $mode ) = @_;
     $page->with_mode( $mode || 'render' );
     my $request_context = $page->{meta}{request_context} || {};
+    my $transient_allowed = _transient_url_tokens_allowed();
     my %action_urls;
     for my $action ( @{ $page->as_hash->{actions} || [] } ) {
         next if ref($action) ne 'HASH' || !$action->{id};
@@ -839,7 +869,7 @@ sub _render_page_html {
             )
           : undef;
         $action_urls{ $action->{id} } = $atoken
-          ? '/action?atoken=' . URI::Escape::uri_escape($atoken)
+          ? ( $transient_allowed ? '/action?atoken=' . URI::Escape::uri_escape($atoken) : '/page/' . ( $page->as_hash->{id} || '' ) . '/action/' . $action->{id} )
           : '/page/' . ( $page->as_hash->{id} || '' ) . '/action/' . $action->{id};
     }
     my $page_url = ( $page->{meta}{source_kind} || '' ) eq 'transient'
@@ -855,9 +885,9 @@ sub _render_page_html {
         chrome_html => $self->_top_chrome_html(
             $page,
             {
-                edit   => ( $page->{meta}{source_kind} || '' ) eq 'transient' ? '/?token=' . $self->{pages}->encode_page($page) : $page_url . '/edit',
-                render => ( $page->{meta}{source_kind} || '' ) eq 'transient' ? '/?mode=render&token=' . $self->{pages}->encode_page($page) : $page_url,
-                source => ( $page->{meta}{source_kind} || '' ) eq 'transient' ? '/?token=' . $self->{pages}->encode_page($page) : $page_url . '/edit',
+                edit   => ( ( $page->{meta}{source_kind} || '' ) eq 'transient' && $transient_allowed ) ? '/?token=' . $self->{pages}->encode_page($page) : $page_url . '/edit',
+                render => ( ( $page->{meta}{source_kind} || '' ) eq 'transient' && $transient_allowed ) ? '/?mode=render&token=' . $self->{pages}->encode_page($page) : $page_url,
+                source => ( ( $page->{meta}{source_kind} || '' ) eq 'transient' && $transient_allowed ) ? '/?token=' . $self->{pages}->encode_page($page) : $page_url . '/edit',
             },
         ),
         nav_html => $self->_nav_items_html(
@@ -1102,6 +1132,17 @@ sub _legacy_ajax_response {
     my $errors = join '', @{ $page->{meta}{runtime_errors} || [] };
     $body .= $errors if $errors ne '';
     return [ 200, $types{$type} || 'text/plain; charset=utf-8', $body ];
+}
+
+# _legacy_ajax_allowed($params)
+# Checks whether a legacy /ajax request is allowed under the transient token policy.
+# Input: flat request parameter hash reference.
+# Output: boolean true when no token is present or transient token URLs are enabled.
+sub _legacy_ajax_allowed {
+    my ( $self, $params ) = @_;
+    return 1 if ref($params) ne 'HASH';
+    return 1 if ( $params->{token} || '' ) eq '';
+    return _transient_url_tokens_allowed();
 }
 
 # _parse_query($query)

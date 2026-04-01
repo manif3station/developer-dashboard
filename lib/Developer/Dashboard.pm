@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.94';
+our $VERSION = '0.95';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.94
+0.95
 
 =head1 INTRODUCTION
 
@@ -478,7 +478,36 @@ Filter enabled collector/checker names.
 
 Override the config root.
 
+=item * C<DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS>
+
+Allow browser execution of transient C</?token=...>, C</action?atoken=...>,
+and legacy C</ajax?token=...> payloads. The default is off, so the web UI only
+executes saved bookmark files unless this is set to a truthy value such as
+C<1>, C<true>, C<yes>, or C<on>.
+
 =back
+
+=head2 Transient Web Token Policy
+
+Transient page tokens still exist for CLI workflows such as C<dashboard page encode>
+and C<dashboard page decode>, but browser routes that execute a transient payload
+from C<token=> or C<atoken=> are disabled by default.
+
+That means links such as:
+
+=over 4
+
+=item * C<http://127.0.0.1:7890/?token=...>
+
+=item * C<http://127.0.0.1:7890/action?atoken=...>
+
+=item * C<http://127.0.0.1:7890/ajax?token=...>
+
+=back
+
+return a C<403> unless C<DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS> is enabled.
+Saved bookmark-file routes such as C</app/index>, C</page/index>, and
+C</page/index/action/...> continue to work without that flag.
 
 =head2 User CLI Extensions
 
@@ -990,6 +1019,13 @@ Limits enabled collector or checker jobs to a colon-separated list of names.
 
 Overrides the config directory.
 
+=item * C<DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS>
+
+Allows browser execution of transient C</?token=...>, C</action?atoken=...>,
+and legacy C</ajax?token=...> payloads. The default is off, so the web UI only
+executes saved bookmark files unless this is set to a truthy value such as
+C<1>, C<true>, C<yes>, or C<on>.
+
 =back
 
 Collector definitions come only from dashboard configuration JSON, so config
@@ -1049,8 +1085,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.94.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.94.tar.gz -v
+  tar -tzf Developer-Dashboard-0.95.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.95.tar.gz -v
 
 The harness also:
 

@@ -139,7 +139,7 @@ BOOKMARK
     _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
 
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
-    _assert_match( $version->{stdout}, qr/^0\.94$/m, 'dashboard version reports the installed runtime version' );
+    _assert_match( $version->{stdout}, qr/^0\.95$/m, 'dashboard version reports the installed runtime version' );
 
     my $init = _run_shell( 'dashboard init', 'cd ' . _shell_quote($project) . ' && dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
@@ -374,6 +374,13 @@ JSON
     my $serve = _run_shell( 'dashboard serve', $project_cd . 'dashboard serve' );
     _assert_match( $serve->{stdout}, qr/"pid"\s*:/, 'dashboard serve starts background web service' );
     _wait_for_http( 'http://127.0.0.1:7890/', 200 );
+
+    my $blocked_transient = _run_shell(
+        'curl transient token denied by default',
+        'curl -sS -o /tmp/transient-denied.body -w \'%{http_code}\' ' . _shell_quote( 'http://127.0.0.1:7890/?token=' . $token ),
+    );
+    _assert_match( $blocked_transient->{stdout}, qr/^403$/, 'loopback transient token route is denied by default' );
+    _assert_match( _read_text('/tmp/transient-denied.body'), qr/Transient token URLs are disabled/, 'loopback transient token denial explains the policy' );
 
     my $root = _run_shell( 'curl loopback root', q{curl -fsS http://127.0.0.1:7890/} );
     _assert_match( $root->{stdout}, qr/instruction-editor/, 'loopback root serves the bookmark editor' );
