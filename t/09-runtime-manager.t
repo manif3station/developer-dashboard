@@ -406,6 +406,54 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
 
 {
     no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
+        return ( "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nLISTEN 0 1024 127.0.0.1:7906 0.0.0.0:* users:((\"starman worker \",pid=123,fd=4),(\"starman master \",pid=456,fd=4))\n", '', 0 );
+    };
+    local *Developer::Dashboard::RuntimeManager::_is_managed_web = sub {
+        my ( undef, $pid ) = @_;
+        return $pid == 456 ? 1 : 0;
+    };
+    is_deeply(
+        [ $manager->_managed_listener_pids_for_port(7906) ],
+        [456],
+        '_managed_listener_pids_for_port filters ss listener pids down to managed dashboard processes',
+    );
+}
+
+{
+    no warnings 'redefine';
+    $files->write( 'web_pid', "$$\n" );
+    $manager->_write_web_state( { pid => $$, host => '127.0.0.1', port => 7907, status => 'running' } );
+    local *Developer::Dashboard::RuntimeManager::_is_managed_web = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ($$) };
+    my $state = $manager->running_web;
+    is( $state->{pid}, $$, 'running_web trusts the recorded live listener pid for a running state even after the server process renames itself' );
+    $manager->_cleanup_web_files;
+}
+
+{
+    my $listener = fork();
+    die "fork failed: $!" if !defined $listener;
+    if ( !$listener ) {
+        local $SIG{TERM} = 'IGNORE';
+        sleep 30;
+        exit 0;
+    }
+    my $calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::running_web = sub {
+        return $calls++ == 0 ? { pid => $listener, port => 7908 } : undef;
+    };
+    local *Developer::Dashboard::RuntimeManager::_managed_listener_pids_for_port = sub { return ($listener) };
+    local *Developer::Dashboard::RuntimeManager::_find_legacy_web_processes = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_pkill_perl = sub { return 1 };
+    is( $manager->stop_web, $listener, 'stop_web returns the recorded pid while it also tracks listener pids on the bound port' );
+    waitpid( $listener, 0 );
+    ok( !kill( 0, $listener ), 'stop_web escalates listener-port pids to KILL when they remain alive after TERM' );
+}
+
+{
+    no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( "ps fallback title\n", undef, 0 ) };
     is( $manager->_read_process_title(999_999_999), 'ps fallback title', '_read_process_title falls back to ps output when /proc cmdline is unavailable' );
 }

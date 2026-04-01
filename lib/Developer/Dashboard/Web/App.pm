@@ -58,50 +58,39 @@ sub _transient_url_forbidden_response {
 }
 
 # handle(%args)
-# Dispatches a single normalized web request into the dashboard app.
-# Input: request path, query, method, headers, body, and remote address.
+# Dispatches one normalized request through the service-side route map.
+# Input: path, query, method, headers, body, and remote address.
 # Output: array reference of status code, content type, body, and optional headers hash.
 sub handle {
     my ( $self, %args ) = @_;
-    my $path    = $args{path}    || '/';
-    my $query   = $args{query}   || '';
-    my $method  = uc( $args{method} || 'GET' );
-    my $headers = $args{headers} || {};
-    my $body    = defined $args{body} ? $args{body} : '';
+    my $path   = $args{path} || '/';
+    my $method = uc( $args{method} || 'GET' );
 
-    my %params = _parse_query($query);
-    my %body_params = $method eq 'POST' ? _parse_query($body) : ();
+    if ( $path eq '/login' && $method eq 'POST' ) {
+        return $self->login_response(%args);
+    }
+    if ( $path eq '/logout' ) {
+        return $self->logout_response(%args);
+    }
+
+    my $auth_response = $self->authorize_request(%args);
+    return $auth_response if $auth_response;
+
+    return $self->dispatch_request(%args);
+}
+
+# authorize_request(%args)
+# Authenticates one browser request and seeds the per-request context.
+# Input: normalized request path, headers, and remote address.
+# Output: undef when authorized, otherwise an HTTP response array reference.
+sub authorize_request {
+    my ( $self, %args ) = @_;
+    my $headers = $args{headers} || {};
     my $tier = $self->{auth}->trust_tier(
         remote_addr => $args{remote_addr},
         host        => $headers->{host},
     );
     my $session;
-
-    if ( $path eq '/login' && $method eq 'POST' ) {
-        return $self->_handle_login(
-            body        => $body,
-            remote_addr => $args{remote_addr},
-        );
-    }
-
-    if ( $path eq '/logout' ) {
-        $session = $self->{sessions}->from_cookie( $headers->{cookie}, remote_addr => $args{remote_addr} );
-        if ($session) {
-            if ( ( $session->{role} || '' ) eq 'helper' && ( $session->{username} || '' ) ne '' ) {
-                $self->{auth}->remove_user( $session->{username} );
-            }
-            $self->{sessions}->delete( $session->{session_id} );
-        }
-        return [
-            302,
-            'text/plain; charset=utf-8',
-            "Redirecting\n",
-            {
-                'Location'   => '/login',
-                'Set-Cookie' => _expired_session_cookie(),
-            },
-        ];
-    }
 
     if ( $tier ne 'admin' ) {
         $session = $self->{sessions}->from_cookie( $headers->{cookie}, remote_addr => $args{remote_addr} );
@@ -109,6 +98,7 @@ sub handle {
             return [ 401, 'text/html; charset=utf-8', $self->{auth}->login_page ];
         }
     }
+
     $self->{_current_request_context} = {
         tier        => $tier,
         remote_addr => $args{remote_addr} || '',
@@ -116,257 +106,49 @@ sub handle {
         username    => ref($session) eq 'HASH' ? ( $session->{username} || '' ) : '',
         role        => ref($session) eq 'HASH' ? ( $session->{role} || '' ) : '',
     };
+    return;
+}
 
-    if ( $path eq '/' ) {
-        if ( exists $body_params{instruction} || exists $params{instruction} ) {
-            my $instruction = exists $body_params{instruction} ? $body_params{instruction} : $params{instruction};
-            my $page = Developer::Dashboard::PageDocument->from_instruction($instruction);
-            $page->{meta}{raw_instruction} = $instruction;
-            my $page_id = $page->as_hash->{id} || '';
-            if ( $page_id eq '' && !_transient_url_tokens_allowed() ) {
-                return _transient_url_forbidden_response();
-            }
-            my $source_kind = 'transient';
-            if ( exists $body_params{instruction} && $page_id ne '' ) {
-                $self->{pages}->save_page($page);
-                $source_kind = 'saved';
-            }
-            $page->{meta}{source_kind} = $source_kind;
-            my $mode = $params{mode} || $body_params{mode} || 'edit';
-            $page = $self->_page_with_runtime_state(
-                $page,
-                query_params => \%params,
-                body_params  => \%body_params,
-                path         => $path,
-                remote_addr  => $args{remote_addr},
-                headers      => $headers,
-            );
-            $page = $self->{runtime}->prepare_page(
-                page            => $page,
-                source          => $source_kind,
-                runtime_context => { params => { %params, %body_params } },
-            );
-            return $self->_page_response( $page, $mode );
-        }
-        if ( my $token = $params{token} ) {
-            return _transient_url_forbidden_response() if !_transient_url_tokens_allowed();
-            my $page = $self->{pages}->load_transient_page($token);
-            $page->{meta}{raw_instruction} = $page->canonical_instruction;
-            my $mode = $params{mode} || 'edit';
-            $page = $self->_page_with_runtime_state(
-                $page,
-                query_params => \%params,
-                body_params  => \%body_params,
-                path         => $path,
-                remote_addr  => $args{remote_addr},
-                headers      => $headers,
-            );
-            $page = $self->{runtime}->prepare_page(
-                page            => $page,
-                source          => 'transient',
-                runtime_context => { params => { %params, %body_params } },
-            );
-            return $self->_page_response( $page, $mode );
-        }
+# dispatch_request(%args)
+# Routes one authorized normalized request to the matching service method.
+# Input: path, query, method, headers, body, and remote address.
+# Output: array reference of status code, content type, body, and optional headers hash.
+sub dispatch_request {
+    my ( $self, %args ) = @_;
+    my $path   = $args{path} || '/';
+    my $method = uc( $args{method} || 'GET' );
 
-        return $self->_blank_editor_response;
-    }
-
-    if ( $path eq '/apps' ) {
-        return [
-            302,
-            'text/plain; charset=utf-8',
-            "Redirecting\n",
-            { Location => '/app/index' },
-        ];
-    }
-
-    if ( $path eq '/ajax' ) {
-        return _transient_url_forbidden_response() if !$self->_legacy_ajax_allowed( { %params, %body_params } );
-        return $self->_legacy_ajax_response(
-            params       => { %params, %body_params },
-            remote_addr  => $args{remote_addr},
-            headers      => $headers,
-        );
-    }
-
+    return $self->root_response(%args) if $path eq '/';
+    return $self->apps_redirect_response(%args) if $path eq '/apps';
+    return $self->legacy_ajax_response(%args) if $path eq '/ajax';
     if ( $path =~ m{^/ajax/(.+)$} ) {
-        my $ajax_file = uri_unescape($1);
-        return _transient_url_forbidden_response() if !$self->_legacy_ajax_allowed( { %params, %body_params, file => $ajax_file } );
-        return $self->_legacy_ajax_response(
-            params       => { %params, %body_params, file => $ajax_file },
-            remote_addr  => $args{remote_addr},
-            headers      => $headers,
-        );
+        return $self->legacy_ajax_file_response( ajax_file => uri_unescape($1), %args );
     }
-
-    if ( $path eq '/system/status' ) {
-        my $payload = $self->_page_status_payload;
-        return [ 200, 'application/json; charset=utf-8', json_encode($payload) ];
-    }
-
-    if ( $path eq '/marked.min.js' ) {
-        return [ 200, 'application/javascript; charset=utf-8', "window.marked=window.marked||{parse:function(s){return s||'';}};\n" ];
-    }
-
-    if ( $path eq '/tiff.min.js' ) {
-        return [ 200, 'application/javascript; charset=utf-8', "window.Tiff=window.Tiff||function(){};\n" ];
-    }
-
-    if ( $path eq '/loading.webp' ) {
-        return [ 200, 'image/webp', '' ];
-    }
-
-    # Serve static files from public directory (js, css, others)
+    return $self->status_response(%args) if $path eq '/system/status';
+    return $self->marked_js_response(%args) if $path eq '/marked.min.js';
+    return $self->tiff_js_response(%args) if $path eq '/tiff.min.js';
+    return $self->loading_image_response(%args) if $path eq '/loading.webp';
     if ( $path =~ m{^/(js|css|others)/(.+)$} ) {
-        my $type = $1;
-        my $file = uri_unescape($2);
-        return $self->_serve_static_file( $type, $file );
+        return $self->static_file_response( type => $1, file => uri_unescape($2), %args );
     }
-
     if ( $path =~ m{^/app/(.+)$} ) {
-        return $self->_legacy_app_response(
-            id           => $1,
-            query_params => \%params,
-            body_params  => \%body_params,
-            remote_addr  => $args{remote_addr},
-            headers      => $headers,
-        );
+        return $self->legacy_app_response( id => $1, %args );
     }
-
-    if ( $path eq '/action' && $method eq 'POST' ) {
-        if ( my $atoken = $params{atoken} ) {
-            return _transient_url_forbidden_response() if !_transient_url_tokens_allowed();
-            return $self->_encoded_action_response(
-                token  => $atoken,
-                params => { %params, %body_params },
-            );
-        }
-        my $token = exists $params{token} ? $params{token} : ( $body_params{token} || '' );
-        return _transient_url_forbidden_response() if $token ne '' && !_transient_url_tokens_allowed();
-        my $id    = exists $params{id}    ? $params{id}    : ( $body_params{id}    || '' );
-        my $page  = $self->{pages}->load_transient_page($token);
-        $page = $self->_page_with_runtime_state(
-            $page,
-            query_params => \%params,
-            body_params  => \%body_params,
-            path         => $path,
-            remote_addr  => $args{remote_addr},
-            headers      => $headers,
-        );
-        return $self->_action_response(
-            id     => $id,
-            page   => $page,
-            source => 'transient',
-            params => { %params, %body_params },
-        );
-    }
-
+    return $self->transient_action_response(%args) if $path eq '/action' && $method eq 'POST';
     if ( $path =~ m{^/page/(.+)/source$} ) {
-        my $page = $self->_load_named_page($1);
-        $page->{meta}{raw_instruction} = $page->canonical_instruction;
-        $page = $self->_page_with_runtime_state(
-            $page,
-            query_params => \%params,
-            body_params  => \%body_params,
-            path         => $path,
-            remote_addr  => $args{remote_addr},
-            headers      => $headers,
-        );
-        $page = $self->{runtime}->prepare_page(
-            page            => $page,
-            source          => $page->{meta}{source_kind} || 'saved',
-            runtime_context => { params => { %params, %body_params } },
-        );
-        return [ 200, 'text/plain; charset=utf-8', $page->{meta}{raw_instruction} || $page->canonical_instruction ];
+        return $self->page_source_response( id => $1, %args );
     }
-
     if ( $path =~ m{^/page/(.+)/edit$} && $method eq 'POST' ) {
-        my $requested_id = $1;
-        my $instruction = exists $body_params{instruction} ? $body_params{instruction} : $params{instruction};
-        if ( defined $instruction ) {
-            my $page = Developer::Dashboard::PageDocument->from_instruction($instruction);
-            $page->{meta}{raw_instruction} = $instruction;
-            $page->{id} ||= $requested_id;
-            $page->{meta}{source_kind} = 'saved';
-            $self->{pages}->save_page($page);
-            my $mode = $params{mode} || $body_params{mode} || 'edit';
-            $page = $self->_page_with_runtime_state(
-                $page,
-                query_params => \%params,
-                body_params  => \%body_params,
-                path         => $path,
-                remote_addr  => $args{remote_addr},
-                headers      => $headers,
-            );
-            $page = $self->{runtime}->prepare_page(
-                page            => $page,
-                source          => 'saved',
-                runtime_context => { params => { %params, %body_params } },
-            );
-            return $self->_page_response( $page, $mode );
-        }
+        return $self->page_edit_post_response( id => $1, %args );
     }
-
     if ( $path =~ m{^/page/(.+)/edit$} ) {
-        my $page = $self->_load_named_page($1);
-        $page->{meta}{raw_instruction} = $page->canonical_instruction;
-        $page = $self->_page_with_runtime_state(
-            $page,
-            query_params => \%params,
-            body_params  => \%body_params,
-            path         => $path,
-            remote_addr  => $args{remote_addr},
-            headers      => $headers,
-        );
-        $page = $self->{runtime}->prepare_page(
-            page            => $page,
-            source          => $page->{meta}{source_kind} || 'saved',
-            runtime_context => { params => { %params, %body_params } },
-        );
-        return [ 200, 'text/html; charset=utf-8', $self->_edit_html($page) ];
+        return $self->page_edit_response( id => $1, %args );
     }
-
     if ( $path =~ m{^/page/(.+)/action/([^/]+)$} && $method eq 'POST' ) {
-        my $page = $self->_load_named_page($1);
-        $page = $self->_page_with_runtime_state(
-            $page,
-            query_params => \%params,
-            body_params  => \%body_params,
-            path         => $path,
-            remote_addr  => $args{remote_addr},
-            headers      => $headers,
-        );
-        $page = $self->{runtime}->prepare_page(
-            page            => $page,
-            source          => $page->{meta}{source_kind} || 'saved',
-            runtime_context => { params => { %params, %body_params } },
-        );
-        return $self->_action_response(
-            id     => $2,
-            page   => $page,
-            source => $page->{meta}{source_kind} || 'saved',
-            params => { %params, %body_params },
-        );
+        return $self->page_action_response( id => $1, action_id => $2, %args );
     }
-
     if ( $path =~ m{^/page/(.+)$} ) {
-        my $page = $self->_load_named_page($1);
-        $page->{meta}{raw_instruction} = $page->canonical_instruction;
-        $page = $self->_page_with_runtime_state(
-            $page,
-            query_params => \%params,
-            body_params  => \%body_params,
-            path         => $path,
-            remote_addr  => $args{remote_addr},
-            headers      => $headers,
-        );
-        $page = $self->{runtime}->prepare_page(
-            page            => $page,
-            source          => $page->{meta}{source_kind} || 'saved',
-            runtime_context => { params => { %params, %body_params } },
-        );
-        return [ 200, 'text/html; charset=utf-8', $self->_render_page_html( $page, 'render' ) ];
+        return $self->page_render_response( id => $1, %args );
     }
 
     return [ 404, 'text/plain; charset=utf-8', "Not found\n" ];
@@ -407,6 +189,391 @@ sub _handle_login {
             'Set-Cookie' => _session_cookie( $session->{session_id} ),
         },
     ];
+}
+
+# login_response(%args)
+# Executes the helper login submission route.
+# Input: normalized request body and remote address.
+# Output: response array reference.
+sub login_response {
+    my ( $self, %args ) = @_;
+    return $self->_handle_login(
+        body        => defined $args{body} ? $args{body} : '',
+        remote_addr => $args{remote_addr},
+    );
+}
+
+# logout_response(%args)
+# Executes the logout route and expires any active helper session.
+# Input: normalized request headers and remote address.
+# Output: response array reference.
+sub logout_response {
+    my ( $self, %args ) = @_;
+    my $headers = $args{headers} || {};
+    my $session = $self->{sessions}->from_cookie( $headers->{cookie}, remote_addr => $args{remote_addr} );
+    if ($session) {
+        if ( ( $session->{role} || '' ) eq 'helper' && ( $session->{username} || '' ) ne '' ) {
+            $self->{auth}->remove_user( $session->{username} );
+        }
+        $self->{sessions}->delete( $session->{session_id} );
+    }
+    return [
+        302,
+        'text/plain; charset=utf-8',
+        "Redirecting\n",
+        {
+            'Location'   => '/login',
+            'Set-Cookie' => _expired_session_cookie(),
+        },
+    ];
+}
+
+# root_response(%args)
+# Executes the root editor route for blank, transient, and saved-from-root pages.
+# Input: normalized request path, query, body, headers, and remote address.
+# Output: response array reference.
+sub root_response {
+    my ( $self, %args ) = @_;
+    my ( $params, $body_params ) = $self->_request_params(%args);
+    my $path = $args{path} || '/';
+    my $headers = $args{headers} || {};
+
+    if ( exists $body_params->{instruction} || exists $params->{instruction} ) {
+        my $instruction = exists $body_params->{instruction} ? $body_params->{instruction} : $params->{instruction};
+        my $page = Developer::Dashboard::PageDocument->from_instruction($instruction);
+        $page->{meta}{raw_instruction} = $instruction;
+        my $page_id = $page->as_hash->{id} || '';
+        if ( $page_id eq '' && !_transient_url_tokens_allowed() ) {
+            return _transient_url_forbidden_response();
+        }
+        my $source_kind = 'transient';
+        if ( exists $body_params->{instruction} && $page_id ne '' ) {
+            $self->{pages}->save_page($page);
+            $source_kind = 'saved';
+        }
+        $page->{meta}{source_kind} = $source_kind;
+        my $mode = $params->{mode} || $body_params->{mode} || 'edit';
+        $page = $self->_page_with_runtime_state(
+            $page,
+            query_params => $params,
+            body_params  => $body_params,
+            path         => $path,
+            remote_addr  => $args{remote_addr},
+            headers      => $headers,
+        );
+        $page = $self->{runtime}->prepare_page(
+            page            => $page,
+            source          => $source_kind,
+            runtime_context => { params => { %{$params}, %{$body_params} } },
+        );
+        return $self->_page_response( $page, $mode );
+    }
+
+    if ( my $token = $params->{token} ) {
+        return _transient_url_forbidden_response() if !_transient_url_tokens_allowed();
+        my $page = $self->{pages}->load_transient_page($token);
+        $page->{meta}{raw_instruction} = $page->canonical_instruction;
+        my $mode = $params->{mode} || 'edit';
+        $page = $self->_page_with_runtime_state(
+            $page,
+            query_params => $params,
+            body_params  => $body_params,
+            path         => $path,
+            remote_addr  => $args{remote_addr},
+            headers      => $headers,
+        );
+        $page = $self->{runtime}->prepare_page(
+            page            => $page,
+            source          => 'transient',
+            runtime_context => { params => { %{$params}, %{$body_params} } },
+        );
+        return $self->_page_response( $page, $mode );
+    }
+
+    return $self->_blank_editor_response;
+}
+
+# apps_redirect_response(%args)
+# Executes the `/apps` compatibility redirect route.
+# Input: normalized request arguments.
+# Output: response array reference.
+sub apps_redirect_response {
+    my ( $self, %args ) = @_;
+    return [
+        302,
+        'text/plain; charset=utf-8',
+        "Redirecting\n",
+        { Location => '/app/index' },
+    ];
+}
+
+# legacy_ajax_response(%args)
+# Executes the `/ajax` route using query and body parameters from one request.
+# Input: normalized request query, body, headers, and remote address.
+# Output: response array reference.
+sub legacy_ajax_response {
+    my ( $self, %args ) = @_;
+    my ( $params, $body_params ) = $self->_request_params(%args);
+    my %request_params = ( %{$params}, %{$body_params} );
+    return _transient_url_forbidden_response() if !$self->_legacy_ajax_allowed( \%request_params );
+    return $self->_legacy_ajax_response(
+        params       => \%request_params,
+        remote_addr  => $args{remote_addr},
+        headers      => $args{headers} || {},
+    );
+}
+
+# legacy_ajax_file_response(%args)
+# Executes one `/ajax/<file>` compatibility route against a saved ajax file.
+# Input: ajax file name plus normalized request query, body, headers, and remote address.
+# Output: response array reference.
+sub legacy_ajax_file_response {
+    my ( $self, %args ) = @_;
+    my $ajax_file = $args{ajax_file} || '';
+    my ( $params, $body_params ) = $self->_request_params(%args);
+    my %request_params = ( %{$params}, %{$body_params}, file => $ajax_file );
+    return _transient_url_forbidden_response() if !$self->_legacy_ajax_allowed( \%request_params );
+    return $self->_legacy_ajax_response(
+        params       => \%request_params,
+        remote_addr  => $args{remote_addr},
+        headers      => $args{headers} || {},
+    );
+}
+
+# status_response(%args)
+# Executes the `/system/status` route.
+# Input: normalized request arguments.
+# Output: response array reference.
+sub status_response {
+    my ( $self, %args ) = @_;
+    my $payload = $self->_page_status_payload;
+    return [ 200, 'application/json; charset=utf-8', json_encode($payload) ];
+}
+
+# marked_js_response(%args)
+# Serves the built-in marked shim asset.
+# Input: normalized request arguments.
+# Output: response array reference.
+sub marked_js_response {
+    my ( $self, %args ) = @_;
+    return [ 200, 'application/javascript; charset=utf-8', "window.marked=window.marked||{parse:function(s){return s||'';}};\n" ];
+}
+
+# tiff_js_response(%args)
+# Serves the built-in TIFF shim asset.
+# Input: normalized request arguments.
+# Output: response array reference.
+sub tiff_js_response {
+    my ( $self, %args ) = @_;
+    return [ 200, 'application/javascript; charset=utf-8', "window.Tiff=window.Tiff||function(){};\n" ];
+}
+
+# loading_image_response(%args)
+# Serves the built-in loading image response.
+# Input: normalized request arguments.
+# Output: response array reference.
+sub loading_image_response {
+    my ( $self, %args ) = @_;
+    return [ 200, 'image/webp', '' ];
+}
+
+# static_file_response(%args)
+# Serves one static asset from the dashboard public tree.
+# Input: asset type and file name.
+# Output: response array reference.
+sub static_file_response {
+    my ( $self, %args ) = @_;
+    return $self->_serve_static_file( $args{type}, $args{file} );
+}
+
+# legacy_app_response(%args)
+# Executes the `/app/<id>` compatibility route and follows saved URL forwards.
+# Input: saved app id plus normalized request query, body, headers, and remote address.
+# Output: response array reference.
+sub legacy_app_response {
+    my ( $self, %args ) = @_;
+    my ( $params, $body_params ) = $self->_request_params(%args);
+    return $self->_legacy_app_response(
+        id           => $args{id},
+        query_params => $params,
+        body_params  => $body_params,
+        remote_addr  => $args{remote_addr},
+        headers      => $args{headers} || {},
+    );
+}
+
+# transient_action_response(%args)
+# Executes the transient `/action` route for encoded or token-backed actions.
+# Input: normalized request path, query, body, headers, and remote address.
+# Output: response array reference.
+sub transient_action_response {
+    my ( $self, %args ) = @_;
+    my ( $params, $body_params ) = $self->_request_params(%args);
+    my $headers = $args{headers} || {};
+    my $path = $args{path} || '/action';
+    if ( my $atoken = $params->{atoken} ) {
+        return _transient_url_forbidden_response() if !_transient_url_tokens_allowed();
+        return $self->_encoded_action_response(
+            token  => $atoken,
+            params => { %{$params}, %{$body_params} },
+        );
+    }
+
+    my $token = exists $params->{token} ? $params->{token} : ( $body_params->{token} || '' );
+    return _transient_url_forbidden_response() if $token ne '' && !_transient_url_tokens_allowed();
+    my $id   = exists $params->{id} ? $params->{id} : ( $body_params->{id} || '' );
+    my $page = $self->{pages}->load_transient_page($token);
+    $page = $self->_page_with_runtime_state(
+        $page,
+        query_params => $params,
+        body_params  => $body_params,
+        path         => $path,
+        remote_addr  => $args{remote_addr},
+        headers      => $headers,
+    );
+    return $self->_action_response(
+        id     => $id,
+        page   => $page,
+        source => 'transient',
+        params => { %{$params}, %{$body_params} },
+    );
+}
+
+# page_source_response(%args)
+# Executes the saved-page source route.
+# Input: saved page id plus normalized request query, body, headers, and remote address.
+# Output: response array reference.
+sub page_source_response {
+    my ( $self, %args ) = @_;
+    my ( $params, $body_params ) = $self->_request_params(%args);
+    my $page = $self->_load_named_page( $args{id} );
+    $page->{meta}{raw_instruction} = $page->canonical_instruction;
+    $page = $self->_page_with_runtime_state(
+        $page,
+        query_params => $params,
+        body_params  => $body_params,
+        path         => $args{path} || '/page/' . $args{id} . '/source',
+        remote_addr  => $args{remote_addr},
+        headers      => $args{headers} || {},
+    );
+    $page = $self->{runtime}->prepare_page(
+        page            => $page,
+        source          => $page->{meta}{source_kind} || 'saved',
+        runtime_context => { params => { %{$params}, %{$body_params} } },
+    );
+    return [ 200, 'text/plain; charset=utf-8', $page->{meta}{raw_instruction} || $page->canonical_instruction ];
+}
+
+# page_edit_post_response(%args)
+# Executes the saved-page editor POST route.
+# Input: saved page id plus normalized request path, query, body, headers, and remote address.
+# Output: response array reference.
+sub page_edit_post_response {
+    my ( $self, %args ) = @_;
+    my ( $params, $body_params ) = $self->_request_params(%args);
+    my $instruction = exists $body_params->{instruction} ? $body_params->{instruction} : $params->{instruction};
+    if ( defined $instruction ) {
+        my $page = Developer::Dashboard::PageDocument->from_instruction($instruction);
+        $page->{meta}{raw_instruction} = $instruction;
+        $page->{id} ||= $args{id};
+        $page->{meta}{source_kind} = 'saved';
+        $self->{pages}->save_page($page);
+        my $mode = $params->{mode} || $body_params->{mode} || 'edit';
+        $page = $self->_page_with_runtime_state(
+            $page,
+            query_params => $params,
+            body_params  => $body_params,
+            path         => $args{path} || '/page/' . $args{id} . '/edit',
+            remote_addr  => $args{remote_addr},
+            headers      => $args{headers} || {},
+        );
+        $page = $self->{runtime}->prepare_page(
+            page            => $page,
+            source          => 'saved',
+            runtime_context => { params => { %{$params}, %{$body_params} } },
+        );
+        return $self->_page_response( $page, $mode );
+    }
+    return $self->page_edit_response(%args);
+}
+
+# page_edit_response(%args)
+# Executes the saved-page editor GET route.
+# Input: saved page id plus normalized request query, body, headers, and remote address.
+# Output: response array reference.
+sub page_edit_response {
+    my ( $self, %args ) = @_;
+    my ( $params, $body_params ) = $self->_request_params(%args);
+    my $page = $self->_load_named_page( $args{id} );
+    $page->{meta}{raw_instruction} = $page->canonical_instruction;
+    $page = $self->_page_with_runtime_state(
+        $page,
+        query_params => $params,
+        body_params  => $body_params,
+        path         => $args{path} || '/page/' . $args{id} . '/edit',
+        remote_addr  => $args{remote_addr},
+        headers      => $args{headers} || {},
+    );
+    $page = $self->{runtime}->prepare_page(
+        page            => $page,
+        source          => $page->{meta}{source_kind} || 'saved',
+        runtime_context => { params => { %{$params}, %{$body_params} } },
+    );
+    return [ 200, 'text/html; charset=utf-8', $self->_edit_html($page) ];
+}
+
+# page_action_response(%args)
+# Executes the saved-page named action route.
+# Input: saved page id, action id, and normalized request query, body, headers, and remote address.
+# Output: response array reference.
+sub page_action_response {
+    my ( $self, %args ) = @_;
+    my ( $params, $body_params ) = $self->_request_params(%args);
+    my $page = $self->_load_named_page( $args{id} );
+    $page = $self->_page_with_runtime_state(
+        $page,
+        query_params => $params,
+        body_params  => $body_params,
+        path         => $args{path} || '/page/' . $args{id} . '/action/' . $args{action_id},
+        remote_addr  => $args{remote_addr},
+        headers      => $args{headers} || {},
+    );
+    $page = $self->{runtime}->prepare_page(
+        page            => $page,
+        source          => $page->{meta}{source_kind} || 'saved',
+        runtime_context => { params => { %{$params}, %{$body_params} } },
+    );
+    return $self->_action_response(
+        id     => $args{action_id},
+        page   => $page,
+        source => $page->{meta}{source_kind} || 'saved',
+        params => { %{$params}, %{$body_params} },
+    );
+}
+
+# page_render_response(%args)
+# Executes the saved-page render route.
+# Input: saved page id plus normalized request query, body, headers, and remote address.
+# Output: response array reference.
+sub page_render_response {
+    my ( $self, %args ) = @_;
+    my ( $params, $body_params ) = $self->_request_params(%args);
+    my $page = $self->_load_named_page( $args{id} );
+    $page->{meta}{raw_instruction} = $page->canonical_instruction;
+    $page = $self->_page_with_runtime_state(
+        $page,
+        query_params => $params,
+        body_params  => $body_params,
+        path         => $args{path} || '/page/' . $args{id},
+        remote_addr  => $args{remote_addr},
+        headers      => $args{headers} || {},
+    );
+    $page = $self->{runtime}->prepare_page(
+        page            => $page,
+        source          => $page->{meta}{source_kind} || 'saved',
+        runtime_context => { params => { %{$params}, %{$body_params} } },
+    );
+    return [ 200, 'text/html; charset=utf-8', $self->_render_page_html( $page, 'render' ) ];
 }
 
 # _blank_editor_response()
@@ -1122,7 +1289,7 @@ sub _legacy_app_response {
         %{ $args{body_params}  || {} },
     );
     my $query = _build_query( \%forward_params );
-    return $self->handle(
+    return $self->dispatch_request(
         path        => $path,
         query       => $query,
         method      => 'GET',
@@ -1251,6 +1418,20 @@ sub _parse_query {
         $params{$name} = defined $v ? uri_unescape($v) : '';
     }
     return %params;
+}
+
+# _request_params(%args)
+# Parses the normalized raw query/body strings for one request.
+# Input: request method, raw query string, and raw body string.
+# Output: query-parameter and body-parameter hash references.
+sub _request_params {
+    my ( $self, %args ) = @_;
+    my $query = defined $args{query} ? $args{query} : '';
+    my $body  = defined $args{body}  ? $args{body}  : '';
+    my $method = uc( $args{method} || 'GET' );
+    my %params = _parse_query($query);
+    my %body_params = $method eq 'POST' ? _parse_query($body) : ();
+    return ( \%params, \%body_params );
 }
 
 # _page_with_runtime_state($page, %args)

@@ -79,12 +79,15 @@ instead of a loose pile of utilities.
   Applies Template Toolkit rendering for `HTML` and `FORM.TT`, then executes legacy `CODE*` sections inside one throwaway sandpit package per page run and captures their output for page rendering.
 
 - `Developer::Dashboard::Web::App`
-  Resolves the root free-form editor, saved page, transient page, login,
-  logout, `/apps`, and legacy `/app/<name>` routes, giving the browser side a
-  working home page plus helper-safe sharing.
+  Implements the browser service layer for page rendering, page actions, helper
+  login/logout, and legacy compatibility flows behind the HTTP route table.
+
+- `Developer::Dashboard::Web::DancerApp`
+  Owns the explicit Dancer2 HTTP route table, normalizes requests, enforces
+  protected-route authorization, and forwards work into the web-app service.
 
 - `Developer::Dashboard::Web::Server`
-  Minimal HTTP server for browsing saved and transient pages, defaulting to bind `0.0.0.0:7890`.
+  PSGI web server wrapper for the Dancer2 app, defaulting to bind `0.0.0.0:7890`.
 
 - `Developer::Dashboard::UpdateManager`
   Runs ordered update scripts, stops running collectors, and restarts them afterward.

@@ -136,8 +136,8 @@ Project-specific behavior is added through configuration, saved pages, and user 
 - `Developer::Dashboard::IndicatorStore` and `Developer::Dashboard::Prompt`
   Expose cached state to shell prompts and dashboards, including compact versus extended prompt rendering, stale-state marking, generic built-in indicator refresh, and page-header status payloads for the web UI.
 
-- `Developer::Dashboard::Web::App` and `Developer::Dashboard::Web::Server`
-  Provide the browser interface on port `7890`, including the root editor, page rendering, login/logout, helper sessions, and the exact-loopback admin trust model.
+- `Developer::Dashboard::Web::DancerApp`, `Developer::Dashboard::Web::App`, and `Developer::Dashboard::Web::Server`
+  Provide the browser interface on port `7890`, with Dancer2 owning the HTTP route table while the web-app service handles page rendering, login/logout, helper sessions, and the exact-loopback admin trust model.
 
 - `dashboard of` and `dashboard open-file`
   Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches under a resolved scope so the dashboard can shorten navigation work across different stacks.
@@ -691,8 +691,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.03.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.03.tar.gz -v
+tar -tzf Developer-Dashboard-1.04.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.04.tar.gz -v
 ```
 
 The harness also:

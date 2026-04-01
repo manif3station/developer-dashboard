@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.03';
+our $VERSION = '1.04';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.03
+1.04
 
 =head1 INTRODUCTION
 
@@ -413,10 +413,12 @@ refresh, and page-header status payloads for the web UI.
 
 =item * Web Layer
 
-L<Developer::Dashboard::Web::App> and
+L<Developer::Dashboard::Web::DancerApp>,
+L<Developer::Dashboard::Web::App>, and
 L<Developer::Dashboard::Web::Server> provide the browser interface on port
-C<7890>, including the root editor, page rendering, login/logout, helper
-sessions, and the exact-loopback admin trust model.
+C<7890>, with Dancer2 owning the HTTP route table while the web-app service
+handles page rendering, login/logout, helper sessions, and the
+exact-loopback admin trust model.
 
 =item * Open File Commands
 
@@ -1114,8 +1116,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.03.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.99.tar.gz -v
+  tar -tzf Developer-Dashboard-1.04.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.04.tar.gz -v
 
 The harness also:
 

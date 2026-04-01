@@ -2,6 +2,7 @@
 
 ## 2026-04-01
 
+- Fixed incomplete Dancer2 migration by moving the browser route table into explicit `Developer::Dashboard::Web::DancerApp` handlers, so the shipped web stack now uses Dancer2-native route ownership instead of a single catch-all bridge into the old dispatcher.
 - Fixed blank-environment integration log silence by streaming long-running command stdout and stderr live from the runner, so `cpanm` install/test work and Chromium-backed browser checks no longer look hung while they are still progressing.
 - Fixed blank-environment integration version drift by reading the expected installed version from the extracted tarball instead of hard-coding a stale release number in the runner.
 - Fixed saved bookmark local static-file lookup so `/js/*`, `/css/*`, and `/others/*` now resolve both the effective runtime `dashboard/public/...` tree and `dashboards/public/...`, making saved local assets such as `dashboards/public/js/jquery.js` work after browser saves.

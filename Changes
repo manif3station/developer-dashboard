@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.04  2026-04-01
+    - completed the browser migration onto explicit Dancer2 routes, so the HTTP route table now lives in `Developer::Dashboard::Web::DancerApp` instead of a single catch-all bridge into the old dispatcher
+    - kept `Developer::Dashboard::Web::App` as the page and action service layer, so saved-page rendering, helper auth, legacy `/app` compatibility, and transient-policy enforcement continue to behave the same behind the new Dancer2 route surface
+    - added PSGI entrypoint and route-layer regression coverage for the Dancer2 server path, response headers, and route compatibility flow
+
 1.03  2026-04-01
     - fixed the blank-environment integration runner so long-running commands stream stdout and stderr live instead of buffering silently through the wrapper, making fresh-container `cpanm` and browser-backed verification progress visible
     - fixed the blank-environment integration runner to derive the expected installed version from the extracted tarball instead of hard-coding a release number, so the clean-container flow keeps working across version bumps

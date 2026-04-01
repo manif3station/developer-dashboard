@@ -6,6 +6,9 @@ use Cwd qw(getcwd);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
+use HTTP::Request::Common qw(GET POST);
+use HTTP::Response;
+use Plack::Test;
 use Test::More;
 use URI::Escape qw(uri_escape);
 
@@ -23,6 +26,7 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::SessionStore;
 use Developer::Dashboard::UpdateManager;
 use Developer::Dashboard::Web::App;
+use Developer::Dashboard::Web::DancerApp;
 use Developer::Dashboard::Web::Server;
 
 sub dies_like {
@@ -102,6 +106,15 @@ is( $saved_edit_code, 200, 'saved edit route responds with success' );
 like( $saved_edit_body, qr/Right Click Copy &amp; Share or Bookmark This Page/, 'saved edit route includes top chrome links' );
 like( $saved_edit_body, qr{<form method="post" action="/page/sample/edit" id="instruction-form">}, 'saved edit route posts back to the named bookmark edit path' );
 like( $saved_edit_body, qr{<a href="/page/sample" id="play-url">Play</a>}, 'saved edit route exposes a saved-page play link instead of a transient token url' );
+my ( $saved_edit_post_without_instruction_code, undef, $saved_edit_post_without_instruction_body ) = @{ $app->handle(
+    path        => '/page/sample/edit',
+    method      => 'POST',
+    body        => '',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is( $saved_edit_post_without_instruction_code, 200, 'saved edit POST without instruction falls back to the saved editor view' );
+like( $saved_edit_post_without_instruction_body, qr{<form method="post" action="/page/sample/edit" id="instruction-form">}, 'saved edit POST fallback keeps the named bookmark edit form action' );
 
 my $updated_instruction = join "\n",
     'TITLE: Sample',
@@ -200,6 +213,52 @@ my ( $not_found_code, $not_found_type, $not_found_body ) = @{ $app->handle( path
 is( $not_found_code, 404, 'unknown routes return not found' );
 like( $not_found_type, qr/text\/plain/, 'not found route emits plain text' );
 like( $not_found_body, qr/Not found/, 'not found route returns a plain error body' );
+
+{
+    my $others_root = File::Spec->catdir( $paths->dashboards_root, 'public', 'others' );
+    make_path($others_root);
+    my $txt = File::Spec->catfile( $others_root, 'note.txt' );
+    open my $txt_fh, '>', $txt or die $!;
+    print {$txt_fh} "plain text asset\n";
+    close $txt_fh;
+    my ( $asset_code, $asset_type, $asset_body ) = @{ $app->handle( path => '/others/note.txt', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    is( $asset_code, 200, 'dispatch_request serves static files through the routed handler path' );
+    like( $asset_type, qr/text\/plain/, 'txt assets resolve through the plain-text content type branch' );
+    is( $asset_body, "plain text asset\n", 'txt assets return the saved file content' );
+}
+
+{
+    my $fake_bin = File::Spec->catdir( $home, 'fake-bin' );
+    make_path($fake_bin);
+    my $ifconfig = File::Spec->catfile( $fake_bin, 'ifconfig' );
+    open my $ifconfig_fh, '>', $ifconfig or die $!;
+    print {$ifconfig_fh} <<'SH';
+#!/bin/sh
+cat <<'EOF'
+eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+    inet 10.0.0.4  netmask 255.255.255.0  broadcast 10.0.0.255
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+    inet 127.0.0.1  netmask 255.0.0.0
+EOF
+SH
+    close $ifconfig_fh;
+    chmod 0755, $ifconfig or die $!;
+    no warnings 'redefine';
+    local $ENV{PATH} = $fake_bin . ':' . $ENV{PATH};
+    local *Developer::Dashboard::Web::App::_ip_pairs_from_ip = sub { return (); };
+    is_deeply(
+        [ $app->_ip_interface_pairs ],
+        [ { iface => 'eth0', ip => '10.0.0.4' } ],
+        '_ip_interface_pairs falls back to ifconfig parsing when the ip command yields no candidates',
+    );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::App::_ip_pairs_from_ip = sub { return (); };
+    local *Developer::Dashboard::Web::App::_ip_pairs_from_ifconfig = sub { return (); };
+    ok( !defined $app->_machine_ip, '_machine_ip returns undef when neither ip nor ifconfig yields a usable address' );
+}
 
 my ( $ajax_missing_code, $ajax_missing_type, $ajax_missing_body ) = @{ $app->handle( path => '/ajax', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $ajax_missing_code, 400, 'legacy ajax route rejects requests without token or saved file parameters' );
@@ -364,86 +423,28 @@ my $default_server = Developer::Dashboard::Web::Server->new( app => $app );
 is( $default_server->{host}, '0.0.0.0', 'web server defaults to all interfaces' );
 is( $default_server->{port}, 7890, 'web server keeps default port 7890' );
 
-{
-    package Local::FakeURI;
-    sub new { bless $_[1], $_[0] }
-    sub path { $_[0]->{path} }
-    sub query { $_[0]->{query} }
-
-    package Local::FakeRequest;
-    sub new { bless $_[1], $_[0] }
-    sub uri { $_[0]->{uri} }
-    sub method { $_[0]->{method} || 'GET' }
-    sub content { $_[0]->{content} || '' }
-    sub header { $_[0]->{headers}{ $_[1] } }
-
-    package Local::FakeResponse;
-    sub new { bless { code => $_[1], headers => {}, content => '' }, $_[0] }
-    sub header { $_[0]->{headers}{ $_[1] } = $_[2]; return }
-    sub content { $_[0]->{content} = $_[1]; return }
-
-    package Local::FakeConnection;
-    sub new { bless { requests => $_[1], sent => [], closed => 0, printed => '', basic_headers => [] }, $_[0] }
-    sub get_request { shift @{ $_[0]->{requests} } }
-    sub send_response { push @{ $_[0]->{sent} }, $_[1]; return }
-    sub send_basic_header { push @{ $_[0]->{basic_headers} }, [ $_[1], $_[2] ]; return }
-    sub print { $_[0]->{printed} .= join '', @_[ 1 .. $#_ ]; return 1 }
-    sub close { $_[0]->{closed} = 1; return }
-    sub peerhost { $_[0]->{peerhost} || '127.0.0.1' }
-
-    package Local::FakeDaemon;
-    our @connections;
-    sub new { bless { accepted => 0 }, $_[0] }
-    sub sockhost { '127.0.0.1' }
-    sub sockport { 5999 }
-    sub accept { shift @connections }
-}
-
 my $server = Developer::Dashboard::Web::Server->new(
     app  => $app,
     host => '127.0.0.1',
-    port => 5999,
+    port => 0,
 );
-
-my $conn_one = Local::FakeConnection->new(
-    [
-        Local::FakeRequest->new(
-            {
-                uri => Local::FakeURI->new(
-                    {
-                        path  => '/page/sample/source',
-                        query => '',
-                    }
-                ),
-                headers => { Host => '127.0.0.1:5999' },
-            }
-        ),
-    ]
-);
+my $daemon = $server->start_daemon;
+is( $daemon->sockhost, '127.0.0.1', 'start_daemon preserves the requested host' );
+ok( $daemon->sockport > 0, 'start_daemon resolves a listen port' );
+is( $server->listening_url($daemon), 'http://127.0.0.1:' . $daemon->sockport . '/', 'listening_url builds the daemon URL from the descriptor' );
 
 {
-    no warnings 'redefine';
-    local *HTTP::Daemon::new   = sub { Local::FakeDaemon->new(@_) };
-    local *HTTP::Response::new = sub { Local::FakeResponse->new( $_[1] ) };
-    local @Local::FakeDaemon::connections = ($conn_one);
-    my ( $stdout, undef, $exit_code ) = capture {
-        system $^X, '-e', 'print q()';
-        return $? >> 8;
+    my $res;
+    test_psgi $server->psgi_app, sub {
+        my ($cb) = @_;
+        $res = $cb->( GET 'http://127.0.0.1/page/sample/source' );
     };
-    is( $exit_code, 0, 'capture test command exits cleanly' );
-    local *STDOUT;
-    open STDOUT, '>', \my $captured or die $!;
-    $server->run;
-    like( $captured, qr/Developer Dashboard listening on http:\/\/127\.0\.0\.1:5999\//, 'server announces listening URL' );
+    is( $res->code, 200, 'server PSGI app returns successful status code from app handle' );
+    like( $res->header('Content-Type'), qr/text\/plain/, 'server PSGI app keeps the instruction source content type' );
+    is( $res->header('X-Frame-Options'), 'DENY', 'server PSGI app sets frame-deny header' );
+    like( $res->header('Content-Security-Policy'), qr/frame-ancestors 'none'/, 'server PSGI app sets CSP header' );
+    is( $res->header('Cache-Control'), 'no-store', 'server PSGI app disables response caching' );
 }
-
-is( scalar @{ $conn_one->{sent} }, 1, 'server sends one response for the request' );
-is( $conn_one->{sent}[0]{code}, 200, 'server returns successful status code from app handle' );
-like( $conn_one->{sent}[0]{headers}{'Content-Type'}, qr/text\/plain/, 'server copies instruction source content type onto HTTP response' );
-is( $conn_one->{sent}[0]{headers}{'X-Frame-Options'}, 'DENY', 'server sets frame-deny header' );
-like( $conn_one->{sent}[0]{headers}{'Content-Security-Policy'}, qr/frame-ancestors 'none'/, 'server sets CSP header' );
-is( $conn_one->{sent}[0]{headers}{'Cache-Control'}, 'no-store', 'server disables response caching' );
-is( $conn_one->{closed}, 1, 'server closes the connection after processing' );
 
 my $header_app = bless {}, 'Local::HeaderApp';
 {
@@ -461,29 +462,15 @@ my $header_app = bless {}, 'Local::HeaderApp';
     };
 }
 my $header_server = Developer::Dashboard::Web::Server->new( app => $header_app );
-my $conn_header = Local::FakeConnection->new(
-    [
-        Local::FakeRequest->new(
-            {
-                uri     => Local::FakeURI->new( { path => '/login', query => '' } ),
-                method  => 'POST',
-                content => 'username=helper&password=helper-pass-123',
-                headers => { Host => 'localhost:7890' },
-            }
-        ),
-    ]
-);
 {
-    no warnings 'redefine';
-    local *HTTP::Daemon::new   = sub { Local::FakeDaemon->new(@_) };
-    local *HTTP::Response::new = sub { Local::FakeResponse->new( $_[1] ) };
-    local @Local::FakeDaemon::connections = ($conn_header);
-    local *STDOUT;
-    open STDOUT, '>', \my $captured or die $!;
-    $header_server->run;
+    my $res;
+    test_psgi $header_server->psgi_app, sub {
+        my ($cb) = @_;
+        $res = $cb->( POST 'http://127.0.0.1/login', [ username => 'helper', password => 'helper-pass-123' ] );
+    };
+    is( $res->header('Location'), '/login', 'server forwards custom Location headers from the app' );
+    is( $res->header('Set-Cookie'), 'dashboard_session=abc', 'server forwards custom Set-Cookie headers from the app' );
 }
-is( $conn_header->{sent}[0]{headers}{Location}, '/login', 'server forwards custom Location headers from the app' );
-is( $conn_header->{sent}[0]{headers}{'Set-Cookie'}, 'dashboard_session=abc', 'server forwards custom Set-Cookie headers from the app' );
 
 my $streaming_app = bless {}, 'Local::StreamingApp';
 {
@@ -504,29 +491,17 @@ my $streaming_app = bless {}, 'Local::StreamingApp';
     };
 }
 my $streaming_server = Developer::Dashboard::Web::Server->new( app => $streaming_app );
-my $conn_stream = Local::FakeConnection->new(
-    [
-        Local::FakeRequest->new(
-            {
-                uri => Local::FakeURI->new( { path => '/ajax', query => '' } ),
-                headers => { Host => '127.0.0.1:7890' },
-            }
-        ),
-    ]
-);
 {
-    no warnings 'redefine';
-    local *HTTP::Daemon::new = sub { Local::FakeDaemon->new(@_) };
-    local @Local::FakeDaemon::connections = ($conn_stream);
-    local *STDOUT;
-    open STDOUT, '>', \my $captured or die $!;
-    $streaming_server->run;
+    my $res;
+    test_psgi $streaming_server->psgi_app, sub {
+        my ($cb) = @_;
+        $res = $cb->( GET 'http://127.0.0.1/ajax' );
+    };
+    is( $res->code, 200, 'streaming response path returns success' );
+    like( $res->header('Content-Type'), qr/text\/plain/, 'streaming response keeps the content type header' );
+    is( $res->header('X-Test'), 'streaming', 'streaming response keeps custom headers' );
+    is( $res->content, "alpha\nbeta\n", 'streaming response writes streamed body chunks into the final response body' );
 }
-is( scalar @{ $conn_stream->{sent} }, 0, 'streaming response path bypasses buffered send_response' );
-is_deeply( $conn_stream->{basic_headers}[0], [ 200, 'OK' ], 'streaming response writes the basic HTTP status header directly' );
-like( $conn_stream->{printed}, qr/Content-Type: text\/plain; charset=utf-8\r\n/, 'streaming response writes the content type header directly' );
-like( $conn_stream->{printed}, qr/X-Test: streaming\r\n/, 'streaming response writes custom headers directly' );
-like( $conn_stream->{printed}, qr/alpha\nbeta\n/, 'streaming response writes streamed body chunks directly to the connection' );
 
 my $failing_app = bless {}, 'Local::FailingApp';
 {
@@ -534,64 +509,116 @@ my $failing_app = bless {}, 'Local::FailingApp';
     *Local::FailingApp::handle = sub { die "exploded\n" };
 }
 my $failing_server = Developer::Dashboard::Web::Server->new( app => $failing_app );
-my $conn_two = Local::FakeConnection->new(
-    [
-        Local::FakeRequest->new(
-            {
-                uri => Local::FakeURI->new(
-                    {
-                        path  => '/',
-                        query => '',
-                    }
-                ),
-                headers => { Host => '127.0.0.1:7890' },
-            }
-        ),
-    ]
-);
 {
-    no warnings 'redefine';
-    local *HTTP::Daemon::new   = sub { Local::FakeDaemon->new(@_) };
-    local *HTTP::Response::new = sub { Local::FakeResponse->new( $_[1] ) };
-    local @Local::FakeDaemon::connections = ($conn_two);
-    local *STDOUT;
-    open STDOUT, '>', \my $captured or die $!;
-    $failing_server->run;
+    my $res;
+    test_psgi $failing_server->psgi_app, sub {
+        my ($cb) = @_;
+        $res = $cb->( GET 'http://127.0.0.1/' );
+    };
+    is( $res->code, 500, 'server converts app exceptions into 500 responses' );
+    like( $res->content, qr/exploded/, 'server includes error body for exceptions' );
 }
-is( $conn_two->{sent}[0]{code}, 500, 'server converts app exceptions into 500 responses' );
-like( $conn_two->{sent}[0]{content}, qr/exploded/, 'server includes error body for exceptions' );
-
-my $conn_three = Local::FakeConnection->new(
-    [
-        Local::FakeRequest->new(
-            {
-                uri => Local::FakeURI->new(
-                    {
-                        path  => '/',
-                        query => undef,
-                    }
-                ),
-                headers => { Host => '127.0.0.1:5999' },
-            }
-        ),
-    ]
-);
-{
-    no warnings 'redefine';
-    local *HTTP::Daemon::new   = sub { Local::FakeDaemon->new(@_) };
-    local *HTTP::Response::new = sub { Local::FakeResponse->new( $_[1] ) };
-    local @Local::FakeDaemon::connections = ($conn_three);
-    local *STDOUT;
-    open STDOUT, '>', \my $captured or die $!;
-    $server->run;
-}
-is( $conn_three->{sent}[0]{code}, 200, 'server treats undef URI queries as empty strings' );
 
 {
     no warnings 'redefine';
-    local *HTTP::Daemon::new = sub { return };
+    local *Developer::Dashboard::Web::DancerApp::splat = sub { return ['alpha', 'beta']; };
+    is( Developer::Dashboard::Web::DancerApp::_capture(1), 'beta', '_capture unwraps arrayref-style splat payloads from Dancer route state' );
+}
+
+my $missing_route_app = bless {}, 'Local::MissingRouteApp';
+my $missing_route_server = Developer::Dashboard::Web::Server->new( app => $missing_route_app );
+{
+    my $res;
+    test_psgi $missing_route_server->psgi_app, sub {
+        my ($cb) = @_;
+        $res = $cb->( POST 'http://127.0.0.1/login', [ username => 'helper', password => 'helper-pass-123' ] );
+    };
+    is( $res->code, 500, 'server returns a backend failure when the login route backend implements neither login_response nor handle' );
+    like( $res->content, qr/does not implement login_response or handle/, 'missing login route backend failures are exposed directly' );
+}
+
+{
+    my $res;
+    test_psgi $missing_route_server->psgi_app, sub {
+        my ($cb) = @_;
+        $res = $cb->( GET 'http://127.0.0.1/' );
+    };
+    is( $res->code, 500, 'server returns a backend failure when an authorized route backend implements neither a route method nor handle' );
+    like( $res->content, qr/does not implement root_response or handle/, 'missing authorized route backend failures are exposed directly' );
+}
+
+{
+    my $res = HTTP::Response->from_psgi(
+        $server->psgi_app->(
+            {
+                REQUEST_METHOD    => 'GET',
+                PATH_INFO         => '/',
+                SCRIPT_NAME       => '',
+                SERVER_NAME       => '127.0.0.1',
+                SERVER_PORT       => 7890,
+                'psgi.version'    => [ 1, 1 ],
+                'psgi.url_scheme' => 'http',
+                'psgi.input'      => do { open my $fh, '<', \q{} or die $!; $fh },
+                'psgi.errors'     => *STDERR,
+                'psgi.multithread' => 0,
+                'psgi.multiprocess' => 0,
+                'psgi.run_once'     => 0,
+                'psgi.streaming'    => 1,
+                'psgi.nonblocking'  => 0,
+            }
+        )
+    );
+    is( $res->code, 200, 'server treats missing URI queries as empty strings' );
+}
+
+{
+    no warnings 'redefine';
+    local *IO::Socket::INET::new = sub { return };
     local $! = 98;
     dies_like( sub { $server->run }, qr/Unable to start server/, 'server dies when daemon startup fails' );
+}
+
+{
+    package Local::FakeRunner;
+    our @parse_options;
+    our $run_arg;
+    sub new { bless {}, $_[0] }
+    sub parse_options { @parse_options = @_[ 1 .. $#_ ]; return 1 }
+    sub run { $run_arg = $_[1]; return 1 }
+}
+
+{
+    no warnings 'redefine';
+    local *Plack::Runner::new = sub { return Local::FakeRunner->new };
+    my $fake_daemon = Developer::Dashboard::Web::Server::Daemon->new(
+        host => '127.0.0.1',
+        port => 5999,
+    );
+    ok( $server->serve_daemon($fake_daemon), 'serve_daemon delegates to the Plack runner successfully' );
+    is_deeply(
+        \@Local::FakeRunner::parse_options,
+        [ '--server', 'Starman', '--host', '127.0.0.1', '--port', 5999, '--env', 'deployment', '--workers', '1' ],
+        'serve_daemon configures Starman through Plack::Runner',
+    );
+    ok( ref( $Local::FakeRunner::run_arg ) eq 'CODE', 'serve_daemon hands a PSGI app coderef to the Plack runner' );
+}
+
+{
+    no warnings 'redefine';
+    my $served;
+    local *Developer::Dashboard::Web::Server::start_daemon = sub {
+        return Developer::Dashboard::Web::Server::Daemon->new( host => '127.0.0.1', port => 5999 );
+    };
+    local *Developer::Dashboard::Web::Server::serve_daemon = sub {
+        my ( undef, $daemon ) = @_;
+        $served = $daemon;
+        return 1;
+    };
+    local *STDOUT;
+    open STDOUT, '>', \my $captured or die $!;
+    ok( $server->run, 'run returns the serve_daemon result' );
+    like( $captured, qr/Developer Dashboard listening on http:\/\/127\.0\.0\.1:5999\//, 'run announces the listening URL' );
+    is( $served->sockport, 5999, 'run passes the daemon descriptor through to serve_daemon' );
 }
 
 my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );

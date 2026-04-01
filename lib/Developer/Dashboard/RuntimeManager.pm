@@ -93,7 +93,9 @@ sub running_web {
     my $state = $self->web_state || {};
     if ( my $pid = $self->{files}->read('web_pid') ) {
         chomp $pid;
-        if ( $pid && $self->_is_managed_web($pid) ) {
+        my @listener_pids = $state->{port} ? $self->_listener_pids_for_port( $state->{port} ) : ();
+        my %listener_pid = map { $_ => 1 } @listener_pids;
+        if ( $pid && kill( 0, $pid ) && ( $self->_is_managed_web($pid) || ( ( $state->{status} || '' ) eq 'running' && $listener_pid{$pid} ) ) ) {
             return {
                 %$state,
                 pid => $pid + 0,
@@ -135,7 +137,12 @@ sub stop_web {
     my ($self) = @_;
     my $running = $self->running_web;
     my $pid = $running ? $running->{pid} : undef;
+    my @listener_pids = $running && $running->{port}
+      ? $self->_managed_listener_pids_for_port( $running->{port} )
+      : ();
 
+    kill 'TERM', $pid if $pid;
+    kill 'TERM', $_ for @listener_pids;
     $self->_pkill_perl('^dashboard web:');
     for my $proc ( $self->_find_legacy_web_processes ) {
         kill 'TERM', $proc->{pid};
@@ -150,6 +157,8 @@ sub stop_web {
         kill 'KILL', $still_running->{pid};
         sleep 0.1;
     }
+    my @still_listening = grep { kill 0, $_ } @listener_pids;
+    kill 'KILL', $_ for @still_listening;
     for my $proc ( $self->_find_legacy_web_processes ) {
         kill 'KILL', $proc->{pid};
     }
@@ -489,6 +498,32 @@ sub _ps_processes {
         };
     }
     return @procs;
+}
+
+# _managed_listener_pids_for_port($port)
+# Returns managed web-service listener pids bound to one TCP port.
+# Input: TCP port integer.
+# Output: list of managed process ids.
+sub _managed_listener_pids_for_port {
+    my ( $self, $port ) = @_;
+    return grep { $self->_is_managed_web($_) } $self->_listener_pids_for_port($port);
+}
+
+# _listener_pids_for_port($port)
+# Returns TCP listener process ids bound to one port.
+# Input: TCP port integer.
+# Output: list of process ids.
+sub _listener_pids_for_port {
+    my ( $self, $port ) = @_;
+    return () if !$port;
+    my ( $stdout, undef, $exit_code ) = capture {
+        system 'ss', '-ltnp', "( sport = :$port )";
+        return $? >> 8;
+    };
+    return () if $exit_code != 0 || !defined $stdout || $stdout eq '';
+    my %seen;
+    my @pids = grep { !$seen{$_}++ } ( $stdout =~ /pid=(\d+)/g );
+    return @pids;
 }
 
 # _read_process_env_marker($pid, $key)
