@@ -195,7 +195,7 @@ like( $ajax_missing_body, qr/missing token/, 'legacy ajax missing-parameter rout
 }
 
 {
-    my ( $ajax_bad_file_code, $ajax_bad_file_type, $ajax_bad_file_body ) = @{ $app->handle( path => '/ajax', query => 'page=sample&file=..%2Fbad&type=json', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    my ( $ajax_bad_file_code, $ajax_bad_file_type, $ajax_bad_file_body ) = @{ $app->handle( path => '/ajax', query => 'file=..%2Fbad&type=json', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
     is( $ajax_bad_file_code, 400, 'legacy ajax route rejects invalid saved bookmark ajax file names cleanly' );
     like( $ajax_bad_file_type, qr/text\/plain/, 'legacy ajax invalid saved-file route returns plain text' );
     like( $ajax_bad_file_body, qr/invalid parent traversal/, 'legacy ajax invalid saved-file route returns the validation error text' );
@@ -214,7 +214,7 @@ CODE1: Ajax jvar => 'configs.demo.endpoint', type => 'text', file => 'stream.txt
 PAGE
     $store->save_page($streaming_page);
     my ( undef, undef, undef ) = @{ $app->handle( path => '/app/ajax-stream', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
-    my ( $ajax_stream_code, $ajax_stream_type, $ajax_stream_body ) = @{ $app->handle( path => '/ajax', query => 'page=ajax-stream&file=stream.txt&type=text', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    my ( $ajax_stream_code, $ajax_stream_type, $ajax_stream_body ) = @{ $app->handle( path => '/ajax/stream.txt', query => 'type=text', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
     is( $ajax_stream_code, 200, 'legacy ajax saved-file route responds successfully for streaming output' );
     like( $ajax_stream_type, qr/text\/plain/, 'legacy ajax saved-file route keeps the requested content type for streaming output' );
     is( drain_stream_body($ajax_stream_body), "first\nsecond\n", 'legacy ajax saved-file route streams raw printed output without page buffering' );
@@ -235,7 +235,7 @@ die "perl-die\n";
 PAGE
     $store->save_page($process_page);
     my ( undef, undef, undef ) = @{ $app->handle( path => '/app/ajax-process', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
-    my ( $ajax_process_code, $ajax_process_type, $ajax_process_body ) = @{ $app->handle( path => '/ajax', query => 'page=ajax-process&file=process-endpoint.json&type=text', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    my ( $ajax_process_code, $ajax_process_type, $ajax_process_body ) = @{ $app->handle( path => '/ajax/process-endpoint.json', query => 'type=text', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
     my $ajax_process_output = drain_stream_body($ajax_process_body);
     is( $ajax_process_code, 200, 'legacy ajax saved-file process route responds successfully for mixed stdout and stderr output' );
     like( $ajax_process_type, qr/text\/plain/, 'legacy ajax saved-file process route keeps the requested content type' );
@@ -256,7 +256,7 @@ CODE1: Ajax jvar => 'configs.demo.endpoint', type => 'text', file => 'script-run
 PAGE
     $store->save_page($shebang_page);
     my ( undef, undef, undef ) = @{ $app->handle( path => '/app/ajax-shebang', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
-    my ( $ajax_shebang_code, undef, $ajax_shebang_body ) = @{ $app->handle( path => '/ajax', query => 'page=ajax-shebang&file=script-runner&type=text', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    my ( $ajax_shebang_code, undef, $ajax_shebang_body ) = @{ $app->handle( path => '/ajax/script-runner', query => 'type=text', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
     my $ajax_shebang_output = drain_stream_body($ajax_shebang_body);
     is( $ajax_shebang_code, 200, 'legacy ajax saved-file route executes shebang scripts directly' );
     like( $ajax_shebang_output, qr/shell-out/, 'legacy ajax saved-file route streams direct executable stdout' );

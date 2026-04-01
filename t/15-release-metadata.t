@@ -55,9 +55,11 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '0.98', 'module version bumped for saved bookmark ajax process streaming release' );
+is( $version, '0.99', 'module version bumped for saved bookmark ajax dashboards-tree release' );
 like( $readme, qr/Ajax` helper calls inside saved bookmark `CODE\*` blocks should use an\s+explicit `file => 'name\.json'` argument/s, 'README documents the saved bookmark Ajax file requirement' );
 like( $pm, qr/Legacy C<Ajax> helper calls inside saved bookmark C<CODE\*> blocks should use\s+an explicit C<file =E<gt> 'name\.json'> argument/s, 'main POD documents the saved bookmark Ajax file requirement' );
+like( $readme, qr/stores the Ajax Perl code under the saved dashboard ajax tree/s, 'README documents the saved bookmark Ajax storage location' );
+like( $pm, qr/stores the Ajax Perl code under the saved dashboard ajax tree/s, 'main POD documents the saved bookmark Ajax storage location' );
 like( $readme, qr/defaulting to\s+Perl unless the file starts with a shebang/s, 'README documents saved bookmark ajax interpreter fallback' );
 like( $pm, qr/defaulting to Perl unless the file\s+starts with a shebang/s, 'main POD documents saved bookmark ajax interpreter fallback' );
 like( $readme, qr/stream both `stdout` and\s+`stderr` back to the browser as they happen/s, 'README documents live stdout and stderr ajax streaming' );

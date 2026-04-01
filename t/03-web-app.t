@@ -1,6 +1,7 @@
 use strict;
 use warnings;
 
+use File::Path qw(make_path);
 use Test::More;
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -346,17 +347,47 @@ $store->save_page($legacy_ajax_page);
 
 my ($code6, undef, $body6) = @{ $app->handle(path => '/app/legacy-ajax', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code6, 200, 'legacy /app route renders bookmark');
-like($body6, qr/set_chain_value\(configs,'demo\.endpoint','\/ajax\?page=legacy-ajax&file=demo\.json&type=json/, 'legacy Ajax helper injects a saved bookmark ajax endpoint when a file is supplied');
-ok( -f File::Spec->catfile( $paths->cache_root, 'ajax', 'legacy-ajax', 'demo.json' ), 'legacy Ajax helper stores the saved bookmark ajax code under the runtime cache' );
+like($body6, qr/set_chain_value\(configs,'demo\.endpoint','\/ajax\/demo\.json\?type=json/, 'legacy Ajax helper injects a saved bookmark ajax endpoint when a file is supplied');
+ok( -f File::Spec->catfile( $paths->dashboards_root, 'ajax', 'demo.json' ), 'legacy Ajax helper stores the saved bookmark ajax code under the dashboards ajax tree' );
 
-my ($code7, $type7, $body7) = @{ $app->handle(path => '/ajax', query => "page=legacy-ajax&file=demo.json&type=json", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+my ($code7, $type7, $body7) = @{ $app->handle(path => '/ajax/demo.json', query => "type=json", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code7, 200, 'legacy ajax endpoint executes through the saved bookmark ajax file route');
 like($type7, qr/application\/json/, 'legacy ajax endpoint returns json type');
 like(drain_stream_body($body7), qr/"ok"\s*:\s*1/, 'legacy ajax endpoint returns encoded payload output as a stream');
 
+my $existing_ajax_dir = File::Spec->catdir( $paths->dashboards_root, 'ajax' );
+make_path($existing_ajax_dir);
+my $existing_ajax_file = File::Spec->catfile( $existing_ajax_dir, 'existing.sh' );
+open my $existing_ajax_fh, '>', $existing_ajax_file or die $!;
+print {$existing_ajax_fh} "#!/bin/sh\nprintf 'existing-out\\n'\nprintf 'existing-err\\n' >&2\n";
+close $existing_ajax_fh;
+chmod 0700, $existing_ajax_file or die $!;
+
+my $legacy_existing_ajax_page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE');
+TITLE: Legacy Existing Ajax
+:--------------------------------------------------------------------------------:
+BOOKMARK: legacy-ajax-existing
+:--------------------------------------------------------------------------------:
+HTML: <script>var configs = {};</script>
+:--------------------------------------------------------------------------------:
+CODE1: Ajax jvar => 'configs.demo.endpoint', type => 'text', file => 'existing.sh';
+PAGE
+$store->save_page($legacy_existing_ajax_page);
+
+my ($code7b, undef, $body7b) = @{ $app->handle(path => '/app/legacy-ajax-existing', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($code7b, 200, 'legacy /app route renders bookmark that points at an existing ajax file');
+like($body7b, qr/set_chain_value\(configs,'demo\.endpoint','\/ajax\/existing\.sh\?type=text/, 'legacy Ajax helper injects an existing saved bookmark ajax endpoint when only a file is supplied');
+
+my ($code7d, $type7d, $body7d) = @{ $app->handle(path => '/ajax/existing.sh', query => "type=text", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($code7d, 200, 'saved bookmark ajax file route executes an existing ajax executable from the dashboards ajax tree');
+like($type7d, qr/text\/plain/, 'existing ajax executable returns text type');
+my $existing_stream = drain_stream_body($body7d);
+like($existing_stream, qr/existing-out/, 'existing ajax executable streams stdout');
+like($existing_stream, qr/existing-err/, 'existing ajax executable streams stderr');
+
 {
     open my $fh, '>', $store->page_file('legacy-forward') or die $!;
-    print {$fh} '/ajax?type=text&page=legacy-ajax&file=demo.json';
+    print {$fh} '/ajax/demo.json?type=text';
     close $fh;
 }
 my ($code8, $type8, $body8) = @{ $app->handle(path => '/app/legacy-forward', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
@@ -366,7 +397,7 @@ like(drain_stream_body($body8), qr/"ok"\s*:\s*1/, 'forwarded saved-url bookmark 
 
 {
     open my $fh, '>', $store->page_file('legacy-forward-override') or die $!;
-    print {$fh} '/ajax?type=text&page=legacy-ajax&file=demo.json&status=default';
+    print {$fh} '/ajax/demo.json?type=text&status=default';
     close $fh;
 }
 my ($code9, undef, $body9) = @{ $app->handle(path => '/app/legacy-forward-override', query => 'status=override', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };

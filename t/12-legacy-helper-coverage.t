@@ -3,6 +3,7 @@ use warnings;
 
 use Capture::Tiny qw(capture);
 use Errno qw(EINTR EIO);
+use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -111,11 +112,11 @@ is( $ajax_result, 'HIDE-THIS', 'Ajax returns the legacy hide marker' );
             code => 'print qq{{"ok":1}};',
         );
     };
-    like( $saved_ajax_stdout, qr{/ajax\?page=coverage-page&file=coverage\.json&type=json}, 'Ajax prints a saved bookmark ajax url when a file name is supplied' );
+    like( $saved_ajax_stdout, qr{/ajax/coverage\.json\?type=json}, 'Ajax prints a saved bookmark ajax url when a file name is supplied' );
     is( $saved_ajax_result, 'HIDE-THIS', 'saved bookmark Ajax still returns the hide marker' );
-    ok( -f Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, page_id => 'coverage-page', file => 'coverage.json' ), 'saved bookmark Ajax stores the named ajax code file under the runtime cache' );
-    ok( -x Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, page_id => 'coverage-page', file => 'coverage.json' ), 'saved bookmark Ajax marks the stored runtime cache file executable' );
-    is( Zipper::load_saved_ajax_code( runtime_root => $paths->runtime_root, page_id => 'coverage-page', file => 'coverage.json' ), 'print qq{{"ok":1}};', 'saved bookmark Ajax stored code can be loaded back from runtime cache' );
+    ok( -f Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'saved bookmark Ajax stores the named ajax code file under the dashboards ajax tree' );
+    ok( -x Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'saved bookmark Ajax marks the stored dashboards ajax tree file executable' );
+    is( Zipper::load_saved_ajax_code( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'print qq{{"ok":1}};', 'saved bookmark Ajax stored code can be loaded back from the dashboards ajax tree' );
     my $saved_ajax_error = eval {
         Ajax(
             jvar => 'configs.coverage.saved',
@@ -124,6 +125,35 @@ is( $ajax_result, 'HIDE-THIS', 'Ajax returns the legacy hide marker' );
         '';
     } || $@;
     like( $saved_ajax_error, qr/file is required/, 'saved bookmark Ajax requires a file name when transient token urls are disabled' );
+}
+{
+    my $existing_path = Zipper::saved_ajax_file_path(
+        runtime_root => $paths->runtime_root,
+        file         => 'existing.sh',
+    );
+    my $existing_dir = dirname($existing_path);
+    make_path($existing_dir);
+    open my $fh, '>', $existing_path or die $!;
+    print {$fh} "#!/bin/sh\nprintf 'existing coverage\\n'\n";
+    close $fh;
+    chmod 0700, $existing_path or die $!;
+
+    local $Zipper::AJAX_CONTEXT = {
+        source               => 'saved',
+        page_id              => 'coverage-existing',
+        runtime_root         => $paths->runtime_root,
+        allow_transient_urls => 0,
+    };
+    my ( $stdout, undef, $result ) = capture {
+        return Ajax(
+            jvar => 'configs.coverage.existing',
+            file => 'existing.sh',
+            type => 'text',
+        );
+    };
+    like( $stdout, qr{/ajax/existing\.sh\?type=text}, 'Ajax prints a saved bookmark ajax url when only an existing file name is supplied' );
+    is( $result, 'HIDE-THIS', 'saved bookmark Ajax with only a file still returns the hide marker' );
+    is( Zipper::load_saved_ajax_code( runtime_root => $paths->runtime_root, file => 'existing.sh' ), "#!/bin/sh\nprintf 'existing coverage\\n'\n", 'saved bookmark Ajax with only a file leaves the existing executable content unchanged' );
 }
 
 is_deeply( je( j( { ok => 1 } ) ), { ok => 1 }, 'DataHelper je decodes JSON created by j' );
@@ -219,7 +249,6 @@ like( $runtime->_runtime_value_text( { ok => 1 } ), qr/ok => 1/, '_runtime_value
 {
     my $saved_path = Zipper::saved_ajax_file_path(
         runtime_root => $paths->runtime_root,
-        page_id      => 'coverage-page',
         file         => 'coverage.json',
     );
     is_deeply(
@@ -238,7 +267,7 @@ like( $runtime->_runtime_value_text( { ok => 1 } ), qr/ok => 1/, '_runtime_value
     like( $saved_env{QUERY_STRING}, qr/a=1%202/, '_saved_ajax_env rebuilds a query string for child process use' );
 }
 {
-    my $shebang_file = File::Spec->catfile( $paths->cache_root, 'ajax', 'coverage-page', 'shebang-handler' );
+    my $shebang_file = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'shebang-handler' );
     open my $fh, '>', $shebang_file or die $!;
     print {$fh} "#!/bin/sh\nprintf 'ok\\n'\n";
     close $fh;
@@ -246,7 +275,7 @@ like( $runtime->_runtime_value_text( { ok => 1 } ), qr/ok => 1/, '_runtime_value
     is_deeply( [ $runtime->_saved_ajax_command( path => $shebang_file ) ], [ $shebang_file ], '_saved_ajax_command executes shebang saved Ajax files directly' );
 }
 {
-    my $saved_path = File::Spec->catfile( $paths->cache_root, 'ajax', 'coverage-page', 'process-runner.pl' );
+    my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'process-runner.pl' );
     open my $fh, '>', $saved_path or die $!;
     print {$fh} "print qq{process-out\\n}; warn qq{process-err\\n}; system 'sh', '-c', 'printf \"child-out\\\\n\"; printf \"child-err\\\\n\" >&2'; die qq{process-die\\n};";
     close $fh;

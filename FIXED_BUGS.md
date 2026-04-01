@@ -4,7 +4,11 @@
 
 - Fixed saved bookmark Ajax process drift by running stored `Ajax(file => ...)` handlers as real processes, so normal `print`, `warn`, `die`, `system`, and `exec` output flows back to the browser through the same live stream.
 - Fixed saved bookmark `/ajax` buffering by executing the stored Perl code directly and streaming raw output to the browser, so ajax progress appears live instead of waiting for a fully buffered response.
-- Fixed saved bookmark Ajax breakage under the transient-url hardening policy by adding named `file => ...` Ajax handlers that store code under the runtime cache and execute through `/ajax?page=...&file=...` without requiring transient tokens.
+- Fixed saved bookmark Ajax file placement by storing named `file => ...` handlers under `.developer-dashboard/dashboards/ajax/...`, so bookmark Ajax files live beside the saved bookmark tree instead of under the runtime cache.
+- Fixed saved bookmark Ajax existing-file handling by making `Ajax(file => '...')` without `code => ...` target the existing executable under `.developer-dashboard/dashboards/ajax/...` instead of replacing it with an empty file.
+- Fixed transient-url-disabled saved bookmark Ajax endpoint shape by emitting `/ajax/<file>?type=...` and resolving saved handlers from the shared dashboards ajax tree instead of requiring page-scoped query parameters.
+- Fixed saved bookmark Ajax breakage under the transient-url hardening policy by adding named `file => ...` Ajax handlers that store code under the saved dashboards ajax tree and execute through `/ajax/<file>?type=...` without requiring transient tokens.
+- Fixed saved Ajax stream warning noise by guarding closed-handle `fileno` comparisons, so process-backed ajax coverage runs no longer emit uninitialized-value warnings.
 - Fixed browser token-execution exposure by disabling transient `/?token=...`, `/action?atoken=...`, and legacy `/ajax?token=...` routes by default, so opening an untrusted localhost link no longer runs transient payloads unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled explicitly.
 - Fixed root-editor policy drift by continuing to allow posted bookmark files while rejecting unsaved transient root-editor execution when transient URL tokens are disabled.
 - Fixed `Folder->dd` and `Folder->runtime_root` returning a doubled `~/.developer-dashboard/.developer-dashboard` path when the current working directory was already inside the home runtime repository.

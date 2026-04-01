@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '0.98';
+our $VERSION = '0.99';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-0.98
+0.99
 
 =head1 INTRODUCTION
 
@@ -511,15 +511,17 @@ C</page/index/action/...> continue to work without that flag.
 
 Legacy C<Ajax> helper calls inside saved bookmark C<CODE*> blocks should use
 an explicit C<file =E<gt> 'name.json'> argument. When a saved page supplies that
-name, the helper stores the Ajax Perl code under the runtime cache and emits a
+name, the helper stores the Ajax Perl code under the saved dashboard ajax tree and emits a
 stable saved-bookmark endpoint such as
-C</ajax?page=some-bookmark&file=name.json&type=json>. Those saved Ajax handlers
+C</ajax/name.json?type=json>. Those saved Ajax handlers
 run the stored file as a real process, defaulting to Perl unless the file
 starts with a shebang, and stream both C<stdout> and C<stderr> back to the
 browser as they happen. That keeps bookmark Ajax workflows usable even while
 transient token URLs stay disabled by default, and it means bookmark Ajax code
 can rely on normal C<print>, C<warn>, C<die>, C<system>, and C<exec> process
 behaviour instead of a buffered JSON wrapper.
+If C<code =E<gt> ...> is omitted, C<Ajax(file =E<gt> 'name')> targets the
+existing executable at C<dashboards/ajax/name> instead of rewriting it.
 
 =head2 User CLI Extensions
 
@@ -1097,8 +1099,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-0.98.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-0.98.tar.gz -v
+  tar -tzf Developer-Dashboard-0.99.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-0.99.tar.gz -v
 
 The harness also:
 

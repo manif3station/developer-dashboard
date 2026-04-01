@@ -156,7 +156,7 @@ BOOKMARK
     _assert_match( $help->{stdout}, qr/Description:/, 'dashboard help renders extended POD help' );
 
     my $version = _run_shell( 'dashboard version', 'dashboard version' );
-    _assert_match( $version->{stdout}, qr/^0\.98$/m, 'dashboard version reports the installed runtime version' );
+    _assert_match( $version->{stdout}, qr/^0\.99$/m, 'dashboard version reports the installed runtime version' );
 
     my $init = _run_shell( 'dashboard init', 'cd ' . _shell_quote($project) . ' && dashboard init' );
     my $init_data = decode_json( $init->{stdout} );
@@ -414,8 +414,8 @@ JSON
     _assert( index( $project_dom, 'nav-alpha' ) < index( $project_dom, 'nav-beta' ), 'browser renders shared nav bookmark fragments in sorted filename order' );
     _assert( index( $project_dom, 'dashboard-nav-items' ) < index( $project_dom, 'project-marker' ), 'browser renders shared nav fragments before the main page body' );
     my $legacy_ajax_page = _run_shell( 'curl legacy ajax saved page', q{curl -fsS http://127.0.0.1:7890/app/legacy-ajax} );
-    _assert_match( $legacy_ajax_page->{stdout}, qr{/ajax\?page=legacy-ajax&file=project-endpoint\.json&type=text}, 'saved bookmark Ajax renders a stable file-backed ajax endpoint by default' );
-    my $legacy_ajax_saved = _run_shell( 'curl saved bookmark ajax endpoint', q{curl -fsS 'http://127.0.0.1:7890/ajax?page=legacy-ajax&file=project-endpoint.json&type=text'} );
+    _assert_match( $legacy_ajax_page->{stdout}, qr{/ajax/project-endpoint\.json\?type=text}, 'saved bookmark Ajax renders a stable file-backed ajax endpoint by default' );
+    my $legacy_ajax_saved = _run_shell( 'curl saved bookmark ajax endpoint', q{curl -fsS 'http://127.0.0.1:7890/ajax/project-endpoint.json?type=text'} );
     _assert_match( $legacy_ajax_saved->{stdout}, qr/saved-start/, 'saved bookmark ajax endpoint streams direct perl stdout' );
     _assert_match( $legacy_ajax_saved->{stdout}, qr/saved-warn/, 'saved bookmark ajax endpoint streams perl stderr warnings' );
     _assert_match( $legacy_ajax_saved->{stdout}, qr/saved-child-out/, 'saved bookmark ajax endpoint streams child stdout' );

@@ -1,5 +1,12 @@
 Revision history for Developer Dashboard
 
+0.99  2026-04-01
+    - moved saved bookmark `Ajax(file => ...)` storage into `.developer-dashboard/dashboards/ajax/...`, so named handlers live under the saved bookmark tree instead of the runtime cache
+    - changed saved bookmark `Ajax(file => ...)` calls without `code => ...` to point at an existing executable in that ajax tree instead of overwriting it with an empty generated file
+    - changed transient-url-disabled saved bookmark Ajax endpoints to emit `/ajax/<file>?type=...` and resolve files directly from the shared dashboards ajax tree
+    - fixed saved Ajax stream draining so closed-handle comparisons stop emitting uninitialized-value warnings during coverage and process-backed ajax runs
+    - extended unit, metadata, and blank-environment integration coverage for the dashboards ajax-tree location and existing-file execution flow
+
 0.98  2026-04-01
     - changed saved bookmark `/ajax?page=...&file=...` handlers to execute the stored runtime-cache file as a real process, defaulting to Perl unless the file starts with a shebang
     - streamed both saved-handler `stdout` and `stderr` back to the browser directly, so `print`, `warn`, `die`, `system`, and `exec` behave like the old playground progress stream instead of a buffered JSON-style response

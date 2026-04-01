@@ -454,7 +454,9 @@ sub _drain_saved_ajax_ready_handle {
         close $fh;
         return 1;
     }
-    if ( fileno($fh) == fileno($stdout) ) {
+    my $ready_fileno  = fileno($fh);
+    my $stdout_fileno = fileno($stdout);
+    if ( defined $ready_fileno && defined $stdout_fileno && $ready_fileno == $stdout_fileno ) {
         $stdout_writer->($chunk);
         return 1;
     }

@@ -190,6 +190,16 @@ sub handle {
         );
     }
 
+    if ( $path =~ m{^/ajax/(.+)$} ) {
+        my $ajax_file = uri_unescape($1);
+        return _transient_url_forbidden_response() if !$self->_legacy_ajax_allowed( { %params, %body_params, file => $ajax_file } );
+        return $self->_legacy_ajax_response(
+            params       => { %params, %body_params, file => $ajax_file },
+            remote_addr  => $args{remote_addr},
+            headers      => $headers,
+        );
+    }
+
     if ( $path eq '/system/status' ) {
         my $payload = $self->_page_status_payload;
         return [ 200, 'application/json; charset=utf-8', json_encode($payload) ];
@@ -1120,12 +1130,11 @@ sub _legacy_ajax_response {
         $code = eval { decode_payload($token) };
         return [ 400, 'text/plain; charset=utf-8', "$@" ] if $@;
     }
-    elsif ( ( $params->{page} || '' ) ne '' && ( $params->{file} || '' ) ne '' ) {
+    elsif ( ( $params->{file} || '' ) ne '' ) {
         my $runtime_root = $self->{pages}{paths} ? $self->{pages}{paths}->runtime_root : '';
         $saved_path = eval {
             Zipper::saved_ajax_file_path(
                 file         => $params->{file},
-                page_id      => $params->{page},
                 runtime_root => $runtime_root,
             );
         };
@@ -1136,7 +1145,7 @@ sub _legacy_ajax_response {
         return [ 400, 'text/plain; charset=utf-8', "missing token\n" ];
     }
     my $page = Developer::Dashboard::PageDocument->new(
-        id    => ( $params->{page} || '' ),
+        id    => ( $params->{page} || $params->{file} || '' ),
         title => 'Legacy Ajax',
     );
     return [
@@ -1179,7 +1188,7 @@ sub _legacy_ajax_response {
 sub _legacy_ajax_allowed {
     my ( $self, $params ) = @_;
     return 1 if ref($params) ne 'HASH';
-    return 1 if ( $params->{page} || '' ) ne '' && ( $params->{file} || '' ) ne '';
+    return 1 if ( $params->{file} || '' ) ne '';
     return 1 if ( $params->{token} || '' ) eq '';
     return _transient_url_tokens_allowed();
 }
