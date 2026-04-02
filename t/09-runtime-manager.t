@@ -793,6 +793,13 @@ TCP6
 ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title returns undef when ps also cannot resolve the pid' );
 
 {
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub { return };
+    local *Developer::Dashboard::RuntimeManager::_read_process_title      = sub { return };
+    ok( !$manager->_is_managed_web($$), '_is_managed_web returns false when a live pid has no readable title' );
+}
+
+{
     my $child = fork();
     die "fork failed: $!" if !defined $child;
     if ( !$child ) {

@@ -211,6 +211,15 @@ runtime public tree first and then from the saved bookmark root, so a file such
 as `dashboards/public/js/jquery.js` is available at `/js/jquery.js` without
 requiring a separate home-runtime copy.
 
+Saved bookmark editor and view-source routes also protect literal inline script
+content from breaking the browser bootstrap. If a bookmark body contains HTML
+such as `</script>`, the editor now escapes the inline JSON assignment used to
+reload the source text, so the browser keeps the full bookmark source inside
+the editor instead of spilling raw text below the page. Legacy bookmark
+rendering also loads `set_chain_value()` before bookmark body HTML, so
+`Ajax jvar => ...` helpers can bind saved `/ajax/...` endpoints without
+throwing a play-route JavaScript `ReferenceError`.
+
 
 ### User CLI Extensions
 
@@ -703,8 +712,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.05.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.05.tar.gz -v
+tar -tzf Developer-Dashboard-1.06.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.06.tar.gz -v
 ```
 
 The harness also:

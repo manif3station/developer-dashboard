@@ -434,6 +434,7 @@ sub _is_managed_web {
     my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_WEB_SERVICE' );
     return 1 if defined $marker && $marker eq '1';
     my $title = $self->_read_process_title($pid);
+    return 0 if !defined $title || $title eq '';
     return $title =~ /^dashboard web:/ ? 1 : 0;
 }
 

@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.06  2026-04-02
+    - fixed saved bookmark editor boot-script escaping so literal bookmark HTML such as `</script>` no longer breaks the source editor and leaks raw instruction text below the page
+    - fixed legacy bookmark bootstrap ordering so `Ajax jvar => ...` bindings run after `set_chain_value()` is defined, preventing play-route JavaScript `ReferenceError` failures
+    - updated README, POD, changelog, fixed-bug notes, and troubleshooting docs to describe the bookmark editor/script bootstrap fixes
+
 1.05  2026-04-02
     - fixed saved bookmark editor boot-script escaping so literal bookmark HTML such as `</script>` no longer breaks the source editor and leaks raw instruction text below the page
     - fixed legacy bookmark bootstrap ordering so `Ajax jvar => ...` bindings run after `set_chain_value()` is defined, preventing play-route JavaScript `ReferenceError` failures
