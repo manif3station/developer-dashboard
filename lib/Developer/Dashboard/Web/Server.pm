@@ -16,8 +16,8 @@ use Developer::Dashboard::Web::Server::Daemon;
 sub new {
     my ( $class, %args ) = @_;
     my $app  = $args{app}  || die 'Missing web app';
-    my $host = $args{host} || '0.0.0.0';
-    my $port = $args{port} || 7890;
+    my $host = defined $args{host} ? $args{host} : '0.0.0.0';
+    my $port = defined $args{port} ? $args{port} : 7890;
 
     return bless {
         app  => $app,

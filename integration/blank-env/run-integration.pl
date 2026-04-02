@@ -12,6 +12,8 @@ use JSON::XS qw(decode_json);
 use Symbol qw(gensym);
 use Time::HiRes qw(sleep time);
 
+our $BROWSER_BINARY;
+
 # main()
 # Executes the full blank-environment integration flow against a host-built tarball.
 # Input: none.
@@ -451,7 +453,7 @@ JSON
 
     my $helper_page = _run_shell(
         'helper page after login',
-        'curl -fsS -b ' . _shell_quote($cookie) . ' http://' . $container_ip . ':7890/page/welcome'
+        'curl -fsS -b ' . _shell_quote($cookie) . ' http://' . $container_ip . ':7890/app/welcome'
     );
     _assert_match( $helper_page->{stdout}, qr/id="logout-url"/, 'helper page chrome renders logout link' );
 
@@ -598,8 +600,9 @@ sub _run_browser_dom {
 sub _browser_command {
     my ( $url, %opts ) = @_;
     my $profile = $opts{user_data_dir} || '/tmp/developer-dashboard-browser-profile';
+    my $browser = _browser_binary();
     return join ' ',
-      'chromium',
+      _shell_quote($browser),
       '--headless',
       '--no-sandbox',
       '--disable-gpu',
@@ -608,6 +611,44 @@ sub _browser_command {
       '--user-data-dir=' . _shell_quote($profile),
       '--dump-dom',
       _shell_quote($url);
+}
+
+# _browser_binary()
+# Resolves one available headless browser binary, installing Chromium when the image lacks one.
+# Input: none.
+# Output: absolute browser executable path string.
+sub _browser_binary {
+    return $BROWSER_BINARY if defined $BROWSER_BINARY && $BROWSER_BINARY ne '';
+
+    for my $candidate ( qw(chromium chromium-browser google-chrome google-chrome-stable) ) {
+        my $probe = _run_shell(
+            "probe browser $candidate",
+            "command -v $candidate",
+            allow_fail => 1,
+        );
+        my $path = _trim( $probe->{stdout} );
+        if ( $probe->{exit_code} == 0 && $path ne '' ) {
+            $BROWSER_BINARY = $path;
+            return $BROWSER_BINARY;
+        }
+    }
+
+    _run_shell(
+        'install chromium fallback',
+        'apt-get update && apt-get install -y --no-install-recommends chromium',
+    );
+
+    my $installed = _run_shell(
+        'probe installed chromium fallback',
+        'command -v chromium',
+        allow_fail => 1,
+    );
+    my $path = _trim( $installed->{stdout} );
+    die "Unable to find a headless browser binary after installing chromium\n"
+      if $installed->{exit_code} != 0 || $path eq '';
+
+    $BROWSER_BINARY = $path;
+    return $BROWSER_BINARY;
 }
 
 # _single_subdir($dir)
@@ -754,7 +795,7 @@ installed C<dashboard> CLI and web runtime against a fake project.
 
 =head1 FUNCTIONS
 
-=head2 main, _run_shell, _wait_for_http, _run_browser_dom, _browser_command, _single_subdir, _decode_json_tail, _reset_dir, _write_text, _read_text, _trim, _shell_quote, _assert, _assert_match
+=head2 main, _run_shell, _wait_for_http, _run_browser_dom, _browser_command, _browser_binary, _single_subdir, _decode_json_tail, _reset_dir, _write_text, _read_text, _trim, _shell_quote, _assert, _assert_match
 
 Run and validate the host-built-tarball integration workflow.
 

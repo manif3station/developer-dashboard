@@ -206,7 +206,7 @@ ok( -f File::Spec->catfile( $paths->dashboards_root, 'nav', 'foo.tt' ), 'root ed
 my ($code1d_nav_page, undef, $body1d_nav_page) = @{ $app->handle(path => '/app/nav/foo.tt', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code1d_nav_page, 200, 'legacy /app route loads nested nav bookmark ids');
 like($body1d_nav_page, qr/Foo Nav/, 'legacy /app nested nav route renders the saved nav bookmark body');
-my ($code1d_nav_source, $type1d_nav_source, $body1d_nav_source) = @{ $app->handle(path => '/page/nav/foo.tt/source', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+my ($code1d_nav_source, $type1d_nav_source, $body1d_nav_source) = @{ $app->handle(path => '/app/nav/foo.tt/source', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code1d_nav_source, 200, 'nested nav bookmark source route ok');
 like($type1d_nav_source, qr/text\/plain/, 'nested nav bookmark source route returns plain text');
 like($body1d_nav_source, qr/^BOOKMARK:\s+nav\/foo.tt$/m, 'nested nav bookmark source route preserves nested bookmark id');
@@ -224,7 +224,7 @@ like($body1d_tt, qr/HTML:\s*&lt;h1&gt;\[% title %\]&lt;\/h1&gt;/s, 'editor texta
 like($body1d_tt, qr/ddEditor\.value = "[^"]*\[% title %\][^"]*"\s*;\s*ddRenderEditor/s, 'editor boot script keeps TT placeholders in the browser-loaded instruction text');
 like($body1d_tt, qr/instruction-highlight[\s\S]*?\[% title %\]/s, 'editor syntax highlight is built from raw TT bookmark source');
 my ($code1d_tt_source, $type1d_tt_source, $body1d_tt_source) = @{ $app->handle(
-    path        => '/page/index/source',
+    path        => '/app/index/source',
     query       => '',
     remote_addr => '127.0.0.1',
     headers     => { host => '127.0.0.1' },
@@ -234,9 +234,9 @@ like($type1d_tt_source, qr/text\/plain/, 'saved TT bookmark source route returns
 like($body1d_tt_source, qr/^HTML:\s+<h1>\[% title %\]<\/h1> \[% stash\.foo %\]$/m, 'saved TT bookmark source route preserves raw TT placeholders');
 my ($play_url_tt) = $body1d_tt =~ m{<a href="([^"]+)" id="play-url">Play</a>};
 ok($play_url_tt, 'TT bookmark play url extracted');
-is($play_url_tt, '/page/index', 'saved TT bookmark play url stays on the named saved route');
+is($play_url_tt, '/app/index', 'saved TT bookmark play url stays on the named saved route');
 my ($code1d_tt_render, undef, $body1d_tt_render) = @{ $app->handle(
-    path        => '/page/index',
+    path        => '/app/index',
     query       => '',
     remote_addr => '127.0.0.1',
     headers     => { host => '127.0.0.1' },
@@ -244,9 +244,9 @@ my ($code1d_tt_render, undef, $body1d_tt_render) = @{ $app->handle(
 is($code1d_tt_render, 200, 'TT bookmark play route ok');
 like($body1d_tt_render, qr{<h1>\s*Sample Dashboard\s*</h1>\s*1}s, 'TT render receives TITLE and STASH values');
 my ($tt_view_source_url) = $body1d_tt_render =~ m{<a href="([^"]+)" id="view-source-url">View Source</a>};
-is($tt_view_source_url, '/page/index/edit', 'TT render exposes a saved bookmark view source link');
+is($tt_view_source_url, '/app/index/edit', 'TT render exposes a saved bookmark view source link');
 my ($code1d_tt_view_source, $type1d_tt_view_source, $body1d_tt_view_source) = @{ $app->handle(
-    path        => '/page/index/edit',
+    path        => '/app/index/edit',
     query       => '',
     remote_addr => '127.0.0.1',
     headers     => { host => '127.0.0.1' },
@@ -277,18 +277,18 @@ like($body1e, qr/tok-js/, 'HTML sections highlight JavaScript syntax');
 like($body1e, qr/tok-perl-keyword/, 'CODE sections highlight Perl syntax');
 like($body1e, qr/tok-perl-var/, 'CODE sections highlight Perl variables');
 
-my ($code2, $type2, $body2) = @{ $app->handle(path => '/page/welcome', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+my ($code2, $type2, $body2) = @{ $app->handle(path => '/app/welcome', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code2, 200, 'saved page route ok');
 like($body2, qr/Welcome/, 'saved page rendered');
 unlike($body2, qr{<h1>\s*Welcome\s*</h1>}, 'page title is not injected into the page body');
 like($body2, qr{<title>Welcome</title>}, 'page title is still rendered in the head title element');
 unlike($body2, qr/id="logout-url"/, 'admin route does not render logout link');
 
-my ($code2b, undef, $body2b) = @{ $app->handle(path => '/page/welcome', query => 'name=Michael', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+my ($code2b, undef, $body2b) = @{ $app->handle(path => '/app/welcome', query => 'name=Michael', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code2b, 200, 'saved page with query state route ok');
 like($body2b, qr/Michael/, 'query parameters are merged into page state during render');
 like($body2b, qr{<li data-nav-id="nav/alpha\.tt"><a href="/app/index">Home</a></li>}s, 'shared nav TT fragments render conditional output against non-index pages');
-like($body2b, qr/nav-current=\/page\/welcome nav-rt=\/page\/welcome/s, 'shared nav TT fragments receive the current page path on non-index pages');
+like($body2b, qr/nav-current=\/app\/welcome nav-rt=\/app\/welcome/s, 'shared nav TT fragments receive the current page path on non-index pages');
 my $nav_pos = index($body2b, 'class="dashboard-nav-items"');
 my $body_pos = index($body2b, '<section class="body">');
 my $alpha_pos = index($body2b, 'data-nav-id="nav/alpha.tt"');
@@ -296,7 +296,7 @@ my $beta_pos = index($body2b, 'data-nav-id="nav/beta.tt"');
 ok($nav_pos > -1 && $nav_pos < $body_pos, 'shared nav section renders before the main page body');
 ok($alpha_pos > -1 && $beta_pos > $alpha_pos, 'shared nav tt bookmarks render in sorted filename order');
 unlike($body2, qr/id="play-url"/, 'render mode does not render play link');
-like($body2, qr{href="/page/welcome/edit"[^>]+id="view-source-url"}, 'render mode view source points to edit route');
+like($body2, qr{href="/app/welcome/edit"[^>]+id="view-source-url"}, 'render mode view source points to edit route');
 
 my $token = $saved_token;
 my ($code3, $type3, $body3) = @{ $app->handle(path => '/', query => "mode=source&token=$token", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
@@ -304,7 +304,7 @@ is($code3, 200, 'transient source route ok');
 like($type3, qr/text\/plain/, 'source mode returns plain text instructions');
 like($body3, qr/^TITLE:\s+Welcome/m, 'source mode returns canonical legacy instruction page');
 
-my ($code4, $type4, $body4) = @{ $app->handle(path => '/page/legacy-welcome', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+my ($code4, $type4, $body4) = @{ $app->handle(path => '/app/legacy-welcome', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code4, 200, 'legacy saved page route ok');
 like($body4, qr/Hello World/, 'legacy placeholders render from stash state');
 like($body4, qr/Runtime/, 'trusted legacy code output is rendered on saved pages');
@@ -429,7 +429,7 @@ my $helper_session = $sessions->create(
 my $helper_cookie = 'dashboard_session=' . $helper_session->{session_id};
 
 my ($code10, undef, $body10) = @{ $app->handle(
-    path        => '/page/welcome',
+    path        => '/app/welcome',
     query       => '',
     remote_addr => '10.0.0.2',
     headers     => { host => '10.0.0.3:7890', cookie => $helper_cookie },

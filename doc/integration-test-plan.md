@@ -47,6 +47,7 @@ The test container should be intentionally minimal:
 - no preinstalled Developer Dashboard
 - only generic build, browser, and HTTP tooling added
 - a temporary `HOME` so the installed app must bootstrap itself from scratch
+- no requirement that `ss` or other iproute2 tools exist inside the image
 
 The repo checkout is not mounted into the container as the app under test.
 Only the host-built tarball is mounted into the blank container.
@@ -112,6 +113,10 @@ The integration run creates:
 - non-loopback access produces the helper login page
 - helper logout removes both the helper session and the helper account
 - `dashboard stop` leaves no active listener on port `7890`
+- runtime stop/restart behavior still works when listener ownership must be
+  discovered through `/proc` instead of `ss`
+- `dashboard restart` also succeeds when a listener pid survives the first stop
+  sweep and must be discovered by a late port re-probe
 
 ## Out Of Scope
 
@@ -131,6 +136,9 @@ Build the tarball on the host and run the integration harness with:
 ```bash
 integration/blank-env/run-host-integration.sh
 ```
+
+The harness expects the prebuilt integration image `dd-int-test:latest` to
+exist locally and mounts the host-built tarball into that container.
 
 ## Pass Criteria
 

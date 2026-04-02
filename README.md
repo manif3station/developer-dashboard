@@ -187,10 +187,10 @@ That means links such as:
 - `http://127.0.0.1:7890/ajax?token=...`
 
 return a `403` unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled.
-Saved bookmark-file routes such as `/app/index`, `/page/index`, and
-`/page/index/action/...` continue to work without that flag.
-Saved bookmark editor pages also stay on their named `/page/<id>/edit` and
-`/page/<id>` routes when you save from the browser, so editing an existing
+Saved bookmark-file routes such as `/app/index` and
+`/app/index/action/...` continue to work without that flag.
+Saved bookmark editor pages also stay on their named `/app/<id>/edit` and
+`/app/<id>` routes when you save from the browser, so editing an existing
 bookmark file does not fall back to transient `token=` URLs under the default
 deny policy.
 
@@ -232,8 +232,8 @@ For the default runtime that means files such as:
 And with route access such as:
 
 - `/app/nav/foo.tt`
-- `/page/nav/foo.tt/edit`
-- `/page/nav/foo.tt/source`
+- `/app/nav/foo.tt/edit`
+- `/app/nav/foo.tt/source`
 
 The bookmark editor can save those nested ids directly, for example
 `BOOKMARK: nav/foo.tt`. On a page like `/app/index`, the direct `nav/*.tt`
@@ -362,6 +362,10 @@ Use `dashboard version` to print the installed Developer Dashboard version.
 The blank-container integration harness now installs the tarball first and then
 builds a fake-project `./.developer-dashboard` tree so the shipped test suite
 still starts from a clean runtime before exercising project-local overrides.
+That same blank-container path now also verifies web stop/restart behavior in a
+minimal image where listener ownership may need to be discovered from `/proc`
+instead of `ss`, including a late listener re-probe before `dashboard restart`
+brings the web service back up.
 
 ### First Run
 
@@ -623,7 +627,7 @@ The editor and rendered pages also include a shared top chrome with share/source
 The displayed address is discovered from the machine interfaces, preferring a VPN-style address when one is active, and the date/time is refreshed in the browser with JavaScript.
 The bookmark editor also follows the old auto-submit flow, so the form submits when the textarea changes and loses focus instead of showing a manual update button.
 For saved bookmark files, that browser save posts back to the named
-`/page/<id>/edit` route and keeps the Play link on `/page/<id>` instead of a
+`/app/<id>/edit` route and keeps the Play link on `/app/<id>` instead of a
 transient `token=` URL, so updates still work while transient URLs are
 disabled.
 Legacy bookmark parsing also treats a standalone `---` line as a section
@@ -682,17 +686,25 @@ integration/blank-env/run-host-integration.sh
 ```
 
 This integration path builds the distribution tarball on the host with
-`dzil build`, starts a blank container with only that tarball mounted into it,
-installs the tarball with `cpanm`, and then exercises the installed
-`dashboard` command inside the clean Perl container.
+`dzil build`, runs the prebuilt `dd-int-test:latest` container with only that
+tarball mounted into it, installs the tarball with `cpanm`, and then
+exercises the installed `dashboard` command inside the clean Perl container.
+The runtime-manager lifecycle checks also fall back to `/proc` socket ownership
+scans when that minimal image does not provide `ss`, and they re-probe the
+managed port for late listener pids before restart, so `dashboard stop` and
+`dashboard restart` keep working inside the same blank-container environment
+used for release verification.
+Those checks also cover the Starman master-worker split, where the recorded
+managed pid can be the master while the bound listener pid is a separate
+worker process on the same managed port.
 
 Before uploading a release artifact, remove older build directories and tarballs first so only the current release artifact remains, then validate the exact tarball that will ship:
 
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.04.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.04.tar.gz -v
+tar -tzf Developer-Dashboard-1.05.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.05.tar.gz -v
 ```
 
 The harness also:

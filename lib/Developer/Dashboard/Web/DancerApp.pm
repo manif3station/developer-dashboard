@@ -208,27 +208,19 @@ get qr{^/(js|css|others)/(.+)$} => sub {
     );
 };
 
-any [qw(get post)] => qr{^/app/(.+)$} => sub {
-    return _run_authorized( 'legacy_app_response', id => _capture(0) );
-};
-
-post '/action' => sub {
-    return _run_authorized('transient_action_response');
-};
-
-get qr{^/page/(.+)/source$} => sub {
+get qr{^/app/(.+)/source$} => sub {
     return _run_authorized( 'page_source_response', id => _capture(0) );
 };
 
-post qr{^/page/(.+)/edit$} => sub {
+post qr{^/app/(.+)/edit$} => sub {
     return _run_authorized( 'page_edit_post_response', id => _capture(0) );
 };
 
-get qr{^/page/(.+)/edit$} => sub {
+get qr{^/app/(.+)/edit$} => sub {
     return _run_authorized( 'page_edit_response', id => _capture(0) );
 };
 
-post qr{^/page/(.+)/action/([^/]+)$} => sub {
+post qr{^/app/(.+)/action/([^/]+)$} => sub {
     return _run_authorized(
         'page_action_response',
         id        => _capture(0),
@@ -236,10 +228,13 @@ post qr{^/page/(.+)/action/([^/]+)$} => sub {
     );
 };
 
-get qr{^/page/(.+)$} => sub {
-    return _run_authorized( 'page_render_response', id => _capture(0) );
+get qr{^/app/(.+)$} => sub {
+    return _run_authorized( 'legacy_app_response', id => _capture(0) );
 };
 
+post '/action' => sub {
+    return _run_authorized('transient_action_response');
+};
 any [qw(get post)] => qr{.*} => sub {
     return _run_authorized('dispatch_request');
 };

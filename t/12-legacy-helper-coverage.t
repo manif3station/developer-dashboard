@@ -460,7 +460,7 @@ like( $logout_headers->{'Set-Cookie'}, qr/Max-Age=0/, 'logout expires the sessio
 
 {
     open my $fh, '>', $pages->page_file('legacy-forward') or die $!;
-    print {$fh} '/page/legacy-page';
+    print {$fh} '/app/legacy-page';
     close $fh;
 }
 is( $app->handle( path => '/app/legacy-forward', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } )->[0], 200, 'legacy app forwarding handles saved url bookmarks' );

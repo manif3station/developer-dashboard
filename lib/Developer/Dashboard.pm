@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.04';
+our $VERSION = '1.05';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.04
+1.05
 
 =head1 INTRODUCTION
 
@@ -176,11 +176,11 @@ C</app/nav/foo.tt>
 
 =item *
 
-C</page/nav/foo.tt/edit>
+C</app/nav/foo.tt/edit>
 
 =item *
 
-C</page/nav/foo.tt/source>
+C</app/nav/foo.tt/source>
 
 =back
 
@@ -508,10 +508,10 @@ That means links such as:
 =back
 
 return a C<403> unless C<DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS> is enabled.
-Saved bookmark-file routes such as C</app/index>, C</page/index>, and
-C</page/index/action/...> continue to work without that flag. Saved bookmark
-editor pages also stay on their named C</page/E<lt>idE<gt>/edit> and
-C</page/E<lt>idE<gt>> routes when you save from the browser, so editing an
+Saved bookmark-file routes such as C</app/index> and
+C</app/index/action/...> continue to work without that flag. Saved bookmark
+editor pages also stay on their named C</app/E<lt>idE<gt>/edit> and
+C</app/E<lt>idE<gt>> routes when you save from the browser, so editing an
 existing bookmark file does not fall back to transient C<token=> URLs under the
 default deny policy.
 
@@ -704,6 +704,10 @@ Use C<dashboard version> to print the installed Developer Dashboard version.
 The blank-container integration harness applies fake-project dashboard override
 environment variables only after C<cpanm> finishes installing the tarball so
 the shipped test suite still runs against a clean runtime.
+That same blank-container path now also verifies web stop/restart behavior in a
+minimal image where listener ownership may need to be discovered from F</proc>
+instead of C<ss>, including a late listener re-probe before
+C<dashboard restart> brings the web service back up.
 
 =head2 First Run
 
@@ -995,8 +999,8 @@ link, and the current date/time in the same spirit as the old local dashboard ch
 The displayed address is discovered from the machine interfaces, preferring a VPN-style address when one is active, and the date/time is refreshed in the browser with JavaScript.
 The bookmark editor also follows the old auto-submit flow, so the form submits when the textarea changes and loses focus instead of showing a manual update button.
 For saved bookmark files, that browser save posts back to the named
-C</page/E<lt>idE<gt>/edit> route and keeps the Play link on
-C</page/E<lt>idE<gt>> instead of a transient C<token=> URL, so updates still
+C</app/E<lt>idE<gt>/edit> route and keeps the Play link on
+C</app/E<lt>idE<gt>> instead of a transient C<token=> URL, so updates still
 work while transient URLs are disabled.
 Legacy bookmark parsing also treats a standalone C<---> line as a section
 break, preventing pasted prose after a code block from being compiled into the
@@ -1106,9 +1110,17 @@ Run the host-built tarball integration flow with:
   integration/blank-env/run-host-integration.sh
 
 This integration path builds the distribution tarball on the host with
-C<dzil build>, starts a blank container with only that tarball mounted into it,
-installs the tarball with C<cpanm>, and then exercises the installed
-C<dashboard> command inside the clean Perl container.
+C<dzil build>, runs the prebuilt C<dd-int-test:latest> container with only
+that tarball mounted into it, installs the tarball with C<cpanm>, and then
+exercises the installed C<dashboard> command inside the clean Perl container.
+The runtime-manager lifecycle checks also fall back to F</proc> socket
+ownership scans when that minimal image does not provide C<ss>, and they
+re-probe the managed port for late listener pids before restart, so
+C<dashboard stop> and C<dashboard restart> keep working inside the same
+blank-container environment used for release verification.
+Those checks also cover the Starman master-worker split, where the recorded
+managed pid can be the master while the bound listener pid is a separate
+worker process on the same managed port.
 
 Before uploading a release artifact, remove older tarballs first so only the
 current release artifact remains, then validate the exact tarball that will
@@ -1116,8 +1128,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.04.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.04.tar.gz -v
+  tar -tzf Developer-Dashboard-1.05.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.05.tar.gz -v
 
 The harness also:
 

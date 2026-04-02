@@ -101,20 +101,20 @@ is( $source_code, 200, 'transient source route responds with success' );
 like( $source_type, qr/text\/plain/, 'source route emits instruction text' );
 like( $source_body, qr/^TITLE:\s+Sample/m, 'source route returns canonical instruction text' );
 
-my ( $saved_edit_code, undef, $saved_edit_body ) = @{ $app->handle( path => '/page/sample/edit', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+my ( $saved_edit_code, undef, $saved_edit_body ) = @{ $app->handle( path => '/app/sample/edit', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $saved_edit_code, 200, 'saved edit route responds with success' );
 like( $saved_edit_body, qr/Right Click Copy &amp; Share or Bookmark This Page/, 'saved edit route includes top chrome links' );
-like( $saved_edit_body, qr{<form method="post" action="/page/sample/edit" id="instruction-form">}, 'saved edit route posts back to the named bookmark edit path' );
-like( $saved_edit_body, qr{<a href="/page/sample" id="play-url">Play</a>}, 'saved edit route exposes a saved-page play link instead of a transient token url' );
+like( $saved_edit_body, qr{<form method="post" action="/app/sample/edit" id="instruction-form">}, 'saved edit route posts back to the named bookmark edit path' );
+like( $saved_edit_body, qr{<a href="/app/sample" id="play-url">Play</a>}, 'saved edit route exposes a saved-page play link instead of a transient token url' );
 my ( $saved_edit_post_without_instruction_code, undef, $saved_edit_post_without_instruction_body ) = @{ $app->handle(
-    path        => '/page/sample/edit',
+    path        => '/app/sample/edit',
     method      => 'POST',
     body        => '',
     remote_addr => '127.0.0.1',
     headers     => { host => '127.0.0.1' },
 ) };
 is( $saved_edit_post_without_instruction_code, 200, 'saved edit POST without instruction falls back to the saved editor view' );
-like( $saved_edit_post_without_instruction_body, qr{<form method="post" action="/page/sample/edit" id="instruction-form">}, 'saved edit POST fallback keeps the named bookmark edit form action' );
+like( $saved_edit_post_without_instruction_body, qr{<form method="post" action="/app/sample/edit" id="instruction-form">}, 'saved edit POST fallback keeps the named bookmark edit form action' );
 
 my $updated_instruction = join "\n",
     'TITLE: Sample',
@@ -124,7 +124,7 @@ my $updated_instruction = join "\n",
     'HTML: updated saved bookmark body',
     '';
 my ( $saved_update_code, undef, $saved_update_body ) = @{ $app->handle(
-    path        => '/page/sample/edit',
+    path        => '/app/sample/edit',
     method      => 'POST',
     body        => 'instruction=' . uri_escape($updated_instruction),
     remote_addr => '127.0.0.1',
@@ -132,16 +132,16 @@ my ( $saved_update_code, undef, $saved_update_body ) = @{ $app->handle(
 ) };
 is( $saved_update_code, 200, 'saved edit post route responds with success while transient urls remain disabled' );
 like( $saved_update_body, qr/updated saved bookmark body/, 'saved edit post route returns the updated bookmark editor content' );
-my ( $saved_updated_source_code, undef, $saved_updated_source_body ) = @{ $app->handle( path => '/page/sample/source', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+my ( $saved_updated_source_code, undef, $saved_updated_source_body ) = @{ $app->handle( path => '/app/sample/source', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $saved_updated_source_code, 200, 'saved source route still responds after a saved edit post' );
 like( $saved_updated_source_body, qr/^HTML:\s+updated saved bookmark body$/m, 'saved edit post route persists the updated bookmark source text' );
 
-my ( $saved_source_code, undef, $saved_source_body ) = @{ $app->handle( path => '/page/sample/source', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+my ( $saved_source_code, undef, $saved_source_body ) = @{ $app->handle( path => '/app/sample/source', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $saved_source_code, 200, 'saved source route responds with success' );
 like( $saved_source_body, qr/^BOOKMARK:\s+sample/m, 'saved source route returns canonical page instruction source' );
 unlike( $saved_source_body, qr/request_host|request_path|request_remote_addr/, 'saved source route does not inject request metadata into source' );
 
-my ( $saved_render_code, undef, $saved_render_body ) = @{ $app->handle( path => '/page/sample', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+my ( $saved_render_code, undef, $saved_render_body ) = @{ $app->handle( path => '/app/sample', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $saved_render_code, 200, 'saved render route responds with success' );
 like( $saved_render_body, qr/updated saved bookmark body/, 'saved page route renders the latest saved bookmark body content' );
 is(
@@ -437,7 +437,7 @@ is( $server->listening_url($daemon), 'http://127.0.0.1:' . $daemon->sockport . '
     my $res;
     test_psgi $server->psgi_app, sub {
         my ($cb) = @_;
-        $res = $cb->( GET 'http://127.0.0.1/page/sample/source' );
+        $res = $cb->( GET 'http://127.0.0.1/app/sample/source' );
     };
     is( $res->code, 200, 'server PSGI app returns successful status code from app handle' );
     like( $res->header('Content-Type'), qr/text\/plain/, 'server PSGI app keeps the instruction source content type' );

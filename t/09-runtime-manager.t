@@ -115,6 +115,33 @@ ok( !$manager->_looks_like_web_process( { pid => 1, args => q{strace -ff -o /tmp
 
 ok( !defined $manager->web_state, 'no web state file exists initially' );
 
+{
+    my $calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
+        my ( undef, $port ) = @_;
+        return () if $port != 7902;
+        $calls++;
+        return $calls < 3 ? (4242) : ();
+    };
+    ok( $manager->_wait_for_port_release(7902), '_wait_for_port_release waits until the listener port clears' );
+    is( $calls, 3, '_wait_for_port_release keeps polling until the port is free' );
+}
+
+{
+    my $calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
+        my ( undef, $port ) = @_;
+        return () if $port != 7907;
+        $calls++;
+        return (4242);
+    };
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { return 0 };
+    ok( !$manager->_wait_for_port_release(7907), '_wait_for_port_release returns false when the listener never clears' );
+    is( $calls, 51, '_wait_for_port_release probes the listener port through the final timeout check' );
+}
+
 my $pid;
 {
     no warnings 'redefine';
@@ -204,6 +231,27 @@ ok( !-f $files->web_pid, 'cleanup is idempotent for pid files' );
 ok( $manager->start_web( foreground => 1, host => '0.0.0.0', port => 7900 ), 'foreground start returns successfully' );
 ok( -f $foreground_file, 'foreground start delegates to server run' );
 
+{
+    my %captured;
+    my $default_manager = Developer::Dashboard::RuntimeManager->new(
+        app_builder => sub {
+            my (%args) = @_;
+            %captured = %args;
+            return Local::RuntimeServer->new(
+                foreground_file => $foreground_file,
+                host            => $args{host},
+                port            => $args{port},
+            );
+        },
+        config => $config,
+        files  => $files,
+        paths  => $paths,
+        runner => $runner,
+    );
+    ok( $default_manager->start_web( foreground => 1 ), 'foreground start uses defaults when host and port are omitted' );
+    is_deeply( \%captured, { host => '0.0.0.0', port => 7890 }, 'foreground start forwards the default host and port to the app builder' );
+}
+
 my $builder_error_manager = Developer::Dashboard::RuntimeManager->new(
     app_builder => sub { die "builder boom\n" },
     config      => $config,
@@ -286,6 +334,13 @@ my $clean_exit_manager = Developer::Dashboard::RuntimeManager->new(
     is( $clean_exit, 0, '_run_web_child returns zero when the server loop ends cleanly' );
     is( $clean_exit_manager->web_state->{status}, 'stopped', '_run_web_child records stopped status after a clean exit' );
     $clean_exit_manager->_cleanup_web_files;
+}
+
+{
+    my $state = $manager->_write_web_state();
+    is_deeply( $state, {}, '_write_web_state persists an empty hash when no state payload is provided' );
+    is_deeply( $manager->web_state, {}, 'web_state reads back the empty-state payload written by _write_web_state' );
+    $manager->_cleanup_web_files;
 }
 
 @{ $runner->{loops} } = (
@@ -405,6 +460,21 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
 }
 
 {
+    my %forwarded;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::stop_all = sub { return { web_pid => undef, collectors => [] } };
+    local *Developer::Dashboard::RuntimeManager::start_collectors = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_restart_web_with_retry = sub {
+        my ( undef, %args ) = @_;
+        %forwarded = %args;
+        return 9901;
+    };
+    my $restart_default = $manager->restart_all;
+    is( $restart_default->{web_pid}, 9901, 'restart_all returns the restarted pid when using default host and port' );
+    is_deeply( \%forwarded, { host => '0.0.0.0', port => 7890 }, 'restart_all forwards default host and port values when none are provided' );
+}
+
+{
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
         return ( "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nLISTEN 0 1024 127.0.0.1:7906 0.0.0.0:* users:((\"starman worker \",pid=123,fd=4),(\"starman master \",pid=456,fd=4))\n", '', 0 );
@@ -422,12 +492,247 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
 
 {
     no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', 'ss: not found', 127 ) };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_proc = sub {
+        my ( undef, $port ) = @_;
+        return $port == 7909 ? (321, 654) : ();
+    };
+    is_deeply(
+        [ $manager->_listener_pids_for_port(7909) ],
+        [321, 654],
+        '_listener_pids_for_port falls back to /proc listener discovery when ss is unavailable',
+    );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', 'ss command not found', 1 ) };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_proc = sub {
+        my ( undef, $port ) = @_;
+        return $port == 7917 ? (987) : ();
+    };
+    is_deeply(
+        [ $manager->_listener_pids_for_port(7917) ],
+        [987],
+        '_listener_pids_for_port also falls back to /proc when ss reports not found through stderr without exit 127',
+    );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', '', 2 ) };
+    is_deeply(
+        [ $manager->_listener_pids_for_port(7915) ],
+        [],
+        '_listener_pids_for_port returns an empty list for unexpected ss failures that do not qualify for the proc fallback',
+    );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_listener_socket_inodes_for_port = sub { return () };
+    is_deeply(
+        [ $manager->_listener_pids_for_port_via_proc(7914) ],
+        [],
+        '_listener_pids_for_port_via_proc returns no pids when proc socket discovery finds no listener inodes',
+    );
+}
+
+{
+    my $attempt = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::start_web = sub {
+        $attempt++;
+        die "Address already in use\n" if $attempt == 1;
+        return 8801;
+    };
+    is( $manager->_restart_web_with_retry( host => '0.0.0.0', port => 7911 ), 8801, '_restart_web_with_retry retries transient bind failures and returns the restarted pid' );
+    is( $attempt, 2, '_restart_web_with_retry retries once before succeeding when the bind race clears' );
+}
+
+{
+    my %captured;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::start_web = sub {
+        my ( undef, %args ) = @_;
+        %captured = %args;
+        return 8802;
+    };
+    is( $manager->_restart_web_with_retry, 8802, '_restart_web_with_retry uses the default host and port when none are provided' );
+    is_deeply( \%captured, { host => '0.0.0.0', port => 7890 }, '_restart_web_with_retry forwards default host and port values to start_web' );
+}
+
+{
+    my $attempt = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::start_web = sub {
+        $attempt++;
+        die "Address already in use\n";
+    };
+    dies_like(
+        sub { $manager->_restart_web_with_retry( host => '0.0.0.0', port => 7912 ) },
+        qr/Address already in use/,
+        '_restart_web_with_retry rethrows the final bind error after exhausting retries',
+    );
+    is( $attempt, 20, '_restart_web_with_retry uses the full retry budget before surfacing a persistent bind failure' );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::start_web = sub { die "unexpected boom\n" };
+    dies_like(
+        sub { $manager->_restart_web_with_retry( host => '0.0.0.0', port => 7913 ) },
+        qr/unexpected boom/,
+        '_restart_web_with_retry surfaces non-bind startup failures immediately',
+    );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::start_web = sub { return; };
+    dies_like(
+        sub { $manager->_restart_web_with_retry( host => '0.0.0.0', port => 7916 ) },
+        qr/Unable to restart dashboard web service on 0\.0\.0\.0:7916/,
+        '_restart_web_with_retry emits the default error text when start_web returns without a pid or exception',
+    );
+}
+
+{
+    is_deeply(
+        [ $manager->_listener_socket_inodes_for_port(0) ],
+        [],
+        '_listener_socket_inodes_for_port returns an empty list when no port is requested',
+    );
+}
+
+{
+    my $proc_root = tempdir( CLEANUP => 1 );
+    my $tcp = "$proc_root/tcp";
+    my $tcp6 = "$proc_root/tcp6";
+    open my $tcp_fh, '>', $tcp or die "Unable to write $tcp: $!";
+    print {$tcp_fh} <<'TCP';
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+
+bad line without fields
+   9: 0100007F:1EE5 00000000:0000 0A
+  10: 0100007F:1EE5 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0
+  11: 0100007F:1EE5 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 0 1 0000000000000000 100 0 0 10 0
+   0: 0100007F:1EE5 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 11111 1 0000000000000000 100 0 0 10 0
+   2: 0100007F:1EE5 00000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 11111 1 0000000000000000 100 0 0 10 0
+   1: 0100007F:1EE5 00000000:0000 01 00000000:00000000 00:00000000 00000000     0        0 22222 1 0000000000000000 100 0 0 10 0
+TCP
+    close $tcp_fh;
+    open my $tcp6_fh, '>', $tcp6 or die "Unable to write $tcp6: $!";
+    print {$tcp6_fh} <<'TCP6';
+  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000000000000000000000000000:1EE5 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 33333 1 0000000000000000 100 0 0 10 0
+TCP6
+    close $tcp6_fh;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_listener_socket_table_paths = sub { return ( $tcp, $tcp6 ) };
+    is_deeply(
+        [ $manager->_listener_socket_inodes_for_port(7909) ],
+        [ 11111, 33333 ],
+        '_listener_socket_inodes_for_port parses listening socket inodes from proc tcp tables',
+    );
+}
+
+{
+    my $proc_root = tempdir( CLEANUP => 1 );
+    my $fd_dir = "$proc_root/4321/fd";
+    my $other_fd_dir = "$proc_root/9876/fd";
+    require File::Path;
+    File::Path::make_path( $fd_dir, $other_fd_dir );
+    open my $plain_fh, '>', "$proc_root/plain-target" or die "Unable to write plain target: $!";
+    print {$plain_fh} "plain\n";
+    close $plain_fh;
+    symlink 'socket:[11111]', "$fd_dir/3" or die "Unable to create socket symlink: $!";
+    symlink 'socket:[33333]', "$fd_dir/4" or die "Unable to create socket symlink: $!";
+    symlink 'socket:[44444]', "$other_fd_dir/5" or die "Unable to create socket symlink: $!";
+    symlink "$proc_root/plain-target", "$other_fd_dir/6" or die "Unable to create plain symlink: $!";
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_process_fd_paths = sub { return ( 'nonsense-path', glob "$proc_root/[0-9]*/fd/*" ) };
+    is_deeply(
+        [ sort { $a <=> $b } $manager->_process_pids_for_socket_inodes( { 11111 => 1, 33333 => 1 } ) ],
+        [4321],
+        '_process_pids_for_socket_inodes maps matching socket inodes back to owning process ids',
+    );
+}
+
+{
+    is_deeply(
+        [ $manager->_process_pids_for_socket_inodes( {} ) ],
+        [],
+        '_process_pids_for_socket_inodes returns an empty list for an empty inode lookup table',
+    );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_listener_socket_inodes_for_port = sub {
+        my ( undef, $port ) = @_;
+        return $port == 7910 ? (11111, 22222) : ();
+    };
+    local *Developer::Dashboard::RuntimeManager::_process_pids_for_socket_inodes = sub {
+        my ( undef, $inode_lookup ) = @_;
+        return exists $inode_lookup->{11111} && exists $inode_lookup->{22222} ? (7001, 7002) : ();
+    };
+    is_deeply(
+        [ $manager->_listener_pids_for_port_via_proc(7910) ],
+        [7001, 7002],
+        '_listener_pids_for_port_via_proc joins proc socket inode discovery with pid lookup',
+    );
+}
+
+{
+    is_deeply(
+        [ $manager->_listener_socket_table_paths ],
+        [ '/proc/net/tcp', '/proc/net/tcp6' ],
+        '_listener_socket_table_paths returns the expected proc tcp sources',
+    );
+    ok( scalar $manager->_process_fd_paths, '_process_fd_paths returns proc fd entries on Linux hosts' );
+}
+
+{
+    no warnings 'redefine';
     $files->write( 'web_pid', "$$\n" );
     $manager->_write_web_state( { pid => $$, host => '127.0.0.1', port => 7907, status => 'running' } );
     local *Developer::Dashboard::RuntimeManager::_is_managed_web = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ($$) };
     my $state = $manager->running_web;
     is( $state->{pid}, $$, 'running_web trusts the recorded live listener pid for a running state even after the server process renames itself' );
+    $manager->_cleanup_web_files;
+}
+
+{
+    my $listener = fork();
+    die "fork failed: $!" if !defined $listener;
+    if ( !$listener ) {
+        sleep 30;
+        exit 0;
+    }
+    no warnings 'redefine';
+    $files->write( 'web_pid', "$$\n" );
+    $manager->_write_web_state( { pid => $$, host => '127.0.0.1', port => 7919, status => 'running' } );
+    local *Developer::Dashboard::RuntimeManager::_is_managed_web = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ($listener) };
+    my $state = $manager->running_web;
+    is( $state->{pid}, $$, 'running_web trusts the recorded master pid when the managed port is still held by a separate listener worker pid' );
+    kill 'KILL', $listener;
+    waitpid( $listener, 0 );
+    $manager->_cleanup_web_files;
+}
+
+{
+    no warnings 'redefine';
+    $files->write( 'web_pid', "$$\n" );
+    $manager->_write_web_state( { pid => $$, host => '127.0.0.1', port => 7920, status => 'running' } );
+    local *Developer::Dashboard::RuntimeManager::_is_managed_web = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
+    my $state = $manager->running_web;
+    is( $state->{pid}, $$, 'running_web trusts the recorded running pid even when listener discovery cannot identify the managed process shape' );
     $manager->_cleanup_web_files;
 }
 
@@ -444,12 +749,40 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
     local *Developer::Dashboard::RuntimeManager::running_web = sub {
         return $calls++ == 0 ? { pid => $listener, port => 7908 } : undef;
     };
-    local *Developer::Dashboard::RuntimeManager::_managed_listener_pids_for_port = sub { return ($listener) };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ($listener) };
     local *Developer::Dashboard::RuntimeManager::_find_legacy_web_processes = sub { return () };
     local *Developer::Dashboard::RuntimeManager::_pkill_perl = sub { return 1 };
     is( $manager->stop_web, $listener, 'stop_web returns the recorded pid while it also tracks listener pids on the bound port' );
     waitpid( $listener, 0 );
     ok( !kill( 0, $listener ), 'stop_web escalates listener-port pids to KILL when they remain alive after TERM' );
+}
+
+{
+    my $late_listener = fork();
+    die "fork failed: $!" if !defined $late_listener;
+    if ( !$late_listener ) {
+        local $SIG{TERM} = 'IGNORE';
+        sleep 30;
+        exit 0;
+    }
+    my $running_calls  = 0;
+    my $listener_calls = 0;
+    my $wait_calls     = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::running_web = sub {
+        return $running_calls++ == 0 ? { pid => $late_listener, port => 7918 } : undef;
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
+        return $listener_calls++ == 0 ? () : ($late_listener);
+    };
+    local *Developer::Dashboard::RuntimeManager::_find_legacy_web_processes = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_pkill_perl = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_wait_for_port_release = sub {
+        return $wait_calls++ == 0 ? 0 : 1;
+    };
+    is( $manager->stop_web, $late_listener, 'stop_web returns the recorded pid when it has to re-probe the bound port for late listeners' );
+    waitpid( $late_listener, 0 );
+    ok( !kill( 0, $late_listener ), 'stop_web kills late-discovered listener pids after an initial port-release timeout' );
 }
 
 {
@@ -469,6 +802,19 @@ ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title re
     waitpid( $child, 0 );
     my $state = $manager->web_state;
     is( $state->{status}, 'stopped', '_shutdown_web writes the terminal status before exit' );
+    $manager->_cleanup_web_files;
+}
+
+{
+    my $child = fork();
+    die "fork failed: $!" if !defined $child;
+    if ( !$child ) {
+        $manager->_cleanup_web_files;
+        $manager->_shutdown_web();
+    }
+    waitpid( $child, 0 );
+    my $state = $manager->web_state;
+    is( $state->{status}, 'stopped', '_shutdown_web writes a default stopped status when no previous web state exists' );
     $manager->_cleanup_web_files;
 }
 

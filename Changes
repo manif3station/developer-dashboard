@@ -1,5 +1,15 @@
 Revision history for Developer Dashboard
 
+1.05  2026-04-02
+    - removed the parallel `/page/...` browser route surface and moved saved render, edit, source, and action routes fully onto `/app/...`
+    - fixed the web server constructor so `port => 0` keeps the requested ephemeral-port bind instead of collapsing back to the default `7890`
+    - fixed the blank-environment runner so the helper-login flow now opens `/app/welcome` instead of the removed `/page/welcome` route, and made the browser step resolve or bootstrap Chromium when the prebuilt `dd-int-test:latest` image is stale
+    - fixed runtime restart races by waiting for the old listener on the managed web port to disappear before starting the replacement server, preventing intermittent `Address already in use` failures during `dashboard restart`
+    - fixed minimal-container listener discovery by falling back to `/proc` socket scans when `ss` is unavailable, so `dashboard stop` and `dashboard restart` still find Starman listener pids inside the prebuilt `dd-int-test:latest` image
+    - fixed the remaining blank-container restart race by re-probing the managed web port for late listener pids after the first shutdown sweep, so `dashboard restart` no longer leaves port `7890` occupied after the initial TERM/KILL pass
+    - fixed managed web detection for the Dancer2/Starman master-worker split, so `dashboard stop` and `dashboard restart` still trust the recorded master pid when the bound port listener is reported as a separate worker pid
+    - updated README, POD, and route-focused tests to document and verify the single `/app/...` saved bookmark surface
+
 1.04  2026-04-01
     - completed the browser migration onto explicit Dancer2 routes, so the HTTP route table now lives in `Developer::Dashboard::Web::DancerApp` instead of a single catch-all bridge into the old dispatcher
     - kept `Developer::Dashboard::Web::App` as the page and action service layer, so saved-page rendering, helper auth, legacy `/app` compatibility, and transient-policy enforcement continue to behave the same behind the new Dancer2 route surface

@@ -368,11 +368,11 @@ my $app = Developer::Dashboard::Web::App->new(
     sessions => $sessions,
 );
 
-my ( $provider_code, undef, $provider_body ) = @{ $app->handle( path => '/page/shared-provider', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+my ( $provider_code, undef, $provider_body ) = @{ $app->handle( path => '/app/shared-provider', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $provider_code, 200, 'provider page renders through web app' );
 like( $provider_body, qr/Shared Provider/, 'provider page content is rendered' );
 
-my ( $state_render_code, undef, $state_render_body ) = @{ $app->handle( path => '/page/action-page', query => 'filter=active', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+my ( $state_render_code, undef, $state_render_body ) = @{ $app->handle( path => '/app/action-page', query => 'filter=active', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $state_render_code, 200, 'saved page render with query state succeeds' );
 like( $state_render_body, qr/active/, 'query parameters are reflected into page state rendering' );
 
@@ -443,7 +443,7 @@ like( $transient_blocked_body, qr/Transient token URLs are disabled/, 'transient
 }
 
 my ( $missing_action_code ) = @{ $app->handle(
-    path        => '/page/action-page/action/missing',
+    path        => '/app/action-page/action/missing',
     method      => 'POST',
     remote_addr => '127.0.0.1',
     headers     => { host => '127.0.0.1' },
@@ -457,7 +457,7 @@ my $app_without_actions = Developer::Dashboard::Web::App->new(
     sessions => $sessions,
 );
 my ( $no_runner_code ) = @{ $app_without_actions->handle(
-    path        => '/page/action-page/action/state',
+    path        => '/app/action-page/action/state',
     method      => 'POST',
     remote_addr => '127.0.0.1',
     headers     => { host => '127.0.0.1' },

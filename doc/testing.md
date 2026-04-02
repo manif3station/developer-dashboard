@@ -47,6 +47,7 @@ The runtime-manager tests also cover:
 - background web startup handshake and web-state persistence
 - `dashboard web: <host>:<port>` process-title detection
 - `pkill` fallback when pid files are stale or missing
+- `/proc` listener-pid fallback when minimal Linux containers do not provide `ss`
 - `dashboard stop` and `dashboard restart` lifecycle behavior
 
 The extension tests also cover:
@@ -76,8 +77,8 @@ The web tests also cover the access model:
 - forwarding of response headers such as `Location` and `Set-Cookie`
 - root free-form editor behavior at `/`
 - posted instruction handling through `/`, including default denial of unsaved transient execution unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled
-- saved bookmark browser edits through `/page/<id>/edit`, including named-route saves and non-transient play links when transient URL execution stays disabled
-- nested saved bookmark ids such as `nav/foo.tt` through `/app/...` and `/page/...`
+- saved bookmark browser edits through `/app/<id>/edit`, including named-route saves and non-transient play links when transient URL execution stays disabled
+- nested saved bookmark ids such as `nav/foo.tt` through `/app/...`, `/app/.../edit`, and `/app/.../source`
 - shared `nav/*.tt` bookmark rendering between top chrome and the main page body in sorted filename order
 - Template Toolkit conditional rendering for shared nav fragments and saved pages using `env.current_page` and `env.runtime_context.current_page`
 - `/apps -> /app/index` compatibility
@@ -95,9 +96,18 @@ integration/blank-env/run-host-integration.sh
 ```
 
 This integration path builds the distribution tarball on the host with
-`dzil build`, starts a blank container with only that tarball mounted into it,
-installs the tarball with `cpanm`, and then exercises the installed
-`dashboard` command inside the clean Perl container.
+`dzil build`, runs the prebuilt `dd-int-test:latest` container with only that
+tarball mounted into it, installs the tarball with `cpanm`, and then
+exercises the installed `dashboard` command inside the clean Perl container.
+
+The shipped runtime-manager lifecycle checks now also fall back to `/proc`
+socket ownership scans when that prebuilt image does not include `ss`, and
+they re-probe the managed port for late listener pids before restart, so the
+integration flow verifies the same stop/restart behavior that a minimal Linux
+runtime will see in practice.
+Those checks also cover the Starman master-worker split, where the recorded
+managed pid can be the master while the bound listener pid is a separate
+worker process on the same managed port.
 
 The integration flow also:
 

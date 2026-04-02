@@ -39,8 +39,14 @@ sub new {
 # Output: server return value in foreground mode or child pid in background mode.
 sub start_web {
     my ( $self, %args ) = @_;
-    my $host       = $args{host} || '0.0.0.0';
-    my $port       = $args{port} || 7890;
+    my $host = '0.0.0.0';
+    if ( defined $args{host} ) {
+        $host = $args{host};
+    }
+    my $port = 7890;
+    if ( defined $args{port} ) {
+        $port = $args{port};
+    }
     my $foreground = $args{foreground} ? 1 : 0;
 
     if ($foreground) {
@@ -93,13 +99,13 @@ sub running_web {
     my $state = $self->web_state || {};
     if ( my $pid = $self->{files}->read('web_pid') ) {
         chomp $pid;
-        my @listener_pids = $state->{port} ? $self->_listener_pids_for_port( $state->{port} ) : ();
-        my %listener_pid = map { $_ => 1 } @listener_pids;
-        if ( $pid && kill( 0, $pid ) && ( $self->_is_managed_web($pid) || ( ( $state->{status} || '' ) eq 'running' && $listener_pid{$pid} ) ) ) {
-            return {
-                %$state,
-                pid => $pid + 0,
-            };
+        if ( $pid && kill 0, $pid ) {
+            if ( $self->_is_managed_web($pid) || ( $state->{status} || '' ) eq 'running' ) {
+                return {
+                    %$state,
+                    pid => $pid + 0,
+                };
+            }
         }
     }
 
@@ -137,8 +143,9 @@ sub stop_web {
     my ($self) = @_;
     my $running = $self->running_web;
     my $pid = $running ? $running->{pid} : undef;
+    my $port = $running ? $running->{port} : undef;
     my @listener_pids = $running && $running->{port}
-      ? $self->_managed_listener_pids_for_port( $running->{port} )
+      ? $self->_listener_pids_for_port( $running->{port} )
       : ();
 
     kill 'TERM', $pid if $pid;
@@ -161,6 +168,12 @@ sub stop_web {
     kill 'KILL', $_ for @still_listening;
     for my $proc ( $self->_find_legacy_web_processes ) {
         kill 'KILL', $proc->{pid};
+    }
+    my $released = $self->_wait_for_port_release($port);
+    if ( !$released && $port ) {
+        my @late_listeners = grep { kill 0, $_ } $self->_listener_pids_for_port($port);
+        kill 'KILL', $_ for @late_listeners;
+        $self->_wait_for_port_release($port);
     }
 
     $self->_cleanup_web_files;
@@ -224,11 +237,17 @@ sub stop_all {
 # Output: hash reference describing stopped and restarted processes.
 sub restart_all {
     my ( $self, %args ) = @_;
-    my $host = $args{host} || '0.0.0.0';
-    my $port = $args{port} || 7890;
+    my $host = '0.0.0.0';
+    if ( defined $args{host} ) {
+        $host = $args{host};
+    }
+    my $port = 7890;
+    if ( defined $args{port} ) {
+        $port = $args{port};
+    }
     my $stopped = $self->stop_all;
     my @collectors = $self->start_collectors;
-    my $web_pid = $self->start_web( host => $host, port => $port );
+    my $web_pid = $self->_restart_web_with_retry( host => $host, port => $port );
     return {
         stopped   => $stopped,
         collectors => \@collectors,
@@ -255,12 +274,19 @@ sub web_state {
 # Output: never returns.
 sub _shutdown_web {
     my ( $self, $status ) = @_;
-    my $state = $self->web_state || {};
+    my $state = $self->web_state;
+    if ( !$state ) {
+        $state = {};
+    }
+    my $final_status = 'stopped';
+    if ( defined $status && $status ne '' ) {
+        $final_status = $status;
+    }
     $self->_write_web_state(
         {
             %$state,
             pid        => $$,
-            status     => $status || 'stopped',
+            status     => $final_status,
             updated_at => _now_iso8601(),
         }
     );
@@ -365,13 +391,17 @@ sub _run_web_child {
 # Output: true value.
 sub _write_web_state {
     my ( $self, $data ) = @_;
+    my $payload = {};
+    if ($data) {
+        $payload = $data;
+    }
     my $file = $self->{files}->web_state;
     my $tmp = sprintf '%s.%s.%s.pending', $file, $$, time;
     open my $fh, '>', $tmp or die "Unable to write $tmp: $!";
-    print {$fh} json_encode( $data || {} );
+    print {$fh} json_encode($payload);
     close $fh;
     rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
-    return $data;
+    return $payload;
 }
 
 # _cleanup_web_files()
@@ -516,14 +546,149 @@ sub _managed_listener_pids_for_port {
 sub _listener_pids_for_port {
     my ( $self, $port ) = @_;
     return () if !$port;
-    my ( $stdout, undef, $exit_code ) = capture {
+    my ( $stdout, $stderr, $exit_code ) = capture {
         system 'ss', '-ltnp', "( sport = :$port )";
         return $? >> 8;
     };
-    return () if $exit_code != 0 || !defined $stdout || $stdout eq '';
-    my %seen;
-    my @pids = grep { !$seen{$_}++ } ( $stdout =~ /pid=(\d+)/g );
+    my @pids;
+    my $has_stdout = defined $stdout && $stdout ne '';
+    if ( $exit_code == 0 && $has_stdout ) {
+        my %seen;
+        @pids = grep { !$seen{$_}++ } ( $stdout =~ /pid=(\d+)/g );
+    }
+    else {
+        my $ss_missing = 0;
+        if ( $exit_code == 127 ) {
+            $ss_missing = 1;
+        }
+        elsif ( defined $stderr && $stderr =~ /not found/i ) {
+            $ss_missing = 1;
+        }
+        if ($ss_missing) {
+            @pids = $self->_listener_pids_for_port_via_proc($port);
+        }
+    }
     return @pids;
+}
+
+# _listener_pids_for_port_via_proc($port)
+# Resolves TCP listener process ids from /proc when ss is unavailable.
+# Input: TCP port integer.
+# Output: list of process ids.
+sub _listener_pids_for_port_via_proc {
+    my ( $self, $port ) = @_;
+    my %inode = map { $_ => 1 } $self->_listener_socket_inodes_for_port($port);
+    return () if !%inode;
+    return $self->_process_pids_for_socket_inodes( \%inode );
+}
+
+# _listener_socket_inodes_for_port($port)
+# Reads /proc TCP tables and returns listener socket inodes for one port.
+# Input: TCP port integer.
+# Output: list of socket inode integers.
+sub _listener_socket_inodes_for_port {
+    my ( $self, $port ) = @_;
+    return () if !$port;
+    my $hex_port = sprintf '%04X', $port;
+    my %seen;
+    my @inodes;
+    for my $file ( $self->_listener_socket_table_paths ) {
+        next if !-r $file;
+        open my $fh, '<', $file or next;
+        while ( my $line = <$fh> ) {
+            next if $line !~ /\S/;
+            my @fields = split ' ', $line;
+            next if @fields < 10;
+            next if !defined $fields[1] || !defined $fields[3] || !defined $fields[9];
+            my ( undef, $local_port ) = split /:/, $fields[1], 2;
+            next if !defined $local_port || uc($local_port) ne $hex_port;
+            next if $fields[3] ne '0A';
+            my $inode = $fields[9];
+            next if !$inode || $seen{$inode}++;
+            push @inodes, $inode + 0;
+        }
+        close $fh;
+    }
+    return @inodes;
+}
+
+# _listener_socket_table_paths()
+# Returns the procfs TCP table files used for listener discovery.
+# Input: none.
+# Output: list of file path strings.
+sub _listener_socket_table_paths {
+    return ( '/proc/net/tcp', '/proc/net/tcp6' );
+}
+
+# _process_pids_for_socket_inodes($inode_lookup)
+# Maps socket inode values back to owning process ids through /proc fd links.
+# Input: hash reference keyed by socket inode.
+# Output: list of process ids.
+sub _process_pids_for_socket_inodes {
+    my ( $self, $inode_lookup ) = @_;
+    return () if !$inode_lookup || ref($inode_lookup) ne 'HASH' || !%{$inode_lookup};
+    my %seen;
+    my @pids;
+    for my $fd_path ( $self->_process_fd_paths ) {
+        next if $fd_path !~ m{/(?:proc/)?(\d+)/fd/[^/]+$};
+        my $pid = $1 + 0;
+        my $target = readlink $fd_path;
+        next if !defined $target || $target !~ /^socket:\[(\d+)\]$/;
+        next if !$inode_lookup->{$1};
+        next if $seen{$pid}++;
+        push @pids, $pid;
+    }
+    return @pids;
+}
+
+# _process_fd_paths()
+# Returns the procfs file-descriptor paths used for socket owner discovery.
+# Input: none.
+# Output: list of file path strings.
+sub _process_fd_paths {
+    return glob '/proc/[0-9]*/fd/*';
+}
+
+# _wait_for_port_release($port)
+# Waits for a TCP port listener set to disappear after shutdown signals are sent.
+# Input: TCP port integer.
+# Output: true when the port is no longer listening.
+sub _wait_for_port_release {
+    my ( $self, $port ) = @_;
+    return 1 if !$port;
+    for ( 1 .. 50 ) {
+        return 1 if !scalar $self->_listener_pids_for_port($port);
+        sleep 0.1;
+    }
+    return !scalar $self->_listener_pids_for_port($port);
+}
+
+# _restart_web_with_retry(%args)
+# Restarts the web listener with retries for transient port-release races.
+# Input: host and port values.
+# Output: restarted web pid.
+sub _restart_web_with_retry {
+    my ( $self, %args ) = @_;
+    my $host = '0.0.0.0';
+    if ( defined $args{host} ) {
+        $host = $args{host};
+    }
+    my $port = 7890;
+    if ( defined $args{port} ) {
+        $port = $args{port};
+    }
+    my $attempts = 20;
+    for my $attempt ( 1 .. $attempts ) {
+        my $pid = eval { $self->start_web( host => $host, port => $port ) };
+        return $pid if defined $pid && !$@;
+        my $error = $@;
+        if ( !$error ) {
+            $error = "Unable to restart dashboard web service on $host:$port\n";
+        }
+        die $error if $error !~ /Address already in use/;
+        die $error if $attempt == $attempts;
+        sleep 0.25;
+    }
 }
 
 # _read_process_env_marker($pid, $key)

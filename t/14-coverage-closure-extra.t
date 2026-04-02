@@ -130,9 +130,12 @@ PAGE
     open my $fh, '>', $pidfile or die $!;
     print {$fh} $managed_child;
     close $fh;
-    sleep 1;
-
-    my @loops = $runner->running_loops;
+    my @loops;
+    for ( 1 .. 20 ) {
+        @loops = $runner->running_loops;
+        last if @loops == 1;
+        select undef, undef, undef, 0.1;
+    }
     is( scalar @loops, 1, 'running_loops lists active managed loop pids' );
     is( $loops[0]{name}, $loop_name, 'running_loops returns the managed loop name' );
 

@@ -131,25 +131,22 @@ sub dispatch_request {
     if ( $path =~ m{^/(js|css|others)/(.+)$} ) {
         return $self->static_file_response( type => $1, file => uri_unescape($2), %args );
     }
+    if ( $path =~ m{^/app/(.+)/source$} ) {
+        return $self->page_source_response( id => $1, %args );
+    }
+    if ( $path =~ m{^/app/(.+)/edit$} && $method eq 'POST' ) {
+        return $self->page_edit_post_response( id => $1, %args );
+    }
+    if ( $path =~ m{^/app/(.+)/edit$} ) {
+        return $self->page_edit_response( id => $1, %args );
+    }
+    if ( $path =~ m{^/app/(.+)/action/([^/]+)$} && $method eq 'POST' ) {
+        return $self->page_action_response( id => $1, action_id => $2, %args );
+    }
     if ( $path =~ m{^/app/(.+)$} ) {
         return $self->legacy_app_response( id => $1, %args );
     }
     return $self->transient_action_response(%args) if $path eq '/action' && $method eq 'POST';
-    if ( $path =~ m{^/page/(.+)/source$} ) {
-        return $self->page_source_response( id => $1, %args );
-    }
-    if ( $path =~ m{^/page/(.+)/edit$} && $method eq 'POST' ) {
-        return $self->page_edit_post_response( id => $1, %args );
-    }
-    if ( $path =~ m{^/page/(.+)/edit$} ) {
-        return $self->page_edit_response( id => $1, %args );
-    }
-    if ( $path =~ m{^/page/(.+)/action/([^/]+)$} && $method eq 'POST' ) {
-        return $self->page_action_response( id => $1, action_id => $2, %args );
-    }
-    if ( $path =~ m{^/page/(.+)$} ) {
-        return $self->page_render_response( id => $1, %args );
-    }
 
     return [ 404, 'text/plain; charset=utf-8', "Not found\n" ];
 }
@@ -387,7 +384,7 @@ sub static_file_response {
 }
 
 # legacy_app_response(%args)
-# Executes the `/app/<id>` compatibility route and follows saved URL forwards.
+# Executes the saved `/app/<id>` render route and follows saved URL forwards.
 # Input: saved app id plus normalized request query, body, headers, and remote address.
 # Output: response array reference.
 sub legacy_app_response {
@@ -452,7 +449,7 @@ sub page_source_response {
         $page,
         query_params => $params,
         body_params  => $body_params,
-        path         => $args{path} || '/page/' . $args{id} . '/source',
+        path         => $args{path} || '/app/' . $args{id} . '/source',
         remote_addr  => $args{remote_addr},
         headers      => $args{headers} || {},
     );
@@ -483,7 +480,7 @@ sub page_edit_post_response {
             $page,
             query_params => $params,
             body_params  => $body_params,
-            path         => $args{path} || '/page/' . $args{id} . '/edit',
+            path         => $args{path} || '/app/' . $args{id} . '/edit',
             remote_addr  => $args{remote_addr},
             headers      => $args{headers} || {},
         );
@@ -510,7 +507,7 @@ sub page_edit_response {
         $page,
         query_params => $params,
         body_params  => $body_params,
-        path         => $args{path} || '/page/' . $args{id} . '/edit',
+        path         => $args{path} || '/app/' . $args{id} . '/edit',
         remote_addr  => $args{remote_addr},
         headers      => $args{headers} || {},
     );
@@ -534,7 +531,7 @@ sub page_action_response {
         $page,
         query_params => $params,
         body_params  => $body_params,
-        path         => $args{path} || '/page/' . $args{id} . '/action/' . $args{action_id},
+        path         => $args{path} || '/app/' . $args{id} . '/action/' . $args{action_id},
         remote_addr  => $args{remote_addr},
         headers      => $args{headers} || {},
     );
@@ -549,31 +546,6 @@ sub page_action_response {
         source => $page->{meta}{source_kind} || 'saved',
         params => { %{$params}, %{$body_params} },
     );
-}
-
-# page_render_response(%args)
-# Executes the saved-page render route.
-# Input: saved page id plus normalized request query, body, headers, and remote address.
-# Output: response array reference.
-sub page_render_response {
-    my ( $self, %args ) = @_;
-    my ( $params, $body_params ) = $self->_request_params(%args);
-    my $page = $self->_load_named_page( $args{id} );
-    $page->{meta}{raw_instruction} = $page->canonical_instruction;
-    $page = $self->_page_with_runtime_state(
-        $page,
-        query_params => $params,
-        body_params  => $body_params,
-        path         => $args{path} || '/page/' . $args{id},
-        remote_addr  => $args{remote_addr},
-        headers      => $args{headers} || {},
-    );
-    $page = $self->{runtime}->prepare_page(
-        page            => $page,
-        source          => $page->{meta}{source_kind} || 'saved',
-        runtime_context => { params => { %{$params}, %{$body_params} } },
-    );
-    return [ 200, 'text/html; charset=utf-8', $self->_render_page_html( $page, 'render' ) ];
 }
 
 # _blank_editor_response()
@@ -622,7 +594,7 @@ sub _edit_html {
 
     my $page_id = $page->as_hash->{id} || '';
     my $is_saved = ( $page->{meta}{source_kind} || '' ) ne 'transient' && $page_id ne '';
-    my $page_url = $is_saved ? '/page/' . $page_id : '';
+    my $page_url = $is_saved ? '/app/' . $page_id : '';
     my $urls = {
         edit   => $is_saved ? $page_url . '/edit' : $self->{pages}->editable_url($page),
         render => $is_saved ? $page_url : $self->{pages}->render_url($page),
@@ -1086,12 +1058,12 @@ sub _render_page_html {
             )
           : undef;
         $action_urls{ $action->{id} } = $atoken
-          ? ( $transient_allowed ? '/action?atoken=' . URI::Escape::uri_escape($atoken) : '/page/' . ( $page->as_hash->{id} || '' ) . '/action/' . $action->{id} )
-          : '/page/' . ( $page->as_hash->{id} || '' ) . '/action/' . $action->{id};
+          ? ( $transient_allowed ? '/action?atoken=' . URI::Escape::uri_escape($atoken) : '/app/' . ( $page->as_hash->{id} || '' ) . '/action/' . $action->{id} )
+          : '/app/' . ( $page->as_hash->{id} || '' ) . '/action/' . $action->{id};
     }
     my $page_url = ( $page->{meta}{source_kind} || '' ) eq 'transient'
       ? $self->{pages}->editable_url($page)
-      : '/page/' . ( $page->as_hash->{id} || '' );
+      : '/app/' . ( $page->as_hash->{id} || '' );
     my $runtime_context = {
         params       => { %{ $page->{state} || {} } },
         current_page => $request_context->{path} || '',
@@ -1149,7 +1121,7 @@ sub _nav_items_html {
                 $nav_page,
                 query_params => $args{runtime_context}{params} || {},
                 body_params  => {},
-                path         => '/page/' . $page_id,
+                path         => '/app/' . $page_id,
                 remote_addr  => $self->{_current_request_context}{remote_addr},
                 headers      => { host => $self->{_current_request_context}{host} || '' },
             ),
@@ -1260,8 +1232,7 @@ sub _load_named_page {
 sub _legacy_app_response {
     my ( $self, %args ) = @_;
     my $id = $args{id} || die 'Missing app id';
-    my $raw = $self->{pages}->read_saved_entry($id);
-    my $parsed = eval { $self->{pages}->load_saved_page($id) };
+    my $parsed = eval { $self->_load_named_page($id) };
     if ($parsed) {
         $parsed = $self->_page_with_runtime_state(
             $parsed,
@@ -1279,6 +1250,7 @@ sub _legacy_app_response {
         return [ 200, 'text/html; charset=utf-8', $self->_render_page_html( $parsed, 'render' ) ];
     }
 
+    my $raw = $self->{pages}->read_saved_entry($id);
     my $target = _trim($raw);
     my $uri = URI->new($target);
     my $path = $uri->path;

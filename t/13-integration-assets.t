@@ -38,7 +38,7 @@ unlike( $runner, qr/cpanm --notest/, 'integration runner installs the tarball wi
 like( $runner, qr/broken\.collector/, 'integration runner provisions a broken config collector regression case' );
 like( $runner, qr/healthy\.collector/, 'integration runner provisions a healthy config collector regression case' );
 like( $runner, qr/dashboard indicator list after restart/, 'integration runner checks indicator isolation after restart' );
-like( $runner, qr/chromium.*--headless/s, 'integration runner uses headless Chromium for browser checks' );
+like( $runner, qr/_browser_binary|chromium-browser|google-chrome|apt-get install -y --no-install-recommends chromium/s, 'integration runner resolves or bootstraps a headless browser for browser checks' );
 like( $runner, qr/IPC::Open3|open3/, 'integration runner uses a live subprocess bridge for long-running command output' );
 like( $runner, qr/IO::Select/, 'integration runner monitors long-running command streams without fully buffering them first' );
 like( $runner, qr/_distribution_version/, 'integration runner reads the expected installed version from the extracted tarball instead of hard-coding a release number' );
@@ -65,7 +65,9 @@ like( $host, qr/\.perl5/, 'host launcher bootstraps a local perl toolchain when 
 like( $host, qr/rm -rf Developer-Dashboard-\* Developer-Dashboard-\*\.tar\.gz/, 'host launcher removes old release build directories and tarballs before building a new one' );
 like( $host, qr/LOCAL_DZIL.*build/s, 'host launcher builds the tarball on the host with Dist::Zilla' );
 like( $host, qr/DASHBOARD_TARBALL/, 'host launcher exports the tarball path for docker compose' );
-like( $host, qr/run --build --rm blank-env/, 'host launcher rebuilds the blank image before running integration' );
+like( $host, qr/run --rm blank-env/, 'host launcher runs the blank-environment integration service' );
+unlike( $host, qr/run --build --rm blank-env/, 'host launcher does not rebuild the integration image when using the prebuilt container path' );
+like( $host, qr/dd-int-test:latest/, 'host launcher POD documents the prebuilt dd-int-test image path' );
 
 if ( -f 'dist.ini' ) {
     open my $dist_fh, '<', 'dist.ini' or die $!;
