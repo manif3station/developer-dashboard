@@ -55,7 +55,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.14', 'module version bumped for the workflow and coverage release' );
+is( $version, '1.15', 'module version bumped for the ajax singleton release' );
 like( $readme, qr/dashboard serve logs/, 'README documents the serve logs command' );
 like( $pm, qr/C<dashboard serve logs>/, 'main POD documents the serve logs command' );
 like( $readme, qr/dashboard serve logs -n 100/, 'README documents tailed serve logs usage' );
@@ -74,6 +74,8 @@ like( $readme, qr/defaulting to\s+Perl unless the file starts with a shebang/s, 
 like( $pm, qr/defaulting to Perl unless the file\s+starts with a shebang/s, 'main POD documents saved bookmark ajax interpreter fallback' );
 like( $readme, qr/stream both `stdout` and\s+`stderr` back to the browser as they happen/s, 'README documents live stdout and stderr ajax streaming' );
 like( $pm, qr/stream both C<stdout> and C<stderr> back to the\s+browser as they happen/s, 'main POD documents live stdout and stderr ajax streaming' );
+like( $readme, qr/singleton => 'NAME'.+dashboard ajax: NAME/s, 'README documents singleton-managed saved Ajax process replacement' );
+like( $pm, qr/singleton =E<gt> 'NAME'.+dashboard ajax: NAME/s, 'main POD documents singleton-managed saved Ajax process replacement' );
 like( $changes, qr/^\Q$version\E\s+\d{4}-\d{2}-\d{2}$/m, 'Changes top entry matches module version' );
 
 if ( %{$meta} ) {

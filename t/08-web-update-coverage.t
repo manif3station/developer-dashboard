@@ -328,6 +328,25 @@ PAGE
 }
 
 {
+    my $singleton_page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE');
+BOOKMARK: ajax-singleton
+:--------------------------------------------------------------------------------:
+HTML: <script>var configs = {};</script>
+:--------------------------------------------------------------------------------:
+CODE1: Ajax jvar => 'configs.demo.endpoint', type => 'text', singleton => 'FOOBAR', file => 'singleton-endpoint.txt', code => q{
+print "$0\n";
+};
+PAGE
+    $store->save_page($singleton_page);
+    my ( undef, undef, $singleton_page_body ) = @{ $app->handle( path => '/app/ajax-singleton', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    like( $singleton_page_body, qr{/ajax/singleton-endpoint\.txt\?type=text&singleton=FOOBAR}, 'saved bookmark Ajax page emits the singleton query parameter in the generated ajax url' );
+    my ( $ajax_singleton_code, undef, $ajax_singleton_body ) = @{ $app->handle( path => '/ajax/singleton-endpoint.txt', query => 'type=text&singleton=FOOBAR', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    my $ajax_singleton_output = drain_stream_body($ajax_singleton_body);
+    is( $ajax_singleton_code, 200, 'legacy ajax saved-file route responds successfully for singleton-managed requests' );
+    like( $ajax_singleton_output, qr/^dashboard ajax: FOOBAR$/m, 'legacy ajax saved-file route renames singleton-managed Perl workers before streaming output' );
+}
+
+{
     my $shebang_page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE');
 BOOKMARK: ajax-shebang
 :--------------------------------------------------------------------------------:

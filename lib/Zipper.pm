@@ -40,7 +40,7 @@ sub unzip {
 
 # acmdx(%args)
 # Builds a legacy ajax/action URL bundle for encoded code execution.
-# Input: path, type, target, label, code, and optional app/save/base_url values.
+# Input: path, type, target, label, code, and optional app/save/base_url/singleton values.
 # Output: hash with token, url, forward, and html keys.
 sub acmdx {
     my %args = @_;
@@ -50,6 +50,9 @@ sub acmdx {
     my $base = $args{base_url} || '';
     my $token = zip($code) || { raw => '', url => '' };
     my $query = sprintf '%s?token=%s&type=%s', $path, $token->{url}, uri_escape($type);
+    if ( defined $args{singleton} && $args{singleton} ne '' ) {
+        $query .= '&singleton=' . uri_escape( $args{singleton} );
+    }
     my $url = $base ? $base . $query : $query;
     return {
         token   => $token,
@@ -61,7 +64,7 @@ sub acmdx {
 
 # Ajax(%args)
 # Prints a legacy config-binding script for an encoded ajax endpoint.
-# Input: jvar, type, optional file name, and optional code values.
+# Input: jvar, type, optional file/singleton names, and optional code values.
 # Output: hide marker string.
 sub Ajax {
     my %args = @_;
@@ -81,13 +84,15 @@ sub Ajax {
                 runtime_root => $context->{runtime_root} || '',
                 type         => $type,
                 code         => $args{code},
+                singleton    => $args{singleton},
                 base_url     => $args{base_url} || '',
               )
               : _saved_ajax_url(
-                file     => $file,
-                page_id  => $context->{page_id},
-                type     => $type,
-                base_url => $args{base_url} || '',
+                file      => $file,
+                page_id   => $context->{page_id},
+                type      => $type,
+                singleton => $args{singleton},
+                base_url  => $args{base_url} || '',
               );
             my ( $root, $path ) = split /\./, $args{jvar}, 2;
             $path ||= '';
@@ -134,13 +139,16 @@ sub load_saved_ajax_code {
 
 # _saved_ajax_url(%args)
 # Builds the stable runtime URL for one saved bookmark Ajax handler.
-# Input: file, type, and optional base_url.
+# Input: file, type, and optional base_url/singleton values.
 # Output: hash reference with url string.
 sub _saved_ajax_url {
     my (%args) = @_;
     my $query = sprintf '/ajax/%s?type=%s',
       uri_escape( _validate_saved_ajax_file( $args{file} ) ),
       uri_escape( $args{type} || 'text' );
+    if ( defined $args{singleton} && $args{singleton} ne '' ) {
+        $query .= '&singleton=' . uri_escape( $args{singleton} );
+    }
     return {
         url => ( $args{base_url} || '' ) . $query,
     };
@@ -148,7 +156,7 @@ sub _saved_ajax_url {
 
 # _saved_ajax_url_and_store(%args)
 # Stores saved bookmark Ajax code under the dashboards ajax tree and returns the stable runtime URL.
-# Input: runtime_root, file, type, code, and optional base_url.
+# Input: runtime_root, file, type, code, and optional base_url/singleton values.
 # Output: hash reference with url and file path.
 sub _saved_ajax_url_and_store {
     my (%args) = @_;

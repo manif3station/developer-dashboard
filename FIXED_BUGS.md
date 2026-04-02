@@ -2,6 +2,7 @@
 
 ## 2026-04-02
 
+- Fixed saved bookmark Ajax refresh leaks by adding `singleton => 'NAME'` support to `Ajax(...)`, so the runtime now renames Perl ajax workers to `dashboard ajax: NAME` and kills older matching workers before starting a refreshed replacement stream.
 - Fixed GitHub Actions Node 20 checkout drift by moving the workflows to `actions/checkout@v5` and forcing JavaScript actions onto Node 24, so hosted runners no longer warn that the release/test workflows depend on the deprecated Node 20 action runtime.
 - Fixed remaining web-layer coverage gaps by adding direct regressions for the jQuery static-file alias branch, Dancer streaming-failure fallback, and runtime log follow mode, bringing the reviewed `lib/` Devel::Cover report back to 100%.
 - Fixed runtime web-process false positives by excluding `dashboard serve logs ...` and `dashboard serve workers ...` helper commands from managed-web detection, so shutdown and restart scans no longer confuse those CLI helpers for the actual Starman service.

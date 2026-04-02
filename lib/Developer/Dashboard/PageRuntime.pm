@@ -10,6 +10,7 @@ use IPC::Open3 qw(open3);
 use Symbol qw(gensym);
 use Developer::Dashboard::PageRuntime::StreamHandle;
 use Developer::Dashboard::JSON qw(json_encode);
+use Developer::Dashboard::RuntimeManager ();
 use Folder ();
 use Template;
 use Zipper qw(Ajax acmdx zip unzip);
@@ -375,7 +376,7 @@ sub stream_code_block {
 
 # stream_saved_ajax_file(%args)
 # Executes one saved Ajax file as a real process and streams stdout/stderr chunks through callbacks.
-# Input: saved file path, request params hash, page/source metadata, and writer callbacks.
+# Input: saved file path, request params hash, optional singleton name, page/source metadata, and writer callbacks.
 # Output: hash reference with exit_code and process status word.
 sub stream_saved_ajax_file {
     my ( $self, %args ) = @_;
@@ -383,12 +384,15 @@ sub stream_saved_ajax_file {
     my $params        = $args{params} || {};
     my $stdout_writer = $args{stdout_writer} || \&_noop_writer;
     my $stderr_writer = $args{stderr_writer} || \&_noop_writer;
+    my $singleton     = $self->_normalize_saved_ajax_singleton( $params->{singleton} );
+    $self->_kill_saved_ajax_singleton($singleton) if $singleton ne '';
     my @command       = $self->_saved_ajax_command( path => $path );
     my %env           = $self->_saved_ajax_env(
-        path   => $path,
-        page   => $args{page} || '',
-        type   => $args{type} || '',
-        params => $params,
+        path      => $path,
+        page      => $args{page} || '',
+        type      => $args{type} || '',
+        params    => $params,
+        singleton => $singleton,
     );
 
     my $stdout = gensym;
@@ -491,7 +495,7 @@ sub _saved_ajax_command {
 
 # _saved_ajax_env(%args)
 # Builds the environment variables exposed to one saved Ajax process run.
-# Input: saved file path, page id, type, and request params hash.
+# Input: saved file path, page id, type, optional singleton name, and request params hash.
 # Output: hash of environment key/value pairs.
 sub _saved_ajax_env {
     my ( $self, %args ) = @_;
@@ -499,11 +503,45 @@ sub _saved_ajax_env {
     return (
         DEVELOPER_DASHBOARD_AJAX_FILE   => $args{path} || '',
         DEVELOPER_DASHBOARD_AJAX_PAGE   => $args{page} || '',
+        DEVELOPER_DASHBOARD_AJAX_SINGLETON => $self->_normalize_saved_ajax_singleton( $args{singleton} ),
         DEVELOPER_DASHBOARD_AJAX_TYPE   => $args{type} || '',
         DEVELOPER_DASHBOARD_AJAX_PARAMS => json_encode($params),
         QUERY_STRING                    => _query_string_from_params($params),
         REQUEST_METHOD                  => 'GET',
     );
+}
+
+# _normalize_saved_ajax_singleton($singleton)
+# Validates one saved-Ajax singleton identifier before it is exposed to the process layer.
+# Input: optional singleton string.
+# Output: normalized singleton string or an empty string.
+sub _normalize_saved_ajax_singleton {
+    my ( $self, $singleton ) = @_;
+    return '' if !defined $singleton || $singleton eq '';
+    die "Invalid ajax singleton name\n" if $singleton =~ /[[:cntrl:]]/;
+    return $singleton;
+}
+
+# _kill_saved_ajax_singleton($singleton)
+# Terminates older saved-Ajax Perl workers that share one singleton identifier.
+# Input: validated singleton string.
+# Output: true value.
+sub _kill_saved_ajax_singleton {
+    my ( $self, $singleton ) = @_;
+    return 1 if !defined $singleton || $singleton eq '';
+    my $pattern = '^dashboard ajax: ' . $self->_quote_process_pattern_literal($singleton) . '$';
+    Developer::Dashboard::RuntimeManager->_pkill_perl($pattern);
+    return 1;
+}
+
+# _quote_process_pattern_literal($text)
+# Escapes one literal string so it is safe for both pkill regex matching and Perl fallback matching.
+# Input: untrusted literal string.
+# Output: regex-safe literal string.
+sub _quote_process_pattern_literal {
+    my ( $self, $text ) = @_;
+    $text =~ s/([\\.^$|(){}\[\]*+?])/\\$1/g;
+    return $text;
 }
 
 # _query_string_from_params($params)
@@ -540,6 +578,8 @@ select $old_stdout;
 our $AJAX_STASH = {};
 our $AJAX_PARAMS = eval { json_decode( $ENV{DEVELOPER_DASHBOARD_AJAX_PARAMS} || '{}' ) };
 $AJAX_PARAMS = {} if ref($AJAX_PARAMS) ne 'HASH';
+my $singleton = $ENV{DEVELOPER_DASHBOARD_AJAX_SINGLETON} || '';
+$0 = "dashboard ajax: $singleton" if $singleton ne '';
 
 sub stash {
     my ($input) = @_;

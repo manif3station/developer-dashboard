@@ -94,11 +94,18 @@ my @cmdp = _cmdp( perl => 'print 1;' );
 is( $cmdp[1], 'perl', '_cmdp returns pipeline metadata' );
 my $ajax_url = acmdx( type => 'json', code => 'print qq{{}};' );
 like( $ajax_url->{url}{tokenised}, qr{^/ajax\?token=}, 'acmdx builds a tokenised ajax url' );
+my $ajax_singleton_url = acmdx( type => 'text', code => 'print qq{ok};', singleton => 'TRANSIENT' );
+like( $ajax_singleton_url->{url}{tokenised}, qr/[?&]singleton=TRANSIENT/, 'acmdx carries the optional singleton value into transient ajax urls' );
 my ( $ajax_stdout, undef, $ajax_result ) = capture {
     return Ajax( jvar => 'configs.coverage.endpoint', code => 'print qq{{}};' );
 };
 like( $ajax_stdout, qr/set_chain_value/, 'Ajax prints the legacy config-binding script' );
 is( $ajax_result, 'HIDE-THIS', 'Ajax returns the legacy hide marker' );
+my ( $ajax_singleton_stdout, undef, $ajax_singleton_result ) = capture {
+    return Ajax( jvar => 'configs.coverage.endpoint', code => 'print qq{{}};', singleton => 'TRANSIENT' );
+};
+like( $ajax_singleton_stdout, qr/[?&]singleton=TRANSIENT/, 'Ajax carries the optional singleton value into transient ajax bindings' );
+is( $ajax_singleton_result, 'HIDE-THIS', 'Ajax still returns the hide marker when a transient singleton is supplied' );
 {
     local $Zipper::AJAX_CONTEXT = {
         source               => 'saved',
@@ -108,12 +115,13 @@ is( $ajax_result, 'HIDE-THIS', 'Ajax returns the legacy hide marker' );
     };
     my ( $saved_ajax_stdout, undef, $saved_ajax_result ) = capture {
         return Ajax(
-            jvar => 'configs.coverage.saved',
-            file => 'coverage.json',
-            code => 'print qq{{"ok":1}};',
+            jvar      => 'configs.coverage.saved',
+            file      => 'coverage.json',
+            singleton => 'coverage-stream',
+            code      => 'print qq{{"ok":1}};',
         );
     };
-    like( $saved_ajax_stdout, qr{/ajax/coverage\.json\?type=text}, 'Ajax prints a saved bookmark ajax url with the default text type when a file name is supplied' );
+    like( $saved_ajax_stdout, qr{/ajax/coverage\.json\?type=text&singleton=coverage-stream}, 'Ajax prints a saved bookmark ajax url with the default text type and singleton when a file name is supplied' );
     is( $saved_ajax_result, 'HIDE-THIS', 'saved bookmark Ajax still returns the hide marker' );
     ok( -f Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'saved bookmark Ajax stores the named ajax code file under the dashboards ajax tree' );
     ok( -x Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'saved bookmark Ajax marks the stored dashboards ajax tree file executable' );
@@ -258,15 +266,20 @@ like( $runtime->_runtime_value_text( { ok => 1 } ), qr/ok => 1/, '_runtime_value
         '_saved_ajax_command defaults saved Ajax files without shebangs to the Perl bootstrap interpreter path',
     );
     my %saved_env = $runtime->_saved_ajax_env(
-        path   => $saved_path,
-        page   => 'coverage-page',
-        type   => 'text',
-        params => { a => '1 2', b => 'ok' },
+        path      => $saved_path,
+        page      => 'coverage-page',
+        type      => 'text',
+        singleton => 'coverage-stream',
+        params    => { a => '1 2', b => 'ok' },
     );
     is( $saved_env{DEVELOPER_DASHBOARD_AJAX_PAGE}, 'coverage-page', '_saved_ajax_env exposes the saved bookmark id' );
+    is( $saved_env{DEVELOPER_DASHBOARD_AJAX_SINGLETON}, 'coverage-stream', '_saved_ajax_env exposes the saved bookmark singleton name' );
     like( $saved_env{DEVELOPER_DASHBOARD_AJAX_PARAMS}, qr/"a"\s*:\s*"1 2"/, '_saved_ajax_env encodes request params as JSON' );
     like( $saved_env{QUERY_STRING}, qr/a=1%202/, '_saved_ajax_env rebuilds a query string for child process use' );
 }
+is( $runtime->_quote_process_pattern_literal('name.+(test)?'), 'name\.\+\(test\)\?', '_quote_process_pattern_literal escapes regex metacharacters safely for singleton matching' );
+eval { $runtime->_normalize_saved_ajax_singleton("bad\nname") };
+like( "$@", qr/Invalid ajax singleton name/, '_normalize_saved_ajax_singleton rejects control characters' );
 {
     my $shebang_file = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'shebang-handler' );
     open my $fh, '>', $shebang_file or die $!;
@@ -296,6 +309,34 @@ like( $runtime->_runtime_value_text( { ok => 1 } ), qr/ok => 1/, '_runtime_value
     like( $streamed, qr/child-err/, 'stream_saved_ajax_file forwards child stderr' );
     like( $streamed, qr/process-die/, 'stream_saved_ajax_file forwards uncaught perl die text' );
     ok( $stream_result->{exit_code} != 0, 'stream_saved_ajax_file reports the failing process exit code' );
+}
+{
+    my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'singleton-runner.pl' );
+    open my $fh, '>', $saved_path or die $!;
+    print {$fh} 'print qq{$0\n};';
+    close $fh;
+    chmod 0700, $saved_path or die $!;
+    my @patterns;
+    my $streamed = '';
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::RuntimeManager::_pkill_perl = sub {
+            my ( $self, $pattern ) = @_;
+            push @patterns, $pattern;
+            return 1;
+        };
+        my $stream_result = $runtime->stream_saved_ajax_file(
+            path          => $saved_path,
+            page          => 'coverage-page',
+            type          => 'text',
+            params        => { page => 'coverage-page', file => 'singleton-runner.pl', type => 'text', singleton => 'FOOBAR' },
+            stdout_writer => sub { $streamed .= $_[0] if defined $_[0] },
+            stderr_writer => sub { $streamed .= $_[0] if defined $_[0] },
+        );
+        is( $stream_result->{exit_code}, 0, 'stream_saved_ajax_file succeeds when singleton replacement is enabled' );
+    }
+    is_deeply( \@patterns, ['^dashboard ajax: FOOBAR$'], 'stream_saved_ajax_file kills matching singleton Ajax workers before starting a replacement' );
+    like( $streamed, qr/^dashboard ajax: FOOBAR$/m, 'stream_saved_ajax_file renames the saved Perl Ajax worker to the singleton process title' );
 }
 {
     my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'stream-timing.pl' );

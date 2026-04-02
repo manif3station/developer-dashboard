@@ -32,6 +32,11 @@ integration/browser/run-bookmark-browser-smoke.pl \
   --expect-dom-fragment '<span class="display">123</span>'
 ```
 
+For long-running saved bookmark Ajax handlers that would otherwise survive a
+browser refresh, prefer `Ajax(..., singleton => 'NAME', ...)`. The runtime will
+rename the Perl worker to `dashboard ajax: NAME` and terminate the older
+matching Perl stream before it starts the refreshed one.
+
 ## Coverage
 
 Install Devel::Cover in a local Perl library and generate the coverage report:

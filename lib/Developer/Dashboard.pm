@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.14';
+our $VERSION = '1.15';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.14
+1.15
 
 =head1 INTRODUCTION
 
@@ -534,6 +534,11 @@ C<type =E<gt> ...> argument is supplied, and the generated Perl wrapper now
 enables autoflush on both C<STDOUT> and C<STDERR> so long-running handlers
 show incremental output in the browser instead of stalling behind process
 buffers.
+If a saved handler also needs refresh-safe process reuse, pass
+C<singleton =E<gt> 'NAME'> in the C<Ajax> helper. The generated url then carries
+that singleton name, the Perl worker runs as C<dashboard ajax: NAME>, and the
+runtime terminates any older matching Perl Ajax worker before starting the
+replacement stream for the refreshed browser request.
 If C<code =E<gt> ...> is omitted, C<Ajax(file =E<gt> 'name')> targets the
 existing executable at C<dashboards/ajax/name> instead of rewriting it.
 Static files referenced by saved bookmarks are resolved from the effective
@@ -1177,8 +1182,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.14.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.14.tar.gz -v
+  tar -tzf Developer-Dashboard-1.15.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.15.tar.gz -v
 
 The harness also:
 

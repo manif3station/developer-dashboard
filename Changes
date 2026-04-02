@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.15  2026-04-02
+    - added `singleton => 'NAME'` support to saved bookmark `Ajax(...)` helpers, emitting `/ajax/<file>?type=...&singleton=NAME` so browser refreshes can replace older long-running Perl ajax workers cleanly
+    - renamed singleton-managed saved Ajax Perl workers to `dashboard ajax: NAME` and reused `_pkill_perl` before launching a replacement stream, preventing stale refresh-driven background workers from accumulating
+    - extended web and legacy-helper coverage for singleton Ajax urls, singleton process titles, and refresh-safe saved Ajax replacement behaviour
+
 1.14  2026-04-02
     - updated the GitHub Actions workflows to use `actions/checkout@v5` and opt JavaScript actions into Node 24, removing the hosted-runner deprecation path for the previous Node 20 checkout runtime
     - closed the remaining `lib/` coverage gaps in `Developer::Dashboard::Web::App`, `Developer::Dashboard::Web::DancerApp`, and `Developer::Dashboard::RuntimeManager`, bringing the reviewed Devel::Cover report back to 100% statement and subroutine coverage

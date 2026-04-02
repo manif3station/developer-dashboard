@@ -38,7 +38,7 @@ The integration run covers these command families:
 - docker resolver: `dashboard docker compose --dry-run`
 - web lifecycle: `dashboard serve`, `dashboard restart`, `dashboard stop`
 - browser checks: headless Chromium editor, saved fake-project bookmark page, and helper-login DOM verification
-- ajax streaming: installed long-running `/ajax/<file>` route timing and early-chunk verification
+- ajax streaming: installed long-running `/ajax/<file>` route timing, early-chunk verification, and refresh-safe singleton replacement coverage in unit tests
 
 ## Environment
 

@@ -208,6 +208,11 @@ Saved bookmark Ajax handlers also default to `text/plain` when no explicit
 `type => ...` argument is supplied, and the generated Perl wrapper now enables
 autoflush on both `STDOUT` and `STDERR` so long-running handlers show
 incremental output in the browser instead of stalling behind process buffers.
+If a saved handler also needs refresh-safe process reuse, pass
+`singleton => 'NAME'` in the `Ajax` helper. The generated url then carries
+that singleton name, the Perl worker runs as `dashboard ajax: NAME`, and the
+runtime terminates any older matching Perl Ajax worker before starting the
+replacement stream for the refreshed browser request.
 If `code => ...` is omitted, `Ajax(file => 'name')` targets the existing
 executable at `dashboards/ajax/name` instead of rewriting it.
 Static files referenced by saved bookmarks are resolved from the effective
@@ -723,8 +728,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.14.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.14.tar.gz -v
+tar -tzf Developer-Dashboard-1.15.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.15.tar.gz -v
 ```
 
 The harness also:
