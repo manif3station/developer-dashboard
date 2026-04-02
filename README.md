@@ -413,7 +413,7 @@ dashboard path del foobar
 
 Custom path aliases are stored in the effective dashboard config root so shell helpers such as `cdr foobar` and `which_dir foobar` keep working across sessions. When a project-local `./.developer-dashboard` tree exists, alias writes go there first; otherwise they go to the home runtime. When a saved alias points inside your home directory, the stored config uses `$HOME/...` instead of a hard-coded absolute home path so a shared fallback runtime remains portable across different developer accounts. Re-adding an existing alias updates it without error, and deleting a missing alias is also safe.
 
-Legacy `Folder` compatibility also accepts the modern root-style names through `AUTOLOAD`, so older code can use either `Folder->dd` or `Folder->runtime_root`, and likewise `bookmarks_root` and `config_root`. Before `Folder->configure(...)` runs, those runtime-backed names lazily bootstrap a default dashboard path registry from `HOME` instead of dying.
+Legacy `Folder` compatibility also accepts the modern root-style names through `AUTOLOAD`, so older code can use either `Folder->dd` or `Folder->runtime_root`, and likewise `bookmarks_root` and `config_root`. Before `Folder->configure(...)` runs, those runtime-backed names lazily bootstrap a default dashboard path registry from `HOME` instead of dying. Plain `Folder` calls also lazy-load the same config-backed path aliases shown by `dashboard paths`, so a direct `perl -MFolder -e 'print Folder->docker'` from the active project resolves the configured alias instead of failing with `Unknown folder`.
 
 Render shell bootstrap:
 
@@ -732,8 +732,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.18.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.18.tar.gz -v
+tar -tzf Developer-Dashboard-1.19.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.19.tar.gz -v
 ```
 
 The harness also:

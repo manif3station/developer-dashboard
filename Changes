@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.19  2026-04-02
+    - fixed plain legacy `Folder` alias drift so direct calls such as `perl -MFolder -e 'print Folder->docker'` now lazy-load config-backed path aliases from the active runtime instead of rejecting aliases that `dashboard paths` already exposes
+    - kept explicit `Folder->configure(..., aliases => ...)` overrides intact while adding the lazy config-backed alias cache
+    - added legacy-helper regression coverage for repo-local config alias resolution through plain `Folder` usage
+
 1.18  2026-04-02
     - fixed singleton-managed saved Ajax lifecycle cleanup so `dashboard stop` and `dashboard restart` now terminate `dashboard ajax: ...` workers as part of the managed web shutdown path
     - added browser `pagehide` cleanup beacons for `Ajax(..., singleton => 'NAME', ...)`, letting saved bookmark pages call `/ajax/singleton/stop?singleton=NAME` when the tab closes so singleton workers do not linger after browser exit

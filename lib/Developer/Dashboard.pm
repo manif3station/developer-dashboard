@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.18';
+our $VERSION = '1.19';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.18
+1.19
 
 =head1 INTRODUCTION
 
@@ -764,7 +764,10 @@ through C<AUTOLOAD>, so older code can use either C<Folder-E<gt>dd> or
 C<Folder-E<gt>runtime_root>, and likewise C<bookmarks_root> and
 C<config_root>. Before C<Folder-E<gt>configure(...)> runs, those
 runtime-backed names lazily bootstrap a default dashboard path registry from
-C<$HOME> instead of dying.
+C<$HOME> instead of dying. Plain C<Folder> calls also lazy-load the same
+config-backed path aliases shown by C<dashboard paths>, so a direct
+C<perl -MFolder -e 'print Folder-E<gt>docker'> from the active project
+resolves the configured alias instead of failing with C<Unknown folder>.
 
 Render shell bootstrap:
 
@@ -1188,8 +1191,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.18.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.18.tar.gz -v
+  tar -tzf Developer-Dashboard-1.19.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.19.tar.gz -v
 
 The harness also:
 

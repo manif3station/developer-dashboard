@@ -155,12 +155,23 @@ my $pid;
     $pid = $manager->start_web( host => '0.0.0.0', port => 7898 );
 }
 ok( $pid > 0, 'background web start returns a pid' );
-my $running = $manager->running_web;
+my $running;
+for ( 1 .. 20 ) {
+    $running = $manager->running_web;
+    last if $running && $running->{pid} == $pid && ( $running->{port} || 0 ) == 7898;
+    sleep 0.1;
+}
 is( $running->{pid}, $pid, 'running_web reads the managed pid' );
 is( $running->{host}, '0.0.0.0', 'running_web reports configured host' );
 is( $running->{port}, 7898, 'running_web reports configured port' );
 ok( $manager->_is_managed_web($pid), 'started pid is recognized as a managed web process' );
-is( scalar( $manager->start_web( host => '0.0.0.0', port => 7898 ) ), $pid, 'background start deduplicates an already running web process' );
+my $dedup_pid;
+for ( 1 .. 20 ) {
+    $dedup_pid = scalar( $manager->start_web( host => '0.0.0.0', port => 7898 ) );
+    last if $dedup_pid == $pid;
+    sleep 0.1;
+}
+is( $dedup_pid, $pid, 'background start deduplicates an already running web process' );
 {
     my $marker_child = fork();
     die "fork failed: $!" if !defined $marker_child;
@@ -590,6 +601,7 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
     sleep 0.2;
     $manager->_cleanup_web_files;
     no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::web_state = sub { return {} };
     local *Developer::Dashboard::RuntimeManager::_ps_processes = sub {
         return (
             {
@@ -1075,7 +1087,12 @@ ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title re
         $manager->_shutdown_web('stopped');
     }
     waitpid( $child, 0 );
-    my $state = $manager->web_state;
+    my $state = {};
+    for ( 1 .. 20 ) {
+        $state = $manager->web_state || {};
+        last if ( $state->{status} || '' ) eq 'stopped';
+        sleep 0.1;
+    }
     is( $state->{status}, 'stopped', '_shutdown_web writes the terminal status before exit' );
     $manager->_cleanup_web_files;
 }

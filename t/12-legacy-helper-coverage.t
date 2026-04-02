@@ -2,6 +2,7 @@ use strict;
 use warnings;
 
 use Capture::Tiny qw(capture);
+use Cwd qw(cwd);
 use Errno qw(EINTR EIO);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
@@ -84,6 +85,30 @@ my @folder_listing = Folder->ls('alias_demo');
 ok( @folder_listing >= 0, 'Folder ls returns entries for a real directory' );
 ok( grep( { $_ eq $project } Folder->locate('demo') ), 'Folder locate finds matching workspace directories' );
 is( Folder->alias_demo, $project, 'Folder AUTOLOAD resolves configured aliases' );
+{
+    my $repo = File::Spec->catdir( $workspace, 'folder-config-repo' );
+    make_path( File::Spec->catdir( $repo, '.git' ) );
+    make_path( File::Spec->catdir( $repo, '.developer-dashboard', 'config' ) );
+    open my $fh, '>', File::Spec->catfile( $repo, '.developer-dashboard', 'config', 'config.json' ) or die $!;
+    print {$fh} <<'JSON';
+{
+  "path_aliases": {
+    "docker": "~/docker-alias"
+  }
+}
+JSON
+    close $fh;
+    my $docker_alias = File::Spec->catdir( $home, 'docker-alias' );
+    make_path($docker_alias);
+    local $Folder::PATHS = undef;
+    local %Folder::ALIASES = ();
+    local %Folder::CONFIG_ALIASES = ();
+    local $Folder::CONFIG_ALIASES_KEY = '';
+    my $cwd = Cwd::cwd();
+    chdir $repo or die "Unable to chdir to $repo: $!";
+    is( Folder->docker, $docker_alias, 'Folder AUTOLOAD lazily resolves config-backed path aliases in a plain Perl process' );
+    chdir $cwd or die "Unable to chdir to $cwd: $!";
+}
 
 my $zipped = zip('print qq{ok};');
 ok( $zipped->{raw}, 'zip returns a raw token' );

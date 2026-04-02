@@ -10,10 +10,14 @@ use File::Path qw(make_path);
 use File::Spec;
 use Scalar::Util qw(blessed);
 
+use Developer::Dashboard::Config ();
+use Developer::Dashboard::FileRegistry ();
 use Developer::Dashboard::PathRegistry ();
 
 our $PATHS;
 our %ALIASES;
+our %CONFIG_ALIASES;
+our $CONFIG_ALIASES_KEY = '';
 our $AUTOLOAD;
 
 # configure(%args)
@@ -24,6 +28,8 @@ sub configure {
     my ( $class, %args ) = @_;
     $PATHS = $args{paths} if $args{paths};
     %ALIASES = %{ $args{aliases} || {} };
+    %CONFIG_ALIASES = ();
+    $CONFIG_ALIASES_KEY = '';
     return 1;
 }
 
@@ -93,7 +99,36 @@ sub _paths_obj {
         workspace_roots => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],
         project_roots   => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],
     );
+    _load_configured_aliases();
     return $PATHS;
+}
+
+# _configured_alias_cache_key($paths)
+# Builds a stable cache key for config-backed Folder aliases.
+# Input: resolved path registry object.
+# Output: cache key string.
+sub _configured_alias_cache_key {
+    my ($paths) = @_;
+    return '' if !$paths || !blessed($paths);
+    my $project_root = eval { $paths->current_project_root } || '';
+    my @runtime_roots = eval { $paths->runtime_roots } || ();
+    return join "\n", $project_root, @runtime_roots;
+}
+
+# _load_configured_aliases()
+# Lazily loads config-backed path aliases into the compatibility resolver.
+# Input: none.
+# Output: true value.
+sub _load_configured_aliases {
+    my $paths = blessed($PATHS) ? $PATHS : return 1;
+    my $key = _configured_alias_cache_key($paths);
+    return 1 if $key ne '' && $CONFIG_ALIASES_KEY eq $key;
+
+    my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
+    my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
+    %CONFIG_ALIASES = %{ $config->path_aliases || {} };
+    $CONFIG_ALIASES_KEY = $key;
+    return 1;
 }
 
 # cd($where, $code)
@@ -184,6 +219,8 @@ sub _resolve_path {
     my ( $class, $where ) = @_;
     return if !defined $where || $where eq '';
     return $where if File::Spec->file_name_is_absolute($where) || -d $where;
+    _paths_obj();
+    _load_configured_aliases();
     my %legacy_aliases = (
         runtime_root   => 'dd',
         bookmarks_root => 'bookmarks',
@@ -194,6 +231,7 @@ sub _resolve_path {
     }
     return $class->$where() if $class->can($where);
     return $ALIASES{$where} if defined $ALIASES{$where};
+    return $CONFIG_ALIASES{$where} if defined $CONFIG_ALIASES{$where};
     my $env = 'DEVELOPER_DASHBOARD_PATH_' . uc($where);
     return $ENV{$env} if defined $ENV{$env} && $ENV{$env} ne '';
     return;
