@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+1.22  2026-04-02
+    - added HTTPS support to the web server with `dashboard serve --ssl` flag, enabling Starman HTTPS mode
+    - added automatic self-signed certificate generation in `~/.developer-dashboard/certs/server.crt` and `~/.developer-dashboard/certs/server.key` on first HTTPS startup
+    - configured Starman to accept `--ssl-key` and `--ssl-cert` parameters through Plack::Runner when SSL mode is enabled
+    - added Web::Server SSL test coverage for cert generation, cert path retrieval, SSL parameter passing, and listening URL scheme selection
+
 1.21  2026-04-02
     - fixed malformed legacy bookmark icon bytes on saved page load by normalizing broken heading and item icon glyphs into stable browser-safe fallbacks and repairing common damaged joined emoji such as `🧑‍💻`
     - kept saved edit and source routes on the repaired raw bookmark text from disk instead of always regenerating canonical source, so browser views preserve the repaired legacy icon markup
