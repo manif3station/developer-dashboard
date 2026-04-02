@@ -323,7 +323,7 @@ like($status_type, qr/application\/json/, 'legacy status endpoint returns json')
 like($status_body, qr/"array"\s*:/, 'legacy status endpoint returns array payload');
 
 my $legacy_token = $store->encode_page($legacy_page);
-my ($code5, undef, $body5) = @{ $app->handle(path => '/', query => "token=$legacy_token", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+my ($code5, undef, $body5) = @{ $app->handle(path => '/', query => "mode=render&token=$legacy_token", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code5, 200, 'legacy transient page route ok');
 like($body5, qr/<div>Runtime<\/div>/, 'legacy transient pages execute CODE blocks through the same runtime');
 
@@ -376,6 +376,9 @@ $store->save_page($legacy_existing_ajax_page);
 my ($code7b, undef, $body7b) = @{ $app->handle(path => '/app/legacy-ajax-existing', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code7b, 200, 'legacy /app route renders bookmark that points at an existing ajax file');
 like($body7b, qr/set_chain_value\(configs,'demo\.endpoint','\/ajax\/existing\.sh\?type=text/, 'legacy Ajax helper injects an existing saved bookmark ajax endpoint when only a file is supplied');
+my $bootstrap_pos = index( $body7b, 'function set_chain_value' );
+my $binding_pos   = index( $body7b, q{set_chain_value(configs,'demo.endpoint','/ajax/existing.sh?type=text'} );
+ok( $bootstrap_pos > -1 && $binding_pos > $bootstrap_pos, 'legacy bootstrap is defined before saved Ajax bindings run in render mode' );
 
 my ($code7d, $type7d, $body7d) = @{ $app->handle(path => '/ajax/existing.sh', query => "type=text", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code7d, 200, 'saved bookmark ajax file route executes an existing ajax executable from the dashboards ajax tree');
@@ -419,6 +422,26 @@ like(drain_stream_body($body9), qr/"ok"\s*:\s*1/, 'forwarded saved-url override 
     like($manual_ajax_error_type, qr/text\/plain/, 'legacy ajax token runtime errors keep the requested content type');
     like(drain_stream_body($manual_ajax_error_body), qr/token ajax died/, 'legacy ajax token runtime errors stream the runtime error text');
 }
+
+my $script_breakout_source = join "\n",
+    'BOOKMARK: script-breakout',
+    ':--------------------------------------------------------------------------------:',
+    q{HTML: <script src="/js/jquery.js"></script>},
+    q{<script>console.log("hello")</script>},
+    ':--------------------------------------------------------------------------------:',
+    q{CODE1: print 123;},
+    '';
+my ($script_breakout_code, undef, $script_breakout_body) = @{ $app->handle(
+    path        => '/',
+    method      => 'POST',
+    body        => 'instruction=' . uri_escape($script_breakout_source),
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is($script_breakout_code, 200, 'editor route handles source containing literal script tags');
+like($script_breakout_body, qr{<textarea[^>]*>[\s\S]*&lt;script src="/js/jquery\.js"&gt;&lt;/script&gt;[\s\S]*</textarea>}m, 'editor textarea keeps literal script tags escaped in source view');
+like($script_breakout_body, qr/ddEditor\.value = ".*\\u003c\/script\\u003e.*"\s*;\s*ddRenderEditor/s, 'editor boot script escapes closing script tags inside inline JSON assignment');
+unlike($script_breakout_body, qr{</html>\s*[\s\S]*ddRenderEditor}m, 'editor boot script text does not leak into the rendered page body');
 
 $auth->add_user( username => 'helper_user', password => 'helper-pass-123' );
 my $helper_session = $sessions->create(

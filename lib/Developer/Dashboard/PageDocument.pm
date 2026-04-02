@@ -344,6 +344,7 @@ sub render_html {
   </style>
 </head>
 <body>
+$legacy_bootstrap
 <main>
   $chrome_html
   $nav_html
@@ -353,7 +354,6 @@ sub render_html {
   $runtime_output
   $runtime_errors
 </main>
-$legacy_bootstrap
 </body>
 </html>
 HTML

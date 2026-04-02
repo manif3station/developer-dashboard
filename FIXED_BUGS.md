@@ -1,5 +1,10 @@
 # Fixed Bugs
 
+## 2026-04-02
+
+- Fixed saved bookmark editor script breakout by escaping inline JSON assignment text before it is embedded into the browser boot script, so literal bookmark HTML such as `</script>` no longer closes the editor bootstrap early and spills raw source text under the page.
+- Fixed legacy saved bookmark bootstrap ordering by defining `set_chain_value()` and the other legacy helpers before rendering bookmark body HTML, so `Ajax jvar => ...` bindings no longer throw `ReferenceError: Can't find variable: set_chain_value` on play routes.
+
 ## 2026-04-01
 
 - Fixed incomplete Dancer2 migration by moving the browser route table into explicit `Developer::Dashboard::Web::DancerApp` handlers, so the shipped web stack now uses Dancer2-native route ownership instead of a single catch-all bridge into the old dispatcher.

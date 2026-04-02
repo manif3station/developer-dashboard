@@ -195,6 +195,14 @@ Additional files can be added as needed. There are no built-in size restrictions
 
 ## Troubleshooting
 
+### Inline Bookmark Script Content Breaks the Editor
+- Saved bookmark source is embedded back into the browser editor during edit/view-source routes.
+- Literal HTML such as `</script>` is now escaped before the editor boot script assigns the source text, so inline bookmark scripts no longer spill raw source text below the page.
+
+### Legacy Ajax `set_chain_value` Errors on Play Routes
+- Legacy `Ajax jvar => 'foo.bar', ...` helpers depend on the page bootstrap defining `set_chain_value()`.
+- The bootstrap now loads before bookmark body HTML, so the generated binding script runs after the helper exists.
+
 ### File Not Found (404)
 - Verify the file exists in the correct directory:
   - `./.developer-dashboard/dashboard/public/js/` for project-local JavaScript

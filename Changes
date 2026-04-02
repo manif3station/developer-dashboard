@@ -1,6 +1,8 @@
 Revision history for Developer Dashboard
 
 1.05  2026-04-02
+    - fixed saved bookmark editor boot-script escaping so literal bookmark HTML such as `</script>` no longer breaks the source editor and leaks raw instruction text below the page
+    - fixed legacy bookmark bootstrap ordering so `Ajax jvar => ...` bindings run after `set_chain_value()` is defined, preventing play-route JavaScript `ReferenceError` failures
     - removed the parallel `/page/...` browser route surface and moved saved render, edit, source, and action routes fully onto `/app/...`
     - fixed the web server constructor so `port => 0` keeps the requested ephemeral-port bind instead of collapsing back to the default `7890`
     - fixed the blank-environment runner so the helper-login flow now opens `/app/welcome` instead of the removed `/page/welcome` route, and made the browser step resolve or bootstrap Chromium when the prebuilt `dd-int-test:latest` image is stale

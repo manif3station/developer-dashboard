@@ -846,9 +846,22 @@ HTML
     $html =~ s/__TOP_CHROME__/$self->_top_chrome_html( $page, \%$urls )/ge;
     $html =~ s/__INITIAL_HIGHLIGHT__/$self->_highlight_instruction_html($raw_source)/ge;
     $html =~ s/__SOURCE__/$source/g;
-    $html =~ s/__SOURCE_JSON__/json_encode($raw_source)/ge;
+    $html =~ s/__SOURCE_JSON__/_json_for_inline_script($raw_source)/ge;
     $html =~ s/__FORM_ACTION__/$form_action/g;
     return $html;
+}
+
+# _json_for_inline_script($text)
+# Encodes text as JSON for inline script assignment without allowing HTML parser breakouts.
+# Input: raw text string.
+# Output: JSON string literal safe for inclusion inside a <script> block.
+sub _json_for_inline_script {
+    my ($text) = @_;
+    my $json = json_encode( defined $text ? $text : '' );
+    $json =~ s/</\\u003c/g;
+    $json =~ s/>/\\u003e/g;
+    $json =~ s/&/\\u0026/g;
+    return $json;
 }
 
 # _highlight_instruction_html($source)
