@@ -75,12 +75,15 @@ sub start_daemon {
 
 # listening_url($daemon)
 # Builds the public listening URL for a daemon instance.
-# Input: daemon descriptor object.
-# Output: URL string with http:// or https:// scheme based on ssl flag.
+# Input: daemon descriptor object or undef.
+# Output: URL string with http:// or https:// scheme based on ssl flag, or placeholder if daemon unavailable.
 sub listening_url {
     my ( $self, $daemon ) = @_;
+    return unless defined $daemon;
     my $scheme = $self->{ssl} ? 'https' : 'http';
-    return sprintf '%s://%s:%s/', $scheme, $daemon->sockhost, $daemon->sockport;
+    my $host = $daemon->sockhost // 'localhost';
+    my $port = $daemon->sockport // 7890;
+    return sprintf '%s://%s:%s/', $scheme, $host, $port;
 }
 
 # serve_daemon($daemon)
