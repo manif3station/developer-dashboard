@@ -176,6 +176,68 @@ sub save_global_web_workers {
     };
 }
 
+# web_settings()
+# Returns the current web service settings (host, port, workers, ssl).
+# Loads from global config with sensible defaults if not configured.
+# Input: none.
+# Output: hash reference with host, port, workers, ssl keys.
+sub web_settings {
+    my ($self) = @_;
+    my $cfg = $self->merged;
+    my $web = $cfg->{web} || {};
+
+    return {
+        host    => $web->{host} || '0.0.0.0',
+        port    => defined $web->{port} && $web->{port} =~ /^\d+$/ ? $web->{port} + 0 : 7890,
+        workers => defined $web->{workers} && $web->{workers} =~ /^\d+$/ && $web->{workers} > 0 ? $web->{workers} + 0 : 1,
+        ssl     => $web->{ssl} ? 1 : 0,
+    };
+}
+
+# save_global_web_settings(%args)
+# Persists web service settings (host, port, workers, ssl) in the writable runtime config.
+# Only saves settings that are explicitly provided, leaving others untouched.
+# Input: named arguments (host, port, workers, ssl) - any or all can be omitted.
+# Output: hash reference containing the saved settings.
+sub save_global_web_settings {
+    my ( $self, %args ) = @_;
+    my $result = {};
+
+    # Validate and prepare each setting
+    if ( defined $args{host} ) {
+        die 'Host cannot be empty' if $args{host} eq '';
+        $result->{host} = $args{host};
+    }
+
+    if ( defined $args{port} ) {
+        die 'Port must be numeric' if $args{port} !~ /^\d+$/;
+        die 'Port must be between 1 and 65535' if $args{port} < 1 || $args{port} > 65535;
+        $result->{port} = $args{port} + 0;
+    }
+
+    if ( defined $args{workers} ) {
+        die 'Worker count must be numeric' if $args{workers} !~ /^\d+$/;
+        die 'Worker count must be at least 1' if $args{workers} < 1;
+        $result->{workers} = $args{workers} + 0;
+    }
+
+    if ( defined $args{ssl} ) {
+        $result->{ssl} = $args{ssl} ? 1 : 0;
+    }
+
+    # Load current config and update with new values
+    my $cfg = $self->load_global;
+    $cfg->{web} = {} if ref( $cfg->{web} ) ne 'HASH';
+
+    for my $key ( keys %{$result} ) {
+        $cfg->{web}{$key} = $result->{$key};
+    }
+
+    $self->save_global($cfg);
+
+    return $result;
+}
+
 # save_global_path_alias($name, $path)
 # Persists or updates a user-global path alias without disturbing other config domains.
 # Input: alias name string and target path string.
@@ -324,8 +386,12 @@ Dashboard.
 
 =head1 METHODS
 
-=head2 new, load_global, save_global, load_repo, merged, collectors, path_aliases, global_path_aliases, web_workers, save_global_web_workers, save_global_path_alias, remove_global_path_alias, docker_config, providers
+=head2 new, load_global, save_global, load_repo, merged, collectors, path_aliases, global_path_aliases, web_workers, save_global_web_workers, web_settings, save_global_web_settings, save_global_path_alias, remove_global_path_alias, docker_config, providers
 
 Load and expose configuration domains used by the runtime.
+
+The web_settings() and save_global_web_settings() methods manage web service settings
+including host, port, workers, and ssl flag. These settings persist across restart,
+so dashboard restart inherits the previous serve session configuration.
 
 =cut

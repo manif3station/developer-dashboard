@@ -5,6 +5,11 @@ Revision history for Developer Dashboard
     - added automatic self-signed certificate generation in `~/.developer-dashboard/certs/server.crt` and `~/.developer-dashboard/certs/server.key` on first HTTPS startup
     - configured Starman to accept `--ssl-key` and `--ssl-cert` parameters through Plack::Runner when SSL mode is enabled
     - added Web::Server SSL test coverage for cert generation, cert path retrieval, SSL parameter passing, and listening URL scheme selection
+    - implemented web service settings persistence: `dashboard serve --host HOST --port PORT --workers N --ssl` now saves these settings globally
+    - `dashboard restart` now inherits all saved settings (host, port, workers, ssl) from the previous serve session, so `dashboard serve --ssl` followed by `dashboard restart` maintains SSL mode
+    - CLI flags override saved settings, allowing temporary overrides when needed (e.g., `dashboard restart --ssl` to enable SSL or `dashboard restart --port 8000` to use a different port)
+    - added Config module persistence methods `web_settings()` and `save_global_web_settings()` for atomic multi-setting updates
+    - added comprehensive test suite for configuration persistence with default values, save/load cycles, partial updates, and validation
 
 1.21  2026-04-02
     - fixed malformed legacy bookmark icon bytes on saved page load by normalizing broken heading and item icon glyphs into stable browser-safe fallbacks and repairing common damaged joined emoji such as `🧑‍💻`

@@ -35,7 +35,7 @@ sub new {
 
 # start_web(%args)
 # Starts the dashboard web service in foreground or background mode.
-# Input: host, port, worker count, and foreground options.
+# Input: host, port, worker count, ssl flag, and foreground options.
 # Output: server return value in foreground mode or child pid in background mode.
 sub start_web {
     my ( $self, %args ) = @_;
@@ -51,11 +51,12 @@ sub start_web {
     if ( defined $args{workers} ) {
         $workers = $args{workers};
     }
+    my $ssl = $args{ssl} ? 1 : 0;
     die 'Worker count must be a positive integer' if $workers !~ /^\d+$/ || $workers < 1;
     my $foreground = $args{foreground} ? 1 : 0;
 
     if ($foreground) {
-        my $server = $self->{app_builder}->( host => $host, port => $port, workers => $workers );
+        my $server = $self->{app_builder}->( host => $host, port => $port, workers => $workers, ssl => $ssl );
         return $server->run;
     }
 
@@ -64,7 +65,8 @@ sub start_web {
       if $running
       && $running->{host} eq $host
       && $running->{port} == $port
-      && ( ( $running->{workers} || 1 ) == $workers );
+      && ( ( $running->{workers} || 1 ) == $workers )
+      && ( ( $running->{ssl} || 0 ) == $ssl );
 
     $self->_cleanup_web_files;
 
@@ -89,6 +91,7 @@ sub start_web {
             status       => 'running',
             bound_host   => $bound_host,
             workers      => $workers + 0,
+            ssl          => $ssl + 0,
         };
         $self->{files}->write( 'web_pid', "$started_pid\n" );
         $self->_write_web_state($state);
@@ -96,7 +99,7 @@ sub start_web {
     }
 
     close $reader;
-    exit $self->_run_web_child( $writer, $host, $port, workers => $workers );
+    exit $self->_run_web_child( $writer, $host, $port, workers => $workers, ssl => $ssl );
 }
 
 # running_web()
@@ -247,7 +250,7 @@ sub stop_all {
 
 # restart_all(%args)
 # Restarts collectors and the web service together.
-# Input: host, port, and worker-count options.
+# Input: host, port, worker-count, and ssl options.
 # Output: hash reference describing stopped and restarted processes.
 sub restart_all {
     my ( $self, %args ) = @_;
@@ -263,9 +266,10 @@ sub restart_all {
     if ( defined $args{workers} ) {
         $workers = $args{workers};
     }
+    my $ssl = $args{ssl} ? 1 : 0;
     my $stopped = $self->stop_all;
     my @collectors = $self->start_collectors;
-    my $web_pid = $self->_restart_web_with_retry( host => $host, port => $port, workers => $workers );
+    my $web_pid = $self->_restart_web_with_retry( host => $host, port => $port, workers => $workers, ssl => $ssl );
     return {
         stopped   => $stopped,
         collectors => \@collectors,
@@ -313,13 +317,14 @@ sub _shutdown_web {
 
 # _run_web_child($writer, $host, $port, %args)
 # Runs the daemonized web child lifecycle and reports startup status.
-# Input: pipe writer handle, host, port, worker count, and detach/redirect options.
+# Input: pipe writer handle, host, port, worker count, ssl flag, and detach/redirect options.
 # Output: process exit code.
 sub _run_web_child {
     my ( $self, $writer, $host, $port, %args ) = @_;
     my $detach   = exists $args{detach}   ? $args{detach}   : 1;
     my $redirect = exists $args{redirect} ? $args{redirect} : 1;
     my $workers  = exists $args{workers}  ? $args{workers}  : 1;
+    my $ssl      = exists $args{ssl}      ? $args{ssl}      : 0;
     if ($detach) {
         setsid() or die "Unable to detach dashboard web service: $!";
         my $pid = fork();
@@ -336,6 +341,7 @@ sub _run_web_child {
     $ENV{DEVELOPER_DASHBOARD_WEB_HOST}    = $host;
     $ENV{DEVELOPER_DASHBOARD_WEB_PORT}    = $port;
     $ENV{DEVELOPER_DASHBOARD_WEB_WORKERS} = $workers;
+    $ENV{DEVELOPER_DASHBOARD_WEB_SSL}     = $ssl;
     local $0 = $self->_web_process_title( $host, $port );
     local $SIGNAL_MANAGER = $self;
     my $shutdown = sub { $self->_shutdown_web('stopped') };
@@ -343,7 +349,7 @@ sub _run_web_child {
     local $SIG{INT}  = $shutdown;
     local $SIG{HUP}  = $shutdown;
 
-    my $server = eval { $self->{app_builder}->( host => $host, port => $port, workers => $workers ) };
+    my $server = eval { $self->{app_builder}->( host => $host, port => $port, workers => $workers, ssl => $ssl ) };
     if ($@) {
         print {$writer} "err: $@";
         close $writer;
@@ -372,6 +378,7 @@ sub _run_web_child {
             status       => 'running',
             bound_host   => $bound_host,
             workers      => $workers + 0,
+            ssl          => $ssl + 0,
         }
     );
 
@@ -763,7 +770,7 @@ sub _wait_for_port_release {
 
 # _restart_web_with_retry(%args)
 # Restarts the web listener with retries for transient port-release races.
-# Input: host, port, and worker-count values.
+# Input: host, port, worker-count, and ssl values.
 # Output: restarted web pid.
 sub _restart_web_with_retry {
     my ( $self, %args ) = @_;
@@ -779,9 +786,10 @@ sub _restart_web_with_retry {
     if ( defined $args{workers} ) {
         $workers = $args{workers};
     }
+    my $ssl = $args{ssl} ? 1 : 0;
     my $attempts = 20;
     for my $attempt ( 1 .. $attempts ) {
-        my $pid = eval { $self->start_web( host => $host, port => $port, workers => $workers ) };
+        my $pid = eval { $self->start_web( host => $host, port => $port, workers => $workers, ssl => $ssl ) };
         return $pid if defined $pid && !$@;
         my $error = $@;
         if ( !$error ) {

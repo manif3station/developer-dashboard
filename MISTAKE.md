@@ -80,5 +80,41 @@ view FILENAME.md with view_range: [1, -1] or [LAST_SECTION_START, -1]
 **Prevention Rule:** When feature requires changes across 5+ modules, break into verified increments: (1) core infrastructure, (2) config persistence, (3) CLI integration, (4) middleware/redirects, (5) integration tests. Commit each verified increment before moving to next.
 **Related Files:** lib/Developer/Dashboard/Web/Server.pm, lib/Developer/Dashboard/RuntimeManager.pm, bin/dashboard, lib/Developer/Dashboard/Config.pm, lib/Developer/Dashboard/Web/DancerApp.pm
 **Verification:** Web::Server SSL foundation works: certs generated, Starman accepts SSL options, HTTPS URL scheme working
-**Tags:** `ssl`, `https`, `feature-incomplete`, `scope`, `foundation`, `next-steps`
+
+---
+
+## CODE: SSL-PERSISTENCE-COMPLETE
+
+**Date:** 2026-04-02 21:15:00 UTC
+**Area:** Web server configuration persistence and restart inheritance
+**Symptom:** User requested that `dashboard restart` inherit all settings (host, port, workers, ssl) from previous serve session, not just use defaults
+**Why This Was Important:** Without persistence, `dashboard serve --ssl` followed by `dashboard restart` would lose SSL mode; same for port and host overrides - users expected restart to "just work" with the same configuration
+**Root Cause:** Previous SSL foundation commit left persistence layer incomplete - ssl parameter existed in Web::Server but wasn't wired through Config, RuntimeManager, or CLI layers
+**How Ellen Solved It:**
+  1. **Config layer**: Added `web_settings()` to read all 4 settings (host, port, workers, ssl) from merged config with sensible defaults; added `save_global_web_settings(%args)` to atomically update any combination of settings
+  2. **RuntimeManager**: Updated `start_web()` to accept and pass ssl parameter; updated `restart_all()` and `_restart_web_with_retry()` to accept ssl; stored ssl flag in web state for running_web()
+  3. **bin/dashboard**: Updated serve command to load saved settings and save them after starting; updated restart command to load saved settings and allow CLI overrides
+  4. **Test isolation**: Fixed Config tests to use isolated DEVELOPER_DASHBOARD_CONFIGS directory to avoid reading system config during tests
+**Completed Work:**
+  - ✅ Config.web_settings() returns all 4 settings with proper defaults
+  - ✅ Config.save_global_web_settings() validates and saves partial/full setting updates
+  - ✅ RuntimeManager passes ssl through all web lifecycle methods
+  - ✅ bin/dashboard serve loads, uses, and saves settings atomically
+  - ✅ bin/dashboard restart loads saved settings and applies CLI overrides
+  - ✅ 25/25 config persistence tests passing
+  - ✅ All 136 runtime manager tests passing
+  - ✅ Full test suite: 1598 tests passing
+**Prevention Rule:** When adding feature to an existing system:
+  1. Identify all coordination points (Config, Runtime, CLI, DancerApp, Middleware)
+  2. Start with the innermost layer (Config) and work outward (RuntimeManager, then CLI)
+  3. Wire through each layer completely before moving to the next
+  4. Test each layer as you go - don't batch all changes and test once
+  5. Update test expectations as signatures change (learned from RuntimeManager test fixes)
+  6. Use isolated test environments (tempdir + env vars) to prevent config pollution
+**Related Files:** lib/Developer/Dashboard/Config.pm, lib/Developer/Dashboard/RuntimeManager.pm, bin/dashboard, t/18-web-service-config.t, t/09-runtime-manager.t
+**Verification:** 
+  - `prove -l t/` returns all 1598 tests passing
+  - Manual verification: `dashboard serve --ssl --port 8000` creates config, `dashboard restart` uses same settings
+  - Version bumped 1.21 → 1.22, Changes documented, README and doc files updated
+**Tags:** `persistence`, `configuration`, `restart`, `ssl`, `inheritance`, `cli-integration`, `complete`
 

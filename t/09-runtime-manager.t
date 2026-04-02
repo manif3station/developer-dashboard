@@ -276,7 +276,7 @@ ok( -f $foreground_file, 'foreground start delegates to server run' );
         runner => $runner,
     );
     ok( $default_manager->start_web( foreground => 1 ), 'foreground start uses defaults when host and port are omitted' );
-    is_deeply( \%captured, { host => '0.0.0.0', port => 7890, workers => 1 }, 'foreground start forwards the default host, port, and worker count to the app builder' );
+    is_deeply( \%captured, { host => '0.0.0.0', port => 7890, workers => 1, ssl => 0 }, 'foreground start forwards the default host, port, and worker count to the app builder' );
 }
 
 {
@@ -298,7 +298,7 @@ ok( -f $foreground_file, 'foreground start delegates to server run' );
         runner => $runner,
     );
     ok( $worker_manager->start_web( foreground => 1, workers => 4 ), 'foreground start accepts an explicit worker count' );
-    is_deeply( \%captured, { host => '0.0.0.0', port => 7890, workers => 4 }, 'foreground start forwards an explicit worker count to the app builder' );
+    is_deeply( \%captured, { host => '0.0.0.0', port => 7890, workers => 4, ssl => 0 }, 'foreground start forwards an explicit worker count to the app builder' );
 }
 
 my $builder_error_manager = Developer::Dashboard::RuntimeManager->new(
@@ -710,7 +710,7 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
     };
     my $restart_default = $manager->restart_all;
     is( $restart_default->{web_pid}, 9901, 'restart_all returns the restarted pid when using default host and port' );
-    is_deeply( \%forwarded, { host => '0.0.0.0', port => 7890, workers => 1 }, 'restart_all forwards default host, port, and worker values when none are provided' );
+    is_deeply( \%forwarded, { host => '0.0.0.0', port => 7890, workers => 1, ssl => 0 }, 'restart_all forwards default host, port, and worker values when none are provided' );
 }
 
 {
@@ -725,7 +725,7 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
     };
     my $restart_workers = $manager->restart_all( host => '127.0.0.1', port => 7921, workers => 5 );
     is( $restart_workers->{web_pid}, 9902, 'restart_all returns the restarted pid when an explicit worker count is provided' );
-    is_deeply( \%forwarded, { host => '127.0.0.1', port => 7921, workers => 5 }, 'restart_all forwards an explicit worker count to the restart helper' );
+    is_deeply( \%forwarded, { host => '127.0.0.1', port => 7921, workers => 5, ssl => 0 }, 'restart_all forwards an explicit worker count to the restart helper' );
 }
 
 {
@@ -814,7 +814,7 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
         return 8802;
     };
     is( $manager->_restart_web_with_retry, 8802, '_restart_web_with_retry uses the default host and port when none are provided' );
-    is_deeply( \%captured, { host => '0.0.0.0', port => 7890, workers => 1 }, '_restart_web_with_retry forwards default host, port, and worker values to start_web' );
+    is_deeply( \%captured, { host => '0.0.0.0', port => 7890, workers => 1, ssl => 0 }, '_restart_web_with_retry forwards default host, port, and worker values to start_web' );
 }
 
 {
@@ -826,7 +826,7 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
         return 8803;
     };
     is( $manager->_restart_web_with_retry( host => '127.0.0.1', port => 7922, workers => 6 ), 8803, '_restart_web_with_retry accepts an explicit worker count' );
-    is_deeply( \%captured, { host => '127.0.0.1', port => 7922, workers => 6 }, '_restart_web_with_retry forwards explicit worker counts to start_web' );
+    is_deeply( \%captured, { host => '127.0.0.1', port => 7922, workers => 6, ssl => 0 }, '_restart_web_with_retry forwards explicit worker counts to start_web' );
 }
 
 {

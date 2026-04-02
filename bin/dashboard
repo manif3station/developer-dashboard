@@ -680,30 +680,41 @@ elsif ( $cmd eq 'serve' ) {
         exit 0;
     }
     unshift @ARGV, $action if defined $action && $action ne '';
-    my $host = '0.0.0.0';
-    my $port = 7890;
-    my $workers = $config->web_workers;
+    my $settings = $config->web_settings;
+    my $host = $settings->{host};
+    my $port = $settings->{port};
+    my $workers = $settings->{workers};
+    my $ssl = $settings->{ssl};
     my $foreground = 0;
     GetOptionsFromArray(
         \@ARGV,
         'host=s'      => \$host,
         'port=i'      => \$port,
         'workers=i'   => \$workers,
+        'ssl!'        => \$ssl,
         'foreground!' => \$foreground,
+    );
+    $config->save_global_web_settings(
+        host    => $host,
+        port    => $port,
+        workers => $workers,
+        ssl     => $ssl,
     );
     my $result = $runtime->start_web(
         foreground => $foreground,
         host       => $host,
         port       => $port,
         workers    => $workers,
+        ssl        => $ssl,
     );
     if (!$foreground) {
         print json_encode(
             {
                 host    => $host,
-                pid     => $result,
                 port    => $port,
                 workers => $workers,
+                ssl     => $ssl,
+                pid     => $result,
             }
         );
     }
@@ -715,20 +726,24 @@ elsif ( $cmd eq 'stop' ) {
 }
 elsif ( $cmd eq 'restart' ) {
     _load_configured_path_aliases();
-    my $host = '0.0.0.0';
-    my $port = 7890;
-    my $workers = $config->web_workers;
+    my $settings = $config->web_settings;
+    my $host = $settings->{host};
+    my $port = $settings->{port};
+    my $workers = $settings->{workers};
+    my $ssl = $settings->{ssl};
     GetOptionsFromArray(
         \@ARGV,
         'host=s'    => \$host,
         'port=i'    => \$port,
         'workers=i' => \$workers,
+        'ssl!'      => \$ssl,
     );
     print json_encode(
         $runtime->restart_all(
             host    => $host,
             port    => $port,
             workers => $workers,
+            ssl     => $ssl,
         )
     );
     exit 0;
