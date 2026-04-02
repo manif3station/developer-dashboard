@@ -104,7 +104,7 @@ like( $usage_stdout . $usage_stderr, qr/SYNOPSIS|dashboard init/, 'dashboard wit
 
 my $help = _run("$perl -I'$lib' '$dashboard' help");
 like($help, qr/Description:/, 'dashboard help renders the fuller POD help');
-like($help, qr/dashboard serve \[logs\|workers <N>\]/, 'dashboard help documents serve logs and serve workers commands');
+like($help, qr/dashboard serve \[logs \[-f\] \[-n N\]\|workers <N>\]/, 'dashboard help documents serve logs tail/follow flags and serve workers commands');
 
 my $serve_workers = _run("$perl -I'$lib' '$dashboard' serve workers 3");
 like($serve_workers, qr/"workers"\s*:\s*3/, 'dashboard serve workers persists the default worker count');
@@ -120,6 +120,23 @@ close $dashboard_log_fh;
 my $serve_logs = _run("$perl -I'$lib' '$dashboard' serve logs");
 like($serve_logs, qr/starman boot line/, 'dashboard serve logs prints the web-service log content');
 like($serve_logs, qr/Dancer2 boot line/, 'dashboard serve logs includes Dancer2-side log lines');
+my $serve_logs_tail = _run("$perl -I'$lib' '$dashboard' serve logs -n 1");
+is($serve_logs_tail, "Dancer2 boot line\n", 'dashboard serve logs -n prints only the requested trailing lines');
+{
+    require IPC::Open3;
+    require Symbol;
+    my $stderr_fh = Symbol::gensym();
+    my $pid = IPC::Open3::open3( undef, my $stdout_fh, $stderr_fh, $perl, '-I' . $lib, $dashboard, 'serve', 'logs', '-f', '-n', '1' );
+    my $first = <$stdout_fh>;
+    is( $first, "Dancer2 boot line\n", 'dashboard serve logs -f -n prints the requested trailing lines before following new output' );
+    open my $append_fh, '>>', $dashboard_log_file or die "Unable to append $dashboard_log_file: $!";
+    print {$append_fh} "followed line\n";
+    close $append_fh;
+    my $followed = <$stdout_fh>;
+    is( $followed, "followed line\n", 'dashboard serve logs -f streams appended log lines' );
+    kill 'TERM', $pid;
+    waitpid( $pid, 0 );
+}
 
 my $bookmarks_root = _run("$perl -I'$lib' '$dashboard' path resolve bookmarks_root");
 is( $bookmarks_root, File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'dashboards' ) . "\n", 'dashboard path resolve supports bookmarks_root alias' );
@@ -404,7 +421,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.12\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.13\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );

@@ -661,7 +661,7 @@ The default web bind is `0.0.0.0:7890`. Trust is still decided from the request 
 
 - `dashboard serve` starts the web service in the background by default
 - `dashboard serve --foreground` keeps the web service attached to the terminal
-- `dashboard serve logs` prints the combined Dancer2 and Starman runtime log captured in the dashboard log file
+- `dashboard serve logs` prints the combined Dancer2 and Starman runtime log captured in the dashboard log file, `dashboard serve logs -n 100` starts from the last 100 lines, and `dashboard serve logs -f` follows appended output live
 - `dashboard serve workers N` saves the default Starman worker count, and `dashboard serve --workers N` or `dashboard restart --workers N` can override it for one run
 - `dashboard stop` stops both the web service and managed collector loops
 - `dashboard restart` stops both, starts configured collector loops again, then starts the web service
@@ -723,8 +723,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.12.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.12.tar.gz -v
+tar -tzf Developer-Dashboard-1.13.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.13.tar.gz -v
 ```
 
 The harness also:

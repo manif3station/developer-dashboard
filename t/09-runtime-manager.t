@@ -367,6 +367,9 @@ my $clean_exit_manager = Developer::Dashboard::RuntimeManager->new(
 
 $files->write( 'dashboard_log', "starman line\nDancer2 line\n" );
 is( $manager->web_log, "starman line\nDancer2 line\n", 'web_log reads the persisted dashboard web-service log output' );
+is( $manager->_tail_text( "one\ntwo\nthree\n", 2 ), "two\nthree\n", '_tail_text keeps the requested trailing newline-terminated log lines' );
+is( $manager->_tail_text( "one\ntwo\nthree", 2 ), "two\nthree", '_tail_text preserves non-terminated trailing log lines' );
+is( $manager->web_log( lines => 1 ), "Dancer2 line\n", 'web_log can return only the last requested number of lines' );
 $files->remove('dashboard_log');
 is( $manager->web_log, '', 'web_log returns an empty string when the dashboard log file is missing' );
 

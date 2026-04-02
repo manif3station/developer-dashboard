@@ -55,9 +55,13 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.12', 'module version bumped for the web-log and worker-control release' );
+is( $version, '1.13', 'module version bumped for the log-tail follow release' );
 like( $readme, qr/dashboard serve logs/, 'README documents the serve logs command' );
 like( $pm, qr/C<dashboard serve logs>/, 'main POD documents the serve logs command' );
+like( $readme, qr/dashboard serve logs -n 100/, 'README documents tailed serve logs usage' );
+like( $pm, qr/C<dashboard serve logs -n 100>/, 'main POD documents tailed serve logs usage' );
+like( $readme, qr/dashboard serve logs -f/, 'README documents followed serve logs usage' );
+like( $pm, qr/C<dashboard serve logs -f>/, 'main POD documents followed serve logs usage' );
 like( $readme, qr/dashboard serve workers N/, 'README documents the persistent serve workers command' );
 like( $pm, qr/C<dashboard serve workers N>/, 'main POD documents the persistent serve workers command' );
 like( $readme, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'README documents the bookmark browser smoke script' );

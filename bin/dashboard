@@ -639,7 +639,17 @@ elsif ( $cmd eq 'serve' ) {
     _migrate_saved_pages();
     my $action = @ARGV && $ARGV[0] !~ /^-/ ? shift @ARGV : '';
     if ( $action eq 'logs' ) {
-        print $runtime->web_log;
+        my $follow = 0;
+        my $lines;
+        GetOptionsFromArray(
+            \@ARGV,
+            'f'   => \$follow,
+            'n=i' => \$lines,
+        );
+        print $runtime->web_log(
+            follow => $follow,
+            ( defined $lines ? ( lines => $lines ) : () ),
+        );
         exit 0;
     }
     if ( $action eq 'workers' ) {
@@ -1230,7 +1240,7 @@ dashboard - command-line entrypoint for Developer Dashboard
   dashboard page source <id|token>
   dashboard action run <page_id> <action_id>
   dashboard docker compose [--addon NAME] [--mode NAME] [--service NAME] [--project DIR] [--dry-run] <compose-args...>
-  dashboard serve [logs|workers <N>] [--host HOST] [--port PORT] [--workers N] [--foreground]
+  dashboard serve [logs [-f] [-n N]|workers <N>] [--host HOST] [--port PORT] [--workers N] [--foreground]
   dashboard stop
   dashboard restart [--host HOST] [--port PORT] [--workers N]
   dashboard shell [bash]

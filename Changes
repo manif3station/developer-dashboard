@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.13  2026-04-02
+    - extended `dashboard serve logs` with `-n N` tailing and `-f` follow mode, so users can start from the last requested lines and continue streaming appended Dancer2 and Starman log output live
+    - added runtime-manager and CLI regressions for tailed and followed web logs
+    - updated README, main POD, architecture docs, and release metadata for the 1.13 log-tail follow release
+
 1.12  2026-04-02
     - added `dashboard serve logs` so users can print the combined Dancer2 and Starman runtime log without hunting for the dashboard log file manually
     - added configurable Starman worker counts through `dashboard serve workers N`, plus one-off `dashboard serve --workers N` and `dashboard restart --workers N` overrides

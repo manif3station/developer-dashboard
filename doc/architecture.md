@@ -156,7 +156,7 @@ Page source compatibility is explicit:
 - bookmark Template Toolkit rendering exposes `env.current_page` and `env.runtime_context.current_page`, so saved pages and nav fragments can branch on the active request path without losing the rest of the runtime context
 - when the active project contains `./.developer-dashboard`, the page store, config loader, CLI hook resolver, auth/session stores, and isolated docker service lookup all read that tree first and then fall back to `~/.developer-dashboard`
 - `dashboard init` seeds `welcome`, `api-dashboard`, and `db-dashboard` as normal editable saved bookmarks
-- `dashboard serve logs` exposes the combined Dancer2 and Starman runtime log stored in the dashboard log file
+- `dashboard serve logs` exposes the combined Dancer2 and Starman runtime log stored in the dashboard log file, with `-n N` tailing and `-f` follow mode
 - `dashboard serve workers N` persists the default Starman worker count in config, while `dashboard serve --workers N` and `dashboard restart --workers N` allow one-off overrides
 - the editor view auto-submits the bookmark form on textarea change/blur instead of relying on a visible update button
 - the editor shows in-place syntax highlighting inside the same editing surface for directive, HTML, CSS, JavaScript, and Perl `CODE*` content

@@ -2,6 +2,7 @@
 
 ## 2026-04-02
 
+- Fixed missing tail-follow control on `dashboard serve logs` by adding `-n N` and `-f`, so users can start from the last requested log lines and continue following appended Dancer2 and Starman output live.
 - Fixed missing web-runtime visibility by adding `dashboard serve logs`, so users can read the combined Dancer2 and Starman log output directly from the CLI instead of opening the runtime log file manually.
 - Fixed hardcoded Starman worker control by adding persisted `dashboard serve workers N` settings plus one-off `--workers N` overrides for serve and restart, so users can raise or lower worker counts without patching code.
 - Fixed saved bookmark Ajax print buffering by enabling autoflush in the generated Perl wrapper for file-backed handlers, so long-running `/ajax/<file>` routes now show incremental browser output even when the saved code only does plain `print` plus `sleep`.

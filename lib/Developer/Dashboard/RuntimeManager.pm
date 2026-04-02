@@ -404,14 +404,78 @@ sub _run_web_child {
     return 0;
 }
 
-# web_log()
-# Returns the current dashboard web-service log output.
-# Input: none.
-# Output: full dashboard log string, which may be empty.
+# web_log(%args)
+# Returns dashboard web-service log output, with optional tailing and follow mode.
+# Input: optional lines count and follow flag.
+# Output: log text string for non-follow mode, or streamed output via STDOUT in follow mode.
 sub web_log {
-    my ($self) = @_;
+    my ( $self, %args ) = @_;
+    my $file = $self->{files}->resolve_file('dashboard_log');
+    my $lines = $args{lines};
+    my $follow = $args{follow} ? 1 : 0;
+    if ( defined $lines ) {
+        die 'Line count must be a positive integer' if $lines !~ /^\d+$/ || $lines < 1;
+    }
+    return '' if !$follow && !-f $file;
+
     my $log = $self->{files}->read('dashboard_log');
-    return defined $log ? $log : '';
+    $log = '' if !defined $log;
+    $log = $self->_tail_text( $log, $lines ) if defined $lines;
+    return $log if !$follow;
+
+    my $old_stdout = select STDOUT;
+    $| = 1;
+    select $old_stdout;
+    print $log if $log ne '';
+    $self->_follow_log_file( file => $file );
+    return '';
+}
+
+# _tail_text($text, $lines)
+# Returns the last N logical lines from a text buffer.
+# Input: text string and positive integer line count.
+# Output: tailed text string.
+sub _tail_text {
+    my ( $self, $text, $lines ) = @_;
+    return '' if !defined $text || $text eq '';
+    return $text if !defined $lines;
+    my @parts = split /\n/, $text, -1;
+    my $had_trailing_newline = @parts && $parts[-1] eq '' ? 1 : 0;
+    pop @parts if $had_trailing_newline;
+    my $start = @parts - $lines;
+    $start = 0 if $start < 0;
+    my $tail = join "\n", @parts[ $start .. $#parts ];
+    $tail .= "\n" if $had_trailing_newline && $tail ne '';
+    return $tail;
+}
+
+# _follow_log_file(%args)
+# Streams appended content from one log file until interrupted.
+# Input: file path plus optional poll interval seconds.
+# Output: never returns under normal command use; prints new log chunks to STDOUT.
+sub _follow_log_file {
+    my ( $self, %args ) = @_;
+    my $file = $args{file} || die 'Missing log file';
+    my $interval = defined $args{interval} ? $args{interval} : 0.1;
+    my $fh;
+    if ( !open( $fh, '<', $file ) ) {
+        open my $create_fh, '>>', $file or die "Unable to create $file: $!";
+        close $create_fh;
+        open( $fh, '<', $file ) or die "Unable to read $file: $!";
+    }
+    seek $fh, 0, 2 or die "Unable to seek $file: $!";
+    local $SIG{TERM} = sub { exit 0 };
+    local $SIG{INT}  = sub { exit 0 };
+    local $SIG{HUP}  = sub { exit 0 };
+    while (1) {
+        my $chunk = '';
+        my $read = sysread( $fh, $chunk, 8192 );
+        if ( defined $read && $read > 0 ) {
+            print $chunk;
+            next;
+        }
+        sleep $interval;
+    }
 }
 
 # _write_web_state($state)
