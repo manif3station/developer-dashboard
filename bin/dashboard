@@ -125,6 +125,7 @@ my $runtime = Developer::Dashboard::RuntimeManager->new(
             host    => $args{host},
             port    => $args{port},
             workers => $args{workers},
+            ssl     => $args{ssl},
         );
     },
     config => $config,
