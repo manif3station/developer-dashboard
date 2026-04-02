@@ -55,12 +55,18 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.30', 'module version bumped for the helper-login redirect patch release' );
+is( $version, '1.32', 'module version bumped for the root-route editor patch release' );
 like( $readme, qr/dashboard serve --ssl/, 'README documents the HTTPS serve flag' );
 like( $pm, qr/C<dashboard serve --ssl>/, 'main POD documents the HTTPS serve flag' );
 like( $release_doc, qr/dashboard serve --ssl/, 'release doc documents the HTTPS serve flag' );
 like( $readme, qr/https:\/\/127\.0\.0\.1:7890\//, 'README documents the local HTTPS URL' );
 like( $pm, qr/https:\/\/127\.0\.0\.1:7890\//, 'main POD documents the local HTTPS URL' );
+like( $readme, qr/opening `\/` now redirects straight to\s+`\/app\/index`/s, 'README documents root redirect to the saved index bookmark' );
+like( $pm, qr/opening C<\/> now redirects straight to\s+C<\/app\/index>/s, 'main POD documents root redirect to the saved index bookmark' );
+like( $release_doc, qr/root path now redirects to `\/app\/index` when a saved `index` bookmark exists/s, 'release doc documents root redirect to the saved index bookmark' );
+like( $readme, qr/unknown saved route such as `\/app\/foobar`.*prefilled blank bookmark/s, 'README documents unknown saved routes opening a prefilled bookmark editor' );
+like( $pm, qr/unknown saved route such as C<\/app\/foobar>.*prefilled blank bookmark/s, 'main POD documents unknown saved routes opening a prefilled bookmark editor' );
+like( $release_doc, qr/Unknown saved routes such as `\/app\/foobar` must now open the bookmark editor with a prefilled blank bookmark/s, 'release doc documents unknown saved routes opening a prefilled bookmark editor' );
 like( $readme, qr/After a successful\s+helper login, the browser is sent back to that saved route, such as\s+`\/app\/index`/s, 'README documents post-login return to the original saved route' );
 like( $pm, qr/After a\s+successful helper login, the browser is sent back to that saved route, such as\s+C<\/app\/index>/s, 'main POD documents post-login return to the original saved route' );
 like( $release_doc, qr/successful\s+helper login returns the browser to the original route, such as `\/app\/index`/s, 'release doc documents post-login return to the original route' );

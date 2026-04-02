@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.30';
+our $VERSION = '1.32';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -240,7 +240,7 @@ sub logout_response {
 }
 
 # root_response(%args)
-# Executes the root editor route for blank, transient, and saved-from-root pages.
+# Executes the root route for saved index redirects, blank editor, transient, and saved-from-root pages.
 # Input: normalized request path, query, body, headers, and remote address.
 # Output: response array reference.
 sub root_response {
@@ -299,6 +299,15 @@ sub root_response {
             runtime_context => { params => { %{$params}, %{$body_params} } },
         );
         return $self->_page_response( $page, $mode );
+    }
+
+    if ( $self->_saved_page_exists('index') ) {
+        return [
+            302,
+            'text/plain; charset=utf-8',
+            "Redirecting\n",
+            { Location => '/app/index' },
+        ];
     }
 
     return $self->_blank_editor_response;
@@ -692,6 +701,16 @@ sub _blank_editor_response {
         meta        => { source_kind => 'transient', source_format => 'legacy' },
     );
     return [ 200, 'text/html; charset=utf-8', $self->_edit_html($page) ];
+}
+
+# _saved_page_exists($id)
+# Checks whether one saved page id resolves in the effective bookmark lookup roots.
+# Input: page id string.
+# Output: boolean true when the saved page exists, otherwise false.
+sub _saved_page_exists {
+    my ( $self, $id ) = @_;
+    return 0 if !defined $id || $id eq '';
+    return eval { $self->{pages}->load_saved_page($id); 1 } ? 1 : 0;
 }
 
 # _page_response($page, $mode)
@@ -1525,7 +1544,10 @@ sub _legacy_app_response {
         return [ 200, 'text/html; charset=utf-8', $self->_render_page_html( $parsed, 'render' ) ];
     }
 
-    my $raw = $self->{pages}->read_saved_entry($id);
+    my $raw = eval { $self->{pages}->read_saved_entry($id) };
+    if ( !defined $raw || $@ ) {
+        return $self->_missing_named_page_response($id);
+    }
     my $target = _trim($raw);
     my $uri = URI->new($target);
     my $path = $uri->path;
@@ -1544,6 +1566,28 @@ sub _legacy_app_response {
         remote_addr => $args{remote_addr},
         headers     => $args{headers} || {},
     );
+}
+
+# _missing_named_page_response($id)
+# Builds the editor response for an unknown /app/<id> route using a blank bookmark template.
+# Input: requested app id string without the /app/ prefix.
+# Output: response array reference containing the edit view.
+sub _missing_named_page_response {
+    my ( $self, $id ) = @_;
+    my $bookmark_path = $self->_saved_page_url($id);
+    my $instruction = join "\n",
+        'TITLE: Developer Dashboard',
+        ':--------------------------------------------------------------------------------:',
+        "BOOKMARK: $bookmark_path",
+        ':--------------------------------------------------------------------------------:',
+        'HTML:',
+        '',
+        'Blank page',
+        '';
+    my $page = Developer::Dashboard::PageDocument->from_instruction($instruction);
+    $page->{meta}{raw_instruction} = $instruction;
+    $page->{meta}{source_kind} = 'saved';
+    return [ 200, 'text/html; charset=utf-8', $self->_edit_html($page) ];
 }
 
 # _build_query($params)

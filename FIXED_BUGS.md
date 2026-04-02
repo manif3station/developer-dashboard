@@ -2,6 +2,9 @@
 
 ## 2026-04-03
 
+- Fixed root-entry drift so opening `/` now uses the saved `index` bookmark as the default home page by redirecting to `/app/index` when that bookmark exists, instead of always dropping into the blank editor first.
+- Fixed unknown-route editor drift so opening a missing saved route such as `/app/foobar` now opens the bookmark editor with a prefilled blank bookmark for that requested path instead of returning a 404 error page.
+- Fixed saved-bookmark path normalization gaps by stripping a leading `/app/` prefix during dashboards-tree persistence and lookup, so bookmark ids written as `/app/<id>` still save and load from the normal relative bookmark path.
 - Fixed helper-login return-path loss so a helper user who was sent to `/login` from a protected page such as `/app/index` now returns to that original page after successful login instead of always landing on `/`.
 - Fixed helper redirect hardening gaps by sanitizing the post-login target and rejecting malformed, protocol-relative, external, newline-injected, and `/login...` loop targets before issuing the redirect.
 

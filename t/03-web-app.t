@@ -30,6 +30,7 @@ sub drain_stream_body {
 }
 
 local $ENV{HOME} = tempdir(CLEANUP => 1);
+chdir $ENV{HOME} or die "Unable to chdir to $ENV{HOME}: $!";
 
 my $paths = Developer::Dashboard::PathRegistry->new;
 my $store = Developer::Dashboard::PageStore->new(paths => $paths);
@@ -96,6 +97,33 @@ like($body1, qr/<textarea[^>]*name="instruction"/, 'root route renders editable 
 unlike($body1, qr/Saved pages live under/, 'root route no longer renders landing list');
 unlike($body1, qr/>Update</, 'root route does not render manual update button');
 like($body1, qr/addEventListener\('change', function\(\) \{\s*ddForm\.submit\(\);/s, 'root route auto-submits textarea changes on blur');
+
+my $root_index = Developer::Dashboard::PageDocument->new(
+    id     => 'index',
+    title  => 'Index',
+    layout => { body => 'index body' },
+);
+$store->save_page($root_index);
+my ($root_index_code, undef, undef, $root_index_headers) = @{ $app->handle(path => '/', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($root_index_code, 302, 'root route redirects to the saved index bookmark when it exists');
+is($root_index_headers->{Location}, '/app/index', 'root route uses the canonical saved index bookmark path');
+unlink $store->page_file('index') or die "Unable to remove temporary index bookmark: $!";
+
+my ($unknown_code, undef, $unknown_body) = @{ $app->handle(path => '/app/foobar', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($unknown_code, 200, 'unknown saved app routes open the editor instead of returning a not-found page');
+like($unknown_body, qr/<textarea[^>]*name="instruction"/, 'unknown saved app routes render the bookmark editor');
+like($unknown_body, qr/BOOKMARK:\s+\/app\/foobar/, 'unknown saved app routes prefill the requested bookmark path');
+like($unknown_body, qr/HTML:\s*\nBlank page/s, 'unknown saved app routes prefill the blank page body');
+
+my $prefixed_saved_page = Developer::Dashboard::PageDocument->new(
+    id     => '/app/prefixed-save',
+    title  => 'Prefixed Save',
+    layout => { body => 'prefixed body' },
+);
+$store->save_page($prefixed_saved_page);
+ok(-f File::Spec->catfile( $paths->dashboards_root, 'prefixed-save' ), 'save_page normalizes a leading /app/ prefix to the relative dashboards path');
+my $loaded_prefixed_page = $store->load_saved_page('prefixed-save');
+is($loaded_prefixed_page->as_hash->{title}, 'Prefixed Save', 'load_saved_page resolves normalized prefixed bookmark ids');
 
 my $saved_token = uri_escape( $store->encode_page($page) );
 my ($code1_forbidden_post, $type1_forbidden_post, $body1_forbidden_post) = @{ $app->handle(

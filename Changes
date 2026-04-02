@@ -1,5 +1,12 @@
 Revision history for Developer Dashboard
 
+1.32  2026-04-03
+    - changed the root route so `/` now redirects to `/app/index` whenever a saved `index` bookmark exists, making the saved home page the default browser entrypoint
+    - kept the existing blank-editor fallback on `/` when no saved `index` bookmark exists yet
+    - changed unknown saved routes such as `/app/foobar` to open the bookmark editor with a prefilled blank bookmark template instead of returning a 404 page
+    - normalized saved bookmark ids that already include `/app/` so the prefilled unknown-route editor still saves and loads through the normal dashboards tree
+    - updated README, POD, release docs, and release metadata for the root-index and unknown-route editor changes
+
 1.30  2026-04-03
     - fixed helper-login redirect flow so requests that are forced through `/login` now preserve the original internal route and query, sending the browser back to pages such as `/app/index` after successful login instead of always redirecting to `/`
     - hardened helper redirect handling so only safe local app routes are accepted for post-login redirects, rejecting malformed, external, and login-loop targets

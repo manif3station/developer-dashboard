@@ -3,7 +3,7 @@ package Developer::Dashboard::PageStore;
 use strict;
 use warnings;
 
-our $VERSION = '1.30';
+our $VERSION = '1.32';
 use utf8;
 
 use Encode qw(decode FB_CROAK FB_DEFAULT);
@@ -33,7 +33,7 @@ sub new {
 sub page_file {
     my ( $self, $id ) = @_;
     die 'Missing page id' if !defined $id || $id eq '';
-    return File::Spec->catfile( $self->{paths}->dashboards_root, $id );
+    return File::Spec->catfile( $self->{paths}->dashboards_root, $self->_normalized_page_id($id) );
 }
 
 # save_page($page)
@@ -195,7 +195,22 @@ sub migrate_legacy_json_pages {
 # Output: ordered list of bookmark file path strings.
 sub _page_file_candidates {
     my ( $self, $id ) = @_;
-    return map { File::Spec->catfile( $_, $id ) } $self->{paths}->dashboards_roots;
+    my $normalized = $self->_normalized_page_id($id);
+    return map { File::Spec->catfile( $_, $normalized ) } $self->{paths}->dashboards_roots;
+}
+
+# _normalized_page_id($id)
+# Normalizes one saved bookmark id for on-disk lookup and persistence.
+# Input: page id string, optionally already prefixed with /app/.
+# Output: relative bookmark id string without a leading /app/ or slash.
+sub _normalized_page_id {
+    my ( $self, $id ) = @_;
+    $id = '' if !defined $id;
+    $id =~ s/^\s+//;
+    $id =~ s/\s+$//;
+    $id =~ s{\A/+app/+}{};
+    $id =~ s{\A/+}{};
+    return $id;
 }
 
 # _existing_page_file($id)

@@ -51,7 +51,8 @@ Serve the local app in the background:
 perl -Ilib bin/dashboard serve
 ```
 
-The root path now opens the free-form bookmark editor directly, and `/apps` redirects to `/app/index`.
+The root path now redirects to `/app/index` when a saved `index` bookmark exists, and otherwise opens the free-form bookmark editor directly. `/apps` still redirects to `/app/index`.
+Unknown saved routes such as `/app/foobar` must now open the bookmark editor with a prefilled blank bookmark for `/app/foobar` instead of returning a plain 404 page.
 If the posted editor content includes `BOOKMARK: some-id`, that post now persists the bookmark document so `/app/some-id` works immediately after saving from `/`.
 Saved bookmark editor routes such as `/app/some-id/edit` must keep posting back to that named route and keep their Play links on `/app/some-id`, even when transient `token=` URLs are disabled by default.
 Edit and source routes must preserve raw Template Toolkit placeholders in bookmark source, so browser saves of `HTML:` or `FORM.TT:` content such as `[% title %]` should be verified as source-stable as well as render-correct.
@@ -180,8 +181,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.30.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.30.tar.gz -v
+tar -tzf Developer-Dashboard-1.32.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.32.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

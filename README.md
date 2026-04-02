@@ -77,6 +77,13 @@ The access model is deliberate:
 - helper logins let you share the dashboard safely without turning every browser request into full local-admin access
 
 In practice that means the developer at the machine gets friction-free local admin access, while shared or forwarded access is forced through explicit helper accounts.
+When a saved `index` bookmark exists, opening `/` now redirects straight to
+`/app/index` so the saved home page becomes the default browser entrypoint.
+When no saved `index` bookmark exists yet, `/` still opens the free-form
+bookmark editor.
+If a user opens an unknown saved route such as `/app/foobar`, the browser now
+opens the bookmark editor with a prefilled blank bookmark for that requested
+path instead of showing a 404 error page.
 When helper access is sent to `/login`, the login form now keeps the original
 requested path and query string in a hidden redirect target. After a successful
 helper login, the browser is sent back to that saved route, such as
@@ -753,8 +760,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.30.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.30.tar.gz -v
+tar -tzf Developer-Dashboard-1.32.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.32.tar.gz -v
 ```
 
 The harness also:

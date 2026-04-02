@@ -84,6 +84,17 @@ my ( $root_code, $root_type, $root_body ) = @{ $app->handle( path => '/', query 
 is( $root_code, 200, 'root route responds with success' );
 like( $root_body, qr/<textarea[^>]*name="instruction"/, 'root route renders free-form instruction editor' );
 
+my $index_page = Developer::Dashboard::PageDocument->new(
+    id     => 'index',
+    title  => 'Index',
+    layout => { body => 'index body' },
+);
+$store->save_page($index_page);
+my ( $root_index_code, undef, undef, $root_index_headers ) = @{ $app->handle( path => '/', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+is( $root_index_code, 302, 'root route redirects to the saved index page when it exists' );
+is( $root_index_headers->{Location}, '/app/index', 'root route redirects to the canonical saved index bookmark path' );
+unlink $store->page_file('index') or die "Unable to remove temporary index bookmark: $!";
+
 my ( $apps_code, undef, undef, $apps_headers ) = @{ $app->handle( path => '/apps', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $apps_code, 302, '/apps redirects to default index bookmark' );
 is( $apps_headers->{Location}, '/app/index', '/apps uses index bookmark as default target' );

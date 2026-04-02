@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.30';
+our $VERSION = '1.32';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.30
+1.32
 
 =head1 INTRODUCTION
 
@@ -268,6 +268,13 @@ request into full local-admin access
 In practice that means the developer at the machine gets friction-free local
 admin access, while shared or forwarded access is forced through explicit
 helper accounts.
+When a saved C<index> bookmark exists, opening C</> now redirects straight to
+C</app/index> so the saved home page becomes the default browser entrypoint.
+When no saved C<index> bookmark exists yet, C</> still opens the free-form
+bookmark editor.
+If a user opens an unknown saved route such as C</app/foobar>, the browser now
+opens the bookmark editor with a prefilled blank bookmark for that requested
+path instead of showing a 404 error page.
 When helper access is sent to C</login>, the login form now keeps the original
 requested path and query string in a hidden redirect target. After a
 successful helper login, the browser is sent back to that saved route, such as
@@ -1216,8 +1223,8 @@ exact tarball that will ship:
 
   rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.30.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.30.tar.gz -v
+  tar -tzf Developer-Dashboard-1.32.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.32.tar.gz -v
 
 The harness also:
 
