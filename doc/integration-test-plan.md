@@ -131,6 +131,16 @@ environment.
 
 ## Invocation
 
+For a quick host-side bookmark browser repro before the full blank-environment
+container cycle, run:
+
+```bash
+integration/browser/run-bookmark-browser-smoke.pl
+```
+
+That script is the fast path for saved bookmark browser issues such as static
+asset loading, legacy Ajax binding, and final DOM rendering checks.
+
 Build the tarball on the host and run the integration harness with:
 
 ```bash

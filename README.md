@@ -714,8 +714,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.07.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.07.tar.gz -v
+tar -tzf Developer-Dashboard-1.08.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.08.tar.gz -v
 ```
 
 The harness also:
@@ -823,3 +823,25 @@ The coverage-closure suite includes managed collector loop start/stop paths
 under `Devel::Cover`, including wrapped fork coverage in
 `t/14-coverage-closure-extra.t`, so the covered run stays green without
 breaking TAP from daemon-style child processes.
+
+For fast saved-bookmark browser regressions, run the dedicated smoke script:
+
+```bash
+integration/browser/run-bookmark-browser-smoke.pl
+```
+
+That host-side smoke runner creates an isolated temporary runtime, starts the
+checkout-local dashboard, loads one saved bookmark page through headless
+Chromium, and can assert page-source fragments, saved `/ajax/...` output, and
+the final browser DOM. With no arguments it runs the built-in legacy Ajax
+`foo.bar` bookmark case. For a real bookmark file, point it at the saved file
+and add explicit expectations:
+
+```bash
+integration/browser/run-bookmark-browser-smoke.pl \
+  --bookmark-file ~/.developer-dashboard/dashboards/test \
+  --expect-page-fragment "set_chain_value(foo,'bar','/ajax/foobar?type=json')" \
+  --expect-ajax-path /ajax/foobar?type=json \
+  --expect-ajax-body 123 \
+  --expect-dom-fragment '<span class="display">123</span>'
+```

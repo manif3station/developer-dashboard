@@ -9,6 +9,7 @@ ok( -f 'integration/blank-env/Dockerfile', 'blank-environment Dockerfile exists'
 ok( -f 'integration/blank-env/docker-compose.yml', 'blank-environment docker compose file exists' );
 ok( -f 'integration/blank-env/run-integration.pl', 'blank-environment integration runner exists' );
 ok( -f 'integration/blank-env/run-host-integration.sh', 'host-side blank-environment integration launcher exists' );
+ok( -f 'integration/browser/run-bookmark-browser-smoke.pl', 'bookmark browser smoke script exists' );
 
 open my $plan_fh, '<', 'doc/integration-test-plan.md' or die $!;
 my $plan = do { local $/; <$plan_fh> };
@@ -24,6 +25,20 @@ like( $plan, qr/host-built tarball/i, 'integration plan requires host-built tarb
 like( $plan, qr/broken collector|broken Perl collector|healthy collector/i, 'integration plan covers collector failure isolation' );
 like( $plan, qr/Runtime::Result/, 'integration plan covers Runtime::Result-based hook verification' );
 like( $plan, qr/run-host-integration\.sh/, 'integration plan points to the host-side launcher' );
+like( $plan, qr/run-bookmark-browser-smoke\.pl/, 'integration plan documents the fast bookmark browser smoke runner' );
+
+open my $testing_fh, '<', 'doc/testing.md' or die $!;
+my $testing = do { local $/; <$testing_fh> };
+close $testing_fh;
+like( $testing, qr/run-bookmark-browser-smoke\.pl/, 'testing doc documents the bookmark browser smoke runner' );
+like( $testing, qr/headless\s+Chromium/s, 'testing doc explains that the bookmark smoke runner uses headless Chromium' );
+
+open my $smoke_fh, '<', 'integration/browser/run-bookmark-browser-smoke.pl' or die $!;
+my $smoke = do { local $/; <$smoke_fh> };
+close $smoke_fh;
+like( $smoke, qr/--bookmark-file/, 'bookmark smoke script accepts an explicit bookmark file path' );
+like( $smoke, qr/--expect-ajax-path/, 'bookmark smoke script accepts ajax path assertions' );
+like( $smoke, qr/__END__/, 'bookmark smoke script carries POD trailer' );
 
 open my $runner_fh, '<', 'integration/blank-env/run-integration.pl' or die $!;
 my $runner = do { local $/; <$runner_fh> };

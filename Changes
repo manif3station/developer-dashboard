@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.08  2026-04-02
+    - added `integration/browser/run-bookmark-browser-smoke.pl` for fast host-side browser verification of saved bookmark files, including page-source, ajax, and final DOM assertions
+    - documented the new bookmark browser smoke workflow in README, main POD, testing docs, and the integration plan so bookmark regressions get a dedicated repro path before the slower blank-environment cycle
+    - updated release metadata and release-sensitive tests for the 1.08 bookmark browser smoke tooling release
+
 1.07  2026-04-02
     - fixed `/js/jquery.js` for saved bookmark pages by serving a built-in local jQuery-style compatibility shim when no runtime file overrides it
     - verified that legacy `Ajax jvar => 'foo.bar', file => 'foobar'` bookmark pages bind `foo.bar` to `/ajax/foobar?...` and that the saved ajax endpoint executes through the browser-facing route

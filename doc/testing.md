@@ -8,6 +8,30 @@ Run the full test suite with:
 prove -lr t
 ```
 
+Run the fast saved-bookmark browser smoke check with:
+
+```bash
+integration/browser/run-bookmark-browser-smoke.pl
+```
+
+That host-side smoke runner creates an isolated temporary runtime, starts the
+checkout-local dashboard, loads one saved bookmark page through headless
+Chromium, and can assert page-source fragments, saved `/ajax/...` output, and
+the final browser DOM. With no arguments it runs the built-in legacy Ajax
+`foo.bar` bookmark case.
+
+For a real bookmark file, point it at the saved file and add the specific
+browser assertions you care about:
+
+```bash
+integration/browser/run-bookmark-browser-smoke.pl \
+  --bookmark-file ~/.developer-dashboard/dashboards/test \
+  --expect-page-fragment "set_chain_value(foo,'bar','/ajax/foobar?type=json')" \
+  --expect-ajax-path /ajax/foobar?type=json \
+  --expect-ajax-body 123 \
+  --expect-dom-fragment '<span class="display">123</span>'
+```
+
 ## Coverage
 
 Install Devel::Cover in a local Perl library and generate the coverage report:
