@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.14  2026-04-02
+    - updated the GitHub Actions workflows to use `actions/checkout@v5` and opt JavaScript actions into Node 24, removing the hosted-runner deprecation path for the previous Node 20 checkout runtime
+    - closed the remaining `lib/` coverage gaps in `Developer::Dashboard::Web::App`, `Developer::Dashboard::Web::DancerApp`, and `Developer::Dashboard::RuntimeManager`, bringing the reviewed Devel::Cover report back to 100% statement and subroutine coverage
+    - fixed runtime web-process detection so `dashboard serve logs ...` and `dashboard serve workers ...` helper commands are no longer misdetected as managed web servers during shutdown and restart scans
+
 1.13  2026-04-02
     - extended `dashboard serve logs` with `-n N` tailing and `-f` follow mode, so users can start from the last requested lines and continue streaming appended Dancer2 and Starman log output live
     - added runtime-manager and CLI regressions for tailed and followed web logs

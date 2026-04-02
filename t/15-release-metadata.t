@@ -55,7 +55,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.13', 'module version bumped for the log-tail follow release' );
+is( $version, '1.14', 'module version bumped for the workflow and coverage release' );
 like( $readme, qr/dashboard serve logs/, 'README documents the serve logs command' );
 like( $pm, qr/C<dashboard serve logs>/, 'main POD documents the serve logs command' );
 like( $readme, qr/dashboard serve logs -n 100/, 'README documents tailed serve logs usage' );
@@ -119,11 +119,15 @@ if ( $workflow ne '' ) {
     like( $workflow, qr/cpanm --notest App::Cmd/, 'release workflow bootstraps App::Cmd before Dist::Zilla' );
     like( $workflow, qr/Module::Pluggable::Object/, 'release workflow preinstalls the App::Cmd dependency chain explicitly' );
     like( $workflow, qr/Dist::Zilla::Plugin::MetaProvides::Package/, 'release workflow installs the provides metadata plugin explicitly' );
+    like( $workflow, qr/actions\/checkout\@v5/, 'release workflow pins actions/checkout to the Node 24-ready major version' );
+    like( $workflow, qr/FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:\s*true/, 'release workflow opts JavaScript actions into Node 24' );
 }
 else {
     pass('release workflow checks are skipped in built tarballs without .github metadata');
     pass('dependency-chain workflow checks are skipped in built tarballs without .github metadata');
     pass('provides-plugin workflow checks are skipped in built tarballs without .github metadata');
+    pass('checkout-version workflow checks are skipped in built tarballs without .github metadata');
+    pass('node24 workflow checks are skipped in built tarballs without .github metadata');
 }
 
 done_testing;

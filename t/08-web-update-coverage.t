@@ -503,6 +503,35 @@ my $streaming_server = Developer::Dashboard::Web::Server->new( app => $streaming
     is( $res->content, "alpha\nbeta\n", 'streaming response writes streamed body chunks into the final response body' );
 }
 
+my $failing_stream_app = bless {}, 'Local::FailingStreamApp';
+{
+    no warnings 'once';
+    *Local::FailingStreamApp::handle = sub {
+        return [
+            200,
+            'text/plain; charset=utf-8',
+            {
+                stream => sub {
+                    my ($writer) = @_;
+                    $writer->("alpha\n");
+                    die "stream exploded\n";
+                },
+            },
+        ];
+    };
+}
+my $failing_stream_server = Developer::Dashboard::Web::Server->new( app => $failing_stream_app );
+{
+    my $res;
+    test_psgi $failing_stream_server->psgi_app, sub {
+        my ($cb) = @_;
+        $res = $cb->( GET 'http://127.0.0.1/ajax' );
+    };
+    is( $res->code, 200, 'streaming error responses keep the original success status' );
+    like( $res->content, qr/alpha/, 'streaming error responses keep chunks written before the failure' );
+    like( $res->content, qr/stream exploded/, 'streaming error responses append the streaming exception text' );
+}
+
 my $failing_app = bless {}, 'Local::FailingApp';
 {
     no warnings 'once';

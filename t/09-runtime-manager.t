@@ -109,7 +109,10 @@ is( $manager->_web_process_title( '0.0.0.0', 7890 ), 'dashboard web: 0.0.0.0:789
 like( Developer::Dashboard::RuntimeManager::_now_iso8601(), qr/^\d{4}-\d{2}-\d{2}T/, 'timestamp helper emits ISO-8601' );
 ok( $manager->_looks_like_web_process( { pid => 1, args => 'dashboard web: 0.0.0.0:7890' } ), 'managed web process titles are recognized' );
 ok( $manager->_looks_like_web_process( { pid => 1, args => 'perl -Ilib bin/dashboard serve' } ), 'legacy perl dashboard serve command lines are recognized' );
+ok( $manager->_looks_like_web_process( { pid => 1, args => 'dashboard serve --workers 4 --port 7890' } ), 'dashboard serve with startup flags is recognized as a web process' );
 ok( !$manager->_looks_like_web_process( { pid => 1, args => 'perl -Ilib bin/dashboard ps1' } ), 'non-web dashboard commands are ignored' );
+ok( !$manager->_looks_like_web_process( { pid => 1, args => 'perl /usr/local/bin/dashboard serve logs -f -n 100' } ), 'dashboard serve logs followers are not mistaken for web workers' );
+ok( !$manager->_looks_like_web_process( { pid => 1, args => 'dashboard serve workers 8' } ), 'dashboard serve workers subcommands are not mistaken for web workers' );
 ok( !$manager->_looks_like_web_process( { pid => 1, args => q{/bin/bash -c dashboard serve; sleep 1} } ), 'shell wrappers are not mistaken for web workers' );
 ok( !$manager->_looks_like_web_process( { pid => 1, args => q{strace -ff -o /tmp/ddexec ./bin/dashboard serve} } ), 'tracing wrappers are not mistaken for web workers' );
 
@@ -372,6 +375,81 @@ is( $manager->_tail_text( "one\ntwo\nthree", 2 ), "two\nthree", '_tail_text pres
 is( $manager->web_log( lines => 1 ), "Dancer2 line\n", 'web_log can return only the last requested number of lines' );
 $files->remove('dashboard_log');
 is( $manager->web_log, '', 'web_log returns an empty string when the dashboard log file is missing' );
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_follow_log_file = sub { return 1 };
+    $files->write( 'dashboard_log', "follow once\n" );
+    is( $manager->web_log( follow => 1, lines => 1 ), '', 'web_log follow mode returns an empty string after delegating to the follow loop' );
+}
+{
+    $files->write( 'dashboard_log', "alpha\nbeta\n" );
+    my $follow_capture = "$home/web-log-follow.txt";
+    my $follow_pid = fork();
+    die "fork failed: $!" if !defined $follow_pid;
+    if ( !$follow_pid ) {
+        open STDOUT, '>', $follow_capture or die $!;
+        $manager->web_log( follow => 1, lines => 1 );
+        exit 0;
+    }
+    my $follow_output = '';
+    for ( 1 .. 30 ) {
+        if ( -f $follow_capture ) {
+            open my $fh, '<', $follow_capture or die $!;
+            local $/;
+            $follow_output = <$fh>;
+            close $fh;
+            last if $follow_output =~ /beta\n/;
+        }
+        sleep 0.1;
+    }
+    like( $follow_output, qr/beta\n/, 'web_log follow mode starts from the tailed log output' );
+    $files->append( 'dashboard_log', "gamma\n" );
+    for ( 1 .. 30 ) {
+        open my $fh, '<', $follow_capture or die $!;
+        local $/;
+        $follow_output = <$fh>;
+        close $fh;
+        last if $follow_output =~ /gamma\n/;
+        sleep 0.1;
+    }
+    like( $follow_output, qr/gamma\n/, 'web_log follow mode streams appended log lines' );
+    kill 'TERM', $follow_pid;
+    waitpid( $follow_pid, 0 );
+    is( $? >> 8, 0, 'web_log follow mode exits cleanly on TERM' );
+}
+{
+    my $missing_follow = "$home/missing-follow.log";
+    my $missing_pid = fork();
+    die "fork failed: $!" if !defined $missing_pid;
+    if ( !$missing_pid ) {
+        $manager->_follow_log_file( file => $missing_follow, interval => 0.05 );
+        exit 0;
+    }
+    for ( 1 .. 30 ) {
+        last if -f $missing_follow;
+        sleep 0.1;
+    }
+    ok( -f $missing_follow, '_follow_log_file creates a missing log file before following it' );
+    kill 'HUP', $missing_pid;
+    waitpid( $missing_pid, 0 );
+    is( $? >> 8, 0, '_follow_log_file exits cleanly on HUP' );
+}
+{
+    my $signal_follow = "$home/signal-follow.log";
+    $files->write( 'dashboard_log', "signal\n" );
+    open my $fh, '>', $signal_follow or die $!;
+    close $fh;
+    my $signal_pid = fork();
+    die "fork failed: $!" if !defined $signal_pid;
+    if ( !$signal_pid ) {
+        $manager->_follow_log_file( file => $signal_follow, interval => 0.05 );
+        exit 0;
+    }
+    sleep 0.2;
+    kill 'INT', $signal_pid;
+    waitpid( $signal_pid, 0 );
+    is( $? >> 8, 0, '_follow_log_file exits cleanly on INT' );
+}
 
 @{ $runner->{loops} } = (
     { name => 'alpha.collector', pid => 1111 },

@@ -133,6 +133,18 @@ sub create_mock_app {
     like($response->[2], qr/\$\.ajax = function/, 'built-in jquery shim exposes ajax support');
 }
 
+# Test: static_file_response routes the jquery compatibility alias through the built-in shim
+{
+    local $ENV{HOME} = tempdir(CLEANUP => 1);
+    my $paths = Developer::Dashboard::PathRegistry->new(home => $ENV{HOME});
+    my $store = Developer::Dashboard::PageStore->new(paths => $paths);
+    my $app = create_mock_app( pages => $store );
+    my $response = $app->static_file_response( type => 'js', file => 'jquery-4.0.0.min.js' );
+    is($response->[0], 200, 'jquery compatibility alias returns 200');
+    like($response->[1], qr/application\/javascript/, 'jquery compatibility alias returns javascript content');
+    like($response->[2], qr/window\.jQuery = \$;/, 'jquery compatibility alias reuses the built-in jquery shim');
+}
+
 # Test: _serve_static_file resolves runtime-root dashboard/public assets
 {
     local $ENV{HOME} = tempdir(CLEANUP => 1);

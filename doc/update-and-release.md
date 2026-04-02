@@ -169,8 +169,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.13.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.13.tar.gz -v
+tar -tzf Developer-Dashboard-1.14.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.14.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:
@@ -181,6 +181,7 @@ and uploads the resulting tarball to PAUSE using:
 stored as GitHub Actions secrets.
 
 The release workflow bootstraps the C<App::Cmd> dependency chain explicitly before C<Dist::Zilla>, including modules such as C<Module::Pluggable::Object>, C<Getopt::Long::Descriptive>, C<Class::Load>, and C<IO::TieCombine>, so fresh GitHub runners do not fail during release dependency installation when C<Dist::Zilla> pulls in the C<App::Cmd::*> stack. It also installs C<Dist::Zilla::Plugin::MetaProvides::Package> so generated META files include an explicit C<provides> section.
+Both shipped GitHub workflows now pin C<actions/checkout@v5> and set C<FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true> so hosted runners do not rely on the deprecated Node 20 JavaScript-action runtime.
 
 Generated release metadata should also include repository resources plus an
 explicit C<provides> section, and the repository root should ship

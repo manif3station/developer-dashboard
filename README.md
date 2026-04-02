@@ -723,8 +723,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.13.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.13.tar.gz -v
+tar -tzf Developer-Dashboard-1.14.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.14.tar.gz -v
 ```
 
 The harness also:
@@ -775,6 +775,10 @@ The repository is set up to build release artifacts with Dist::Zilla and upload 
 The Dist::Zilla runtime prerequisite list now pins `JSON::XS` explicitly so
 the built tarball always declares the JSON backend dependency for PAUSE test
 installs.
+
+The GitHub Actions workflows pin `actions/checkout@v5` and set
+`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` so hosted runners stay ahead of the
+Node 20 JavaScript-action deprecation window.
 
 ### What JSON implementation does the project use?
 

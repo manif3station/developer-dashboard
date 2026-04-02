@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.13';
+our $VERSION = '1.14';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.13
+1.14
 
 =head1 INTRODUCTION
 
@@ -1177,8 +1177,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.13.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.13.tar.gz -v
+  tar -tzf Developer-Dashboard-1.14.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.14.tar.gz -v
 
 The harness also:
 
@@ -1228,6 +1228,10 @@ The repository is set up to build release artifacts with Dist::Zilla, including 
 Runtime release metadata pins C<JSON::XS> explicitly in Dist::Zilla so built
 tarballs declare the JSON backend dependency even if automatic prerequisite
 scanning misses it during PAUSE installs.
+
+The GitHub Actions workflows pin C<actions/checkout@v5> and set
+C<FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true> so hosted runners stay ahead of the
+Node 20 JavaScript-action deprecation window.
 
 =head2 What JSON implementation does the project use?
 
