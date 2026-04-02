@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.20  2026-04-02
+    - fixed bookmark editor overlay drift by restoring live syntax highlighting inside a clipped overlay viewport that follows the textarea by transform instead of trying to scroll a second independent layer
+    - fixed the editor bottom-of-file geometry by preserving the final blank line in the overlay so scrolling and caret targeting stay aligned on long bookmarks
+    - added browser-backed and web-route regression coverage for the saved bookmark editor highlighting and scroll-sync behaviour
+
 1.19  2026-04-02
     - fixed plain legacy `Folder` alias drift so direct calls such as `perl -MFolder -e 'print Folder->docker'` now lazy-load config-backed path aliases from the active runtime instead of rejecting aliases that `dashboard paths` already exposes
     - kept explicit `Folder->configure(..., aliases => ...)` overrides intact while adding the lazy config-backed alias cache

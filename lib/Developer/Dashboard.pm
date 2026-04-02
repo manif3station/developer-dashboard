@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.19';
+our $VERSION = '1.20';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.19
+1.20
 
 =head1 INTRODUCTION
 
@@ -850,10 +850,11 @@ Posting a bookmark document with C<BOOKMARK: some-id> back through the root
 editor now saves it to the bookmark store so C</app/some-id> resolves it
 immediately.
 
-The browser editor now keeps the visible overlay as exact escaped source with
-wrapping disabled instead of live syntax markup, so long bookmark lines,
-full-text selection, and caret placement stay aligned with the real
-textarea.
+The browser editor now renders syntax-highlight markup again, but keeps that
+highlight layer inside a clipped overlay viewport that follows the real
+textarea scroll position by transform instead of via a second scrollbox.
+That restores the visible highlighting while keeping long bookmark lines,
+full-text selection, and caret placement aligned with the real textarea.
 
 Edit and source views preserve raw Template Toolkit placeholders inside
 C<HTML:> and C<FORM.TT:> sections, so values such as C<[% title %]> are kept
@@ -1191,8 +1192,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.19.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.19.tar.gz -v
+  tar -tzf Developer-Dashboard-1.20.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.20.tar.gz -v
 
 The harness also:
 

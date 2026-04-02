@@ -742,9 +742,11 @@ sub _edit_html {
       min-height: 520px;
       border: 1px solid #2a2f36;
       background: #1f2328;
+      overflow: hidden;
     }
     .editor-overlay,
     .instruction-editor {
+      display: block;
       width: 100%;
       min-height: 520px;
       box-sizing: border-box;
@@ -759,20 +761,29 @@ sub _edit_html {
       overflow: auto;
       tab-size: 4;
       letter-spacing: 0;
-      scrollbar-gutter: stable both-edges;
+    }
+    .editor-overlay-viewport {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      pointer-events: none;
+      background: transparent;
     }
     .editor-overlay {
       position: absolute;
-      inset: 0;
-      pointer-events: none;
+      top: 0;
+      left: 0;
+      min-width: 100%;
       color: #e6edf3;
       background: transparent;
       unicode-bidi: plaintext;
       direction: ltr;
+      will-change: transform;
     }
     .instruction-editor {
       position: relative;
       z-index: 1;
+      height: 520px;
       color: transparent;
       border: 0;
       resize: vertical;
@@ -782,6 +793,8 @@ sub _edit_html {
       -webkit-text-fill-color: transparent;
       unicode-bidi: plaintext;
       direction: ltr;
+      overflow: auto;
+      scrollbar-gutter: stable both-edges;
     }
     .instruction-editor::selection {
       background: rgba(121, 192, 255, 0.35);
@@ -809,7 +822,7 @@ sub _edit_html {
   __TOP_CHROME__
   <form method="post" action="__FORM_ACTION__" id="instruction-form">
     <div class="editor-stack">
-      <pre class="editor-overlay" id="instruction-highlight" aria-hidden="true">__INITIAL_HIGHLIGHT__</pre>
+      <div class="editor-overlay-viewport" aria-hidden="true"><pre class="editor-overlay" id="instruction-highlight">__INITIAL_HIGHLIGHT__</pre></div>
       <textarea class="instruction-editor" id="instruction-editor" name="instruction" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off">__SOURCE__</textarea>
     </div>
   </form>
@@ -983,18 +996,32 @@ function ddHighlightPerlLine(text) {
   });
   return ddRestoreTokens(perl, tokens);
 }
+function ddOverlayHtml(text) {
+  const source = String(text);
+  let html = ddHighlightInstruction(source);
+  if (source.endsWith('\n')) html += ' ';
+  return html;
+}
+function ddSyncEditorOverlay() {
+  ddHighlight.style.minWidth = Math.max(ddEditor.scrollWidth, ddEditor.clientWidth) + 'px';
+  ddHighlight.style.minHeight = Math.max(ddEditor.scrollHeight, ddEditor.clientHeight) + 'px';
+  ddHighlight.style.transform = 'translate(' + (-ddEditor.scrollLeft) + 'px, ' + (-ddEditor.scrollTop) + 'px)';
+}
 function ddRenderEditor(text) {
-  ddHighlight.textContent = String(text);
+  ddHighlight.innerHTML = ddOverlayHtml(text);
+  ddSyncEditorOverlay();
 }
 ddEditor.addEventListener('input', function() {
   ddRenderEditor(ddEditor.value);
 });
 ddEditor.addEventListener('scroll', function() {
-  ddHighlight.scrollTop = ddEditor.scrollTop;
-  ddHighlight.scrollLeft = ddEditor.scrollLeft;
+  ddSyncEditorOverlay();
 });
 ddEditor.addEventListener('change', function() {
   ddForm.submit();
+});
+window.addEventListener('resize', function() {
+  ddSyncEditorOverlay();
 });
 ddEditor.value = __SOURCE_JSON__;
 ddRenderEditor(ddEditor.value);
@@ -1005,7 +1032,7 @@ HTML
 
     $html =~ s/__TITLE__/$title/g;
     $html =~ s/__TOP_CHROME__/$self->_top_chrome_html( $page, \%$urls )/ge;
-    $html =~ s/__INITIAL_HIGHLIGHT__/_escape_html($raw_source)/ge;
+    $html =~ s/__INITIAL_HIGHLIGHT__/$self->_editor_overlay_html($raw_source)/ge;
     $html =~ s/__SOURCE__/$source/g;
     $html =~ s/__SOURCE_JSON__/_json_for_inline_script($raw_source)/ge;
     $html =~ s/__FORM_ACTION__/$form_action/g;
@@ -1033,6 +1060,17 @@ sub _highlight_instruction_html {
     my ( $self, $source ) = @_;
     my %state = ( section => '', html_mode => '' );
     return join "\n", map { $self->_highlight_editor_line( $_, \%state ) } split /\n/, ( $source // '' ), -1;
+}
+
+# _editor_overlay_html($source)
+# Generates the browser overlay HTML while preserving the textarea's final blank line geometry.
+# Input: canonical bookmark instruction text.
+# Output: highlighted HTML string with a trailing sentinel when the source ends in a newline.
+sub _editor_overlay_html {
+    my ( $self, $source ) = @_;
+    my $html = $self->_highlight_instruction_html($source);
+    $html .= ' ' if defined $source && $source =~ /\n\z/;
+    return $html;
 }
 
 # _highlight_editor_line($line, $state)

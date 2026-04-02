@@ -519,7 +519,7 @@ dashboard action run system-status paths
 Bookmark documents use the original separator-line format with directive headers such as `TITLE:`, `STASH:`, `HTML:`, `FORM.TT:`, `FORM:`, and `CODE1:`.
 Posting a bookmark document with `BOOKMARK: some-id` back through the root editor now saves it to the bookmark store so `/app/some-id` resolves it immediately.
 
-The browser editor now keeps the visible overlay as exact escaped source with wrapping disabled instead of live syntax markup, so long bookmark lines, full-text selection, and caret placement stay aligned with the real textarea.
+The browser editor now renders syntax-highlight markup again, but keeps that highlight layer inside a clipped overlay viewport that follows the real textarea scroll position by transform instead of via a second scrollbox. That restores the visible highlighting while keeping long bookmark lines, full-text selection, and caret placement aligned with the real textarea.
 Edit and source views preserve raw Template Toolkit placeholders inside `HTML:` and `FORM.TT:` sections, so values such as `[% title %]` are kept in the bookmark source instead of being rewritten to rendered HTML after a browser save.
 
 Template Toolkit rendering exposes the page title as `title`, so a bookmark
@@ -732,8 +732,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.19.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.19.tar.gz -v
+tar -tzf Developer-Dashboard-1.20.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.20.tar.gz -v
 ```
 
 The harness also:

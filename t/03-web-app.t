@@ -241,7 +241,7 @@ is($code1d_tt, 200, 'posted TT bookmark instruction route ok');
 like($body1d_tt, qr/\[% title %\]/, 'editor preserves TT placeholders in the posted source view');
 like($body1d_tt, qr/HTML:\s*&lt;h1&gt;\[% title %\]&lt;\/h1&gt;/s, 'editor textarea keeps TT placeholders inside HTML sections');
 like($body1d_tt, qr/ddEditor\.value = "[^"]*\[% title %\][^"]*"\s*;\s*ddRenderEditor/s, 'editor boot script keeps TT placeholders in the browser-loaded instruction text');
-like($body1d_tt, qr/instruction-highlight[\s\S]*?\[% title %\]/s, 'editor syntax highlight is built from raw TT bookmark source');
+like($body1d_tt, qr/instruction-highlight[\s\S]*?<span class="tok-directive">HTML:<\/span>\s*<span class="tok-tag">&lt;h1<\/span><span class="tok-tag">&gt;<\/span><span class="tok-note">\[% title %\]<\/span>/s, 'editor syntax highlight is built from highlighted bookmark source');
 my ($code1d_tt_source, $type1d_tt_source, $body1d_tt_source) = @{ $app->handle(
     path        => '/app/index/source',
     query       => '',
@@ -292,10 +292,14 @@ my ($code1e, undef, $body1e) = @{ $app->handle(
 is($code1e, 200, 'highlight demo route ok');
 like($body1e, qr/wrap="off"/, 'editor textarea disables soft wrapping so long bookmark lines keep exact geometry');
 like($body1e, qr/white-space:\s*pre;/, 'editor stack keeps preformatted line geometry instead of wrapping overlay lines differently from the textarea');
-like($body1e, qr/scrollbar-gutter:\s*stable both-edges;/, 'editor stack reserves stable scrollbar gutter space for both layers');
-my ($demo_overlay) = $body1e =~ m{<pre class="editor-overlay" id="instruction-highlight" aria-hidden="true">(.*?)</pre>}s;
-like($demo_overlay, qr/HTML: &lt;style&gt;body \{ color: red; \}&lt;\/style&gt;&lt;script&gt;const run = 1;&lt;\/script&gt;&lt;div style="color:red" onclick="run\(\)"&gt;\[% stash\.name %\]&lt;\/div&gt;/, 'editor overlay preserves the exact raw bookmark line content for stable caret alignment');
-unlike($demo_overlay, qr/<span class="tok-/, 'editor overlay no longer injects syntax-highlight spans that can drift away from the textarea geometry');
+like($body1e, qr/class="editor-overlay-viewport"/, 'editor route renders a clipped overlay viewport above the textarea');
+like($body1e, qr/function ddSyncEditorOverlay\(\)/, 'editor route exposes a dedicated overlay sync helper');
+like($body1e, qr/ddHighlight\.style\.transform = 'translate\('/, 'editor route syncs overlay position through transforms instead of a second scrollbox');
+my ($demo_overlay) = $body1e =~ m{<pre class="editor-overlay" id="instruction-highlight">(.*?)</pre>}s;
+like($demo_overlay, qr/<span class="tok-directive">HTML:<\/span>/, 'editor overlay highlights bookmark directives');
+like($demo_overlay, qr/<span class="tok-tag">&lt;style<\/span>/, 'editor overlay highlights HTML tag names');
+like($demo_overlay, qr/<span class="tok-js">const<\/span> run = 1;/, 'editor overlay highlights JavaScript keywords');
+like($demo_overlay, qr/<span class="tok-note">\[% stash\.name %\]<\/span>/, 'editor overlay highlights TT placeholders inside HTML sections');
 
 my $broken_editor_source = <<'BOOKMARK';
 BOOKMARK: test
@@ -358,11 +362,11 @@ my ( $broken_editor_code, undef, $broken_editor_body ) = @{ $app->handle(
 ) };
 is( $broken_editor_code, 200, 'exact bookmark editor repro route ok' );
 like( $broken_editor_body, qr/Stream error:/, 'exact bookmark editor repro keeps the original bookmark text visible in the editor route' );
-my ($broken_editor_overlay) = $broken_editor_body =~ m{<pre class="editor-overlay" id="instruction-highlight" aria-hidden="true">(.*?)</pre>}s;
-like( $broken_editor_overlay, qr/let lastLength = 0;/, 'exact bookmark editor repro keeps the JavaScript source text visible in the editor overlay' );
-like( $broken_editor_overlay, qr/console\.error\('Stream error:', status, error\);/, 'exact bookmark editor repro keeps the JavaScript string text intact in the overlay' );
+my ($broken_editor_overlay) = $broken_editor_body =~ m{<pre class="editor-overlay" id="instruction-highlight">(.*?)</pre>}s;
+like( $broken_editor_overlay, qr/<span class="tok-js">let<\/span> lastLength = 0;/, 'exact bookmark editor repro keeps the JavaScript source text visible in the editor overlay' );
+like( $broken_editor_overlay, qr/<span class="tok-string">'Stream error:'<\/span>/, 'exact bookmark editor repro highlights JavaScript string text in the overlay' );
+like( $broken_editor_overlay, qr/<span class="tok-string">'GET'<\/span>/, 'exact bookmark editor repro highlights JavaScript string literals without leaking markup text' );
 unlike( $broken_editor_overlay, qr/class=&quot;tok-string&quot;&gt;GET/, 'exact bookmark editor repro no longer leaks span attribute text into the visible editor overlay' );
-unlike( $broken_editor_overlay, qr/<span class="tok-/, 'exact bookmark editor repro keeps the live overlay as plain escaped source so browser editing does not corrupt long bookmarks' );
 unlike( $broken_editor_overlay, qr/\x1EHL\d+\x1E/, 'exact bookmark editor repro does not leak placeholder markers into the overlay output' );
 
 my ($code2, $type2, $body2) = @{ $app->handle(path => '/app/welcome', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
