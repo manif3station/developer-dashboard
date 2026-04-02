@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.07  2026-04-02
+    - fixed `/js/jquery.js` for saved bookmark pages by serving a built-in local jQuery-style compatibility shim when no runtime file overrides it
+    - verified that legacy `Ajax jvar => 'foo.bar', file => 'foobar'` bookmark pages bind `foo.bar` to `/ajax/foobar?...` and that the saved ajax endpoint executes through the browser-facing route
+    - updated README, POD, static-file docs, release docs, and release-sensitive tests for the new built-in `/js/jquery.js` behavior
+
 1.06  2026-04-02
     - fixed saved bookmark editor boot-script escaping so literal bookmark HTML such as `</script>` no longer breaks the source editor and leaks raw instruction text below the page
     - fixed legacy bookmark bootstrap ordering so `Ajax jvar => ...` bindings run after `set_chain_value()` is defined, preventing play-route JavaScript `ReferenceError` failures

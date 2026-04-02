@@ -2,6 +2,11 @@
 
 ## 2026-04-02
 
+- Fixed missing `/js/jquery.js` bookmark support by serving a built-in local jQuery-style compatibility shim when no runtime asset overrides it, so saved bookmark pages no longer fail immediately with `$` undefined just because no copied runtime JS file exists.
+- Fixed browser-verified legacy `Ajax jvar => 'foo.bar', file => 'foobar'` bookmark flow coverage, confirming that `foo.bar` is bound to the saved `/ajax/foobar?...` endpoint and that any remaining non-update in the user's sample bookmark is due to the page's own `.display` versus `class=disply` mismatch rather than a dashboard route failure.
+
+## 2026-04-02
+
 - Fixed saved bookmark editor script breakout by escaping inline JSON assignment text before it is embedded into the browser boot script, so literal bookmark HTML such as `</script>` no longer closes the editor bootstrap early and spills raw source text under the page.
 - Fixed legacy saved bookmark bootstrap ordering by defining `set_chain_value()` and the other legacy helpers before rendering bookmark body HTML, so `Ajax jvar => ...` bindings no longer throw `ReferenceError: Can't find variable: set_chain_value` on play routes.
 

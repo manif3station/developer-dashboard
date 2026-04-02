@@ -125,6 +125,7 @@ sub dispatch_request {
         return $self->legacy_ajax_file_response( ajax_file => uri_unescape($1), %args );
     }
     return $self->status_response(%args) if $path eq '/system/status';
+    return $self->jquery_js_response(%args) if $path eq '/js/jquery.js' || $path eq '/js/jquery-4.0.0.min.js';
     return $self->marked_js_response(%args) if $path eq '/marked.min.js';
     return $self->tiff_js_response(%args) if $path eq '/tiff.min.js';
     return $self->loading_image_response(%args) if $path eq '/loading.webp';
@@ -351,6 +352,120 @@ sub status_response {
 # Serves the built-in marked shim asset.
 # Input: normalized request arguments.
 # Output: response array reference.
+sub jquery_js_response {
+    my ( $self, %args ) = @_;
+    return [ 200, 'application/javascript; charset=utf-8', <<'JS' ];
+(function () {
+  function asArray(list) {
+    return Array.prototype.slice.call(list || []);
+  }
+
+  function onReady(fn) {
+    if (typeof fn !== 'function') return;
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', function () { fn(window.jQuery); }, { once: true });
+      return;
+    }
+    fn(window.jQuery);
+  }
+
+  function wrap(nodes) {
+    var api = {
+      nodes: nodes || [],
+      length: (nodes || []).length,
+      ready: function (fn) {
+        if (this.nodes[0] === document) onReady(fn);
+        return this;
+      },
+      text: function (value) {
+        if (arguments.length === 0) {
+          return this.nodes[0] ? this.nodes[0].textContent : '';
+        }
+        this.nodes.forEach(function (node) {
+          node.textContent = value == null ? '' : String(value);
+        });
+        return this;
+      }
+    };
+    return api;
+  }
+
+  function $(arg) {
+    if (typeof arg === 'function') {
+      onReady(arg);
+      return wrap([document]);
+    }
+    if (arg === document) {
+      return wrap([document]);
+    }
+    if (typeof arg === 'string') {
+      return wrap(asArray(document.querySelectorAll(arg)));
+    }
+    if (arg && arg.nodeType) {
+      return wrap([arg]);
+    }
+    return wrap([]);
+  }
+
+  $.ajax = function (options) {
+    var opts = options || {};
+    var xhr = new XMLHttpRequest();
+    var method = opts.type || 'GET';
+    xhr.open(method, opts.url || '', true);
+
+    xhr.onreadystatechange = function () {
+      var payload;
+      if (xhr.readyState !== 4) return;
+      if (xhr.status >= 200 && xhr.status < 300) {
+        payload = xhr.responseText;
+        if (opts.dataType === 'json') {
+          try {
+            payload = payload === '' ? null : JSON.parse(payload);
+          } catch (error) {
+            if (typeof opts.error === 'function') {
+              opts.error(xhr, 'parsererror', error);
+            }
+            return;
+          }
+        }
+        if (typeof opts.success === 'function') {
+          opts.success(payload, 'success', xhr);
+        }
+        return;
+      }
+      if (typeof opts.error === 'function') {
+        opts.error(xhr, 'error', xhr.statusText || 'error');
+      }
+    };
+
+    xhr.onerror = function () {
+      if (typeof opts.error === 'function') {
+        opts.error(xhr, 'error', xhr.statusText || 'error');
+      }
+    };
+
+    if (opts.data && typeof opts.data === 'object' && !(opts.data instanceof FormData)) {
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
+      xhr.send(new URLSearchParams(opts.data).toString());
+      return xhr;
+    }
+
+    xhr.send(opts.data == null ? null : opts.data);
+    return xhr;
+  };
+
+  $.ready = onReady;
+  $.fn = {};
+  window.jQuery = $;
+  window.$ = $;
+})();
+JS
+}
+
+# marked_js_response(%args)
+# Serves the built-in marked shim asset.
+# Input: normalized request arguments.
+# Output: response array reference.
 sub marked_js_response {
     my ( $self, %args ) = @_;
     return [ 200, 'application/javascript; charset=utf-8', "window.marked=window.marked||{parse:function(s){return s||'';}};\n" ];
@@ -380,6 +495,10 @@ sub loading_image_response {
 # Output: response array reference.
 sub static_file_response {
     my ( $self, %args ) = @_;
+    if ( ( $args{type} || '' ) eq 'js' ) {
+        my $file = $args{file} || '';
+        return $self->jquery_js_response(%args) if $file eq 'jquery.js' || $file eq 'jquery-4.0.0.min.js';
+    }
     return $self->_serve_static_file( $args{type}, $args{file} );
 }
 

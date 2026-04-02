@@ -387,6 +387,47 @@ my $existing_stream = drain_stream_body($body7d);
 like($existing_stream, qr/existing-out/, 'existing ajax executable streams stdout');
 like($existing_stream, qr/existing-err/, 'existing ajax executable streams stderr');
 
+my ($jquery_code, $jquery_type, $jquery_body) = @{ $app->handle(path => '/js/jquery.js', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($jquery_code, 200, 'built-in jquery bookmark helper route is available');
+like($jquery_type, qr/application\/javascript/, 'built-in jquery bookmark helper route returns javascript');
+like($jquery_body, qr/window\.jQuery = \$;/, 'built-in jquery bookmark helper exposes window.jQuery');
+
+my $legacy_jquery_ajax_page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE');
+BOOKMARK: test-jquery-ajax
+:--------------------------------------------------------------------------------:
+HTML: <script src="/js/jquery.js"></script>
+<script>var foo = {};
+$(document).ready(_ => {
+    $.ajax({
+        url: foo.bar,
+        type: 'GET',
+        dataType: 'text',
+        success: function (response) {
+            $('.display').text(response);
+        },
+        error: function (xhr, status, error) {
+            console.error(error);
+        }
+    });
+});
+</script>
+TEST2: <span class=disply></span>
+:--------------------------------------------------------------------------------:
+CODE1: Ajax jvar => 'foo.bar', file => 'foobar', code => q{
+print 123
+};
+PAGE
+$store->save_page($legacy_jquery_ajax_page);
+
+my ($jquery_page_code, undef, $jquery_page_body) = @{ $app->handle(path => '/app/test-jquery-ajax', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($jquery_page_code, 200, 'legacy jquery ajax bookmark route renders');
+like($jquery_page_body, qr{<script src="/js/jquery\.js"></script>}, 'legacy jquery ajax bookmark keeps the jquery helper script tag');
+like($jquery_page_body, qr{set_chain_value\(foo,'bar','/ajax/foobar\?type=json'\)}, 'legacy jquery ajax bookmark binds foo.bar to the saved ajax endpoint');
+my ($jquery_ajax_code, $jquery_ajax_type, $jquery_ajax_body) = @{ $app->handle(path => '/ajax/foobar', query => 'type=json', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($jquery_ajax_code, 200, 'legacy jquery ajax bookmark saved endpoint is executable');
+like($jquery_ajax_type, qr/application\/json/, 'legacy jquery ajax bookmark saved endpoint keeps the helper response type');
+is(drain_stream_body($jquery_ajax_body), '123', 'legacy jquery ajax bookmark saved endpoint returns the code output');
+
 {
     open my $fh, '>', $store->page_file('legacy-forward') or die $!;
     print {$fh} '/ajax/demo.json?type=text';

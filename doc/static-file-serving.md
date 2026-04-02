@@ -29,7 +29,7 @@ Reference static files in bookmark HTML or page instructions using these URL pat
 
 ### JavaScript Files
 ```html
-<script src="/js/jquery-4.0.0.min.js"></script>
+<script src="/js/jquery.js"></script>
 <script src="/js/my-custom-script.js"></script>
 ```
 
@@ -143,7 +143,7 @@ GET /others/<filename>  - Serve other static assets
 ```
 TITLE: AJAX Test
 :--------------------------------------------------------------------------------:
-HTML: <script src="/js/jquery-4.0.0.min.js"></script>
+HTML: <script src="/js/jquery.js"></script>
 <script>
 $.ajax({
     url: '/ajax/test',
@@ -168,7 +168,7 @@ TITLE: Styled Application
 :--------------------------------------------------------------------------------:
 HTML: <link rel="stylesheet" href="/css/bootstrap.min.css">
 <link rel="stylesheet" href="/css/custom.css">
-<script src="/js/jquery-4.0.0.min.js"></script>
+<script src="/js/jquery.js"></script>
 <script src="/js/bootstrap.min.js"></script>
 <script src="/js/app.js"></script>
 <div id="app"></div>
@@ -188,8 +188,8 @@ CODE1: Initialize application
 
 ## File Size Limitations
 
-Currently available static file:
-- jQuery 4.0.0 minified: 77 KB
+Built-in compatibility asset:
+- `/js/jquery.js` provides a local jQuery-style helper with `$(document).ready`, `$.ajax`, and selector `.text(...)` support for saved bookmark pages
 
 Additional files can be added as needed. There are no built-in size restrictions, but large files should be minified to optimize page load times.
 

@@ -207,9 +207,11 @@ it means bookmark Ajax code can rely on normal `print`, `warn`, `die`,
 If `code => ...` is omitted, `Ajax(file => 'name')` targets the existing
 executable at `dashboards/ajax/name` instead of rewriting it.
 Static files referenced by saved bookmarks are resolved from the effective
-runtime public tree first and then from the saved bookmark root, so a file such
-as `dashboards/public/js/jquery.js` is available at `/js/jquery.js` without
-requiring a separate home-runtime copy.
+runtime public tree first and then from the saved bookmark root. The web layer
+also provides a built-in `/js/jquery.js` compatibility shim, so bookmark pages
+that expect a local jQuery-style helper still have `$`, `$(document).ready`,
+`$.ajax`, and selector `.text(...)` support even when no runtime file has been
+copied into `dashboard/public/js` yet.
 
 Saved bookmark editor and view-source routes also protect literal inline script
 content from breaking the browser bootstrap. If a bookmark body contains HTML
@@ -712,8 +714,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.06.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.06.tar.gz -v
+tar -tzf Developer-Dashboard-1.07.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.07.tar.gz -v
 ```
 
 The harness also:

@@ -120,6 +120,19 @@ sub create_mock_app {
     is($response->[0], 404, 'Nonexistent file returns 404');
 }
 
+# Test: built-in jquery shim route exists for bookmark compatibility
+{
+    local $ENV{HOME} = tempdir(CLEANUP => 1);
+    my $paths = Developer::Dashboard::PathRegistry->new(home => $ENV{HOME});
+    my $store = Developer::Dashboard::PageStore->new(paths => $paths);
+    my $app = create_mock_app( pages => $store );
+    my $response = $app->jquery_js_response();
+    is($response->[0], 200, 'built-in jquery shim returns 200');
+    is($response->[1], 'application/javascript; charset=utf-8', 'built-in jquery shim returns javascript content type');
+    like($response->[2], qr/window\.jQuery = \$;/, 'built-in jquery shim exposes window.jQuery');
+    like($response->[2], qr/\$\.ajax = function/, 'built-in jquery shim exposes ajax support');
+}
+
 # Test: _serve_static_file resolves runtime-root dashboard/public assets
 {
     local $ENV{HOME} = tempdir(CLEANUP => 1);

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.06';
+our $VERSION = '1.07';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.06
+1.07
 
 =head1 INTRODUCTION
 
@@ -529,9 +529,11 @@ behaviour instead of a buffered JSON wrapper.
 If C<code =E<gt> ...> is omitted, C<Ajax(file =E<gt> 'name')> targets the
 existing executable at C<dashboards/ajax/name> instead of rewriting it.
 Static files referenced by saved bookmarks are resolved from the effective
-runtime public tree first and then from the saved bookmark root, so a file such
-as C<dashboards/public/js/jquery.js> is available at C</js/jquery.js> without
-requiring a separate home-runtime copy.
+runtime public tree first and then from the saved bookmark root. The web layer
+also provides a built-in C</js/jquery.js> compatibility shim, so bookmark pages
+that expect a local jQuery-style helper still have C<$>, C<$(document).ready>,
+C<$.ajax>, and selector C<.text(...)> support even when no runtime file has
+been copied into C<dashboard/public/js> yet.
 
 Saved bookmark editor and view-source routes also protect literal inline
 script content from breaking the browser bootstrap. If a bookmark body
@@ -1137,8 +1139,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.06.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.06.tar.gz -v
+  tar -tzf Developer-Dashboard-1.07.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.07.tar.gz -v
 
 The harness also:
 
