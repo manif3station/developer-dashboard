@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.10  2026-04-02
+    - changed saved bookmark Ajax helpers and `/ajax/<file>` routes to default to `text/plain` output when no explicit `type => ...` or `?type=...` is supplied
+    - fixed the Dancer2 ajax bridge so streamed `/ajax/...` responses flush through the HTTP layer instead of being buffered into one final string
+    - extended ajax helper, web-route, and streaming coverage and updated README, POD, bug notes, and release metadata for the 1.10 ajax-default and streaming fix
+
 1.09  2026-04-02
     - fixed transient `/?mode=render&token=...` play for named bookmarks so shared `nav/*.tt` fragments keep the saved `/app/<id>` current-page context instead of collapsing to `/`
     - added a dedicated bookmark play regression test for shared nav rendering on both unnamed transient play and named bookmark token play

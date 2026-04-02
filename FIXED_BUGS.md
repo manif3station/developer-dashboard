@@ -2,6 +2,8 @@
 
 ## 2026-04-02
 
+- Fixed saved bookmark Ajax default-type drift by making `Ajax jvar => ..., file => ...` and `/ajax/<file>` default to `text/plain` output instead of `html` or `json` when no explicit type is supplied.
+- Fixed Dancer2 ajax stream buffering by forwarding streamed `/ajax/...` chunks through Dancer's delayed-response writer instead of collecting them into one final string first, so long-running bookmark Ajax handlers can show output incrementally again.
 - Fixed shared `nav/*.tt` context drift on transient play routes by making named bookmark token renders reuse the saved `/app/<id>` current-page path, so nav fragments no longer disappear or flip conditional output just because the browser reached the page through `/?mode=render&token=...`.
 - Fixed repeated slow manual bookmark-browser repros by adding a dedicated host-side `integration/browser/run-bookmark-browser-smoke.pl` workflow, so saved bookmark issues now have one fast real-browser smoke path instead of requiring the full blank-environment integration cycle every time.
 - Fixed missing `/js/jquery.js` bookmark support by serving a built-in local jQuery-style compatibility shim when no runtime asset overrides it, so saved bookmark pages no longer fail immediately with `$` undefined just because no copied runtime JS file exists.

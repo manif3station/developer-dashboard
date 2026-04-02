@@ -441,10 +441,10 @@ $store->save_page($legacy_jquery_ajax_page);
 my ($jquery_page_code, undef, $jquery_page_body) = @{ $app->handle(path => '/app/test-jquery-ajax', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($jquery_page_code, 200, 'legacy jquery ajax bookmark route renders');
 like($jquery_page_body, qr{<script src="/js/jquery\.js"></script>}, 'legacy jquery ajax bookmark keeps the jquery helper script tag');
-like($jquery_page_body, qr{set_chain_value\(foo,'bar','/ajax/foobar\?type=json'\)}, 'legacy jquery ajax bookmark binds foo.bar to the saved ajax endpoint');
-my ($jquery_ajax_code, $jquery_ajax_type, $jquery_ajax_body) = @{ $app->handle(path => '/ajax/foobar', query => 'type=json', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+like($jquery_page_body, qr{set_chain_value\(foo,'bar','/ajax/foobar\?type=text'\)}, 'legacy jquery ajax bookmark binds foo.bar to the saved ajax endpoint with default text type');
+my ($jquery_ajax_code, $jquery_ajax_type, $jquery_ajax_body) = @{ $app->handle(path => '/ajax/foobar', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($jquery_ajax_code, 200, 'legacy jquery ajax bookmark saved endpoint is executable');
-like($jquery_ajax_type, qr/application\/json/, 'legacy jquery ajax bookmark saved endpoint keeps the helper response type');
+like($jquery_ajax_type, qr/text\/plain/, 'legacy jquery ajax bookmark saved endpoint defaults to text content type when no type is supplied');
 is(drain_stream_body($jquery_ajax_body), '123', 'legacy jquery ajax bookmark saved endpoint returns the code output');
 
 {

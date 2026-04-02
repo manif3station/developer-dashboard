@@ -112,7 +112,7 @@ is( $ajax_result, 'HIDE-THIS', 'Ajax returns the legacy hide marker' );
             code => 'print qq{{"ok":1}};',
         );
     };
-    like( $saved_ajax_stdout, qr{/ajax/coverage\.json\?type=json}, 'Ajax prints a saved bookmark ajax url when a file name is supplied' );
+    like( $saved_ajax_stdout, qr{/ajax/coverage\.json\?type=text}, 'Ajax prints a saved bookmark ajax url with the default text type when a file name is supplied' );
     is( $saved_ajax_result, 'HIDE-THIS', 'saved bookmark Ajax still returns the hide marker' );
     ok( -f Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'saved bookmark Ajax stores the named ajax code file under the dashboards ajax tree' );
     ok( -x Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'saved bookmark Ajax marks the stored dashboards ajax tree file executable' );

@@ -55,7 +55,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.09', 'module version bumped for the transient play nav context fix release' );
+is( $version, '1.10', 'module version bumped for the ajax default-type and streaming fix release' );
 like( $readme, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'README documents the bookmark browser smoke script' );
 like( $pm, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'main POD documents the bookmark browser smoke script' );
 like( $readme, qr/Ajax` helper calls inside saved bookmark `CODE\*` blocks should use an\s+explicit `file => 'name\.json'` argument/s, 'README documents the saved bookmark Ajax file requirement' );

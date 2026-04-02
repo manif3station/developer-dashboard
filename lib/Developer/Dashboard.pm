@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.09';
+our $VERSION = '1.10';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.09
+1.10
 
 =head1 INTRODUCTION
 
@@ -522,13 +522,15 @@ Legacy C<Ajax> helper calls inside saved bookmark C<CODE*> blocks should use
 an explicit C<file =E<gt> 'name.json'> argument. When a saved page supplies that
 name, the helper stores the Ajax Perl code under the saved dashboard ajax tree and emits a
 stable saved-bookmark endpoint such as
-C</ajax/name.json?type=json>. Those saved Ajax handlers
+C</ajax/name.json?type=text>. Those saved Ajax handlers
 run the stored file as a real process, defaulting to Perl unless the file
 starts with a shebang, and stream both C<stdout> and C<stderr> back to the
 browser as they happen. That keeps bookmark Ajax workflows usable even while
 transient token URLs stay disabled by default, and it means bookmark Ajax code
 can rely on normal C<print>, C<warn>, C<die>, C<system>, and C<exec> process
 behaviour instead of a buffered JSON wrapper.
+Saved bookmark Ajax handlers also default to C<text/plain> when no explicit
+C<type =E<gt> ...> argument is supplied.
 If C<code =E<gt> ...> is omitted, C<Ajax(file =E<gt> 'name')> targets the
 existing executable at C<dashboards/ajax/name> instead of rewriting it.
 Static files referenced by saved bookmarks are resolved from the effective
@@ -1116,8 +1118,8 @@ and add explicit expectations:
 
   integration/browser/run-bookmark-browser-smoke.pl \
     --bookmark-file ~/.developer-dashboard/dashboards/test \
-    --expect-page-fragment "set_chain_value(foo,'bar','/ajax/foobar?type=json')" \
-    --expect-ajax-path /ajax/foobar?type=json \
+    --expect-page-fragment "set_chain_value(foo,'bar','/ajax/foobar?type=text')" \
+    --expect-ajax-path /ajax/foobar?type=text \
     --expect-ajax-body 123 \
     --expect-dom-fragment '<span class="display">123</span>'
 
@@ -1160,8 +1162,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.09.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.09.tar.gz -v
+  tar -tzf Developer-Dashboard-1.10.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.10.tar.gz -v
 
 The harness also:
 

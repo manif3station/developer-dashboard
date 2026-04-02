@@ -1442,7 +1442,7 @@ sub _build_query {
 sub _legacy_ajax_response {
     my ( $self, %args ) = @_;
     my $params = $args{params} || {};
-    my $type  = $params->{type} || 'html';
+    my $type  = $params->{type} || 'text';
     my %types = (
         html => 'text/html; charset=utf-8',
         text => 'text/plain; charset=utf-8',

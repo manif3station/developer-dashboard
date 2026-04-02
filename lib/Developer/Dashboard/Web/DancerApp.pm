@@ -93,24 +93,43 @@ sub _response_from_result {
         %{ $headers || {} },
     );
 
+    if ( ref($body) eq 'HASH' && ref( $body->{stream} ) eq 'CODE' ) {
+        my $stream = $body->{stream};
+        return delayed {
+            status $code;
+            content_type $type;
+            for my $name ( sort keys %merged_headers ) {
+                response_header $name => $merged_headers{$name};
+            }
+
+            my $started = 0;
+            my $writer = sub {
+                my ($chunk) = @_;
+                return 1 if !defined $chunk || $chunk eq '';
+                if ( !$started ) {
+                    flush;
+                    $started = 1;
+                }
+                content $chunk;
+                return 1;
+            };
+
+            eval {
+                $stream->($writer);
+                1;
+            } or do {
+                my $error = $@ || "Streaming response failed\n";
+                $writer->($error);
+            };
+
+            done;
+        };
+    }
+
     status $code;
     content_type $type;
     for my $name ( sort keys %merged_headers ) {
         response_header $name => $merged_headers{$name};
-    }
-
-    if ( ref($body) eq 'HASH' && ref( $body->{stream} ) eq 'CODE' ) {
-        my $stream = $body->{stream};
-        my $output = '';
-        $stream->(
-            sub {
-                my ($chunk) = @_;
-                return 1 if !defined $chunk || $chunk eq '';
-                $output .= $chunk;
-                return 1;
-            }
-        );
-        return $output;
     }
 
     return $body;

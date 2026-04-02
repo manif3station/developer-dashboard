@@ -66,6 +66,7 @@ sub acmdx {
 sub Ajax {
     my %args = @_;
     die "jvar is required" if !$args{jvar};
+    my $type = $args{type} || 'text';
     my $context = ref($AJAX_CONTEXT) eq 'HASH' ? $AJAX_CONTEXT : {};
     if ( ( $context->{source} || '' ) eq 'saved' && ( $context->{page_id} || '' ) ne '' ) {
         my $file = $args{file} || '';
@@ -78,14 +79,14 @@ sub Ajax {
                 file         => $file,
                 page_id      => $context->{page_id},
                 runtime_root => $context->{runtime_root} || '',
-                type         => $args{type} || 'json',
+                type         => $type,
                 code         => $args{code},
                 base_url     => $args{base_url} || '',
               )
               : _saved_ajax_url(
                 file     => $file,
                 page_id  => $context->{page_id},
-                type     => $args{type} || 'json',
+                type     => $type,
                 base_url => $args{base_url} || '',
               );
             my ( $root, $path ) = split /\./, $args{jvar}, 2;
@@ -97,7 +98,7 @@ sub Ajax {
     my $ajax = acmdx(
         %args,
         path => '/ajax',
-        type => $args{type} || 'json',
+        type => $type,
     );
     my ( $root, $path ) = split /\./, $args{jvar}, 2;
     $path ||= '';
@@ -139,7 +140,7 @@ sub _saved_ajax_url {
     my (%args) = @_;
     my $query = sprintf '/ajax/%s?type=%s',
       uri_escape( _validate_saved_ajax_file( $args{file} ) ),
-      uri_escape( $args{type} || 'json' );
+      uri_escape( $args{type} || 'text' );
     return {
         url => ( $args{base_url} || '' ) . $query,
     };

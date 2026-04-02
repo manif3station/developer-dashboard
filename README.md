@@ -197,13 +197,15 @@ deny policy.
 Legacy `Ajax` helper calls inside saved bookmark `CODE*` blocks should use an
 explicit `file => 'name.json'` argument. When a saved page supplies that name,
 the helper stores the Ajax Perl code under the saved dashboard ajax tree and emits a stable
-saved-bookmark endpoint such as `/ajax/name.json?type=json`.
+saved-bookmark endpoint such as `/ajax/name.json?type=text`.
 Those saved Ajax handlers run the stored file as a real process, defaulting to
 Perl unless the file starts with a shebang, and stream both `stdout` and
 `stderr` back to the browser as they happen. That keeps bookmark Ajax
 workflows usable even while transient token URLs stay disabled by default, and
 it means bookmark Ajax code can rely on normal `print`, `warn`, `die`,
 `system`, and `exec` process behaviour instead of a buffered JSON wrapper.
+Saved bookmark Ajax handlers also default to `text/plain` when no explicit
+`type => ...` argument is supplied.
 If `code => ...` is omitted, `Ajax(file => 'name')` targets the existing
 executable at `dashboards/ajax/name` instead of rewriting it.
 Static files referenced by saved bookmarks are resolved from the effective
@@ -717,8 +719,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.09.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.09.tar.gz -v
+tar -tzf Developer-Dashboard-1.10.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.10.tar.gz -v
 ```
 
 The harness also:
@@ -843,8 +845,8 @@ and add explicit expectations:
 ```bash
 integration/browser/run-bookmark-browser-smoke.pl \
   --bookmark-file ~/.developer-dashboard/dashboards/test \
-  --expect-page-fragment "set_chain_value(foo,'bar','/ajax/foobar?type=json')" \
-  --expect-ajax-path /ajax/foobar?type=json \
+  --expect-page-fragment "set_chain_value(foo,'bar','/ajax/foobar?type=text')" \
+  --expect-ajax-path /ajax/foobar?type=text \
   --expect-ajax-body 123 \
   --expect-dom-fragment '<span class="display">123</span>'
 ```

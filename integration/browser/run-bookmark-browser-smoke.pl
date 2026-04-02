@@ -191,9 +191,9 @@ print 123
 };
 BOOKMARK
 
-    push @{ $opts->{expect_page_fragment} }, q{set_chain_value(foo,'bar','/ajax/foobar?type=json')};
+    push @{ $opts->{expect_page_fragment} }, q{set_chain_value(foo,'bar','/ajax/foobar?type=text')};
     push @{ $opts->{expect_dom_fragment} }, q{<span class="display">123</span>};
-    $opts->{expect_ajax_path} = '/ajax/foobar?type=json';
+    $opts->{expect_ajax_path} = '/ajax/foobar?type=text';
     $opts->{expect_ajax_body} = '123';
 }
 
@@ -429,7 +429,7 @@ Usage: integration/browser/run-bookmark-browser-smoke.pl [options]
   --port 17894
   --expect-page-fragment TEXT
   --expect-dom-fragment TEXT
-  --expect-ajax-path /ajax/name?type=json
+  --expect-ajax-path /ajax/name?type=text
   --expect-ajax-body TEXT
   --browser-binary /path/to/chromium
   --keep-temp
@@ -455,8 +455,8 @@ run-bookmark-browser-smoke.pl - fast browser-backed smoke runner for saved bookm
 
   integration/browser/run-bookmark-browser-smoke.pl \
     --bookmark-file ~/.developer-dashboard/dashboards/test \
-    --expect-page-fragment "set_chain_value(foo,'bar','/ajax/foobar?type=json')" \
-    --expect-ajax-path /ajax/foobar?type=json \
+    --expect-page-fragment "set_chain_value(foo,'bar','/ajax/foobar?type=text')" \
+    --expect-ajax-path /ajax/foobar?type=text \
     --expect-ajax-body 123 \
     --expect-dom-fragment '<span class="display">123</span>'
 
