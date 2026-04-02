@@ -1,5 +1,9 @@
 Revision history for Developer Dashboard
 
+1.24  2026-04-02
+    - fixed critical bug where ssl parameter was not being passed to Web::Server in app_builder callback, causing `dashboard serve --ssl` to silently fail to enable HTTPS
+    - ssl parameter now correctly flows through entire chain: CLI parsing -> RuntimeManager -> app_builder -> Web::Server configuration
+
 1.23  2026-04-02
     - fixed uninitialized value warnings in listening_url() by guarding against undefined daemon and providing fallback defaults for sockhost and sockport
     - all warnings from Developer::Dashboard code now eliminated (remaining warnings are from external dependencies)
