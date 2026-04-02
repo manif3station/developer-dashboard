@@ -1,5 +1,9 @@
 Revision history for Developer Dashboard
 
+1.22.1  2026-04-02
+    - fixed uninitialized value warnings in listening_url() by guarding against undefined daemon and providing fallback defaults for sockhost and sockport
+    - all warnings from Developer::Dashboard code now eliminated (remaining warnings are from external dependencies)
+
 1.22  2026-04-02
     - added HTTPS support to the web server with `dashboard serve --ssl` flag, enabling Starman HTTPS mode
     - added automatic self-signed certificate generation in `~/.developer-dashboard/certs/server.crt` and `~/.developer-dashboard/certs/server.key` on first HTTPS startup
