@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.17';
+our $VERSION = '1.18';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.17
+1.18
 
 =head1 INTRODUCTION
 
@@ -538,7 +538,11 @@ If a saved handler also needs refresh-safe process reuse, pass
 C<singleton =E<gt> 'NAME'> in the C<Ajax> helper. The generated url then carries
 that singleton name, the Perl worker runs as C<dashboard ajax: NAME>, and the
 runtime terminates any older matching Perl Ajax worker before starting the
-replacement stream for the refreshed browser request.
+replacement stream for the refreshed browser request. Singleton-managed Ajax
+workers are also terminated by C<dashboard stop> and C<dashboard restart>, and
+the bookmark page now registers a C<pagehide> cleanup beacon against
+C</ajax/singleton/stop?singleton=NAME> so closing the browser tab also tears
+down the matching worker instead of leaving it behind.
 If C<code =E<gt> ...> is omitted, C<Ajax(file =E<gt> 'name')> targets the
 existing executable at C<dashboards/ajax/name> instead of rewriting it.
 Static files referenced by saved bookmarks are resolved from the effective
@@ -843,18 +847,15 @@ Posting a bookmark document with C<BOOKMARK: some-id> back through the root
 editor now saves it to the bookmark store so C</app/some-id> resolves it
 immediately.
 
-The browser editor highlights directive sections, HTML, CSS, JavaScript, and
-Perl C<CODE*> content directly inside the editing surface rather than in a
-separate preview pane.
+The browser editor now keeps the visible overlay as exact escaped source with
+wrapping disabled instead of live syntax markup, so long bookmark lines,
+full-text selection, and caret placement stay aligned with the real
+textarea.
 
 Edit and source views preserve raw Template Toolkit placeholders inside
 C<HTML:> and C<FORM.TT:> sections, so values such as C<[% title %]> are kept
 in the bookmark source instead of being rewritten to rendered HTML after a
 browser save.
-That editor highlighter now avoids width-changing emphasis in the overlay
-typography, so the visible highlighted text stays aligned with the real
-textarea caret while you type.
-
 Template Toolkit rendering exposes the page title as C<title>, so a bookmark
 with C<TITLE: Sample Dashboard> can reference it directly inside C<HTML:> or
 C<FORM.TT:> with C<[% title %]>. Transient play and view-source links are
@@ -1187,8 +1188,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.17.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.17.tar.gz -v
+  tar -tzf Developer-Dashboard-1.18.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.18.tar.gz -v
 
 The harness also:
 

@@ -121,6 +121,7 @@ sub dispatch_request {
     return $self->root_response(%args) if $path eq '/';
     return $self->apps_redirect_response(%args) if $path eq '/apps';
     return $self->legacy_ajax_response(%args) if $path eq '/ajax';
+    return $self->ajax_singleton_stop_response(%args) if $path eq '/ajax/singleton/stop';
     if ( $path =~ m{^/ajax/(.+)$} ) {
         return $self->legacy_ajax_file_response( ajax_file => uri_unescape($1), %args );
     }
@@ -749,12 +750,16 @@ sub _edit_html {
       box-sizing: border-box;
       margin: 0;
       padding: 12px;
-      font-family: "Courier New", monospace;
+      font-family: Menlo, Consolas, "Courier New", monospace;
       font-size: 14px;
-      line-height: 1.5;
-      white-space: pre-wrap;
+      line-height: 21px;
+      white-space: pre;
+      word-break: normal;
+      overflow-wrap: normal;
       overflow: auto;
       tab-size: 4;
+      letter-spacing: 0;
+      scrollbar-gutter: stable both-edges;
     }
     .editor-overlay {
       position: absolute;
@@ -805,7 +810,7 @@ sub _edit_html {
   <form method="post" action="__FORM_ACTION__" id="instruction-form">
     <div class="editor-stack">
       <pre class="editor-overlay" id="instruction-highlight" aria-hidden="true">__INITIAL_HIGHLIGHT__</pre>
-      <textarea class="instruction-editor" id="instruction-editor" name="instruction" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off">__SOURCE__</textarea>
+      <textarea class="instruction-editor" id="instruction-editor" name="instruction" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off">__SOURCE__</textarea>
     </div>
   </form>
 </main>
@@ -979,7 +984,7 @@ function ddHighlightPerlLine(text) {
   return ddRestoreTokens(perl, tokens);
 }
 function ddRenderEditor(text) {
-  ddHighlight.innerHTML = ddHighlightInstruction(text);
+  ddHighlight.textContent = String(text);
 }
 ddEditor.addEventListener('input', function() {
   ddRenderEditor(ddEditor.value);
@@ -1000,7 +1005,7 @@ HTML
 
     $html =~ s/__TITLE__/$title/g;
     $html =~ s/__TOP_CHROME__/$self->_top_chrome_html( $page, \%$urls )/ge;
-    $html =~ s/__INITIAL_HIGHLIGHT__/$self->_highlight_instruction_html($raw_source)/ge;
+    $html =~ s/__INITIAL_HIGHLIGHT__/_escape_html($raw_source)/ge;
     $html =~ s/__SOURCE__/$source/g;
     $html =~ s/__SOURCE_JSON__/_json_for_inline_script($raw_source)/ge;
     $html =~ s/__FORM_ACTION__/$form_action/g;
@@ -1587,6 +1592,18 @@ sub _legacy_ajax_allowed {
     return 1 if ( $params->{file} || '' ) ne '';
     return 1 if ( $params->{token} || '' ) eq '';
     return _transient_url_tokens_allowed();
+}
+
+# ajax_singleton_stop_response(%args)
+# Terminates one saved-Ajax singleton worker on explicit browser page-lifecycle cleanup.
+# Input: normalized request params containing one singleton name.
+# Output: response array reference with a no-content status.
+sub ajax_singleton_stop_response {
+    my ( $self, %args ) = @_;
+    my ($params) = $self->_request_params(%args);
+    my $singleton = $self->{runtime}->_normalize_saved_ajax_singleton( $params->{singleton} );
+    $self->{runtime}->_kill_saved_ajax_singleton($singleton) if $singleton ne '';
+    return [ 204, 'text/plain; charset=utf-8', '' ];
 }
 
 # _parse_query($query)

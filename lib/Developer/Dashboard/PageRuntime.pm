@@ -406,21 +406,43 @@ sub stream_saved_ajax_file {
     close $stdin;
 
     my $select = IO::Select->new( $stdout, $stderr );
-    while ( my @ready = $select->can_read ) {
-        for my $fh (@ready) {
-            $self->_drain_saved_ajax_ready_handle(
-                fh            => $fh,
-                path          => $path,
-                select        => $select,
-                stdout        => $stdout,
-                stdout_writer => $stdout_writer,
-                stderr_writer => $stderr_writer,
-            );
+    my $stream_error = '';
+    my $disconnected = 0;
+    eval {
+        while (1) {
+            my @ready = $select->can_read(0.25);
+            last if !@ready && !$select->count;
+            for my $fh (@ready) {
+                my $continued = $self->_drain_saved_ajax_ready_handle(
+                    fh            => $fh,
+                    path          => $path,
+                    select        => $select,
+                    stdout        => $stdout,
+                    stdout_writer => $stdout_writer,
+                    stderr_writer => $stderr_writer,
+                );
+                if ( !$continued ) {
+                    $disconnected = 1;
+                    die "__DD_AJAX_STREAM_DISCONNECTED__\n";
+                }
+            }
         }
-    }
+        1;
+    } or do {
+        $stream_error = $@ || "Saved ajax stream failed\n";
+    };
 
+    $self->_close_saved_ajax_streams( $select, $stdout, $stderr );
+    if ($disconnected) {
+        $self->_terminate_saved_ajax_process($pid);
+    }
+    elsif ( $stream_error ne '' ) {
+        $self->_terminate_saved_ajax_process($pid);
+        die $stream_error if !$self->_looks_like_stream_disconnect_error($stream_error);
+    }
     waitpid( $pid, 0 );
     return {
+        disconnected => $disconnected ? 1 : 0,
         exit_code => $? >> 8,
         status    => $?,
     };
@@ -435,7 +457,7 @@ sub _noop_writer { return '' }
 # _drain_saved_ajax_ready_handle(%args)
 # Reads one ready saved-Ajax process pipe handle and forwards the chunk or error to the right writer.
 # Input: ready fh, active select set, stdout fh, saved file path, and writer callbacks.
-# Output: true value.
+# Output: true value when streaming should continue, otherwise false when the client disconnected.
 sub _drain_saved_ajax_ready_handle {
     my ( $self, %args ) = @_;
     my $fh            = $args{fh}            || die 'Missing ready handle';
@@ -461,11 +483,60 @@ sub _drain_saved_ajax_ready_handle {
     my $ready_fileno  = fileno($fh);
     my $stdout_fileno = fileno($stdout);
     if ( defined $ready_fileno && defined $stdout_fileno && $ready_fileno == $stdout_fileno ) {
-        $stdout_writer->($chunk);
-        return 1;
+        my $continued = $stdout_writer->($chunk);
+        return defined $continued ? $continued : 1;
     }
-    $stderr_writer->($chunk);
+    my $continued = $stderr_writer->($chunk);
+    return defined $continued ? $continued : 1;
+}
+
+# _close_saved_ajax_streams($select, @handles)
+# Closes the saved-Ajax select set and any remaining pipe handles after streaming stops.
+# Input: IO::Select object plus zero or more pipe handles.
+# Output: true value.
+sub _close_saved_ajax_streams {
+    my ( $self, $select, @handles ) = @_;
+    if ( $select && eval { $select->can('handles') } ) {
+        for my $fh ( $select->handles ) {
+            next if !defined fileno($fh);
+            $select->remove($fh);
+            close $fh;
+        }
+    }
+    for my $fh (@handles) {
+        next if !defined $fh;
+        next if !defined fileno($fh);
+        close $fh;
+    }
     return 1;
+}
+
+# _terminate_saved_ajax_process($pid)
+# Stops one saved-Ajax worker process after stream cancellation or writer failure.
+# Input: child process id integer.
+# Output: true value.
+sub _terminate_saved_ajax_process {
+    my ( $self, $pid ) = @_;
+    return 1 if !$pid;
+    return 1 if !kill 0, $pid;
+    kill 'TERM', $pid;
+    for ( 1 .. 20 ) {
+        return 1 if !kill 0, $pid;
+        sleep 0.05;
+    }
+    kill 'KILL', $pid if kill 0, $pid;
+    return 1;
+}
+
+# _looks_like_stream_disconnect_error($error)
+# Detects writer failures that mean the browser stream was closed and the worker should just be stopped.
+# Input: raw exception text from one writer callback.
+# Output: boolean true when the error matches a disconnect or closed-stream condition.
+sub _looks_like_stream_disconnect_error {
+    my ( $self, $error ) = @_;
+    return 1 if !defined $error || $error eq '';
+    return 1 if $error =~ /^__DD_AJAX_STREAM_DISCONNECTED__/;
+    return $error =~ /(broken pipe|client disconnected|connection reset|stream closed|connection aborted|write failed|closed handle)/i ? 1 : 0;
 }
 
 # _stream_sysread($fh, $chunk_ref)

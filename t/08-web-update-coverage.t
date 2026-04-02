@@ -8,6 +8,7 @@ use File::Spec;
 use File::Temp qw(tempdir);
 use HTTP::Request::Common qw(GET POST);
 use HTTP::Response;
+use POSIX qw(:sys_wait_h);
 use Plack::Test;
 use Test::More;
 use URI::Escape qw(uri_escape);
@@ -340,10 +341,27 @@ PAGE
     $store->save_page($singleton_page);
     my ( undef, undef, $singleton_page_body ) = @{ $app->handle( path => '/app/ajax-singleton', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
     like( $singleton_page_body, qr{/ajax/singleton-endpoint\.txt\?type=text&singleton=FOOBAR}, 'saved bookmark Ajax page emits the singleton query parameter in the generated ajax url' );
+    like( $singleton_page_body, qr/dashboard_ajax_singleton_cleanup\('FOOBAR'\)/, 'saved bookmark Ajax page registers browser lifecycle cleanup for singleton-managed workers' );
     my ( $ajax_singleton_code, undef, $ajax_singleton_body ) = @{ $app->handle( path => '/ajax/singleton-endpoint.txt', query => 'type=text&singleton=FOOBAR', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
     my $ajax_singleton_output = drain_stream_body($ajax_singleton_body);
     is( $ajax_singleton_code, 200, 'legacy ajax saved-file route responds successfully for singleton-managed requests' );
     like( $ajax_singleton_output, qr/^dashboard ajax: FOOBAR$/m, 'legacy ajax saved-file route renames singleton-managed Perl workers before streaming output' );
+}
+
+{
+    my @patterns;
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::RuntimeManager::_pkill_perl = sub {
+            my ( $self, $pattern ) = @_;
+            push @patterns, $pattern;
+            return 1;
+        };
+        my ( $stop_code, undef, $stop_body ) = @{ $app->handle( path => '/ajax/singleton/stop', query => 'singleton=BROWSER-STOP', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+        is( $stop_code, 204, 'singleton stop route returns no content after lifecycle cleanup' );
+        is( $stop_body, '', 'singleton stop route keeps the response body empty' );
+    }
+    is_deeply( \@patterns, ['^dashboard ajax: BROWSER-STOP$'], 'singleton stop route targets the matching saved ajax worker process title' );
 }
 
 {
@@ -549,6 +567,45 @@ my $failing_stream_server = Developer::Dashboard::Web::Server->new( app => $fail
     is( $res->code, 200, 'streaming error responses keep the original success status' );
     like( $res->content, qr/alpha/, 'streaming error responses keep chunks written before the failure' );
     like( $res->content, qr/stream exploded/, 'streaming error responses append the streaming exception text' );
+}
+
+{
+    no warnings 'redefine';
+    my @chunks;
+    local *Developer::Dashboard::Web::DancerApp::delayed = sub (&) { $_[0]->(); return 'delayed-ok' };
+    local $Dancer2::Core::Route::RESPONDER = sub {
+        my ($response) = @_;
+        is( $response->[0], 200, 'disconnect coverage responder receives the original status code' );
+        like( join( "\n", @{ $response->[1] || [] } ), qr/Content-Type\ntext\/plain/, 'disconnect coverage responder receives the content type header' );
+        return bless {}, 'Local::DisconnectWriter';
+    };
+    {
+        no warnings 'once';
+        *Local::DisconnectWriter::write = sub {
+            my ( $self, $chunk ) = @_;
+            push @chunks, $chunk;
+            die "Broken pipe\n" if @chunks > 1;
+            return 1;
+        };
+        *Local::DisconnectWriter::close = sub { return 1 };
+    }
+    local $Developer::Dashboard::Web::DancerApp::BACKEND_APP = { app => bless( {}, 'Local::DisconnectBackend' ), default_headers => {} };
+    my $result = Developer::Dashboard::Web::DancerApp::_response_from_result(
+        [
+            200,
+            'text/plain; charset=utf-8',
+            {
+                stream => sub {
+                    my ($writer) = @_;
+                    is( $writer->("alpha\n"), 1, 'stream writer reports success before the client disconnects' );
+                    is( $writer->("beta\n"), 0, 'stream writer reports a disconnect when Dancer content writes fail with broken pipe' );
+                },
+            },
+            {},
+        ]
+    );
+    is( $result, 'delayed-ok', '_response_from_result still completes the delayed wrapper when the client disconnects mid-stream' );
+    is_deeply( \@chunks, [ "alpha\n", "beta\n" ], '_response_from_result stops treating broken-pipe writes as fatal backend exceptions' );
 }
 
 my $failing_app = bless {}, 'Local::FailingApp';

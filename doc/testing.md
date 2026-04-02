@@ -34,8 +34,10 @@ integration/browser/run-bookmark-browser-smoke.pl \
 
 For long-running saved bookmark Ajax handlers that would otherwise survive a
 browser refresh, prefer `Ajax(..., singleton => 'NAME', ...)`. The runtime will
-rename the Perl worker to `dashboard ajax: NAME` and terminate the older
-matching Perl stream before it starts the refreshed one.
+rename the Perl worker to `dashboard ajax: NAME`, terminate the older matching
+Perl stream before it starts the refreshed one, and also tear down matching
+singleton workers during `dashboard stop`, `dashboard restart`, and browser
+`pagehide` cleanup beacons.
 
 ## Coverage
 
@@ -56,7 +58,7 @@ The coverage-closure suite includes managed collector loop start/stop paths unde
 
 Branch and condition reports are still generated and should be used to drive new edge-case tests, especially when adding new runtime modules.
 
-Frontend editor changes should also be checked in a real browser route, not just from HTML output. In particular, the bookmark editor overlay must keep the visible syntax-highlight text aligned with the real textarea caret while typing, and exact saved `/app/<id>/edit` repros with multi-line `<script>` blocks must be checked in Chromium so JavaScript lines do not fall into CSS-style highlighting or leak placeholder markers.
+Frontend editor changes should also be checked in a real browser route, not just from HTML output. In particular, the bookmark editor overlay must keep the visible escaped source exactly aligned with the real textarea caret while typing, must not soft-wrap differently from the textarea, and exact saved `/app/<id>/edit` repros with multi-line `<script>` blocks must be checked in Chromium so the editor does not leak highlight markup or shift the caret onto the wrong line.
 
 JSON behavior is exercised through the shared `Developer::Dashboard::JSON` wrapper, which now uses `JSON::XS`.
 Release metadata checks also verify that built tarball runtime prerequisites

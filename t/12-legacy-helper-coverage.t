@@ -7,6 +7,7 @@ use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
+use POSIX qw(:sys_wait_h);
 use Test::More;
 use Time::HiRes qw(time);
 use URI::Escape qw(uri_escape);
@@ -372,6 +373,83 @@ PL
     ok( $times[1] < 2.5, 'stream_saved_ajax_file keeps forwarding later timed chunks during the long-running saved ajax process' );
 }
 {
+    my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'disconnect-runner.pl' );
+    open my $fh, '>', $saved_path or die $!;
+    print {$fh} <<'PL';
+$SIG{TERM} = sub { exit 0 };
+print "$$\n";
+while (1) {
+    print "tick\n";
+    sleep 1;
+}
+PL
+    close $fh;
+    chmod 0700, $saved_path or die $!;
+    my $child_pid;
+    my $stream_result = $runtime->stream_saved_ajax_file(
+        path          => $saved_path,
+        page          => 'coverage-page',
+        type          => 'text',
+        params        => { page => 'coverage-page', file => 'disconnect-runner.pl', type => 'text', singleton => 'FOOBAR' },
+        stdout_writer => sub {
+            my ($chunk) = @_;
+            if ( !defined $child_pid && defined $chunk && $chunk =~ /(\d+)/ ) {
+                $child_pid = $1 + 0;
+            }
+            return 0;
+        },
+        stderr_writer => sub { return 0 },
+    );
+    ok( $stream_result->{disconnected}, 'stream_saved_ajax_file marks the run as disconnected when the stream writer closes early' );
+    ok( defined $child_pid, 'disconnect test captures the saved ajax worker pid from the first streamed chunk' );
+    ok( !kill( 0, $child_pid ), 'stream_saved_ajax_file terminates the saved ajax worker when the browser stream disconnects' );
+}
+{
+    my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'writer-error-runner.pl' );
+    open my $fh, '>', $saved_path or die $!;
+    print {$fh} <<'PL';
+$SIG{TERM} = sub { exit 0 };
+print "$$\n";
+while (1) {
+    print "tick\n";
+    sleep 1;
+}
+PL
+    close $fh;
+    chmod 0700, $saved_path or die $!;
+    my $child_pid;
+    my $chunks = 0;
+    my $error = eval {
+        $runtime->stream_saved_ajax_file(
+            path          => $saved_path,
+            page          => 'coverage-page',
+            type          => 'text',
+            params        => { page => 'coverage-page', file => 'writer-error-runner.pl', type => 'text' },
+            stdout_writer => sub {
+                my ($chunk) = @_;
+                if ( !defined $child_pid && defined $chunk && $chunk =~ /(\d+)/ ) {
+                    $child_pid = $1 + 0;
+                }
+                $chunks++;
+                die "writer exploded\n" if $chunks > 1;
+                return 1;
+            },
+            stderr_writer => sub { return 1 },
+        );
+        return '';
+    } || $@;
+    like( $error, qr/writer exploded/, 'stream_saved_ajax_file surfaces non-disconnect writer failures instead of suppressing them' );
+    ok( defined $child_pid, 'writer failure test captures the saved ajax worker pid from the first streamed chunk' );
+    for ( 1 .. 20 ) {
+        my $reaped = waitpid( $child_pid, WNOHANG );
+        last if $reaped == $child_pid || !kill 0, $child_pid;
+        select undef, undef, undef, 0.1;
+    }
+    my $writer_reaped = waitpid( $child_pid, WNOHANG );
+    ok( $writer_reaped == $child_pid || !kill( 0, $child_pid ), 'stream_saved_ajax_file terminates the saved ajax worker after a non-disconnect writer failure' );
+    waitpid( $child_pid, 0 ) if $writer_reaped != $child_pid;
+}
+{
     my $stdout_chunk = '';
     pipe my $stdout_reader, my $stdout_writer_handle or die $!;
     print {$stdout_writer_handle} 'chunk-out';
@@ -448,6 +526,20 @@ PL
         );
     }
     like( $stderr_chunk, qr/Unable to read ajax stream for error-path/, '_drain_saved_ajax_ready_handle surfaces real read errors through the stderr writer' );
+}
+{
+    ok( $runtime->_looks_like_stream_disconnect_error(), '_looks_like_stream_disconnect_error treats empty errors as disconnect-like shutdowns' );
+    ok( $runtime->_looks_like_stream_disconnect_error("Broken pipe\n"), '_looks_like_stream_disconnect_error recognizes broken-pipe disconnect errors' );
+    ok( !$runtime->_looks_like_stream_disconnect_error("writer exploded\n"), '_looks_like_stream_disconnect_error does not hide unrelated writer failures' );
+}
+{
+    pipe my $select_reader, my $select_writer or die $!;
+    pipe my $extra_reader, my $extra_writer or die $!;
+    my $select = IO::Select->new($select_reader);
+    ok( $runtime->_close_saved_ajax_streams( $select, $select_reader, $extra_reader, $extra_writer ), '_close_saved_ajax_streams returns true after closing active handles' );
+    ok( !defined fileno($select_reader), '_close_saved_ajax_streams closes handles still tracked by the select set' );
+    ok( !defined fileno($extra_reader), '_close_saved_ajax_streams closes extra read handles passed outside the select set' );
+    ok( !defined fileno($extra_writer), '_close_saved_ajax_streams closes extra write handles passed outside the select set' );
 }
 {
     my $class_page = Developer::Dashboard::PageDocument->new( layout => { body => 'plain body' } );

@@ -410,9 +410,11 @@ PAGE
     );
 
     like( Developer::Dashboard::Web::App::_highlight_js_text( undef, q{const value = "x"; // note} ), qr/tok-js/, 'web app JS highlighter marks JavaScript keywords' );
+    like( Developer::Dashboard::Web::App::_highlight_js_text( undef, q{const value = 'x';} ), qr/tok-string/, 'web app JS highlighter marks single-quoted JavaScript strings' );
     like( Developer::Dashboard::Web::App::_highlight_css_text( undef, q{body { color: red; }} ), qr/tok-css|tok-attr|tok-value/, 'web app CSS highlighter supports direct package-style calls' );
     like( Developer::Dashboard::Web::App::_highlight_css_text( undef, q{/* note */ body { color: red; }} ), qr/tok-comment/, 'web app CSS highlighter marks CSS comments' );
     like( Developer::Dashboard::Web::App::_highlight_perl_text( undef, q{my $value = 1;} ), qr/tok-perl-keyword/, 'web app Perl highlighter supports direct package-style calls' );
+    like( Developer::Dashboard::Web::App::_highlight_perl_text( undef, q{my $value = 'x';} ), qr/tok-string/, 'web app Perl highlighter marks single-quoted Perl strings' );
     like( Developer::Dashboard::Web::App::_highlight_perl_text( undef, q{[% stash.name %] my @items = (); my %lookup = ();} ), qr/tok-note.*tok-perl-var/s, 'web app Perl highlighter marks TT notes and array/hash variables' );
     is( Developer::Dashboard::Web::App::_highlight_restore_tokens( undef, 'plain text', undef ), 'plain text', 'web app restore helper leaves plain text untouched when no tokens were stored' );
     like(
@@ -440,6 +442,67 @@ PAGE
         qr/tok-value tok-css.*tok-value tok-js.*tok-value/s,
         'web app tag highlighter classifies style, JS, and generic attribute values',
     );
+    like(
+        $app->_highlight_instruction_html(<<'SOURCE'),
+HTML: <style>
+body { color: red; }
+</style>
+NOTE: [% stash.name %]
+CODE1: my $value = 1;
+SOURCE
+        qr/tok-directive.*tok-css.*tok-note.*tok-perl-keyword/s,
+        'web app instruction highlighter covers HTML, note, and code sections from one source block',
+    );
+    {
+        my %state = ( section => 'NOTE', html_mode => '' );
+        like(
+            $app->_highlight_editor_line('still [% stash.name %]', \%state),
+            qr/tok-note/,
+            'web app editor-line highlighter preserves TT note highlighting on section continuation lines',
+        );
+    }
+    {
+        my %state = ( section => '', html_mode => '' );
+        like(
+            $app->_highlight_editor_line(':--------------------------------------------------------------------------------:', \%state),
+            qr/tok-separator/,
+            'web app editor-line highlighter marks separator rows explicitly',
+        );
+    }
+    {
+        my %state = ( section => '', html_mode => '' );
+        like(
+            $app->_highlight_editor_line('HTML: plain text', \%state),
+            qr/tok-directive/,
+            'web app editor-line highlighter marks directive prefixes explicitly',
+        );
+        is( $state{section}, 'HTML', 'web app editor-line highlighter updates section tracking from directives' );
+    }
+    like(
+        $app->_highlight_section_text( 'body { color: red; }', { section => 'FORM', html_mode => 'style' } ),
+        qr/tok-attr|tok-value/,
+        'web app section highlighter routes FORM content through the HTML-aware highlighter',
+    );
+    like(
+        $app->_highlight_section_text( '[% stash.name %]', { section => 'NOTE', html_mode => '' } ),
+        qr/tok-note/,
+        'web app section highlighter routes note sections through the note highlighter',
+    );
+    is(
+        $app->_highlight_section_text( '<plain>', { section => 'TITLE', html_mode => '' } ),
+        '&lt;plain&gt;',
+        'web app section highlighter falls back to escaped plain text for non-code non-HTML sections',
+    );
+    like(
+        $app->_highlight_html_text( q{body { color: red; }</style><div>next</div>}, { html_mode => 'style' } ),
+        qr/tok-attr|tok-value.*tok-tag/s,
+        'web app HTML highlighter closes style mode and resumes markup highlighting',
+    );
+    like(
+        $app->_highlight_html_text( q{before<style>body { color: red; }</style>after}, { html_mode => '' } ),
+        qr/tok-tag.*tok-css/s,
+        'web app HTML highlighter enters style mode when a style tag opens on the current line',
+    );
 
     no warnings 'redefine';
     local *Developer::Dashboard::Web::App::capture = sub (&) {
@@ -457,6 +520,22 @@ PAGE
         ],
         'web app parses ifconfig fallback output',
     );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Web::App::_ip_interface_pairs = sub {
+            return (
+                { iface => 'wg0',  ip => '10.8.0.2' },
+                { iface => 'eth0', ip => '192.168.1.9' },
+                { iface => 'lo',   ip => '127.0.0.1' },
+                { iface => 'eth0', ip => '192.168.1.9' },
+            );
+        };
+        is_deeply(
+            [ $app->_ip_candidates ],
+            [ '10.8.0.2', '192.168.1.9', '127.0.0.1' ],
+            'web app orders VPN, preferred, and other IPv4 candidates while removing duplicates',
+        );
+    }
 
     my $transient_action_page = Developer::Dashboard::PageDocument->new(
         title       => 'Transient Action',
@@ -513,6 +592,19 @@ PAGE
     is( $response->[1], 'text/plain; charset=utf-8', 'web app action response uses explicit body content type defaults' );
     is( $response->[2], 'body-payload', 'web app action response returns raw body payloads' );
 
+    {
+        my $render_page = Developer::Dashboard::PageDocument->new(
+            id      => 'render-cover',
+            title   => 'Render Cover',
+            layout  => { body => '<div>render body</div>' },
+            actions => [ undef, { builtin => 'missing-id' }, { id => 'download', builtin => 'page.state' } ],
+        );
+        $render_page->{meta}{source_kind} = 'saved';
+        my $html = $body_app->_render_page_html( $render_page, 'render' );
+        like( $html, qr/render body/, 'web app render helper still renders page bodies when invalid actions are skipped' );
+        like( $html, qr/view-source-url/, 'web app render helper still renders the shared chrome after skipping invalid action rows' );
+    }
+
     $indicator_store->set_indicator(
         'docker',
         label          => 'Docker',
@@ -540,6 +632,12 @@ done_testing;
     # Input: ignored.
     # Output: hash reference with body and content_type.
     sub run_page_action { return { body => 'body-payload' } }
+
+    # encode_action_payload(%args)
+    # Returns a stable fake encoded action token for render-link coverage.
+    # Input: ignored.
+    # Output: string token.
+    sub encode_action_payload { return 'encoded-action-token' }
 }
 
 __END__

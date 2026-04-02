@@ -159,7 +159,7 @@ Page source compatibility is explicit:
 - `dashboard serve logs` exposes the combined Dancer2 and Starman runtime log stored in the dashboard log file, with `-n N` tailing and `-f` follow mode
 - `dashboard serve workers N` persists the default Starman worker count in config and auto-starts the web service when it is currently stopped; `--host HOST` and `--port PORT` steer that auto-start path, while `dashboard serve --workers N` and `dashboard restart --workers N` still allow one-off overrides
 - the editor view auto-submits the bookmark form on textarea change/blur instead of relying on a visible update button
-- the editor shows in-place syntax highlighting inside the same editing surface for directive, HTML, CSS, JavaScript, and Perl `CODE*` content
+- the editor keeps a plain escaped source overlay with wrapping disabled so the visible text geometry stays identical to the real textarea during long bookmark edits
 
 ## Environment Overrides
 

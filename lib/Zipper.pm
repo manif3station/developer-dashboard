@@ -93,13 +93,15 @@ sub Ajax {
                 type      => $type,
                 singleton => $args{singleton},
                 base_url  => $args{base_url} || '',
-              );
-            my ( $root, $path ) = split /\./, $args{jvar}, 2;
-            $path ||= '';
-            print sprintf qq{<script>set_chain_value(%s,'%s','%s')</script>}, $root, $path, $saved->{url};
-            return 'HIDE-THIS';
+                );
+                my ( $root, $path ) = split /\./, $args{jvar}, 2;
+                $path ||= '';
+                print sprintf qq{<script>set_chain_value(%s,'%s','%s')</script>}, $root, $path, $saved->{url};
+                print sprintf qq{<script>dashboard_ajax_singleton_cleanup('%s')</script>}, _js_single_quote( $args{singleton} )
+                  if defined $args{singleton} && $args{singleton} ne '';
+                return 'HIDE-THIS';
+            }
         }
-    }
     my $ajax = acmdx(
         %args,
         path => '/ajax',
@@ -109,6 +111,18 @@ sub Ajax {
     $path ||= '';
     print sprintf qq{<script>set_chain_value(%s,'%s','%s')</script>}, $root, $path, $ajax->{url}{tokenised};
     return 'HIDE-THIS';
+}
+
+# _js_single_quote($text)
+# Escapes one scalar so it is safe inside a single-quoted JavaScript string literal.
+# Input: plain scalar string.
+# Output: escaped string.
+sub _js_single_quote {
+    my ($text) = @_;
+    $text = '' if !defined $text;
+    $text =~ s/\\/\\\\/g;
+    $text =~ s/'/\\'/g;
+    return $text;
 }
 
 # saved_ajax_file_path(%args)

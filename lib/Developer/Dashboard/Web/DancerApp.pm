@@ -96,21 +96,20 @@ sub _response_from_result {
     if ( ref($body) eq 'HASH' && ref( $body->{stream} ) eq 'CODE' ) {
         my $stream = $body->{stream};
         return delayed {
-            status $code;
-            content_type $type;
-            for my $name ( sort keys %merged_headers ) {
-                response_header $name => $merged_headers{$name};
-            }
-
-            my $started = 0;
+            my @headers = ( 'Content-Type' => $type );
+            push @headers, map { $_ => $merged_headers{$_} } sort keys %merged_headers;
+            my $responder = $Dancer2::Core::Route::RESPONDER
+              or die "Missing delayed response writer\n";
+            my $psgi_writer = $responder->([ $code, \@headers ]);
             my $writer = sub {
                 my ($chunk) = @_;
                 return 1 if !defined $chunk || $chunk eq '';
-                if ( !$started ) {
-                    flush;
-                    $started = 1;
-                }
-                content $chunk;
+                my $ok = eval {
+                    $psgi_writer->write($chunk);
+                    1;
+                };
+                return 0 if !$ok && _looks_like_disconnect_error($@);
+                die $@ if !$ok;
                 return 1;
             };
 
@@ -122,7 +121,7 @@ sub _response_from_result {
                 $writer->($error);
             };
 
-            done;
+            eval { $psgi_writer->close };
         };
     }
 
@@ -133,6 +132,16 @@ sub _response_from_result {
     }
 
     return $body;
+}
+
+# _looks_like_disconnect_error($error)
+# Detects writer/content failures that mean the HTTP client has already closed the stream.
+# Input: raw exception text from Dancer content writes.
+# Output: boolean true when the error matches a broken client connection.
+sub _looks_like_disconnect_error {
+    my ($error) = @_;
+    return 0 if !defined $error || $error eq '';
+    return $error =~ /(broken pipe|client disconnected|connection reset|stream closed|connection aborted|write failed)/i ? 1 : 0;
 }
 
 # _run_backend($method, %extra)
@@ -197,6 +206,10 @@ get '/apps' => sub {
 
 any [qw(get post)] => '/ajax' => sub {
     return _run_authorized('legacy_ajax_response');
+};
+
+any [qw(get post)] => '/ajax/singleton/stop' => sub {
+    return _run_authorized('ajax_singleton_stop_response');
 };
 
 any [qw(get post)] => qr{^/ajax/(.+)$} => sub {

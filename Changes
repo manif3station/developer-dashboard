@@ -1,5 +1,12 @@
 Revision history for Developer Dashboard
 
+1.18  2026-04-02
+    - fixed singleton-managed saved Ajax lifecycle cleanup so `dashboard stop` and `dashboard restart` now terminate `dashboard ajax: ...` workers as part of the managed web shutdown path
+    - added browser `pagehide` cleanup beacons for `Ajax(..., singleton => 'NAME', ...)`, letting saved bookmark pages call `/ajax/singleton/stop?singleton=NAME` when the tab closes so singleton workers do not linger after browser exit
+    - added direct web/runtime regressions for singleton stop-route cleanup, stop/restart singleton teardown, and writer-cancelled saved Ajax streams
+    - changed the bookmark editor overlay to render exact escaped source with wrapping disabled instead of live syntax markup, preventing long exact bookmark edits from leaking highlight fragments, mis-highlighting selections, or shifting the caret onto the wrong line
+    - added exact editor geometry regressions for the long bookmark repro and reran the browser-backed editor verification path
+
 1.17  2026-04-02
     - fixed bookmark editor script-block highlighting so saved `/app/<id>/edit` pages keep JavaScript lines in script mode instead of flipping into CSS-style attribute/value markup after `<script>` tags
     - protected the browser and server editor highlighters from rewriting their own inserted span markup, preventing placeholder or token-fragment leaks that could dislocate the visible overlay while typing exact saved bookmark text

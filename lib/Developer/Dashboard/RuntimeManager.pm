@@ -161,11 +161,12 @@ sub stop_web {
     kill 'TERM', $pid if $pid;
     kill 'TERM', $_ for @listener_pids;
     $self->_pkill_perl('^dashboard web:');
+    $self->_pkill_perl('^dashboard ajax:');
     for my $proc ( $self->_find_legacy_web_processes ) {
         kill 'TERM', $proc->{pid};
     }
     for ( 1 .. 30 ) {
-        last if !$self->running_web;
+        last if !$self->running_web && !scalar $self->_find_processes_by_prefix('dashboard ajax:');
         sleep 0.1;
     }
 
@@ -173,6 +174,9 @@ sub stop_web {
     if ($still_running) {
         kill 'KILL', $still_running->{pid};
         sleep 0.1;
+    }
+    for my $proc ( $self->_find_processes_by_prefix('dashboard ajax:') ) {
+        kill 'KILL', $proc->{pid};
     }
     my @still_listening = grep { kill 0, $_ } @listener_pids;
     kill 'KILL', $_ for @still_listening;

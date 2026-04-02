@@ -55,7 +55,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.17', 'module version bumped for the editor and serve-workers release' );
+is( $version, '1.18', 'module version bumped for the singleton cleanup and editor geometry release' );
 like( $readme, qr/dashboard serve logs/, 'README documents the serve logs command' );
 like( $pm, qr/C<dashboard serve logs>/, 'main POD documents the serve logs command' );
 like( $readme, qr/dashboard serve logs -n 100/, 'README documents tailed serve logs usage' );
@@ -78,6 +78,10 @@ like( $readme, qr/stream both `stdout` and\s+`stderr` back to the browser as the
 like( $pm, qr/stream both C<stdout> and C<stderr> back to the\s+browser as they happen/s, 'main POD documents live stdout and stderr ajax streaming' );
 like( $readme, qr/singleton => 'NAME'.+dashboard ajax: NAME/s, 'README documents singleton-managed saved Ajax process replacement' );
 like( $pm, qr/singleton =E<gt> 'NAME'.+dashboard ajax: NAME/s, 'main POD documents singleton-managed saved Ajax process replacement' );
+like( $readme, qr/pagehide` cleanup beacon against\s+`\/ajax\/singleton\/stop\?singleton=NAME`/s, 'README documents browser pagehide singleton cleanup' );
+like( $pm, qr/C<pagehide> cleanup beacon against\s+C<\/ajax\/singleton\/stop\?singleton=NAME>/s, 'main POD documents browser pagehide singleton cleanup' );
+like( $readme, qr/exact escaped source with wrapping disabled/s, 'README documents the stable editor overlay geometry' );
+like( $pm, qr/exact escaped source with\s+wrapping disabled/s, 'main POD documents the stable editor overlay geometry' );
 like( $changes, qr/^\Q$version\E\s+\d{4}-\d{2}-\d{2}$/m, 'Changes top entry matches module version' );
 
 if ( %{$meta} ) {

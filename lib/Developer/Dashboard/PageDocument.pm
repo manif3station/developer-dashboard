@@ -480,6 +480,22 @@ function set_chain_value(obj, path, value) {
   }
   current[keys[keys.length - 1]] = value;
 }
+function dashboard_ajax_singleton_cleanup(name) {
+  if (!name) return;
+  if (!window.__dashboardAjaxSingletons) window.__dashboardAjaxSingletons = {};
+  if (window.__dashboardAjaxSingletons[name]) return;
+  window.__dashboardAjaxSingletons[name] = true;
+  window.addEventListener('pagehide', function() {
+    let url = '/ajax/singleton/stop?singleton=' + encodeURIComponent(name);
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon(url, '');
+      return;
+    }
+    if (window.fetch) {
+      fetch(url, { method: 'POST', keepalive: true, credentials: 'same-origin' }).catch(function () {});
+    }
+  });
+}
 var ready_status = {};
 function ready(options) {
   let doit = options.doit || function() {};

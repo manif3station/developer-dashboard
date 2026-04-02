@@ -212,7 +212,11 @@ If a saved handler also needs refresh-safe process reuse, pass
 `singleton => 'NAME'` in the `Ajax` helper. The generated url then carries
 that singleton name, the Perl worker runs as `dashboard ajax: NAME`, and the
 runtime terminates any older matching Perl Ajax worker before starting the
-replacement stream for the refreshed browser request.
+replacement stream for the refreshed browser request. Singleton-managed Ajax
+workers are also terminated by `dashboard stop` and `dashboard restart`, and
+the bookmark page now registers a `pagehide` cleanup beacon against
+`/ajax/singleton/stop?singleton=NAME` so closing the browser tab also tears
+down the matching worker instead of leaving it behind.
 If `code => ...` is omitted, `Ajax(file => 'name')` targets the existing
 executable at `dashboards/ajax/name` instead of rewriting it.
 Static files referenced by saved bookmarks are resolved from the effective
@@ -515,9 +519,8 @@ dashboard action run system-status paths
 Bookmark documents use the original separator-line format with directive headers such as `TITLE:`, `STASH:`, `HTML:`, `FORM.TT:`, `FORM:`, and `CODE1:`.
 Posting a bookmark document with `BOOKMARK: some-id` back through the root editor now saves it to the bookmark store so `/app/some-id` resolves it immediately.
 
-The browser editor highlights directive sections, HTML, CSS, JavaScript, and Perl `CODE*` content directly inside the editing surface rather than in a separate preview pane.
+The browser editor now keeps the visible overlay as exact escaped source with wrapping disabled instead of live syntax markup, so long bookmark lines, full-text selection, and caret placement stay aligned with the real textarea.
 Edit and source views preserve raw Template Toolkit placeholders inside `HTML:` and `FORM.TT:` sections, so values such as `[% title %]` are kept in the bookmark source instead of being rewritten to rendered HTML after a browser save.
-That editor highlighter now avoids width-changing emphasis in the overlay typography, so the visible highlighted text stays aligned with the real textarea caret while you type.
 
 Template Toolkit rendering exposes the page title as `title`, so a bookmark
 with `TITLE: Sample Dashboard` can reference it directly inside `HTML:` or
@@ -729,8 +732,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.17.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.17.tar.gz -v
+tar -tzf Developer-Dashboard-1.18.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.18.tar.gz -v
 ```
 
 The harness also:

@@ -2,6 +2,8 @@
 
 ## 2026-04-02
 
+- Fixed singleton-managed saved Ajax worker cleanup so `dashboard stop` and `dashboard restart` now sweep `dashboard ajax: NAME` processes, and browser bookmark pages send a `pagehide` cleanup beacon to `/ajax/singleton/stop` so closing the tab does not leave singleton workers running in the background.
+- Fixed bookmark editor line drift by switching the live overlay to exact escaped source with wrapping disabled, so long bookmark text selection and caret placement no longer land on the wrong visible line or leak highlight markup like `class="tok-string">` into the editor.
 - Fixed saved bookmark editor script-mode drift by preserving `<script>` versus `<style>` mode correctly across the server-side highlighter, so multi-line JavaScript blocks in `/app/<id>/edit` no longer get recolored as CSS-style attribute/value pairs.
 - Fixed bookmark editor self-rewritten token markup by protecting browser and server highlight spans with placeholders during later regex passes, so exact saved bookmark edits no longer leak placeholder markers or token fragments that dislocate the visible overlay while typing.
 - Fixed `dashboard serve workers N` stop-state behavior by starting the web service immediately after saving the new worker count when no managed listener is running, with optional `--host` and `--port` support for that auto-start path.

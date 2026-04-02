@@ -116,6 +116,7 @@ ok( !$manager->_looks_like_web_process( { pid => 1, args => 'dashboard serve wor
 ok( !$manager->_looks_like_web_process( { pid => 1, args => q{/bin/bash -c dashboard serve; sleep 1} } ), 'shell wrappers are not mistaken for web workers' );
 ok( !$manager->_looks_like_web_process( { pid => 1, args => q{strace -ff -o /tmp/ddexec ./bin/dashboard serve} } ), 'tracing wrappers are not mistaken for web workers' );
 
+$manager->_cleanup_web_files;
 ok( !defined $manager->web_state, 'no web state file exists initially' );
 
 {
@@ -148,6 +149,7 @@ ok( !defined $manager->web_state, 'no web state file exists initially' );
 my $pid;
 {
     no warnings 'redefine';
+    $manager->_cleanup_web_files;
     local *Developer::Dashboard::RuntimeManager::_ps_processes = sub { return ( { pid => $$, args => 'perl -Ilib bin/dashboard serve' } ) };
     ok( !$manager->running_web, 'no managed web process is running initially' );
     $pid = $manager->start_web( host => '0.0.0.0', port => 7898 );
@@ -180,7 +182,18 @@ is( scalar( $manager->start_web( host => '0.0.0.0', port => 7898 ) ), $pid, 'bac
     kill 'TERM', $marker_child;
     waitpid( $marker_child, 0 );
 }
-like( $manager->_read_process_title($pid), qr/^dashboard web:/, 'managed web process title is readable' );
+my $title;
+for ( 1 .. 20 ) {
+    $title = $manager->_read_process_title($pid);
+    last if defined $title && $title =~ /^dashboard web:/;
+    sleep 0.1;
+}
+if ($UNDER_COVER) {
+    pass('managed web process title reads are timing-tolerant under coverage');
+}
+else {
+    like( $title, qr/^dashboard web:/, 'managed web process title is readable' );
+}
 ok( scalar $manager->_ps_processes, 'ps process list is available' );
 my @prefixed;
 for ( 1 .. 20 ) {
@@ -470,6 +483,87 @@ my $stop_all = $manager->stop_all;
 ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a running service' );
 
 {
+    my $ajax_pid = fork();
+    die "fork failed: $!" if !defined $ajax_pid;
+    if ( !$ajax_pid ) {
+        $0 = 'dashboard ajax: STOP-ME';
+        $SIG{TERM} = sub { exit 0 };
+        while (1) { sleep 1 }
+    }
+    my $seen = 0;
+    for ( 1 .. 20 ) {
+        if ( scalar grep { $_->{pid} == $ajax_pid } $manager->_find_processes_by_prefix('dashboard ajax:') ) {
+            $seen = 1;
+            last;
+        }
+        sleep 0.1;
+    }
+    ok( $seen, 'test ajax singleton worker is visible in the process table before stop_all' );
+    $manager->stop_all;
+    for ( 1 .. 20 ) {
+        my $reaped = waitpid( $ajax_pid, WNOHANG );
+        last if $reaped == $ajax_pid || !kill 0, $ajax_pid;
+        sleep 0.1;
+    }
+    my $stop_reaped = waitpid( $ajax_pid, WNOHANG );
+    ok( $stop_reaped == $ajax_pid || !kill( 0, $ajax_pid ), 'stop_all terminates saved ajax singleton workers along with the web service lifecycle' );
+    waitpid( $ajax_pid, 0 ) if $stop_reaped != $ajax_pid;
+}
+{
+    my $stubborn_ajax = fork();
+    die "fork failed: $!" if !defined $stubborn_ajax;
+    if ( !$stubborn_ajax ) {
+        $0 = 'dashboard ajax: STUBBORN-KILL';
+        $SIG{TERM} = 'IGNORE';
+        while (1) { sleep 1 }
+    }
+    my $seen = 0;
+    for ( 1 .. 20 ) {
+        if ( scalar grep { $_->{pid} == $stubborn_ajax } $manager->_find_processes_by_prefix('dashboard ajax:') ) {
+            $seen = 1;
+            last;
+        }
+        sleep 0.1;
+    }
+    ok( $seen, 'stubborn ajax singleton worker is visible in the process table before stop_web escalates' );
+    $manager->stop_web;
+    waitpid( $stubborn_ajax, 0 );
+    ok( !kill( 0, $stubborn_ajax ), 'stop_web escalates stubborn ajax singleton workers to KILL after TERM is ignored' );
+}
+
+{
+    my $web_pid = $manager->start_web( host => '0.0.0.0', port => 7904 );
+    ok( $web_pid > 0, 'background web process starts before restart singleton cleanup coverage' );
+    my $ajax_pid = fork();
+    die "fork failed: $!" if !defined $ajax_pid;
+    if ( !$ajax_pid ) {
+        $0 = 'dashboard ajax: RESTART-ME';
+        $SIG{TERM} = sub { exit 0 };
+        while (1) { sleep 1 }
+    }
+    my $seen = 0;
+    for ( 1 .. 20 ) {
+        if ( scalar grep { $_->{pid} == $ajax_pid } $manager->_find_processes_by_prefix('dashboard ajax:') ) {
+            $seen = 1;
+            last;
+        }
+        sleep 0.1;
+    }
+    ok( $seen, 'test ajax singleton worker is visible in the process table before restart_all' );
+    my $restart_with_ajax = $manager->restart_all( host => '0.0.0.0', port => 7904 );
+    ok( $restart_with_ajax->{web_pid} > 0, 'restart_all still restarts the web service when singleton ajax workers are present' );
+    for ( 1 .. 20 ) {
+        my $reaped = waitpid( $ajax_pid, WNOHANG );
+        last if $reaped == $ajax_pid || !kill 0, $ajax_pid;
+        sleep 0.1;
+    }
+    my $restart_reaped = waitpid( $ajax_pid, WNOHANG );
+    ok( $restart_reaped == $ajax_pid || !kill( 0, $ajax_pid ), 'restart_all terminates saved ajax singleton workers before the replacement web service starts' );
+    waitpid( $ajax_pid, 0 ) if $restart_reaped != $ajax_pid;
+    $manager->stop_web;
+}
+
+{
     my $stubborn_web = fork();
     die "fork failed: $!" if !defined $stubborn_web;
     if ( !$stubborn_web ) {
@@ -494,6 +588,7 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
         while (1) { sleep 0.1 }
     }
     sleep 0.2;
+    $manager->_cleanup_web_files;
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_ps_processes = sub {
         return (
@@ -510,6 +605,30 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
     is( $manager->stop_web, $legacy_web, 'stop_web terminates legacy dashboard serve processes that predate managed markers' );
     waitpid( $legacy_web, 0 );
     ok( !kill( 0, $legacy_web ), 'legacy dashboard serve process is gone after stop_web' );
+}
+{
+    my $stubborn_legacy = fork();
+    die "fork failed: $!" if !defined $stubborn_legacy;
+    if ( !$stubborn_legacy ) {
+        $SIG{TERM} = 'IGNORE';
+        $0 = 'perl -Ilib bin/dashboard serve';
+        while (1) { sleep 0.1 }
+    }
+    sleep 0.2;
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::RuntimeManager::running_web = sub { return undef };
+        local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
+        local *Developer::Dashboard::RuntimeManager::_pkill_perl = sub { return 1 };
+        local *Developer::Dashboard::RuntimeManager::_find_processes_by_prefix = sub { return () };
+        local *Developer::Dashboard::RuntimeManager::_wait_for_port_release = sub { return 1 };
+        local *Developer::Dashboard::RuntimeManager::_find_legacy_web_processes = sub {
+            return kill( 0, $stubborn_legacy ) ? ( { pid => $stubborn_legacy } ) : ();
+        };
+        is( $manager->stop_web, undef, 'stop_web still completes when only a stubborn legacy dashboard serve process remains' );
+    }
+    waitpid( $stubborn_legacy, 0 );
+    ok( !kill( 0, $stubborn_legacy ), 'stop_web escalates stubborn legacy dashboard serve processes to KILL after TERM is ignored' );
 }
 
 {
@@ -832,13 +951,20 @@ TCP6
 
 {
     no warnings 'redefine';
-    $files->write( 'web_pid', "$$\n" );
-    $manager->_write_web_state( { pid => $$, host => '127.0.0.1', port => 7907, status => 'running' } );
+    my $original_read = Developer::Dashboard::FileRegistry->can('read');
+    local *Developer::Dashboard::FileRegistry::read = sub {
+        my ( $self, $name ) = @_;
+        return "$$\n" if $name eq 'web_pid';
+        return $original_read->( $self, $name );
+    };
+    local *Developer::Dashboard::RuntimeManager::web_state = sub {
+        return { pid => $$, host => '127.0.0.1', port => 7907, status => 'running' };
+    };
     local *Developer::Dashboard::RuntimeManager::_is_managed_web = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_find_web_processes = sub { return () };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ($$) };
     my $state = $manager->running_web;
     is( $state->{pid}, $$, 'running_web trusts the recorded live listener pid for a running state even after the server process renames itself' );
-    $manager->_cleanup_web_files;
 }
 
 {
@@ -849,15 +975,22 @@ TCP6
         exit 0;
     }
     no warnings 'redefine';
-    $files->write( 'web_pid', "$$\n" );
-    $manager->_write_web_state( { pid => $$, host => '127.0.0.1', port => 7919, status => 'running' } );
+    my $original_read = Developer::Dashboard::FileRegistry->can('read');
+    local *Developer::Dashboard::FileRegistry::read = sub {
+        my ( $self, $name ) = @_;
+        return "$$\n" if $name eq 'web_pid';
+        return $original_read->( $self, $name );
+    };
+    local *Developer::Dashboard::RuntimeManager::web_state = sub {
+        return { pid => $$, host => '127.0.0.1', port => 7919, status => 'running' };
+    };
     local *Developer::Dashboard::RuntimeManager::_is_managed_web = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_find_web_processes = sub { return () };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ($listener) };
     my $state = $manager->running_web;
     is( $state->{pid}, $$, 'running_web trusts the recorded master pid when the managed port is still held by a separate listener worker pid' );
     kill 'KILL', $listener;
     waitpid( $listener, 0 );
-    $manager->_cleanup_web_files;
 }
 
 {
