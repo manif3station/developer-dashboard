@@ -1,6 +1,15 @@
 use strict;
 use warnings;
 
+# Suppress warnings from external libraries while testing
+BEGIN {
+    $SIG{__WARN__} = sub {
+        my ($msg) = @_;
+        return if $msg =~ m{Plack/Runner\.pm|Getopt/Long\.pm};
+        warn $msg;
+    };
+}
+
 use File::Temp qw(tempdir);
 use POSIX qw(:sys_wait_h);
 use Test::More;
