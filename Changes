@@ -1,5 +1,9 @@
 Revision history for Developer Dashboard
 
+1.16  2026-04-02
+    - fixed bookmark editor typing drift by removing width-changing bold styling from the visible directive highlight overlay, keeping the syntax-highlight layer aligned with the real textarea caret while typing
+    - verified the editor route through headless Chromium in addition to the web regression test coverage
+
 1.15  2026-04-02
     - added `singleton => 'NAME'` support to saved bookmark `Ajax(...)` helpers, emitting `/ajax/<file>?type=...&singleton=NAME` so browser refreshes can replace older long-running Perl ajax workers cleanly
     - renamed singleton-managed saved Ajax Perl workers to `dashboard ajax: NAME` and reused `_pkill_perl` before launching a replacement stream, preventing stale refresh-driven background workers from accumulating

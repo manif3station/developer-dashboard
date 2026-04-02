@@ -517,6 +517,7 @@ Posting a bookmark document with `BOOKMARK: some-id` back through the root edito
 
 The browser editor highlights directive sections, HTML, CSS, JavaScript, and Perl `CODE*` content directly inside the editing surface rather than in a separate preview pane.
 Edit and source views preserve raw Template Toolkit placeholders inside `HTML:` and `FORM.TT:` sections, so values such as `[% title %]` are kept in the bookmark source instead of being rewritten to rendered HTML after a browser save.
+That editor highlighter now avoids width-changing emphasis in the overlay typography, so the visible highlighted text stays aligned with the real textarea caret while you type.
 
 Template Toolkit rendering exposes the page title as `title`, so a bookmark
 with `TITLE: Sample Dashboard` can reference it directly inside `HTML:` or
@@ -728,8 +729,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.15.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.15.tar.gz -v
+tar -tzf Developer-Dashboard-1.16.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.16.tar.gz -v
 ```
 
 The harness also:

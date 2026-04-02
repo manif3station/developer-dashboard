@@ -2,6 +2,7 @@
 
 ## 2026-04-02
 
+- Fixed bookmark editor typing misalignment by removing width-changing bold styling from the visible directive highlight overlay, so the highlighted text no longer drifts away from the real textarea caret while typing in the browser editor.
 - Fixed saved bookmark Ajax refresh leaks by adding `singleton => 'NAME'` support to `Ajax(...)`, so the runtime now renames Perl ajax workers to `dashboard ajax: NAME` and kills older matching workers before starting a refreshed replacement stream.
 - Fixed GitHub Actions Node 20 checkout drift by moving the workflows to `actions/checkout@v5` and forcing JavaScript actions onto Node 24, so hosted runners no longer warn that the release/test workflows depend on the deprecated Node 20 action runtime.
 - Fixed remaining web-layer coverage gaps by adding direct regressions for the jQuery static-file alias branch, Dancer streaming-failure fallback, and runtime log follow mode, bringing the reviewed `lib/` Devel::Cover report back to 100%.

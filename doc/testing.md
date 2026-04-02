@@ -56,6 +56,8 @@ The coverage-closure suite includes managed collector loop start/stop paths unde
 
 Branch and condition reports are still generated and should be used to drive new edge-case tests, especially when adding new runtime modules.
 
+Frontend editor changes should also be checked in a real browser route, not just from HTML output. In particular, the bookmark editor overlay must keep the visible syntax-highlight text aligned with the real textarea caret while typing.
+
 JSON behavior is exercised through the shared `Developer::Dashboard::JSON` wrapper, which now uses `JSON::XS`.
 Release metadata checks also verify that built tarball runtime prerequisites
 explicitly include `JSON::XS`.

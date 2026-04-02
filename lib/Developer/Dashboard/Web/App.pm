@@ -782,7 +782,7 @@ sub _edit_html {
       background: rgba(121, 192, 255, 0.35);
       -webkit-text-fill-color: transparent;
     }
-    .tok-directive { color: #ffd866; font-weight: bold; }
+    .tok-directive { color: #ffd866; font-weight: normal; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
     .tok-separator { color: #5c6370; }
     .tok-html { color: #78dce8; }
     .tok-tag { color: #ff7ab2; }

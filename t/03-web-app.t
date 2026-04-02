@@ -295,6 +295,7 @@ like($body1e, qr/tok-css/, 'HTML sections highlight CSS syntax');
 like($body1e, qr/tok-js/, 'HTML sections highlight JavaScript syntax');
 like($body1e, qr/tok-perl-keyword/, 'CODE sections highlight Perl syntax');
 like($body1e, qr/tok-perl-var/, 'CODE sections highlight Perl variables');
+like($body1e, qr/\.tok-directive\s*\{\s*color:\s*#ffd866;\s*font-weight:\s*normal;\s*text-decoration:\s*underline;/s, 'editor directive highlight keeps normal font weight so the overlay stays aligned with the textarea caret');
 
 my ($code2, $type2, $body2) = @{ $app->handle(path => '/app/welcome', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code2, 200, 'saved page route ok');

@@ -55,7 +55,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.15', 'module version bumped for the ajax singleton release' );
+is( $version, '1.16', 'module version bumped for the editor alignment release' );
 like( $readme, qr/dashboard serve logs/, 'README documents the serve logs command' );
 like( $pm, qr/C<dashboard serve logs>/, 'main POD documents the serve logs command' );
 like( $readme, qr/dashboard serve logs -n 100/, 'README documents tailed serve logs usage' );
