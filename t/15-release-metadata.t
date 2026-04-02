@@ -55,7 +55,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.26', 'module version bumped for the warning fix patch release' );
+is( $version, '1.27', 'module version bumped for the warning fix patch release' );
 like( $readme, qr/perl -MFolder -e 'print Folder->docker'/, 'README documents plain Folder config-backed alias resolution' );
 like( $pm, qr/perl -MFolder -e 'print Folder-E<gt>docker'/, 'main POD documents plain Folder config-backed alias resolution' );
 like( $readme, qr/dashboard serve logs/, 'README documents the serve logs command' );

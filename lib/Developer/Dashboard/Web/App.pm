@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.26';
+our $VERSION = '1.27';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -1400,7 +1400,7 @@ sub _nav_items_html {
     }
 
     return '' if !@items;
-    return qq{<section class="dashboard-nav-items"><ul>} . join( '', @items ) . qq{</ul></section>};
+    return qq{<section class="dashboard-nav-items"><ul style="display:flex;flex-direction:column;list-style:none;padding:0;margin:0;">} . join( '', @items ) . qq{</ul></section>};
 }
 
 # _page_fragment_html($page)
