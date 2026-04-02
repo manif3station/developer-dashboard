@@ -121,9 +121,10 @@ my $runtime = Developer::Dashboard::RuntimeManager->new(
             sessions => $web_sessions,
         );
         return Developer::Dashboard::Web::Server->new(
-            app  => $app,
-            host => $args{host},
-            port => $args{port},
+            app     => $app,
+            host    => $args{host},
+            port    => $args{port},
+            workers => $args{workers},
         );
     },
     config => $config,
@@ -636,26 +637,42 @@ elsif ( $cmd eq 'docker' ) {
 elsif ( $cmd eq 'serve' ) {
     _load_configured_path_aliases();
     _migrate_saved_pages();
+    my $action = @ARGV && $ARGV[0] !~ /^-/ ? shift @ARGV : '';
+    if ( $action eq 'logs' ) {
+        print $runtime->web_log;
+        exit 0;
+    }
+    if ( $action eq 'workers' ) {
+        my $workers = shift @ARGV;
+        my $saved = $config->save_global_web_workers($workers);
+        print json_encode($saved);
+        exit 0;
+    }
+    unshift @ARGV, $action if defined $action && $action ne '';
     my $host = '0.0.0.0';
     my $port = 7890;
+    my $workers = $config->web_workers;
     my $foreground = 0;
     GetOptionsFromArray(
         \@ARGV,
         'host=s'      => \$host,
         'port=i'      => \$port,
+        'workers=i'   => \$workers,
         'foreground!' => \$foreground,
     );
     my $result = $runtime->start_web(
         foreground => $foreground,
         host       => $host,
         port       => $port,
+        workers    => $workers,
     );
     if (!$foreground) {
         print json_encode(
             {
-                host => $host,
-                pid  => $result,
-                port => $port,
+                host    => $host,
+                pid     => $result,
+                port    => $port,
+                workers => $workers,
             }
         );
     }
@@ -669,15 +686,18 @@ elsif ( $cmd eq 'restart' ) {
     _load_configured_path_aliases();
     my $host = '0.0.0.0';
     my $port = 7890;
+    my $workers = $config->web_workers;
     GetOptionsFromArray(
         \@ARGV,
-        'host=s' => \$host,
-        'port=i' => \$port,
+        'host=s'    => \$host,
+        'port=i'    => \$port,
+        'workers=i' => \$workers,
     );
     print json_encode(
         $runtime->restart_all(
-            host => $host,
-            port => $port,
+            host    => $host,
+            port    => $port,
+            workers => $workers,
         )
     );
     exit 0;
@@ -1210,9 +1230,9 @@ dashboard - command-line entrypoint for Developer Dashboard
   dashboard page source <id|token>
   dashboard action run <page_id> <action_id>
   dashboard docker compose [--addon NAME] [--mode NAME] [--service NAME] [--project DIR] [--dry-run] <compose-args...>
-  dashboard serve [--host HOST] [--port PORT] [--foreground]
+  dashboard serve [logs|workers <N>] [--host HOST] [--port PORT] [--workers N] [--foreground]
   dashboard stop
-  dashboard restart [--host HOST] [--port PORT]
+  dashboard restart [--host HOST] [--port PORT] [--workers N]
   dashboard shell [bash]
   dashboard <custom-subcommand> [args...]
 

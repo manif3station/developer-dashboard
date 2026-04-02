@@ -55,7 +55,11 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.11', 'module version bumped for the saved-ajax autoflush and integration-streaming release' );
+is( $version, '1.12', 'module version bumped for the web-log and worker-control release' );
+like( $readme, qr/dashboard serve logs/, 'README documents the serve logs command' );
+like( $pm, qr/C<dashboard serve logs>/, 'main POD documents the serve logs command' );
+like( $readme, qr/dashboard serve workers N/, 'README documents the persistent serve workers command' );
+like( $pm, qr/C<dashboard serve workers N>/, 'main POD documents the persistent serve workers command' );
 like( $readme, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'README documents the bookmark browser smoke script' );
 like( $pm, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'main POD documents the bookmark browser smoke script' );
 like( $readme, qr/Ajax` helper calls inside saved bookmark `CODE\*` blocks should use an\s+explicit `file => 'name\.json'` argument/s, 'README documents the saved bookmark Ajax file requirement' );

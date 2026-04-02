@@ -143,6 +143,39 @@ sub global_path_aliases {
     return $self->_expand_path_aliases( $cfg->{path_aliases} );
 }
 
+# web_workers()
+# Returns the configured default Starman worker count.
+# Input: none.
+# Output: positive integer worker count.
+sub web_workers {
+    my ($self) = @_;
+    my $cfg = $self->merged;
+    my $workers = $cfg->{web}{workers};
+    return 1 if !defined $workers;
+    return 1 if $workers !~ /^\d+$/;
+    return 1 if $workers < 1;
+    return $workers + 0;
+}
+
+# save_global_web_workers($workers)
+# Persists the default Starman worker count in the writable runtime config.
+# Input: positive integer worker count.
+# Output: hash reference containing the saved worker count.
+sub save_global_web_workers {
+    my ( $self, $workers ) = @_;
+    die 'Missing worker count' if !defined $workers || $workers eq '';
+    die 'Worker count must be a positive integer' if $workers !~ /^\d+$/ || $workers < 1;
+
+    my $cfg = $self->load_global;
+    $cfg->{web} = {} if ref( $cfg->{web} ) ne 'HASH';
+    $cfg->{web}{workers} = $workers + 0;
+    $self->save_global($cfg);
+
+    return {
+        workers => $workers + 0,
+    };
+}
+
 # save_global_path_alias($name, $path)
 # Persists or updates a user-global path alias without disturbing other config domains.
 # Input: alias name string and target path string.
@@ -291,7 +324,7 @@ Dashboard.
 
 =head1 METHODS
 
-=head2 new, load_global, save_global, load_repo, merged, collectors, path_aliases, global_path_aliases, save_global_path_alias, remove_global_path_alias, docker_config, providers
+=head2 new, load_global, save_global, load_repo, merged, collectors, path_aliases, global_path_aliases, web_workers, save_global_web_workers, save_global_path_alias, remove_global_path_alias, docker_config, providers
 
 Load and expose configuration domains used by the runtime.
 

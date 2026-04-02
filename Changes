@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.12  2026-04-02
+    - added `dashboard serve logs` so users can print the combined Dancer2 and Starman runtime log without hunting for the dashboard log file manually
+    - added configurable Starman worker counts through `dashboard serve workers N`, plus one-off `dashboard serve --workers N` and `dashboard restart --workers N` overrides
+    - updated README, main POD, architecture docs, and release metadata for the 1.12 web-log and worker-control release
+
 1.11  2026-04-02
     - fixed saved bookmark Ajax Perl wrappers to enable autoflush on `STDOUT` and `STDERR`, so long-running handlers that only `print` and `sleep` now stream visible browser output immediately instead of stalling behind process buffering
     - extended the blank-environment integration runner to exercise a long-running saved `/ajax/...` stream and assert that the first chunks arrive on time through the installed browser-facing route

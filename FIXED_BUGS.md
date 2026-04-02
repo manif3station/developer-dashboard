@@ -2,6 +2,8 @@
 
 ## 2026-04-02
 
+- Fixed missing web-runtime visibility by adding `dashboard serve logs`, so users can read the combined Dancer2 and Starman log output directly from the CLI instead of opening the runtime log file manually.
+- Fixed hardcoded Starman worker control by adding persisted `dashboard serve workers N` settings plus one-off `--workers N` overrides for serve and restart, so users can raise or lower worker counts without patching code.
 - Fixed saved bookmark Ajax print buffering by enabling autoflush in the generated Perl wrapper for file-backed handlers, so long-running `/ajax/<file>` routes now show incremental browser output even when the saved code only does plain `print` plus `sleep`.
 - Fixed blank-environment ajax-stream regression coverage by adding a real installed-route `/ajax/...` streaming check to the integration runner, so future releases prove that the first chunks arrive live instead of only verifying that the worker process stays alive.
 - Fixed saved bookmark Ajax default-type drift by making `Ajax jvar => ..., file => ...` and `/ajax/<file>` default to `text/plain` output instead of `html` or `json` when no explicit type is supplied.

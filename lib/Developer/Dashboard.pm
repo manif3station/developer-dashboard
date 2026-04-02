@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.11';
+our $VERSION = '1.12';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.11
+1.12
 
 =head1 INTRODUCTION
 
@@ -1043,6 +1043,17 @@ C<dashboard serve --foreground> keeps the web service attached to the terminal
 
 =item *
 
+C<dashboard serve logs> prints the combined Dancer2 and Starman runtime log
+captured in the dashboard log file
+
+=item *
+
+C<dashboard serve workers N> saves the default Starman worker count, and both
+C<dashboard serve --workers N> and C<dashboard restart --workers N> can override
+it for one run
+
+=item *
+
 C<dashboard stop> stops both the web service and managed collector loops
 
 =item *
@@ -1165,8 +1176,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.11.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.11.tar.gz -v
+  tar -tzf Developer-Dashboard-1.12.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.12.tar.gz -v
 
 The harness also:
 

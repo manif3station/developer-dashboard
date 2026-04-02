@@ -11,18 +11,22 @@ use Developer::Dashboard::Web::Server::Daemon;
 
 # new(%args)
 # Constructs the local PSGI web server wrapper.
-# Input: app object plus optional host and port.
+# Input: app object plus optional host, port, and worker count.
 # Output: Developer::Dashboard::Web::Server object.
 sub new {
     my ( $class, %args ) = @_;
-    my $app  = $args{app}  || die 'Missing web app';
-    my $host = defined $args{host} ? $args{host} : '0.0.0.0';
-    my $port = defined $args{port} ? $args{port} : 7890;
+    my $app     = $args{app}  || die 'Missing web app';
+    my $host    = defined $args{host} ? $args{host} : '0.0.0.0';
+    my $port    = defined $args{port} ? $args{port} : 7890;
+    my $workers = defined $args{workers} ? $args{workers} : 1;
+    die 'Missing worker count' if !defined $workers || $workers eq '';
+    die 'Worker count must be a positive integer' if $workers !~ /^\d+$/ || $workers < 1;
 
     return bless {
-        app  => $app,
-        host => $host,
-        port => $port,
+        app     => $app,
+        host    => $host,
+        port    => $port,
+        workers => $workers + 0,
     }, $class;
 }
 
@@ -106,7 +110,7 @@ sub _build_runner {
         '--host',   $daemon->sockhost,
         '--port',   $daemon->sockport,
         '--env',    'deployment',
-        '--workers', '1',
+        '--workers', $self->{workers},
     );
     return $runner;
 }

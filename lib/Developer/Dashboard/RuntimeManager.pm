@@ -35,7 +35,7 @@ sub new {
 
 # start_web(%args)
 # Starts the dashboard web service in foreground or background mode.
-# Input: host, port, and foreground options.
+# Input: host, port, worker count, and foreground options.
 # Output: server return value in foreground mode or child pid in background mode.
 sub start_web {
     my ( $self, %args ) = @_;
@@ -47,15 +47,24 @@ sub start_web {
     if ( defined $args{port} ) {
         $port = $args{port};
     }
+    my $workers = 1;
+    if ( defined $args{workers} ) {
+        $workers = $args{workers};
+    }
+    die 'Worker count must be a positive integer' if $workers !~ /^\d+$/ || $workers < 1;
     my $foreground = $args{foreground} ? 1 : 0;
 
     if ($foreground) {
-        my $server = $self->{app_builder}->( host => $host, port => $port );
+        my $server = $self->{app_builder}->( host => $host, port => $port, workers => $workers );
         return $server->run;
     }
 
     my $running = $self->running_web;
-    return $running->{pid} if $running && $running->{host} eq $host && $running->{port} == $port;
+    return $running->{pid}
+      if $running
+      && $running->{host} eq $host
+      && $running->{port} == $port
+      && ( ( $running->{workers} || 1 ) == $workers );
 
     $self->_cleanup_web_files;
 
@@ -79,6 +88,7 @@ sub start_web {
             started_at   => _now_iso8601(),
             status       => 'running',
             bound_host   => $bound_host,
+            workers      => $workers + 0,
         };
         $self->{files}->write( 'web_pid', "$started_pid\n" );
         $self->_write_web_state($state);
@@ -86,7 +96,7 @@ sub start_web {
     }
 
     close $reader;
-    exit $self->_run_web_child( $writer, $host, $port );
+    exit $self->_run_web_child( $writer, $host, $port, workers => $workers );
 }
 
 # running_web()
@@ -233,7 +243,7 @@ sub stop_all {
 
 # restart_all(%args)
 # Restarts collectors and the web service together.
-# Input: host and port options.
+# Input: host, port, and worker-count options.
 # Output: hash reference describing stopped and restarted processes.
 sub restart_all {
     my ( $self, %args ) = @_;
@@ -245,9 +255,13 @@ sub restart_all {
     if ( defined $args{port} ) {
         $port = $args{port};
     }
+    my $workers = 1;
+    if ( defined $args{workers} ) {
+        $workers = $args{workers};
+    }
     my $stopped = $self->stop_all;
     my @collectors = $self->start_collectors;
-    my $web_pid = $self->_restart_web_with_retry( host => $host, port => $port );
+    my $web_pid = $self->_restart_web_with_retry( host => $host, port => $port, workers => $workers );
     return {
         stopped   => $stopped,
         collectors => \@collectors,
@@ -295,12 +309,13 @@ sub _shutdown_web {
 
 # _run_web_child($writer, $host, $port, %args)
 # Runs the daemonized web child lifecycle and reports startup status.
-# Input: pipe writer handle, host, port, and detach/redirect options.
+# Input: pipe writer handle, host, port, worker count, and detach/redirect options.
 # Output: process exit code.
 sub _run_web_child {
     my ( $self, $writer, $host, $port, %args ) = @_;
     my $detach   = exists $args{detach}   ? $args{detach}   : 1;
     my $redirect = exists $args{redirect} ? $args{redirect} : 1;
+    my $workers  = exists $args{workers}  ? $args{workers}  : 1;
     if ($detach) {
         setsid() or die "Unable to detach dashboard web service: $!";
         my $pid = fork();
@@ -316,6 +331,7 @@ sub _run_web_child {
     $ENV{DEVELOPER_DASHBOARD_WEB_SERVICE} = 1;
     $ENV{DEVELOPER_DASHBOARD_WEB_HOST}    = $host;
     $ENV{DEVELOPER_DASHBOARD_WEB_PORT}    = $port;
+    $ENV{DEVELOPER_DASHBOARD_WEB_WORKERS} = $workers;
     local $0 = $self->_web_process_title( $host, $port );
     local $SIGNAL_MANAGER = $self;
     my $shutdown = sub { $self->_shutdown_web('stopped') };
@@ -323,7 +339,7 @@ sub _run_web_child {
     local $SIG{INT}  = $shutdown;
     local $SIG{HUP}  = $shutdown;
 
-    my $server = eval { $self->{app_builder}->( host => $host, port => $port ) };
+    my $server = eval { $self->{app_builder}->( host => $host, port => $port, workers => $workers ) };
     if ($@) {
         print {$writer} "err: $@";
         close $writer;
@@ -351,6 +367,7 @@ sub _run_web_child {
             started_at   => _now_iso8601(),
             status       => 'running',
             bound_host   => $bound_host,
+            workers      => $workers + 0,
         }
     );
 
@@ -367,6 +384,7 @@ sub _run_web_child {
                 error      => "$@",
                 updated_at => _now_iso8601(),
                 bound_host => $bound_host,
+                workers    => $workers + 0,
             }
         );
         return 1;
@@ -380,9 +398,20 @@ sub _run_web_child {
             status     => 'stopped',
             updated_at => _now_iso8601(),
             bound_host => $bound_host,
+            workers    => $workers + 0,
         }
     );
     return 0;
+}
+
+# web_log()
+# Returns the current dashboard web-service log output.
+# Input: none.
+# Output: full dashboard log string, which may be empty.
+sub web_log {
+    my ($self) = @_;
+    my $log = $self->{files}->read('dashboard_log');
+    return defined $log ? $log : '';
 }
 
 # _write_web_state($state)
@@ -666,7 +695,7 @@ sub _wait_for_port_release {
 
 # _restart_web_with_retry(%args)
 # Restarts the web listener with retries for transient port-release races.
-# Input: host and port values.
+# Input: host, port, and worker-count values.
 # Output: restarted web pid.
 sub _restart_web_with_retry {
     my ( $self, %args ) = @_;
@@ -678,9 +707,13 @@ sub _restart_web_with_retry {
     if ( defined $args{port} ) {
         $port = $args{port};
     }
+    my $workers = 1;
+    if ( defined $args{workers} ) {
+        $workers = $args{workers};
+    }
     my $attempts = 20;
     for my $attempt ( 1 .. $attempts ) {
-        my $pid = eval { $self->start_web( host => $host, port => $port ) };
+        my $pid = eval { $self->start_web( host => $host, port => $port, workers => $workers ) };
         return $pid if defined $pid && !$@;
         my $error = $@;
         if ( !$error ) {
@@ -767,7 +800,7 @@ collector loops, including stop and restart orchestration.
 
 =head1 METHODS
 
-=head2 new, start_web, running_web, stop_web, start_collectors, stop_collectors, stop_all, restart_all, web_state
+=head2 new, start_web, running_web, stop_web, start_collectors, stop_collectors, stop_all, restart_all, web_state, web_log
 
 Construct and manage the dashboard runtime.
 

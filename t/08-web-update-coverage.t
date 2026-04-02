@@ -605,6 +605,27 @@ my $missing_route_server = Developer::Dashboard::Web::Server->new( app => $missi
 
 {
     no warnings 'redefine';
+    local *Plack::Runner::new = sub { return Local::FakeRunner->new };
+    my $worker_server = Developer::Dashboard::Web::Server->new(
+        app     => $app,
+        host    => '127.0.0.1',
+        port    => 5998,
+        workers => 4,
+    );
+    my $fake_daemon = Developer::Dashboard::Web::Server::Daemon->new(
+        host => '127.0.0.1',
+        port => 5998,
+    );
+    ok( $worker_server->serve_daemon($fake_daemon), 'serve_daemon accepts an explicit worker count' );
+    is_deeply(
+        \@Local::FakeRunner::parse_options,
+        [ '--server', 'Starman', '--host', '127.0.0.1', '--port', 5998, '--env', 'deployment', '--workers', '4' ],
+        'serve_daemon forwards the configured worker count to Starman',
+    );
+}
+
+{
+    no warnings 'redefine';
     my $served;
     local *Developer::Dashboard::Web::Server::start_daemon = sub {
         return Developer::Dashboard::Web::Server::Daemon->new( host => '127.0.0.1', port => 5999 );
