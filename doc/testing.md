@@ -26,8 +26,8 @@ browser assertions you care about:
 ```bash
 integration/browser/run-bookmark-browser-smoke.pl \
   --bookmark-file ~/.developer-dashboard/dashboards/test \
-  --expect-page-fragment "set_chain_value(foo,'bar','/ajax/foobar?type=json')" \
-  --expect-ajax-path /ajax/foobar?type=json \
+  --expect-page-fragment "set_chain_value(foo,'bar','/ajax/foobar?type=text')" \
+  --expect-ajax-path /ajax/foobar?type=text \
   --expect-ajax-body 123 \
   --expect-dom-fragment '<span class="display">123</span>'
 ```
@@ -110,6 +110,7 @@ The web tests also cover the access model:
 - denial of browser `token=` and `atoken=` execution for transient page and action payloads, plus legacy `/ajax?token=...`, when the transient URL opt-in env var is absent
 - absence of accidental project-local `.developer-dashboard` creation when `dashboard restart` runs inside a git repo that has not opted into a local dashboard root
 - saved bookmark `Ajax file => ...` handlers through `/ajax/<file>?type=...`, including `dashboards/ajax/...` storage, direct process-backed streamed ajax execution for both `stdout` and `stderr`, and blank-env verification under the default deny policy
+- file-backed saved Ajax Perl wrappers with autoflushed `STDOUT` and `STDERR`, including a timing check that long-running `print` plus `sleep` handlers emit early chunks instead of buffering until exit
 
 ## Blank Environment Integration
 
@@ -142,3 +143,4 @@ The integration flow also:
 - seeds a user-provided fake-project `./.developer-dashboard/cli/update` command plus `update.d` hooks inside the container and verifies `dashboard update` uses the same executable command-hook path as every other top-level subcommand, including later-hook reads through `Runtime::Result`
 - verifies the installed web app denies `/?token=...` browser execution by default while saved bookmark routes still render
 - uses headless Chromium to validate the editor, the saved fake-project bookmark page, and the helper login page
+- verifies that an installed long-running saved `/ajax/...` route starts streaming visible output within the expected first seconds instead of buffering until process exit

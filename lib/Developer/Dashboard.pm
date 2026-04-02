@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.10';
+our $VERSION = '1.11';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.10
+1.11
 
 =head1 INTRODUCTION
 
@@ -530,7 +530,10 @@ transient token URLs stay disabled by default, and it means bookmark Ajax code
 can rely on normal C<print>, C<warn>, C<die>, C<system>, and C<exec> process
 behaviour instead of a buffered JSON wrapper.
 Saved bookmark Ajax handlers also default to C<text/plain> when no explicit
-C<type =E<gt> ...> argument is supplied.
+C<type =E<gt> ...> argument is supplied, and the generated Perl wrapper now
+enables autoflush on both C<STDOUT> and C<STDERR> so long-running handlers
+show incremental output in the browser instead of stalling behind process
+buffers.
 If C<code =E<gt> ...> is omitted, C<Ajax(file =E<gt> 'name')> targets the
 existing executable at C<dashboards/ajax/name> instead of rewriting it.
 Static files referenced by saved bookmarks are resolved from the effective
@@ -1162,8 +1165,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.10.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.10.tar.gz -v
+  tar -tzf Developer-Dashboard-1.11.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.11.tar.gz -v
 
 The harness also:
 

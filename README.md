@@ -205,7 +205,9 @@ workflows usable even while transient token URLs stay disabled by default, and
 it means bookmark Ajax code can rely on normal `print`, `warn`, `die`,
 `system`, and `exec` process behaviour instead of a buffered JSON wrapper.
 Saved bookmark Ajax handlers also default to `text/plain` when no explicit
-`type => ...` argument is supplied.
+`type => ...` argument is supplied, and the generated Perl wrapper now enables
+autoflush on both `STDOUT` and `STDERR` so long-running handlers show
+incremental output in the browser instead of stalling behind process buffers.
 If `code => ...` is omitted, `Ajax(file => 'name')` targets the existing
 executable at `dashboards/ajax/name` instead of rewriting it.
 Static files referenced by saved bookmarks are resolved from the effective
@@ -719,8 +721,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.10.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.10.tar.gz -v
+tar -tzf Developer-Dashboard-1.11.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.11.tar.gz -v
 ```
 
 The harness also:

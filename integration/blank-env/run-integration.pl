@@ -129,6 +129,23 @@ die "saved-die\n";
 BOOKMARK
     );
     _write_text(
+        File::Spec->catfile( $bookmarks, 'legacy-ajax-stream' ),
+        <<'BOOKMARK'
+TITLE: Legacy Ajax Stream
+:--------------------------------------------------------------------------------:
+BOOKMARK: legacy-ajax-stream
+:--------------------------------------------------------------------------------:
+HTML: <script>var configs = {};</script>
+:--------------------------------------------------------------------------------:
+CODE1: Ajax jvar => 'configs.project.stream', file => 'project-stream.txt', code => q{
+for (1..3) {
+    print "stream$_\n";
+    sleep 1;
+}
+};
+BOOKMARK
+    );
+    _write_text(
         File::Spec->catfile( $bookmarks, 'nav', 'alpha.tt' ),
         <<'BOOKMARK'
 TITLE: Alpha Nav
@@ -427,6 +444,17 @@ JSON
     _assert_match( $legacy_ajax_saved->{stdout}, qr/saved-child-out/, 'saved bookmark ajax endpoint streams child stdout' );
     _assert_match( $legacy_ajax_saved->{stdout}, qr/saved-child-err/, 'saved bookmark ajax endpoint streams child stderr' );
     _assert_match( $legacy_ajax_saved->{stdout}, qr/saved-die/, 'saved bookmark ajax endpoint streams uncaught perl die output' );
+    my $legacy_ajax_stream_page = _run_shell( 'curl legacy ajax stream saved page', q{curl -fsS http://127.0.0.1:7890/app/legacy-ajax-stream} );
+    _assert_match( $legacy_ajax_stream_page->{stdout}, qr{/ajax/project-stream\.txt\?type=text}, 'saved bookmark ajax stream page renders a stable default text ajax endpoint' );
+    my $legacy_ajax_stream = _capture_stream_prefix(
+        'curl saved bookmark ajax stream endpoint',
+        q{curl --no-buffer -fsS 'http://127.0.0.1:7890/ajax/project-stream.txt'},
+        expected_chunks => [ 'stream1', 'stream2' ],
+        timeout         => 4,
+    );
+    _assert( @{ $legacy_ajax_stream->{events} || [] } >= 2, 'saved bookmark ajax stream endpoint produced multiple early chunks before process exit' );
+    _assert( ( $legacy_ajax_stream->{events}[0]{at} || 99 ) < 1.5, 'saved bookmark ajax stream endpoint flushes the first chunk before the long-running ajax loop finishes' );
+    _assert( ( $legacy_ajax_stream->{events}[1]{at} || 99 ) < 2.5, 'saved bookmark ajax stream endpoint keeps flushing later chunks during the long-running ajax loop' );
 
     my $container_ip = _trim( _run_shell( 'container ip', q{hostname -I | awk '{print $1}'} )->{stdout} );
     _assert( $container_ip ne '', 'container ip discovered for helper-access path' );
@@ -560,6 +588,66 @@ sub _run_shell {
         exit_code => $exit_code,
         stdout    => defined $stdout ? $stdout : '',
         stderr    => defined $stderr ? $stderr : '',
+    };
+}
+
+# _capture_stream_prefix($label, $command, %opts)
+# Runs one streaming shell command and records when expected stdout chunks first appear.
+# Input: human label, shell command string, expected_chunks array ref, and optional timeout seconds.
+# Output: hash reference with stdout, stderr, and matched event timing data.
+sub _capture_stream_prefix {
+    my ( $label, $command, %opts ) = @_;
+    my $expected = $opts{expected_chunks} || [];
+    my $timeout  = $opts{timeout} || 5;
+    print "==> $label\n";
+    print "    $command\n";
+    my $stderr_fh = gensym();
+    my $pid = open3( undef, my $stdout_fh, $stderr_fh, 'sh', '-lc', $command );
+    my $selector = IO::Select->new( $stdout_fh, $stderr_fh );
+    my $stdout = '';
+    my $stderr = '';
+    my $stdout_fd = fileno($stdout_fh);
+    my $stderr_fd = fileno($stderr_fh);
+    my @events;
+    my $start = time;
+    my $deadline = $start + $timeout;
+
+    while ( $selector->count && @events < @{$expected} && time < $deadline ) {
+        my @ready = $selector->can_read(0.25);
+        next if !@ready;
+        for my $fh (@ready) {
+            my $buffer = '';
+            my $read = sysread( $fh, $buffer, 8192 );
+            if ( !defined $read || $read == 0 ) {
+                $selector->remove($fh);
+                close $fh;
+                next;
+            }
+            if ( defined fileno($fh) && fileno($fh) == $stdout_fd ) {
+                $stdout .= $buffer;
+                print $buffer;
+                while ( @events < @{$expected} && index( $stdout, $expected->[@events] ) >= 0 ) {
+                    push @events, {
+                        chunk => $expected->[@events],
+                        at    => time - $start,
+                    };
+                }
+                next;
+            }
+            if ( defined fileno($fh) && fileno($fh) == $stderr_fd ) {
+                $stderr .= $buffer;
+                print STDERR $buffer;
+            }
+        }
+    }
+
+    kill 'TERM', $pid;
+    waitpid( $pid, 0 );
+
+    return {
+        stdout => $stdout,
+        stderr => $stderr,
+        events => \@events,
     };
 }
 

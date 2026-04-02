@@ -531,6 +531,11 @@ use warnings;
 use DataHelper qw(j je);
 use Developer::Dashboard::JSON qw(json_decode);
 use Zipper qw(Ajax acmdx zip unzip);
+my $old_stdout = select STDOUT;
+$| = 1;
+select STDERR;
+$| = 1;
+select $old_stdout;
 
 our $AJAX_STASH = {};
 our $AJAX_PARAMS = eval { json_decode( $ENV{DEVELOPER_DASHBOARD_AJAX_PARAMS} || '{}' ) };

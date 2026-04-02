@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.11  2026-04-02
+    - fixed saved bookmark Ajax Perl wrappers to enable autoflush on `STDOUT` and `STDERR`, so long-running handlers that only `print` and `sleep` now stream visible browser output immediately instead of stalling behind process buffering
+    - extended the blank-environment integration runner to exercise a long-running saved `/ajax/...` stream and assert that the first chunks arrive on time through the installed browser-facing route
+    - updated README, POD, testing docs, fixed-bug notes, and release metadata for the 1.11 saved-ajax streaming release
+
 1.10  2026-04-02
     - changed saved bookmark Ajax helpers and `/ajax/<file>` routes to default to `text/plain` output when no explicit `type => ...` or `?type=...` is supplied
     - fixed the Dancer2 ajax bridge so streamed `/ajax/...` responses flush through the HTTP layer instead of being buffered into one final string

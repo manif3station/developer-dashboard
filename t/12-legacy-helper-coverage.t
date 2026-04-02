@@ -8,6 +8,7 @@ use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use Test::More;
+use Time::HiRes qw(time);
 use URI::Escape qw(uri_escape);
 
 use lib 'lib';
@@ -295,6 +296,39 @@ like( $runtime->_runtime_value_text( { ok => 1 } ), qr/ok => 1/, '_runtime_value
     like( $streamed, qr/child-err/, 'stream_saved_ajax_file forwards child stderr' );
     like( $streamed, qr/process-die/, 'stream_saved_ajax_file forwards uncaught perl die text' );
     ok( $stream_result->{exit_code} != 0, 'stream_saved_ajax_file reports the failing process exit code' );
+}
+{
+    my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'stream-timing.pl' );
+    open my $fh, '>', $saved_path or die $!;
+    print {$fh} <<'PL';
+for (1..3) {
+    print "tick$_";
+    sleep 1;
+}
+PL
+    close $fh;
+    chmod 0700, $saved_path or die $!;
+    my @chunks;
+    my @times;
+    my $start = time;
+    my $stream_result = $runtime->stream_saved_ajax_file(
+        path          => $saved_path,
+        page          => 'coverage-page',
+        type          => 'text',
+        params        => { page => 'coverage-page', file => 'stream-timing.pl', type => 'text' },
+        stdout_writer => sub {
+            my ($chunk) = @_;
+            return if !defined $chunk || $chunk eq '';
+            push @chunks, $chunk;
+            push @times, time - $start;
+        },
+        stderr_writer => sub { die "unexpected stderr chunk during timing stream test: $_[0]" if defined $_[0] && $_[0] ne '' },
+    );
+    is( $stream_result->{exit_code}, 0, 'stream_saved_ajax_file succeeds for timed saved ajax stream output' );
+    is( join( '', @chunks ), 'tick1tick2tick3', 'stream_saved_ajax_file forwards all timed ajax stdout chunks in order' );
+    ok( @times >= 2, 'stream_saved_ajax_file delivers multiple timed chunks before process exit' );
+    ok( $times[0] < 1.5, 'stream_saved_ajax_file forwards the first timed chunk before the saved ajax process finishes' );
+    ok( $times[1] < 2.5, 'stream_saved_ajax_file keeps forwarding later timed chunks during the long-running saved ajax process' );
 }
 {
     my $stdout_chunk = '';

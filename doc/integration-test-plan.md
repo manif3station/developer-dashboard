@@ -38,6 +38,7 @@ The integration run covers these command families:
 - docker resolver: `dashboard docker compose --dry-run`
 - web lifecycle: `dashboard serve`, `dashboard restart`, `dashboard stop`
 - browser checks: headless Chromium editor, saved fake-project bookmark page, and helper-login DOM verification
+- ajax streaming: installed long-running `/ajax/<file>` route timing and early-chunk verification
 
 ## Environment
 
@@ -61,6 +62,7 @@ The integration run creates:
 - a fake project `./.developer-dashboard` tree with `dashboards`, `config`, and `cli` directories
 - a saved page named `sample`
 - a saved legacy bookmark page named `project-home`
+- a saved legacy bookmark page named `legacy-ajax-stream`
 - shared nav bookmark pages under `nav/*.tt`
 - a helper user for explicit add/remove testing
 - a second helper user for browser login/logout cleanup testing
@@ -89,12 +91,13 @@ The integration run creates:
 19. Confirm exact-loopback access reaches the editor page in Chromium.
 20. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
 21. Confirm the browser inserts sorted rendered `nav/*.tt` bookmark fragments between the top chrome and the main page body.
-22. Confirm non-loopback self-access reaches the helper login page in Chromium.
-23. Log in as a helper through the HTTP helper flow.
-24. Confirm helper page chrome shows `Logout`.
-25. Log out and confirm the helper account is removed.
-26. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
-27. Stop the runtime and confirm the web service is gone.
+22. Confirm an installed long-running saved `/ajax/<file>` route starts streaming the first output chunks promptly instead of buffering until the worker exits.
+23. Confirm non-loopback self-access reaches the helper login page in Chromium.
+24. Log in as a helper through the HTTP helper flow.
+25. Confirm helper page chrome shows `Logout`.
+26. Log out and confirm the helper account is removed.
+27. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
+28. Stop the runtime and confirm the web service is gone.
 
 ## Expected Results
 
@@ -110,6 +113,7 @@ The integration run creates:
 - the web service serves the root editor on `127.0.0.1:7890`
 - the browser can load both the editor and a saved fake-project bookmark page from the fake project bookmark directory
 - the browser sees sorted shared `nav/*.tt` fragments above the main page body on that fake-project bookmark page
+- the installed `/ajax/<file>` route streams early output chunks promptly enough to prove browser-visible progress instead of silent buffering
 - non-loopback access produces the helper login page
 - helper logout removes both the helper session and the helper account
 - `dashboard stop` leaves no active listener on port `7890`

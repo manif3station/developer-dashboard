@@ -56,6 +56,8 @@ like( $runner, qr/dashboard indicator list after restart/, 'integration runner c
 like( $runner, qr/_browser_binary|chromium-browser|google-chrome|apt-get install -y --no-install-recommends chromium/s, 'integration runner resolves or bootstraps a headless browser for browser checks' );
 like( $runner, qr/IPC::Open3|open3/, 'integration runner uses a live subprocess bridge for long-running command output' );
 like( $runner, qr/IO::Select/, 'integration runner monitors long-running command streams without fully buffering them first' );
+like( $runner, qr/legacy-ajax-stream|project-stream\.txt/, 'integration runner provisions a long-running saved ajax stream regression case' );
+like( $runner, qr/_capture_stream_prefix/, 'integration runner captures early ajax stream chunks during the long-running saved ajax regression case' );
 like( $runner, qr/_distribution_version/, 'integration runner reads the expected installed version from the extracted tarball instead of hard-coding a release number' );
 like( $runner, qr/\.developer-dashboard/, 'integration runner provisions a fake-project local runtime tree' );
 like( $runner, qr/cpanm install host-built tarball.*dashboard init.*api-dashboard/s, 'integration runner builds the fake-project local runtime only after the tarball install step' );
