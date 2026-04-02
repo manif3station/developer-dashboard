@@ -3,6 +3,8 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
+our $VERSION = '1.23';
+
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
 use File::Spec;

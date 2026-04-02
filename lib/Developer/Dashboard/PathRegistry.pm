@@ -3,6 +3,8 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
+our $VERSION = '1.23';
+
 use Cwd qw(cwd);
 use File::Basename qw(dirname);
 use File::Find ();

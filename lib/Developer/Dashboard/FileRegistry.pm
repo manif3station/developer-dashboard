@@ -3,6 +3,8 @@ package Developer::Dashboard::FileRegistry;
 use strict;
 use warnings;
 
+our $VERSION = '1.23';
+
 use File::Spec;
 
 # new(%args)

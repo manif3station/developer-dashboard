@@ -3,6 +3,8 @@ package Developer::Dashboard::SessionStore;
 use strict;
 use warnings;
 
+our $VERSION = '1.23';
+
 use Digest::SHA qw(sha256_hex);
 use File::Spec;
 use POSIX qw(strftime);

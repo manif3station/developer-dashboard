@@ -3,6 +3,8 @@ package Developer::Dashboard::PageDocument;
 use strict;
 use warnings;
 
+our $VERSION = '1.23';
+
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 
 our $LEGACY_SEP = ':--------------------------------------------------------------------------------:';

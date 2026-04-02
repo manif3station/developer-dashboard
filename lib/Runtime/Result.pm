@@ -3,6 +3,8 @@ package Runtime::Result;
 use strict;
 use warnings;
 
+our $VERSION = '1.23';
+
 use JSON::XS qw(decode_json);
 
 # current()

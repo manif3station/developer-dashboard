@@ -3,6 +3,8 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
+our $VERSION = '1.23';
+
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
 use File::Spec;

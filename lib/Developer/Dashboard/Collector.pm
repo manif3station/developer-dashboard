@@ -3,6 +3,8 @@ package Developer::Dashboard::Collector;
 use strict;
 use warnings;
 
+our $VERSION = '1.23';
+
 use File::Spec;
 use POSIX qw(strftime);
 use Time::HiRes qw(time);

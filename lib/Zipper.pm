@@ -3,6 +3,8 @@ package Zipper;
 use strict;
 use warnings;
 
+our $VERSION = '1.23';
+
 use Exporter 'import';
 use File::Basename qw(dirname);
 use File::Path qw(make_path);

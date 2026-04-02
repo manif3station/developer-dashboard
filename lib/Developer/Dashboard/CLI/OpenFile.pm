@@ -3,6 +3,8 @@ package Developer::Dashboard::CLI::OpenFile;
 use strict;
 use warnings;
 
+our $VERSION = '1.23';
+
 use Cwd qw(cwd);
 use Exporter 'import';
 use File::Find ();

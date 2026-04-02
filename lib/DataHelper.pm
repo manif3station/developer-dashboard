@@ -3,6 +3,8 @@ package DataHelper;
 use strict;
 use warnings;
 
+our $VERSION = '1.23';
+
 use Exporter 'import';
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
