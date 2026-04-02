@@ -154,6 +154,7 @@ my ($code1c, undef, $body1c) = @{ $app->handle(
 ) };
 is($code1c, 200, 'play url round-trips through token query parsing');
 like($body1c, qr/posted body/, 'play url token survives browser-style query transport');
+like($body1c, qr/nav-current=\/ nav-rt=\//, 'unnamed transient play route exposes the root path to shared nav tt fragments');
 my $raw_plus_query = $play_query;
 $raw_plus_query =~ s/%2B/+/g;
 my ($code1c_plus, undef, $body1c_plus) = @{ $app->handle(
@@ -193,6 +194,24 @@ like($body1d_saved, qr/HERE \/app\/index \/app\/index/, 'legacy /app/index route
 like($body1d_saved, qr/class="dashboard-nav-items"/, 'saved page render includes shared nav section when nav tt pages exist');
 like($body1d_saved, qr{<li data-nav-id="nav/alpha\.tt">Home</li>}s, 'shared nav fragments evaluate Template Toolkit conditionals against the current page');
 like($body1d_saved, qr/nav-current=\/app\/index nav-rt=\/app\/index/, 'shared nav fragments receive env.current_page and env.runtime_context.current_page');
+
+my $saved_play_token = uri_escape( $store->encode_page( Developer::Dashboard::PageDocument->from_instruction(<<'PAGE') ) );
+TITLE: Saved Bookmark Via Token
+:--------------------------------------------------------------------------------:
+BOOKMARK: index
+:--------------------------------------------------------------------------------:
+HTML: token body
+PAGE
+my ($code1d_saved_play, undef, $body1d_saved_play) = @{ $app->handle(
+    path        => '/',
+    query       => "mode=render&token=$saved_play_token",
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is($code1d_saved_play, 200, 'transient render route responds for a named bookmark token');
+like($body1d_saved_play, qr/class="dashboard-nav-items"/, 'transient render for a named bookmark keeps the shared nav section');
+like($body1d_saved_play, qr{<li data-nav-id="nav/alpha\.tt">Home</li>}s, 'transient render for a named bookmark evaluates nav tt fragments against the saved page route');
+like($body1d_saved_play, qr/nav-current=\/app\/index nav-rt=\/app\/index/, 'transient render for a named bookmark exposes the saved page path to nav tt fragments');
 
 my ($code1d_nav, undef, $body1d_nav) = @{ $app->handle(
     path        => '/',

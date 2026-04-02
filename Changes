@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.09  2026-04-02
+    - fixed transient `/?mode=render&token=...` play for named bookmarks so shared `nav/*.tt` fragments keep the saved `/app/<id>` current-page context instead of collapsing to `/`
+    - added a dedicated bookmark play regression test for shared nav rendering on both unnamed transient play and named bookmark token play
+    - updated README, POD, fixed-bug notes, and release metadata for the 1.09 nav-context fix
+
 1.08  2026-04-02
     - added `integration/browser/run-bookmark-browser-smoke.pl` for fast host-side browser verification of saved bookmark files, including page-source, ajax, and final DOM assertions
     - documented the new bookmark browser smoke workflow in README, main POD, testing docs, and the integration plan so bookmark regressions get a dedicated repro path before the slower blank-environment cycle

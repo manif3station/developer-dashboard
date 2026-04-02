@@ -2,6 +2,7 @@
 
 ## 2026-04-02
 
+- Fixed shared `nav/*.tt` context drift on transient play routes by making named bookmark token renders reuse the saved `/app/<id>` current-page path, so nav fragments no longer disappear or flip conditional output just because the browser reached the page through `/?mode=render&token=...`.
 - Fixed repeated slow manual bookmark-browser repros by adding a dedicated host-side `integration/browser/run-bookmark-browser-smoke.pl` workflow, so saved bookmark issues now have one fast real-browser smoke path instead of requiring the full blank-environment integration cycle every time.
 - Fixed missing `/js/jquery.js` bookmark support by serving a built-in local jQuery-style compatibility shim when no runtime asset overrides it, so saved bookmark pages no longer fail immediately with `$` undefined just because no copied runtime JS file exists.
 - Fixed browser-verified legacy `Ajax jvar => 'foo.bar', file => 'foobar'` bookmark flow coverage, confirming that `foo.bar` is bound to the saved `/ajax/foobar?...` endpoint and that any remaining non-update in the user's sample bookmark is due to the page's own `.display` versus `class=disply` mismatch rather than a dashboard route failure.

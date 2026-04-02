@@ -1178,6 +1178,7 @@ sub _render_page_html {
     my ( $self, $page, $mode ) = @_;
     $page->with_mode( $mode || 'render' );
     my $request_context = $page->{meta}{request_context} || {};
+    my $current_page = $self->_effective_current_page($page);
     my $transient_allowed = _transient_url_tokens_allowed();
     my %action_urls;
     for my $action ( @{ $page->as_hash->{actions} || [] } ) {
@@ -1198,7 +1199,7 @@ sub _render_page_html {
       : '/app/' . ( $page->as_hash->{id} || '' );
     my $runtime_context = {
         params       => { %{ $page->{state} || {} } },
-        current_page => $request_context->{path} || '',
+        current_page => $current_page,
     };
     return $page->render_html(
         action_urls => \%action_urls,
@@ -1216,6 +1217,24 @@ sub _render_page_html {
             runtime_context => $runtime_context,
         ),
     );
+}
+
+# _effective_current_page($page)
+# Resolves the logical page path used by nav fragments and runtime template context.
+# Input: page document object.
+# Output: request path string, preferring the saved bookmark route for transient play of named bookmarks.
+sub _effective_current_page {
+    my ( $self, $page ) = @_;
+    my $request_context = $page->{meta}{request_context} || {};
+    my $request_path = $request_context->{path} || '';
+    my $page_id = $page->as_hash->{id} || '';
+
+    return '/app/' . $page_id
+      if $request_path eq '/'
+      && $page_id ne ''
+      && ( $page->{meta}{source_kind} || '' ) eq 'transient';
+
+    return $request_path;
 }
 
 # _nav_items_html(%args)

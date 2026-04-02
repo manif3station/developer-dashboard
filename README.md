@@ -256,7 +256,10 @@ Shared nav fragments and normal bookmark pages both render through Template
 Toolkit with `env.current_page` set to the active request path, such as
 `/app/index`. The same path is also available as
 `env.runtime_context.current_page`, alongside the rest of the request-time
-runtime context.
+runtime context. Token play renders for named bookmarks also reuse that saved
+`/app/<id>` path for nav context, so shared `nav/*.tt` fragments do not
+disappear just because the browser reached the page through a transient
+`/?mode=render&token=...` URL.
 
 ### Open File Commands
 
@@ -714,8 +717,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.08.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.08.tar.gz -v
+tar -tzf Developer-Dashboard-1.09.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.09.tar.gz -v
 ```
 
 The harness also:

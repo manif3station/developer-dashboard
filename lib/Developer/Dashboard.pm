@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.08';
+our $VERSION = '1.09';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.08
+1.09
 
 =head1 INTRODUCTION
 
@@ -194,7 +194,10 @@ Shared nav fragments and normal bookmark pages both render through Template
 Toolkit with C<env.current_page> set to the active request path, such as
 C</app/index>. The same path is also available as
 C<env.runtime_context.current_page>, alongside the rest of the request-time
-runtime context.
+runtime context. Token play renders for named bookmarks also reuse that saved
+C</app/E<lt>idE<gt>> path for nav context, so shared C<nav/*.tt> fragments do
+not disappear just because the browser reached the page through a transient
+C</?mode=render&token=...> URL.
 
 =head2 What You Get
 
@@ -1157,8 +1160,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.08.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.08.tar.gz -v
+  tar -tzf Developer-Dashboard-1.09.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.09.tar.gz -v
 
 The harness also:
 
