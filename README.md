@@ -660,6 +660,11 @@ disabled.
 Legacy bookmark parsing also treats a standalone `---` line as a section
 break, preventing pasted prose after a code block from being compiled into the
 saved `CODE*` body.
+Saved bookmark loads now also normalize malformed legacy icon bytes before the
+browser sees them. Broken section glyphs fall back to `◈`, broken item-icon
+glyphs fall back to `🏷️`, and common damaged joined emoji sequences such as
+`🧑‍💻` are repaired so edit and play routes stop showing Unicode replacement
+boxes from older bookmark files.
 - helper access requires a login backed by local file-based user and session records
 
 This keeps the fast path for exact loopback access while making non-canonical or remote access explicit.
@@ -732,8 +737,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.20.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.20.tar.gz -v
+tar -tzf Developer-Dashboard-1.21.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.21.tar.gz -v
 ```
 
 The harness also:

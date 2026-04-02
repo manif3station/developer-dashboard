@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.21  2026-04-02
+    - fixed malformed legacy bookmark icon bytes on saved page load by normalizing broken heading and item icon glyphs into stable browser-safe fallbacks and repairing common damaged joined emoji such as `🧑‍💻`
+    - kept saved edit and source routes on the repaired raw bookmark text from disk instead of always regenerating canonical source, so browser views preserve the repaired legacy icon markup
+    - added direct page-store and web-route regressions for malformed legacy bookmark icon bytes plus a browser-backed saved-page smoke verification against the reproduced `/tmp/index` issue
+
 1.20  2026-04-02
     - fixed bookmark editor overlay drift by restoring live syntax highlighting inside a clipped overlay viewport that follows the textarea by transform instead of trying to scroll a second independent layer
     - fixed the editor bottom-of-file geometry by preserving the final blank line in the overlay so scrolling and caret targeting stay aligned on long bookmarks

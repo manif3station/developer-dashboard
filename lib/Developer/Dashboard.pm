@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.20';
+our $VERSION = '1.21';
 
 1;
 
@@ -1037,6 +1037,11 @@ work while transient URLs are disabled.
 Legacy bookmark parsing also treats a standalone C<---> line as a section
 break, preventing pasted prose after a code block from being compiled into the
 saved C<CODE*> body.
+Saved bookmark loads now also normalize malformed legacy icon bytes before the
+browser sees them. Broken section glyphs fall back to C<◈>, broken item-icon
+glyphs fall back to C<🏷️>, and common damaged joined emoji sequences such as
+C<🧑‍💻> are repaired so edit and play routes stop showing Unicode replacement
+boxes from older bookmark files.
 
 The default web bind is C<0.0.0.0:7890>. Trust is still decided from the request origin and host header, not from the listen address.
 

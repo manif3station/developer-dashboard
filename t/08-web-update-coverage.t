@@ -1,8 +1,10 @@
 use strict;
 use warnings;
+use utf8;
 
 use Capture::Tiny qw(capture);
 use Cwd qw(getcwd);
+use Encode qw(decode encode FB_CROAK);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -42,6 +44,12 @@ sub drain_stream_body {
     my $output = '';
     $body->{stream}->( sub { $output .= $_[0] if defined $_[0] } );
     return $output;
+}
+
+sub decode_body_text {
+    my ($body) = @_;
+    return $body if !defined $body || utf8::is_utf8($body);
+    return decode( 'UTF-8', $body, FB_CROAK );
 }
 
 my $home = tempdir(CLEANUP => 1);
@@ -145,6 +153,40 @@ unlike( $saved_source_body, qr/request_host|request_path|request_remote_addr/, '
 my ( $saved_render_code, undef, $saved_render_body ) = @{ $app->handle( path => '/app/sample', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $saved_render_code, 200, 'saved render route responds with success' );
 like( $saved_render_body, qr/updated saved bookmark body/, 'saved page route renders the latest saved bookmark body content' );
+
+{
+    my $broken_path = File::Spec->catfile( $paths->dashboards_root, 'broken-icons' );
+    open my $broken_fh, '>:raw', $broken_path or die "Unable to write $broken_path: $!";
+    print {$broken_fh} "TITLE: Broken Icons\n";
+    print {$broken_fh} ":--------------------------------------------------------------------------------:\n";
+    print {$broken_fh} "BOOKMARK: broken-icons\n";
+    print {$broken_fh} ":--------------------------------------------------------------------------------:\n";
+    print {$broken_fh} "HTML: <h2>";
+    print {$broken_fh} pack( 'C*', 0xF0, 0x9F, 0x9A );
+    print {$broken_fh} " Learning</h2>\n<span class=\"icon\">";
+    print {$broken_fh} pack( 'C*', 0x95 );
+    print {$broken_fh} "</span>\n<span class=\"icon\">" . encode( 'UTF-8', "\x{1F9D1}" );
+    print {$broken_fh} pack( 'C*', 0xEF, 0xBF, 0xBD );
+    print {$broken_fh} encode( 'UTF-8', "\x{1F4BB}</span>\n" );
+    close $broken_fh or die "Unable to close $broken_path: $!";
+
+    my ( $broken_source_code, undef, $broken_source_body ) = @{ $app->handle( path => '/app/broken-icons/source', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    my $broken_source_text = decode_body_text($broken_source_body);
+    is( $broken_source_code, 200, 'saved source route still responds for malformed legacy bookmark bytes' );
+    like( $broken_source_text, qr/◈ Learning/, 'saved source route repairs malformed legacy heading icon bytes into a stable fallback glyph' );
+    like( $broken_source_text, qr/<span class="icon">🏷️<\/span>/, 'saved source route repairs malformed legacy item icon bytes into a stable fallback glyph' );
+    like( $broken_source_text, qr/<span class="icon">🧑‍💻<\/span>/, 'saved source route repairs malformed joined legacy emoji into a browser-safe glyph' );
+    unlike( $broken_source_text, qr/\x{FFFD}/, 'saved source route no longer exposes Unicode replacement glyphs for repaired icon markup' );
+    unlike( $broken_source_text, qr/^HTML:\s+<h2> Learning<\/h2>$/m, 'saved source route keeps the repaired raw source text instead of replacing it with canonical text that drops the glyph position' );
+
+    my ( $broken_edit_code, undef, $broken_edit_body ) = @{ $app->handle( path => '/app/broken-icons/edit', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+    my $broken_edit_text = decode_body_text($broken_edit_body);
+    is( $broken_edit_code, 200, 'saved edit route still responds for malformed legacy bookmark bytes' );
+    like( $broken_edit_text, qr/◈ Learning/, 'saved edit route embeds repaired heading fallback glyphs into the browser editor source' );
+    like( $broken_edit_text, qr/🏷️/, 'saved edit route embeds repaired item fallback glyphs into the browser editor source' );
+    like( $broken_edit_text, qr/🧑‍💻/, 'saved edit route embeds repaired joined emoji glyphs into the browser editor source' );
+}
+
 is(
     $app->_nav_items_html(
         page            => $page,

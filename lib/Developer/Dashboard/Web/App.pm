@@ -564,7 +564,7 @@ sub page_source_response {
     my ( $self, %args ) = @_;
     my ( $params, $body_params ) = $self->_request_params(%args);
     my $page = $self->_load_named_page( $args{id} );
-    $page->{meta}{raw_instruction} = $page->canonical_instruction;
+    $page->{meta}{raw_instruction} = $page->{meta}{raw_instruction} || $page->canonical_instruction;
     $page = $self->_page_with_runtime_state(
         $page,
         query_params => $params,
@@ -622,7 +622,7 @@ sub page_edit_response {
     my ( $self, %args ) = @_;
     my ( $params, $body_params ) = $self->_request_params(%args);
     my $page = $self->_load_named_page( $args{id} );
-    $page->{meta}{raw_instruction} = $page->canonical_instruction;
+    $page->{meta}{raw_instruction} = $page->{meta}{raw_instruction} || $page->canonical_instruction;
     $page = $self->_page_with_runtime_state(
         $page,
         query_params => $params,
