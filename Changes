@@ -1,5 +1,8 @@
 Revision history for Developer Dashboard
 
+1.25  2026-04-02
+    - documented SSL parameter passing bug fix in FIXED_BUGS.md for version tracking and release notes
+
 1.24  2026-04-02
     - fixed critical bug where ssl parameter was not being passed to Web::Server in app_builder callback, causing `dashboard serve --ssl` to silently fail to enable HTTPS
     - ssl parameter now correctly flows through entire chain: CLI parsing -> RuntimeManager -> app_builder -> Web::Server configuration

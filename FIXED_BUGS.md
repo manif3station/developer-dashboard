@@ -2,6 +2,7 @@
 
 ## 2026-04-02
 
+- Fixed critical SSL parameter passing bug where `dashboard serve --ssl` would silently fail to enable HTTPS: the ssl flag was parsed and saved, but was NOT being forwarded to the Web::Server constructor in the app_builder callback, causing Starman to run without SSL configuration even though all parameters were queued correctly; now the ssl parameter flows through the entire chain: CLI -> Config -> RuntimeManager -> app_builder -> Web::Server -> Starman SSL configuration.
 - Fixed malformed legacy bookmark icon rendering by normalizing saved bookmark files with broken UTF-8 icon bytes during load, so `/app/<id>` and `/app/<id>/edit` now show stable fallback glyphs instead of `�` boxes and still repair common damaged joined emoji such as `🧑‍💻`.
 - Fixed singleton-managed saved Ajax worker cleanup so `dashboard stop` and `dashboard restart` now sweep `dashboard ajax: NAME` processes, and browser bookmark pages send a `pagehide` cleanup beacon to `/ajax/singleton/stop` so closing the tab does not leave singleton workers running in the background.
 - Fixed bookmark editor line drift by restoring syntax highlighting inside a clipped overlay viewport that follows the real textarea scroll position by transform, so long bookmark text selection and caret placement no longer land on the wrong visible line.
