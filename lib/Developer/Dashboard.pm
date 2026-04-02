@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.29';
+our $VERSION = '1.30';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.29
+1.30
 
 =head1 INTRODUCTION
 
@@ -268,6 +268,10 @@ request into full local-admin access
 In practice that means the developer at the machine gets friction-free local
 admin access, while shared or forwarded access is forced through explicit
 helper accounts.
+When helper access is sent to C</login>, the login form now keeps the original
+requested path and query string in a hidden redirect target. After a
+successful helper login, the browser is sent back to that saved route, such as
+C</app/index>, instead of being dropped at C</>.
 
 =head2 Collectors, Indicators, And PS1
 
@@ -1212,8 +1216,8 @@ exact tarball that will ship:
 
   rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.29.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.29.tar.gz -v
+  tar -tzf Developer-Dashboard-1.30.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.30.tar.gz -v
 
 The harness also:
 

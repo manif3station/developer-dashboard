@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.29';
+our $VERSION = '1.30';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -97,7 +97,13 @@ sub authorize_request {
     if ( $tier ne 'admin' ) {
         $session = $self->{sessions}->from_cookie( $headers->{cookie}, remote_addr => $args{remote_addr} );
         if ( !$session ) {
-            return [ 401, 'text/html; charset=utf-8', $self->{auth}->login_page ];
+            return [
+                401,
+                'text/html; charset=utf-8',
+                $self->{auth}->login_page(
+                    redirect_to => $self->_login_redirect_target(%args),
+                ),
+            ];
         }
     }
 
@@ -162,6 +168,7 @@ sub dispatch_request {
 sub _handle_login {
     my ( $self, %args ) = @_;
     my %form = _parse_query( $args{body} );
+    my $redirect_to = $self->_sanitize_redirect_target( $form{redirect_to} );
     my $user = $self->{auth}->verify_user(
         username => $form{username},
         password => $form{password},
@@ -171,7 +178,10 @@ sub _handle_login {
         return [
             401,
             'text/html; charset=utf-8',
-            $self->{auth}->login_page( message => 'Invalid username or password.' ),
+            $self->{auth}->login_page(
+                message     => 'Invalid username or password.',
+                redirect_to => $redirect_to,
+            ),
         ];
     }
 
@@ -186,7 +196,7 @@ sub _handle_login {
         'text/plain; charset=utf-8',
         "Redirecting\n",
         {
-            'Location'   => '/',
+            'Location'   => $redirect_to || '/',
             'Set-Cookie' => _session_cookie( $session->{session_id} ),
         },
     ];
@@ -1717,6 +1727,32 @@ sub _trim {
     $text =~ s/\A\s+//;
     $text =~ s/\s+\z//;
     return $text;
+}
+
+# _login_redirect_target(%args)
+# Builds the original request path/query that helper login should return to.
+# Input: normalized request path and query values.
+# Output: sanitized relative redirect target string, defaulting to '/'.
+sub _login_redirect_target {
+    my ( $self, %args ) = @_;
+    my $path = defined $args{path} && $args{path} ne '' ? $args{path} : '/';
+    my $query = defined $args{query} && $args{query} ne '' ? '?' . $args{query} : '';
+    return $self->_sanitize_redirect_target( $path . $query );
+}
+
+# _sanitize_redirect_target($target)
+# Validates a post-login redirect target so helpers only return to local app routes.
+# Input: requested redirect target string.
+# Output: safe relative redirect target string, or '/' when invalid.
+sub _sanitize_redirect_target {
+    my ( $self, $target ) = @_;
+    $target = _trim($target);
+    return '/' if $target eq '';
+    return '/' if $target !~ m{\A/};
+    return '/' if $target =~ m{\A//};
+    return '/' if $target =~ m{[\r\n]};
+    return '/' if $target =~ m{\A/login(?:\z|[/?#])};
+    return $target;
 }
 
 # _normalized_saved_page_id($id)

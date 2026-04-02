@@ -435,6 +435,15 @@ my ( $login_required_code, undef, $login_required_body ) = @{ $app->handle( path
 is( $login_required_code, 401, 'localhost requests require login' );
 like( $login_required_body, qr/Helper access requires login/, 'helper request sees login page' );
 
+my ( $saved_login_required_code, undef, $saved_login_required_body ) = @{ $app->handle(
+    path        => '/app/index',
+    query       => 'from=helper',
+    remote_addr => '127.0.0.1',
+    headers     => { host => 'localhost:7890' },
+) };
+is( $saved_login_required_code, 401, 'helper access to a saved page requires login' );
+like( $saved_login_required_body, qr{<input[^>]*name="redirect_to"[^>]*value="/app/index\?from=helper"}, 'login page keeps the originally requested path and query for post-login redirect' );
+
 my $user = $auth->add_user( username => 'helper', password => 'helper-pass-123', role => 'helper' );
 is( $user->{role}, 'helper', 'helper user can be created' );
 ok( $auth->verify_user( username => 'helper', password => 'helper-pass-123' ), 'correct password verifies' );
@@ -465,6 +474,16 @@ my ( $login_code, undef, undef, $login_headers ) = @{ $app->handle(
 is( $login_code, 302, 'valid helper login redirects' );
 is( $login_headers->{Location}, '/', 'valid helper login redirects to home' );
 like( $login_headers->{'Set-Cookie'}, qr/^dashboard_session=/, 'valid helper login sets session cookie' );
+
+my ( $saved_login_code, undef, undef, $saved_login_headers ) = @{ $app->handle(
+    path        => '/login',
+    method      => 'POST',
+    body        => 'username=helper&password=helper-pass-123&redirect_to=%2Fapp%2Findex%3Ffrom%3Dhelper',
+    remote_addr => '127.0.0.1',
+    headers     => { host => 'localhost:7890' },
+) };
+is( $saved_login_code, 302, 'valid helper login for a saved page redirects' );
+is( $saved_login_headers->{Location}, '/app/index?from=helper', 'valid helper login returns to the originally requested saved page' );
 
 my $session = $sessions->from_cookie( $login_headers->{'Set-Cookie'}, remote_addr => '127.0.0.1' );
 is( $session->{username}, 'helper', 'session can be loaded from response cookie' );

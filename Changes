@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.30  2026-04-03
+    - fixed helper-login redirect flow so requests that are forced through `/login` now preserve the original internal route and query, sending the browser back to pages such as `/app/index` after successful login instead of always redirecting to `/`
+    - hardened helper redirect handling so only safe local app routes are accepted for post-login redirects, rejecting malformed, external, and login-loop targets
+    - updated README, POD, release docs, and release metadata for the helper-login redirect fix
+
 1.29  2026-04-02
     - fixed saved bookmark route generation so pages whose raw bookmark id already includes `/app/` no longer build broken links such as `/app//app/index/edit` for View Source and related saved-page routes
     - changed shared `nav/*.tt` rendering to use CSS-driven horizontal wrapping instead of a hardcoded vertical inline flex layout

@@ -77,6 +77,10 @@ The access model is deliberate:
 - helper logins let you share the dashboard safely without turning every browser request into full local-admin access
 
 In practice that means the developer at the machine gets friction-free local admin access, while shared or forwarded access is forced through explicit helper accounts.
+When helper access is sent to `/login`, the login form now keeps the original
+requested path and query string in a hidden redirect target. After a successful
+helper login, the browser is sent back to that saved route, such as
+`/app/index`, instead of being dropped at `/`.
 
 ### Collectors, Indicators, And PS1
 
@@ -749,8 +753,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.29.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.29.tar.gz -v
+tar -tzf Developer-Dashboard-1.30.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.30.tar.gz -v
 ```
 
 The harness also:

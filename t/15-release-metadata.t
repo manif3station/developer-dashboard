@@ -55,12 +55,15 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.29', 'module version bumped for the nav and saved-route patch release' );
+is( $version, '1.30', 'module version bumped for the helper-login redirect patch release' );
 like( $readme, qr/dashboard serve --ssl/, 'README documents the HTTPS serve flag' );
 like( $pm, qr/C<dashboard serve --ssl>/, 'main POD documents the HTTPS serve flag' );
 like( $release_doc, qr/dashboard serve --ssl/, 'release doc documents the HTTPS serve flag' );
 like( $readme, qr/https:\/\/127\.0\.0\.1:7890\//, 'README documents the local HTTPS URL' );
 like( $pm, qr/https:\/\/127\.0\.0\.1:7890\//, 'main POD documents the local HTTPS URL' );
+like( $readme, qr/After a successful\s+helper login, the browser is sent back to that saved route, such as\s+`\/app\/index`/s, 'README documents post-login return to the original saved route' );
+like( $pm, qr/After a\s+successful helper login, the browser is sent back to that saved route, such as\s+C<\/app\/index>/s, 'main POD documents post-login return to the original saved route' );
+like( $release_doc, qr/successful\s+helper login returns the browser to the original route, such as `\/app\/index`/s, 'release doc documents post-login return to the original route' );
 like( $readme, qr/Shared nav markup now wraps horizontally by default/, 'README documents the horizontal shared-nav layout' );
 like( $pm, qr/Shared nav markup now wraps horizontally by default/, 'main POD documents the horizontal shared-nav layout' );
 like( $release_doc, qr/Shared `nav\/\*\.tt` fragments now wrap horizontally/, 'release doc documents the shared-nav theme-aware layout' );

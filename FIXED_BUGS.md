@@ -1,5 +1,10 @@
 # Fixed Bugs
 
+## 2026-04-03
+
+- Fixed helper-login return-path loss so a helper user who was sent to `/login` from a protected page such as `/app/index` now returns to that original page after successful login instead of always landing on `/`.
+- Fixed helper redirect hardening gaps by sanitizing the post-login target and rejecting malformed, protocol-relative, external, newline-injected, and `/login...` loop targets before issuing the redirect.
+
 ## 2026-04-02
 
 - Fixed saved bookmark route duplication where pages carrying a raw bookmark id like `/app/index` built links such as `/app//app/index/edit`, so View Source and related saved-page links now normalize saved ids before building `/app/...` routes.

@@ -128,6 +128,11 @@ Access semantics:
 - `http://localhost:7890/` is helper access and requires login
 - remote or non-canonical host access also requires login
 
+When helper access is redirected to `/login`, the login form must preserve the
+original target path and query in a hidden redirect field so a successful
+helper login returns the browser to the original route, such as `/app/index`,
+instead of always sending it to `/`.
+
 The default bind is `0.0.0.0:7890`, so the service is reachable on local and VPN interfaces unless the host firewall blocks it.
 Run `dashboard serve --ssl` to enable HTTPS with the generated self-signed
 certificate stored under `~/.developer-dashboard/certs/`, and verify the local
@@ -175,8 +180,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.29.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.29.tar.gz -v
+tar -tzf Developer-Dashboard-1.30.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.30.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:
