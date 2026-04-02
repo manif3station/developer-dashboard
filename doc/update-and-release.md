@@ -169,8 +169,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.25.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.25.tar.gz -v
+tar -tzf Developer-Dashboard-1.26.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.26.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

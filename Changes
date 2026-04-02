@@ -1,5 +1,8 @@
 Revision history for Developer Dashboard
 
+1.26  2026-04-02
+    - version bump to comply with Rule 55: never reuse version number (v1.24 and v1.25 both released to PAUSE with overlapping commits, v1.26 created to establish clean separation)
+
 1.25  2026-04-02
     - documented SSL parameter passing bug fix in FIXED_BUGS.md for version tracking and release notes
 
