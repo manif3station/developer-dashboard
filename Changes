@@ -1,5 +1,16 @@
 Revision history for Developer Dashboard
 
+1.29  2026-04-02
+    - fixed saved bookmark route generation so pages whose raw bookmark id already includes `/app/` no longer build broken links such as `/app//app/index/edit` for View Source and related saved-page routes
+    - changed shared `nav/*.tt` rendering to use CSS-driven horizontal wrapping instead of a hardcoded vertical inline flex layout
+    - changed shared nav styling to inherit page theme variables for panel, line, accent, and text colors, so dark bookmark themes no longer force a pale nav box or hidden nav link text
+    - updated README, POD, release docs, and release metadata for the shared-nav and saved-route fixes
+
+1.28  2026-04-02
+    - fixed HTTPS startup so `dashboard serve --ssl` now enables Starman SSL mode in addition to passing the generated certificate and key paths
+    - strengthened SSL regression coverage to assert the Plack runner receives `ssl => 1` alongside the generated certificate paths
+    - updated README, POD, release docs, and release metadata for the HTTPS fix patch release
+
 1.27  2026-04-02
     - fixed nav template vertical layout by adding flexbox display style to nav items list, so multiple dashboards/nav/*.tt files now display vertically stacked one after another inside the horizontal white box instead of horizontally aligned
 

@@ -55,7 +55,15 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.27', 'module version bumped for the warning fix patch release' );
+is( $version, '1.29', 'module version bumped for the nav and saved-route patch release' );
+like( $readme, qr/dashboard serve --ssl/, 'README documents the HTTPS serve flag' );
+like( $pm, qr/C<dashboard serve --ssl>/, 'main POD documents the HTTPS serve flag' );
+like( $release_doc, qr/dashboard serve --ssl/, 'release doc documents the HTTPS serve flag' );
+like( $readme, qr/https:\/\/127\.0\.0\.1:7890\//, 'README documents the local HTTPS URL' );
+like( $pm, qr/https:\/\/127\.0\.0\.1:7890\//, 'main POD documents the local HTTPS URL' );
+like( $readme, qr/Shared nav markup now wraps horizontally by default/, 'README documents the horizontal shared-nav layout' );
+like( $pm, qr/Shared nav markup now wraps horizontally by default/, 'main POD documents the horizontal shared-nav layout' );
+like( $release_doc, qr/Shared `nav\/\*\.tt` fragments now wrap horizontally/, 'release doc documents the shared-nav theme-aware layout' );
 like( $readme, qr/perl -MFolder -e 'print Folder->docker'/, 'README documents plain Folder config-backed alias resolution' );
 like( $pm, qr/perl -MFolder -e 'print Folder-E<gt>docker'/, 'main POD documents plain Folder config-backed alias resolution' );
 like( $readme, qr/dashboard serve logs/, 'README documents the serve logs command' );

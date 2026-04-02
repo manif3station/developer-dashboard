@@ -63,6 +63,13 @@ By default it listens on `0.0.0.0:7890`, so you can open it in a browser at:
 http://127.0.0.1:7890/
 ```
 
+Run `dashboard serve --ssl` to enable HTTPS with a generated self-signed
+certificate under `~/.developer-dashboard/certs/`, then open:
+
+```text
+https://127.0.0.1:7890/
+```
+
 The access model is deliberate:
 
 - exact numeric loopback admin access on `127.0.0.1` does not require a password
@@ -273,6 +280,10 @@ runtime context. Token play renders for named bookmarks also reuse that saved
 `/app/<id>` path for nav context, so shared `nav/*.tt` fragments do not
 disappear just because the browser reached the page through a transient
 `/?mode=render&token=...` URL.
+Shared nav markup now wraps horizontally by default and inherits the page
+theme through CSS variables such as `--panel`, `--line`, `--text`, and
+`--accent`, so dark bookmark themes no longer force a pale nav box or hide nav
+link text against the background.
 
 ### Open File Commands
 
@@ -675,6 +686,7 @@ The default web bind is `0.0.0.0:7890`. Trust is still decided from the request 
 
 - `dashboard serve` starts the web service in the background by default
 - `dashboard serve --foreground` keeps the web service attached to the terminal
+- `dashboard serve --ssl` enables HTTPS in Starman with the generated local certificate and key, and the saved SSL setting is reused by later `dashboard restart` runs unless you override it
 - `dashboard serve logs` prints the combined Dancer2 and Starman runtime log captured in the dashboard log file, `dashboard serve logs -n 100` starts from the last 100 lines, and `dashboard serve logs -f` follows appended output live
 - `dashboard serve workers N` saves the default Starman worker count and starts the web service immediately when it is currently stopped; `--host HOST` and `--port PORT` can steer that auto-start path, and `dashboard serve --workers N` or `dashboard restart --workers N` can still override it for one run
 - `dashboard stop` stops both the web service and managed collector loops
@@ -737,8 +749,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.27.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.27.tar.gz -v
+tar -tzf Developer-Dashboard-1.29.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.29.tar.gz -v
 ```
 
 The harness also:

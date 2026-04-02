@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '1.27';
+our $VERSION = '1.29';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -130,6 +130,7 @@ sub _build_runner {
 
     if ( $self->{ssl} ) {
         my ( $cert, $key ) = get_ssl_cert_paths();
+        push @options, '--ssl',      1;
         push @options, '--ssl-key',  $key;
         push @options, '--ssl-cert', $cert;
     }

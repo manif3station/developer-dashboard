@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.27';
+our $VERSION = '1.29';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.20
+1.29
 
 =head1 INTRODUCTION
 
@@ -198,6 +198,10 @@ runtime context. Token play renders for named bookmarks also reuse that saved
 C</app/E<lt>idE<gt>> path for nav context, so shared C<nav/*.tt> fragments do
 not disappear just because the browser reached the page through a transient
 C</?mode=render&token=...> URL.
+Shared nav markup now wraps horizontally by default and inherits the page
+theme through CSS variables such as C<--panel>, C<--line>, C<--text>, and
+C<--accent>, so dark bookmark themes no longer force a pale nav box or hide
+nav link text against the background.
 
 =head2 What You Get
 
@@ -234,6 +238,11 @@ Run the web interface with:
 By default it listens on C<0.0.0.0:7890>, so you can open it in a browser at:
 
   http://127.0.0.1:7890/
+
+Run C<dashboard serve --ssl> to enable HTTPS with a generated self-signed
+certificate under F<~/.developer-dashboard/certs/>, then open:
+
+  https://127.0.0.1:7890/
 
 The access model is deliberate:
 
@@ -1061,6 +1070,12 @@ C<dashboard serve --foreground> keeps the web service attached to the terminal
 
 =item *
 
+C<dashboard serve --ssl> enables HTTPS in Starman with the generated local
+certificate and key, and the saved SSL setting is reused by later
+C<dashboard restart> runs unless you override it
+
+=item *
+
 C<dashboard serve logs> prints the combined Dancer2 and Starman runtime log
 captured in the dashboard log file, C<dashboard serve logs -n 100> starts from
 the last 100 lines, and C<dashboard serve logs -f> follows appended output live
@@ -1191,14 +1206,14 @@ Those checks also cover the Starman master-worker split, where the recorded
 managed pid can be the master while the bound listener pid is a separate
 worker process on the same managed port.
 
-Before uploading a release artifact, remove older tarballs first so only the
-current release artifact remains, then validate the exact tarball that will
-ship:
+Before uploading a release artifact, remove older build directories and
+tarballs first so only the current release artifact remains, then validate the
+exact tarball that will ship:
 
-  rm -f Developer-Dashboard-*.tar.gz
+  rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.20.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.20.tar.gz -v
+  tar -tzf Developer-Dashboard-1.29.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.29.tar.gz -v
 
 The harness also:
 

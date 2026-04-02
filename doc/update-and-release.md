@@ -129,6 +129,12 @@ Access semantics:
 - remote or non-canonical host access also requires login
 
 The default bind is `0.0.0.0:7890`, so the service is reachable on local and VPN interfaces unless the host firewall blocks it.
+Run `dashboard serve --ssl` to enable HTTPS with the generated self-signed
+certificate stored under `~/.developer-dashboard/certs/`, and verify the local
+listener at `https://127.0.0.1:7890/`.
+Shared `nav/*.tt` fragments now wrap horizontally and inherit bookmark theme
+colors from CSS variables, so bookmark pages with dark panels do not force a
+light nav strip or unreadable nav link text.
 
 Process management does not trust pid files alone. The runtime validates managed web and collector processes by environment marker or process title, and uses a `pkill`-style scan fallback when pid state is stale.
 
@@ -169,8 +175,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.27.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.27.tar.gz -v
+tar -tzf Developer-Dashboard-1.29.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.29.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

@@ -3,7 +3,7 @@ package Developer::Dashboard::PageDocument;
 use strict;
 use warnings;
 
-our $VERSION = '1.27';
+our $VERSION = '1.29';
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 
@@ -331,17 +331,34 @@ sub render_html {
       margin: 0 0 24px;
       padding: 14px 18px;
       border: 1px solid var(--line);
-      background: #f3eee2;
+      background: var(--panel, #f3eee2);
+      color: var(--text, var(--ink));
+      border-radius: 14px;
     }
     .dashboard-nav-items ul {
       list-style: none;
       margin: 0;
       padding: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 18px;
+      align-items: center;
+    }
+    .dashboard-nav-items li {
+      margin: 0;
+      padding: 0;
     }
     .dashboard-nav-items li + li {
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px solid var(--line);
+      margin-top: 0;
+      padding-top: 0;
+      border-top: 0;
+    }
+    .dashboard-nav-items a {
+      color: var(--text, var(--ink));
+      text-decoration-color: var(--accent, currentColor);
+    }
+    .dashboard-nav-items a:hover {
+      color: var(--accent, var(--text, var(--ink)));
     }
   </style>
 </head>

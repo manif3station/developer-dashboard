@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.27';
+our $VERSION = '1.29';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -716,7 +716,7 @@ sub _edit_html {
 
     my $page_id = $page->as_hash->{id} || '';
     my $is_saved = ( $page->{meta}{source_kind} || '' ) ne 'transient' && $page_id ne '';
-    my $page_url = $is_saved ? '/app/' . $page_id : '';
+    my $page_url = $is_saved ? $self->_saved_page_url($page_id) : '';
     my $urls = {
         edit   => $is_saved ? $page_url . '/edit' : $self->{pages}->editable_url($page),
         render => $is_saved ? $page_url : $self->{pages}->render_url($page),
@@ -1295,6 +1295,8 @@ sub _render_page_html {
     my %action_urls;
     for my $action ( @{ $page->as_hash->{actions} || [] } ) {
         next if ref($action) ne 'HASH' || !$action->{id};
+        my $saved_action_url = $self->_saved_page_url( $page->as_hash->{id} || '' );
+        $saved_action_url .= '/action/' . $action->{id} if $saved_action_url ne '';
         my $atoken = $self->{actions}
           ? $self->{actions}->encode_action_payload(
               action => $action,
@@ -1303,12 +1305,12 @@ sub _render_page_html {
             )
           : undef;
         $action_urls{ $action->{id} } = $atoken
-          ? ( $transient_allowed ? '/action?atoken=' . URI::Escape::uri_escape($atoken) : '/app/' . ( $page->as_hash->{id} || '' ) . '/action/' . $action->{id} )
-          : '/app/' . ( $page->as_hash->{id} || '' ) . '/action/' . $action->{id};
+          ? ( $transient_allowed ? '/action?atoken=' . URI::Escape::uri_escape($atoken) : $saved_action_url )
+          : $saved_action_url;
     }
     my $page_url = ( $page->{meta}{source_kind} || '' ) eq 'transient'
       ? $self->{pages}->editable_url($page)
-      : '/app/' . ( $page->as_hash->{id} || '' );
+      : $self->_saved_page_url( $page->as_hash->{id} || '' );
     my $runtime_context = {
         params       => { %{ $page->{state} || {} } },
         current_page => $current_page,
@@ -1341,7 +1343,7 @@ sub _effective_current_page {
     my $request_path = $request_context->{path} || '';
     my $page_id = $page->as_hash->{id} || '';
 
-    return '/app/' . $page_id
+    return $self->_saved_page_url($page_id)
       if $request_path eq '/'
       && $page_id ne ''
       && ( $page->{meta}{source_kind} || '' ) eq 'transient';
@@ -1384,7 +1386,7 @@ sub _nav_items_html {
                 $nav_page,
                 query_params => $args{runtime_context}{params} || {},
                 body_params  => {},
-                path         => '/app/' . $page_id,
+                path         => $self->_saved_page_url($page_id),
                 remote_addr  => $self->{_current_request_context}{remote_addr},
                 headers      => { host => $self->{_current_request_context}{host} || '' },
             ),
@@ -1400,7 +1402,7 @@ sub _nav_items_html {
     }
 
     return '' if !@items;
-    return qq{<section class="dashboard-nav-items"><ul style="display:flex;flex-direction:column;list-style:none;padding:0;margin:0;">} . join( '', @items ) . qq{</ul></section>};
+    return qq{<section class="dashboard-nav-items"><ul>} . join( '', @items ) . qq{</ul></section>};
 }
 
 # _page_fragment_html($page)
@@ -1715,6 +1717,29 @@ sub _trim {
     $text =~ s/\A\s+//;
     $text =~ s/\s+\z//;
     return $text;
+}
+
+# _normalized_saved_page_id($id)
+# Normalizes one saved bookmark id for route generation.
+# Input: saved bookmark id string, optionally already prefixed with /app/.
+# Output: bookmark id string without leading /app/ or duplicate slashes.
+sub _normalized_saved_page_id {
+    my ( $self, $id ) = @_;
+    $id = _trim($id);
+    $id =~ s{\A/+app/+}{};
+    $id =~ s{\A/+}{};
+    return $id;
+}
+
+# _saved_page_url($id)
+# Builds the canonical /app/<id> route for one saved bookmark id.
+# Input: saved bookmark id string.
+# Output: canonical /app/<id> path string, or empty string when id is empty.
+sub _saved_page_url {
+    my ( $self, $id ) = @_;
+    my $normalized = $self->_normalized_saved_page_id($id);
+    return '' if $normalized eq '';
+    return '/app/' . $normalized;
 }
 
 # _top_chrome_html($page, $urls)

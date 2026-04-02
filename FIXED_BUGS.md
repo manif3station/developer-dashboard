@@ -2,6 +2,9 @@
 
 ## 2026-04-02
 
+- Fixed saved bookmark route duplication where pages carrying a raw bookmark id like `/app/index` built links such as `/app//app/index/edit`, so View Source and related saved-page links now normalize saved ids before building `/app/...` routes.
+- Fixed shared `nav/*.tt` presentation drift by removing the hardcoded vertical inline flex layout and the pale nav background, so nav fragments now wrap horizontally by default and inherit the bookmark theme colors instead of hiding text on dark pages.
+- Fixed remaining HTTPS startup bug where `dashboard serve --ssl` passed only the generated certificate and key paths into Plack/Starman but did NOT enable SSL mode itself, so the listener still came up as plain HTTP; the server now forwards `ssl => 1` as well, making the runtime bind as real HTTPS and keeping restart persistence aligned with the saved SSL setting.
 - Fixed critical SSL parameter passing bug where `dashboard serve --ssl` would silently fail to enable HTTPS: the ssl flag was parsed and saved, but was NOT being forwarded to the Web::Server constructor in the app_builder callback, causing Starman to run without SSL configuration even though all parameters were queued correctly; now the ssl parameter flows through the entire chain: CLI -> Config -> RuntimeManager -> app_builder -> Web::Server -> Starman SSL configuration.
 - Fixed malformed legacy bookmark icon rendering by normalizing saved bookmark files with broken UTF-8 icon bytes during load, so `/app/<id>` and `/app/<id>/edit` now show stable fallback glyphs instead of `�` boxes and still repair common damaged joined emoji such as `🧑‍💻`.
 - Fixed singleton-managed saved Ajax worker cleanup so `dashboard stop` and `dashboard restart` now sweep `dashboard ajax: NAME` processes, and browser bookmark pages send a `pagehide` cleanup beacon to `/ajax/singleton/stop` so closing the tab does not leave singleton workers running in the background.

@@ -179,9 +179,12 @@ use Developer::Dashboard::Web::DancerApp;
     
     my $daemon = bless { sockhost => '127.0.0.1', sockport => 17891 }, 'Developer::Dashboard::Web::Server::Daemon';
     
-    # Just verify that runner can be built without errors
     my $runner = $server_https->_build_runner($daemon);
     ok($runner, 'Plack runner created with SSL configuration');
+    my %runner_options = @{ $runner->{options} || [] };
+    is( $runner_options{ssl}, 1, 'Plack runner enables SSL mode explicitly' );
+    ok( $runner_options{ssl_key}, 'Plack runner includes SSL key path' );
+    ok( $runner_options{ssl_cert}, 'Plack runner includes SSL certificate path' );
 }
 
 # Test 7: PSGI app has redirect middleware when SSL enabled

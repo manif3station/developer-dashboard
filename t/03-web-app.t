@@ -274,6 +274,18 @@ is($code1d_tt_view_source, 200, 'transient TT view source route ok');
 like($type1d_tt_view_source, qr/text\/html/, 'transient TT view source route returns the browser editor HTML');
 like($body1d_tt_view_source, qr{<textarea[^>]*>[\s\S]*HTML:\s+&lt;h1&gt;\[% title %\]&lt;/h1&gt; \[% stash\.foo %\][\s\S]*</textarea>}m, 'transient TT view source editor keeps raw TT placeholders after render');
 unlike($body1d_tt_view_source, qr{<textarea[^>]*>[\s\S]*HTML:\s+&lt;h1&gt;Sample Dashboard&lt;/h1&gt; 1[\s\S]*</textarea>}m, 'transient TT view source editor does not bake rendered values into source');
+my $prefixed_page = Developer::Dashboard::PageDocument->new(
+    id     => '/app/index',
+    title  => 'Prefixed Route',
+    layout => { body => '<div>prefixed route body</div>' },
+    meta   => {
+        source_kind     => 'saved',
+        request_context => { path => '/app/index', remote_addr => '127.0.0.1', host => '127.0.0.1' },
+    },
+);
+my $prefixed_render = $app->_render_page_html( $prefixed_page, 'render' );
+like( $prefixed_render, qr{href="/app/index/edit" id="view-source-url"}, 'saved route rendering normalizes bookmark ids that already include /app/ when building the view-source link' );
+unlike( $prefixed_render, qr{/app//app/index/edit}, 'saved route rendering does not duplicate the /app prefix in edit links' );
 
 my $highlight_source = join "\n",
     'TITLE: Highlight Demo',
@@ -381,12 +393,16 @@ is($code2b, 200, 'saved page with query state route ok');
 like($body2b, qr/Michael/, 'query parameters are merged into page state during render');
 like($body2b, qr{<li data-nav-id="nav/alpha\.tt"><a href="/app/index">Home</a></li>}s, 'shared nav TT fragments render conditional output against non-index pages');
 like($body2b, qr/nav-current=\/app\/welcome nav-rt=\/app\/welcome/s, 'shared nav TT fragments receive the current page path on non-index pages');
+like($body2b, qr/\.dashboard-nav-items ul \{\s*list-style: none;\s*margin: 0;\s*padding: 0;\s*display: flex;\s*flex-wrap: wrap;/s, 'shared nav renderer styles nav items as a wrapping horizontal row');
+like($body2b, qr/\.dashboard-nav-items \{\s*margin: 0 0 24px;\s*padding: 14px 18px;\s*border: 1px solid var\(--line\);\s*background: var\(--panel/s, 'shared nav container inherits panel styling through CSS variables instead of a hardcoded pale background');
+like($body2b, qr/\.dashboard-nav-items a \{\s*color: var\(--text, var\(--ink\)\);\s*text-decoration-color: var\(--accent, currentColor\);\s*\}/s, 'shared nav links inherit theme-aware foreground colors');
 my $nav_pos = index($body2b, 'class="dashboard-nav-items"');
 my $body_pos = index($body2b, '<section class="body">');
 my $alpha_pos = index($body2b, 'data-nav-id="nav/alpha.tt"');
 my $beta_pos = index($body2b, 'data-nav-id="nav/beta.tt"');
 ok($nav_pos > -1 && $nav_pos < $body_pos, 'shared nav section renders before the main page body');
 ok($alpha_pos > -1 && $beta_pos > $alpha_pos, 'shared nav tt bookmarks render in sorted filename order');
+unlike($body2b, qr/display:flex;flex-direction:column/, 'shared nav markup no longer hardcodes a vertical inline flex layout');
 unlike($body2, qr/id="play-url"/, 'render mode does not render play link');
 like($body2, qr{href="/app/welcome/edit"[^>]+id="view-source-url"}, 'render mode view source points to edit route');
 

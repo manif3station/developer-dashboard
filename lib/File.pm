@@ -3,7 +3,7 @@ package File;
 use strict;
 use warnings;
 
-our $VERSION = '1.27';
+our $VERSION = '1.29';
 
 use File::Spec;
 
