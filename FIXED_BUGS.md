@@ -2,6 +2,9 @@
 
 ## 2026-04-02
 
+- Fixed saved bookmark editor script-mode drift by preserving `<script>` versus `<style>` mode correctly across the server-side highlighter, so multi-line JavaScript blocks in `/app/<id>/edit` no longer get recolored as CSS-style attribute/value pairs.
+- Fixed bookmark editor self-rewritten token markup by protecting browser and server highlight spans with placeholders during later regex passes, so exact saved bookmark edits no longer leak placeholder markers or token fragments that dislocate the visible overlay while typing.
+- Fixed `dashboard serve workers N` stop-state behavior by starting the web service immediately after saving the new worker count when no managed listener is running, with optional `--host` and `--port` support for that auto-start path.
 - Fixed bookmark editor typing misalignment by removing width-changing bold styling from the visible directive highlight overlay, so the highlighted text no longer drifts away from the real textarea caret while typing in the browser editor.
 - Fixed saved bookmark Ajax refresh leaks by adding `singleton => 'NAME'` support to `Ajax(...)`, so the runtime now renames Perl ajax workers to `dashboard ajax: NAME` and kills older matching workers before starting a refreshed replacement stream.
 - Fixed GitHub Actions Node 20 checkout drift by moving the workflows to `actions/checkout@v5` and forcing JavaScript actions onto Node 24, so hosted runners no longer warn that the release/test workflows depend on the deprecated Node 20 action runtime.

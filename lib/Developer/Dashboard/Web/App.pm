@@ -819,6 +819,16 @@ function ddEscapeHtml(text) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
+function ddStoreToken(tokens, html) {
+  tokens.push(html);
+  return '\u001eHL' + (tokens.length - 1) + '\u001e';
+}
+function ddRestoreTokens(text, tokens) {
+  if (!Array.isArray(tokens) || !tokens.length) return text;
+  return String(text).replace(/\u001eHL(\d+)\u001e/g, function(_, index) {
+    return Object.prototype.hasOwnProperty.call(tokens, index) ? tokens[index] : '';
+  });
+}
 function ddHighlightInstruction(text) {
   const state = { section: '', htmlMode: '' };
   return String(text).split('\n').map((line) => ddHighlightLine(line, state)).join('\n');
@@ -919,27 +929,54 @@ function ddHighlightMarkupText(text) {
 }
 function ddHighlightCssText(text) {
   let css = ddEscapeHtml(text);
-  css = css.replace(/\/\*[\s\S]*?\*\//g, '<span class="tok-comment">$&</span>');
-  css = css.replace(/([.#]?[A-Za-z_-][A-Za-z0-9_-]*)(\s*\{)/g, '<span class="tok-css">$1</span>$2');
-  css = css.replace(/([A-Za-z-]+)(\s*:)/g, '<span class="tok-attr">$1</span>$2');
-  css = css.replace(/(:\s*)([^;}{]+)/g, '$1<span class="tok-value tok-css">$2</span>');
-  return css;
+  const tokens = [];
+  css = css.replace(/\/\*[\s\S]*?\*\//g, function(match) {
+    return ddStoreToken(tokens, '<span class="tok-comment">' + match + '</span>');
+  });
+  css = css.replace(/([.#]?[A-Za-z_-][A-Za-z0-9_-]*)(\s*\{)/g, function(_, name, suffix) {
+    return ddStoreToken(tokens, '<span class="tok-css">' + name + '</span>') + suffix;
+  });
+  css = css.replace(/([A-Za-z-]+)(\s*:)/g, function(_, name, suffix) {
+    return ddStoreToken(tokens, '<span class="tok-attr">' + name + '</span>') + suffix;
+  });
+  css = css.replace(/(:\s*)([^;}{]+)/g, function(_, prefix, value) {
+    return prefix + ddStoreToken(tokens, '<span class="tok-value tok-css">' + value + '</span>');
+  });
+  return ddRestoreTokens(css, tokens);
 }
 function ddHighlightJsText(text) {
   let js = ddEscapeHtml(text);
-  js = js.replace(/\/\/[^\n]*/g, '<span class="tok-comment">$&</span>');
-  js = js.replace(/('(?:\\.|[^'])*'|&quot;(?:\\.|[^&])*?&quot;)/g, '<span class="tok-string">$1</span>');
-  js = js.replace(/\b(const|let|var|function|return|if|else|for|while|class|new|await|async|try|catch|throw)\b/g, '<span class="tok-js">$1</span>');
-  return js;
+  const tokens = [];
+  js = js.replace(/\/\/[^\n]*/g, function(match) {
+    return ddStoreToken(tokens, '<span class="tok-comment">' + match + '</span>');
+  });
+  js = js.replace(/('(?:\\.|[^'])*'|&quot;(?:\\.|[^&])*?&quot;)/g, function(match) {
+    return ddStoreToken(tokens, '<span class="tok-string">' + match + '</span>');
+  });
+  js = js.replace(/\b(const|let|var|function|return|if|else|for|while|class|new|await|async|try|catch|throw)\b/g, function(match) {
+    return ddStoreToken(tokens, '<span class="tok-js">' + match + '</span>');
+  });
+  return ddRestoreTokens(js, tokens);
 }
 function ddHighlightPerlLine(text) {
   let perl = ddEscapeHtml(text);
-  perl = perl.replace(/(\[%[\s\S]*?%\])/g, '<span class="tok-note">$1</span>');
-  perl = perl.replace(/(^|\s)(#.*)$/g, '$1<span class="tok-comment">$2</span>');
-  perl = perl.replace(/('(?:\\.|[^'])*'|&quot;(?:\\.|[^&])*?&quot;)/g, '<span class="tok-string">$1</span>');
-  perl = perl.replace(/\b(my|sub|return|if|elsif|else|for|foreach|while|last|next|die|print|use|local|our|state|undef)\b/g, '<span class="tok-perl-keyword">$1</span>');
-  perl = perl.replace(/([$@%][A-Za-z_][A-Za-z0-9_]*)/g, '<span class="tok-perl-var">$1</span>');
-  return perl;
+  const tokens = [];
+  perl = perl.replace(/(\[%[\s\S]*?%\])/g, function(match) {
+    return ddStoreToken(tokens, '<span class="tok-note">' + match + '</span>');
+  });
+  perl = perl.replace(/(^|\s)(#.*)$/g, function(_, prefix, comment) {
+    return prefix + ddStoreToken(tokens, '<span class="tok-comment">' + comment + '</span>');
+  });
+  perl = perl.replace(/('(?:\\.|[^'])*'|&quot;(?:\\.|[^&])*?&quot;)/g, function(match) {
+    return ddStoreToken(tokens, '<span class="tok-string">' + match + '</span>');
+  });
+  perl = perl.replace(/\b(my|sub|return|if|elsif|else|for|foreach|while|last|next|die|print|use|local|our|state|undef)\b/g, function(match) {
+    return ddStoreToken(tokens, '<span class="tok-perl-keyword">' + match + '</span>');
+  });
+  perl = perl.replace(/([$@%][A-Za-z_][A-Za-z0-9_]*)/g, function(match) {
+    return ddStoreToken(tokens, '<span class="tok-perl-var">' + match + '</span>');
+  });
+  return ddRestoreTokens(perl, tokens);
 }
 function ddRenderEditor(text) {
   ddHighlight.innerHTML = ddHighlightInstruction(text);
@@ -1071,12 +1108,13 @@ sub _highlight_html_text {
             last;
         }
         if ( $line =~ m{<(script|style)\b}i ) {
-            my ( $before, $tag, $after ) = $line =~ m{\A(.*?)(<(?:script|style)\b[\s\S]*?>)(.*)\z}is;
+            my ( $before, $tag, $mode_name, $after ) = $line =~ m{\A(.*?)(<(script|style)\b[\s\S]*?>)(.*)\z}is;
             if ( defined $tag ) {
+                my $mode = lc( $mode_name || '' ) eq 'script' ? 'script' : 'style';
                 $out .= $self->_highlight_markup_text($before);
                 $out .= $self->_highlight_markup_text($tag);
                 $line = $after;
-                $state->{html_mode} = lc($1) eq 'script' ? 'script' : 'style';
+                $state->{html_mode} = $mode;
                 next;
             }
         }
@@ -1119,12 +1157,14 @@ sub _highlight_tag_markup {
 # Output: highlighted HTML fragment.
 sub _highlight_css_text {
     my ( $self, $text ) = @_;
+    my $helper = ref($self) || __PACKAGE__;
     my $css = _escape_html($text);
-    $css =~ s{(/\*[\s\S]*?\*/)}{<span class="tok-comment">$1</span>}g;
-    $css =~ s!([.\#]?[A-Za-z_-][A-Za-z0-9_-]*)(\s*\{)!<span class="tok-css">$1</span>$2!g;
-    $css =~ s!([A-Za-z-]+)(\s*:)!<span class="tok-attr">$1</span>$2!g;
-    $css =~ s!(:\s*)([^;\}\{]+)!$1 . qq{<span class="tok-value tok-css">$2</span>}!ge;
-    return $css;
+    my @tokens;
+    $css =~ s{(/\*[\s\S]*?\*/)}{$helper->_highlight_store_token( \@tokens, qq{<span class="tok-comment">$1</span>} )}ge;
+    $css =~ s!([.\#]?[A-Za-z_-][A-Za-z0-9_-]*)(\s*\{)!$helper->_highlight_store_token( \@tokens, qq{<span class="tok-css">$1</span>} ) . $2!ge;
+    $css =~ s!([A-Za-z-]+)(\s*:)!$helper->_highlight_store_token( \@tokens, qq{<span class="tok-attr">$1</span>} ) . $2!ge;
+    $css =~ s!(:\s*)([^;\}\{]+)!$1 . $helper->_highlight_store_token( \@tokens, qq{<span class="tok-value tok-css">$2</span>} )!ge;
+    return $helper->_highlight_restore_tokens( $css, \@tokens );
 }
 
 # _highlight_js_text($text)
@@ -1133,11 +1173,13 @@ sub _highlight_css_text {
 # Output: highlighted HTML fragment.
 sub _highlight_js_text {
     my ( $self, $text ) = @_;
+    my $helper = ref($self) || __PACKAGE__;
     my $js = _escape_html($text);
-    $js =~ s{(//[^\n]*)}{<span class="tok-comment">$1</span>}g;
-    $js =~ s{('(?:\\.|[^'])*'|&quot;(?:\\.|[^&])*?&quot;)}{<span class="tok-string">$1</span>}g;
-    $js =~ s{\b(const|let|var|function|return|if|else|for|while|class|new|await|async|try|catch|throw)\b}{<span class="tok-js">$1</span>}g;
-    return $js;
+    my @tokens;
+    $js =~ s{(//[^\n]*)}{$helper->_highlight_store_token( \@tokens, qq{<span class="tok-comment">$1</span>} )}ge;
+    $js =~ s{('(?:\\.|[^'])*'|&quot;(?:\\.|[^&])*?&quot;)}{$helper->_highlight_store_token( \@tokens, qq{<span class="tok-string">$1</span>} )}ge;
+    $js =~ s{\b(const|let|var|function|return|if|else|for|while|class|new|await|async|try|catch|throw)\b}{$helper->_highlight_store_token( \@tokens, qq{<span class="tok-js">$1</span>} )}ge;
+    return $helper->_highlight_restore_tokens( $js, \@tokens );
 }
 
 # _highlight_perl_text($text)
@@ -1146,15 +1188,40 @@ sub _highlight_js_text {
 # Output: highlighted HTML fragment.
 sub _highlight_perl_text {
     my ( $self, $text ) = @_;
+    my $helper = ref($self) || __PACKAGE__;
     my $perl = _escape_html($text);
-    $perl =~ s{(\[%[\s\S]*?%\])}{<span class="tok-note">$1</span>}g;
+    my @tokens;
+    $perl =~ s{(\[%[\s\S]*?%\])}{$helper->_highlight_store_token( \@tokens, qq{<span class="tok-note">$1</span>} )}ge;
+    my $comment = '';
     if ( $perl =~ /\A(.*?)(\s\#.*|\#.*)\z/ ) {
-        $perl = $1 . qq{<span class="tok-comment">$2</span>};
+        $perl = $1;
+        $comment = $helper->_highlight_store_token( \@tokens, qq{<span class="tok-comment">$2</span>} );
     }
-    $perl =~ s{('(?:\\.|[^'])*'|&quot;(?:\\.|[^&])*?&quot;)}{<span class="tok-string">$1</span>}g;
-    $perl =~ s{\b(my|sub|return|if|elsif|else|for|foreach|while|last|next|die|print|use|local|our|state|undef)\b}{<span class="tok-perl-keyword">$1</span>}g;
-    $perl =~ s{([$@%][A-Za-z_][A-Za-z0-9_]*)}{<span class="tok-perl-var">$1</span>}g;
-    return $perl;
+    $perl =~ s{('(?:\\.|[^'])*'|&quot;(?:\\.|[^&])*?&quot;)}{$helper->_highlight_store_token( \@tokens, qq{<span class="tok-string">$1</span>} )}ge;
+    $perl =~ s{\b(my|sub|return|if|elsif|else|for|foreach|while|last|next|die|print|use|local|our|state|undef)\b}{$helper->_highlight_store_token( \@tokens, qq{<span class="tok-perl-keyword">$1</span>} )}ge;
+    $perl =~ s{([$@%][A-Za-z_][A-Za-z0-9_]*)}{$helper->_highlight_store_token( \@tokens, qq{<span class="tok-perl-var">$1</span>} )}ge;
+    return $helper->_highlight_restore_tokens( $perl . $comment, \@tokens );
+}
+
+# _highlight_store_token($tokens, $html)
+# Replaces one rendered highlight fragment with a placeholder so later regex passes do not mutate inserted markup.
+# Input: token array reference and rendered HTML fragment string.
+# Output: placeholder marker string.
+sub _highlight_store_token {
+    my ( $self, $tokens, $html ) = @_;
+    push @{$tokens}, $html;
+    return sprintf "\x1EHL%d\x1E", scalar( @{$tokens} ) - 1;
+}
+
+# _highlight_restore_tokens($text, $tokens)
+# Restores placeholder-protected highlight fragments after all regex passes finish.
+# Input: placeholder-bearing text string and token array reference.
+# Output: highlighted HTML string.
+sub _highlight_restore_tokens {
+    my ( $self, $text, $tokens ) = @_;
+    return $text if ref($tokens) ne 'ARRAY' || !@{$tokens};
+    $text =~ s/\x1EHL(\d+)\x1E/( defined $tokens->[$1] ? $tokens->[$1] : '' )/ge;
+    return $text;
 }
 
 # _escape_html($text)

@@ -1,5 +1,12 @@
 Revision history for Developer Dashboard
 
+1.17  2026-04-02
+    - fixed bookmark editor script-block highlighting so saved `/app/<id>/edit` pages keep JavaScript lines in script mode instead of flipping into CSS-style attribute/value markup after `<script>` tags
+    - protected the browser and server editor highlighters from rewriting their own inserted span markup, preventing placeholder or token-fragment leaks that could dislocate the visible overlay while typing exact saved bookmark text
+    - updated `dashboard serve workers N` to start the web service immediately when it is stopped, with `--host HOST` and `--port PORT` available for that auto-start path
+    - added focused web and CLI regressions for the exact bookmark editor repro and for `dashboard serve workers` starting a stopped web service
+    - verified the exact `/app/test/edit` bookmark repro in headless Chromium, updated testing and architecture docs, and bumped release metadata for 1.17
+
 1.16  2026-04-02
     - fixed bookmark editor typing drift by removing width-changing bold styling from the visible directive highlight overlay, keeping the syntax-highlight layer aligned with the real textarea caret while typing
     - verified the editor route through headless Chromium in addition to the web regression test coverage

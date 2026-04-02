@@ -296,6 +296,77 @@ like($body1e, qr/tok-js/, 'HTML sections highlight JavaScript syntax');
 like($body1e, qr/tok-perl-keyword/, 'CODE sections highlight Perl syntax');
 like($body1e, qr/tok-perl-var/, 'CODE sections highlight Perl variables');
 like($body1e, qr/\.tok-directive\s*\{\s*color:\s*#ffd866;\s*font-weight:\s*normal;\s*text-decoration:\s*underline;/s, 'editor directive highlight keeps normal font weight so the overlay stays aligned with the textarea caret');
+my ($demo_overlay) = $body1e =~ m{<pre class="editor-overlay" id="instruction-highlight" aria-hidden="true">(.*?)</pre>}s;
+like($demo_overlay, qr/<span class="tok-js">const<\/span>/, 'editor overlay keeps JavaScript keyword highlighting in the demo bookmark');
+unlike($demo_overlay, qr/<span class="tok-attr">color<\/span>:<span class="tok-value tok-css">red"&gt;<\/span>;\[% stash\.name %\]&lt;\/div&gt;/, 'editor overlay does not corrupt inline markup highlighting with self-rewritten spans');
+
+my $broken_editor_source = <<'BOOKMARK';
+BOOKMARK: test
+:--------------------------------------------------------------------------------:
+HTML: <script src="/js/jq.js"></script>
+<script>var foo = {};
+$(document).ready(function () {
+    let lastLength = 0;
+
+    $.ajax({
+        url: foo.bar,
+        type: 'GET',
+        dataType: 'text',
+        cache: false,
+
+        xhr: function () {
+            const xhr = new window.XMLHttpRequest();
+
+            xhr.onprogress = function () {
+                const response = xhr.responseText;
+
+                // Replace whole content with everything received so far
+                $('.display').text(response);
+
+                // If you want only the new chunk instead, use this:
+                // const newChunk = response.substring(lastLength);
+                // $('.display').append(newChunk);
+                // lastLength = response.length;
+            };
+
+            return xhr;
+        },
+
+        success: function (response) {
+            $('.display').text(response);
+        },
+
+        error: function (xhr, status, error) {
+            console.error('Stream error:', status, error);
+        }
+    });
+});
+</script>
+TEST2: <span class=display></span>
+:--------------------------------------------------------------------------------:
+CODE1: Ajax jvar => 'foo.bar', file => 'foobar', code => q{
+while (1) {
+  print 123;
+  sleep 1;
+}
+};
+~
+BOOKMARK
+my ( $broken_editor_code, undef, $broken_editor_body ) = @{ $app->handle(
+    path        => '/',
+    method      => 'POST',
+    body        => 'instruction=' . uri_escape($broken_editor_source),
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is( $broken_editor_code, 200, 'exact bookmark editor repro route ok' );
+like( $broken_editor_body, qr/Stream error:/, 'exact bookmark editor repro keeps the original bookmark text visible in the editor route' );
+my ($broken_editor_overlay) = $broken_editor_body =~ m{<pre class="editor-overlay" id="instruction-highlight" aria-hidden="true">(.*?)</pre>}s;
+like( $broken_editor_overlay, qr/<span class="tok-js">let<\/span> lastLength = 0;/, 'exact bookmark editor repro keeps JavaScript lines in script mode' );
+like( $broken_editor_overlay, qr/<span class="tok-string">'Stream error:'<\/span>/, 'exact bookmark editor repro keeps JavaScript strings intact' );
+unlike( $broken_editor_overlay, qr/<span class="tok-attr">url<\/span>: <span class="tok-value tok-css">foo\.bar,<\/span>/, 'exact bookmark editor repro does not treat JavaScript object keys as CSS properties' );
+unlike( $broken_editor_overlay, qr/Stream <span class="tok-attr">error<\/span>:<span class="tok-value tok-css">', status, error\)<\/span>/, 'exact bookmark editor repro does not rewrite JavaScript strings into broken CSS-style markup' );
+unlike( $broken_editor_overlay, qr/\x1EHL\d+\x1E/, 'exact bookmark editor repro does not leak placeholder markers into the overlay output' );
 
 my ($code2, $type2, $body2) = @{ $app->handle(path => '/app/welcome', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code2, 200, 'saved page route ok');

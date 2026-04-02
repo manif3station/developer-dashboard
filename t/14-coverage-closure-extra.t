@@ -410,6 +410,11 @@ PAGE
     );
 
     like( Developer::Dashboard::Web::App::_highlight_js_text( undef, q{const value = "x"; // note} ), qr/tok-js/, 'web app JS highlighter marks JavaScript keywords' );
+    like( Developer::Dashboard::Web::App::_highlight_css_text( undef, q{body { color: red; }} ), qr/tok-css|tok-attr|tok-value/, 'web app CSS highlighter supports direct package-style calls' );
+    like( Developer::Dashboard::Web::App::_highlight_css_text( undef, q{/* note */ body { color: red; }} ), qr/tok-comment/, 'web app CSS highlighter marks CSS comments' );
+    like( Developer::Dashboard::Web::App::_highlight_perl_text( undef, q{my $value = 1;} ), qr/tok-perl-keyword/, 'web app Perl highlighter supports direct package-style calls' );
+    like( Developer::Dashboard::Web::App::_highlight_perl_text( undef, q{[% stash.name %] my @items = (); my %lookup = ();} ), qr/tok-note.*tok-perl-var/s, 'web app Perl highlighter marks TT notes and array/hash variables' );
+    is( Developer::Dashboard::Web::App::_highlight_restore_tokens( undef, 'plain text', undef ), 'plain text', 'web app restore helper leaves plain text untouched when no tokens were stored' );
     like(
         $app->_highlight_perl_text(q{my $value = 1; # trailing comment}),
         qr/tok-comment/,
@@ -419,6 +424,11 @@ PAGE
         $app->_highlight_html_text( q{const value = "x";</script><div>next</div>}, { html_mode => 'script' } ),
         qr/tok-js.*tok-tag/s,
         'web app HTML highlighter closes script mode and resumes markup highlighting',
+    );
+    like(
+        $app->_highlight_html_text( q{body { color: red; }}, { html_mode => 'style' } ),
+        qr/tok-css|tok-attr|tok-value/,
+        'web app HTML highlighter keeps CSS highlighting active when style mode continues onto the next line',
     );
     like(
         $app->_highlight_html_text( q{const value = "x";}, { html_mode => 'script' } ),

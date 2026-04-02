@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.16';
+our $VERSION = '1.17';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.16
+1.17
 
 =head1 INTRODUCTION
 
@@ -1057,9 +1057,11 @@ the last 100 lines, and C<dashboard serve logs -f> follows appended output live
 
 =item *
 
-C<dashboard serve workers N> saves the default Starman worker count, and both
-C<dashboard serve --workers N> and C<dashboard restart --workers N> can override
-it for one run
+C<dashboard serve workers N> saves the default Starman worker count and starts
+the web service immediately when it is currently stopped; C<--host HOST> and
+C<--port PORT> can steer that auto-start path, and both
+C<dashboard serve --workers N> and C<dashboard restart --workers N> can still
+override the worker count for one run
 
 =item *
 
@@ -1185,8 +1187,8 @@ ship:
 
   rm -f Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.16.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.16.tar.gz -v
+  tar -tzf Developer-Dashboard-1.17.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.17.tar.gz -v
 
 The harness also:
 

@@ -654,8 +654,29 @@ elsif ( $cmd eq 'serve' ) {
     }
     if ( $action eq 'workers' ) {
         my $workers = shift @ARGV;
+        my $host = '0.0.0.0';
+        my $port = 7890;
+        GetOptionsFromArray(
+            \@ARGV,
+            'host=s' => \$host,
+            'port=i' => \$port,
+        );
         my $saved = $config->save_global_web_workers($workers);
-        print json_encode($saved);
+        my $running = $runtime->running_web;
+        my $pid;
+        if ( !$running ) {
+            $pid = $runtime->start_web(
+                host    => $host,
+                port    => $port,
+                workers => $saved->{workers},
+            );
+        }
+        print json_encode(
+            {
+                %{$saved},
+                ( defined $pid ? ( pid => $pid ) : () ),
+            }
+        );
         exit 0;
     }
     unshift @ARGV, $action if defined $action && $action ne '';
