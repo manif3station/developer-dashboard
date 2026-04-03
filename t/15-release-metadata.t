@@ -59,7 +59,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.44', 'module version bumped for the runtime permission hardening and doctor release' );
+is( $version, '1.45', 'module version bumped for the indicator, runtime report, and ajax helper release' );
 like( $readme, qr/dashboard doctor/, 'README documents the doctor command' );
 like( $pm, qr/dashboard doctor/, 'main POD documents the doctor command' );
 like( $release_doc, qr/bin\/dashboard doctor/, 'release doc documents the doctor command' );
@@ -107,6 +107,9 @@ like( $readme, qr/dashboard serve workers N.*--port PORT/s, 'README documents th
 like( $pm, qr/C<dashboard serve workers N>.*C<--port PORT>/s, 'main POD documents the serve workers auto-start port override' );
 like( $readme, qr/legacy `~\/bin\/ps1` shape more closely/s, 'README documents the legacy-style prompt layout' );
 like( $pm, qr/legacy F<~\/bin\/ps1> shape more closely/s, 'main POD documents the legacy-style prompt layout' );
+like( $readme, qr/top-right browser status strip now uses that same configured icon instead\s+of falling back to the collector name/s, 'README documents browser indicator icons and stale rename cleanup' );
+like( $pm, qr/top-right browser status strip now uses that same configured icon instead\s+of falling back to the collector name/s, 'main POD documents browser indicator icons and stale rename cleanup' );
+like( $release_doc, qr/remove the\s+old managed indicator from both `\/system\/status` and `dashboard ps1`/s, 'release doc documents stale collector indicator cleanup verification' );
 like( $readme, qr/reads\s+it from tmux when the shell environment does not already export it/s, 'README documents tmux-backed ticket lookup for ps1' );
 like( $pm, qr/reads it from tmux when the shell environment does not already export it/s, 'main POD documents tmux-backed ticket lookup for ps1' );
 like( $readme, qr/dashboard shell zsh/, 'README documents zsh shell bootstrap support' );
@@ -128,10 +131,15 @@ like( $readme, qr/integration\/windows\/run-qemu-windows-smoke\.sh/, 'README doc
 like( $pm, qr/integration\/windows\/run-qemu-windows-smoke\.sh/, 'main POD documents the Windows QEMU smoke launcher' );
 like( $readme, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'README documents the bookmark browser smoke script' );
 like( $pm, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'main POD documents the bookmark browser smoke script' );
+like( $readme, qr/Runtime::Result->report\(\)/, 'README documents Runtime::Result report summaries for hook-backed commands' );
+like( $pm, qr/C<Runtime::Result-E<gt>report\(\)>/, 'main POD documents Runtime::Result report summaries for hook-backed commands' );
 like( $readme, qr/Ajax` helper calls inside saved bookmark `CODE\*` blocks should use an\s+explicit `file => 'name\.json'` argument/s, 'README documents the saved bookmark Ajax file requirement' );
 like( $pm, qr/Legacy C<Ajax> helper calls inside saved bookmark C<CODE\*> blocks should use\s+an explicit C<file =E<gt> 'name\.json'> argument/s, 'main POD documents the saved bookmark Ajax file requirement' );
 like( $readme, qr/stores the Ajax Perl code under the saved dashboard ajax tree/s, 'README documents the saved bookmark Ajax storage location' );
 like( $pm, qr/stores the Ajax Perl code under the saved dashboard ajax tree/s, 'main POD documents the saved bookmark Ajax storage location' );
+like( $readme, qr/fetch_value.*stream_value.*helpers/s, 'README documents bookmark fetch_value and stream_value helpers' );
+like( $pm, qr/C<fetch_value\(url, target, options, formatter\)> and\s+C<stream_value\(url, target, options, formatter\)> helpers/s, 'main POD documents bookmark fetch_value and stream_value helpers' );
+like( $release_doc, qr/fetch_value.*stream_value/s, 'release doc documents bookmark fetch_value and stream_value verification' );
 like( $readme, qr/defaulting to\s+Perl unless the file starts with a shebang/s, 'README documents saved bookmark ajax interpreter fallback' );
 like( $pm, qr/defaulting to Perl unless the file\s+starts with a shebang/s, 'main POD documents saved bookmark ajax interpreter fallback' );
 like( $readme, qr/stream both `stdout` and\s+`stderr` back to the browser as they happen/s, 'README documents live stdout and stderr ajax streaming' );

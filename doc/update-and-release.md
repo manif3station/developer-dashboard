@@ -29,7 +29,9 @@ a normal user command and let its hook files run through the same top-level
 command-hook path as every other dashboard subcommand.
 
 Perl hook scripts can use `Runtime::Result` to decode `RESULT` and read
-structured hook output without hand-parsing the JSON blob.
+structured hook output without hand-parsing the JSON blob. If the final Perl
+command wants a compact summary after the hook chain finishes, it can call
+`Runtime::Result->report()`.
 
 Use `dashboard version` to print the installed Developer Dashboard version.
 
@@ -109,6 +111,9 @@ bootstrap for bash, zsh, POSIX `sh`, and PowerShell `ps`, so release
 validation should cover whichever interactive shell bootstrap a new feature
 touches. PowerShell verification should check the generated `prompt`
 function rather than looking for a POSIX `PS1` export.
+The browser top-right status strip should also show the configured collector
+icon instead of the collector name, and a collector rename should remove the
+old managed indicator from both `/system/status` and `dashboard ps1`.
 Permission-sensitive changes should also verify that `dashboard doctor`
 reports insecure legacy or home-runtime paths before repair and returns clean
 after `--fix`.
@@ -202,8 +207,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.44.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.44.tar.gz -v
+tar -tzf Developer-Dashboard-1.45.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.45.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:
@@ -233,7 +238,7 @@ For Windows-targeted changes, verify the built tarball under a real Strawberry
 Perl environment before release:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.44.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.45.tar.gz
 ```
 
 For release-grade Windows compatibility claims, also run the prepared QEMU
@@ -243,9 +248,14 @@ guest smoke:
 WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
 WINDOWS_SSH_USER=developer \
 WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.44.tar.gz \
+TARBALL=/path/to/Developer-Dashboard-1.45.tar.gz \
 integration/windows/run-qemu-windows-smoke.sh
 ```
+
+For browser-facing bookmark Ajax changes, also run a real browser smoke that
+verifies saved Ajax bindings are emitted before inline page scripts and that
+helpers such as `fetch_value()` and `stream_value()` can populate the DOM from
+saved `/ajax/...` endpoints without manual bootstrap ordering fixes.
 
 Command-output capture is implemented with `Capture::Tiny` `capture`, with exit codes returned from the capture block. The core runtime does not currently make outbound HTTP client requests.
 

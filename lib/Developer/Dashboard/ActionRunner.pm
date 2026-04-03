@@ -3,7 +3,7 @@ package Developer::Dashboard::ActionRunner;
 use strict;
 use warnings;
 
-our $VERSION = '1.44';
+our $VERSION = '1.45';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);

@@ -38,7 +38,7 @@ The integration run covers these command families:
 - docker resolver: `dashboard docker compose --dry-run`
 - web lifecycle: `dashboard serve`, `dashboard restart`, `dashboard stop`
 - browser checks: headless Chromium editor, saved fake-project bookmark page, outsider bootstrap DOM verification, and helper-login DOM verification after helper-user enablement
-- ajax streaming: installed long-running `/ajax/<file>` route timing, early-chunk verification, and refresh-safe singleton replacement plus browser pagehide cleanup coverage in unit tests
+- ajax streaming: installed long-running `/ajax/<file>` route timing, early-chunk verification, refresh-safe singleton replacement, `fetch_value()` / `stream_value()` DOM helper coverage, and browser pagehide cleanup coverage in unit tests
 - windows verification assets: `integration/windows/run-strawberry-smoke.ps1` and `integration/windows/run-qemu-windows-smoke.sh`
 
 ## Environment
@@ -92,14 +92,16 @@ The integration run creates:
 19. Confirm exact-loopback access reaches the editor page in Chromium.
 20. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
 21. Confirm the browser inserts sorted rendered `nav/*.tt` bookmark fragments between the top chrome and the main page body.
-22. Confirm an installed long-running saved `/ajax/<file>` route starts streaming the first output chunks promptly instead of buffering until the worker exits.
-23. Confirm non-loopback self-access returns `401` with an empty body and without a login form before any helper user exists in the active runtime.
-24. Add a helper user for the outsider browser flow, then confirm non-loopback self-access reaches the helper login page in Chromium.
-25. Log in as a helper through the HTTP helper flow.
-26. Confirm helper page chrome shows `Logout`.
-27. Log out and confirm the helper account is removed.
-28. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
-29. Stop the runtime and confirm the web service is gone.
+22. Confirm the browser top-right status strip shows configured collector icons, not collector names, and that renamed collectors no longer leave stale managed indicators behind.
+23. Confirm an installed saved bookmark page can use `fetch_value()` and `stream_value()` against saved `/ajax/<file>` routes without inline-script ordering failures.
+24. Confirm an installed long-running saved `/ajax/<file>` route starts streaming the first output chunks promptly instead of buffering until the worker exits.
+25. Confirm non-loopback self-access returns `401` with an empty body and without a login form before any helper user exists in the active runtime.
+26. Add a helper user for the outsider browser flow, then confirm non-loopback self-access reaches the helper login page in Chromium.
+27. Log in as a helper through the HTTP helper flow.
+28. Confirm helper page chrome shows `Logout`.
+29. Log out and confirm the helper account is removed.
+30. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
+31. Stop the runtime and confirm the web service is gone.
 
 ## Expected Results
 
@@ -115,6 +117,8 @@ The integration run creates:
 - the web service serves the root editor on `127.0.0.1:7890`
 - the browser can load both the editor and a saved fake-project bookmark page from the fake project bookmark directory
 - the browser sees sorted shared `nav/*.tt` fragments above the main page body on that fake-project bookmark page
+- the browser top-right status strip shows configured collector icons and does not leave stale renamed collector indicators behind
+- bookmark pages can use `fetch_value()` and `stream_value()` helpers against saved `/ajax/...` endpoints on first render
 - the installed `/ajax/<file>` route streams early output chunks promptly enough to prove browser-visible progress instead of silent buffering
 - non-loopback access produces `401` with an empty body and without a login page until a helper user exists in the active runtime
 - under `dashboard serve --ssl`, plain `http://HOST:PORT/...` requests on the public listener return a same-port `307` redirect to `https://HOST:PORT/...`, and a browser then reaches the expected self-signed certificate warning instead of a reset connection
@@ -153,7 +157,7 @@ For Windows verification outside the Linux container flow, run the checked-in
 Strawberry Perl smoke on a Windows host:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.44.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.45.tar.gz
 ```
 
 For release-grade Windows compatibility claims, run the same smoke through the
@@ -163,7 +167,7 @@ prepared QEMU Windows guest:
 WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
 WINDOWS_SSH_USER=developer \
 WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.44.tar.gz \
+TARBALL=/path/to/Developer-Dashboard-1.45.tar.gz \
 integration/windows/run-qemu-windows-smoke.sh
 ```
 

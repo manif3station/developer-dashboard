@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.44';
+our $VERSION = '1.45';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.44
+1.45
 
 =head1 INTRODUCTION
 
@@ -319,6 +319,10 @@ This matters because prompt and browser status should be cheap to render.
 Instead of re-running a Docker check, VPN probe, or project health command
 every time the prompt draws, a collector prepares the answer once and the rest
 of the system reads the cached result.
+Configured collector indicators now prefer the configured icon in both places,
+and when a collector is renamed the old managed indicator is cleaned up
+automatically so the prompt and top-right browser strip do not show both the
+old and new names at the same time.
 
 =head2 Why It Works As A Developer Home
 
@@ -590,6 +594,14 @@ bookmark source inside the editor instead of spilling raw text below the page.
 Legacy bookmark rendering also loads C<set_chain_value()> before bookmark body
 HTML, so C<Ajax jvar =E<gt> ...> helpers can bind saved C</ajax/...>
 endpoints without throwing a play-route JavaScript C<ReferenceError>.
+Legacy bookmark pages now also expose
+C<fetch_value(url, target, options, formatter)> and
+C<stream_value(url, target, options, formatter)> helpers so a bookmark can
+bind saved Ajax endpoints into DOM targets without hand-writing the fetch and
+render boilerplate. Those helpers support plain text, JSON, and HTML output
+modes, and the saved Ajax endpoint bindings are emitted before the bookmark
+body scripts run so inline calls such as
+C<fetch_value(endpoints.foo, '#foo')> work on first render.
 
 =head2 User CLI Extensions
 
@@ -616,6 +628,9 @@ starts, so later hook scripts can react to earlier hook output.
 
 Perl hook code can use C<Runtime::Result> to decode C<RESULT> safely and read
 per-hook C<stdout>, C<stderr>, exit codes, or the last recorded hook entry.
+If a Perl-backed command wants a compact final summary after its hook files
+run, it can also call C<Runtime::Result-E<gt>report()> to print a simple
+success/error report for each sorted hook file.
 
 =head2 Open File Commands
 
@@ -982,6 +997,9 @@ collector has produced real output it appears as missing. Prompt output
 renders an explicit status glyph in front of the collector icon, so
 successful checks show fragments such as C<✅🔑> while failing or not-yet-run
 checks show fragments such as C<🚨🔑>.
+The top-right browser status strip now uses that same configured icon instead
+of falling back to the collector name, and stale managed indicators are
+removed automatically if the collector config is renamed.
 The blank-environment integration flow also keeps a regression for mixed
 collector health: one intentionally broken Perl collector must stay red
 without stopping a second healthy collector from staying green in
@@ -1245,7 +1263,7 @@ and add explicit expectations:
 For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
 host:
 
-  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.44.tar.gz
+  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.45.tar.gz
 
 Before calling a release Windows-compatible, also run the same smoke through a
 prepared QEMU Windows guest:
@@ -1253,7 +1271,7 @@ prepared QEMU Windows guest:
   WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
   WINDOWS_SSH_USER=developer \
   WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-  TARBALL=/path/to/Developer-Dashboard-1.44.tar.gz \
+  TARBALL=/path/to/Developer-Dashboard-1.45.tar.gz \
   integration/windows/run-qemu-windows-smoke.sh
 
 =head2 Updating Runtime State

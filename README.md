@@ -110,6 +110,10 @@ That prepared state drives indicators. Indicators are the short status records u
 - CLI inspection commands such as `dashboard indicator list`
 
 This matters because prompt and browser status should be cheap to render. Instead of re-running a Docker check, VPN probe, or project health command every time the prompt draws, a collector prepares the answer once and the rest of the system reads the cached result.
+Configured collector indicators now prefer the configured icon in both places,
+and when a collector is renamed the old managed indicator is cleaned up
+automatically so the prompt and top-right browser strip do not show both the
+old and new names at the same time.
 
 ### Why It Works As A Developer Home
 
@@ -262,6 +266,13 @@ the editor instead of spilling raw text below the page. Legacy bookmark
 rendering also loads `set_chain_value()` before bookmark body HTML, so
 `Ajax jvar => ...` helpers can bind saved `/ajax/...` endpoints without
 throwing a play-route JavaScript `ReferenceError`.
+Legacy bookmark pages now also expose `fetch_value(url, target, options,
+formatter)` and `stream_value(url, target, options, formatter)` helpers so a
+bookmark can bind saved Ajax endpoints into DOM targets without hand-writing
+the fetch and render boilerplate. Those helpers support plain text, JSON, and
+HTML output modes, and the saved Ajax endpoint bindings are emitted before the
+bookmark body scripts run so inline calls such as `fetch_value(endpoints.foo,
+'#foo')` work on first render.
 
 
 ### User CLI Extensions
@@ -408,7 +419,9 @@ custom command can provide its real executable as
 `RESULT` environment variable. After each hook finishes, `dashboard` rewrites
 `RESULT` before the next sorted hook starts, so later hook scripts can react to
 earlier hook output. Perl hook scripts can read that JSON through
-`Runtime::Result`.
+`Runtime::Result`. If a Perl-backed command wants a compact final summary after
+its hook files run, it can now call `Runtime::Result->report()` to print a
+simple success/error report for each sorted hook file.
 
 If you want `dashboard update`, provide it as a normal user command at
 `./.developer-dashboard/cli/update` or `./.developer-dashboard/cli/update/run`
@@ -642,6 +655,9 @@ status strips show them before the first collector run. Before a collector has
 produced real output it appears as missing. Prompt output renders an explicit
 status glyph in front of the collector icon, so successful checks show `✅🔑`
 style fragments and failing or not-yet-run checks show `🚨🔑` style fragments.
+The top-right browser status strip now uses that same configured icon instead
+of falling back to the collector name, and stale managed indicators are
+removed automatically if the collector config is renamed.
 The blank-environment integration flow also keeps a regression for mixed
 collector health isolation: one intentionally broken Perl collector must stay
 red without stopping a second healthy collector from staying green in
@@ -883,7 +899,7 @@ For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
 host:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.44.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.45.tar.gz
 ```
 
 Before calling a release Windows-compatible, also run the same smoke through a
@@ -893,6 +909,6 @@ prepared QEMU Windows guest:
 WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
 WINDOWS_SSH_USER=developer \
 WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.44.tar.gz \
+TARBALL=/path/to/Developer-Dashboard-1.45.tar.gz \
 integration/windows/run-qemu-windows-smoke.sh
 ```

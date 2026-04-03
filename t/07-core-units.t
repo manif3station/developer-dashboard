@@ -391,6 +391,18 @@ is_deeply(
         );
         unlink 'unix-runner.pl' or die $!;
     }
+    {
+        open my $fh, '>', 'unix-runner' or die $!;
+        print {$fh} "#!/usr/bin/env perl\nprint qq{unix-ok\\n};\n";
+        close $fh;
+        chmod 0755, 'unix-runner' or die $!;
+        is_deeply(
+            [ command_argv_for_path('unix-runner') ],
+            [ $^X, 'unix-runner' ],
+            'command_argv_for_path resolves shebang-only Perl scripts through the current perl interpreter on Unix',
+        );
+        unlink 'unix-runner' or die $!;
+    }
 }
 
 {
@@ -947,6 +959,33 @@ is(
     'sync_collectors skips rewriting indicators when the stored config-backed indicator already matches',
 );
 is( scalar @{ $indicators->sync_collectors([]) }, 0, 'sync_collectors ignores empty collector lists' );
+$indicators->set_indicator(
+    'stale.collector',
+    icon                 => 'OLD',
+    label                => 'stale.collector',
+    status               => 'ok',
+    managed_by_collector => 1,
+    collector_name       => 'stale.collector',
+    prompt_visible       => 1,
+);
+my $renamed_sync = $indicators->sync_collectors(
+    [
+        {
+            name      => 'fresh.collector',
+            indicator => {
+                icon => 'NEW',
+            },
+        },
+    ]
+);
+is( scalar @{$renamed_sync}, 4, 'sync_collectors rewrites the active collector indicator and removes all stale managed collector indicators after a config rename' );
+ok( !defined $indicators->get_indicator('stale.collector'), 'sync_collectors removes stale managed collector indicators after a collector rename' );
+ok( !defined $indicators->get_indicator('vpn'), 'sync_collectors removes older managed collector indicators that no longer exist in config' );
+ok( !defined $indicators->get_indicator('docker.collector'), 'sync_collectors removes renamed managed collector indicators that no longer exist in config' );
+is( $indicators->get_indicator('fresh.collector')->{collector_name}, 'fresh.collector', 'sync_collectors records the active collector name on managed indicators' );
+my @page_header_items = $indicators->page_header_items;
+my ($fresh_page_item) = grep { $_->{prog} eq 'fresh.collector' } @page_header_items;
+is( $fresh_page_item->{alias}, 'NEW', 'page header status prefers the configured indicator icon over the collector name' );
 
 my $prompt = Developer::Dashboard::Prompt->new( paths => $paths, indicators => $indicators );
 dies_like( sub { Developer::Dashboard::Prompt->new( paths => $paths ) }, qr/Missing indicator store/, 'prompt requires indicators' );
@@ -962,7 +1001,7 @@ like( $plain_prompt, qr/\[~\/here\]/, 'prompt still renders the cwd when no indi
 unlike( $plain_prompt, qr/\bDD\b/, 'prompt omits the DD fallback when no indicators exist' );
 
 my $prompt_output = $prompt->render( jobs => 3, cwd => File::Spec->catdir( $home, 'named-path' ) );
-like( $prompt_output, qr/🚨🐳/, 'compact prompt includes missing collector status glyphs' );
+like( $prompt_output, qr/🚨NEW/, 'compact prompt includes the renamed missing collector indicator glyph' );
 like( $prompt_output, qr/✅Z ✅b/, 'compact prompt includes success status glyphs in priority order' );
 unlike( $prompt_output, qr/alpha/, 'prompt skips hidden indicators' );
 like( $prompt_output, qr/~\/named-path/, 'prompt shortens home directory to tilde' );

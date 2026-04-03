@@ -3,7 +3,7 @@ package Folder;
 use strict;
 use warnings;
 
-our $VERSION = '1.44';
+our $VERSION = '1.45';
 
 use Cwd qw(cwd);
 use File::Basename qw(dirname);

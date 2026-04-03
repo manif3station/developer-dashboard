@@ -11,6 +11,7 @@ use lib 'lib';
 
 use Developer::Dashboard::Auth;
 use Developer::Dashboard::Codec qw(encode_payload);
+use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::IndicatorStore;
 use Developer::Dashboard::PageDocument;
@@ -37,18 +38,22 @@ chdir $ENV{HOME} or die "Unable to chdir to $ENV{HOME}: $!";
 
 my $paths = Developer::Dashboard::PathRegistry->new;
 my $store = Developer::Dashboard::PageStore->new(paths => $paths);
+my $files = Developer::Dashboard::FileRegistry->new(paths => $paths);
+my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
+my $indicators = Developer::Dashboard::IndicatorStore->new(paths => $paths);
 my $auth = Developer::Dashboard::Auth->new(
-    files => Developer::Dashboard::FileRegistry->new(paths => $paths),
+    files => $files,
     paths => $paths,
 );
 my $sessions = Developer::Dashboard::SessionStore->new(paths => $paths);
 my $runtime = Developer::Dashboard::PageRuntime->new(paths => $paths);
 my $prompt = Developer::Dashboard::Prompt->new(
     paths      => $paths,
-    indicators => Developer::Dashboard::IndicatorStore->new(paths => $paths),
+    indicators => $indicators,
 );
 my $app = Developer::Dashboard::Web::App->new(
     auth     => $auth,
+    config   => $config,
     pages    => $store,
     prompt   => $prompt,
     runtime  => $runtime,
@@ -460,6 +465,42 @@ my ($status_code, $status_type, $status_body) = @{ $app->handle(path => '/system
 is($status_code, 200, 'legacy status endpoint route ok');
 like($status_type, qr/application\/json/, 'legacy status endpoint returns json');
 like($status_body, qr/"array"\s*:/, 'legacy status endpoint returns array payload');
+$config->save_global(
+    {
+        collectors => [
+            {
+                name      => 'vpn',
+                code      => 'return 0;',
+                cwd       => 'home',
+                indicator => {
+                    icon => '🔑',
+                },
+            },
+        ],
+    }
+);
+my ($status_icon_code, undef, $status_icon_body) = @{ $app->handle(path => '/system/status', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($status_icon_code, 200, 'legacy status endpoint still responds after syncing config-backed collector indicators');
+like($status_icon_body, qr/"alias"\s*:\s*"🔑"/, 'legacy status endpoint exposes configured collector indicator icons instead of collector names');
+like($app->_prompt_summary, qr/🔑/, 'page top-right prompt summary prefers the configured collector indicator icon');
+$config->save_global(
+    {
+        collectors => [
+            {
+                name      => 'vpn-renamed',
+                code      => 'return 0;',
+                cwd       => 'home',
+                indicator => {
+                    icon => '🔑',
+                },
+            },
+        ],
+    }
+);
+my ($status_rename_code, undef, $status_rename_body) = @{ $app->handle(path => '/system/status', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($status_rename_code, 200, 'legacy status endpoint still responds after a collector rename');
+unlike($status_rename_body, qr/"prog"\s*:\s*"vpn"/, 'legacy status endpoint removes stale managed collector indicators after a collector rename');
+like($status_rename_body, qr/"prog"\s*:\s*"vpn-renamed"/, 'legacy status endpoint keeps the renamed collector indicator');
 
 my $legacy_token = $store->encode_page($legacy_page);
 my ($code5, undef, $body5) = @{ $app->handle(path => '/', query => "mode=render&token=$legacy_token", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
@@ -566,6 +607,49 @@ my ($jquery_ajax_code, $jquery_ajax_type, $jquery_ajax_body) = @{ $app->handle(p
 is($jquery_ajax_code, 200, 'legacy jquery ajax bookmark saved endpoint is executable');
 like($jquery_ajax_type, qr/text\/plain/, 'legacy jquery ajax bookmark saved endpoint defaults to text content type when no type is supplied');
 is(drain_stream_body($jquery_ajax_body), '123', 'legacy jquery ajax bookmark saved endpoint returns the code output');
+
+my $fetch_stream_page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE');
+BOOKMARK: fetch-stream-helpers
+:--------------------------------------------------------------------------------:
+HTML: <script src="/js/jquery.js"></script>
+<span id="foo"></span><br>
+<div id="bar"></div>
+<span id="mike"></span><br>
+<script>
+var endpoints = {};
+fetch_value(endpoints.foo, '#foo');
+stream_value(endpoints.bar, '#bar', { type: 'text' });
+fetch_value(endpoints.mike, '#mike', { type: 'json' }, function (value) {
+  return value.ok > 0 ? 'OK' : 'Error';
+});
+</script>
+:--------------------------------------------------------------------------------:
+CODE1: Ajax jvar => 'endpoints.foo', file => 'foo', code => q{
+  print "This is foo echo";
+};
+:--------------------------------------------------------------------------------:
+CODE2: Ajax jvar => 'endpoints.bar', file => 'bar', singleton => 'BAR', code => q{
+  print "bar-one\n";
+  print "bar-two\n";
+};
+:--------------------------------------------------------------------------------:
+CODE3: Ajax jvar => 'endpoints.mike', file => 'mike', type => 'json', code => q{
+  use DataHelper qw( j );
+  print j { ok => 1 };
+};
+PAGE
+$store->save_page($fetch_stream_page);
+my ($fetch_stream_code, undef, $fetch_stream_body) = @{ $app->handle(path => '/app/fetch-stream-helpers', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($fetch_stream_code, 200, 'legacy bookmark with fetch_value and stream_value helpers renders');
+like($fetch_stream_body, qr/function fetch_value\(url, target, options, formatter\)/, 'legacy bookmark bootstrap exposes fetch_value helper');
+like($fetch_stream_body, qr/function stream_value\(url, target, options, formatter\)/, 'legacy bookmark bootstrap exposes stream_value helper');
+my $foo_bind_pos = index($fetch_stream_body, q{set_chain_value(endpoints,'foo','/ajax/foo?type=text'});
+my $bar_bind_pos = index($fetch_stream_body, q{set_chain_value(endpoints,'bar','/ajax/bar?type=text&singleton=BAR'});
+my $mike_bind_pos = index($fetch_stream_body, q{set_chain_value(endpoints,'mike','/ajax/mike?type=json'});
+my $fetch_call_pos = index($fetch_stream_body, q{fetch_value(endpoints.foo, '#foo');});
+ok($foo_bind_pos > -1 && $bar_bind_pos > -1 && $mike_bind_pos > -1, 'legacy bookmark render includes all saved Ajax endpoint bindings for fetch_value and stream_value');
+ok($fetch_call_pos > -1 && $foo_bind_pos < $fetch_call_pos && $bar_bind_pos < $fetch_call_pos && $mike_bind_pos < $fetch_call_pos, 'saved Ajax endpoint bindings render before inline page scripts call fetch_value and stream_value');
+like($fetch_stream_body, qr/dashboard_ajax_singleton_cleanup\('BAR'\)/, 'legacy bookmark render keeps singleton cleanup bindings for stream_value pages');
 
 {
     open my $fh, '>', $store->page_file('legacy-forward') or die $!;

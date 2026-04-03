@@ -8,8 +8,10 @@ use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use IO::Socket::INET;
+use LWP::UserAgent;
 use Runtime::Result;
 use Test::More;
+use Time::HiRes qw(sleep);
 
 local $ENV{HOME} = tempdir(CLEANUP => 1);
 local $ENV{PERL5LIB} = join ':', grep { defined && $_ ne '' } '/home/mv/perl5/lib/perl5', ( $ENV{PERL5LIB} || () );
@@ -190,6 +192,24 @@ if ( defined $serve_workers_pid ) {
 else {
     pass('dashboard serve workers reused an already-running managed web service instead of starting a new pid');
 }
+my $live_status_port = _find_free_port();
+my $live_status_pid = fork();
+die 'Unable to fork live dashboard status probe' if !defined $live_status_pid;
+if ( !$live_status_pid ) {
+    exec $perl, '-I' . $lib, $dashboard, 'serve', '--foreground', '--host', '127.0.0.1', '--port', $live_status_port;
+    die "Unable to exec live dashboard serve: $!";
+}
+my $status_ua = LWP::UserAgent->new( timeout => 5 );
+my $status_response;
+for ( 1 .. 40 ) {
+    $status_response = $status_ua->get("http://127.0.0.1:$live_status_port/system/status");
+    last if $status_response->is_success;
+    sleep 0.25;
+}
+ok( $status_response && $status_response->is_success, 'live foreground runtime exposes the system status endpoint' );
+like( $status_response->decoded_content( charset => 'none' ), qr/"alias"\s*:\s*"🔑"/, 'live foreground runtime syncs configured collector indicator icons into system status' );
+kill 'TERM', $live_status_pid;
+waitpid( $live_status_pid, 0 );
 my $dashboard_log_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'logs', 'dashboard.log' );
 make_path( File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'logs' ) );
 open my $dashboard_log_fh, '>', $dashboard_log_file or die "Unable to write $dashboard_log_file: $!";
@@ -435,6 +455,19 @@ is( Runtime::Result::stderr('01-second.pl'), "hook-two-err\n", 'Runtime::Result 
 is( Runtime::Result::exit_code('01-second.pl'), 0, 'Runtime::Result returns stored hook exit codes' );
 is( Runtime::Result::last_name(), '01-second.pl', 'Runtime::Result returns the last sorted hook name' );
 is_deeply( Runtime::Result::last_entry(), json_decode( $ENV{RESULT} )->{'01-second.pl'}, 'Runtime::Result returns the last sorted hook entry' );
+{
+    local $0 = '/tmp/report-result/';
+    is( Runtime::Result::_command_name(), 'report-result', 'Runtime::Result preserves a trailing-slash script name when basename still resolves it' );
+}
+{
+    local $0 = '/';
+    is( Runtime::Result::_command_name(), 'dashboard', 'Runtime::Result falls back to dashboard when only a root-like script path is available' );
+}
+like(
+    Runtime::Result->report(),
+    qr/^[-]+\n.*Run Report\n[-]+\n✅ 00-first\.pl\n✅ 01-second\.pl\n[-]+\n\z/s,
+    'Runtime::Result renders a human-readable hook run report',
+);
 local $ENV{RESULT} = '{';
 my $invalid_json_error = do {
     local $@;
@@ -485,6 +518,47 @@ my $custom_result_data = json_decode($custom_json);
 is( $custom_result_data->{'00-pre.pl'}{stdout}, "custom-hook\n", 'directory-backed custom commands receive RESULT JSON from their hook files' );
 like( $custom_result_data->{'00-pre.pl'}{stderr}, qr/custom-hook-err/, 'directory-backed custom command RESULT keeps captured hook stderr' );
 
+my $report_dir_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'report-result' );
+make_path($report_dir_root);
+my $report_hook_ok = File::Spec->catfile( $report_dir_root, '00-first.pl' );
+open my $report_hook_ok_fh, '>', $report_hook_ok or die "Unable to write $report_hook_ok: $!";
+print {$report_hook_ok_fh} <<'PL';
+#!/usr/bin/env perl
+print "report-hook\n";
+PL
+close $report_hook_ok_fh;
+chmod 0755, $report_hook_ok or die "Unable to chmod $report_hook_ok: $!";
+my $report_hook_fail = File::Spec->catfile( $report_dir_root, '01-second.pl' );
+open my $report_hook_fail_fh, '>', $report_hook_fail or die "Unable to write $report_hook_fail: $!";
+print {$report_hook_fail_fh} <<'PL';
+#!/usr/bin/env perl
+warn "report-fail\n";
+exit 2;
+PL
+close $report_hook_fail_fh;
+chmod 0755, $report_hook_fail or die "Unable to chmod $report_hook_fail: $!";
+my $report_run = File::Spec->catfile( $report_dir_root, 'run' );
+open my $report_run_fh, '>', $report_run or die "Unable to write $report_run: $!";
+print {$report_run_fh} <<'PL';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Runtime::Result;
+print Runtime::Result->report();
+PL
+close $report_run_fh;
+chmod 0755, $report_run or die "Unable to chmod $report_run: $!";
+my ( $report_stdout, $report_stderr, $report_exit ) = capture {
+    system 'sh', '-c', "$perl -I'$lib' '$dashboard' report-result";
+    return $? >> 8;
+};
+is( $report_exit, 0, 'directory-backed custom commands can print Runtime::Result reports after hook execution' );
+like( $report_stdout, qr/^report-hook\n/s, 'Runtime::Result report command still streams hook stdout before the final report' );
+like( $report_stdout, qr/report-result Run Report/, 'Runtime::Result report titles the report with the current command name' );
+like( $report_stdout, qr/✅ 00-first\.pl/, 'Runtime::Result report marks successful hooks with a success glyph' );
+like( $report_stdout, qr/🚨 01-second\.pl/, 'Runtime::Result report marks failing hooks with an error glyph' );
+like( $report_stderr, qr/report-fail/, 'Runtime::Result report does not suppress hook stderr' );
+
 my $update_hook_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'update.d' );
 make_path($update_hook_root);
 my $update_command = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'update' );
@@ -524,7 +598,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.44\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.45\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );

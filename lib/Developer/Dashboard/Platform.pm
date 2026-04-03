@@ -3,7 +3,7 @@ package Developer::Dashboard::Platform;
 use strict;
 use warnings;
 
-our $VERSION = '1.44';
+our $VERSION = '1.45';
 
 use Exporter 'import';
 use File::Basename qw(basename);
@@ -142,6 +142,7 @@ sub command_argv_for_path {
     my $lower = lc $resolved;
 
     return ($^X, $resolved) if $lower =~ /\.pl\z/;
+    return ($^X, $resolved) if !is_windows() && _shebang_uses_perl($resolved);
     return ($resolved) if !is_windows() && _has_shebang($resolved);
     return ( _powershell_binary(), '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $resolved )
       if $lower =~ /\.ps1\z/;
@@ -150,6 +151,19 @@ sub command_argv_for_path {
     return ( _posix_shell_binary('sh'),   $resolved ) if $lower =~ /\.sh\z/;
     return ($resolved) if !is_windows();
     return ($^X, $resolved);
+}
+
+# _shebang_uses_perl($path)
+# Detects whether one shebang-backed script should run through the current Perl interpreter.
+# Input: file path string.
+# Output: boolean true when the shebang names perl.
+sub _shebang_uses_perl {
+    my ($path) = @_;
+    open my $fh, '<', $path or die "Unable to read $path: $!";
+    my $first = <$fh>;
+    close $fh;
+    return 0 if !defined $first;
+    return $first =~ /^#!.*\bperl(?:\s|\z)/ ? 1 : 0;
 }
 
 # shell_quote_for($shell, $value)

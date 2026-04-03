@@ -2,6 +2,11 @@
 
 ## 2026-04-03
 
+- Fixed browser indicator fallback drift so configured collector icons now render in both the top-right browser strip and `dashboard ps1` instead of leaking collector names when an icon was configured.
+- Fixed stale collector rename ghosts by removing managed indicator records whose collector names no longer exist in config, so renaming a collector no longer leaves both the old and new indicator in the prompt or `/system/status`.
+- Fixed hook-summary ergonomics by adding `Runtime::Result->report()`, so Perl-backed custom commands can print a compact success/error report after their sorted hook files finish.
+- Fixed legacy bookmark Ajax bootstrap ordering by moving saved `set_chain_value(...)` bindings ahead of bookmark body scripts and by adding `fetch_value()` / `stream_value()` helpers, so inline bookmark JavaScript can populate DOM targets from saved `/ajax/...` endpoints on first render.
+- Fixed checkout-local Perl command drift by exporting the active dashboard `lib/` path through `PERL5LIB`, so shebang-backed custom command runners keep loading the current checkout modules instead of a stale installed copy.
 - Fixed permissive home-runtime storage by tightening `~/.developer-dashboard` directories to `0700`, regular runtime files to `0600`, and owner-executable runtime files to owner-only `0700`.
 - Fixed permission-audit blind spots by adding `dashboard doctor` and `dashboard doctor --fix`, so current and legacy dashboard roots under `$HOME` can be checked and repaired for owner-only file and folder access.
 - Fixed Windows verification drift by checking in `integration/windows/run-strawberry-smoke.ps1` and `integration/windows/run-qemu-windows-smoke.sh`, so Strawberry Perl and full-system Windows validation now live in the repo instead of in ad-hoc manual notes.

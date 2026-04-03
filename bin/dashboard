@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 
+use Config ();
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
 use FindBin qw($Bin);
@@ -25,6 +26,15 @@ use Developer::Dashboard::Platform qw(
   resolve_runnable_file
   shell_quote_for
 );
+
+my $dashboard_lib = File::Spec->catdir( $Bin, '..', 'lib' );
+if ( -d $dashboard_lib ) {
+    my $path_sep = $Config::Config{path_sep} || ':';
+    my @existing = grep { defined && $_ ne '' } split /\Q$path_sep\E/, ( $ENV{PERL5LIB} || '' );
+    if ( !grep { $_ eq $dashboard_lib } @existing ) {
+        $ENV{PERL5LIB} = join $path_sep, $dashboard_lib, @existing;
+    }
+}
 
 my $cmd = shift @ARGV || '';
 _prime_command_result_env( $cmd, @ARGV ) if $cmd ne '';
@@ -128,6 +138,7 @@ my $runtime = Developer::Dashboard::RuntimeManager->new(
         my $app = Developer::Dashboard::Web::App->new(
             actions  => $actions,
             auth     => $web_auth,
+            config   => $config,
             pages    => $web_pages,
             prompt   => $prompt,
             runtime  => $page_runtime,
@@ -853,6 +864,7 @@ sub _standalone_builtin_executable {
 sub _prime_command_result_env {
     my ( $cmd, @argv ) = @_;
     delete $ENV{RESULT};
+    $ENV{DEVELOPER_DASHBOARD_COMMAND} = $cmd if defined $cmd && $cmd ne '';
     return 1 if !defined $cmd || $cmd eq '';
 
     my $hook_root = _command_hook_root($cmd);

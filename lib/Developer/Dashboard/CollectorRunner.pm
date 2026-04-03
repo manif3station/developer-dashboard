@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '1.44';
+our $VERSION = '1.45';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -108,6 +108,8 @@ sub run_once {
             %{ $job->{indicator} },
             name => $indicator_name,
             label => $indicator_label,
+            collector_name => $name,
+            managed_by_collector => 1,
             status => $exit_code ? 'error' : 'ok',
             prompt_visible => exists $job->{indicator}{prompt_visible} ? $job->{indicator}{prompt_visible} : 1,
         );

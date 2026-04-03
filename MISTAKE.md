@@ -151,6 +151,27 @@ view FILENAME.md with view_range: [1, -1] or [LAST_SECTION_START, -1]
 
 ---
 
+## CODE: COLLECTOR-GHOST-STATUS
+
+**Date:** 2026-04-03 23:59:00 UTC
+**Area:** Collector indicators, CLI hook summaries, and legacy bookmark Ajax bootstrap
+**Symptom:** Browser status used collector names instead of configured icons, renamed collectors left stale old indicators behind, `Runtime::Result->report()` failed in directory-backed custom commands from a checkout, and inline bookmark scripts could call Ajax helpers before their saved endpoint bindings existed
+**Why It Was Dangerous:** Prompt/browser status drift makes health signals noisy and misleading, stale indicators hide the real current collector state, checkout-local command runners can silently load an older installed module set, and bookmark Ajax helpers appear broken in the browser even though the saved endpoint exists
+**Root Cause:** Indicator seeding only added or rewrote records and never removed stale managed collector entries; the page-header payload preferred label/name over icon; directory-backed custom runners inherited the current perl executable but not the active checkout `lib/` path; runtime-generated Ajax binding scripts were appended after the bookmark body so inline browser code ran too early
+**How Ellen Solved It:**
+  1. Stored `collector_name` and `managed_by_collector` metadata on collector-managed indicators
+  2. Made `sync_collectors()` remove stale managed indicators whose collector names no longer exist in config
+  3. Made page-header status prefer the configured icon before label/name
+  4. Added `Runtime::Result->report()` and exported the active checkout `lib/` through `PERL5LIB` so custom Perl runners use the current source tree
+  5. Split bookmark runtime output into early Ajax bootstrap scripts versus later page output, then added `fetch_value()` and `stream_value()` helpers to the legacy browser bootstrap
+**How To Detect Earlier Next Time:** Any time prompt and browser status are supposed to show the same collector signal, test both `/system/status` and `dashboard ps1`; any time a checkout-local child Perl script uses dashboard modules, verify it resolves the checkout copy rather than an installed one; any time runtime code injects browser `<script>` tags, verify real execution order in rendered HTML and in a browser-backed smoke
+**Prevention Rule:** Collector-managed indicators must always carry enough metadata for rename cleanup; prompt and browser indicator rendering must share the same icon-first semantics; checkout-local child Perl execution must inherit the active dashboard `lib/`; browser helper bootstrap scripts must be emitted before any inline bookmark code that depends on them
+**Related Files:** lib/Developer/Dashboard/IndicatorStore.pm, lib/Developer/Dashboard/CollectorRunner.pm, lib/Developer/Dashboard/Web/App.pm, lib/Developer/Dashboard/PageDocument.pm, lib/Runtime/Result.pm, lib/Developer/Dashboard/Platform.pm, bin/dashboard
+**Verification:** Targeted tests `t/03-web-app.t`, `t/05-cli-smoke.t`, and `t/07-core-units.t` all pass; browser smoke confirms saved Ajax helper DOM updates; full suite and coverage gates still pass
+**Tags:** `indicators`, `cleanup`, `prompt`, `browser`, `runtime-result`, `ajax`, `bootstrap-order`
+
+---
+
 ## CODE: SSL-FOUNDATION-INCOMPLETE
 
 **Date:** 2026-04-02 20:48:28 UTC

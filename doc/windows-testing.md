@@ -40,7 +40,7 @@ before the slower VM gate runs.
 - `qemu-system-x86_64` for the VM gate
 - a prepared Windows qcow2 image with Strawberry Perl, PowerShell, and OpenSSH
 - SSH access into the guest
-- a built tarball such as `Developer-Dashboard-1.44.tar.gz`
+- a built tarball such as `Developer-Dashboard-1.45.tar.gz`
 
 ## Commands
 
@@ -53,7 +53,7 @@ prove -lv t/07-core-units.t t/05-cli-smoke.t
 Run the Strawberry Perl smoke on a Windows host with:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.44.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.45.tar.gz
 ```
 
 Run the full-system QEMU gate from a Linux host with:
@@ -62,7 +62,7 @@ Run the full-system QEMU gate from a Linux host with:
 WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
 WINDOWS_SSH_USER=developer \
 WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.44.tar.gz \
+TARBALL=/path/to/Developer-Dashboard-1.45.tar.gz \
 integration/windows/run-qemu-windows-smoke.sh
 ```
 

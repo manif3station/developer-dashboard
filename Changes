@@ -1,5 +1,21 @@
 Revision history for Developer Dashboard
 
+1.45  2026-04-03
+    - fixed collector indicator rendering so the configured icon is used in
+      both the browser top-right status strip and `dashboard ps1`, instead of
+      falling back to the collector name
+    - fixed stale renamed collector indicators by automatically removing old
+      managed indicator records when collector config names change, keeping
+      `/system/status` and prompt output free of duplicate old/new entries
+    - added `Runtime::Result->report()` so Perl-backed CLI commands can print
+      a compact post-hook run summary without hand-parsing `RESULT`
+    - added legacy bookmark `fetch_value()` and `stream_value()` helpers, and
+      moved saved Ajax endpoint bindings ahead of bookmark body scripts so
+      inline helper calls work on first render
+    - fixed checkout-local Perl runner inheritance so shebang-backed custom
+      command scripts still load the active dashboard `lib/` tree during
+      repository execution
+
 1.44  2026-04-03
     - hardened the home runtime so directories under `~/.developer-dashboard`
       are tightened to `0700`, regular runtime files are tightened to `0600`,

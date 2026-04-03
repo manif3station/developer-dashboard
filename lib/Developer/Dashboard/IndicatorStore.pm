@@ -3,7 +3,7 @@ package Developer::Dashboard::IndicatorStore;
 use strict;
 use warnings;
 
-our $VERSION = '1.44';
+our $VERSION = '1.45';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -132,12 +132,16 @@ sub list_indicators {
 sub sync_collectors {
     my ( $self, $jobs ) = @_;
     return [] if ref($jobs) ne 'ARRAY';
+    return [] if !@{$jobs};
 
     my @written;
+    my %active_collectors;
     for my $job ( @{$jobs} ) {
         next if ref($job) ne 'HASH';
         next if ref( $job->{indicator} ) ne 'HASH';
+        next if !defined $job->{name} || $job->{name} eq '';
 
+        $active_collectors{ $job->{name} } = 1;
         my $name = $job->{indicator}{name} || $job->{name} || next;
         my $existing = eval { $self->get_indicator($name) } || {};
         my $label = defined $job->{indicator}{label} && $job->{indicator}{label} ne ''
@@ -149,6 +153,8 @@ sub sync_collectors {
             name           => $name,
             label          => $label,
             status         => defined $existing->{status} && $existing->{status} ne '' ? $existing->{status} : 'missing',
+            collector_name => $job->{name},
+            managed_by_collector => 1,
             prompt_visible => exists $job->{indicator}{prompt_visible}
               ? $job->{indicator}{prompt_visible}
               : exists $existing->{prompt_visible}
@@ -160,7 +166,31 @@ sub sync_collectors {
         }
     }
 
+    for my $indicator ( $self->list_indicators ) {
+        next if ref($indicator) ne 'HASH';
+        next if !$indicator->{managed_by_collector};
+        my $collector_name = $indicator->{collector_name} || '';
+        next if $collector_name eq '';
+        next if $active_collectors{$collector_name};
+        $self->delete_indicator( $indicator->{name} );
+        push @written, { %{$indicator}, deleted => 1 };
+    }
+
     return \@written;
+}
+
+# delete_indicator($name)
+# Removes one persisted indicator record and its directory when present.
+# Input: indicator name string.
+# Output: true when cleanup completes.
+sub delete_indicator {
+    my ( $self, $name ) = @_;
+    return 1 if !defined $name || $name eq '';
+    my $dir  = $self->{paths}->indicator_dir($name);
+    my $file = File::Spec->catfile( $dir, 'status.json' );
+    unlink $file if -f $file;
+    rmdir $dir if -d $dir;
+    return 1;
 }
 
 # mark_stale($name, %opts)
@@ -260,6 +290,8 @@ sub page_header_items {
         next if exists $indicator->{prompt_visible} && !$indicator->{prompt_visible};
         my $alias = defined $indicator->{alias} && $indicator->{alias} ne ''
           ? $indicator->{alias}
+          : defined $indicator->{icon} && $indicator->{icon} ne ''
+          ? $indicator->{icon}
           : defined $indicator->{label} && $indicator->{label} ne ''
           ? $indicator->{label}
           : $indicator->{name};
@@ -315,7 +347,7 @@ sub _page_status_icon {
 sub _indicator_matches {
     my ( $self, $existing, $candidate ) = @_;
     return 0 if ref($existing) ne 'HASH' || ref($candidate) ne 'HASH';
-    for my $key ( qw(name label alias icon status priority prompt_visible page_status_icon) ) {
+    for my $key ( qw(name label alias icon status priority prompt_visible page_status_icon collector_name managed_by_collector) ) {
         my $left  = exists $existing->{$key}  ? $existing->{$key}  : undef;
         my $right = exists $candidate->{$key} ? $candidate->{$key} : undef;
         $left  = '' if !defined $left;

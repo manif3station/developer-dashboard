@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.44';
+our $VERSION = '1.45';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -21,7 +21,7 @@ use Zipper ();
 
 # new(%args)
 # Constructs the browser-facing dashboard web application.
-# Input: auth, pages, sessions, and optional actions/resolver objects.
+# Input: auth, pages, sessions, config, and optional actions/resolver objects.
 # Output: Developer::Dashboard::Web::App object.
 sub new {
     my ( $class, %args ) = @_;
@@ -31,6 +31,7 @@ sub new {
     return bless {
         actions  => $args{actions},
         auth     => $auth,
+        config   => $args{config},
         pages    => $pages,
         prompt   => $args{prompt},
         runtime  => $args{runtime} || Developer::Dashboard::PageRuntime->new,
@@ -2072,6 +2073,9 @@ sub _page_status_payload {
     my ($self) = @_;
     my $indicators = $self->{prompt} ? $self->{prompt}{indicators} : undef;
     return { array => [], hash => {}, status => {} } if !$indicators || !$indicators->can('page_header_payload');
+    if ( $self->{config} && $self->{config}->can('collectors') ) {
+        $indicators->sync_collectors( $self->{config}->collectors );
+    }
     return $indicators->page_header_payload;
 }
 

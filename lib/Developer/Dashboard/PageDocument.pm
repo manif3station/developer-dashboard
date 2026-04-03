@@ -3,7 +3,7 @@ package Developer::Dashboard::PageDocument;
 use strict;
 use warnings;
 
-our $VERSION = '1.44';
+our $VERSION = '1.45';
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 
@@ -251,9 +251,14 @@ sub render_html {
     if ( defined $self->{layout}{form} && $self->{layout}{form} ne '' ) {
         $form_section .= $self->{layout}{form};
     }
+    my $runtime_bootstrap = '';
     my $runtime_output = '';
     for my $chunk ( @{ $self->{meta}{runtime_outputs} || [] } ) {
         next if !defined $chunk || ref($chunk);
+        if ( $chunk =~ /\A<script>/ && $chunk =~ /(set_chain_value|dashboard_ajax_singleton_cleanup)/ ) {
+            $runtime_bootstrap .= $chunk;
+            next;
+        }
         $runtime_output .= $chunk;
     }
     my $runtime_errors = '';
@@ -364,6 +369,7 @@ sub render_html {
 </head>
 <body>
 $legacy_bootstrap
+$runtime_bootstrap
 <main>
   $chrome_html
   $nav_html
@@ -513,6 +519,64 @@ function dashboard_ajax_singleton_cleanup(name) {
     if (window.fetch) {
       fetch(url, { method: 'POST', keepalive: true, credentials: 'same-origin' }).catch(function () {});
     }
+  });
+}
+function dashboard_target_nodes(target) {
+  if (!target) return [];
+  if (typeof target === 'string') return Array.prototype.slice.call(document.querySelectorAll(target));
+  if (target instanceof Element) return [target];
+  if (target.length && typeof target !== 'string') return Array.prototype.slice.call(target);
+  return [];
+}
+function dashboard_render_value(value, options, formatter) {
+  let rendered = value;
+  if (options && options.type === 'json' && typeof value === 'string' && value !== '') {
+    try {
+      rendered = JSON.parse(value);
+    } catch (error) {
+      rendered = null;
+    }
+  }
+  if (typeof formatter === 'function') return formatter(rendered);
+  if (rendered === null || typeof rendered === 'undefined') return '';
+  if (typeof rendered === 'object') return JSON.stringify(rendered);
+  return String(rendered);
+}
+function dashboard_write_target(target, value, options, formatter) {
+  let nodes = dashboard_target_nodes(target);
+  let rendered = dashboard_render_value(value, options || {}, formatter);
+  nodes.forEach(function(node) {
+    if (options && options.type === 'html') {
+      node.innerHTML = rendered;
+      return;
+    }
+    if (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA') {
+      node.value = rendered;
+      return;
+    }
+    node.textContent = rendered;
+  });
+  return rendered;
+}
+function fetch_value(url, target, options, formatter) {
+  if (!url || !window.fetch) return Promise.resolve('');
+  let settings = Object.assign({ credentials: 'same-origin' }, (options && options.fetch) || {});
+  return window.fetch(url, settings).then(function(response) {
+    if (!response.ok) throw new Error('Request failed with status ' + response.status);
+    if (options && options.type === 'json') return response.text();
+    return response.text();
+  }).then(function(value) {
+    return dashboard_write_target(target, value, options || {}, formatter);
+  });
+}
+function stream_value(url, target, options, formatter) {
+  if (!url || !window.fetch) return Promise.resolve('');
+  let settings = Object.assign({ credentials: 'same-origin' }, (options && options.fetch) || {});
+  return window.fetch(url, settings).then(function(response) {
+    if (!response.ok) throw new Error('Request failed with status ' + response.status);
+    return response.text();
+  }).then(function(value) {
+    return dashboard_write_target(target, value, options || {}, formatter);
   });
 }
 var ready_status = {};

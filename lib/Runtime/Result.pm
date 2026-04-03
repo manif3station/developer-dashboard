@@ -3,8 +3,9 @@ package Runtime::Result;
 use strict;
 use warnings;
 
-our $VERSION = '1.44';
+our $VERSION = '1.45';
 
+use File::Basename qw(basename dirname);
 use JSON::XS qw(decode_json);
 
 # current()
@@ -99,6 +100,54 @@ sub last_entry {
     return entry($name);
 }
 
+# report(%args)
+# Builds a compact command hook report from the current RESULT payload.
+# Input: optional command name override.
+# Output: formatted multi-line report string.
+sub report {
+    shift if @_ && defined $_[0] && !ref($_[0]) && $_[0] eq __PACKAGE__;
+    my (%args) = @_;
+    my @names = names();
+    return '' if !@names;
+
+    my $command = defined $args{command} && $args{command} ne ''
+      ? $args{command}
+      : _command_name();
+
+    my @lines = (
+        '----------------------------------------',
+        sprintf( '%s Run Report', $command ),
+        '----------------------------------------',
+    );
+
+    for my $name (@names) {
+        my $exit_code = exit_code($name);
+        my $icon = defined $exit_code && $exit_code == 0 ? '✅' : '🚨';
+        push @lines, sprintf( '%s %s', $icon, $name );
+    }
+
+    push @lines, '----------------------------------------';
+    return join( "\n", @lines ) . "\n";
+}
+
+# _command_name()
+# Resolves the current dashboard command name for RESULT reports.
+# Input: none.
+# Output: short command name string.
+sub _command_name {
+    my $name = $ENV{DEVELOPER_DASHBOARD_COMMAND} || '';
+    return $name if $name ne '';
+
+    my $script = $0 || '';
+    return 'dashboard' if $script eq '';
+    my $base = basename($script);
+    return $base if $base ne '' && $base ne '/' && $base ne '\\';
+
+    my $parent = basename( dirname($script) );
+    return $parent if $parent ne '' && $parent ne '/' && $parent ne '\\';
+    return 'dashboard';
+}
+
 1;
 
 __END__
@@ -123,7 +172,7 @@ reading per-hook stdout, stderr, and exit codes from Perl hook scripts.
 
 =head1 FUNCTIONS
 
-=head2 current, names, has, entry, stdout, stderr, exit_code, last_name, last_entry
+=head2 current, names, has, entry, stdout, stderr, exit_code, last_name, last_entry, report
 
 Decode and read the current C<RESULT> JSON payload.
 
