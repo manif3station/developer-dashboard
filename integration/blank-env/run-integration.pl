@@ -464,10 +464,11 @@ JSON
         'curl -sS -o /tmp/helper-root.html -w \'%{http_code}\' http://' . $container_ip . ':7890/'
     );
     _assert_match( $helper_root_disabled->{stdout}, qr/^401$/, 'non-loopback self-access stays unauthorized before any helper user exists' );
-    _assert_match( _read_text('/tmp/helper-root.html'), qr/Helper access is disabled until a helper user is added\./, 'outsider bootstrap response explains that helper access is disabled before any helper user exists' );
+    _assert( _read_text('/tmp/helper-root.html') eq q{}, 'outsider bootstrap response keeps the body empty before any helper user exists' );
     _assert( _read_text('/tmp/helper-root.html') !~ /<form[^>]*action="\/login"/, 'outsider bootstrap response does not expose the login form before any helper user exists' );
     my $helper_disabled_dom = _run_browser_dom( 'browser helper root before helper user exists', "http://$container_ip:7890/", user_data_dir => $profile );
-    _assert_match( $helper_disabled_dom, qr/Helper access is disabled until a helper user is added\./, 'browser outsider bootstrap response renders the disabled-access message before any helper user exists' );
+    _assert_match( $helper_disabled_dom, qr/HTTP ERROR 401/, 'browser outsider bootstrap response resolves to a generic 401 browser error page before any helper user exists' );
+    _assert( $helper_disabled_dom !~ /Helper access is disabled until a helper user is added\./, 'browser outsider bootstrap response does not leak helper bootstrap guidance before any helper user exists' );
     _assert( $helper_disabled_dom !~ /action="\/login"/, 'browser outsider bootstrap response omits the login form before any helper user exists' );
 
     _run_shell( 'dashboard auth add helper-login user', $project_cd . q{dashboard auth add-user helper_login helper-login-pass-123} );

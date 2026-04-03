@@ -133,7 +133,7 @@ Access semantics:
 
 - `http://127.0.0.1:7890/` is trusted as local admin
 - `http://localhost:7890/` is outsider access, not local admin
-- outsider access returns `401 Helper access is disabled until a helper user is added.` until at least one helper user exists in the active dashboard runtime
+- outsider access returns `401` with an empty body until at least one helper user exists in the active dashboard runtime
 - once a helper user exists, outsider access receives the helper login page
 
 When helper access is redirected to `/login`, the login form must preserve the
@@ -192,8 +192,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.42.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.42.tar.gz -v
+tar -tzf Developer-Dashboard-1.43.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.43.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:
@@ -223,7 +223,7 @@ For Windows-targeted changes, verify the built tarball under a real Strawberry
 Perl environment before release:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.42.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.43.tar.gz
 ```
 
 For release-grade Windows compatibility claims, also run the prepared QEMU
@@ -233,7 +233,7 @@ guest smoke:
 WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
 WINDOWS_SSH_USER=developer \
 WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.42.tar.gz \
+TARBALL=/path/to/Developer-Dashboard-1.43.tar.gz \
 integration/windows/run-qemu-windows-smoke.sh
 ```
 

@@ -59,7 +59,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.42', 'module version bumped for the Windows verification-planning release' );
+is( $version, '1.43', 'module version bumped for the outsider 401 silence hardening release' );
 like( $readme, qr/dashboard serve --ssl/, 'README documents the HTTPS serve flag' );
 like( $pm, qr/C<dashboard serve --ssl>/, 'main POD documents the HTTPS serve flag' );
 like( $release_doc, qr/dashboard serve --ssl/, 'release doc documents the HTTPS serve flag' );
@@ -79,10 +79,10 @@ like( $release_doc, qr/Unknown saved routes such as `\/app\/foobar` must now ope
 like( $readme, qr/After a successful\s+helper login, the browser is sent back to that saved route, such as\s+`\/app\/index`/s, 'README documents post-login return to the original saved route' );
 like( $pm, qr/After a\s+successful helper login, the browser is sent back to that saved route, such as\s+C<\/app\/index>/s, 'main POD documents post-login return to the original saved route' );
 like( $release_doc, qr/successful\s+helper login returns the browser to the original route, such as `\/app\/index`/s, 'release doc documents post-login return to the original route' );
-like( $readme, qr/no helper user exists yet in the active dashboard runtime, outsider requests return\s+`401 Helper access is disabled until a helper user is added\.`/s, 'README documents outsider access staying disabled until a helper user exists in the active runtime' );
-like( $pm, qr/no helper user exists yet in the active dashboard runtime, outsider requests return\s+C<401 Helper access is disabled until a helper user is added\.>/s, 'main POD documents outsider access staying disabled until a helper user exists in the active runtime' );
-like( $release_doc, qr/outsider access returns `401 Helper access is disabled until a helper user is added\.` until at least one helper user exists in the active dashboard runtime/s, 'release doc documents outsider access staying disabled until a helper user exists in the active runtime' );
-like( $integration_plan, qr/non-loopback self-access returns `401 Helper access is disabled until a helper user is added\.` without a login form before any helper user exists in the active runtime/s, 'integration plan documents outsider disabled-access behaviour before helper bootstrap' );
+like( $readme, qr/no helper user exists yet in the active dashboard runtime, outsider requests return\s+`401` with an empty body/s, 'README documents outsider access staying silent until a helper user exists in the active runtime' );
+like( $pm, qr/no helper user exists yet in the active dashboard runtime, outsider requests return\s+C<401> with an empty body/s, 'main POD documents outsider access staying silent until a helper user exists in the active runtime' );
+like( $release_doc, qr/outsider access returns `401` with an empty body until at least one helper user exists in the active dashboard runtime/s, 'release doc documents outsider access staying silent until a helper user exists in the active runtime' );
+like( $integration_plan, qr/non-loopback self-access returns `401` with an empty body and without a login form before any helper user exists in the active runtime/s, 'integration plan documents outsider disabled-access behaviour before helper bootstrap' );
 like( $integration_plan, qr/after a helper user exists, non-loopback access produces the helper login page/s, 'integration plan documents outsider login after helper bootstrap' );
 like( $readme, qr/Shared nav markup now wraps horizontally by default/, 'README documents the horizontal shared-nav layout' );
 like( $pm, qr/Shared nav markup now wraps horizontally by default/, 'main POD documents the horizontal shared-nav layout' );

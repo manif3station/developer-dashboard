@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.42';
+our $VERSION = '1.43';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -167,12 +167,12 @@ sub dispatch_request {
 # _helper_access_disabled_response()
 # Builds the outsider-access denial used before any helper user exists.
 # Input: none.
-# Output: response array reference with a 401 plain-text error.
+# Output: response array reference with a bare 401 plain-text error body.
 sub _helper_access_disabled_response {
     return [
         401,
         'text/plain; charset=utf-8',
-        "Helper access is disabled until a helper user is added.\n",
+        '',
     ];
 }
 

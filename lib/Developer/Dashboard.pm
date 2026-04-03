@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.42';
+our $VERSION = '1.43';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.42
+1.43
 
 =head1 INTRODUCTION
 
@@ -267,8 +267,7 @@ In practice that means the developer at the machine gets friction-free local
 admin access, while shared or forwarded access is forced through explicit
 helper accounts.
 If no helper user exists yet in the active dashboard runtime, outsider requests return
-C<401 Helper access is disabled until a helper user is added.> and do not
-render the login form at all.
+C<401> with an empty body and do not render the login form at all.
 When a saved C<index> bookmark exists, opening C</> now redirects straight to
 C</app/index> so the saved home page becomes the default browser entrypoint.
 When no saved C<index> bookmark exists yet, C</> still opens the free-form
@@ -1231,7 +1230,7 @@ and add explicit expectations:
 For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
 host:
 
-  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.42.tar.gz
+  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.43.tar.gz
 
 Before calling a release Windows-compatible, also run the same smoke through a
 prepared QEMU Windows guest:
@@ -1239,7 +1238,7 @@ prepared QEMU Windows guest:
   WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
   WINDOWS_SSH_USER=developer \
   WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-  TARBALL=/path/to/Developer-Dashboard-1.42.tar.gz \
+  TARBALL=/path/to/Developer-Dashboard-1.43.tar.gz \
   integration/windows/run-qemu-windows-smoke.sh
 
 =head2 Updating Runtime State

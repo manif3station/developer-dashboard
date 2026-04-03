@@ -3,7 +3,7 @@ package Runtime::Result;
 use strict;
 use warnings;
 
-our $VERSION = '1.42';
+our $VERSION = '1.43';
 
 use JSON::XS qw(decode_json);
 

@@ -280,7 +280,7 @@ run-strawberry-smoke.ps1 - verify the built tarball under Strawberry Perl and Po
 
 =head1 SYNOPSIS
 
-  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.42.tar.gz
+  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.43.tar.gz
 
 =head1 DESCRIPTION
 

@@ -85,7 +85,7 @@ run-qemu-windows-smoke.sh - boot a prepared Windows guest and run the Strawberry
   WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
   WINDOWS_SSH_USER=developer \
   WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-  TARBALL=/path/to/Developer-Dashboard-1.42.tar.gz \
+  TARBALL=/path/to/Developer-Dashboard-1.43.tar.gz \
   integration/windows/run-qemu-windows-smoke.sh
 
 =head1 DESCRIPTION

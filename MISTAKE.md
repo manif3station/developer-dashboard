@@ -4,6 +4,22 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: OUTSIDER-LEAKY-401
+
+**Date:** 2026-04-03 23:59:00 UTC
+**Area:** Outsider bootstrap denial
+**Symptom:** Outsider requests without any configured helper user returned a descriptive `401` body that explained helper access was disabled until a helper user was added
+**Why It Was Dangerous:** The response leaked internal setup guidance to untrusted clients and pointed attackers toward the next configuration milestone instead of failing quietly
+**Root Cause:** The first outsider-bootstrap fix focused on blocking the dead-end login form but left a human-readable message in the denial body
+**How Ellen Solved It:** Replaced the outsider bootstrap denial body with an empty response, kept the `401` status, removed the login form, and updated tests, docs, and integration checks to enforce the silent failure mode
+**How To Detect Earlier Next Time:** Read every unauthorized response body from an outsider perspective and ask whether it leaks setup detail, trust boundaries, or next-step hints
+**Prevention Rule:** Pre-auth outsider denials should return only the minimum needed status unless the user is already trusted enough to receive remediation detail
+**Verification:** `prove -lv t/08-web-update-coverage.t`, full `prove -lr t`, coverage, `dzil build`, and `integration/blank-env/run-host-integration.sh`
+**Related Files:** `lib/Developer/Dashboard/Web/App.pm`, `t/08-web-update-coverage.t`, `integration/blank-env/run-integration.pl`, `README.md`, `lib/Developer/Dashboard.pm`
+**Tags:** `auth`, `401`, `outsider`, `information-leak`, `hardening`
+
+---
+
 ## CODE: WINDOWS-VERIFY-GAP
 
 **Date:** 2026-04-03 23:45:00 UTC
@@ -43,7 +59,7 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 **Symptom:** `localhost` and other outsider requests showed the helper login form even when no helper user existed, creating a dead-end login path
 **Why It Was Dangerous:** The UI implied outsider login was available when helper access had not been configured at all, which weakened the trust model and confused first-run access semantics
 **Root Cause:** The web auth gate checked request tier and session state, but it never checked whether helper login had been enabled by creating at least one helper user
-**How Ellen Solved It:** Added a helper-user-enabled check before outsider login/session handling, returned `401 Helper access is disabled until a helper user is added.` without rendering the login form, and kept the normal login flow only after a helper user exists
+**How Ellen Solved It:** Added a helper-user-enabled check before outsider login/session handling, returned `401 with an empty body` without rendering the login form, and kept the normal login flow only after a helper user exists
 **How To Detect Earlier Next Time:** Test outsider requests before and after creating the first helper user, including `localhost` and saved routes such as `/app/index`
 **Prevention Rule:** Any outsider login flow must verify that helper access is configured before showing a login UI or accepting `/login` submissions
 **Verification:** `prove -lv t/08-web-update-coverage.t`, full `prove -lr t`, coverage, `dzil build`, and `integration/blank-env/run-host-integration.sh`

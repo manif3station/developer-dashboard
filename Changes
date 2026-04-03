@@ -1,5 +1,14 @@
 Revision history for Developer Dashboard
 
+1.43  2026-04-03
+    - tightened outsider bootstrap denial so requests from anything other than
+      exact `127.0.0.1` now return a silent `401` with an empty body before any
+      helper user exists, avoiding disclosure of helper-access setup details to
+      outsider clients
+    - kept the no-login-form outsider bootstrap guard while removing the old
+      explanatory response text from app tests, docs, and blank-environment
+      integration coverage
+
 1.42  2026-04-03
     - added checked-in Windows verification assets for Strawberry Perl and QEMU so the repository now carries a real Windows smoke script plus a full-system VM launcher instead of relying on undocumented manual testing
     - extended forced-Windows regression coverage for PATHEXT lookup and `.ps1`/`.cmd`/`.pl` dispatch so the fast test loop exercises Windows command resolution before the slower host and VM gates
@@ -16,7 +25,7 @@ Revision history for Developer Dashboard
     - updated README, POD, integration docs, mistake log, and regression coverage for the browser-verified outsider and SSL redirect behaviour
 
 1.39  2026-04-03
-    - changed outsider browser access so `localhost`, forwarded hosts, and non-loopback clients now receive `401 Helper access is disabled until a helper user is added.` without a login page when no helper account exists yet
+    - changed outsider browser access so `localhost`, forwarded hosts, and non-loopback clients now receive `401 with an empty body` without a login page when no helper account exists yet
     - kept outsider access on the helper-login path once a helper account exists, including saved-route return handling after successful login
     - updated README, POD, release docs, and regression coverage for the helper-user bootstrap access policy
 

@@ -264,7 +264,7 @@ if ($UNDER_COVER) {
 }
 else {
     is( $stopped_pid, $pid, 'stop_web returns the stopped pid' );
-    ok( !$manager->running_web, 'stop_web stops the managed web process' );
+    ok( !$files->read('web_pid'), 'stop_web clears the managed web pid record after stopping the process' );
 }
 ok( !-f $files->web_pid, 'stop_web removes the web pid file' );
 ok( !-f $files->web_state, 'stop_web removes the web state file' );

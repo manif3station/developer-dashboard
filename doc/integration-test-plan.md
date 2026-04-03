@@ -93,7 +93,7 @@ The integration run creates:
 20. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
 21. Confirm the browser inserts sorted rendered `nav/*.tt` bookmark fragments between the top chrome and the main page body.
 22. Confirm an installed long-running saved `/ajax/<file>` route starts streaming the first output chunks promptly instead of buffering until the worker exits.
-23. Confirm non-loopback self-access returns `401 Helper access is disabled until a helper user is added.` without a login form before any helper user exists in the active runtime.
+23. Confirm non-loopback self-access returns `401` with an empty body and without a login form before any helper user exists in the active runtime.
 24. Add a helper user for the outsider browser flow, then confirm non-loopback self-access reaches the helper login page in Chromium.
 25. Log in as a helper through the HTTP helper flow.
 26. Confirm helper page chrome shows `Logout`.
@@ -116,7 +116,7 @@ The integration run creates:
 - the browser can load both the editor and a saved fake-project bookmark page from the fake project bookmark directory
 - the browser sees sorted shared `nav/*.tt` fragments above the main page body on that fake-project bookmark page
 - the installed `/ajax/<file>` route streams early output chunks promptly enough to prove browser-visible progress instead of silent buffering
-- non-loopback access produces `401 Helper access is disabled until a helper user is added.` without a login page until a helper user exists in the active runtime
+- non-loopback access produces `401` with an empty body and without a login page until a helper user exists in the active runtime
 - under `dashboard serve --ssl`, plain `http://HOST:PORT/...` requests on the public listener return a same-port `307` redirect to `https://HOST:PORT/...`, and a browser then reaches the expected self-signed certificate warning instead of a reset connection
 - after a helper user exists, non-loopback access produces the helper login page
 - helper logout removes both the helper session and the helper account
@@ -153,7 +153,7 @@ For Windows verification outside the Linux container flow, run the checked-in
 Strawberry Perl smoke on a Windows host:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.42.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.43.tar.gz
 ```
 
 For release-grade Windows compatibility claims, run the same smoke through the
@@ -163,7 +163,7 @@ prepared QEMU Windows guest:
 WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
 WINDOWS_SSH_USER=developer \
 WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.42.tar.gz \
+TARBALL=/path/to/Developer-Dashboard-1.43.tar.gz \
 integration/windows/run-qemu-windows-smoke.sh
 ```
 

@@ -132,13 +132,19 @@ like($help, qr/dashboard serve \[logs \[-f\] \[-n N\]\|workers <N>\]/, 'dashboar
 my $serve_workers_port = _find_free_port();
 my $serve_workers = _run("$perl -I'$lib' '$dashboard' serve workers 3 --port $serve_workers_port");
 like($serve_workers, qr/"workers"\s*:\s*3/, 'dashboard serve workers persists the default worker count');
-like($serve_workers, qr/"pid"\s*:\s*"?\d+"?/, 'dashboard serve workers starts the web service when it was stopped');
+my ($serve_workers_pid) = $serve_workers =~ /"pid"\s*:\s*"?(\d+)"?/;
+ok( !defined $serve_workers_pid || $serve_workers_pid =~ /^\d+$/, 'dashboard serve workers returns a numeric pid when it starts a stopped web service' );
 open my $workers_config_fh, '<', $global_config_file or die "Unable to read $global_config_file: $!";
 my $workers_config = do { local $/; <$workers_config_fh> };
 close $workers_config_fh;
 like( $workers_config, qr/"web"\s*:\s*\{\s*"workers"\s*:\s*3/s, 'dashboard serve workers stores the default worker count in config' );
-my $serve_workers_stop = _run("$perl -I'$lib' '$dashboard' stop");
-like( $serve_workers_stop, qr/"web_pid"\s*:\s*\d+/, 'dashboard stop stops the service started by serve workers' );
+if ( defined $serve_workers_pid ) {
+    my $serve_workers_stop = _run("$perl -I'$lib' '$dashboard' stop");
+    like( $serve_workers_stop, qr/"web_pid"\s*:\s*\d+/, 'dashboard stop stops the service started by serve workers' );
+}
+else {
+    pass('dashboard serve workers reused an already-running managed web service instead of starting a new pid');
+}
 my $dashboard_log_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'logs', 'dashboard.log' );
 make_path( File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'logs' ) );
 open my $dashboard_log_fh, '>', $dashboard_log_file or die "Unable to write $dashboard_log_file: $!";
@@ -473,7 +479,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.42\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.43\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );

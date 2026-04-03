@@ -478,7 +478,7 @@ like( $auth->login_page( message => '<unsafe>' ), qr/&lt;unsafe&gt;/, 'login pag
 
 my ( $login_required_code, undef, $login_required_body ) = @{ $app->handle( path => '/', query => '', remote_addr => '127.0.0.1', headers => { host => 'localhost:7890' } ) };
 is( $login_required_code, 401, 'localhost requests are unauthorized when no helper user exists' );
-like( $login_required_body, qr/Helper access is disabled/, 'outsider requests explain that helper access is disabled before helper users exist' );
+is( $login_required_body, '', 'outsider requests return an empty body before helper users exist' );
 unlike( $login_required_body, qr/<form method="post" action="\/login">/, 'outsider requests without helper users do not receive a login form' );
 
 my ( $saved_login_required_code, undef, $saved_login_required_body ) = @{ $app->handle(
@@ -488,6 +488,7 @@ my ( $saved_login_required_code, undef, $saved_login_required_body ) = @{ $app->
     headers     => { host => 'localhost:7890' },
 ) };
 is( $saved_login_required_code, 401, 'outsider access to a saved page is unauthorized when no helper user exists' );
+is( $saved_login_required_body, '', 'forbidden outsider access to a saved page stays silent before helper users exist' );
 unlike( $saved_login_required_body, qr{<input[^>]*name="redirect_to"}, 'forbidden outsider requests do not expose a login redirect target before helper users exist' );
 
 my ( $disabled_login_code, undef, $disabled_login_body ) = @{ $app->handle(
@@ -498,7 +499,7 @@ my ( $disabled_login_code, undef, $disabled_login_body ) = @{ $app->handle(
     headers     => { host => 'localhost:7890' },
 ) };
 is( $disabled_login_code, 401, 'login submission is unauthorized when no helper user exists' );
-like( $disabled_login_body, qr/Helper access is disabled/, 'login submission explains that helper access is disabled before helper users exist' );
+is( $disabled_login_body, '', 'login submission stays silent before helper users exist' );
 
 my $user = $auth->add_user( username => 'helper', password => 'helper-pass-123', role => 'helper' );
 is( $user->{role}, 'helper', 'helper user can be created' );
