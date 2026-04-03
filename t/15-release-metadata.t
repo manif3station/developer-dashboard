@@ -55,7 +55,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.36', 'module version bumped for the prompt-shape and tmux-ticket integration patch release' );
+is( $version, '1.37', 'module version bumped for the multi-shell bootstrap patch release' );
 like( $readme, qr/dashboard serve --ssl/, 'README documents the HTTPS serve flag' );
 like( $pm, qr/C<dashboard serve --ssl>/, 'main POD documents the HTTPS serve flag' );
 like( $release_doc, qr/dashboard serve --ssl/, 'release doc documents the HTTPS serve flag' );
@@ -90,6 +90,12 @@ like( $readme, qr/legacy `~\/bin\/ps1` shape more closely/s, 'README documents t
 like( $pm, qr/legacy F<~\/bin\/ps1> shape more closely/s, 'main POD documents the legacy-style prompt layout' );
 like( $readme, qr/reads\s+it from tmux when the shell environment does not already export it/s, 'README documents tmux-backed ticket lookup for ps1' );
 like( $pm, qr/reads it from tmux when the shell environment does not already export it/s, 'main POD documents tmux-backed ticket lookup for ps1' );
+like( $readme, qr/dashboard shell zsh/, 'README documents zsh shell bootstrap support' );
+like( $pm, qr/dashboard shell zsh/, 'main POD documents zsh shell bootstrap support' );
+like( $readme, qr/dashboard shell sh/, 'README documents sh shell bootstrap support' );
+like( $pm, qr/dashboard shell sh/, 'main POD documents sh shell bootstrap support' );
+like( $release_doc, qr/bin\/dashboard shell zsh/, 'release doc documents zsh shell bootstrap verification' );
+like( $release_doc, qr/bin\/dashboard shell sh/, 'release doc documents sh shell bootstrap verification' );
 like( $readme, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'README documents the bookmark browser smoke script' );
 like( $pm, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'main POD documents the bookmark browser smoke script' );
 like( $readme, qr/Ajax` helper calls inside saved bookmark `CODE\*` blocks should use an\s+explicit `file => 'name\.json'` argument/s, 'README documents the saved bookmark Ajax file requirement' );

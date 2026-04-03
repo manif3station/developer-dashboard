@@ -432,10 +432,12 @@ Custom path aliases are stored in the effective dashboard config root so shell h
 
 Legacy `Folder` compatibility also accepts the modern root-style names through `AUTOLOAD`, so older code can use either `Folder->dd` or `Folder->runtime_root`, and likewise `bookmarks_root` and `config_root`. Before `Folder->configure(...)` runs, those runtime-backed names lazily bootstrap a default dashboard path registry from `HOME` instead of dying. Plain `Folder` calls also lazy-load the same config-backed path aliases shown by `dashboard paths`, so a direct `perl -MFolder -e 'print Folder->docker'` from the active project resolves the configured alias instead of failing with `Unknown folder`.
 
-Render shell bootstrap:
+Render shell bootstrap for bash, zsh, or POSIX sh:
 
 ```bash
 dashboard shell bash
+dashboard shell zsh
+dashboard shell sh
 ```
 
 Resolve or open files from the CLI:
@@ -659,11 +661,19 @@ bracketed working directory, an optional jobs suffix, and a trailing
 seeded `TICKET_REF` into the current tmux session, `dashboard ps1` also reads
 it from tmux when the shell environment does not already export it.
 
-Generate bash bootstrap:
+Generate shell bootstrap:
 
 ```bash
 dashboard shell bash
+dashboard shell zsh
+dashboard shell sh
 ```
+
+The generated shell helper keeps the same bookmark-aware `cdr`, `dd_cdr`, and
+`which_dir` functions across all supported shells. Bash still uses `\j` for
+job counts, zsh refreshes `PS1` through a `precmd` hook with `${#jobstates}`,
+and POSIX `sh` falls back to a prompt command that does not depend on
+bash-only prompt escapes.
 
 ### Browser Access Model
 

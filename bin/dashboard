@@ -782,36 +782,9 @@ elsif ( $cmd eq 'restart' ) {
     exit 0;
 }
 elsif ( $cmd eq 'shell' ) {
-    my $shell = shift @ARGV || 'bash';
-    if ( $shell eq 'bash' ) {
-        my $dashboard_cmd = _shell_dashboard_command();
-        my $bootstrap = <<'BASH';
-cdr() {
-  local target
-  target="$(__DASHBOARD_CMD__ path resolve "$1" 2>/dev/null || true)"
-  if [ -z "$target" ]; then
-    target="$(__DASHBOARD_CMD__ path locate "$@" | perl -MJSON::XS -0777 -ne 'my $a=JSON::XS->new->decode($_); print $a->[0] // q{}')"
-  fi
-  if [ -n "$target" ]; then
-    cd "$target"
-  fi
-}
-
-dd_cdr() {
-  cdr "$@"
-}
-
-which_dir() {
-  __DASHBOARD_CMD__ path resolve "$1" 2>/dev/null || __DASHBOARD_CMD__ path locate "$@"
-}
-
-export PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact)'
-BASH
-        $bootstrap =~ s/__DASHBOARD_CMD__/$dashboard_cmd/g;
-        print $bootstrap;
-        exit 0;
-    }
-    die "Unsupported shell '$shell'\n";
+    my $shell = _normalize_shell_name( shift @ARGV || 'bash' );
+    print _shell_bootstrap($shell);
+    exit 0;
 }
 else {
     my $user_cli = _custom_command_path($cmd);
@@ -1235,6 +1208,96 @@ sub _shell_dashboard_command {
     return _shell_quote($script);
 }
 
+# _normalize_shell_name($shell)
+# Normalizes the requested shell selector into the supported bootstrap shell
+# names.
+# Input: optional shell executable name or path.
+# Output: normalized shell name string or dies for unsupported shells.
+sub _normalize_shell_name {
+    my ($shell) = @_;
+    $shell = 'bash' if !defined $shell || $shell eq '';
+    $shell =~ s{.*/}{};
+    return $shell if $shell eq 'bash' || $shell eq 'zsh' || $shell eq 'sh';
+    die "Unsupported shell '$shell'\n";
+}
+
+# _shell_bootstrap($shell)
+# Builds the requested shell bootstrap script with shared navigation helpers and
+# shell-specific prompt wiring.
+# Input: normalized shell name.
+# Output: shell bootstrap script string.
+sub _shell_bootstrap {
+    my ($shell) = @_;
+    my $dashboard_cmd = _shell_dashboard_command();
+    my $bootstrap = _shell_navigation_bootstrap() . "\n" . _shell_prompt_bootstrap($shell);
+    $bootstrap =~ s/__DASHBOARD_CMD__/$dashboard_cmd/g;
+    return $bootstrap;
+}
+
+# _shell_navigation_bootstrap()
+# Builds the portable shell helpers used by all supported interactive shells for
+# bookmark-aware navigation.
+# Input: none.
+# Output: shell function definitions as a script string.
+sub _shell_navigation_bootstrap {
+    return <<'SH';
+cdr() {
+  target="$(__DASHBOARD_CMD__ path resolve "$1" 2>/dev/null || true)"
+  if [ -z "$target" ]; then
+    target="$(__DASHBOARD_CMD__ path locate "$@" | perl -MJSON::XS -0777 -ne 'my $a=JSON::XS->new->decode($_); print $a->[0] // q{}')"
+  fi
+  if [ -n "$target" ]; then
+    cd "$target"
+  fi
+}
+
+dd_cdr() {
+  cdr "$@"
+}
+
+which_dir() {
+  __DASHBOARD_CMD__ path resolve "$1" 2>/dev/null || __DASHBOARD_CMD__ path locate "$@"
+}
+SH
+}
+
+# _shell_prompt_bootstrap($shell)
+# Builds the prompt hook snippet for a supported shell so dashboard ps1 can be
+# reused outside bash as well.
+# Input: normalized shell name.
+# Output: shell snippet string.
+sub _shell_prompt_bootstrap {
+    my ($shell) = @_;
+    if ( $shell eq 'bash' ) {
+        return <<'BASH';
+
+export PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact)'
+BASH
+    }
+    if ( $shell eq 'zsh' ) {
+        return <<'ZSH';
+
+autoload -Uz add-zsh-hook
+_dd_update_prompt() {
+  PS1="$(__DASHBOARD_CMD__ ps1 --jobs ${#jobstates} --mode compact)"
+}
+add-zsh-hook precmd _dd_update_prompt
+_dd_update_prompt
+ZSH
+    }
+    if ( $shell eq 'sh' ) {
+        return <<'SH';
+
+_dd_prompt_command() {
+  __DASHBOARD_CMD__ ps1 --mode compact
+}
+PS1='$(_dd_prompt_command)'
+export PS1
+SH
+    }
+    die "Unsupported shell '$shell'\n";
+}
+
 # _shell_quote($value)
 # Quotes a single shell token for safe interpolation into generated shell helpers.
 # Input: scalar string.
@@ -1312,7 +1375,7 @@ dashboard - command-line entrypoint for Developer Dashboard
   dashboard serve [logs [-f] [-n N]|workers <N>] [--host HOST] [--port PORT] [--workers N] [--foreground]
   dashboard stop
   dashboard restart [--host HOST] [--port PORT] [--workers N]
-  dashboard shell [bash]
+  dashboard shell [bash|zsh|sh]
   dashboard <custom-subcommand> [args...]
 
 =head1 DESCRIPTION

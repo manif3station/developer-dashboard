@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.36';
+our $VERSION = '1.37';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.36
+1.37
 
 =head1 INTRODUCTION
 
@@ -782,9 +782,11 @@ config-backed path aliases shown by C<dashboard paths>, so a direct
 C<perl -MFolder -e 'print Folder-E<gt>docker'> from the active project
 resolves the configured alias instead of failing with C<Unknown folder>.
 
-Render shell bootstrap:
+Render shell bootstrap for bash, zsh, or POSIX sh:
 
   dashboard shell bash
+  dashboard shell zsh
+  dashboard shell sh
 
 Resolve or open files from the CLI:
 
@@ -1009,9 +1011,17 @@ C<🌿branch> marker when git metadata is available. If the ticket workflow
 seeded C<TICKET_REF> into the current tmux session, C<dashboard ps1> also
 reads it from tmux when the shell environment does not already export it.
 
-Generate bash bootstrap:
+Generate shell bootstrap:
 
   dashboard shell bash
+  dashboard shell zsh
+  dashboard shell sh
+
+The generated shell helper keeps the same bookmark-aware C<cdr>, C<dd_cdr>,
+and C<which_dir> functions across all supported shells. Bash still uses C<\j>
+for job counts, zsh refreshes C<PS1> through a C<precmd> hook with
+C<${#jobstates}>, and POSIX C<sh> falls back to a prompt command that does not
+depend on bash-only prompt escapes.
 
 =head2 Browser Access Model
 

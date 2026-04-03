@@ -1,5 +1,11 @@
 Revision history for Developer Dashboard
 
+1.37  2026-04-03
+    - added `dashboard shell zsh` support with a `precmd`-driven prompt refresh so macOS zsh sessions can reuse the dashboard prompt and ticket-aware status line without relying on bash-specific prompt behavior
+    - added `dashboard shell sh` support with the same bookmark-aware navigation helpers and a POSIX-friendly prompt command that does not depend on bash `\j` expansion
+    - kept `dashboard shell bash` on the existing dynamic jobs-aware prompt path while sharing the same `cdr`, `dd_cdr`, and `which_dir` helpers across all supported shells
+    - updated README, POD, release docs, and release metadata for the multi-shell bootstrap change
+
 1.36  2026-04-03
     - changed `dashboard ps1` to follow the legacy `~/bin/ps1` layout more closely, using a `(YYYY-MM-DD HH:MM:SS)` prefix, a bracketed current path, and a trailing `🌿branch` marker instead of the old `{project:branch}` suffix
     - taught `dashboard ps1` to load `TICKET_REF` from the current tmux session environment when the ticket workflow seeded it there but the current shell process did not export it yet

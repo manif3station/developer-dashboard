@@ -73,6 +73,8 @@ Render shell bootstrap:
 
 ```bash
 perl -Ilib bin/dashboard shell bash
+perl -Ilib bin/dashboard shell zsh
+perl -Ilib bin/dashboard shell sh
 ```
 
 Refresh generic built-in indicators:
@@ -94,8 +96,9 @@ block is enough for the common case. Collector indicators are also seeded
 before the first run, so prompt and page status views show configured checks
 immediately as missing until a collector reports a real exit code. Prompt
 rendering prefixes the collector icon with `✅` for healthy checks and `🚨`
-for failing or missing checks. Release validation should cover whichever
-execution mode a new feature touches.
+for failing or missing checks. `dashboard shell` now emits shell-specific
+bootstrap for bash, zsh, and POSIX `sh`, so release validation should cover
+whichever interactive shell bootstrap a new feature touches.
 
 Render prompt in extended colored mode:
 
@@ -181,8 +184,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.36.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.36.tar.gz -v
+tar -tzf Developer-Dashboard-1.37.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.37.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:
@@ -199,7 +202,7 @@ Generated release metadata should also include repository resources plus an
 explicit C<provides> section, and the repository root should ship
 F<SECURITY.md> and F<CONTRIBUTING.md>.
 
-Runtime JSON handling is implemented with `JSON::XS`, including the shell bootstrap helper used by `dashboard shell bash`.
+Runtime JSON handling is implemented with `JSON::XS`, including the shell bootstrap helper used by `dashboard shell`.
 The Dist::Zilla runtime prerequisite list pins `JSON::XS` explicitly so PAUSE
 and other clean-install test environments always see that dependency in the
 built tarball metadata.

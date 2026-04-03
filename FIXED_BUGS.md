@@ -2,6 +2,8 @@
 
 ## 2026-04-03
 
+- Fixed bash-only shell bootstrap output by adding `dashboard shell zsh`, so macOS zsh sessions now get the same bookmark-aware navigation helpers and a `precmd`-refreshed dashboard prompt with zsh job counting.
+- Fixed POSIX shell bootstrap gaps by adding `dashboard shell sh`, so non-bash Linux `/bin/sh` sessions now get `cdr`, `dd_cdr`, `which_dir`, and a prompt command that does not depend on bash-only `\j` escapes.
 - Fixed prompt-format drift by changing `dashboard ps1` to follow the legacy `~/bin/ps1` layout, using a parenthesized timestamp prefix, bracketed working directory, and trailing `🌿branch` marker instead of the older brace-wrapped project context.
 - Fixed prompt ticket-context loss by teaching `dashboard ps1` to read `TICKET_REF` from the active tmux session environment when the ticket workflow seeded it there but the current shell process did not export it directly.
 - Fixed documentation-scope drift by removing release and deployment workflow detail from the main README and `Developer::Dashboard` POD, keeping those user-facing docs focused on runtime behavior while leaving operational release procedure in `doc/update-and-release.md`.
@@ -260,7 +262,7 @@
 - Fixed `Developer::Dashboard::Web::App` constructor state loss so `pages` and `sessions` are retained alongside `auth` and request routing does not collapse at runtime.
 - Fixed the web server request bridge so the app receives method, host, cookie, request body, and peer address, enabling the local-admin versus helper security split.
 - Fixed response handling so redirect-style headers such as `Location` and `Set-Cookie` are preserved when the app returns them.
-- Fixed JSON implementation drift by replacing remaining `JSON::PP` usage with `JSON::XS`, including the shell bootstrap path used by `dashboard shell bash`.
+- Fixed JSON implementation drift by replacing remaining `JSON::PP` usage with `JSON::XS`, including the shell bootstrap path used by `dashboard shell`.
 - Fixed top-level documentation drift by bringing `README.md` and the `Developer::Dashboard` POD back into sync for the current command set and auth model.
 - Fixed command-capture drift by replacing remaining backtick and `qx{}` paths with `Capture::Tiny` in the runtime, update scripts, and smoke tests.
 - Fixed Capture::Tiny usage drift by removing the last `capture_merged` calls and standardizing on `capture` as required by the repo rules.
