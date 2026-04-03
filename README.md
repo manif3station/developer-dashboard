@@ -11,14 +11,8 @@ Without it, local development usually ends up spread across shell history, ad-ho
 It brings together browser pages, saved notes, helper actions, collectors, prompt indicators, path aliases, open-file shortcuts, data query tools, and Docker Compose helpers so local development can stay centered around one consistent home instead of a pile of disconnected scripts and tabs.
 
 When the current project contains `./.developer-dashboard`, that tree becomes the first runtime lookup root for dashboard-managed files. The home runtime under `~/.developer-dashboard` stays as the fallback base, so project-local bookmarks, config, CLI hooks, helper users, sessions, and isolated docker service folders can override home defaults without losing shared fallback data that is not redefined locally.
-The shipped test suite also isolates runtime-root override environment variables and normalizes temporary paths so tarball installs stay stable across Linux and macOS hosts.
 
-Release tarballs contain installable runtime artifacts only; local Dist::Zilla release-builder configuration is kept out of the shipped archive.
 Frequently used built-in commands such as `of`, `open-file`, `pjq`, `pyq`, `ptomq`, and `pjp` are also installed as standalone executables so they can run directly without loading the full `dashboard` runtime.
-Before publishing a release, the built tarball should be smoke-tested with `cpanm` from the artifact itself so the shipped archive matches the fixed source tree.
-Repository metadata should also keep explicit repository links, shipped module
-`provides`, and root `SECURITY.md` / `CONTRIBUTING.md` policy files aligned for
-CPAN and Kwalitee consumers.
 
 It provides a small ecosystem for:
 
@@ -34,7 +28,7 @@ It provides a small ecosystem for:
 - a lightweight local web interface
 - action execution with trusted and safer page boundaries
 - config-backed providers, path aliases, and compose overlays
-- update scripts and release packaging for CPAN distribution
+- update scripts and installable runtime packaging
 
 Developer Dashboard is meant to become the developer's working home:
 
@@ -737,44 +731,6 @@ exists, `dashboard update` runs that command after any sorted hook files from
 
 ### Blank Environment Integration
 
-Run the host-built tarball integration flow with:
-
-```bash
-integration/blank-env/run-host-integration.sh
-```
-
-This integration path builds the distribution tarball on the host with
-`dzil build`, runs the prebuilt `dd-int-test:latest` container with only that
-tarball mounted into it, installs the tarball with `cpanm`, and then
-exercises the installed `dashboard` command inside the clean Perl container.
-The runtime-manager lifecycle checks also fall back to `/proc` socket ownership
-scans when that minimal image does not provide `ss`, and they re-probe the
-managed port for late listener pids before restart, so `dashboard stop` and
-`dashboard restart` keep working inside the same blank-container environment
-used for release verification.
-Those checks also cover the Starman master-worker split, where the recorded
-managed pid can be the master while the bound listener pid is a separate
-worker process on the same managed port.
-
-Before uploading a release artifact, remove older build directories and tarballs first so only the current release artifact remains, then validate the exact tarball that will ship:
-
-```bash
-rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
-dzil build
-tar -tzf Developer-Dashboard-1.34.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.34.tar.gz -v
-```
-
-The harness also:
-
-- creates a fake project with its own `./.developer-dashboard` runtime tree
-- verifies the installed CLI works against that fake project through the mounted tarball install
-- seeds a user-provided fake-project `./.developer-dashboard/cli/update` command plus `update.d` hooks inside the container so `dashboard update` exercises the same top-level command-hook path as every other subcommand, including later-hook reads through `Runtime::Result`
-- verifies collector failure isolation with one intentionally broken Perl config collector and one healthy config collector, and confirms the healthy indicator still stays green after `dashboard restart`
-- starts the installed web service
-- uses headless Chromium to verify the root editor, a saved fake-project bookmark page from the fake project bookmark directory, and the helper login page
-- verifies helper logout cleanup and runtime restart and stop behavior
-
 ## FAQ
 
 ### Is this tied to a specific company or codebase?
@@ -806,18 +762,6 @@ This is intentional. The trust rule is exact and conservative: only numeric loop
 
 Because prompt rendering, dashboards, and wrappers should consume prepared state quickly instead of re-running expensive checks inline.
 
-### How are CPAN releases built?
-
-The repository is set up to build release artifacts with Dist::Zilla and upload them to PAUSE from GitHub Actions.
-
-The Dist::Zilla runtime prerequisite list now pins `JSON::XS` explicitly so
-the built tarball always declares the JSON backend dependency for PAUSE test
-installs.
-
-The GitHub Actions workflows pin `actions/checkout@v5` and set
-`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true` so hosted runners stay ahead of the
-Node 20 JavaScript-action deprecation window.
-
 ### What JSON implementation does the project use?
 
 The project uses `JSON::XS` for JSON encoding and decoding, including shell helper decoding paths.
@@ -825,29 +769,6 @@ The project uses `JSON::XS` for JSON encoding and decoding, including shell help
 ### What does the project use for command capture and HTTP clients?
 
 The project uses `Capture::Tiny` for command-output capture via `capture`, with exit codes returned from the capture block rather than read separately. There is currently no outbound HTTP client in the core runtime, so `LWP::UserAgent` is not yet required by an active code path.
-
-## GitHub Release To PAUSE
-
-The repository includes a GitHub Actions workflow at:
-
-- `.github/workflows/release-cpan.yml`
-
-It expects these GitHub Actions secrets:
-
-- `PAUSE_USER`
-- `PAUSE_PASS`
-
-The workflow:
-
-1. checks out the repo
-2. installs Perl, release dependencies, the explicit `App::Cmd` prerequisite chain, Dist::Zilla, and `Dist::Zilla::Plugin::MetaProvides::Package`
-3. builds the CPAN distribution tarball with `dzil build`
-4. uploads the tarball to PAUSE
-
-It can be triggered by:
-
-- pushing a tag like `v0.01`
-- manual `workflow_dispatch`
 
 ## Testing And Coverage
 

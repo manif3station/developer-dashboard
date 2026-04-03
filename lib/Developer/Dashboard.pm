@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.34';
+our $VERSION = '1.35';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.34
+1.35
 
 =head1 INTRODUCTION
 
@@ -42,20 +42,10 @@ under F<~/.developer-dashboard> stays as the fallback base, so project-local
 bookmarks, config, CLI hooks, helper users, sessions, and isolated docker
 service folders can override home defaults without losing shared fallback data
 that is not redefined locally.
-The shipped test suite also isolates runtime-root override environment
-variables and normalizes temporary paths so tarball installs stay stable across
-Linux and macOS hosts.
 
-Release tarballs contain installable runtime artifacts only; local Dist::Zilla release-builder configuration is kept out of the shipped archive.
 Frequently used built-in commands such as C<of>, C<open-file>, C<pjq>, C<pyq>,
 C<ptomq>, and C<pjp> are also installed as standalone executables so they can
 run directly without loading the full C<dashboard> runtime.
-Before publishing a release, the built tarball should be smoke-tested with
-C<cpanm> from the artifact itself so the shipped archive matches the fixed
-source tree.
-Repository metadata should also keep explicit repository links, shipped module
-C<provides>, and root F<SECURITY.md> / F<CONTRIBUTING.md> policy files aligned
-for CPAN and Kwalitee consumers.
 
 It provides a small ecosystem for:
 
@@ -116,7 +106,7 @@ config-backed providers, path aliases, and compose overlays
 
 =item *
 
-update scripts and release packaging for CPAN distribution
+update scripts and installable runtime packaging
 
 =back
 
@@ -1201,44 +1191,6 @@ runs that command after any sorted hook files from F<update/> or F<update.d>.
 C<dashboard init> seeds three editable starter bookmarks when they are
 missing: C<welcome>, C<api-dashboard>, and C<db-dashboard>.
 
-=head2 Blank Environment Integration
-
-Run the host-built tarball integration flow with:
-
-  integration/blank-env/run-host-integration.sh
-
-This integration path builds the distribution tarball on the host with
-C<dzil build>, runs the prebuilt C<dd-int-test:latest> container with only
-that tarball mounted into it, installs the tarball with C<cpanm>, and then
-exercises the installed C<dashboard> command inside the clean Perl container.
-The runtime-manager lifecycle checks also fall back to F</proc> socket
-ownership scans when that minimal image does not provide C<ss>, and they
-re-probe the managed port for late listener pids before restart, so
-C<dashboard stop> and C<dashboard restart> keep working inside the same
-blank-container environment used for release verification.
-Those checks also cover the Starman master-worker split, where the recorded
-managed pid can be the master while the bound listener pid is a separate
-worker process on the same managed port.
-
-Before uploading a release artifact, remove older build directories and
-tarballs first so only the current release artifact remains, then validate the
-exact tarball that will ship:
-
-  rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
-  dzil build
-  tar -tzf Developer-Dashboard-1.34.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.34.tar.gz -v
-
-The harness also:
-
-- creates a fake project with its own F<./.developer-dashboard> runtime tree
-- verifies the installed CLI works against that fake project through the mounted tarball install
-- seeds a user-provided fake-project F<./.developer-dashboard/cli/update> command plus F<update.d> hooks inside the container so C<dashboard update> exercises the same top-level command-hook path as every other subcommand, including later-hook reads through C<Runtime::Result>
-- verifies collector failure isolation with one intentionally broken Perl config collector and one healthy config collector, and confirms the healthy indicator still stays green after C<dashboard restart>
-- starts the installed web service
-- uses headless Chromium to verify the root editor, a saved fake-project bookmark page from the fake project bookmark directory, and the helper login page
-- verifies helper logout cleanup and runtime restart and stop behavior
-
 =head1 FAQ
 
 =head2 Is this tied to a specific company or codebase?
@@ -1269,18 +1221,6 @@ This is intentional. The trust rule is exact and conservative: only numeric loop
 =head2 Why is the runtime file-backed?
 
 Because prompt rendering, dashboards, and wrappers should consume prepared state quickly instead of re-running expensive checks inline.
-
-=head2 How are CPAN releases built?
-
-The repository is set up to build release artifacts with Dist::Zilla, including explicit C<provides> metadata generation, and upload them to PAUSE from GitHub Actions.
-
-Runtime release metadata pins C<JSON::XS> explicitly in Dist::Zilla so built
-tarballs declare the JSON backend dependency even if automatic prerequisite
-scanning misses it during PAUSE installs.
-
-The GitHub Actions workflows pin C<actions/checkout@v5> and set
-C<FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true> so hosted runners stay ahead of the
-Node 20 JavaScript-action deprecation window.
 
 =head2 What JSON implementation does the project use?
 

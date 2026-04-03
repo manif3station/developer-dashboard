@@ -55,12 +55,10 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.34', 'module version bumped for the macOS packaged-test portability patch release' );
+is( $version, '1.35', 'module version bumped for the macOS packaged-test portability patch release' );
 like( $readme, qr/dashboard serve --ssl/, 'README documents the HTTPS serve flag' );
 like( $pm, qr/C<dashboard serve --ssl>/, 'main POD documents the HTTPS serve flag' );
 like( $release_doc, qr/dashboard serve --ssl/, 'release doc documents the HTTPS serve flag' );
-like( $readme, qr/tarball installs stay stable across Linux and macOS hosts/, 'README documents cross-platform tarball test portability' );
-like( $pm, qr/tarball installs stay stable across\s+Linux and macOS hosts/, 'main POD documents cross-platform tarball test portability' );
 like( $release_doc, qr/tarball install verification stays stable on both Linux and\s+macOS hosts/, 'release doc documents cross-platform tarball test portability' );
 like( $readme, qr/https:\/\/127\.0\.0\.1:7890\//, 'README documents the local HTTPS URL' );
 like( $pm, qr/https:\/\/127\.0\.0\.1:7890\//, 'main POD documents the local HTTPS URL' );
@@ -128,8 +126,6 @@ for my $script (qw(bin/dashboard bin/of bin/open-file bin/pjq bin/pyq bin/ptomq 
     like( $makefile, qr/["']\Q$script\E["']/, "Makefile.PL ships $script" );
 }
 
-like( $readme, qr/cpanm \/tmp\/Developer-Dashboard-\Q$version\E\.tar\.gz -v/, 'README documents tarball install verification' );
-like( $readme, qr/rm -rf Developer-Dashboard-\* Developer-Dashboard-\*\.tar\.gz/, 'README documents old build directory and tarball cleanup before building a release' );
 like( $readme, qr/http:\/\/127\.0\.0\.1:7890\//, 'README documents the default local browser URL' );
 like( $readme, qr/DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS/, 'README documents the transient web token opt-in environment variable' );
 like( $readme, qr/exact numeric loopback admin access on `127\.0\.0\.1` does not require a password/, 'README documents passwordless exact-loopback admin access' );

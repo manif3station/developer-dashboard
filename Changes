@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.35  2026-04-03
+    - removed release and deployment workflow detail from the main README and module POD so the user-facing documentation stays focused on product behavior instead of internal release procedure
+    - kept the operational release and tarball verification steps in `doc/update-and-release.md`, where the repository workflow detail belongs
+    - updated release metadata for the documentation-scope cleanup patch
+
 1.34  2026-04-03
     - fixed tarball-test environment leakage by clearing `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_CHECKERS` inside the affected test files, so local machine overrides no longer contaminate packaged test runs
     - fixed macOS temp-path portability gaps by normalizing canonical paths in the affected assertions, so `/var/...` and `/private/var/...` temporary roots compare correctly during test and install verification

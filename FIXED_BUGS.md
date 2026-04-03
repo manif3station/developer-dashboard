@@ -2,6 +2,7 @@
 
 ## 2026-04-03
 
+- Fixed documentation-scope drift by removing release and deployment workflow detail from the main README and `Developer::Dashboard` POD, keeping those user-facing docs focused on runtime behavior while leaving operational release procedure in `doc/update-and-release.md`.
 - Fixed packaged-test runtime leakage by clearing `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_CHECKERS` inside the affected tests, so a developer's local override environment no longer breaks tarball installs and `cpanm` test runs.
 - Fixed macOS temp-path comparison drift by normalizing canonical paths inside the affected tests, so `/var/...` and `/private/var/...` temporary directories compare as the same location.
 - Fixed clean-runtime CLI smoke setup by creating the generated `~/.developer-dashboard/config` directory before writing `config.json`, preventing early install-time test failure on blank environments.
