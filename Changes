@@ -1,6 +1,6 @@
 Revision history for Developer Dashboard
 
-1.32  2026-04-03
+1.33  2026-04-03
     - changed the root route so `/` now redirects to `/app/index` whenever a saved `index` bookmark exists, making the saved home page the default browser entrypoint
     - kept the existing blank-editor fallback on `/` when no saved `index` bookmark exists yet
     - changed unknown saved routes such as `/app/foobar` to open the bookmark editor with a prefilled blank bookmark template instead of returning a 404 page
