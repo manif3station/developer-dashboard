@@ -1,5 +1,12 @@
 Revision history for Developer Dashboard
 
+1.34  2026-04-03
+    - fixed tarball-test environment leakage by clearing `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_CHECKERS` inside the affected test files, so local machine overrides no longer contaminate packaged test runs
+    - fixed macOS temp-path portability gaps by normalizing canonical paths in the affected assertions, so `/var/...` and `/private/var/...` temporary roots compare correctly during test and install verification
+    - fixed Linux-only test assumptions by skipping `/proc`-specific assertions on hosts where `/proc` is unavailable
+    - fixed CLI smoke setup drift by creating the runtime config directory before seeding `config.json`, preventing install-time test failure on clean environments
+    - updated README, POD, release docs, and release metadata for the macOS and packaged-test portability fixes
+
 1.33  2026-04-03
     - changed the root route so `/` now redirects to `/app/index` whenever a saved `index` bookmark exists, making the saved home page the default browser entrypoint
     - kept the existing blank-editor fallback on `/` when no saved `index` bookmark exists yet

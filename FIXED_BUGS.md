@@ -2,6 +2,10 @@
 
 ## 2026-04-03
 
+- Fixed packaged-test runtime leakage by clearing `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_CHECKERS` inside the affected tests, so a developer's local override environment no longer breaks tarball installs and `cpanm` test runs.
+- Fixed macOS temp-path comparison drift by normalizing canonical paths inside the affected tests, so `/var/...` and `/private/var/...` temporary directories compare as the same location.
+- Fixed clean-runtime CLI smoke setup by creating the generated `~/.developer-dashboard/config` directory before writing `config.json`, preventing early install-time test failure on blank environments.
+- Fixed Linux-only runtime-manager test assumptions by skipping `/proc`-dependent assertions on hosts where `/proc` process inspection is unavailable.
 - Fixed root-entry drift so opening `/` now uses the saved `index` bookmark as the default home page by redirecting to `/app/index` when that bookmark exists, instead of always dropping into the blank editor first.
 - Fixed unknown-route editor drift so opening a missing saved route such as `/app/foobar` now opens the bookmark editor with a prefilled blank bookmark for that requested path instead of returning a 404 error page.
 - Fixed saved-bookmark path normalization gaps by stripping a leading `/app/` prefix during dashboards-tree persistence and lookup, so bookmark ids written as `/app/<id>` still save and load from the normal relative bookmark path.

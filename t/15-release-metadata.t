@@ -55,10 +55,13 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.33', 'module version bumped for the root-route editor patch release' );
+is( $version, '1.34', 'module version bumped for the macOS packaged-test portability patch release' );
 like( $readme, qr/dashboard serve --ssl/, 'README documents the HTTPS serve flag' );
 like( $pm, qr/C<dashboard serve --ssl>/, 'main POD documents the HTTPS serve flag' );
 like( $release_doc, qr/dashboard serve --ssl/, 'release doc documents the HTTPS serve flag' );
+like( $readme, qr/tarball installs stay stable across Linux and macOS hosts/, 'README documents cross-platform tarball test portability' );
+like( $pm, qr/tarball installs stay stable across\s+Linux and macOS hosts/, 'main POD documents cross-platform tarball test portability' );
+like( $release_doc, qr/tarball install verification stays stable on both Linux and\s+macOS hosts/, 'release doc documents cross-platform tarball test portability' );
 like( $readme, qr/https:\/\/127\.0\.0\.1:7890\//, 'README documents the local HTTPS URL' );
 like( $pm, qr/https:\/\/127\.0\.0\.1:7890\//, 'main POD documents the local HTTPS URL' );
 like( $readme, qr/opening `\/` now redirects straight to\s+`\/app\/index`/s, 'README documents root redirect to the saved index bookmark' );

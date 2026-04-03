@@ -11,6 +11,7 @@ BEGIN {
 }
 
 use File::Temp qw(tempdir);
+use File::Spec;
 use POSIX qw(:sys_wait_h);
 use Test::More;
 use Time::HiRes qw(sleep);
@@ -79,6 +80,9 @@ sub dies_like {
 
 my $home = tempdir(CLEANUP => 1);
 local $ENV{HOME} = $home;
+local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
+local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
+local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
 my $paths  = Developer::Dashboard::PathRegistry->new( home => $home );
 my $files  = Developer::Dashboard::FileRegistry->new( paths => $paths );
 my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
@@ -195,6 +199,9 @@ is( $dedup_pid, $pid, 'background start deduplicates an already running web proc
     }
     if ($UNDER_COVER) {
         pass('process environment marker reads are timing-tolerant under coverage');
+    }
+    elsif ( !-d File::Spec->catdir( '/proc', $marker_child ) ) {
+        pass('process environment marker reads are skipped when process environment inspection is unavailable');
     }
     else {
         is( $marker, 'yes', 'process environment markers are readable' );
@@ -967,7 +974,12 @@ TCP6
         [ '/proc/net/tcp', '/proc/net/tcp6' ],
         '_listener_socket_table_paths returns the expected proc tcp sources',
     );
-    ok( scalar $manager->_process_fd_paths, '_process_fd_paths returns proc fd entries on Linux hosts' );
+    if ( -d '/proc' ) {
+        ok( scalar $manager->_process_fd_paths, '_process_fd_paths returns proc fd entries on Linux hosts' );
+    }
+    else {
+        pass('_process_fd_paths is skipped on hosts without /proc');
+    }
 }
 
 {

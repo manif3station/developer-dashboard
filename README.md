@@ -11,6 +11,7 @@ Without it, local development usually ends up spread across shell history, ad-ho
 It brings together browser pages, saved notes, helper actions, collectors, prompt indicators, path aliases, open-file shortcuts, data query tools, and Docker Compose helpers so local development can stay centered around one consistent home instead of a pile of disconnected scripts and tabs.
 
 When the current project contains `./.developer-dashboard`, that tree becomes the first runtime lookup root for dashboard-managed files. The home runtime under `~/.developer-dashboard` stays as the fallback base, so project-local bookmarks, config, CLI hooks, helper users, sessions, and isolated docker service folders can override home defaults without losing shared fallback data that is not redefined locally.
+The shipped test suite also isolates runtime-root override environment variables and normalizes temporary paths so tarball installs stay stable across Linux and macOS hosts.
 
 Release tarballs contain installable runtime artifacts only; local Dist::Zilla release-builder configuration is kept out of the shipped archive.
 Frequently used built-in commands such as `of`, `open-file`, `pjq`, `pyq`, `ptomq`, and `pjp` are also installed as standalone executables so they can run directly without loading the full `dashboard` runtime.
@@ -760,8 +761,8 @@ Before uploading a release artifact, remove older build directories and tarballs
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.33.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.33.tar.gz -v
+tar -tzf Developer-Dashboard-1.34.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.34.tar.gz -v
 ```
 
 The harness also:

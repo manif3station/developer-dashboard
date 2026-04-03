@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 
-use Cwd qw(cwd getcwd);
+use Cwd qw(abs_path cwd getcwd);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -28,8 +28,32 @@ sub dies_like {
     like( $error, $pattern, $label );
 }
 
+sub _portable_path {
+    my ($path) = @_;
+    return undef if !defined $path;
+    my $resolved = eval { abs_path($path) };
+    return defined $resolved && $resolved ne '' ? $resolved : $path;
+}
+
+sub is_same_path {
+    my ( $got, $expected, $label ) = @_;
+    is( _portable_path($got), _portable_path($expected), $label );
+}
+
+sub is_same_paths {
+    my ( $got, $expected, $label ) = @_;
+    is_deeply(
+        [ map { _portable_path($_) } @{ $got || [] } ],
+        [ map { _portable_path($_) } @{ $expected || [] } ],
+        $label,
+    );
+}
+
 my $home = tempdir(CLEANUP => 1);
 local $ENV{HOME} = $home;
+local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
+local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
+local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
 my $original_cwd = getcwd();
 
 my $workspace = File::Spec->catdir( $home, 'workspace' );
@@ -110,9 +134,9 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
 }
 {
     chdir $local_repo or die $!;
-    is( $paths->project_runtime_root, File::Spec->catdir( $local_repo, '.developer-dashboard' ), 'project_runtime_root resolves only when the repo already contains a dashboard root' );
-    is( $paths->runtime_root, File::Spec->catdir( $local_repo, '.developer-dashboard' ), 'runtime_root prefers the project-local dashboard root when present' );
-    is_deeply(
+    is_same_path( $paths->project_runtime_root, File::Spec->catdir( $local_repo, '.developer-dashboard' ), 'project_runtime_root resolves only when the repo already contains a dashboard root' );
+    is_same_path( $paths->runtime_root, File::Spec->catdir( $local_repo, '.developer-dashboard' ), 'runtime_root prefers the project-local dashboard root when present' );
+    is_same_paths(
         [ $paths->runtime_roots ],
         [
             File::Spec->catdir( $local_repo, '.developer-dashboard' ),
@@ -120,16 +144,16 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
         ],
         'runtime_roots returns project-local then home fallback roots',
     );
-    is( $paths->dashboards_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'dashboards' ), 'dashboards_root writes to the project-local runtime when present' );
-    is( $paths->cli_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'cli' ), 'cli_root writes to the project-local runtime when present' );
-    is( $paths->config_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'config' ), 'config_root writes to the project-local runtime when present' );
-    is( $paths->users_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'config', 'auth', 'users' ), 'users_root writes to the project-local runtime when present' );
-    is( $paths->sessions_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'state', 'sessions' ), 'sessions_root writes to the project-local runtime when present' );
+    is_same_path( $paths->dashboards_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'dashboards' ), 'dashboards_root writes to the project-local runtime when present' );
+    is_same_path( $paths->cli_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'cli' ), 'cli_root writes to the project-local runtime when present' );
+    is_same_path( $paths->config_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'config' ), 'config_root writes to the project-local runtime when present' );
+    is_same_path( $paths->users_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'config', 'auth', 'users' ), 'users_root writes to the project-local runtime when present' );
+    is_same_path( $paths->sessions_root, File::Spec->catdir( $local_repo, '.developer-dashboard', 'state', 'sessions' ), 'sessions_root writes to the project-local runtime when present' );
     chdir $home or die $!;
 }
 {
     chdir $local_repo or die $!;
-    is_deeply(
+    is_same_paths(
         [ $paths->cli_roots ],
         [
             File::Spec->catdir( $local_repo, '.developer-dashboard', 'cli' ),
@@ -170,12 +194,12 @@ is_deeply(
 my $with_dir_result = $paths->with_dir(
     'named',
     sub {
-        is( cwd(), $named_dir, 'with_dir changes into target directory' );
+        is_same_path( cwd(), $named_dir, 'with_dir changes into target directory' );
         return 'ok';
     }
 );
 is( $with_dir_result, 'ok', 'with_dir returns scalar result' );
-is( cwd(), $home, 'with_dir restores original cwd after scalar call' );
+is_same_path( cwd(), $home, 'with_dir restores original cwd after scalar call' );
 
 my @with_dir_list = $paths->with_dir(
     'named',
@@ -197,7 +221,7 @@ dies_like(
     qr/boom/,
     'with_dir rethrows callback exceptions',
 );
-is( cwd(), $home, 'with_dir restores cwd after callback errors' );
+is_same_path( cwd(), $home, 'with_dir restores cwd after callback errors' );
 
 my @located = $paths->locate_projects('alpha');
 is_deeply(
@@ -720,8 +744,8 @@ close $local_cfg;
 {
     local $ENV{DEVELOPER_DASHBOARD_CHECKERS} = 'repo.collector:config.two';
     chdir $repo or die $!;
-    is( $paths->current_project_root, $repo, 'current_project_root resolves the active git repo' );
-    is( $paths->repo_dashboard_root, File::Spec->catdir( $repo, '.developer-dashboard' ), 'repo_dashboard_root resolves an existing repo dashboard directory' );
+    is_same_path( $paths->current_project_root, $repo, 'current_project_root resolves the active git repo' );
+    is_same_path( $paths->repo_dashboard_root, File::Spec->catdir( $repo, '.developer-dashboard' ), 'repo_dashboard_root resolves an existing repo dashboard directory' );
     is_deeply(
         $config->load_repo,
         {
@@ -759,7 +783,7 @@ close $local_cfg;
             },
         }
     );
-    is( $saved_global, $local_config_file, 'save_global writes into the project-local runtime config when it exists' );
+    is_same_path( $saved_global, $local_config_file, 'save_global writes into the project-local runtime config when it exists' );
 }
 {
     local $ENV{DEVELOPER_DASHBOARD_CHECKERS} = 'repo.collector::config.two';

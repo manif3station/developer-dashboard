@@ -54,6 +54,9 @@ sub decode_body_text {
 
 my $home = tempdir(CLEANUP => 1);
 local $ENV{HOME} = $home;
+local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
+local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
+local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
 chdir $home or die "Unable to chdir to $home: $!";
 my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
 my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );

@@ -14,6 +14,9 @@ use Developer::Dashboard::PageStore;
 use Developer::Dashboard::PathRegistry;
 
 local $ENV{HOME} = tempdir(CLEANUP => 1);
+local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
+local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
+local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
 chdir $ENV{HOME} or die "Unable to chdir to $ENV{HOME}: $!";
 
 my $paths = Developer::Dashboard::PathRegistry->new;

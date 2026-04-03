@@ -1,6 +1,7 @@
 use strict;
 use warnings;
 
+use Cwd qw(abs_path);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -21,8 +22,23 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::SessionStore;
 use Developer::Dashboard::Web::App;
 
+sub _portable_path {
+    my ($path) = @_;
+    return undef if !defined $path;
+    my $resolved = eval { abs_path($path) };
+    return defined $resolved && $resolved ne '' ? $resolved : $path;
+}
+
+sub is_same_path {
+    my ( $got, $expected, $label ) = @_;
+    is( _portable_path($got), _portable_path($expected), $label );
+}
+
 my $home = tempdir(CLEANUP => 1);
 local $ENV{HOME} = $home;
+local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
+local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
+local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
 chdir $home or die "Unable to chdir to $home: $!";
 
 my $repo = File::Spec->catdir( $home, 'projects', 'demo-app' );
@@ -315,7 +331,7 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
         services => ['worker'],
     );
     chdir $old or die $!;
-    is( $resolved->{project_root}, $repo, 'docker compose resolver uses current project root' );
+    is_same_path( $resolved->{project_root}, $repo, 'docker compose resolver uses current project root' );
     ok( grep( { /compose\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes discovered base file' );
     ok( grep( { /compose\.project\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes project overlay' );
     ok( grep( { /compose\.worker\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes service overlay' );
@@ -324,11 +340,11 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
     ok( !grep( { /green\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver prefers isolated development compose files over compose.yml for selected services' );
     ok( grep( { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes isolated development compose files automatically for selected services' );
     is( $resolved->{env}{APP_MODE}, 'dev', 'docker compose resolver merges mode env' );
-    is( $resolved->{env}{DDDC}, File::Spec->catdir( $repo, '.developer-dashboard', 'config', 'docker' ), 'docker compose resolver exports DDDC as the effective project-local docker config root' );
+    is_same_path( $resolved->{env}{DDDC}, File::Spec->catdir( $repo, '.developer-dashboard', 'config', 'docker' ), 'docker compose resolver exports DDDC as the effective project-local docker config root' );
     is( $resolved->{env}{MAILHOG_ENABLED}, '1', 'docker compose resolver merges addon env' );
     is_deeply( [ @{ $resolved->{command} }[0,1] ], [ 'docker', 'compose' ], 'docker compose resolver produces docker compose command' );
     is_deeply( $resolved->{precedence}, [ qw(base project service addon mode) ], 'docker compose resolver exposes overlay precedence' );
-    is(
+    is_same_path(
         ( grep { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } )[0],
         File::Spec->catfile( $repo, '.developer-dashboard', 'docker', 'green', 'development.compose.yml' ),
         'docker compose resolver prefers project-local isolated service folders over the home fallback root',

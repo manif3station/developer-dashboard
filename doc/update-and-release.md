@@ -181,8 +181,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.33.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.33.tar.gz -v
+tar -tzf Developer-Dashboard-1.34.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.34.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:
@@ -203,6 +203,10 @@ Runtime JSON handling is implemented with `JSON::XS`, including the shell bootst
 The Dist::Zilla runtime prerequisite list pins `JSON::XS` explicitly so PAUSE
 and other clean-install test environments always see that dependency in the
 built tarball metadata.
+The shipped test suite now also clears the runtime-root override environment
+variables used by local developer setups and normalizes temporary-path
+comparisons, so tarball install verification stays stable on both Linux and
+macOS hosts.
 
 Command-output capture is implemented with `Capture::Tiny` `capture`, with exit codes returned from the capture block. The core runtime does not currently make outbound HTTP client requests.
 

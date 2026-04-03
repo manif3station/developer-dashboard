@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.33';
+our $VERSION = '1.34';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.33
+1.34
 
 =head1 INTRODUCTION
 
@@ -42,6 +42,9 @@ under F<~/.developer-dashboard> stays as the fallback base, so project-local
 bookmarks, config, CLI hooks, helper users, sessions, and isolated docker
 service folders can override home defaults without losing shared fallback data
 that is not redefined locally.
+The shipped test suite also isolates runtime-root override environment
+variables and normalizes temporary paths so tarball installs stay stable across
+Linux and macOS hosts.
 
 Release tarballs contain installable runtime artifacts only; local Dist::Zilla release-builder configuration is kept out of the shipped archive.
 Frequently used built-in commands such as C<of>, C<open-file>, C<pjq>, C<pyq>,
@@ -1223,8 +1226,8 @@ exact tarball that will ship:
 
   rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
   dzil build
-  tar -tzf Developer-Dashboard-1.33.tar.gz | grep run-host-integration.sh
-  cpanm /tmp/Developer-Dashboard-1.33.tar.gz -v
+  tar -tzf Developer-Dashboard-1.34.tar.gz | grep run-host-integration.sh
+  cpanm /tmp/Developer-Dashboard-1.34.tar.gz -v
 
 The harness also:
 
