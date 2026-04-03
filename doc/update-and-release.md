@@ -78,6 +78,13 @@ perl -Ilib bin/dashboard shell sh
 perl -Ilib bin/dashboard shell ps
 ```
 
+Audit runtime permissions:
+
+```bash
+perl -Ilib bin/dashboard doctor
+perl -Ilib bin/dashboard doctor --fix
+```
+
 Refresh generic built-in indicators:
 
 ```bash
@@ -102,6 +109,9 @@ bootstrap for bash, zsh, POSIX `sh`, and PowerShell `ps`, so release
 validation should cover whichever interactive shell bootstrap a new feature
 touches. PowerShell verification should check the generated `prompt`
 function rather than looking for a POSIX `PS1` export.
+Permission-sensitive changes should also verify that `dashboard doctor`
+reports insecure legacy or home-runtime paths before repair and returns clean
+after `--fix`.
 
 Render prompt in extended colored mode:
 
@@ -192,8 +202,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.43.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.43.tar.gz -v
+tar -tzf Developer-Dashboard-1.44.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.44.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:
@@ -223,7 +233,7 @@ For Windows-targeted changes, verify the built tarball under a real Strawberry
 Perl environment before release:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.43.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.44.tar.gz
 ```
 
 For release-grade Windows compatibility claims, also run the prepared QEMU
@@ -233,7 +243,7 @@ guest smoke:
 WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
 WINDOWS_SSH_USER=developer \
 WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.43.tar.gz \
+TARBALL=/path/to/Developer-Dashboard-1.44.tar.gz \
 integration/windows/run-qemu-windows-smoke.sh
 ```
 

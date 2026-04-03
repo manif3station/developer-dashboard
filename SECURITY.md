@@ -22,4 +22,5 @@ Security fixes are applied to the latest active release line in this repository.
 ## Additional Context
 
 The runtime-facing security baseline and verification notes remain documented in
-[`doc/security.md`](doc/security.md).
+[`doc/security.md`](doc/security.md), including the `dashboard doctor` command
+used to audit and repair owner-only runtime permissions.

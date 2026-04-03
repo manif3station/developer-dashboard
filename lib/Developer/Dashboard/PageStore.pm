@@ -3,7 +3,7 @@ package Developer::Dashboard::PageStore;
 use strict;
 use warnings;
 
-our $VERSION = '1.43';
+our $VERSION = '1.44';
 use utf8;
 
 use Encode qw(decode FB_CROAK FB_DEFAULT);
@@ -49,10 +49,11 @@ sub save_page {
     my $id = $page->as_hash->{id} || die 'Saved pages require an id';
     my $file = $self->page_file($id);
     my $dir = dirname($file);
-    make_path($dir) if !-d $dir;
+    $self->{paths}->ensure_dir($dir);
     open my $fh, '>', $file or die "Unable to save $file: $!";
     print {$fh} $page->canonical_instruction;
     close $fh;
+    $self->{paths}->secure_file_permissions($file);
     return $file;
 }
 
@@ -179,9 +180,11 @@ sub migrate_legacy_json_pages {
         my $id = $page->as_hash->{id} || basename( $entry, '.json' );
         $page->{id} = $id;
         my $target = $self->page_file($id);
+        $self->{paths}->ensure_dir( dirname($target) );
         open my $out, '>', $target or die "Unable to save $target: $!";
         print {$out} $page->canonical_instruction;
         close $out;
+        $self->{paths}->secure_file_permissions($target);
         unlink $file or die "Unable to remove $file: $!";
         push @migrated, { from => $entry, id => $id, file => $target };
     }

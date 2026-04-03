@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '1.43';
+our $VERSION = '1.44';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -12,6 +12,7 @@ use IO::Socket::INET;
 use Plack::Runner;
 use Socket qw(MSG_PEEK);
 
+use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::DancerApp;
 use Developer::Dashboard::Web::Server::Daemon;
 
@@ -536,16 +537,19 @@ sub _https_redirect_location {
 # Output: path to certificate file, or dies on error.
 sub generate_self_signed_cert {
     my $home = $ENV{HOME} || die 'Missing HOME environment variable';
-    my $cert_dir = File::Spec->catdir($home, '.developer-dashboard', 'certs');
+    my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
+    my $cert_dir = File::Spec->catdir( $paths->home_runtime_path, 'certs' );
     my $cert_file = File::Spec->catfile($cert_dir, 'server.crt');
     my $key_file  = File::Spec->catfile($cert_dir, 'server.key');
 
-    return $cert_file if -f $cert_file && -f $key_file;
-
-    if (!-d $cert_dir) {
-        require File::Path;
-        File::Path::make_path($cert_dir) or die "Unable to create cert directory $cert_dir: $!";
+    if ( -f $cert_file && -f $key_file ) {
+        $paths->secure_dir_permissions($cert_dir);
+        $paths->secure_file_permissions($cert_file);
+        $paths->secure_file_permissions($key_file);
+        return $cert_file;
     }
+
+    $paths->ensure_dir($cert_dir);
 
     my @cmd = (
         'openssl', 'req', '-new', '-x509', '-days', '365',
@@ -561,6 +565,9 @@ sub generate_self_signed_cert {
     die "Failed to generate SSL certificate: $stderr" if $exit != 0;
     die "Certificate file not created" if !-f $cert_file;
     die "Key file not created" if !-f $key_file;
+    $paths->secure_dir_permissions($cert_dir);
+    $paths->secure_file_permissions($cert_file);
+    $paths->secure_file_permissions($key_file);
 
     return $cert_file;
 }

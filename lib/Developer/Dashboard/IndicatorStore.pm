@@ -3,7 +3,7 @@ package Developer::Dashboard::IndicatorStore;
 use strict;
 use warnings;
 
-our $VERSION = '1.43';
+our $VERSION = '1.44';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -81,9 +81,11 @@ sub set_indicator {
     open my $fh, '>', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode( \%data );
     close $fh;
+    $self->{paths}->secure_file_permissions($tmp);
 
     unlink $file if -f $file;
     rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
+    $self->{paths}->secure_file_permissions($file);
 
     return \%data;
 }

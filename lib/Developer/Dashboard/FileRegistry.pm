@@ -3,7 +3,7 @@ package Developer::Dashboard::FileRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '1.43';
+our $VERSION = '1.44';
 
 use File::Spec;
 
@@ -59,6 +59,7 @@ sub write {
     open my $fh, '>', $file or die "Unable to write $file: $!";
     print {$fh} defined $content ? $content : '';
     close $fh;
+    $self->paths->secure_file_permissions($file);
     return $file;
 }
 
@@ -72,6 +73,7 @@ sub append {
     open my $fh, '>>', $file or die "Unable to append $file: $!";
     print {$fh} defined $content ? $content : '';
     close $fh;
+    $self->paths->secure_file_permissions($file);
     return $file;
 }
 
@@ -84,6 +86,7 @@ sub touch {
     my $file = $self->resolve_file($name);
     open my $fh, '>>', $file or die "Unable to touch $file: $!";
     close $fh;
+    $self->paths->secure_file_permissions($file);
     return $file;
 }
 

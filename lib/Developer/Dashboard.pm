@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.43';
+our $VERSION = '1.44';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.43
+1.44
 
 =head1 INTRODUCTION
 
@@ -42,6 +42,16 @@ under F<~/.developer-dashboard> stays as the fallback base, so project-local
 bookmarks, config, CLI hooks, helper users, sessions, and isolated docker
 service folders can override home defaults without losing shared fallback data
 that is not redefined locally.
+
+The home runtime is now hardened to owner-only access by default. Directories
+under F<~/.developer-dashboard> are kept at C<0700>, regular runtime files are
+kept at C<0600>, and owner-executable scripts stay owner-executable at
+C<0700>. Run C<dashboard doctor> to audit the current home runtime plus any
+legacy dashboard roots still living directly under C<$HOME>, or
+C<dashboard doctor --fix> to tighten those permissions in place. The same
+command also reads optional hook results from
+F<~/.developer-dashboard/cli/doctor.d> so users can layer in more
+site-specific checks later.
 
 Frequently used built-in commands such as C<of>, C<open-file>, C<pjq>, C<pyq>,
 C<ptomq>, and C<pjp> are also installed as standalone executables so they can
@@ -796,6 +806,11 @@ Render shell bootstrap for bash, zsh, POSIX sh, or PowerShell:
   dashboard shell sh
   dashboard shell ps
 
+Audit runtime permissions:
+
+  dashboard doctor
+  dashboard doctor --fix
+
 Resolve or open files from the CLI:
 
   dashboard of --print My::Module
@@ -1230,7 +1245,7 @@ and add explicit expectations:
 For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
 host:
 
-  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.43.tar.gz
+  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.44.tar.gz
 
 Before calling a release Windows-compatible, also run the same smoke through a
 prepared QEMU Windows guest:
@@ -1238,7 +1253,7 @@ prepared QEMU Windows guest:
   WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
   WINDOWS_SSH_USER=developer \
   WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-  TARBALL=/path/to/Developer-Dashboard-1.43.tar.gz \
+  TARBALL=/path/to/Developer-Dashboard-1.44.tar.gz \
   integration/windows/run-qemu-windows-smoke.sh
 
 =head2 Updating Runtime State

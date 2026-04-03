@@ -27,6 +27,13 @@ use lib 'lib';
 use Developer::Dashboard::Web::Server;
 use Developer::Dashboard::Web::DancerApp;
 
+sub _mode_octal {
+    my ($path) = @_;
+    my @stat = stat($path);
+    return undef if !@stat;
+    return sprintf '%04o', $stat[2] & 07777;
+}
+
 {
     package Local::SSLTestApp;
 
@@ -80,6 +87,9 @@ use Developer::Dashboard::Web::DancerApp;
     ok(-f $key_file, 'server.key file exists');
     ok(-s $cert_file > 0, 'server.crt has content');
     ok(-s $key_file > 0, 'server.key has content');
+    is(_mode_octal($cert_dir), '0700', 'cert directory is owner-only');
+    is(_mode_octal($cert_file), '0600', 'certificate file is owner-only');
+    is(_mode_octal($key_file), '0600', 'private key file is owner-only');
     
     # Verify cert is self-signed and valid
     my $cert_text = do {

@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '1.43';
+our $VERSION = '1.44';
 
 use File::Spec;
 use Cwd qw(cwd);
@@ -51,6 +51,7 @@ sub save_global {
     open my $fh, '>', $file or die "Unable to write $file: $!";
     print {$fh} json_encode( $config || {} );
     close $fh;
+    $self->{paths}->secure_file_permissions($file);
     return $file;
 }
 

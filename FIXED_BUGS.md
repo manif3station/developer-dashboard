@@ -2,6 +2,8 @@
 
 ## 2026-04-03
 
+- Fixed permissive home-runtime storage by tightening `~/.developer-dashboard` directories to `0700`, regular runtime files to `0600`, and owner-executable runtime files to owner-only `0700`.
+- Fixed permission-audit blind spots by adding `dashboard doctor` and `dashboard doctor --fix`, so current and legacy dashboard roots under `$HOME` can be checked and repaired for owner-only file and folder access.
 - Fixed Windows verification drift by checking in `integration/windows/run-strawberry-smoke.ps1` and `integration/windows/run-qemu-windows-smoke.sh`, so Strawberry Perl and full-system Windows validation now live in the repo instead of in ad-hoc manual notes.
 - Fixed Windows command-resolution test gaps by extending the forced-Windows unit coverage for `PATHEXT`, `.ps1`, `.cmd`, and `.pl` dispatch, so platform regressions fail in the fast test loop before the slower Windows smoke gates run.
 - Fixed Unix-shell lock-in across the command runtime by routing collector `command` strings, trusted page actions, saved Ajax script execution, update scripts, and custom CLI runners through a shared platform layer, so Windows Strawberry Perl installs no longer require `sh` or `bash` just to execute dashboard-managed commands.

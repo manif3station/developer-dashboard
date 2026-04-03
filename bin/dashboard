@@ -57,6 +57,7 @@ require Developer::Dashboard::Collector;
 require Developer::Dashboard::Config;
 require Developer::Dashboard;
 require Developer::Dashboard::DockerCompose;
+require Developer::Dashboard::Doctor;
 require Developer::Dashboard::FileRegistry;
 require Developer::Dashboard::IndicatorStore;
 require Developer::Dashboard::JSON;
@@ -109,6 +110,9 @@ my $resolver = Developer::Dashboard::PageResolver->new(
 my $docker = Developer::Dashboard::DockerCompose->new(
     config  => $config,
     paths   => $paths,
+);
+my $doctor = Developer::Dashboard::Doctor->new(
+    paths => $paths,
 );
 my $prompt = Developer::Dashboard::Prompt->new(
     paths      => $paths,
@@ -795,6 +799,19 @@ elsif ( $cmd eq 'shell' ) {
     print _shell_bootstrap($shell);
     exit 0;
 }
+elsif ( $cmd eq 'doctor' ) {
+    my $fix = 0;
+    GetOptionsFromArray(
+        \@ARGV,
+        'fix!' => \$fix,
+    );
+    print json_encode(
+        $doctor->run(
+            fix => $fix,
+        )
+    );
+    exit 0;
+}
 else {
     my $user_cli = _custom_command_path($cmd);
     if ( -d $user_cli ) {
@@ -840,6 +857,7 @@ sub _prime_command_result_env {
 
     my $hook_root = _command_hook_root($cmd);
     return 1 if !-d $hook_root;
+    my $stream = $cmd eq 'doctor' ? 0 : 1;
 
     opendir my $dh, $hook_root or return 1;
     my %results;
@@ -848,7 +866,7 @@ sub _prime_command_result_env {
         next if !is_runnable_file($path);
         next if $entry eq 'run';
 
-        my $hook_result = _run_command_hook_streaming( $path, @argv );
+        my $hook_result = _run_command_hook_streaming( $path, stream => $stream, argv => \@argv );
         $results{$entry} = {
             stdout => $hook_result->{stdout},
             stderr => $hook_result->{stderr},
@@ -868,7 +886,9 @@ sub _prime_command_result_env {
 # Input: executable path plus remaining dashboard argv list.
 # Output: hash reference with stdout, stderr, and exit_code.
 sub _run_command_hook_streaming {
-    my ( $path, @argv ) = @_;
+    my ( $path, %args ) = @_;
+    my $stream = exists $args{stream} ? $args{stream} : 1;
+    my @argv = @{ $args{argv} || [] };
     open my $stdin, '<', File::Spec->devnull() or die "Unable to open " . File::Spec->devnull() . " for hook stdin: $!";
     my $stderr = gensym();
     my $stdout;
@@ -896,13 +916,13 @@ sub _run_command_hook_streaming {
             }
 
             if ( fileno($fh) == $stdout_fd ) {
-                print STDOUT $buffer;
+                print STDOUT $buffer if $stream;
                 $stdout_text .= $buffer;
                 next;
             }
 
             if ( fileno($fh) == $stderr_fd ) {
-                print STDERR $buffer;
+                print STDERR $buffer if $stream;
                 $stderr_text .= $buffer;
                 next;
             }
@@ -1396,6 +1416,7 @@ dashboard - command-line entrypoint for Developer Dashboard
   dashboard help
   dashboard init
   dashboard update
+  dashboard doctor [--fix]
   dashboard ps1 [--jobs N] [--cwd PATH] [--mode compact|extended] [--color]
   dashboard paths
   dashboard path list
@@ -1465,6 +1486,10 @@ file-backed collectors and indicators
 =item *
 
 prompt rendering for C<PS1> and the PowerShell C<prompt> function
+
+=item *
+
+runtime permission auditing and repair through C<dashboard doctor>
 
 =item *
 

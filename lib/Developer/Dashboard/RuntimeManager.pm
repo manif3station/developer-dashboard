@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '1.43';
+our $VERSION = '1.44';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -474,6 +474,7 @@ sub _follow_log_file {
     if ( !open( $fh, '<', $file ) ) {
         open my $create_fh, '>>', $file or die "Unable to create $file: $!";
         close $create_fh;
+        $self->{paths}->secure_file_permissions($file);
         open( $fh, '<', $file ) or die "Unable to read $file: $!";
     }
     seek $fh, 0, 2 or die "Unable to seek $file: $!";
@@ -506,7 +507,9 @@ sub _write_web_state {
     open my $fh, '>', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode($payload);
     close $fh;
+    $self->{paths}->secure_file_permissions($tmp);
     rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
+    $self->{paths}->secure_file_permissions($file);
     return $payload;
 }
 

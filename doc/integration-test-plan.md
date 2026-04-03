@@ -153,7 +153,7 @@ For Windows verification outside the Linux container flow, run the checked-in
 Strawberry Perl smoke on a Windows host:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.43.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.44.tar.gz
 ```
 
 For release-grade Windows compatibility claims, run the same smoke through the
@@ -163,7 +163,7 @@ prepared QEMU Windows guest:
 WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
 WINDOWS_SSH_USER=developer \
 WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.43.tar.gz \
+TARBALL=/path/to/Developer-Dashboard-1.44.tar.gz \
 integration/windows/run-qemu-windows-smoke.sh
 ```
 

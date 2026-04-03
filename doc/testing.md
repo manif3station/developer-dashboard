@@ -88,6 +88,7 @@ The extension tests also cover:
 - config-backed path alias registration
 - provider page resolution
 - trusted versus transient action execution policy
+- `dashboard doctor` audits of the current home runtime plus legacy `$HOME/bookmarks`, `$HOME/config`, `$HOME/cli`, and `$HOME/checkers` trees, including `--fix` permission repair and `cli/doctor.d` hook result capture
 - encoded action payload execution
 - CLI hook directories under `~/.developer-dashboard/cli/<command>` or `~/.developer-dashboard/cli/<command>.d` with sorted executable-only hook execution, live streamed hook progress, per-hook `RESULT` rewrites between hook runs, and `Runtime::Result` helper coverage
 - directory-backed custom commands through `~/.developer-dashboard/cli/<command>/run`

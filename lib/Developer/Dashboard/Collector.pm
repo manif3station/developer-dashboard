@@ -3,7 +3,7 @@ package Developer::Dashboard::Collector;
 use strict;
 use warnings;
 
-our $VERSION = '1.43';
+our $VERSION = '1.44';
 
 use File::Spec;
 use POSIX qw(strftime);
@@ -197,8 +197,10 @@ sub _atomic_write_text {
     open my $fh, '>', $tmp or die "Unable to write $tmp: $!";
     print {$fh} $text;
     close $fh;
+    $self->{paths}->secure_file_permissions($tmp);
     unlink $file if -f $file;
     rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
+    $self->{paths}->secure_file_permissions($file);
     return $file;
 }
 

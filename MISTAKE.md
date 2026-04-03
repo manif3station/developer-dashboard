@@ -4,6 +4,22 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: HOME-RUNTIME-PERMISSIVE
+
+**Date:** 2026-04-03 23:10:00 UTC
+**Area:** Runtime storage permissions
+**Symptom:** `~/.developer-dashboard` directories such as `certs`, `config`, `dashboards`, `logs`, and `state` were being created with group/world-readable directory modes like `0755`, and several runtime files were landing as `0644`
+**Why It Was Dangerous:** Helper data, session state, saved bookmarks, logs, and self-signed TLS material lived under a tree that should have been private to the owning user, but the runtime relied on process umask instead of enforcing owner-only permissions itself
+**Root Cause:** Central runtime directory creation used plain `make_path`, several writers used plain `open '>'` without tightening the resulting file mode, and there was no first-class audit command for current and legacy dashboard roots
+**How Ellen Solved It:** Hardened the home runtime path registry so `~/.developer-dashboard` directories are tightened to `0700`, wired direct writers and SSL certificate creation through owner-only file permission helpers, added `dashboard doctor` plus `dashboard doctor --fix` to audit and repair current and legacy dashboard roots, and kept `doctor.d` hook results available for future custom checks
+**How To Detect Earlier Next Time:** Run `dashboard doctor` against a fresh runtime and a pre-existing legacy tree, and always inspect the real octal modes of `certs`, `config`, `dashboards`, `logs`, `state`, and generated files instead of assuming the current umask is strict enough
+**Prevention Rule:** Any runtime path created under `~/.developer-dashboard` must enforce owner-only permissions in code, and any permission-sensitive release should ship a machine-readable doctor command that can audit and optionally repair the runtime tree
+**Verification:** `prove -lv t/07-core-units.t`, `prove -lv t/05-cli-smoke.t`, `prove -lv t/17-web-server-ssl.t`, full `prove -lr t`, coverage, `dzil build`, blank-environment integration, and built-tarball kwalitee analysis
+**Related Files:** `lib/Developer/Dashboard/PathRegistry.pm`, `lib/Developer/Dashboard/FileRegistry.pm`, `lib/Developer/Dashboard/Doctor.pm`, `lib/Developer/Dashboard/Web/Server.pm`, `bin/dashboard`
+**Tags:** `permissions`, `runtime`, `doctor`, `ssl`, `owner-only`, `hardening`
+
+---
+
 ## CODE: OUTSIDER-LEAKY-401
 
 **Date:** 2026-04-03 23:59:00 UTC

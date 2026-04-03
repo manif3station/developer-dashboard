@@ -59,7 +59,13 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.43', 'module version bumped for the outsider 401 silence hardening release' );
+is( $version, '1.44', 'module version bumped for the runtime permission hardening and doctor release' );
+like( $readme, qr/dashboard doctor/, 'README documents the doctor command' );
+like( $pm, qr/dashboard doctor/, 'main POD documents the doctor command' );
+like( $release_doc, qr/bin\/dashboard doctor/, 'release doc documents the doctor command' );
+like( $readme, qr/home runtime is now hardened to owner-only access by default/s, 'README documents owner-only home-runtime permissions' );
+like( $pm, qr/home runtime is now hardened to owner-only access by default/s, 'main POD documents owner-only home-runtime permissions' );
+like( $release_doc, qr/dashboard doctor --fix/, 'release doc documents doctor repair mode' );
 like( $readme, qr/dashboard serve --ssl/, 'README documents the HTTPS serve flag' );
 like( $pm, qr/C<dashboard serve --ssl>/, 'main POD documents the HTTPS serve flag' );
 like( $release_doc, qr/dashboard serve --ssl/, 'release doc documents the HTTPS serve flag' );
@@ -176,6 +182,7 @@ like( $release_doc, qr/run-strawberry-smoke\.ps1/, 'release doc documents the Wi
 like( $release_doc, qr/run-qemu-windows-smoke\.sh/, 'release doc documents the Windows QEMU smoke verification script' );
 like( $release_doc, qr/rm -rf Developer-Dashboard-\* Developer-Dashboard-\*\.tar\.gz/, 'release doc documents old build directory and tarball cleanup before building a release' );
 like( $security_doc, qr/security\@manif3station\.local/, 'SECURITY.md includes a private contact address' );
+like( $security_doc, qr/dashboard doctor/, 'doc security guidance documents the doctor command' );
 like( $contributing_doc, qr/prove -lr t/, 'CONTRIBUTING.md documents the test workflow' );
 if ( $workflow ne '' ) {
     like( $workflow, qr/cpanm --notest App::Cmd/, 'release workflow bootstraps App::Cmd before Dist::Zilla' );

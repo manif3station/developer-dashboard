@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '1.43';
+our $VERSION = '1.44';
 
 use Cwd qw(cwd);
 use File::Basename qw(dirname);
@@ -92,9 +92,16 @@ sub runtime_root {
 # Output: home runtime directory path string.
 sub home_runtime_root {
     my ($self) = @_;
-    return $self->_ensure_dir(
-        File::Spec->catdir( $self->home, '.developer-dashboard' )
-    );
+    return $self->_ensure_dir( $self->home_runtime_path );
+}
+
+# home_runtime_path()
+# Returns the canonical home-backed runtime root path without creating it.
+# Input: none.
+# Output: home runtime directory path string.
+sub home_runtime_path {
+    my ($self) = @_;
+    return File::Spec->catdir( $self->home, '.developer-dashboard' );
 }
 
 # project_runtime_root()
@@ -503,13 +510,80 @@ sub indicator_dir {
     return $self->_ensure_dir( File::Spec->catdir( $self->indicators_root, $name ) );
 }
 
+# ensure_dir($dir)
+# Creates a directory if needed and applies runtime permission hardening.
+# Input: directory path string.
+# Output: directory path string.
+sub ensure_dir {
+    my ( $self, $dir ) = @_;
+    return $self->_ensure_dir($dir);
+}
+
+# is_home_runtime_path($path)
+# Checks whether one path lives under the home runtime tree.
+# Input: file or directory path string.
+# Output: boolean true when the path is inside ~/.developer-dashboard.
+sub is_home_runtime_path {
+    my ( $self, $path ) = @_;
+    return 0 if !defined $path || $path eq '';
+    my $home_runtime = $self->home_runtime_path;
+    return 1 if $path eq $home_runtime;
+    return index( $path, $home_runtime . '/' ) == 0 ? 1 : 0;
+}
+
+# secure_dir_permissions($dir)
+# Tightens one home-runtime directory chain to owner-only mode.
+# Input: directory path string.
+# Output: directory path string.
+sub secure_dir_permissions {
+    my ( $self, $dir ) = @_;
+    return $dir if !$self->is_home_runtime_path($dir);
+
+    my $home_runtime = $self->home_runtime_path;
+    my $path = $home_runtime;
+    chmod 0700, $path or die "Unable to chmod $path to 0700: $!" if -d $path;
+    return $dir if $dir eq $home_runtime;
+
+    my $suffix = substr( $dir, length($home_runtime) );
+    $suffix =~ s{^/}{};
+    for my $part ( grep { defined && $_ ne '' } File::Spec->splitdir($suffix) ) {
+        $path = File::Spec->catdir( $path, $part );
+        next if !-d $path;
+        chmod 0700, $path or die "Unable to chmod $path to 0700: $!";
+    }
+
+    return $dir;
+}
+
+# secure_file_permissions($file, %args)
+# Tightens one home-runtime file to owner-only mode, preserving owner execute
+# bits when an executable file is expected.
+# Input: file path string plus optional executable boolean.
+# Output: file path string.
+sub secure_file_permissions {
+    my ( $self, $file, %args ) = @_;
+    return $file if !$self->is_home_runtime_path($file);
+    return $file if !-e $file;
+    my $mode = $args{executable} ? 0700 : 0600;
+    chmod $mode, $file or die sprintf 'Unable to chmod %s to %04o: %s', $file, $mode, $!;
+    return $file;
+}
+
 # _ensure_dir($dir)
 # Creates a directory if needed and returns it.
 # Input: directory path string.
 # Output: directory path string.
 sub _ensure_dir {
     my ( $self, $dir ) = @_;
-    make_path($dir) if !-d $dir;
+    if ( !-d $dir ) {
+        if ( $self->is_home_runtime_path($dir) ) {
+            make_path( $dir, { mode => 0700 } );
+        }
+        else {
+            make_path($dir);
+        }
+    }
+    $self->secure_dir_permissions($dir);
     return $dir;
 }
 

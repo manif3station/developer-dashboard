@@ -87,6 +87,51 @@ like($auth_add, qr/"username"\s*:\s*"helper"/, 'auth add-user works');
 my $auth_list = _run("$perl -I'$lib' '$dashboard' auth list-users");
 like($auth_list, qr/"username"\s*:\s*"helper"/, 'auth list-users works');
 
+my $legacy_bookmarks_root = File::Spec->catdir( $ENV{HOME}, 'bookmarks' );
+make_path($legacy_bookmarks_root);
+chmod 0755, $legacy_bookmarks_root or die "Unable to chmod $legacy_bookmarks_root: $!";
+my $legacy_bookmark_file = File::Spec->catfile( $legacy_bookmarks_root, 'legacy.txt' );
+open my $legacy_bookmark_fh, '>', $legacy_bookmark_file or die "Unable to write $legacy_bookmark_file: $!";
+print {$legacy_bookmark_fh} "legacy\n";
+close $legacy_bookmark_fh;
+chmod 0644, $legacy_bookmark_file or die "Unable to chmod $legacy_bookmark_file: $!";
+
+my $doctor_hook_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'doctor.d' );
+make_path($doctor_hook_root);
+my $doctor_hook = File::Spec->catfile( $doctor_hook_root, '00-extra.pl' );
+open my $doctor_hook_fh, '>', $doctor_hook or die "Unable to write $doctor_hook: $!";
+print {$doctor_hook_fh} <<'PL';
+#!/usr/bin/env perl
+print "doctor-hook-ok\n";
+PL
+close $doctor_hook_fh;
+chmod 0700, $doctor_hook or die "Unable to chmod $doctor_hook: $!";
+
+my $doctor_report = json_decode( _run("$perl -I'$lib' '$dashboard' doctor") );
+ok( !$doctor_report->{ok}, 'dashboard doctor reports insecure legacy permissions before repair' );
+ok(
+    grep(
+        { $_->{path} eq $legacy_bookmarks_root && $_->{expected_mode} eq '0700' }
+          @{ $doctor_report->{issues} || [] }
+    ),
+    'dashboard doctor reports insecure legacy bookmark directories',
+);
+ok(
+    grep(
+        { $_->{path} eq $legacy_bookmark_file && $_->{expected_mode} eq '0600' }
+          @{ $doctor_report->{issues} || [] }
+    ),
+    'dashboard doctor reports insecure legacy bookmark files',
+);
+is( $doctor_report->{hooks}{'00-extra.pl'}{stdout}, "doctor-hook-ok\n", 'dashboard doctor includes hook stdout in RESULT-backed output' );
+
+my $doctor_fixed = json_decode( _run("$perl -I'$lib' '$dashboard' doctor --fix") );
+ok( !$doctor_fixed->{ok}, 'dashboard doctor --fix still reports the findings it repaired in that run' );
+is( sprintf( '%04o', ( stat($legacy_bookmarks_root) )[2] & 07777 ), '0700', 'dashboard doctor --fix tightens legacy bookmark directory permissions' );
+is( sprintf( '%04o', ( stat($legacy_bookmark_file) )[2] & 07777 ), '0600', 'dashboard doctor --fix tightens legacy bookmark file permissions' );
+my $doctor_clean = json_decode( _run("$perl -I'$lib' '$dashboard' doctor") );
+ok( $doctor_clean->{ok}, 'dashboard doctor reports success after repair' );
+
 my $indicator_refresh = _run("$perl -I'$lib' '$dashboard' indicator refresh-core");
 like($indicator_refresh, qr/docker|project|git/, 'indicator refresh-core works');
 
@@ -479,7 +524,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.43\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.44\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );

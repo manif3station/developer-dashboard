@@ -13,6 +13,7 @@ use Developer::Dashboard::Codec qw(encode_payload decode_payload);
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::CollectorRunner;
 use Developer::Dashboard::Config;
+use Developer::Dashboard::Doctor;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::IndicatorStore;
 use Developer::Dashboard::PageDocument;
@@ -30,6 +31,13 @@ use Developer::Dashboard::Platform qw(
 use Developer::Dashboard::Prompt;
 use POSIX qw(:sys_wait_h);
 use Developer::Dashboard::UpdateManager;
+
+sub _mode_octal {
+    my ($path) = @_;
+    my @stat = stat($path);
+    return undef if !@stat;
+    return sprintf '%04o', $stat[2] & 07777;
+}
 
 sub dies_like {
     my ( $code, $pattern, $label ) = @_;
@@ -101,6 +109,152 @@ ok( -d $paths->config_root, 'config root created' );
 ok( -d $paths->auth_root, 'auth root created' );
 ok( -d $paths->users_root, 'users root created' );
 ok( !defined $paths->project_root_for( File::Spec->catdir( $home, 'not-a-repo' ) ), 'project_root_for returns undef outside repos' );
+is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard' ) ), '0700', 'home runtime root is owner-only' );
+is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'state' ) ), '0700', 'home runtime state root is owner-only' );
+is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'logs' ) ), '0700', 'home runtime logs root is owner-only' );
+is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'dashboards' ) ), '0700', 'home runtime dashboards root is owner-only' );
+is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config' ) ), '0700', 'home runtime config root is owner-only' );
+is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'auth' ) ), '0700', 'home runtime auth root is owner-only' );
+is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'auth', 'users' ) ), '0700', 'home runtime users root is owner-only' );
+{
+    my $secure_home = tempdir(CLEANUP => 1);
+    local $ENV{HOME} = $secure_home;
+    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
+    local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
+    local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+    my $secure_paths = Developer::Dashboard::PathRegistry->new( home => $secure_home );
+    my $secure_files = Developer::Dashboard::FileRegistry->new( paths => $secure_paths );
+
+    my $written_prompt_log = $secure_files->write( 'prompt_log', "owner only\n" );
+    is( _mode_octal($written_prompt_log), '0600', 'home runtime file registry writes owner-only files' );
+    $secure_files->append( 'prompt_log', "append\n" );
+    is( _mode_octal($written_prompt_log), '0600', 'home runtime file registry appends keep owner-only file mode' );
+    my $touched_auth_log = $secure_files->touch('auth_log');
+    is( _mode_octal($touched_auth_log), '0600', 'home runtime file registry touch creates owner-only files' );
+
+    my $secure_config = Developer::Dashboard::Config->new(
+        files => $secure_files,
+        paths => $secure_paths,
+    );
+    my $saved_secure_global = $secure_config->save_global( { owner_only => 1 } );
+    is( _mode_octal($saved_secure_global), '0600', 'global config file is owner-only' );
+
+    my $secure_page_store = Developer::Dashboard::PageStore->new( paths => $secure_paths );
+    my $saved_secure_page = $secure_page_store->save_page(
+        Developer::Dashboard::PageDocument->from_hash(
+            {
+                id    => 'permissions-check',
+                title => 'Permissions Check',
+                html  => 'Blank page',
+            }
+        )
+    );
+    is( _mode_octal($saved_secure_page), '0600', 'saved home-runtime bookmark file is owner-only' );
+
+    my $secure_indicator_store = Developer::Dashboard::IndicatorStore->new( paths => $secure_paths );
+    my $saved_secure_indicator = $secure_indicator_store->set_indicator( permissions => ( status => 'ok', label => 'Permissions' ) );
+    ok( $saved_secure_indicator, 'indicator write succeeds for permission test' );
+    is(
+        _mode_octal( File::Spec->catfile( $secure_paths->indicator_dir('permissions'), 'status.json' ) ),
+        '0600',
+        'indicator status file is owner-only',
+    );
+
+    my $secure_collector = Developer::Dashboard::Collector->new( paths => $secure_paths );
+    my $collector_job_file = $secure_collector->write_job( sample => { name => 'sample', command => 'true' } );
+    is( _mode_octal($collector_job_file), '0600', 'collector job file is owner-only' );
+    my $collector_status_file = $secure_collector->write_result(
+        sample =>
+          (
+            stdout        => "ok\n",
+            stderr        => '',
+            exit_code     => 0,
+            output_format => 'text',
+          )
+    );
+    is( _mode_octal($collector_status_file), '0600', 'collector status file is owner-only' );
+    is(
+        _mode_octal( File::Spec->catfile( $secure_paths->collector_dir('sample'), 'stdout' ) ),
+        '0600',
+        'collector stdout file is owner-only',
+    );
+    is(
+        _mode_octal( File::Spec->catfile( $secure_paths->collector_dir('sample'), 'stderr' ) ),
+        '0600',
+        'collector stderr file is owner-only',
+    );
+    is(
+        _mode_octal( File::Spec->catfile( $secure_paths->collector_dir('sample'), 'combined' ) ),
+        '0600',
+        'collector combined file is owner-only',
+    );
+    is(
+        _mode_octal( File::Spec->catfile( $secure_paths->collector_dir('sample'), 'last_run' ) ),
+        '0600',
+        'collector last_run file is owner-only',
+    );
+
+    my $legacy_bookmarks = File::Spec->catdir( $secure_home, 'bookmarks' );
+    make_path($legacy_bookmarks);
+    chmod 0755, $legacy_bookmarks or die "Unable to chmod $legacy_bookmarks: $!";
+    my $legacy_file = File::Spec->catfile( $legacy_bookmarks, 'old.txt' );
+    open my $legacy_fh, '>', $legacy_file or die "Unable to write $legacy_file: $!";
+    print {$legacy_fh} "legacy\n";
+    close $legacy_fh;
+    chmod 0644, $legacy_file or die "Unable to chmod $legacy_file: $!";
+
+    my $doctor = Developer::Dashboard::Doctor->new( paths => $secure_paths );
+    my $doctor_report = $doctor->run;
+    ok( !$doctor_report->{ok}, 'doctor flags legacy permission drift' );
+    is_deeply( $doctor_report->{hooks}, {}, 'doctor returns an empty hook set without RESULT data' );
+    dies_like( sub { Developer::Dashboard::Doctor->new() }, qr/Missing paths registry/, 'doctor requires paths' );
+    ok( !defined $doctor->_permission_issue_for_path(''), 'doctor ignores empty path audit input' );
+    ok( !defined $doctor->_permission_issue_for_path( File::Spec->catfile( $secure_home, 'missing-file' ) ), 'doctor ignores missing path audit input' );
+    is( Developer::Dashboard::Doctor::_mode_octal( File::Spec->catfile( $secure_home, 'missing-file' ) ), undef, 'doctor mode helper returns undef for missing paths' );
+    ok(
+        grep(
+            { $_->{path} eq $legacy_bookmarks && $_->{expected_mode} eq '0700' }
+              @{ $doctor_report->{issues} || [] }
+        ),
+        'doctor reports insecure legacy bookmark directory mode',
+    );
+    ok(
+        grep(
+            { $_->{path} eq $legacy_file && $_->{expected_mode} eq '0600' }
+              @{ $doctor_report->{issues} || [] }
+        ),
+        'doctor reports insecure legacy bookmark file mode',
+    );
+
+    my $legacy_exec = File::Spec->catfile( $legacy_bookmarks, 'run.sh' );
+    open my $legacy_exec_fh, '>', $legacy_exec or die "Unable to write $legacy_exec: $!";
+    print {$legacy_exec_fh} "#!/bin/sh\nexit 0\n";
+    close $legacy_exec_fh;
+    chmod 0755, $legacy_exec or die "Unable to chmod $legacy_exec: $!";
+    is(
+        $doctor->_permission_issue_for_path($legacy_exec)->{expected_mode},
+        '0700',
+        'doctor expects owner-only executable mode for executable files',
+    );
+
+    {
+        local $ENV{RESULT} = '[1]';
+        dies_like( sub { $doctor->_doctor_hook_results }, qr/Doctor hook RESULT must decode to a hash/, 'doctor rejects non-hash hook RESULT payloads' );
+    }
+    {
+        local $ENV{RESULT} = '{"00-hook.pl":{"exit_code":2}}';
+        is( $doctor->run->{hook_failures}, 1, 'doctor counts non-zero hook exits as failures' );
+    }
+    dies_like( sub { $doctor->_audit_root( label => 'bad' ) }, qr/Missing audit root path/, 'doctor audit_root requires a path' );
+    dies_like( sub { $doctor->_audit_root( path => $legacy_bookmarks ) }, qr/Missing audit root label/, 'doctor audit_root requires a label' );
+
+    my $fixed_doctor_report = $doctor->run( fix => 1 );
+    ok( !$fixed_doctor_report->{ok}, 'doctor fix report still records the repaired findings from this run' );
+    is( _mode_octal($legacy_bookmarks), '0700', 'doctor --fix tightens legacy bookmark directory permissions' );
+    is( _mode_octal($legacy_file), '0600', 'doctor --fix tightens legacy bookmark file permissions' );
+    my $post_fix_report = $doctor->run;
+    ok( $post_fix_report->{ok}, 'doctor reports success after fixes are applied' );
+}
 
 is( $paths->home, $home, 'home accessor works' );
 is( $paths->app_name, 'dashboard-test', 'custom app name set' );
