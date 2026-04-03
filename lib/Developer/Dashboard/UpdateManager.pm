@@ -3,13 +3,15 @@ package Developer::Dashboard::UpdateManager;
 use strict;
 use warnings;
 
-our $VERSION = '1.40';
+our $VERSION = '1.42';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
 use File::Basename qw(dirname);
 use File::Spec;
 use FindBin qw($Bin);
+
+use Developer::Dashboard::Platform qw(command_argv_for_path is_runnable_file);
 
 # new(%args)
 # Constructs the updater coordinator.
@@ -58,17 +60,8 @@ sub run {
         next if !-f File::Spec->catfile( $dir, $file );
 
         my $path = File::Spec->catfile( $dir, $file );
-        my @cmd;
-
-        if ( $file =~ /\.pl$/ ) {
-            @cmd = ( $^X, $path );
-        }
-        elsif ( $file =~ /\.sh$/ ) {
-            @cmd = ( 'sh', $path );
-        }
-        else {
-            next;
-        }
+        next if !$self->_is_supported_update_script($path);
+        my @cmd = command_argv_for_path($path);
 
         print "-" x 40, "\n";
         print ">> Run Update: $file...\n";
@@ -96,6 +89,18 @@ sub run {
     $self->_restart_collectors(@running);
 
     return \@results;
+}
+
+# _is_supported_update_script($path)
+# Determines whether one update file is a supported runnable update script on this platform.
+# Input: update file path string.
+# Output: boolean true when the file should be executed by run().
+sub _is_supported_update_script {
+    my ( $self, $path ) = @_;
+    return 0 if !defined $path || $path eq '';
+    return 1 if $path =~ /\.pl\z/i;
+    return 1 if $path =~ /\.(?:sh|bash|ps1|cmd|bat)\z/i;
+    return is_runnable_file($path) ? 1 : 0;
 }
 
 # _running_collectors()

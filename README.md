@@ -23,7 +23,7 @@ It provides a small ecosystem for:
 - legacy-style per-page sandpit isolation so one bookmark run can share runtime variables across `CODE*` blocks without leaking them into later page runs
 - old-style root editor behavior with a free-form bookmark textarea when no path is provided
 - file-backed collectors and indicators
-- prompt rendering for `PS1`
+- prompt rendering for `PS1` and the PowerShell `prompt` function
 - project and path discovery helpers
 - a lightweight local web interface
 - action execution with trusted and safer page boundaries
@@ -438,12 +438,13 @@ Custom path aliases are stored in the effective dashboard config root so shell h
 
 Legacy `Folder` compatibility also accepts the modern root-style names through `AUTOLOAD`, so older code can use either `Folder->dd` or `Folder->runtime_root`, and likewise `bookmarks_root` and `config_root`. Before `Folder->configure(...)` runs, those runtime-backed names lazily bootstrap a default dashboard path registry from `HOME` instead of dying. Plain `Folder` calls also lazy-load the same config-backed path aliases shown by `dashboard paths`, so a direct `perl -MFolder -e 'print Folder->docker'` from the active project resolves the configured alias instead of failing with `Unknown folder`.
 
-Render shell bootstrap for bash, zsh, or POSIX sh:
+Render shell bootstrap for bash, zsh, POSIX sh, or PowerShell:
 
 ```bash
 dashboard shell bash
 dashboard shell zsh
 dashboard shell sh
+dashboard shell ps
 ```
 
 Resolve or open files from the CLI:
@@ -589,7 +590,7 @@ dashboard collector list
 
 Collector jobs support two execution fields:
 
-- `command` runs a shell command string through `sh -c`
+- `command` runs a shell command string through the native platform shell: `sh -lc` on Unix-like systems and PowerShell on Windows
 - `code` runs Perl code directly inside the collector runtime
 
 Example collector definitions:
@@ -673,13 +674,28 @@ Generate shell bootstrap:
 dashboard shell bash
 dashboard shell zsh
 dashboard shell sh
+dashboard shell ps
 ```
 
 The generated shell helper keeps the same bookmark-aware `cdr`, `dd_cdr`, and
 `which_dir` functions across all supported shells. Bash still uses `\j` for
 job counts, zsh refreshes `PS1` through a `precmd` hook with `${#jobstates}`,
-and POSIX `sh` falls back to a prompt command that does not depend on
-bash-only prompt escapes.
+POSIX `sh` falls back to a prompt command that does not depend on bash-only
+prompt escapes, and PowerShell installs a `prompt` function instead of using
+the POSIX `PS1` variable.
+
+On Windows, `dashboard shell` auto-selects PowerShell by default, and
+interpreter-backed runtime entrypoints such as collector `command` strings,
+trusted command actions, saved Ajax files, custom CLI commands, hook files,
+and update scripts now resolve `.ps1`, `.cmd`, `.bat`, and `.pl` runners
+without assuming `sh` or `bash`. That keeps Strawberry Perl installs usable
+without requiring a Unix shell just to load the dashboard runtime.
+
+The checked-in Windows verification assets follow the same layered approach:
+fast forced-Windows unit coverage in `t/`, a real Strawberry Perl host smoke in
+`integration/windows/run-strawberry-smoke.ps1`, and a prepared full-system VM
+gate in `integration/windows/run-qemu-windows-smoke.sh` for release-grade
+Windows compatibility claims.
 
 ### Browser Access Model
 
@@ -845,4 +861,22 @@ integration/browser/run-bookmark-browser-smoke.pl \
   --expect-ajax-path /ajax/foobar?type=text \
   --expect-ajax-body 123 \
   --expect-dom-fragment '<span class="display">123</span>'
+```
+
+For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
+host:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.42.tar.gz
+```
+
+Before calling a release Windows-compatible, also run the same smoke through a
+prepared QEMU Windows guest:
+
+```bash
+WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
+WINDOWS_SSH_USER=developer \
+WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
+TARBALL=/path/to/Developer-Dashboard-1.42.tar.gz \
+integration/windows/run-qemu-windows-smoke.sh
 ```

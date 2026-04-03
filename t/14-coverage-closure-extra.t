@@ -505,6 +505,10 @@ SOURCE
     );
 
     no warnings 'redefine';
+    local *Developer::Dashboard::Web::App::command_in_path = sub {
+        my ($name) = @_;
+        return $name eq 'ifconfig' ? '/tmp/fake-ifconfig' : undef;
+    };
     local *Developer::Dashboard::Web::App::capture = sub (&) {
         my ($code) = @_;
         my $stdout = "wg0: flags\n    inet 10.8.0.2\neth0: flags\n    inet 192.168.1.9\n";

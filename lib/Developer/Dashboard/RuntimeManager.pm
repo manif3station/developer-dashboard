@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '1.40';
+our $VERSION = '1.42';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -334,7 +334,7 @@ sub _run_web_child {
         return 0 if $pid;
     }
     if ($redirect) {
-        open STDIN, '<', '/dev/null' or die $!;
+        open STDIN, '<', File::Spec->devnull() or die $!;
         open STDOUT, '>>', $self->{files}->dashboard_log or die $!;
         open STDERR, '>>', $self->{files}->dashboard_log or die $!;
     }

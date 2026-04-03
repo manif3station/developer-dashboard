@@ -154,3 +154,16 @@ The integration flow also:
 - verifies the installed web app denies `/?token=...` browser execution by default while saved bookmark routes still render
 - uses headless Chromium to validate the editor, the saved fake-project bookmark page, and the helper login page
 - verifies that an installed long-running saved `/ajax/...` route starts streaming visible output within the expected first seconds instead of buffering until process exit
+
+## Windows Verification
+
+For Windows-targeted changes, keep the verification layered:
+
+- run the fast forced-Windows unit coverage in `t/`
+- run the real Strawberry Perl smoke on a Windows host with `integration/windows/run-strawberry-smoke.ps1`
+- run the full-system QEMU guest smoke with `integration/windows/run-qemu-windows-smoke.sh` before making a release-grade Windows compatibility claim
+
+The Strawberry smoke verifies `dashboard shell ps`, `dashboard ps1`, one
+PowerShell-backed collector command, one saved Ajax PowerShell handler through
+`Invoke-WebRequest`, and a browser DOM dump through Edge or Chrome when either
+browser is present in the Windows environment.

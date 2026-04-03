@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.40';
+our $VERSION = '1.42';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.40
+1.42
 
 =head1 INTRODUCTION
 
@@ -86,7 +86,7 @@ file-backed collectors and indicators
 
 =item *
 
-prompt rendering for C<PS1>
+prompt rendering for C<PS1> and the PowerShell C<prompt> function
 
 =item *
 
@@ -790,11 +790,12 @@ config-backed path aliases shown by C<dashboard paths>, so a direct
 C<perl -MFolder -e 'print Folder-E<gt>docker'> from the active project
 resolves the configured alias instead of failing with C<Unknown folder>.
 
-Render shell bootstrap for bash, zsh, or POSIX sh:
+Render shell bootstrap for bash, zsh, POSIX sh, or PowerShell:
 
   dashboard shell bash
   dashboard shell zsh
   dashboard shell sh
+  dashboard shell ps
 
 Resolve or open files from the CLI:
 
@@ -926,7 +927,8 @@ Collector jobs support two execution fields:
 
 =item *
 
-C<command> runs a shell command string through C<sh -c>
+C<command> runs a shell command string through the native platform shell:
+C<sh -lc> on Unix-like systems and PowerShell on Windows
 
 =item *
 
@@ -1024,12 +1026,27 @@ Generate shell bootstrap:
   dashboard shell bash
   dashboard shell zsh
   dashboard shell sh
+  dashboard shell ps
 
 The generated shell helper keeps the same bookmark-aware C<cdr>, C<dd_cdr>,
 and C<which_dir> functions across all supported shells. Bash still uses C<\j>
 for job counts, zsh refreshes C<PS1> through a C<precmd> hook with
-C<${#jobstates}>, and POSIX C<sh> falls back to a prompt command that does not
-depend on bash-only prompt escapes.
+C<${#jobstates}>, POSIX C<sh> falls back to a prompt command that does not
+depend on bash-only prompt escapes, and PowerShell installs a C<prompt>
+function instead of using the POSIX C<PS1> variable.
+
+On Windows, C<dashboard shell> auto-selects PowerShell by default, and
+interpreter-backed runtime entrypoints such as collector C<command> strings,
+trusted command actions, saved Ajax files, custom CLI commands, hook files,
+and update scripts now resolve C<.ps1>, C<.cmd>, C<.bat>, and C<.pl>
+runners without assuming C<sh> or C<bash>. That keeps Strawberry Perl installs
+usable without requiring a Unix shell just to load the dashboard runtime.
+
+The checked-in Windows verification assets follow the same layered approach:
+fast forced-Windows unit coverage in C<t/>, a real Strawberry Perl host smoke
+in F<integration/windows/run-strawberry-smoke.ps1>, and a prepared
+full-system VM gate in F<integration/windows/run-qemu-windows-smoke.sh> for
+release-grade Windows compatibility claims.
 
 =head2 Browser Access Model
 
@@ -1208,8 +1225,22 @@ and add explicit expectations:
     --bookmark-file ~/.developer-dashboard/dashboards/test \
     --expect-page-fragment "set_chain_value(foo,'bar','/ajax/foobar?type=text')" \
     --expect-ajax-path /ajax/foobar?type=text \
-    --expect-ajax-body 123 \
-    --expect-dom-fragment '<span class="display">123</span>'
+  --expect-ajax-body 123 \
+  --expect-dom-fragment '<span class="display">123</span>'
+
+For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
+host:
+
+  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.42.tar.gz
+
+Before calling a release Windows-compatible, also run the same smoke through a
+prepared QEMU Windows guest:
+
+  WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
+  WINDOWS_SSH_USER=developer \
+  WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
+  TARBALL=/path/to/Developer-Dashboard-1.42.tar.gz \
+  integration/windows/run-qemu-windows-smoke.sh
 
 =head2 Updating Runtime State
 

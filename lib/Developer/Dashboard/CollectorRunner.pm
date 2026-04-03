@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '1.40';
+our $VERSION = '1.42';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -12,6 +12,7 @@ use POSIX qw(setsid strftime);
 use Time::HiRes qw(sleep time);
 
 use Developer::Dashboard::JSON qw(json_encode json_decode);
+use Developer::Dashboard::Platform qw(shell_command_argv);
 
 our $SIGNAL_RUNNER;
 our $SIGNAL_LOOP_NAME;
@@ -237,7 +238,7 @@ sub _run_loop_child {
 
     if ($daemonize) {
         setsid();
-        open STDIN, '<', '/dev/null' or die $!;
+        open STDIN, '<', File::Spec->devnull() or die $!;
         open STDOUT, '>>', $self->{files}->collector_log or die $!;
         open STDERR, '>>', $self->{files}->collector_log or die $!;
     }
@@ -566,7 +567,7 @@ sub _run_command {
         local $SIG{ALRM} = sub { die "__COLLECTOR_TIMEOUT__\n" };
         alarm( int( ( $timeout_ms + 999 ) / 1000 ) );
         my $ok = eval {
-            system 'sh', '-c', $cmd;
+            system shell_command_argv($cmd);
             return $? >> 8;
         };
         if ($@) {

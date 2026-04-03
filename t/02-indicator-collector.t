@@ -1,6 +1,8 @@
 use strict;
 use warnings;
 
+use Capture::Tiny qw(capture);
+use File::Spec;
 use Test::More;
 use File::Temp qw(tempdir);
 
@@ -85,6 +87,39 @@ is_deeply(
 
 my $core = $indicators->refresh_core_indicators( cwd => "$ENV{HOME}/repo" );
 ok(ref($core) eq 'ARRAY' && @$core >= 2, 'core indicators can be refreshed on demand');
+{
+    my ( $stdout, $stderr, $exit_code ) = capture {
+        $indicators->refresh_core_indicators( cwd => "$ENV{HOME}/repo" );
+        return 0;
+    };
+    is( $stderr, '', 'core indicator refresh stays quiet for directories that only contain a placeholder .git path' );
+}
+{
+    my $real_repo = File::Spec->catdir( $ENV{HOME}, 'real-git-repo' );
+    mkdir $real_repo or die $!;
+    system( 'git', 'init', '-q', $real_repo ) == 0 or die 'git init failed';
+    system( 'git', '-C', $real_repo, 'config', 'user.email', 'indicator@example.test' ) == 0 or die 'git config user.email failed';
+    system( 'git', '-C', $real_repo, 'config', 'user.name', 'Indicator Coverage' ) == 0 or die 'git config user.name failed';
+
+    my $tracked = File::Spec->catfile( $real_repo, 'README' );
+    open my $tracked_fh, '>', $tracked or die $!;
+    print {$tracked_fh} "indicator coverage\n";
+    close $tracked_fh;
+    system( 'git', '-C', $real_repo, 'add', 'README' ) == 0 or die 'git add failed';
+    system( 'git', '-C', $real_repo, 'commit', '-q', '-m', 'init' ) == 0 or die 'git commit failed';
+
+    my $clean = $indicators->refresh_core_indicators( cwd => $real_repo );
+    my ($clean_git) = grep { $_->{name} eq 'git' } @{$clean};
+    is( $clean_git->{status}, 'clean', 'core indicator refresh marks a real clean git work tree as clean' );
+
+    open my $dirty_fh, '>>', $tracked or die $!;
+    print {$dirty_fh} "dirty\n";
+    close $dirty_fh;
+
+    my $dirty = $indicators->refresh_core_indicators( cwd => $real_repo );
+    my ($dirty_git) = grep { $_->{name} eq 'git' } @{$dirty};
+    is( $dirty_git->{status}, 'dirty', 'core indicator refresh marks a modified git work tree as dirty' );
+}
 
 done_testing;
 

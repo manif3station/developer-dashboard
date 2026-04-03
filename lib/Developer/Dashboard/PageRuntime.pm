@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '1.40';
+our $VERSION = '1.42';
 
 use Capture::Tiny qw(capture);
 use DataHelper qw(j je);
@@ -12,6 +12,7 @@ use IPC::Open3 qw(open3);
 use Symbol qw(gensym);
 use Developer::Dashboard::PageRuntime::StreamHandle;
 use Developer::Dashboard::JSON qw(json_encode);
+use Developer::Dashboard::Platform qw(command_argv_for_path command_in_path);
 use Developer::Dashboard::RuntimeManager ();
 use Folder ();
 use Template;
@@ -557,12 +558,13 @@ sub _stream_sysread {
 sub _saved_ajax_command {
     my ( $self, %args ) = @_;
     my $path = $args{path} || die 'Missing saved ajax file path';
+    return ( $^X, '-e', $self->_saved_ajax_perl_wrapper, $path ) if $path =~ /\.pl\z/i;
+    return command_argv_for_path($path) if $path =~ /\.(?:ps1|cmd|bat|sh|bash)\z/i;
+    return ( command_in_path('python3') || command_in_path('python') || 'python3', $path ) if $path =~ /\.py\z/i;
     open my $fh, '<', $path or die "Unable to read saved ajax file $path: $!";
     my $first_line = <$fh>;
     close $fh;
-    return ($path) if defined $first_line && $first_line =~ /^#!/;
-    return ( 'sh', $path ) if $path =~ /\.(?:sh|bash)\z/;
-    return ( 'python3', $path ) if $path =~ /\.py\z/;
+    return command_argv_for_path($path) if defined $first_line && $first_line =~ /^#!/;
     return ( $^X, '-e', $self->_saved_ajax_perl_wrapper, $path );
 }
 

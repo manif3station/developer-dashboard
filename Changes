@@ -1,5 +1,15 @@
 Revision history for Developer Dashboard
 
+1.42  2026-04-03
+    - added checked-in Windows verification assets for Strawberry Perl and QEMU so the repository now carries a real Windows smoke script plus a full-system VM launcher instead of relying on undocumented manual testing
+    - extended forced-Windows regression coverage for PATHEXT lookup and `.ps1`/`.cmd`/`.pl` dispatch so the fast test loop exercises Windows command resolution before the slower host and VM gates
+    - updated README, POD, testing docs, release docs, and the integration plan to require the layered Windows verification path before making Windows compatibility claims
+
+1.41  2026-04-03
+    - added a shared platform layer for shell selection, runnable-script resolution, and native shell command execution so collector commands, trusted page actions, updater scripts, custom CLI hooks, and saved Ajax files no longer assume `sh` or `bash`
+    - added `dashboard shell ps` and PowerShell bootstrap generation, using the PowerShell `prompt` function instead of a POSIX `PS1` export while keeping the existing `dashboard ps1` prompt renderer as the shared prompt command
+    - updated README, POD, release docs, integration notes, and regression coverage for Windows and Strawberry Perl oriented shell portability
+
 1.40  2026-04-03
     - fixed SSL listener redirect handling so `dashboard serve --ssl` now redirects real plain-HTTP requests on the public port to the matching `https://...` URL instead of letting browsers hit a reset connection
     - clarified outsider bootstrap semantics so the disabled-login `401` applies only when no helper user exists in the active runtime, which matters for project-local runtime overrides during browser verification

@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.40';
+our $VERSION = '1.42';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -13,6 +13,7 @@ use URI::Escape qw(uri_unescape);
 use Cwd qw(cwd);
 
 use Developer::Dashboard::JSON qw(json_encode);
+use Developer::Dashboard::Platform qw(command_in_path);
 use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageRuntime;
 use Developer::Dashboard::Codec qw(decode_payload);
@@ -1967,6 +1968,8 @@ sub _ip_interface_pairs {
     my ($self) = @_;
     my @pairs = $self->_ip_pairs_from_ip;
     return @pairs if @pairs;
+    @pairs = $self->_ip_pairs_from_ipconfig;
+    return @pairs if @pairs;
     return $self->_ip_pairs_from_ifconfig;
 }
 
@@ -1976,8 +1979,9 @@ sub _ip_interface_pairs {
 # Output: list of hashes with iface and ip keys.
 sub _ip_pairs_from_ip {
     my ($self) = @_;
+    return () if !command_in_path('ip');
     my ( $stdout, undef, $exit_code ) = capture {
-        system 'sh', '-c', 'command -v ip >/dev/null 2>&1 && ip -o -4 addr show up scope global';
+        system 'ip', '-o', '-4', 'addr', 'show', 'up', 'scope', 'global';
         return $? >> 8;
     };
     return () if $exit_code != 0 || !defined $stdout || $stdout eq '';
@@ -1989,14 +1993,43 @@ sub _ip_pairs_from_ip {
     return @pairs;
 }
 
+# _ip_pairs_from_ipconfig()
+# Reads IPv4 interface/address pairs using Windows ipconfig output when available.
+# Input: none.
+# Output: list of hashes with iface and ip keys.
+sub _ip_pairs_from_ipconfig {
+    my ($self) = @_;
+    return () if !command_in_path('ipconfig');
+    my ( $stdout, undef, $exit_code ) = capture {
+        system 'ipconfig';
+        return $? >> 8;
+    };
+    return () if $exit_code != 0 || !defined $stdout || $stdout eq '';
+    my @pairs;
+    my $iface = '';
+    for my $line ( split /\n/, $stdout ) {
+        if ( $line =~ /^\S.*adapter\s+(.+?):\s*$/i ) {
+            $iface = $1;
+            next;
+        }
+        next if $iface eq '';
+        next if $line !~ /IPv4[^:]*:\s*(\d+\.\d+\.\d+\.\d+)/i;
+        my $ip = $1;
+        next if $ip =~ /^127\./;
+        push @pairs, { iface => $iface, ip => $ip };
+    }
+    return @pairs;
+}
+
 # _ip_pairs_from_ifconfig()
 # Reads IPv4 interface/address pairs using `ifconfig` as a fallback on systems without `ip`.
 # Input: none.
 # Output: list of hashes with iface and ip keys.
 sub _ip_pairs_from_ifconfig {
     my ($self) = @_;
+    return () if !command_in_path('ifconfig');
     my ( $stdout, undef, $exit_code ) = capture {
-        system 'sh', '-c', 'command -v ifconfig >/dev/null 2>&1 && ifconfig';
+        system 'ifconfig';
         return $? >> 8;
     };
     return () if $exit_code != 0 || !defined $stdout || $stdout eq '';

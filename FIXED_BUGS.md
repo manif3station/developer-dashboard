@@ -2,6 +2,10 @@
 
 ## 2026-04-03
 
+- Fixed Windows verification drift by checking in `integration/windows/run-strawberry-smoke.ps1` and `integration/windows/run-qemu-windows-smoke.sh`, so Strawberry Perl and full-system Windows validation now live in the repo instead of in ad-hoc manual notes.
+- Fixed Windows command-resolution test gaps by extending the forced-Windows unit coverage for `PATHEXT`, `.ps1`, `.cmd`, and `.pl` dispatch, so platform regressions fail in the fast test loop before the slower Windows smoke gates run.
+- Fixed Unix-shell lock-in across the command runtime by routing collector `command` strings, trusted page actions, saved Ajax script execution, update scripts, and custom CLI runners through a shared platform layer, so Windows Strawberry Perl installs no longer require `sh` or `bash` just to execute dashboard-managed commands.
+- Fixed PowerShell prompt bootstrap support by adding `dashboard shell ps`, so Windows sessions now get the same bookmark-aware navigation helpers through a PowerShell `prompt` function instead of incorrectly relying on the POSIX `PS1` variable.
 - Fixed browser-visible SSL redirect failure by placing a same-port HTTP frontend in front of the SSL backend, so `dashboard serve --ssl` now returns a real `307` to `https://HOST:PORT/...` instead of resetting plain-HTTP browser connections on the public port.
 - Fixed outsider-bootstrap verification drift by documenting that the disabled-login `401` only applies when the active runtime has no helper users, so project-local helper-user state no longer gets mistaken for a broken browser auth gate.
 - Fixed outsider-login bootstrap drift by denying outsider requests with `401 Helper access is disabled until a helper user is added.` when no helper account exists yet, so `localhost` and other non-admin hosts stop showing a dead-end login form before helper access has been configured.

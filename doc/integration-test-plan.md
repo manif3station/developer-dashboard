@@ -26,7 +26,7 @@ The integration run covers these command families:
 - host packaging: `dzil build`
 - installation: `cpanm <tarball>`
 - bootstrap: `dashboard init`, user-provided `dashboard update`
-- help and prompt: `dashboard`, `dashboard help`, `dashboard ps1`, `dashboard shell bash`
+- help and prompt: `dashboard`, `dashboard help`, `dashboard ps1`, `dashboard shell bash`, `dashboard shell ps`
 - paths: `dashboard paths`, `dashboard path list`, `dashboard path resolve`, `dashboard path project-root`
 - encoding: `dashboard encode`, `dashboard decode`
 - indicators: `dashboard indicator set`, `dashboard indicator list`, `dashboard indicator refresh-core`
@@ -39,6 +39,7 @@ The integration run covers these command families:
 - web lifecycle: `dashboard serve`, `dashboard restart`, `dashboard stop`
 - browser checks: headless Chromium editor, saved fake-project bookmark page, outsider bootstrap DOM verification, and helper-login DOM verification after helper-user enablement
 - ajax streaming: installed long-running `/ajax/<file>` route timing, early-chunk verification, and refresh-safe singleton replacement plus browser pagehide cleanup coverage in unit tests
+- windows verification assets: `integration/windows/run-strawberry-smoke.ps1` and `integration/windows/run-qemu-windows-smoke.sh`
 
 ## Environment
 
@@ -147,6 +148,24 @@ integration/browser/run-bookmark-browser-smoke.pl
 
 That script is the fast path for saved bookmark browser issues such as static
 asset loading, legacy Ajax binding, and final DOM rendering checks.
+
+For Windows verification outside the Linux container flow, run the checked-in
+Strawberry Perl smoke on a Windows host:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.42.tar.gz
+```
+
+For release-grade Windows compatibility claims, run the same smoke through the
+prepared QEMU Windows guest:
+
+```bash
+WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
+WINDOWS_SSH_USER=developer \
+WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
+TARBALL=/path/to/Developer-Dashboard-1.42.tar.gz \
+integration/windows/run-qemu-windows-smoke.sh
+```
 
 Build the tarball on the host and run the integration harness with:
 

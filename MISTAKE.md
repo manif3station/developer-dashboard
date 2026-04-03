@@ -4,6 +4,38 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: WINDOWS-VERIFY-GAP
+
+**Date:** 2026-04-03 23:45:00 UTC
+**Area:** Windows compatibility verification
+**Symptom:** The codebase started adding Windows-aware dispatch paths, but the repository still lacked a checked-in Strawberry Perl smoke flow and a full-system Windows gate, leaving Windows support claims under-verified
+**Why It Was Dangerous:** Platform code can look correct in local Linux unit tests while still failing under real Windows path rules, shell bootstrapping, browser access, or tarball installation behavior
+**Root Cause:** Verification guidance existed only as general intent, not as checked-in runnable assets with tests enforcing their presence
+**How Ellen Solved It:** Added a Windows verification document, a real `integration/windows/run-strawberry-smoke.ps1` script for Strawberry Perl plus PowerShell verification, a `integration/windows/run-qemu-windows-smoke.sh` host launcher for a prepared QEMU Windows guest, and regression checks that require those assets and docs to stay present
+**How To Detect Earlier Next Time:** Before claiming Windows support, ask whether the repo contains a checked-in Windows tarball smoke and a checked-in full-system gate, not just Linux-side unit tests
+**Prevention Rule:** Any Windows compatibility claim must be backed by layered checked-in verification assets: forced-Windows unit tests, a real Strawberry Perl smoke, and a full-system VM gate for release-grade claims
+**Verification:** `prove -lv t/07-core-units.t`, `prove -lv t/13-integration-assets.t`, `prove -lv t/15-release-metadata.t`, full `prove -lr t`, coverage, `dzil build`, and `integration/blank-env/run-host-integration.sh`
+**Related Files:** `doc/windows-testing.md`, `integration/windows/run-strawberry-smoke.ps1`, `integration/windows/run-qemu-windows-smoke.sh`, `t/13-integration-assets.t`, `t/15-release-metadata.t`
+**Tags:** `windows`, `verification`, `qemu`, `strawberry-perl`, `powershell`, `release`
+
+---
+
+## CODE: POSIX-SHELL-LOCKIN
+
+**Date:** 2026-04-03 21:30:00 UTC
+**Area:** Cross-platform CLI/runtime execution
+**Symptom:** Core runtime paths such as collector commands, trusted action commands, update scripts, custom CLI hooks, and shell bootstrap support assumed `sh`, `bash`, or `zsh`, leaving Windows Strawberry Perl installs without a valid native execution path
+**Why It Was Dangerous:** The package could install on Unix-like hosts but still be structurally hostile to Windows, because command execution, prompt integration, and extension loading depended on Unix shells that may not exist there
+**Root Cause:** Shell selection and runnable-script resolution were scattered across the codebase, with direct `sh -c`, `-x`, `/dev/null`, and bash-specific prompt assumptions instead of a single platform-aware abstraction
+**How Ellen Solved It:** Added a shared `Developer::Dashboard::Platform` layer for OS detection, native shell argv building, runnable-script resolution, PowerShell support, and Windows-safe script dispatch; rewired the CLI bootstrap, collector runner, action runner, updater, saved Ajax runtime, and command-hook loader through that layer; updated docs to describe PowerShell `prompt` integration instead of pretending PowerShell uses `PS1`
+**How To Detect Earlier Next Time:** Scan for direct `sh -c`, shell-name allowlists, `-x` checks on script files, and `/dev/null` opens before claiming a runtime is cross-platform
+**Prevention Rule:** Any new command-execution or shell-bootstrap feature must go through the shared platform layer first, and PowerShell should be documented in terms of the `prompt` function rather than the POSIX `PS1` environment variable
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/07-core-units.t`, `prove -lv t/08-web-update-coverage.t`, `prove -lv t/11-coverage-closure.t`, full `prove -lr t`, coverage, `dzil build`, and `integration/blank-env/run-host-integration.sh`
+**Related Files:** `lib/Developer/Dashboard/Platform.pm`, `bin/dashboard`, `lib/Developer/Dashboard/ActionRunner.pm`, `lib/Developer/Dashboard/CollectorRunner.pm`, `lib/Developer/Dashboard/PageRuntime.pm`, `lib/Developer/Dashboard/UpdateManager.pm`
+**Tags:** `windows`, `powershell`, `strawberry-perl`, `shell`, `platform`, `portability`
+
+---
+
 ## CODE: OUTSIDER-GHOST-LOGIN
 
 **Date:** 2026-04-03 14:00:00 UTC

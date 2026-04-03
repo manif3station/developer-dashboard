@@ -3,7 +3,7 @@ package Developer::Dashboard::ActionRunner;
 use strict;
 use warnings;
 
-our $VERSION = '1.40';
+our $VERSION = '1.42';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -13,6 +13,7 @@ use POSIX qw(setsid strftime);
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
 use Developer::Dashboard::JSON qw(json_encode);
+use Developer::Dashboard::Platform qw(shell_command_argv);
 
 # new(%args)
 # Constructs an action runner bound to file and path registries.
@@ -143,7 +144,7 @@ sub run_command_action {
             };
         }
         setsid();
-        open STDIN, '<', '/dev/null' or die $!;
+        open STDIN, '<', File::Spec->devnull() or die $!;
         open STDOUT, '>>', $self->{files}->dashboard_log or die $!;
         open STDERR, '>>', $self->{files}->dashboard_log or die $!;
         $self->_run_command(
@@ -249,7 +250,7 @@ sub _run_command {
         local $SIG{ALRM} = sub { die "__ACTION_TIMEOUT__\n" };
         alarm( int( ( $timeout_ms + 999 ) / 1000 ) );
         my $ok = eval {
-            system 'sh', '-c', $cmd;
+            system shell_command_argv($cmd);
             return $? >> 8;
         };
         if ($@) {

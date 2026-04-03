@@ -10,6 +10,9 @@ ok( -f 'integration/blank-env/docker-compose.yml', 'blank-environment docker com
 ok( -f 'integration/blank-env/run-integration.pl', 'blank-environment integration runner exists' );
 ok( -f 'integration/blank-env/run-host-integration.sh', 'host-side blank-environment integration launcher exists' );
 ok( -f 'integration/browser/run-bookmark-browser-smoke.pl', 'bookmark browser smoke script exists' );
+ok( -f 'doc/windows-testing.md', 'Windows verification document exists' );
+ok( -f 'integration/windows/run-strawberry-smoke.ps1', 'Windows Strawberry Perl smoke script exists' );
+ok( -f 'integration/windows/run-qemu-windows-smoke.sh', 'Windows QEMU smoke launcher exists' );
 
 open my $plan_fh, '<', 'doc/integration-test-plan.md' or die $!;
 my $plan = do { local $/; <$plan_fh> };
@@ -26,12 +29,22 @@ like( $plan, qr/broken collector|broken Perl collector|healthy collector/i, 'int
 like( $plan, qr/Runtime::Result/, 'integration plan covers Runtime::Result-based hook verification' );
 like( $plan, qr/run-host-integration\.sh/, 'integration plan points to the host-side launcher' );
 like( $plan, qr/run-bookmark-browser-smoke\.pl/, 'integration plan documents the fast bookmark browser smoke runner' );
+like( $plan, qr/run-strawberry-smoke\.ps1/, 'integration plan documents the Windows Strawberry smoke runner' );
+like( $plan, qr/run-qemu-windows-smoke\.sh/, 'integration plan documents the Windows QEMU smoke launcher' );
 
 open my $testing_fh, '<', 'doc/testing.md' or die $!;
 my $testing = do { local $/; <$testing_fh> };
 close $testing_fh;
 like( $testing, qr/run-bookmark-browser-smoke\.pl/, 'testing doc documents the bookmark browser smoke runner' );
 like( $testing, qr/headless\s+Chromium/s, 'testing doc explains that the bookmark smoke runner uses headless Chromium' );
+
+open my $windows_doc_fh, '<', 'doc/windows-testing.md' or die $!;
+my $windows_doc = do { local $/; <$windows_doc_fh> };
+close $windows_doc_fh;
+like( $windows_doc, qr/Strawberry Perl/, 'Windows verification doc targets Strawberry Perl explicitly' );
+like( $windows_doc, qr/run-strawberry-smoke\.ps1/, 'Windows verification doc references the host-side Strawberry smoke script' );
+like( $windows_doc, qr/run-qemu-windows-smoke\.sh/, 'Windows verification doc references the QEMU smoke launcher' );
+like( $windows_doc, qr/qemu-system-x86_64/, 'Windows verification doc documents the QEMU dependency' );
 
 open my $smoke_fh, '<', 'integration/browser/run-bookmark-browser-smoke.pl' or die $!;
 my $smoke = do { local $/; <$smoke_fh> };
@@ -85,6 +98,24 @@ like( $host, qr/DASHBOARD_TARBALL/, 'host launcher exports the tarball path for 
 like( $host, qr/run --rm blank-env/, 'host launcher runs the blank-environment integration service' );
 unlike( $host, qr/run --build --rm blank-env/, 'host launcher does not rebuild the integration image when using the prebuilt container path' );
 like( $host, qr/dd-int-test:latest/, 'host launcher POD documents the prebuilt dd-int-test image path' );
+
+open my $windows_smoke_fh, '<', 'integration/windows/run-strawberry-smoke.ps1' or die $!;
+my $windows_smoke = do { local $/; <$windows_smoke_fh> };
+close $windows_smoke_fh;
+like( $windows_smoke, qr/cpanm/, 'Windows Strawberry smoke script installs the tarball with cpanm' );
+like( $windows_smoke, qr/dashboard shell ps/, 'Windows Strawberry smoke script verifies PowerShell shell bootstrap output' );
+like( $windows_smoke, qr/dashboard collector run/, 'Windows Strawberry smoke script exercises collector command execution' );
+like( $windows_smoke, qr/Invoke-WebRequest/, 'Windows Strawberry smoke script verifies browser-facing HTTP routes with PowerShell web requests' );
+like( $windows_smoke, qr/msedge\.exe|chrome\.exe/, 'Windows Strawberry smoke script looks for a Windows browser binary for DOM smoke checks' );
+like( $windows_smoke, qr/__END__/, 'Windows Strawberry smoke script carries POD trailer' );
+
+open my $qemu_fh, '<', 'integration/windows/run-qemu-windows-smoke.sh' or die $!;
+my $qemu = do { local $/; <$qemu_fh> };
+close $qemu_fh;
+like( $qemu, qr/qemu-system-x86_64/, 'Windows QEMU launcher boots a Windows VM with qemu-system-x86_64' );
+like( $qemu, qr/scp|ssh/, 'Windows QEMU launcher copies the tarball and smoke script into the guest over SSH' );
+like( $qemu, qr/run-strawberry-smoke\.ps1/, 'Windows QEMU launcher runs the Strawberry smoke script inside the guest' );
+like( $qemu, qr/__END__/, 'Windows QEMU launcher carries POD trailer' );
 
 if ( -f 'dist.ini' ) {
     open my $dist_fh, '<', 'dist.ini' or die $!;

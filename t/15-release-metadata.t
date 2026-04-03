@@ -59,7 +59,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.40', 'module version bumped for the browser-verified SSL redirect patch release' );
+is( $version, '1.42', 'module version bumped for the Windows verification-planning release' );
 like( $readme, qr/dashboard serve --ssl/, 'README documents the HTTPS serve flag' );
 like( $pm, qr/C<dashboard serve --ssl>/, 'main POD documents the HTTPS serve flag' );
 like( $release_doc, qr/dashboard serve --ssl/, 'release doc documents the HTTPS serve flag' );
@@ -107,8 +107,19 @@ like( $readme, qr/dashboard shell zsh/, 'README documents zsh shell bootstrap su
 like( $pm, qr/dashboard shell zsh/, 'main POD documents zsh shell bootstrap support' );
 like( $readme, qr/dashboard shell sh/, 'README documents sh shell bootstrap support' );
 like( $pm, qr/dashboard shell sh/, 'main POD documents sh shell bootstrap support' );
+like( $readme, qr/dashboard shell ps/, 'README documents PowerShell shell bootstrap support' );
+like( $pm, qr/dashboard shell ps/, 'main POD documents PowerShell shell bootstrap support' );
 like( $release_doc, qr/bin\/dashboard shell zsh/, 'release doc documents zsh shell bootstrap verification' );
 like( $release_doc, qr/bin\/dashboard shell sh/, 'release doc documents sh shell bootstrap verification' );
+like( $release_doc, qr/bin\/dashboard shell ps/, 'release doc documents PowerShell shell bootstrap verification' );
+like( $readme, qr/PowerShell installs a `prompt` function instead of using\s+the POSIX `PS1` variable/s, 'README documents the PowerShell prompt-function integration' );
+like( $pm, qr/C<prompt>\s+function instead of using the POSIX\s+C<PS1> variable/s, 'main POD documents the PowerShell prompt-function integration' );
+like( $readme, qr/native platform shell: `sh -lc` on Unix-like systems and PowerShell on Windows/s, 'README documents native platform shell execution for command collectors' );
+like( $pm, qr/native platform shell:\s+C<sh -lc> on Unix-like systems and PowerShell on Windows/s, 'main POD documents native platform shell execution for command collectors' );
+like( $readme, qr/integration\/windows\/run-strawberry-smoke\.ps1/, 'README documents the Windows Strawberry smoke script' );
+like( $pm, qr/integration\/windows\/run-strawberry-smoke\.ps1/, 'main POD documents the Windows Strawberry smoke script' );
+like( $readme, qr/integration\/windows\/run-qemu-windows-smoke\.sh/, 'README documents the Windows QEMU smoke launcher' );
+like( $pm, qr/integration\/windows\/run-qemu-windows-smoke\.sh/, 'main POD documents the Windows QEMU smoke launcher' );
 like( $readme, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'README documents the bookmark browser smoke script' );
 like( $pm, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'main POD documents the bookmark browser smoke script' );
 like( $readme, qr/Ajax` helper calls inside saved bookmark `CODE\*` blocks should use an\s+explicit `file => 'name\.json'` argument/s, 'README documents the saved bookmark Ajax file requirement' );
@@ -161,6 +172,8 @@ like( $pm, qr/helper access is for everyone else/, 'main POD documents helper-ti
 like( $pm, qr/=head2 Not Just For Perl/, 'main POD documents non-Perl suitability explicitly' );
 like( $release_doc, qr/cpanm \/tmp\/Developer-Dashboard-\Q$version\E\.tar\.gz -v/, 'release doc documents tarball install verification' );
 like( $release_doc, qr/tar -tzf Developer-Dashboard-\Q$version\E\.tar\.gz/, 'release doc documents tarball content verification' );
+like( $release_doc, qr/run-strawberry-smoke\.ps1/, 'release doc documents the Windows Strawberry smoke verification script' );
+like( $release_doc, qr/run-qemu-windows-smoke\.sh/, 'release doc documents the Windows QEMU smoke verification script' );
 like( $release_doc, qr/rm -rf Developer-Dashboard-\* Developer-Dashboard-\*\.tar\.gz/, 'release doc documents old build directory and tarball cleanup before building a release' );
 like( $security_doc, qr/security\@manif3station\.local/, 'SECURITY.md includes a private contact address' );
 like( $contributing_doc, qr/prove -lr t/, 'CONTRIBUTING.md documents the test workflow' );

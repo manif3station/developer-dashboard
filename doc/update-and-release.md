@@ -75,6 +75,7 @@ Render shell bootstrap:
 perl -Ilib bin/dashboard shell bash
 perl -Ilib bin/dashboard shell zsh
 perl -Ilib bin/dashboard shell sh
+perl -Ilib bin/dashboard shell ps
 ```
 
 Refresh generic built-in indicators:
@@ -97,8 +98,10 @@ before the first run, so prompt and page status views show configured checks
 immediately as missing until a collector reports a real exit code. Prompt
 rendering prefixes the collector icon with `✅` for healthy checks and `🚨`
 for failing or missing checks. `dashboard shell` now emits shell-specific
-bootstrap for bash, zsh, and POSIX `sh`, so release validation should cover
-whichever interactive shell bootstrap a new feature touches.
+bootstrap for bash, zsh, POSIX `sh`, and PowerShell `ps`, so release
+validation should cover whichever interactive shell bootstrap a new feature
+touches. PowerShell verification should check the generated `prompt`
+function rather than looking for a POSIX `PS1` export.
 
 Render prompt in extended colored mode:
 
@@ -189,8 +192,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.40.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.40.tar.gz -v
+tar -tzf Developer-Dashboard-1.42.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.42.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:
@@ -215,6 +218,24 @@ The shipped test suite now also clears the runtime-root override environment
 variables used by local developer setups and normalizes temporary-path
 comparisons, so tarball install verification stays stable on both Linux and
 macOS hosts.
+
+For Windows-targeted changes, verify the built tarball under a real Strawberry
+Perl environment before release:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.42.tar.gz
+```
+
+For release-grade Windows compatibility claims, also run the prepared QEMU
+guest smoke:
+
+```bash
+WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
+WINDOWS_SSH_USER=developer \
+WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
+TARBALL=/path/to/Developer-Dashboard-1.42.tar.gz \
+integration/windows/run-qemu-windows-smoke.sh
+```
 
 Command-output capture is implemented with `Capture::Tiny` `capture`, with exit codes returned from the capture block. The core runtime does not currently make outbound HTTP client requests.
 

@@ -17,6 +17,15 @@ use JSON::XS ();
 use Pod::Usage qw(pod2usage);
 use Symbol qw(gensym);
 
+use Developer::Dashboard::Platform qw(
+  command_argv_for_path
+  is_runnable_file
+  native_shell_name
+  normalize_shell_name
+  resolve_runnable_file
+  shell_quote_for
+);
+
 my $cmd = shift @ARGV || '';
 _prime_command_result_env( $cmd, @ARGV ) if $cmd ne '';
 
@@ -782,22 +791,24 @@ elsif ( $cmd eq 'restart' ) {
     exit 0;
 }
 elsif ( $cmd eq 'shell' ) {
-    my $shell = _normalize_shell_name( shift @ARGV || 'bash' );
+    my $shell = normalize_shell_name( shift @ARGV || native_shell_name() );
     print _shell_bootstrap($shell);
     exit 0;
 }
 else {
     my $user_cli = _custom_command_path($cmd);
     if ( -d $user_cli ) {
-        my $run = File::Spec->catfile( $user_cli, 'run' );
-        if ( -f $run && -x $run ) {
-            exec { $run } $run, @ARGV;
+        my $run = _resolve_directory_runner($user_cli);
+        if ($run) {
+            my @command = command_argv_for_path($run);
+            exec { $command[0] } @command, @ARGV;
             die "Unable to exec $run: $!";
         }
     }
-    if ( -f $user_cli && -x $user_cli ) {
-        exec { $user_cli } $user_cli, @ARGV;
-        die "Unable to exec $user_cli: $!";
+    if ( my $command_path = resolve_runnable_file($user_cli) ) {
+        my @command = command_argv_for_path($command_path);
+        exec { $command[0] } @command, @ARGV;
+        die "Unable to exec $command_path: $!";
     }
 }
 
@@ -834,7 +845,7 @@ sub _prime_command_result_env {
     my %results;
     for my $entry ( sort grep { $_ ne '.' && $_ ne '..' } readdir $dh ) {
         my $path = File::Spec->catfile( $hook_root, $entry );
-        next if !-f $path || !-x $path;
+        next if !is_runnable_file($path);
         next if $entry eq 'run';
 
         my $hook_result = _run_command_hook_streaming( $path, @argv );
@@ -858,10 +869,11 @@ sub _prime_command_result_env {
 # Output: hash reference with stdout, stderr, and exit_code.
 sub _run_command_hook_streaming {
     my ( $path, @argv ) = @_;
-    open my $stdin, '<', '/dev/null' or die "Unable to open /dev/null for hook stdin: $!";
+    open my $stdin, '<', File::Spec->devnull() or die "Unable to open " . File::Spec->devnull() . " for hook stdin: $!";
     my $stderr = gensym();
     my $stdout;
-    my $pid = open3( $stdin, $stdout, $stderr, $path, @argv );
+    my @command = command_argv_for_path($path);
+    my $pid = open3( $stdin, $stdout, $stderr, @command, @argv );
     close $stdin;
 
     my $selector = IO::Select->new( $stdout, $stderr );
@@ -1197,28 +1209,24 @@ HTML
 # Input: none.
 # Output: shell command string suitable for generated shell bootstrap helpers.
 sub _shell_dashboard_command {
+    my ($shell) = @_;
     my $script = File::Spec->rel2abs($0);
     my $repo_lib = File::Spec->rel2abs( File::Spec->catdir( $Bin, '..', 'lib' ) );
     if ( -f File::Spec->catfile( $repo_lib, 'Developer', 'Dashboard.pm' ) ) {
+        if ( $shell eq 'powershell' || $shell eq 'pwsh' ) {
+            return join ' ',
+              '&',
+              shell_quote_for( $shell, $^X ),
+              shell_quote_for( $shell, '-I' . $repo_lib ),
+              shell_quote_for( $shell, $script );
+        }
         return join ' ',
-          _shell_quote($^X),
-          '-I' . _shell_quote($repo_lib),
-          _shell_quote($script);
+          shell_quote_for( $shell, $^X ),
+          '-I' . shell_quote_for( $shell, $repo_lib ),
+          shell_quote_for( $shell, $script );
     }
-    return _shell_quote($script);
-}
-
-# _normalize_shell_name($shell)
-# Normalizes the requested shell selector into the supported bootstrap shell
-# names.
-# Input: optional shell executable name or path.
-# Output: normalized shell name string or dies for unsupported shells.
-sub _normalize_shell_name {
-    my ($shell) = @_;
-    $shell = 'bash' if !defined $shell || $shell eq '';
-    $shell =~ s{.*/}{};
-    return $shell if $shell eq 'bash' || $shell eq 'zsh' || $shell eq 'sh';
-    die "Unsupported shell '$shell'\n";
+    return shell_quote_for( $shell, $script ) if $shell eq 'powershell' || $shell eq 'pwsh';
+    return shell_quote_for( $shell, $script );
 }
 
 # _shell_bootstrap($shell)
@@ -1228,8 +1236,8 @@ sub _normalize_shell_name {
 # Output: shell bootstrap script string.
 sub _shell_bootstrap {
     my ($shell) = @_;
-    my $dashboard_cmd = _shell_dashboard_command();
-    my $bootstrap = _shell_navigation_bootstrap() . "\n" . _shell_prompt_bootstrap($shell);
+    my $dashboard_cmd = _shell_dashboard_command($shell);
+    my $bootstrap = _shell_navigation_bootstrap($shell) . "\n" . _shell_prompt_bootstrap($shell);
     $bootstrap =~ s/__DASHBOARD_CMD__/$dashboard_cmd/g;
     return $bootstrap;
 }
@@ -1240,6 +1248,57 @@ sub _shell_bootstrap {
 # Input: none.
 # Output: shell function definitions as a script string.
 sub _shell_navigation_bootstrap {
+    my ($shell) = @_;
+    if ( $shell eq 'powershell' || $shell eq 'pwsh' ) {
+        return <<'POWERSHELL';
+function Get-DashboardTarget {
+  param([string[]]$DashboardArgs)
+  if (-not $DashboardArgs -or $DashboardArgs.Count -eq 0) {
+    return $null
+  }
+  $target = (__DASHBOARD_CMD__ path resolve $DashboardArgs[0] 2>$null | Select-Object -First 1)
+  if (-not $target) {
+    $json = __DASHBOARD_CMD__ path locate @DashboardArgs
+    if ($LASTEXITCODE -eq 0 -and $json) {
+      $parsed = $json | ConvertFrom-Json
+      if ($parsed -is [System.Array]) {
+        $target = $parsed[0]
+      }
+      elseif ($parsed) {
+        $target = $parsed
+      }
+    }
+  }
+  if ($target) {
+    return [string]$target
+  }
+  return $null
+}
+
+function cdr {
+  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$DashboardArgs)
+  $target = Get-DashboardTarget -DashboardArgs $DashboardArgs
+  if ($target) {
+    Set-Location $target
+  }
+}
+
+Set-Alias dd_cdr cdr
+
+function which_dir {
+  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$DashboardArgs)
+  if (-not $DashboardArgs -or $DashboardArgs.Count -eq 0) {
+    return
+  }
+  $resolved = (__DASHBOARD_CMD__ path resolve $DashboardArgs[0] 2>$null | Select-Object -First 1)
+  if ($resolved) {
+    $resolved
+    return
+  }
+  __DASHBOARD_CMD__ path locate @DashboardArgs
+}
+POWERSHELL
+    }
     return <<'SH';
 cdr() {
   target="$(__DASHBOARD_CMD__ path resolve "$1" 2>/dev/null || true)"
@@ -1295,18 +1354,29 @@ PS1='$(_dd_prompt_command)'
 export PS1
 SH
     }
+    if ( $shell eq 'powershell' || $shell eq 'pwsh' ) {
+        return <<'POWERSHELL';
+function prompt {
+  __DASHBOARD_CMD__ ps1 --mode compact
+}
+POWERSHELL
+    }
     die "Unsupported shell '$shell'\n";
 }
 
-# _shell_quote($value)
-# Quotes a single shell token for safe interpolation into generated shell helpers.
-# Input: scalar string.
-# Output: single-quoted shell token string.
-sub _shell_quote {
-    my ($value) = @_;
-    $value = '' if !defined $value;
-    $value =~ s/'/'\\''/g;
-    return "'$value'";
+# _resolve_directory_runner($dir)
+# Resolves the runnable command file used by one directory-backed custom command.
+# Input: command directory path.
+# Output: runnable file path string or undef when the directory has no known runner.
+sub _resolve_directory_runner {
+    my ($dir) = @_;
+    return if !defined $dir || $dir eq '' || !-d $dir;
+    for my $name (qw(run run.pl run.ps1 run.cmd run.bat run.sh run.bash)) {
+        my $path = File::Spec->catfile( $dir, $name );
+        my $resolved = resolve_runnable_file($path);
+        return $resolved if $resolved;
+    }
+    return;
 }
 
 pod2usage(
@@ -1375,7 +1445,7 @@ dashboard - command-line entrypoint for Developer Dashboard
   dashboard serve [logs [-f] [-n N]|workers <N>] [--host HOST] [--port PORT] [--workers N] [--foreground]
   dashboard stop
   dashboard restart [--host HOST] [--port PORT] [--workers N]
-  dashboard shell [bash|zsh|sh]
+  dashboard shell [bash|zsh|sh|ps|powershell|pwsh]
   dashboard <custom-subcommand> [args...]
 
 =head1 DESCRIPTION
@@ -1394,7 +1464,7 @@ file-backed collectors and indicators
 
 =item *
 
-prompt rendering for C<PS1>
+prompt rendering for C<PS1> and the PowerShell C<prompt> function
 
 =item *
 

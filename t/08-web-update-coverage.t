@@ -311,6 +311,37 @@ SH
 }
 
 {
+    my $fake_bin = File::Spec->catdir( $home, 'fake-win-bin' );
+    make_path($fake_bin);
+    my $ipconfig = File::Spec->catfile( $fake_bin, 'ipconfig' );
+    open my $ipconfig_fh, '>', $ipconfig or die $!;
+    print {$ipconfig_fh} <<'BAT';
+#!/bin/sh
+cat <<'EOF'
+
+Ethernet adapter Ethernet:
+
+   IPv4 Address. . . . . . . . . . . : 10.20.30.40
+
+Wireless LAN adapter Loopback:
+
+   IPv4 Address. . . . . . . . . . . : 127.0.0.1
+EOF
+BAT
+    close $ipconfig_fh;
+    chmod 0755, $ipconfig or die $!;
+    no warnings 'redefine';
+    local $ENV{PATH} = $fake_bin . ':' . $ENV{PATH};
+    local *Developer::Dashboard::Web::App::_ip_pairs_from_ip = sub { return (); };
+    local *Developer::Dashboard::Web::App::_ip_pairs_from_ifconfig = sub { return (); };
+    is_deeply(
+        [ $app->_ip_interface_pairs ],
+        [ { iface => 'Ethernet', ip => '10.20.30.40' } ],
+        '_ip_interface_pairs falls back to ipconfig parsing when Windows ipconfig output is available',
+    );
+}
+
+{
     no warnings 'redefine';
     local *Developer::Dashboard::Web::App::_ip_pairs_from_ip = sub { return (); };
     local *Developer::Dashboard::Web::App::_ip_pairs_from_ifconfig = sub { return (); };

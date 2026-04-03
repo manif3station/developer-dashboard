@@ -3,13 +3,15 @@ package Developer::Dashboard::IndicatorStore;
 use strict;
 use warnings;
 
-our $VERSION = '1.40';
+our $VERSION = '1.42';
 
+use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
 use File::Spec;
 use Time::HiRes qw(time);
 
 use Developer::Dashboard::JSON qw(json_encode json_decode);
+use Developer::Dashboard::Platform qw(command_in_path);
 
 my $STATUS_ICONS = {
     ok => {
@@ -193,7 +195,7 @@ sub refresh_core_indicators {
     my $cwd   = $args{cwd} || $self->{paths}->current_project_root || $self->{paths}->home;
     my $items = [];
 
-    my $docker_ok = ( system( 'sh', '-c', 'command -v docker >/dev/null 2>&1' ) >> 8 ) == 0 ? 1 : 0;
+    my $docker_ok = command_in_path('docker') ? 1 : 0;
     push @$items, $self->set_indicator(
         'docker',
         alias          => '🐳',
@@ -219,9 +221,19 @@ sub refresh_core_indicators {
     if ($project) {
         my $old = cwd();
         chdir $project or die "Unable to chdir to $project: $!";
-        my $dirty = ( system( 'sh', '-c', 'git diff --quiet --ignore-submodules HEAD -- >/dev/null 2>&1' ) >> 8 ) == 0 ? 0 : 1;
+        my ( $stdout, $stderr, $inside_exit ) = capture {
+            system( 'git', 'rev-parse', '--is-inside-work-tree' );
+            return $? >> 8;
+        };
+        my $inside_work_tree = $inside_exit == 0 && $stdout =~ /^\s*true\s*$/m ? 1 : 0;
+        if ($inside_work_tree) {
+            my ( undef, undef, $dirty_exit ) = capture {
+                system( 'git', 'diff', '--quiet', '--ignore-submodules', 'HEAD', '--' );
+                return $? >> 8;
+            };
+            $git_status = $dirty_exit == 0 ? 'clean' : 'dirty';
+        }
         chdir $old or die "Unable to restore cwd to $old: $!";
-        $git_status = $dirty ? 'dirty' : 'clean';
     }
     push @$items, $self->set_indicator(
         'git',

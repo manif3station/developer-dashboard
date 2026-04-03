@@ -18,6 +18,15 @@ use Developer::Dashboard::IndicatorStore;
 use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageStore;
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::Platform qw(
+  command_argv_for_path
+  command_in_path
+  is_runnable_file
+  native_shell_name
+  normalize_shell_name
+  shell_quote_for
+  shell_command_argv
+);
 use Developer::Dashboard::Prompt;
 use POSIX qw(:sys_wait_h);
 use Developer::Dashboard::UpdateManager;
@@ -178,6 +187,171 @@ is_deeply(
     {},
     'named_paths returns an empty hash when no aliases are configured',
 );
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'linux';
+    is( normalize_shell_name('bash'), 'bash', 'normalize_shell_name keeps bash' );
+    is( normalize_shell_name('/usr/bin/zsh'), 'zsh', 'normalize_shell_name strips Unix shell paths' );
+    is_deeply( [ shell_command_argv('printf ok', shell => 'sh') ], [ 'sh', '-lc', 'printf ok' ], 'shell_command_argv builds POSIX shell argv' );
+    is( shell_quote_for( 'sh', q{O'Hara} ), q{'O'\''Hara'}, 'shell_quote_for escapes POSIX single quotes' );
+    dies_like( sub { normalize_shell_name('fish') }, qr/Unsupported shell 'fish'/, 'normalize_shell_name rejects unsupported shells explicitly' );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Platform::command_in_path = sub {
+            my ($name) = @_;
+            return '/usr/bin/bash' if $name eq 'bash';
+            return undef;
+        };
+        local $ENV{SHELL} = '';
+        is( native_shell_name(), 'bash', 'native_shell_name prefers bash when SHELL is unset and bash is available' );
+    }
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Platform::command_in_path = sub {
+            my ($name) = @_;
+            return '/usr/bin/zsh' if $name eq 'zsh';
+            return undef;
+        };
+        local $ENV{SHELL} = '';
+        is( native_shell_name(), 'zsh', 'native_shell_name falls back to zsh when bash is unavailable' );
+    }
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Platform::command_in_path = sub { return undef; };
+        local $ENV{SHELL} = '';
+        is( native_shell_name(), 'sh', 'native_shell_name falls back to sh when no richer POSIX shell is available' );
+    }
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Platform::normalize_shell_name = sub { return 'fish'; };
+        dies_like( sub { shell_command_argv('printf ok') }, qr/Unsupported shell 'fish'/, 'shell_command_argv rejects unsupported normalized shells explicitly' );
+    }
+    {
+        open my $fh, '>', 'unix-runner.pl' or die $!;
+        print {$fh} "#!/usr/bin/env perl\nprint qq{unix-ok\\n};\n";
+        close $fh;
+        is_deeply(
+            [ command_argv_for_path('unix-runner.pl') ],
+            [ $^X, 'unix-runner.pl' ],
+            'command_argv_for_path resolves Perl scripts through the current perl interpreter on Unix even when they carry a shebang',
+        );
+        unlink 'unix-runner.pl' or die $!;
+    }
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    is( normalize_shell_name('ps'), 'powershell', 'normalize_shell_name maps ps to powershell' );
+    is( normalize_shell_name('pwsh.exe'), 'pwsh', 'normalize_shell_name strips Windows PowerShell executable suffixes' );
+    is_deeply(
+        [ shell_command_argv('Write-Host ok', shell => 'powershell') ],
+        [ 'powershell', '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', 'Write-Host ok' ],
+        'shell_command_argv builds Windows PowerShell argv',
+    );
+    local $ENV{PATHEXT} = '.EXE;.CMD;.BAT;.PS1';
+    is( native_shell_name('powershell.exe'), 'powershell', 'native_shell_name normalizes explicit powershell selectors' );
+    ok( is_runnable_file('tool.ps1'), 'is_runnable_file treats .ps1 files as runnable on Windows when the file exists' ) if do {
+        open my $fh, '>', 'tool.ps1' or die $!;
+        print {$fh} "Write-Host ok\n";
+        close $fh;
+        1;
+    };
+    is_deeply(
+        [ command_argv_for_path('tool.ps1') ],
+        [ 'powershell', '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', 'tool.ps1' ],
+        'command_argv_for_path resolves PowerShell scripts on Windows',
+    );
+    ok( command_in_path('tool'), 'command_in_path resolves PATHEXT-backed PowerShell scripts on Windows' );
+    ok( is_runnable_file('tool'), 'is_runnable_file resolves PATHEXT-backed PowerShell scripts on Windows' );
+    {
+        open my $fh, '>', 'tool.cmd' or die $!;
+        print {$fh} "\@echo off\r\necho cmd-ok\r\n";
+        close $fh;
+    }
+    is_deeply(
+        [ command_argv_for_path('tool.cmd') ],
+        [ 'cmd.exe', '/d', '/c', 'tool.cmd' ],
+        'command_argv_for_path resolves .cmd scripts on Windows',
+    );
+    {
+        open my $fh, '>', 'hook.pl' or die $!;
+        print {$fh} "print qq{perl-ok\\n};\n";
+        close $fh;
+    }
+    is_deeply(
+        [ command_argv_for_path('hook.pl') ],
+        [ $^X, 'hook.pl' ],
+        'command_argv_for_path resolves Perl scripts on Windows through the current perl interpreter',
+    );
+    {
+        open my $fh, '>', 'runner.bat' or die $!;
+        print {$fh} "\@echo off\r\necho bat-ok\r\n";
+        close $fh;
+    }
+    is_deeply(
+        [ command_argv_for_path('runner.bat') ],
+        [ 'cmd.exe', '/d', '/c', 'runner.bat' ],
+        'command_argv_for_path resolves .bat scripts on Windows',
+    );
+    {
+        open my $fh, '>', 'runner.sh' or die $!;
+        print {$fh} "#!/bin/sh\necho sh-ok\n";
+        close $fh;
+    }
+    local $ENV{PATH} = $home . ':' . $ENV{PATH};
+    {
+        open my $fh, '>', File::Spec->catfile( $home, 'sh' ) or die $!;
+        print {$fh} "#!/bin/sh\nexit 0\n";
+        close $fh;
+        chmod 0755, File::Spec->catfile( $home, 'sh' ) or die $!;
+    }
+    ok( is_runnable_file('runner.sh'), 'is_runnable_file treats .sh files as runnable on Windows when a POSIX shell is available' );
+    my @runner_sh = command_argv_for_path('runner.sh');
+    is( $runner_sh[1], 'runner.sh', 'command_argv_for_path keeps the shell-script path when dispatching through an available POSIX shell on Windows' );
+    like( $runner_sh[0], qr{(?:^|/)sh$}, 'command_argv_for_path resolves .sh scripts through an available POSIX shell on Windows' );
+    {
+        open my $fh, '>', 'script.foo' or die $!;
+        print {$fh} "#!/usr/bin/env perl\nprint qq{shebang-ok\\n};\n";
+        close $fh;
+    }
+    ok( is_runnable_file('script.foo'), 'is_runnable_file treats shebang files as runnable on Windows' );
+    is_deeply(
+        [ command_argv_for_path('script.foo') ],
+        [ $^X, 'script.foo' ],
+        'command_argv_for_path falls back to perl for unknown extensions on Windows',
+    );
+    {
+        open my $fh, '>', 'notes.txt' or die $!;
+        print {$fh} "plain text\n";
+        close $fh;
+    }
+    ok( !is_runnable_file('notes.txt'), 'is_runnable_file rejects plain data files on Windows' );
+    is( shell_quote_for( 'powershell', q{O'Hara} ), q{'O''Hara'}, 'shell_quote_for escapes PowerShell single quotes' );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Platform::command_in_path = sub {
+            my ($name) = @_;
+            return 'pwsh' if $name eq 'pwsh';
+            return undef;
+        };
+        local $ENV{SHELL} = '';
+        is( native_shell_name(), 'pwsh', 'native_shell_name prefers pwsh on Windows when available' );
+    }
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Platform::command_in_path = sub { return undef; };
+        local $ENV{SHELL} = '';
+        is( native_shell_name(), 'powershell', 'native_shell_name falls back to powershell on Windows when pwsh is unavailable' );
+    }
+    unlink 'runner.bat' or die $!;
+    unlink 'runner.sh' or die $!;
+    unlink 'script.foo' or die $!;
+    unlink 'notes.txt' or die $!;
+    unlink File::Spec->catfile( $home, 'sh' ) or die $!;
+    unlink 'tool.ps1' or die $!;
+    unlink 'tool.cmd' or die $!;
+    unlink 'hook.pl' or die $!;
+}
 
 my $named_dir = $paths->resolve_dir('named');
 ok( !defined scalar $paths->ls('named'), 'ls returns undef for missing directory' );
