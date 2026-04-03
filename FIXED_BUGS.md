@@ -2,6 +2,8 @@
 
 ## 2026-04-03
 
+- Fixed prompt-format drift by changing `dashboard ps1` to follow the legacy `~/bin/ps1` layout, using a parenthesized timestamp prefix, bracketed working directory, and trailing `🌿branch` marker instead of the older brace-wrapped project context.
+- Fixed prompt ticket-context loss by teaching `dashboard ps1` to read `TICKET_REF` from the active tmux session environment when the ticket workflow seeded it there but the current shell process did not export it directly.
 - Fixed documentation-scope drift by removing release and deployment workflow detail from the main README and `Developer::Dashboard` POD, keeping those user-facing docs focused on runtime behavior while leaving operational release procedure in `doc/update-and-release.md`.
 - Fixed packaged-test runtime leakage by clearing `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_CHECKERS` inside the affected tests, so a developer's local override environment no longer breaks tarball installs and `cpanm` test runs.
 - Fixed macOS temp-path comparison drift by normalizing canonical paths inside the affected tests, so `/var/...` and `/private/var/...` temporary directories compare as the same location.

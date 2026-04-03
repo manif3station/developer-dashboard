@@ -90,10 +90,28 @@ like($auth_list, qr/"username"\s*:\s*"helper"/, 'auth list-users works');
 my $indicator_refresh = _run("$perl -I'$lib' '$dashboard' indicator refresh-core");
 like($indicator_refresh, qr/docker|project|git/, 'indicator refresh-core works');
 
+my $fake_tmux_dir = File::Spec->catdir( $ENV{HOME}, 'fake-bin' );
+make_path($fake_tmux_dir);
+my $fake_tmux = File::Spec->catfile( $fake_tmux_dir, 'tmux' );
+open my $fake_tmux_fh, '>', $fake_tmux or die "Unable to write $fake_tmux: $!";
+print {$fake_tmux_fh} <<'SH';
+#!/bin/sh
+if [ "$1" = "show-environment" ] && [ "$2" = "TICKET_REF" ]; then
+  printf 'TICKET_REF=DD-123\n'
+  exit 0
+fi
+exit 1
+SH
+close $fake_tmux_fh;
+chmod 0755, $fake_tmux or die "Unable to chmod $fake_tmux: $!";
+local $ENV{PATH} = join ':', $fake_tmux_dir, ( $ENV{PATH} || () );
+local $ENV{TICKET_REF};
+
 my $ps1 = _run("$perl -I'$lib' '$dashboard' ps1 --jobs 1");
 like($ps1, qr/\(1 jobs\)|developer-dashboard:master| D /, 'ps1 command works');
 like($ps1, qr/🚨🔑/, 'ps1 seeds configured collector indicators before their first run');
 like($ps1, qr/🚨🐳/, 'ps1 shows all configured collector indicators, not just previously-run collectors');
+like($ps1, qr/🎫:DD-123/, 'ps1 loads the ticket from the tmux session environment when TICKET_REF is not already exported');
 my $ps1_extended = _run("$perl -I'$lib' '$dashboard' ps1 --jobs 1 --mode extended --color");
 like($ps1_extended, qr/\e\[|\(1 jobs\)/, 'ps1 supports extended/color modes');
 
@@ -430,7 +448,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.35\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.36\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );

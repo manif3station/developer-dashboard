@@ -3,11 +3,12 @@ package Developer::Dashboard::Prompt;
 use strict;
 use warnings;
 
-our $VERSION = '1.35';
+our $VERSION = '1.36';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
 use File::Basename qw(basename);
+use POSIX qw(strftime);
 
 # new(%args)
 # Constructs the prompt renderer.
@@ -39,6 +40,7 @@ sub render {
     my $project = $self->{paths}->project_root_for($cwd);
     my $home = $self->{paths}->home;
     $cwd =~ s/^\Q$home\E/~/;
+    $cwd = "Home: $home" if $cwd eq '~';
 
     my @indicator_parts = $self->_indicator_parts(
         color   => $color,
@@ -46,27 +48,28 @@ sub render {
         mode    => $mode,
     );
 
-    my $status = @indicator_parts ? join( ' ', @indicator_parts ) : '';
-    my $project_label = $project ? basename($project) : '';
+    my $ticket = defined $ENV{TICKET_REF} ? $ENV{TICKET_REF} : '';
+    my @info_parts = @indicator_parts;
+    push @info_parts, "🎫:$ticket" if defined $ticket && $ticket ne '';
+    my $info = @info_parts ? join( ' ', @info_parts ) : '';
     my $branch = $self->_git_branch($project);
     my $jobs_suffix = $jobs ? " ($jobs jobs)" : '';
-    my $context = '';
-    if ( $project_label && $branch ) {
-        $context = "$project_label:$branch";
-    }
-    elsif ($project_label) {
-        $context = $project_label;
-    }
-    elsif ($branch) {
-        $context = $branch;
-    }
-    my $project_suffix = $context ? " {$context}" : '';
+    my $branch_suffix = $branch ? " 🌿$branch" : '';
 
-    return sprintf "[%s]%s %s%s\n> ",
-      scalar localtime,
-      ( $status ne '' ? " $status" : '' ),
+    return sprintf "(%s)%s [%s]%s%s\n> ",
+      $self->_timestamp,
+      ( $info ne '' ? " $info" : '' ),
       $cwd,
-      $jobs_suffix . $project_suffix;
+      $jobs_suffix,
+      $branch_suffix;
+}
+
+# _timestamp()
+# Renders the prompt timestamp in the legacy shell-helper format.
+# Input: none.
+# Output: local timestamp string as YYYY-MM-DD HH:MM:SS.
+sub _timestamp {
+    return strftime( '%Y-%m-%d %H:%M:%S', localtime );
 }
 
 # _indicator_parts(%args)

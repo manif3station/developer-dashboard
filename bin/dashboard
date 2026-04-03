@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 
+use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
@@ -138,6 +139,36 @@ my $CONFIG_PATH_ALIASES_LOADED  = 0;
 my $SAVED_PAGES_MIGRATED        = 0;
 my $COLLECTOR_INDICATORS_SYNCED = 0;
 
+# _prime_ticket_ref_env()
+# Seeds TICKET_REF from the active tmux session when the shell environment does
+# not already provide it.
+# Input: none.
+# Output: true after best-effort environment priming.
+sub _prime_ticket_ref_env {
+    return 1 if defined $ENV{TICKET_REF} && $ENV{TICKET_REF} ne '';
+    my $ticket = _tmux_ticket_ref();
+    $ENV{TICKET_REF} = $ticket if defined $ticket && $ticket ne '';
+    return 1;
+}
+
+# _tmux_ticket_ref()
+# Reads TICKET_REF from tmux session environment when available.
+# Input: none.
+# Output: ticket string or undef when tmux does not expose one.
+sub _tmux_ticket_ref {
+    my ( $stdout, undef, $exit_code ) = capture {
+        system 'tmux', 'show-environment', 'TICKET_REF';
+        return $? >> 8;
+    };
+    return if $exit_code != 0;
+    return if !defined $stdout || $stdout eq '';
+    for my $line ( split /\n/, $stdout ) {
+        next if !defined $line || $line eq '' || $line =~ /^-/;
+        return $1 if $line =~ /^TICKET_REF=(.+)$/;
+    }
+    return;
+}
+
 sub _load_configured_path_aliases {
     return 1 if $CONFIG_PATH_ALIASES_LOADED;
     $paths->register_named_paths( $config->path_aliases );
@@ -165,6 +196,7 @@ sub _sync_configured_collector_indicators {
 
 if ( $cmd eq 'ps1' ) {
     _sync_configured_collector_indicators();
+    _prime_ticket_ref_env();
     my $jobs = 0;
     my $cwd  = cwd();
     my $mode = 'compact';

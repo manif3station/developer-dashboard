@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.36  2026-04-03
+    - changed `dashboard ps1` to follow the legacy `~/bin/ps1` layout more closely, using a `(YYYY-MM-DD HH:MM:SS)` prefix, a bracketed current path, and a trailing `🌿branch` marker instead of the old `{project:branch}` suffix
+    - taught `dashboard ps1` to load `TICKET_REF` from the current tmux session environment when the ticket workflow seeded it there but the current shell process did not export it yet
+    - updated README, POD, fixed-bug notes, and release metadata for the prompt-shape and tmux-ticket integration change
+
 1.35  2026-04-03
     - removed release and deployment workflow detail from the main README and module POD so the user-facing documentation stays focused on product behavior instead of internal release procedure
     - kept the operational release and tarball verification steps in `doc/update-and-release.md`, where the repository workflow detail belongs

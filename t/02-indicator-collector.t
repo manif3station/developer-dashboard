@@ -45,8 +45,8 @@ is(scalar @items, 1, 'one indicator listed');
 is($items[0]{name}, 'docker', 'indicator stored');
 
 my $rendered = $prompt->render(jobs => 2, cwd => '/tmp/project');
-like($rendered, qr/\[\w{3}|\[/, 'prompt rendered');
-like($rendered, qr/\] ✅🐳 /, 'compact prompt includes status glyph plus indicator icon');
+like($rendered, qr/^\(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\)/, 'prompt renders legacy timestamp prefix');
+like($rendered, qr/✅🐳.*\[\/tmp\/project\]/, 'compact prompt includes status glyph plus indicator icon before the bracketed path');
 like($rendered, qr/\(2 jobs\)/, 'job count included');
 
 $indicators->set_indicator(
@@ -80,7 +80,7 @@ is_deeply(
     no warnings 'redefine';
     local *Developer::Dashboard::Prompt::_git_branch = sub { 'main' };
     my $with_branch = $prompt->render( jobs => 0, cwd => $repo );
-    like( $with_branch, qr/\{repo:main\}/, 'prompt includes repo name and git branch' );
+    like( $with_branch, qr/\[~\/repo\].*🌿main/, 'prompt includes git branch in the legacy trailing branch format' );
 }
 
 my $core = $indicators->refresh_core_indicators( cwd => "$ENV{HOME}/repo" );

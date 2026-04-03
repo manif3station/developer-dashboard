@@ -555,14 +555,15 @@ is( $die_encoded->[0], 403, 'web app converts encoded action exceptions into 403
 
 my $prompt = Developer::Dashboard::Prompt->new( indicators => $indicators, paths => $paths );
 my $project_only_prompt = $prompt->render( cwd => $repo, jobs => 0 );
-like( $project_only_prompt, qr/\{coverage-app\}/, 'prompt renders project-only context when git branch is unavailable' );
+like( $project_only_prompt, qr{\Q[~/projects/coverage-app]\E}, 'prompt renders the bracketed cwd when git branch is unavailable' );
+unlike( $project_only_prompt, qr/\{coverage-app\}/, 'prompt no longer appends the old project-only brace context' );
 
 {
     no warnings 'redefine';
     local *Developer::Dashboard::Prompt::_git_branch = sub { return 'main' };
     local *Developer::Dashboard::PathRegistry::project_root_for = sub { return undef };
     my $branch_only_prompt = $prompt->render( cwd => File::Spec->catdir( $home, 'outside' ), jobs => 0 );
-    like( $branch_only_prompt, qr/\{main\}/, 'prompt renders branch-only context when no project root resolves' );
+    like( $branch_only_prompt, qr{\Q[~/outside] 🌿main\E}, 'prompt renders branch-only context as a trailing branch marker when no project root resolves' );
 }
 
 done_testing;

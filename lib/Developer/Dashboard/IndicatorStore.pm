@@ -3,7 +3,7 @@ package Developer::Dashboard::IndicatorStore;
 use strict;
 use warnings;
 
-our $VERSION = '1.35';
+our $VERSION = '1.36';
 
 use Cwd qw(cwd);
 use File::Spec;

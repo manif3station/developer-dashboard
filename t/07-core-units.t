@@ -630,7 +630,7 @@ my $plain_prompt = Developer::Dashboard::Prompt->new(
     paths      => $plain_paths,
     indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
 )->render( cwd => File::Spec->catdir( $plain_home, 'here' ) );
-like( $plain_prompt, qr/\]\s+~/, 'prompt still renders the cwd when no indicators exist' );
+like( $plain_prompt, qr/\[~\/here\]/, 'prompt still renders the cwd when no indicators exist' );
 unlike( $plain_prompt, qr/\bDD\b/, 'prompt omits the DD fallback when no indicators exist' );
 
 my $prompt_output = $prompt->render( jobs => 3, cwd => File::Spec->catdir( $home, 'named-path' ) );
@@ -651,7 +651,7 @@ like(
         jobs => 0,
         cwd  => File::Spec->catdir( $workspace, 'Alpha-App' ),
     );
-    like( $branch_prompt, qr/\{Alpha-App:master\}/, 'prompt includes repo name and git branch' );
+    like( $branch_prompt, qr/\Q[~\/workspace\/Alpha-App] 🌿master\E/, 'prompt includes git branch in the legacy trailing branch format' );
 }
 {
     my $git_repo = File::Spec->catdir( $home, 'prompt-git-repo' );

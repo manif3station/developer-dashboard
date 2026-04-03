@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.35';
+our $VERSION = '1.36';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.35
+1.36
 
 =head1 INTRODUCTION
 
@@ -1001,6 +1001,13 @@ instead of a dashboard JSON wrapper.
 Render prompt text directly:
 
   dashboard ps1 --jobs 2
+
+C<dashboard ps1> now follows the legacy F<~/bin/ps1> shape more closely: a
+C<(YYYY-MM-DD HH:MM:SS)> timestamp prefix, dashboard status and ticket info, a
+bracketed working directory, an optional jobs suffix, and a trailing
+C<🌿branch> marker when git metadata is available. If the ticket workflow
+seeded C<TICKET_REF> into the current tmux session, C<dashboard ps1> also
+reads it from tmux when the shell environment does not already export it.
 
 Generate bash bootstrap:
 

@@ -55,7 +55,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.35', 'module version bumped for the macOS packaged-test portability patch release' );
+is( $version, '1.36', 'module version bumped for the prompt-shape and tmux-ticket integration patch release' );
 like( $readme, qr/dashboard serve --ssl/, 'README documents the HTTPS serve flag' );
 like( $pm, qr/C<dashboard serve --ssl>/, 'main POD documents the HTTPS serve flag' );
 like( $release_doc, qr/dashboard serve --ssl/, 'release doc documents the HTTPS serve flag' );
@@ -86,6 +86,10 @@ like( $readme, qr/dashboard serve workers N/, 'README documents the persistent s
 like( $pm, qr/C<dashboard serve workers N>/, 'main POD documents the persistent serve workers command' );
 like( $readme, qr/dashboard serve workers N.*--port PORT/s, 'README documents the serve workers auto-start port override' );
 like( $pm, qr/C<dashboard serve workers N>.*C<--port PORT>/s, 'main POD documents the serve workers auto-start port override' );
+like( $readme, qr/legacy `~\/bin\/ps1` shape more closely/s, 'README documents the legacy-style prompt layout' );
+like( $pm, qr/legacy F<~\/bin\/ps1> shape more closely/s, 'main POD documents the legacy-style prompt layout' );
+like( $readme, qr/reads\s+it from tmux when the shell environment does not already export it/s, 'README documents tmux-backed ticket lookup for ps1' );
+like( $pm, qr/reads it from tmux when the shell environment does not already export it/s, 'main POD documents tmux-backed ticket lookup for ps1' );
 like( $readme, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'README documents the bookmark browser smoke script' );
 like( $pm, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'main POD documents the bookmark browser smoke script' );
 like( $readme, qr/Ajax` helper calls inside saved bookmark `CODE\*` blocks should use an\s+explicit `file => 'name\.json'` argument/s, 'README documents the saved bookmark Ajax file requirement' );

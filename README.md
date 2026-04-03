@@ -652,6 +652,13 @@ Render prompt text directly:
 dashboard ps1 --jobs 2
 ```
 
+`dashboard ps1` now follows the legacy `~/bin/ps1` shape more closely: a
+`(YYYY-MM-DD HH:MM:SS)` timestamp prefix, dashboard status and ticket info, a
+bracketed working directory, an optional jobs suffix, and a trailing
+`🌿branch` marker when git metadata is available. If the ticket workflow
+seeded `TICKET_REF` into the current tmux session, `dashboard ps1` also reads
+it from tmux when the shell environment does not already export it.
+
 Generate bash bootstrap:
 
 ```bash
