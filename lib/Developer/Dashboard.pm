@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.37';
+our $VERSION = '1.38';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.37
+1.38
 
 =head1 INTRODUCTION
 
@@ -236,6 +236,10 @@ Run C<dashboard serve --ssl> to enable HTTPS with a generated self-signed
 certificate under F<~/.developer-dashboard/certs/>, then open:
 
   https://127.0.0.1:7890/
+
+When SSL mode is on, any non-HTTPS request that still reaches the app is
+redirected to the equivalent C<https://...> URL before the dashboard route
+runs.
 
 The access model is deliberate:
 
@@ -1092,7 +1096,8 @@ C<dashboard serve --foreground> keeps the web service attached to the terminal
 =item *
 
 C<dashboard serve --ssl> enables HTTPS in Starman with the generated local
-certificate and key, and the saved SSL setting is reused by later
+certificate and key, redirects non-HTTPS requests to the matching
+C<https://...> URL, and reuses the saved SSL setting on later
 C<dashboard restart> runs unless you override it
 
 =item *

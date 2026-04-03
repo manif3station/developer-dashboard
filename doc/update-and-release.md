@@ -140,7 +140,9 @@ instead of always sending it to `/`.
 The default bind is `0.0.0.0:7890`, so the service is reachable on local and VPN interfaces unless the host firewall blocks it.
 Run `dashboard serve --ssl` to enable HTTPS with the generated self-signed
 certificate stored under `~/.developer-dashboard/certs/`, and verify the local
-listener at `https://127.0.0.1:7890/`.
+listener at `https://127.0.0.1:7890/`. When SSL is enabled, any request that
+still arrives as plain HTTP at the app layer must be redirected to the
+equivalent `https://...` URL before the dashboard route runs.
 Shared `nav/*.tt` fragments now wrap horizontally and inherit bookmark theme
 colors from CSS variables, so bookmark pages with dark panels do not force a
 light nav strip or unreadable nav link text.
@@ -184,8 +186,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.37.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.37.tar.gz -v
+tar -tzf Developer-Dashboard-1.38.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.38.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

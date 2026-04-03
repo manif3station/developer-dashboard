@@ -55,10 +55,13 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.37', 'module version bumped for the multi-shell bootstrap patch release' );
+is( $version, '1.38', 'module version bumped for the SSL redirect patch release' );
 like( $readme, qr/dashboard serve --ssl/, 'README documents the HTTPS serve flag' );
 like( $pm, qr/C<dashboard serve --ssl>/, 'main POD documents the HTTPS serve flag' );
 like( $release_doc, qr/dashboard serve --ssl/, 'release doc documents the HTTPS serve flag' );
+like( $readme, qr/non-HTTPS request.*redirected to the equivalent `https:\/\/\.\.\.` URL/s, 'README documents redirecting non-HTTPS requests in SSL mode' );
+like( $pm, qr/non-HTTPS request.*redirected to the equivalent C<https:\/\/\.\.\.> URL/s, 'main POD documents redirecting non-HTTPS requests in SSL mode' );
+like( $release_doc, qr/plain HTTP at the app layer must be redirected to the\s+equivalent `https:\/\/\.\.\.` URL/s, 'release doc documents redirecting non-HTTPS app-layer requests in SSL mode' );
 like( $release_doc, qr/tarball install verification stays stable on both Linux and\s+macOS hosts/, 'release doc documents cross-platform tarball test portability' );
 like( $readme, qr/https:\/\/127\.0\.0\.1:7890\//, 'README documents the local HTTPS URL' );
 like( $pm, qr/https:\/\/127\.0\.0\.1:7890\//, 'main POD documents the local HTTPS URL' );

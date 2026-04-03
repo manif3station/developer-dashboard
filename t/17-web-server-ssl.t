@@ -13,12 +13,26 @@ BEGIN {
 use File::Path qw(make_path remove_tree);
 use File::Spec;
 use File::Temp qw(tempdir);
+use HTTP::Request::Common qw(GET);
+use Plack::Test;
 use Test::More;
 
 use lib 'lib';
 
 use Developer::Dashboard::Web::Server;
 use Developer::Dashboard::Web::DancerApp;
+
+{
+    package Local::SSLTestApp;
+
+    sub new { bless {}, shift }
+
+    sub authorize_request { return; }
+
+    sub root_response {
+        return [ 200, 'text/plain; charset=utf-8', 'OK', {} ];
+    }
+}
 
 # Test 1: Self-signed cert generation
 {
@@ -187,12 +201,12 @@ use Developer::Dashboard::Web::DancerApp;
     ok( $runner_options{ssl_cert}, 'Plack runner includes SSL certificate path' );
 }
 
-# Test 7: PSGI app has redirect middleware when SSL enabled
+# Test 7: SSL-enabled PSGI app redirects HTTP requests to HTTPS first
 {
     my $temp_home = tempdir(CLEANUP => 1);
     local $ENV{HOME} = $temp_home;
     
-    my $mock_app = sub { [200, [], ['OK']] };
+    my $mock_app = Local::SSLTestApp->new();
     
     my $server_https = Developer::Dashboard::Web::Server->new(
         app     => $mock_app,
@@ -206,21 +220,24 @@ use Developer::Dashboard::Web::DancerApp;
     ok($psgi_app, 'PSGI app created');
     ok(ref($psgi_app) eq 'CODE', 'PSGI app is a code reference');
     
-    # Test that the app returns a valid PSGI response
-    my $env = {
-        REQUEST_METHOD => 'GET',
-        PATH_INFO      => '/',
-        SCRIPT_NAME    => '',
-        SERVER_NAME    => '127.0.0.1',
-        SERVER_PORT    => 17891,
-        SERVER_PROTOCOL => 'HTTP/1.1',
-        psgi            => { version => [1, 1] },
+    test_psgi $psgi_app, sub {
+        my ($cb) = @_;
+        my $http_request = GET 'http://127.0.0.1:17891/?from=http';
+        my $http_response = $cb->($http_request);
+        ok($http_response, 'PSGI app responds to HTTP request');
+        is($http_response->code, 307, 'HTTP request redirects before reaching the app');
+        is(
+            $http_response->header('Location'),
+            'https://127.0.0.1:17891/?from=http',
+            'HTTP request redirects to the equivalent HTTPS URL'
+        );
+
+        my $https_request = GET 'https://127.0.0.1:17891/?from=http';
+        my $https_response = $cb->($https_request);
+        ok($https_response, 'PSGI app responds to HTTPS request');
+        is($https_response->code, 200, 'HTTPS request reaches the wrapped app');
+        is($https_response->decoded_content, 'OK', 'HTTPS request preserves the wrapped app response body');
     };
-    
-    my $response = $psgi_app->($env);
-    ok($response, 'PSGI app responds to request');
-    ok(ref($response) eq 'ARRAY', 'PSGI response is array reference');
-    ok(scalar(@$response) >= 3, 'PSGI response has status, headers, body');
 }
 
 # Test 8: Command line --ssl flag parsing
@@ -244,6 +261,62 @@ use Developer::Dashboard::Web::DancerApp;
 # Test 10: Config saves and loads SSL preference
 {
     ok(1, 'Config SSL persistence tested in integration');
+}
+
+# Test 11: Redirect helpers cover forwarded HTTPS and fallback URL rebuilding
+{
+    ok(
+        !Developer::Dashboard::Web::Server::_request_is_https(undef),
+        'non-hash PSGI environments are treated as plain HTTP'
+    );
+    ok(
+        Developer::Dashboard::Web::Server::_request_is_https({
+            HTTP_X_FORWARDED_PROTO => 'https',
+        }),
+        'forwarded HTTPS requests are treated as already secure'
+    );
+
+    is(
+        Developer::Dashboard::Web::Server::_https_redirect_location({
+            SERVER_NAME => 'redirect.local',
+            SERVER_PORT => 443,
+        }),
+        'https://redirect.local/',
+        'fallback redirect location omits the default HTTPS port'
+    );
+    is(
+        Developer::Dashboard::Web::Server::_https_redirect_location({
+            SERVER_NAME  => 'redirect.local',
+            SERVER_PORT  => 8443,
+            SCRIPT_NAME  => '/dashboard',
+            PATH_INFO    => '/ssl',
+            QUERY_STRING => 'mode=test',
+        }),
+        'https://redirect.local:8443/dashboard/ssl?mode=test',
+        'fallback redirect location rebuilds host, path, port, and query string'
+    );
+
+    my $redirect_response = Developer::Dashboard::Web::Server::_ssl_redirect_response({
+        SERVER_NAME  => 'redirect.local',
+        SERVER_PORT  => 8443,
+        SCRIPT_NAME  => '/dashboard',
+        PATH_INFO    => '/ssl',
+        QUERY_STRING => 'mode=test',
+    });
+    is( $redirect_response->[0], 307, 'redirect helper returns temporary redirect status' );
+    is_deeply(
+        $redirect_response->[1],
+        [
+            'Content-Type' => 'text/plain; charset=utf-8',
+            'Location'     => 'https://redirect.local:8443/dashboard/ssl?mode=test',
+        ],
+        'redirect helper returns the expected headers'
+    );
+    is_deeply(
+        $redirect_response->[2],
+        ['Redirecting to HTTPS'],
+        'redirect helper returns the expected body'
+    );
 }
 
 done_testing();

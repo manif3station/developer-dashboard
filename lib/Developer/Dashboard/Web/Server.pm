@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '1.37';
+our $VERSION = '1.38';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -106,10 +106,16 @@ sub serve_daemon {
 # Output: PSGI application code reference.
 sub psgi_app {
     my ($self) = @_;
-    return Developer::Dashboard::Web::DancerApp->build_psgi_app(
+    my $app = Developer::Dashboard::Web::DancerApp->build_psgi_app(
         app             => $self->{app},
         default_headers => $self->_default_headers,
     );
+    return $app if !$self->{ssl};
+    return sub {
+        my ($env) = @_;
+        return _ssl_redirect_response($env) if !_request_is_https($env);
+        return $app->($env);
+    };
 }
 
 # _build_runner($daemon)
@@ -151,6 +157,60 @@ sub _default_headers {
         'Cache-Control'           => 'no-store',
         'Content-Security-Policy' => q{default-src 'self' 'unsafe-inline' data:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'},
     };
+}
+
+# _request_is_https($env)
+# Detects whether the current PSGI request already arrived through HTTPS or a
+# trusted forwarded HTTPS indicator.
+# Input: PSGI environment hash reference.
+# Output: boolean true when the request is already HTTPS.
+sub _request_is_https {
+    my ($env) = @_;
+    return 0 if ref($env) ne 'HASH';
+    my $scheme = defined $env->{'psgi.url_scheme'} ? lc( $env->{'psgi.url_scheme'} ) : '';
+    return 1 if $scheme eq 'https';
+    my $forwarded = defined $env->{HTTP_X_FORWARDED_PROTO} ? lc( $env->{HTTP_X_FORWARDED_PROTO} ) : '';
+    return 1 if $forwarded eq 'https';
+    return 0;
+}
+
+# _ssl_redirect_response($env)
+# Builds the HTTP-to-HTTPS redirect response used when SSL mode is enabled but
+# the incoming request still uses HTTP.
+# Input: PSGI environment hash reference.
+# Output: PSGI array response with redirect status, headers, and body.
+sub _ssl_redirect_response {
+    my ($env) = @_;
+    my $location = _https_redirect_location($env);
+    return [
+        307,
+        [
+            'Content-Type' => 'text/plain; charset=utf-8',
+            'Location'     => $location,
+        ],
+        ['Redirecting to HTTPS'],
+    ];
+}
+
+# _https_redirect_location($env)
+# Rebuilds the current request URL with an https:// scheme for SSL-enforcement
+# redirects.
+# Input: PSGI environment hash reference.
+# Output: absolute HTTPS URL string.
+sub _https_redirect_location {
+    my ($env) = @_;
+    my $host = defined $env->{HTTP_HOST} ? $env->{HTTP_HOST} : '';
+    if ( $host eq '' ) {
+        my $server_name = defined $env->{SERVER_NAME} ? $env->{SERVER_NAME} : '127.0.0.1';
+        my $server_port = defined $env->{SERVER_PORT} ? $env->{SERVER_PORT} : 443;
+        $host = $server_name;
+        $host .= ':' . $server_port if defined $server_port && $server_port ne '' && $server_port !~ /^443$/;
+    }
+    my $path = defined $env->{SCRIPT_NAME} ? $env->{SCRIPT_NAME} : '';
+    $path .= defined $env->{PATH_INFO} ? $env->{PATH_INFO} : '/';
+    $path = '/' if $path eq '';
+    my $query = defined $env->{QUERY_STRING} ? $env->{QUERY_STRING} : '';
+    return 'https://' . $host . $path . ( $query ne '' ? '?' . $query : '' );
 }
 
 # generate_self_signed_cert()
@@ -230,7 +290,7 @@ and runs it under Starman through Plack::Runner.
 
 Construct and run the local PSGI web server with optional SSL/HTTPS support.
 
-When C<ssl => 1> is passed to new(), generates self-signed certificates in C<~/.developer-dashboard/certs/> and configures Starman for HTTPS. The listening_url() method returns https:// when SSL is enabled.
+When C<ssl => 1> is passed to new(), generates self-signed certificates in C<~/.developer-dashboard/certs/>, configures Starman for HTTPS, and redirects any non-HTTPS request that still reaches the PSGI app to the equivalent C<https://...> URL. The listening_url() method returns https:// when SSL is enabled.
 
 =head1 SSL SUPPORT
 

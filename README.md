@@ -65,6 +65,10 @@ certificate under `~/.developer-dashboard/certs/`, then open:
 https://127.0.0.1:7890/
 ```
 
+When SSL mode is on, any non-HTTPS request that still reaches the app is
+redirected to the equivalent `https://...` URL before the dashboard route
+runs.
+
 The access model is deliberate:
 
 - exact numeric loopback admin access on `127.0.0.1` does not require a password
@@ -709,7 +713,7 @@ The default web bind is `0.0.0.0:7890`. Trust is still decided from the request 
 
 - `dashboard serve` starts the web service in the background by default
 - `dashboard serve --foreground` keeps the web service attached to the terminal
-- `dashboard serve --ssl` enables HTTPS in Starman with the generated local certificate and key, and the saved SSL setting is reused by later `dashboard restart` runs unless you override it
+- `dashboard serve --ssl` enables HTTPS in Starman with the generated local certificate and key, redirects non-HTTPS requests to the matching `https://...` URL, and reuses the saved SSL setting on later `dashboard restart` runs unless you override it
 - `dashboard serve logs` prints the combined Dancer2 and Starman runtime log captured in the dashboard log file, `dashboard serve logs -n 100` starts from the last 100 lines, and `dashboard serve logs -f` follows appended output live
 - `dashboard serve workers N` saves the default Starman worker count and starts the web service immediately when it is currently stopped; `--host HOST` and `--port PORT` can steer that auto-start path, and `dashboard serve --workers N` or `dashboard restart --workers N` can still override it for one run
 - `dashboard stop` stops both the web service and managed collector loops

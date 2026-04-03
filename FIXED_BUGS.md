@@ -2,6 +2,7 @@
 
 ## 2026-04-03
 
+- Fixed SSL redirect drift by wrapping the SSL-enabled PSGI app with an HTTP-to-HTTPS redirect, so any request that still reaches the app as plain HTTP is sent to the matching `https://...` URL before the dashboard route executes.
 - Fixed bash-only shell bootstrap output by adding `dashboard shell zsh`, so macOS zsh sessions now get the same bookmark-aware navigation helpers and a `precmd`-refreshed dashboard prompt with zsh job counting.
 - Fixed POSIX shell bootstrap gaps by adding `dashboard shell sh`, so non-bash Linux `/bin/sh` sessions now get `cdr`, `dd_cdr`, `which_dir`, and a prompt command that does not depend on bash-only `\j` escapes.
 - Fixed prompt-format drift by changing `dashboard ps1` to follow the legacy `~/bin/ps1` layout, using a parenthesized timestamp prefix, bracketed working directory, and trailing `🌿branch` marker instead of the older brace-wrapped project context.

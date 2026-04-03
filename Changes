@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.38  2026-04-03
+    - changed the SSL-enabled PSGI app so non-HTTPS requests are redirected to the equivalent `https://...` URL before any dashboard route runs
+    - added SSL regression coverage proving `dashboard serve --ssl` redirects plain-HTTP app requests while still serving normal HTTPS requests
+    - updated README, POD, release docs, and release metadata for the HTTPS redirect behaviour
+
 1.37  2026-04-03
     - added `dashboard shell zsh` support with a `precmd`-driven prompt refresh so macOS zsh sessions can reuse the dashboard prompt and ticket-aware status line without relying on bash-specific prompt behavior
     - added `dashboard shell sh` support with the same bookmark-aware navigation helpers and a POSIX-friendly prompt command that does not depend on bash `\j` expansion

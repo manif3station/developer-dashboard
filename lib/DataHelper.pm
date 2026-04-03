@@ -3,7 +3,7 @@ package DataHelper;
 use strict;
 use warnings;
 
-our $VERSION = '1.37';
+our $VERSION = '1.38';
 
 use Exporter 'import';
 
