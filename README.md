@@ -76,6 +76,7 @@ The access model is deliberate:
 - helper logins let you share the dashboard safely without turning every browser request into full local-admin access
 
 In practice that means the developer at the machine gets friction-free local admin access, while shared or forwarded access is forced through explicit helper accounts.
+If no helper user exists yet, outsider requests return `401 Helper access is disabled until a helper user is added.` and do not render the login form at all.
 When a saved `index` bookmark exists, opening `/` now redirects straight to
 `/app/index` so the saved home page becomes the default browser entrypoint.
 When no saved `index` bookmark exists yet, `/` still opens the free-form
@@ -685,6 +686,8 @@ The browser security model follows the legacy local-first trust concept:
 
 - requests from exact `127.0.0.1` with a numeric `Host` of `127.0.0.1` are treated as local admin
 - requests from other IPs or from hostnames such as `localhost` are treated as helper access
+- outsider requests return `401` without a login page until at least one helper user exists
+- after a helper user exists, outsider requests receive the helper login page
 - helper sessions are file-backed, bound to the originating remote address, and expire automatically
 - helper passwords must be at least 8 characters long
 
@@ -778,6 +781,10 @@ No. The current distribution includes a minimal HTTP layer implemented with core
 ### Why does localhost still require login?
 
 This is intentional. The trust rule is exact and conservative: only numeric loopback on `127.0.0.1` receives local-admin treatment.
+
+### Why does localhost sometimes get 401 without a login page?
+
+Until at least one helper user exists, outsider access is disabled entirely. That includes `localhost`, forwarded hostnames, and non-loopback IPs. Add a helper user first, then outsider requests will receive the login page instead of the disabled-access response.
 
 ### Why is the runtime file-backed?
 

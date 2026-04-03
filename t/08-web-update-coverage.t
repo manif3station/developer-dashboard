@@ -446,8 +446,9 @@ ok( !$auth->verify_user( username => 'helper', password => 'nope' ), 'missing us
 like( $auth->login_page( message => '<unsafe>' ), qr/&lt;unsafe&gt;/, 'login page escapes message content' );
 
 my ( $login_required_code, undef, $login_required_body ) = @{ $app->handle( path => '/', query => '', remote_addr => '127.0.0.1', headers => { host => 'localhost:7890' } ) };
-is( $login_required_code, 401, 'localhost requests require login' );
-like( $login_required_body, qr/Helper access requires login/, 'helper request sees login page' );
+is( $login_required_code, 401, 'localhost requests are unauthorized when no helper user exists' );
+like( $login_required_body, qr/Helper access is disabled/, 'outsider requests explain that helper access is disabled before helper users exist' );
+unlike( $login_required_body, qr/<form method="post" action="\/login">/, 'outsider requests without helper users do not receive a login form' );
 
 my ( $saved_login_required_code, undef, $saved_login_required_body ) = @{ $app->handle(
     path        => '/app/index',
@@ -455,8 +456,18 @@ my ( $saved_login_required_code, undef, $saved_login_required_body ) = @{ $app->
     remote_addr => '127.0.0.1',
     headers     => { host => 'localhost:7890' },
 ) };
-is( $saved_login_required_code, 401, 'helper access to a saved page requires login' );
-like( $saved_login_required_body, qr{<input[^>]*name="redirect_to"[^>]*value="/app/index\?from=helper"}, 'login page keeps the originally requested path and query for post-login redirect' );
+is( $saved_login_required_code, 401, 'outsider access to a saved page is unauthorized when no helper user exists' );
+unlike( $saved_login_required_body, qr{<input[^>]*name="redirect_to"}, 'forbidden outsider requests do not expose a login redirect target before helper users exist' );
+
+my ( $disabled_login_code, undef, $disabled_login_body ) = @{ $app->handle(
+    path        => '/login',
+    method      => 'POST',
+    body        => 'username=helper&password=helper-pass-123',
+    remote_addr => '127.0.0.1',
+    headers     => { host => 'localhost:7890' },
+) };
+is( $disabled_login_code, 401, 'login submission is unauthorized when no helper user exists' );
+like( $disabled_login_body, qr/Helper access is disabled/, 'login submission explains that helper access is disabled before helper users exist' );
 
 my $user = $auth->add_user( username => 'helper', password => 'helper-pass-123', role => 'helper' );
 is( $user->{role}, 'helper', 'helper user can be created' );
@@ -467,6 +478,19 @@ is( $alpha->{username}, 'alpha', 'second helper user can be created' );
 my @listed_users = $auth->list_users;
 is( scalar @listed_users, 2, 'created helper users are listed' );
 is_deeply( [ map { $_->{username} } @listed_users ], [ 'alpha', 'helper' ], 'listed users are sorted by username' );
+
+my ( $enabled_login_required_code, undef, $enabled_login_required_body ) = @{ $app->handle( path => '/', query => '', remote_addr => '127.0.0.1', headers => { host => 'localhost:7890' } ) };
+is( $enabled_login_required_code, 401, 'localhost requests require login once a helper user exists' );
+like( $enabled_login_required_body, qr/Helper access requires login/, 'outsider requests receive the login page after helper users exist' );
+
+my ( $enabled_saved_login_required_code, undef, $enabled_saved_login_required_body ) = @{ $app->handle(
+    path        => '/app/index',
+    query       => 'from=helper',
+    remote_addr => '127.0.0.1',
+    headers     => { host => 'localhost:7890' },
+) };
+is( $enabled_saved_login_required_code, 401, 'saved outsider access requires login once a helper user exists' );
+like( $enabled_saved_login_required_body, qr{<input[^>]*name="redirect_to"[^>]*value="/app/index\?from=helper"}, 'login page keeps the originally requested path and query for post-login redirect once helper users exist' );
 
 my ( $bad_login_code, undef, $bad_login_body ) = @{ $app->handle(
     path        => '/login',

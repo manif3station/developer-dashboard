@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.38';
+our $VERSION = '1.39';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -95,6 +95,8 @@ sub authorize_request {
     my $session;
 
     if ( $tier ne 'admin' ) {
+        return $self->_helper_access_disabled_response
+          if !$self->{auth}->helper_users_enabled;
         $session = $self->{sessions}->from_cookie( $headers->{cookie}, remote_addr => $args{remote_addr} );
         if ( !$session ) {
             return [
@@ -161,6 +163,18 @@ sub dispatch_request {
     return [ 404, 'text/plain; charset=utf-8', "Not found\n" ];
 }
 
+# _helper_access_disabled_response()
+# Builds the outsider-access denial used before any helper user exists.
+# Input: none.
+# Output: response array reference with a 401 plain-text error.
+sub _helper_access_disabled_response {
+    return [
+        401,
+        'text/plain; charset=utf-8',
+        "Helper access is disabled until a helper user is added.\n",
+    ];
+}
+
 # _handle_login(%args)
 # Processes helper login form submissions and issues a session cookie.
 # Input: request body and remote address.
@@ -169,6 +183,8 @@ sub _handle_login {
     my ( $self, %args ) = @_;
     my %form = _parse_query( $args{body} );
     my $redirect_to = $self->_sanitize_redirect_target( $form{redirect_to} );
+    return $self->_helper_access_disabled_response
+      if !$self->{auth}->helper_users_enabled;
     my $user = $self->{auth}->verify_user(
         username => $form{username},
         password => $form{password},

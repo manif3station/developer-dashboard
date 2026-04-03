@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.39  2026-04-03
+    - changed outsider browser access so `localhost`, forwarded hosts, and non-loopback clients now receive `401 Helper access is disabled until a helper user is added.` without a login page when no helper account exists yet
+    - kept outsider access on the helper-login path once a helper account exists, including saved-route return handling after successful login
+    - updated README, POD, release docs, and regression coverage for the helper-user bootstrap access policy
+
 1.38  2026-04-03
     - changed the SSL-enabled PSGI app so non-HTTPS requests are redirected to the equivalent `https://...` URL before any dashboard route runs
     - added SSL regression coverage proving `dashboard serve --ssl` redirects plain-HTTP app requests while still serving normal HTTPS requests

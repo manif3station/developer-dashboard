@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.38';
+our $VERSION = '1.39';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.38
+1.39
 
 =head1 INTRODUCTION
 
@@ -265,6 +265,9 @@ request into full local-admin access
 In practice that means the developer at the machine gets friction-free local
 admin access, while shared or forwarded access is forced through explicit
 helper accounts.
+If no helper user exists yet, outsider requests return
+C<401 Helper access is disabled until a helper user is added.> and do not
+render the login form at all.
 When a saved C<index> bookmark exists, opening C</> now redirects straight to
 C</app/index> so the saved home page becomes the default browser entrypoint.
 When no saved C<index> bookmark exists yet, C</> still opens the free-form
@@ -1043,6 +1046,14 @@ requests from other IPs or from hostnames such as C<localhost> are treated as he
 
 =item *
 
+outsider requests return C<401> without a login page until at least one helper user exists
+
+=item *
+
+after a helper user exists, outsider requests receive the helper login page
+
+=item *
+
 helper access requires a login backed by local file-based user and session records
 
 =item *
@@ -1239,6 +1250,13 @@ No. The current distribution includes a minimal HTTP layer implemented with core
 =head2 Why does localhost still require login?
 
 This is intentional. The trust rule is exact and conservative: only numeric loopback on C<127.0.0.1> receives local-admin treatment.
+
+=head2 Why does localhost sometimes get 401 without a login page?
+
+Until at least one helper user exists, outsider access is disabled entirely.
+That includes C<localhost>, forwarded hostnames, and non-loopback IPs. Add a
+helper user first, then outsider requests will receive the login page instead
+of the disabled-access response.
 
 =head2 Why is the runtime file-backed?
 

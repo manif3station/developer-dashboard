@@ -129,8 +129,9 @@ export DEVELOPER_DASHBOARD_CHECKERS="docker.health:repo.status"
 Access semantics:
 
 - `http://127.0.0.1:7890/` is trusted as local admin
-- `http://localhost:7890/` is helper access and requires login
-- remote or non-canonical host access also requires login
+- `http://localhost:7890/` is outsider access, not local admin
+- outsider access returns `401 Helper access is disabled until a helper user is added.` until at least one helper user exists
+- once a helper user exists, outsider access receives the helper login page
 
 When helper access is redirected to `/login`, the login form must preserve the
 original target path and query in a hidden redirect field so a successful
@@ -186,8 +187,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.38.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.38.tar.gz -v
+tar -tzf Developer-Dashboard-1.39.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.39.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:

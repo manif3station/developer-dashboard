@@ -4,6 +4,22 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: OUTSIDER-GHOST-LOGIN
+
+**Date:** 2026-04-03 14:00:00 UTC
+**Area:** Browser auth / outsider access bootstrap
+**Symptom:** `localhost` and other outsider requests showed the helper login form even when no helper user existed, creating a dead-end login path
+**Why It Was Dangerous:** The UI implied outsider login was available when helper access had not been configured at all, which weakened the trust model and confused first-run access semantics
+**Root Cause:** The web auth gate checked request tier and session state, but it never checked whether helper login had been enabled by creating at least one helper user
+**How Ellen Solved It:** Added a helper-user-enabled check before outsider login/session handling, returned `401 Helper access is disabled until a helper user is added.` without rendering the login form, and kept the normal login flow only after a helper user exists
+**How To Detect Earlier Next Time:** Test outsider requests before and after creating the first helper user, including `localhost` and saved routes such as `/app/index`
+**Prevention Rule:** Any outsider login flow must verify that helper access is configured before showing a login UI or accepting `/login` submissions
+**Verification:** `prove -lv t/08-web-update-coverage.t`, full `prove -lr t`, coverage, `dzil build`, and `integration/blank-env/run-host-integration.sh`
+**Related Files:** `lib/Developer/Dashboard/Auth.pm`, `lib/Developer/Dashboard/Web/App.pm`, `t/08-web-update-coverage.t`
+**Tags:** `auth`, `outsider`, `localhost`, `helper`, `login`, `bootstrap`
+
+---
+
 ## CODE: CRED-BLIND
 
 **Date:** 2026-04-02 20:28:21 UTC
@@ -117,4 +133,3 @@ view FILENAME.md with view_range: [1, -1] or [LAST_SECTION_START, -1]
   - Manual verification: `dashboard serve --ssl --port 8000` creates config, `dashboard restart` uses same settings
   - Version bumped 1.21 → 1.22, Changes documented, README and doc files updated
 **Tags:** `persistence`, `configuration`, `restart`, `ssl`, `inheritance`, `cli-integration`, `complete`
-

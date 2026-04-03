@@ -3,7 +3,7 @@ package Developer::Dashboard::Auth;
 use strict;
 use warnings;
 
-our $VERSION = '1.38';
+our $VERSION = '1.39';
 
 use Fcntl qw(:mode);
 use Digest::SHA qw(sha256_hex);
@@ -174,6 +174,16 @@ sub login_page {
 HTML
 }
 
+# helper_users_enabled()
+# Reports whether at least one helper user exists for outsider logins.
+# Input: none.
+# Output: boolean true when helper login access is configured.
+sub helper_users_enabled {
+    my ($self) = @_;
+    my @users = $self->list_users;
+    return @users ? 1 : 0;
+}
+
 # _user_file($username)
 # Resolves the on-disk file path for a username.
 # Input: username string.
@@ -250,7 +260,7 @@ requests authenticate through file-backed helper user records.
 
 Construct an auth manager.
 
-=head2 trust_tier, add_user, verify_user, get_user, list_users, remove_user, login_page
+=head2 trust_tier, add_user, verify_user, get_user, list_users, remove_user, login_page, helper_users_enabled
 
 Manage trust decisions, helper users, and login UI.
 
