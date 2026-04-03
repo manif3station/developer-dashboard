@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server::Daemon;
 use strict;
 use warnings;
 
-our $VERSION = '1.39';
+our $VERSION = '1.40';
 
 # new(%args)
 # Constructs the lightweight daemon descriptor used by RuntimeManager.
@@ -12,8 +12,10 @@ our $VERSION = '1.39';
 sub new {
     my ( $class, %args ) = @_;
     return bless {
-        host => $args{host},
-        port => $args{port},
+        host          => $args{host},
+        port          => $args{port},
+        internal_host => $args{internal_host},
+        internal_port => $args{internal_port},
     }, $class;
 }
 
@@ -31,6 +33,22 @@ sub sockhost {
 # Output: port integer.
 sub sockport {
     return $_[0]{port};
+}
+
+# internal_sockhost()
+# Returns the resolved internal backend host when the daemon fronts an SSL proxy.
+# Input: none.
+# Output: host string or undef.
+sub internal_sockhost {
+    return $_[0]{internal_host};
+}
+
+# internal_sockport()
+# Returns the resolved internal backend port when the daemon fronts an SSL proxy.
+# Input: none.
+# Output: port integer or undef.
+sub internal_sockport {
+    return $_[0]{internal_port};
 }
 
 1;
@@ -56,7 +74,7 @@ listener.
 
 =head1 METHODS
 
-=head2 new, sockhost, sockport
+=head2 new, sockhost, sockport, internal_sockhost, internal_sockport
 
 Construct and query the lightweight daemon descriptor.
 

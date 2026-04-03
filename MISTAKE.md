@@ -20,6 +20,22 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: SSL-RESET-MIRAGE
+
+**Date:** 2026-04-03 19:45:00 UTC
+**Area:** Browser HTTPS verification / SSL redirect
+**Symptom:** Claimed `dashboard serve --ssl` redirected plain HTTP requests, but real browser and curl traffic to the public SSL port still failed with a reset connection instead of a redirect
+**Why It Was Dangerous:** The documented browser access model was false in real use, so users hit a broken first impression and the release notes overstated what the listener actually did
+**Root Cause:** The earlier redirect lived only inside the PSGI app after TLS had already been negotiated, which cannot help a real plain-HTTP client that reaches the SSL port before any app route runs
+**How Ellen Solved It:** Reproduced the failure in Chromium and curl, split SSL serving into a public frontend plus internal HTTPS backend, redirected non-TLS requests with a same-port `307` before proxying real TLS traffic, and updated the docs to state that browsers then land on the expected self-signed certificate warning page
+**How To Detect Earlier Next Time:** Always verify SSL redirects with a real `http://HOST:PORT/...` request against the live public listener, not only by unit-testing PSGI env handling
+**Prevention Rule:** Any HTTPS redirect claim must be validated at the socket level with curl or a browser against the real listener, because app-layer redirect tests alone are insufficient for SSL-port behavior
+**Verification:** `prove -lv t/17-web-server-ssl.t`, real `curl -i http://127.0.0.1:PORT/` returning `307`, real `curl -k -i https://127.0.0.1:PORT/` returning `200`, full `prove -lr t`, coverage, `dzil build`, and `integration/blank-env/run-host-integration.sh`
+**Related Files:** `lib/Developer/Dashboard/Web/Server.pm`, `lib/Developer/Dashboard/Web/Server/Daemon.pm`, `t/17-web-server-ssl.t`, `doc/update-and-release.md`
+**Tags:** `ssl`, `https`, `redirect`, `browser`, `socket`, `verification`
+
+---
+
 ## CODE: CRED-BLIND
 
 **Date:** 2026-04-02 20:28:21 UTC

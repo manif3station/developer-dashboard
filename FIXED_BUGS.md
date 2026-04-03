@@ -2,6 +2,8 @@
 
 ## 2026-04-03
 
+- Fixed browser-visible SSL redirect failure by placing a same-port HTTP frontend in front of the SSL backend, so `dashboard serve --ssl` now returns a real `307` to `https://HOST:PORT/...` instead of resetting plain-HTTP browser connections on the public port.
+- Fixed outsider-bootstrap verification drift by documenting that the disabled-login `401` only applies when the active runtime has no helper users, so project-local helper-user state no longer gets mistaken for a broken browser auth gate.
 - Fixed outsider-login bootstrap drift by denying outsider requests with `401 Helper access is disabled until a helper user is added.` when no helper account exists yet, so `localhost` and other non-admin hosts stop showing a dead-end login form before helper access has been configured.
 - Fixed SSL redirect drift by wrapping the SSL-enabled PSGI app with an HTTP-to-HTTPS redirect, so any request that still reaches the app as plain HTTP is sent to the matching `https://...` URL before the dashboard route executes.
 - Fixed bash-only shell bootstrap output by adding `dashboard shell zsh`, so macOS zsh sessions now get the same bookmark-aware navigation helpers and a `precmd`-refreshed dashboard prompt with zsh job counting.

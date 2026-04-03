@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.39';
+our $VERSION = '1.40';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.39
+1.40
 
 =head1 INTRODUCTION
 
@@ -237,9 +237,10 @@ certificate under F<~/.developer-dashboard/certs/>, then open:
 
   https://127.0.0.1:7890/
 
-When SSL mode is on, any non-HTTPS request that still reaches the app is
+When SSL mode is on, plain HTTP requests on that same host and port are
 redirected to the equivalent C<https://...> URL before the dashboard route
-runs.
+runs. Browsers then show the normal self-signed certificate warning until you
+trust the generated certificate locally.
 
 The access model is deliberate:
 
@@ -265,7 +266,7 @@ request into full local-admin access
 In practice that means the developer at the machine gets friction-free local
 admin access, while shared or forwarded access is forced through explicit
 helper accounts.
-If no helper user exists yet, outsider requests return
+If no helper user exists yet in the active dashboard runtime, outsider requests return
 C<401 Helper access is disabled until a helper user is added.> and do not
 render the login form at all.
 When a saved C<index> bookmark exists, opening C</> now redirects straight to

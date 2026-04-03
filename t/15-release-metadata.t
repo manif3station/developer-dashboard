@@ -59,13 +59,14 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.39', 'module version bumped for the outsider helper bootstrap patch release' );
+is( $version, '1.40', 'module version bumped for the browser-verified SSL redirect patch release' );
 like( $readme, qr/dashboard serve --ssl/, 'README documents the HTTPS serve flag' );
 like( $pm, qr/C<dashboard serve --ssl>/, 'main POD documents the HTTPS serve flag' );
 like( $release_doc, qr/dashboard serve --ssl/, 'release doc documents the HTTPS serve flag' );
-like( $readme, qr/non-HTTPS request.*redirected to the equivalent `https:\/\/\.\.\.` URL/s, 'README documents redirecting non-HTTPS requests in SSL mode' );
-like( $pm, qr/non-HTTPS request.*redirected to the equivalent C<https:\/\/\.\.\.> URL/s, 'main POD documents redirecting non-HTTPS requests in SSL mode' );
-like( $release_doc, qr/plain HTTP at the app layer must be redirected to the\s+equivalent `https:\/\/\.\.\.` URL/s, 'release doc documents redirecting non-HTTPS app-layer requests in SSL mode' );
+like( $readme, qr/plain HTTP requests on that same host and port are\s+redirected to the equivalent `https:\/\/\.\.\.` URL/s, 'README documents redirecting public plain-HTTP requests in SSL mode' );
+like( $pm, qr/plain HTTP requests on that same host and port are\s+redirected to the equivalent C<https:\/\/\.\.\.> URL/s, 'main POD documents redirecting public plain-HTTP requests in SSL mode' );
+like( $release_doc, qr/public HTTP\s+socket on that same host and port must return a same-port `307` redirect to\s+the equivalent `https:\/\/\.\.\.` URL/s, 'release doc documents same-port SSL redirect verification' );
+like( $release_doc, qr/self-signed certificate warning page\s+instead of a connection reset/s, 'release doc documents browser-visible SSL redirect verification' );
 like( $release_doc, qr/tarball install verification stays stable on both Linux and\s+macOS hosts/, 'release doc documents cross-platform tarball test portability' );
 like( $readme, qr/https:\/\/127\.0\.0\.1:7890\//, 'README documents the local HTTPS URL' );
 like( $pm, qr/https:\/\/127\.0\.0\.1:7890\//, 'main POD documents the local HTTPS URL' );
@@ -78,10 +79,10 @@ like( $release_doc, qr/Unknown saved routes such as `\/app\/foobar` must now ope
 like( $readme, qr/After a successful\s+helper login, the browser is sent back to that saved route, such as\s+`\/app\/index`/s, 'README documents post-login return to the original saved route' );
 like( $pm, qr/After a\s+successful helper login, the browser is sent back to that saved route, such as\s+C<\/app\/index>/s, 'main POD documents post-login return to the original saved route' );
 like( $release_doc, qr/successful\s+helper login returns the browser to the original route, such as `\/app\/index`/s, 'release doc documents post-login return to the original route' );
-like( $readme, qr/no helper user exists yet, outsider requests return\s+`401 Helper access is disabled until a helper user is added\.`/s, 'README documents outsider access staying disabled until a helper user exists' );
-like( $pm, qr/no helper user exists yet, outsider requests return\s+C<401 Helper access is disabled until a helper user is added\.>/s, 'main POD documents outsider access staying disabled until a helper user exists' );
-like( $release_doc, qr/outsider access returns `401 Helper access is disabled until a helper user is added\.` until at least one helper user exists/s, 'release doc documents outsider access staying disabled until a helper user exists' );
-like( $integration_plan, qr/non-loopback self-access returns `401 Helper access is disabled until a helper user is added\.` without a login form before any helper user exists/s, 'integration plan documents outsider disabled-access behaviour before helper bootstrap' );
+like( $readme, qr/no helper user exists yet in the active dashboard runtime, outsider requests return\s+`401 Helper access is disabled until a helper user is added\.`/s, 'README documents outsider access staying disabled until a helper user exists in the active runtime' );
+like( $pm, qr/no helper user exists yet in the active dashboard runtime, outsider requests return\s+C<401 Helper access is disabled until a helper user is added\.>/s, 'main POD documents outsider access staying disabled until a helper user exists in the active runtime' );
+like( $release_doc, qr/outsider access returns `401 Helper access is disabled until a helper user is added\.` until at least one helper user exists in the active dashboard runtime/s, 'release doc documents outsider access staying disabled until a helper user exists in the active runtime' );
+like( $integration_plan, qr/non-loopback self-access returns `401 Helper access is disabled until a helper user is added\.` without a login form before any helper user exists in the active runtime/s, 'integration plan documents outsider disabled-access behaviour before helper bootstrap' );
 like( $integration_plan, qr/after a helper user exists, non-loopback access produces the helper login page/s, 'integration plan documents outsider login after helper bootstrap' );
 like( $readme, qr/Shared nav markup now wraps horizontally by default/, 'README documents the horizontal shared-nav layout' );
 like( $pm, qr/Shared nav markup now wraps horizontally by default/, 'main POD documents the horizontal shared-nav layout' );

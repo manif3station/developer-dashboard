@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+1.40  2026-04-03
+    - fixed SSL listener redirect handling so `dashboard serve --ssl` now redirects real plain-HTTP requests on the public port to the matching `https://...` URL instead of letting browsers hit a reset connection
+    - clarified outsider bootstrap semantics so the disabled-login `401` applies only when no helper user exists in the active runtime, which matters for project-local runtime overrides during browser verification
+    - updated README, POD, integration docs, mistake log, and regression coverage for the browser-verified outsider and SSL redirect behaviour
+
 1.39  2026-04-03
     - changed outsider browser access so `localhost`, forwarded hosts, and non-loopback clients now receive `401 Helper access is disabled until a helper user is added.` without a login page when no helper account exists yet
     - kept outsider access on the helper-login path once a helper account exists, including saved-route return handling after successful login

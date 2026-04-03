@@ -3,15 +3,20 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '1.39';
+our $VERSION = '1.40';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
+use IO::Select;
 use IO::Socket::INET;
 use Plack::Runner;
+use Socket qw(MSG_PEEK);
 
 use Developer::Dashboard::Web::DancerApp;
 use Developer::Dashboard::Web::Server::Daemon;
+
+our $SSL_BACKEND_PID;
+our %SSL_PREVIOUS_SIGNAL;
 
 # new(%args)
 # Constructs the local PSGI web server wrapper.
@@ -72,7 +77,25 @@ sub start_daemon {
         port => scalar( $socket->sockport ),
     );
     close $socket or die "Unable to close reserved listen socket: $!";
-    return $daemon;
+    return $daemon if !$self->{ssl};
+
+    my $backend_socket = IO::Socket::INET->new(
+        LocalAddr => '127.0.0.1',
+        LocalPort => 0,
+        Proto     => 'tcp',
+        ReuseAddr => 1,
+        Listen    => 10,
+    );
+    die "Unable to reserve internal SSL backend port: $!" if !$backend_socket;
+
+    my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
+        host          => $daemon->sockhost,
+        port          => $daemon->sockport,
+        internal_host => scalar( $backend_socket->sockhost ),
+        internal_port => scalar( $backend_socket->sockport ),
+    );
+    close $backend_socket or die "Unable to close reserved internal SSL backend socket: $!";
+    return $ssl_daemon;
 }
 
 # listening_url($daemon)
@@ -94,6 +117,7 @@ sub listening_url {
 # Output: true value when the PSGI runner exits.
 sub serve_daemon {
     my ( $self, $daemon ) = @_;
+    return $self->_serve_ssl_frontend($daemon) if $self->{ssl};
     my $runner = $self->_build_runner($daemon);
     my $app = $self->psgi_app;
     $runner->run($app);
@@ -126,10 +150,16 @@ sub psgi_app {
 sub _build_runner {
     my ( $self, $daemon ) = @_;
     my $runner = Plack::Runner->new;
+    my $listen_host = $self->{ssl} && $daemon->can('internal_sockhost') && defined $daemon->internal_sockhost
+      ? $daemon->internal_sockhost
+      : $daemon->sockhost;
+    my $listen_port = $self->{ssl} && $daemon->can('internal_sockport') && defined $daemon->internal_sockport
+      ? $daemon->internal_sockport
+      : $daemon->sockport;
     my @options = (
         '--server', 'Starman',
-        '--host',   $daemon->sockhost,
-        '--port',   $daemon->sockport,
+        '--host',   $listen_host,
+        '--port',   $listen_port,
         '--env',    'deployment',
         '--workers', $self->{workers},
     );
@@ -143,6 +173,291 @@ sub _build_runner {
 
     $runner->parse_options(@options);
     return $runner;
+}
+
+# _serve_ssl_frontend($daemon)
+# Runs the public SSL frontend on the requested port and proxies real TLS
+# traffic to an internal SSL Starman backend while redirecting plain HTTP.
+# Input: daemon descriptor with public and internal backend listen details.
+# Output: true value when the frontend loop exits.
+sub _serve_ssl_frontend {
+    my ( $self, $daemon ) = @_;
+    my $backend_pid = fork();
+    die "Unable to fork SSL backend process: $!" if !defined $backend_pid;
+
+    if ( !$backend_pid ) {
+        my $runner = $self->_build_runner($daemon);
+        my $app = $self->psgi_app;
+        $runner->run($app);
+        # uncoverable statement
+        exit 0;
+    }
+
+    my $previous_term = $SIG{TERM};
+    my $previous_int  = $SIG{INT};
+    my $previous_hup  = $SIG{HUP};
+    local $SSL_BACKEND_PID = $backend_pid;
+    local %SSL_PREVIOUS_SIGNAL = (
+        TERM => $previous_term,
+        INT  => $previous_int,
+        HUP  => $previous_hup,
+    );
+    local $SIG{TERM} = \&_ssl_term_handler;
+    local $SIG{INT}  = \&_ssl_int_handler;
+    local $SIG{HUP}  = \&_ssl_hup_handler;
+
+    my $listener = IO::Socket::INET->new(
+        LocalAddr => $daemon->sockhost,
+        LocalPort => $daemon->sockport,
+        Proto     => 'tcp',
+        ReuseAddr => 1,
+        Listen    => 128,
+    );
+    if ( !$listener ) {
+        # uncoverable statement
+        _stop_ssl_backend($backend_pid);
+        # uncoverable statement
+        die "Unable to bind SSL frontend on $self->{host}:$self->{port}: $!";
+    }
+
+    while ( my $client = $listener->accept ) {
+        my $pid = fork();
+        die "Unable to fork SSL frontend connection handler: $!" if !defined $pid;
+        if ($pid) {
+            close $client;
+            while ( waitpid( -1, 1 ) > 0 ) { }
+            next;
+        }
+
+        close $listener;
+        eval {
+            $self->_handle_ssl_frontend_client(
+                client => $client,
+                daemon => $daemon,
+            );
+        };
+        close $client;
+        exit 0;
+    }
+
+    close $listener;
+    _stop_ssl_backend($backend_pid);
+    waitpid( $backend_pid, 0 );
+    return 1;
+}
+
+# _handle_ssl_frontend_client(%args)
+# Routes one accepted frontend socket either to the internal TLS backend or to
+# a direct HTTP->HTTPS redirect response.
+# Input: accepted client socket and daemon descriptor.
+# Output: true value after the client socket is handled.
+sub _handle_ssl_frontend_client {
+    my ( $self, %args ) = @_;
+    my $client = $args{client} || die 'Missing frontend client socket';
+    my $daemon = $args{daemon} || die 'Missing daemon descriptor';
+    my $first = '';
+    my $peeked = recv( $client, $first, 1, MSG_PEEK );
+    return 1 if !defined $peeked || !defined $first || $first eq '';
+
+    if ( _socket_looks_like_tls($first) ) {
+        my $backend = IO::Socket::INET->new(
+            PeerAddr => $daemon->internal_sockhost,
+            PeerPort => $daemon->internal_sockport,
+            Proto    => 'tcp',
+        );
+        die "Unable to connect to internal SSL backend: $!" if !$backend;
+        _proxy_streams( $client, $backend );
+        close $backend;
+        return 1;
+    }
+
+    my $request = _read_http_request_head($client);
+    my $response = _http_redirect_response(
+        host   => _request_host_from_head( $request, $daemon ),
+        target => _request_target_from_head($request),
+    );
+    syswrite( $client, $response );
+    return 1;
+}
+
+# _socket_looks_like_tls($byte)
+# Detects whether the first byte of an accepted socket looks like a TLS
+# handshake instead of a plain HTTP request line.
+# Input: first byte string read with MSG_PEEK.
+# Output: boolean true when the socket should be proxied to the TLS backend.
+sub _socket_looks_like_tls {
+    my ($byte) = @_;
+    return 0 if !defined $byte || $byte eq '';
+    return ord($byte) == 22 ? 1 : 0;
+}
+
+# _read_http_request_head($socket)
+# Reads one plain-HTTP request head from a client socket for redirect handling.
+# Input: accepted plain HTTP client socket.
+# Output: raw request-head string.
+sub _read_http_request_head {
+    my ($socket) = @_;
+    my $head = '';
+    while ( length($head) < 16384 ) {
+        my $chunk = '';
+        my $read = sysread( $socket, $chunk, 1024 );
+        last if !defined $read || $read <= 0;
+        $head .= $chunk;
+        last if $head =~ /\r?\n\r?\n/;
+    }
+    if ( $head =~ /\A(.*?\r?\n\r?\n)/s ) {
+        return $1;
+    }
+    return $head;
+}
+
+# _request_target_from_head($head)
+# Extracts the requested path and query from one plain HTTP request head.
+# Input: raw request-head string.
+# Output: path/query target string, defaulting to /.
+sub _request_target_from_head {
+    my ($head) = @_;
+    return '/' if !defined $head || $head eq '';
+    return $1 if $head =~ m{\A[A-Z]+\s+(\S+)\s+HTTP/}s;
+    return '/';
+}
+
+# _request_host_from_head($head, $daemon)
+# Extracts or reconstructs the public host:port for one redirecting plain HTTP
+# request.
+# Input: raw request-head string and daemon descriptor.
+# Output: host[:port] string.
+sub _request_host_from_head {
+    my ( $head, $daemon ) = @_;
+    if ( defined $head && $head =~ /^Host:\s*([^\r\n]+)/im ) {
+        return $1;
+    }
+    my $host = $daemon->sockhost || '127.0.0.1';
+    my $port = $daemon->sockport || 443;
+    return $port == 443 ? $host : $host . ':' . $port;
+}
+
+# _http_redirect_response(%args)
+# Builds the raw HTTP response used by the SSL frontend for plaintext requests
+# that arrive on the public SSL port.
+# Input: host[:port] string and path/query target string.
+# Output: raw HTTP response string.
+sub _http_redirect_response {
+    my (%args) = @_;
+    my $target = defined $args{target} && $args{target} ne '' ? $args{target} : '/';
+    my $host   = $args{host} || '127.0.0.1';
+    my $body   = 'Redirecting to HTTPS';
+    return join(
+        "\r\n",
+        'HTTP/1.1 307 Temporary Redirect',
+        'Content-Type: text/plain; charset=utf-8',
+        'Content-Length: ' . length($body),
+        'Location: https://' . $host . $target,
+        'Connection: close',
+        '',
+        $body,
+    );
+}
+
+# _proxy_streams($client, $backend)
+# Pumps bytes bidirectionally between the public client socket and the internal
+# TLS backend socket until one side closes.
+# Input: accepted client socket and connected backend socket.
+# Output: true value when forwarding completes.
+sub _proxy_streams {
+    my ( $client, $backend ) = @_;
+    my $select = IO::Select->new( $client, $backend );
+    while ( my @ready = $select->can_read ) {
+        for my $source (@ready) {
+            my $chunk = '';
+            my $read = sysread( $source, $chunk, 8192 );
+            return 1 if !defined $read || $read <= 0;
+            my $target = $source == $client ? $backend : $client;
+            my $offset = 0;
+            while ( $offset < length $chunk ) {
+                my $written = syswrite( $target, $chunk, length($chunk) - $offset, $offset );
+                die "Unable to proxy SSL frontend bytes: $!" if !defined $written;
+                $offset += $written;
+            }
+        }
+    }
+    return 1;
+}
+
+# _stop_ssl_backend($pid)
+# Terminates the internal SSL backend process used by the public SSL frontend.
+# Input: backend pid integer.
+# Output: true value.
+sub _stop_ssl_backend {
+    my ($pid) = @_;
+    return 1 if !$pid;
+    kill 'TERM', $pid;
+    waitpid( $pid, 0 );
+    return 1;
+}
+
+# _ssl_term_handler()
+# Handles TERM for the SSL frontend by stopping the backend and chaining the
+# previous TERM handler.
+# Input: none.
+# Output: true value.
+sub _ssl_term_handler {
+    return _handle_ssl_signal('TERM');
+}
+
+# _ssl_int_handler()
+# Handles INT for the SSL frontend by stopping the backend and chaining the
+# previous INT handler.
+# Input: none.
+# Output: true value.
+sub _ssl_int_handler {
+    return _handle_ssl_signal('INT');
+}
+
+# _ssl_hup_handler()
+# Handles HUP for the SSL frontend by stopping the backend and chaining the
+# previous HUP handler.
+# Input: none.
+# Output: true value.
+sub _ssl_hup_handler {
+    return _handle_ssl_signal('HUP');
+}
+
+# _handle_ssl_signal($name)
+# Dispatches one frontend signal by shutting down the internal backend and then
+# continuing the previous signal chain for that signal name.
+# Input: signal name string.
+# Output: true value.
+sub _handle_ssl_signal {
+    my ($name) = @_;
+    _stop_ssl_backend($SSL_BACKEND_PID);
+    return _run_previous_signal( $SSL_PREVIOUS_SIGNAL{$name} );
+}
+
+# _run_previous_signal($handler)
+# Continues the outer signal handling chain after the SSL frontend has cleaned
+# up its internal backend process.
+# Input: previous signal handler value.
+# Output: true value, or re-signals the current process for DEFAULT handlers.
+sub _run_previous_signal {
+    my ($handler) = @_;
+    return 1 if !defined $handler;
+    if ( ref($handler) eq 'CODE' ) {
+        $handler->();
+        return 1;
+    }
+    return _signal_default_term() if $handler eq 'DEFAULT';
+    return 1;
+}
+
+# _signal_default_term()
+# Re-signals the current process with TERM when a previous handler was the
+# default action.
+# Input: none.
+# Output: true value when TERM is ignored, otherwise the process terminates.
+sub _signal_default_term {
+    kill 'TERM', $$;
+    return 1;
 }
 
 # _default_headers()
@@ -290,7 +605,7 @@ and runs it under Starman through Plack::Runner.
 
 Construct and run the local PSGI web server with optional SSL/HTTPS support.
 
-When C<ssl => 1> is passed to new(), generates self-signed certificates in C<~/.developer-dashboard/certs/>, configures Starman for HTTPS, and redirects any non-HTTPS request that still reaches the PSGI app to the equivalent C<https://...> URL. The listening_url() method returns https:// when SSL is enabled.
+When C<ssl => 1> is passed to new(), generates self-signed certificates in C<~/.developer-dashboard/certs/>, runs an internal HTTPS Starman backend, exposes a public frontend on the requested port, redirects plain HTTP requests on that public port to the equivalent C<https://...> URL, and proxies real HTTPS traffic through to the internal backend. The listening_url() method returns https:// when SSL is enabled.
 
 =head1 SSL SUPPORT
 

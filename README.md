@@ -65,9 +65,10 @@ certificate under `~/.developer-dashboard/certs/`, then open:
 https://127.0.0.1:7890/
 ```
 
-When SSL mode is on, any non-HTTPS request that still reaches the app is
+When SSL mode is on, plain HTTP requests on that same host and port are
 redirected to the equivalent `https://...` URL before the dashboard route
-runs.
+runs. Browsers then show the normal self-signed certificate warning until you
+trust the generated certificate locally.
 
 The access model is deliberate:
 
@@ -76,7 +77,7 @@ The access model is deliberate:
 - helper logins let you share the dashboard safely without turning every browser request into full local-admin access
 
 In practice that means the developer at the machine gets friction-free local admin access, while shared or forwarded access is forced through explicit helper accounts.
-If no helper user exists yet, outsider requests return `401 Helper access is disabled until a helper user is added.` and do not render the login form at all.
+If no helper user exists yet in the active dashboard runtime, outsider requests return `401 Helper access is disabled until a helper user is added.` and do not render the login form at all.
 When a saved `index` bookmark exists, opening `/` now redirects straight to
 `/app/index` so the saved home page becomes the default browser entrypoint.
 When no saved `index` bookmark exists yet, `/` still opens the free-form

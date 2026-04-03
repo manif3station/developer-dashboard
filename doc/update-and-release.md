@@ -130,7 +130,7 @@ Access semantics:
 
 - `http://127.0.0.1:7890/` is trusted as local admin
 - `http://localhost:7890/` is outsider access, not local admin
-- outsider access returns `401 Helper access is disabled until a helper user is added.` until at least one helper user exists
+- outsider access returns `401 Helper access is disabled until a helper user is added.` until at least one helper user exists in the active dashboard runtime
 - once a helper user exists, outsider access receives the helper login page
 
 When helper access is redirected to `/login`, the login form must preserve the
@@ -141,9 +141,11 @@ instead of always sending it to `/`.
 The default bind is `0.0.0.0:7890`, so the service is reachable on local and VPN interfaces unless the host firewall blocks it.
 Run `dashboard serve --ssl` to enable HTTPS with the generated self-signed
 certificate stored under `~/.developer-dashboard/certs/`, and verify the local
-listener at `https://127.0.0.1:7890/`. When SSL is enabled, any request that
-still arrives as plain HTTP at the app layer must be redirected to the
-equivalent `https://...` URL before the dashboard route runs.
+listener at `https://127.0.0.1:7890/`. When SSL is enabled, the public HTTP
+socket on that same host and port must return a same-port `307` redirect to
+the equivalent `https://...` URL before the dashboard route runs, and a real
+browser should then land on the expected self-signed certificate warning page
+instead of a connection reset.
 Shared `nav/*.tt` fragments now wrap horizontally and inherit bookmark theme
 colors from CSS variables, so bookmark pages with dark panels do not force a
 light nav strip or unreadable nav link text.
@@ -187,8 +189,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.39.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.39.tar.gz -v
+tar -tzf Developer-Dashboard-1.40.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.40.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:
