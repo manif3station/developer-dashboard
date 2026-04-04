@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::OpenFile;
 use strict;
 use warnings;
 
-our $VERSION = '1.52';
+our $VERSION = '1.53';
 
 use Cwd qw(cwd);
 use Exporter 'import';
@@ -63,7 +63,7 @@ sub run_open_file_command {
         _command_exit(0);
     }
 
-    @matches = _select_open_file_matches( matches => \@matches ) if @matches > 1;
+    @matches = _select_open_file_matches( matches => \@matches );
 
     my $editor_cmd = _default_editor($editor);
     my @command = split /\s+/, $editor_cmd;
@@ -82,26 +82,72 @@ sub _default_editor {
 }
 
 # _select_open_file_matches(%args)
-# Presents an interactive numbered selector when more than one file matched.
+# Resolves the final open-file match list using the legacy numbered chooser flow.
 # Input: hash containing an array reference of matched file path strings.
-# Output: one-element list containing the selected file path string.
+# Output: one or more selected file path strings, defaulting to all matches when no choice is entered.
 sub _select_open_file_matches {
     my (%args) = @_;
     my $matches = $args{matches} || [];
+    my @matches = _unique_matches(@$matches);
 
-    for my $index ( 0 .. $#$matches ) {
-        print( $index + 1, ". $matches->[$index]\n" );
+    return if !@matches;
+    return @matches if @matches == 1;
+
+    for my $index ( 0 .. $#matches ) {
+        print( $index + 1, ": $matches[$index]\n" );
     }
-    print "Select file number: ";
+    print '> ';
 
     my $selection = <STDIN>;
-    die "No file selection provided\n" if !defined $selection;
-    chomp $selection;
-    die "Invalid file selection '$selection'\n" if $selection !~ /^\d+$/;
+    return @matches if !defined $selection;
 
-    my $chosen = $matches->[ $selection - 1 ];
-    die "Invalid file selection '$selection'\n" if !defined $chosen;
-    return ($chosen);
+    chomp $selection;
+    my @chosen = _selection_matches(
+        choices => $selection,
+        matches => \@matches,
+    );
+
+    return @chosen if @chosen;
+    return @matches if $selection eq '';
+    die "Invalid file selection '$selection'\n";
+}
+
+# _selection_matches(%args)
+# Parses one legacy chooser string into the selected open-file matches.
+# Input: choice string plus array reference of matched file path strings.
+# Output: zero or more selected file path strings.
+sub _selection_matches {
+    my (%args) = @_;
+    my $choices = defined $args{choices} ? $args{choices} : '';
+    my $matches = $args{matches} || [];
+    return @$matches if $choices eq '' && @$matches;
+
+    if ( $choices =~ /^\d+(?:\s*-\s*\d+)?(?:[\s,]+\d+(?:\s*-\s*\d+)?)*$/ ) {
+        my @chosen;
+        for my $chunk ( grep { defined && $_ ne '' } split /[,\s]+/, $choices ) {
+            if ( $chunk =~ /^(\d+)-(\d+)$/ ) {
+                my ( $start, $end ) = ( $1, $2 );
+                return if $start < 1 || $end < $start || $end > @$matches;
+                push @chosen, @$matches[ $start - 1 .. $end - 1 ];
+                next;
+            }
+            return if $chunk !~ /^\d+$/ || $chunk < 1 || $chunk > @$matches;
+            push @chosen, $matches->[ $chunk - 1 ];
+        }
+        return @chosen;
+    }
+
+    return;
+}
+
+# _unique_matches(@matches)
+# Deduplicates resolved open-file matches while preserving their original order.
+# Input: list of matched file path strings.
+# Output: ordered list of unique file path strings.
+sub _unique_matches {
+    my (@matches) = @_;
+    my %seen;
+    return grep { defined && $_ ne '' && !$seen{$_}++ } @matches;
 }
 
 # _resolve_open_file_matches(%args)

@@ -1,5 +1,9 @@
 # Fixed Bugs
 
+## 2026-04-04 (Phase 17: Open-File Multi-Select Parity)
+
+- Fixed `dashboard of` / `dashboard open-file` so the chooser matches the real old workflow instead of forcing a single selection. A single unique match now opens immediately, while multi-match searches allow one number, comma-separated numbers, numeric ranges, or blank input to open all matches.
+
 ## 2026-04-04 (Phase 15: Open-File Picker Restore)
 
 - Fixed `dashboard of` / `dashboard open-file` so multi-match searches no longer degrade into a raw printed list. The command now prints numbered matches, prompts for a selection, and opens the chosen file through the editor path again.

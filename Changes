@@ -1,5 +1,15 @@
 Revision history for Developer Dashboard
 
+1.53  2026-04-04
+    - aligned `dashboard of` / `dashboard open-file` with the real legacy
+      chooser semantics so a single unique match opens immediately while
+      multi-match searches prompt with numbered choices
+    - added legacy-compatible multi-select parsing for comma-separated numbers,
+      numeric ranges, and blank-input-to-open-all in the shared open-file
+      implementation
+    - tightened smoke and unit coverage around the chooser prompt and
+      multi-file editor exec path
+
 1.52  2026-04-04
     - restored the interactive `dashboard of` / `dashboard open-file` chooser
       so multi-match searches print a numbered list, prompt for a selection,

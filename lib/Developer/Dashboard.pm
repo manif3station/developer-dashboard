@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.52';
+our $VERSION = '1.53';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.52
+1.53
 
 =head1 INTRODUCTION
 
@@ -713,9 +713,11 @@ recursive pattern searches inside a resolved directory alias or path
 =back
 
 Without C<--print>, C<dashboard of> and C<dashboard open-file> now behave like
-the older picker workflow again: one match opens directly in C<--editor>,
-C<VISUAL>, C<EDITOR>, or C<vim> as the final fallback, and multiple matches
-render a numbered prompt so you can choose the file to open.
+the older picker workflow again: one unique match opens directly in
+C<--editor>, C<VISUAL>, C<EDITOR>, or C<vim> as the final fallback, and
+multiple matches render a numbered prompt. At that prompt you can press Enter
+to open all matches, type one number to open one file, type comma-separated
+numbers such as C<1,3>, or use a range such as C<2-5>.
 
 =head2 Data Query Commands
 

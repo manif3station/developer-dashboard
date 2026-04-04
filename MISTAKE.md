@@ -36,6 +36,22 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: OPEN-FILE-CHOOSER-MISMATCH
+
+**Date:** 2026-04-04 14:35:00 UTC
+**Area:** CLI parity / selection semantics
+**Symptom:** The restored `dashboard of` chooser still forced one numeric choice, while the real legacy workflow opened a single unique match automatically and let the user enter one number, multiple numbers, ranges, or blank input to open all matches
+**Why It Was Dangerous:** The command looked almost fixed but still broke real operator muscle memory and made bulk file opening slower than the existing toolchain behavior
+**Root Cause:** I matched the presence of the chooser but not its exact semantics, and I stopped at the first plausible implementation instead of tracing the full `_select()` behavior from the existing script
+**How Ellen Solved It:** Read the full legacy chooser flow, restored the single-match auto-open path plus comma/range/blank-input handling, and added direct coverage for each selection mode
+**How To Detect Earlier Next Time:** When reproducing legacy CLI behavior, compare the full interaction contract, not just the broad feature label; “has chooser” is not the same as “matches chooser semantics”
+**Prevention Rule:** For interactive compatibility fixes, inspect the full legacy control flow and add tests for every supported input form before calling the parity work done
+**Verification:** targeted open-file tests, full `prove -lr t`, coverage, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis
+**Related Files:** `lib/Developer/Dashboard/CLI/OpenFile.pm`, `t/05-cli-smoke.t`, `t/15-cli-module-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`
+**Tags:** `open-file`, `interactive`, `selection`, `compatibility`, `cli`
+
+---
+
 ## CODE: PUBLIC-CLI-POLLUTION
 
 **Date:** 2026-04-04 10:35:00 UTC

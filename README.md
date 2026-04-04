@@ -357,9 +357,11 @@ These commands support:
 - recursive pattern searches inside a resolved directory alias or path
 
 Without `--print`, `dashboard of` and `dashboard open-file` now behave like the
-older picker workflow again: one match opens directly in `--editor`, `VISUAL`,
-`EDITOR`, or `vim` as the final fallback, and multiple matches render a
-numbered prompt so you can choose the file to open.
+older picker workflow again: one unique match opens directly in `--editor`,
+`VISUAL`, `EDITOR`, or `vim` as the final fallback, and multiple matches render
+a numbered prompt. At that prompt you can press Enter to open all matches, type
+one number to open one file, type comma-separated numbers such as `1,3`, or use
+a range such as `2-5`.
 
 ### Data Query Commands
 
