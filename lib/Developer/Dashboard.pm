@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.53';
+our $VERSION = '1.54';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.53
+1.54
 
 =head1 INTRODUCTION
 
@@ -717,7 +717,9 @@ the older picker workflow again: one unique match opens directly in
 C<--editor>, C<VISUAL>, C<EDITOR>, or C<vim> as the final fallback, and
 multiple matches render a numbered prompt. At that prompt you can press Enter
 to open all matches, type one number to open one file, type comma-separated
-numbers such as C<1,3>, or use a range such as C<2-5>.
+numbers such as C<1,3>, or use a range such as C<2-5>. Scoped searches also
+rank exact helper/script names before broader substring matches, so
+C<dashboard of . jq> lists C<jq> and C<jq.js> ahead of C<jquery.js>.
 
 =head2 Data Query Commands
 

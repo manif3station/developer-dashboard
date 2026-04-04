@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::OpenFile;
 use strict;
 use warnings;
 
-our $VERSION = '1.53';
+our $VERSION = '1.54';
 
 use Cwd qw(cwd);
 use Exporter 'import';
@@ -150,6 +150,77 @@ sub _unique_matches {
     return grep { defined && $_ ne '' && !$seen{$_}++ } @matches;
 }
 
+# _ordered_scope_matches(%args)
+# Orders recursive scope-search matches so exact helper/script names sort before broader substring matches.
+# Input: pattern array reference plus discovered file path array reference.
+# Output: ordered unique file path strings ranked by basename/stem relevance and original discovery order.
+sub _ordered_scope_matches {
+    my (%args) = @_;
+    my @patterns = @{ $args{patterns} || [] };
+    my @files    = _unique_matches( @{ $args{files} || [] } );
+
+    my @ranked;
+    for my $index ( 0 .. $#files ) {
+        push @ranked, {
+            file  => $files[$index],
+            rank  => _scope_match_rank(
+                file     => $files[$index],
+                patterns => \@patterns,
+            ),
+            index => $index,
+        };
+    }
+
+    return map { $_->{file} }
+      sort {
+             $a->{rank}  <=> $b->{rank}
+          || $a->{index} <=> $b->{index}
+      } @ranked;
+}
+
+# _scope_match_rank(%args)
+# Scores one recursive scope-search file so exact basename hits outrank partial path matches.
+# Input: file path string plus the active pattern array reference.
+# Output: numeric rank where lower values are stronger matches.
+sub _scope_match_rank {
+    my (%args) = @_;
+    my $file     = $args{file}     || '';
+    my @patterns = @{ $args{patterns} || [] };
+    my ($basename) = $file =~ m{([^/\\]+)$};
+    $basename ||= $file;
+    my $stem = $basename;
+    $stem =~ s{\.[^.]+$}{};
+
+    my $rank = 0;
+    for my $pattern (@patterns) {
+        next if !defined $pattern || $pattern eq '';
+        my $score = 50;
+
+        if ( lc($basename) eq lc($pattern) ) {
+            $score = 0;
+        }
+        elsif ( lc($stem) eq lc($pattern) ) {
+            $score = 1;
+        }
+        elsif ( $basename =~ /^\Q$pattern\E/i ) {
+            $score = 2;
+        }
+        elsif ( $basename =~ /\Q$pattern\E/i ) {
+            $score = 3;
+        }
+        elsif ( $file =~ m{(?:^|[\\/])\Q$pattern\E(?:[\\/]|$)}i ) {
+            $score = 4;
+        }
+        elsif ( $file =~ /\Q$pattern\E/i ) {
+            $score = 5;
+        }
+
+        $rank += $score;
+    }
+
+    return $rank;
+}
+
 # _resolve_open_file_matches(%args)
 # Resolves direct file targets or recursive search matches for the open-file command.
 # Input: path registry object and argv array reference.
@@ -214,8 +285,10 @@ sub _resolve_open_file_matches {
         $scope,
     );
 
-    my %seen;
-    @files = grep { !$seen{$_}++ } sort @files;
+    @files = _ordered_scope_matches(
+        patterns => \@patterns,
+        files    => \@files,
+    );
     return ( $line, @files );
 }
 

@@ -65,6 +65,7 @@ instead of a loose pile of utilities.
   multi-match searches, support comma and range selections or blank-for-all,
   and fall back to `vim` when no editor is configured
   Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches below a resolved scope, then print or exec the configured editor.
+  Scoped searches rank exact helper/script names ahead of broader substring matches, so `dashboard of . jq` prefers `jq` and `jq.js` before `jquery.js`.
 
 - `dashboard jq` / `dashboard yq` / `dashboard tomq` / `dashboard propq` / `dashboard iniq` / `dashboard csvq` / `dashboard xmlq`
   Parse JSON, YAML, TOML, Java properties, INI, CSV, and XML input and optionally traverse a dotted path before printing a scalar or canonical JSON. File-path and query-path argument order is interchangeable, and `$d` selects the full parsed document.

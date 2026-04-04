@@ -361,7 +361,9 @@ older picker workflow again: one unique match opens directly in `--editor`,
 `VISUAL`, `EDITOR`, or `vim` as the final fallback, and multiple matches render
 a numbered prompt. At that prompt you can press Enter to open all matches, type
 one number to open one file, type comma-separated numbers such as `1,3`, or use
-a range such as `2-5`.
+a range such as `2-5`. Scoped searches also rank exact helper/script names
+before broader substring matches, so `dashboard of . jq` lists `jq` and
+`jq.js` ahead of `jquery.js`.
 
 ### Data Query Commands
 

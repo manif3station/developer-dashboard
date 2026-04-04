@@ -3,7 +3,7 @@ package Developer::Dashboard::File;
 use strict;
 use warnings;
 
-our $VERSION = '1.53';
+our $VERSION = '1.54';
 
 use File::Spec;
 

@@ -140,6 +140,99 @@ open my $duplicate_fh, '>', $duplicate_file or die "Unable to write $duplicate_f
 print {$duplicate_fh} "alpha second\n";
 close $duplicate_fh;
 
+my $scope_root = File::Spec->catdir( $project_root, 'scope-fixtures' );
+my $scope_cli_root = File::Spec->catdir( $scope_root, 'cli' );
+my $scope_js_root  = File::Spec->catdir( $scope_root, 'public', 'js' );
+make_path( $scope_cli_root, $scope_js_root );
+my $scope_jq = File::Spec->catfile( $scope_cli_root, 'jq' );
+open my $scope_jq_fh, '>', $scope_jq or die "Unable to write $scope_jq: $!";
+print {$scope_jq_fh} "#!/bin/sh\n";
+close $scope_jq_fh;
+my $scope_jq_js = File::Spec->catfile( $scope_js_root, 'jq.js' );
+open my $scope_jq_js_fh, '>', $scope_jq_js or die "Unable to write $scope_jq_js: $!";
+print {$scope_jq_js_fh} "window.jq = true;\n";
+close $scope_jq_js_fh;
+my $scope_jquery = File::Spec->catfile( $scope_js_root, 'jquery.js' );
+open my $scope_jquery_fh, '>', $scope_jquery or die "Unable to write $scope_jquery: $!";
+print {$scope_jquery_fh} "window.jquery = true;\n";
+close $scope_jquery_fh;
+my ( $scope_line, @scope_match ) = Developer::Dashboard::CLI::OpenFile::_resolve_open_file_matches(
+    paths => $registry,
+    args  => [ $scope_root, 'jq' ],
+);
+is( $scope_line, 0, 'scoped jq search keeps line number at zero' );
+is_deeply(
+    \@scope_match,
+    [ $scope_jq, $scope_jq_js, $scope_jquery ],
+    'scoped jq search ranks exact jq helper and jq.js ahead of jquery.js',
+);
+is(
+    Developer::Dashboard::CLI::OpenFile::_scope_match_rank(
+        file     => '/tmp/tools/jq',
+        patterns => ['jq'],
+    ),
+    0,
+    'scope rank prefers exact basename matches',
+);
+is(
+    Developer::Dashboard::CLI::OpenFile::_scope_match_rank(
+        file     => '/tmp/tools/jq.js',
+        patterns => ['jq'],
+    ),
+    1,
+    'scope rank prefers basename stem matches next',
+);
+is(
+    Developer::Dashboard::CLI::OpenFile::_scope_match_rank(
+        file     => '/tmp/tools/jquery.js',
+        patterns => ['jq'],
+    ),
+    2,
+    'scope rank then prefers basename prefix matches',
+);
+is(
+    Developer::Dashboard::CLI::OpenFile::_scope_match_rank(
+        file     => '/tmp/tools/my-jq-helper.js',
+        patterns => ['jq'],
+    ),
+    3,
+    'scope rank then falls back to basename substring matches',
+);
+is(
+    Developer::Dashboard::CLI::OpenFile::_scope_match_rank(
+        file     => '/tmp/jq/helper-script',
+        patterns => ['jq'],
+    ),
+    4,
+    'scope rank handles path-component matches that are not basename hits',
+);
+is(
+    Developer::Dashboard::CLI::OpenFile::_scope_match_rank(
+        file     => '/tmp/tools/helper-jq/path',
+        patterns => ['jq'],
+    ),
+    5,
+    'scope rank finally falls back to full-path substring matches',
+);
+is(
+    Developer::Dashboard::CLI::OpenFile::_scope_match_rank(
+        file     => '',
+        patterns => ['jq'],
+    ),
+    50,
+    'scope rank handles empty file paths without crashing',
+);
+is_deeply(
+    [
+        Developer::Dashboard::CLI::OpenFile::_ordered_scope_matches(
+            patterns => ['jq'],
+            files    => [ '/tmp/tools/jquery.js', '/tmp/tools/jq.js', '/tmp/tools/jq' ],
+        )
+    ],
+    [ '/tmp/tools/jq', '/tmp/tools/jq.js', '/tmp/tools/jquery.js' ],
+    'ordered scope matches sorts by rank while preserving ties by discovery order',
+);
+
 my $interactive_error = '';
 my ( $interactive_stdout, $interactive_stderr ) = capture {
     local *Developer::Dashboard::CLI::OpenFile::_command_exec = sub {
@@ -157,10 +250,11 @@ my ( $interactive_stdout, $interactive_stderr ) = capture {
     $interactive_error = $@;
 };
 like( $interactive_error, qr/^EXEC/, 'interactive open-file path reaches the exec hook' );
-like( $interactive_stdout, qr/^1: \Q$notes_file\E$/m, 'interactive open-file lists the first numbered file choice' );
-like( $interactive_stdout, qr/^2: \Q$duplicate_file\E$/m, 'interactive open-file lists the second numbered file choice' );
+like( $interactive_stdout, qr/^\d+: \Q$notes_file\E$/m, 'interactive open-file lists the first matching alpha file' );
+like( $interactive_stdout, qr/^\d+: \Q$duplicate_file\E$/m, 'interactive open-file lists the second matching alpha file' );
 like( $interactive_stdout, qr/> \z/, 'interactive open-file prompts with the legacy selector marker' );
-like( $captured_exec, qr/^vim\n\Q$duplicate_file\E$/m, 'interactive open-file falls back to vim and opens the selected match' );
+my ($interactive_selected) = $interactive_stdout =~ /^2:\s+(.*)$/m;
+is( $captured_exec, "vim\n$interactive_selected", 'interactive open-file falls back to vim and opens the selected match' );
 is( $interactive_stderr, '', 'interactive open-file keeps stderr clean while prompting' );
 
 eval {
@@ -193,7 +287,9 @@ my ( $blank_select_stdout, $blank_select_stderr ) = capture {
     $blank_select_error = $@;
 };
 like( $blank_select_error, qr/^EXEC/, 'blank interactive open-file selection reaches the exec hook' );
-like( $captured_exec, qr/^vim\n\Q$notes_file\E\n\Q$duplicate_file\E$/m, 'blank interactive open-file selection falls back to opening all matches' );
+my @blank_exec = split /\n/, $captured_exec;
+is( shift @blank_exec, 'vim', 'blank interactive open-file selection still targets vim' );
+is_deeply( [ sort @blank_exec ], [ sort ( $notes_file, $duplicate_file ) ], 'blank interactive open-file selection falls back to opening all matches' );
 is( $blank_select_stderr, '', 'blank interactive open-file selection keeps stderr clean' );
 like( $blank_select_stdout, qr/> \z/, 'blank interactive open-file selection still renders the chooser prompt' );
 
@@ -214,7 +310,9 @@ my ( $multi_select_stdout, $multi_select_stderr ) = capture {
     $multi_select_error = $@;
 };
 like( $multi_select_error, qr/^EXEC/, 'comma-separated interactive selection reaches the exec hook' );
-like( $captured_exec, qr/^vim\n\Q$notes_file\E\n\Q$duplicate_file\E$/m, 'comma-separated interactive selection opens the chosen matches' );
+my @multi_exec = split /\n/, $captured_exec;
+is( shift @multi_exec, 'vim', 'comma-separated interactive selection still targets vim' );
+is_deeply( [ sort @multi_exec ], [ sort ( $notes_file, $duplicate_file ) ], 'comma-separated interactive selection opens the chosen matches' );
 is( $multi_select_stderr, '', 'comma-separated interactive selection keeps stderr clean' );
 like( $multi_select_stdout, qr/> \z/, 'comma-separated interactive selection shows the chooser prompt' );
 
@@ -235,7 +333,9 @@ my ( $range_select_stdout, $range_select_stderr ) = capture {
     $range_select_error = $@;
 };
 like( $range_select_error, qr/^EXEC/, 'range interactive selection reaches the exec hook' );
-like( $captured_exec, qr/^vim\n\Q$notes_file\E\n\Q$duplicate_file\E$/m, 'range interactive selection opens the chosen range' );
+my @range_exec = split /\n/, $captured_exec;
+is( shift @range_exec, 'vim', 'range interactive selection still targets vim' );
+is_deeply( [ sort @range_exec ], [ sort ( $notes_file, $duplicate_file ) ], 'range interactive selection opens the chosen range' );
 is( $range_select_stderr, '', 'range interactive selection keeps stderr clean' );
 like( $range_select_stdout, qr/> \z/, 'range interactive selection shows the chooser prompt' );
 

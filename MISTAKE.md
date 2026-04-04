@@ -4,6 +4,22 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: OPEN-FILE-SCOPE-RANKING
+
+**Date:** 2026-04-04 15:10:00 UTC
+**Area:** CLI parity / scoped search ordering
+**Symptom:** `dashboard of . jq` could surface `jquery.js` before `jq` or `jq.js`, which made the command look broken even though the chooser itself still worked
+**Why It Was Dangerous:** Operators read the first numbered match as the intended target, so weak search ranking can feel like the wrong file is being auto-opened or prioritized
+**Root Cause:** I restored chooser semantics but left scoped search ordering too loose, so broad substring hits were treated the same as exact helper/script matches
+**How Ellen Solved It:** Ranked scoped search matches by basename and stem relevance, keeping exact `jq` and `jq.js` results ahead of broader hits such as `jquery.js`, then added smoke and unit coverage for `dashboard of . jq`
+**How To Detect Earlier Next Time:** Test the real user query, not only generic fixtures; if a bug report says `dashboard of . jq`, add that exact search as a regression
+**Prevention Rule:** When restoring command parity, verify both the interaction model and the match ordering that feeds it
+**Verification:** targeted open-file tests, full `prove -lr t`, coverage, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis
+**Related Files:** `lib/Developer/Dashboard/CLI/OpenFile.pm`, `t/05-cli-smoke.t`, `t/15-cli-module-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`
+**Tags:** `open-file`, `search`, `ranking`, `cli`, `compatibility`
+
+---
+
 ## CODE: TOOLCHAIN-TICKET-GAP
 
 **Date:** 2026-04-04 12:55:00 UTC

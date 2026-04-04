@@ -1,5 +1,9 @@
 # Fixed Bugs
 
+## 2026-04-04 (Phase 18: Open-File Match Ranking)
+
+- Fixed scoped `dashboard of` / `dashboard open-file` search ordering so exact helper/script names are ranked before broader substring hits, restoring the expected `dashboard of . jq` behavior where `jq` and `jq.js` appear before `jquery.js`.
+
 ## 2026-04-04 (Phase 17: Open-File Multi-Select Parity)
 
 - Fixed `dashboard of` / `dashboard open-file` so the chooser matches the real old workflow instead of forcing a single selection. A single unique match now opens immediately, while multi-match searches allow one number, comma-separated numbers, numeric ranges, or blank input to open all matches.

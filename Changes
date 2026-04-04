@@ -1,5 +1,12 @@
 Revision history for Developer Dashboard
 
+1.54  2026-04-04
+    - fixed scoped `dashboard of` / `dashboard open-file` search ordering so
+      exact helper/script matches such as `jq` and `jq.js` sort ahead of
+      broader substring matches such as `jquery.js`
+    - added smoke and unit regressions for `dashboard of . jq`, proving the
+      numbered chooser now shows `jq` and `jq.js` before `jquery.js`
+
 1.53  2026-04-04
     - aligned `dashboard of` / `dashboard open-file` with the real legacy
       chooser semantics so a single unique match opens immediately while
