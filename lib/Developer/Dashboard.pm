@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.48';
+our $VERSION = '1.49';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.48
+1.49
 
 =head1 INTRODUCTION
 
@@ -503,9 +503,17 @@ parse JSON, YAML, TOML, and Java properties input, then optionally extract a
 dotted path and print a scalar or canonical JSON, giving the CLI a small
 data-inspection toolkit that fits naturally into shell workflows.
 
-=item * Standalone CLI Commands
+=item * Private CLI Helper Assets
 
-Private F<~/.developer-dashboard/cli/> helper files provide the same query behaviour without being installed into the global PATH.
+Private F<~/.developer-dashboard/cli/> helper files provide the built-in
+query helper behaviour without installing generic command names into the
+global PATH.
+
+Only C<dashboard> is intended to be the public CPAN-facing command-line
+entrypoint. Generic helper names such as C<of>, C<open-file>, C<jq>,
+C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, and C<xmlq> are intentionally
+kept out of the installed global PATH to avoid polluting the wider Perl and
+shell ecosystem.
 
 =item * Runtime Manager
 

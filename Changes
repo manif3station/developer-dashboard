@@ -1,5 +1,14 @@
 Revision history for Developer Dashboard
 
+1.49  2026-04-04
+    - removed standalone `of` and `open-file` executables from the shipped
+      distribution so `dashboard` remains the only public CPAN-facing command
+      and the package no longer installs those generic helper names into the
+      global PATH
+    - kept `dashboard of` and `dashboard open-file` support in the main
+      command, so open-file resolution still works without exporting extra
+      public binaries
+
 1.48  2026-04-04
     - fixed macOS cpanm installation test 14 failure where Runtime::Result
       command name derivation was prioritizing stale DEVELOPER_DASHBOARD_COMMAND

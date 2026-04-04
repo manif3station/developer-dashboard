@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '1.48';
+our $VERSION = '1.49';
 
 use File::Spec;
 

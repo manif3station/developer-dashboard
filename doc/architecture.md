@@ -56,6 +56,9 @@ instead of a loose pile of utilities.
 
 - `dashboard`
   Canonical command-line entrypoint for runtime, page, collector, prompt, and user CLI extension operations.
+  It is the only public executable the distribution installs into the global
+  PATH, so generic helper names stay inside the dashboard runtime instead of
+  leaking into the wider shell ecosystem.
 
 - `dashboard of` / `dashboard open-file`
   Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches below a resolved scope, then print or exec the configured editor.
@@ -65,6 +68,11 @@ instead of a loose pile of utilities.
 
 - private `~/.developer-dashboard/cli/jq` / `yq` / `tomq` / `propq` / `iniq` / `csvq` / `xmlq`
   Are staged into the dashboard runtime and used for private helper dispatch without installing generic command names into the system PATH.
+
+- no standalone `of`, `open-file`, or `ticket` executable
+  The distribution keeps file-opening and ticket-aware behaviour behind
+  `dashboard` subcommands or external user-managed tools instead of shipping
+  more generic top-level binaries into the CPAN-installed PATH.
 
 - `Developer::Dashboard::PageDocument`
   Canonical page model for saved, transient, and legacy bookmark pages.

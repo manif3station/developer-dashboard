@@ -198,8 +198,10 @@ generic package names.
 - `dashboard iniq`, `dashboard csvq`, and `dashboard xmlq`
   Parse INI, CSV, and XML file input with dotted path extraction.
 
-- standalone `of` and `open-file`
-  Provide direct file-opening entrypoints. Generic query helpers are intentionally not installed as public executables, and are instead staged privately under `~/.developer-dashboard/cli/`.
+- private `~/.developer-dashboard/cli/jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, and `xmlq`
+  Provide dashboard-managed helper assets without installing generic command names into the global PATH.
+
+Only `dashboard` is intended to be the public CPAN-facing command-line entrypoint. Generic helper names such as `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, and `xmlq` are intentionally kept out of the installed global PATH to avoid polluting the wider Perl and shell ecosystem.
 
 - `Developer::Dashboard::RuntimeManager`
   Manages the background web service and collector lifecycle with process-title validation, `pkill`-style fallback shutdown, and restart orchestration, tying the browser and prepared-state loops together as one runtime.

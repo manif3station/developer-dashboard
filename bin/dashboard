@@ -71,9 +71,15 @@ if ( $cmd && $cmd =~ /^(pjq|jq|pyq|yq|ptomq|tomq|pjp|propq|iniq|csvq|xmlq)$/ ) {
     exit 0;
 }
 
-if ( my $builtin = _standalone_builtin_executable($cmd) ) {
-    exec { $^X } $^X, $builtin, @ARGV;
-    die "Unable to exec $builtin: $!";
+if ( $cmd eq 'of' || $cmd eq 'open-file' ) {
+    require Developer::Dashboard::PathRegistry;
+    require Developer::Dashboard::CLI::OpenFile;
+    my $paths = Developer::Dashboard::PathRegistry->new(
+        workspace_roots => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
+        project_roots   => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
+    );
+    Developer::Dashboard::CLI::OpenFile::run_open_file_command( paths => $paths, args => \@ARGV );
+    exit 0;
 }
 
 require Developer::Dashboard::Auth;
@@ -914,18 +920,6 @@ else {
         exec { $command[0] } @command, @ARGV;
         die "Unable to exec $command_path: $!";
     }
-}
-
-# _standalone_builtin_executable($cmd)
-# Resolves a standalone built-in command executable that should be exec'd before loading the heavy runtime.
-# Input: top-level dashboard subcommand string.
-# Output: executable path string or undef when the command stays in the main script.
-sub _standalone_builtin_executable {
-    my ($cmd) = @_;
-    return if !$cmd;
-    return if $cmd ne 'of' && $cmd ne 'open-file';
-    my $path = File::Spec->catfile( $Bin, $cmd );
-    return -f $path ? $path : undef;
 }
 
 # _prime_command_result_env($cmd, @argv)

@@ -1,5 +1,10 @@
 # Fixed Bugs
 
+## 2026-04-04 (Phase 12: Public CLI Pollution Cleanup)
+
+- Fixed remaining CPAN PATH pollution by removing standalone `of` and `open-file` executables from the shipped distribution. Those names were still being installed globally even though the same behavior already existed behind `dashboard of` and `dashboard open-file`.
+- Confirmed there are no repo-shipped standalone `ticket` executables or other remaining generic helper binaries in the distribution. `dashboard` is now the only intended public CPAN-facing executable, while data-query helper assets remain private under `~/.developer-dashboard/cli/`.
+
 ## 2026-04-04 (Phase 1: macOS fix + Namespacing)
 
 - Fixed macOS cpanm installation test 14 failure where `Developer::Dashboard::Runtime::Result::_command_name()` was prioritizing the stale `$ENV{DEVELOPER_DASHBOARD_COMMAND}` environment variable over the actual script path in `$0`, causing incorrect command name attribution in hook execution reports. The fix now derives the command name from normalized `$0` first, preserves trailing-slash script names correctly, treats root-like paths as `dashboard`, and only falls back to the environment variable when `$0` is genuinely empty.

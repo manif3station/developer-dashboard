@@ -219,6 +219,11 @@ tar -tzf Developer-Dashboard-1.46.tar.gz | grep run-host-integration.sh
 cpanm /tmp/Developer-Dashboard-1.46.tar.gz -v
 ```
 
+The installed executable audit should also confirm that the built tarball
+exports only `dashboard` into the global PATH. Generic helper names such as
+`of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, and
+`ticket` must not appear as repo-shipped top-level executables.
+
 and uploads the resulting tarball to PAUSE using:
 
 - `PAUSE_USER`

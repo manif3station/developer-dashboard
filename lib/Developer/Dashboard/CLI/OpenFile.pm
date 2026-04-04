@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::OpenFile;
 use strict;
 use warnings;
 
-our $VERSION = '1.48';
+our $VERSION = '1.49';
 
 use Cwd qw(cwd);
 use Exporter 'import';
@@ -242,7 +242,7 @@ __END__
 
 =head1 NAME
 
-Developer::Dashboard::CLI::OpenFile - standalone open-file command support
+Developer::Dashboard::CLI::OpenFile - dashboard open-file command support
 
 =head1 SYNOPSIS
 
@@ -251,7 +251,7 @@ Developer::Dashboard::CLI::OpenFile - standalone open-file command support
 
 =head1 DESCRIPTION
 
-Provides the lightweight shared implementation behind the standalone
-C<of>/C<open-file> executables and the proxied C<dashboard of> command path.
+Provides the shared implementation behind the built-in C<dashboard of> and
+C<dashboard open-file> command paths.
 
 =cut

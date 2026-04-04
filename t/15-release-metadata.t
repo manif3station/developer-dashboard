@@ -18,15 +18,15 @@ my $makefile = _slurp( _repo_path('Makefile.PL') );
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.48', 'repo version bumped for the private helper and skill isolation release' );
-like( $pm, qr/^1\.48$/m, 'main POD version matches the module version' );
+is( $version, '1.49', 'repo version bumped for the public CLI pollution cleanup release' );
+like( $pm, qr/^1\.49$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.48$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.49$/m, 'dist.ini version matches the module version in the source tree' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.48"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.49"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.48\s+2026-04-04$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.49\s+2026-04-04$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -41,6 +41,8 @@ for my $path (
     bin/iniq
     bin/csvq
     bin/xmlq
+    bin/of
+    bin/open-file
     )
   )
 {
@@ -59,7 +61,7 @@ for my $module (
     like( $pm, qr/\Q$module\E/, "main POD documents $module" );
 }
 
-unlike( $makefile, qr/bin\/pjq|bin\/pyq|bin\/ptomq|bin\/pjp|bin\/jq|bin\/yq|bin\/tomq|bin\/propq|bin\/iniq|bin\/csvq|bin\/xmlq/, 'Makefile.PL does not install generic helper commands into the global PATH' );
+unlike( $makefile, qr/bin\/pjq|bin\/pyq|bin\/ptomq|bin\/pjp|bin\/jq|bin\/yq|bin\/tomq|bin\/propq|bin\/iniq|bin\/csvq|bin\/xmlq|bin\/of|bin\/open-file/, 'Makefile.PL does not install generic helper commands into the global PATH' );
 for my $helper (qw(jq yq tomq propq iniq csvq xmlq)) {
     ok( -f _repo_path( 'private-cli', $helper ), "private-cli/$helper is shipped as a private helper asset" );
 }
@@ -70,6 +72,7 @@ for my $doc ( $readme, $pm ) {
     like( $doc, qr/dashboard yq/, 'docs describe the renamed yq subcommand' );
     like( $doc, qr/dashboard tomq/, 'docs describe the renamed tomq subcommand' );
     like( $doc, qr/dashboard propq/, 'docs describe the renamed propq subcommand' );
+    unlike( $doc, qr/standalone `of` and `open-file`|standalone of and open-file/, 'docs no longer advertise public standalone of/open-file executables' );
     like( $doc, qr/Developer::Dashboard::Runtime::Result/, 'docs use the namespaced Runtime::Result module name' );
     like( $doc, qr/Developer::Dashboard::Folder/, 'docs use the namespaced Folder module name' );
 }

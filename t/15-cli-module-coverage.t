@@ -283,11 +283,12 @@ __END__
 
 =head1 NAME
 
-15-cli-module-coverage.t - direct coverage tests for lightweight standalone CLI helper modules
+15-cli-module-coverage.t - direct coverage tests for dashboard CLI helper modules
 
 =head1 DESCRIPTION
 
-This test exercises the in-process helper code behind the standalone open-file
-and structured-data query executables so their library coverage stays at 100%.
+This test exercises the in-process helper code behind the built-in
+open-file and structured-data dashboard command paths so their library
+coverage stays at 100%.
 
 =cut

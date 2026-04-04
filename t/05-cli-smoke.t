@@ -26,8 +26,6 @@ my $repo = getcwd();
 chdir $ENV{HOME} or die "Unable to chdir to $ENV{HOME}: $!";
 my $lib = File::Spec->catdir( $repo, 'lib' );
 my $dashboard = File::Spec->catfile( $repo, 'bin', 'dashboard' );
-my $of_bin = File::Spec->catfile( $repo, 'bin', 'of' );
-my $open_file_bin = File::Spec->catfile( $repo, 'bin', 'open-file' );
 my $runtime_cli_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );
 my $runtime_jq = File::Spec->catfile( $runtime_cli_root, 'jq' );
 my $runtime_yq = File::Spec->catfile( $runtime_cli_root, 'yq' );
@@ -347,11 +345,8 @@ like($open_print, qr/\Q$open_target\E/, 'dashboard open-file prints matching fil
 my $of_print = _run("$perl -I'$lib' '$dashboard' of --print '$open_root' alpha");
 like($of_print, qr/\Q$open_target\E/, 'dashboard of is shorthand for open-file');
 
-my $standalone_of_print = _run("$perl -I'$lib' '$of_bin' --print '$open_root' alpha");
-is( $standalone_of_print, $of_print, 'standalone of matches dashboard of output' );
-
-my $standalone_open_file = _run("$perl -I'$lib' '$open_file_bin' --print '$open_root' alpha");
-is( $standalone_open_file, $open_print, 'standalone open-file matches dashboard open-file output' );
+ok( !-f File::Spec->catfile( $repo, 'bin', 'of' ), 'standalone of executable is no longer shipped from the repo tree' );
+ok( !-f File::Spec->catfile( $repo, 'bin', 'open-file' ), 'standalone open-file executable is no longer shipped from the repo tree' );
 
 my $perl_root = File::Spec->catdir( $open_root, 'lib', 'My' );
 make_path($perl_root);
@@ -614,7 +609,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.48\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.49\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' tomq alpha.beta});
 is( $toml_value, "4\n", 'tomq extracts scalar TOML values' );

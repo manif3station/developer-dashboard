@@ -4,6 +4,22 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: PUBLIC-CLI-POLLUTION
+
+**Date:** 2026-04-04 10:35:00 UTC
+**Area:** Packaging / public executable footprint
+**Symptom:** The distribution had already moved query helpers behind `dashboard`, but `of` and `open-file` were still shipped as top-level executables, which meant the CPAN install still exported extra generic command names into the user's global PATH
+**Why It Was Dangerous:** A CPAN package should not spray common helper names into the wider shell ecosystem when those names are dashboard-owned behaviours; that creates avoidable collisions and makes the public CLI footprint harder to reason about
+**Root Cause:** The first private-helper cleanup focused only on the decomposed query commands and left older convenience wrappers in `bin/` and `Makefile.PL`
+**How Ellen Solved It:** Removed `bin/of` and `bin/open-file` from the shipped distribution, kept both behaviours as `dashboard of` and `dashboard open-file`, tightened metadata tests so only `dashboard` remains public, and documented that no repo-shipped standalone `ticket` executable exists either
+**How To Detect Earlier Next Time:** Audit `bin/`, `Makefile.PL`, and the built tarball together instead of checking only the obvious new helper commands; if a helper name feels generic, assume it needs justification before it is allowed into PATH
+**Prevention Rule:** Developer Dashboard should ship one public executable, `dashboard`, unless there is a very strong distribution-level reason for another name; generic helper behaviours belong behind `dashboard` subcommands or under the private runtime CLI root
+**Verification:** targeted CLI/release metadata tests, full `prove -lr t`, full coverage, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis
+**Related Files:** `bin/dashboard`, `Makefile.PL`, `doc/architecture.md`, `README.md`, `lib/Developer/Dashboard.pm`, `t/05-cli-smoke.t`, `t/15-release-metadata.t`
+**Tags:** `packaging`, `path`, `executables`, `cpan`, `cli`, `isolation`
+
+---
+
 ## CODE: HOME-RUNTIME-PERMISSIVE
 
 **Date:** 2026-04-03 23:10:00 UTC
