@@ -61,6 +61,8 @@ instead of a loose pile of utilities.
   leaking into the wider shell ecosystem.
 
 - `dashboard of` / `dashboard open-file`
+- open-file commands keep the interactive numbered chooser workflow for
+  multi-match searches and fall back to `vim` when no editor is configured
   Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches below a resolved scope, then print or exec the configured editor.
 
 - `dashboard jq` / `dashboard yq` / `dashboard tomq` / `dashboard propq` / `dashboard iniq` / `dashboard csvq` / `dashboard xmlq`

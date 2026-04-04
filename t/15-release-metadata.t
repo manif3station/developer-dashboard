@@ -18,15 +18,15 @@ my $makefile = _slurp( _repo_path('Makefile.PL') );
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.51', 'repo version bumped for the private ticket helper release' );
-like( $pm, qr/^1\.51$/m, 'main POD version matches the module version' );
+is( $version, '1.52', 'repo version bumped for the open-file picker restore release' );
+like( $pm, qr/^1\.52$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.51$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.52$/m, 'dist.ini version matches the module version in the source tree' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.51"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.52"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.51\s+2026-04-04$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.52\s+2026-04-04$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(

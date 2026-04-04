@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::OpenFile;
 use strict;
 use warnings;
 
-our $VERSION = '1.51';
+our $VERSION = '1.52';
 
 use Cwd qw(cwd);
 use Exporter 'import';
@@ -58,16 +58,50 @@ sub run_open_file_command {
 
     die "No files found\n" if !@matches;
 
-    my $editor_cmd = $editor || $ENV{VISUAL} || $ENV{EDITOR} || '';
-    if ( $print || !$editor_cmd ) {
+    if ($print) {
         print join( "\n", @matches ), "\n";
         _command_exit(0);
     }
 
+    @matches = _select_open_file_matches( matches => \@matches ) if @matches > 1;
+
+    my $editor_cmd = _default_editor($editor);
     my @command = split /\s+/, $editor_cmd;
     push @command, "+$line" if $line;
     push @command, @matches;
     _command_exec(@command);
+}
+
+# _default_editor($editor)
+# Resolves the editor command used for interactive open-file execution.
+# Input: optional explicit editor command string.
+# Output: editor command string, defaulting to the user's editor or vim.
+sub _default_editor {
+    my ($editor) = @_;
+    return $editor || $ENV{VISUAL} || $ENV{EDITOR} || 'vim';
+}
+
+# _select_open_file_matches(%args)
+# Presents an interactive numbered selector when more than one file matched.
+# Input: hash containing an array reference of matched file path strings.
+# Output: one-element list containing the selected file path string.
+sub _select_open_file_matches {
+    my (%args) = @_;
+    my $matches = $args{matches} || [];
+
+    for my $index ( 0 .. $#$matches ) {
+        print( $index + 1, ". $matches->[$index]\n" );
+    }
+    print "Select file number: ";
+
+    my $selection = <STDIN>;
+    die "No file selection provided\n" if !defined $selection;
+    chomp $selection;
+    die "Invalid file selection '$selection'\n" if $selection !~ /^\d+$/;
+
+    my $chosen = $matches->[ $selection - 1 ];
+    die "Invalid file selection '$selection'\n" if !defined $chosen;
+    return ($chosen);
 }
 
 # _resolve_open_file_matches(%args)

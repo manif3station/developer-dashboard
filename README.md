@@ -356,7 +356,10 @@ These commands support:
 - Java class names such as `com.example.App`
 - recursive pattern searches inside a resolved directory alias or path
 
-If `VISUAL` or `EDITOR` is set, `dashboard of` and `dashboard open-file` will exec that editor unless `--print` is used.
+Without `--print`, `dashboard of` and `dashboard open-file` now behave like the
+older picker workflow again: one match opens directly in `--editor`, `VISUAL`,
+`EDITOR`, or `vim` as the final fallback, and multiple matches render a
+numbered prompt so you can choose the file to open.
 
 ### Data Query Commands
 

@@ -1613,7 +1613,7 @@ user CLI extensions loaded from F<~/.developer-dashboard/cli>
 
 built-in C<dashboard of> / C<dashboard open-file> resolution for direct files,
 C<file:line> references, Perl module names, Java class names, and recursive
-pattern matching
+pattern matching, including the numbered chooser and default editor fallback
 
 =item *
 

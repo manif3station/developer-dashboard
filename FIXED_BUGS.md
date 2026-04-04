@@ -1,5 +1,10 @@
 # Fixed Bugs
 
+## 2026-04-04 (Phase 15: Open-File Picker Restore)
+
+- Fixed `dashboard of` / `dashboard open-file` so multi-match searches no longer degrade into a raw printed list. The command now prints numbered matches, prompts for a selection, and opens the chosen file through the editor path again.
+- Fixed the missing editor fallback in the shared open-file implementation. When `--editor`, `VISUAL`, and `EDITOR` are all absent, the command now falls back to `vim`, so direct lookups like `dashboard of . jq` open in an editor again instead of only printing a path.
+
 ## 2026-04-04 (Phase 14: Private Ticket Helper Restore)
 
 - Restored `ticket` as a dashboard-managed private helper under `~/.developer-dashboard/cli/` so `dashboard ticket` stays part of the built-in toolchain without shipping a public `ticket` executable in the CPAN-installed PATH.

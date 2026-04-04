@@ -346,6 +346,32 @@ close $open_fh;
 my $open_print = _run("$perl -I'$lib' '$dashboard' open-file --print '$open_root' alpha");
 like($open_print, qr/\Q$open_target\E/, 'dashboard open-file prints matching files');
 
+my $second_open_target = File::Spec->catfile( $open_root, 'alpha-second.txt' );
+open my $second_open_fh, '>', $second_open_target or die "Unable to write $second_open_target: $!";
+print {$second_open_fh} "alpha second\n";
+close $second_open_fh;
+
+my $fake_editor_bin = File::Spec->catdir( $ENV{HOME}, 'fake-editor-bin' );
+make_path($fake_editor_bin);
+my $fake_editor_log = File::Spec->catfile( $ENV{HOME}, 'fake-editor.log' );
+my $fake_editor = File::Spec->catfile( $fake_editor_bin, 'fake-editor' );
+open my $fake_editor_fh, '>', $fake_editor or die "Unable to write $fake_editor: $!";
+print {$fake_editor_fh} <<"SH";
+#!/bin/sh
+printf '%s\\n' "\$*" > '$fake_editor_log'
+SH
+close $fake_editor_fh;
+chmod 0755, $fake_editor or die "Unable to chmod $fake_editor: $!";
+
+my $open_select = _run(qq{printf '2\\n' | EDITOR='$fake_editor' $perl -I'$lib' '$dashboard' of '$open_root' alpha});
+like($open_select, qr/^1\. \Q$open_target\E$/m, 'dashboard of lists the first numbered open-file match');
+like($open_select, qr/^2\. \Q$second_open_target\E$/m, 'dashboard of lists the second numbered open-file match');
+like($open_select, qr/Select file number:/, 'dashboard of prompts for a numbered selection');
+open my $fake_editor_log_fh, '<', $fake_editor_log or die "Unable to read $fake_editor_log: $!";
+my $fake_editor_args = do { local $/; <$fake_editor_log_fh> };
+close $fake_editor_log_fh;
+is($fake_editor_args, "$second_open_target\n", 'dashboard of opens the selected match through the configured editor');
+
 my $of_print = _run("$perl -I'$lib' '$dashboard' of --print '$open_root' alpha");
 like($of_print, qr/\Q$open_target\E/, 'dashboard of is shorthand for open-file');
 
@@ -663,7 +689,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.51\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.52\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' tomq alpha.beta});
 is( $toml_value, "4\n", 'tomq extracts scalar TOML values' );

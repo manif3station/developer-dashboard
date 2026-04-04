@@ -20,6 +20,22 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: OPEN-FILE-PICKER-DRIFT
+
+**Date:** 2026-04-04 14:10:00 UTC
+**Area:** CLI parity / open-file workflow
+**Symptom:** `dashboard of` only printed resolved paths when no editor was configured, so the older numbered picker workflow disappeared and direct lookups no longer opened in an editor by default
+**Why It Was Dangerous:** The command looked superficially functional but regressed the actual operator workflow, forcing users to manually copy paths instead of selecting and opening them immediately
+**Root Cause:** I preserved the search and resolution logic but stripped out the interactive chooser and default editor fallback, which weakened the command even though the legacy behavior expectation was clear
+**How Ellen Solved It:** Restored the numbered multi-match selector, restored a built-in `vim` fallback when no editor is configured, and added smoke plus unit coverage for both the chooser and the selected-file exec path
+**How To Detect Earlier Next Time:** Test the operator path, not just the resolution path; for `dashboard of`, that means verifying a live selection flow and the final editor invocation instead of stopping at `--print`
+**Prevention Rule:** For any workflow command that historically ends in an editor or an interactive choice, add tests for the final operator interaction path, not only the underlying path discovery
+**Verification:** targeted open-file tests, full `prove -lr t`, coverage, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis
+**Related Files:** `lib/Developer/Dashboard/CLI/OpenFile.pm`, `t/05-cli-smoke.t`, `t/15-cli-module-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`
+**Tags:** `open-file`, `interactive`, `vim`, `cli`, `workflow`
+
+---
+
 ## CODE: PUBLIC-CLI-POLLUTION
 
 **Date:** 2026-04-04 10:35:00 UTC

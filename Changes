@@ -1,5 +1,15 @@
 Revision history for Developer Dashboard
 
+1.52  2026-04-04
+    - restored the interactive `dashboard of` / `dashboard open-file` chooser
+      so multi-match searches print a numbered list, prompt for a selection,
+      and open the chosen file instead of degrading to a raw path dump
+    - restored a built-in editor fallback for open-file commands, defaulting
+      to `vim` when neither `--editor`, `VISUAL`, nor `EDITOR` is set, so
+      single-match lookups like `dashboard of . jq` open directly again
+    - added smoke and unit coverage for the numbered selection flow, the
+      selected-file editor exec path, and the default editor fallback
+
 1.51  2026-04-04
     - added a private `ticket` helper under `~/.developer-dashboard/cli/` so
       `dashboard ticket` is again part of the built-in toolchain without

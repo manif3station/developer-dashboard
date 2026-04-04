@@ -107,6 +107,7 @@ ok( grep( $_ eq $named_prefix_file, @prefixed ), 'named file lookup honors confi
     chdir $original_cwd or die "Unable to restore cwd to $original_cwd: $!";
 }
 
+my $print_error = '';
 my ( $print_stdout, undef ) = capture {
     local *Developer::Dashboard::CLI::OpenFile::_command_exit = sub { die "EXIT:$_[0]" };
     eval {
@@ -115,8 +116,9 @@ my ( $print_stdout, undef ) = capture {
             args  => [ '--print', 'home', 'alpha-notes' ],
         );
     };
-    like( $@, qr/^EXIT:0\b/, 'print-mode open-file path exits cleanly through the test hook' );
+    $print_error = $@;
 };
+like( $print_error, qr/^EXIT:0\b/, 'print-mode open-file path exits cleanly through the test hook' );
 like( $print_stdout, qr/\Q$notes_file\E/, 'print-mode open-file command emits the resolved path' );
 
 my $captured_exec = '';
@@ -133,6 +135,47 @@ eval {
 like( $@, qr/^EXEC/, 'editor-mode open-file path reaches the exec hook' );
 like( $captured_exec, qr/^fake-editor\n--wait\n\+12\n\Q$notes_file\E$/m, 'editor-mode open-file command builds the expected editor invocation' );
 
+my $duplicate_file = File::Spec->catfile( $project_root, 'alpha-second-notes.txt' );
+open my $duplicate_fh, '>', $duplicate_file or die "Unable to write $duplicate_file: $!";
+print {$duplicate_fh} "alpha second\n";
+close $duplicate_fh;
+
+my $interactive_error = '';
+my ( $interactive_stdout, $interactive_stderr ) = capture {
+    local *Developer::Dashboard::CLI::OpenFile::_command_exec = sub {
+        $captured_exec = join "\n", @_;
+        die "EXEC";
+    };
+    open my $stdin_fh, '<', \"2\n" or die 'Unable to open scalar stdin handle for open-file selection';
+    local *STDIN = $stdin_fh;
+    eval {
+        run_open_file_command(
+            paths => $registry,
+            args  => [ $project_root, 'alpha' ],
+        );
+    };
+    $interactive_error = $@;
+};
+like( $interactive_error, qr/^EXEC/, 'interactive open-file path reaches the exec hook' );
+like( $interactive_stdout, qr/^1\. \Q$notes_file\E$/m, 'interactive open-file lists the first numbered file choice' );
+like( $interactive_stdout, qr/^2\. \Q$duplicate_file\E$/m, 'interactive open-file lists the second numbered file choice' );
+like( $interactive_stdout, qr/Select file number: \z/, 'interactive open-file prompts for the numbered selection' );
+like( $captured_exec, qr/^vim\n\Q$duplicate_file\E$/m, 'interactive open-file falls back to vim and opens the selected match' );
+is( $interactive_stderr, '', 'interactive open-file keeps stderr clean while prompting' );
+
+eval {
+    local *Developer::Dashboard::CLI::OpenFile::_command_exec = sub {
+        $captured_exec = join "\n", @_;
+        die "EXEC";
+    };
+    run_open_file_command(
+        paths => $registry,
+        args  => [ $notes_file ],
+    );
+};
+like( $@, qr/^EXEC/, 'single-match open-file path reaches the exec hook' );
+like( $captured_exec, qr/^vim\n\Q$notes_file\E$/m, 'single-match open-file falls back to vim when no editor is configured' );
+
 eval {
     run_open_file_command( paths => $registry, args => [] );
 };
@@ -142,6 +185,18 @@ eval {
     run_open_file_command( paths => $registry, args => [ '--print', $project_root, 'missing-pattern' ] );
 };
 like( $@, qr/^No files found/, 'open-file command rejects unmatched searches' );
+
+my $invalid_error = '';
+my ($invalid_stdout) = capture {
+    eval {
+        open my $stdin_fh, '<', \"not-a-number\n" or die 'Unable to open scalar stdin handle for invalid selection';
+        local *STDIN = $stdin_fh;
+        run_open_file_command( paths => $registry, args => [ $project_root, 'alpha' ] );
+    };
+    $invalid_error = $@;
+};
+like( $invalid_error, qr/^Invalid file selection 'not-a-number'/, 'open-file rejects non-numeric interactive selections' );
+like( $invalid_stdout, qr/Select file number: \z/, 'open-file invalid-selection path still renders the numbered prompt' );
 
 my ( $path_a, $file_a ) = Developer::Dashboard::CLI::Query::_split_query_args( '$d', $notes_file );
 is( $path_a, '$d', 'query splitting keeps the query path when it comes first' );
@@ -216,16 +271,21 @@ like( $@, qr/Array index 'x' is invalid/, 'invalid array index dies clearly' );
 eval { Developer::Dashboard::CLI::Query::_extract_query_path( 'scalar', 'alpha' ) };
 like( $@, qr/does not resolve through a nested structure/, 'scalar traversal dies clearly' );
 
+my $scalar_return;
 my ($scalar_stdout) = capture {
-    ok( Developer::Dashboard::CLI::Query::_print_query_value('value'), 'scalar query output returns true' );
+    $scalar_return = Developer::Dashboard::CLI::Query::_print_query_value('value');
 };
+ok( $scalar_return, 'scalar query output returns true' );
 is( $scalar_stdout, "value\n", 'scalar query output prints a trailing newline' );
 
+my $ref_return;
 my ($ref_stdout) = capture {
-    ok( Developer::Dashboard::CLI::Query::_print_query_value( { answer => 42 } ), 'ref query output returns true' );
+    $ref_return = Developer::Dashboard::CLI::Query::_print_query_value( { answer => 42 } );
 };
+ok( $ref_return, 'ref query output returns true' );
 is_deeply( json_decode($ref_stdout), { answer => 42 }, 'ref query output prints canonical JSON' );
 
+my $query_error = '';
 my ( $query_stdout, undef ) = capture {
     local *Developer::Dashboard::CLI::Query::_command_exit = sub { die "EXIT:$_[0]" };
     my $stdin_json = qq|{"alpha":{"beta":7}}|;
@@ -237,8 +297,9 @@ my ( $query_stdout, undef ) = capture {
             args    => ['alpha.beta'],
         );
     };
-    like( $@, qr/^EXIT:0\b/, 'run_query_command exits through the test hook' );
+    $query_error = $@;
 };
+like( $query_error, qr/^EXIT:0\b/, 'run_query_command exits through the test hook' );
 is( $query_stdout, "7\n", 'run_query_command prints extracted scalar values' );
 
 {
