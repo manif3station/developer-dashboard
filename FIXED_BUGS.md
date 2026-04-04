@@ -1,5 +1,10 @@
 # Fixed Bugs
 
+## 2026-04-04
+
+- Fixed macOS cpanm installation test 14 failure where `Runtime::Result::_command_name()` was prioritizing the stale `$ENV{DEVELOPER_DASHBOARD_COMMAND}` environment variable over the actual script path in `$0`, causing incorrect command name attribution in hook execution reports. The fix reverses the priority logic to derive the command name from `$0` first and only fall back to the environment variable as a final resort.
+- Migrated all un-namespaced project core modules to the `Developer::Dashboard::` namespace to prevent CPAN ecosystem pollution and ensure proper scoping for dashboard-specific utilities. The following modules were migrated with backward-compatibility facades: `DataHelper` → `Developer::Dashboard::DataHelper`, `File` → `Developer::Dashboard::File`, `Folder` → `Developer::Dashboard::Folder`, `Zipper` → `Developer::Dashboard::Zipper`, `Runtime::Result` → `Developer::Dashboard::Runtime::Result`. Existing code using the old names continues to work through transparent delegation facades.
+
 ## 2026-04-03
 
 - Fixed browser indicator fallback drift so configured collector icons now render in both the top-right browser strip and `dashboard ps1` instead of leaking collector names when an icon was configured.

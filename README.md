@@ -143,6 +143,18 @@ The toolchain already understands Perl module names, Java class names, direct fi
 
 Project-specific behavior is added through configuration, saved pages, and user CLI extensions.
 
+### Module Namespacing
+
+All project modules are scoped under the `Developer::Dashboard::` namespace to prevent pollution of the CPAN ecosystem. Core helper modules are available under this namespace:
+
+- `Developer::Dashboard::File` - file I/O helpers with alias support
+- `Developer::Dashboard::Folder` - folder path resolution and discovery
+- `Developer::Dashboard::DataHelper` - JSON encoding/decoding helpers
+- `Developer::Dashboard::Zipper` - token encoding and Ajax command building
+- `Developer::Dashboard::Runtime::Result` - hook result environment variable decoding
+
+For backward compatibility, the original un-namespaced module names (`File`, `Folder`, `DataHelper`, `Zipper`, `Runtime::Result`) are still available as transparent facades that delegate to the new namespaced implementations. Existing code using the old names will continue to work without modification, but new code should use the `Developer::Dashboard::` prefixed names.
+
 ## Documentation
 
 ### Main Concepts

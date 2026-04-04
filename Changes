@@ -1,5 +1,16 @@
 Revision history for Developer Dashboard
 
+1.47  2026-04-04
+    - fixed macOS cpanm installation test 14 failure where Runtime::Result
+      command name derivation was prioritizing stale DEVELOPER_DASHBOARD_COMMAND
+      env var over $0 script path, causing incorrect command name attribution
+      in hook result reports
+    - migrated project core modules to Developer::Dashboard:: namespace to
+      prevent CPAN ecosystem pollution and ensure proper scoping for dashboard-
+      specific utilities (DataHelper, File, Folder, Zipper, Runtime::Result)
+    - maintained backward compatibility with legacy module names through
+      transparent facade modules that delegate to new namespaced implementations
+
 1.46  2026-04-04
     - fixed saved bookmark Ajax helper ordering for real browser pages that
       declare `var endpoints = {};` and call `fetch_value()` or

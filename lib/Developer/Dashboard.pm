@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.46';
+our $VERSION = '1.47';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.46
+1.47
 
 =head1 INTRODUCTION
 
@@ -394,6 +394,42 @@ mixed-language teams and polyglot repositories as well as Perl-heavy work.
 
 Project-specific behavior is added through configuration, saved pages, and
 user CLI extensions.
+
+=head1 MODULE NAMESPACING
+
+All project modules are scoped under the C<Developer::Dashboard::> namespace
+to prevent pollution of the CPAN ecosystem. Core helper modules are available
+under this namespace:
+
+=over 4
+
+=item * Developer::Dashboard::File
+
+File I/O helpers with alias support for legacy bookmark compatibility.
+
+=item * Developer::Dashboard::Folder
+
+Folder path resolution and discovery with runtime registry support.
+
+=item * Developer::Dashboard::DataHelper
+
+JSON encoding and decoding helpers for legacy bookmark code.
+
+=item * Developer::Dashboard::Zipper
+
+Token encoding and Ajax command building for transient URL construction.
+
+=item * Developer::Dashboard::Runtime::Result
+
+Hook result environment variable decoding and access for command runners.
+
+=back
+
+For backward compatibility, the original un-namespaced module names (C<File>,
+C<Folder>, C<DataHelper>, C<Zipper>, C<Runtime::Result>) are still available
+as transparent facades that delegate to the new namespaced implementations.
+Existing code using the old names will continue to work without modification,
+but new code should use the C<Developer::Dashboard::> prefixed names.
 
 =head1 DOCUMENTATION
 
