@@ -255,3 +255,46 @@ view FILENAME.md with view_range: [1, -1] or [LAST_SECTION_START, -1]
   - Manual verification: `dashboard serve --ssl --port 8000` creates config, `dashboard restart` uses same settings
   - Version bumped 1.21 → 1.22, Changes documented, README and doc files updated
 **Tags:** `persistence`, `configuration`, `restart`, `ssl`, `inheritance`, `cli-integration`, `complete`
+
+---
+
+## CODE: MACOSEXECUTION-ENV-POLLUTION
+
+**Date:** 2026-04-04 07:00:00 UTC
+**Area:** Environment variable pollution in test execution / Runtime command name derivation
+**Symptom:** macOS cpanm installation failed at test 14 with command name mismatch: expected 'report-result' but got 'update'; tests 155-156 failed during repository test run after test 131 set DEVELOPER_DASHBOARD_COMMAND env var
+**Why It Was Dangerous:** Environment variable from hook execution (test 131) persisted and polluted subsequent tests (tests 155-156); this would fail macOS installations via cpanm because the test harness doesn't isolate env vars properly; blocking issue preventing any macOS deployment
+**Root Cause:** Runtime::Result::_command_name() checked $ENV{DEVELOPER_DASHBOARD_COMMAND} FIRST and returned immediately without validating the value; this env var was set by _prime_command_result_env() before hook execution in test 131; when test 155-156 ran, the stale 'update' value from test 131 was still in the environment, overriding the test's $0 assignment
+**How Ellen Solved It:** Reversed priority in Runtime::Result::_command_name() to check $0 FIRST (current script path), only using $ENV{DEVELOPER_DASHBOARD_COMMAND} as a final fallback; added special case for 'run' basename which checks parent directory (for directory-backed commands); verified that reversing priority doesn't break hook execution behavior
+**How To Detect Earlier Next Time:** When a test failure shows command name mismatch or stale state from previous tests: (1) check if environment variables were modified by earlier tests and not cleaned up, (2) check if priority order in name derivation is correct (actual script source should come before env var), (3) use tempdir-based HOME override in all tests to prevent env var pollution across test boundaries, (4) use local %ENV or localenv blocks to prevent env var leakage between tests
+**Prevention Rule:** Any global state (especially environment variables) that affects runtime behavior must be cleared between test cases or explicitly isolated with tempdir/override; when deriving runtime state from multiple sources (env var, $0, parent directory), prioritize the most current/reliable source first, not the environment variables which can persist across hook execution boundaries
+**Related Work:**
+  1. Phase 1: Fixed macOS test 14 failure
+  2. Phase 6: Renamed all project modules to Developer::Dashboard::* namespace
+  3. Phase 3: Renamed CLI subcommands (pjq→jq, etc.) to prevent PATH pollution
+  4. Phase 8: Implemented isolated skill system with Git-backed installation
+  5. Phase 11: Implemented /skill/:repo/:route namespacing for app integration
+**Completed in v1.47:**
+  - ✅ Runtime::Result::_command_name() reversed priority logic
+  - ✅ Tests 155-156 now pass (equivalent to original test 14)
+  - ✅ All 214 core smoke tests pass without skips
+  - ✅ 41 new tests added (33 skill system + 8 web routes)
+  - ✅ 5 core modules migrated to Developer::Dashboard::* with backward-compatible facades
+  - ✅ 4 CLI subcommands renamed (pjq→jq, pyq→yq, ptomq→tomq, pjp→propq)
+  - ✅ 3 new query subcommands added (iniq, csvq, xmlq)
+  - ✅ dist.ini exclude_match prevents generic commands from polluting system PATH
+  - ✅ Makefile.PL post-install hook extracts private CLI tools to ~/.developer-dashboard/cli/
+  - ✅ Full skill system implemented: install, uninstall, update, list, dispatch
+  - ✅ Skill isolation guaranteed: ~/.developer-dashboard/skills/<repo-name>/
+  - ✅ Skill app route namespacing: /skill/:repo-name/:route pattern
+  - ✅ Full documentation: Changes, FIXED_BUGS, README, POD all updated
+  - ✅ Version consistency: all modules at v1.47
+**Verification:**
+  - `perl -I lib t/05-cli-smoke.t` returns 214/214 tests passing
+  - `perl -I lib t/19-skill-system.t` returns 33/33 tests passing
+  - `perl -I lib t/20-skill-web-routes.t` returns 8/8 tests passing
+  - Total: 255/255 tests passing (214 core + 41 new)
+  - No test failures, no test skips
+  - Full backward compatibility verified
+  - Git history: 8 meaningful commits with Co-authored-by trailers
+**Tags:** `environment`, `pollution`, `priority`, `command-name`, `macOS`, `skills`, `namespace`, `v1.47`, `complete`, `release-ready`
