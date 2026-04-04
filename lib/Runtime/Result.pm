@@ -2,9 +2,11 @@ package Runtime::Result;
 
 use strict;
 use warnings;
+use utf8;
 
-our $VERSION = '1.45';
+our $VERSION = '1.46';
 
+use Encode qw(encode);
 use File::Basename qw(basename dirname);
 use JSON::XS qw(decode_json);
 
@@ -103,7 +105,7 @@ sub last_entry {
 # report(%args)
 # Builds a compact command hook report from the current RESULT payload.
 # Input: optional command name override.
-# Output: formatted multi-line report string.
+# Output: UTF-8 encoded formatted multi-line report string.
 sub report {
     shift if @_ && defined $_[0] && !ref($_[0]) && $_[0] eq __PACKAGE__;
     my (%args) = @_;
@@ -127,7 +129,7 @@ sub report {
     }
 
     push @lines, '----------------------------------------';
-    return join( "\n", @lines ) . "\n";
+    return encode( 'UTF-8', join( "\n", @lines ) . "\n" );
 }
 
 # _command_name()

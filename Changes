@@ -1,5 +1,18 @@
 Revision history for Developer Dashboard
 
+1.46  2026-04-04
+    - fixed saved bookmark Ajax helper ordering for real browser pages that
+      declare `var endpoints = {};` and call `fetch_value()` or
+      `stream_value()` from `$(document).ready(...)`, so saved
+      `set_chain_value(...)` bindings no longer throw a `ReferenceError`
+    - fixed browser top-right collector icon visibility by using an
+      emoji-capable font stack, so UTF-8 icons such as `🐳` and `💰` stay
+      visible instead of collapsing into fallback boxes
+    - fixed UTF-8 output handling for dashboard JSON/state files, prompt
+      rendering, `/system/status`, and `Runtime::Result->report()`, so
+      collector icons and hook report glyphs survive file, browser, and CLI
+      round trips consistently
+
 1.45  2026-04-03
     - fixed collector indicator rendering so the configured icon is used in
       both the browser top-right status strip and `dashboard ps1`, instead of

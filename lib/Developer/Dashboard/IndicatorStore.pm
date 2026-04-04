@@ -2,8 +2,9 @@ package Developer::Dashboard::IndicatorStore;
 
 use strict;
 use warnings;
+use utf8;
 
-our $VERSION = '1.45';
+our $VERSION = '1.46';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -78,7 +79,7 @@ sub set_indicator {
     $data{updated_at} = time;
 
     my $tmp = "$file.pending";
-    open my $fh, '>', $tmp or die "Unable to write $tmp: $!";
+    open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode( \%data );
     close $fh;
     $self->{paths}->secure_file_permissions($tmp);
@@ -99,7 +100,7 @@ sub get_indicator {
     my $file = File::Spec->catfile( $self->{paths}->indicator_dir($name), 'status.json' );
     return if !-f $file;
 
-    open my $fh, '<', $file or die "Unable to read $file: $!";
+    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
     return json_decode(<$fh>);
 }

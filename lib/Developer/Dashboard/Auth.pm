@@ -3,7 +3,7 @@ package Developer::Dashboard::Auth;
 use strict;
 use warnings;
 
-our $VERSION = '1.45';
+our $VERSION = '1.46';
 
 use Fcntl qw(:mode);
 use Digest::SHA qw(sha256_hex);
@@ -60,7 +60,7 @@ sub add_user {
         updated_at    => _now_iso8601(),
     };
     my $file = $self->_user_file($username);
-    open my $fh, '>', $file or die "Unable to write $file: $!";
+    open my $fh, '>:raw', $file or die "Unable to write $file: $!";
     print {$fh} json_encode($record);
     close $fh;
     chmod 0600, $file;
@@ -89,7 +89,7 @@ sub get_user {
     my ( $self, $username ) = @_;
     for my $file ( $self->_user_file_candidates($username) ) {
         next if !-f $file;
-        open my $fh, '<', $file or die "Unable to read $file: $!";
+        open my $fh, '<:raw', $file or die "Unable to read $file: $!";
         local $/;
         return json_decode( scalar <$fh> );
     }

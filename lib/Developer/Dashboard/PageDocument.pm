@@ -3,7 +3,7 @@ package Developer::Dashboard::PageDocument;
 use strict;
 use warnings;
 
-our $VERSION = '1.45';
+our $VERSION = '1.46';
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 
@@ -369,12 +369,12 @@ sub render_html {
 </head>
 <body>
 $legacy_bootstrap
-$runtime_bootstrap
 <main>
   $chrome_html
   $nav_html
   @{[ $desc ne '' ? qq{<p>$desc</p>} : '' ]}
   <section class="body">$body_html</section>
+  $runtime_bootstrap
   $form_section
   $runtime_output
   $runtime_errors

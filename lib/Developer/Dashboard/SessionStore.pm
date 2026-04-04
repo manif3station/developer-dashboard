@@ -3,7 +3,7 @@ package Developer::Dashboard::SessionStore;
 use strict;
 use warnings;
 
-our $VERSION = '1.45';
+our $VERSION = '1.46';
 
 use Digest::SHA qw(sha256_hex);
 use File::Spec;
@@ -41,7 +41,7 @@ sub create {
         updated_at  => _now_iso8601(),
     };
     my $file = $self->_session_file($session_id);
-    open my $fh, '>', $file or die "Unable to write $file: $!";
+    open my $fh, '>:raw', $file or die "Unable to write $file: $!";
     print {$fh} json_encode($record);
     close $fh;
     chmod 0600, $file;
@@ -57,7 +57,7 @@ sub get {
     return if !defined $session_id || $session_id eq '';
     for my $file ( $self->_session_file_candidates($session_id) ) {
         next if !-f $file;
-        open my $fh, '<', $file or die "Unable to read $file: $!";
+        open my $fh, '<:raw', $file or die "Unable to read $file: $!";
         local $/;
         return json_decode( scalar <$fh> );
     }

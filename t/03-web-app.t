@@ -1,6 +1,8 @@
 use strict;
 use warnings;
+use utf8;
 
+use Encode qw(decode);
 use File::Path qw(make_path);
 use Test::More;
 use File::Spec;
@@ -481,7 +483,7 @@ $config->save_global(
 );
 my ($status_icon_code, undef, $status_icon_body) = @{ $app->handle(path => '/system/status', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($status_icon_code, 200, 'legacy status endpoint still responds after syncing config-backed collector indicators');
-like($status_icon_body, qr/"alias"\s*:\s*"🔑"/, 'legacy status endpoint exposes configured collector indicator icons instead of collector names');
+like(decode('UTF-8', $status_icon_body), qr/"alias"\s*:\s*"🔑"/, 'legacy status endpoint exposes configured collector indicator icons instead of collector names');
 like($app->_prompt_summary, qr/🔑/, 'page top-right prompt summary prefers the configured collector indicator icon');
 $config->save_global(
     {
@@ -617,10 +619,12 @@ HTML: <script src="/js/jquery.js"></script>
 <span id="mike"></span><br>
 <script>
 var endpoints = {};
-fetch_value(endpoints.foo, '#foo');
-stream_value(endpoints.bar, '#bar', { type: 'text' });
-fetch_value(endpoints.mike, '#mike', { type: 'json' }, function (value) {
-  return value.ok > 0 ? 'OK' : 'Error';
+$(document).ready(function () {
+  fetch_value(endpoints.foo, '#foo');
+  stream_value(endpoints.bar, '#bar', { type: 'text' });
+  fetch_value(endpoints.mike, '#mike', { type: 'json' }, function (value) {
+    return value.ok > 0 ? 'OK' : 'Error';
+  });
 });
 </script>
 :--------------------------------------------------------------------------------:
@@ -646,9 +650,12 @@ like($fetch_stream_body, qr/function stream_value\(url, target, options, formatt
 my $foo_bind_pos = index($fetch_stream_body, q{set_chain_value(endpoints,'foo','/ajax/foo?type=text'});
 my $bar_bind_pos = index($fetch_stream_body, q{set_chain_value(endpoints,'bar','/ajax/bar?type=text&singleton=BAR'});
 my $mike_bind_pos = index($fetch_stream_body, q{set_chain_value(endpoints,'mike','/ajax/mike?type=json'});
+my $endpoints_decl_pos = index($fetch_stream_body, q{var endpoints = {};});
 my $fetch_call_pos = index($fetch_stream_body, q{fetch_value(endpoints.foo, '#foo');});
 ok($foo_bind_pos > -1 && $bar_bind_pos > -1 && $mike_bind_pos > -1, 'legacy bookmark render includes all saved Ajax endpoint bindings for fetch_value and stream_value');
-ok($fetch_call_pos > -1 && $foo_bind_pos < $fetch_call_pos && $bar_bind_pos < $fetch_call_pos && $mike_bind_pos < $fetch_call_pos, 'saved Ajax endpoint bindings render before inline page scripts call fetch_value and stream_value');
+ok($endpoints_decl_pos > -1, 'legacy bookmark render keeps the caller endpoint variable declaration');
+ok($foo_bind_pos > $endpoints_decl_pos && $bar_bind_pos > $endpoints_decl_pos && $mike_bind_pos > $endpoints_decl_pos, 'saved Ajax endpoint bindings render after the caller declares the endpoint root object');
+ok($fetch_call_pos > -1, 'legacy bookmark render keeps the inline fetch helper call');
 like($fetch_stream_body, qr/dashboard_ajax_singleton_cleanup\('BAR'\)/, 'legacy bookmark render keeps singleton cleanup bindings for stream_value pages');
 
 {

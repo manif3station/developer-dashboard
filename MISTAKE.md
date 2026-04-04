@@ -151,6 +151,27 @@ view FILENAME.md with view_range: [1, -1] or [LAST_SECTION_START, -1]
 
 ---
 
+## CODE: UTF8-STATUS-DRIFT
+
+**Date:** 2026-04-04 01:12:00 UTC
+**Area:** Browser Ajax helper ordering, browser status strip rendering, and CLI Unicode output
+**Symptom:** A saved bookmark page that declared `var endpoints = {};` in the body still threw `ReferenceError: Can't find variable: endpoints` in the browser, top-right browser status icons such as `🐳` and `💰` were not visibly rendered, and CLI/report output leaked mojibake or wide-character warnings
+**Why It Was Dangerous:** The browser looked broken even though saved Ajax endpoints existed, collector health icons became unreadable to humans, and shell/report output drifted away from the browser status signal
+**Root Cause:** Saved Ajax binding scripts were injected before the bookmark body declared its endpoint root object; the browser chrome status area inherited a serif-only font stack without emoji coverage; UTF-8 text paths mixed raw bytes and character strings inconsistently across JSON wrappers, file-backed state stores, command output, and tests
+**How Ellen Solved It:**
+  1. Reproduced both bugs in Chromium against a live `dashboard serve` runtime instead of trusting the earlier string-only tests
+  2. Moved saved Ajax binding scripts to render after the bookmark body declaration point so `$(document).ready(...)` callbacks receive populated endpoint roots
+  3. Added an emoji-capable font stack to the top-right browser status strip
+  4. Switched JSON/file-backed state paths to byte-oriented UTF-8 handling and made CLI/report output emit UTF-8 consistently
+  5. Added regressions for bookmark binding order, browser status font coverage, and UTF-8 collector icon preservation
+**How To Detect Earlier Next Time:** If a page helper relies on a browser variable root such as `endpoints`, inspect rendered script order in the final HTML and verify the real page in Chromium; if a status icon is visible in config but not in browser/CLI output, check both font coverage and UTF-8 byte/character boundaries
+**Prevention Rule:** Browser bootstrap ordering must be verified in final rendered HTML and in a real browser; status icons must be verified visually, not only as JSON payload text; JSON/file-backed dashboard state must use one consistent UTF-8 contract end to end
+**Related Files:** lib/Developer/Dashboard/PageDocument.pm, lib/Developer/Dashboard/Web/App.pm, lib/Developer/Dashboard/JSON.pm, lib/Developer/Dashboard/Config.pm, lib/Developer/Dashboard/IndicatorStore.pm, lib/Developer/Dashboard/Prompt.pm, lib/Runtime/Result.pm, bin/dashboard, t/03-web-app.t, t/05-cli-smoke.t, t/07-core-units.t, t/14-coverage-closure-extra.t
+**Verification:** Browser DOM verification shows `foo`, `bar`, and `mike` populated on a saved bookmark page in Chromium, and a live `/system/status` page renders `🚨🐳`, `🚨💰`, and `🚨X` in the browser chrome; targeted tests, full suite, coverage, and packaging gates pass
+**Tags:** `utf8`, `browser`, `ajax`, `status`, `prompt`, `report`
+
+---
+
 ## CODE: COLLECTOR-GHOST-STATUS
 
 **Date:** 2026-04-03 23:59:00 UTC

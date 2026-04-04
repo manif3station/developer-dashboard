@@ -3,7 +3,7 @@ package Developer::Dashboard::JSON;
 use strict;
 use warnings;
 
-our $VERSION = '1.45';
+our $VERSION = '1.46';
 
 use Exporter 'import';
 use JSON::XS ();
@@ -15,7 +15,7 @@ our @EXPORT_OK = qw(json_encode json_decode);
 # Input: scalar/array/hash reference.
 # Output: JSON text string.
 sub json_encode {
-    return JSON::XS->new->canonical->pretty->encode( $_[0] );
+    return JSON::XS->new->utf8->canonical->pretty->encode( $_[0] );
 }
 
 # json_decode($json)
@@ -23,7 +23,7 @@ sub json_encode {
 # Input: JSON text string.
 # Output: decoded Perl value.
 sub json_decode {
-    return JSON::XS->new->decode( $_[0] );
+    return JSON::XS->new->utf8->decode( $_[0] );
 }
 
 1;

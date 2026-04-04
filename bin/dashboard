@@ -2,6 +2,7 @@
 
 use strict;
 use warnings;
+use utf8;
 
 use Config ();
 use Capture::Tiny qw(capture);
@@ -17,6 +18,9 @@ use IPC::Open3 qw(open3);
 use JSON::XS ();
 use Pod::Usage qw(pod2usage);
 use Symbol qw(gensym);
+
+binmode STDOUT, ':encoding(UTF-8)';
+binmode STDERR, ':encoding(UTF-8)';
 
 use Developer::Dashboard::Platform qw(
   command_argv_for_path

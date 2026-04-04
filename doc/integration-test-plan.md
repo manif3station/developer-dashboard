@@ -92,8 +92,8 @@ The integration run creates:
 19. Confirm exact-loopback access reaches the editor page in Chromium.
 20. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
 21. Confirm the browser inserts sorted rendered `nav/*.tt` bookmark fragments between the top chrome and the main page body.
-22. Confirm the browser top-right status strip shows configured collector icons, not collector names, and that renamed collectors no longer leave stale managed indicators behind.
-23. Confirm an installed saved bookmark page can use `fetch_value()` and `stream_value()` against saved `/ajax/<file>` routes without inline-script ordering failures.
+22. Confirm the browser top-right status strip shows configured collector icons, not collector names, that UTF-8 icons such as `🐳` and `💰` are visibly rendered, and that renamed collectors no longer leave stale managed indicators behind.
+23. Confirm an installed saved bookmark page can declare `var endpoints = {};`, then use `fetch_value()` and `stream_value()` from `$(document).ready(...)` against saved `/ajax/<file>` routes without inline-script ordering failures or browser console `ReferenceError`s.
 24. Confirm an installed long-running saved `/ajax/<file>` route starts streaming the first output chunks promptly instead of buffering until the worker exits.
 25. Confirm non-loopback self-access returns `401` with an empty body and without a login form before any helper user exists in the active runtime.
 26. Add a helper user for the outsider browser flow, then confirm non-loopback self-access reaches the helper login page in Chromium.
@@ -157,7 +157,7 @@ For Windows verification outside the Linux container flow, run the checked-in
 Strawberry Perl smoke on a Windows host:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.45.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.46.tar.gz
 ```
 
 For release-grade Windows compatibility claims, run the same smoke through the
@@ -167,7 +167,7 @@ prepared QEMU Windows guest:
 WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
 WINDOWS_SSH_USER=developer \
 WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.45.tar.gz \
+TARBALL=/path/to/Developer-Dashboard-1.46.tar.gz \
 integration/windows/run-qemu-windows-smoke.sh
 ```
 

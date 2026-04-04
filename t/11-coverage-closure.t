@@ -1,5 +1,6 @@
 use strict;
 use warnings;
+use utf8;
 
 use Cwd qw(getcwd);
 use File::Path qw(make_path);

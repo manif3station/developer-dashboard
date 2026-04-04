@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.45';
+our $VERSION = '1.46';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.45
+1.46
 
 =head1 INTRODUCTION
 
@@ -591,17 +591,18 @@ script content from breaking the browser bootstrap. If a bookmark body
 contains HTML such as C</script>, the editor now escapes the inline JSON
 assignment used to reload the source text, so the browser keeps the full
 bookmark source inside the editor instead of spilling raw text below the page.
-Legacy bookmark rendering also loads C<set_chain_value()> before bookmark body
-HTML, so C<Ajax jvar =E<gt> ...> helpers can bind saved C</ajax/...>
-endpoints without throwing a play-route JavaScript C<ReferenceError>.
+Legacy bookmark rendering now emits saved C<set_chain_value()> bindings after
+the bookmark body HTML, so pages that declare C<var endpoints = {}> and then
+call helpers from C<$(document).ready(...)> receive their saved C</ajax/...>
+endpoint URLs without throwing a play-route JavaScript C<ReferenceError>.
 Legacy bookmark pages now also expose
 C<fetch_value(url, target, options, formatter)> and
 C<stream_value(url, target, options, formatter)> helpers so a bookmark can
 bind saved Ajax endpoints into DOM targets without hand-writing the fetch and
 render boilerplate. Those helpers support plain text, JSON, and HTML output
-modes, and the saved Ajax endpoint bindings are emitted before the bookmark
-body scripts run so inline calls such as
-C<fetch_value(endpoints.foo, '#foo')> work on first render.
+modes, and the saved Ajax endpoint bindings now run after the page declares
+its endpoint root object, so C<$(document).ready(...)> callbacks can call
+helpers such as C<fetch_value(endpoints.foo, '#foo')> on first render.
 
 =head2 User CLI Extensions
 
@@ -999,7 +1000,9 @@ successful checks show fragments such as C<✅🔑> while failing or not-yet-run
 checks show fragments such as C<🚨🔑>.
 The top-right browser status strip now uses that same configured icon instead
 of falling back to the collector name, and stale managed indicators are
-removed automatically if the collector config is renamed.
+removed automatically if the collector config is renamed. The browser chrome
+now uses an emoji-capable font stack there as well, so UTF-8 icons such as
+C<🐳> and C<💰> remain visible instead of collapsing into fallback boxes.
 The blank-environment integration flow also keeps a regression for mixed
 collector health: one intentionally broken Perl collector must stay red
 without stopping a second healthy collector from staying green in
@@ -1263,7 +1266,7 @@ and add explicit expectations:
 For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
 host:
 
-  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.45.tar.gz
+  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.46.tar.gz
 
 Before calling a release Windows-compatible, also run the same smoke through a
 prepared QEMU Windows guest:
@@ -1271,7 +1274,7 @@ prepared QEMU Windows guest:
   WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
   WINDOWS_SSH_USER=developer \
   WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-  TARBALL=/path/to/Developer-Dashboard-1.45.tar.gz \
+  TARBALL=/path/to/Developer-Dashboard-1.46.tar.gz \
   integration/windows/run-qemu-windows-smoke.sh
 
 =head2 Updating Runtime State
