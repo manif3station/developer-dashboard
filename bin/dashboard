@@ -57,6 +57,13 @@ elsif ( $cmd eq 'help' || $cmd eq '--help' || $cmd eq '-h' ) {
     );
 }
 
+# Handle query commands directly (don't try to exec them as files)
+if ( $cmd && $cmd =~ /^(pjq|jq|pyq|yq|ptomq|tomq|pjp|propq|iniq|csvq|xmlq)$/ ) {
+    require Developer::Dashboard::CLI::Query;
+    Developer::Dashboard::CLI::Query::run_query_command( command => $cmd, args => \@ARGV );
+    exit 0;
+}
+
 if ( my $builtin = _standalone_builtin_executable($cmd) ) {
     exec { $^X } $^X, $builtin, @ARGV;
     die "Unable to exec $builtin: $!";

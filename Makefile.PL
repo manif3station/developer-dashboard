@@ -2,20 +2,17 @@ use strict;
 use warnings;
 
 use ExtUtils::MakeMaker;
+use File::Spec;
 
 WriteMakefile(
     NAME         => 'Developer::Dashboard',
-    VERSION_FROM => 'lib/Developer/Dashboard.pm',
+    VERSION_FROM => 'lib/Developer::Dashboard.pm',
     ABSTRACT     => 'Project-neutral local developer dashboard runtime',
     AUTHOR       => 'Developer Dashboard Contributors',
     EXE_FILES    => [
         'bin/dashboard',
         'bin/of',
         'bin/open-file',
-        'bin/pjq',
-        'bin/pyq',
-        'bin/ptomq',
-        'bin/pjp',
     ],
     PREREQ_PM    => {
         'strict'                => 0,
@@ -57,3 +54,13 @@ WriteMakefile(
         },
     },
 );
+
+# Post-install hook: extract private CLI tools to ~/.developer-dashboard/cli/
+sub MY::postamble {
+    return <<'END_POSTAMBLE';
+install :: install-private-cli-tools
+
+install-private-cli-tools :
+	$(NOECHO) $(PERL) -e 'use File::Path qw(make_path); use File::Copy; my $$home = $$ENV{HOME} || (getpwuid($$>))[7]; my $$cli_dir = File::Spec->catdir($$home, ".developer-dashboard", "cli"); make_path($$cli_dir) unless -d $$cli_dir; for my $$cmd (qw(jq yq tomq propq iniq csvq xmlq)) { my $$src = File::Spec->catfile("private-cli", $$cmd); my $$dst = File::Spec->catfile($$cli_dir, $$cmd); if (-f $$src) { File::Copy::copy($$src, $$dst) or warn "Failed to copy $$src to $$dst: $$!"; chmod(0755, $$dst); print "Installed $$cmd to $$cli_dir\n"; } }'
+END_POSTAMBLE
+}

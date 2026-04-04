@@ -1,0 +1,33 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use FindBin qw($Bin);
+use lib "$Bin/../lib";
+
+use Developer::Dashboard::CLI::Query qw(run_query_command);
+
+# main(@ARGV)
+# Runs the YAML query command for Developer Dashboard.
+# Input: command-line arguments from @ARGV and optional STDIN.
+# Output: prints the selected YAML value, then exits.
+run_query_command( command => 'yq', args => \@ARGV );
+
+__END__
+
+=pod
+
+=head1 NAME
+
+yq - YAML query command for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard yq [path] [file]
+
+=head1 DESCRIPTION
+
+This command provides YAML path extraction for Developer Dashboard.
+
+=cut
