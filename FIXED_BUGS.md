@@ -1,9 +1,32 @@
 # Fixed Bugs
 
-## 2026-04-04
+## 2026-04-04 (Phase 1: macOS fix + Namespacing)
 
 - Fixed macOS cpanm installation test 14 failure where `Runtime::Result::_command_name()` was prioritizing the stale `$ENV{DEVELOPER_DASHBOARD_COMMAND}` environment variable over the actual script path in `$0`, causing incorrect command name attribution in hook execution reports. The fix reverses the priority logic to derive the command name from `$0` first and only fall back to the environment variable as a final resort.
 - Migrated all un-namespaced project core modules to the `Developer::Dashboard::` namespace to prevent CPAN ecosystem pollution and ensure proper scoping for dashboard-specific utilities. The following modules were migrated with backward-compatibility facades: `DataHelper` → `Developer::Dashboard::DataHelper`, `File` → `Developer::Dashboard::File`, `Folder` → `Developer::Dashboard::Folder`, `Zipper` → `Developer::Dashboard::Zipper`, `Runtime::Result` → `Developer::Dashboard::Runtime::Result`. Existing code using the old names continues to work through transparent delegation facades.
+
+## 2026-04-04 (Phase 3-5: CLI Refactoring + PATH Prevention)
+
+- Fixed CLI naming conflict risk by removing 'p' prefix from query subcommands, renaming: `pjq` → `jq`, `pyq` → `yq`, `ptomq` → `tomq`, `pjp` → `propq`. The old names are still supported through backward-compatible dispatch mapping.
+- Added new query subcommands for expanded data format support: `iniq` for INI files, `csvq` for CSV files, `xmlq` for XML files.
+- Fixed system PATH pollution by removing decomposed query subcommands from tarball installation. These commands are now packaged as private dashboard-managed tools extracted to `~/.developer-dashboard/cli/` at install time, preventing generic command names like `jq` and `yq` from polluting the user's shell environment.
+
+## 2026-04-04 (Phase 8: Skill System Implementation)
+
+- Implemented new isolated skill system for installable Git-backed dashboard extensions. Users can now install, update, and uninstall skills using dashboard commands:
+  * `dashboard skills install <git-url>` - clone and prepare a skill from any Git repository
+  * `dashboard skills uninstall <repo-name>` - cleanly remove a skill by repository name
+  * `dashboard skills update <repo-name>` - pull latest changes from skill's repository
+  * `dashboard skills list` - enumerate all installed skills with metadata
+  * `dashboard skill <repo-name> <command> [args...]` - execute a skill's command
+- Fixed skill isolation by storing each skill under `~/.developer-dashboard/skills/<repo-name>/` with mandatory structure: `cli/` (commands), `config/` (config.json), `state/` (persistent state), `logs/` (skill output). This ensures skills remain completely isolated from main runtime and from each other, with simple uninstall by directory removal.
+- Added skill extension support for hooks and helpers through `cli/<cmd>.d/` hook directories, allowing skills to extend their own commands with pre/post hooks in the same style as main dashboard.
+- Implemented skill configuration support via `config/config.json` for skill-specific settings and metadata.
+
+## 2026-04-04 (Phase 11: Skill App Route Namespacing)
+
+- Implemented skill app route namespacing by adding `/skill/:repo-name/:route` pattern to web app dispatch. Each skill's HTTP endpoints (when provided) are accessible only under its own isolated namespace, preventing route conflicts and ensuring clean separation between main app routes (/app/...) and skill routes (/skill/...).
+- Fixed potential skill route interference by validating that routes only match on fully qualified skill names (at least one non-slash character), returning 404 for nonexistent skills and 501 Not Implemented for skills that don't provide HTTP routes yet.
 
 ## 2026-04-03
 
