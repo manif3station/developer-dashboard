@@ -21,7 +21,7 @@ dashboard roots still living directly under `$HOME`, or `dashboard doctor
 optional hook results from `~/.developer-dashboard/cli/doctor.d` so users can
 layer in more site-specific checks later.
 
-Frequently used built-in commands such as `of`, `open-file`, `pjq`, `pyq`, `ptomq`, and `pjp` are also installed as standalone executables so they can run directly without loading the full `dashboard` runtime.
+Frequently used built-in commands such as `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, and `xmlq` are also installed as standalone executables so they can run directly without loading the full `dashboard` runtime. (Legacy command names `pjq`, `pyq`, `ptomq`, and `pjp` are still supported for backward compatibility.)
 
 It provides a small ecosystem for:
 
@@ -186,11 +186,14 @@ For backward compatibility, the original un-namespaced module names (`File`, `Fo
 - `dashboard of` and `dashboard open-file`
   Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches under a resolved scope so the dashboard can shorten navigation work across different stacks.
 
-- `dashboard pjq`, `dashboard pyq`, `dashboard ptomq`, and `dashboard pjp`
-  Parse JSON, YAML, TOML, and Java properties input, then optionally extract a dotted path and print a scalar or canonical JSON, giving the CLI a small data-inspection toolkit that fits naturally into shell workflows.
+- `dashboard jq`, `dashboard yq`, `dashboard tomq`, and `dashboard propq`
+  Parse JSON, YAML, TOML, and Java properties input, then optionally extract a dotted path and print a scalar or canonical JSON, giving the CLI a small data-inspection toolkit that fits naturally into shell workflows. (Legacy names `pjq`, `pyq`, `ptomq`, and `pjp` still supported.)
 
-- standalone `of`, `open-file`, `pjq`, `pyq`, `ptomq`, and `pjp`
-  Provide the same behavior directly, without proxying through the main `dashboard` command, for lighter-weight shell usage.
+- `dashboard iniq`, `dashboard csvq`, and `dashboard xmlq`
+  Parse INI, CSV, and XML file input with dotted path extraction.
+
+- standalone `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, and `xmlq`
+  Provide the same behavior directly, without proxying through the main `dashboard` command, for lighter-weight shell usage. (Legacy names `pjq`, `pyq`, `ptomq`, and `pjp` still provided.)
 
 - `Developer::Dashboard::RuntimeManager`
   Manages the background web service and collector lifecycle with process-title validation, `pkill`-style fallback shutdown, and restart orchestration, tying the browser and prepared-state loops together as one runtime.
@@ -348,14 +351,17 @@ If `VISUAL` or `EDITOR` is set, `dashboard of` and `dashboard open-file` will ex
 
 These built-in commands parse structured text and optionally extract a dotted path:
 
-- `dashboard pjq [path] [file]` for JSON
-- `dashboard pyq [path] [file]` for YAML
-- `dashboard ptomq [path] [file]` for TOML
-- `dashboard pjp [path] [file]` for Java properties
+- `dashboard jq [path] [file]` for JSON (also `pjq` for backward compatibility)
+- `dashboard yq [path] [file]` for YAML (also `pyq` for backward compatibility)
+- `dashboard tomq [path] [file]` for TOML (also `ptomq` for backward compatibility)
+- `dashboard propq [path] [file]` for Java properties (also `pjp` for backward compatibility)
+- `dashboard iniq [path] [file]` for INI files (new)
+- `dashboard csvq [path] [file]` for CSV files (new)
+- `dashboard xmlq [path] [file]` for XML files (new)
 
 If the selected value is a hash or array, the command prints canonical JSON. If the selected value is a scalar, it prints the scalar plus a trailing newline.
 
-The file path and query path are order-independent, and `$d` selects the whole parsed document. For example, `cat file.json | dashboard pjq '$d'` and `dashboard pjq file.json '$d'` return the same result. The same contract applies to `pyq`, `ptomq`, and `pjp`.
+The file path and query path are order-independent, and `$d` selects the whole parsed document. For example, `cat file.json | dashboard jq '$d'` and `dashboard jq file.json '$d'` return the same result. The same contract applies to `yq`, `tomq`, `propq`, `iniq`, `csvq`, and `xmlq` commands.
 
 ## Manual
 
@@ -393,8 +399,8 @@ perl -Ilib bin/dashboard auth add-user <username> <password>
 perl -Ilib bin/dashboard version
 perl -Ilib bin/dashboard of --print My::Module
 perl -Ilib bin/dashboard open-file --print com.example.App
-printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
-printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard pyq alpha.beta
+printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard jq alpha.beta
+printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard yq alpha.beta
 mkdir -p ~/.developer-dashboard/cli/update
 printf '#!/bin/sh\necho runtime-update\n' > ~/.developer-dashboard/cli/update/01-runtime
 chmod +x ~/.developer-dashboard/cli/update/01-runtime
@@ -412,10 +418,10 @@ printf '#!/bin/sh\ncat\n' > ~/.developer-dashboard/cli/foobar
 chmod +x ~/.developer-dashboard/cli/foobar
 printf 'hello\n' | perl -Ilib bin/dashboard foobar
 
-mkdir -p ~/.developer-dashboard/cli/pjq
-printf '#!/usr/bin/env perl\nprint "seed\\n";\n' > ~/.developer-dashboard/cli/pjq/00-seed.pl
-chmod +x ~/.developer-dashboard/cli/pjq/00-seed.pl
-printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
+mkdir -p ~/.developer-dashboard/cli/jq
+printf '#!/usr/bin/env perl\nprint "seed\\n";\n' > ~/.developer-dashboard/cli/jq/00-seed.pl
+chmod +x ~/.developer-dashboard/cli/jq/00-seed.pl
+printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard jq alpha.beta
 ```
 
 Per-command hook files can live under either
@@ -426,7 +432,7 @@ are run in sorted filename order before the real command runs,
 non-executable files are skipped, and each hook now streams its own `stdout`
 and `stderr` live to the terminal while still accumulating those channels into
 `RESULT` as JSON. Built-in
-commands such as `dashboard pjq` use the same hook directory. A directory-backed
+commands such as `dashboard jq` use the same hook directory. A directory-backed
 custom command can provide its real executable as
 `~/.developer-dashboard/cli/<command>/run`, and that runner receives the final
 `RESULT` environment variable. After each hook finishes, `dashboard` rewrites
@@ -501,11 +507,11 @@ dashboard open-file --print bookmarks welcome
 Query structured files from the CLI:
 
 ```bash
-printf '{"alpha":{"beta":2}}' | dashboard pjq alpha.beta
-printf 'alpha:\n  beta: 3\n' | dashboard pyq alpha.beta
-printf '[alpha]\nbeta = 4\n' | dashboard ptomq alpha.beta
-printf 'alpha.beta=5\n' | dashboard pjp alpha.beta
-dashboard pjq file.json '$d'
+printf '{"alpha":{"beta":2}}' | dashboard jq alpha.beta
+printf 'alpha:\n  beta: 3\n' | dashboard yq alpha.beta
+printf '[alpha]\nbeta = 4\n' | dashboard tomq alpha.beta
+printf 'alpha.beta=5\n' | dashboard propq alpha.beta
+dashboard jq file.json '$d'
 ```
 
 Start the local app:

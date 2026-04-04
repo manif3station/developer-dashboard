@@ -852,7 +852,20 @@ sub _standalone_builtin_executable {
     my ($cmd) = @_;
     return if !$cmd;
 
-    my %map = map { $_ => $_ } qw(of open-file pjq pyq ptomq pjp);
+    my %map = (
+        map { $_ => $_ } qw(of open-file),
+        'pjq' => 'jq',
+        'jq' => 'jq',
+        'pyq' => 'yq',
+        'yq' => 'yq',
+        'ptomq' => 'tomq',
+        'tomq' => 'tomq',
+        'pjp' => 'propq',
+        'propq' => 'propq',
+        'iniq' => 'iniq',
+        'csvq' => 'csvq',
+        'xmlq' => 'xmlq',
+    );
     my $name = $map{$cmd} || return;
     my $path = File::Spec->catfile( $Bin, $name );
     return if !-f $path;
@@ -1443,10 +1456,13 @@ dashboard - command-line entrypoint for Developer Dashboard
   dashboard path project-root
   dashboard of [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
   dashboard open-file [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
-  dashboard pjq [path] [file]
-  dashboard pyq [path] [file]
-  dashboard ptomq [path] [file]
-  dashboard pjp [path] [file]
+  dashboard jq [path] [file]
+  dashboard yq [path] [file]
+  dashboard tomq [path] [file]
+  dashboard propq [path] [file]
+  dashboard iniq [path] [file]
+  dashboard csvq [path] [file]
+  dashboard xmlq [path] [file]
   dashboard encode < input.txt
   dashboard decode < token.txt
   dashboard indicator set <name> <label> <icon> <status>
@@ -1535,8 +1551,13 @@ pattern matching
 
 =item *
 
-built-in C<dashboard pjq> / C<dashboard pyq> / C<dashboard ptomq> /
-C<dashboard pjp> parsing for JSON, YAML, TOML, and Java properties input
+built-in C<dashboard jq> / C<dashboard yq> / C<dashboard tomq> /
+C<dashboard propq> parsing for JSON, YAML, TOML, and Java properties input
+
+=item *
+
+built-in C<dashboard iniq> / C<dashboard csvq> / C<dashboard xmlq> parsing 
+for INI, CSV, and XML file input
 
 =back
 
@@ -1551,7 +1572,7 @@ F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d>. Executable files in that
 directory are run in sorted filename order before the real command runs,
 their stdout and stderr stream live to the terminal while still being
 accumulated into C<$ENV{RESULT}> as JSON, and non-executable files are
-skipped. Built-in commands such as C<dashboard pjq> use the same hook
+skipped. Built-in commands such as C<dashboard jq> use the same hook
 location. A directory-backed custom command may provide its real executable as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>; that runner receives the
 final C<$ENV{RESULT}> value after the hook files finish. If a subcommand does

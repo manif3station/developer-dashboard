@@ -3,7 +3,7 @@ package Developer::Dashboard::PageResolver;
 use strict;
 use warnings;
 
-our $VERSION = '1.46';
+our $VERSION = '1.47';
 
 use Developer::Dashboard::PageDocument;
 

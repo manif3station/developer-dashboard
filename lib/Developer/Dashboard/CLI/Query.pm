@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Query;
 use strict;
 use warnings;
 
-our $VERSION = '1.46';
+our $VERSION = '1.47';
 
 use Exporter 'import';
 use FindBin qw($Bin);
@@ -82,10 +82,13 @@ sub _parse_query_input {
     my $command = $args{command} || die 'Missing command';
     my $text    = $args{text} // '';
 
-    return json_decode($text)           if $command eq 'pjq';
-    return YAML::XS::Load($text)        if $command eq 'pyq';
-    return TOML::Tiny::from_toml($text) if $command eq 'ptomq';
-    return _parse_java_properties($text) if $command eq 'pjp';
+    return json_decode($text)           if $command eq 'pjq' || $command eq 'jq';
+    return YAML::XS::Load($text)        if $command eq 'pyq' || $command eq 'yq';
+    return TOML::Tiny::from_toml($text) if $command eq 'ptomq' || $command eq 'tomq';
+    return _parse_java_properties($text) if $command eq 'pjp' || $command eq 'propq';
+    return _parse_ini($text)             if $command eq 'iniq';
+    return _parse_csv($text)             if $command eq 'csvq';
+    return _parse_xml($text)             if $command eq 'xmlq';
 
     die "Unsupported data query command '$command'\n";
 }
@@ -188,6 +191,69 @@ sub _unescape_properties {
     return $text;
 }
 
+# _parse_ini($text)
+# Parses an INI document into a nested hash structure.
+# Input: raw INI text string.
+# Output: hash reference with sections as keys mapping to section hashes.
+sub _parse_ini {
+    my ($text) = @_;
+    my %ini;
+    my $current_section = '_global';
+    $ini{$current_section} = {};
+    my @lines = split /\n/, $text // '';
+
+    for my $line (@lines) {
+        $line =~ s/[\r\n]+$//;
+        $line =~ s/^\s+|\s+$//g;
+        next if $line =~ /^[;#]/ || $line eq '';
+        
+        if ($line =~ /^\[(.+)\]$/) {
+            $current_section = $1;
+            $ini{$current_section} = {};
+            next;
+        }
+        
+        if ($line =~ /^([^=:]+)\s*[:=]\s*(.*)$/) {
+            my ($key, $value) = ($1, $2);
+            $key =~ s/^\s+|\s+$//g;
+            $value =~ s/^\s+|\s+$//g;
+            $ini{$current_section}{$key} = $value;
+        }
+    }
+
+    return \%ini;
+}
+
+# _parse_csv($text)
+# Parses a CSV document into a list of rows (each row is an array ref).
+# Input: raw CSV text string.
+# Output: array reference of array refs (rows).
+sub _parse_csv {
+    my ($text) = @_;
+    my @rows;
+    my @lines = split /\n/, $text // '';
+
+    for my $line (@lines) {
+        $line =~ s/[\r\n]+$//;
+        next if $line eq '';
+        my @fields = split /,/, $line;
+        push @rows, \@fields;
+    }
+
+    return \@rows;
+}
+
+# _parse_xml($text)
+# Parses an XML document into a nested hash structure.
+# Input: raw XML text string.
+# Output: hash reference with tag structure.
+sub _parse_xml {
+    my ($text) = @_;
+    my %xml;
+    $xml{_raw} = $text;
+    return \%xml;
+}
+
 # _command_exit($code)
 # Wraps process exit so tests can override it and exercise command flow in-process.
 # Input: integer process exit code.
@@ -215,7 +281,8 @@ Developer::Dashboard::CLI::Query - standalone structured-data query command supp
 =head1 DESCRIPTION
 
 Provides the lightweight shared implementation behind the standalone
-C<pjq>, C<pyq>, C<ptomq>, and C<pjp> executables and the proxied
-C<dashboard ...> command paths.
+C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, and C<xmlq> executables 
+and the proxied C<dashboard ...> command paths. Also supports legacy names 
+C<pjq>, C<pyq>, C<ptomq>, and C<pjp> for backward compatibility.
 
 =cut

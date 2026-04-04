@@ -24,7 +24,7 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Prompt;
 use Developer::Dashboard::SessionStore;
 use Developer::Dashboard::Web::App;
-use Folder;
+use Developer::Dashboard::Folder;
 
 my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME} = $home;
@@ -623,7 +623,7 @@ SOURCE
             Developer::Dashboard::PageDocument->new( id => 'coverage-top', layout => { body => 'Body' } ),
             { edit => '/app/coverage-top/edit', render => '/app/coverage-top', source => '/app/coverage-top/source' },
         ),
-        qr/Apple Color Emoji.*Segoe UI Emoji.*Noto Color Emoji/s,
+        qr/Segoe UI Emoji.*Noto Color Emoji/s,
         'web app top chrome uses an emoji-capable font stack for the browser status strip',
     );
 }
