@@ -3,7 +3,7 @@ package Developer::Dashboard::Zipper;
 use strict;
 use warnings;
 
-our $VERSION = '1.47';
+our $VERSION = '1.48';
 
 use Exporter 'import';
 use File::Basename qw(dirname);
@@ -241,7 +241,7 @@ Developer::Dashboard::Zipper - legacy token encoding and ajax URL compatibility 
 
 =head1 SYNOPSIS
 
-  use Zipper qw(zip unzip Ajax);
+  use Developer::Dashboard::Zipper qw(zip unzip Ajax);
   my $token = zip("print qq{ok\\n};");
 
 =head1 DESCRIPTION

@@ -1,21 +1,19 @@
 Revision history for Developer Dashboard
 
-1.47  2026-04-04
+1.48  2026-04-04
     - fixed macOS cpanm installation test 14 failure where Runtime::Result
       command name derivation was prioritizing stale DEVELOPER_DASHBOARD_COMMAND
       env var over $0 script path, causing incorrect command name attribution
       in hook result reports
-    - migrated project core modules to Developer::Dashboard:: namespace to
-      prevent CPAN ecosystem pollution and ensure proper scoping for dashboard-
-      specific utilities (DataHelper, File, Folder, Zipper, Runtime::Result)
-    - maintained backward compatibility with legacy module names through
-      transparent facade modules that delegate to new namespaced implementations
+    - completed project module namespacing under Developer::Dashboard:: and
+      removed the unscoped project-owned module files from the shipped
+      distribution to avoid CPAN namespace pollution
     - renamed CLI query subcommands by removing 'p' prefix: pjq→jq, pyq→yq,
       ptomq→tomq, pjp→propq, plus added new subcommands: iniq (INI), csvq (CSV),
       xmlq (XML) for expanded data format support
     - prevented decomposed query subcommands from polluting system PATH by
-      excluding them from tarball installation, instead packaging them as
-      private dashboard-managed tools extracted to ~/.developer-dashboard/cli/
+      excluding them from tarball installation and dispatching them through
+      private dashboard-managed helper files under ~/.developer-dashboard/cli/
     - implemented new isolated skill system for installable Git-backed extensions:
       * dashboard skills install <git-url> - install skill from Git repository
       * dashboard skills uninstall <repo-name> - remove skill completely
@@ -24,14 +22,14 @@ Revision history for Developer Dashboard
       * dashboard skill <repo-name> <cmd> @args - execute skill commands
     - skill system features:
       * each skill isolated under ~/.developer-dashboard/skills/<repo-name>/
-      * skill directory structure: cli/, config/, state/, logs/, cpanfile
+      * skill directory structure: cli/, config/, config/docker/, state/,
+        logs/, local/, cpanfile
       * skill-local hook support: cli/<cmd>.d/ for command extensions
       * skill isolation model prevents interference with main runtime or other skills
       * skill app routes accessible under /skill/:repo-name/:route namespace
-    - added comprehensive test suites for skill system:
-      * t/19-skill-system.t: 33 tests for skill lifecycle, dispatch, and isolation
-      * t/20-skill-web-routes.t: 8 tests for skill HTTP route namespacing
-    - all 214 core smoke tests pass, plus 41 new skill system tests
+      * skill bookmark bundles render under /skill/<repo-name>/bookmarks/<id>
+    - added comprehensive test suites for skill system lifecycle, isolated
+      dependency handling, private helper dispatch, and skill bookmark routes
 
 1.46  2026-04-04
     - fixed saved bookmark Ajax helper ordering for real browser pages that

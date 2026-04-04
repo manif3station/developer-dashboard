@@ -28,13 +28,21 @@ my $lib = File::Spec->catdir( $repo, 'lib' );
 my $dashboard = File::Spec->catfile( $repo, 'bin', 'dashboard' );
 my $of_bin = File::Spec->catfile( $repo, 'bin', 'of' );
 my $open_file_bin = File::Spec->catfile( $repo, 'bin', 'open-file' );
-my $pjq_bin = File::Spec->catfile( $repo, 'bin', 'pjq' );
-my $pyq_bin = File::Spec->catfile( $repo, 'bin', 'pyq' );
-my $ptomq_bin = File::Spec->catfile( $repo, 'bin', 'ptomq' );
-my $pjp_bin = File::Spec->catfile( $repo, 'bin', 'pjp' );
+my $runtime_cli_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );
+my $runtime_jq = File::Spec->catfile( $runtime_cli_root, 'jq' );
+my $runtime_yq = File::Spec->catfile( $runtime_cli_root, 'yq' );
+my $runtime_tomq = File::Spec->catfile( $runtime_cli_root, 'tomq' );
+my $runtime_propq = File::Spec->catfile( $runtime_cli_root, 'propq' );
+my $runtime_iniq = File::Spec->catfile( $runtime_cli_root, 'iniq' );
+my $runtime_csvq = File::Spec->catfile( $runtime_cli_root, 'csvq' );
+my $runtime_xmlq = File::Spec->catfile( $runtime_cli_root, 'xmlq' );
 
 my $init = _run("$perl -I'$lib' '$dashboard' init");
 like($init, qr/runtime_root/, 'dashboard init works');
+for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runtime_iniq, $runtime_csvq, $runtime_xmlq ) {
+    ok( -f $helper, "dashboard init seeds private helper $helper" );
+    ok( -x $helper, "dashboard init marks private helper $helper executable" );
+}
 my $global_config_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'config.json' );
 make_path( File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'config' ) );
 open my $seeded_config_fh, '>:raw', $global_config_file or die "Unable to write $global_config_file: $!";
@@ -364,85 +372,77 @@ close $java_fh;
 my $java_class = _run("cd '$open_root' && $perl -I'$repo/lib' '$repo/bin/dashboard' open-file --print com.example.App");
 like($java_class, qr/\Q$java_target\E/, 'dashboard open-file resolves Java class names');
 
-my $json_value = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' pjq alpha.beta});
-is( $json_value, "2\n", 'pjq extracts scalar JSON values' );
+my $json_value = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta});
+is( $json_value, "2\n", 'jq extracts scalar JSON values' );
 my $json_file = File::Spec->catfile( $open_root, 'sample.json' );
 open my $json_fh, '>', $json_file or die "Unable to write $json_file: $!";
 print {$json_fh} qq|{"alpha":{"beta":2}}|;
 close $json_fh;
-my $json_root = _run("$perl -I'$lib' '$dashboard' pjq '\$d' '$json_file'");
-is_deeply( json_decode($json_root), { alpha => { beta => 2 } }, 'pjq accepts file then root query with order-independent args' );
-my $json_root_stdin = _run("cat '$json_file' | $perl -I'$lib' '$dashboard' pjq '\$d'");
-is( $json_root_stdin, $json_root, 'pjq returns the same whole-document result from stdin and file input' );
-if ( -f $pjq_bin ) {
-    my $json_direct = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$pjq_bin' alpha.beta});
-    is( $json_direct, $json_value, 'standalone pjq matches dashboard pjq output' );
-} else {
-    ok( 1, 'standalone pjq matches dashboard pjq output (skipped - not installed to PATH)' );
-}
+my $json_root = _run("$perl -I'$lib' '$dashboard' jq '\$d' '$json_file'");
+is_deeply( json_decode($json_root), { alpha => { beta => 2 } }, 'jq accepts file then root query with order-independent args' );
+my $json_root_stdin = _run("cat '$json_file' | $perl -I'$lib' '$dashboard' jq '\$d'");
+is( $json_root_stdin, $json_root, 'jq returns the same whole-document result from stdin and file input' );
+my $json_direct = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$runtime_jq' alpha.beta});
+is( $json_direct, $json_value, 'private runtime jq matches dashboard jq output' );
 
-my $yaml_value = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -I'$lib' '$dashboard' pyq alpha.beta});
-is( $yaml_value, "3\n", 'pyq extracts scalar YAML values' );
+my $yaml_value = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -I'$lib' '$dashboard' yq alpha.beta});
+is( $yaml_value, "3\n", 'yq extracts scalar YAML values' );
 my $yaml_file = File::Spec->catfile( $open_root, 'sample.yaml' );
 open my $yaml_fh, '>', $yaml_file or die "Unable to write $yaml_file: $!";
 print {$yaml_fh} "alpha:\n  beta: 3\n";
 close $yaml_fh;
-my $yaml_root = _run("$perl -I'$lib' '$dashboard' pyq '$yaml_file' '\$d'");
-is_deeply( json_decode($yaml_root), { alpha => { beta => '3' } }, 'pyq accepts file then root query with order-independent args' );
-my $yaml_root_stdin = _run("cat '$yaml_file' | $perl -I'$lib' '$dashboard' pyq '\$d'");
-is( $yaml_root_stdin, $yaml_root, 'pyq returns the same whole-document result from stdin and file input' );
-if ( -f $pyq_bin ) {
-    my $yaml_direct = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -I'$lib' '$pyq_bin' alpha.beta});
-    is( $yaml_direct, $yaml_value, 'standalone pyq matches dashboard pyq output' );
-} else {
-    ok( 1, 'standalone pyq matches dashboard pyq output (skipped - not installed to PATH)' );
-}
+my $yaml_root = _run("$perl -I'$lib' '$dashboard' yq '$yaml_file' '\$d'");
+is_deeply( json_decode($yaml_root), { alpha => { beta => '3' } }, 'yq accepts file then root query with order-independent args' );
+my $yaml_root_stdin = _run("cat '$yaml_file' | $perl -I'$lib' '$dashboard' yq '\$d'");
+is( $yaml_root_stdin, $yaml_root, 'yq returns the same whole-document result from stdin and file input' );
+my $yaml_direct = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -I'$lib' '$runtime_yq' alpha.beta});
+is( $yaml_direct, $yaml_value, 'private runtime yq matches dashboard yq output' );
 
-my $pjq_hook_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'pjq.d' );
-make_path($pjq_hook_root);
-my $pjq_hook_one = File::Spec->catfile( $pjq_hook_root, '00-first.pl' );
-open my $pjq_hook_one_fh, '>', $pjq_hook_one or die "Unable to write $pjq_hook_one: $!";
-print {$pjq_hook_one_fh} <<'PL';
+my $jq_hook_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'jq.d' );
+make_path($jq_hook_root);
+my $jq_hook_one = File::Spec->catfile( $jq_hook_root, '00-first.pl' );
+open my $jq_hook_one_fh, '>', $jq_hook_one or die "Unable to write $jq_hook_one: $!";
+print {$jq_hook_one_fh} <<'PL';
 #!/usr/bin/env perl
 print "hook-one\n";
 warn "hook-one-err\n";
 PL
-close $pjq_hook_one_fh;
-chmod 0755, $pjq_hook_one or die "Unable to chmod $pjq_hook_one: $!";
-my $pjq_hook_two = File::Spec->catfile( $pjq_hook_root, '01-second.pl' );
-my $pjq_hook_result = File::Spec->catfile( $ENV{HOME}, 'pjq-hook-result.txt' );
-open my $pjq_hook_two_fh, '>', $pjq_hook_two or die "Unable to write $pjq_hook_two: $!";
-print {$pjq_hook_two_fh} <<"PL";
+close $jq_hook_one_fh;
+chmod 0755, $jq_hook_one or die "Unable to chmod $jq_hook_one: $!";
+my $jq_hook_two = File::Spec->catfile( $jq_hook_root, '01-second.pl' );
+my $jq_hook_result = File::Spec->catfile( $ENV{HOME}, 'jq-hook-result.txt' );
+open my $jq_hook_two_fh, '>', $jq_hook_two or die "Unable to write $jq_hook_two: $!";
+print {$jq_hook_two_fh} <<"PL";
 #!/usr/bin/env perl
 use strict;
 use warnings;
 use lib '$repo/lib';
 use Developer::Dashboard::Runtime::Result;
-open my \$fh, '>', '$pjq_hook_result' or die \$!;
+open my \$fh, '>', '$jq_hook_result' or die \$!;
 print {\$fh} Developer::Dashboard::Runtime::Result::stdout('00-first.pl');
 close \$fh;
 print "hook-two\n";
 warn "hook-two-err\n";
 PL
-close $pjq_hook_two_fh;
-chmod 0755, $pjq_hook_two or die "Unable to chmod $pjq_hook_two: $!";
-my $pjq_hook_skipped = File::Spec->catfile( $pjq_hook_root, 'data.file' );
-open my $pjq_hook_skipped_fh, '>', $pjq_hook_skipped or die "Unable to write $pjq_hook_skipped: $!";
-print {$pjq_hook_skipped_fh} "skip\n";
-close $pjq_hook_skipped_fh;
-chmod 0600, $pjq_hook_skipped or die "Unable to chmod $pjq_hook_skipped: $!";
-my ( $pjq_hooked_stdout, $pjq_hooked_stderr, $pjq_hooked_exit ) = capture {
-    system 'sh', '-c', qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' pjq alpha.beta};
+close $jq_hook_two_fh;
+chmod 0755, $jq_hook_two or die "Unable to chmod $jq_hook_two: $!";
+my $jq_hook_skipped = File::Spec->catfile( $jq_hook_root, 'data.file' );
+open my $jq_hook_skipped_fh, '>', $jq_hook_skipped or die "Unable to write $jq_hook_skipped: $!";
+print {$jq_hook_skipped_fh} "skip\n";
+close $jq_hook_skipped_fh;
+chmod 0600, $jq_hook_skipped or die "Unable to chmod $jq_hook_skipped: $!";
+my ( $jq_hooked_stdout, $jq_hooked_stderr, $jq_hooked_exit ) = capture {
+    system 'sh', '-c', qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta};
     return $? >> 8;
 };
-is( $pjq_hooked_exit, 0, 'dashboard pjq succeeds when command hook files exist' );
-like( $pjq_hooked_stdout, qr/^hook-one\n/s, 'dashboard pjq streams hook stdout before the main command output' );
-like( $pjq_hooked_stdout, qr/hook-two\n2\n\z/s, 'dashboard pjq keeps the main command output after streamed hook stdout' );
-like( $pjq_hooked_stderr, qr/hook-one-err\n/, 'dashboard pjq streams hook stderr live' );
-like( $pjq_hooked_stderr, qr/hook-two-err\n/, 'dashboard pjq keeps later hook stderr visible' );
-open my $pjq_hook_result_fh, '<', $pjq_hook_result or die "Unable to read $pjq_hook_result: $!";
-is( do { local $/; <$pjq_hook_result_fh> }, "hook-one\n", 'later built-in command hooks can read the accumulated RESULT JSON from earlier hook output' );
-close $pjq_hook_result_fh;
+is( $jq_hooked_exit, 0, 'dashboard jq succeeds when command hook files exist' );
+like( $jq_hooked_stdout, qr/^hook-one\n/s, 'dashboard jq streams hook stdout before the main command output' );
+like( $jq_hooked_stdout, qr/hook-two\n2\n\z/s, 'dashboard jq keeps the main command output after streamed hook stdout' );
+like( $jq_hooked_stderr, qr/hook-one-err\n/, 'dashboard jq streams hook stderr live' );
+like( $jq_hooked_stderr, qr/hook-two-err\n/, 'dashboard jq keeps later hook stderr visible' );
+open my $jq_hook_result_fh, '<', $jq_hook_result or die "Unable to read $jq_hook_result: $!";
+is( do { local $/; <$jq_hook_result_fh> }, "hook-one\n", 'later built-in command hooks can read the accumulated RESULT JSON from earlier hook output' );
+close $jq_hook_result_fh;
 
 local $ENV{RESULT} = json_encode(
     {
@@ -468,10 +468,12 @@ is( Developer::Dashboard::Runtime::Result::exit_code('01-second.pl'), 0, 'Runtim
 is( Developer::Dashboard::Runtime::Result::last_name(), '01-second.pl', 'Runtime::Result returns the last sorted hook name' );
 is_deeply( Developer::Dashboard::Runtime::Result::last_entry(), json_decode( $ENV{RESULT} )->{'01-second.pl'}, 'Runtime::Result returns the last sorted hook entry' );
 {
+    local $ENV{DEVELOPER_DASHBOARD_COMMAND} = 'update';
     local $0 = '/tmp/report-result/';
     is( Developer::Dashboard::Runtime::Result::_command_name(), 'report-result', 'Runtime::Result preserves a trailing-slash script name when basename still resolves it' );
 }
 {
+    local $ENV{DEVELOPER_DASHBOARD_COMMAND} = 'update';
     local $0 = '/';
     is( Developer::Dashboard::Runtime::Result::_command_name(), 'dashboard', 'Runtime::Result falls back to dashboard when only a root-like script path is available' );
 }
@@ -612,41 +614,48 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.47\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.48\n", 'dashboard version prints the installed dashboard version' );
 
-my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' ptomq alpha.beta});
-is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );
+my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' tomq alpha.beta});
+is( $toml_value, "4\n", 'tomq extracts scalar TOML values' );
 my $toml_file = File::Spec->catfile( $open_root, 'sample.toml' );
 open my $toml_fh, '>', $toml_file or die "Unable to write $toml_file: $!";
 print {$toml_fh} "[alpha]\nbeta = 4\n";
 close $toml_fh;
-my $toml_root = _run("$perl -I'$lib' '$dashboard' ptomq '\$d' '$toml_file'");
-is_deeply( json_decode($toml_root), { alpha => { beta => 4 } }, 'ptomq accepts file then root query with order-independent args' );
-my $toml_root_stdin = _run("cat '$toml_file' | $perl -I'$lib' '$dashboard' ptomq '\$d'");
-is( $toml_root_stdin, $toml_root, 'ptomq returns the same whole-document result from stdin and file input' );
-if ( -f $ptomq_bin ) {
-    my $toml_direct = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$ptomq_bin' alpha.beta});
-    is( $toml_direct, $toml_value, 'standalone ptomq matches dashboard ptomq output' );
-} else {
-    ok( 1, 'standalone ptomq matches dashboard ptomq output (skipped - not installed to PATH)' );
-}
+my $toml_root = _run("$perl -I'$lib' '$dashboard' tomq '\$d' '$toml_file'");
+is_deeply( json_decode($toml_root), { alpha => { beta => 4 } }, 'tomq accepts file then root query with order-independent args' );
+my $toml_root_stdin = _run("cat '$toml_file' | $perl -I'$lib' '$dashboard' tomq '\$d'");
+is( $toml_root_stdin, $toml_root, 'tomq returns the same whole-document result from stdin and file input' );
+my $toml_direct = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$runtime_tomq' alpha.beta});
+is( $toml_direct, $toml_value, 'private runtime tomq matches dashboard tomq output' );
 
-my $props_value = _run(qq{printf 'alpha.beta=5\\nname = demo\\n' | $perl -I'$lib' '$dashboard' pjp alpha.beta});
-is( $props_value, "5\n", 'pjp extracts scalar Java properties values' );
+my $props_value = _run(qq{printf 'alpha.beta=5\\nname = demo\\n' | $perl -I'$lib' '$dashboard' propq alpha.beta});
+is( $props_value, "5\n", 'propq extracts scalar Java properties values' );
 my $props_file = File::Spec->catfile( $open_root, 'sample.properties' );
 open my $props_fh, '>', $props_file or die "Unable to write $props_file: $!";
 print {$props_fh} "alpha.beta=5\nname = demo\n";
 close $props_fh;
-my $props_root = _run("$perl -I'$lib' '$dashboard' pjp '$props_file' '\$d'");
-is_deeply( json_decode($props_root), { 'alpha.beta' => '5', name => 'demo' }, 'pjp accepts file then root query with order-independent args' );
-my $props_root_stdin = _run("cat '$props_file' | $perl -I'$lib' '$dashboard' pjp '\$d'");
-is( $props_root_stdin, $props_root, 'pjp returns the same whole-document result from stdin and file input' );
-if ( -f $pjp_bin ) {
-    my $props_direct = _run(qq{printf 'alpha.beta=5\\nname = demo\\n' | $perl -I'$lib' '$pjp_bin' alpha.beta});
-    is( $props_direct, $props_value, 'standalone pjp matches dashboard pjp output' );
-} else {
-    ok( 1, 'standalone pjp matches dashboard pjp output (skipped - not installed to PATH)' );
-}
+my $props_root = _run("$perl -I'$lib' '$dashboard' propq '$props_file' '\$d'");
+is_deeply( json_decode($props_root), { 'alpha.beta' => '5', name => 'demo' }, 'propq accepts file then root query with order-independent args' );
+my $props_root_stdin = _run("cat '$props_file' | $perl -I'$lib' '$dashboard' propq '\$d'");
+is( $props_root_stdin, $props_root, 'propq returns the same whole-document result from stdin and file input' );
+my $props_direct = _run(qq{printf 'alpha.beta=5\\nname = demo\\n' | $perl -I'$lib' '$runtime_propq' alpha.beta});
+is( $props_direct, $props_value, 'private runtime propq matches dashboard propq output' );
+
+my $ini_value = _run(qq{printf '[alpha]\\nbeta=6\\n' | $perl -I'$lib' '$dashboard' iniq alpha.beta});
+is( $ini_value, "6\n", 'iniq extracts scalar INI values' );
+my $ini_direct = _run(qq{printf '[alpha]\\nbeta=6\\n' | $perl -I'$lib' '$runtime_iniq' alpha.beta});
+is( $ini_direct, $ini_value, 'private runtime iniq matches dashboard iniq output' );
+
+my $csv_value = _run(qq{printf 'alpha,beta\\n7,8\\n' | $perl -I'$lib' '$dashboard' csvq 1.1});
+is( $csv_value, "8\n", 'csvq extracts scalar CSV values by row and column index' );
+my $csv_direct = _run(qq{printf 'alpha,beta\\n7,8\\n' | $perl -I'$lib' '$runtime_csvq' 1.1});
+is( $csv_direct, $csv_value, 'private runtime csvq matches dashboard csvq output' );
+
+my $xml_value = _run(qq{printf '<root><value>demo</value></root>' | $perl -I'$lib' '$dashboard' xmlq _raw});
+is( $xml_value, "<root><value>demo</value></root>\n", 'xmlq can return the raw XML payload through the supported root key' );
+my $xml_direct = _run(qq{printf '<root><value>demo</value></root>' | $perl -I'$lib' '$runtime_xmlq' _raw});
+is( $xml_direct, $xml_value, 'private runtime xmlq matches dashboard xmlq output' );
 
 my $cli_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );
 make_path($cli_root);
@@ -700,14 +709,15 @@ SH
 close $project_ext_fh;
 chmod 0755, File::Spec->catfile( $project_cli_root, 'foobar', 'run' )
   or die "Unable to chmod project run command: $!";
-open my $home_hook_fh, '>', File::Spec->catfile( $cli_root, 'pjq.d', '02-home-only.pl' )
+make_path( File::Spec->catdir( $cli_root, 'jq.d' ) );
+open my $home_hook_fh, '>', File::Spec->catfile( $cli_root, 'jq.d', '02-home-only.pl' )
   or die "Unable to write home fallback hook: $!";
 print {$home_hook_fh} <<'PL';
 #!/usr/bin/env perl
 print "home-hook\n";
 PL
 close $home_hook_fh;
-chmod 0755, File::Spec->catfile( $cli_root, 'pjq.d', '02-home-only.pl' )
+chmod 0755, File::Spec->catfile( $cli_root, 'jq.d', '02-home-only.pl' )
   or die "Unable to chmod home fallback hook: $!";
 my $project_tool_hook_root = File::Spec->catdir( $project_cli_root, 'tool.d' );
 make_path($project_tool_hook_root);

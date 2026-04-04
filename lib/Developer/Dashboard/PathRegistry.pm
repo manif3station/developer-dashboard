@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '1.47';
+our $VERSION = '1.48';
 
 use Cwd qw(cwd);
 use File::Basename qw(dirname);
@@ -218,6 +218,25 @@ sub cli_root {
 sub cli_roots {
     my ($self) = @_;
     return map { $self->_ensure_dir( File::Spec->catdir( $_, 'cli' ) ) } $self->runtime_roots;
+}
+
+# skills_root()
+# Returns the isolated root that contains installed dashboard skills.
+# Input: none.
+# Output: directory path string.
+sub skills_root {
+    my ($self) = @_;
+    return $self->_ensure_dir( File::Spec->catdir( $self->home_runtime_root, 'skills' ) );
+}
+
+# skill_root($name)
+# Returns the isolated root directory for one installed skill.
+# Input: skill repository name string.
+# Output: directory path string.
+sub skill_root {
+    my ( $self, $name ) = @_;
+    die 'Missing skill name' if !defined $name || $name eq '';
+    return $self->_ensure_dir( File::Spec->catdir( $self->skills_root, $name ) );
 }
 
 # collectors_root()

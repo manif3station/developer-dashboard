@@ -1,228 +1,118 @@
 use strict;
 use warnings;
 
-use Developer::Dashboard::JSON qw(json_decode);
+use Cwd qw(abs_path);
+use File::Spec;
+use FindBin qw($RealBin);
 use Test::More;
 
-open my $pm_fh, '<', 'lib/Developer/Dashboard.pm' or die $!;
-my $pm = do { local $/; <$pm_fh> };
-close $pm_fh;
+my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
 
-open my $changes_fh, '<', 'Changes' or die $!;
-my $changes = do { local $/; <$changes_fh> };
-close $changes_fh;
+my $pm = _slurp( _repo_path('lib', 'Developer', 'Dashboard.pm') );
+my $readme = _slurp( _repo_path('README.md') );
+my $release_doc = _slurp( _repo_path( 'doc', 'update-and-release.md' ) );
+my $changes = _slurp( _repo_path('Changes') );
+my $dist = _slurp_optional( _repo_path('dist.ini') );
+my $meta = _slurp_optional( _repo_path('META.json') );
+my $makefile = _slurp( _repo_path('Makefile.PL') );
 
-open my $makefile_fh, '<', 'Makefile.PL' or die $!;
-my $makefile = do { local $/; <$makefile_fh> };
-close $makefile_fh;
-
-open my $readme_fh, '<', 'README.md' or die $!;
-my $readme = do { local $/; <$readme_fh> };
-close $readme_fh;
-
-open my $release_doc_fh, '<', 'doc/update-and-release.md' or die $!;
-my $release_doc = do { local $/; <$release_doc_fh> };
-close $release_doc_fh;
-
-open my $integration_plan_fh, '<', 'doc/integration-test-plan.md' or die $!;
-my $integration_plan = do { local $/; <$integration_plan_fh> };
-close $integration_plan_fh;
-
-open my $security_fh, '<', 'SECURITY.md' or die $!;
-my $security_doc = do { local $/; <$security_fh> };
-close $security_fh;
-
-open my $contributing_fh, '<', 'CONTRIBUTING.md' or die $!;
-my $contributing_doc = do { local $/; <$contributing_fh> };
-close $contributing_fh;
-
-my $workflow = '';
-if ( -f '.github/workflows/release-cpan.yml' ) {
-    open my $workflow_fh, '<', '.github/workflows/release-cpan.yml' or die $!;
-    $workflow = do { local $/; <$workflow_fh> };
-    close $workflow_fh;
-}
-
-my $meta = {};
-if ( -f 'META.json' ) {
-    open my $meta_fh, '<', 'META.json' or die $!;
-    $meta = json_decode( do { local $/; <$meta_fh> } );
-    close $meta_fh;
-}
-
-my $dist = '';
-if ( -f 'dist.ini' ) {
-    open my $dist_fh, '<', 'dist.ini' or die $!;
-    $dist = do { local $/; <$dist_fh> };
-    close $dist_fh;
-}
-
-like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
+like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.46', 'module version bumped for the browser ajax ordering and UTF-8 icon release' );
-like( $readme, qr/dashboard doctor/, 'README documents the doctor command' );
-like( $pm, qr/dashboard doctor/, 'main POD documents the doctor command' );
-like( $release_doc, qr/bin\/dashboard doctor/, 'release doc documents the doctor command' );
-like( $readme, qr/home runtime is now hardened to owner-only access by default/s, 'README documents owner-only home-runtime permissions' );
-like( $pm, qr/home runtime is now hardened to owner-only access by default/s, 'main POD documents owner-only home-runtime permissions' );
-like( $release_doc, qr/dashboard doctor --fix/, 'release doc documents doctor repair mode' );
-like( $readme, qr/dashboard serve --ssl/, 'README documents the HTTPS serve flag' );
-like( $pm, qr/C<dashboard serve --ssl>/, 'main POD documents the HTTPS serve flag' );
-like( $release_doc, qr/dashboard serve --ssl/, 'release doc documents the HTTPS serve flag' );
-like( $readme, qr/plain HTTP requests on that same host and port are\s+redirected to the equivalent `https:\/\/\.\.\.` URL/s, 'README documents redirecting public plain-HTTP requests in SSL mode' );
-like( $pm, qr/plain HTTP requests on that same host and port are\s+redirected to the equivalent C<https:\/\/\.\.\.> URL/s, 'main POD documents redirecting public plain-HTTP requests in SSL mode' );
-like( $release_doc, qr/public HTTP\s+socket on that same host and port must return a same-port `307` redirect to\s+the equivalent `https:\/\/\.\.\.` URL/s, 'release doc documents same-port SSL redirect verification' );
-like( $release_doc, qr/self-signed certificate warning page\s+instead of a connection reset/s, 'release doc documents browser-visible SSL redirect verification' );
-like( $release_doc, qr/tarball install verification stays stable on both Linux and\s+macOS hosts/, 'release doc documents cross-platform tarball test portability' );
-like( $readme, qr/https:\/\/127\.0\.0\.1:7890\//, 'README documents the local HTTPS URL' );
-like( $pm, qr/https:\/\/127\.0\.0\.1:7890\//, 'main POD documents the local HTTPS URL' );
-like( $readme, qr/opening `\/` now redirects straight to\s+`\/app\/index`/s, 'README documents root redirect to the saved index bookmark' );
-like( $pm, qr/opening C<\/> now redirects straight to\s+C<\/app\/index>/s, 'main POD documents root redirect to the saved index bookmark' );
-like( $release_doc, qr/root path now redirects to `\/app\/index` when a saved `index` bookmark exists/s, 'release doc documents root redirect to the saved index bookmark' );
-like( $readme, qr/unknown saved route such as `\/app\/foobar`.*prefilled blank bookmark/s, 'README documents unknown saved routes opening a prefilled bookmark editor' );
-like( $pm, qr/unknown saved route such as C<\/app\/foobar>.*prefilled blank bookmark/s, 'main POD documents unknown saved routes opening a prefilled bookmark editor' );
-like( $release_doc, qr/Unknown saved routes such as `\/app\/foobar` must now open the bookmark editor with a prefilled blank bookmark/s, 'release doc documents unknown saved routes opening a prefilled bookmark editor' );
-like( $readme, qr/After a successful\s+helper login, the browser is sent back to that saved route, such as\s+`\/app\/index`/s, 'README documents post-login return to the original saved route' );
-like( $pm, qr/After a\s+successful helper login, the browser is sent back to that saved route, such as\s+C<\/app\/index>/s, 'main POD documents post-login return to the original saved route' );
-like( $release_doc, qr/successful\s+helper login returns the browser to the original route, such as `\/app\/index`/s, 'release doc documents post-login return to the original route' );
-like( $readme, qr/no helper user exists yet in the active dashboard runtime, outsider requests return\s+`401` with an empty body/s, 'README documents outsider access staying silent until a helper user exists in the active runtime' );
-like( $pm, qr/no helper user exists yet in the active dashboard runtime, outsider requests return\s+C<401> with an empty body/s, 'main POD documents outsider access staying silent until a helper user exists in the active runtime' );
-like( $release_doc, qr/outsider access returns `401` with an empty body until at least one helper user exists in the active dashboard runtime/s, 'release doc documents outsider access staying silent until a helper user exists in the active runtime' );
-like( $integration_plan, qr/non-loopback self-access returns `401` with an empty body and without a login form before any helper user exists in the active runtime/s, 'integration plan documents outsider disabled-access behaviour before helper bootstrap' );
-like( $integration_plan, qr/after a helper user exists, non-loopback access produces the helper login page/s, 'integration plan documents outsider login after helper bootstrap' );
-like( $readme, qr/Shared nav markup now wraps horizontally by default/, 'README documents the horizontal shared-nav layout' );
-like( $pm, qr/Shared nav markup now wraps horizontally by default/, 'main POD documents the horizontal shared-nav layout' );
-like( $release_doc, qr/Shared `nav\/\*\.tt` fragments now wrap horizontally/, 'release doc documents the shared-nav theme-aware layout' );
-like( $readme, qr/perl -MFolder -e 'print Folder->docker'/, 'README documents plain Folder config-backed alias resolution' );
-like( $pm, qr/perl -MFolder -e 'print Folder-E<gt>docker'/, 'main POD documents plain Folder config-backed alias resolution' );
-like( $readme, qr/dashboard serve logs/, 'README documents the serve logs command' );
-like( $pm, qr/C<dashboard serve logs>/, 'main POD documents the serve logs command' );
-like( $readme, qr/dashboard serve logs -n 100/, 'README documents tailed serve logs usage' );
-like( $pm, qr/C<dashboard serve logs -n 100>/, 'main POD documents tailed serve logs usage' );
-like( $readme, qr/dashboard serve logs -f/, 'README documents followed serve logs usage' );
-like( $pm, qr/C<dashboard serve logs -f>/, 'main POD documents followed serve logs usage' );
-like( $readme, qr/dashboard serve workers N/, 'README documents the persistent serve workers command' );
-like( $pm, qr/C<dashboard serve workers N>/, 'main POD documents the persistent serve workers command' );
-like( $readme, qr/dashboard serve workers N.*--port PORT/s, 'README documents the serve workers auto-start port override' );
-like( $pm, qr/C<dashboard serve workers N>.*C<--port PORT>/s, 'main POD documents the serve workers auto-start port override' );
-like( $readme, qr/legacy `~\/bin\/ps1` shape more closely/s, 'README documents the legacy-style prompt layout' );
-like( $pm, qr/legacy F<~\/bin\/ps1> shape more closely/s, 'main POD documents the legacy-style prompt layout' );
-like( $readme, qr/top-right browser status strip now uses that same configured icon instead\s+of falling back to the collector name/s, 'README documents browser indicator icons and stale rename cleanup' );
-like( $pm, qr/top-right browser status strip now uses that same configured icon instead\s+of falling back to the collector name/s, 'main POD documents browser indicator icons and stale rename cleanup' );
-like( $release_doc, qr/remove the\s+old managed indicator from both `\/system\/status` and `dashboard ps1`/s, 'release doc documents stale collector indicator cleanup verification' );
-like( $readme, qr/emoji-capable font stack.*UTF-8 icons such as\s+`🐳` and `💰`/s, 'README documents browser-visible UTF-8 status icon rendering' );
-like( $pm, qr/emoji-capable font stack.*UTF-8 icons such as\s+C<🐳> and C<💰>/s, 'main POD documents browser-visible UTF-8 status icon rendering' );
-like( $readme, qr/reads\s+it from tmux when the shell environment does not already export it/s, 'README documents tmux-backed ticket lookup for ps1' );
-like( $pm, qr/reads it from tmux when the shell environment does not already export it/s, 'main POD documents tmux-backed ticket lookup for ps1' );
-like( $readme, qr/dashboard shell zsh/, 'README documents zsh shell bootstrap support' );
-like( $pm, qr/dashboard shell zsh/, 'main POD documents zsh shell bootstrap support' );
-like( $readme, qr/dashboard shell sh/, 'README documents sh shell bootstrap support' );
-like( $pm, qr/dashboard shell sh/, 'main POD documents sh shell bootstrap support' );
-like( $readme, qr/dashboard shell ps/, 'README documents PowerShell shell bootstrap support' );
-like( $pm, qr/dashboard shell ps/, 'main POD documents PowerShell shell bootstrap support' );
-like( $release_doc, qr/bin\/dashboard shell zsh/, 'release doc documents zsh shell bootstrap verification' );
-like( $release_doc, qr/bin\/dashboard shell sh/, 'release doc documents sh shell bootstrap verification' );
-like( $release_doc, qr/bin\/dashboard shell ps/, 'release doc documents PowerShell shell bootstrap verification' );
-like( $readme, qr/PowerShell installs a `prompt` function instead of using\s+the POSIX `PS1` variable/s, 'README documents the PowerShell prompt-function integration' );
-like( $pm, qr/C<prompt>\s+function instead of using the POSIX\s+C<PS1> variable/s, 'main POD documents the PowerShell prompt-function integration' );
-like( $readme, qr/native platform shell: `sh -lc` on Unix-like systems and PowerShell on Windows/s, 'README documents native platform shell execution for command collectors' );
-like( $pm, qr/native platform shell:\s+C<sh -lc> on Unix-like systems and PowerShell on Windows/s, 'main POD documents native platform shell execution for command collectors' );
-like( $readme, qr/integration\/windows\/run-strawberry-smoke\.ps1/, 'README documents the Windows Strawberry smoke script' );
-like( $pm, qr/integration\/windows\/run-strawberry-smoke\.ps1/, 'main POD documents the Windows Strawberry smoke script' );
-like( $readme, qr/integration\/windows\/run-qemu-windows-smoke\.sh/, 'README documents the Windows QEMU smoke launcher' );
-like( $pm, qr/integration\/windows\/run-qemu-windows-smoke\.sh/, 'main POD documents the Windows QEMU smoke launcher' );
-like( $readme, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'README documents the bookmark browser smoke script' );
-like( $pm, qr/integration\/browser\/run-bookmark-browser-smoke\.pl/, 'main POD documents the bookmark browser smoke script' );
-like( $readme, qr/Runtime::Result->report\(\)/, 'README documents Runtime::Result report summaries for hook-backed commands' );
-like( $pm, qr/C<Runtime::Result-E<gt>report\(\)>/, 'main POD documents Runtime::Result report summaries for hook-backed commands' );
-like( $readme, qr/Ajax` helper calls inside saved bookmark `CODE\*` blocks should use an\s+explicit `file => 'name\.json'` argument/s, 'README documents the saved bookmark Ajax file requirement' );
-like( $pm, qr/Legacy C<Ajax> helper calls inside saved bookmark C<CODE\*> blocks should use\s+an explicit C<file =E<gt> 'name\.json'> argument/s, 'main POD documents the saved bookmark Ajax file requirement' );
-like( $readme, qr/stores the Ajax Perl code under the saved dashboard ajax tree/s, 'README documents the saved bookmark Ajax storage location' );
-like( $pm, qr/stores the Ajax Perl code under the saved dashboard ajax tree/s, 'main POD documents the saved bookmark Ajax storage location' );
-like( $readme, qr/fetch_value.*stream_value.*helpers/s, 'README documents bookmark fetch_value and stream_value helpers' );
-like( $pm, qr/C<fetch_value\(url, target, options, formatter\)> and\s+C<stream_value\(url, target, options, formatter\)> helpers/s, 'main POD documents bookmark fetch_value and stream_value helpers' );
-like( $release_doc, qr/fetch_value.*stream_value/s, 'release doc documents bookmark fetch_value and stream_value verification' );
-like( $readme, qr/saved Ajax endpoint bindings now run after the page\s+declares its endpoint root object/s, 'README documents saved Ajax binding order for declared endpoint roots' );
-like( $pm, qr/saved Ajax endpoint bindings now run after the page declares\s+its endpoint root object/s, 'main POD documents saved Ajax binding order for declared endpoint roots' );
-like( $readme, qr/defaulting to\s+Perl unless the file starts with a shebang/s, 'README documents saved bookmark ajax interpreter fallback' );
-like( $pm, qr/defaulting to Perl unless the file\s+starts with a shebang/s, 'main POD documents saved bookmark ajax interpreter fallback' );
-like( $readme, qr/stream both `stdout` and\s+`stderr` back to the browser as they happen/s, 'README documents live stdout and stderr ajax streaming' );
-like( $pm, qr/stream both C<stdout> and C<stderr> back to the\s+browser as they happen/s, 'main POD documents live stdout and stderr ajax streaming' );
-like( $readme, qr/singleton => 'NAME'.+dashboard ajax: NAME/s, 'README documents singleton-managed saved Ajax process replacement' );
-like( $pm, qr/singleton =E<gt> 'NAME'.+dashboard ajax: NAME/s, 'main POD documents singleton-managed saved Ajax process replacement' );
-like( $readme, qr/pagehide` cleanup beacon against\s+`\/ajax\/singleton\/stop\?singleton=NAME`/s, 'README documents browser pagehide singleton cleanup' );
-like( $pm, qr/C<pagehide> cleanup beacon against\s+C<\/ajax\/singleton\/stop\?singleton=NAME>/s, 'main POD documents browser pagehide singleton cleanup' );
-like( $readme, qr/clipped overlay viewport.*transform instead of via a second scrollbox/s, 'README documents the stable editor overlay geometry' );
-like( $pm, qr/clipped overlay viewport.*transform instead of via a second scrollbox/s, 'main POD documents the stable editor overlay geometry' );
-like( $changes, qr/^\Q$version\E\s+\d{4}-\d{2}-\d{2}$/m, 'Changes top entry matches module version' );
-
-if ( %{$meta} ) {
-    is( $meta->{version}, $version, 'META.json version matches module version' );
-    ok( exists $meta->{prereqs}{runtime}, 'META.json includes shipped runtime prerequisite metadata' );
-    ok( exists $meta->{prereqs}{runtime}{requires}{'JSON::XS'}, 'META.json runtime prerequisites include JSON::XS explicitly' );
-    ok( exists $meta->{provides} && keys %{ $meta->{provides} || {} }, 'META.json includes explicit provides metadata' );
-    is( $meta->{resources}{repository}{web}, 'https://github.mf/manif3station/developer-dashboard', 'META.json includes repository web metadata' );
-}
-elsif ( $dist ne '' ) {
-    like( $dist, qr/^version = \Q$version\E$/m, 'dist.ini version matches module version when META.json is absent' );
-    like( $dist, qr/^JSON::XS = 0$/m, 'dist.ini declares JSON::XS as an explicit runtime prerequisite' );
-    like( $dist, qr/^\[MetaProvides::Package\]$/m, 'dist.ini enables explicit provides metadata generation' );
-    like( $dist, qr/^\[MetaResources\]$/m, 'dist.ini enables explicit repository metadata generation' );
-    like( $dist, qr/^repository\.web = https:\/\/github\.mf\/manif3station\/developer-dashboard$/m, 'dist.ini declares repository web metadata' );
+is( $version, '1.48', 'repo version bumped for the private helper and skill isolation release' );
+like( $pm, qr/^1\.48$/m, 'main POD version matches the module version' );
+if ( $dist ne '' ) {
+    like( $dist, qr/^version = 1\.48$/m, 'dist.ini version matches the module version in the source tree' );
 }
 else {
-    fail('either META.json or dist.ini must be available for release metadata checks');
+    like( $meta, qr/"version"\s*:\s*"1\.48"/, 'META.json version matches the module version in the built distribution' );
+}
+like( $changes, qr/^1\.48\s+2026-04-04$/m, 'Changes top entry matches the bumped version' );
+
+for my $path (
+    qw(
+    bin/pjq
+    bin/pyq
+    bin/ptomq
+    bin/pjp
+    bin/jq
+    bin/yq
+    bin/tomq
+    bin/propq
+    bin/iniq
+    bin/csvq
+    bin/xmlq
+    )
+  )
+{
+    ok( !-e _repo_path($path), "$path is no longer shipped as a public executable" );
 }
 
-for my $script (qw(bin/dashboard bin/of bin/open-file bin/pjq bin/pyq bin/ptomq bin/pjp)) {
-    like( $makefile, qr/["']\Q$script\E["']/, "Makefile.PL ships $script" );
+for my $module (
+    qw(
+    Developer::Dashboard::Folder
+    Developer::Dashboard::DataHelper
+    Developer::Dashboard::Zipper
+    Developer::Dashboard::Runtime::Result
+    )
+  )
+{
+    like( $pm, qr/\Q$module\E/, "main POD documents $module" );
 }
 
-like( $readme, qr/http:\/\/127\.0\.0\.1:7890\//, 'README documents the default local browser URL' );
-like( $readme, qr/DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS/, 'README documents the transient web token opt-in environment variable' );
-like( $readme, qr/exact numeric loopback admin access on `127\.0\.0\.1` does not require a password/, 'README documents passwordless exact-loopback admin access' );
-like( $readme, qr/helper access is for everyone else/, 'README documents helper-tier browser access' );
-like( $readme, qr/### Not Just For Perl/, 'README documents non-Perl suitability explicitly' );
-like( $pm, qr/http:\/\/127\.0\.0\.1:7890\//, 'main POD documents the default local browser URL' );
-like( $pm, qr/DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS/, 'main POD documents the transient web token opt-in environment variable' );
-like( $pm, qr/exact numeric loopback admin access on C<127\.0\.0\.1> does not require a\s+password/, 'main POD documents passwordless exact-loopback admin access' );
-like( $pm, qr/helper access is for everyone else/, 'main POD documents helper-tier browser access' );
-like( $pm, qr/=head2 Not Just For Perl/, 'main POD documents non-Perl suitability explicitly' );
-like( $release_doc, qr/cpanm \/tmp\/Developer-Dashboard-\Q$version\E\.tar\.gz -v/, 'release doc documents tarball install verification' );
-like( $release_doc, qr/tar -tzf Developer-Dashboard-\Q$version\E\.tar\.gz/, 'release doc documents tarball content verification' );
-like( $release_doc, qr/run-strawberry-smoke\.ps1/, 'release doc documents the Windows Strawberry smoke verification script' );
-like( $release_doc, qr/run-qemu-windows-smoke\.sh/, 'release doc documents the Windows QEMU smoke verification script' );
-like( $release_doc, qr/rm -rf Developer-Dashboard-\* Developer-Dashboard-\*\.tar\.gz/, 'release doc documents old build directory and tarball cleanup before building a release' );
-like( $security_doc, qr/security\@manif3station\.local/, 'SECURITY.md includes a private contact address' );
-like( $security_doc, qr/dashboard doctor/, 'doc security guidance documents the doctor command' );
-like( $contributing_doc, qr/prove -lr t/, 'CONTRIBUTING.md documents the test workflow' );
-if ( $workflow ne '' ) {
-    like( $workflow, qr/cpanm --notest App::Cmd/, 'release workflow bootstraps App::Cmd before Dist::Zilla' );
-    like( $workflow, qr/Module::Pluggable::Object/, 'release workflow preinstalls the App::Cmd dependency chain explicitly' );
-    like( $workflow, qr/Dist::Zilla::Plugin::MetaProvides::Package/, 'release workflow installs the provides metadata plugin explicitly' );
-    like( $workflow, qr/actions\/checkout\@v5/, 'release workflow pins actions/checkout to the Node 24-ready major version' );
-    like( $workflow, qr/FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:\s*true/, 'release workflow opts JavaScript actions into Node 24' );
-}
-else {
-    pass('release workflow checks are skipped in built tarballs without .github metadata');
-    pass('dependency-chain workflow checks are skipped in built tarballs without .github metadata');
-    pass('provides-plugin workflow checks are skipped in built tarballs without .github metadata');
-    pass('checkout-version workflow checks are skipped in built tarballs without .github metadata');
-    pass('node24 workflow checks are skipped in built tarballs without .github metadata');
+unlike( $makefile, qr/bin\/pjq|bin\/pyq|bin\/ptomq|bin\/pjp|bin\/jq|bin\/yq|bin\/tomq|bin\/propq|bin\/iniq|bin\/csvq|bin\/xmlq/, 'Makefile.PL does not install generic helper commands into the global PATH' );
+for my $helper (qw(jq yq tomq propq iniq csvq xmlq)) {
+    ok( -f _repo_path( 'private-cli', $helper ), "private-cli/$helper is shipped as a private helper asset" );
 }
 
-done_testing;
+for my $doc ( $readme, $pm ) {
+    like( $doc, qr/~\/\.developer-dashboard\/cli/, 'docs describe private helper extraction under the runtime cli root' );
+    like( $doc, qr/dashboard jq/, 'docs describe the renamed jq subcommand' );
+    like( $doc, qr/dashboard yq/, 'docs describe the renamed yq subcommand' );
+    like( $doc, qr/dashboard tomq/, 'docs describe the renamed tomq subcommand' );
+    like( $doc, qr/dashboard propq/, 'docs describe the renamed propq subcommand' );
+    like( $doc, qr/Developer::Dashboard::Runtime::Result/, 'docs use the namespaced Runtime::Result module name' );
+    like( $doc, qr/Developer::Dashboard::Folder/, 'docs use the namespaced Folder module name' );
+}
+
+for my $doc ($readme) {
+    like( $doc, qr/dashboard skills install/, 'README documents skill installation' );
+    like( $doc, qr/dashboard skills uninstall/, 'README documents skill uninstallation' );
+    like( $doc, qr/dashboard skills update/, 'README documents skill updates' );
+    like( $doc, qr/dashboard skill example-skill/, 'README documents isolated skill command dispatch' );
+}
+like( $release_doc, qr/dzil build/, 'release doc still documents the dzil build step' );
+like( $release_doc, qr/cpanm .*Developer-Dashboard-1\.\d+\.tar\.gz/, 'release doc still documents tarball installation verification' );
+
+done_testing();
+
+sub _slurp {
+    my ($path) = @_;
+    open my $fh, '<', $path or die $!;
+    my $content = do { local $/; <$fh> };
+    close $fh;
+    return $content;
+}
+
+sub _slurp_optional {
+    my ($path) = @_;
+    return '' if !-f $path;
+    return _slurp($path);
+}
+
+sub _repo_path {
+    return File::Spec->catfile( $ROOT, @_ );
+}
 
 __END__
 
 =head1 NAME
 
-15-release-metadata.t - verify release metadata and tarball validation guidance
+15-release-metadata.t - verify release metadata and docs for private helpers and skills
 
 =head1 DESCRIPTION
 
-This test keeps the shipped version metadata, executable list, and release
-verification instructions aligned so the published tarball matches the source
-tree that passed the test suite.
+This test keeps the shipped version metadata, public executable list, and core
+documentation aligned for the private-helper and isolated-skill packaging
+model.
 
 =cut

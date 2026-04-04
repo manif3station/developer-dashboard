@@ -16,7 +16,6 @@ use URI::Escape qw(uri_escape);
 use lib 'lib';
 
 use Developer::Dashboard::DataHelper qw(j je);
-use DataHelper qw(j je);
 use Developer::Dashboard::Auth;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PageDocument;
@@ -36,18 +35,16 @@ my $auto_projects = File::Spec->catdir( $home, 'projects' );
 make_path($auto_projects);
 
 use Developer::Dashboard::Folder;
-use Folder;
 use Developer::Dashboard::Zipper qw(zip unzip _cmdx _cmdp __cmdx acmdx Ajax);
-use Zipper qw(zip unzip _cmdx _cmdp __cmdx acmdx Ajax);
 
-is( Folder->dd, File::Spec->catdir( $home, '.developer-dashboard' ), 'Folder dd lazily bootstraps the runtime root before configure' );
-is( Folder->runtime_root, File::Spec->catdir( $home, '.developer-dashboard' ), 'Folder runtime_root lazily bootstraps through AUTOLOAD before configure' );
+is( Developer::Dashboard::Folder->dd, File::Spec->catdir( $home, '.developer-dashboard' ), 'Folder dd lazily bootstraps the runtime root before configure' );
+is( Developer::Dashboard::Folder->runtime_root, File::Spec->catdir( $home, '.developer-dashboard' ), 'Folder runtime_root lazily bootstraps through AUTOLOAD before configure' );
 {
     my $runtime_home = File::Spec->catdir( $home, '.developer-dashboard' );
     make_path( File::Spec->catdir( $runtime_home, '.git' ) );
     chdir $runtime_home or die "Unable to chdir to $runtime_home: $!";
-    is( Folder->dd, $runtime_home, 'Folder dd does not append a nested runtime root when cwd is the home runtime repository' );
-    is( Folder->runtime_root, $runtime_home, 'Folder runtime_root stays at the home runtime root when cwd is the home runtime repository' );
+    is( Developer::Dashboard::Folder->dd, $runtime_home, 'Folder dd does not append a nested runtime root when cwd is the home runtime repository' );
+    is( Developer::Dashboard::Folder->runtime_root, $runtime_home, 'Folder runtime_root stays at the home runtime root when cwd is the home runtime repository' );
     chdir $home or die "Unable to chdir to $home: $!";
 }
 
@@ -64,22 +61,22 @@ my $paths = Developer::Dashboard::PathRegistry->new(
 my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
 my $pages = Developer::Dashboard::PageStore->new( paths => $paths );
 
-Folder->configure(
+Developer::Dashboard::Folder->configure(
     paths   => $paths,
     aliases => { alias_demo => $project },
 );
 
-is( Folder->home, $home, 'Folder home resolves current home' );
-ok( Folder->tmp, 'Folder tmp resolves a temp dir' );
-is( Folder->dd, $paths->runtime_root, 'Folder dd resolves runtime root' );
-is( Folder->runtime_root, $paths->runtime_root, 'Folder AUTOLOAD resolves runtime_root through the legacy runtime alias' );
-is( Folder->bookmarks, $paths->dashboards_root, 'Folder bookmarks resolves dashboards root' );
-is( Folder->bookmarks_root, $paths->dashboards_root, 'Folder AUTOLOAD resolves bookmarks_root through the legacy bookmarks alias' );
-is( Folder->configs, $paths->config_root, 'Folder configs resolves config root' );
-is( Folder->config_root, $paths->config_root, 'Folder AUTOLOAD resolves config_root through the legacy configs alias' );
-ok( -d Folder->postman, 'Folder postman creates the neutral postman directory' );
+is( Developer::Dashboard::Folder->home, $home, 'Folder home resolves current home' );
+ok( Developer::Dashboard::Folder->tmp, 'Folder tmp resolves a temp dir' );
+is( Developer::Dashboard::Folder->dd, $paths->runtime_root, 'Folder dd resolves runtime root' );
+is( Developer::Dashboard::Folder->runtime_root, $paths->runtime_root, 'Folder AUTOLOAD resolves runtime_root through the legacy runtime alias' );
+is( Developer::Dashboard::Folder->bookmarks, $paths->dashboards_root, 'Folder bookmarks resolves dashboards root' );
+is( Developer::Dashboard::Folder->bookmarks_root, $paths->dashboards_root, 'Folder AUTOLOAD resolves bookmarks_root through the legacy bookmarks alias' );
+is( Developer::Dashboard::Folder->configs, $paths->config_root, 'Folder configs resolves config root' );
+is( Developer::Dashboard::Folder->config_root, $paths->config_root, 'Folder AUTOLOAD resolves config_root through the legacy configs alias' );
+ok( -d Developer::Dashboard::Folder->postman, 'Folder postman creates the neutral postman directory' );
 
-my $cd_result = Folder->cd(
+my $cd_result = Developer::Dashboard::Folder->cd(
     alias_demo => sub {
         my ($ctx) = @_;
         $ctx->{stay}->($ctx->{caller});
@@ -87,10 +84,10 @@ my $cd_result = Folder->cd(
     }
 );
 is( $cd_result, $project, 'Folder cd yields the target directory to the callback' );
-my @folder_listing = Folder->ls('alias_demo');
+my @folder_listing = Developer::Dashboard::Folder->ls('alias_demo');
 ok( @folder_listing >= 0, 'Folder ls returns entries for a real directory' );
-ok( grep( { $_ eq $project } Folder->locate('demo') ), 'Folder locate finds matching workspace directories' );
-is( Folder->alias_demo, $project, 'Folder AUTOLOAD resolves configured aliases' );
+ok( grep( { $_ eq $project } Developer::Dashboard::Folder->locate('demo') ), 'Folder locate finds matching workspace directories' );
+is( Developer::Dashboard::Folder->alias_demo, $project, 'Folder AUTOLOAD resolves configured aliases' );
 {
     my $repo = File::Spec->catdir( $workspace, 'folder-config-repo' );
     make_path( File::Spec->catdir( $repo, '.git' ) );
@@ -106,13 +103,13 @@ JSON
     close $fh;
     my $docker_alias = File::Spec->catdir( $home, 'docker-alias' );
     make_path($docker_alias);
-    local $Folder::PATHS = undef;
-    local %Folder::ALIASES = ();
-    local %Folder::CONFIG_ALIASES = ();
-    local $Folder::CONFIG_ALIASES_KEY = '';
+    local $Developer::Dashboard::Folder::PATHS = undef;
+    local %Developer::Dashboard::Folder::ALIASES = ();
+    local %Developer::Dashboard::Folder::CONFIG_ALIASES = ();
+    local $Developer::Dashboard::Folder::CONFIG_ALIASES_KEY = '';
     my $cwd = Cwd::cwd();
     chdir $repo or die "Unable to chdir to $repo: $!";
-    is( Folder->docker, $docker_alias, 'Folder AUTOLOAD lazily resolves config-backed path aliases in a plain Perl process' );
+    is( Developer::Dashboard::Folder->docker, $docker_alias, 'Folder AUTOLOAD lazily resolves config-backed path aliases in a plain Perl process' );
     chdir $cwd or die "Unable to chdir to $cwd: $!";
 }
 
@@ -139,7 +136,7 @@ my ( $ajax_singleton_stdout, undef, $ajax_singleton_result ) = capture {
 like( $ajax_singleton_stdout, qr/[?&]singleton=TRANSIENT/, 'Ajax carries the optional singleton value into transient ajax bindings' );
 is( $ajax_singleton_result, 'HIDE-THIS', 'Ajax still returns the hide marker when a transient singleton is supplied' );
 {
-    local $Zipper::AJAX_CONTEXT = {
+    local $Developer::Dashboard::Zipper::AJAX_CONTEXT = {
         source               => 'saved',
         page_id              => 'coverage-page',
         runtime_root         => $paths->runtime_root,
@@ -155,9 +152,9 @@ is( $ajax_singleton_result, 'HIDE-THIS', 'Ajax still returns the hide marker whe
     };
     like( $saved_ajax_stdout, qr{/ajax/coverage\.json\?type=text&singleton=coverage-stream}, 'Ajax prints a saved bookmark ajax url with the default text type and singleton when a file name is supplied' );
     is( $saved_ajax_result, 'HIDE-THIS', 'saved bookmark Ajax still returns the hide marker' );
-    ok( -f Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'saved bookmark Ajax stores the named ajax code file under the dashboards ajax tree' );
-    ok( -x Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'saved bookmark Ajax marks the stored dashboards ajax tree file executable' );
-    is( Zipper::load_saved_ajax_code( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'print qq{{"ok":1}};', 'saved bookmark Ajax stored code can be loaded back from the dashboards ajax tree' );
+    ok( -f Developer::Dashboard::Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'saved bookmark Ajax stores the named ajax code file under the dashboards ajax tree' );
+    ok( -x Developer::Dashboard::Zipper::saved_ajax_file_path( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'saved bookmark Ajax marks the stored dashboards ajax tree file executable' );
+    is( Developer::Dashboard::Zipper::load_saved_ajax_code( runtime_root => $paths->runtime_root, file => 'coverage.json' ), 'print qq{{"ok":1}};', 'saved bookmark Ajax stored code can be loaded back from the dashboards ajax tree' );
     my $saved_ajax_error = eval {
         Ajax(
             jvar => 'configs.coverage.saved',
@@ -168,7 +165,7 @@ is( $ajax_singleton_result, 'HIDE-THIS', 'Ajax still returns the hide marker whe
     like( $saved_ajax_error, qr/file is required/, 'saved bookmark Ajax requires a file name when transient token urls are disabled' );
 }
 {
-    my $existing_path = Zipper::saved_ajax_file_path(
+    my $existing_path = Developer::Dashboard::Zipper::saved_ajax_file_path(
         runtime_root => $paths->runtime_root,
         file         => 'existing.sh',
     );
@@ -179,7 +176,7 @@ is( $ajax_singleton_result, 'HIDE-THIS', 'Ajax still returns the hide marker whe
     close $fh;
     chmod 0700, $existing_path or die $!;
 
-    local $Zipper::AJAX_CONTEXT = {
+    local $Developer::Dashboard::Zipper::AJAX_CONTEXT = {
         source               => 'saved',
         page_id              => 'coverage-existing',
         runtime_root         => $paths->runtime_root,
@@ -194,7 +191,7 @@ is( $ajax_singleton_result, 'HIDE-THIS', 'Ajax still returns the hide marker whe
     };
     like( $stdout, qr{/ajax/existing\.sh\?type=text}, 'Ajax prints a saved bookmark ajax url when only an existing file name is supplied' );
     is( $result, 'HIDE-THIS', 'saved bookmark Ajax with only a file still returns the hide marker' );
-    is( Zipper::load_saved_ajax_code( runtime_root => $paths->runtime_root, file => 'existing.sh' ), "#!/bin/sh\nprintf 'existing coverage\\n'\n", 'saved bookmark Ajax with only a file leaves the existing executable content unchanged' );
+    is( Developer::Dashboard::Zipper::load_saved_ajax_code( runtime_root => $paths->runtime_root, file => 'existing.sh' ), "#!/bin/sh\nprintf 'existing coverage\\n'\n", 'saved bookmark Ajax with only a file leaves the existing executable content unchanged' );
 }
 
 is_deeply( je( j( { ok => 1 } ) ), { ok => 1 }, 'DataHelper je decodes JSON created by j' );
@@ -212,7 +209,7 @@ Modern Note
 {"name":"Modern"}
 
 === HTML ===
-<div>[% stash.name %] [% method("Folder","home") %] [% func("unused") %]</div>
+<div>[% stash.name %] [% method("Developer::Dashboard::Folder","home") %] [% func("unused") %]</div>
 
 === FORM.TT ===
 <span>[% ENV.HOME %] [% eval("print q{TT-EVAL}") %]</span>
@@ -288,7 +285,7 @@ my $runtime = Developer::Dashboard::PageRuntime->new( paths => $paths );
 is( Developer::Dashboard::PageRuntime::_noop_writer('ignored'), '', '_noop_writer accepts ignored streamed chunks' );
 like( $runtime->_runtime_value_text( { ok => 1 } ), qr/ok => 1/, '_runtime_value_text renders structured runtime values' );
 {
-    my $saved_path = Zipper::saved_ajax_file_path(
+    my $saved_path = Developer::Dashboard::Zipper::saved_ajax_file_path(
         runtime_root => $paths->runtime_root,
         file         => 'coverage.json',
     );
@@ -600,7 +597,7 @@ my $prepared = $runtime->prepare_page(
     },
 );
 like( $prepared->{layout}{body}, qr/Modern/, 'Template Toolkit renders HTML with stash access' );
-like( $prepared->{layout}{body}, qr/\Q$home\E/, 'Template Toolkit method helper can call generic runtime methods' );
+like( $prepared->{layout}{body}, qr/\Q$home\E/, 'Template Toolkit method helper can call namespaced runtime methods' );
 like( $prepared->{layout}{form_tt}, qr/\Q$home\E/, 'Template Toolkit renders FORM.TT with ENV access' );
 like( $prepared->{layout}{form_tt}, qr/TT-EVAL/, 'Template Toolkit eval helper runs bookmark Perl snippets' );
 like( $prepared->{layout}{form}, qr/Modern Title Modern applied/, 'legacy FORM placeholder expansion still works' );

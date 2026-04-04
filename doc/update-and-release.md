@@ -7,7 +7,7 @@ Run:
 ```bash
 perl -Ilib bin/dashboard version
 mkdir -p ~/.developer-dashboard/cli/update.d
-printf '#!/usr/bin/env perl\nuse Runtime::Result;\nprint Runtime::Result::stdout(q{01-runtime});\nprint $ENV{RESULT} // q{}\n' > ~/.developer-dashboard/cli/update
+printf '#!/usr/bin/env perl\nuse Developer::Dashboard::Runtime::Result;\nprint Developer::Dashboard::Runtime::Result::stdout(q{01-runtime});\nprint $ENV{RESULT} // q{}\n' > ~/.developer-dashboard/cli/update
 chmod +x ~/.developer-dashboard/cli/update
 printf '#!/bin/sh\necho runtime-update\n' > ~/.developer-dashboard/cli/update.d/01-runtime
 chmod +x ~/.developer-dashboard/cli/update.d/01-runtime
@@ -28,10 +28,10 @@ or `~/.developer-dashboard/cli/update.d`:
 a normal user command and let its hook files run through the same top-level
 command-hook path as every other dashboard subcommand.
 
-Perl hook scripts can use `Runtime::Result` to decode `RESULT` and read
+Perl hook scripts can use `Developer::Dashboard::Runtime::Result` to decode `RESULT` and read
 structured hook output without hand-parsing the JSON blob. If the final Perl
 command wants a compact summary after the hook chain finishes, it can call
-`Runtime::Result->report()`.
+`Developer::Dashboard::Runtime::Result->report()`.
 
 Use `dashboard version` to print the installed Developer Dashboard version.
 
@@ -191,7 +191,10 @@ The extension layer now includes:
 Compose setup can now stay isolated in service folders under `./.developer-dashboard/docker/<service>/compose.yml` for the current project, with `~/.developer-dashboard/config/docker/<service>/compose.yml` as the fallback. The wrapper infers service names from passthrough docker compose args such as `config green` before building the final `docker compose` command. When no service name is passed, the resolver scans isolated service folders and preloads every non-disabled folder. A folder containing `disabled.yml` is skipped. Each isolated folder contributes `development.compose.yml` when present, otherwise `compose.yml`. The compose runtime also exports `DDDC` as the effective config-root docker directory for the current runtime so YAML can continue to use `${DDDC}` paths internally. Wrapper-only flags are consumed first and remaining docker compose flags such as `-d` and `--build` pass through untouched.
 Without `--dry-run`, the wrapper now hands off with `exec`, so terminal users see the normal streaming output from `docker compose` itself instead of a dashboard JSON wrapper.
 Path aliases can now be managed from the CLI with `dashboard path add <name> <path>` and `dashboard path del <name>`. These commands persist user-defined aliases in the effective config root, using a project-local `./.developer-dashboard` tree first when it exists and otherwise the home runtime. Both repeated adds and repeated deletes are intentionally idempotent. When an added path lives under the current home directory, the stored config rewrites it to `$HOME/...` so a shared dashboard config directory does not hard-code one developer's absolute home path.
-Legacy `Folder` compatibility now also accepts the root-style names exposed by `dashboard paths`, so `Folder->runtime_root`, `Folder->bookmarks_root`, and `Folder->config_root` resolve through the existing legacy aliases without adding separate wrapper methods. Before `Folder->configure(...)` runs, those runtime-backed names now lazily bootstrap a default dashboard path registry from `HOME` instead of dying. Plain `Folder` calls also lazy-load config-backed path aliases from the active runtime, so direct compatibility calls such as `Folder->docker` match the aliases shown by `dashboard paths`.
+Use `Developer::Dashboard::Folder` for runtime path helpers. It resolves the
+same root-style names exposed by `dashboard paths`, including runtime,
+bookmark, config, and configured alias names such as `docker`, without relying
+on unscoped CPAN-global module names.
 `dashboard init` now seeds `welcome`, `api-dashboard`, and `db-dashboard` as editable saved bookmarks when those ids are missing.
 
 ## Release To PAUSE

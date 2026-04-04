@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Query;
 use strict;
 use warnings;
 
-our $VERSION = '1.47';
+our $VERSION = '1.48';
 
 use Exporter 'import';
 use FindBin qw($Bin);
@@ -276,13 +276,14 @@ Developer::Dashboard::CLI::Query - standalone structured-data query command supp
 =head1 SYNOPSIS
 
   use Developer::Dashboard::CLI::Query qw(run_query_command);
-  run_query_command( command => 'pjq', args => \@ARGV );
+  run_query_command( command => 'jq', args => \@ARGV );
 
 =head1 DESCRIPTION
 
-Provides the lightweight shared implementation behind the standalone
-C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, and C<xmlq> executables 
-and the proxied C<dashboard ...> command paths. Also supports legacy names 
-C<pjq>, C<pyq>, C<ptomq>, and C<pjp> for backward compatibility.
+Provides the lightweight shared implementation behind the private runtime
+helper scripts for C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, and
+C<xmlq> plus the proxied C<dashboard ...> command paths. Legacy names such as
+C<pjq>, C<pyq>, C<ptomq>, and C<pjp> still normalize through C<dashboard> for
+compatibility.
 
 =cut

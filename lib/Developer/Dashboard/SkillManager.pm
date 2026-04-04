@@ -3,27 +3,32 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '1.47';
+our $VERSION = '1.48';
 
 use Cwd qw(realpath);
 use File::Path qw(make_path remove_tree);
 use File::Spec;
-use File::Basename;
+use File::Basename qw(basename);
 use Capture::Tiny qw(capture);
-use JSON::XS;
+use JSON::XS qw(decode_json encode_json);
+use Developer::Dashboard::PathRegistry;
 
 # new()
 # Creates a SkillManager instance to handle skill installation, updates, uninstalls.
 # Input: none.
 # Output: SkillManager object.
 sub new {
-    my ($class) = @_;
-    my $home = $ENV{HOME} || (getpwuid($>))[7] || $ENV{USERPROFILE};
-    my $skills_root = File::Spec->catdir( $home, '.developer-dashboard', 'skills' );
-    
+    my ( $class, %args ) = @_;
+    my $paths = $args{paths}
+      || Developer::Dashboard::PathRegistry->new(
+        home            => ( $ENV{HOME} || (getpwuid($>))[7] || $ENV{USERPROFILE} || die 'Missing home directory' ),
+        workspace_roots => [],
+        project_roots   => [],
+      );
+
     return bless {
-        home        => $home,
-        skills_root => $skills_root,
+        paths       => $paths,
+        skills_root => $paths->skills_root,
     }, $class;
 }
 
@@ -33,45 +38,34 @@ sub new {
 # Output: hash ref with success status and repo name.
 sub install {
     my ( $self, $git_url ) = @_;
-    
     return { error => 'Missing Git URL' } if !$git_url;
-    
-    # Extract repo name from URL
+
     my $repo_name = _extract_repo_name($git_url);
     return { error => "Unable to extract repo name from $git_url" } if !$repo_name;
-    
-    # Check if skill already exists
+
     my $skill_path = File::Spec->catdir( $self->{skills_root}, $repo_name );
     return { error => "Skill '$repo_name' already installed at $skill_path" } if -d $skill_path;
-    
-    # Ensure skills root exists
-    make_path( $self->{skills_root} ) if !-d $self->{skills_root};
-    
-    # Clone the repository
+
+    $self->{paths}->ensure_dir( $self->{skills_root} );
+
     my ( $stdout, $stderr, $exit ) = capture {
         system( 'git', 'clone', $git_url, $skill_path );
     };
-    
     if ( $exit != 0 ) {
         remove_tree($skill_path) if -d $skill_path;
         return { error => "Failed to clone $git_url: $stderr" };
     }
-    
-    # Create skill structure directories
-    for my $dir ( qw(cli config state logs) ) {
-        my $dir_path = File::Spec->catdir( $skill_path, $dir );
-        make_path($dir_path) unless -d $dir_path;
-    }
-    
-    # Create subdirectories for config
-    make_path( File::Spec->catdir( $skill_path, 'config', 'docker' ) )
-        unless -d File::Spec->catdir( $skill_path, 'config', 'docker' );
-    
+
+    $self->_prepare_skill_layout($skill_path);
+    my $dependency = $self->_install_skill_dependencies($skill_path);
+    return $dependency if $dependency->{error};
+
     return {
-        success => 1,
+        success   => 1,
         repo_name => $repo_name,
-        path => $skill_path,
-        message => "Skill '$repo_name' installed successfully",
+        path      => $skill_path,
+        message   => "Skill '$repo_name' installed successfully",
+        metadata  => $self->_skill_metadata( $repo_name, $skill_path ),
     };
 }
 
@@ -86,19 +80,21 @@ sub uninstall {
     
     my $skill_path = File::Spec->catdir( $self->{skills_root}, $repo_name );
     return { error => "Skill '$repo_name' not found" } if !-d $skill_path;
-    
-    # Remove the entire skill directory
+    my $real_root = realpath( $self->{skills_root} ) || $self->{skills_root};
+    my $real_path = realpath($skill_path) || $skill_path;
+    return { error => "Refusing to uninstall path outside skills root: $skill_path" }
+      if index( $real_path, $real_root . '/' ) != 0;
+
     my $error;
     remove_tree( $skill_path, { error => \$error } );
-    
     if ( @$error ) {
         return { error => "Failed to uninstall skill: " . join( ', ', @$error ) };
     }
-    
+
     return {
-        success => 1,
+        success   => 1,
         repo_name => $repo_name,
-        message => "Skill '$repo_name' uninstalled successfully",
+        message   => "Skill '$repo_name' uninstalled successfully",
     };
 }
 
@@ -113,20 +109,23 @@ sub update {
     
     my $skill_path = File::Spec->catdir( $self->{skills_root}, $repo_name );
     return { error => "Skill '$repo_name' not found" } if !-d $skill_path;
-    
-    # Pull latest changes
+
     my ( $stdout, $stderr, $exit ) = capture {
-        system( 'git', '-C', $skill_path, 'pull' );
+        system( 'git', '-C', $skill_path, 'pull', '--ff-only' );
     };
-    
     if ( $exit != 0 ) {
         return { error => "Failed to update skill: $stderr" };
     }
-    
+
+    $self->_prepare_skill_layout($skill_path);
+    my $dependency = $self->_install_skill_dependencies($skill_path);
+    return $dependency if $dependency->{error};
+
     return {
-        success => 1,
+        success   => 1,
         repo_name => $repo_name,
-        message => "Skill '$repo_name' updated successfully",
+        message   => "Skill '$repo_name' updated successfully",
+        metadata  => $self->_skill_metadata( $repo_name, $skill_path ),
     };
 }
 
@@ -146,15 +145,7 @@ sub list {
         my $skill_path = File::Spec->catdir( $self->{skills_root}, $entry );
         next unless -d $skill_path;
         
-        my $skill_info = {
-            name => $entry,
-            path => $skill_path,
-            has_config => -f File::Spec->catfile( $skill_path, 'config', 'config.json' ),
-            has_cli => -d File::Spec->catdir( $skill_path, 'cli' ),
-            has_cpanfile => -f File::Spec->catfile( $skill_path, 'cpanfile' ),
-        };
-        
-        push @skills, $skill_info;
+        push @skills, $self->_skill_metadata( $entry, $skill_path );
     }
     
     closedir($dh);
@@ -190,6 +181,105 @@ sub _extract_repo_name {
     }
     
     return;
+}
+
+# _prepare_skill_layout($skill_path)
+# Ensures the isolated skill directory tree exists under one skill root.
+# Input: absolute skill root directory path.
+# Output: true value.
+sub _prepare_skill_layout {
+    my ( $self, $skill_path ) = @_;
+    for my $dir (
+        File::Spec->catdir( $skill_path, 'cli' ),
+        File::Spec->catdir( $skill_path, 'config' ),
+        File::Spec->catdir( $skill_path, 'config', 'docker' ),
+        File::Spec->catdir( $skill_path, 'state' ),
+        File::Spec->catdir( $skill_path, 'logs' ),
+        File::Spec->catdir( $skill_path, 'local' ),
+    ) {
+        make_path($dir) if !-d $dir;
+        $self->{paths}->secure_dir_permissions($dir);
+    }
+
+    my $config_file = File::Spec->catfile( $skill_path, 'config', 'config.json' );
+    if ( !-f $config_file ) {
+        open my $fh, '>', $config_file or die "Unable to write $config_file: $!";
+        print {$fh} "{}\n";
+        close $fh;
+        $self->{paths}->secure_file_permissions($config_file);
+    }
+    return 1;
+}
+
+# _install_skill_dependencies($skill_path)
+# Installs one skill's Perl dependencies into its isolated local library when a cpanfile exists.
+# Input: absolute skill root directory path.
+# Output: result hash reference with success or error state.
+sub _install_skill_dependencies {
+    my ( $self, $skill_path ) = @_;
+    my $cpanfile = File::Spec->catfile( $skill_path, 'cpanfile' );
+    return { success => 1, skipped => 1 } if !-f $cpanfile;
+
+    my $local_root = File::Spec->catdir( $skill_path, 'local' );
+    make_path($local_root) if !-d $local_root;
+    $self->{paths}->secure_dir_permissions($local_root);
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'cpanm', '-L', $local_root, '--installdeps', $skill_path );
+    };
+    return {
+        error => "Failed to install skill dependencies for $skill_path: $stderr",
+    } if $exit != 0;
+
+    return {
+        success => 1,
+        stdout  => $stdout,
+        stderr  => $stderr,
+    };
+}
+
+# _skill_metadata($repo_name, $skill_path)
+# Summarizes the isolated filesystem and command surface for one installed skill.
+# Input: repo name string and absolute skill root directory path.
+# Output: metadata hash reference.
+sub _skill_metadata {
+    my ( $self, $repo_name, $skill_path ) = @_;
+    my $cli_root = File::Spec->catdir( $skill_path, 'cli' );
+    my @commands;
+    if ( -d $cli_root ) {
+        opendir( my $dh, $cli_root ) or die "Unable to read $cli_root: $!";
+        @commands = sort grep {
+            $_ ne '.' && $_ ne '..'
+              && -f File::Spec->catfile( $cli_root, $_ )
+              && $_ !~ /\.d\z/
+        } readdir($dh);
+        closedir($dh);
+    }
+
+    my @docker_services;
+    my $docker_root = File::Spec->catdir( $skill_path, 'config', 'docker' );
+    if ( -d $docker_root ) {
+        opendir( my $dh, $docker_root ) or die "Unable to read $docker_root: $!";
+        @docker_services = sort grep {
+            $_ ne '.' && $_ ne '..' && -d File::Spec->catdir( $docker_root, $_ )
+        } readdir($dh);
+        closedir($dh);
+    }
+
+    return {
+        name            => $repo_name,
+        path            => $skill_path,
+        cli_commands    => \@commands,
+        has_config      => -f File::Spec->catfile( $skill_path, 'config', 'config.json' ) ? 1 : 0,
+        has_cpanfile    => -f File::Spec->catfile( $skill_path, 'cpanfile' ) ? 1 : 0,
+        config_root     => File::Spec->catdir( $skill_path, 'config' ),
+        docker_root     => $docker_root,
+        docker_services => \@docker_services,
+        state_root      => File::Spec->catdir( $skill_path, 'state' ),
+        logs_root       => File::Spec->catdir( $skill_path, 'logs' ),
+        cli_root        => $cli_root,
+        local_root      => File::Spec->catdir( $skill_path, 'local' ),
+    };
 }
 
 1;

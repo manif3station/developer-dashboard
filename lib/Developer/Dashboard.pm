@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.47';
+our $VERSION = '1.48';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.47
+1.48
 
 =head1 INTRODUCTION
 
@@ -53,9 +53,7 @@ command also reads optional hook results from
 F<~/.developer-dashboard/cli/doctor.d> so users can layer in more
 site-specific checks later.
 
-Frequently used built-in commands such as C<of>, C<open-file>, C<pjq>, C<pyq>,
-C<ptomq>, and C<pjp> are also installed as standalone executables so they can
-run directly without loading the full C<dashboard> runtime.
+Frequently used built-in commands such as C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, and C<xmlq> are staged privately under F<~/.developer-dashboard/cli/> and dispatched by C<dashboard> without polluting the global PATH. Legacy aliases C<pjq>, C<pyq>, C<ptomq>, and C<pjp> still normalize to the renamed commands when they are invoked through C<dashboard>.
 
 It provides a small ecosystem for:
 
@@ -425,11 +423,9 @@ Hook result environment variable decoding and access for command runners.
 
 =back
 
-For backward compatibility, the original un-namespaced module names (C<File>,
-C<Folder>, C<DataHelper>, C<Zipper>, C<Runtime::Result>) are still available
-as transparent facades that delegate to the new namespaced implementations.
-Existing code using the old names will continue to work without modification,
-but new code should use the C<Developer::Dashboard::> prefixed names.
+Project-owned modules now live only under the C<Developer::Dashboard::>
+namespace so the distribution does not pollute the CPAN ecosystem with
+generic package names.
 
 =head1 DOCUMENTATION
 
@@ -502,16 +498,14 @@ across different stacks.
 
 =item * Data Query Commands
 
-C<dashboard pjq>, C<dashboard pyq>, C<dashboard ptomq>, and C<dashboard pjp>
+C<dashboard jq>, C<dashboard yq>, C<dashboard tomq>, and C<dashboard propq>
 parse JSON, YAML, TOML, and Java properties input, then optionally extract a
 dotted path and print a scalar or canonical JSON, giving the CLI a small
 data-inspection toolkit that fits naturally into shell workflows.
 
 =item * Standalone CLI Commands
 
-Standalone C<of>, C<open-file>, C<pjq>, C<pyq>, C<ptomq>, and C<pjp> provide
-the same behavior directly, without proxying through the main C<dashboard>
-command, for lighter-weight shell usage.
+Private F<~/.developer-dashboard/cli/> helper files provide the same query behaviour without being installed into the global PATH.
 
 =item * Runtime Manager
 
@@ -655,7 +649,7 @@ under F<~/.developer-dashboard/cli/>. Executable files in the selected
 directory are run in sorted filename order before the real command runs,
 non-executable files are skipped, and each hook now streams its own
 C<stdout> and C<stderr> live to the terminal while still accumulating those
-channels into C<RESULT> as JSON. Built-in commands such as C<dashboard pjq>
+channels into C<RESULT> as JSON. Built-in commands such as C<dashboard jq>
 use the same hook directory. A
 directory-backed custom command can provide its real executable as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>, and that runner receives
@@ -666,7 +660,7 @@ starts, so later hook scripts can react to earlier hook output.
 Perl hook code can use C<Runtime::Result> to decode C<RESULT> safely and read
 per-hook C<stdout>, C<stderr>, exit codes, or the last recorded hook entry.
 If a Perl-backed command wants a compact final summary after its hook files
-run, it can also call C<Runtime::Result-E<gt>report()> to print a simple
+run, it can also call C<Developer::Dashboard::Runtime::Result-E<gt>report()> to print a simple
 success/error report for each sorted hook file.
 
 =head2 Open File Commands
@@ -711,19 +705,19 @@ path:
 
 =item *
 
-C<dashboard pjq [path] [file]> for JSON
+C<dashboard jq [path] [file]> for JSON
 
 =item *
 
-C<dashboard pyq [path] [file]> for YAML
+C<dashboard yq [path] [file]> for YAML
 
 =item *
 
-C<dashboard ptomq [path] [file]> for TOML
+C<dashboard tomq [path] [file]> for TOML
 
 =item *
 
-C<dashboard pjp [path] [file]> for Java properties
+C<dashboard propq [path] [file]> for Java properties
 
 =back
 
@@ -732,9 +726,9 @@ If the selected value is a scalar, it prints the scalar plus a trailing
 newline.
 
 The file path and query path are order-independent, and C<$d> selects the
-whole parsed document. For example, C<cat file.json | dashboard pjq '$d'> and
-C<dashboard pjq file.json '$d'> return the same result. The same contract
-applies to C<pyq>, C<ptomq>, and C<pjp>.
+whole parsed document. For example, C<cat file.json | dashboard jq '$d'> and
+C<dashboard jq file.json '$d'> return the same result. The same contract
+applies to C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, and C<xmlq>.
 
 =head1 MANUAL
 
@@ -765,10 +759,10 @@ Run the CLI directly from the repository:
   perl -Ilib bin/dashboard version
   perl -Ilib bin/dashboard of --print My::Module
   perl -Ilib bin/dashboard open-file --print com.example.App
-  printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
-  printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard pyq alpha.beta
+  printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard jq alpha.beta
+  printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard yq alpha.beta
   mkdir -p ~/.developer-dashboard/cli/update.d
-  printf '#!/usr/bin/env perl\nuse Runtime::Result;\nprint Runtime::Result::stdout(q{01-runtime});\nprint $ENV{RESULT} // q{}\n' > ~/.developer-dashboard/cli/update
+  printf '#!/usr/bin/env perl\nuse Developer::Dashboard::Runtime::Result;\nprint Developer::Dashboard::Runtime::Result::stdout(q{01-runtime});\nprint $ENV{RESULT} // q{}\n' > ~/.developer-dashboard/cli/update
   chmod +x ~/.developer-dashboard/cli/update
   printf '#!/bin/sh\necho runtime-update\n' > ~/.developer-dashboard/cli/update.d/01-runtime
   chmod +x ~/.developer-dashboard/cli/update.d/01-runtime
@@ -784,10 +778,10 @@ User CLI extensions can be tested from the repository too:
   chmod +x ~/.developer-dashboard/cli/foobar
   printf 'hello\n' | perl -Ilib bin/dashboard foobar
 
-  mkdir -p ~/.developer-dashboard/cli/pjq
-  printf '#!/usr/bin/env perl\nprint "seed\\n";\n' > ~/.developer-dashboard/cli/pjq/00-seed.pl
-  chmod +x ~/.developer-dashboard/cli/pjq/00-seed.pl
-  printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard pjq alpha.beta
+  mkdir -p ~/.developer-dashboard/cli/jq.d
+  printf '#!/usr/bin/env perl\nprint "seed\\n";\n' > ~/.developer-dashboard/cli/jq.d/00-seed.pl
+  chmod +x ~/.developer-dashboard/cli/jq.d/00-seed.pl
+  printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard jq alpha.beta
 
 Each top-level dashboard command can also use an optional hook directory at
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>>. Executable files from that
@@ -841,15 +835,10 @@ instead of a hard-coded absolute home path so a shared fallback runtime
 remains portable across different developer accounts. Re-adding an existing
 alias updates it without error, and deleting a missing alias is also safe.
 
-Legacy C<Folder> compatibility also accepts the modern root-style names
-through C<AUTOLOAD>, so older code can use either C<Folder-E<gt>dd> or
-C<Folder-E<gt>runtime_root>, and likewise C<bookmarks_root> and
-C<config_root>. Before C<Folder-E<gt>configure(...)> runs, those
-runtime-backed names lazily bootstrap a default dashboard path registry from
-C<$HOME> instead of dying. Plain C<Folder> calls also lazy-load the same
-config-backed path aliases shown by C<dashboard paths>, so a direct
-C<perl -MFolder -e 'print Folder-E<gt>docker'> from the active project
-resolves the configured alias instead of failing with C<Unknown folder>.
+Use C<Developer::Dashboard::Folder> for runtime path helpers. It resolves the
+same runtime, bookmark, config, and configured alias names exposed by
+C<dashboard paths>, including names such as C<docker>, without relying on
+unscoped CPAN-global module names.
 
 Render shell bootstrap for bash, zsh, POSIX sh, or PowerShell:
 
@@ -872,11 +861,11 @@ Resolve or open files from the CLI:
 
 Query structured files from the CLI:
 
-  printf '{"alpha":{"beta":2}}' | dashboard pjq alpha.beta
-  printf 'alpha:\n  beta: 3\n' | dashboard pyq alpha.beta
-  printf '[alpha]\nbeta = 4\n' | dashboard ptomq alpha.beta
-  printf 'alpha.beta=5\n' | dashboard pjp alpha.beta
-  dashboard pjq file.json '$d'
+  printf '{"alpha":{"beta":2}}' | dashboard jq alpha.beta
+  printf 'alpha:\n  beta: 3\n' | dashboard yq alpha.beta
+  printf '[alpha]\nbeta = 4\n' | dashboard tomq alpha.beta
+  printf 'alpha.beta=5\n' | dashboard propq alpha.beta
+  dashboard jq file.json '$d'
 
 Start the local app:
 

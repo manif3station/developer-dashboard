@@ -163,25 +163,25 @@ local *STDIN = $stdin_fh;
 is( Developer::Dashboard::CLI::Query::_read_query_input(''), $stdin_text, 'query input reads from STDIN when no file is supplied' );
 
 my $json_data = Developer::Dashboard::CLI::Query::_parse_query_input(
-    command => 'pjq',
+    command => 'jq',
     text    => qq|{"alpha":{"beta":[1,2],"gamma":"ok"}}|,
 );
 is_deeply( $json_data, { alpha => { beta => [ 1, 2 ], gamma => 'ok' } }, 'JSON query parsing works' );
 
 my $yaml_data = Developer::Dashboard::CLI::Query::_parse_query_input(
-    command => 'pyq',
+    command => 'yq',
     text    => "alpha:\n  beta: 3\n",
 );
 is_deeply( $yaml_data, { alpha => { beta => 3 } }, 'YAML query parsing works' );
 
 my $toml_data = Developer::Dashboard::CLI::Query::_parse_query_input(
-    command => 'ptomq',
+    command => 'tomq',
     text    => "[alpha]\nbeta = 4\n",
 );
 is_deeply( $toml_data, { alpha => { beta => 4 } }, 'TOML query parsing works' );
 
 my $props_data = Developer::Dashboard::CLI::Query::_parse_query_input(
-    command => 'pjp',
+    command => 'propq',
     text    => "alpha.beta=5\npath = one\\\\two\nwrapped = first\\\n second\n",
 );
 is_deeply(
@@ -233,7 +233,7 @@ my ( $query_stdout, undef ) = capture {
     local *STDIN = $query_stdin;
     eval {
         run_query_command(
-            command => 'pjq',
+            command => 'jq',
             args    => ['alpha.beta'],
         );
     };

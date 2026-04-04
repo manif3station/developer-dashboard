@@ -21,7 +21,11 @@ dashboard roots still living directly under `$HOME`, or `dashboard doctor
 optional hook results from `~/.developer-dashboard/cli/doctor.d` so users can
 layer in more site-specific checks later.
 
-Frequently used built-in commands such as `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, and `xmlq` are also installed as standalone executables so they can run directly without loading the full `dashboard` runtime. (Legacy command names `pjq`, `pyq`, `ptomq`, and `pjp` are still supported for backward compatibility.)
+Frequently used built-in query helpers such as `jq`, `yq`, `tomq`, `propq`,
+`iniq`, `csvq`, and `xmlq` are staged privately under
+`~/.developer-dashboard/cli/` and dispatched by `dashboard` without polluting
+the global `PATH`. Legacy aliases `pjq`, `pyq`, `ptomq`, and `pjp` still map
+to the renamed commands when they are invoked through `dashboard`.
 
 It provides a small ecosystem for:
 
@@ -153,7 +157,9 @@ All project modules are scoped under the `Developer::Dashboard::` namespace to p
 - `Developer::Dashboard::Zipper` - token encoding and Ajax command building
 - `Developer::Dashboard::Runtime::Result` - hook result environment variable decoding
 
-For backward compatibility, the original un-namespaced module names (`File`, `Folder`, `DataHelper`, `Zipper`, `Runtime::Result`) are still available as transparent facades that delegate to the new namespaced implementations. Existing code using the old names will continue to work without modification, but new code should use the `Developer::Dashboard::` prefixed names.
+Project-owned modules now live only under the `Developer::Dashboard::`
+namespace so the distribution does not pollute the CPAN ecosystem with
+generic package names.
 
 ## Documentation
 
@@ -187,13 +193,13 @@ For backward compatibility, the original un-namespaced module names (`File`, `Fo
   Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches under a resolved scope so the dashboard can shorten navigation work across different stacks.
 
 - `dashboard jq`, `dashboard yq`, `dashboard tomq`, and `dashboard propq`
-  Parse JSON, YAML, TOML, and Java properties input, then optionally extract a dotted path and print a scalar or canonical JSON, giving the CLI a small data-inspection toolkit that fits naturally into shell workflows. (Legacy names `pjq`, `pyq`, `ptomq`, and `pjp` still supported.)
+  Parse JSON, YAML, TOML, and Java properties input, then optionally extract a dotted path and print a scalar or canonical JSON, giving the CLI a small data-inspection toolkit that fits naturally into shell workflows. Legacy names `pjq`, `pyq`, `ptomq`, and `pjp` still normalize through `dashboard` for backward compatibility, but they are no longer shipped as standalone executables.
 
 - `dashboard iniq`, `dashboard csvq`, and `dashboard xmlq`
   Parse INI, CSV, and XML file input with dotted path extraction.
 
-- standalone `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, and `xmlq`
-  Provide the same behavior directly, without proxying through the main `dashboard` command, for lighter-weight shell usage. (Legacy names `pjq`, `pyq`, `ptomq`, and `pjp` still provided.)
+- standalone `of` and `open-file`
+  Provide direct file-opening entrypoints. Generic query helpers are intentionally not installed as public executables, and are instead staged privately under `~/.developer-dashboard/cli/`.
 
 - `Developer::Dashboard::RuntimeManager`
   Manages the background web service and collector lifecycle with process-title validation, `pkill`-style fallback shutdown, and restart orchestration, tying the browser and prepared-state loops together as one runtime.
@@ -438,9 +444,10 @@ custom command can provide its real executable as
 `RESULT` environment variable. After each hook finishes, `dashboard` rewrites
 `RESULT` before the next sorted hook starts, so later hook scripts can react to
 earlier hook output. Perl hook scripts can read that JSON through
-`Runtime::Result`. If a Perl-backed command wants a compact final summary after
-its hook files run, it can now call `Runtime::Result->report()` to print a
-simple success/error report for each sorted hook file.
+`Developer::Dashboard::Runtime::Result`. If a Perl-backed command wants a
+compact final summary after its hook files run, it can call
+`Developer::Dashboard::Runtime::Result->report()` to print a simple
+success/error report for each sorted hook file.
 
 If you want `dashboard update`, provide it as a normal user command at
 `./.developer-dashboard/cli/update` or `./.developer-dashboard/cli/update/run`
@@ -477,7 +484,10 @@ dashboard path del foobar
 
 Custom path aliases are stored in the effective dashboard config root so shell helpers such as `cdr foobar` and `which_dir foobar` keep working across sessions. When a project-local `./.developer-dashboard` tree exists, alias writes go there first; otherwise they go to the home runtime. When a saved alias points inside your home directory, the stored config uses `$HOME/...` instead of a hard-coded absolute home path so a shared fallback runtime remains portable across different developer accounts. Re-adding an existing alias updates it without error, and deleting a missing alias is also safe.
 
-Legacy `Folder` compatibility also accepts the modern root-style names through `AUTOLOAD`, so older code can use either `Folder->dd` or `Folder->runtime_root`, and likewise `bookmarks_root` and `config_root`. Before `Folder->configure(...)` runs, those runtime-backed names lazily bootstrap a default dashboard path registry from `HOME` instead of dying. Plain `Folder` calls also lazy-load the same config-backed path aliases shown by `dashboard paths`, so a direct `perl -MFolder -e 'print Folder->docker'` from the active project resolves the configured alias instead of failing with `Unknown folder`.
+Use `Developer::Dashboard::Folder` for runtime path helpers. It resolves the
+same runtime, bookmark, config, and configured alias names exposed by
+`dashboard paths`, including names such as `docker`, without relying on
+unscoped CPAN-global module names.
 
 Render shell bootstrap for bash, zsh, POSIX sh, or PowerShell:
 

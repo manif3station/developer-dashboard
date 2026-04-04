@@ -60,11 +60,11 @@ instead of a loose pile of utilities.
 - `dashboard of` / `dashboard open-file`
   Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches below a resolved scope, then print or exec the configured editor.
 
-- `dashboard pjq` / `dashboard pyq` / `dashboard ptomq` / `dashboard pjp`
-  Parse JSON, YAML, TOML, and Java properties input and optionally traverse a dotted path before printing a scalar or canonical JSON. File-path and query-path argument order is interchangeable, and `$d` selects the full parsed document.
+- `dashboard jq` / `dashboard yq` / `dashboard tomq` / `dashboard propq` / `dashboard iniq` / `dashboard csvq` / `dashboard xmlq`
+  Parse JSON, YAML, TOML, Java properties, INI, CSV, and XML input and optionally traverse a dotted path before printing a scalar or canonical JSON. File-path and query-path argument order is interchangeable, and `$d` selects the full parsed document.
 
-- standalone `of` / `open-file` / `pjq` / `pyq` / `ptomq` / `pjp`
-  Are installed as direct executables as well as proxied `dashboard` subcommands, so common CLI flows can avoid loading the full dashboard runtime.
+- private `~/.developer-dashboard/cli/jq` / `yq` / `tomq` / `propq` / `iniq` / `csvq` / `xmlq`
+  Are staged into the dashboard runtime and used for private helper dispatch without installing generic command names into the system PATH.
 
 - `Developer::Dashboard::PageDocument`
   Canonical page model for saved, transient, and legacy bookmark pages.

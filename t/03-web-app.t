@@ -638,7 +638,7 @@ CODE2: Ajax jvar => 'endpoints.bar', file => 'bar', singleton => 'BAR', code => 
 };
 :--------------------------------------------------------------------------------:
 CODE3: Ajax jvar => 'endpoints.mike', file => 'mike', type => 'json', code => q{
-  use DataHelper qw( j );
+  use Developer::Dashboard::DataHelper qw( j );
   print j { ok => 1 };
 };
 PAGE

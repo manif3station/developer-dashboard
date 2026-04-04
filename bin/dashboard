@@ -30,6 +30,7 @@ use Developer::Dashboard::Platform qw(
   resolve_runnable_file
   shell_quote_for
 );
+use Developer::Dashboard::InternalCLI ();
 
 my $dashboard_lib = File::Spec->catdir( $Bin, '..', 'lib' );
 if ( -d $dashboard_lib ) {
@@ -59,6 +60,12 @@ elsif ( $cmd eq 'help' || $cmd eq '--help' || $cmd eq '-h' ) {
 
 # Handle query commands directly (don't try to exec them as files)
 if ( $cmd && $cmd =~ /^(pjq|jq|pyq|yq|ptomq|tomq|pjp|propq|iniq|csvq|xmlq)$/ ) {
+    require Developer::Dashboard::PathRegistry;
+    my $paths = Developer::Dashboard::PathRegistry->new(
+        workspace_roots => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
+        project_roots   => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
+    );
+    Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
     require Developer::Dashboard::CLI::Query;
     Developer::Dashboard::CLI::Query::run_query_command( command => $cmd, args => \@ARGV );
     exit 0;
@@ -508,10 +515,12 @@ elsif ( $cmd eq 'init' ) {
     _seed_init_page( $pages, \@pages, _welcome_page() );
     _seed_init_page( $pages, \@pages, _api_dashboard_page() );
     _seed_init_page( $pages, \@pages, _db_dashboard_page() );
+    my $internal_cli = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
 
     print json_encode(
         {
             config_file => $config_file,
+            internal_cli => $internal_cli,
             runtime_root => $paths->runtime_root,
             migrated_pages => $migrated,
             pages        => [ $pages->list_saved_pages ],
@@ -914,25 +923,9 @@ else {
 sub _standalone_builtin_executable {
     my ($cmd) = @_;
     return if !$cmd;
-
-    my %map = (
-        map { $_ => $_ } qw(of open-file),
-        'pjq' => 'jq',
-        'jq' => 'jq',
-        'pyq' => 'yq',
-        'yq' => 'yq',
-        'ptomq' => 'tomq',
-        'tomq' => 'tomq',
-        'pjp' => 'propq',
-        'propq' => 'propq',
-        'iniq' => 'iniq',
-        'csvq' => 'csvq',
-        'xmlq' => 'xmlq',
-    );
-    my $name = $map{$cmd} || return;
-    my $path = File::Spec->catfile( $Bin, $name );
-    return if !-f $path;
-    return $path;
+    return if $cmd ne 'of' && $cmd ne 'open-file';
+    my $path = File::Spec->catfile( $Bin, $cmd );
+    return -f $path ? $path : undef;
 }
 
 # _prime_command_result_env($cmd, @argv)
@@ -1052,6 +1045,16 @@ sub _command_hook_root {
 sub _custom_command_path {
     my ($cmd) = @_;
     return '' if !defined $cmd || $cmd eq '';
+    if ( my $helper = Developer::Dashboard::InternalCLI::canonical_helper_name($cmd) ) {
+        require Developer::Dashboard::PathRegistry;
+        my $paths = Developer::Dashboard::PathRegistry->new(
+            home            => $ENV{HOME},
+            workspace_roots => [],
+            project_roots   => [],
+        );
+        Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
+        return Developer::Dashboard::InternalCLI::helper_path( paths => $paths, name => $helper );
+    }
     for my $root ( _cli_runtime_roots() ) {
         my $path = File::Spec->catfile( $root, $cmd );
         return $path if -e $path;

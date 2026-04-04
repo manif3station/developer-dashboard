@@ -3,7 +3,7 @@ package Developer::Dashboard::DataHelper;
 use strict;
 use warnings;
 
-our $VERSION = '1.47';
+our $VERSION = '1.48';
 
 use Exporter 'import';
 
@@ -37,7 +37,7 @@ Developer::Dashboard::DataHelper - legacy JSON helper compatibility functions
 
 =head1 SYNOPSIS
 
-  use DataHelper qw(j je);
+  use Developer::Dashboard::DataHelper qw(j je);
   my $json = j({ ok => 1 });
 
 =head1 DESCRIPTION

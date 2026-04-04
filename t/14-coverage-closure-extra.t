@@ -69,16 +69,16 @@ PAGE
 {
     make_path( File::Spec->catdir( $home, 'folder-env' ) );
     local $ENV{DEVELOPER_DASHBOARD_PATH_CUSTOM} = File::Spec->catdir( $home, 'folder-env' );
-    Folder->configure( paths => $paths, aliases => {} );
-    is( Folder->_resolve_path('custom'), File::Spec->catdir( $home, 'folder-env' ), 'Folder resolves DEVELOPER_DASHBOARD_PATH_* overrides' );
-    ok( !defined Folder->_resolve_path('missing-folder-alias'), 'Folder returns undef for unknown folder aliases' );
+    Developer::Dashboard::Folder->configure( paths => $paths, aliases => {} );
+    is( Developer::Dashboard::Folder->_resolve_path('custom'), File::Spec->catdir( $home, 'folder-env' ), 'Folder resolves DEVELOPER_DASHBOARD_PATH_* overrides' );
+    ok( !defined Developer::Dashboard::Folder->_resolve_path('missing-folder-alias'), 'Folder returns undef for unknown folder aliases' );
 
     my $list_dir = File::Spec->catdir( $home, 'folder-list' );
     make_path( File::Spec->catdir( $list_dir, 'subdir' ) );
     open my $fh, '>', File::Spec->catfile( $list_dir, 'item.txt' ) or die $!;
     print {$fh} "item\n";
     close $fh;
-    my @items = Folder->ls($list_dir);
+    my @items = Developer::Dashboard::Folder->ls($list_dir);
     is( scalar @items, 2, 'Folder lists both directory and file entries' );
     is( $items[0]{type}, 'folder', 'Folder sorts directories before files' );
     is( $items[1]{type}, 'file', 'Folder records file entries' );

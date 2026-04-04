@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '1.47';
+our $VERSION = '1.48';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
@@ -270,7 +270,7 @@ sub _run_single_block {
     my $sandpit         = $args{sandpit};
     my $destroy_sandpit = !$sandpit ? 1 : 0;
 
-    Folder->configure(
+    Developer::Dashboard::Folder->configure(
         paths   => $self->{paths},
         aliases => $self->{aliases},
     );
@@ -282,7 +282,7 @@ sub _run_single_block {
     my $package = $sandpit->{package} || die 'Missing sandpit package';
     my $wrapped_code = $self->_code_header($state) . $code;
     my @returns;
-    local $Zipper::AJAX_CONTEXT = {
+    local $Developer::Dashboard::Zipper::AJAX_CONTEXT = {
         allow_transient_urls => (
             defined $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS}
               && $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} =~ /\A(?:1|true|yes|on)\z/i
@@ -326,7 +326,7 @@ sub stream_code_block {
     my $stdout_writer   = $args{stdout_writer} || \&_noop_writer;
     my $stderr_writer   = $args{stderr_writer} || \&_noop_writer;
 
-    Folder->configure(
+    Developer::Dashboard::Folder->configure(
         paths   => $self->{paths},
         aliases => $self->{aliases},
     );
@@ -338,7 +338,7 @@ sub stream_code_block {
     my $package = $sandpit->{package} || die 'Missing sandpit package';
     my $wrapped_code = $self->_code_header($state) . $code;
     my @returns;
-    local $Zipper::AJAX_CONTEXT = {
+    local $Developer::Dashboard::Zipper::AJAX_CONTEXT = {
         allow_transient_urls => (
             defined $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS}
               && $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} =~ /\A(?:1|true|yes|on)\z/i

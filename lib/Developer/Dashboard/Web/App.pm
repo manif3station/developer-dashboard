@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.47';
+our $VERSION = '1.48';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -574,18 +574,13 @@ sub skill_route_response {
     return [ 400, 'text/plain; charset=utf-8', "Invalid skill name\n" ] if !$skill_name;
     return [ 400, 'text/plain; charset=utf-8', "Invalid skill route\n" ] if !$route;
     
-    # Use SkillDispatcher to resolve skill and check if it provides HTTP routes
     require Developer::Dashboard::SkillDispatcher;
     my $dispatcher = Developer::Dashboard::SkillDispatcher->new();
-    
-    # Try to find a skill route handler
-    my $skill_path = $dispatcher->get_skill_path($skill_name);
-    return [ 404, 'text/plain; charset=utf-8', "Skill '$skill_name' not found\n" ] if !$skill_path;
-    
-    # Check if skill has a routes/ directory or web handler
-    # For now, return 501 Not Implemented since skill HTTP routes are optional
-    # Skills that want to serve web routes will need to implement a specific interface
-    return [ 501, 'text/plain; charset=utf-8', "Skill '$skill_name' does not provide HTTP routes for /$route\n" ];
+    return $dispatcher->route_response(
+        app        => $self,
+        skill_name => $skill_name,
+        route      => $route,
+    );
 }
 
 # transient_action_response(%args)
@@ -1678,7 +1673,7 @@ sub _legacy_ajax_response {
     elsif ( ( $params->{file} || '' ) ne '' ) {
         my $runtime_root = $self->{pages}{paths} ? $self->{pages}{paths}->runtime_root : '';
         $saved_path = eval {
-            Zipper::saved_ajax_file_path(
+            Developer::Dashboard::Zipper::saved_ajax_file_path(
                 file         => $params->{file},
                 runtime_root => $runtime_root,
             );

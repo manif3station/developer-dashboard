@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '1.47';
+our $VERSION = '1.48';
 
 use Encode qw(encode);
 use File::Basename qw(basename dirname);
@@ -141,15 +141,22 @@ sub report {
 # Output: short command name string.
 sub _command_name {
     my $script = $0 || '';
-    return 'dashboard' if $script eq '';
-    
-    my $base = basename($script);
+    if ( $script eq '' ) {
+        my $name = $ENV{DEVELOPER_DASHBOARD_COMMAND} || '';
+        return $name if $name ne '';
+        return 'dashboard';
+    }
+
+    my $normalized = $script;
+    $normalized =~ s{[\\/]+\z}{} if $normalized !~ m{\A(?:[\\/]|[A-Za-z]:[\\/]?)\z};
+    return 'dashboard' if $normalized eq '' || $normalized eq '/' || $normalized eq '\\' || $normalized =~ m{\A[A-Za-z]:[\\/]?\z};
+
+    my $base = basename($normalized);
     return $base if $base ne '' && $base ne '/' && $base ne '\\' && $base ne 'run';
 
-    my $parent = basename( dirname($script) );
+    my $parent = basename( dirname($normalized) );
     return $parent if $parent ne '' && $parent ne '/' && $parent ne '\\';
-    
-    # Only use env var as final fallback
+
     my $name = $ENV{DEVELOPER_DASHBOARD_COMMAND} || '';
     return $name if $name ne '';
     return 'dashboard';
@@ -165,11 +172,11 @@ Developer::Dashboard::Runtime::Result - helper accessors for dashboard hook RESU
 
 =head1 SYNOPSIS
 
-  use Runtime::Result;
+  use Developer::Dashboard::Runtime::Result;
 
-  my $all    = Runtime::Result::current();
-  my $stdout = Runtime::Result::stdout('00-first.pl');
-  my $last   = Runtime::Result::last_entry();
+  my $all    = Developer::Dashboard::Runtime::Result::current();
+  my $stdout = Developer::Dashboard::Runtime::Result::stdout('00-first.pl');
+  my $last   = Developer::Dashboard::Runtime::Result::last_entry();
 
 =head1 DESCRIPTION
 

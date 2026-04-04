@@ -10,7 +10,11 @@ my @modules = qw(
   Developer::Dashboard::FileRegistry
   Developer::Dashboard::Codec
   Developer::Dashboard::JSON
-  Runtime::Result
+  Developer::Dashboard::DataHelper
+  Developer::Dashboard::Folder
+  Developer::Dashboard::Zipper
+  Developer::Dashboard::Runtime::Result
+  Developer::Dashboard::InternalCLI
   Developer::Dashboard::CLI::OpenFile
   Developer::Dashboard::CLI::Query
   Developer::Dashboard::IndicatorStore
@@ -25,6 +29,8 @@ my @modules = qw(
   Developer::Dashboard::RuntimeManager
   Developer::Dashboard::PageDocument
   Developer::Dashboard::PageStore
+  Developer::Dashboard::SkillManager
+  Developer::Dashboard::SkillDispatcher
   Developer::Dashboard::UpdateManager
   Developer::Dashboard::SessionStore
   Developer::Dashboard::Web::App

@@ -298,3 +298,23 @@ view FILENAME.md with view_range: [1, -1] or [LAST_SECTION_START, -1]
   - Full backward compatibility verified
   - Git history: 8 meaningful commits with Co-authored-by trailers
 **Tags:** `environment`, `pollution`, `priority`, `command-name`, `macOS`, `skills`, `namespace`, `v1.47`, `complete`, `release-ready`
+
+---
+
+## CODE: DIST-SOURCE-ASSUMPTION
+
+**Date:** 2026-04-04 10:30:00 UTC
+**Area:** Tarball packaging verification and release metadata tests
+**Symptom:** Blank-environment `cpanm` install failed even though the checkout passed locally; the built distribution died in `t/15-release-metadata.t` because the test assumed source-tree files and cwd semantics that do not hold inside the extracted tarball.
+**Why It Was Dangerous:** It created a false release-ready signal in the checkout while the actual shipped artifact was not installable through `cpanm`, which is the real delivery path for this project.
+**Root Cause:** The metadata test treated the source tree and built distribution as identical. It read `dist.ini`, assumed relative cwd access to repo files, and checked generated `Makefile.PL` for a private-helper staging detail that is actually expressed by shipped `private-cli/` assets, not installer code.
+**How Ellen Solved It:** Reworked the release metadata test to resolve paths from the test file location, use shipped artifacts only, fall back to `META.json` when `dist.ini` is not present in the built dist, and assert the packaged `private-cli/*` assets directly instead of expecting generated installer text to mention them.
+**Prevention Rule:** Any release or packaging test must validate the built tarball as shipped, not the source checkout by accident. If a file is not guaranteed to exist in the dist, the test must use a shipped equivalent or skip that assertion in the built artifact path.
+**Related Files:** `t/15-release-metadata.t`, `integration/blank-env/run-host-integration.sh`, `private-cli/*`, `dist.ini`, `META.json`
+**Verification:**
+  - `prove -lr t/15-release-metadata.t`
+  - `dzil build`
+  - extracted tarball: `prove -lr t/15-release-metadata.t`
+  - blank install: `integration/blank-env/run-host-integration.sh`
+  - built dist kwalitee: `/home/mv/perl5/bin/kwalitee-metrics .`
+**Tags:** `packaging`, `tarball`, `cpanm`, `dist`, `metadata`, `source-vs-dist`

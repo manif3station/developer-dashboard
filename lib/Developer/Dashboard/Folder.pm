@@ -3,7 +3,7 @@ package Developer::Dashboard::Folder;
 use strict;
 use warnings;
 
-our $VERSION = '1.47';
+our $VERSION = '1.48';
 
 use Cwd qw(cwd);
 use File::Basename qw(dirname);
@@ -263,8 +263,8 @@ Developer::Dashboard::Folder - legacy folder compatibility wrapper
 
 =head1 SYNOPSIS
 
-  Folder->configure(paths => $paths, aliases => { postman => '/tmp/postman' });
-  my $dir = Folder->postman;
+  Developer::Dashboard::Folder->configure(paths => $paths, aliases => { postman => '/tmp/postman' });
+  my $dir = Developer::Dashboard::Folder->postman;
 
 =head1 DESCRIPTION
 
