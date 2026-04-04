@@ -1327,6 +1327,72 @@ runs that command after any sorted hook files from F<update/> or F<update.d>.
 C<dashboard init> seeds three editable starter bookmarks when they are
 missing: C<welcome>, C<api-dashboard>, and C<db-dashboard>.
 
+=head2 Skills System
+
+Extend dashboard with Git-backed skill packages:
+
+Install a skill from a Git repository:
+
+  dashboard skills install git@github.com:user/example-skill.git
+  dashboard skills install https://github.com/user/example-skill.git
+
+List installed skills:
+
+  dashboard skills list
+
+Returns JSON output showing installed skills with metadata: skill name,
+path to installed skill directory, and configuration status.
+
+Update a skill to the latest version:
+
+  dashboard skills update example-skill
+
+Execute a skill command:
+
+  dashboard skill example-skill somecmd arg1 arg2
+
+Uninstall a skill:
+
+  dashboard skills uninstall example-skill
+
+Each installed skill lives under F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/> with:
+
+=over 4
+
+=item B<cli/>
+
+Skill commands (executable scripts, never installed to system PATH)
+
+=item B<cli/E<lt>cmdE<gt>.d/>
+
+Hook files for commands (pre/post hooks in sorted order)
+
+=item B<config/config.json>
+
+Skill metadata and configuration
+
+=item B<config/docker/>
+
+Skill-local Docker Compose files
+
+=item B<state/>
+
+Persistent skill state and data
+
+=item B<logs/>
+
+Skill output logs
+
+=item B<cpanfile>
+
+Skill Perl dependencies (optional)
+
+=back
+
+Skills are completely isolated from the main dashboard runtime and from other
+skills. Removing a skill is simple: C<dashboard skills uninstall E<lt>repo-nameE<gt>>
+cleanly removes only that skill's directory.
+
 =head1 FAQ
 
 =head2 Is this tied to a specific company or codebase?

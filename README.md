@@ -823,6 +823,60 @@ exists, `dashboard update` runs that command after any sorted hook files from
 `dashboard init` seeds three editable starter bookmarks when they are missing:
 `welcome`, `api-dashboard`, and `db-dashboard`.
 
+### Skills System
+
+Extend dashboard with Git-backed skill packages:
+
+**Install a skill** from a Git repository:
+
+```bash
+dashboard skills install git@github.com:user/example-skill.git
+dashboard skills install https://github.com/user/example-skill.git
+```
+
+**List installed skills:**
+
+```bash
+dashboard skills list
+```
+
+Returns JSON output showing installed skills with metadata:
+- skill name (derived from repository name)
+- path to installed skill directory
+- whether skill has configuration, CLI commands, cpanfile
+
+**Update a skill** to the latest version:
+
+```bash
+dashboard skills update example-skill
+```
+
+**Execute a skill command:**
+
+```bash
+dashboard skill example-skill somecmd arg1 arg2
+```
+
+**Uninstall a skill:**
+
+```bash
+dashboard skills uninstall example-skill
+```
+
+Each installed skill lives under `~/.developer-dashboard/skills/<repo-name>/` with:
+
+- `cli/` - Skill commands (executable scripts, never installed to system PATH)
+- `cli/<cmd>.d/` - Hook files for commands (pre/post hooks)
+- `config/config.json` - Skill metadata and configuration
+- `config/docker/` - Skill-local Docker Compose files
+- `state/` - Persistent skill state and data
+- `logs/` - Skill output logs
+- `cpanfile` - Skill Perl dependencies (optional)
+
+Skills are completely isolated from the main dashboard runtime and from other
+skills. Removing a skill is simple: `dashboard skills uninstall <repo-name>`
+cleanly removes only that skill's directory.
+
 ### Blank Environment Integration
 
 ## FAQ
