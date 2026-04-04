@@ -160,6 +160,9 @@ sub dispatch_request {
     if ( $path =~ m{^/app/(.+)$} ) {
         return $self->legacy_app_response( id => $1, %args );
     }
+    if ( $path =~ m{^/skill/([^/]+)/(.+)$} ) {
+        return $self->skill_route_response( skill_name => $1, route => $2, %args );
+    }
     return $self->transient_action_response(%args) if $path eq '/action' && $method eq 'POST';
 
     return [ 404, 'text/plain; charset=utf-8', "Not found\n" ];
@@ -556,6 +559,33 @@ sub legacy_app_response {
         remote_addr  => $args{remote_addr},
         headers      => $args{headers} || {},
     );
+}
+
+# skill_route_response(%args)
+# Executes routes provided by installed skills.
+# Routes are namespaced under /skill/<repo-name>/<route>
+# Input: skill_name, route, query params, headers, and remote address.
+# Output: response array reference.
+sub skill_route_response {
+    my ( $self, %args ) = @_;
+    my $skill_name = $args{skill_name} || '';
+    my $route = $args{route} || '';
+    
+    return [ 400, 'text/plain; charset=utf-8', "Invalid skill name\n" ] if !$skill_name;
+    return [ 400, 'text/plain; charset=utf-8', "Invalid skill route\n" ] if !$route;
+    
+    # Use SkillDispatcher to resolve skill and check if it provides HTTP routes
+    require Developer::Dashboard::SkillDispatcher;
+    my $dispatcher = Developer::Dashboard::SkillDispatcher->new();
+    
+    # Try to find a skill route handler
+    my $skill_path = $dispatcher->get_skill_path($skill_name);
+    return [ 404, 'text/plain; charset=utf-8', "Skill '$skill_name' not found\n" ] if !$skill_path;
+    
+    # Check if skill has a routes/ directory or web handler
+    # For now, return 501 Not Implemented since skill HTTP routes are optional
+    # Skills that want to serve web routes will need to implement a specific interface
+    return [ 501, 'text/plain; charset=utf-8', "Skill '$skill_name' does not provide HTTP routes for /$route\n" ];
 }
 
 # transient_action_response(%args)
