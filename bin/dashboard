@@ -834,6 +834,62 @@ elsif ( $cmd eq 'doctor' ) {
     );
     exit 0;
 }
+elsif ( $cmd eq 'skills' ) {
+    require Developer::Dashboard::SkillManager;
+    my $skill_mgr = Developer::Dashboard::SkillManager->new();
+    
+    my $action = shift @ARGV || '';
+    
+    if ( $action eq 'install' ) {
+        my $git_url = shift @ARGV || '';
+        die "Usage: dashboard skills install <git-url>\n" if !$git_url;
+        my $result = $skill_mgr->install($git_url);
+        print json_encode($result);
+        exit( $result->{error} ? 1 : 0 );
+    }
+    elsif ( $action eq 'uninstall' ) {
+        my $repo_name = shift @ARGV || '';
+        die "Usage: dashboard skills uninstall <repo-name>\n" if !$repo_name;
+        my $result = $skill_mgr->uninstall($repo_name);
+        print json_encode($result);
+        exit( $result->{error} ? 1 : 0 );
+    }
+    elsif ( $action eq 'update' ) {
+        my $repo_name = shift @ARGV || '';
+        die "Usage: dashboard skills update <repo-name>\n" if !$repo_name;
+        my $result = $skill_mgr->update($repo_name);
+        print json_encode($result);
+        exit( $result->{error} ? 1 : 0 );
+    }
+    elsif ( $action eq 'list' ) {
+        my $skills = $skill_mgr->list();
+        print json_encode({ skills => $skills });
+        exit 0;
+    }
+    else {
+        die "Unknown skills action: $action\nUsage: dashboard skills [install|uninstall|update|list]\n";
+    }
+}
+elsif ( $cmd eq 'skill' ) {
+    require Developer::Dashboard::SkillDispatcher;
+    my $dispatcher = Developer::Dashboard::SkillDispatcher->new();
+    
+    my $skill_name = shift @ARGV || '';
+    my $skill_cmd = shift @ARGV || '';
+    
+    die "Usage: dashboard skill <skill-name> <command> [args...]\n" if !$skill_name || !$skill_cmd;
+    
+    my $result = $dispatcher->dispatch( $skill_name, $skill_cmd, @ARGV );
+    
+    if ( $result->{error} ) {
+        print STDERR $result->{error}, "\n";
+        exit 1;
+    }
+    
+    print $result->{stdout} if $result->{stdout};
+    print STDERR $result->{stderr} if $result->{stderr};
+    exit( $result->{exit_code} || 0 );
+}
 else {
     my $user_cli = _custom_command_path($cmd);
     if ( -d $user_cli ) {
@@ -1486,6 +1542,11 @@ dashboard - command-line entrypoint for Developer Dashboard
   dashboard collector start <name>
   dashboard collector stop <name>
   dashboard collector restart <name>
+  dashboard skills install <git-url>
+  dashboard skills uninstall <repo-name>
+  dashboard skills update <repo-name>
+  dashboard skills list
+  dashboard skill <repo-name> <command> [args...]
   dashboard config init
   dashboard config show
   dashboard auth add-user <username> <password>
