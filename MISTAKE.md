@@ -4,6 +4,20 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: API-DASHBOARD-PLAIN-FORM
+
+**Date:** 2026-04-04 19:15:00 UTC
+**Area:** Seeded bookmark workspaces / API dashboard
+**Symptom:** The seeded `api-dashboard` bookmark was still just a single raw request form, so it could not manage collections, tabs, or Postman import/export even though the old workflow concept had those capabilities
+**Why It Was Dangerous:** The default API workspace looked incomplete, could not represent real API testing flows, and pushed users back toward one-off manual editing instead of a reusable request toolchain
+**Root Cause:** The initial neutral rewrite only preserved the simplest “send one request” surface and dropped the collection browser, request tab model, and bookmark-backed request sender that made the original workflow useful
+**How Ellen Solved It:** Rebuilt the seeded bookmark as a Postman-style workspace inside the bookmark runtime, added saved Ajax bootstrap and request-sender endpoints, added unit coverage for the rendered bindings and sender output, and verified the real DOM in Chromium from a fresh runtime
+**How To Detect Earlier Next Time:** When replacing a seeded dashboard workspace, compare the new user flow against the old concept, not just against a minimal functional subset, and treat clean-install packaging as part of the feature because bookmark-embedded dependencies are invisible to normal prereq scanning
+**Prevention Rule:** Do not mark a seeded workspace rewrite complete until the saved bookmark source, the rendered DOM, at least one real workflow endpoint, and the blank-environment tarball install all prove feature parity for the primary operator path
+**Verification:** `prove -lr t/03-web-app.t t/05-cli-smoke.t t/15-release-metadata.t`, Chromium browser smoke via `integration/browser/run-bookmark-browser-smoke.pl`, full `prove -lr t`, coverage, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis
+**Related Files:** `bin/dashboard`, `t/03-web-app.t`, `t/05-cli-smoke.t`, `README.md`, `lib/Developer/Dashboard.pm`
+**Tags:** `api-dashboard`, `bookmark`, `postman`, `browser`, `ajax`
+
 ## CODE: STREAM-DATA-NOOP
 
 **Date:** 2026-04-04 16:45:00 UTC

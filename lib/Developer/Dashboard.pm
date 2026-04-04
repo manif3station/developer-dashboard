@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.56';
+our $VERSION = '1.57';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.56
+1.57
 
 =head1 INTRODUCTION
 
@@ -1344,6 +1344,12 @@ runs that command after any sorted hook files from F<update/> or F<update.d>.
 
 C<dashboard init> seeds three editable starter bookmarks when they are
 missing: C<welcome>, C<api-dashboard>, and C<db-dashboard>.
+
+The seeded C<api-dashboard> bookmark now behaves like a local Postman-style
+workspace. It keeps multiple request tabs in browser-local state, import and export Postman collection v2.1 JSON, loads bootstrap collections from the
+runtime F<config/postman> directory when they exist, and sends requests
+through its saved Ajax endpoint backed by C<LWP::UserAgent>, so request
+testing does not depend on browser CORS rules.
 
 =head2 Skills System
 

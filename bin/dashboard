@@ -1135,111 +1135,1042 @@ sub _welcome_page {
 # Input: none.
 # Output: Developer::Dashboard::PageDocument object.
 sub _api_dashboard_page {
-    return Developer::Dashboard::PageDocument->new(
-        id          => 'api-dashboard',
-        title       => 'API Dashboard',
-        description => 'A generic request workspace for trying endpoints with headers, body content, and response inspection.',
-        layout      => {
-            body => <<'HTML',
+    return Developer::Dashboard::PageDocument->from_instruction(<<'BOOKMARK');
+TITLE: API Dashboard
+:--------------------------------------------------------------------------------:
+BOOKMARK: api-dashboard
+:--------------------------------------------------------------------------------:
+NOTE: A Postman-style request workspace with collection import/export, multiple request tabs, and bookmark-backed request dispatch.
+:--------------------------------------------------------------------------------:
+HTML: <script src="/js/jquery.js"></script>
 <style>
-.api-dashboard-grid { display:grid; gap:16px; }
-.api-dashboard-card { border:1px solid #d9d3c7; padding:16px; background:#fffaf1; }
-.api-dashboard-row { display:grid; gap:12px; grid-template-columns: 140px 1fr; align-items:center; margin-bottom:12px; }
-.api-dashboard-row input, .api-dashboard-row select, .api-dashboard-row textarea { width:100%; box-sizing:border-box; padding:10px; font-family: monospace; }
-.api-dashboard-actions { display:flex; gap:12px; flex-wrap:wrap; }
-.api-dashboard-response { min-height:220px; white-space:pre-wrap; overflow:auto; background:#1f2a2e; color:#f4efe3; padding:12px; }
+.api-postman-shell { display:grid; gap:18px; grid-template-columns:minmax(260px, 320px) minmax(0, 1fr); align-items:start; }
+.api-card { border:1px solid #d9d3c7; background:linear-gradient(180deg, #fffaf1 0%, #fffdf8 100%); border-radius:18px; box-shadow:0 10px 30px rgba(31,42,46,0.08); overflow:hidden; }
+.api-card h2, .api-card h3 { margin:0; }
+.api-sidebar-header, .api-main-toolbar { padding:16px 18px; border-bottom:1px solid #e6ddcf; background:#f7efe0; }
+.api-sidebar-body, .api-main-body { padding:18px; }
+.api-toolbar-group { display:flex; gap:10px; flex-wrap:wrap; }
+.api-toolbar-group button, .api-toolbar-group label, .api-request-actions button { border:1px solid #d1b783; border-radius:999px; background:#fff7e7; color:#6a4512; cursor:pointer; font-weight:600; padding:9px 14px; }
+.api-toolbar-group button:hover, .api-toolbar-group label:hover, .api-request-actions button:hover { background:#f7e1af; }
+.api-toolbar-group input[type=file] { display:none; }
+.api-collection-tree { display:grid; gap:10px; }
+.api-collection-card { border:1px solid #eadfca; border-radius:14px; padding:12px; background:#fffdf8; }
+.api-collection-card.is-active { border-color:#0b7a75; box-shadow:0 0 0 2px rgba(11,122,117,0.10); }
+.api-collection-card h3 { font-size:1rem; margin-bottom:8px; cursor:pointer; }
+.api-node-list { list-style:none; margin:0; padding:0; display:grid; gap:6px; }
+.api-node-list ul { list-style:none; margin:8px 0 0 14px; padding:0 0 0 10px; display:grid; gap:6px; border-left:1px dashed #d8ccb8; }
+.api-node-button { width:100%; text-align:left; border:1px solid #e9dec8; border-radius:10px; background:#fff; padding:8px 10px; cursor:pointer; color:#1f2a2e; }
+.api-node-button:hover { border-color:#0b7a75; color:#0b7a75; }
+.api-node-folder { font-weight:700; background:#f8f1e4; }
+.api-empty { color:#6a767b; font-style:italic; }
+.api-tab-strip { display:flex; gap:10px; flex-wrap:wrap; }
+.api-tab { display:inline-flex; align-items:center; gap:8px; border:1px solid #d8ccb8; border-radius:999px; background:#f6efe2; padding:8px 12px; cursor:pointer; }
+.api-tab.is-active { background:#1f2a2e; color:#fff; border-color:#1f2a2e; }
+.api-tab-close { border:0; background:transparent; color:inherit; cursor:pointer; padding:0; font-size:1rem; line-height:1; }
+.api-editor-grid { display:grid; gap:14px; grid-template-columns:repeat(2, minmax(0, 1fr)); }
+.api-field { display:grid; gap:6px; }
+.api-field label { font-weight:700; color:#6a4512; }
+.api-field input, .api-field select, .api-field textarea { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #d8ccb8; border-radius:12px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:0.95rem; background:#fffefb; }
+.api-field textarea { min-height:140px; resize:vertical; }
+.api-field-full { grid-column:1 / -1; }
+.api-inline-toggles { display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
+.api-inline-toggles label { font-weight:600; color:#1f2a2e; display:inline-flex; gap:6px; align-items:center; }
+.api-request-actions { display:flex; gap:10px; flex-wrap:wrap; }
+.api-response-grid { display:grid; gap:14px; grid-template-columns:repeat(2, minmax(0, 1fr)); }
+.api-response-box { border:1px solid #d8ccb8; border-radius:14px; overflow:hidden; background:#fffdf8; }
+.api-response-box header { padding:10px 14px; background:#f7efe0; font-weight:700; color:#6a4512; border-bottom:1px solid #e6ddcf; }
+.api-response-box pre { margin:0; padding:14px; min-height:220px; white-space:pre-wrap; overflow:auto; background:#1f2a2e; color:#f4efe3; }
+.api-response-meta { display:flex; gap:10px; flex-wrap:wrap; }
+.api-chip { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:#e6f4f3; color:#0b7a75; font-weight:700; }
+.api-chip.is-error { background:#fde9e9; color:#9f2020; }
+.api-banner { border:1px solid #d1b783; border-radius:14px; background:#fff6e2; color:#6a4512; padding:12px 14px; display:none; margin-bottom:12px; }
+@media (max-width: 980px) {
+  .api-postman-shell { grid-template-columns:1fr; }
+  .api-editor-grid, .api-response-grid { grid-template-columns:1fr; }
+}
 </style>
-<div class="api-dashboard-grid">
-  <section class="api-dashboard-card">
-    <h2>Request</h2>
-    <div class="api-dashboard-row">
-      <label for="api-method">Method</label>
-      <select id="api-method">
-        <option>GET</option>
-        <option>POST</option>
-        <option>PUT</option>
-        <option>PATCH</option>
-        <option>DELETE</option>
-      </select>
+<div class="api-postman-shell">
+  <aside class="api-card">
+    <div class="api-sidebar-header">
+      <h2>Collections</h2>
+      <p style="margin:8px 0 0;color:#6a767b">Import and export Postman collection JSON, then open requests in local tabs.</p>
     </div>
-    <div class="api-dashboard-row">
-      <label for="api-url">URL</label>
-      <input id="api-url" placeholder="https://example.test/api" value="">
+    <div class="api-sidebar-body">
+      <div class="api-toolbar-group" style="margin-bottom:14px">
+        <button type="button" id="api-new-collection">New Collection</button>
+        <label for="api-import-file">Import Postman Collection</label>
+        <button type="button" id="api-export-collection">Export Postman Collection</button>
+        <input id="api-import-file" type="file" accept=".json,application/json">
+      </div>
+      <div id="api-banner" class="api-banner"></div>
+      <div id="api-collection-tree" class="api-collection-tree"></div>
     </div>
-    <div class="api-dashboard-row">
-      <label for="api-headers">Headers</label>
-      <textarea id="api-headers" rows="5" placeholder='{"Authorization":"Bearer ..."}'></textarea>
+  </aside>
+  <section class="api-card">
+    <div class="api-main-toolbar">
+      <h2>Workspace</h2>
+      <p style="margin:8px 0 0;color:#6a767b">Use multiple tabs to compare requests, save useful calls into collections, and dispatch through the bookmark Ajax sender.</p>
     </div>
-    <div class="api-dashboard-row">
-      <label for="api-body">Body</label>
-      <textarea id="api-body" rows="8" placeholder='{"hello":"world"}'></textarea>
+    <div class="api-main-body">
+      <div class="api-toolbar-group">
+        <button type="button" id="api-new-tab">New Tab</button>
+        <button type="button" id="api-duplicate-tab">Duplicate Tab</button>
+        <button type="button" id="api-save-request">Save Request To Collection</button>
+      </div>
+      <div id="api-tab-strip" class="api-tab-strip"></div>
+      <div class="api-editor-grid">
+        <div class="api-field">
+          <label for="api-request-name">Request Name</label>
+          <input id="api-request-name" placeholder="List Orders">
+        </div>
+        <div class="api-field">
+          <label for="api-collection-name">Selected Collection</label>
+          <input id="api-collection-name" placeholder="Scratch Pad" readonly>
+        </div>
+        <div class="api-field">
+          <label for="api-request-method">Method</label>
+          <select id="api-request-method">
+            <option>GET</option>
+            <option>POST</option>
+            <option>PUT</option>
+            <option>PATCH</option>
+            <option>DELETE</option>
+            <option>HEAD</option>
+            <option>OPTIONS</option>
+          </select>
+        </div>
+        <div class="api-field">
+          <label for="api-timeout">Timeout (seconds)</label>
+          <input id="api-timeout" type="number" min="1" max="600" value="120">
+        </div>
+        <div class="api-field api-field-full">
+          <label for="api-request-url">URL</label>
+          <input id="api-request-url" placeholder="https://example.test/api/orders">
+        </div>
+        <div class="api-field api-field-full">
+          <label for="api-request-variables">Collection Variables</label>
+          <textarea id="api-request-variables" placeholder="base_url=https://example.test&#10;token=abc123"></textarea>
+        </div>
+        <div class="api-field api-field-full">
+          <label for="api-request-headers">Headers</label>
+          <textarea id="api-request-headers" placeholder="Accept: application/json&#10;Authorization: Bearer {{token}}"></textarea>
+        </div>
+        <div class="api-field api-field-full">
+          <label for="api-request-body">Body</label>
+          <textarea id="api-request-body" placeholder='{"status":"open"}'></textarea>
+        </div>
+        <div class="api-field api-field-full">
+          <label for="api-request-description">Description</label>
+          <textarea id="api-request-description" placeholder="Request notes or Postman collection description."></textarea>
+        </div>
+        <div class="api-field api-field-full">
+          <div class="api-inline-toggles">
+            <label><input id="api-follow-redirects" type="checkbox" checked> Follow redirects</label>
+            <label><input id="api-insecure-tls" type="checkbox"> Allow insecure TLS</label>
+          </div>
+        </div>
+      </div>
+      <div class="api-request-actions">
+        <button type="button" id="api-send-request">Send Request</button>
+        <button type="button" id="api-clear-response">Clear Response</button>
+      </div>
+      <div id="api-response-meta" class="api-response-meta"></div>
+      <div class="api-response-grid">
+        <section class="api-response-box">
+          <header>Response Body</header>
+          <pre id="api-response-body">Ready.</pre>
+        </section>
+        <section class="api-response-box">
+          <header>Response Headers</header>
+          <pre id="api-response-headers">Ready.</pre>
+        </section>
+      </div>
     </div>
-    <div class="api-dashboard-actions">
-      <button type="button" id="api-send">Send Request</button>
-      <button type="button" id="api-clear">Clear Response</button>
-    </div>
-  </section>
-  <section class="api-dashboard-card">
-    <h2>Response</h2>
-    <div id="api-meta"></div>
-    <pre id="api-response" class="api-dashboard-response">Ready.</pre>
   </section>
 </div>
 <script>
+var configs = {};
 (function () {
-  const methodEl = document.getElementById('api-method');
-  const urlEl = document.getElementById('api-url');
-  const headersEl = document.getElementById('api-headers');
-  const bodyEl = document.getElementById('api-body');
-  const responseEl = document.getElementById('api-response');
-  const metaEl = document.getElementById('api-meta');
-  document.getElementById('api-clear').addEventListener('click', function () {
-    metaEl.textContent = '';
-    responseEl.textContent = 'Ready.';
-  });
-  document.getElementById('api-send').addEventListener('click', async function () {
-    const url = urlEl.value.trim();
-    if (!url) {
-      responseEl.textContent = 'Enter a URL first.';
+  var STORAGE_KEY = 'developer-dashboard:api-dashboard:v3';
+  var POSTMAN_SCHEMA = 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json';
+  var state = null;
+
+  function uid(prefix) {
+    return [prefix || 'id', Date.now().toString(36), Math.random().toString(36).slice(2, 10)].join('-');
+  }
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function showBanner(message, isError) {
+    var banner = document.getElementById('api-banner');
+    banner.textContent = message || '';
+    banner.style.display = message ? 'block' : 'none';
+    banner.style.borderColor = isError ? '#e3b0b0' : '#d1b783';
+    banner.style.background = isError ? '#fff0f0' : '#fff6e2';
+    banner.style.color = isError ? '#9f2020' : '#6a4512';
+  }
+
+  function defaultRequest(name) {
+    return {
+      name: name || 'New Request',
+      method: 'GET',
+      url: 'https://example.test/api',
+      headers_text: 'Accept: application/json',
+      body: '',
+      description: '',
+      timeout_s: 120,
+      insecure_tls: false,
+      follow_redirects: true
+    };
+  }
+
+  function scratchCollection() {
+    return {
+      id: uid('collection'),
+      name: 'Scratch Pad',
+      description: 'A local scratch collection for ad-hoc API calls.',
+      variable: [
+        { key: 'base_url', value: 'https://example.test' },
+        { key: 'token', value: '' }
+      ],
+      item: [
+        {
+          id: uid('request'),
+          kind: 'request',
+          name: 'Example GET',
+          request: defaultRequest('Example GET')
+        }
+      ]
+    };
+  }
+
+  function normalizeCollectionVariable(variable) {
+    if (!variable || typeof variable !== 'object') return null;
+    var key = String(variable.key || '').trim();
+    if (!key) return null;
+    return {
+      key: key,
+      value: variable.value == null ? '' : String(variable.value)
+    };
+  }
+
+  function normalizeRequestData(input) {
+    var request = input && typeof input === 'object' ? input : {};
+    var data = defaultRequest(request.name || 'New Request');
+    if (request.method) data.method = String(request.method).toUpperCase();
+    if (request.url) data.url = String(request.url);
+    if (request.headers_text) data.headers_text = String(request.headers_text);
+    if (request.body) data.body = String(request.body);
+    if (request.description) data.description = String(request.description);
+    if (request.timeout_s) data.timeout_s = request.timeout_s;
+    if (request.insecure_tls) data.insecure_tls = true;
+    if (request.follow_redirects === false) data.follow_redirects = false;
+    return data;
+  }
+
+  function normalizeNode(node) {
+    if (!node || typeof node !== 'object') return null;
+    if (Array.isArray(node.item)) {
+      return {
+        id: node.id || uid('folder'),
+        kind: 'folder',
+        name: node.name || 'Folder',
+        item: node.item.map(normalizeNode).filter(Boolean)
+      };
+    }
+    var request = normalizeRequestData(node.request || node);
+    return {
+      id: node.id || uid('request'),
+      kind: 'request',
+      name: node.name || request.name || 'Request',
+      request: request
+    };
+  }
+
+  function normalizeCollection(collection) {
+    if (!collection || typeof collection !== 'object') return null;
+    return {
+      id: collection.id || uid('collection'),
+      name: collection.name || (collection.info && collection.info.name) || 'Collection',
+      description: collection.description || (collection.info && collection.info.description) || '',
+      variable: (collection.variable || []).map(normalizeCollectionVariable).filter(Boolean),
+      item: (collection.item || []).map(normalizeNode).filter(Boolean)
+    };
+  }
+
+  function normalizeTab(tab) {
+    if (!tab || typeof tab !== 'object') return null;
+    return {
+      id: tab.id || uid('tab'),
+      title: tab.title || (tab.request && tab.request.name) || 'New Tab',
+      collection_id: tab.collection_id || '',
+      request_id: tab.request_id || '',
+      request: normalizeRequestData(tab.request || {})
+    };
+  }
+
+  function flattenRequests(items, out) {
+    (items || []).forEach(function (item) {
+      if (item.kind === 'folder') {
+        flattenRequests(item.item || [], out);
+        return;
+      }
+      out.push(item);
+    });
+    return out;
+  }
+
+  function findFirstRequest(collection) {
+    var requests = flattenRequests(collection.item || [], []);
+    return requests[0] || {
+      id: uid('request'),
+      kind: 'request',
+      name: 'New Request',
+      request: defaultRequest('New Request')
+    };
+  }
+
+  function tabFromRequest(node, collectionId) {
+    return {
+      id: uid('tab'),
+      title: node.name || (node.request && node.request.name) || 'Request',
+      collection_id: collectionId || '',
+      request_id: node.id || '',
+      request: normalizeRequestData(node.request || node)
+    };
+  }
+
+  function normalizeState(input) {
+    var data = input && typeof input === 'object' ? input : {};
+    var collections = Array.isArray(data.collections) ? data.collections.map(normalizeCollection).filter(Boolean) : [];
+    var tabs = Array.isArray(data.tabs) ? data.tabs.map(normalizeTab).filter(Boolean) : [];
+    if (!collections.length) collections = [scratchCollection()];
+    if (!tabs.length) tabs = [tabFromRequest(findFirstRequest(collections[0]), collections[0].id)];
+    return {
+      collections: collections,
+      tabs: tabs,
+      active_tab_id: data.active_tab_id || tabs[0].id,
+      selected_collection_id: data.selected_collection_id || collections[0].id
+    };
+  }
+
+  function loadState() {
+    try {
+      var raw = window.localStorage.getItem(STORAGE_KEY);
+      if (!raw) return normalizeState({});
+      return normalizeState(JSON.parse(raw));
+    } catch (error) {
+      showBanner('Unable to read saved API dashboard state: ' + error.message, true);
+      return normalizeState({});
+    }
+  }
+
+  function saveState() {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  function findCollection(collectionId) {
+    return (state.collections || []).find(function (collection) {
+      return collection.id === collectionId;
+    }) || null;
+  }
+
+  function findNode(items, nodeId) {
+    for (var i = 0; i < (items || []).length; i++) {
+      var item = items[i];
+      if (item.id === nodeId) return item;
+      if (item.kind === 'folder') {
+        var found = findNode(item.item || [], nodeId);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  function activeTab() {
+    return (state.tabs || []).find(function (tab) {
+      return tab.id === state.active_tab_id;
+    }) || null;
+  }
+
+  function ensureActiveTab() {
+    if (!activeTab() && state.tabs.length) state.active_tab_id = state.tabs[0].id;
+  }
+
+  function formatVariables(variable) {
+    return (variable || []).map(function (entry) {
+      return entry.key + '=' + (entry.value == null ? '' : entry.value);
+    }).join('\n');
+  }
+
+  function parseVariablesText(text) {
+    return String(text || '').split(/\n/).map(function (line) {
+      var trimmed = line.trim();
+      if (!trimmed) return null;
+      var pos = trimmed.indexOf('=');
+      if (pos < 1) return null;
+      return normalizeCollectionVariable({
+        key: trimmed.slice(0, pos),
+        value: trimmed.slice(pos + 1)
+      });
+    }).filter(Boolean);
+  }
+
+  function variableMap(collection) {
+    var hash = {};
+    (collection && collection.variable || []).forEach(function (entry) {
+      hash[entry.key] = entry.value == null ? '' : String(entry.value);
+    });
+    return hash;
+  }
+
+  function applyVariables(collection, text) {
+    var value = String(text == null ? '' : text);
+    var hash = variableMap(collection);
+    return value.replace(/\{\{([^{}]+)\}\}/g, function (match, token) {
+      var key = String(token || '').trim();
+      return Object.prototype.hasOwnProperty.call(hash, key) ? hash[key] : match;
+    });
+  }
+
+  function responseChip(text, isError) {
+    var span = document.createElement('span');
+    span.className = 'api-chip' + (isError ? ' is-error' : '');
+    span.textContent = text;
+    return span;
+  }
+
+  function renderResponse(payload) {
+    var meta = document.getElementById('api-response-meta');
+    var body = document.getElementById('api-response-body');
+    var headers = document.getElementById('api-response-headers');
+    meta.innerHTML = '';
+    if (!payload) {
+      body.textContent = 'Ready.';
+      headers.textContent = 'Ready.';
       return;
     }
-    let headers = {};
-    if (headersEl.value.trim()) {
-      try {
-        headers = JSON.parse(headersEl.value);
-      } catch (error) {
-        responseEl.textContent = 'Header JSON error: ' + error.message;
+    if (!payload.ok) {
+      meta.appendChild(responseChip('Request failed', true));
+      body.textContent = payload.error || 'Request failed.';
+      headers.textContent = '';
+      return;
+    }
+    meta.appendChild(responseChip('HTTP ' + payload.response.status));
+    meta.appendChild(responseChip((payload.response.elapsed_ms || 0) + 'ms'));
+    meta.appendChild(responseChip(payload.response.content_type || 'unknown content type'));
+    body.textContent = payload.response.body_mode === 'base64' ? '[base64 body]\n' + payload.response.body : (payload.response.body || '');
+    headers.textContent = (payload.response.headers || []).map(function (entry) {
+      return entry.key + ': ' + entry.value;
+    }).join('\n');
+  }
+
+  function renderNodeList(collectionId, items) {
+    var list = document.createElement('ul');
+    list.className = 'api-node-list';
+    if (!items.length) {
+      var empty = document.createElement('li');
+      empty.className = 'api-empty';
+      empty.textContent = 'No requests saved in this collection yet.';
+      list.appendChild(empty);
+      return list;
+    }
+    items.forEach(function (item) {
+      var li = document.createElement('li');
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'api-node-button' + (item.kind === 'folder' ? ' api-node-folder' : '');
+      button.textContent = item.kind === 'folder' ? 'Folder: ' + item.name : item.name;
+      button.addEventListener('click', function () {
+        state.selected_collection_id = collectionId;
+        if (item.kind !== 'folder') openNodeInTab(collectionId, item.id);
+        saveState();
+        renderAll();
+      });
+      li.appendChild(button);
+      if (item.kind === 'folder') li.appendChild(renderNodeList(collectionId, item.item || []));
+      list.appendChild(li);
+    });
+    return list;
+  }
+
+  function renderCollections() {
+    var tree = document.getElementById('api-collection-tree');
+    tree.innerHTML = '';
+    state.collections.forEach(function (collection) {
+      var card = document.createElement('section');
+      card.className = 'api-collection-card' + (collection.id === state.selected_collection_id ? ' is-active' : '');
+      var title = document.createElement('h3');
+      title.textContent = collection.name;
+      title.addEventListener('click', function () {
+        state.selected_collection_id = collection.id;
+        saveState();
+        renderAll();
+      });
+      card.appendChild(title);
+      if (collection.description) {
+        var note = document.createElement('p');
+        note.textContent = collection.description;
+        note.style.color = '#6a767b';
+        note.style.margin = '0 0 10px';
+        card.appendChild(note);
+      }
+      card.appendChild(renderNodeList(collection.id, collection.item || []));
+      tree.appendChild(card);
+    });
+  }
+
+  function renderTabs() {
+    var strip = document.getElementById('api-tab-strip');
+    strip.innerHTML = '';
+    state.tabs.forEach(function (tab) {
+      var chip = document.createElement('div');
+      chip.className = 'api-tab' + (tab.id === state.active_tab_id ? ' is-active' : '');
+      chip.addEventListener('click', function () {
+        state.active_tab_id = tab.id;
+        saveState();
+        renderAll();
+      });
+      var label = document.createElement('span');
+      label.textContent = tab.title || 'Untitled Tab';
+      chip.appendChild(label);
+      var close = document.createElement('button');
+      close.type = 'button';
+      close.className = 'api-tab-close';
+      close.textContent = '×';
+      close.addEventListener('click', function (event) {
+        event.stopPropagation();
+        closeTab(tab.id);
+      });
+      chip.appendChild(close);
+      strip.appendChild(chip);
+    });
+  }
+
+  function renderEditor() {
+    ensureActiveTab();
+    var tab = activeTab();
+    if (!tab) return;
+    var collection = findCollection(tab.collection_id || state.selected_collection_id) || findCollection(state.selected_collection_id);
+    document.getElementById('api-request-name').value = tab.request.name || tab.title || '';
+    document.getElementById('api-request-method').value = tab.request.method || 'GET';
+    document.getElementById('api-request-url').value = tab.request.url || '';
+    document.getElementById('api-request-headers').value = tab.request.headers_text || '';
+    document.getElementById('api-request-body').value = tab.request.body || '';
+    document.getElementById('api-request-description').value = tab.request.description || '';
+    document.getElementById('api-timeout').value = tab.request.timeout_s || 120;
+    document.getElementById('api-follow-redirects').checked = tab.request.follow_redirects !== false;
+    document.getElementById('api-insecure-tls').checked = !!tab.request.insecure_tls;
+    document.getElementById('api-request-variables').value = formatVariables(collection ? collection.variable : []);
+    document.getElementById('api-collection-name').value = collection ? collection.name : '';
+  }
+
+  function syncActiveTabFromForm() {
+    var tab = activeTab();
+    if (!tab) return;
+    tab.request.name = document.getElementById('api-request-name').value.trim() || 'New Request';
+    tab.request.method = document.getElementById('api-request-method').value;
+    tab.request.url = document.getElementById('api-request-url').value.trim();
+    tab.request.headers_text = document.getElementById('api-request-headers').value;
+    tab.request.body = document.getElementById('api-request-body').value;
+    tab.request.description = document.getElementById('api-request-description').value;
+    tab.request.timeout_s = parseInt(document.getElementById('api-timeout').value || '120', 10) || 120;
+    tab.request.follow_redirects = document.getElementById('api-follow-redirects').checked;
+    tab.request.insecure_tls = document.getElementById('api-insecure-tls').checked;
+    tab.title = tab.request.name;
+    var collection = findCollection(state.selected_collection_id);
+    if (collection) {
+      collection.variable = parseVariablesText(document.getElementById('api-request-variables').value);
+      if (!tab.collection_id) tab.collection_id = collection.id;
+    }
+    saveState();
+    renderTabs();
+  }
+
+  function closeTab(tabId) {
+    state.tabs = state.tabs.filter(function (tab) { return tab.id !== tabId; });
+    if (!state.tabs.length) state.tabs.push(tabFromRequest(findFirstRequest(state.collections[0]), state.collections[0].id));
+    ensureActiveTab();
+    saveState();
+    renderAll();
+  }
+
+  function openNodeInTab(collectionId, nodeId) {
+    var collection = findCollection(collectionId);
+    if (!collection) return;
+    var node = findNode(collection.item || [], nodeId);
+    if (!node || node.kind !== 'request') return;
+    state.selected_collection_id = collectionId;
+    state.tabs.push(tabFromRequest(node, collectionId));
+    state.active_tab_id = state.tabs[state.tabs.length - 1].id;
+    saveState();
+    renderAll();
+  }
+
+  function createBlankTab() {
+    var collection = findCollection(state.selected_collection_id) || state.collections[0];
+    state.tabs.push({
+      id: uid('tab'),
+      title: 'New Tab',
+      collection_id: collection ? collection.id : '',
+      request_id: '',
+      request: defaultRequest('New Request')
+    });
+    state.active_tab_id = state.tabs[state.tabs.length - 1].id;
+    saveState();
+    renderAll();
+  }
+
+  function duplicateActiveTab() {
+    var tab = activeTab();
+    if (!tab) return;
+    var copy = clone(tab);
+    copy.id = uid('tab');
+    copy.title = (copy.title || 'Request') + ' Copy';
+    copy.request.name = copy.title;
+    state.tabs.push(copy);
+    state.active_tab_id = copy.id;
+    saveState();
+    renderAll();
+  }
+
+  function saveRequestToCollection() {
+    syncActiveTabFromForm();
+    var tab = activeTab();
+    var collection = findCollection(state.selected_collection_id) || findCollection(tab.collection_id) || state.collections[0];
+    if (!collection) return;
+    state.selected_collection_id = collection.id;
+    tab.collection_id = collection.id;
+    if (tab.request_id) {
+      var existing = findNode(collection.item || [], tab.request_id);
+      if (existing && existing.kind === 'request') {
+        existing.name = tab.request.name;
+        existing.request = clone(tab.request);
+        saveState();
+        renderAll();
+        showBanner('Updated request "' + existing.name + '" in ' + collection.name + '.', false);
         return;
       }
     }
-    const options = {
-      method: methodEl.value,
-      headers: headers
+    var node = {
+      id: uid('request'),
+      kind: 'request',
+      name: tab.request.name,
+      request: clone(tab.request)
     };
-    if (bodyEl.value.trim()) {
-      options.body = bodyEl.value;
+    collection.item.push(node);
+    tab.request_id = node.id;
+    saveState();
+    renderAll();
+    showBanner('Saved request "' + node.name + '" to ' + collection.name + '.', false);
+  }
+
+  function createCollection() {
+    var name = window.prompt('Collection name', 'New Collection');
+    if (!name) return;
+    state.collections.push({
+      id: uid('collection'),
+      name: name,
+      description: '',
+      variable: [],
+      item: []
+    });
+    state.selected_collection_id = state.collections[state.collections.length - 1].id;
+    saveState();
+    renderAll();
+  }
+
+  function importRequest(request) {
+    var url = '';
+    if (request && request.url) {
+      url = typeof request.url === 'string' ? request.url : (request.url.raw || '');
     }
-    responseEl.textContent = 'Sending request...';
-    metaEl.textContent = '';
-    try {
-      const started = Date.now();
-      const response = await fetch(url, options);
-      const text = await response.text();
-      metaEl.textContent = response.status + ' ' + response.statusText + ' in ' + (Date.now() - started) + 'ms';
-      responseEl.textContent = text;
-    } catch (error) {
-      responseEl.textContent = 'Request failed: ' + error.message;
+    return {
+      method: request && request.method ? String(request.method).toUpperCase() : 'GET',
+      url: url,
+      headers_text: (request && Array.isArray(request.header) ? request.header : []).map(function (header) {
+        return (header.key || '') + ': ' + (header.value || '');
+      }).join('\n'),
+      body: request && request.body && typeof request.body.raw === 'string' ? request.body.raw : '',
+      description: request && request.description ? String(request.description) : '',
+      timeout_s: 120,
+      insecure_tls: false,
+      follow_redirects: true,
+      name: request && request.name ? request.name : 'Request'
+    };
+  }
+
+  function importPostmanNode(node) {
+    if (!node || typeof node !== 'object') return null;
+    if (Array.isArray(node.item)) {
+      return {
+        id: uid('folder'),
+        kind: 'folder',
+        name: node.name || 'Folder',
+        item: node.item.map(importPostmanNode).filter(Boolean)
+      };
     }
+    var request = importRequest(node.request || node);
+    return {
+      id: uid('request'),
+      kind: 'request',
+      name: node.name || request.name || 'Request',
+      request: request
+    };
+  }
+
+  function importPostmanCollection(payload) {
+    var source = payload && payload.collection ? payload.collection : payload;
+    if (!source || typeof source !== 'object') throw new Error('The imported JSON must contain a Postman collection object.');
+    if (!source.info || !source.info.name) throw new Error('The imported collection is missing info.name.');
+    return normalizeCollection({
+      name: source.info.name,
+      description: source.info.description || '',
+      variable: source.variable || [],
+      item: (source.item || []).map(importPostmanNode).filter(Boolean)
+    });
+  }
+
+  function exportPostmanNode(node) {
+    if (node.kind === 'folder') {
+      return {
+        name: node.name,
+        item: (node.item || []).map(exportPostmanNode)
+      };
+    }
+    return {
+      name: node.name,
+      request: {
+        method: node.request.method || 'GET',
+        header: String(node.request.headers_text || '').split(/\n/).map(function (line) {
+          var trimmed = line.trim();
+          if (!trimmed) return null;
+          var pos = trimmed.indexOf(':');
+          if (pos < 1) return null;
+          return {
+            key: trimmed.slice(0, pos).trim(),
+            value: trimmed.slice(pos + 1).trim()
+          };
+        }).filter(Boolean),
+        body: node.request.body ? { mode: 'raw', raw: node.request.body } : undefined,
+        url: { raw: node.request.url || '' },
+        description: node.request.description || ''
+      }
+    };
+  }
+
+  function exportPostmanCollection(collection) {
+    return {
+      info: {
+        name: collection.name,
+        description: collection.description || '',
+        schema: POSTMAN_SCHEMA
+      },
+      variable: clone(collection.variable || []),
+      item: (collection.item || []).map(exportPostmanNode)
+    };
+  }
+
+  function importCollectionFile(file) {
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var parsed = JSON.parse(reader.result);
+        var collection = importPostmanCollection(parsed);
+        state.collections.push(collection);
+        state.selected_collection_id = collection.id;
+        var first = findFirstRequest(collection);
+        state.tabs.push(tabFromRequest(first, collection.id));
+        state.active_tab_id = state.tabs[state.tabs.length - 1].id;
+        saveState();
+        renderAll();
+        showBanner('Imported Postman collection "' + collection.name + '".', false);
+      } catch (error) {
+        showBanner('Import failed: ' + error.message, true);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function exportCurrentCollection() {
+    var collection = findCollection(state.selected_collection_id) || state.collections[0];
+    if (!collection) {
+      showBanner('Choose a collection to export first.', true);
+      return;
+    }
+    var payload = exportPostmanCollection(collection);
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    var url = window.URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = collection.name.replace(/[^A-Za-z0-9._-]+/g, '-') + '.postman_collection.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  }
+
+  function bootstrapCollectionsFromPayload(payload) {
+    var raw = [];
+    if (Array.isArray(payload)) raw = payload;
+    else if (payload && Array.isArray(payload.collections)) raw = payload.collections;
+    else if (payload && typeof payload === 'object') raw = Object.keys(payload).map(function (key) { return payload[key]; });
+    return raw.map(importPostmanCollection).filter(Boolean);
+  }
+
+  function mergeBootstrapCollections(bootstrapCollections) {
+    var existingNames = {};
+    state.collections.forEach(function (collection) { existingNames[collection.name] = true; });
+    bootstrapCollections.forEach(function (collection) {
+      if (!existingNames[collection.name]) state.collections.push(collection);
+    });
+  }
+
+  function sendActiveRequest() {
+    syncActiveTabFromForm();
+    var tab = activeTab();
+    var collection = findCollection(state.selected_collection_id) || findCollection(tab.collection_id) || state.collections[0];
+    if (!tab || !tab.request.url) {
+      renderResponse({ ok: false, error: 'Enter a request URL first.' });
+      return;
+    }
+    renderResponse({ ok: false, error: 'Sending request...' });
+    var payload = clone(tab.request);
+    payload.url = applyVariables(collection, payload.url);
+    payload.headers_text = applyVariables(collection, payload.headers_text);
+    payload.body = applyVariables(collection, payload.body);
+    $.ajax({
+      method: 'POST',
+      url: configs.send.request,
+      dataType: 'json',
+      data: {
+        settings: JSON.stringify(payload)
+      }
+    }).done(function (response) {
+      renderResponse(response);
+    }).fail(function (xhr) {
+      renderResponse({ ok: false, error: xhr.responseText || 'Request dispatch failed.' });
+    });
+  }
+
+  function bindForm() {
+    ['api-request-name', 'api-request-method', 'api-request-url', 'api-request-headers', 'api-request-body', 'api-request-description', 'api-timeout', 'api-follow-redirects', 'api-insecure-tls', 'api-request-variables'].forEach(function (id) {
+      var element = document.getElementById(id);
+      var eventName = element && element.tagName === 'SELECT' ? 'change' : 'input';
+      if (!element) return;
+      element.addEventListener(eventName, syncActiveTabFromForm);
+      if (eventName !== 'change') element.addEventListener('change', syncActiveTabFromForm);
+    });
+    document.getElementById('api-new-collection').addEventListener('click', createCollection);
+    document.getElementById('api-new-tab').addEventListener('click', createBlankTab);
+    document.getElementById('api-duplicate-tab').addEventListener('click', duplicateActiveTab);
+    document.getElementById('api-save-request').addEventListener('click', saveRequestToCollection);
+    document.getElementById('api-export-collection').addEventListener('click', exportCurrentCollection);
+    document.getElementById('api-send-request').addEventListener('click', sendActiveRequest);
+    document.getElementById('api-clear-response').addEventListener('click', function () {
+      renderResponse(null);
+      showBanner('', false);
+    });
+    document.getElementById('api-import-file').addEventListener('change', function (event) {
+      var file = event.target.files && event.target.files[0];
+      importCollectionFile(file);
+      event.target.value = '';
+    });
+  }
+
+  function renderAll() {
+    renderCollections();
+    renderTabs();
+    renderEditor();
+  }
+
+  $(document).ready(function () {
+    state = loadState();
+    bindForm();
+    $.ajax({
+      method: 'GET',
+      url: configs.collections.bootstrap,
+      dataType: 'json'
+    }).done(function (payload) {
+      try {
+        mergeBootstrapCollections(bootstrapCollectionsFromPayload(payload));
+        saveState();
+      } catch (error) {
+        showBanner('Collection bootstrap failed: ' + error.message, true);
+      }
+      if (payload && payload.errors && payload.errors.length) showBanner(payload.errors.join(' | '), true);
+      renderAll();
+    }).fail(function (xhr) {
+      showBanner('Collection bootstrap failed: ' + (xhr.responseText || 'unknown error'), true);
+      renderAll();
+    });
+    renderAll();
   });
 }());
 </script>
-HTML
-        },
-        state => {},
-        actions => [
-            { id => 'source', label => 'View Source', kind => 'builtin', builtin => 'page.source', safe => 1 },
-        ],
+:--------------------------------------------------------------------------------:
+CODE1: Ajax jvar => 'configs.collections.bootstrap', type => 'json', file => 'api-dashboard-bootstrap', code => q{
+  use Developer::Dashboard::Folder ();
+  use Developer::Dashboard::DataHelper qw(j je);
+
+  my $dir = Developer::Dashboard::Folder->postman;
+  my @collections;
+  my @errors;
+
+  if ( defined $dir && $dir ne '' && -d $dir ) {
+    my $dh;
+    if ( !opendir( $dh, $dir ) ) {
+      push @errors, "Unable to read Postman collection directory $dir: $!";
+      print j { collections => \@collections, errors => \@errors };
+      return;
+    }
+    for my $entry ( sort readdir $dh ) {
+      next if $entry eq '.' || $entry eq '..';
+      next if $entry !~ /\.json\z/i;
+      my $path = "$dir/$entry";
+      next if !-f $path;
+      my $fh;
+      if ( !open( $fh, '<', $path ) ) {
+        push @errors, "Unable to read $path: $!";
+        next;
+      }
+      local $/;
+      my $raw = <$fh>;
+      close $fh or push @errors, "Unable to close $path: $!";
+      my $parsed = eval { je $raw };
+      if ($@ || ref($parsed) ne 'HASH') {
+        push @errors, "Unable to parse Postman JSON in $entry";
+        next;
+      }
+      my $collection = ref( $parsed->{collection} ) eq 'HASH' ? $parsed->{collection} : $parsed;
+      if ( ref($collection) ne 'HASH' || ref( $collection->{info} ) ne 'HASH' || !( $collection->{info}{name} || '' ) ) {
+        push @errors, "Skipping $entry because it does not contain a Postman collection";
+        next;
+      }
+      push @collections, $collection;
+    }
+    closedir $dh or push @errors, "Unable to close Postman collection directory $dir: $!";
+  }
+
+  print j {
+    collections => \@collections,
+    errors      => \@errors,
+  };
+};
+:--------------------------------------------------------------------------------:
+CODE2: Ajax jvar => 'configs.send.request', type => 'json', file => 'api-dashboard-send-request', code => q{
+  use HTTP::Request;
+  use LWP::UserAgent;
+  use MIME::Base64 qw(encode_base64);
+  use Time::HiRes qw(time);
+  use URI ();
+  use Developer::Dashboard::DataHelper qw(j je);
+
+  sub _api_dashboard_headers {
+    my ($text) = @_;
+    my @pairs;
+    for my $line ( split /\n/, ( defined $text ? $text : '' ) ) {
+      $line =~ s/\r//g;
+      next if $line !~ /\S/;
+      my ( $key, $value ) = split /\s*:\s*/, $line, 2;
+      die "Invalid header line: $line" if !defined $key || !defined $value || $key eq '';
+      push @pairs, [ $key, $value ];
+    }
+    return \@pairs;
+  }
+
+  sub _api_dashboard_is_textual {
+    my ( $content_type, $content ) = @_;
+    return 1 if ( $content_type || '' ) =~ m{(?:json|xml|javascript|html|text|x-www-form-urlencoded)}i;
+    return 0 if !defined $content;
+    return $content !~ /[\x00-\x08\x0B\x0C\x0E-\x1F]/;
+  }
+
+  my $payload = { ok => 0 };
+
+  my $ok = eval {
+    my $settings_raw = params->{settings} // '';
+    die "settings payload is required" if $settings_raw eq '';
+    my $settings = je $settings_raw;
+    die "settings payload must be a hash" if ref($settings) ne 'HASH';
+
+    my $method = uc( $settings->{method} || 'GET' );
+    die "Unsupported HTTP method: $method" if $method !~ /\A(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\z/;
+
+    my $url = $settings->{url} // '';
+    die "Request URL is required" if $url eq '';
+    my $uri = URI->new($url);
+    die "Request URL must use http or https" if ( ( $uri->scheme || '' ) !~ /\Ahttps?\z/i );
+
+    my $timeout_s = int( $settings->{timeout_s} || 120 );
+    $timeout_s = 120 if $timeout_s < 1 || $timeout_s > 600;
+    my $allow_insecure  = $settings->{insecure_tls} ? 1 : 0;
+    my $follow_redirect = exists $settings->{follow_redirects} ? ( $settings->{follow_redirects} ? 1 : 0 ) : 1;
+
+    my $ua = LWP::UserAgent->new(
+      agent             => 'Developer Dashboard API Dashboard/1.57',
+      env_proxy         => 1,
+      timeout           => $timeout_s,
+      max_redirect      => $follow_redirect ? 7 : 0,
+      protocols_allowed => [qw(http https)],
+      ssl_opts          => $allow_insecure
+        ? { verify_hostname => 0, SSL_verify_mode => 0x00 }
+        : { verify_hostname => 1 },
     );
+
+    my $request = HTTP::Request->new( $method => $uri->as_string );
+    for my $pair ( @{ _api_dashboard_headers( $settings->{headers_text} ) } ) {
+      $request->header( $pair->[0] => $pair->[1] );
+    }
+    $request->content( $settings->{body} ) if defined $settings->{body} && $settings->{body} ne '';
+
+    my $started  = time;
+    my $response = $ua->request($request);
+    my $elapsed_ms = int( ( time - $started ) * 1000 );
+    my @headers = map { +{ key => $_, value => scalar $response->header($_) } } $response->header_field_names;
+    my $content_type = $response->header('Content-Type') || '';
+    my $body_mode = 'text';
+    my $body = _api_dashboard_is_textual( $content_type, $response->content )
+      ? $response->decoded_content
+      : do {
+          $body_mode = 'base64';
+          encode_base64( $response->content, '' );
+        };
+
+    $payload = {
+      ok      => $response->is_success ? 1 : 0,
+      error   => $response->is_success ? '' : $response->status_line,
+      request => {
+        method => $method,
+        url    => $uri->as_string,
+      },
+      response => {
+        status       => $response->code,
+        reason       => $response->message,
+        elapsed_ms   => $elapsed_ms,
+        content_type => $content_type,
+        headers      => \@headers,
+        body         => $body,
+        body_mode    => $body_mode,
+      },
+    };
+    1;
+  };
+  if ( !$ok ) {
+    my $error = $@ || 'Unknown API dashboard send failure';
+    $error =~ s/\s+\z//;
+    $payload = {
+      ok    => 0,
+      error => $error,
+    };
+  }
+
+  print j $payload;
+};
+BOOKMARK
 }
 
 # _db_dashboard_page()

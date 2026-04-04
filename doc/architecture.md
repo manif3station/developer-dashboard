@@ -168,6 +168,7 @@ Page source compatibility is explicit:
 - bookmark Template Toolkit rendering exposes `env.current_page` and `env.runtime_context.current_page`, so saved pages and nav fragments can branch on the active request path without losing the rest of the runtime context
 - when the active project contains `./.developer-dashboard`, the page store, config loader, CLI hook resolver, auth/session stores, and isolated docker service lookup all read that tree first and then fall back to `~/.developer-dashboard`
 - `dashboard init` seeds `welcome`, `api-dashboard`, and `db-dashboard` as normal editable saved bookmarks
+- the seeded `api-dashboard` bookmark is a Postman-style workspace built inside the bookmark runtime, with local tab state, Postman collection import/export, bootstrap collection loading from `config/postman`, and a saved Ajax request sender backed by `LWP::UserAgent`
 - `dashboard serve logs` exposes the combined Dancer2 and Starman runtime log stored in the dashboard log file, with `-n N` tailing and `-f` follow mode
 - `dashboard serve workers N` persists the default Starman worker count in config and auto-starts the web service when it is currently stopped; `--host HOST` and `--port PORT` steer that auto-start path, while `dashboard serve --workers N` and `dashboard restart --workers N` still allow one-off overrides
 - the editor view auto-submits the bookmark form on textarea change/blur instead of relying on a visible update button

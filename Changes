@@ -1,5 +1,16 @@
 Revision history for Developer Dashboard
 
+1.57  2026-04-04
+    - rebuilt the seeded `api-dashboard` bookmark as a Postman-style
+      workspace with collection import/export, multiple request tabs, and
+      bookmark-backed request dispatch through saved Ajax handlers
+    - added collection bootstrap loading from the runtime `config/postman`
+      directory plus browser and unit coverage for the rendered workspace and
+      saved request sender endpoint
+    - declared the embedded api-dashboard sender runtime prerequisites in
+      Makefile.PL so blank `cpanm` installs pull `LWP::UserAgent`,
+      `HTTP::Request`, and `URI` instead of failing only in clean environments
+
 1.56  2026-04-04
     - fixed legacy bookmark `stream_data` so saved Ajax endpoints update the
       browser DOM through incremental XMLHttpRequest progress events instead of

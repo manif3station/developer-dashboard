@@ -18,15 +18,15 @@ my $makefile = _slurp( _repo_path('Makefile.PL') );
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.56', 'repo version bumped for the stream-data browser fix release' );
-like( $pm, qr/^1\.56$/m, 'main POD version matches the module version' );
+is( $version, '1.57', 'repo version bumped for the api-dashboard postman workspace release' );
+like( $pm, qr/^1\.57$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.56$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.57$/m, 'dist.ini version matches the module version in the source tree' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.56"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.57"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.56\s+2026-04-04$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.57\s+2026-04-04$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -62,6 +62,9 @@ for my $module (
 }
 
 unlike( $makefile, qr/bin\/pjq|bin\/pyq|bin\/ptomq|bin\/pjp|bin\/jq|bin\/yq|bin\/tomq|bin\/propq|bin\/iniq|bin\/csvq|bin\/xmlq|bin\/of|bin\/open-file/, 'Makefile.PL does not install generic helper commands into the global PATH' );
+like( $makefile, qr/["']LWP::UserAgent["']\s*=>\s*0/, 'Makefile.PL declares the api-dashboard HTTP client runtime prerequisite' );
+like( $makefile, qr/["']HTTP::Request["']\s*=>\s*0/, 'Makefile.PL declares the api-dashboard request object runtime prerequisite' );
+like( $makefile, qr/["']URI["']\s*=>\s*0/, 'Makefile.PL declares the api-dashboard URI runtime prerequisite' );
 for my $helper (qw(jq yq tomq propq iniq csvq xmlq)) {
     ok( -f _repo_path( 'private-cli', $helper ), "private-cli/$helper is shipped as a private helper asset" );
 }
@@ -78,6 +81,8 @@ for my $doc ( $readme, $pm ) {
     like( $doc, qr/vim -p|C<vim -p>/, 'docs describe vim tab mode for blank-enter open-all' );
     like( $doc, qr/stream_data\(url, target, options, formatter\)|C<stream_data\(url, target, options, formatter\)>/, 'docs describe the legacy stream_data helper' );
     like( $doc, qr/XMLHttpRequest/, 'docs describe incremental browser streaming through XMLHttpRequest' );
+    like( $doc, qr/Postman-style|Postman collection/, 'docs describe the Postman-style api-dashboard workspace' );
+    like( $doc, qr/import and export Postman collection v2\.1 JSON|import and export Postman collection v2\.1 JSON/i, 'docs describe Postman collection import/export support' );
     unlike( $doc, qr/standalone `of` and `open-file`|standalone of and open-file/, 'docs no longer advertise public standalone of/open-file executables' );
     unlike( $doc, qr/standalone `ticket` executable|standalone ticket executable/, 'docs no longer advertise a public standalone ticket executable' );
     like( $doc, qr/Developer::Dashboard::Runtime::Result/, 'docs use the namespaced Runtime::Result module name' );

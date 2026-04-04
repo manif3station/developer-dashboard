@@ -4,10 +4,12 @@ use utf8;
 
 use Encode qw(decode);
 use File::Path qw(make_path);
+use IO::Socket::INET;
 use Test::More;
 use File::Spec;
 use File::Temp qw(tempdir);
 use URI::Escape qw(uri_escape);
+use Capture::Tiny qw(capture);
 
 use lib 'lib';
 
@@ -16,6 +18,7 @@ use Developer::Dashboard::Codec qw(encode_payload);
 use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::IndicatorStore;
+use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageRuntime;
 use Developer::Dashboard::PageStore;
@@ -36,7 +39,15 @@ local $ENV{HOME} = tempdir(CLEANUP => 1);
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
 local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+my $repo_root = File::Spec->rel2abs('.');
+my $repo_lib = File::Spec->catdir( $repo_root, 'lib' );
 chdir $ENV{HOME} or die "Unable to chdir to $ENV{HOME}: $!";
+my $dashboard_bin = File::Spec->catfile( $repo_root, 'bin', 'dashboard' );
+my ( $seed_init_stdout, $seed_init_stderr, $seed_init_exit ) = capture {
+    system( $^X, "-I$repo_lib", $dashboard_bin, 'init' );
+};
+is( $seed_init_exit, 0, 'dashboard init exits cleanly for web app fixture setup' );
+is( $seed_init_stderr, '', 'dashboard init does not emit stderr for web app fixture setup' );
 
 my $paths = Developer::Dashboard::PathRegistry->new;
 my $store = Developer::Dashboard::PageStore->new(paths => $paths);
@@ -134,6 +145,91 @@ $store->save_page($prefixed_saved_page);
 ok(-f File::Spec->catfile( $paths->dashboards_root, 'prefixed-save' ), 'save_page normalizes a leading /app/ prefix to the relative dashboards path');
 my $loaded_prefixed_page = $store->load_saved_page('prefixed-save');
 is($loaded_prefixed_page->as_hash->{title}, 'Prefixed Save', 'load_saved_page resolves normalized prefixed bookmark ids');
+
+my ( $api_page_stdout, $api_page_stderr, $api_page_exit ) = capture {
+    system( $^X, "-I$repo_lib", $dashboard_bin, 'page', 'source', 'api-dashboard' );
+};
+is( $api_page_exit, 0, 'api-dashboard source command exits cleanly for web app fixture setup' );
+is( $api_page_stderr, '', 'api-dashboard source command does not emit stderr for web app fixture setup' );
+my $api_page = Developer::Dashboard::PageDocument->from_instruction($api_page_stdout);
+$store->save_page($api_page);
+my ( $api_render_code, undef, $api_render_body ) = @{ $app->handle( path => '/app/api-dashboard', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+is( $api_render_code, 200, 'api-dashboard saved route renders through the web app' );
+like( $api_render_body, qr/Import Postman Collection/, 'api-dashboard render exposes Postman collection import controls' );
+like( $api_render_body, qr/Export Postman Collection/, 'api-dashboard render exposes Postman collection export controls' );
+like( $api_render_body, qr/New Tab/, 'api-dashboard render exposes request tab controls' );
+like( $api_render_body, qr{set_chain_value\(configs,'collections\.bootstrap','/ajax/api-dashboard-bootstrap\?type=json'\)}, 'api-dashboard render binds the bootstrap collection ajax endpoint' );
+like( $api_render_body, qr{set_chain_value\(configs,'send\.request','/ajax/api-dashboard-send-request\?type=json'\)}, 'api-dashboard render binds the saved request sender ajax endpoint' );
+my ($api_bootstrap_code, $api_bootstrap_type, $api_bootstrap_body_ref) = @{ $app->handle(
+    path        => '/ajax/api-dashboard-bootstrap',
+    query       => 'type=json',
+    method      => 'GET',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is( $api_bootstrap_code, 200, 'api-dashboard bootstrap ajax endpoint responds through the saved ajax file route' );
+like( $api_bootstrap_type, qr/application\/json/, 'api-dashboard bootstrap ajax endpoint returns json content' );
+my $api_bootstrap_payload = json_decode( drain_stream_body($api_bootstrap_body_ref) );
+ok( ref($api_bootstrap_payload) eq 'HASH', 'api-dashboard bootstrap ajax endpoint returns a json object' );
+ok( exists $api_bootstrap_payload->{collections}, 'api-dashboard bootstrap ajax payload includes collections' );
+ok( exists $api_bootstrap_payload->{errors}, 'api-dashboard bootstrap ajax payload includes explicit bootstrap errors' );
+
+my $probe_listener = IO::Socket::INET->new(
+    LocalAddr => '127.0.0.1',
+    LocalPort => 0,
+    Listen    => 1,
+    Proto     => 'tcp',
+    ReuseAddr => 1,
+) or die "Unable to start probe listener: $!";
+my $probe_port = $probe_listener->sockport;
+my $probe_pid = fork();
+die "Unable to fork probe listener: $!" if !defined $probe_pid;
+if ( !$probe_pid ) {
+    my $client = $probe_listener->accept or die "Unable to accept probe connection: $!";
+    my $request = '';
+    while ( my $line = <$client> ) {
+        $request .= $line;
+        last if $line =~ /^\r?\n$/;
+    }
+    print {$client} "HTTP/1.1 201 Created\r\n";
+    print {$client} "Content-Type: application/json\r\n";
+    print {$client} "X-Probe: active\r\n";
+    print {$client} "Content-Length: 18\r\n";
+    print {$client} "\r\n";
+    print {$client} "{\"ok\":true,\"id\":7}";
+    close $client or die "Unable to close probe client: $!";
+    exit 0;
+}
+close $probe_listener or die "Unable to close parent probe listener: $!";
+my $api_send_settings = json_encode(
+    {
+        method           => 'GET',
+        url              => "http://127.0.0.1:$probe_port/check",
+        headers_text     => "Accept: application/json\nX-Test: api-dashboard",
+        body             => '',
+        timeout_s        => 5,
+        follow_redirects => 1,
+        insecure_tls     => 0,
+    }
+);
+my ($api_send_code, $api_send_type, $api_send_body_ref) = @{ $app->handle(
+    path        => '/ajax/api-dashboard-send-request',
+    query       => 'type=json',
+    method      => 'POST',
+    body        => 'settings=' . uri_escape($api_send_settings),
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is( $api_send_code, 200, 'api-dashboard saved request sender responds through the saved ajax file route' );
+like( $api_send_type, qr/application\/json/, 'api-dashboard saved request sender returns json content' );
+my $api_send_payload = json_decode( drain_stream_body($api_send_body_ref) );
+ok( $api_send_payload->{ok}, 'api-dashboard saved request sender reports a successful upstream request' );
+is( $api_send_payload->{response}{status}, 201, 'api-dashboard saved request sender preserves upstream status codes' );
+is( $api_send_payload->{response}{content_type}, 'application/json', 'api-dashboard saved request sender preserves upstream content type' );
+like( $api_send_payload->{response}{body}, qr/"ok":true/, 'api-dashboard saved request sender returns upstream response bodies' );
+my $probe_wait_pid = waitpid( $probe_pid, 0 );
+is( $probe_wait_pid, $probe_pid, 'probe listener child exits after the api-dashboard sender call' );
+is( $?, 0, 'probe listener child exits cleanly after serving the api-dashboard sender call' );
 
 my $saved_token = uri_escape( $store->encode_page($page) );
 my ($code1_forbidden_post, $type1_forbidden_post, $body1_forbidden_post) = @{ $app->handle(

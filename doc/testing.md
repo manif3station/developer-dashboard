@@ -96,6 +96,7 @@ The extension tests also cover:
 - directory-backed custom commands through `~/.developer-dashboard/cli/<command>/run`
 - project-local `./.developer-dashboard` precedence over the home fallback for bookmarks, config, CLI commands and hooks, auth users, sessions, and isolated docker service folders
 - seeded `dashboard init` starter pages for `welcome`, `api-dashboard`, and `db-dashboard`
+- browser-check the seeded `api-dashboard` bookmark in a fresh runtime and verify the Postman-style shell renders the collection sidebar, request tabs, and import/export controls
 - Docker Compose file, project, service, addon, mode, and env resolution
 - legacy bookmark syntax parsing, placeholder rendering, `TITLE` head-only rendering, and sandpit-isolated `CODE*` execution
 

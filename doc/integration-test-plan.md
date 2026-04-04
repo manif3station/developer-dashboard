@@ -81,6 +81,7 @@ The integration run creates:
 8. Verify `dashboard version` reports the installed runtime version.
 9. Create a fake project root with a local `./.developer-dashboard` runtime tree.
 10. Run `dashboard init` from inside that fake project and confirm the project-local runtime roots plus `welcome`, `api-dashboard`, and `db-dashboard` starter pages exist.
+11. Browser-check the seeded `api-dashboard` page from that fake project and confirm the Postman-style shell shows the collection sidebar, request tabs, and import/export controls.
 11. Seed a user-provided fake-project `./.developer-dashboard/cli/update` command plus `update.d` hooks in the clean container, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes, including later-hook reads through `Runtime::Result`.
 12. Exercise path, prompt, shell, encode/decode, and indicator commands.
 13. Exercise collector write/run/read/start/restart/stop flows, including fake-project config collector definitions.

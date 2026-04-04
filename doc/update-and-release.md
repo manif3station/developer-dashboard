@@ -273,6 +273,11 @@ helpers such as `fetch_value()`, `stream_value()`, and `stream_data()` can
 populate the DOM from saved `/ajax/...` endpoints without manual bootstrap
 ordering fixes or whole-response buffering.
 
+For seeded UI workspaces such as `api-dashboard`, run a browser smoke from a
+fresh project-local runtime and verify the real rendered DOM includes the
+expected controls, tabs, and collection sidebar rather than only checking the
+saved bookmark source text.
+
 Command-output capture is implemented with `Capture::Tiny` `capture`, with exit codes returned from the capture block. The core runtime does not currently make outbound HTTP client requests.
 
 ## Coverage Verification

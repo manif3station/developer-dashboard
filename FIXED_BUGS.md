@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-04 (Phase 22: API Dashboard Postman Workspace)
+
+- Replaced the seeded `api-dashboard` bookmark’s single raw request form with a Postman-style workspace that supports collection import/export, multiple request tabs, and local request saving inside collections.
+- Added a saved bookmark Ajax bootstrap endpoint for loading neutral Postman collections from the runtime `config/postman` directory and a saved request sender endpoint backed by `LWP::UserAgent`, so API testing no longer depends on browser CORS.
+- Fixed the clean-install packaging gap by declaring the embedded API sender runtime prerequisites in `Makefile.PL`, so blank `cpanm` environments install `LWP::UserAgent`, `HTTP::Request`, and `URI` before the bookmark Ajax sender tests run.
+
 ## 2026-04-04 (Phase 21: Stream-Data Browser Fix)
 
 - Fixed legacy bookmark `stream_data()` so it exists again and updates DOM targets from incremental saved Ajax output instead of waiting for the whole response to finish.

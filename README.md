@@ -850,6 +850,12 @@ exists, `dashboard update` runs that command after any sorted hook files from
 `dashboard init` seeds three editable starter bookmarks when they are missing:
 `welcome`, `api-dashboard`, and `db-dashboard`.
 
+The seeded `api-dashboard` bookmark now behaves like a local Postman-style
+workspace. It keeps multiple request tabs in browser-local state, import and export Postman collection v2.1 JSON, loads bootstrap collections from the
+runtime `config/postman` directory when they exist, and sends requests through
+its saved Ajax endpoint backed by `LWP::UserAgent`, so request testing does not
+depend on browser CORS rules.
+
 ### Skills System
 
 Extend dashboard with Git-backed skill packages:

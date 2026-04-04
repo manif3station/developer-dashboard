@@ -86,6 +86,14 @@ like($pages, qr/db-dashboard/, 'dashboard init seeds the DB dashboard bookmark')
 my $api_page_source = _run("$perl -I'$lib' '$dashboard' page source api-dashboard");
 like($api_page_source, qr/^TITLE:\s+API Dashboard/m, 'api-dashboard source is available as a saved bookmark');
 unlike($api_page_source, qr/companies house|username=|password=|dsn=/i, 'api-dashboard bookmark source stays free of legacy sensitive details');
+like($api_page_source, qr/Import Postman Collection/, 'api-dashboard source exposes Postman collection import controls');
+like($api_page_source, qr/Export Postman Collection/, 'api-dashboard source exposes Postman collection export controls');
+like($api_page_source, qr/New Tab/, 'api-dashboard source exposes multiple request tabs');
+like($api_page_source, qr/configs\.collections\.bootstrap/, 'api-dashboard source binds a bootstrap collection ajax endpoint');
+like($api_page_source, qr/configs\.send\.request/, 'api-dashboard source binds the saved request sender ajax endpoint');
+like($api_page_source, qr/schema\.getpostman\.com\/json\/collection\/v2\.1\.0\/collection\.json/, 'api-dashboard source exports Postman v2.1 collection schema');
+unlike($api_page_source, qr/opendir my \$dh, \$dir or do|open my \$fh, '<', \$path or do|\}\s+or do\s+\{/, 'api-dashboard saved ajax code avoids Perl control-flow precedence warnings in generated handlers');
+unlike($api_page_source, qr/!\s*\(\s*\$uri->scheme\s*\|\|\s*''\s*\)\s*=~/, 'api-dashboard saved ajax code avoids precedence-ambiguous URL scheme guards');
 my $db_page_source = _run("$perl -I'$lib' '$dashboard' page source db-dashboard");
 like($db_page_source, qr/^TITLE:\s+DB Dashboard/m, 'db-dashboard source is available as a saved bookmark');
 unlike($db_page_source, qr/companies house|username=|password=|dsn=/i, 'db-dashboard bookmark source stays free of legacy sensitive details');
@@ -740,7 +748,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.56\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.57\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' tomq alpha.beta});
 is( $toml_value, "4\n", 'tomq extracts scalar TOML values' );
