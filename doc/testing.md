@@ -37,7 +37,9 @@ browser refresh, prefer `Ajax(..., singleton => 'NAME', ...)`. The runtime will
 rename the Perl worker to `dashboard ajax: NAME`, terminate the older matching
 Perl stream before it starts the refreshed one, and also tear down matching
 singleton workers during `dashboard stop`, `dashboard restart`, and browser
-`pagehide` cleanup beacons.
+`pagehide` cleanup beacons. For browser streaming checks, use `stream_data()`
+or `stream_value()` against a finite saved Ajax handler and assert the final
+DOM after incremental chunks land.
 
 ## Coverage
 

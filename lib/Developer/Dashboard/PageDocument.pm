@@ -3,7 +3,7 @@ package Developer::Dashboard::PageDocument;
 use strict;
 use warnings;
 
-our $VERSION = '1.55';
+our $VERSION = '1.56';
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 
@@ -569,15 +569,48 @@ function fetch_value(url, target, options, formatter) {
     return dashboard_write_target(target, value, options || {}, formatter);
   });
 }
-function stream_value(url, target, options, formatter) {
-  if (!url || !window.fetch) return Promise.resolve('');
-  let settings = Object.assign({ credentials: 'same-origin' }, (options && options.fetch) || {});
-  return window.fetch(url, settings).then(function(response) {
-    if (!response.ok) throw new Error('Request failed with status ' + response.status);
-    return response.text();
-  }).then(function(value) {
-    return dashboard_write_target(target, value, options || {}, formatter);
+function dashboard_stream_settings(options) {
+  let fetchOptions = (options && options.fetch) || {};
+  let method = fetchOptions.method || options.method || 'GET';
+  let body = typeof fetchOptions.body !== 'undefined' ? fetchOptions.body : (typeof options.body !== 'undefined' ? options.body : null);
+  let headers = fetchOptions.headers || options.headers || {};
+  let credentials = fetchOptions.credentials || options.credentials || 'same-origin';
+  return {
+    method: method,
+    body: body,
+    headers: headers,
+    credentials: credentials
+  };
+}
+function stream_data(url, target, options, formatter) {
+  if (!url) return Promise.resolve('');
+  if (!window.XMLHttpRequest) return fetch_value(url, target, options, formatter);
+  let settings = dashboard_stream_settings(options || {});
+  return new Promise(function(resolve, reject) {
+    let xhr = new XMLHttpRequest();
+    xhr.open(settings.method, url, true);
+    xhr.withCredentials = settings.credentials !== 'omit';
+    Object.keys(settings.headers || {}).forEach(function(name) {
+      xhr.setRequestHeader(name, settings.headers[name]);
+    });
+    xhr.onprogress = function () {
+      dashboard_write_target(target, xhr.responseText, options || {}, formatter);
+    };
+    xhr.onload = function () {
+      if (xhr.status < 200 || xhr.status >= 300) {
+        reject(new Error('Request failed with status ' + xhr.status));
+        return;
+      }
+      resolve(dashboard_write_target(target, xhr.responseText, options || {}, formatter));
+    };
+    xhr.onerror = function () {
+      reject(new Error('Stream request failed'));
+    };
+    xhr.send(settings.body);
   });
+}
+function stream_value(url, target, options, formatter) {
+  return stream_data(url, target, options, formatter);
 }
 var ready_status = {};
 function ready(options) {

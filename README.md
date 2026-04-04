@@ -294,12 +294,16 @@ HTML, so pages that declare `var endpoints = {};` and then call helpers from
 `$(document).ready(...)` receive their saved `/ajax/...` endpoint URLs without
 throwing a play-route JavaScript `ReferenceError`.
 Legacy bookmark pages now also expose `fetch_value(url, target, options,
-formatter)` and `stream_value(url, target, options, formatter)` helpers so a
-bookmark can bind saved Ajax endpoints into DOM targets without hand-writing
-the fetch and render boilerplate. Those helpers support plain text, JSON, and
-HTML output modes, and the saved Ajax endpoint bindings now run after the page
-declares its endpoint root object, so `$(document).ready(...)` callbacks can
-call helpers such as `fetch_value(endpoints.foo, '#foo')` on first render.
+formatter)`, `stream_value(url, target, options, formatter)`, and
+`stream_data(url, target, options, formatter)` helpers so a bookmark can bind
+saved Ajax endpoints into DOM targets without hand-writing the fetch and
+render boilerplate. `stream_data()` and `stream_value()` now use
+`XMLHttpRequest` progress events for browser-visible incremental updates, so a
+saved `/ajax/...` endpoint that prints early output updates the DOM before the
+request finishes. Those helpers support plain text, JSON, and HTML output
+modes, and the saved Ajax endpoint bindings now run after the page declares
+its endpoint root object, so `$(document).ready(...)` callbacks can call
+helpers such as `fetch_value(endpoints.foo, '#foo')` on first render.
 
 
 ### User CLI Extensions

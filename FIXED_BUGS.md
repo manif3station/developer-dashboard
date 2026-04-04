@@ -1,5 +1,10 @@
 # Fixed Bugs
 
+## 2026-04-04 (Phase 21: Stream-Data Browser Fix)
+
+- Fixed legacy bookmark `stream_data()` so it exists again and updates DOM targets from incremental saved Ajax output instead of waiting for the whole response to finish.
+- Fixed legacy bookmark `stream_value()` so it now uses the same progressive browser streaming path instead of degrading to a one-shot `fetch().text()` request.
+
 ## 2026-04-04 (Phase 19: Open-File Vim Tabs)
 
 - Fixed `dashboard of` / `dashboard open-file` so blank Enter at the chooser again uses `vim -p` for the final exec path. That restores the old behavior where “open all matches” opens them as tabs instead of invoking vim without tab mode.

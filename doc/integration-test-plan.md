@@ -118,7 +118,7 @@ The integration run creates:
 - the browser can load both the editor and a saved fake-project bookmark page from the fake project bookmark directory
 - the browser sees sorted shared `nav/*.tt` fragments above the main page body on that fake-project bookmark page
 - the browser top-right status strip shows configured collector icons and does not leave stale renamed collector indicators behind
-- bookmark pages can use `fetch_value()` and `stream_value()` helpers against saved `/ajax/...` endpoints on first render
+- bookmark pages can use `fetch_value()`, `stream_value()`, and `stream_data()` helpers against saved `/ajax/...` endpoints on first render
 - the installed `/ajax/<file>` route streams early output chunks promptly enough to prove browser-visible progress instead of silent buffering
 - non-loopback access produces `401` with an empty body and without a login page until a helper user exists in the active runtime
 - under `dashboard serve --ssl`, plain `http://HOST:PORT/...` requests on the public listener return a same-port `307` redirect to `https://HOST:PORT/...`, and a browser then reaches the expected self-signed certificate warning instead of a reset connection

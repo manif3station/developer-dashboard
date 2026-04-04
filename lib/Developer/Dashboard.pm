@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.55';
+our $VERSION = '1.56';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.55
+1.56
 
 =head1 INTRODUCTION
 
@@ -645,10 +645,14 @@ the bookmark body HTML, so pages that declare C<var endpoints = {}> and then
 call helpers from C<$(document).ready(...)> receive their saved C</ajax/...>
 endpoint URLs without throwing a play-route JavaScript C<ReferenceError>.
 Legacy bookmark pages now also expose
-C<fetch_value(url, target, options, formatter)> and
-C<stream_value(url, target, options, formatter)> helpers so a bookmark can
-bind saved Ajax endpoints into DOM targets without hand-writing the fetch and
-render boilerplate. Those helpers support plain text, JSON, and HTML output
+C<fetch_value(url, target, options, formatter)>,
+C<stream_value(url, target, options, formatter)>, and
+C<stream_data(url, target, options, formatter)> helpers so a bookmark can bind
+saved Ajax endpoints into DOM targets without hand-writing the fetch and
+render boilerplate. C<stream_data()> and C<stream_value()> now use
+C<XMLHttpRequest> progress events for browser-visible incremental updates, so
+a saved C</ajax/...> endpoint that prints early output updates the DOM before
+the request finishes. Those helpers support plain text, JSON, and HTML output
 modes, and the saved Ajax endpoint bindings now run after the page declares
 its endpoint root object, so C<$(document).ready(...)> callbacks can call
 helpers such as C<fetch_value(endpoints.foo, '#foo')> on first render.

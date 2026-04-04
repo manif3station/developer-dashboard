@@ -354,7 +354,7 @@ like($demo_overlay, qr/<span class="tok-note">\[% stash\.name %\]<\/span>/, 'edi
 my $broken_editor_source = <<'BOOKMARK';
 BOOKMARK: test
 :--------------------------------------------------------------------------------:
-HTML: <script src="/js/jq.js"></script>
+HTML: <script src="/js/jquery.js"></script>
 <script>var foo = {};
 $(document).ready(function () {
     let lastLength = 0;
@@ -647,6 +647,9 @@ my ($fetch_stream_code, undef, $fetch_stream_body) = @{ $app->handle(path => '/a
 is($fetch_stream_code, 200, 'legacy bookmark with fetch_value and stream_value helpers renders');
 like($fetch_stream_body, qr/function fetch_value\(url, target, options, formatter\)/, 'legacy bookmark bootstrap exposes fetch_value helper');
 like($fetch_stream_body, qr/function stream_value\(url, target, options, formatter\)/, 'legacy bookmark bootstrap exposes stream_value helper');
+like($fetch_stream_body, qr/function stream_data\(url, target, options, formatter\)/, 'legacy bookmark bootstrap exposes stream_data helper');
+like($fetch_stream_body, qr/new XMLHttpRequest\(\)/, 'legacy bookmark streaming helper uses XMLHttpRequest for progressive browser updates');
+like($fetch_stream_body, qr/xhr\.onprogress = function \(\)/, 'legacy bookmark streaming helper updates targets from incremental ajax progress events');
 my $foo_bind_pos = index($fetch_stream_body, q{set_chain_value(endpoints,'foo','/ajax/foo?type=text'});
 my $bar_bind_pos = index($fetch_stream_body, q{set_chain_value(endpoints,'bar','/ajax/bar?type=text&singleton=BAR'});
 my $mike_bind_pos = index($fetch_stream_body, q{set_chain_value(endpoints,'mike','/ajax/mike?type=json'});
@@ -657,6 +660,30 @@ ok($endpoints_decl_pos > -1, 'legacy bookmark render keeps the caller endpoint v
 ok($foo_bind_pos > $endpoints_decl_pos && $bar_bind_pos > $endpoints_decl_pos && $mike_bind_pos > $endpoints_decl_pos, 'saved Ajax endpoint bindings render after the caller declares the endpoint root object');
 ok($fetch_call_pos > -1, 'legacy bookmark render keeps the inline fetch helper call');
 like($fetch_stream_body, qr/dashboard_ajax_singleton_cleanup\('BAR'\)/, 'legacy bookmark render keeps singleton cleanup bindings for stream_value pages');
+
+my $stream_data_page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE');
+BOOKMARK: stream-data-helper
+:--------------------------------------------------------------------------------:
+HTML: <script src="/js/jquery.js"></script>
+<script>var foo = {};
+$(document).ready(function () {
+  stream_data(foo.bar, '.display');
+});
+</script>
+TEST2: <span class=display></span>
+:--------------------------------------------------------------------------------:
+CODE1: Ajax jvar => 'foo.bar', singleton => 'FOOBAR', file => 'foobar', code => q{
+    while (1) {
+      print 123;
+      sleep 1;
+    }
+};
+PAGE
+$store->save_page($stream_data_page);
+my ($stream_data_code, undef, $stream_data_body) = @{ $app->handle(path => '/app/stream-data-helper', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($stream_data_code, 200, 'legacy bookmark with stream_data helper renders');
+like($stream_data_body, qr{stream_data\(foo\.bar, '\.display'\);}, 'legacy bookmark render keeps the inline stream_data helper call');
+like($stream_data_body, qr{set_chain_value\(foo,'bar','/ajax/foobar\?type=text&singleton=FOOBAR'\)}, 'legacy bookmark render binds stream_data ajax endpoint before browser execution');
 
 {
     open my $fh, '>', $store->page_file('legacy-forward') or die $!;

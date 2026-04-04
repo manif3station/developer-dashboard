@@ -269,8 +269,9 @@ integration/windows/run-qemu-windows-smoke.sh
 
 For browser-facing bookmark Ajax changes, also run a real browser smoke that
 verifies saved Ajax bindings are emitted before inline page scripts and that
-helpers such as `fetch_value()` and `stream_value()` can populate the DOM from
-saved `/ajax/...` endpoints without manual bootstrap ordering fixes.
+helpers such as `fetch_value()`, `stream_value()`, and `stream_data()` can
+populate the DOM from saved `/ajax/...` endpoints without manual bootstrap
+ordering fixes or whole-response buffering.
 
 Command-output capture is implemented with `Capture::Tiny` `capture`, with exit codes returned from the capture block. The core runtime does not currently make outbound HTTP client requests.
 

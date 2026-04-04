@@ -4,6 +4,20 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: STREAM-DATA-NOOP
+
+**Date:** 2026-04-04 16:45:00 UTC
+**Area:** Legacy bookmark browser helpers / Ajax streaming
+**Symptom:** A bookmark calling `stream_data(foo.bar, '.display')` did nothing in the browser because the bootstrap no longer defined `stream_data()` and `stream_value()` only waited for the full response body
+**Why It Was Dangerous:** Long-running saved Ajax endpoints looked dead in the browser even though the backend was printing output, and bookmarks using the old helper name hit a direct browser-side failure
+**Root Cause:** The legacy bookmark bootstrap regressed to a one-shot `fetch().text()` helper and dropped the old `stream_data()` entry point, so browser pages lost both API compatibility and progressive rendering behavior
+**How Ellen Solved It:** Added `stream_data()` back to the bootstrap, changed `stream_data()` and `stream_value()` to use `XMLHttpRequest` progress events for incremental DOM updates, added targeted unit coverage, and verified the DOM through headless Chromium with a bookmark that streamed saved Ajax output into `.display`
+**How To Detect Earlier Next Time:** When a bookmark depends on long-running Ajax output, test the exact helper name used by the page and verify the browser DOM changes before the response completes
+**Prevention Rule:** Do not treat a bookmark streaming helper as fixed until the browser DOM proves that incremental chunks render through the actual helper API used by the page
+**Verification:** `prove -lr t/03-web-app.t t/web_app_static_files.t`, browser smoke through `integration/browser/run-bookmark-browser-smoke.pl`, full `prove -lr t`, coverage, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis
+**Related Files:** `lib/Developer/Dashboard/PageDocument.pm`, `t/03-web-app.t`, `README.md`, `lib/Developer/Dashboard.pm`
+**Tags:** `bookmark`, `ajax`, `streaming`, `browser`, `compatibility`
+
 ## CODE: OPEN-FILE-VIM-TABS
 
 **Date:** 2026-04-04 15:25:00 UTC

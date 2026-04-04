@@ -1,5 +1,12 @@
 Revision history for Developer Dashboard
 
+1.56  2026-04-04
+    - fixed legacy bookmark `stream_data` so saved Ajax endpoints update the
+      browser DOM through incremental XMLHttpRequest progress events instead of
+      waiting for the whole response to finish
+    - added unit and browser-backed regression coverage for bookmark pages that
+      call `stream_data(foo.bar, '.display')` from `$(document).ready(...)`
+
 1.55  2026-04-04
     - fixed `dashboard of` / `dashboard open-file` to restore the legacy
       `vim -p` execution path, so pressing Enter at the chooser opens all

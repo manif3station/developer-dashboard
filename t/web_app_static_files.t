@@ -145,6 +145,7 @@ sub create_mock_app {
     like($response->[2], qr/window\.jQuery = \$;/, 'jquery compatibility alias reuses the built-in jquery shim');
 }
 
+
 # Test: _serve_static_file resolves runtime-root dashboard/public assets
 {
     local $ENV{HOME} = tempdir(CLEANUP => 1);
