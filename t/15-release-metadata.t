@@ -18,15 +18,15 @@ my $makefile = _slurp( _repo_path('Makefile.PL') );
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.49', 'repo version bumped for the public CLI pollution cleanup release' );
-like( $pm, qr/^1\.49$/m, 'main POD version matches the module version' );
+is( $version, '1.50', 'repo version bumped for the private open-file helper restore release' );
+like( $pm, qr/^1\.50$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.49$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.50$/m, 'dist.ini version matches the module version in the source tree' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.49"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.50"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.49\s+2026-04-04$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.50\s+2026-04-04$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -68,6 +68,7 @@ for my $helper (qw(jq yq tomq propq iniq csvq xmlq)) {
 
 for my $doc ( $readme, $pm ) {
     like( $doc, qr/~\/\.developer-dashboard\/cli/, 'docs describe private helper extraction under the runtime cli root' );
+    like( $doc, qr/\bof\b.*~\/\.developer-dashboard\/cli|~\/\.developer-dashboard\/cli.*\bof\b/s, 'docs describe private of/open-file helper staging' );
     like( $doc, qr/dashboard jq/, 'docs describe the renamed jq subcommand' );
     like( $doc, qr/dashboard yq/, 'docs describe the renamed yq subcommand' );
     like( $doc, qr/dashboard tomq/, 'docs describe the renamed tomq subcommand' );

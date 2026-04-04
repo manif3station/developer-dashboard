@@ -34,10 +34,12 @@ my $runtime_propq = File::Spec->catfile( $runtime_cli_root, 'propq' );
 my $runtime_iniq = File::Spec->catfile( $runtime_cli_root, 'iniq' );
 my $runtime_csvq = File::Spec->catfile( $runtime_cli_root, 'csvq' );
 my $runtime_xmlq = File::Spec->catfile( $runtime_cli_root, 'xmlq' );
+my $runtime_of = File::Spec->catfile( $runtime_cli_root, 'of' );
+my $runtime_open_file = File::Spec->catfile( $runtime_cli_root, 'open-file' );
 
 my $init = _run("$perl -I'$lib' '$dashboard' init");
 like($init, qr/runtime_root/, 'dashboard init works');
-for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runtime_iniq, $runtime_csvq, $runtime_xmlq ) {
+for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runtime_iniq, $runtime_csvq, $runtime_xmlq, $runtime_of, $runtime_open_file ) {
     ok( -f $helper, "dashboard init seeds private helper $helper" );
     ok( -x $helper, "dashboard init marks private helper $helper executable" );
 }
@@ -345,6 +347,12 @@ like($open_print, qr/\Q$open_target\E/, 'dashboard open-file prints matching fil
 my $of_print = _run("$perl -I'$lib' '$dashboard' of --print '$open_root' alpha");
 like($of_print, qr/\Q$open_target\E/, 'dashboard of is shorthand for open-file');
 
+my $runtime_open_print = _run("$perl -I'$lib' '$runtime_open_file' --print '$open_root' alpha");
+like($runtime_open_print, qr/\Q$open_target\E/, 'private runtime open-file helper prints matching files');
+
+my $runtime_of_print = _run("$perl -I'$lib' '$runtime_of' --print '$open_root' alpha");
+like($runtime_of_print, qr/\Q$open_target\E/, 'private runtime of helper prints matching files');
+
 ok( !-f File::Spec->catfile( $repo, 'bin', 'of' ), 'standalone of executable is no longer shipped from the repo tree' );
 ok( !-f File::Spec->catfile( $repo, 'bin', 'open-file' ), 'standalone open-file executable is no longer shipped from the repo tree' );
 
@@ -358,6 +366,9 @@ local $ENV{PERL5LIB} = join ':', grep { defined && $_ ne '' } File::Spec->catdir
 my $perl_module = _run("$perl -I'$lib' '$dashboard' open-file --print My::App");
 like($perl_module, qr/\Q$perl_target\E/, 'dashboard open-file resolves Perl module names');
 
+my $runtime_perl_module = _run("$perl -I'$lib' '$runtime_open_file' --print My::App");
+like($runtime_perl_module, qr/\Q$perl_target\E/, 'private runtime open-file helper resolves Perl module names');
+
 my $java_root = File::Spec->catdir( $open_root, 'src', 'com', 'example' );
 make_path($java_root);
 my $java_target = File::Spec->catfile( $java_root, 'App.java' );
@@ -366,6 +377,9 @@ print {$java_fh} "package com.example;\nclass App {}\n";
 close $java_fh;
 my $java_class = _run("cd '$open_root' && $perl -I'$repo/lib' '$repo/bin/dashboard' open-file --print com.example.App");
 like($java_class, qr/\Q$java_target\E/, 'dashboard open-file resolves Java class names');
+
+my $runtime_java_class = _run("cd '$open_root' && $perl -I'$repo/lib' '$runtime_open_file' --print com.example.App");
+like($runtime_java_class, qr/\Q$java_target\E/, 'private runtime open-file helper resolves Java class names');
 
 my $json_value = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta});
 is( $json_value, "2\n", 'jq extracts scalar JSON values' );
@@ -609,7 +623,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.49\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.50\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' tomq alpha.beta});
 is( $toml_value, "4\n", 'tomq extracts scalar TOML values' );

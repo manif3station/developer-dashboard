@@ -21,8 +21,8 @@ dashboard roots still living directly under `$HOME`, or `dashboard doctor
 optional hook results from `~/.developer-dashboard/cli/doctor.d` so users can
 layer in more site-specific checks later.
 
-Frequently used built-in query helpers such as `jq`, `yq`, `tomq`, `propq`,
-`iniq`, `csvq`, and `xmlq` are staged privately under
+Frequently used built-in helpers such as `jq`, `yq`, `tomq`, `propq`, `iniq`,
+`csvq`, `xmlq`, `of`, and `open-file` are staged privately under
 `~/.developer-dashboard/cli/` and dispatched by `dashboard` without polluting
 the global `PATH`. Legacy aliases `pjq`, `pyq`, `ptomq`, and `pjp` still map
 to the renamed commands when they are invoked through `dashboard`.
@@ -201,7 +201,7 @@ generic package names.
 - private `~/.developer-dashboard/cli/jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, and `xmlq`
   Provide dashboard-managed helper assets without installing generic command names into the global PATH.
 
-Only `dashboard` is intended to be the public CPAN-facing command-line entrypoint. Generic helper names such as `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, and `xmlq` are intentionally kept out of the installed global PATH to avoid polluting the wider Perl and shell ecosystem.
+Only `dashboard` is intended to be the public CPAN-facing command-line entrypoint. Generic helper names such as `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, and `xmlq` are intentionally kept out of the installed global PATH to avoid polluting the wider Perl and shell ecosystem, but the built-in private wrappers for those commands are still staged under `~/.developer-dashboard/cli/`.
 
 - `Developer::Dashboard::RuntimeManager`
   Manages the background web service and collector lifecycle with process-title validation, `pkill`-style fallback shutdown, and restart orchestration, tying the browser and prepared-state loops together as one runtime.

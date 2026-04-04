@@ -1,5 +1,10 @@
 # Fixed Bugs
 
+## 2026-04-04 (Phase 13: Private Open-File Helper Restore)
+
+- Fixed private helper staging drift by restoring `of` and `open-file` under `~/.developer-dashboard/cli/` while still keeping them out of the global CPAN-installed PATH.
+- Fixed runtime helper regression coverage by proving the private `of` and `open-file` wrappers still resolve direct files, Perl module names, and Java class names just like the main `dashboard of` / `dashboard open-file` paths.
+
 ## 2026-04-04 (Phase 12: Public CLI Pollution Cleanup)
 
 - Fixed remaining CPAN PATH pollution by removing standalone `of` and `open-file` executables from the shipped distribution. Those names were still being installed globally even though the same behavior already existed behind `dashboard of` and `dashboard open-file`.

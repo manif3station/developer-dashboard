@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '1.49';
+our $VERSION = '1.50';
 
 use File::Spec;
 
@@ -12,7 +12,7 @@ use File::Spec;
 # Input: none.
 # Output: ordered list of helper command name strings.
 sub helper_names {
-    return qw(jq yq tomq propq iniq csvq xmlq);
+    return qw(jq yq tomq propq iniq csvq xmlq of open-file);
 }
 
 # helper_aliases()
@@ -61,6 +61,48 @@ sub helper_content {
     my ($name) = @_;
     $name = canonical_helper_name($name);
     die "Unsupported helper command '$name'" if $name eq '';
+
+    if ( $name eq 'of' || $name eq 'open-file' ) {
+        my $content = <<'PERL';
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use FindBin qw($Bin);
+use lib "$Bin/../lib";
+
+use Developer::Dashboard::CLI::OpenFile qw(run_open_file_command);
+
+# main(\@ARGV)
+# Runs the __NAME__ open-file helper for Developer Dashboard.
+# Input: command-line arguments from \@ARGV and optional STDIN.
+# Output: prints matching paths or execs the configured editor, then exits.
+run_open_file_command( args => \@ARGV );
+
+__END__
+
+=pod
+
+=head1 NAME
+
+__NAME__ - private open-file helper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard __NAME__ [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/> so the main
+C<dashboard> command can keep file-opening behaviour available without
+installing a generic executable into the user's global PATH.
+
+=cut
+PERL
+        $content =~ s/__NAME__/$name/g;
+        return $content;
+    }
 
     my $content = <<'PERL';
 #!/usr/bin/env perl

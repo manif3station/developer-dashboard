@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.49';
+our $VERSION = '1.50';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.49
+1.50
 
 =head1 INTRODUCTION
 
@@ -53,7 +53,7 @@ command also reads optional hook results from
 F<~/.developer-dashboard/cli/doctor.d> so users can layer in more
 site-specific checks later.
 
-Frequently used built-in commands such as C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, and C<xmlq> are staged privately under F<~/.developer-dashboard/cli/> and dispatched by C<dashboard> without polluting the global PATH. Legacy aliases C<pjq>, C<pyq>, C<ptomq>, and C<pjp> still normalize to the renamed commands when they are invoked through C<dashboard>.
+Frequently used built-in commands such as C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, C<xmlq>, C<of>, and C<open-file> are staged privately under F<~/.developer-dashboard/cli/> and dispatched by C<dashboard> without polluting the global PATH. Legacy aliases C<pjq>, C<pyq>, C<ptomq>, and C<pjp> still normalize to the renamed commands when they are invoked through C<dashboard>.
 
 It provides a small ecosystem for:
 
@@ -506,14 +506,15 @@ data-inspection toolkit that fits naturally into shell workflows.
 =item * Private CLI Helper Assets
 
 Private F<~/.developer-dashboard/cli/> helper files provide the built-in
-query helper behaviour without installing generic command names into the
-global PATH.
+query and open-file helper behaviour without installing generic command
+names into the global PATH.
 
 Only C<dashboard> is intended to be the public CPAN-facing command-line
 entrypoint. Generic helper names such as C<of>, C<open-file>, C<jq>,
 C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, and C<xmlq> are intentionally
 kept out of the installed global PATH to avoid polluting the wider Perl and
-shell ecosystem.
+shell ecosystem, but their built-in private wrappers are still staged under
+F<~/.developer-dashboard/cli/>.
 
 =item * Runtime Manager
 

@@ -67,15 +67,27 @@ like(
     'helper_content rejects unsupported helper names',
 );
 for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
-    like(
-        Developer::Dashboard::InternalCLI::helper_content($helper),
-        qr/\Qrun_query_command( command => '$helper', args => \@ARGV );\E/,
-        "helper_content renders the embedded $helper helper body",
-    );
+    my $content = Developer::Dashboard::InternalCLI::helper_content($helper);
+    if ( $helper eq 'of' || $helper eq 'open-file' ) {
+        like(
+            $content,
+            qr/\Qrun_open_file_command( args => \@ARGV );\E/,
+            "helper_content renders the embedded $helper open-file helper body",
+        );
+    }
+    else {
+        like(
+            $content,
+            qr/\Qrun_query_command( command => '$helper', args => \@ARGV );\E/,
+            "helper_content renders the embedded $helper query helper body",
+        );
+    }
 }
 my $seeded_helpers = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
 my @helper_names = Developer::Dashboard::InternalCLI::helper_names();
 is( scalar(@$seeded_helpers), scalar(@helper_names), 'ensure_helpers writes every embedded helper once' );
+ok( grep( $_ =~ m{/\Qof\E$}, @$seeded_helpers ), 'ensure_helpers writes the private of helper' );
+ok( grep( $_ =~ m{/\Qopen-file\E$}, @$seeded_helpers ), 'ensure_helpers writes the private open-file helper' );
 
 is_deeply(
     [ Developer::Dashboard::CLI::Query::_split_query_args() ],

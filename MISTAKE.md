@@ -20,6 +20,22 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: PRIVATE-HELPER-REGRESSION
+
+**Date:** 2026-04-04 12:10:00 UTC
+**Area:** Runtime helper packaging
+**Symptom:** The cleanup that removed public `bin/of` and `bin/open-file` also stopped seeding private runtime wrappers for those commands, so `~/.developer-dashboard/cli/` no longer contained them even though the product still expected private helper availability
+**Why It Was Dangerous:** The package avoided PATH pollution, but it also regressed the runtime-helper model and created the impression that file-opening behavior had been removed or half-reverted
+**Root Cause:** I treated “do not install generic helper names into the public PATH” as if it also meant “do not stage private runtime wrappers,” and only kept the query helper seeding path in `Developer::Dashboard::InternalCLI`
+**How Ellen Solved It:** Restored private `of` and `open-file` helper generation under `~/.developer-dashboard/cli/`, kept `dashboard` as the only public executable, and added direct tests proving both the main command path and the private runtime wrappers still resolve direct files, Perl modules, and Java class names
+**How To Detect Earlier Next Time:** After any executable-footprint cleanup, compare the public install list and the private runtime helper list separately; they are different contracts and both need explicit tests
+**Prevention Rule:** Removing public executables must not remove intended private runtime wrappers; verify `Makefile.PL`, `bin/`, and `~/.developer-dashboard/cli` expectations independently
+**Verification:** targeted CLI/refactor tests, full `prove -lr t`, coverage, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis
+**Related Files:** `lib/Developer/Dashboard/InternalCLI.pm`, `bin/dashboard`, `t/05-cli-smoke.t`, `t/21-refactor-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`
+**Tags:** `private-cli`, `packaging`, `regression`, `open-file`, `helpers`
+
+---
+
 ## CODE: HOME-RUNTIME-PERMISSIVE
 
 **Date:** 2026-04-03 23:10:00 UTC

@@ -1,5 +1,13 @@
 Revision history for Developer Dashboard
 
+1.50  2026-04-04
+    - restored private `of` and `open-file` helper staging under
+      `~/.developer-dashboard/cli/` so the runtime still seeds those helpers
+      without reintroducing public PATH pollution from the CPAN package
+    - kept `dashboard of` and `dashboard open-file` as the public behavior
+      surface while proving the private runtime wrappers still resolve Perl
+      modules and Java class names
+
 1.49  2026-04-04
     - removed standalone `of` and `open-file` executables from the shipped
       distribution so `dashboard` remains the only public CPAN-facing command
