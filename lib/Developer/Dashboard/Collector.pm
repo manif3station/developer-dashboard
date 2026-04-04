@@ -3,7 +3,7 @@ package Developer::Dashboard::Collector;
 use strict;
 use warnings;
 
-our $VERSION = '1.45';
+our $VERSION = '1.46';
 
 use File::Spec;
 use POSIX qw(strftime);
@@ -57,7 +57,7 @@ sub read_job {
     my ( $self, $name ) = @_;
     my $file = $self->collector_paths($name)->{job};
     return if !-f $file;
-    open my $fh, '<', $file or die "Unable to read $file: $!";
+    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
     return json_decode(<$fh>);
 }
@@ -122,7 +122,7 @@ sub read_status {
     my ( $self, $name ) = @_;
     my $file = $self->collector_paths($name)->{status};
     return if !-f $file;
-    open my $fh, '<', $file or die "Unable to read $file: $!";
+    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
     my $raw = <$fh>;
     my $data = eval { json_decode($raw) };
@@ -194,7 +194,7 @@ sub _atomic_write_json {
 sub _atomic_write_text {
     my ( $self, $file, $text ) = @_;
     my $tmp = "$file.pending";
-    open my $fh, '>', $tmp or die "Unable to write $tmp: $!";
+    open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
     print {$fh} $text;
     close $fh;
     $self->{paths}->secure_file_permissions($tmp);
@@ -211,7 +211,7 @@ sub _atomic_write_text {
 sub _slurp {
     my ($file) = @_;
     return '' if !-f $file;
-    open my $fh, '<', $file or die "Unable to read $file: $!";
+    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
     return scalar <$fh>;
 }

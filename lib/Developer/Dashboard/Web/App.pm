@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.45';
+our $VERSION = '1.46';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -1866,7 +1866,7 @@ sub _top_chrome_html {
     <div><a href="%s" id="share-url">Right Click Copy &amp; Share or Bookmark This Page</a></div>
     <div style="margin-top:6px">%s</div>
   </div>
-  <div style="text-align:right;white-space:pre-wrap">%s<span id="status-on-top">%s</span></div>
+  <div style="text-align:right;white-space:pre-wrap;font-family:'Apple Color Emoji','Segoe UI Emoji','Noto Color Emoji','Segoe UI Symbol',Georgia,'Times New Roman',serif">%s<span id="status-on-top">%s</span></div>
 </div>
 <script>
 (function() {

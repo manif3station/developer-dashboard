@@ -1,5 +1,6 @@
 use strict;
 use warnings;
+use utf8;
 
 use File::Path qw(make_path);
 use File::Spec;
@@ -617,6 +618,14 @@ SOURCE
         prompt_visible => 1,
     );
     is( $app->_prompt_summary, '&#x2705;&#x1F433;', 'web app top status summary renders indicator status and alias pairs' );
+    like(
+        $app->_top_chrome_html(
+            Developer::Dashboard::PageDocument->new( id => 'coverage-top', layout => { body => 'Body' } ),
+            { edit => '/app/coverage-top/edit', render => '/app/coverage-top', source => '/app/coverage-top/source' },
+        ),
+        qr/Apple Color Emoji.*Segoe UI Emoji.*Noto Color Emoji/s,
+        'web app top chrome uses an emoji-capable font stack for the browser status strip',
+    );
 }
 
 {

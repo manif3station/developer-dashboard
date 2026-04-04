@@ -1,7 +1,9 @@
 use strict;
 use warnings;
+use utf8;
 
 use Cwd qw(abs_path cwd getcwd);
+use Encode qw(encode);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -1107,6 +1109,46 @@ print {$local_cfg} <<'JSON';
 }
 JSON
 close $local_cfg;
+
+{
+    my $utf8_home = tempdir( CLEANUP => 1 );
+    my $utf8_paths = Developer::Dashboard::PathRegistry->new( home => $utf8_home );
+    my $utf8_files = Developer::Dashboard::FileRegistry->new( paths => $utf8_paths );
+    my $utf8_config_file = File::Spec->catfile( $utf8_home, '.developer-dashboard', 'config', 'config.json' );
+    make_path( File::Spec->catdir( $utf8_home, '.developer-dashboard', 'config' ) );
+    open my $utf8_cfg, '>:raw', $utf8_config_file or die $!;
+    print {$utf8_cfg} encode(
+        'UTF-8',
+        <<'JSON'
+{
+  "collectors": [
+    {
+      "name": "emoji.collector",
+      "command": "printf 'emoji'",
+      "cwd": "home",
+      "indicator": {
+        "icon": "\uD83D\uDC33"
+      }
+    }
+  ]
+}
+JSON
+    );
+    close $utf8_cfg;
+
+    local $ENV{DEVELOPER_DASHBOARD_CONFIGS} = File::Spec->catdir( $utf8_home, '.developer-dashboard', 'config' );
+    my $isolated_paths = Developer::Dashboard::PathRegistry->new( home => $utf8_home );
+    my $isolated_files = Developer::Dashboard::FileRegistry->new( paths => $isolated_paths );
+    my $utf8_config = Developer::Dashboard::Config->new( paths => $isolated_paths, files => $isolated_files );
+    my $utf8_jobs = $utf8_config->collectors;
+    my $whale = chr 0x1F433;
+    is( $utf8_jobs->[0]{indicator}{icon}, $whale, 'config loader preserves UTF-8 collector indicator icons from config files' );
+
+    my $utf8_store = Developer::Dashboard::IndicatorStore->new( paths => $isolated_paths );
+    $utf8_store->sync_collectors($utf8_jobs);
+    is( $utf8_store->get_indicator('emoji.collector')->{icon}, $whale, 'indicator store preserves UTF-8 collector indicator icons after sync' );
+    is( $utf8_store->page_header_payload->{array}[0]{alias}, $whale, 'page status payload preserves UTF-8 collector indicator icons' );
+}
 
 {
     local $ENV{DEVELOPER_DASHBOARD_CHECKERS} = 'repo.collector:config.two';

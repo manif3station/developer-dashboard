@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '1.45';
+our $VERSION = '1.46';
 
 use File::Spec;
 use Cwd qw(cwd);
@@ -34,7 +34,7 @@ sub load_global {
     my $merged = {};
     for my $file ( reverse $self->_global_config_files ) {
         next if !-f $file;
-        open my $fh, '<', $file or die "Unable to read $file: $!";
+        open my $fh, '<:raw', $file or die "Unable to read $file: $!";
         local $/;
         $merged = $self->_merge_hashes( $merged, json_decode(<$fh>) );
     }
@@ -48,7 +48,7 @@ sub load_global {
 sub save_global {
     my ( $self, $config ) = @_;
     my $file = $self->_global_config_file;
-    open my $fh, '>', $file or die "Unable to write $file: $!";
+    open my $fh, '>:raw', $file or die "Unable to write $file: $!";
     print {$fh} json_encode( $config || {} );
     close $fh;
     $self->{paths}->secure_file_permissions($file);
@@ -65,7 +65,7 @@ sub load_repo {
     my $repo = $self->{repo_root} || return {};
     my $file = File::Spec->catfile( $repo, '.developer-dashboard.json' );
     return {} if !-f $file;
-    open my $fh, '<', $file or die "Unable to read $file: $!";
+    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
     return json_decode(<$fh>);
 }

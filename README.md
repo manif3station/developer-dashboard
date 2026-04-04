@@ -263,16 +263,17 @@ content from breaking the browser bootstrap. If a bookmark body contains HTML
 such as `</script>`, the editor now escapes the inline JSON assignment used to
 reload the source text, so the browser keeps the full bookmark source inside
 the editor instead of spilling raw text below the page. Legacy bookmark
-rendering also loads `set_chain_value()` before bookmark body HTML, so
-`Ajax jvar => ...` helpers can bind saved `/ajax/...` endpoints without
+rendering now emits saved `set_chain_value()` bindings after the bookmark body
+HTML, so pages that declare `var endpoints = {};` and then call helpers from
+`$(document).ready(...)` receive their saved `/ajax/...` endpoint URLs without
 throwing a play-route JavaScript `ReferenceError`.
 Legacy bookmark pages now also expose `fetch_value(url, target, options,
 formatter)` and `stream_value(url, target, options, formatter)` helpers so a
 bookmark can bind saved Ajax endpoints into DOM targets without hand-writing
 the fetch and render boilerplate. Those helpers support plain text, JSON, and
-HTML output modes, and the saved Ajax endpoint bindings are emitted before the
-bookmark body scripts run so inline calls such as `fetch_value(endpoints.foo,
-'#foo')` work on first render.
+HTML output modes, and the saved Ajax endpoint bindings now run after the page
+declares its endpoint root object, so `$(document).ready(...)` callbacks can
+call helpers such as `fetch_value(endpoints.foo, '#foo')` on first render.
 
 
 ### User CLI Extensions
@@ -657,7 +658,9 @@ status glyph in front of the collector icon, so successful checks show `✅🔑`
 style fragments and failing or not-yet-run checks show `🚨🔑` style fragments.
 The top-right browser status strip now uses that same configured icon instead
 of falling back to the collector name, and stale managed indicators are
-removed automatically if the collector config is renamed.
+removed automatically if the collector config is renamed. The browser chrome
+now uses an emoji-capable font stack there as well, so UTF-8 icons such as
+`🐳` and `💰` remain visible instead of collapsing into fallback boxes.
 The blank-environment integration flow also keeps a regression for mixed
 collector health isolation: one intentionally broken Perl collector must stay
 red without stopping a second healthy collector from staying green in
@@ -899,7 +902,7 @@ For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
 host:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.45.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.46.tar.gz
 ```
 
 Before calling a release Windows-compatible, also run the same smoke through a
@@ -909,6 +912,6 @@ prepared QEMU Windows guest:
 WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
 WINDOWS_SSH_USER=developer \
 WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.45.tar.gz \
+TARBALL=/path/to/Developer-Dashboard-1.46.tar.gz \
 integration/windows/run-qemu-windows-smoke.sh
 ```

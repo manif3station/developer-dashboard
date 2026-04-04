@@ -1,5 +1,6 @@
 use strict;
 use warnings;
+use utf8;
 
 use Capture::Tiny qw(capture);
 use File::Spec;

@@ -1,9 +1,11 @@
 use strict;
 use warnings;
+use utf8;
 
 use Capture::Tiny qw(capture);
 use Cwd qw(getcwd);
 use Developer::Dashboard::JSON qw(json_decode json_encode);
+use Encode qw(decode encode);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -35,35 +37,37 @@ my $init = _run("$perl -I'$lib' '$dashboard' init");
 like($init, qr/runtime_root/, 'dashboard init works');
 my $global_config_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'config.json' );
 make_path( File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'config' ) );
-open my $seeded_config_fh, '>', $global_config_file or die "Unable to write $global_config_file: $!";
-print {$seeded_config_fh} <<'JSON';
-{
-   "collectors" : [
-      {
-         "name" : "example.collector",
-         "command" : "printf 'example collector output\\n'",
-         "cwd" : "home",
-         "interval" : 60
-      },
-      {
-         "name" : "vpn",
-         "code" : "return 0;",
-         "cwd" : "home",
-         "indicator" : {
-            "icon" : "🔑"
-         }
-      },
-      {
-         "name" : "docker.collector",
-         "command" : "docker ps",
-         "cwd" : "home",
-         "indicator" : {
-            "icon" : "🐳"
-         }
-      }
-   ]
-}
-JSON
+open my $seeded_config_fh, '>:raw', $global_config_file or die "Unable to write $global_config_file: $!";
+my $seeded_config_json = json_encode(
+    {
+        collectors => [
+            {
+                name     => 'example.collector',
+                command  => "printf 'example collector output\\n'",
+                cwd      => 'home',
+                interval => 60,
+            },
+            {
+                name      => 'vpn',
+                code      => 'return 0;',
+                cwd       => 'home',
+                indicator => {
+                    icon => '🔑',
+                },
+            },
+            {
+                name      => 'docker.collector',
+                command   => 'docker ps',
+                cwd       => 'home',
+                indicator => {
+                    icon => '🐳',
+                },
+            },
+        ],
+    }
+);
+$seeded_config_json = encode( 'UTF-8', $seeded_config_json ) if utf8::is_utf8($seeded_config_json);
+print {$seeded_config_fh} $seeded_config_json;
 close $seeded_config_fh;
 
 my $pages = _run("$perl -I'$lib' '$dashboard' page list");
@@ -207,7 +211,7 @@ for ( 1 .. 40 ) {
     sleep 0.25;
 }
 ok( $status_response && $status_response->is_success, 'live foreground runtime exposes the system status endpoint' );
-like( $status_response->decoded_content( charset => 'none' ), qr/"alias"\s*:\s*"🔑"/, 'live foreground runtime syncs configured collector indicator icons into system status' );
+like( decode( 'UTF-8', $status_response->content ), qr/"alias"\s*:\s*"🔑"/, 'live foreground runtime syncs configured collector indicator icons into system status' );
 kill 'TERM', $live_status_pid;
 waitpid( $live_status_pid, 0 );
 my $dashboard_log_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'logs', 'dashboard.log' );
@@ -464,7 +468,7 @@ is_deeply( Runtime::Result::last_entry(), json_decode( $ENV{RESULT} )->{'01-seco
     is( Runtime::Result::_command_name(), 'dashboard', 'Runtime::Result falls back to dashboard when only a root-like script path is available' );
 }
 like(
-    Runtime::Result->report(),
+    decode( 'UTF-8', Runtime::Result->report() ),
     qr/^[-]+\n.*Run Report\n[-]+\n✅ 00-first\.pl\n✅ 01-second\.pl\n[-]+\n\z/s,
     'Runtime::Result renders a human-readable hook run report',
 );
@@ -552,6 +556,8 @@ my ( $report_stdout, $report_stderr, $report_exit ) = capture {
     system 'sh', '-c', "$perl -I'$lib' '$dashboard' report-result";
     return $? >> 8;
 };
+$report_stdout = decode( 'UTF-8', $report_stdout );
+$report_stderr = decode( 'UTF-8', $report_stderr );
 is( $report_exit, 0, 'directory-backed custom commands can print Runtime::Result reports after hook execution' );
 like( $report_stdout, qr/^report-hook\n/s, 'Runtime::Result report command still streams hook stdout before the final report' );
 like( $report_stdout, qr/report-result Run Report/, 'Runtime::Result report titles the report with the current command name' );
@@ -598,7 +604,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.45\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.46\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );
@@ -742,7 +748,7 @@ sub _run {
         return $? >> 8;
     };
     is( $exit_code, 0, "command succeeded: $cmd" );
-    return $stdout . $stderr;
+    return decode( 'UTF-8', $stdout . $stderr );
 }
 
 sub _find_free_port {

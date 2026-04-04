@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '1.45';
+our $VERSION = '1.46';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -287,7 +287,7 @@ sub web_state {
     my ($self) = @_;
     my $file = $self->{files}->web_state;
     return if !-f $file;
-    open my $fh, '<', $file or die "Unable to read $file: $!";
+    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
     return json_decode( scalar <$fh> );
 }
@@ -504,7 +504,7 @@ sub _write_web_state {
     }
     my $file = $self->{files}->web_state;
     my $tmp = sprintf '%s.%s.%s.pending', $file, $$, time;
-    open my $fh, '>', $tmp or die "Unable to write $tmp: $!";
+    open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode($payload);
     close $fh;
     $self->{paths}->secure_file_permissions($tmp);

@@ -59,7 +59,7 @@ if ( -f 'dist.ini' ) {
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.45', 'module version bumped for the indicator, runtime report, and ajax helper release' );
+is( $version, '1.46', 'module version bumped for the browser ajax ordering and UTF-8 icon release' );
 like( $readme, qr/dashboard doctor/, 'README documents the doctor command' );
 like( $pm, qr/dashboard doctor/, 'main POD documents the doctor command' );
 like( $release_doc, qr/bin\/dashboard doctor/, 'release doc documents the doctor command' );
@@ -110,6 +110,8 @@ like( $pm, qr/legacy F<~\/bin\/ps1> shape more closely/s, 'main POD documents th
 like( $readme, qr/top-right browser status strip now uses that same configured icon instead\s+of falling back to the collector name/s, 'README documents browser indicator icons and stale rename cleanup' );
 like( $pm, qr/top-right browser status strip now uses that same configured icon instead\s+of falling back to the collector name/s, 'main POD documents browser indicator icons and stale rename cleanup' );
 like( $release_doc, qr/remove the\s+old managed indicator from both `\/system\/status` and `dashboard ps1`/s, 'release doc documents stale collector indicator cleanup verification' );
+like( $readme, qr/emoji-capable font stack.*UTF-8 icons such as\s+`🐳` and `💰`/s, 'README documents browser-visible UTF-8 status icon rendering' );
+like( $pm, qr/emoji-capable font stack.*UTF-8 icons such as\s+C<🐳> and C<💰>/s, 'main POD documents browser-visible UTF-8 status icon rendering' );
 like( $readme, qr/reads\s+it from tmux when the shell environment does not already export it/s, 'README documents tmux-backed ticket lookup for ps1' );
 like( $pm, qr/reads it from tmux when the shell environment does not already export it/s, 'main POD documents tmux-backed ticket lookup for ps1' );
 like( $readme, qr/dashboard shell zsh/, 'README documents zsh shell bootstrap support' );
@@ -140,6 +142,8 @@ like( $pm, qr/stores the Ajax Perl code under the saved dashboard ajax tree/s, '
 like( $readme, qr/fetch_value.*stream_value.*helpers/s, 'README documents bookmark fetch_value and stream_value helpers' );
 like( $pm, qr/C<fetch_value\(url, target, options, formatter\)> and\s+C<stream_value\(url, target, options, formatter\)> helpers/s, 'main POD documents bookmark fetch_value and stream_value helpers' );
 like( $release_doc, qr/fetch_value.*stream_value/s, 'release doc documents bookmark fetch_value and stream_value verification' );
+like( $readme, qr/saved Ajax endpoint bindings now run after the page\s+declares its endpoint root object/s, 'README documents saved Ajax binding order for declared endpoint roots' );
+like( $pm, qr/saved Ajax endpoint bindings now run after the page declares\s+its endpoint root object/s, 'main POD documents saved Ajax binding order for declared endpoint roots' );
 like( $readme, qr/defaulting to\s+Perl unless the file starts with a shebang/s, 'README documents saved bookmark ajax interpreter fallback' );
 like( $pm, qr/defaulting to Perl unless the file\s+starts with a shebang/s, 'main POD documents saved bookmark ajax interpreter fallback' );
 like( $readme, qr/stream both `stdout` and\s+`stderr` back to the browser as they happen/s, 'README documents live stdout and stderr ajax streaming' );

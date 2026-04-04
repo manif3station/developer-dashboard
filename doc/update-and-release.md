@@ -113,7 +113,12 @@ touches. PowerShell verification should check the generated `prompt`
 function rather than looking for a POSIX `PS1` export.
 The browser top-right status strip should also show the configured collector
 icon instead of the collector name, and a collector rename should remove the
-old managed indicator from both `/system/status` and `dashboard ps1`.
+old managed indicator from both `/system/status` and `dashboard ps1`. Verify
+that UTF-8 icons such as `🐳` and `💰` are actually visible in the browser
+chrome, not just present in `/system/status` JSON. For bookmark Ajax helper
+pages that declare `var endpoints = {};`, verify the saved `set_chain_value()`
+bindings run after that declaration so `$(document).ready(...)` helper calls
+populate the DOM without a console `ReferenceError`.
 Permission-sensitive changes should also verify that `dashboard doctor`
 reports insecure legacy or home-runtime paths before repair and returns clean
 after `--fix`.
@@ -207,8 +212,8 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
-tar -tzf Developer-Dashboard-1.45.tar.gz | grep run-host-integration.sh
-cpanm /tmp/Developer-Dashboard-1.45.tar.gz -v
+tar -tzf Developer-Dashboard-1.46.tar.gz | grep run-host-integration.sh
+cpanm /tmp/Developer-Dashboard-1.46.tar.gz -v
 ```
 
 and uploads the resulting tarball to PAUSE using:
@@ -238,7 +243,7 @@ For Windows-targeted changes, verify the built tarball under a real Strawberry
 Perl environment before release:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.45.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.46.tar.gz
 ```
 
 For release-grade Windows compatibility claims, also run the prepared QEMU
@@ -248,7 +253,7 @@ guest smoke:
 WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
 WINDOWS_SSH_USER=developer \
 WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.45.tar.gz \
+TARBALL=/path/to/Developer-Dashboard-1.46.tar.gz \
 integration/windows/run-qemu-windows-smoke.sh
 ```
 
