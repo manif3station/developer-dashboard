@@ -382,6 +382,21 @@ my @multi_selected_open = split / /, $fake_editor_args;
 chomp $multi_selected_open[-1];
 is_deeply([ sort @multi_selected_open ], [ sort ( $open_target, $second_open_target ) ], 'dashboard of opens both selected files for comma-separated multi selection');
 
+my $fake_vim = File::Spec->catfile( $fake_editor_bin, 'vim' );
+open my $fake_vim_fh, '>', $fake_vim or die "Unable to write $fake_vim: $!";
+print {$fake_vim_fh} <<"SH";
+#!/bin/sh
+printf '%s\\n' "\$*" > '$fake_editor_log'
+SH
+close $fake_vim_fh;
+chmod 0755, $fake_vim or die "Unable to chmod $fake_vim: $!";
+my $blank_open_all = _run(qq{printf '\\n' | PATH='$fake_editor_bin':"\$PATH" $perl -I'$lib' '$dashboard' of '$open_root' alpha});
+like($blank_open_all, qr/> /, 'dashboard of blank-enter chooser still renders the prompt before opening all matches');
+open $fake_editor_log_fh, '<', $fake_editor_log or die "Unable to read $fake_editor_log after blank open-all: $!";
+$fake_editor_args = do { local $/; <$fake_editor_log_fh> };
+close $fake_editor_log_fh;
+like($fake_editor_args, qr/^-p /, 'dashboard of blank-enter chooser opens all matches through vim tab mode');
+
 my $jq_scope_root = File::Spec->catdir( $ENV{HOME}, 'jq-scope-fixtures' );
 my $jq_scope_cli_root = File::Spec->catdir( $jq_scope_root, 'cli' );
 my $jq_scope_js_root  = File::Spec->catdir( $jq_scope_root, 'public', 'js' );
@@ -725,7 +740,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.54\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.55\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' tomq alpha.beta});
 is( $toml_value, "4\n", 'tomq extracts scalar TOML values' );

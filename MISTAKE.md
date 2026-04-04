@@ -4,6 +4,22 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: OPEN-FILE-VIM-TABS
+
+**Date:** 2026-04-04 15:25:00 UTC
+**Area:** CLI parity / editor exec path
+**Symptom:** The chooser returned all matches on blank Enter, but the final open-file exec path no longer used `vim -p`, so “open all” did not behave like the old `of`
+**Why It Was Dangerous:** The selection logic looked correct while the actual operator result was still wrong, which made the command feel fixed in tests that only inspected paths and not the final editor argv
+**Root Cause:** I restored chooser semantics and match ordering but forgot that the legacy implementation always executed vim-family editors in tab mode via `-p`
+**How Ellen Solved It:** Restored `-p` for vim-family editors, added direct unit coverage for the editor argv, and added smoke coverage for blank-enter open-all behavior
+**How To Detect Earlier Next Time:** For workflow commands that end in an editor, assert the final exec argv, not only the selected file list
+**Prevention Rule:** CLI parity fixes are not complete until the final editor invocation matches the legacy behavior as well as the chooser
+**Verification:** targeted open-file tests, full `prove -lr t`, coverage, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis
+**Related Files:** `lib/Developer/Dashboard/CLI/OpenFile.pm`, `t/05-cli-smoke.t`, `t/15-cli-module-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`
+**Tags:** `open-file`, `vim`, `tabs`, `cli`, `compatibility`
+
+---
+
 ## CODE: OPEN-FILE-SCOPE-RANKING
 
 **Date:** 2026-04-04 15:10:00 UTC

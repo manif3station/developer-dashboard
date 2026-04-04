@@ -1,5 +1,12 @@
 Revision history for Developer Dashboard
 
+1.55  2026-04-04
+    - fixed `dashboard of` / `dashboard open-file` to restore the legacy
+      `vim -p` execution path, so pressing Enter at the chooser opens all
+      matches in vim tabs instead of launching them without tab mode
+    - added smoke and unit regressions for blank-enter open-all behavior and
+      vim-family editor tab detection in the shared open-file implementation
+
 1.54  2026-04-04
     - fixed scoped `dashboard of` / `dashboard open-file` search ordering so
       exact helper/script matches such as `jq` and `jq.js` sort ahead of

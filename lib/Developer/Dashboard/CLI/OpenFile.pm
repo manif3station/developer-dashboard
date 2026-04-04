@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::OpenFile;
 use strict;
 use warnings;
 
-our $VERSION = '1.54';
+our $VERSION = '1.55';
 
 use Cwd qw(cwd);
 use Exporter 'import';
@@ -67,6 +67,7 @@ sub run_open_file_command {
 
     my $editor_cmd = _default_editor($editor);
     my @command = split /\s+/, $editor_cmd;
+    push @command, '-p' if _editor_supports_tabs( command => \@command );
     push @command, "+$line" if $line;
     push @command, @matches;
     _command_exec(@command);
@@ -79,6 +80,19 @@ sub run_open_file_command {
 sub _default_editor {
     my ($editor) = @_;
     return $editor || $ENV{VISUAL} || $ENV{EDITOR} || 'vim';
+}
+
+# _editor_supports_tabs(%args)
+# Detects whether the resolved editor command should receive the legacy vim tab-open switch.
+# Input: command array reference where the first entry is the executable name.
+# Output: true when the editor is one of the vim-family commands that support -p.
+sub _editor_supports_tabs {
+    my (%args) = @_;
+    my $command = $args{command} || [];
+    my $editor  = $command->[0] || '';
+    return 0 if $editor eq '';
+    $editor =~ s{.*[\\/]}{};
+    return $editor =~ /\A(?:vim|nvim|vi|gvim|iv)\z/i ? 1 : 0;
 }
 
 # _select_open_file_matches(%args)

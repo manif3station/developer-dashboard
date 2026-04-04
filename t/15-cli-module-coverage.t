@@ -254,7 +254,7 @@ like( $interactive_stdout, qr/^\d+: \Q$notes_file\E$/m, 'interactive open-file l
 like( $interactive_stdout, qr/^\d+: \Q$duplicate_file\E$/m, 'interactive open-file lists the second matching alpha file' );
 like( $interactive_stdout, qr/> \z/, 'interactive open-file prompts with the legacy selector marker' );
 my ($interactive_selected) = $interactive_stdout =~ /^2:\s+(.*)$/m;
-is( $captured_exec, "vim\n$interactive_selected", 'interactive open-file falls back to vim and opens the selected match' );
+is( $captured_exec, "vim\n-p\n$interactive_selected", 'interactive open-file falls back to vim tabs and opens the selected match' );
 is( $interactive_stderr, '', 'interactive open-file keeps stderr clean while prompting' );
 
 eval {
@@ -268,7 +268,7 @@ eval {
     );
 };
 like( $@, qr/^EXEC/, 'single-match open-file path reaches the exec hook' );
-like( $captured_exec, qr/^vim\n\Q$notes_file\E$/m, 'single-match open-file falls back to vim when no editor is configured' );
+like( $captured_exec, qr/^vim\n-p\n\Q$notes_file\E$/m, 'single-match open-file falls back to vim tab mode when no editor is configured' );
 
 my $blank_select_error = '';
 my ( $blank_select_stdout, $blank_select_stderr ) = capture {
@@ -289,6 +289,7 @@ my ( $blank_select_stdout, $blank_select_stderr ) = capture {
 like( $blank_select_error, qr/^EXEC/, 'blank interactive open-file selection reaches the exec hook' );
 my @blank_exec = split /\n/, $captured_exec;
 is( shift @blank_exec, 'vim', 'blank interactive open-file selection still targets vim' );
+is( shift @blank_exec, '-p', 'blank interactive open-file selection uses vim tab mode' );
 is_deeply( [ sort @blank_exec ], [ sort ( $notes_file, $duplicate_file ) ], 'blank interactive open-file selection falls back to opening all matches' );
 is( $blank_select_stderr, '', 'blank interactive open-file selection keeps stderr clean' );
 like( $blank_select_stdout, qr/> \z/, 'blank interactive open-file selection still renders the chooser prompt' );
@@ -312,6 +313,7 @@ my ( $multi_select_stdout, $multi_select_stderr ) = capture {
 like( $multi_select_error, qr/^EXEC/, 'comma-separated interactive selection reaches the exec hook' );
 my @multi_exec = split /\n/, $captured_exec;
 is( shift @multi_exec, 'vim', 'comma-separated interactive selection still targets vim' );
+is( shift @multi_exec, '-p', 'comma-separated interactive selection uses vim tab mode' );
 is_deeply( [ sort @multi_exec ], [ sort ( $notes_file, $duplicate_file ) ], 'comma-separated interactive selection opens the chosen matches' );
 is( $multi_select_stderr, '', 'comma-separated interactive selection keeps stderr clean' );
 like( $multi_select_stdout, qr/> \z/, 'comma-separated interactive selection shows the chooser prompt' );
@@ -335,7 +337,12 @@ my ( $range_select_stdout, $range_select_stderr ) = capture {
 like( $range_select_error, qr/^EXEC/, 'range interactive selection reaches the exec hook' );
 my @range_exec = split /\n/, $captured_exec;
 is( shift @range_exec, 'vim', 'range interactive selection still targets vim' );
+is( shift @range_exec, '-p', 'range interactive selection uses vim tab mode' );
 is_deeply( [ sort @range_exec ], [ sort ( $notes_file, $duplicate_file ) ], 'range interactive selection opens the chosen range' );
+
+ok( Developer::Dashboard::CLI::OpenFile::_editor_supports_tabs( command => ['vim'] ), 'vim supports tab-open mode' );
+ok( Developer::Dashboard::CLI::OpenFile::_editor_supports_tabs( command => ['nvim'] ), 'nvim supports tab-open mode' );
+ok( !Developer::Dashboard::CLI::OpenFile::_editor_supports_tabs( command => ['fake-editor'] ), 'non-vim editors do not receive tab-open mode' );
 is( $range_select_stderr, '', 'range interactive selection keeps stderr clean' );
 like( $range_select_stdout, qr/> \z/, 'range interactive selection shows the chooser prompt' );
 

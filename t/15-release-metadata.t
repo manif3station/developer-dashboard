@@ -18,15 +18,15 @@ my $makefile = _slurp( _repo_path('Makefile.PL') );
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.54', 'repo version bumped for the scoped open-file ranking release' );
-like( $pm, qr/^1\.54$/m, 'main POD version matches the module version' );
+is( $version, '1.55', 'repo version bumped for the open-file vim-tab release' );
+like( $pm, qr/^1\.55$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.54$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.55$/m, 'dist.ini version matches the module version in the source tree' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.54"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.55"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.54\s+2026-04-04$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.55\s+2026-04-04$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -75,6 +75,7 @@ for my $doc ( $readme, $pm ) {
     like( $doc, qr/dashboard tomq/, 'docs describe the renamed tomq subcommand' );
     like( $doc, qr/dashboard propq/, 'docs describe the renamed propq subcommand' );
     like( $doc, qr/dashboard of \. jq|jq\.js.*jquery\.js|jquery\.js.*jq\.js/s, 'docs describe the scoped open-file ranking behaviour' );
+    like( $doc, qr/vim -p|C<vim -p>/, 'docs describe vim tab mode for blank-enter open-all' );
     unlike( $doc, qr/standalone `of` and `open-file`|standalone of and open-file/, 'docs no longer advertise public standalone of/open-file executables' );
     unlike( $doc, qr/standalone `ticket` executable|standalone ticket executable/, 'docs no longer advertise a public standalone ticket executable' );
     like( $doc, qr/Developer::Dashboard::Runtime::Result/, 'docs use the namespaced Runtime::Result module name' );

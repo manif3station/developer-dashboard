@@ -1,5 +1,9 @@
 # Fixed Bugs
 
+## 2026-04-04 (Phase 19: Open-File Vim Tabs)
+
+- Fixed `dashboard of` / `dashboard open-file` so blank Enter at the chooser again uses `vim -p` for the final exec path. That restores the old behavior where “open all matches” opens them as tabs instead of invoking vim without tab mode.
+
 ## 2026-04-04 (Phase 18: Open-File Match Ranking)
 
 - Fixed scoped `dashboard of` / `dashboard open-file` search ordering so exact helper/script names are ranked before broader substring hits, restoring the expected `dashboard of . jq` behavior where `jq` and `jq.js` appear before `jquery.js`.
