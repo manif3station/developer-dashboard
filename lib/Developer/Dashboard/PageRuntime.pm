@@ -3,10 +3,10 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '1.46';
+our $VERSION = '1.47';
 
 use Capture::Tiny qw(capture);
-use DataHelper qw(j je);
+use Developer::Dashboard::DataHelper qw(j je);
 use IO::Select;
 use IPC::Open3 qw(open3);
 use Symbol qw(gensym);
@@ -14,9 +14,9 @@ use Developer::Dashboard::PageRuntime::StreamHandle;
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::Platform qw(command_argv_for_path command_in_path);
 use Developer::Dashboard::RuntimeManager ();
-use Folder ();
+use Developer::Dashboard::Folder ();
 use Template;
-use Zipper qw(Ajax acmdx zip unzip);
+use Developer::Dashboard::Zipper qw(Ajax acmdx zip unzip);
 
 my $SANDPIT_SEQ = 0;
 
@@ -641,9 +641,9 @@ sub _saved_ajax_perl_wrapper {
     return <<'PERL';
 use strict;
 use warnings;
-use DataHelper qw(j je);
+use Developer::Dashboard::DataHelper qw(j je);
 use Developer::Dashboard::JSON qw(json_decode);
-use Zipper qw(Ajax acmdx zip unzip);
+use Developer::Dashboard::Zipper qw(Ajax acmdx zip unzip);
 my $old_stdout = select STDOUT;
 $| = 1;
 select STDERR;
@@ -730,8 +730,8 @@ sub _new_sandpit {
 package $package;
 use strict;
 use warnings;
-use DataHelper qw(j je);
-use Zipper qw(Ajax acmdx zip unzip);
+use Developer::Dashboard::DataHelper qw(j je);
+use Developer::Dashboard::Zipper qw(Ajax acmdx zip unzip);
 
 our \$stash = {};
 our \$runtime = {};

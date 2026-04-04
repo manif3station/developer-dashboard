@@ -215,8 +215,8 @@ SH
 #!/usr/bin/env perl
 use strict;
 use warnings;
-use Runtime::Result;
-print Runtime::Result::stdout('01-runtime-update');
+use Developer::Dashboard::Runtime::Result;
+print Developer::Dashboard::Runtime::Result::stdout('01-runtime-update');
 PL
     );
     chmod 0755, File::Spec->catfile( $update_root, '02-runtime-result.pl' )

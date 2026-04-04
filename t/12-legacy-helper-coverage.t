@@ -15,6 +15,7 @@ use URI::Escape qw(uri_escape);
 
 use lib 'lib';
 
+use Developer::Dashboard::DataHelper qw(j je);
 use DataHelper qw(j je);
 use Developer::Dashboard::Auth;
 use Developer::Dashboard::FileRegistry;
@@ -34,7 +35,9 @@ chdir $home or die "Unable to chdir to $home: $!";
 my $auto_projects = File::Spec->catdir( $home, 'projects' );
 make_path($auto_projects);
 
+use Developer::Dashboard::Folder;
 use Folder;
+use Developer::Dashboard::Zipper qw(zip unzip _cmdx _cmdp __cmdx acmdx Ajax);
 use Zipper qw(zip unzip _cmdx _cmdp __cmdx acmdx Ajax);
 
 is( Folder->dd, File::Spec->catdir( $home, '.developer-dashboard' ), 'Folder dd lazily bootstraps the runtime root before configure' );

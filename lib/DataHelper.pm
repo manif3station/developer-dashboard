@@ -3,28 +3,19 @@ package DataHelper;
 use strict;
 use warnings;
 
-our $VERSION = '1.46';
+our $VERSION = '1.47';
 
+# Backward compatibility facade - delegate to new namespace
+require Developer::Dashboard::DataHelper;
 use Exporter 'import';
-
-use Developer::Dashboard::JSON qw(json_decode json_encode);
-
 our @EXPORT = qw(j je);
 
-# j($value)
-# Encodes a Perl value to canonical JSON text.
-# Input: any JSON-encodable Perl value.
-# Output: JSON string.
 sub j {
-    return json_encode( $_[0] );
+    return Developer::Dashboard::DataHelper::j(@_);
 }
 
-# je($text)
-# Decodes JSON text to a Perl value.
-# Input: JSON string.
-# Output: decoded Perl value.
 sub je {
-    return json_decode( $_[0] // '' );
+    return Developer::Dashboard::DataHelper::je(@_);
 }
 
 1;
@@ -33,22 +24,12 @@ __END__
 
 =head1 NAME
 
-DataHelper - legacy JSON helper compatibility functions
-
-=head1 SYNOPSIS
-
-  use DataHelper qw(j je);
-  my $json = j({ ok => 1 });
+DataHelper - legacy backward compatibility module
 
 =head1 DESCRIPTION
 
-This module provides the small legacy JSON helper functions used by older
-bookmark code blocks.
-
-=head1 FUNCTIONS
-
-=head2 j, je
-
-Encode and decode JSON values.
+This is a backward compatibility facade. New code should use
+Developer::Dashboard::DataHelper directly.
 
 =cut
+

@@ -11,7 +11,7 @@ use File::Spec;
 use File::Temp qw(tempdir);
 use IO::Socket::INET;
 use LWP::UserAgent;
-use Runtime::Result;
+use Developer::Dashboard::Runtime::Result;
 use Test::More;
 use Time::HiRes qw(sleep);
 
@@ -409,9 +409,9 @@ print {$pjq_hook_two_fh} <<"PL";
 use strict;
 use warnings;
 use lib '$repo/lib';
-use Runtime::Result;
+use Developer::Dashboard::Runtime::Result;
 open my \$fh, '>', '$pjq_hook_result' or die \$!;
-print {\$fh} Runtime::Result::stdout('00-first.pl');
+print {\$fh} Developer::Dashboard::Runtime::Result::stdout('00-first.pl');
 close \$fh;
 print "hook-two\n";
 warn "hook-two-err\n";
@@ -450,39 +450,39 @@ local $ENV{RESULT} = json_encode(
         },
     }
 );
-is_deeply( Runtime::Result::current(), json_decode( $ENV{RESULT} ), 'Runtime::Result decodes RESULT into a hash' );
-is_deeply( [ Runtime::Result::names() ], [ '00-first.pl', '01-second.pl' ], 'Runtime::Result lists stored hook names in sorted order' );
-ok( Runtime::Result::has('00-first.pl'), 'Runtime::Result detects known hook names' );
-ok( !Runtime::Result::has('99-missing.pl'), 'Runtime::Result rejects missing hook names' );
-is( Runtime::Result::stdout('00-first.pl'), "hook-one\n", 'Runtime::Result returns stored hook stdout' );
-is( Runtime::Result::stderr('01-second.pl'), "hook-two-err\n", 'Runtime::Result returns stored hook stderr' );
-is( Runtime::Result::exit_code('01-second.pl'), 0, 'Runtime::Result returns stored hook exit codes' );
-is( Runtime::Result::last_name(), '01-second.pl', 'Runtime::Result returns the last sorted hook name' );
-is_deeply( Runtime::Result::last_entry(), json_decode( $ENV{RESULT} )->{'01-second.pl'}, 'Runtime::Result returns the last sorted hook entry' );
+is_deeply( Developer::Dashboard::Runtime::Result::current(), json_decode( $ENV{RESULT} ), 'Runtime::Result decodes RESULT into a hash' );
+is_deeply( [ Developer::Dashboard::Runtime::Result::names() ], [ '00-first.pl', '01-second.pl' ], 'Runtime::Result lists stored hook names in sorted order' );
+ok( Developer::Dashboard::Runtime::Result::has('00-first.pl'), 'Runtime::Result detects known hook names' );
+ok( !Developer::Dashboard::Runtime::Result::has('99-missing.pl'), 'Runtime::Result rejects missing hook names' );
+is( Developer::Dashboard::Runtime::Result::stdout('00-first.pl'), "hook-one\n", 'Runtime::Result returns stored hook stdout' );
+is( Developer::Dashboard::Runtime::Result::stderr('01-second.pl'), "hook-two-err\n", 'Runtime::Result returns stored hook stderr' );
+is( Developer::Dashboard::Runtime::Result::exit_code('01-second.pl'), 0, 'Runtime::Result returns stored hook exit codes' );
+is( Developer::Dashboard::Runtime::Result::last_name(), '01-second.pl', 'Runtime::Result returns the last sorted hook name' );
+is_deeply( Developer::Dashboard::Runtime::Result::last_entry(), json_decode( $ENV{RESULT} )->{'01-second.pl'}, 'Runtime::Result returns the last sorted hook entry' );
 {
     local $0 = '/tmp/report-result/';
-    is( Runtime::Result::_command_name(), 'report-result', 'Runtime::Result preserves a trailing-slash script name when basename still resolves it' );
+    is( Developer::Dashboard::Runtime::Result::_command_name(), 'report-result', 'Runtime::Result preserves a trailing-slash script name when basename still resolves it' );
 }
 {
     local $0 = '/';
-    is( Runtime::Result::_command_name(), 'dashboard', 'Runtime::Result falls back to dashboard when only a root-like script path is available' );
+    is( Developer::Dashboard::Runtime::Result::_command_name(), 'dashboard', 'Runtime::Result falls back to dashboard when only a root-like script path is available' );
 }
 like(
-    decode( 'UTF-8', Runtime::Result->report() ),
+    decode( 'UTF-8', Developer::Dashboard::Runtime::Result->report() ),
     qr/^[-]+\n.*Run Report\n[-]+\n✅ 00-first\.pl\n✅ 01-second\.pl\n[-]+\n\z/s,
     'Runtime::Result renders a human-readable hook run report',
 );
 local $ENV{RESULT} = '{';
 my $invalid_json_error = do {
     local $@;
-    eval { Runtime::Result::current() };
+    eval { Developer::Dashboard::Runtime::Result::current() };
     $@;
 };
 like( $invalid_json_error, qr/at character offset|malformed JSON string/i, 'Runtime::Result surfaces invalid RESULT json decoding errors' );
 local $ENV{RESULT} = json_encode( [ 1, 2, 3 ] );
 my $non_hash_error = do {
     local $@;
-    eval { Runtime::Result::current() };
+    eval { Developer::Dashboard::Runtime::Result::current() };
     $@;
 };
 like( $non_hash_error, qr/RESULT must decode to a hash/, 'Runtime::Result rejects non-hash RESULT payloads' );
@@ -547,8 +547,8 @@ print {$report_run_fh} <<'PL';
 #!/usr/bin/env perl
 use strict;
 use warnings;
-use Runtime::Result;
-print Runtime::Result->report();
+use Developer::Dashboard::Runtime::Result;
+print Developer::Dashboard::Runtime::Result->report();
 PL
 close $report_run_fh;
 chmod 0755, $report_run or die "Unable to chmod $report_run: $!";
@@ -604,7 +604,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.46\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.47\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' ptomq alpha.beta});
 is( $toml_value, "4\n", 'ptomq extracts scalar TOML values' );

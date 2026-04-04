@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.46';
+our $VERSION = '1.47';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -17,7 +17,7 @@ use Developer::Dashboard::Platform qw(command_in_path);
 use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageRuntime;
 use Developer::Dashboard::Codec qw(decode_payload);
-use Zipper ();
+use Developer::Dashboard::Zipper ();
 
 # new(%args)
 # Constructs the browser-facing dashboard web application.
