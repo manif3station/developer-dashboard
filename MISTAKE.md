@@ -4,6 +4,22 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: TOOLCHAIN-TICKET-GAP
+
+**Date:** 2026-04-04 12:55:00 UTC
+**Area:** Private CLI toolchain completeness
+**Symptom:** The toolchain cleanup restored private query and open-file helpers, but `ticket` was left out of the staged runtime helpers even though it is part of the expected dashboard workflow
+**Why It Was Dangerous:** The product looked inconsistent: some dashboard-owned helper behaviors were kept behind private runtime helpers while `ticket` silently fell back to an external user-managed script model
+**Root Cause:** I focused on the helpers already implemented inside the repository and treated `ticket` as out of scope instead of recognizing it belonged to the same private-helper toolchain contract
+**How Ellen Solved It:** Implemented a shared `Developer::Dashboard::CLI::Ticket` module, restored `ticket` as a staged private helper under `~/.developer-dashboard/cli/`, kept it out of the public PATH, and added smoke plus refactor coverage for tmux session reuse and creation
+**How To Detect Earlier Next Time:** When auditing the dashboard toolchain, compare the expected user-facing subcommands against the staged private helper list instead of only checking what the repo already exposes today
+**Prevention Rule:** If a command is considered part of the built-in dashboard toolchain but must not be public in PATH, it still needs an explicit private runtime helper and test coverage for staging plus behavior
+**Verification:** targeted ticket-helper tests, full `prove -lr t`, coverage, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis
+**Related Files:** `lib/Developer/Dashboard/CLI/Ticket.pm`, `lib/Developer/Dashboard/InternalCLI.pm`, `t/05-cli-smoke.t`, `t/21-refactor-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`
+**Tags:** `ticket`, `private-cli`, `toolchain`, `tmux`, `packaging`
+
+---
+
 ## CODE: PUBLIC-CLI-POLLUTION
 
 **Date:** 2026-04-04 10:35:00 UTC
@@ -11,7 +27,7 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 **Symptom:** The distribution had already moved query helpers behind `dashboard`, but `of` and `open-file` were still shipped as top-level executables, which meant the CPAN install still exported extra generic command names into the user's global PATH
 **Why It Was Dangerous:** A CPAN package should not spray common helper names into the wider shell ecosystem when those names are dashboard-owned behaviours; that creates avoidable collisions and makes the public CLI footprint harder to reason about
 **Root Cause:** The first private-helper cleanup focused only on the decomposed query commands and left older convenience wrappers in `bin/` and `Makefile.PL`
-**How Ellen Solved It:** Removed `bin/of` and `bin/open-file` from the shipped distribution, kept both behaviours as `dashboard of` and `dashboard open-file`, tightened metadata tests so only `dashboard` remains public, and documented that no repo-shipped standalone `ticket` executable exists either
+**How Ellen Solved It:** Removed `bin/of` and `bin/open-file` from the shipped distribution, kept both behaviours as `dashboard of` and `dashboard open-file`, tightened metadata tests so only `dashboard` remains public, and documented that helper names such as `ticket` must also stay out of the public PATH
 **How To Detect Earlier Next Time:** Audit `bin/`, `Makefile.PL`, and the built tarball together instead of checking only the obvious new helper commands; if a helper name feels generic, assume it needs justification before it is allowed into PATH
 **Prevention Rule:** Developer Dashboard should ship one public executable, `dashboard`, unless there is a very strong distribution-level reason for another name; generic helper behaviours belong behind `dashboard` subcommands or under the private runtime CLI root
 **Verification:** targeted CLI/release metadata tests, full `prove -lr t`, full coverage, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis

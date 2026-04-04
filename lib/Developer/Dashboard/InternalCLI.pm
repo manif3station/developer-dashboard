@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '1.50';
+our $VERSION = '1.51';
 
 use File::Spec;
 
@@ -12,7 +12,7 @@ use File::Spec;
 # Input: none.
 # Output: ordered list of helper command name strings.
 sub helper_names {
-    return qw(jq yq tomq propq iniq csvq xmlq of open-file);
+    return qw(jq yq tomq propq iniq csvq xmlq of open-file ticket);
 }
 
 # helper_aliases()
@@ -101,6 +101,47 @@ installing a generic executable into the user's global PATH.
 =cut
 PERL
         $content =~ s/__NAME__/$name/g;
+        return $content;
+    }
+
+    if ( $name eq 'ticket' ) {
+        my $content = <<'PERL';
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use FindBin qw($Bin);
+use lib "$Bin/../lib";
+
+use Developer::Dashboard::CLI::Ticket qw(run_ticket_command);
+
+# main(\@ARGV)
+# Runs the ticket helper for Developer Dashboard.
+# Input: command-line arguments from \@ARGV.
+# Output: creates or attaches to the requested tmux ticket session, then exits.
+run_ticket_command( args => \@ARGV );
+
+__END__
+
+=pod
+
+=head1 NAME
+
+ticket - private tmux ticket helper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard ticket <ticket-ref>
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/> so the main
+C<dashboard> command can keep ticket-session behaviour available without
+installing a generic executable into the user's global PATH.
+
+=cut
+PERL
         return $content;
     }
 

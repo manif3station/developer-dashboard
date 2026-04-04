@@ -1,5 +1,10 @@
 # Fixed Bugs
 
+## 2026-04-04 (Phase 14: Private Ticket Helper Restore)
+
+- Restored `ticket` as a dashboard-managed private helper under `~/.developer-dashboard/cli/` so `dashboard ticket` stays part of the built-in toolchain without shipping a public `ticket` executable in the CPAN-installed PATH.
+- Added shared tmux ticket-session logic that reuses existing sessions, creates missing sessions with a `Code1` window, and seeds `TICKET_REF`, `B`, and `OB` into the tmux session environment.
+
 ## 2026-04-04 (Phase 13: Private Open-File Helper Restore)
 
 - Fixed private helper staging drift by restoring `of` and `open-file` under `~/.developer-dashboard/cli/` while still keeping them out of the global CPAN-installed PATH.
@@ -8,7 +13,7 @@
 ## 2026-04-04 (Phase 12: Public CLI Pollution Cleanup)
 
 - Fixed remaining CPAN PATH pollution by removing standalone `of` and `open-file` executables from the shipped distribution. Those names were still being installed globally even though the same behavior already existed behind `dashboard of` and `dashboard open-file`.
-- Confirmed there are no repo-shipped standalone `ticket` executables or other remaining generic helper binaries in the distribution. `dashboard` is now the only intended public CPAN-facing executable, while data-query helper assets remain private under `~/.developer-dashboard/cli/`.
+- Confirmed there are no repo-shipped public standalone `ticket` executables or other remaining generic helper binaries in the distribution. `dashboard` is now the only intended public CPAN-facing executable, while private helper assets remain staged under `~/.developer-dashboard/cli/`.
 
 ## 2026-04-04 (Phase 1: macOS fix + Namespacing)
 

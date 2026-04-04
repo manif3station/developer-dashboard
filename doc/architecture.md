@@ -66,13 +66,13 @@ instead of a loose pile of utilities.
 - `dashboard jq` / `dashboard yq` / `dashboard tomq` / `dashboard propq` / `dashboard iniq` / `dashboard csvq` / `dashboard xmlq`
   Parse JSON, YAML, TOML, Java properties, INI, CSV, and XML input and optionally traverse a dotted path before printing a scalar or canonical JSON. File-path and query-path argument order is interchangeable, and `$d` selects the full parsed document.
 
-- private `~/.developer-dashboard/cli/jq` / `yq` / `tomq` / `propq` / `iniq` / `csvq` / `xmlq` / `of` / `open-file`
+- private `~/.developer-dashboard/cli/jq` / `yq` / `tomq` / `propq` / `iniq` / `csvq` / `xmlq` / `of` / `open-file` / `ticket`
   Are staged into the dashboard runtime and used for private helper dispatch without installing generic command names into the system PATH.
 
-- no standalone `of`, `open-file`, or `ticket` executable
-  The distribution keeps file-opening and ticket-aware behaviour behind
-  `dashboard` subcommands or external user-managed tools instead of shipping
-  more generic top-level binaries into the CPAN-installed PATH.
+- no public standalone `of`, `open-file`, or `ticket` executable
+  The distribution keeps file-opening and ticket-session behaviour behind
+  `dashboard` subcommands plus private runtime helpers instead of shipping more
+  generic top-level binaries into the CPAN-installed PATH.
 
 - `Developer::Dashboard::PageDocument`
   Canonical page model for saved, transient, and legacy bookmark pages.

@@ -36,10 +36,11 @@ my $runtime_csvq = File::Spec->catfile( $runtime_cli_root, 'csvq' );
 my $runtime_xmlq = File::Spec->catfile( $runtime_cli_root, 'xmlq' );
 my $runtime_of = File::Spec->catfile( $runtime_cli_root, 'of' );
 my $runtime_open_file = File::Spec->catfile( $runtime_cli_root, 'open-file' );
+my $runtime_ticket = File::Spec->catfile( $runtime_cli_root, 'ticket' );
 
 my $init = _run("$perl -I'$lib' '$dashboard' init");
 like($init, qr/runtime_root/, 'dashboard init works');
-for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runtime_iniq, $runtime_csvq, $runtime_xmlq, $runtime_of, $runtime_open_file ) {
+for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runtime_iniq, $runtime_csvq, $runtime_xmlq, $runtime_of, $runtime_open_file, $runtime_ticket ) {
     ok( -f $helper, "dashboard init seeds private helper $helper" );
     ok( -x $helper, "dashboard init marks private helper $helper executable" );
 }
@@ -187,6 +188,7 @@ like( $usage_stdout . $usage_stderr, qr/SYNOPSIS|dashboard init/, 'dashboard wit
 my $help = _run("$perl -I'$lib' '$dashboard' help");
 like($help, qr/Description:/, 'dashboard help renders the fuller POD help');
 like($help, qr/dashboard serve \[logs \[-f\] \[-n N\]\|workers <N>\]/, 'dashboard help documents serve logs tail/follow flags and serve workers commands');
+like($help, qr/dashboard ticket \[ticket-ref\]/, 'dashboard help documents the built-in ticket subcommand');
 
 my $serve_workers_port = _find_free_port();
 my $serve_workers = _run("$perl -I'$lib' '$dashboard' serve workers 3 --port $serve_workers_port");
@@ -380,6 +382,44 @@ like($java_class, qr/\Q$java_target\E/, 'dashboard open-file resolves Java class
 
 my $runtime_java_class = _run("cd '$open_root' && $perl -I'$repo/lib' '$runtime_open_file' --print com.example.App");
 like($runtime_java_class, qr/\Q$java_target\E/, 'private runtime open-file helper resolves Java class names');
+
+my $fake_ticket_bin = File::Spec->catdir( $ENV{HOME}, 'fake-ticket-bin' );
+make_path($fake_ticket_bin);
+my $fake_ticket_log = File::Spec->catfile( $ENV{HOME}, 'fake-ticket-tmux.log' );
+my $fake_ticket_tmux = File::Spec->catfile( $fake_ticket_bin, 'tmux' );
+open my $fake_ticket_tmux_fh, '>', $fake_ticket_tmux or die "Unable to write $fake_ticket_tmux: $!";
+print {$fake_ticket_tmux_fh} <<"SH";
+#!/bin/sh
+printf '%s\\n' "\$*" >> '$fake_ticket_log'
+if [ "\$1" = "has-session" ]; then
+  if [ "\$3" = "DD-NEW" ]; then
+    exit 1
+  fi
+  exit 0
+fi
+exit 0
+SH
+close $fake_ticket_tmux_fh;
+chmod 0755, $fake_ticket_tmux or die "Unable to chmod $fake_ticket_tmux: $!";
+my $ticket_output = _run("PATH='$fake_ticket_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' ticket DD-NEW");
+is( $ticket_output, '', 'dashboard ticket stays quiet on success while tmux handles the terminal attach' );
+open my $fake_ticket_log_fh, '<', $fake_ticket_log or die "Unable to read $fake_ticket_log: $!";
+my $fake_ticket_log_text = do { local $/; <$fake_ticket_log_fh> };
+close $fake_ticket_log_fh;
+like( $fake_ticket_log_text, qr/^has-session -t DD-NEW$/m, 'dashboard ticket checks whether the requested tmux session already exists' );
+like( $fake_ticket_log_text, qr/^new-session -d .* -s DD-NEW -n Code1$/m, 'dashboard ticket creates a new tmux session when the ticket session is missing' );
+like( $fake_ticket_log_text, qr/^attach-session -t DD-NEW$/m, 'dashboard ticket attaches to the requested tmux session' );
+like( $fake_ticket_log_text, qr/TICKET_REF=DD-NEW/, 'dashboard ticket seeds TICKET_REF into new tmux sessions' );
+
+unlink $fake_ticket_log or die "Unable to unlink $fake_ticket_log: $!";
+my $runtime_ticket_output = _run("PATH='$fake_ticket_bin':\"\$PATH\" $perl -I'$lib' '$runtime_ticket' DD-EXISTING");
+is( $runtime_ticket_output, '', 'private runtime ticket helper stays quiet on success' );
+open my $runtime_ticket_log_fh, '<', $fake_ticket_log or die "Unable to read $fake_ticket_log: $!";
+my $runtime_ticket_log_text = do { local $/; <$runtime_ticket_log_fh> };
+close $runtime_ticket_log_fh;
+like( $runtime_ticket_log_text, qr/^has-session -t DD-EXISTING$/m, 'private runtime ticket helper checks the requested session' );
+unlike( $runtime_ticket_log_text, qr/^new-session /m, 'private runtime ticket helper skips session creation when tmux reports it already exists' );
+like( $runtime_ticket_log_text, qr/^attach-session -t DD-EXISTING$/m, 'private runtime ticket helper attaches to existing sessions' );
 
 my $json_value = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta});
 is( $json_value, "2\n", 'jq extracts scalar JSON values' );
@@ -623,7 +663,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.50\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.51\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' tomq alpha.beta});
 is( $toml_value, "4\n", 'tomq extracts scalar TOML values' );

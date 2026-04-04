@@ -1516,6 +1516,7 @@ dashboard - command-line entrypoint for Developer Dashboard
   dashboard path project-root
   dashboard of [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
   dashboard open-file [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
+  dashboard ticket [ticket-ref]
   dashboard jq [path] [file]
   dashboard yq [path] [file]
   dashboard tomq [path] [file]
@@ -1613,6 +1614,11 @@ user CLI extensions loaded from F<~/.developer-dashboard/cli>
 built-in C<dashboard of> / C<dashboard open-file> resolution for direct files,
 C<file:line> references, Perl module names, Java class names, and recursive
 pattern matching
+
+=item *
+
+built-in C<dashboard ticket> tmux session attach/create support through a
+private runtime helper staged under F<~/.developer-dashboard/cli/ticket>
 
 =item *
 

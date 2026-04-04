@@ -222,7 +222,9 @@ cpanm /tmp/Developer-Dashboard-1.46.tar.gz -v
 The installed executable audit should also confirm that the built tarball
 exports only `dashboard` into the global PATH. Generic helper names such as
 `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, and
-`ticket` must not appear as repo-shipped top-level executables.
+`ticket` must not appear as a repo-shipped top-level executable. If it is part
+of the dashboard toolchain, it must stay behind `dashboard ticket` and the
+private runtime helper staged under `~/.developer-dashboard/cli/ticket`.
 
 and uploads the resulting tarball to PAUSE using:
 

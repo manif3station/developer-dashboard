@@ -18,15 +18,15 @@ my $makefile = _slurp( _repo_path('Makefile.PL') );
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.50', 'repo version bumped for the private open-file helper restore release' );
-like( $pm, qr/^1\.50$/m, 'main POD version matches the module version' );
+is( $version, '1.51', 'repo version bumped for the private ticket helper release' );
+like( $pm, qr/^1\.51$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.50$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.51$/m, 'dist.ini version matches the module version in the source tree' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.50"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.51"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.50\s+2026-04-04$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.51\s+2026-04-04$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -69,11 +69,13 @@ for my $helper (qw(jq yq tomq propq iniq csvq xmlq)) {
 for my $doc ( $readme, $pm ) {
     like( $doc, qr/~\/\.developer-dashboard\/cli/, 'docs describe private helper extraction under the runtime cli root' );
     like( $doc, qr/\bof\b.*~\/\.developer-dashboard\/cli|~\/\.developer-dashboard\/cli.*\bof\b/s, 'docs describe private of/open-file helper staging' );
+    like( $doc, qr/\bticket\b.*~\/\.developer-dashboard\/cli|~\/\.developer-dashboard\/cli.*\bticket\b/s, 'docs describe private ticket helper staging' );
     like( $doc, qr/dashboard jq/, 'docs describe the renamed jq subcommand' );
     like( $doc, qr/dashboard yq/, 'docs describe the renamed yq subcommand' );
     like( $doc, qr/dashboard tomq/, 'docs describe the renamed tomq subcommand' );
     like( $doc, qr/dashboard propq/, 'docs describe the renamed propq subcommand' );
     unlike( $doc, qr/standalone `of` and `open-file`|standalone of and open-file/, 'docs no longer advertise public standalone of/open-file executables' );
+    unlike( $doc, qr/standalone `ticket` executable|standalone ticket executable/, 'docs no longer advertise a public standalone ticket executable' );
     like( $doc, qr/Developer::Dashboard::Runtime::Result/, 'docs use the namespaced Runtime::Result module name' );
     like( $doc, qr/Developer::Dashboard::Folder/, 'docs use the namespaced Folder module name' );
 }

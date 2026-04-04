@@ -13,6 +13,7 @@ use Test::More;
 use lib 'lib';
 
 use Developer::Dashboard::CLI::Query ();
+use Developer::Dashboard::CLI::Ticket ();
 use Developer::Dashboard::InternalCLI ();
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Runtime::Result ();
@@ -55,6 +56,7 @@ is_deeply(
 );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('pjq'), 'jq', 'legacy helper alias normalizes to jq' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('xmlq'), 'xmlq', 'current helper name stays unchanged' );
+is( Developer::Dashboard::InternalCLI::canonical_helper_name('ticket'), 'ticket', 'ticket helper name stays unchanged' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('bogus'), '', 'unsupported helper names normalize to empty string' );
 like(
     _dies( sub { Developer::Dashboard::InternalCLI::helper_path( paths => $paths, name => 'bogus' ) } ),
@@ -75,6 +77,13 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
             "helper_content renders the embedded $helper open-file helper body",
         );
     }
+    elsif ( $helper eq 'ticket' ) {
+        like(
+            $content,
+            qr/\Qrun_ticket_command( args => \@ARGV );\E/,
+            'helper_content renders the embedded ticket helper body',
+        );
+    }
     else {
         like(
             $content,
@@ -88,6 +97,182 @@ my @helper_names = Developer::Dashboard::InternalCLI::helper_names();
 is( scalar(@$seeded_helpers), scalar(@helper_names), 'ensure_helpers writes every embedded helper once' );
 ok( grep( $_ =~ m{/\Qof\E$}, @$seeded_helpers ), 'ensure_helpers writes the private of helper' );
 ok( grep( $_ =~ m{/\Qopen-file\E$}, @$seeded_helpers ), 'ensure_helpers writes the private open-file helper' );
+ok( grep( $_ =~ m{/\Qticket\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ticket helper' );
+
+is(
+    Developer::Dashboard::CLI::Ticket::resolve_ticket_request(
+        args       => [],
+        env_ticket => 'DD-123',
+    ),
+    'DD-123',
+    'resolve_ticket_request falls back to env_ticket when argv is empty',
+);
+like(
+    _dies( sub { Developer::Dashboard::CLI::Ticket::resolve_ticket_request( args => [] ) } ),
+    qr/Please specify a ticket name/,
+    'resolve_ticket_request rejects empty ticket requests',
+);
+is_deeply(
+    Developer::Dashboard::CLI::Ticket::ticket_environment('DD-123'),
+    {
+        TICKET_REF => 'DD-123',
+        B          => 'DD-123',
+        OB         => 'origin/DD-123',
+    },
+    'ticket_environment builds the expected tmux environment values',
+);
+like(
+    _dies( sub { Developer::Dashboard::CLI::Ticket::ticket_environment('') } ),
+    qr/Ticket name is required/,
+    'ticket_environment rejects empty ticket names',
+);
+is(
+    Developer::Dashboard::CLI::Ticket::session_exists(
+        session => 'exists',
+        tmux    => sub { return { exit_code => 0, stdout => '', stderr => '' } },
+    ),
+    1,
+    'session_exists returns true when tmux has-session succeeds',
+);
+is(
+    Developer::Dashboard::CLI::Ticket::session_exists(
+        session => 'missing',
+        tmux    => sub { return { exit_code => 1, stdout => '', stderr => '' } },
+    ),
+    0,
+    'session_exists returns false when tmux has-session reports a missing session',
+);
+like(
+    _dies(
+        sub {
+            Developer::Dashboard::CLI::Ticket::session_exists(
+                session => 'broken',
+                tmux    => sub { return { exit_code => 2, stdout => "oops\n", stderr => "bad\n" } },
+            );
+        }
+    ),
+    qr/Unable to inspect tmux session 'broken': bad\noops\n/,
+    'session_exists surfaces unexpected tmux failures',
+);
+
+my $ticket_plan = Developer::Dashboard::CLI::Ticket::build_ticket_plan(
+    args => ['DD-456'],
+    cwd  => '/tmp/work-here',
+    tmux => sub { return { exit_code => 1, stdout => '', stderr => '' } },
+);
+is( $ticket_plan->{session}, 'DD-456', 'build_ticket_plan keeps the requested session name' );
+is( $ticket_plan->{cwd}, '/tmp/work-here', 'build_ticket_plan keeps the requested cwd' );
+ok( $ticket_plan->{create}, 'build_ticket_plan creates a new session when tmux reports it missing' );
+is_deeply(
+    $ticket_plan->{attach_argv},
+    [ 'attach-session', '-t', 'DD-456' ],
+    'build_ticket_plan prepares the attach argv',
+);
+ok(
+    grep( $_ eq 'TICKET_REF=DD-456', @{ $ticket_plan->{create_argv} } ),
+    'build_ticket_plan includes TICKET_REF in the create argv',
+);
+my $existing_ticket_plan = Developer::Dashboard::CLI::Ticket::build_ticket_plan(
+    args => ['DD-456'],
+    cwd  => '/tmp/work-here',
+    tmux => sub { return { exit_code => 0, stdout => '', stderr => '' } },
+);
+ok( !$existing_ticket_plan->{create}, 'build_ticket_plan skips creation for existing sessions' );
+
+{
+    my @tmux_calls;
+    my $result = Developer::Dashboard::CLI::Ticket::run_ticket_command(
+        args => ['DD-789'],
+        cwd  => '/tmp/work-here',
+        tmux => sub {
+            my (%call) = @_;
+            push @tmux_calls, [ @{ $call{args} } ];
+            if ( $call{args}[0] eq 'has-session' ) {
+                return { exit_code => 1, stdout => '', stderr => '' };
+            }
+            return { exit_code => 0, stdout => '', stderr => '' };
+        },
+    );
+    is( $result->{session}, 'DD-789', 'run_ticket_command returns the executed plan' );
+    is_deeply( $tmux_calls[1][0], 'new-session', 'run_ticket_command creates a missing tmux session before attaching' );
+    is_deeply( $tmux_calls[2], [ 'attach-session', '-t', 'DD-789' ], 'run_ticket_command attaches to the requested tmux session' );
+}
+{
+    my @tmux_calls;
+    Developer::Dashboard::CLI::Ticket::run_ticket_command(
+        args => ['DD-790'],
+        cwd  => '/tmp/work-here',
+        tmux => sub {
+            my (%call) = @_;
+            push @tmux_calls, [ @{ $call{args} } ];
+            return { exit_code => 0, stdout => '', stderr => '' };
+        },
+    );
+    is( scalar(@tmux_calls), 2, 'run_ticket_command only checks and attaches when the session already exists' );
+}
+like(
+    _dies(
+        sub {
+            Developer::Dashboard::CLI::Ticket::run_ticket_command(
+                args => ['DD-791'],
+                cwd  => '/tmp/work-here',
+                tmux => sub {
+                    my (%call) = @_;
+                    return { exit_code => 1, stdout => '', stderr => '' } if $call{args}[0] eq 'has-session';
+                    return { exit_code => 2, stdout => "create\n", stderr => "failed\n" } if $call{args}[0] eq 'new-session';
+                    return { exit_code => 0, stdout => '', stderr => '' };
+                },
+            );
+        }
+    ),
+    qr/Unable to create tmux ticket session 'DD-791': failed\ncreate\n/,
+    'run_ticket_command surfaces tmux session creation failures',
+);
+like(
+    _dies(
+        sub {
+            Developer::Dashboard::CLI::Ticket::run_ticket_command(
+                args => ['DD-792'],
+                cwd  => '/tmp/work-here',
+                tmux => sub {
+                    my (%call) = @_;
+                    return { exit_code => 0, stdout => '', stderr => '' } if $call{args}[0] eq 'has-session';
+                    return { exit_code => 3, stdout => "attach\n", stderr => "denied\n" };
+                },
+            );
+        }
+    ),
+    qr/Unable to attach tmux ticket session 'DD-792': denied\nattach\n/,
+    'run_ticket_command surfaces tmux attach failures',
+);
+
+{
+    my $fake_bin = File::Spec->catdir( $ENV{HOME}, 'tmux-bin' );
+    make_path($fake_bin);
+    my $log_file = File::Spec->catfile( $ENV{HOME}, 'tmux.log' );
+    my $fake_tmux = File::Spec->catfile( $fake_bin, 'tmux' );
+    _write_file(
+        $fake_tmux,
+        <<"SH"
+#!/bin/sh
+printf '%s\\n' "\$*" >> "$log_file"
+if [ "\$1" = "has-session" ]; then
+  exit 0
+fi
+exit 0
+SH
+    );
+    chmod 0755, $fake_tmux or die "Unable to chmod $fake_tmux: $!";
+    local $ENV{PATH} = join ':', $fake_bin, ( $ENV{PATH} || '' );
+    my $tmux_result = Developer::Dashboard::CLI::Ticket::tmux_command(
+        args => [ 'attach-session', '-t', 'DD-800' ],
+    );
+    is( $tmux_result->{exit_code}, 0, 'tmux_command returns the wrapped tmux exit code' );
+    is( $tmux_result->{stderr}, '', 'tmux_command captures stderr from tmux' );
+    open my $tmux_log_fh, '<', $log_file or die "Unable to read $log_file: $!";
+    like( do { local $/; <$tmux_log_fh> }, qr/attach-session -t DD-800/, 'tmux_command runs tmux with the requested argv' );
+    close $tmux_log_fh;
+}
 
 is_deeply(
     [ Developer::Dashboard::CLI::Query::_split_query_args() ],

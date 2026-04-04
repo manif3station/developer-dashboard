@@ -1,5 +1,15 @@
 Revision history for Developer Dashboard
 
+1.51  2026-04-04
+    - added a private `ticket` helper under `~/.developer-dashboard/cli/` so
+      `dashboard ticket` is again part of the built-in toolchain without
+      reintroducing a public top-level executable into the installed PATH
+    - implemented shared tmux ticket-session logic that reuses an existing
+      session when present, creates a new `Code1` session when missing, and
+      seeds `TICKET_REF`, `B`, and `OB` into the tmux session environment
+    - added smoke, refactor, and release-metadata coverage for the staged
+      private ticket helper and its tmux dispatch behaviour
+
 1.50  2026-04-04
     - restored private `of` and `open-file` helper staging under
       `~/.developer-dashboard/cli/` so the runtime still seeds those helpers
