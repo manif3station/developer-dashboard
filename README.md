@@ -891,17 +891,19 @@ a single command.
 The seeded `sql-dashboard` bookmark is a file-backed SQL workspace built
 inside the bookmark runtime itself rather than as a separate product module.
 It stores connection profiles under
-`config/sql-dashboard/<profile-name>.json`, keeps the active top-level tab,
-selected profile, selected schema table, and current SQL in the browser URL,
-renders connection profiles and schema tables as click-through tabs instead of
-one long vertical stack, executes SQL through generic `DBI`, and uses DBI
-metadata calls such as `table_info` and `column_info` for the schema browser.
-It preserves programmable statement blocks through `SQLS_SEP` and
-`INSTRUCTION_SEP`, including `STASH`, `ROW`, `BEFORE`, and `AFTER` hooks, so
-result rows can still be transformed locally before rendering. No `DBD::*`
-driver ships in the base tarball by default; install the one you need with
-`dashboard cpan DBD::Driver`, and the bookmark will return explicit install
-guidance when a selected driver is missing.
+`config/sql-dashboard/<profile-name>.json`, keeps that
+`config/sql-dashboard` directory owner-only at `0700`, writes each saved
+profile JSON file owner-only at `0600`, keeps the active top-level tab,
+selected profile, selected schema table, and current SQL in the browser URL
+instead of a saved SQL file, renders connection profiles and schema tables as
+click-through tabs instead of one long vertical stack, executes SQL through
+generic `DBI`, and uses DBI metadata calls such as `table_info` and
+`column_info` for the schema browser. It preserves programmable statement
+blocks through `SQLS_SEP` and `INSTRUCTION_SEP`, including `STASH`, `ROW`,
+`BEFORE`, and `AFTER` hooks, so result rows can still be transformed locally
+before rendering. No `DBD::*` driver ships in the base tarball by default;
+install the one you need with `dashboard cpan DBD::Driver`, and the bookmark
+will return explicit install guidance when a selected driver is missing.
 
 ### Skills System
 

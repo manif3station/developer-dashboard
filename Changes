@@ -1,5 +1,18 @@
 Revision history for Developer Dashboard
 
+1.72  2026-04-05
+    - fixed the sql-dashboard profile-permission gap by tightening
+      `config/sql-dashboard` to `0700`, writing saved profile JSON files at
+      `0600`, and repairing older insecure profile modes the next time the
+      bookmark bootstrap/profile-read path touches them
+    - extended `t/26-sql-dashboard.t` and
+      `t/27-sql-dashboard-playwright.t` so both saved-Ajax and real-browser
+      coverage now assert the owner-only sql-dashboard profile store
+    - updated README, main module POD, architecture/testing/security docs, and
+      `SOFTWARE_SPEC.md` so the shipped SQL workspace description matches the
+      secured project-local profile storage and makes clear that current SQL
+      text still lives in shareable URL state rather than a saved SQL file
+
 1.71  2026-04-05
     - removed the stray `Developer::Dashboard::CPANManager` core module so the
       generic SQL workspace stays isolated: `dashboard cpan <Module...>` now

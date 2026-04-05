@@ -224,8 +224,9 @@ itself rather than requiring a dedicated product module for the dashboard
 logic. It should support:
 
 - file-backed connection profiles under `config/sql-dashboard/<profile-name>.json`
+- owner-only `config/sql-dashboard` directory permissions (`0700`) with owner-only profile json files (`0600`)
 - create, edit, and delete flows for connection profiles
-- shareable browser URL state for the active profile, active tab, selected schema table, and current SQL text
+- shareable browser URL state for the active profile, active tab, selected schema table, and current SQL text instead of a saved SQL file
 - generic `DBI` execution rather than a single database brand
 - schema browsing through metadata calls such as `table_info` and `column_info`
 - programmable result handling through statement separators and instruction hooks such as `SQLS_SEP`, `INSTRUCTION_SEP`, `STASH`, `ROW`, `BEFORE`, and `AFTER`

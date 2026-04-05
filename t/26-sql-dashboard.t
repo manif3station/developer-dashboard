@@ -33,6 +33,13 @@ sub drain_stream_body {
     return $output;
 }
 
+sub _mode_octal {
+    my ($path) = @_;
+    my @stat = stat($path);
+    return undef if !@stat;
+    return sprintf( '%04o', $stat[2] & 07777 );
+}
+
 local $ENV{HOME} = tempdir( CLEANUP => 1 );
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
@@ -90,22 +97,6 @@ _write_text(
 );
 
 my $sql_profile_root = File::Spec->catdir( $paths->config_root, 'sql-dashboard' );
-make_path($sql_profile_root);
-my $seed_profile_file = File::Spec->catfile( $sql_profile_root, 'Seed Profile.json' );
-_write_text(
-    $seed_profile_file,
-    json_encode(
-        {
-            name         => 'Seed Profile',
-            driver       => 'DBD::Mock',
-            dsn          => 'dbi:Mock:seed',
-            user         => 'seed_user',
-            password     => 'seed-pass',
-            save_password => 1,
-            attrs_json   => '{"RaiseError":1,"PrintError":0,"AutoCommit":1}',
-        }
-    )
-);
 
 my ( $render_code, undef, $render_body ) = @{ $app->handle(
     path        => '/app/sql-dashboard',
@@ -138,9 +129,10 @@ my $bootstrap_payload = json_decode( drain_stream_body($bootstrap_body_ref) );
 ok( $bootstrap_payload->{ok}, 'sql-dashboard profile bootstrap reports success' );
 is_deeply(
     [ map { $_->{name} } @{ $bootstrap_payload->{profiles} || [] } ],
-    ['Seed Profile'],
-    'sql-dashboard profile bootstrap loads connection profiles from config/sql-dashboard',
+    [],
+    'sql-dashboard profile bootstrap returns an empty profile list before any profiles are saved',
 );
+is( _mode_octal($sql_profile_root), '0700', 'sql-dashboard profile root is created as an owner-only directory' );
 
 my $save_profile_payload = json_encode(
     {
@@ -165,12 +157,38 @@ is( $profile_save_code, 200, 'sql-dashboard profile save endpoint responds throu
 like( $profile_save_type, qr/application\/json/, 'sql-dashboard profile save endpoint returns json content' );
 my $profile_save_payload = json_decode( drain_stream_body($profile_save_body_ref) );
 ok( $profile_save_payload->{ok}, 'sql-dashboard profile save reports success' );
-ok( -f File::Spec->catfile( $sql_profile_root, 'Saved Profile.json' ), 'sql-dashboard profile save writes config/sql-dashboard/<profile-name>.json' );
+my $saved_profile_path = File::Spec->catfile( $sql_profile_root, 'Saved Profile.json' );
+ok( -f $saved_profile_path, 'sql-dashboard profile save writes config/sql-dashboard/<profile-name>.json' );
+is( _mode_octal($sql_profile_root), '0700', 'sql-dashboard profile root stays owner-only after saving a profile' );
+is( _mode_octal($saved_profile_path), '0600', 'sql-dashboard profile save writes an owner-only profile json file' );
+chmod 0775, $sql_profile_root or die "Unable to loosen $sql_profile_root for test coverage: $!";
+chmod 0664, $saved_profile_path or die "Unable to loosen $saved_profile_path for test coverage: $!";
+is( _mode_octal($sql_profile_root), '0775', 'test fixture loosens the sql-dashboard profile root before bootstrap repair' );
+is( _mode_octal($saved_profile_path), '0664', 'test fixture loosens the saved sql-dashboard profile file before bootstrap repair' );
+
+my ( $bootstrap_after_save_code, $bootstrap_after_save_type, $bootstrap_after_save_body_ref ) = @{ $app->handle(
+    path        => '/ajax/sql-dashboard-profiles-bootstrap',
+    query       => 'type=json',
+    method      => 'GET',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is( $bootstrap_after_save_code, 200, 'sql-dashboard bootstrap still responds after a profile save' );
+like( $bootstrap_after_save_type, qr/application\/json/, 'sql-dashboard bootstrap still returns json after a profile save' );
+my $bootstrap_after_save_payload = json_decode( drain_stream_body($bootstrap_after_save_body_ref) );
+ok( $bootstrap_after_save_payload->{ok}, 'sql-dashboard bootstrap reports success after a profile save' );
+is_deeply(
+    [ map { $_->{name} } @{ $bootstrap_after_save_payload->{profiles} || [] } ],
+    ['Saved Profile'],
+    'sql-dashboard bootstrap reloads saved profiles from disk',
+);
+is( _mode_octal($sql_profile_root), '0700', 'sql-dashboard bootstrap repairs an insecure profile root back to owner-only mode' );
+is( _mode_octal($saved_profile_path), '0600', 'sql-dashboard bootstrap repairs an insecure saved profile file back to owner-only mode' );
 
 my $execute_settings = json_encode(
     {
-        profile_name => 'Seed Profile',
-        password     => 'seed-pass',
+        profile_name => 'Saved Profile',
+        password     => 'saved-pass',
         sql          => join(
             "\n:------------------------------------------------------------------------------:\n",
             join(
@@ -198,13 +216,13 @@ ok( $execute_payload->{ok}, 'sql-dashboard execute reports success' );
 like( $execute_payload->{html}, qr/<table/, 'sql-dashboard execute returns rendered html for statement results' );
 like( $execute_payload->{html}, qr/<strong class="mock-link">Bob<\/strong>/, 'sql-dashboard execute honors programmable ROW html transforms' );
 like( $execute_payload->{html}, qr/Rows affected:\s*3/, 'sql-dashboard execute reports rows affected for non-select statements' );
-is( $execute_payload->{details}{profile_name}, 'Seed Profile', 'sql-dashboard execute reports the selected profile name' );
+is( $execute_payload->{details}{profile_name}, 'Saved Profile', 'sql-dashboard execute reports the selected profile name' );
 is( $execute_payload->{results}[0]{row_count}, 2, 'sql-dashboard execute returns structured row counts for select statements' );
 
 my $schema_settings = json_encode(
     {
-        profile_name => 'Seed Profile',
-        password     => 'seed-pass',
+        profile_name => 'Saved Profile',
+        password     => 'saved-pass',
         table_name   => 'USERS',
     }
 );
@@ -417,6 +435,7 @@ __END__
 This test loads the seeded C<sql-dashboard> bookmark, exercises its saved Ajax
 profile/bootstrap/schema/execute flows, and verifies that runtime-local Perl
 modules under C<.developer-dashboard/local/lib/perl5> are visible to the saved
-Ajax worker process.
+Ajax worker process while the project-local C<config/sql-dashboard> directory
+and saved profile files stay owner-only.
 
 =cut

@@ -12,6 +12,13 @@ use POSIX qw(WNOHANG);
 use Test::More;
 use Time::HiRes qw(sleep);
 
+sub _mode_octal {
+    my ($path) = @_;
+    my @stat = stat($path);
+    return undef if !@stat;
+    return sprintf( '%04o', $stat[2] & 07777 );
+}
+
 my $repo_root      = abs_path('.');
 my $repo_lib       = File::Spec->catdir( $repo_root, 'lib' );
 my $dashboard_bin  = File::Spec->catfile( $repo_root, 'bin', 'dashboard' );
@@ -36,7 +43,6 @@ my $config_root  = File::Spec->catdir( $runtime_root, 'config', 'sql-dashboard' 
 my $local_lib    = File::Spec->catdir( $runtime_root, 'local', 'lib', 'perl5' );
 
 make_path($runtime_root);
-make_path($config_root);
 make_path( File::Spec->catdir( $local_lib, 'DBD' ) );
 
 _write_text( File::Spec->catfile( $local_lib, 'DBI.pm' ), _fake_dbi_module() );
@@ -89,6 +95,8 @@ eval {
 
     my $saved_profile = File::Spec->catfile( $config_root, 'Playwright Profile.json' );
     ok( -f $saved_profile, 'browser-created sql profile persists to config/sql-dashboard' );
+    is( _mode_octal($config_root), '0700', 'browser-created sql profile root is owner-only' );
+    is( _mode_octal($saved_profile), '0600', 'browser-created sql profile file is owner-only' );
     my $saved_text = _read_text($saved_profile);
     like( $saved_text, qr/"name"\s*:\s*"Playwright Profile"/, 'saved sql profile keeps the browser-created profile name' );
     like( $saved_text, qr/"driver"\s*:\s*"DBD::Mock"/, 'saved sql profile keeps the requested driver module' );
@@ -556,6 +564,8 @@ __END__
 
 This test starts an isolated project-local runtime, injects a fake DBI/DBD
 stack under C<.developer-dashboard/local/lib/perl5>, and drives the seeded
-C<sql-dashboard> bookmark through a real Chromium Playwright session.
+C<sql-dashboard> bookmark through a real Chromium Playwright session while
+verifying that browser-created saved profiles persist with owner-only
+permissions.
 
 =cut

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.71';
+our $VERSION = '1.72';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.71
+1.72
 
 =head1 INTRODUCTION
 
@@ -1431,17 +1431,20 @@ a single command.
 The seeded C<sql-dashboard> bookmark is a file-backed SQL workspace built
 inside the bookmark runtime itself rather than as a separate product module.
 It stores connection profiles under
-F<config/sql-dashboard/E<lt>profile-nameE<gt>.json>, keeps the active
-top-level tab, selected profile, selected schema table, and current SQL in the
-browser URL, renders connection profiles and schema tables as click-through
-tabs instead of one long vertical stack, executes SQL through generic C<DBI>,
-and uses DBI metadata calls such as C<table_info> and C<column_info> for the
-schema browser. It preserves programmable statement blocks through
-C<SQLS_SEP> and C<INSTRUCTION_SEP>, including C<STASH>, C<ROW>, C<BEFORE>,
-and C<AFTER> hooks, so result rows can still be transformed locally before
-rendering. No C<DBD::*> driver ships in the base tarball by default; install
-the one you need with C<dashboard cpan DBD::Driver>, and the bookmark will
-return explicit install guidance when a selected driver is missing.
+F<config/sql-dashboard/E<lt>profile-nameE<gt>.json>, keeps that
+F<config/sql-dashboard> directory owner-only at C<0700>, writes each saved
+profile JSON file owner-only at C<0600>, keeps the active top-level tab,
+selected profile, selected schema table, and current SQL in the browser URL
+instead of a saved SQL file, renders connection profiles and schema tables as
+click-through tabs instead of one long vertical stack, executes SQL through
+generic C<DBI>, and uses DBI metadata calls such as C<table_info> and
+C<column_info> for the schema browser. It preserves programmable statement
+blocks through C<SQLS_SEP> and C<INSTRUCTION_SEP>, including C<STASH>,
+C<ROW>, C<BEFORE>, and C<AFTER> hooks, so result rows can still be
+transformed locally before rendering. No C<DBD::*> driver ships in the base
+tarball by default; install the one you need with C<dashboard cpan
+DBD::Driver>, and the bookmark will return explicit install guidance when a
+selected driver is missing.
 
 =head2 Skills System
 

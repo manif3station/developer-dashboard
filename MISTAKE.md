@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: PROFILE-SECRET-PERMISSION-GAP
+
+**Date:** 2026-04-05 22:40:00 UTC
+**Area:** SQL workspace profile persistence and project-local runtime security
+**Symptom:** The bookmark-local `sql-dashboard` saved connection profiles, including optionally stored passwords, under `./.developer-dashboard/config/sql-dashboard`, but the directory and JSON files inherited permissive default modes instead of being tightened to owner-only access
+**Why It Was Dangerous:** Other local users could read or traverse profile storage more broadly than intended, which is especially bad when a profile file contains a deliberately saved database password
+**Root Cause:** I kept the SQL workspace isolated inside the bookmark code as requested, but I used plain `make_path` and file writes there without carrying over the same owner-only permission hardening discipline that exists elsewhere in the runtime
+**How Ellen Solved It:** Tightened the `config/sql-dashboard` directory to `0700`, tightened saved profile files to `0600`, made the bootstrap/profile-read path repair older insecure modes, added saved-Ajax coverage for directory/file mode repair, added Playwright coverage for browser-created profile file modes, and updated the shipped docs/security notes to describe the real storage model
+**How To Detect Earlier Next Time:** Any bookmark-local feature that writes project-local runtime files should trigger an immediate permission check for both new writes and existing migrated files, especially when the payload can contain secrets
+**Prevention Rule:** When bookmark code persists secrets or secret-adjacent config, enforce owner-only directory/file modes in the bookmark-local storage path and add tests that assert both initial write permissions and repair of older insecure files
+**Verification:** `prove -lv t/26-sql-dashboard.t`, `prove -lv t/27-sql-dashboard-playwright.t`
+**Related Files:** `bin/dashboard`, `t/26-sql-dashboard.t`, `t/27-sql-dashboard-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`, `doc/integration-test-plan.md`, `doc/security.md`, `SOFTWARE_SPEC.md`
+
+---
+
 ## CODE: BOOKMARK-ISOLATION-DRIFT
 
 **Date:** 2026-04-05 21:32:00 UTC

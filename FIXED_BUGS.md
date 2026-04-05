@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-05 (Phase 37: SQL Profile Permission Hardening)
+
+- Fixed the SQL workspace profile-storage permission gap by tightening `./.developer-dashboard/config/sql-dashboard` to owner-only `0700` and every saved profile JSON file to owner-only `0600`.
+- Fixed upgrade drift for older SQL profile stores by having the bookmark bootstrap/profile-read path repair insecure existing profile directory and file modes instead of only securing newly written files.
+- Updated browser and saved-Ajax regression coverage plus the shipped docs and software spec so the secured SQL profile persistence model stays explicit and verified.
+
 ## 2026-04-05 (Phase 36: SQL Isolation Cleanup)
 
 - Fixed the isolation drift in the new SQL workspace release by removing the dedicated `Developer::Dashboard::CPANManager` core module and keeping runtime driver installation in the `dashboard cpan <Module...>` script path instead.

@@ -4381,10 +4381,31 @@ sub sql_dashboard_escape_html {
     return $text;
 }
 
+# sql_dashboard_secure_dir($dir)
+# Purpose: ensure the sql-dashboard profile directory exists and is owner-only.
+# Input: absolute directory path for the sql-dashboard profile store.
+# Output: the same directory path after it has been created/tightened to 0700.
+sub sql_dashboard_secure_dir {
+    my ($dir) = @_;
+    make_path( $dir, { mode => 0700 } ) if !-d $dir;
+    chmod 0700, $dir or die "Unable to chmod $dir to 0700: $!";
+    return $dir;
+}
+
+# sql_dashboard_secure_file($path)
+# Purpose: tighten one existing sql-dashboard profile file to owner-only mode.
+# Input: absolute file path for a saved sql-dashboard profile json file.
+# Output: the same file path after it has been tightened to 0600.
+sub sql_dashboard_secure_file {
+    my ($path) = @_;
+    return $path if !-e $path;
+    chmod 0600, $path or die "Unable to chmod $path to 0600: $!";
+    return $path;
+}
+
 sub sql_dashboard_profile_dir {
     my $dir = File::Spec->catdir( Developer::Dashboard::Folder->configs, 'sql-dashboard' );
-    make_path($dir) if !-d $dir;
-    return $dir;
+    return sql_dashboard_secure_dir($dir);
 }
 
 sub sql_dashboard_profile_filename {
@@ -4430,6 +4451,7 @@ sub sql_dashboard_decode_profile_payload {
 sub sql_dashboard_read_profile {
     my ($name) = @_;
     my $path = sql_dashboard_profile_path($name);
+    sql_dashboard_secure_file($path);
     open my $fh, '<', $path or die "Unable to read $path: $!";
     local $/;
     my $json_text = <$fh>;
@@ -4450,6 +4472,7 @@ sub sql_dashboard_list_profiles {
         my $path = File::Spec->catfile( $dir, $entry );
         next if !-f $path;
         eval {
+            sql_dashboard_secure_file($path);
             open my $fh, '<', $path or die "Unable to read $path: $!";
             local $/;
             my $json_text = <$fh>;
@@ -4671,6 +4694,7 @@ eval {
     open my $fh, '>', $path or die "Unable to write $path: $!";
     print {$fh} json_encode($profile);
     close $fh or die "Unable to close $path: $!";
+    sql_dashboard_secure_file($path);
     $payload = {
         ok      => 1,
         profile => $profile,
