@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.57';
+our $VERSION = '1.66';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.57
+1.66
 
 =head1 INTRODUCTION
 
@@ -325,7 +325,10 @@ of the system reads the cached result.
 Configured collector indicators now prefer the configured icon in both places,
 and when a collector is renamed the old managed indicator is cleaned up
 automatically so the prompt and top-right browser strip do not show both the
-old and new names at the same time.
+old and new names at the same time. Those managed indicator records now also
+preserve a newer live collector status during restart/config-sync windows, so
+a healthy collector does not flicker back to C<missing> after it has already
+reported C<ok>.
 
 =head2 Why It Works As A Developer Home
 
@@ -632,8 +635,10 @@ Static files referenced by saved bookmarks are resolved from the effective
 runtime public tree first and then from the saved bookmark root. The web layer
 also provides a built-in C</js/jquery.js> compatibility shim, so bookmark pages
 that expect a local jQuery-style helper still have C<$>, C<$(document).ready>,
-C<$.ajax>, and selector C<.text(...)> support even when no runtime file has
-been copied into C<dashboard/public/js> yet.
+C<$.ajax>, jqXHR-style C<.done(...)> / C<.fail(...)> / C<.always(...)>
+chaining, the C<method> alias used by modern callers, and selector
+C<.text(...)> support even when no runtime file has been copied into
+C<dashboard/public/js> yet.
 
 Saved bookmark editor and view-source routes also protect literal inline
 script content from breaking the browser bootstrap. If a bookmark body
@@ -1298,6 +1303,9 @@ The coverage-closure suite includes managed collector loop start/stop paths
 under C<Devel::Cover>, including wrapped fork coverage in
 C<t/14-coverage-closure-extra.t>, so the covered run stays green without
 breaking TAP from daemon-style child processes.
+The runtime-manager coverage cases also use bounded child reaping for stubborn
+process shutdown scenarios, so C<Devel::Cover> runs do not stall indefinitely
+after the escalation path has already been exercised.
 
 For fast saved-bookmark browser regressions, run the dedicated smoke script:
 
@@ -1316,6 +1324,38 @@ and add explicit expectations:
     --expect-ajax-path /ajax/foobar?type=text \
   --expect-ajax-body 123 \
   --expect-dom-fragment '<span class="display">123</span>'
+
+For C<api-dashboard> import regressions against a real external Postman
+collection, run the generic Playwright repro with an explicit fixture path:
+
+  API_DASHBOARD_IMPORT_FIXTURE=/path/to/collection.postman_collection.json \
+  prove -lv t/23-api-dashboard-import-fixture-playwright.t
+
+That browser test injects the external fixture into the visible
+C<api-dashboard> import control and verifies that the collection appears in the
+Collections tab, opens from the tree, and persists to
+F<config/api-dashboard/E<lt>collection-nameE<gt>.json> without baking
+fixture-specific branding into the repository.
+
+For oversized C<api-dashboard> imports that need to stay browser-verified
+above the saved-Ajax inline payload threshold, run:
+
+  prove -lv t/25-api-dashboard-large-import-playwright.t
+
+That Playwright test imports a deliberately large Postman collection through
+the visible browser file input and verifies that the browser still reports a
+successful import instead of failing with an C<Argument list too long>
+transport error.
+
+For the tabbed C<api-dashboard> browser layout, run the dedicated Playwright
+coverage:
+
+  prove -lv t/24-api-dashboard-tabs-playwright.t
+
+That browser test verifies the top-level Collections and Workspace tabs, the
+collection-to-collection tab strip inside the Collections view, and the inner
+Request Details, Response Body, and Response Headers tabs below the response
+C<pre> box so the bookmark remains usable in constrained browser widths.
 
 For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
 host:
@@ -1346,10 +1386,30 @@ C<dashboard init> seeds three editable starter bookmarks when they are
 missing: C<welcome>, C<api-dashboard>, and C<db-dashboard>.
 
 The seeded C<api-dashboard> bookmark now behaves like a local Postman-style
-workspace. It keeps multiple request tabs in browser-local state, import and export Postman collection v2.1 JSON, loads bootstrap collections from the
-runtime F<config/postman> directory when they exist, and sends requests
-through its saved Ajax endpoint backed by C<LWP::UserAgent>, so request
-testing does not depend on browser CORS rules.
+workspace. It keeps multiple request tabs in browser-local state, supports
+import and export of Postman collection v2.1 JSON through the Collections
+tab, saves created, updated, and imported collections as Postman collection
+JSON under the runtime F<config/api-dashboard/E<lt>collection-nameE<gt>.json>
+path, reloads every stored collection when the bookmark opens, keeps the
+active collection, request, and tab reflected in the browser URL for
+direct-link and back/forward navigation, renders Collections and Workspace as
+top-level tabs for narrower browser layouts, renders stored collections as
+click-through tabs instead of one long vertical stack, shows a request-specific
+token form above the editor whenever the selected request uses
+C<{{token}}> placeholders, carries those token values across matching
+placeholders in other requests from the same collection, resolves those token
+values into the visible request URL, headers, and body fields, renders Request
+Details, Response Body, and Response Headers as inner workspace tabs below the
+response C<pre> box, defaults Response Body back to the active tab after each
+send, previews JSON, text, PDF, image, and TIFF responses appropriately, and
+sends requests through its saved Ajax endpoint backed by C<LWP::UserAgent>.
+HTTPS endpoints also require the packaged
+C<LWP::Protocol::https> runtime prerequisite, so clean installs can test
+normal TLS APIs without browser CORS rules. Oversized collection saves now
+spill the saved Ajax request payload through temp files instead of
+overflowing C<execve> environment limits, and the bookmark rejects empty
+C<200> save/delete responses instead of claiming success when nothing was
+persisted.
 
 =head2 Skills System
 

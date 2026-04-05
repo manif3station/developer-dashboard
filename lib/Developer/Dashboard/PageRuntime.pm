@@ -3,10 +3,11 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '1.57';
+our $VERSION = '1.66';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
+use File::Temp qw(tempfile);
 use IO::Select;
 use IPC::Open3 qw(open3);
 use Symbol qw(gensym);
@@ -397,6 +398,8 @@ sub stream_saved_ajax_file {
         params    => $params,
         singleton => $singleton,
     );
+    my @temp_files = grep { defined $_ && $_ ne '' }
+      @env{qw(DEVELOPER_DASHBOARD_AJAX_PARAMS_FILE DEVELOPER_DASHBOARD_AJAX_QUERY_STRING_FILE)};
 
     my $stdout = gensym;
     my $stderr = gensym;
@@ -405,7 +408,10 @@ sub stream_saved_ajax_file {
         local %ENV = ( %ENV, %env );
         open3( $stdin, $stdout, $stderr, @command );
     };
-    die $@ if $@;
+    if ($@) {
+        $self->_cleanup_saved_ajax_temp_files(@temp_files);
+        die $@;
+    }
     close $stdin;
 
     my $select = IO::Select->new( $stdout, $stderr );
@@ -436,14 +442,17 @@ sub stream_saved_ajax_file {
     };
 
     $self->_close_saved_ajax_streams( $select, $stdout, $stderr );
+    my $fatal_error = '';
     if ($disconnected) {
         $self->_terminate_saved_ajax_process($pid);
     }
     elsif ( $stream_error ne '' ) {
         $self->_terminate_saved_ajax_process($pid);
-        die $stream_error if !$self->_looks_like_stream_disconnect_error($stream_error);
+        $fatal_error = $stream_error if !$self->_looks_like_stream_disconnect_error($stream_error);
     }
     waitpid( $pid, 0 );
+    $self->_cleanup_saved_ajax_temp_files(@temp_files);
+    die $fatal_error if $fatal_error ne '';
     return {
         disconnected => $disconnected ? 1 : 0,
         exit_code => $? >> 8,
@@ -574,16 +583,74 @@ sub _saved_ajax_command {
 # Output: hash of environment key/value pairs.
 sub _saved_ajax_env {
     my ( $self, %args ) = @_;
-    my $params = ref( $args{params} ) eq 'HASH' ? $args{params} : {};
-    return (
-        DEVELOPER_DASHBOARD_AJAX_FILE   => $args{path} || '',
-        DEVELOPER_DASHBOARD_AJAX_PAGE   => $args{page} || '',
+    my $params       = ref( $args{params} ) eq 'HASH' ? $args{params} : {};
+    my $params_json  = json_encode($params);
+    my $query_string = _query_string_from_params($params);
+    my %env = (
+        DEVELOPER_DASHBOARD_AJAX_FILE      => $args{path} || '',
+        DEVELOPER_DASHBOARD_AJAX_PAGE      => $args{page} || '',
         DEVELOPER_DASHBOARD_AJAX_SINGLETON => $self->_normalize_saved_ajax_singleton( $args{singleton} ),
-        DEVELOPER_DASHBOARD_AJAX_TYPE   => $args{type} || '',
-        DEVELOPER_DASHBOARD_AJAX_PARAMS => json_encode($params),
-        QUERY_STRING                    => _query_string_from_params($params),
-        REQUEST_METHOD                  => 'GET',
+        DEVELOPER_DASHBOARD_AJAX_TYPE      => $args{type} || '',
+        DEVELOPER_DASHBOARD_AJAX_PARAMS    => $params_json,
+        QUERY_STRING                       => $query_string,
+        REQUEST_METHOD                     => 'GET',
     );
+    if ( length($params_json) > _saved_ajax_inline_env_limit() ) {
+        $env{DEVELOPER_DASHBOARD_AJAX_PARAMS_FILE} = _saved_ajax_temp_file(
+            prefix  => 'developer-dashboard-ajax-params-',
+            suffix  => '.json',
+            content => $params_json,
+        );
+        $env{DEVELOPER_DASHBOARD_AJAX_PARAMS} = '{}';
+    }
+    if ( length($query_string) > _saved_ajax_inline_env_limit() ) {
+        $env{DEVELOPER_DASHBOARD_AJAX_QUERY_STRING_FILE} = _saved_ajax_temp_file(
+            prefix  => 'developer-dashboard-ajax-query-',
+            suffix  => '.txt',
+            content => $query_string,
+        );
+        $env{QUERY_STRING} = '';
+    }
+    return %env;
+}
+
+# _saved_ajax_inline_env_limit()
+# Returns the maximum inline saved-Ajax env payload size before the runtime spills data to temp files.
+# Input: none.
+# Output: integer byte limit.
+sub _saved_ajax_inline_env_limit {
+    return 131_072;
+}
+
+# _saved_ajax_temp_file(%args)
+# Writes one saved-Ajax payload into a temp file so large request data does not exceed exec environment limits.
+# Input: hash with optional prefix, optional suffix, and raw text content.
+# Output: absolute temp file path string.
+sub _saved_ajax_temp_file {
+    my (%args) = @_;
+    my ( $fh, $path ) = tempfile(
+        ( $args{prefix} || 'developer-dashboard-ajax-' ) . 'XXXXXX',
+        TMPDIR => 1,
+        UNLINK => 0,
+        SUFFIX => $args{suffix} || '',
+    );
+    print {$fh} defined $args{content} ? $args{content} : '';
+    close $fh or die "Unable to close saved ajax temp file $path: $!";
+    return $path;
+}
+
+# _cleanup_saved_ajax_temp_files(@paths)
+# Removes any saved-Ajax temp files created to carry oversized request payloads between parent and child processes.
+# Input: zero or more temp file path strings.
+# Output: true value.
+sub _cleanup_saved_ajax_temp_files {
+    my ( $self, @paths ) = @_;
+    for my $path (@paths) {
+        next if !defined $path || $path eq '';
+        next if !-e $path;
+        unlink $path or die "Unable to remove saved ajax temp file $path: $!";
+    }
+    return 1;
 }
 
 # _normalize_saved_ajax_singleton($singleton)
@@ -650,8 +717,24 @@ select STDERR;
 $| = 1;
 select $old_stdout;
 
+my $ajax_params_json = $ENV{DEVELOPER_DASHBOARD_AJAX_PARAMS} || '{}';
+if ( ( $ENV{DEVELOPER_DASHBOARD_AJAX_PARAMS_FILE} || '' ) ne '' ) {
+    open my $params_fh, '<:raw', $ENV{DEVELOPER_DASHBOARD_AJAX_PARAMS_FILE}
+      or die "Unable to read $ENV{DEVELOPER_DASHBOARD_AJAX_PARAMS_FILE}: $!";
+    local $/;
+    $ajax_params_json = <$params_fh>;
+    close $params_fh or die "Unable to close $ENV{DEVELOPER_DASHBOARD_AJAX_PARAMS_FILE}: $!";
+}
+if ( ( $ENV{QUERY_STRING} || '' ) eq '' && ( $ENV{DEVELOPER_DASHBOARD_AJAX_QUERY_STRING_FILE} || '' ) ne '' ) {
+    open my $query_fh, '<:raw', $ENV{DEVELOPER_DASHBOARD_AJAX_QUERY_STRING_FILE}
+      or die "Unable to read $ENV{DEVELOPER_DASHBOARD_AJAX_QUERY_STRING_FILE}: $!";
+    local $/;
+    $ENV{QUERY_STRING} = <$query_fh>;
+    close $query_fh or die "Unable to close $ENV{DEVELOPER_DASHBOARD_AJAX_QUERY_STRING_FILE}: $!";
+}
+
 our $AJAX_STASH = {};
-our $AJAX_PARAMS = eval { json_decode( $ENV{DEVELOPER_DASHBOARD_AJAX_PARAMS} || '{}' ) };
+our $AJAX_PARAMS = eval { json_decode($ajax_params_json) };
 $AJAX_PARAMS = {} if ref($AJAX_PARAMS) ne 'HASH';
 my $singleton = $ENV{DEVELOPER_DASHBOARD_AJAX_SINGLETON} || '';
 $0 = "dashboard ajax: $singleton" if $singleton ne '';

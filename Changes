@@ -1,5 +1,107 @@
 Revision history for Developer Dashboard
 
+1.66  2026-04-05
+    - restored the seeded `api-dashboard` request-token workflow by rendering
+      a request-specific token form above the editor whenever the selected
+      request uses `{{token}}` placeholders, carrying those values across
+      matching placeholders in other requests from the same collection, and
+      resolving the visible URL, headers, and body fields from the shared
+      collection-token values
+    - reworked the seeded `api-dashboard` collection browser so stored
+      collections render as tabs instead of one long stacked list, making it
+      practical to move between large imported collections without endless
+      scrolling
+    - restyled the seeded `api-dashboard` shell, collection, response, and
+      request tabs so they look like tabs instead of rounded action buttons,
+      and moved the Request Details, Response Body, and Response Headers tabs
+      below the response `pre` box while keeping Response Body selected after
+      each send
+    - expanded Playwright browser coverage in `t/22-api-dashboard-playwright.t`
+      and `t/24-api-dashboard-tabs-playwright.t` for token carry-over, the
+      collection tab strip, tab styling, and the response-tab placement and
+      default-selection behaviour
+    - updated README, main module POD, testing docs, bug logs, and release
+      metadata for the token-form workflow and tab-layout refinements
+
+1.65  2026-04-05
+    - fixed saved-Ajax execution for oversized browser payloads by spilling
+      large request params and query strings to temp files instead of passing
+      them inline through the child process environment
+    - fixed the seeded `api-dashboard` browser import flow so real file-input
+      uploads use a FileReader-first path, and large Postman collection saves
+      no longer die with `Argument list too long`
+    - fixed `api-dashboard` save/delete/import success handling so empty
+      `200` Ajax responses are treated as failures instead of showing false
+      success banners when nothing was persisted
+    - added oversized save coverage in `t/03-web-app.t`, saved-Ajax payload
+      spill coverage in `t/12-legacy-helper-coverage.t`, and large-import
+      Playwright coverage in `t/25-api-dashboard-large-import-playwright.t`
+    - updated README, main module POD, testing docs, bug logs, and release
+      metadata for the large-import transport fix and stricter Ajax success
+      validation
+
+1.64  2026-04-04
+    - fixed the seeded `api-dashboard` import flow so importing a Postman
+      collection through the browser adds the collection to the Collections
+      tab and persists it under `config/api-dashboard/<collection-name>.json`
+      instead of appearing to do nothing
+    - reworked the seeded `api-dashboard` layout so Collections and Workspace
+      render as top-level tabs, and Request Details, Response Body, and
+      Response Headers render as inner workspace tabs rather than fighting for
+      side-by-side space
+    - added Playwright coverage for the browser import path, the optional
+      external-fixture import path under
+      `API_DASHBOARD_IMPORT_FIXTURE=/path/to/collection.postman_collection.json`,
+      and the new tabbed `api-dashboard` browser layout
+    - fixed managed collector indicator syncing so prompt, browser, and CLI
+      metadata refreshes no longer overwrite a concurrently-updated healthy
+      collector back to `missing` during restart windows
+    - updated README, main module POD, testing docs, bug logs, and release
+      metadata for the tabbed `api-dashboard` layout, browser import fix, and
+      collector-indicator restart consistency
+    - stabilized `t/09-runtime-manager.t` under `Devel::Cover` by bounding the
+      stubborn-process reap waits, so the covered release run finishes
+      cleanly after shutdown escalation paths are exercised
+
+1.61  2026-04-04
+    - moved seeded `api-dashboard` collection persistence from browser-only
+      state to runtime Postman JSON files under
+      `config/api-dashboard/<collection-name>.json`, including save, rename,
+      delete, and startup bootstrap loading of every stored collection
+    - kept the new persistence logic isolated inside the seeded
+      `api-dashboard` bookmark’s saved Ajax handlers instead of introducing
+      new core runtime modules for collection storage
+    - fixed bookmark-local saved Ajax handler bootstrapping plus `print
+      json_encode(...)` response generation so browser and web-app requests
+      return real JSON instead of runtime errors
+
+1.60  2026-04-04
+    - fixed the built-in `/js/jquery.js` compatibility shim so bookmark pages
+      can use jqXHR-style `$.ajax(...).done(...).fail(...)` chaining and the
+      `method` alias expected by the seeded `api-dashboard` workspace
+    - fixed api-dashboard response rendering so transient browser statuses such
+      as "Sending request..." no longer crash the page before the saved Ajax
+      sender runs
+    - browser-verified `GET https://api.ipify.org/?format=json` from the
+      seeded api-dashboard bookmark after the shim and render guards were
+      restored
+
+1.59  2026-04-04
+    - fixed the api-dashboard HTTPS packaging gap by declaring
+      `LWP::Protocol::https` in the runtime prerequisites, so saved LWP
+      request dispatch works against normal TLS API endpoints such as
+      `https://api.ipify.org/?format=json`
+
+1.58  2026-04-04
+    - extended the seeded `api-dashboard` bookmark so browser URLs track the
+      active collection, request, and tab for direct links plus back/forward
+      navigation inside the workspace
+    - added richer collection-management controls, per-tab response state, and
+      active-location highlighting in the Postman-style API workspace
+    - taught the saved LWP-backed request sender to classify JSON, text, PDF,
+      image, and TIFF responses so the browser renders formatted text or media
+      previews instead of dumping raw binary output
+
 1.57  2026-04-04
     - rebuilt the seeded `api-dashboard` bookmark as a Postman-style
       workspace with collection import/export, multiple request tabs, and

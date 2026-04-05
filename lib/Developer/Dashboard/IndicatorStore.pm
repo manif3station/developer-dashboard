@@ -4,10 +4,11 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '1.57';
+our $VERSION = '1.66';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
+use Fcntl qw(:flock);
 use File::Spec;
 use Time::HiRes qw(time);
 
@@ -68,15 +69,29 @@ sub new {
 
 # set_indicator($name, %data)
 # Writes indicator state to the file-backed indicator store.
-# Input: indicator name plus state fields such as label, icon, and status.
+# Input: indicator name plus state fields such as label, icon, and status, and
+# optional internal preserve fields used when config sync must not clobber a
+# newer live status update.
 # Output: saved indicator hash reference.
 sub set_indicator {
     my ( $self, $name, %data ) = @_;
     my $dir  = $self->{paths}->indicator_dir($name);
     my $file = File::Spec->catfile( $dir, 'status.json' );
+    my $lock = File::Spec->catfile( $dir, '.lock' );
+    my $preserve_fields = delete $data{_preserve_existing_fields};
+    my @preserve_existing = ref($preserve_fields) eq 'ARRAY' ? @{$preserve_fields} : ();
+
+    open my $lock_fh, '>>', $lock or die "Unable to open $lock: $!";
+    flock( $lock_fh, LOCK_EX ) or die "Unable to lock $lock: $!";
+    my $existing = $self->_read_indicator_file($file) || {};
+
+    for my $field (@preserve_existing) {
+        next if !exists $existing->{$field};
+        $data{$field} = $existing->{$field};
+    }
 
     $data{name}       = $name;
-    $data{updated_at} = time;
+    $data{updated_at} = time if !exists $data{updated_at};
 
     my $tmp = "$file.pending";
     open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
@@ -98,11 +113,7 @@ sub set_indicator {
 sub get_indicator {
     my ( $self, $name ) = @_;
     my $file = File::Spec->catfile( $self->{paths}->indicator_dir($name), 'status.json' );
-    return if !-f $file;
-
-    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
-    local $/;
-    return json_decode(<$fh>);
+    return $self->_read_indicator_file($file);
 }
 
 # list_indicators()
@@ -163,7 +174,11 @@ sub sync_collectors {
               : 1,
         );
         if ( !$self->_indicator_matches( $existing, \%candidate ) ) {
-            push @written, $self->set_indicator( $name, %candidate );
+            push @written, $self->set_indicator(
+                $name,
+                %candidate,
+                _preserve_existing_fields => [ qw(status updated_at stale) ],
+            );
         }
     }
 
@@ -356,6 +371,18 @@ sub _indicator_matches {
         return 0 if $left ne $right;
     }
     return 1;
+}
+
+# _read_indicator_file($file)
+# Reads and decodes one indicator status file when it exists.
+# Input: absolute indicator status file path.
+# Output: indicator hash reference or undef when the file is missing.
+sub _read_indicator_file {
+    my ( $self, $file ) = @_;
+    return if !-f $file;
+    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
+    local $/;
+    return json_decode(<$fh>);
 }
 
 # _status_icon_for($indicator, $map)

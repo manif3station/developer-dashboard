@@ -1,5 +1,63 @@
 # Fixed Bugs
 
+## 2026-04-05 (Phase 31: API Dashboard Token Form And Tab Usability)
+
+- Restored the seeded `api-dashboard` request-token workflow so selecting a request with `{{token}}` placeholders now renders a dedicated token form above the editor instead of forcing users to edit the raw collection-variable textarea.
+- Fixed token carry-over so collection token values now populate the visible request URL, headers, and body fields and carry across matching placeholders in other requests from the same collection.
+- Fixed the seeded `api-dashboard` collection browser so stored collections now render as tabs instead of one long stacked list, which avoids excessive scrolling for large imported collections.
+- Fixed the seeded `api-dashboard` tab styling so shell, collection, response, and request tabs read visually as tabs instead of rounded action buttons.
+- Fixed the workspace response layout so Request Details, Response Body, and Response Headers tabs now sit below the response `pre` box, and Response Body becomes active again after each send.
+- Expanded browser coverage in `t/22-api-dashboard-playwright.t` and `t/24-api-dashboard-tabs-playwright.t` for request-token carry-over, collection tabs, tab styling, and response-tab placement/default behaviour.
+
+## 2026-04-05 (Phase 30: API Dashboard Large Import Transport And Empty-200 Guard)
+
+- Fixed saved-Ajax execution for oversized browser payloads by spilling large request params and query strings to temp files instead of passing them inline through `execve`, which prevented `Argument list too long` failures during large collection saves.
+- Fixed the seeded `api-dashboard` browser import flow so real file-input uploads use a FileReader-first path and can still hand collection contents into the importer under Playwright and normal Chromium paths.
+- Fixed `api-dashboard` collection import/save/delete handling so empty `200` Ajax responses are treated as failures instead of surfacing false success banners when no collection was actually persisted.
+- Added oversized save coverage in `t/03-web-app.t`, saved-Ajax payload spill coverage in `t/12-legacy-helper-coverage.t`, and large-import browser coverage in `t/25-api-dashboard-large-import-playwright.t`.
+
+## 2026-04-04 (Phase 29: Collector Indicator Restart Consistency)
+
+- Fixed managed collector indicator syncing so prompt, browser, and CLI metadata refreshes no longer overwrite a concurrently-updated healthy collector back to `missing` during restart windows.
+- Added a unit guard in `t/07-core-units.t` that simulates a collector writing `ok` while config-backed indicator sync is trying to persist stale metadata, proving the live collector status wins.
+- Reverified the blank-environment install/restart path so the healthy config collector now stays green in `dashboard indicator list`, `dashboard ps1`, and `/system/status` after `dashboard restart`.
+
+## 2026-04-04 (Phase 28: API Dashboard Import Flow And Tabbed Layout)
+
+- Fixed the seeded `api-dashboard` import flow so importing a Postman collection now adds the collection to the Collections tab and persists it under `config/api-dashboard/<collection-name>.json` instead of appearing to do nothing in the browser.
+- Fixed the seeded `api-dashboard` layout so Collections and Workspace now render as top-level tabs, preventing the collection browser and request editor from fighting for horizontal space on the same screen.
+- Fixed the workspace response layout so Request Details, Response Body, and Response Headers now render as inner tabs instead of three side-by-side panes that compete for the same narrow area.
+- Added browser coverage for the import path in `t/22-api-dashboard-playwright.t`, the generic external-fixture import path in `t/23-api-dashboard-import-fixture-playwright.t`, and the tabbed layout in `t/24-api-dashboard-tabs-playwright.t`.
+
+## 2026-04-04 (Phase 27: API Dashboard Browser Import Repro And Save Overwrite Fix)
+
+- Fixed the seeded `api-dashboard` collection save route so saving updates back into an existing collection name now overwrites the existing `config/api-dashboard/<collection-name>.json` file instead of failing with a false duplicate-name error.
+- Added a generic Playwright `api-dashboard` import-fixture repro under `t/23-api-dashboard-import-fixture-playwright.t` so browser import failures can be traced against real external Postman JSON files without hardcoding third-party branding into the repository.
+- Fixed the test and troubleshooting route for browser import failures by explicitly recording whether the hidden `api-dashboard` import input receives the Playwright chooser upload before importer and persistence behaviour are judged.
+- Fixed `t/09-runtime-manager.t` under `Devel::Cover` by replacing unbounded stubborn-child `waitpid` calls with bounded reaping logic, so the release coverage run no longer stalls after exercising shutdown escalation paths.
+
+## 2026-04-04 (Phase 26: API Dashboard File-Backed Collections)
+
+- Fixed the seeded `api-dashboard` bookmark so created, saved, renamed, deleted, and imported collections now persist as Postman collection JSON files under `config/api-dashboard/<collection-name>.json` instead of living only in browser `localStorage`.
+- Fixed bookmark startup loading so the `api-dashboard` workspace now reads every stored `config/api-dashboard/*.json` collection on open and rebuilds the sidebar from those file-backed collections automatically.
+- Fixed saved Ajax execution for the new collection endpoints by bootstrapping the project-local `lib/` path from the saved Ajax file location when needed and by parenthesizing `print j(...)` calls, so `/ajax/api-dashboard-bootstrap`, `/ajax/api-dashboard-collections-save`, and `/ajax/api-dashboard-collections-delete` return real JSON instead of Perl runtime errors.
+
+## 2026-04-04 (Phase 25: API Dashboard Browser Ajax Compatibility)
+
+- Fixed the built-in `/js/jquery.js` bookmark shim so `$.ajax(...)` now honors the `method` option and exposes jqXHR-style `.done(...)`, `.fail(...)`, and `.always(...)` chaining. Without that, the seeded `api-dashboard` bookmark failed in the browser before it could post to `/ajax/api-dashboard-send-request`.
+- Fixed the `api-dashboard` response panel so transient UI states such as `Sending request...` can render without a full `request` / `response` payload. The browser no longer throws before the real Ajax response arrives.
+- Browser-verified the seeded `api-dashboard` bookmark against `GET https://api.ipify.org/?format=json`, confirming the request details panel, JSON body, and response headers now render correctly in Chromium.
+
+## 2026-04-04 (Phase 24: API Dashboard HTTPS Runtime Prerequisite)
+
+- Fixed HTTPS API dispatch in the seeded `api-dashboard` bookmark by declaring `LWP::Protocol::https` as a runtime prerequisite. Without it, saved `LWP::UserAgent` requests to normal TLS APIs failed with `501 Protocol scheme 'https' is not supported`.
+
+## 2026-04-04 (Phase 23: API Dashboard Navigation And Preview)
+
+- Fixed the seeded `api-dashboard` bookmark so the active collection, request, and tab now round-trip through the browser URL. Direct opens, copy/paste URLs, and browser back/forward now restore the matching connection details view instead of dropping back to whatever local tab happened to be active.
+- Fixed the left-hand collection panel so it reflects the current workspace location with active collection and request highlighting when the page restores state from a direct URL or browser navigation event.
+- Fixed API response rendering so JSON stays formatted as JSON, text stays text, and PDF, image, and TIFF responses render as browser previews instead of raw binary or base64 dumps.
+
 ## 2026-04-04 (Phase 22: API Dashboard Postman Workspace)
 
 - Replaced the seeded `api-dashboard` bookmark’s single raw request form with a Postman-style workspace that supports collection import/export, multiple request tabs, and local request saving inside collections.

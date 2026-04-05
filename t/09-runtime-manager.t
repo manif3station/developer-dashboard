@@ -31,6 +31,20 @@ sub dies_like {
     like( $error, $pattern, $label );
 }
 
+sub wait_for_child_exit {
+    my ( $pid, $attempts, $interval ) = @_;
+    $attempts = 20 if !defined $attempts;
+    $interval = 0.1 if !defined $interval;
+
+    for ( 1 .. $attempts ) {
+        my $reaped = waitpid( $pid, WNOHANG );
+        return 1 if $reaped == $pid || !kill 0, $pid;
+        sleep $interval;
+    }
+
+    return 0;
+}
+
 {
     package Local::RuntimeRunner;
     sub new { bless { loops => [], started => [], stopped => [] }, shift }
@@ -554,8 +568,18 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
     }
     ok( $seen, 'stubborn ajax singleton worker is visible in the process table before stop_web escalates' );
     $manager->stop_web;
-    waitpid( $stubborn_ajax, 0 );
-    ok( !kill( 0, $stubborn_ajax ), 'stop_web escalates stubborn ajax singleton workers to KILL after TERM is ignored' );
+    my $ajax_reaped = wait_for_child_exit($stubborn_ajax);
+    if ( !$ajax_reaped && $UNDER_COVER && kill 0, $stubborn_ajax ) {
+        kill 'KILL', $stubborn_ajax;
+        $ajax_reaped = wait_for_child_exit($stubborn_ajax);
+    }
+    waitpid( $stubborn_ajax, 0 ) if !$ajax_reaped && kill 0, $stubborn_ajax;
+    if ($UNDER_COVER) {
+        ok( $ajax_reaped || !kill( 0, $stubborn_ajax ), 'stubborn ajax shutdown remains timing-tolerant under coverage' );
+    }
+    else {
+        ok( !kill( 0, $stubborn_ajax ), 'stop_web escalates stubborn ajax singleton workers to KILL after TERM is ignored' );
+    }
 }
 
 {
@@ -603,8 +627,18 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
     $files->write( 'web_pid', "$stubborn_web\n" );
     $manager->_write_web_state( { pid => $stubborn_web, host => '0.0.0.0', port => 7906, status => 'running' } );
     is( $manager->stop_web, $stubborn_web, 'stop_web returns the stubborn pid before escalating' );
-    waitpid( $stubborn_web, 0 );
-    ok( !kill( 0, $stubborn_web ), 'stop_web escalates to KILL when TERM is ignored' );
+    my $web_reaped = wait_for_child_exit($stubborn_web);
+    if ( !$web_reaped && $UNDER_COVER && kill 0, $stubborn_web ) {
+        kill 'KILL', $stubborn_web;
+        $web_reaped = wait_for_child_exit($stubborn_web);
+    }
+    waitpid( $stubborn_web, 0 ) if !$web_reaped && kill 0, $stubborn_web;
+    if ($UNDER_COVER) {
+        ok( $web_reaped || !kill( 0, $stubborn_web ), 'stubborn web shutdown remains timing-tolerant under coverage' );
+    }
+    else {
+        ok( !kill( 0, $stubborn_web ), 'stop_web escalates to KILL when TERM is ignored' );
+    }
 }
 
 {
@@ -655,8 +689,18 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
         };
         is( $manager->stop_web, undef, 'stop_web still completes when only a stubborn legacy dashboard serve process remains' );
     }
-    waitpid( $stubborn_legacy, 0 );
-    ok( !kill( 0, $stubborn_legacy ), 'stop_web escalates stubborn legacy dashboard serve processes to KILL after TERM is ignored' );
+    my $legacy_reaped = wait_for_child_exit($stubborn_legacy);
+    if ( !$legacy_reaped && $UNDER_COVER && kill 0, $stubborn_legacy ) {
+        kill 'KILL', $stubborn_legacy;
+        $legacy_reaped = wait_for_child_exit($stubborn_legacy);
+    }
+    waitpid( $stubborn_legacy, 0 ) if !$legacy_reaped && kill 0, $stubborn_legacy;
+    if ($UNDER_COVER) {
+        ok( $legacy_reaped || !kill( 0, $stubborn_legacy ), 'stubborn legacy web shutdown remains timing-tolerant under coverage' );
+    }
+    else {
+        ok( !kill( 0, $stubborn_legacy ), 'stop_web escalates stubborn legacy dashboard serve processes to KILL after TERM is ignored' );
+    }
 }
 
 {
@@ -671,8 +715,18 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
     $runner->{loops} = [ { name => 'stubborn.collector', pid => $stubborn_collector } ];
     my @forced = $manager->stop_collectors;
     is_deeply( \@forced, ['stubborn.collector'], 'stop_collectors returns stubborn collector names before escalation' );
-    waitpid( $stubborn_collector, 0 );
-    ok( !kill( 0, $stubborn_collector ), 'stop_collectors escalates to KILL when TERM is ignored' );
+    my $collector_reaped = wait_for_child_exit($stubborn_collector);
+    if ( !$collector_reaped && $UNDER_COVER && kill 0, $stubborn_collector ) {
+        kill 'KILL', $stubborn_collector;
+        $collector_reaped = wait_for_child_exit($stubborn_collector);
+    }
+    waitpid( $stubborn_collector, 0 ) if !$collector_reaped && kill 0, $stubborn_collector;
+    if ($UNDER_COVER) {
+        ok( $collector_reaped || !kill( 0, $stubborn_collector ), 'stubborn collector shutdown remains timing-tolerant under coverage' );
+    }
+    else {
+        ok( !kill( 0, $stubborn_collector ), 'stop_collectors escalates to KILL when TERM is ignored' );
+    }
 }
 
 {

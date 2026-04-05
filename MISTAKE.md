@@ -4,6 +4,128 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: TOKEN-FORM-UX-DRIFT
+
+**Date:** 2026-04-05 02:05:00 UTC
+**Area:** Seeded bookmark browser workflow / API dashboard token and tab usability
+**Symptom:** The new `api-dashboard` bookmark could persist collections and send requests, but it no longer exposed the old request-specific `{{token}}` input form, left users editing the raw collection-variable textarea, styled tabs like rounded action buttons, stacked large collections vertically, and kept the response tabs above the response `pre` box
+**Why It Was Dangerous:** The browser path technically worked, but the main operator workflow regressed badly enough that real users could spot the missing parity immediately and struggle to move through large collections or understand what was a tab versus an action button
+**Root Cause:** I only covered the broad request-send and import flows, so I missed the interaction-level regression against the older token form and let the new shell layout optimize for implementation simplicity instead of the actual browser operating path
+**How Ellen Solved It:** Reintroduced a request-specific token form backed by collection variables, carried those values across matching placeholders in other requests from the same collection, resolved the visible request URL/headers/body fields from those values, rendered stored collections as tabs, restyled tab controls to look like tabs, moved the response tabs below the response `pre` box, and expanded Playwright coverage for those browser details
+**How To Detect Earlier Next Time:** When replacing an older browser workflow, compare the real operator path feature-for-feature in a browser session instead of only checking that the new flow can technically send requests and save data
+**Prevention Rule:** Any bookmark rewrite that replaces an older interactive tool must get browser coverage for the operator-visible affordances, not just the underlying save/send success path
+**Verification:** `prove -lv t/22-api-dashboard-playwright.t`, `prove -lv t/24-api-dashboard-tabs-playwright.t`
+**Related Files:** `bin/dashboard`, `t/22-api-dashboard-playwright.t`, `t/24-api-dashboard-tabs-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/integration-test-plan.md`
+
+---
+
+## CODE: AJAX-ENV-SIZE-TRAP
+
+**Date:** 2026-04-05 00:40:00 UTC
+**Area:** Seeded bookmark saved-Ajax transport / API dashboard import
+**Symptom:** Importing a larger Postman collection through `api-dashboard` could fail with `Argument list too long`, and the browser could still show a success banner because the save route returned HTTP `200` with an empty body instead of real JSON
+**Why It Was Dangerous:** It combined a hard failure with a false-success UI path, so the bookmark could look like it imported a collection even though nothing was persisted or reloaded
+**Root Cause:** I only covered medium import fixtures in the browser and let saved-Ajax child params travel inline through environment variables; I also trusted any `200` response instead of requiring the expected `{ ok: 1 }` payload from save/delete routes
+**How Ellen Solved It:** Spilled oversized saved-Ajax params and query strings to temp files, made the child wrapper read them back, added a large direct save regression plus a large-import Playwright regression, switched the browser import reader to a FileReader-first path, and required explicit `ok` payloads before the bookmark reports save/delete/import success
+**How To Detect Earlier Next Time:** If a browser import banner says success but the collection does not appear, inspect the actual save response payload and test an oversized fixture that crosses the saved-Ajax inline payload threshold instead of only medium examples
+**Prevention Rule:** Any browser flow that depends on saved Ajax persistence must validate the semantic JSON payload, not just HTTP `200`, and must have at least one regression above the inline transport threshold
+**Verification:** `prove -lv t/03-web-app.t`, `prove -lv t/12-legacy-helper-coverage.t`, `prove -lv t/22-api-dashboard-playwright.t`, `API_DASHBOARD_IMPORT_FIXTURE=/path/to/collection.postman_collection.json prove -lv t/23-api-dashboard-import-fixture-playwright.t`, `prove -lv t/25-api-dashboard-large-import-playwright.t`
+**Related Files:** `lib/Developer/Dashboard/PageRuntime.pm`, `bin/dashboard`, `t/03-web-app.t`, `t/12-legacy-helper-coverage.t`, `t/22-api-dashboard-playwright.t`, `t/23-api-dashboard-import-fixture-playwright.t`, `t/25-api-dashboard-large-import-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/integration-test-plan.md`
+
+---
+
+## CODE: MANAGED-INDICATOR-LOST-UPDATE
+
+**Date:** 2026-04-04 23:55:00 UTC
+**Area:** Collector restart lifecycle / indicator persistence
+**Symptom:** The blank-environment install passed most of the runtime flow, but after `dashboard restart` a healthy config collector could still show up as `missing` in `dashboard indicator list`, `dashboard ps1`, and `/system/status`
+**Why It Was Dangerous:** It produced a false negative health signal exactly at restart time, which made the runtime look unreliable even though the collector itself had already completed successfully
+**Root Cause:** I treated config-backed indicator sync as a harmless metadata refresh, but it could race with a live collector write and persist stale `missing` data after the collector had already written `ok`
+**How Ellen Solved It:** Added a concurrency-safe preserve path in the indicator writer, kept live status fields when config sync touches an indicator, and added a unit test that simulates a collector writing `ok` while stale sync metadata is still in flight
+**How To Detect Earlier Next Time:** If a healthy collector suddenly flips back to `missing` right after restart, compare collector status timestamps with indicator timestamps and look for metadata sync writing later than the real collector result
+**Prevention Rule:** Any config-sync path that rewrites persisted runtime state must preserve newer live status fields or take an explicit lock before merging metadata
+**Verification:** `prove -lv t/07-core-units.t`, `prove -lv t/09-runtime-manager.t`, `prove -lr t`, coverage, `dzil build`, built-dist kwalitee, blank-environment install/integration
+**Related Files:** `lib/Developer/Dashboard/IndicatorStore.pm`, `t/07-core-units.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/integration-test-plan.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
+## CODE: FILE-INPUT-READ-PATH-ASSUMPTION
+
+**Date:** 2026-04-04 23:35:00 UTC
+**Area:** Seeded bookmark browser verification / API dashboard import
+**Symptom:** The visible `api-dashboard` import control still looked broken in browser automation even after the UI stopped relying on the old hidden chooser path
+**Why It Was Dangerous:** It was easy to think the remaining failure still lived in server persistence, when the real browser-side problem was the upload/read path itself
+**Root Cause:** I treated every file-input event shape as equivalent, but the import path needed a stable browser-readable file handoff and a single settled picker lifecycle instead of racing early events and immediate input resets
+**How Ellen Solved It:** Switched the browser UI to a direct visible import control, moved picker cleanup to the end of the import lifecycle, and kept the Playwright import coverage on the same input/change path by injecting a synthetic `File` into the visible control
+**How To Detect Earlier Next Time:** If browser import fails before any collection appears, inspect the banner text and verify whether the file element can still hand readable content into the importer before debugging server persistence
+**Prevention Rule:** Treat browser upload controls as two separate concerns: the user-visible picker UI and the importer logic that runs after `change`; keep the importer testable through direct `File` injection on the real input element
+**Verification:** `prove -lv t/22-api-dashboard-playwright.t`, `API_DASHBOARD_IMPORT_FIXTURE=/path/to/collection.postman_collection.json prove -lv t/23-api-dashboard-import-fixture-playwright.t`, `prove -lv t/24-api-dashboard-tabs-playwright.t`, `prove -lr t`, coverage, `dzil build`, built-dist kwalitee, blank-environment install/integration
+**Related Files:** `bin/dashboard`, `t/22-api-dashboard-playwright.t`, `t/23-api-dashboard-import-fixture-playwright.t`, `t/24-api-dashboard-tabs-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/integration-test-plan.md`
+
+---
+
+## CODE: HIDDEN-FILE-INPUT-IMPORT-ASSUMPTION
+
+**Date:** 2026-04-04 22:47:00 UTC
+**Area:** Seeded bookmark browser verification / API dashboard import
+**Symptom:** A real external Postman collection looked like it "would not import" through the `api-dashboard` browser flow, but the importer itself could still parse and persist the same JSON once the file reached the hidden input
+**Why It Was Dangerous:** It is easy to blame the collection parser or bookmark persistence when the real failure is earlier in the browser chain, especially around hidden file inputs and chooser automation
+**Root Cause:** I initially treated the browser import failure as an importer problem, but the actual failing step was the Chromium/Playwright chooser path not populating `#api-import-file`, so the bookmark's `change` handler never fired
+**How Ellen Solved It:** Added a generic fixture-driven Playwright repro that first isolated the browser upload path, then moved the bookmark to a direct visible import control and kept the importer verifiable by injecting the same file into that real input and dispatching `change`
+**How To Detect Earlier Next Time:** After any browser file-upload failure, inspect the real `<input type=file>` state before debugging downstream parsing or storage logic
+**Prevention Rule:** For browser file-input flows, verify the chain in order: picker selection, readable file object, `change` handler, banner/UI state, persisted file
+**Verification:** `API_DASHBOARD_IMPORT_FIXTURE=/path/to/collection.postman_collection.json prove -lv t/23-api-dashboard-import-fixture-playwright.t`, `prove -lr t`, coverage, `dzil build`, built-dist kwalitee, blank-environment install/integration
+**Related Files:** `t/23-api-dashboard-import-fixture-playwright.t`, `t/22-api-dashboard-playwright.t`, `t/03-web-app.t`, `bin/dashboard`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/integration-test-plan.md`
+
+---
+
+## CODE: COVERAGE-WAITPID-HANG-ASSUMPTION
+
+**Date:** 2026-04-04 23:05:00 UTC
+**Area:** Release verification / runtime-manager coverage
+**Symptom:** The full `Devel::Cover` run stalled inside `t/09-runtime-manager.t` even though the same plain test file passed
+**Why It Was Dangerous:** A release can look finished after a clean plain suite, then still fail the mandatory coverage gate because a stubborn child-process test blocks forever during the covered run
+**Root Cause:** I left several shutdown-escalation tests using unbounded `waitpid` calls after `stop_web` and `stop_collectors`, which is unsafe once coverage instrumentation makes child exit timing less predictable
+**How Ellen Solved It:** Replaced those waits with bounded nonblocking child reaping, preserved the normal strict assertions outside coverage, and kept the covered path timing-tolerant while still cleaning up stubborn test children deterministically
+**How To Detect Earlier Next Time:** If a covered run stops emitting progress around process-management tests, inspect the live child tree and look for direct blocking waits after escalation logic
+**Prevention Rule:** In covered process-lifecycle tests, use bounded nonblocking reaping for intentionally stubborn child processes instead of plain `waitpid(..., 0)`
+**Verification:** `HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/09-runtime-manager.t`, `prove -lr t`, `cover -delete && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t`, `cover -report text -select_re '^lib/' -coverage statement -coverage subroutine`, `dzil build`, built-dist kwalitee, blank-environment install/integration
+**Related Files:** `t/09-runtime-manager.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
+## CODE: API-DASHBOARD-PERSISTENCE-GAP
+
+**Date:** 2026-04-04 21:55:00 UTC
+**Area:** Seeded bookmark workspaces / API dashboard persistence
+**Symptom:** The seeded `api-dashboard` bookmark could import or save collections in the browser, but those collections disappeared on reload because they only lived in browser-local state instead of the runtime config tree
+**Why It Was Dangerous:** The workspace looked like a reusable Postman-style tool, but it silently behaved like an ephemeral scratchpad and hid the fact that project-local shared state never updated
+**Root Cause:** I left the original browser-only `localStorage` model in place, kept bootstrap loading tied to the older `config/postman` seed path, and initially missed two saved-Ajax execution details: child workers need the real project Perl library roots, and `print j Foo->bar` must be written as `print j( Foo->bar )`
+**How Ellen Solved It:** Kept the persistence logic inside the seeded bookmark’s saved Ajax handlers, saved collections as Postman JSON under `config/api-dashboard/<collection-name>.json`, loaded every stored file on bookmark startup, added save/delete endpoint coverage, bootstrapped the project-local `lib/` path from the saved Ajax file location when needed, and corrected the response-printing precedence bug
+**How To Detect Earlier Next Time:** If a bookmark claims to save reusable workspace data, reload the page and inspect the runtime config tree directly; then exercise the saved Ajax route itself rather than trusting only the in-browser state update
+**Prevention Rule:** For bookmark persistence work, verify the full chain together: browser action, runtime file write, bookmark reload, and saved-Ajax child execution in a clean test runtime
+**Verification:** `prove -lv t/03-web-app.t t/12-legacy-helper-coverage.t t/15-release-metadata.t`, full `prove -lr t`, coverage, browser verification, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis
+**Related Files:** `bin/dashboard`, `t/03-web-app.t`, `t/05-cli-smoke.t`, `README.md`, `lib/Developer/Dashboard.pm`
+**Tags:** `api-dashboard`, `postman`, `persistence`, `ajax`, `runtime`
+
+---
+
+## CODE: API-DASHBOARD-JQXHR-DRIFT
+
+**Date:** 2026-04-04 20:08:00 UTC
+**Area:** Bookmark browser shim / seeded API dashboard
+**Symptom:** The seeded `api-dashboard` bookmark looked loaded in the browser, but clicking `Send Request` for `GET https://api.ipify.org/?format=json` did nothing useful and the page threw `$.ajax(...).done is not a function` plus a later `payload.request.method` error
+**Why It Was Dangerous:** Direct backend checks passed, which made the feature look healthy even though the real browser operator path was dead before the request reached `/ajax/api-dashboard-send-request`
+**Root Cause:** The built-in `/js/jquery.js` compatibility shim only supported callback-style `$.ajax` with `type`, not jqXHR-style `.done/.fail/.always` chaining or the `method` alias used by the seeded bookmark; then `renderResponse()` assumed every payload already carried nested `request` and `response` hashes
+**How Ellen Solved It:** Added jqXHR-style chaining plus `method` support to the built-in shim, guarded `renderResponse()` against transient status payloads, added regression checks in `t/03-web-app.t`, and reran the real Chromium flow until `https://api.ipify.org/?format=json` rendered request details, JSON body, and headers
+**How To Detect Earlier Next Time:** When a bookmark depends on browser helpers, verify the actual browser click-path and not just the saved Ajax endpoint directly; if a page uses `$.ajax(...).done(...)`, the shim contract must be tested at that level
+**Prevention Rule:** Do not mark bookmark-browser Ajax work complete until the helper shim contract, the transient UI state path, and one real browser request all pass together
+**Verification:** `prove -lv t/03-web-app.t`, direct saved sender check against `https://api.ipify.org/?format=json`, and Chromium browser verification of the seeded `api-dashboard` bookmark sending that same GET request successfully
+**Related Files:** `lib/Developer/Dashboard/Web/App.pm`, `bin/dashboard`, `t/03-web-app.t`, `README.md`, `doc/static-file-serving.md`, `lib/Developer/Dashboard.pm`
+**Tags:** `api-dashboard`, `jquery`, `browser`, `ajax`, `shim`
+
+---
+
 ## CODE: API-DASHBOARD-PLAIN-FORM
 
 **Date:** 2026-04-04 19:15:00 UTC

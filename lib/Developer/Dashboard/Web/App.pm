@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.57';
+our $VERSION = '1.66';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -453,8 +453,82 @@ sub jquery_js_response {
   $.ajax = function (options) {
     var opts = options || {};
     var xhr = new XMLHttpRequest();
-    var method = opts.type || 'GET';
+    var method = opts.method || opts.type || 'GET';
+    var successArgs = null;
+    var failureArgs = null;
+    var alwaysArgs = null;
+    var finished = false;
+
+    function remember(callback, args, store) {
+      if (typeof callback !== 'function') return xhr;
+      if (args) {
+        callback.apply(xhr, args);
+        return xhr;
+      }
+      store.push(callback);
+      return xhr;
+    }
+
+    function runCallbacks(callbacks, args) {
+      callbacks.forEach(function (callback) {
+        callback.apply(xhr, args);
+      });
+    }
+
+    function finishSuccess(payload) {
+      if (finished) return;
+      finished = true;
+      successArgs = [payload, 'success', xhr];
+      alwaysArgs = [xhr, 'success'];
+      if (typeof opts.success === 'function') {
+        opts.success(payload, 'success', xhr);
+      }
+      if (typeof opts.complete === 'function') {
+        opts.complete(xhr, 'success');
+      }
+      runCallbacks(xhr._done_callbacks, successArgs);
+      runCallbacks(xhr._always_callbacks, alwaysArgs);
+    }
+
+    function finishFailure(status, error) {
+      if (finished) return;
+      finished = true;
+      failureArgs = [xhr, status, error];
+      alwaysArgs = [xhr, status];
+      if (typeof opts.error === 'function') {
+        opts.error(xhr, status, error);
+      }
+      if (typeof opts.complete === 'function') {
+        opts.complete(xhr, status);
+      }
+      runCallbacks(xhr._fail_callbacks, failureArgs);
+      runCallbacks(xhr._always_callbacks, alwaysArgs);
+    }
+
+    xhr._done_callbacks = [];
+    xhr._fail_callbacks = [];
+    xhr._always_callbacks = [];
+    xhr.done = function (callback) {
+      return remember(callback, successArgs, xhr._done_callbacks);
+    };
+    xhr.fail = function (callback) {
+      return remember(callback, failureArgs, xhr._fail_callbacks);
+    };
+    xhr.always = function (callback) {
+      return remember(callback, alwaysArgs, xhr._always_callbacks);
+    };
+    xhr.then = function (onDone, onFail) {
+      xhr.done(onDone);
+      xhr.fail(onFail);
+      return xhr;
+    };
     xhr.open(method, opts.url || '', true);
+
+    if (opts.headers && typeof opts.headers === 'object') {
+      Object.keys(opts.headers).forEach(function (key) {
+        xhr.setRequestHeader(key, opts.headers[key]);
+      });
+    }
 
     xhr.onreadystatechange = function () {
       var payload;
@@ -465,26 +539,22 @@ sub jquery_js_response {
           try {
             payload = payload === '' ? null : JSON.parse(payload);
           } catch (error) {
-            if (typeof opts.error === 'function') {
-              opts.error(xhr, 'parsererror', error);
-            }
+            finishFailure('parsererror', error);
             return;
           }
         }
-        if (typeof opts.success === 'function') {
-          opts.success(payload, 'success', xhr);
-        }
+        finishSuccess(payload);
         return;
       }
-      if (typeof opts.error === 'function') {
-        opts.error(xhr, 'error', xhr.statusText || 'error');
-      }
+      finishFailure('error', xhr.statusText || 'error');
     };
 
     xhr.onerror = function () {
-      if (typeof opts.error === 'function') {
-        opts.error(xhr, 'error', xhr.statusText || 'error');
-      }
+      finishFailure('error', xhr.statusText || 'error');
+    };
+
+    xhr.onabort = function () {
+      finishFailure('abort', xhr.statusText || 'abort');
     };
 
     if (opts.data && typeof opts.data === 'object' && !(opts.data instanceof FormData)) {

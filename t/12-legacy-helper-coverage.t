@@ -305,6 +305,7 @@ like( $runtime->_runtime_value_text( { ok => 1 } ), qr/ok => 1/, '_runtime_value
     is( $saved_env{DEVELOPER_DASHBOARD_AJAX_SINGLETON}, 'coverage-stream', '_saved_ajax_env exposes the saved bookmark singleton name' );
     like( $saved_env{DEVELOPER_DASHBOARD_AJAX_PARAMS}, qr/"a"\s*:\s*"1 2"/, '_saved_ajax_env encodes request params as JSON' );
     like( $saved_env{QUERY_STRING}, qr/a=1%202/, '_saved_ajax_env rebuilds a query string for child process use' );
+    ok( !$saved_env{DEVELOPER_DASHBOARD_AJAX_PARAMS_FILE}, '_saved_ajax_env keeps small request params inline instead of spilling them to a temp file' );
 }
 is( $runtime->_quote_process_pattern_literal('name.+(test)?'), 'name\.\+\(test\)\?', '_quote_process_pattern_literal escapes regex metacharacters safely for singleton matching' );
 eval { $runtime->_normalize_saved_ajax_singleton("bad\nname") };
@@ -338,6 +339,82 @@ like( "$@", qr/Invalid ajax singleton name/, '_normalize_saved_ajax_singleton re
     like( $streamed, qr/child-err/, 'stream_saved_ajax_file forwards child stderr' );
     like( $streamed, qr/process-die/, 'stream_saved_ajax_file forwards uncaught perl die text' );
     ok( $stream_result->{exit_code} != 0, 'stream_saved_ajax_file reports the failing process exit code' );
+}
+{
+    my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'huge-params.pl' );
+    open my $fh, '>', $saved_path or die $!;
+    print {$fh} <<'PERL';
+my $blob = params()->{blob} // '';
+print "blob_length=" . length($blob) . "\n";
+print "query_length=" . length( $ENV{QUERY_STRING} || '' ) . "\n";
+print "params_file=" . ( $ENV{DEVELOPER_DASHBOARD_AJAX_PARAMS_FILE} || '' ) . "\n";
+print "query_file=" . ( $ENV{DEVELOPER_DASHBOARD_AJAX_QUERY_STRING_FILE} || '' ) . "\n";
+PERL
+    close $fh or die $!;
+    chmod 0700, $saved_path or die $!;
+
+    my $huge_blob = 'x' x 250_000;
+    my $streamed = '';
+    my $stream_result = $runtime->stream_saved_ajax_file(
+        path          => $saved_path,
+        page          => 'coverage-page',
+        type          => 'text',
+        params        => {
+            blob => $huge_blob,
+            file => 'huge-params.pl',
+            type => 'text',
+        },
+        stdout_writer => sub { $streamed .= $_[0] if defined $_[0] },
+        stderr_writer => sub { $streamed .= $_[0] if defined $_[0] },
+    );
+
+    is( $stream_result->{exit_code}, 0, 'stream_saved_ajax_file accepts oversized saved-Ajax params without failing execve' );
+    like( $streamed, qr/\bblob_length=250000\b/, 'stream_saved_ajax_file still passes oversized params to params()' );
+    like( $streamed, qr/\bquery_length=250035\b/, 'stream_saved_ajax_file reconstructs an oversized QUERY_STRING for the child process from the temp file payload' );
+    my ($params_file) = $streamed =~ /^params_file=(.+)$/m;
+    my ($query_file)  = $streamed =~ /^query_file=(.+)$/m;
+    ok( defined $params_file && $params_file ne '', 'stream_saved_ajax_file exposes a temp params file to the child process when params are oversized' );
+    ok( defined $query_file && $query_file ne '', 'stream_saved_ajax_file exposes a temp query file to the child process when the query string is oversized' );
+    ok( !-e $params_file, 'stream_saved_ajax_file cleans up the oversized params temp file after the child exits' );
+    ok( !-e $query_file, 'stream_saved_ajax_file cleans up the oversized query temp file after the child exits' );
+}
+{
+    my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'huge-open3-failure.pl' );
+    open my $fh, '>', $saved_path or die $!;
+    print {$fh} "print qq{should not run\\n};";
+    close $fh or die $!;
+    chmod 0700, $saved_path or die $!;
+
+    my @cleaned_paths;
+    my $error = eval {
+        no warnings 'redefine';
+        local *Developer::Dashboard::PageRuntime::open3 = sub { die "synthetic open3 failure\n" };
+        local *Developer::Dashboard::PageRuntime::_cleanup_saved_ajax_temp_files = sub {
+            my ( $self, @paths ) = @_;
+            push @cleaned_paths, @paths;
+            for my $path (@paths) {
+                next if !defined $path || $path eq '' || !-e $path;
+                unlink $path or die "Unable to remove saved ajax temp file $path: $!";
+            }
+            return 1;
+        };
+        $runtime->stream_saved_ajax_file(
+            path          => $saved_path,
+            page          => 'coverage-page',
+            type          => 'text',
+            params        => {
+                blob => ( 'x' x 250_000 ),
+                file => 'huge-open3-failure.pl',
+                type => 'text',
+            },
+            stdout_writer => sub { return 1 },
+            stderr_writer => sub { return 1 },
+        );
+        return '';
+    } || $@;
+    like( $error, qr/synthetic open3 failure/, 'stream_saved_ajax_file surfaces open3 launch failures for oversized payloads' );
+    is( scalar @cleaned_paths, 2, 'stream_saved_ajax_file still schedules both oversized temp files for cleanup when open3 dies before the child starts' );
+    ok( !grep { defined $_ && $_ ne '' && -e $_ } @cleaned_paths, 'stream_saved_ajax_file cleans oversized temp files even when open3 fails before execution' );
 }
 {
     my $saved_path = File::Spec->catfile( $paths->dashboards_root, 'ajax', 'singleton-runner.pl' );

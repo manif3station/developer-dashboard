@@ -57,6 +57,7 @@ cover -report text -select_re '^lib/' -coverage statement -coverage subroutine
 Developer Dashboard expects a reviewed `lib/` coverage report before release, and the current repository target is 100% statement and subroutine coverage for `lib/`.
 
 The coverage-closure suite includes managed collector loop start/stop paths under `Devel::Cover`, including wrapped fork coverage in `t/14-coverage-closure-extra.t`, so the covered run stays green without breaking TAP from daemon-style child processes.
+The runtime-manager coverage cases also use bounded child reaping for stubborn process shutdown scenarios, so `Devel::Cover` runs do not stall indefinitely after the escalation path has already been exercised.
 
 Branch and condition reports are still generated and should be used to drive new edge-case tests, especially when adding new runtime modules.
 
@@ -96,7 +97,10 @@ The extension tests also cover:
 - directory-backed custom commands through `~/.developer-dashboard/cli/<command>/run`
 - project-local `./.developer-dashboard` precedence over the home fallback for bookmarks, config, CLI commands and hooks, auth users, sessions, and isolated docker service folders
 - seeded `dashboard init` starter pages for `welcome`, `api-dashboard`, and `db-dashboard`
-- browser-check the seeded `api-dashboard` bookmark in a fresh runtime and verify the Postman-style shell renders the collection sidebar, request tabs, and import/export controls
+- browser-check the seeded `api-dashboard` bookmark in a fresh runtime and verify the Postman-style shell renders the collection tabs, request tabs, request-token form for `{{token}}` placeholders, import/export controls, and file-backed collections loaded from `config/api-dashboard`
+- when debugging `api-dashboard` import failures against a user-provided Postman file, run `API_DASHBOARD_IMPORT_FIXTURE=/path/to/collection.postman_collection.json prove -lv t/23-api-dashboard-import-fixture-playwright.t` to verify that the browser import control can load the fixture, render the collection in the Collections tab, and persist the Postman JSON to `config/api-dashboard`
+- when changing `api-dashboard` import transport or large collection handling, run `prove -lv t/25-api-dashboard-large-import-playwright.t` to verify that an above-threshold Postman import still completes through the browser without tripping the saved-Ajax process argument limit
+- when changing the `api-dashboard` layout, run `prove -lv t/24-api-dashboard-tabs-playwright.t` to keep the top-level Collections/Workspace tabs, the collection tab strip, and the inner Request Details/Response Body/Response Headers tabs below the response `pre` browser-verified
 - Docker Compose file, project, service, addon, mode, and env resolution
 - legacy bookmark syntax parsing, placeholder rendering, `TITLE` head-only rendering, and sandpit-isolated `CODE*` execution
 

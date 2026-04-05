@@ -81,11 +81,14 @@ The integration run creates:
 8. Verify `dashboard version` reports the installed runtime version.
 9. Create a fake project root with a local `./.developer-dashboard` runtime tree.
 10. Run `dashboard init` from inside that fake project and confirm the project-local runtime roots plus `welcome`, `api-dashboard`, and `db-dashboard` starter pages exist.
-11. Browser-check the seeded `api-dashboard` page from that fake project and confirm the Postman-style shell shows the collection sidebar, request tabs, and import/export controls.
+11. Browser-check the seeded `api-dashboard` page from that fake project and confirm the Postman-style shell shows the collection tabs, request tabs, request-token form for `{{token}}` placeholders, import/export controls, and any `./.developer-dashboard/config/api-dashboard/*.json` collections loaded on startup.
+11.1. When an `api-dashboard` import bug only reproduces with a real external Postman file, run `API_DASHBOARD_IMPORT_FIXTURE=/path/to/collection.postman_collection.json prove -lv t/23-api-dashboard-import-fixture-playwright.t` on the host to verify that the visible browser import control can load the fixture, render the collection in the Collections tab, and persist the Postman JSON under `config/api-dashboard`.
+11.2. When changing the `api-dashboard` layout, run `prove -lv t/24-api-dashboard-tabs-playwright.t` on the host to verify the top-level Collections/Workspace tabs, the collection tab strip, and the inner Request Details/Response Body/Response Headers tabs below the response `pre` in a real browser.
+11.3. When changing `api-dashboard` import transport or saved-Ajax payload handling, run `prove -lv t/25-api-dashboard-large-import-playwright.t` on the host to verify that a deliberately oversized Postman collection still imports through the visible browser control without tripping the saved-Ajax argument-size limit.
 11. Seed a user-provided fake-project `./.developer-dashboard/cli/update` command plus `update.d` hooks in the clean container, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes, including later-hook reads through `Runtime::Result`.
 12. Exercise path, prompt, shell, encode/decode, and indicator commands.
 13. Exercise collector write/run/read/start/restart/stop flows, including fake-project config collector definitions.
-14. Restart the installed runtime with one intentionally broken Perl config collector and one healthy config collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state.
+14. Restart the installed runtime with one intentionally broken Perl config collector and one healthy config collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state, even when prompt/browser status refreshes run during the restart window.
 15. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
 16. Exercise builtin action execution.
 17. Exercise docker compose dry-run resolution against a temporary project.
@@ -114,7 +117,7 @@ The integration run creates:
 - the installed `dashboard` binary works without `perl -Ilib`
 - the fake project's `./.developer-dashboard` tree becomes the active local runtime root with the home tree as fallback
 - a broken config Perl collector reports an error without stopping other configured collectors
-- a healthy config collector still reports `ok` and stays green in `dashboard indicator list`, `dashboard ps1`, and `/system/status`
+- a healthy config collector still reports `ok` and stays green in `dashboard indicator list`, `dashboard ps1`, and `/system/status`, without being clobbered back to `missing` by concurrent config-sync refreshes
 - the web service serves the root editor on `127.0.0.1:7890`
 - the browser can load both the editor and a saved fake-project bookmark page from the fake project bookmark directory
 - the browser sees sorted shared `nav/*.tt` fragments above the main page body on that fake-project bookmark page

@@ -189,7 +189,7 @@ CODE1: Initialize application
 ## File Size Limitations
 
 Built-in compatibility asset:
-- `/js/jquery.js` provides a local jQuery-style helper with `$(document).ready`, `$.ajax`, and selector `.text(...)` support for saved bookmark pages
+- `/js/jquery.js` provides a local jQuery-style helper with `$(document).ready`, `$.ajax`, jqXHR-style `.done(...)` / `.fail(...)` / `.always(...)` chaining, the `method` alias used by modern callers, and selector `.text(...)` support for saved bookmark pages
 
 Additional files can be added as needed. There are no built-in size restrictions, but large files should be minified to optimize page load times.
 

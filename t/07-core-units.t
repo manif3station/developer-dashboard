@@ -988,6 +988,60 @@ is( $indicators->get_indicator('fresh.collector')->{collector_name}, 'fresh.coll
 my @page_header_items = $indicators->page_header_items;
 my ($fresh_page_item) = grep { $_->{prog} eq 'fresh.collector' } @page_header_items;
 is( $fresh_page_item->{alias}, 'NEW', 'page header status prefers the configured indicator icon over the collector name' );
+{
+    my $race_home = tempdir(CLEANUP => 1);
+    my $race_paths = Developer::Dashboard::PathRegistry->new( home => $race_home );
+    my $race_indicators = Developer::Dashboard::IndicatorStore->new( paths => $race_paths );
+    $race_indicators->set_indicator(
+        'healthy.indicator',
+        collector_name       => 'healthy.collector',
+        icon                 => 'OLD',
+        label                => 'Stale Healthy',
+        managed_by_collector => 1,
+        prompt_visible       => 1,
+        status               => 'missing',
+    );
+
+    no warnings 'redefine';
+    my $original_set_indicator = \&Developer::Dashboard::IndicatorStore::set_indicator;
+    my $injected_ok_update = 0;
+    local *Developer::Dashboard::IndicatorStore::set_indicator = sub {
+        my ( $self, $name, %data ) = @_;
+        if ( !$injected_ok_update && $name eq 'healthy.indicator' && ( $data{status} || '' ) eq 'missing' ) {
+            $injected_ok_update = 1;
+            $original_set_indicator->(
+                $self,
+                $name,
+                collector_name       => 'healthy.collector',
+                icon                 => 'H',
+                label                => 'Healthy',
+                managed_by_collector => 1,
+                prompt_visible       => 1,
+                status               => 'ok',
+            );
+        }
+        return $original_set_indicator->( $self, $name, %data );
+    };
+
+    $race_indicators->sync_collectors(
+        [
+            {
+                name      => 'healthy.collector',
+                indicator => {
+                    icon  => 'H',
+                    label => 'Healthy',
+                    name  => 'healthy.indicator',
+                },
+            },
+        ]
+    );
+
+    is(
+        $race_indicators->get_indicator('healthy.indicator')->{status},
+        'ok',
+        'sync_collectors preserves a concurrent collector status update instead of writing stale missing state',
+    );
+}
 
 my $prompt = Developer::Dashboard::Prompt->new( paths => $paths, indicators => $indicators );
 dies_like( sub { Developer::Dashboard::Prompt->new( paths => $paths ) }, qr/Missing indicator store/, 'prompt requires indicators' );

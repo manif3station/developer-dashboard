@@ -24,6 +24,7 @@ WriteMakefile(
         'Getopt::Long'          => 0,
         'HTTP::Request'         => 0,
         'JSON::XS'              => 0,
+        'LWP::Protocol::https'  => 0,
         'LWP::UserAgent'        => 0,
         'YAML::XS'              => 0,
         'TOML::Tiny'            => 0,
