@@ -29,7 +29,7 @@ behavior. Scenarios `B001` through `B050` are browser-focused scenarios.
 | N010 | CLI | Run `dashboard help` and confirm extended POD-backed help renders. | Automated |
 | N011 | CLI | Run `dashboard init` in an empty runtime and confirm starter state is created. | Automated |
 | N012 | CLI | Confirm `dashboard init` seeds `welcome`, `api-dashboard`, and `db-dashboard`. | Automated |
-| N013 | CLI | Confirm `dashboard page new` produces canonical legacy bookmark syntax. | Automated |
+| N013 | CLI | Confirm `dashboard page new` produces canonical older bookmark syntax. | Automated |
 | N014 | CLI | Confirm `dashboard page save` persists a bookmark under the effective dashboards root. | Automated |
 | N015 | CLI | Confirm `dashboard page list` returns sorted saved bookmark ids including nested ids. | Automated |
 | N016 | CLI | Confirm `dashboard page show` round-trips saved bookmark source exactly. | Automated |
@@ -38,7 +38,7 @@ behavior. Scenarios `B001` through `B050` are browser-focused scenarios.
 | N019 | CLI | Confirm `dashboard page render` renders bookmark HTML and top chrome. | Automated |
 | N020 | CLI | Confirm `dashboard page source` prefers saved page ids over token decoding. | Automated |
 | N021 | CLI | Confirm `dashboard paths` reports project-local runtime roots when they exist. | Automated |
-| N022 | CLI | Confirm `dashboard path list` exposes legacy aliases and runtime roots. | Automated |
+| N022 | CLI | Confirm `dashboard path list` exposes older aliases and runtime roots. | Automated |
 | N023 | CLI | Confirm `dashboard path resolve` works for built-in aliases such as `bookmarks_root`. | Automated |
 | N024 | CLI | Confirm `dashboard path add` stores a custom alias using a home-relative form in config. | Automated |
 | N025 | CLI | Confirm `dashboard path del` removes a custom alias idempotently. | Automated |
@@ -85,10 +85,10 @@ behavior. Scenarios `B001` through `B050` are browser-focused scenarios.
 | B011 | Editor | Confirm the share link on saved pages stays on the named saved route instead of a transient token. | Automated |
 | B012 | Editor | Confirm nested bookmark ids such as `nav/foo.tt` open in `/page/nav/foo.tt/edit`. | Automated |
 | B013 | Editor | Confirm browser saves preserve nested bookmark ids without flattening paths. | Automated |
-| B014 | Parser | Confirm a standalone `---` line terminates a legacy section in the browser editor view. | Automated |
+| B014 | Parser | Confirm a standalone `---` line terminates a older section in the browser editor view. | Automated |
 | B015 | Parser | Confirm trailing prose after `---` does not leak back into the saved `CODE*` body in edit mode. | Automated |
 | B016 | Parser | Confirm trailing prose after `---` does not generate runtime Perl compile errors in play mode. | Automated |
-| B017 | Saved Pages | Load `/app/index` and confirm a saved bookmark renders through the legacy route. | Automated |
+| B017 | Saved Pages | Load `/app/index` and confirm a saved bookmark renders through the older route. | Automated |
 | B018 | Saved Pages | Load `/page/<id>` and confirm rendered bookmark content appears with top chrome. | Automated |
 | B019 | Saved Pages | Confirm page `TITLE:` only populates the HTML `<title>` and not the page body unless explicitly rendered. | Automated |
 | B020 | Saved Pages | Confirm request query params merge into page state for rendered saved pages. | Automated |

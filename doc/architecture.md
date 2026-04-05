@@ -79,7 +79,7 @@ instead of a loose pile of utilities.
   generic top-level binaries into the CPAN-installed PATH.
 
 - `Developer::Dashboard::PageDocument`
-  Canonical page model for saved, transient, and legacy bookmark pages.
+  Canonical page model for saved, transient, and older bookmark pages.
 
 - `Developer::Dashboard::PageStore`
   Persists saved pages and encodes/decodes transient page payloads.
@@ -88,11 +88,11 @@ instead of a loose pile of utilities.
   Resolves saved pages and generated provider pages into one page-document model.
 
 - `Developer::Dashboard::PageRuntime`
-  Applies Template Toolkit rendering for `HTML` and `FORM.TT`, then executes legacy `CODE*` sections inside one throwaway sandpit package per page run and captures their output for page rendering.
+  Applies Template Toolkit rendering for `HTML` and `FORM.TT`, then executes older `CODE*` sections inside one throwaway sandpit package per page run and captures their output for page rendering.
 
 - `Developer::Dashboard::Web::App`
   Implements the browser service layer for page rendering, page actions, helper
-  login/logout, and legacy compatibility flows behind the HTTP route table.
+  login/logout, and older compatibility flows behind the HTTP route table.
 
 - `Developer::Dashboard::Web::DancerApp`
   Owns the explicit Dancer2 HTTP route table, normalizes requests, enforces
@@ -153,15 +153,15 @@ Browser access is managed explicitly:
 Page source compatibility is explicit:
 
 - bookmark files serialize back to the original `KEY: ...` plus divider-line syntax
-- legacy `KEY: ...` documents separated by the original divider line are supported directly
+- older `KEY: ...` documents separated by the original divider line are supported directly
 - `HTML` and `FORM.TT` are rendered through Template Toolkit with access to `stash`, `ENV`, and `SYSTEM`
 - `TITLE` populates the document `<title>` and is exposed to Template Toolkit as `title`, but it is not injected into the page body automatically
-- `CODE*` blocks run through the legacy page runtime, merge returned hashes into stash, dump returned hash and array values into the runtime output area, append printed `STDOUT` to the page, and show `STDERR` as red error output
+- `CODE*` blocks run through the older page runtime, merge returned hashes into stash, dump returned hash and array values into the runtime output area, append printed `STDOUT` to the page, and show `STDERR` as red error output
 - one generated sandpit package is reused across `CODE*` blocks for a single render, then destroyed so package globals do not leak into later requests
 - `/` with no bookmark path opens the free-form instruction editor directly
 - posting a root-editor document with `BOOKMARK: some-id` persists it as a saved bookmark so `/app/some-id` can load it on the next request
 - `/apps` redirects to `/app/index`
-- transient browser execution from `/?token=...`, `/action?atoken=...`, and legacy `/ajax?token=...` is disabled by default and only re-enabled when `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is truthy
+- transient browser execution from `/?token=...`, `/action?atoken=...`, and older `/ajax?token=...` is disabled by default and only re-enabled when `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is truthy
 - saved bookmark `Ajax` helper calls can avoid transient tokens by supplying `file => 'name.json'`, which stores the code under `dashboards/ajax/...`, emits `/ajax/<name>?type=...`, and runs the stored file as a real process so live `stdout` and `stderr` stream back to the browser directly
 - edit and render views include shared top chrome with share/source links plus the original status-plus-alias indicator strip, refreshed from `/system/status`, alongside the local user, a machine IP link chosen from the active interfaces, and a browser-updated date/time
 - direct `nav/*.tt` saved bookmarks are treated as shared nav fragments, so `/app/nav/foo.tt` remains editable like any other bookmark while non-nav pages insert the sorted rendered `nav/*.tt` outputs between the top chrome and the main page body

@@ -3,7 +3,7 @@ package Developer::Dashboard::PageDocument;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 
@@ -183,9 +183,9 @@ sub canonical_instruction {
 }
 
 # legacy_instruction()
-# Serializes the page document to legacy colon-and-separator bookmark syntax.
+# Serializes the page document to older colon-and-separator bookmark syntax.
 # Input: none.
-# Output: legacy instruction document string.
+# Output: older instruction document string.
 sub legacy_instruction {
     my ($self) = @_;
     my @sections;
@@ -397,7 +397,7 @@ sub _decode_structured_json {
 }
 
 # _decode_stash_section($text)
-# Decodes legacy or modern STASH content into a hash reference.
+# Decodes older or modern STASH content into a hash reference.
 # Input: stash section text string.
 # Output: hash reference or empty hash reference on failure.
 sub _decode_stash_section {
@@ -414,8 +414,8 @@ sub _decode_stash_section {
 }
 
 # _parse_legacy_sections($text)
-# Parses legacy bookmark syntax separated by the legacy separator line.
-# Input: full legacy bookmark text string.
+# Parses older bookmark syntax separated by the older separator line.
+# Input: full older bookmark text string.
 # Output: hash of section name to arrayref of lines.
 sub _parse_legacy_sections {
     my ($text) = @_;
@@ -436,9 +436,9 @@ sub _parse_legacy_sections {
 }
 
 # _legacy_stash_text($value)
-# Serializes a hash reference into a simple legacy STASH body.
+# Serializes a hash reference into a simple older STASH body.
 # Input: stash hash reference.
-# Output: Perl-like legacy stash text.
+# Output: Perl-like older stash text.
 sub _legacy_stash_text {
     my ($value) = @_;
     return '' if ref($value) ne 'HASH' || !keys %$value;
@@ -447,7 +447,7 @@ sub _legacy_stash_text {
 }
 
 # _legacy_value($value)
-# Serializes a Perl scalar, array, or hash into a legacy bookmark value string.
+# Serializes a Perl scalar, array, or hash into a older bookmark value string.
 # Input: scalar, array reference, or hash reference.
 # Output: Perl-ish text string.
 sub _legacy_value {
@@ -463,7 +463,7 @@ sub _legacy_value {
 }
 
 # _legacy_quote($text)
-# Escapes a scalar string for legacy single-quoted stash serialization.
+# Escapes a scalar string for older single-quoted stash serialization.
 # Input: text string.
 # Output: escaped string.
 sub _legacy_quote {
@@ -490,7 +490,7 @@ sub _template_value {
 }
 
 # _legacy_bootstrap()
-# Returns the legacy client bootstrap helpers used by old bookmark pages.
+# Returns the older client bootstrap helpers used by old bookmark pages.
 # Input: none.
 # Output: JavaScript bootstrap string.
 sub _legacy_bootstrap {

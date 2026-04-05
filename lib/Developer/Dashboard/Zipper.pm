@@ -3,7 +3,7 @@ package Developer::Dashboard::Zipper;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use Exporter 'import';
 use File::Basename qw(dirname);
@@ -17,7 +17,7 @@ our @EXPORT = qw(zip unzip _cmdx _cmdp __cmdx acmdx Ajax);
 our $AJAX_CONTEXT = {};
 
 # zip($text)
-# Encodes a text payload to the legacy token structure.
+# Encodes a text payload to the older token structure.
 # Input: plain text string.
 # Output: hash with raw and url token values.
 sub zip {
@@ -31,7 +31,7 @@ sub zip {
 }
 
 # unzip($token)
-# Decodes a legacy token payload back to text.
+# Decodes a older token payload back to text.
 # Input: encoded token string.
 # Output: plain text string.
 sub unzip {
@@ -41,7 +41,7 @@ sub unzip {
 }
 
 # acmdx(%args)
-# Builds a legacy ajax/action URL bundle for encoded code execution.
+# Builds a older ajax/action URL bundle for encoded code execution.
 # Input: path, type, target, label, code, and optional app/save/base_url/singleton values.
 # Output: hash with token, url, forward, and html keys.
 sub acmdx {
@@ -65,7 +65,7 @@ sub acmdx {
 }
 
 # Ajax(%args)
-# Prints a legacy config-binding script for an encoded ajax endpoint.
+# Prints a older config-binding script for an encoded ajax endpoint.
 # Input: jvar, type, optional file/singleton names, and optional code values.
 # Output: hide marker string.
 sub Ajax {
@@ -213,7 +213,7 @@ sub __cmdx {
 }
 
 # _cmdx($type, $code)
-# Returns legacy shell execution tuple values.
+# Returns older shell execution tuple values.
 # Input: type string and code string.
 # Output: list of shell tuple values.
 sub _cmdx {
@@ -223,7 +223,7 @@ sub _cmdx {
 }
 
 # _cmdp($type, $code)
-# Returns legacy shell pipeline tuple values.
+# Returns older shell pipeline tuple values.
 # Input: type string and code string.
 # Output: list of pipeline tuple values.
 sub _cmdp {
@@ -237,7 +237,7 @@ __END__
 
 =head1 NAME
 
-Developer::Dashboard::Zipper - legacy token encoding and ajax URL compatibility helpers
+Developer::Dashboard::Zipper - older token encoding and ajax URL compatibility helpers
 
 =head1 SYNOPSIS
 
@@ -253,7 +253,7 @@ older bookmark code without carrying forward any project-specific logic.
 
 =head2 zip, unzip, acmdx, Ajax, __cmdx, _cmdx, _cmdp
 
-Encode and decode token payloads and generate legacy-style ajax links. Saved
+Encode and decode token payloads and generate older-style ajax links. Saved
 bookmark Ajax file handlers are stored under the dashboards ajax tree as
 executable files so the web runtime can run them as real processes.
 

@@ -15,7 +15,7 @@ When the current project contains `./.developer-dashboard`, that tree becomes th
 The home runtime is now hardened to owner-only access by default. Directories
 under `~/.developer-dashboard` are kept at `0700`, regular runtime files are
 kept at `0600`, and owner-executable scripts stay owner-executable at `0700`.
-Run `dashboard doctor` to audit the current home runtime plus any legacy
+Run `dashboard doctor` to audit the current home runtime plus any older
 dashboard roots still living directly under `$HOME`, or `dashboard doctor
 --fix` to tighten those permissions in place. The same command also reads
 optional hook results from `~/.developer-dashboard/cli/doctor.d` so users can
@@ -24,16 +24,16 @@ layer in more site-specific checks later.
 Frequently used built-in helpers such as `jq`, `yq`, `tomq`, `propq`, `iniq`,
 `csvq`, `xmlq`, `of`, and `open-file` are staged privately under
 `~/.developer-dashboard/cli/` and dispatched by `dashboard` without polluting
-the global `PATH`. Legacy aliases `pjq`, `pyq`, `ptomq`, and `pjp` still map
+the global `PATH`. Compatibility aliases `pjq`, `pyq`, `ptomq`, and `pjp` still map
 to the renamed commands when they are invoked through `dashboard`.
 
 It provides a small ecosystem for:
 
 - saved and transient dashboard pages built from the original bookmark-file shape
-- legacy bookmark syntax compatibility using the original `:--------------------------------------------------------------------------------:` separator plus directives such as `TITLE:`, `STASH:`, `HTML:`, `FORM.TT:`, `FORM:`, and `CODE1:`
+- bookmark-file syntax compatibility using the original `:--------------------------------------------------------------------------------:` separator plus directives such as `TITLE:`, `STASH:`, `HTML:`, `FORM.TT:`, `FORM:`, and `CODE1:`
 - Template Toolkit rendering for `HTML:` and `FORM.TT:`, with access to `stash`, `ENV`, and `SYSTEM`
-- legacy `CODE*` execution with captured `STDOUT` rendered into the page and captured `STDERR` rendered as visible errors
-- legacy-style per-page sandpit isolation so one bookmark run can share runtime variables across `CODE*` blocks without leaking them into later page runs
+- bookmark `CODE*` execution with captured `STDOUT` rendered into the page and captured `STDERR` rendered as visible errors
+- per-page sandpit isolation so one bookmark run can share runtime variables across `CODE*` blocks without leaking them into later page runs
 - old-style root editor behavior with a free-form bookmark textarea when no path is provided
 - file-backed collectors and indicators
 - prompt rendering for `PS1` and the PowerShell `prompt` function
@@ -196,7 +196,7 @@ generic package names.
   Resolve direct files, `file:line` references, Perl module names, Java class names, and recursive file-pattern matches under a resolved scope so the dashboard can shorten navigation work across different stacks.
 
 - `dashboard jq`, `dashboard yq`, `dashboard tomq`, and `dashboard propq`
-  Parse JSON, YAML, TOML, and Java properties input, then optionally extract a dotted path and print a scalar or canonical JSON, giving the CLI a small data-inspection toolkit that fits naturally into shell workflows. Legacy names `pjq`, `pyq`, `ptomq`, and `pjp` still normalize through `dashboard` for backward compatibility, but they are no longer shipped as standalone executables.
+  Parse JSON, YAML, TOML, and Java properties input, then optionally extract a dotted path and print a scalar or canonical JSON, giving the CLI a small data-inspection toolkit that fits naturally into shell workflows. Compatibility names `pjq`, `pyq`, `ptomq`, and `pjp` still normalize through `dashboard` for backward compatibility, but they are no longer shipped as standalone executables.
 
 - `dashboard iniq`, `dashboard csvq`, and `dashboard xmlq`
   Parse INI, CSV, and XML file input with dotted path extraction.
@@ -232,7 +232,7 @@ The distribution supports these compatibility-style customization variables:
   Override the config root.
 
 - `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS`
-  Allow browser execution of transient `/?token=...`, `/action?atoken=...`, and legacy `/ajax?token=...` payloads. The default is off, so the web UI only executes saved bookmark files unless this is set to a truthy value such as `1`, `true`, `yes`, or `on`.
+  Allow browser execution of transient `/?token=...`, `/action?atoken=...`, and older `/ajax?token=...` payloads. The default is off, so the web UI only executes saved bookmark files unless this is set to a truthy value such as `1`, `true`, `yes`, or `on`.
 
 
 ### Transient Web Token Policy
@@ -255,7 +255,7 @@ Saved bookmark editor pages also stay on their named `/app/<id>/edit` and
 bookmark file does not fall back to transient `token=` URLs under the default
 deny policy.
 
-Legacy `Ajax` helper calls inside saved bookmark `CODE*` blocks should use an
+`Ajax` helper calls inside saved bookmark `CODE*` blocks should use an
 explicit `file => 'name.json'` argument. When a saved page supplies that name,
 the helper stores the Ajax Perl code under the saved dashboard ajax tree and emits a stable
 saved-bookmark endpoint such as `/ajax/name.json?type=text`.
@@ -292,12 +292,12 @@ Saved bookmark editor and view-source routes also protect literal inline script
 content from breaking the browser bootstrap. If a bookmark body contains HTML
 such as `</script>`, the editor now escapes the inline JSON assignment used to
 reload the source text, so the browser keeps the full bookmark source inside
-the editor instead of spilling raw text below the page. Legacy bookmark
+the editor instead of spilling raw text below the page. Earlier bookmark
 rendering now emits saved `set_chain_value()` bindings after the bookmark body
 HTML, so pages that declare `var endpoints = {};` and then call helpers from
 `$(document).ready(...)` receive their saved `/ajax/...` endpoint URLs without
 throwing a play-route JavaScript `ReferenceError`.
-Legacy bookmark pages now also expose `fetch_value(url, target, options,
+Bookmark pages now also expose `fetch_value(url, target, options,
 formatter)`, `stream_value(url, target, options, formatter)`, and
 `stream_data(url, target, options, formatter)` helpers so a bookmark can bind
 saved Ajax endpoints into DOM targets without hand-writing the fetch and
@@ -634,11 +634,11 @@ encoded from the raw bookmark instruction text when it is available, so
 `[% stash.foo %]` stays in source views instead of being baked into the
 rendered scalar value after a render pass.
 
-Legacy `CODE*` blocks now run before Template Toolkit rendering during
+Earlier `CODE*` blocks now run before Template Toolkit rendering during
 `prepare_page`, so a block such as `CODE1: { a => 1 }` can feed
 `[% stash.a %]` in the page body. Returned hash and array values are also
 dumped into the runtime output area, so `CODE1: { a => 1 }` both populates
-stash and shows the legacy-style dumped value below the rendered page body.
+stash and shows the bookmark-style dumped value below the rendered page body.
 The `hide` helper no longer discards already-printed STDOUT, so
 `CODE2: hide print $a` keeps the printed value while suppressing the Perl
 return value from affecting later merge logic.
@@ -745,7 +745,7 @@ Render prompt text directly:
 dashboard ps1 --jobs 2
 ```
 
-`dashboard ps1` now follows the legacy `~/bin/ps1` shape more closely: a
+`dashboard ps1` now follows the original `~/bin/ps1` shape more closely: a
 `(YYYY-MM-DD HH:MM:SS)` timestamp prefix, dashboard status and ticket info, a
 bracketed working directory, an optional jobs suffix, and a trailing
 `🌿branch` marker when git metadata is available. If the ticket workflow
@@ -783,7 +783,7 @@ Windows compatibility claims.
 
 ### Browser Access Model
 
-The browser security model follows the legacy local-first trust concept:
+The browser security model follows the original local-first trust concept:
 
 - requests from exact `127.0.0.1` with a numeric `Host` of `127.0.0.1` are treated as local admin
 - requests from other IPs or from hostnames such as `localhost` are treated as helper access
@@ -799,10 +799,10 @@ For saved bookmark files, that browser save posts back to the named
 `/app/<id>/edit` route and keeps the Play link on `/app/<id>` instead of a
 transient `token=` URL, so updates still work while transient URLs are
 disabled.
-Legacy bookmark parsing also treats a standalone `---` line as a section
+Bookmark parsing also treats a standalone `---` line as a section
 break, preventing pasted prose after a code block from being compiled into the
 saved `CODE*` body.
-Saved bookmark loads now also normalize malformed legacy icon bytes before the
+Saved bookmark loads now also normalize malformed bookmark icon bytes from older files before the
 browser sees them. Broken section glyphs fall back to `◈`, broken item-icon
 glyphs fall back to `🏷️`, and common damaged joined emoji sequences such as
 `🧑‍💻` are repaired so edit and play routes stop showing Unicode replacement
@@ -932,6 +932,24 @@ Skills are completely isolated from the main dashboard runtime and from other
 skills. Removing a skill is simple: `dashboard skills uninstall <repo-name>`
 cleanly removes only that skill's directory.
 
+### Skill Authoring
+
+To build a new skill, start with a Git repository that contains `cli/`,
+`config/config.json`, and optional `dashboards/`, `state/`, `logs/`, `local/`,
+and `cpanfile` files under the skill root. Skill commands are file-based
+commands run through `dashboard skill <repo-name> <command>`, skill hook files
+live under `cli/<command>.d/`, and skill bookmarks render from
+`/skill/<repo-name>/bookmarks/<id>`.
+
+The full skill authoring reference lives in `SKILL.md` and the shipped POD
+module `Developer::Dashboard::SKILLS`. Those guides cover the isolated skill
+layout, environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`,
+bookmark syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, `FORM.TT:`, `FORM:`, and
+`CODE1:`, bookmark browser helpers such as `fetch_value()`, `stream_value()`,
+and `stream_data()`, and when to use dashboard-wide custom CLI hook folders
+such as `~/.developer-dashboard/cli/<command>.d` instead of a skill-local
+hook tree.
+
 ### Blank Environment Integration
 
 ## FAQ
@@ -951,7 +969,7 @@ The current distribution implements the core runtime, page engine, action runner
 What remains intentionally lightweight is breadth, not architecture:
 
 - provider pages and action handlers are implemented in a compact v1 form
-- legacy bookmarks are supported, with Template Toolkit rendering and one clean sandpit package per page run so `CODE*` blocks can share state within a bookmark render without leaking runtime globals into later requests
+- bookmark-file pages are supported, with Template Toolkit rendering and one clean sandpit package per page run so `CODE*` blocks can share state within a bookmark render without leaking runtime globals into later requests
 
 ### Does it require a web framework?
 
@@ -1015,7 +1033,7 @@ integration/browser/run-bookmark-browser-smoke.pl
 That host-side smoke runner creates an isolated temporary runtime, starts the
 checkout-local dashboard, loads one saved bookmark page through headless
 Chromium, and can assert page-source fragments, saved `/ajax/...` output, and
-the final browser DOM. With no arguments it runs the built-in legacy Ajax
+the final browser DOM. With no arguments it runs the built-in Ajax
 `foo.bar` bookmark case. For a real bookmark file, point it at the saved file
 and add explicit expectations:
 

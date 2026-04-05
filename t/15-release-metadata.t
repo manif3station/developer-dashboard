@@ -10,23 +10,53 @@ my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
 
 my $pm = _slurp( _repo_path('lib', 'Developer', 'Dashboard.pm') );
 my $readme = _slurp( _repo_path('README.md') );
+my $skill_guide = _slurp( _repo_path('SKILL.md') );
 my $release_doc = _slurp( _repo_path( 'doc', 'update-and-release.md' ) );
 my $changes = _slurp( _repo_path('Changes') );
 my $dist = _slurp_optional( _repo_path('dist.ini') );
 my $meta = _slurp_optional( _repo_path('META.json') );
 my $makefile = _slurp( _repo_path('Makefile.PL') );
+my @doc_paths = (
+    _repo_path('README.md'),
+    _repo_path('SKILL.md'),
+    _repo_path('FIXED_BUGS.md'),
+    _repo_path('MISTAKE.md'),
+    _repo_path('CONTRIBUTING.md'),
+    _repo_path('SOFTWARE_SPEC.md'),
+    _repo_path('TEST_PLAN.md'),
+    _repo_path( 'doc', 'architecture.md' ),
+    _repo_path( 'doc', 'integration-test-plan.md' ),
+    _repo_path( 'doc', 'security.md' ),
+    _repo_path( 'doc', 'skills.md' ),
+    _repo_path( 'doc', 'static-file-serving.md' ),
+    _repo_path( 'doc', 'testing.md' ),
+    _repo_path( 'doc', 'update-and-release.md' ),
+);
+my @pod_paths = (
+    _repo_path( 'lib', 'Developer', 'Dashboard.pm' ),
+    _repo_path( 'lib', 'Developer', 'Dashboard', 'SKILLS.pm' ),
+    _repo_path( 'lib', 'Developer', 'Dashboard', 'CLI', 'Query.pm' ),
+    _repo_path( 'lib', 'Developer', 'Dashboard', 'DataHelper.pm' ),
+    _repo_path( 'lib', 'Developer', 'Dashboard', 'Doctor.pm' ),
+    _repo_path( 'lib', 'Developer', 'Dashboard', 'File.pm' ),
+    _repo_path( 'lib', 'Developer', 'Dashboard', 'Folder.pm' ),
+    _repo_path( 'lib', 'Developer', 'Dashboard', 'PageRuntime.pm' ),
+    _repo_path( 'lib', 'Developer', 'Dashboard', 'Zipper.pm' ),
+);
+my $skills_pm = _slurp( _repo_path( 'lib', 'Developer', 'Dashboard', 'SKILLS.pm' ) );
+my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.66', 'repo version bumped for the api-dashboard token-form and tab usability release' );
-like( $pm, qr/^1\.66$/m, 'main POD version matches the module version' );
+is( $version, '1.68', 'repo version bumped for the skill authoring guide release' );
+like( $pm, qr/^1\.68$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.66$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.68$/m, 'dist.ini version matches the module version in the source tree' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.66"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.68"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.66\s+2026-04-05$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.68\s+2026-04-05$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -80,7 +110,7 @@ for my $doc ( $readme, $pm ) {
     like( $doc, qr/dashboard propq/, 'docs describe the renamed propq subcommand' );
     like( $doc, qr/dashboard of \. jq|jq\.js.*jquery\.js|jquery\.js.*jq\.js/s, 'docs describe the scoped open-file ranking behaviour' );
     like( $doc, qr/vim -p|C<vim -p>/, 'docs describe vim tab mode for blank-enter open-all' );
-    like( $doc, qr/stream_data\(url, target, options, formatter\)|C<stream_data\(url, target, options, formatter\)>/, 'docs describe the legacy stream_data helper' );
+    like( $doc, qr/stream_data\(url, target, options, formatter\)|C<stream_data\(url, target, options, formatter\)>/, 'docs describe the bookmark stream_data helper' );
     like( $doc, qr/XMLHttpRequest/, 'docs describe incremental browser streaming through XMLHttpRequest' );
     like( $doc, qr/Postman-style|Postman collection/, 'docs describe the Postman-style api-dashboard workspace' );
     like( $doc, qr/import and export(?: of)? Postman collection v2\.1 JSON|import and export(?: of)? Postman collection v2\.1 JSON/i, 'docs describe Postman collection import/export support' );
@@ -95,10 +125,39 @@ for my $doc ( $readme, $pm ) {
     like( $doc, qr/back\/forward navigation|browser URL/, 'docs describe browser navigation-aware api-dashboard state' );
     like( $doc, qr/PDF,\s+image,\s+and\s+TIFF\s+responses|PDF,\s+image,\s+and\s+TIFF/is, 'docs describe api-dashboard media preview support' );
     like( $doc, qr/empty `200` save\/delete responses|empty C<200> save\/delete responses|execve/s, 'docs describe the stricter api-dashboard save success handling and large-import transport guardrail' );
+    like( $doc, qr/SKILL\.md/, 'docs point readers at the skill authoring guide' );
+    like( $doc, qr/Developer::Dashboard::SKILLS/, 'docs point readers at the shipped skill POD module' );
     unlike( $doc, qr/standalone `of` and `open-file`|standalone of and open-file/, 'docs no longer advertise public standalone of/open-file executables' );
     unlike( $doc, qr/standalone `ticket` executable|standalone ticket executable/, 'docs no longer advertise a public standalone ticket executable' );
     like( $doc, qr/Developer::Dashboard::Runtime::Result/, 'docs use the namespaced Runtime::Result module name' );
     like( $doc, qr/Developer::Dashboard::Folder/, 'docs use the namespaced Folder module name' );
+}
+
+for my $doc ( $skill_guide, $skills_pod ) {
+    like( $doc, qr/dashboard skills install/, 'skill authoring docs explain installation' );
+    like( $doc, qr/dashboard skill example-skill/, 'skill authoring docs explain command dispatch' );
+    like( $doc, qr{~/.developer-dashboard/skills/<repo-name>/|F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>}, 'skill authoring docs describe the isolated skill root' );
+    like( $doc, qr/cli\/<command>\.d|cli\/E<lt>commandE<gt>\.d/, 'skill authoring docs explain skill hook directories' );
+    like( $doc, qr/dashboards\//, 'skill authoring docs explain skill bookmark storage' );
+    like( $doc, qr{/skill/<repo-name>/bookmarks/<id>|/skill/E<lt>repo-nameE<gt>/bookmarks/E<lt>idE<gt>}, 'skill authoring docs explain skill bookmark routes' );
+    like( $doc, qr/TITLE:.*BOOKMARK:.*HTML:.*CODE1:/s, 'skill authoring docs explain bookmark section syntax' );
+    like( $doc, qr/fetch_value\(|stream_value\(|stream_data\(/, 'skill authoring docs explain bookmark browser helpers' );
+    like( $doc, qr/Ajax\(file\s*=>\s*'name'|C<Ajax\(file =E<gt> 'name'/, 'skill authoring docs explain saved Ajax endpoints' );
+    like( $doc, qr/nav\/\*\.tt|nav\/foo\.tt/, 'skill authoring docs explain nav bookmark structure' );
+    like( $doc, qr{~/.developer-dashboard/cli/<command>\.d|~/.developer-dashboard/cli/E<lt>commandE<gt>\.d}, 'skill authoring docs explain dashboard-wide custom CLI hooks' );
+    like( $doc, qr/DEVELOPER_DASHBOARD_SKILL_ROOT/, 'skill authoring docs explain the skill command environment' );
+    like( $doc, qr/cpanfile/, 'skill authoring docs explain isolated dependency installation' );
+    like( $doc, qr/FAQ/i, 'skill authoring docs include an FAQ section' );
+}
+
+for my $path (@doc_paths) {
+    my $doc = _slurp($path);
+    unlike( $doc, qr/\blegacy\b/i, "$path no longer mentions the retired internal wording" );
+}
+
+for my $path (@pod_paths) {
+    my $pod = _extract_pod( _slurp($path) );
+    unlike( $pod, qr/\blegacy\b/i, "$path POD no longer mentions the retired internal wording" );
 }
 
 for my $doc ($readme) {
@@ -128,6 +187,13 @@ sub _slurp_optional {
 
 sub _repo_path {
     return File::Spec->catfile( $ROOT, @_ );
+}
+
+sub _extract_pod {
+    my ($content) = @_;
+    return '' if $content !~ /\n__END__\n/s;
+    $content =~ /\n__END__\n(.*)\z/s;
+    return $1 // '';
 }
 
 __END__

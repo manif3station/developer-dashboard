@@ -120,7 +120,7 @@ pages that declare `var endpoints = {};`, verify the saved `set_chain_value()`
 bindings run after that declaration so `$(document).ready(...)` helper calls
 populate the DOM without a console `ReferenceError`.
 Permission-sensitive changes should also verify that `dashboard doctor`
-reports insecure legacy or home-runtime paths before repair and returns clean
+reports insecure older or home-runtime paths before repair and returns clean
 after `--fix`.
 
 Render prompt in extended colored mode:

@@ -3,7 +3,7 @@ package Developer::Dashboard::DataHelper;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use Exporter 'import';
 
@@ -33,7 +33,7 @@ __END__
 
 =head1 NAME
 
-Developer::Dashboard::DataHelper - legacy JSON helper compatibility functions
+Developer::Dashboard::DataHelper - older JSON helper compatibility functions
 
 =head1 SYNOPSIS
 
@@ -42,7 +42,7 @@ Developer::Dashboard::DataHelper - legacy JSON helper compatibility functions
 
 =head1 DESCRIPTION
 
-This module provides the small legacy JSON helper functions used by older
+This module provides the small older JSON helper functions used by older
 bookmark code blocks.
 
 =head1 FUNCTIONS

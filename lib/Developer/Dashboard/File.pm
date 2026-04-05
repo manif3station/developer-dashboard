@@ -3,14 +3,14 @@ package Developer::Dashboard::File;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use File::Spec;
 
 our %ALIASES;
 
 # configure(%args)
-# Configures file alias mappings for legacy bookmark compatibility.
+# Configures file alias mappings for older bookmark compatibility.
 # Input: aliases hash.
 # Output: true value.
 sub configure {
@@ -52,7 +52,7 @@ __END__
 
 =head1 NAME
 
-Developer::Dashboard::File - legacy file compatibility wrapper
+Developer::Dashboard::File - older file compatibility wrapper
 
 =head1 SYNOPSIS
 

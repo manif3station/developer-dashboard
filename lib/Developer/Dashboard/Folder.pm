@@ -3,7 +3,7 @@ package Developer::Dashboard::Folder;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use Cwd qw(cwd);
 use File::Basename qw(dirname);
@@ -259,7 +259,7 @@ __END__
 
 =head1 NAME
 
-Developer::Dashboard::Folder - legacy folder compatibility wrapper
+Developer::Dashboard::Folder - older folder compatibility wrapper
 
 =head1 SYNOPSIS
 

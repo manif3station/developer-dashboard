@@ -12,7 +12,7 @@
 
 ## Release Hygiene
 
-- Do not modify the read-only legacy reference tree.
+- Do not modify the read-only older reference tree.
 - Use `JSON::XS`, `LWP::UserAgent`, and `Capture::Tiny` in active code where those rules apply.
 - Keep comments and POD in sync with behavior.
 

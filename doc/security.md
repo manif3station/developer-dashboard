@@ -18,13 +18,13 @@ Developer Dashboard now applies these runtime protections in the active codebase
 
 ## Repository Hygiene
 
-The active tree outside the read-only legacy reference tree is kept free of:
+The active tree outside the read-only older reference tree is kept free of:
 
 - company-specific product names listed in the repo rules
 - embedded sensitive material
 - literal password examples in user-facing documentation
 
-That legacy reference tree remains read-only reference material and is not modified or committed as part of the active runtime.
+That older reference tree remains read-only reference material and is not modified or committed as part of the active runtime.
 
 ## Verification
 

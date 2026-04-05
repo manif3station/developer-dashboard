@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use Cwd qw(cwd);
 use File::Basename qw(dirname);
@@ -185,7 +185,7 @@ sub dashboards_roots {
 }
 
 # bookmarks()
-# Returns the legacy bookmark directory alias.
+# Returns the older bookmark directory alias.
 # Input: none.
 # Output: directory path string.
 sub bookmarks {
@@ -194,7 +194,7 @@ sub bookmarks {
 }
 
 # bookmarks_root()
-# Returns the legacy bookmark root alias.
+# Returns the older bookmark root alias.
 # Input: none.
 # Output: directory path string.
 sub bookmarks_root {

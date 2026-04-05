@@ -17,7 +17,7 @@ integration/browser/run-bookmark-browser-smoke.pl
 That host-side smoke runner creates an isolated temporary runtime, starts the
 checkout-local dashboard, loads one saved bookmark page through headless
 Chromium, and can assert page-source fragments, saved `/ajax/...` output, and
-the final browser DOM. With no arguments it runs the built-in legacy Ajax
+the final browser DOM. With no arguments it runs the built-in Ajax
 `foo.bar` bookmark case.
 
 For a real bookmark file, point it at the saved file and add the specific
@@ -91,7 +91,7 @@ The extension tests also cover:
 - config-backed path alias registration
 - provider page resolution
 - trusted versus transient action execution policy
-- `dashboard doctor` audits of the current home runtime plus legacy `$HOME/bookmarks`, `$HOME/config`, `$HOME/cli`, and `$HOME/checkers` trees, including `--fix` permission repair and `cli/doctor.d` hook result capture
+- `dashboard doctor` audits of the current home runtime plus older `$HOME/bookmarks`, `$HOME/config`, `$HOME/cli`, and `$HOME/checkers` trees, including `--fix` permission repair and `cli/doctor.d` hook result capture
 - encoded action payload execution
 - CLI hook directories under `~/.developer-dashboard/cli/<command>` or `~/.developer-dashboard/cli/<command>.d` with sorted executable-only hook execution, live streamed hook progress, per-hook `RESULT` rewrites between hook runs, and `Runtime::Result` helper coverage
 - directory-backed custom commands through `~/.developer-dashboard/cli/<command>/run`
@@ -102,7 +102,7 @@ The extension tests also cover:
 - when changing `api-dashboard` import transport or large collection handling, run `prove -lv t/25-api-dashboard-large-import-playwright.t` to verify that an above-threshold Postman import still completes through the browser without tripping the saved-Ajax process argument limit
 - when changing the `api-dashboard` layout, run `prove -lv t/24-api-dashboard-tabs-playwright.t` to keep the top-level Collections/Workspace tabs, the collection tab strip, and the inner Request Details/Response Body/Response Headers tabs below the response `pre` browser-verified
 - Docker Compose file, project, service, addon, mode, and env resolution
-- legacy bookmark syntax parsing, placeholder rendering, `TITLE` head-only rendering, and sandpit-isolated `CODE*` execution
+- bookmark syntax parsing, placeholder rendering, `TITLE` head-only rendering, and sandpit-isolated `CODE*` execution
 
 The repository also now enforces:
 
@@ -119,13 +119,13 @@ The web tests also cover the access model:
 - root free-form editor behavior at `/`
 - posted instruction handling through `/`, including default denial of unsaved transient execution unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled
 - saved bookmark browser edits through `/app/<id>/edit`, including named-route saves and non-transient play links when transient URL execution stays disabled
-- malformed legacy bookmark icon bytes are repaired into stable fallback glyphs on both `/app/<id>` and `/app/<id>/edit`, so browser verification should check for visible fallback icons instead of `�`
+- malformed bookmark icon bytes from older files are repaired into stable fallback glyphs on both `/app/<id>` and `/app/<id>/edit`, so browser verification should check for visible fallback icons instead of `�`
 - nested saved bookmark ids such as `nav/foo.tt` through `/app/...`, `/app/.../edit`, and `/app/.../source`
 - shared `nav/*.tt` bookmark rendering between top chrome and the main page body in sorted filename order
 - Template Toolkit conditional rendering for shared nav fragments and saved pages using `env.current_page` and `env.runtime_context.current_page`
 - `/apps -> /app/index` compatibility
-- top chrome rendering on edit and legacy render pages
-- denial of browser `token=` and `atoken=` execution for transient page and action payloads, plus legacy `/ajax?token=...`, when the transient URL opt-in env var is absent
+- top chrome rendering on edit and saved render pages
+- denial of browser `token=` and `atoken=` execution for transient page and action payloads, plus transient `/ajax?token=...`, when the transient URL opt-in env var is absent
 - absence of accidental project-local `.developer-dashboard` creation when `dashboard restart` runs inside a git repo that has not opted into a local dashboard root
 - saved bookmark `Ajax file => ...` handlers through `/ajax/<file>?type=...`, including `dashboards/ajax/...` storage, direct process-backed streamed ajax execution for both `stdout` and `stderr`, and blank-env verification under the default deny policy
 - file-backed saved Ajax Perl wrappers with autoflushed `STDOUT` and `STDERR`, including a timing check that long-running `print` plus `sleep` handlers emit early chunks instead of buffering until exit

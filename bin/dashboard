@@ -1131,7 +1131,7 @@ sub _welcome_page {
 }
 
 # _api_dashboard_page()
-# Builds the seeded API dashboard bookmark page inspired by the legacy request workspace without carrying forward sensitive defaults.
+# Builds the seeded API dashboard bookmark page inspired by the older request workspace without carrying forward sensitive defaults.
 # Input: none.
 # Output: Developer::Dashboard::PageDocument object.
 sub _api_dashboard_page {

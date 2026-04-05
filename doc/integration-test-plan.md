@@ -62,8 +62,8 @@ The integration run creates:
 - a fake project root under `/tmp/fake-project`
 - a fake project `./.developer-dashboard` tree with `dashboards`, `config`, and `cli` directories
 - a saved page named `sample`
-- a saved legacy bookmark page named `project-home`
-- a saved legacy bookmark page named `legacy-ajax-stream`
+- a saved bookmark page named `project-home`
+- a saved stream regression bookmark page
 - shared nav bookmark pages under `nav/*.tt`
 - a helper user for explicit add/remove testing
 - a second helper user for browser login/logout cleanup testing
@@ -155,7 +155,7 @@ integration/browser/run-bookmark-browser-smoke.pl
 ```
 
 That script is the fast path for saved bookmark browser issues such as static
-asset loading, legacy Ajax binding, and final DOM rendering checks.
+asset loading, bookmark Ajax binding, and final DOM rendering checks.
 
 For Windows verification outside the Linux container flow, run the checked-in
 Strawberry Perl smoke on a Windows host:

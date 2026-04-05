@@ -3,7 +3,7 @@ package Developer::Dashboard::PageStore;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 use utf8;
 
 use Encode qw(decode FB_CROAK FB_DEFAULT);
@@ -238,7 +238,7 @@ sub _load_page_file {
 }
 
 # _read_saved_instruction($file)
-# Reads one saved bookmark file and normalizes legacy-invalid UTF-8 bytes.
+# Reads one saved bookmark file and normalizes older-invalid UTF-8 bytes.
 # Input: bookmark file path string.
 # Output: decoded instruction text string that is safe to emit as UTF-8 HTML/text.
 sub _read_saved_instruction {
@@ -253,7 +253,7 @@ sub _read_saved_instruction {
 }
 
 # _normalize_legacy_icon_markup($text)
-# Repairs browser-visible icon placeholders left behind by malformed legacy bookmark bytes.
+# Repairs browser-visible icon placeholders left behind by malformed older bookmark bytes.
 # Input: decoded bookmark instruction text string.
 # Output: normalized instruction text string with stable fallback glyphs in icon HTML contexts.
 sub _normalize_legacy_icon_markup {

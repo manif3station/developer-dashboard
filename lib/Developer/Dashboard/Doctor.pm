@@ -3,7 +3,7 @@ package Developer::Dashboard::Doctor;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use File::Find ();
 use File::Spec;
@@ -45,7 +45,7 @@ sub run {
 }
 
 # _audit_roots(%args)
-# Audits the known new and legacy dashboard roots when they exist.
+# Audits the known new and older dashboard roots when they exist.
 # Input: optional fix boolean.
 # Output: list of root audit hash references.
 sub _audit_roots {
@@ -60,7 +60,7 @@ sub _audit_roots {
 }
 
 # _known_roots()
-# Returns the current and legacy dashboard roots that should be audited.
+# Returns the current and older dashboard roots that should be audited.
 # Input: none.
 # Output: list of hash references with label and path keys.
 sub _known_roots {
@@ -193,7 +193,7 @@ Developer::Dashboard::Doctor - runtime permission doctor for Developer Dashboard
 
 =head1 DESCRIPTION
 
-This module audits the current home runtime and any legacy dashboard roots that
+This module audits the current home runtime and any older dashboard roots that
 still exist in the user's home directory, checking that directories are
 owner-only and that files are readable only by the owner unless they are meant
 to stay owner-executable.

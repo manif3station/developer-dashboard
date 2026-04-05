@@ -1,62 +1,16 @@
 # Fixed Bugs
 
-## 2026-04-05 (Phase 31: API Dashboard Token Form And Tab Usability)
+## 2026-04-05 (Phase 33: Skill Authoring Documentation)
 
-- Restored the seeded `api-dashboard` request-token workflow so selecting a request with `{{token}}` placeholders now renders a dedicated token form above the editor instead of forcing users to edit the raw collection-variable textarea.
-- Fixed token carry-over so collection token values now populate the visible request URL, headers, and body fields and carry across matching placeholders in other requests from the same collection.
-- Fixed the seeded `api-dashboard` collection browser so stored collections now render as tabs instead of one long stacked list, which avoids excessive scrolling for large imported collections.
-- Fixed the seeded `api-dashboard` tab styling so shell, collection, response, and request tabs read visually as tabs instead of rounded action buttons.
-- Fixed the workspace response layout so Request Details, Response Body, and Response Headers tabs now sit below the response `pre` box, and Response Body becomes active again after each send.
-- Expanded browser coverage in `t/22-api-dashboard-playwright.t` and `t/24-api-dashboard-tabs-playwright.t` for request-token carry-over, collection tabs, tab styling, and response-tab placement/default behaviour.
+- Fixed the documentation gap around authoring new skills by adding a shipped `SKILL.md` guide that explains the expected repository structure, command dispatch model, `cli/<command>.d/` hooks, bookmark routes, bookmark syntax, browser helpers, and custom CLI extension points.
+- Added `Developer::Dashboard::SKILLS` as installed POD so the same skill-authoring reference is available after CPAN installation, not only in a source checkout.
+- Tightened the release-metadata test so future releases fail if the public docs stop covering the supported skill authoring workflow and runtime boundaries.
 
-## 2026-04-05 (Phase 30: API Dashboard Large Import Transport And Empty-200 Guard)
+## 2026-04-05 (Phase 32: Documentation Terminology Cleanup)
 
-- Fixed saved-Ajax execution for oversized browser payloads by spilling large request params and query strings to temp files instead of passing them inline through `execve`, which prevented `Argument list too long` failures during large collection saves.
-- Fixed the seeded `api-dashboard` browser import flow so real file-input uploads use a FileReader-first path and can still hand collection contents into the importer under Playwright and normal Chromium paths.
-- Fixed `api-dashboard` collection import/save/delete handling so empty `200` Ajax responses are treated as failures instead of surfacing false success banners when no collection was actually persisted.
-- Added oversized save coverage in `t/03-web-app.t`, saved-Ajax payload spill coverage in `t/12-legacy-helper-coverage.t`, and large-import browser coverage in `t/25-api-dashboard-large-import-playwright.t`.
-
-## 2026-04-04 (Phase 29: Collector Indicator Restart Consistency)
-
-- Fixed managed collector indicator syncing so prompt, browser, and CLI metadata refreshes no longer overwrite a concurrently-updated healthy collector back to `missing` during restart windows.
-- Added a unit guard in `t/07-core-units.t` that simulates a collector writing `ok` while config-backed indicator sync is trying to persist stale metadata, proving the live collector status wins.
-- Reverified the blank-environment install/restart path so the healthy config collector now stays green in `dashboard indicator list`, `dashboard ps1`, and `/system/status` after `dashboard restart`.
-
-## 2026-04-04 (Phase 28: API Dashboard Import Flow And Tabbed Layout)
-
-- Fixed the seeded `api-dashboard` import flow so importing a Postman collection now adds the collection to the Collections tab and persists it under `config/api-dashboard/<collection-name>.json` instead of appearing to do nothing in the browser.
-- Fixed the seeded `api-dashboard` layout so Collections and Workspace now render as top-level tabs, preventing the collection browser and request editor from fighting for horizontal space on the same screen.
-- Fixed the workspace response layout so Request Details, Response Body, and Response Headers now render as inner tabs instead of three side-by-side panes that compete for the same narrow area.
-- Added browser coverage for the import path in `t/22-api-dashboard-playwright.t`, the generic external-fixture import path in `t/23-api-dashboard-import-fixture-playwright.t`, and the tabbed layout in `t/24-api-dashboard-tabs-playwright.t`.
-
-## 2026-04-04 (Phase 27: API Dashboard Browser Import Repro And Save Overwrite Fix)
-
-- Fixed the seeded `api-dashboard` collection save route so saving updates back into an existing collection name now overwrites the existing `config/api-dashboard/<collection-name>.json` file instead of failing with a false duplicate-name error.
-- Added a generic Playwright `api-dashboard` import-fixture repro under `t/23-api-dashboard-import-fixture-playwright.t` so browser import failures can be traced against real external Postman JSON files without hardcoding third-party branding into the repository.
-- Fixed the test and troubleshooting route for browser import failures by explicitly recording whether the hidden `api-dashboard` import input receives the Playwright chooser upload before importer and persistence behaviour are judged.
-- Fixed `t/09-runtime-manager.t` under `Devel::Cover` by replacing unbounded stubborn-child `waitpid` calls with bounded reaping logic, so the release coverage run no longer stalls after exercising shutdown escalation paths.
-
-## 2026-04-04 (Phase 26: API Dashboard File-Backed Collections)
-
-- Fixed the seeded `api-dashboard` bookmark so created, saved, renamed, deleted, and imported collections now persist as Postman collection JSON files under `config/api-dashboard/<collection-name>.json` instead of living only in browser `localStorage`.
-- Fixed bookmark startup loading so the `api-dashboard` workspace now reads every stored `config/api-dashboard/*.json` collection on open and rebuilds the sidebar from those file-backed collections automatically.
-- Fixed saved Ajax execution for the new collection endpoints by bootstrapping the project-local `lib/` path from the saved Ajax file location when needed and by parenthesizing `print j(...)` calls, so `/ajax/api-dashboard-bootstrap`, `/ajax/api-dashboard-collections-save`, and `/ajax/api-dashboard-collections-delete` return real JSON instead of Perl runtime errors.
-
-## 2026-04-04 (Phase 25: API Dashboard Browser Ajax Compatibility)
-
-- Fixed the built-in `/js/jquery.js` bookmark shim so `$.ajax(...)` now honors the `method` option and exposes jqXHR-style `.done(...)`, `.fail(...)`, and `.always(...)` chaining. Without that, the seeded `api-dashboard` bookmark failed in the browser before it could post to `/ajax/api-dashboard-send-request`.
-- Fixed the `api-dashboard` response panel so transient UI states such as `Sending request...` can render without a full `request` / `response` payload. The browser no longer throws before the real Ajax response arrives.
-- Browser-verified the seeded `api-dashboard` bookmark against `GET https://api.ipify.org/?format=json`, confirming the request details panel, JSON body, and response headers now render correctly in Chromium.
-
-## 2026-04-04 (Phase 24: API Dashboard HTTPS Runtime Prerequisite)
-
-- Fixed HTTPS API dispatch in the seeded `api-dashboard` bookmark by declaring `LWP::Protocol::https` as a runtime prerequisite. Without it, saved `LWP::UserAgent` requests to normal TLS APIs failed with `501 Protocol scheme 'https' is not supported`.
-
-## 2026-04-04 (Phase 23: API Dashboard Navigation And Preview)
-
-- Fixed the seeded `api-dashboard` bookmark so the active collection, request, and tab now round-trip through the browser URL. Direct opens, copy/paste URLs, and browser back/forward now restore the matching connection details view instead of dropping back to whatever local tab happened to be active.
-- Fixed the left-hand collection panel so it reflects the current workspace location with active collection and request highlighting when the page restores state from a direct URL or browser navigation event.
-- Fixed API response rendering so JSON stays formatted as JSON, text stays text, and PDF, image, and TIFF responses render as browser previews instead of raw binary or base64 dumps.
+- Removed internal-history wording from markdown docs, shipped POD, release notes, and bug logs so public-facing documentation now describes bookmark compatibility and older runtime shapes directly.
+- Added a release-metadata guard that fails if markdown docs or shipped POD reintroduce that internal wording.
+- Fixed the tarball doc set by shipping `SOFTWARE_SPEC.md` again, so built-distribution release tests see the same public documentation inventory as the source tree.
 
 ## 2026-04-04 (Phase 22: API Dashboard Postman Workspace)
 
@@ -66,8 +20,8 @@
 
 ## 2026-04-04 (Phase 21: Stream-Data Browser Fix)
 
-- Fixed legacy bookmark `stream_data()` so it exists again and updates DOM targets from incremental saved Ajax output instead of waiting for the whole response to finish.
-- Fixed legacy bookmark `stream_value()` so it now uses the same progressive browser streaming path instead of degrading to a one-shot `fetch().text()` request.
+- Fixed older bookmark `stream_data()` so it exists again and updates DOM targets from incremental saved Ajax output instead of waiting for the whole response to finish.
+- Fixed older bookmark `stream_value()` so it now uses the same progressive browser streaming path instead of degrading to a one-shot `fetch().text()` request.
 
 ## 2026-04-04 (Phase 19: Open-File Vim Tabs)
 
@@ -135,11 +89,11 @@
 - Fixed browser status icon visibility by using an emoji-capable font stack in the top-right chrome, so UTF-8 collector icons such as `🐳` and `💰` stay visible in Chromium and macOS browsers instead of collapsing into fallback boxes.
 - Fixed stale collector rename ghosts by removing managed indicator records whose collector names no longer exist in config, so renaming a collector no longer leaves both the old and new indicator in the prompt or `/system/status`.
 - Fixed hook-summary ergonomics by adding `Runtime::Result->report()`, so Perl-backed custom commands can print a compact success/error report after their sorted hook files finish.
-- Fixed legacy bookmark Ajax bootstrap ordering by moving saved `set_chain_value(...)` bindings after bookmark body declarations and by adding `fetch_value()` / `stream_value()` helpers, so pages that declare `var endpoints = {};` can populate DOM targets from saved `/ajax/...` endpoints inside `$(document).ready(...)` on first render.
+- Fixed older bookmark Ajax bootstrap ordering by moving saved `set_chain_value(...)` bindings after bookmark body declarations and by adding `fetch_value()` / `stream_value()` helpers, so pages that declare `var endpoints = {};` can populate DOM targets from saved `/ajax/...` endpoints inside `$(document).ready(...)` on first render.
 - Fixed UTF-8 CLI/output drift by making dashboard JSON, prompt, and hook-report output consistently emit UTF-8, so collector icons and `Runtime::Result->report()` glyphs survive shell output, `/system/status`, and file-backed state round trips.
 - Fixed checkout-local Perl command drift by exporting the active dashboard `lib/` path through `PERL5LIB`, so shebang-backed custom command runners keep loading the current checkout modules instead of a stale installed copy.
 - Fixed permissive home-runtime storage by tightening `~/.developer-dashboard` directories to `0700`, regular runtime files to `0600`, and owner-executable runtime files to owner-only `0700`.
-- Fixed permission-audit blind spots by adding `dashboard doctor` and `dashboard doctor --fix`, so current and legacy dashboard roots under `$HOME` can be checked and repaired for owner-only file and folder access.
+- Fixed permission-audit blind spots by adding `dashboard doctor` and `dashboard doctor --fix`, so current and older dashboard roots under `$HOME` can be checked and repaired for owner-only file and folder access.
 - Fixed Windows verification drift by checking in `integration/windows/run-strawberry-smoke.ps1` and `integration/windows/run-qemu-windows-smoke.sh`, so Strawberry Perl and full-system Windows validation now live in the repo instead of in ad-hoc manual notes.
 - Fixed Windows command-resolution test gaps by extending the forced-Windows unit coverage for `PATHEXT`, `.ps1`, `.cmd`, and `.pl` dispatch, so platform regressions fail in the fast test loop before the slower Windows smoke gates run.
 - Fixed Unix-shell lock-in across the command runtime by routing collector `command` strings, trusted page actions, saved Ajax script execution, update scripts, and custom CLI runners through a shared platform layer, so Windows Strawberry Perl installs no longer require `sh` or `bash` just to execute dashboard-managed commands.
@@ -151,7 +105,7 @@
 - Fixed SSL redirect drift by wrapping the SSL-enabled PSGI app with an HTTP-to-HTTPS redirect, so any request that still reaches the app as plain HTTP is sent to the matching `https://...` URL before the dashboard route executes.
 - Fixed bash-only shell bootstrap output by adding `dashboard shell zsh`, so macOS zsh sessions now get the same bookmark-aware navigation helpers and a `precmd`-refreshed dashboard prompt with zsh job counting.
 - Fixed POSIX shell bootstrap gaps by adding `dashboard shell sh`, so non-bash Linux `/bin/sh` sessions now get `cdr`, `dd_cdr`, `which_dir`, and a prompt command that does not depend on bash-only `\j` escapes.
-- Fixed prompt-format drift by changing `dashboard ps1` to follow the legacy `~/bin/ps1` layout, using a parenthesized timestamp prefix, bracketed working directory, and trailing `🌿branch` marker instead of the older brace-wrapped project context.
+- Fixed prompt-format drift by changing `dashboard ps1` to follow the older `~/bin/ps1` layout, using a parenthesized timestamp prefix, bracketed working directory, and trailing `🌿branch` marker instead of the older brace-wrapped project context.
 - Fixed prompt ticket-context loss by teaching `dashboard ps1` to read `TICKET_REF` from the active tmux session environment when the ticket workflow seeded it there but the current shell process did not export it directly.
 - Fixed documentation-scope drift by removing release and deployment workflow detail from the main README and `Developer::Dashboard` POD, keeping those user-facing docs focused on runtime behavior while leaving operational release procedure in `doc/update-and-release.md`.
 - Fixed packaged-test runtime leakage by clearing `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_CHECKERS` inside the affected tests, so a developer's local override environment no longer breaks tarball installs and `cpanm` test runs.
@@ -170,7 +124,7 @@
 - Fixed shared `nav/*.tt` presentation drift by removing the hardcoded vertical inline flex layout and the pale nav background, so nav fragments now wrap horizontally by default and inherit the bookmark theme colors instead of hiding text on dark pages.
 - Fixed remaining HTTPS startup bug where `dashboard serve --ssl` passed only the generated certificate and key paths into Plack/Starman but did NOT enable SSL mode itself, so the listener still came up as plain HTTP; the server now forwards `ssl => 1` as well, making the runtime bind as real HTTPS and keeping restart persistence aligned with the saved SSL setting.
 - Fixed critical SSL parameter passing bug where `dashboard serve --ssl` would silently fail to enable HTTPS: the ssl flag was parsed and saved, but was NOT being forwarded to the Web::Server constructor in the app_builder callback, causing Starman to run without SSL configuration even though all parameters were queued correctly; now the ssl parameter flows through the entire chain: CLI -> Config -> RuntimeManager -> app_builder -> Web::Server -> Starman SSL configuration.
-- Fixed malformed legacy bookmark icon rendering by normalizing saved bookmark files with broken UTF-8 icon bytes during load, so `/app/<id>` and `/app/<id>/edit` now show stable fallback glyphs instead of `�` boxes and still repair common damaged joined emoji such as `🧑‍💻`.
+- Fixed malformed older bookmark icon rendering by normalizing saved bookmark files with broken UTF-8 icon bytes during load, so `/app/<id>` and `/app/<id>/edit` now show stable fallback glyphs instead of `�` boxes and still repair common damaged joined emoji such as `🧑‍💻`.
 - Fixed singleton-managed saved Ajax worker cleanup so `dashboard stop` and `dashboard restart` now sweep `dashboard ajax: NAME` processes, and browser bookmark pages send a `pagehide` cleanup beacon to `/ajax/singleton/stop` so closing the tab does not leave singleton workers running in the background.
 - Fixed bookmark editor line drift by restoring syntax highlighting inside a clipped overlay viewport that follows the real textarea scroll position by transform, so long bookmark text selection and caret placement no longer land on the wrong visible line.
 - Fixed bookmark editor bottom-of-file drift by preserving the final blank line in the overlay, so long saved bookmark edits no longer leave the visible overlay one line shorter than the real textarea.
@@ -192,12 +146,12 @@
 - Fixed shared `nav/*.tt` context drift on transient play routes by making named bookmark token renders reuse the saved `/app/<id>` current-page path, so nav fragments no longer disappear or flip conditional output just because the browser reached the page through `/?mode=render&token=...`.
 - Fixed repeated slow manual bookmark-browser repros by adding a dedicated host-side `integration/browser/run-bookmark-browser-smoke.pl` workflow, so saved bookmark issues now have one fast real-browser smoke path instead of requiring the full blank-environment integration cycle every time.
 - Fixed missing `/js/jquery.js` bookmark support by serving a built-in local jQuery-style compatibility shim when no runtime asset overrides it, so saved bookmark pages no longer fail immediately with `$` undefined just because no copied runtime JS file exists.
-- Fixed browser-verified legacy `Ajax jvar => 'foo.bar', file => 'foobar'` bookmark flow coverage, confirming that `foo.bar` is bound to the saved `/ajax/foobar?...` endpoint and that any remaining non-update in the user's sample bookmark is due to the page's own `.display` versus `class=disply` mismatch rather than a dashboard route failure.
+- Fixed browser-verified older `Ajax jvar => 'foo.bar', file => 'foobar'` bookmark flow coverage, confirming that `foo.bar` is bound to the saved `/ajax/foobar?...` endpoint and that any remaining non-update in the user's sample bookmark is due to the page's own `.display` versus `class=disply` mismatch rather than a dashboard route failure.
 
 ## 2026-04-02
 
 - Fixed saved bookmark editor script breakout by escaping inline JSON assignment text before it is embedded into the browser boot script, so literal bookmark HTML such as `</script>` no longer closes the editor bootstrap early and spills raw source text under the page.
-- Fixed legacy saved bookmark bootstrap ordering by defining `set_chain_value()` and the other legacy helpers before rendering bookmark body HTML, so `Ajax jvar => ...` bindings no longer throw `ReferenceError: Can't find variable: set_chain_value` on play routes.
+- Fixed older saved bookmark bootstrap ordering by defining `set_chain_value()` and the other older helpers before rendering bookmark body HTML, so `Ajax jvar => ...` bindings no longer throw `ReferenceError: Can't find variable: set_chain_value` on play routes.
 
 ## 2026-04-01
 
@@ -205,7 +159,7 @@
 - Fixed blank-environment integration log silence by streaming long-running command stdout and stderr live from the runner, so `cpanm` install/test work and Chromium-backed browser checks no longer look hung while they are still progressing.
 - Fixed blank-environment integration version drift by reading the expected installed version from the extracted tarball instead of hard-coding a stale release number in the runner.
 - Fixed saved bookmark local static-file lookup so `/js/*`, `/css/*`, and `/others/*` now resolve both the effective runtime `dashboard/public/...` tree and `dashboards/public/...`, making saved local assets such as `dashboards/public/js/jquery.js` work after browser saves.
-- Fixed legacy bookmark section parsing so a standalone `---` line ends the current legacy section, preventing trailing pasted prose from being compiled into `CODE*` blocks or echoed back into the bookmark editor.
+- Fixed older bookmark section parsing so a standalone `---` line ends the current section, preventing trailing pasted prose from being compiled into `CODE*` blocks or echoed back into the bookmark editor.
 - Fixed saved bookmark editor routing so browser updates from `/app/<id>/edit` keep saving through the named bookmark route and keep the Play link on `/app/<id>` instead of a transient `token=` URL when transient web tokens are disabled.
 - Fixed saved bookmark route drift by removing the parallel `/page/...` surface and serving saved render, edit, source, and action routes consistently from `/app/...` only.
 - Fixed blank-environment helper route drift by switching the post-login integration flow from the removed `/page/welcome` path to `/app/welcome`, so the prebuilt-container release verification follows the same saved-route surface as the shipped app.
@@ -223,12 +177,12 @@
 - Fixed transient-url-disabled saved bookmark Ajax endpoint shape by emitting `/ajax/<file>?type=...` and resolving saved handlers from the shared dashboards ajax tree instead of requiring page-scoped query parameters.
 - Fixed saved bookmark Ajax breakage under the transient-url hardening policy by adding named `file => ...` Ajax handlers that store code under the saved dashboards ajax tree and execute through `/ajax/<file>?type=...` without requiring transient tokens.
 - Fixed saved Ajax stream warning noise by guarding closed-handle `fileno` comparisons, so process-backed ajax coverage runs no longer emit uninitialized-value warnings.
-- Fixed browser token-execution exposure by disabling transient `/?token=...`, `/action?atoken=...`, and legacy `/ajax?token=...` routes by default, so opening an untrusted localhost link no longer runs transient payloads unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled explicitly.
+- Fixed browser token-execution exposure by disabling transient `/?token=...`, `/action?atoken=...`, and older `/ajax?token=...` routes by default, so opening an untrusted localhost link no longer runs transient payloads unless `DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS` is enabled explicitly.
 - Fixed root-editor policy drift by continuing to allow posted bookmark files while rejecting unsaved transient root-editor execution when transient URL tokens are disabled.
 - Fixed plain `Folder` compatibility drift so direct calls such as `perl -MFolder -e 'print Folder->docker'` now lazy-load config-backed path aliases from the active runtime and match the aliases shown by `dashboard paths`.
 - Fixed `Folder->dd` and `Folder->runtime_root` returning a doubled `~/.developer-dashboard/.developer-dashboard` path when the current working directory was already inside the home runtime repository.
 - Fixed runtime-root precedence drift by making a project-local `./.developer-dashboard` tree the first lookup root for bookmarks, config, CLI commands and hooks, auth users, sessions, and isolated docker service folders, while still falling back to `~/.developer-dashboard` when the local item is absent.
-- Fixed local bookmark seeding gaps by adding sanitized `api-dashboard` and `db-dashboard` starter pages to `dashboard init`, so the runtime ships editable built-in request and SQL workspaces without carrying forward company-specific or credential-bearing legacy bookmark content.
+- Fixed local bookmark seeding gaps by adding sanitized `api-dashboard` and `db-dashboard` starter pages to `dashboard init`, so the runtime ships editable built-in request and SQL workspaces without carrying forward company-specific or credential-bearing older bookmark content.
 - Fixed blank-environment parity drift by moving the integration harness onto a real fake-project `./.developer-dashboard` tree instead of env-var bookmark/config overrides, so the tarball install exercises the same local-over-home runtime precedence as the shipped code.
 
 ## 2026-03-31
@@ -249,7 +203,7 @@
 - Fixed nested bookmark save failures by creating parent directories automatically for saved ids such as `nav/foo.tt`, so bookmark-editor saves can write shared nav pages without manual directory setup.
 - Fixed shared page-nav composition by rendering direct `nav/*.tt` bookmark files in sorted filename order between the top chrome and the main page body on other saved pages, while still keeping `/app/nav/foo.tt` itself as a normal editable bookmark page.
 - Fixed unconfigured `Folder` runtime drift by making `Folder->dd` and AUTOLOAD-backed root aliases such as `Folder->runtime_root` lazily bootstrap the default dashboard path registry from `HOME`, so compatibility code sees the same runtime root as `dashboard paths` before explicit `configure()`.
-- Fixed `Folder` naming drift by teaching `AUTOLOAD` to resolve `runtime_root`, `bookmarks_root`, `config_root`, and `startup_root` through the existing legacy aliases, so compatibility code can use the same root-style names shown by `dashboard paths`.
+- Fixed `Folder` naming drift by teaching `AUTOLOAD` to resolve `runtime_root`, `bookmarks_root`, `config_root`, and `startup_root` through the existing compatibility aliases, so compatibility code can use the same root-style names shown by `dashboard paths`.
 - Fixed blank-container integration contamination by delaying `DEVELOPER_DASHBOARD_BOOKMARKS`, `DEVELOPER_DASHBOARD_CONFIGS`, and `DEVELOPER_DASHBOARD_STARTUP` until after `cpanm` finishes installing the tarball, so the shipped test suite still runs against a clean runtime.
 - Fixed installed-version visibility by adding `dashboard version`, so an installed runtime can report its shipped Developer Dashboard version without inspecting module files.
 - Fixed update-output ambiguity by documenting and testing that `dashboard update` prints the common RESULT JSON map directly.
@@ -262,8 +216,8 @@
 - Fixed collector state recovery so a malformed persisted `status.json` for a collector such as `vpn` is treated as missing state and is overwritten on the next write instead of crashing collector startup during `dashboard restart`.
 - Fixed collector-failure regression coverage by adding a blank-environment and unit test scenario where one broken Perl startup collector stays red without stopping a second healthy collector or its green indicator state.
 - Fixed tarball-install validation drift by removing `cpanm --notest` from the blank-environment integration flow, so the shipped artifact is exercised with install-time tests enabled.
-- Fixed legacy bookmark runtime output so `CODE1: { a => 1 }` now both merges `{ a => 1 }` into stash for Template Toolkit rendering and dumps the returned structure into the visible runtime output area.
-- Fixed legacy bookmark runtime order so `CODE*` blocks execute before Template Toolkit rendering, allowing returned hashes such as `{ a => 1 }` to feed `[% stash.a %]` in page HTML.
+- Fixed older bookmark runtime output so `CODE1: { a => 1 }` now both merges `{ a => 1 }` into stash for Template Toolkit rendering and dumps the returned structure into the visible runtime output area.
+- Fixed older bookmark runtime order so `CODE*` blocks execute before Template Toolkit rendering, allowing returned hashes such as `{ a => 1 }` to feed `[% stash.a %]` in page HTML.
 - Fixed the `hide` helper so `hide print $a` keeps the printed stdout while suppressing the Perl return value instead of dropping the whole block output.
 - Fixed bookmark Template Toolkit context by exposing the page title as `title`, so `[% title %]` in `HTML:` now renders the `TITLE:` value.
 - Fixed transient bookmark source drift by encoding play/view-source links from the raw instruction text when it exists, so `[% stash.foo %]` no longer collapses into rendered output such as `1` after visiting render mode.
@@ -300,7 +254,7 @@
 - Fixed docker-compose config sprawl by restoring old-style isolated service-folder discovery under the dashboard docker config root, so per-service compose files can live outside the merged JSON config.
 - Fixed docker overlay path rigidity by expanding `${VAR}` and `$VAR` placeholders in configured compose file paths, restoring old-style `DDDC`-driven global config patterns.
 - Fixed nested config merge loss so repo-local docker config extends global docker service, addon, mode, and env maps instead of replacing them wholesale.
-- Fixed root-editor bookmark persistence so posting a legacy instruction document with `BOOKMARK: index` now saves the page immediately and makes `/app/index` resolve it instead of failing with `Page 'index' not found`.
+- Fixed root-editor bookmark persistence so posting an older instruction document with `BOOKMARK: index` now saves the page immediately and makes `/app/index` resolve it instead of failing with `Page 'index' not found`.
 - Fixed tarball test drift by teaching the release-facing tests to fall back to shipped META.json when `dist.ini` is intentionally absent from the built archive.
 - Fixed YAML query command naming by renaming the mistaken `yjq` command to `pyq` across the CLI, standalone executable, tests, and release documentation.
 - Fixed release-version drift by cutting a fresh `0.41` artifact for the already-correct standalone CLI and integration assets instead of reusing the stale `0.40` tarball.
@@ -327,7 +281,7 @@
 - Fixed integration-invocation drift by requiring the host-built tarball flow through `integration/blank-env/run-host-integration.sh` and `docker compose ... run --build --rm blank-env`.
 - Fixed artifact-isolation drift by mounting only the host-built tarball into the blank container instead of mounting the live repo source as the app under test.
 - Fixed update-path drift in the blank-container run by extracting the mounted tarball inside the container so `dashboard update` runs from built artifact contents.
-- Fixed legacy naming drift by adding `bookmarks` and `bookmarks_root` path aliases for integration and user compatibility.
+- Fixed older naming drift by adding `bookmarks` and `bookmarks_root` path aliases for integration and user compatibility.
 - Fixed release-confidence gaps by adding a clean-container integration harness that builds with Dist::Zilla, installs with cpanm, and exercises the installed dashboard CLI.
 - Fixed deployment-validation gaps by documenting a comprehensive blank-environment integration test plan for the installed runtime.
 - Fixed CPAN packaging drift by excluding the checked-in `Makefile.PL` from `GatherDir` so `dzil build` no longer aborts on duplicate `Makefile.PL` output.
@@ -343,11 +297,11 @@
 - Fixed page-header indicator drift by restoring the original `status + alias` model from `Playground.pm` instead of using prompt icons or prompt ordering.
 - Fixed top-chrome drift by restoring the old indicator-strip behavior instead of rendering the full shell prompt at the top of bookmark pages.
 - Fixed title-render drift by keeping bookmark `TITLE:` values in the HTML `<title>` element only instead of also injecting them into the page body.
-- Fixed runtime-isolation drift by switching legacy `CODE*` execution to one throwaway sandpit package per page run, matching the old cleanup model more closely.
+- Fixed runtime-isolation drift by switching older `CODE*` execution to one throwaway sandpit package per page run, matching the old cleanup model more closely.
 - Fixed bookmark-format drift by restoring the original `KEY:` plus `:--------------------------------------------------------------------------------:` file structure as the canonical bookmark source format.
 - Fixed directive drift by removing synthetic bookmark directives from saved bookmark serialization and returning to the old directive set.
 - Fixed rendering drift by switching `HTML:` and `FORM.TT:` processing to Template Toolkit with `stash`, `ENV`, and `SYSTEM` available in templates.
-- Fixed legacy runtime drift so `CODE*` blocks now render captured `STDOUT` into the page and display captured `STDERR` as visible runtime errors.
+- Fixed older runtime drift so `CODE*` blocks now render captured `STDOUT` into the page and display captured `STDERR` as visible runtime errors.
 - Fixed editor drift by adding live section highlighting for bookmark directives, HTML blocks, and Perl `CODE*` blocks while editing.
 - Fixed editor interaction drift by moving syntax highlighting into the same editing surface instead of a separate side preview.
 - Fixed transient-token test coverage drift by escaping transient page tokens in the browser-facing tests to match real query-string transport.
@@ -373,18 +327,18 @@
 - Fixed session hardening gaps by expiring helper sessions automatically, binding them to the originating remote address, and storing them with `0600` permissions.
 - Fixed web-response hardening gaps by adding CSP, no-store, frame-deny, nosniff, no-referrer, and no-store headers to the local HTTP server.
 - Fixed documentation hygiene by removing literal password examples and replacing them with placeholders.
-- Fixed repository hygiene outside the read-only legacy reference tree by confirming the active tree is clear of the banned company-specific references.
+- Fixed repository hygiene outside the read-only older reference tree by confirming the active tree is clear of the banned company-specific references.
 
 - Fixed old bookmark route drift by adding generic `/app/<name>` forwarding for saved bookmark files and saved URL bookmark entries.
 - Fixed old ajax compatibility drift by adding a generic `/ajax` token execution path in the new dashboard runtime.
-- Fixed legacy helper drift by restoring project-neutral `Ajax`, `acmdx`, `j`, `je`, `Folder`, and `File` compatibility surfaces for bookmark code blocks.
-- Fixed legacy parser drift by accepting lowercase `code1:` style sections instead of only uppercase `CODE1:`.
-- Fixed the real `api` bookmark compatibility gap so the new runtime now generates the legacy `configs.collections.all` and `configs.send.request` endpoint bindings during render.
+- Fixed older helper drift by restoring project-neutral `Ajax`, `acmdx`, `j`, `je`, `Folder`, and `File` compatibility surfaces for bookmark code blocks.
+- Fixed older parser drift by accepting lowercase `code1:` style sections instead of only uppercase `CODE1:`.
+- Fixed the real `api` bookmark compatibility gap so the new runtime now generates the older `configs.collections.all` and `configs.send.request` endpoint bindings during render.
 
-- Fixed old-Playground feature drift by supporting both legacy bookmark syntax and the modern section syntax in the page engine.
-- Fixed legacy rendering gaps by adding placeholder expansion for `HTML`, `FORM`, and `FORM.TT` content before page render.
-- Fixed legacy runtime gaps by adding trusted `CODE*` execution with stash merge and captured output for saved/provider pages.
-- Fixed transient trust drift by keeping legacy `CODE*` blocks disabled for transient encoded pages unless explicitly enabled.
+- Fixed old-Playground feature drift by supporting both older bookmark syntax and the modern section syntax in the page engine.
+- Fixed older rendering gaps by adding placeholder expansion for `HTML`, `FORM`, and `FORM.TT` content before page render.
+- Fixed older runtime gaps by adding trusted `CODE*` execution with stash merge and captured output for saved/provider pages.
+- Fixed transient trust drift by keeping older `CODE*` blocks disabled for transient encoded pages unless explicitly enabled.
 - Fixed documentation drift that still claimed the old bookmark syntax required a future importer even after compatibility support was added.
 
 - Fixed stale documentation examples that still showed the pre-simplification `dashboard auth add-user <user> <pass> <role>` shape instead of the current two-argument form.
@@ -401,8 +355,8 @@
 - Fixed docker-compose layering drift by exposing explicit project, service, addon, and mode overlay precedence in the resolver output.
 - Fixed repo rule drift by adding function-level purpose/input/output comments across the Perl codebase and POD trailers across scripts, modules, update scripts, and tests.
 - Fixed `Developer::Dashboard::Collector::read_output` so empty stdout and stderr files are read in scalar context and do not collapse hash keys.
-- Fixed checker filtering semantics to match the legacy colon-separated `DEVELOPER_DASHBOARD_CHECKERS` contract exactly.
-- Fixed repository hygiene by removing legacy company-specific code and embedded sensitive material before open-source publication.
+- Fixed checker filtering semantics to match the older colon-separated `DEVELOPER_DASHBOARD_CHECKERS` contract exactly.
+- Fixed repository hygiene by removing older company-specific code and embedded sensitive material before open-source publication.
 - Fixed collector deduplication so pid files are trusted only when the live process title matches the managed `dashboard collector: <name>` convention.
 - Fixed collector shutdown so unrelated foreign processes are no longer terminated just because a stale pid file exists.
 - Fixed updater restart detection so it uses validated running loop state instead of blindly trusting every `*.pid` file.
@@ -417,7 +371,7 @@
 - Fixed default listen-address friction by changing `dashboard serve` to bind all interfaces by default while keeping helper gating in the request trust logic.
 - Fixed web-service lifecycle drift by making `dashboard serve` run as a managed background service by default and adding matching stop/restart control paths.
 - Fixed shutdown reliability so web and collector stop operations no longer depend on pid files alone and can fall back to `pkill`-style managed-process scans.
-- Fixed legacy web-process detection so older plain `dashboard serve` perl listeners are now discovered and terminated by `dashboard stop` and `dashboard restart`.
+- Fixed older web-process detection so older plain `dashboard serve` perl listeners are now discovered and terminated by `dashboard stop` and `dashboard restart`.
 - Fixed false web-process deduplication so `dashboard serve` no longer treats the invoking shell command, tracing wrappers, or its own current process as an already running web service.
 - Fixed plugin discovery by correcting the duplicate-file guard so first-seen plugin JSON files are actually loaded.
 - Fixed Docker Compose resolution by correcting the duplicate-file guard so discovered compose files and overlays survive into the final stack.

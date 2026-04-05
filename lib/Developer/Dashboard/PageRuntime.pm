@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
@@ -22,7 +22,7 @@ use Developer::Dashboard::Zipper qw(Ajax acmdx zip unzip);
 my $SANDPIT_SEQ = 0;
 
 # new(%args)
-# Constructs the legacy-style page runtime used by browser-rendered bookmarks.
+# Constructs the older-style page runtime used by browser-rendered bookmarks.
 # Input: optional path registry and folder alias data.
 # Output: Developer::Dashboard::PageRuntime object.
 sub new {
@@ -35,7 +35,7 @@ sub new {
 }
 
 # prepare_page(%args)
-# Executes legacy CODE blocks, then applies Template Toolkit rendering.
+# Executes older CODE blocks, then applies Template Toolkit rendering.
 # Input: page document, source kind, and runtime context hash.
 # Output: updated page document object.
 sub prepare_page {
@@ -156,7 +156,7 @@ sub _runtime_value_text {
 }
 
 # _render_templates(%args)
-# Processes legacy HTML and FORM.TT sections through Template Toolkit.
+# Processes older HTML and FORM.TT sections through Template Toolkit.
 # Input: page document and runtime context hash.
 # Output: none; mutates page layout in place.
 sub _render_templates {
@@ -260,7 +260,7 @@ sub _system_context {
 }
 
 # _run_single_block(%args)
-# Executes one CODE block inside the active legacy sandpit package.
+# Executes one CODE block inside the active older sandpit package.
 # Input: Perl code string, mutable stash hash, runtime context hash, and optional sandpit hash.
 # Output: hash reference with stdout, stderr, returns, and merged stash.
 sub _run_single_block {
@@ -781,7 +781,7 @@ PERL
 }
 
 # _code_header($state)
-# Builds the legacy lexical stash header injected before each CODE block.
+# Builds the older lexical stash header injected before each CODE block.
 # Input: mutable stash hash reference.
 # Output: Perl source string.
 sub _code_header {
@@ -903,7 +903,7 @@ sub _destroy_sandpit {
 }
 
 # _escape_html($text)
-# Escapes scalar text for safe HTML interpolation in legacy FORM blocks.
+# Escapes scalar text for safe HTML interpolation in older FORM blocks.
 # Input: text scalar.
 # Output: escaped text scalar.
 sub _escape_html {
@@ -949,7 +949,7 @@ __END__
 
 =head1 NAME
 
-Developer::Dashboard::PageRuntime - legacy bookmark renderer and CODE executor
+Developer::Dashboard::PageRuntime - older bookmark renderer and CODE executor
 
 =head1 SYNOPSIS
 
@@ -959,7 +959,7 @@ Developer::Dashboard::PageRuntime - legacy bookmark renderer and CODE executor
 =head1 DESCRIPTION
 
 This module applies Template Toolkit rendering to bookmark HTML and executes
-legacy C<CODE*> blocks while capturing STDOUT and STDERR for in-page display.
+older C<CODE*> blocks while capturing STDOUT and STDERR for in-page display.
 
 =head1 METHODS
 

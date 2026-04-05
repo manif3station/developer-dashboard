@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.66
+1.68
 
 =head1 INTRODUCTION
 
@@ -47,7 +47,7 @@ The home runtime is now hardened to owner-only access by default. Directories
 under F<~/.developer-dashboard> are kept at C<0700>, regular runtime files are
 kept at C<0600>, and owner-executable scripts stay owner-executable at
 C<0700>. Run C<dashboard doctor> to audit the current home runtime plus any
-legacy dashboard roots still living directly under C<$HOME>, or
+older dashboard roots still living directly under C<$HOME>, or
 C<dashboard doctor --fix> to tighten those permissions in place. The same
 command also reads optional hook results from
 F<~/.developer-dashboard/cli/doctor.d> so users can layer in more
@@ -56,7 +56,7 @@ site-specific checks later.
 Frequently used built-in commands such as C<jq>, C<yq>, C<tomq>, C<propq>,
 C<iniq>, C<csvq>, C<xmlq>, C<of>, C<open-file>, and C<ticket> are staged
 privately under F<~/.developer-dashboard/cli/> and dispatched by
-C<dashboard> without polluting the global PATH. Legacy aliases C<pjq>,
+C<dashboard> without polluting the global PATH. Compatibility aliases C<pjq>,
 C<pyq>, C<ptomq>, and C<pjp> still normalize to the renamed commands when
 they are invoked through C<dashboard>.
 
@@ -70,7 +70,7 @@ saved and transient dashboard pages built from the original bookmark-file shape
 
 =item *
 
-legacy bookmark syntax compatibility using the original
+bookmark-file syntax compatibility using the original
 C<:--------------------------------------------------------------------------------:> separator plus directives such as
 C<TITLE:>, C<STASH:>, C<HTML:>, C<FORM.TT:>, C<FORM:>, and C<CODE1:>
 
@@ -81,12 +81,12 @@ C<stash>, C<ENV>, and C<SYSTEM>
 
 =item *
 
-legacy C<CODE*> execution with captured C<STDOUT> rendered into the page and
+bookmark C<CODE*> execution with captured C<STDOUT> rendered into the page and
 captured C<STDERR> rendered as visible errors
 
 =item *
 
-legacy-style per-page sandpit isolation so one bookmark run can share runtime
+per-page sandpit isolation so one bookmark run can share runtime
 variables across C<CODE*> blocks without leaking them into later page runs
 
 =item *
@@ -411,7 +411,7 @@ under this namespace:
 
 =item * Developer::Dashboard::File
 
-File I/O helpers with alias support for legacy bookmark compatibility.
+File I/O helpers with alias support for older bookmark compatibility.
 
 =item * Developer::Dashboard::Folder
 
@@ -419,7 +419,7 @@ Folder path resolution and discovery with runtime registry support.
 
 =item * Developer::Dashboard::DataHelper
 
-JSON encoding and decoding helpers for legacy bookmark code.
+JSON encoding and decoding helpers for older bookmark code.
 
 =item * Developer::Dashboard::Zipper
 
@@ -572,7 +572,7 @@ Override the config root.
 =item * C<DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS>
 
 Allow browser execution of transient C</?token=...>, C</action?atoken=...>,
-and legacy C</ajax?token=...> payloads. The default is off, so the web UI only
+and older C</ajax?token=...> payloads. The default is off, so the web UI only
 executes saved bookmark files unless this is set to a truthy value such as
 C<1>, C<true>, C<yes>, or C<on>.
 
@@ -604,7 +604,7 @@ C</app/E<lt>idE<gt>> routes when you save from the browser, so editing an
 existing bookmark file does not fall back to transient C<token=> URLs under the
 default deny policy.
 
-Legacy C<Ajax> helper calls inside saved bookmark C<CODE*> blocks should use
+C<Ajax> helper calls inside saved bookmark C<CODE*> blocks should use
 an explicit C<file =E<gt> 'name.json'> argument. When a saved page supplies that
 name, the helper stores the Ajax Perl code under the saved dashboard ajax tree and emits a
 stable saved-bookmark endpoint such as
@@ -645,11 +645,11 @@ script content from breaking the browser bootstrap. If a bookmark body
 contains HTML such as C</script>, the editor now escapes the inline JSON
 assignment used to reload the source text, so the browser keeps the full
 bookmark source inside the editor instead of spilling raw text below the page.
-Legacy bookmark rendering now emits saved C<set_chain_value()> bindings after
+Bookmark rendering now emits saved C<set_chain_value()> bindings after
 the bookmark body HTML, so pages that declare C<var endpoints = {}> and then
 call helpers from C<$(document).ready(...)> receive their saved C</ajax/...>
 endpoint URLs without throwing a play-route JavaScript C<ReferenceError>.
-Legacy bookmark pages now also expose
+Bookmark pages now also expose
 C<fetch_value(url, target, options, formatter)>,
 C<stream_value(url, target, options, formatter)>, and
 C<stream_data(url, target, options, formatter)> helpers so a bookmark can bind
@@ -980,11 +980,11 @@ also encoded from the raw bookmark instruction text when it is available, so
 C<[% stash.foo %]> stays in source views instead of being baked into the
 rendered scalar value after a render pass.
 
-Legacy C<CODE*> blocks now run before Template Toolkit rendering during
+Earlier C<CODE*> blocks now run before Template Toolkit rendering during
 C<prepare_page>, so a block such as C<CODE1: { a => 1 }> can feed
 C<[% stash.a %]> in the page body. Returned hash and array values are also
 dumped into the runtime output area, so C<CODE1: { a => 1 }> both populates
-stash and shows the legacy-style dumped value below the rendered page body.
+stash and shows the bookmark-style dumped value below the rendered page body.
 The C<hide> helper no longer discards already-printed STDOUT, so
 C<CODE2: hide print $a> keeps the printed value while suppressing the Perl
 return value from affecting later merge logic.
@@ -1108,7 +1108,7 @@ Render prompt text directly:
 
   dashboard ps1 --jobs 2
 
-C<dashboard ps1> now follows the legacy F<~/bin/ps1> shape more closely: a
+C<dashboard ps1> now follows the original F<~/bin/ps1> shape more closely: a
 C<(YYYY-MM-DD HH:MM:SS)> timestamp prefix, dashboard status and ticket info, a
 bracketed working directory, an optional jobs suffix, and a trailing
 C<🌿branch> marker when git metadata is available. If the ticket workflow
@@ -1144,7 +1144,7 @@ release-grade Windows compatibility claims.
 
 =head2 Browser Access Model
 
-The browser security model follows the legacy local-first trust concept:
+The browser security model follows the original local-first trust concept:
 
 =over 4
 
@@ -1191,10 +1191,10 @@ For saved bookmark files, that browser save posts back to the named
 C</app/E<lt>idE<gt>/edit> route and keeps the Play link on
 C</app/E<lt>idE<gt>> instead of a transient C<token=> URL, so updates still
 work while transient URLs are disabled.
-Legacy bookmark parsing also treats a standalone C<---> line as a section
+Bookmark parsing also treats a standalone C<---> line as a section
 break, preventing pasted prose after a code block from being compiled into the
 saved C<CODE*> body.
-Saved bookmark loads now also normalize malformed legacy icon bytes before the
+Saved bookmark loads now also normalize malformed bookmark icon bytes from older files before the
 browser sees them. Broken section glyphs fall back to C<◈>, broken item-icon
 glyphs fall back to C<🏷️>, and common damaged joined emoji sequences such as
 C<🧑‍💻> are repaired so edit and play routes stop showing Unicode replacement
@@ -1204,7 +1204,7 @@ The default web bind is C<0.0.0.0:7890>. Trust is still decided from the request
 
 =head2 Runtime Lifecycle
 
-The runtime manager follows the legacy local-service pattern:
+The runtime manager follows the older local-service pattern:
 
 =over 4
 
@@ -1272,7 +1272,7 @@ Overrides the config directory.
 =item * C<DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS>
 
 Allows browser execution of transient C</?token=...>, C</action?atoken=...>,
-and legacy C</ajax?token=...> payloads. The default is off, so the web UI only
+and older C</ajax?token=...> payloads. The default is off, so the web UI only
 executes saved bookmark files unless this is set to a truthy value such as
 C<1>, C<true>, C<yes>, or C<on>.
 
@@ -1314,7 +1314,7 @@ For fast saved-bookmark browser regressions, run the dedicated smoke script:
 That host-side smoke runner creates an isolated temporary runtime, starts the
 checkout-local dashboard, loads one saved bookmark page through headless
 Chromium, and can assert page-source fragments, saved C</ajax/...> output, and
-the final browser DOM. With no arguments it runs the built-in legacy Ajax
+the final browser DOM. With no arguments it runs the built-in Ajax
 C<foo.bar> bookmark case. For a real bookmark file, point it at the saved file
 and add explicit expectations:
 
@@ -1477,6 +1477,26 @@ Skills are completely isolated from the main dashboard runtime and from other
 skills. Removing a skill is simple: C<dashboard skills uninstall E<lt>repo-nameE<gt>>
 cleanly removes only that skill's directory.
 
+=head3 Skill Authoring
+
+To build a new skill, start with a Git repository that contains C<cli/>,
+C<config/config.json>, and optional C<dashboards/>, C<state/>, C<logs/>,
+C<local/>, and C<cpanfile> files under the skill root. Skill commands are
+file-based commands run through
+C<dashboard skill E<lt>repo-nameE<gt> E<lt>commandE<gt>>, skill hook files
+live under C<cli/E<lt>commandE<gt>.d/>, and skill bookmarks render from
+C</skill/E<lt>repo-nameE<gt>/bookmarks/E<lt>idE<gt>>.
+
+The full skill authoring reference lives in F<SKILL.md> and the shipped POD
+module C<Developer::Dashboard::SKILLS>. Those guides cover the isolated skill
+layout, environment variables such as C<DEVELOPER_DASHBOARD_SKILL_ROOT>,
+bookmark syntax like C<TITLE:>, C<BOOKMARK:>, C<HTML:>, C<FORM.TT:>,
+C<FORM:>, and C<CODE1:>, bookmark browser helpers such as
+C<fetch_value()>, C<stream_value()>, and C<stream_data()>, and when to use
+dashboard-wide custom CLI hook folders such as
+F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d> instead of a skill-local
+hook tree.
+
 =head1 FAQ
 
 =head2 Is this tied to a specific company or codebase?
@@ -1494,7 +1514,7 @@ The current distribution implements the core runtime, page engine, action runner
 What remains intentionally lightweight is breadth, not architecture:
 
 - provider pages and action handlers are implemented in a compact v1 form
-- legacy bookmarks are supported, with Template Toolkit rendering and one clean sandpit package per page run so C<CODE*> blocks can share state within a bookmark render without leaking runtime globals into later requests
+- bookmark-file pages are supported, with Template Toolkit rendering and one clean sandpit package per page run so C<CODE*> blocks can share state within a bookmark render without leaking runtime globals into later requests
 
 =head2 Does it require a web framework?
 

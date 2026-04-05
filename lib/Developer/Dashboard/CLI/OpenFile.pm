@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::OpenFile;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use Cwd qw(cwd);
 use Exporter 'import';
@@ -83,7 +83,7 @@ sub _default_editor {
 }
 
 # _editor_supports_tabs(%args)
-# Detects whether the resolved editor command should receive the legacy vim tab-open switch.
+# Detects whether the resolved editor command should receive the older vim tab-open switch.
 # Input: command array reference where the first entry is the executable name.
 # Output: true when the editor is one of the vim-family commands that support -p.
 sub _editor_supports_tabs {
@@ -96,7 +96,7 @@ sub _editor_supports_tabs {
 }
 
 # _select_open_file_matches(%args)
-# Resolves the final open-file match list using the legacy numbered chooser flow.
+# Resolves the final open-file match list using the older numbered chooser flow.
 # Input: hash containing an array reference of matched file path strings.
 # Output: one or more selected file path strings, defaulting to all matches when no choice is entered.
 sub _select_open_file_matches {
@@ -127,7 +127,7 @@ sub _select_open_file_matches {
 }
 
 # _selection_matches(%args)
-# Parses one legacy chooser string into the selected open-file matches.
+# Parses one older chooser string into the selected open-file matches.
 # Input: choice string plus array reference of matched file path strings.
 # Output: zero or more selected file path strings.
 sub _selection_matches {

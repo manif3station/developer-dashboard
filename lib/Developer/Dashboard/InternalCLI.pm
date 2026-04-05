@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use File::Spec;
 
@@ -18,7 +18,7 @@ sub helper_names {
 # helper_aliases()
 # Returns the compatibility alias map for renamed helper commands.
 # Input: none.
-# Output: hash reference mapping legacy names to current helper names.
+# Output: hash reference mapping older names to current helper names.
 sub helper_aliases {
     return {
         pjq   => 'jq',

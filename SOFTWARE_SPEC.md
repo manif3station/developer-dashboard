@@ -8,13 +8,13 @@
 
 `DD` remains an acceptable short product nickname.
 
-Build a new, smaller Developer Dashboard focused on reusable developer tooling primitives rather than legacy company-specific workflows.
+Build a new, smaller Developer Dashboard focused on reusable developer tooling primitives rather than older company-specific workflows.
 
 Developer Dashboard is intended to be fully project-neutral and suitable for open source distribution.
 
 The long-term goal is that any developer should be able to use it for any project, with project-specific behavior added only through config and plugins.
 
-The new system should preserve the strongest ideas from the legacy project:
+The new system should preserve the strongest ideas from the older project:
 
 - a lightweight dashboard engine that can render pages from encoded instructions
 - shareable page state via compact encode/decode URLs
@@ -23,7 +23,7 @@ The new system should preserve the strongest ideas from the legacy project:
 - command-line indicators that reflect local system state
 - a small plugin-style model for reusable dashboards and actions
 
-The new system should not be tied to legacy service names, legacy middleware, legacy database tooling, or any fixed company-specific folder structure.
+The new system should not be tied to older service names, older middleware, older database tooling, or any fixed company-specific folder structure.
 
 ## Product Goal
 
@@ -55,10 +55,10 @@ It should be usable as:
 
 ## Non-Goals
 
-- Rebuilding all legacy dashboards in v1.
-- Shipping legacy company workflows in core.
+- Rebuilding all older dashboards in v1.
+- Shipping older company workflows in core.
 - Embedding environment-specific sensitive-material logic in core.
-- Supporting every legacy script and bookmark format unchanged.
+- Supporting every older script and bookmark format unchanged.
 - Creating a hosted multi-tenant SaaS product.
 
 ## Open Source Position
@@ -161,7 +161,7 @@ Example payload classes:
 
 ### 3. Dashboard Definition Format
 
-The new format should borrow the strength of the old bookmark model without tightly coupling to the legacy syntax.
+The new format should borrow the strength of the old bookmark model without tightly coupling to the older syntax.
 
 V1 should support:
 
@@ -170,7 +170,7 @@ V1 should support:
 - optional action blocks
 - optional hidden internal state
 
-Legacy-inspired concepts worth preserving:
+Earlier-inspired concepts worth preserving:
 
 - title
 - stash/state
@@ -185,7 +185,7 @@ Open decision:
 
 Recommendation:
 
-Use a new canonical format and add legacy import later if needed.
+Use a new canonical format and add older import later if needed.
 
 ### 4. Local Command Runtime
 
@@ -209,7 +209,7 @@ The runtime should distinguish between:
 
 ### 5. Directory Navigation Magic
 
-The new project should include reusable shell helpers inspired by the legacy folder-jumping behavior.
+The new project should include reusable shell helpers inspired by the older folder-jumping behavior.
 
 Requirements:
 
@@ -232,7 +232,7 @@ Recommended model:
 - optional shell integration script for `cd`-style helpers
 - repo-local overrides plus user-global overrides
 
-## Legacy Path and File Abstraction Findings
+## Earlier Path and File Abstraction Findings
 
 The old `Folder.pm` and `File.pm` were a major part of the system design.
 
@@ -249,11 +249,11 @@ They defined:
 
 That abstraction is worth preserving in the new Developer Dashboard core.
 
-The legacy company-specific path names and hardcoded repo assumptions are not.
+The older company-specific path names and hardcoded repo assumptions are not.
 
 ### 1. `Folder.pm` Was a Path Registry
 
-The legacy `Folder.pm` acted as a central registry of named directories.
+The older `Folder.pm` acted as a central registry of named directories.
 
 It provided:
 
@@ -278,7 +278,7 @@ The new core should have a path registry service that provides:
 
 ### 2. `File.pm` Was a Named File Registry
 
-The legacy `File.pm` complemented `Folder.pm` by giving stable names to important files such as:
+The older `File.pm` complemented `Folder.pm` by giving stable names to important files such as:
 
 - logs
 - state markers
@@ -315,9 +315,9 @@ That pattern should remain core to the new project.
 
 The new core must not hardcode names or paths tied to:
 
-- legacy internal service names
-- legacy middleware names
-- legacy database adapters
+- older internal service names
+- older middleware names
+- older database adapters
 - employer-specific docker workspaces
 - employer-specific cloud config folders
 
@@ -392,7 +392,7 @@ Service- or company-specific names should come only from config or plugins.
 
 ## Folder and File Registry Specification
 
-This section defines the replacement for legacy `Folder.pm` and `File.pm`.
+This section defines the replacement for older `Folder.pm` and `File.pm`.
 
 ### 1. Purpose
 
@@ -461,7 +461,7 @@ The core should provide defaults, but users must be able to override them.
 
 ### 7. Path Helper API
 
-The runtime should expose a small set of path helper primitives, conceptually similar to the best parts of legacy `Folder.pm`.
+The runtime should expose a small set of path helper primitives, conceptually similar to the best parts of older `Folder.pm`.
 
 Examples:
 
@@ -516,11 +516,11 @@ The wrapper must remain transparent:
 - users should be able to see what real command will run
 - failures should surface raw stderr cleanly
 
-## Legacy Docker Compose Findings
+## Earlier Docker Compose Findings
 
-This section captures the reusable parts of the legacy `docker_compose` wrapper while explicitly rejecting company-specific behavior from the new core.
+This section captures the reusable parts of the older `docker_compose` wrapper while explicitly rejecting company-specific behavior from the new core.
 
-### 1. The Legacy Wrapper Was a Context Resolver
+### 1. The Earlier Wrapper Was a Context Resolver
 
 The old `docker_compose` command was not just a shortcut for `docker compose`.
 
@@ -536,7 +536,7 @@ This is the core design idea worth preserving.
 
 ### 2. Compose File Resolution Was Layered
 
-The legacy wrapper built a final compose invocation from:
+The older wrapper built a final compose invocation from:
 
 - a base compose file
 - zero or more service overlays
@@ -561,7 +561,7 @@ The old wrapper read external service state and used it to decide whether a serv
 - normal compose overlay
 - development/live-update compose overlay
 
-The legacy company-specific implementation should be removed, but the pattern is useful.
+The older company-specific implementation should be removed, but the pattern is useful.
 
 Recommendation:
 
@@ -628,7 +628,7 @@ The wrapper should never hide the real command structure.
 
 ## Docker Compose Resolver Specification
 
-This section defines the reusable replacement for the legacy wrapper.
+This section defines the reusable replacement for the older wrapper.
 
 ### 1. Purpose
 
@@ -826,13 +826,13 @@ Requirements:
 
 - expose a `dashboard ps1` command as the canonical prompt entrypoint
 - support `bash` first in v1
-- support wiring `PS1` directly to command substitution, following the legacy shape
+- support wiring `PS1` directly to command substitution, following the older shape
 - render from cached status only
 - support compact and extended display modes
 - support colored and plain-text output
 - degrade cleanly when no indicators are enabled
 
-Legacy compatibility insight:
+Earlier compatibility insight:
 
 - in the old project, `.bashrc` used `export PS1='$(ps1 jobs=\j)'`
 - `bin/ps1` printed the full prompt body, including time, indicators, cwd, jobs, and git branch
@@ -883,15 +883,15 @@ Checker and indicator responsibilities should stay separate:
 - checkers gather or refresh state
 - indicators present that state in prompt/dashboard form
 
-## Legacy Polling and Data Collection Findings
+## Earlier Polling and Data Collection Findings
 
 The old system did not rely on live checks inside every consumer process.
 
 Instead, it used background polling jobs to prepare data into files, then other processes read those files later.
 
-This is one of the strongest architectural ideas in the legacy codebase and should be preserved in the new core.
+This is one of the strongest architectural ideas in the older codebase and should be preserved in the new core.
 
-### 1. The Legacy Model Was Producer/Consumer
+### 1. The Earlier Model Was Producer/Consumer
 
 The architecture was effectively:
 
@@ -936,7 +936,7 @@ The reusable design idea is:
 
 ### 3. `run_bg` Was the Real Polling Engine
 
-The core polling primitive in the legacy system was `System::DataProcess::run_bg`.
+The core polling primitive in the older system was `System::DataProcess::run_bg`.
 
 It provided:
 
@@ -969,7 +969,7 @@ DD should include a generic collector runtime with capabilities equivalent to:
 
 ### 4. File-Backed Job Output Was the Integration Surface
 
-The legacy polling system wrote per-job data under a collector directory.
+The older polling system wrote per-job data under a collector directory.
 
 Each job had a directory containing at least:
 
@@ -1007,7 +1007,7 @@ The new collector runtime must use atomic write-and-rename behavior for job outp
 
 ### 6. Prompt and Dashboard Were File Consumers
 
-The legacy `ps1` command did not run Docker, VPN, DB, or AWS checks itself.
+The older `ps1` command did not run Docker, VPN, DB, or AWS checks itself.
 
 Instead, it read indicator files created by background jobs.
 
@@ -1027,7 +1027,7 @@ Rule for the new system:
 
 ### 7. Indicators Were Just One Consumer Format
 
-The legacy system produced two related file-backed data shapes:
+The older system produced two related file-backed data shapes:
 
 - collector data files under the data collector root
 - indicator/status marker files under system state roots
@@ -1076,7 +1076,7 @@ The new collector runtime should support:
 
 ### 10. Logging and Inspectability Were Important
 
-The legacy system logged collector activity and allowed fetching logs and latest outputs.
+The older system logged collector activity and allowed fetching logs and latest outputs.
 
 That is important operationally because background jobs are otherwise opaque.
 
@@ -1092,7 +1092,7 @@ DD must include collector observability features:
 
 ## Collector Runtime Specification
 
-This section translates the legacy polling model into the new DD core.
+This section translates the older polling model into the new DD core.
 
 ### 1. Purpose
 
@@ -1346,9 +1346,9 @@ This means:
 - encoded pages must not automatically become full arbitrary code execution unless explicitly trusted
 - action execution should be opt-in per source or per dashboard
 
-## Migration Guidance From Legacy
+## Migration Guidance From Earlier
 
-## Legacy Engine Findings
+## Earlier Engine Findings
 
 This section captures the specific reusable mechanics discovered in the old `Playground.pm` and bookmark system.
 
@@ -1356,7 +1356,7 @@ These findings should inform the new core design directly.
 
 ### 1. Source of Truth Was Instruction Text
 
-In the legacy system, the primary unit was not a route, component, or database record.
+In the older system, the primary unit was not a route, component, or database record.
 
 It was an instruction document.
 
@@ -1379,7 +1379,7 @@ The instruction document could come from either:
 
 This is the most important engine idea worth preserving.
 
-### 2. The Legacy Runtime Had a Stable Four-Step Pipeline
+### 2. The Earlier Runtime Had a Stable Four-Step Pipeline
 
 The old `Playground->run()` pipeline was effectively:
 
@@ -1420,7 +1420,7 @@ This gave ad hoc, shareable, transient pages.
 
 A saved page lived as a file in the bookmarks directory.
 
-Important legacy detail:
+Important older detail:
 
 - the saved bookmark file usually stored the raw instruction source
 - it did not need to store the tokenized URL permanently
@@ -1491,7 +1491,7 @@ The new runtime should explicitly define a canonical serialization format and us
 
 ### 6. The Page Definition Included Both UI and Behavior
 
-Legacy bookmarks mixed:
+Earlier bookmarks mixed:
 
 - page metadata
 - view markup
@@ -1575,9 +1575,9 @@ The new system should keep an explicit page resolver layer with support for:
 - repo-local pages
 - user-global pages
 
-### 10. The Real Legacy Architecture Pattern
+### 10. The Real Earlier Architecture Pattern
 
-The legacy engine can be summarized as:
+The older engine can be summarized as:
 
 - document source layer
 - canonical serialization layer
@@ -1591,7 +1591,7 @@ The new Developer Dashboard should deliberately rebuild this pattern with strong
 
 ## Page Model Specification
 
-This section translates the legacy findings into explicit requirements for the new system.
+This section translates the older findings into explicit requirements for the new system.
 
 ### 1. Page Sources
 
@@ -1691,12 +1691,12 @@ Minimum rule:
 
 ### 9. Compatibility Position
 
-The new core does not need full legacy bookmark syntax compatibility in v1.
+The new core does not need full older bookmark syntax compatibility in v1.
 
 However, the architecture must make it possible to add:
 
-- a legacy bookmark importer
-- a legacy page adapter
+- a older bookmark importer
+- a older page adapter
 - a migration tool from old bookmark files to the new page format
 
 ### Preserve
@@ -1713,7 +1713,7 @@ However, the architecture must make it possible to add:
 ### Drop From Core
 
 - hardcoded company-specific repos and paths
-- legacy database, service, and middleware assumptions
+- older database, service, and middleware assumptions
 - bespoke auth based on support-person files
 - company-specific startup routines
 - employer-specific AWS logic
@@ -1741,7 +1741,7 @@ V1 should deliver:
 
 ## Out of Scope For V1
 
-- full legacy bookmark compatibility
+- full older bookmark compatibility
 - advanced auth
 - cloud sync
 - multi-user permissions
@@ -1779,7 +1779,7 @@ Reason:
 
 Alternative:
 
-- keep Perl for faster legacy concept transfer
+- keep Perl for faster older concept transfer
 
 This is viable, and it becomes significantly more attractive if CPAN distribution is a primary goal.
 
@@ -1817,7 +1817,7 @@ Recommendation:
 
 Avoid:
 
-- heavy implicit parsing rules that recreate too much legacy ambiguity
+- heavy implicit parsing rules that recreate too much older ambiguity
 
 ### State Storage
 
@@ -1884,7 +1884,7 @@ The project is successful when:
 - custom indicators
 - custom action handlers
 
-### Phase 5. Legacy import
+### Phase 5. Earlier import
 
 - selectively port useful old workflows as optional extensions
 

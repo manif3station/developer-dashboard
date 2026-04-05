@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -151,7 +151,7 @@ sub running_web {
 }
 
 # stop_web()
-# Stops the managed web service, including legacy compatible process shapes.
+# Stops the managed web service, including older compatible process shapes.
 # Input: none.
 # Output: stopped pid or undef.
 sub stop_web {
@@ -578,7 +578,7 @@ sub _find_processes_by_prefix {
 }
 
 # _find_web_processes()
-# Returns managed or legacy-compatible dashboard web processes.
+# Returns managed or older-compatible dashboard web processes.
 # Input: none.
 # Output: list of process hash references.
 sub _find_web_processes {
@@ -595,7 +595,7 @@ sub _find_web_processes {
 }
 
 # _find_legacy_web_processes()
-# Returns legacy-style dashboard serve processes.
+# Returns older-style dashboard serve processes.
 # Input: none.
 # Output: list of process hash references.
 sub _find_legacy_web_processes {

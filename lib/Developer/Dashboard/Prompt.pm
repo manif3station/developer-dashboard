@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -66,7 +66,7 @@ sub render {
 }
 
 # _timestamp()
-# Renders the prompt timestamp in the legacy shell-helper format.
+# Renders the prompt timestamp in the older shell-helper format.
 # Input: none.
 # Output: local timestamp string as YYYY-MM-DD HH:MM:SS.
 sub _timestamp {

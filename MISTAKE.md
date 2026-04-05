@@ -4,125 +4,33 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
-## CODE: TOKEN-FORM-UX-DRIFT
+## CODE: SKILL-AUTHORING-BLIND-SPOT
 
-**Date:** 2026-04-05 02:05:00 UTC
-**Area:** Seeded bookmark browser workflow / API dashboard token and tab usability
-**Symptom:** The new `api-dashboard` bookmark could persist collections and send requests, but it no longer exposed the old request-specific `{{token}}` input form, left users editing the raw collection-variable textarea, styled tabs like rounded action buttons, stacked large collections vertically, and kept the response tabs above the response `pre` box
-**Why It Was Dangerous:** The browser path technically worked, but the main operator workflow regressed badly enough that real users could spot the missing parity immediately and struggle to move through large collections or understand what was a tab versus an action button
-**Root Cause:** I only covered the broad request-send and import flows, so I missed the interaction-level regression against the older token form and let the new shell layout optimize for implementation simplicity instead of the actual browser operating path
-**How Ellen Solved It:** Reintroduced a request-specific token form backed by collection variables, carried those values across matching placeholders in other requests from the same collection, resolved the visible request URL/headers/body fields from those values, rendered stored collections as tabs, restyled tab controls to look like tabs, moved the response tabs below the response `pre` box, and expanded Playwright coverage for those browser details
-**How To Detect Earlier Next Time:** When replacing an older browser workflow, compare the real operator path feature-for-feature in a browser session instead of only checking that the new flow can technically send requests and save data
-**Prevention Rule:** Any bookmark rewrite that replaces an older interactive tool must get browser coverage for the operator-visible affordances, not just the underlying save/send success path
-**Verification:** `prove -lv t/22-api-dashboard-playwright.t`, `prove -lv t/24-api-dashboard-tabs-playwright.t`
-**Related Files:** `bin/dashboard`, `t/22-api-dashboard-playwright.t`, `t/24-api-dashboard-tabs-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/integration-test-plan.md`
-
----
-
-## CODE: AJAX-ENV-SIZE-TRAP
-
-**Date:** 2026-04-05 00:40:00 UTC
-**Area:** Seeded bookmark saved-Ajax transport / API dashboard import
-**Symptom:** Importing a larger Postman collection through `api-dashboard` could fail with `Argument list too long`, and the browser could still show a success banner because the save route returned HTTP `200` with an empty body instead of real JSON
-**Why It Was Dangerous:** It combined a hard failure with a false-success UI path, so the bookmark could look like it imported a collection even though nothing was persisted or reloaded
-**Root Cause:** I only covered medium import fixtures in the browser and let saved-Ajax child params travel inline through environment variables; I also trusted any `200` response instead of requiring the expected `{ ok: 1 }` payload from save/delete routes
-**How Ellen Solved It:** Spilled oversized saved-Ajax params and query strings to temp files, made the child wrapper read them back, added a large direct save regression plus a large-import Playwright regression, switched the browser import reader to a FileReader-first path, and required explicit `ok` payloads before the bookmark reports save/delete/import success
-**How To Detect Earlier Next Time:** If a browser import banner says success but the collection does not appear, inspect the actual save response payload and test an oversized fixture that crosses the saved-Ajax inline payload threshold instead of only medium examples
-**Prevention Rule:** Any browser flow that depends on saved Ajax persistence must validate the semantic JSON payload, not just HTTP `200`, and must have at least one regression above the inline transport threshold
-**Verification:** `prove -lv t/03-web-app.t`, `prove -lv t/12-legacy-helper-coverage.t`, `prove -lv t/22-api-dashboard-playwright.t`, `API_DASHBOARD_IMPORT_FIXTURE=/path/to/collection.postman_collection.json prove -lv t/23-api-dashboard-import-fixture-playwright.t`, `prove -lv t/25-api-dashboard-large-import-playwright.t`
-**Related Files:** `lib/Developer/Dashboard/PageRuntime.pm`, `bin/dashboard`, `t/03-web-app.t`, `t/12-legacy-helper-coverage.t`, `t/22-api-dashboard-playwright.t`, `t/23-api-dashboard-import-fixture-playwright.t`, `t/25-api-dashboard-large-import-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/integration-test-plan.md`
+**Date:** 2026-04-05 10:40:00 UTC
+**Area:** Public skill documentation and installed guidance
+**Symptom:** The skill system existed, but there was no single human-readable guide explaining how to create a skill, structure its repository, add commands and hooks, ship bookmarks, or understand the supported bookmark/runtime facilities without reading the source tree directly
+**Why It Was Dangerous:** Skill authors had to reverse-engineer the feature from code, which made it too easy to guess at unsupported layouts such as directory-backed skill commands, miss the custom CLI extension points, or build against bookmark behavior that only exists for normal saved runtime pages
+**Root Cause:** I implemented the skill runtime and user-facing commands first, but I did not treat authoring documentation as a required shipped interface with the same status as tests, POD, and release metadata
+**How Ellen Solved It:** Added a long-form `SKILL.md` guide, added installed POD in `Developer::Dashboard::SKILLS`, updated README and `Developer::Dashboard` POD to point to those references, and tightened the release-metadata test so future releases fail if that authoring coverage disappears
+**How To Detect Earlier Next Time:** Before calling a new extension mechanism complete, check whether a user who only has the installed distribution can discover the required directory layout, routes, hooks, environment, and current runtime boundaries from shipped docs alone
+**Prevention Rule:** Any new extension surface must ship a task-oriented authoring guide plus installed POD, and release metadata tests should verify the public docs still cover the supported workflow
+**Verification:** `prove -lv t/15-release-metadata.t`
+**Related Files:** `SKILL.md`, `doc/skills.md`, `lib/Developer/Dashboard/SKILLS.pm`, `README.md`, `lib/Developer/Dashboard.pm`, `t/15-release-metadata.t`
 
 ---
 
-## CODE: MANAGED-INDICATOR-LOST-UPDATE
+## CODE: DOC-HISTORY-LEAK
 
-**Date:** 2026-04-04 23:55:00 UTC
-**Area:** Collector restart lifecycle / indicator persistence
-**Symptom:** The blank-environment install passed most of the runtime flow, but after `dashboard restart` a healthy config collector could still show up as `missing` in `dashboard indicator list`, `dashboard ps1`, and `/system/status`
-**Why It Was Dangerous:** It produced a false negative health signal exactly at restart time, which made the runtime look unreliable even though the collector itself had already completed successfully
-**Root Cause:** I treated config-backed indicator sync as a harmless metadata refresh, but it could race with a live collector write and persist stale `missing` data after the collector had already written `ok`
-**How Ellen Solved It:** Added a concurrency-safe preserve path in the indicator writer, kept live status fields when config sync touches an indicator, and added a unit test that simulates a collector writing `ok` while stale sync metadata is still in flight
-**How To Detect Earlier Next Time:** If a healthy collector suddenly flips back to `missing` right after restart, compare collector status timestamps with indicator timestamps and look for metadata sync writing later than the real collector result
-**Prevention Rule:** Any config-sync path that rewrites persisted runtime state must preserve newer live status fields or take an explicit lock before merging metadata
-**Verification:** `prove -lv t/07-core-units.t`, `prove -lv t/09-runtime-manager.t`, `prove -lr t`, coverage, `dzil build`, built-dist kwalitee, blank-environment install/integration
-**Related Files:** `lib/Developer/Dashboard/IndicatorStore.pm`, `t/07-core-units.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/integration-test-plan.md`, `Changes`, `FIXED_BUGS.md`
-
----
-
-## CODE: FILE-INPUT-READ-PATH-ASSUMPTION
-
-**Date:** 2026-04-04 23:35:00 UTC
-**Area:** Seeded bookmark browser verification / API dashboard import
-**Symptom:** The visible `api-dashboard` import control still looked broken in browser automation even after the UI stopped relying on the old hidden chooser path
-**Why It Was Dangerous:** It was easy to think the remaining failure still lived in server persistence, when the real browser-side problem was the upload/read path itself
-**Root Cause:** I treated every file-input event shape as equivalent, but the import path needed a stable browser-readable file handoff and a single settled picker lifecycle instead of racing early events and immediate input resets
-**How Ellen Solved It:** Switched the browser UI to a direct visible import control, moved picker cleanup to the end of the import lifecycle, and kept the Playwright import coverage on the same input/change path by injecting a synthetic `File` into the visible control
-**How To Detect Earlier Next Time:** If browser import fails before any collection appears, inspect the banner text and verify whether the file element can still hand readable content into the importer before debugging server persistence
-**Prevention Rule:** Treat browser upload controls as two separate concerns: the user-visible picker UI and the importer logic that runs after `change`; keep the importer testable through direct `File` injection on the real input element
-**Verification:** `prove -lv t/22-api-dashboard-playwright.t`, `API_DASHBOARD_IMPORT_FIXTURE=/path/to/collection.postman_collection.json prove -lv t/23-api-dashboard-import-fixture-playwright.t`, `prove -lv t/24-api-dashboard-tabs-playwright.t`, `prove -lr t`, coverage, `dzil build`, built-dist kwalitee, blank-environment install/integration
-**Related Files:** `bin/dashboard`, `t/22-api-dashboard-playwright.t`, `t/23-api-dashboard-import-fixture-playwright.t`, `t/24-api-dashboard-tabs-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/integration-test-plan.md`
-
----
-
-## CODE: HIDDEN-FILE-INPUT-IMPORT-ASSUMPTION
-
-**Date:** 2026-04-04 22:47:00 UTC
-**Area:** Seeded bookmark browser verification / API dashboard import
-**Symptom:** A real external Postman collection looked like it "would not import" through the `api-dashboard` browser flow, but the importer itself could still parse and persist the same JSON once the file reached the hidden input
-**Why It Was Dangerous:** It is easy to blame the collection parser or bookmark persistence when the real failure is earlier in the browser chain, especially around hidden file inputs and chooser automation
-**Root Cause:** I initially treated the browser import failure as an importer problem, but the actual failing step was the Chromium/Playwright chooser path not populating `#api-import-file`, so the bookmark's `change` handler never fired
-**How Ellen Solved It:** Added a generic fixture-driven Playwright repro that first isolated the browser upload path, then moved the bookmark to a direct visible import control and kept the importer verifiable by injecting the same file into that real input and dispatching `change`
-**How To Detect Earlier Next Time:** After any browser file-upload failure, inspect the real `<input type=file>` state before debugging downstream parsing or storage logic
-**Prevention Rule:** For browser file-input flows, verify the chain in order: picker selection, readable file object, `change` handler, banner/UI state, persisted file
-**Verification:** `API_DASHBOARD_IMPORT_FIXTURE=/path/to/collection.postman_collection.json prove -lv t/23-api-dashboard-import-fixture-playwright.t`, `prove -lr t`, coverage, `dzil build`, built-dist kwalitee, blank-environment install/integration
-**Related Files:** `t/23-api-dashboard-import-fixture-playwright.t`, `t/22-api-dashboard-playwright.t`, `t/03-web-app.t`, `bin/dashboard`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/integration-test-plan.md`
-
----
-
-## CODE: COVERAGE-WAITPID-HANG-ASSUMPTION
-
-**Date:** 2026-04-04 23:05:00 UTC
-**Area:** Release verification / runtime-manager coverage
-**Symptom:** The full `Devel::Cover` run stalled inside `t/09-runtime-manager.t` even though the same plain test file passed
-**Why It Was Dangerous:** A release can look finished after a clean plain suite, then still fail the mandatory coverage gate because a stubborn child-process test blocks forever during the covered run
-**Root Cause:** I left several shutdown-escalation tests using unbounded `waitpid` calls after `stop_web` and `stop_collectors`, which is unsafe once coverage instrumentation makes child exit timing less predictable
-**How Ellen Solved It:** Replaced those waits with bounded nonblocking child reaping, preserved the normal strict assertions outside coverage, and kept the covered path timing-tolerant while still cleaning up stubborn test children deterministically
-**How To Detect Earlier Next Time:** If a covered run stops emitting progress around process-management tests, inspect the live child tree and look for direct blocking waits after escalation logic
-**Prevention Rule:** In covered process-lifecycle tests, use bounded nonblocking reaping for intentionally stubborn child processes instead of plain `waitpid(..., 0)`
-**Verification:** `HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/09-runtime-manager.t`, `prove -lr t`, `cover -delete && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t`, `cover -report text -select_re '^lib/' -coverage statement -coverage subroutine`, `dzil build`, built-dist kwalitee, blank-environment install/integration
-**Related Files:** `t/09-runtime-manager.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
-
----
-
-## CODE: API-DASHBOARD-PERSISTENCE-GAP
-
-**Date:** 2026-04-04 21:55:00 UTC
-**Area:** Seeded bookmark workspaces / API dashboard persistence
-**Symptom:** The seeded `api-dashboard` bookmark could import or save collections in the browser, but those collections disappeared on reload because they only lived in browser-local state instead of the runtime config tree
-**Why It Was Dangerous:** The workspace looked like a reusable Postman-style tool, but it silently behaved like an ephemeral scratchpad and hid the fact that project-local shared state never updated
-**Root Cause:** I left the original browser-only `localStorage` model in place, kept bootstrap loading tied to the older `config/postman` seed path, and initially missed two saved-Ajax execution details: child workers need the real project Perl library roots, and `print j Foo->bar` must be written as `print j( Foo->bar )`
-**How Ellen Solved It:** Kept the persistence logic inside the seeded bookmark’s saved Ajax handlers, saved collections as Postman JSON under `config/api-dashboard/<collection-name>.json`, loaded every stored file on bookmark startup, added save/delete endpoint coverage, bootstrapped the project-local `lib/` path from the saved Ajax file location when needed, and corrected the response-printing precedence bug
-**How To Detect Earlier Next Time:** If a bookmark claims to save reusable workspace data, reload the page and inspect the runtime config tree directly; then exercise the saved Ajax route itself rather than trusting only the in-browser state update
-**Prevention Rule:** For bookmark persistence work, verify the full chain together: browser action, runtime file write, bookmark reload, and saved-Ajax child execution in a clean test runtime
-**Verification:** `prove -lv t/03-web-app.t t/12-legacy-helper-coverage.t t/15-release-metadata.t`, full `prove -lr t`, coverage, browser verification, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis
-**Related Files:** `bin/dashboard`, `t/03-web-app.t`, `t/05-cli-smoke.t`, `README.md`, `lib/Developer/Dashboard.pm`
-**Tags:** `api-dashboard`, `postman`, `persistence`, `ajax`, `runtime`
-
----
-
-## CODE: API-DASHBOARD-JQXHR-DRIFT
-
-**Date:** 2026-04-04 20:08:00 UTC
-**Area:** Bookmark browser shim / seeded API dashboard
-**Symptom:** The seeded `api-dashboard` bookmark looked loaded in the browser, but clicking `Send Request` for `GET https://api.ipify.org/?format=json` did nothing useful and the page threw `$.ajax(...).done is not a function` plus a later `payload.request.method` error
-**Why It Was Dangerous:** Direct backend checks passed, which made the feature look healthy even though the real browser operator path was dead before the request reached `/ajax/api-dashboard-send-request`
-**Root Cause:** The built-in `/js/jquery.js` compatibility shim only supported callback-style `$.ajax` with `type`, not jqXHR-style `.done/.fail/.always` chaining or the `method` alias used by the seeded bookmark; then `renderResponse()` assumed every payload already carried nested `request` and `response` hashes
-**How Ellen Solved It:** Added jqXHR-style chaining plus `method` support to the built-in shim, guarded `renderResponse()` against transient status payloads, added regression checks in `t/03-web-app.t`, and reran the real Chromium flow until `https://api.ipify.org/?format=json` rendered request details, JSON body, and headers
-**How To Detect Earlier Next Time:** When a bookmark depends on browser helpers, verify the actual browser click-path and not just the saved Ajax endpoint directly; if a page uses `$.ajax(...).done(...)`, the shim contract must be tested at that level
-**Prevention Rule:** Do not mark bookmark-browser Ajax work complete until the helper shim contract, the transient UI state path, and one real browser request all pass together
-**Verification:** `prove -lv t/03-web-app.t`, direct saved sender check against `https://api.ipify.org/?format=json`, and Chromium browser verification of the seeded `api-dashboard` bookmark sending that same GET request successfully
-**Related Files:** `lib/Developer/Dashboard/Web/App.pm`, `bin/dashboard`, `t/03-web-app.t`, `README.md`, `doc/static-file-serving.md`, `lib/Developer/Dashboard.pm`
-**Tags:** `api-dashboard`, `jquery`, `browser`, `ajax`, `shim`
+**Date:** 2026-04-05 03:05:00 UTC
+**Area:** Public documentation and release metadata
+**Symptom:** Public docs, POD, and bug logs still used an internal history label even though outside readers only needed the current compatibility story
+**Why It Was Dangerous:** It leaked repo-private framing into public docs, made the wording harder to understand, and repeated an internal concept that should not shape user-facing documentation
+**Root Cause:** I focused on technical accuracy and release gates, but I did not audit terminology drift across markdown docs, POD, release notes, and bug logs after the earlier compatibility work landed, and I left `SOFTWARE_SPEC.md` excluded from the built tarball even though the release test now treats it as part of the public doc set
+**How Ellen Solved It:** Removed that internal wording from markdown docs, shipped POD, release notes, and bug logs, rewrote the user-facing language around bookmark compatibility and older runtime shapes, added a release-metadata test that rejects that terminology in docs and POD, and re-included `SOFTWARE_SPEC.md` in the built distribution so tarball tests and source-tree tests enforce the same documentation inventory
+**How To Detect Earlier Next Time:** Before release, scan the public documentation set and shipped POD for internal project labels that only make sense if a reader knows the private repo history
+**Prevention Rule:** Public documentation must describe behaviour directly and must not rely on internal-history labels; release metadata tests should enforce that wording rule
+**Verification:** `prove -lv t/15-release-metadata.t`
+**Related Files:** `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/integration-test-plan.md`, `doc/static-file-serving.md`, `Changes`, `FIXED_BUGS.md`, `MISTAKE.md`, `t/15-release-metadata.t`
 
 ---
 
@@ -143,10 +51,10 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 ## CODE: STREAM-DATA-NOOP
 
 **Date:** 2026-04-04 16:45:00 UTC
-**Area:** Legacy bookmark browser helpers / Ajax streaming
+**Area:** Older bookmark browser helpers / Ajax streaming
 **Symptom:** A bookmark calling `stream_data(foo.bar, '.display')` did nothing in the browser because the bootstrap no longer defined `stream_data()` and `stream_value()` only waited for the full response body
 **Why It Was Dangerous:** Long-running saved Ajax endpoints looked dead in the browser even though the backend was printing output, and bookmarks using the old helper name hit a direct browser-side failure
-**Root Cause:** The legacy bookmark bootstrap regressed to a one-shot `fetch().text()` helper and dropped the old `stream_data()` entry point, so browser pages lost both API compatibility and progressive rendering behavior
+**Root Cause:** The older bookmark bootstrap regressed to a one-shot `fetch().text()` helper and dropped the old `stream_data()` entry point, so browser pages lost both API compatibility and progressive rendering behavior
 **How Ellen Solved It:** Added `stream_data()` back to the bootstrap, changed `stream_data()` and `stream_value()` to use `XMLHttpRequest` progress events for incremental DOM updates, added targeted unit coverage, and verified the DOM through headless Chromium with a bookmark that streamed saved Ajax output into `.display`
 **How To Detect Earlier Next Time:** When a bookmark depends on long-running Ajax output, test the exact helper name used by the page and verify the browser DOM changes before the response completes
 **Prevention Rule:** Do not treat a bookmark streaming helper as fixed until the browser DOM proves that incremental chunks render through the actual helper API used by the page
@@ -160,10 +68,10 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 **Area:** CLI parity / editor exec path
 **Symptom:** The chooser returned all matches on blank Enter, but the final open-file exec path no longer used `vim -p`, so “open all” did not behave like the old `of`
 **Why It Was Dangerous:** The selection logic looked correct while the actual operator result was still wrong, which made the command feel fixed in tests that only inspected paths and not the final editor argv
-**Root Cause:** I restored chooser semantics and match ordering but forgot that the legacy implementation always executed vim-family editors in tab mode via `-p`
+**Root Cause:** I restored chooser semantics and match ordering but forgot that the older implementation always executed vim-family editors in tab mode via `-p`
 **How Ellen Solved It:** Restored `-p` for vim-family editors, added direct unit coverage for the editor argv, and added smoke coverage for blank-enter open-all behavior
 **How To Detect Earlier Next Time:** For workflow commands that end in an editor, assert the final exec argv, not only the selected file list
-**Prevention Rule:** CLI parity fixes are not complete until the final editor invocation matches the legacy behavior as well as the chooser
+**Prevention Rule:** CLI parity fixes are not complete until the final editor invocation matches the older behavior as well as the chooser
 **Verification:** targeted open-file tests, full `prove -lr t`, coverage, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis
 **Related Files:** `lib/Developer/Dashboard/CLI/OpenFile.pm`, `t/05-cli-smoke.t`, `t/15-cli-module-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`
 **Tags:** `open-file`, `vim`, `tabs`, `cli`, `compatibility`
@@ -208,7 +116,7 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 **Area:** CLI parity / open-file workflow
 **Symptom:** `dashboard of` only printed resolved paths when no editor was configured, so the older numbered picker workflow disappeared and direct lookups no longer opened in an editor by default
 **Why It Was Dangerous:** The command looked superficially functional but regressed the actual operator workflow, forcing users to manually copy paths instead of selecting and opening them immediately
-**Root Cause:** I preserved the search and resolution logic but stripped out the interactive chooser and default editor fallback, which weakened the command even though the legacy behavior expectation was clear
+**Root Cause:** I preserved the search and resolution logic but stripped out the interactive chooser and default editor fallback, which weakened the command even though the older behavior expectation was clear
 **How Ellen Solved It:** Restored the numbered multi-match selector, restored a built-in `vim` fallback when no editor is configured, and added smoke plus unit coverage for both the chooser and the selected-file exec path
 **How To Detect Earlier Next Time:** Test the operator path, not just the resolution path; for `dashboard of`, that means verifying a live selection flow and the final editor invocation instead of stopping at `--print`
 **Prevention Rule:** For any workflow command that historically ends in an editor or an interactive choice, add tests for the final operator interaction path, not only the underlying path discovery
@@ -222,12 +130,12 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 **Date:** 2026-04-04 14:35:00 UTC
 **Area:** CLI parity / selection semantics
-**Symptom:** The restored `dashboard of` chooser still forced one numeric choice, while the real legacy workflow opened a single unique match automatically and let the user enter one number, multiple numbers, ranges, or blank input to open all matches
+**Symptom:** The restored `dashboard of` chooser still forced one numeric choice, while the real older workflow opened a single unique match automatically and let the user enter one number, multiple numbers, ranges, or blank input to open all matches
 **Why It Was Dangerous:** The command looked almost fixed but still broke real operator muscle memory and made bulk file opening slower than the existing toolchain behavior
 **Root Cause:** I matched the presence of the chooser but not its exact semantics, and I stopped at the first plausible implementation instead of tracing the full `_select()` behavior from the existing script
-**How Ellen Solved It:** Read the full legacy chooser flow, restored the single-match auto-open path plus comma/range/blank-input handling, and added direct coverage for each selection mode
-**How To Detect Earlier Next Time:** When reproducing legacy CLI behavior, compare the full interaction contract, not just the broad feature label; “has chooser” is not the same as “matches chooser semantics”
-**Prevention Rule:** For interactive compatibility fixes, inspect the full legacy control flow and add tests for every supported input form before calling the parity work done
+**How Ellen Solved It:** Read the full older chooser flow, restored the single-match auto-open path plus comma/range/blank-input handling, and added direct coverage for each selection mode
+**How To Detect Earlier Next Time:** When reproducing older CLI behavior, compare the full interaction contract, not just the broad feature label; “has chooser” is not the same as “matches chooser semantics”
+**Prevention Rule:** For interactive compatibility fixes, inspect the full older control flow and add tests for every supported input form before calling the parity work done
 **Verification:** targeted open-file tests, full `prove -lr t`, coverage, `dzil build`, blank-environment `cpanm` install, and built-tarball kwalitee analysis
 **Related Files:** `lib/Developer/Dashboard/CLI/OpenFile.pm`, `t/05-cli-smoke.t`, `t/15-cli-module-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`
 **Tags:** `open-file`, `interactive`, `selection`, `compatibility`, `cli`
@@ -272,9 +180,9 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 **Area:** Runtime storage permissions
 **Symptom:** `~/.developer-dashboard` directories such as `certs`, `config`, `dashboards`, `logs`, and `state` were being created with group/world-readable directory modes like `0755`, and several runtime files were landing as `0644`
 **Why It Was Dangerous:** Helper data, session state, saved bookmarks, logs, and self-signed TLS material lived under a tree that should have been private to the owning user, but the runtime relied on process umask instead of enforcing owner-only permissions itself
-**Root Cause:** Central runtime directory creation used plain `make_path`, several writers used plain `open '>'` without tightening the resulting file mode, and there was no first-class audit command for current and legacy dashboard roots
-**How Ellen Solved It:** Hardened the home runtime path registry so `~/.developer-dashboard` directories are tightened to `0700`, wired direct writers and SSL certificate creation through owner-only file permission helpers, added `dashboard doctor` plus `dashboard doctor --fix` to audit and repair current and legacy dashboard roots, and kept `doctor.d` hook results available for future custom checks
-**How To Detect Earlier Next Time:** Run `dashboard doctor` against a fresh runtime and a pre-existing legacy tree, and always inspect the real octal modes of `certs`, `config`, `dashboards`, `logs`, `state`, and generated files instead of assuming the current umask is strict enough
+**Root Cause:** Central runtime directory creation used plain `make_path`, several writers used plain `open '>'` without tightening the resulting file mode, and there was no first-class audit command for current and older dashboard roots
+**How Ellen Solved It:** Hardened the home runtime path registry so `~/.developer-dashboard` directories are tightened to `0700`, wired direct writers and SSL certificate creation through owner-only file permission helpers, added `dashboard doctor` plus `dashboard doctor --fix` to audit and repair current and older dashboard roots, and kept `doctor.d` hook results available for future custom checks
+**How To Detect Earlier Next Time:** Run `dashboard doctor` against a fresh runtime and a pre-existing older tree, and always inspect the real octal modes of `certs`, `config`, `dashboards`, `logs`, `state`, and generated files instead of assuming the current umask is strict enough
 **Prevention Rule:** Any runtime path created under `~/.developer-dashboard` must enforce owner-only permissions in code, and any permission-sensitive release should ship a machine-readable doctor command that can audit and optionally repair the runtime tree
 **Verification:** `prove -lv t/07-core-units.t`, `prove -lv t/05-cli-smoke.t`, `prove -lv t/17-web-server-ssl.t`, full `prove -lr t`, coverage, `dzil build`, blank-environment integration, and built-tarball kwalitee analysis
 **Related Files:** `lib/Developer/Dashboard/PathRegistry.pm`, `lib/Developer/Dashboard/FileRegistry.pm`, `lib/Developer/Dashboard/Doctor.pm`, `lib/Developer/Dashboard/Web/Server.pm`, `bin/dashboard`
@@ -437,7 +345,7 @@ view FILENAME.md with view_range: [1, -1] or [LAST_SECTION_START, -1]
 ## CODE: COLLECTOR-GHOST-STATUS
 
 **Date:** 2026-04-03 23:59:00 UTC
-**Area:** Collector indicators, CLI hook summaries, and legacy bookmark Ajax bootstrap
+**Area:** Collector indicators, CLI hook summaries, and older bookmark Ajax bootstrap
 **Symptom:** Browser status used collector names instead of configured icons, renamed collectors left stale old indicators behind, `Runtime::Result->report()` failed in directory-backed custom commands from a checkout, and inline bookmark scripts could call Ajax helpers before their saved endpoint bindings existed
 **Why It Was Dangerous:** Prompt/browser status drift makes health signals noisy and misleading, stale indicators hide the real current collector state, checkout-local command runners can silently load an older installed module set, and bookmark Ajax helpers appear broken in the browser even though the saved endpoint exists
 **Root Cause:** Indicator seeding only added or rewrote records and never removed stale managed collector entries; the page-header payload preferred label/name over icon; directory-backed custom runners inherited the current perl executable but not the active checkout `lib/` path; runtime-generated Ajax binding scripts were appended after the bookmark body so inline browser code ran too early
@@ -446,7 +354,7 @@ view FILENAME.md with view_range: [1, -1] or [LAST_SECTION_START, -1]
   2. Made `sync_collectors()` remove stale managed indicators whose collector names no longer exist in config
   3. Made page-header status prefer the configured icon before label/name
   4. Added `Runtime::Result->report()` and exported the active checkout `lib/` through `PERL5LIB` so custom Perl runners use the current source tree
-  5. Split bookmark runtime output into early Ajax bootstrap scripts versus later page output, then added `fetch_value()` and `stream_value()` helpers to the legacy browser bootstrap
+  5. Split bookmark runtime output into early Ajax bootstrap scripts versus later page output, then added `fetch_value()` and `stream_value()` helpers to the older browser bootstrap
 **How To Detect Earlier Next Time:** Any time prompt and browser status are supposed to show the same collector signal, test both `/system/status` and `dashboard ps1`; any time a checkout-local child Perl script uses dashboard modules, verify it resolves the checkout copy rather than an installed one; any time runtime code injects browser `<script>` tags, verify real execution order in rendered HTML and in a browser-backed smoke
 **Prevention Rule:** Collector-managed indicators must always carry enough metadata for rename cleanup; prompt and browser indicator rendering must share the same icon-first semantics; checkout-local child Perl execution must inherit the active dashboard `lib/`; browser helper bootstrap scripts must be emitted before any inline bookmark code that depends on them
 **Related Files:** lib/Developer/Dashboard/IndicatorStore.pm, lib/Developer/Dashboard/CollectorRunner.pm, lib/Developer/Dashboard/Web/App.pm, lib/Developer/Dashboard/PageDocument.pm, lib/Runtime/Result.pm, lib/Developer/Dashboard/Platform.pm, bin/dashboard

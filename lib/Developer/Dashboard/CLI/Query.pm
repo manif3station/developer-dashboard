@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Query;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use Exporter 'import';
 use FindBin qw($Bin);
@@ -282,7 +282,7 @@ Developer::Dashboard::CLI::Query - standalone structured-data query command supp
 
 Provides the lightweight shared implementation behind the private runtime
 helper scripts for C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, and
-C<xmlq> plus the proxied C<dashboard ...> command paths. Legacy names such as
+C<xmlq> plus the proxied C<dashboard ...> command paths. Earlier names such as
 C<pjq>, C<pyq>, C<ptomq>, and C<pjp> still normalize through C<dashboard> for
 compatibility.
 

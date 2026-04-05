@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -296,7 +296,7 @@ sub refresh_core_indicators {
 }
 
 # page_header_items()
-# Builds the legacy top-of-page status payload from stored indicators.
+# Builds the older top-of-page status payload from stored indicators.
 # Input: none.
 # Output: list of hashes with prog, alias, and status fields.
 sub page_header_items {
@@ -321,7 +321,7 @@ sub page_header_items {
 }
 
 # page_header_payload()
-# Builds the legacy `/system/status` response payload shape.
+# Builds the older `/system/status` response payload shape.
 # Input: none.
 # Output: hash reference with array, hash, and status maps.
 sub page_header_payload {

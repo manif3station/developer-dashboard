@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.66';
+our $VERSION = '1.68';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -1633,7 +1633,7 @@ sub _load_named_page {
 }
 
 # _legacy_app_response(%args)
-# Loads a legacy /app/<name> resource as either a bookmark page or saved URL forward.
+# Loads an older /app/<name> resource as either a bookmark page or saved URL forward.
 # Input: bookmark id and request metadata.
 # Output: response array reference.
 sub _legacy_app_response {
@@ -1717,7 +1717,7 @@ sub _build_query {
 }
 
 # _legacy_ajax_response(%args)
-# Decodes and executes a legacy /ajax token payload.
+# Decodes and executes an older /ajax token payload.
 # Input: request params and metadata.
 # Output: response array reference.
 sub _legacy_ajax_response {
@@ -1756,7 +1756,7 @@ sub _legacy_ajax_response {
     }
     my $page = Developer::Dashboard::PageDocument->new(
         id    => ( $params->{page} || $params->{file} || '' ),
-        title => 'Legacy Ajax',
+        title => 'Bookmark Ajax',
     );
     return [
         200,
@@ -1792,7 +1792,7 @@ sub _legacy_ajax_response {
 }
 
 # _legacy_ajax_allowed($params)
-# Checks whether a legacy /ajax request is allowed under the transient token policy.
+# Checks whether an older /ajax request is allowed under the transient token policy.
 # Input: flat request parameter hash reference.
 # Output: boolean true when no token is present or transient token URLs are enabled.
 sub _legacy_ajax_allowed {
@@ -2146,7 +2146,7 @@ sub _ip_pairs_from_ifconfig {
 }
 
 # _prompt_summary()
-# Renders the legacy-style page-header indicator summary for page chrome.
+# Renders the older page-header indicator summary for page chrome.
 # Input: none.
 # Output: short status strip string.
 sub _prompt_summary {
@@ -2161,7 +2161,7 @@ sub _prompt_summary {
 }
 
 # _page_status_payload()
-# Builds the legacy `/system/status` payload from the indicator store.
+# Builds the `/system/status` payload from the indicator store.
 # Input: none.
 # Output: hash reference with array, hash, and status maps.
 sub _page_status_payload {
