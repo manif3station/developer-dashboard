@@ -221,8 +221,8 @@ my $form_page = Developer::Dashboard::PageDocument->new(
     },
 );
 my $form_html = $form_page->render_html( page_url => '/app/form-page' );
-like( $form_html, qr/<form>FORM<\/form>/, 'page render includes legacy FORM blocks' );
-like( $form_html, qr/<div>FORMTT<\/div>/, 'page render includes legacy FORM\.TT blocks' );
+unlike( $form_html, qr/<form>FORM<\/form>/, 'page render ignores removed FORM blocks' );
+unlike( $form_html, qr/<div>FORMTT<\/div>/, 'page render ignores removed FORM.TT blocks' );
 like( $form_html, qr/runtime-error/, 'page render includes runtime error markup' );
 
 my $saved_page = Developer::Dashboard::PageDocument->new(

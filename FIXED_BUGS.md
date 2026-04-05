@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-05 (Phase 34: Bookmark Markup Simplification)
+
+- Removed the old split bookmark form directives so `HTML:` is now the only supported bookmark markup section.
+- Removed the old form-section render paths from page rendering, nav-fragment rendering, and editor syntax-highlighting so removed directives no longer stay half-supported behind the parser.
+- Updated public docs, shipped POD, and `SOFTWARE_SPEC.md` to describe the simplified bookmark syntax and added release guards that fail if removed form directives come back.
+
 ## 2026-04-05 (Phase 33: Skill Authoring Documentation)
 
 - Fixed the documentation gap around authoring new skills by adding a shipped `SKILL.md` guide that explains the expected repository structure, command dispatch model, `cli/<command>.d/` hooks, bookmark routes, bookmark syntax, browser helpers, and custom CLI extension points.
@@ -300,7 +306,7 @@
 - Fixed runtime-isolation drift by switching older `CODE*` execution to one throwaway sandpit package per page run, matching the old cleanup model more closely.
 - Fixed bookmark-format drift by restoring the original `KEY:` plus `:--------------------------------------------------------------------------------:` file structure as the canonical bookmark source format.
 - Fixed directive drift by removing synthetic bookmark directives from saved bookmark serialization and returning to the old directive set.
-- Fixed rendering drift by switching `HTML:` and `FORM.TT:` processing to Template Toolkit with `stash`, `ENV`, and `SYSTEM` available in templates.
+- Fixed rendering drift by switching bookmark HTML template processing to Template Toolkit with `stash`, `ENV`, and `SYSTEM` available in templates.
 - Fixed older runtime drift so `CODE*` blocks now render captured `STDOUT` into the page and display captured `STDERR` as visible runtime errors.
 - Fixed editor drift by adding live section highlighting for bookmark directives, HTML blocks, and Perl `CODE*` blocks while editing.
 - Fixed editor interaction drift by moving syntax highlighting into the same editing surface instead of a separate side preview.
@@ -336,7 +342,7 @@
 - Fixed the real `api` bookmark compatibility gap so the new runtime now generates the older `configs.collections.all` and `configs.send.request` endpoint bindings during render.
 
 - Fixed old-Playground feature drift by supporting both older bookmark syntax and the modern section syntax in the page engine.
-- Fixed older rendering gaps by adding placeholder expansion for `HTML`, `FORM`, and `FORM.TT` content before page render.
+- Fixed older rendering gaps by adding placeholder expansion for bookmark markup content before page render.
 - Fixed older runtime gaps by adding trusted `CODE*` execution with stash merge and captured output for saved/provider pages.
 - Fixed transient trust drift by keeping older `CODE*` blocks disabled for transient encoded pages unless explicitly enabled.
 - Fixed documentation drift that still claimed the old bookmark syntax required a future importer even after compatibility support was added.

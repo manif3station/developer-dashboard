@@ -211,12 +211,6 @@ Modern Note
 === HTML ===
 <div>[% stash.name %] [% method("Developer::Dashboard::Folder","home") %] [% func("unused") %]</div>
 
-=== FORM.TT ===
-<span>[% ENV.HOME %] [% eval("print q{TT-EVAL}") %]</span>
-
-=== FORM ===
-[%title%] [#name#] {{filter}}
-
 === CODE1 ===
 print "MODERN";
 PAGE
@@ -655,6 +649,17 @@ PL
     is( $prepared_class->{layout}{body}, 'plain body', 'prepare_page also works when called as a class method' );
 }
 {
+    my $eval_page = Developer::Dashboard::PageDocument->new(
+        layout => { body => 'prefix-[% eval("print qq{inline-eval};") %]-suffix' },
+    );
+    my $prepared_eval = $runtime->prepare_page(
+        page            => $eval_page,
+        source          => 'saved',
+        runtime_context => {},
+    );
+    is( $prepared_eval->{layout}{body}, 'prefix-inline-eval-suffix', 'prepare_page eval helper can run inline Perl blocks and inject stdout into HTML' );
+}
+{
     my $empty_page = Developer::Dashboard::PageDocument->new;
     my $class_runtime = Developer::Dashboard::PageRuntime->run_code_blocks( page => $empty_page );
     is_deeply( $class_runtime, { outputs => [], errors => [] }, 'run_code_blocks also works when called as a class method with no code blocks' );
@@ -675,9 +680,8 @@ my $prepared = $runtime->prepare_page(
 );
 like( $prepared->{layout}{body}, qr/Modern/, 'Template Toolkit renders HTML with stash access' );
 like( $prepared->{layout}{body}, qr/\Q$home\E/, 'Template Toolkit method helper can call namespaced runtime methods' );
-like( $prepared->{layout}{form_tt}, qr/\Q$home\E/, 'Template Toolkit renders FORM.TT with ENV access' );
-like( $prepared->{layout}{form_tt}, qr/TT-EVAL/, 'Template Toolkit eval helper runs bookmark Perl snippets' );
-like( $prepared->{layout}{form}, qr/Modern Title Modern applied/, 'legacy FORM placeholder expansion still works' );
+ok( !exists $prepared->{layout}{form_tt} || !defined $prepared->{layout}{form_tt} || $prepared->{layout}{form_tt} eq '', 'prepare_page leaves removed FORM.TT layout empty' );
+ok( !exists $prepared->{layout}{form} || !defined $prepared->{layout}{form} || $prepared->{layout}{form} eq '', 'prepare_page leaves removed FORM layout empty' );
 like( join( '', @{ $prepared->{meta}{runtime_outputs} } ), qr/MODERN/, 'prepare_page executes CODE blocks and captures stdout' );
 
 my $tt_error_page = Developer::Dashboard::PageDocument->new(
@@ -686,7 +690,7 @@ my $tt_error_page = Developer::Dashboard::PageDocument->new(
 $runtime->prepare_page( page => $tt_error_page, source => 'saved', runtime_context => {} );
 like( $tt_error_page->{layout}{body}, qr/THROW boom/, 'prepare_page leaves unsupported template directives untouched' );
 is( $runtime->_system_context( runtime_context => {}, source => '' )->{cwd}, '.', '_system_context defaults cwd when omitted' );
-is( Developer::Dashboard::PageRuntime::_escape_html('<x>'), '&lt;x&gt;', '_escape_html escapes HTML markup' );
+is( Developer::Dashboard::Web::App::_escape_html('<x>'), '&lt;x&gt;', '_escape_html escapes HTML markup' );
 
 my $auth = Developer::Dashboard::Auth->new( files => $files, paths => $paths );
 my $sessions = Developer::Dashboard::SessionStore->new( paths => $paths );

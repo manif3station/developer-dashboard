@@ -229,7 +229,7 @@ $store->save_page($nav_empty);
 my $nav_form = Developer::Dashboard::PageDocument->new(
     id     => 'nav/form.tt',
     title  => 'Form Nav',
-    layout => { form_tt => '<form id="nav-form"></form>', form => '<div id="nav-form-body"></div>' },
+    layout => { body => '<form id="nav-form"></form><div id="nav-form-body"></div>' },
 );
 $store->save_page($nav_form);
 my $nav_missing_file = File::Spec->catfile( $paths->dashboards_root, 'nav', 'broken.tt' );
@@ -242,8 +242,8 @@ my $nav_render = $app->_nav_items_html(
     runtime_context => { params => {} },
 );
 like( $nav_render, qr/dashboard-nav-items/, 'shared nav renderer emits a nav container when valid nav tt files exist' );
-like( $nav_render, qr/nav-form/, 'shared nav renderer includes form_tt content from nav tt bookmarks' );
-like( $nav_render, qr/nav-form-body/, 'shared nav renderer includes form content from nav tt bookmarks' );
+like( $nav_render, qr/nav-form/, 'shared nav renderer includes HTML content from nav tt bookmarks' );
+like( $nav_render, qr/nav-form-body/, 'shared nav renderer includes HTML body fragments from nav tt bookmarks' );
 unlike( $nav_render, qr/broken\.tt/, 'shared nav renderer skips invalid nav tt bookmark files' );
 unlike( $nav_render, qr/empty\.tt/, 'shared nav renderer skips nav tt bookmarks that render an empty fragment' );
 
@@ -260,8 +260,8 @@ my $fragment = $app->_page_fragment_html(
     )
 );
 like( $fragment, qr/frag-body/, '_page_fragment_html includes the page body' );
-like( $fragment, qr/frag-form-tt/, '_page_fragment_html includes form_tt content' );
-like( $fragment, qr/frag-form/, '_page_fragment_html includes form content' );
+unlike( $fragment, qr/frag-form-tt/, '_page_fragment_html ignores removed form_tt content' );
+unlike( $fragment, qr/frag-form/, '_page_fragment_html ignores removed form content' );
 like( $fragment, qr/frag-output/, '_page_fragment_html includes runtime output fragments' );
 like( $fragment, qr/runtime-error/, '_page_fragment_html renders runtime errors' );
 is( $app->_page_fragment_html(), '', '_page_fragment_html returns empty html when no page is provided' );

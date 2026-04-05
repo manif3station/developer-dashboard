@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.68';
+our $VERSION = '1.69';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.68
+1.69
 
 =head1 INTRODUCTION
 
@@ -72,12 +72,12 @@ saved and transient dashboard pages built from the original bookmark-file shape
 
 bookmark-file syntax compatibility using the original
 C<:--------------------------------------------------------------------------------:> separator plus directives such as
-C<TITLE:>, C<STASH:>, C<HTML:>, C<FORM.TT:>, C<FORM:>, and C<CODE1:>
+C<TITLE:>, C<STASH:>, C<HTML:>, and C<CODE1:>
 
 =item *
 
-Template Toolkit rendering for C<HTML:> and C<FORM.TT:>, with access to
-C<stash>, C<ENV>, and C<SYSTEM>
+Template Toolkit rendering for C<HTML:>, with access to C<stash>, C<ENV>, and
+C<SYSTEM>
 
 =item *
 
@@ -956,8 +956,7 @@ Run a page action:
   dashboard action run system-status paths
 
 Bookmark documents use the original separator-line format with directive
-headers such as C<TITLE:>, C<STASH:>, C<HTML:>, C<FORM.TT:>, C<FORM:>, and
-C<CODE1:>.
+headers such as C<TITLE:>, C<STASH:>, C<HTML:>, and C<CODE1:>.
 
 Posting a bookmark document with C<BOOKMARK: some-id> back through the root
 editor now saves it to the bookmark store so C</app/some-id> resolves it
@@ -970,13 +969,12 @@ That restores the visible highlighting while keeping long bookmark lines,
 full-text selection, and caret placement aligned with the real textarea.
 
 Edit and source views preserve raw Template Toolkit placeholders inside
-C<HTML:> and C<FORM.TT:> sections, so values such as C<[% title %]> are kept
-in the bookmark source instead of being rewritten to rendered HTML after a
-browser save.
+C<HTML:> sections, so values such as C<[% title %]> are kept in the bookmark
+source instead of being rewritten to rendered HTML after a browser save.
 Template Toolkit rendering exposes the page title as C<title>, so a bookmark
-with C<TITLE: Sample Dashboard> can reference it directly inside C<HTML:> or
-C<FORM.TT:> with C<[% title %]>. Transient play and view-source links are
-also encoded from the raw bookmark instruction text when it is available, so
+with C<TITLE: Sample Dashboard> can reference it directly inside C<HTML:>
+with C<[% title %]>. Transient play and view-source links are also encoded
+from the raw bookmark instruction text when it is available, so
 C<[% stash.foo %]> stays in source views instead of being baked into the
 rendered scalar value after a render pass.
 
@@ -1490,12 +1488,11 @@ C</skill/E<lt>repo-nameE<gt>/bookmarks/E<lt>idE<gt>>.
 The full skill authoring reference lives in F<SKILL.md> and the shipped POD
 module C<Developer::Dashboard::SKILLS>. Those guides cover the isolated skill
 layout, environment variables such as C<DEVELOPER_DASHBOARD_SKILL_ROOT>,
-bookmark syntax like C<TITLE:>, C<BOOKMARK:>, C<HTML:>, C<FORM.TT:>,
-C<FORM:>, and C<CODE1:>, bookmark browser helpers such as
-C<fetch_value()>, C<stream_value()>, and C<stream_data()>, and when to use
-dashboard-wide custom CLI hook folders such as
-F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d> instead of a skill-local
-hook tree.
+bookmark syntax like C<TITLE:>, C<BOOKMARK:>, C<HTML:>, and C<CODE1:>,
+bookmark browser helpers such as C<fetch_value()>, C<stream_value()>, and
+C<stream_data()>, and when to use dashboard-wide custom CLI hook folders
+such as F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d> instead of a
+skill-local hook tree.
 
 =head1 FAQ
 

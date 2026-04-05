@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.68';
+our $VERSION = '1.69';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -1012,7 +1012,7 @@ function ddHighlightLine(line, state) {
 function ddHighlightSectionText(text, state) {
   const section = state.section || '';
   if (/^CODE\d+$/.test(section)) return ddHighlightPerlLine(text);
-  if (section === 'HTML' || section === 'FORM' || section === 'FORM.TT') return ddHighlightHtmlLine(text, state);
+  if (section === 'HTML') return ddHighlightHtmlLine(text, state);
   if (section === 'STASH' || section === 'NOTE') return ddHighlightNoteLine(text);
   return ddEscapeHtml(text);
 }
@@ -1245,7 +1245,7 @@ sub _highlight_section_text {
     my ( $self, $text, $state ) = @_;
     my $section = $state->{section} || '';
     return $self->_highlight_perl_text($text) if $section =~ /^CODE\d+$/;
-    return $self->_highlight_html_text( $text, $state ) if $section eq 'HTML' || $section eq 'FORM' || $section eq 'FORM.TT';
+    return $self->_highlight_html_text( $text, $state ) if $section eq 'HTML';
     return $self->_highlight_note_text($text) if $section eq 'STASH' || $section eq 'NOTE';
     return _escape_html($text);
 }
@@ -1556,8 +1556,6 @@ sub _page_fragment_html {
     return '' if !$page;
 
     my $fragment = defined $page->{layout}{body} ? $page->{layout}{body} : '';
-    $fragment .= $page->{layout}{form_tt} if defined $page->{layout}{form_tt} && $page->{layout}{form_tt} ne '';
-    $fragment .= $page->{layout}{form} if defined $page->{layout}{form} && $page->{layout}{form} ne '';
 
     for my $chunk ( @{ $page->{meta}{runtime_outputs} || [] } ) {
         next if !defined $chunk || ref($chunk);

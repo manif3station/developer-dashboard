@@ -48,15 +48,15 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.68', 'repo version bumped for the skill authoring guide release' );
-like( $pm, qr/^1\.68$/m, 'main POD version matches the module version' );
+is( $version, '1.69', 'repo version bumped for the bookmark markup simplification release' );
+like( $pm, qr/^1\.69$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.68$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.69$/m, 'dist.ini version matches the module version in the source tree' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.68"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.69"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.68\s+2026-04-05$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.69\s+2026-04-05$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -148,16 +148,19 @@ for my $doc ( $skill_guide, $skills_pod ) {
     like( $doc, qr/DEVELOPER_DASHBOARD_SKILL_ROOT/, 'skill authoring docs explain the skill command environment' );
     like( $doc, qr/cpanfile/, 'skill authoring docs explain isolated dependency installation' );
     like( $doc, qr/FAQ/i, 'skill authoring docs include an FAQ section' );
+    unlike( $doc, qr/FORM\.TT:|FORM:/, 'skill authoring docs no longer document removed FORM bookmark directives' );
 }
 
 for my $path (@doc_paths) {
     my $doc = _slurp($path);
     unlike( $doc, qr/\blegacy\b/i, "$path no longer mentions the retired internal wording" );
+    unlike( $doc, qr/`FORM\.TT:`|`FORM:`|\bFORM\.TT\b/, "$path no longer documents removed FORM bookmark directives" );
 }
 
 for my $path (@pod_paths) {
     my $pod = _extract_pod( _slurp($path) );
     unlike( $pod, qr/\blegacy\b/i, "$path POD no longer mentions the retired internal wording" );
+    unlike( $pod, qr/C<FORM\.TT:>|C<FORM:>|\bFORM\.TT\b/, "$path POD no longer documents removed FORM bookmark directives" );
 }
 
 for my $doc ($readme) {

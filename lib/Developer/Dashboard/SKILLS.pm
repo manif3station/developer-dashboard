@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '1.68';
+our $VERSION = '1.69';
 
 1;
 
@@ -310,14 +310,6 @@ C<STASH:>
 =item *
 
 C<HTML:>
-
-=item *
-
-C<FORM.TT:>
-
-=item *
-
-C<FORM:>
 
 =item *
 

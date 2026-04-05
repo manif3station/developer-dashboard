@@ -430,12 +430,6 @@ HTML:
 <h1>[% title %]</h1>
 <p>[% stash.project %]</p>
 :--------------------------------------------------------------------------------:
-FORM.TT:
-<form><input value="[% stash.project %]"></form>
-:--------------------------------------------------------------------------------:
-FORM:
-<form><input value="raw-html-form"></form>
-:--------------------------------------------------------------------------------:
 CODE1:
 my $name = 'Developer Dashboard';
 print "<p>runtime output</p>";
@@ -450,8 +444,6 @@ Supported directive families include:
 - `NOTE:`
 - `STASH:`
 - `HTML:`
-- `FORM.TT:`
-- `FORM:`
 - `CODE0:` through `CODE1000:`
 
 ### Bookmark Rules That Matter
@@ -461,8 +453,6 @@ Supported directive families include:
 - `NOTE:` is description text
 - `STASH:` is simple Perl-ish stash text like `name => 'value'`
 - `HTML:` is normal page body HTML
-- `FORM.TT:` is template-rendered form HTML
-- `FORM:` is raw form HTML
 - `CODE*:` runs Perl code in order
 - earlier `CODE*` blocks run before final template rendering
 - returned hashes merge into stash

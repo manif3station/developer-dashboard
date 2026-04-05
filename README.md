@@ -30,8 +30,8 @@ to the renamed commands when they are invoked through `dashboard`.
 It provides a small ecosystem for:
 
 - saved and transient dashboard pages built from the original bookmark-file shape
-- bookmark-file syntax compatibility using the original `:--------------------------------------------------------------------------------:` separator plus directives such as `TITLE:`, `STASH:`, `HTML:`, `FORM.TT:`, `FORM:`, and `CODE1:`
-- Template Toolkit rendering for `HTML:` and `FORM.TT:`, with access to `stash`, `ENV`, and `SYSTEM`
+- bookmark-file syntax compatibility using the original `:--------------------------------------------------------------------------------:` separator plus directives such as `TITLE:`, `STASH:`, `HTML:`, and `CODE1:`
+- Template Toolkit rendering for `HTML:`, with access to `stash`, `ENV`, and `SYSTEM`
 - bookmark `CODE*` execution with captured `STDOUT` rendered into the page and captured `STDERR` rendered as visible errors
 - per-page sandpit isolation so one bookmark run can share runtime variables across `CODE*` blocks without leaking them into later page runs
 - old-style root editor behavior with a free-form bookmark textarea when no path is provided
@@ -621,15 +621,15 @@ Run a page action:
 dashboard action run system-status paths
 ```
 
-Bookmark documents use the original separator-line format with directive headers such as `TITLE:`, `STASH:`, `HTML:`, `FORM.TT:`, `FORM:`, and `CODE1:`.
+Bookmark documents use the original separator-line format with directive headers such as `TITLE:`, `STASH:`, `HTML:`, and `CODE1:`.
 Posting a bookmark document with `BOOKMARK: some-id` back through the root editor now saves it to the bookmark store so `/app/some-id` resolves it immediately.
 
 The browser editor now renders syntax-highlight markup again, but keeps that highlight layer inside a clipped overlay viewport that follows the real textarea scroll position by transform instead of via a second scrollbox. That restores the visible highlighting while keeping long bookmark lines, full-text selection, and caret placement aligned with the real textarea.
-Edit and source views preserve raw Template Toolkit placeholders inside `HTML:` and `FORM.TT:` sections, so values such as `[% title %]` are kept in the bookmark source instead of being rewritten to rendered HTML after a browser save.
+Edit and source views preserve raw Template Toolkit placeholders inside `HTML:` sections, so values such as `[% title %]` are kept in the bookmark source instead of being rewritten to rendered HTML after a browser save.
 
 Template Toolkit rendering exposes the page title as `title`, so a bookmark
-with `TITLE: Sample Dashboard` can reference it directly inside `HTML:` or
-`FORM.TT:` with `[% title %]`. Transient play and view-source links are also
+with `TITLE: Sample Dashboard` can reference it directly inside `HTML:` with
+`[% title %]`. Transient play and view-source links are also
 encoded from the raw bookmark instruction text when it is available, so
 `[% stash.foo %]` stays in source views instead of being baked into the
 rendered scalar value after a render pass.
@@ -944,11 +944,11 @@ live under `cli/<command>.d/`, and skill bookmarks render from
 The full skill authoring reference lives in `SKILL.md` and the shipped POD
 module `Developer::Dashboard::SKILLS`. Those guides cover the isolated skill
 layout, environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`,
-bookmark syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, `FORM.TT:`, `FORM:`, and
-`CODE1:`, bookmark browser helpers such as `fetch_value()`, `stream_value()`,
-and `stream_data()`, and when to use dashboard-wide custom CLI hook folders
-such as `~/.developer-dashboard/cli/<command>.d` instead of a skill-local
-hook tree.
+bookmark syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, and `CODE1:`, bookmark
+browser helpers such as `fetch_value()`, `stream_value()`, and
+`stream_data()`, and when to use dashboard-wide custom CLI hook folders such
+as `~/.developer-dashboard/cli/<command>.d` instead of a skill-local hook
+tree.
 
 ### Blank Environment Integration
 

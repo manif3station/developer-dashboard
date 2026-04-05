@@ -1367,8 +1367,6 @@ That document was a structured text payload split into sections such as:
 - `BOOKMARK`
 - `STASH`
 - `HTML`
-- `FORM`
-- `FORM.TT`
 - `CODE0..CODEN`
 
 The instruction document could come from either:

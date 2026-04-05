@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: BOOKMARK-FORM-BLOAT
+
+**Date:** 2026-04-05 12:10:00 UTC
+**Area:** Bookmark language surface and public documentation
+**Symptom:** The bookmark syntax still carried separate form-only directives even though `HTML:` already covered the same capability and the split markup model made the runtime, docs, and tests harder to reason about
+**Why It Was Dangerous:** Redundant syntax keeps dead branches alive in the parser and renderer, increases documentation noise, and makes it easier for bookmark authors to build against a feature surface that no longer adds meaningful value
+**Root Cause:** I preserved older bookmark compatibility too broadly instead of pruning the language surface when one supported directive already covered the use case cleanly
+**How Ellen Solved It:** Removed the split form directives from the parser, runtime renderer, nav fragment renderer, and browser syntax highlighter, updated the public docs and software spec to describe `HTML:` as the single bookmark markup section, and added regression checks so the removed directives cannot re-enter quietly
+**How To Detect Earlier Next Time:** When two bookmark directives represent the same user outcome, audit whether one can be removed without reducing capability and treat the extra surface area as technical debt until proven necessary
+**Prevention Rule:** Keep the bookmark language minimal; if `HTML:` already covers the markup path, do not preserve duplicate section types without a clear runtime-only capability gap
+**Verification:** `prove -lv t/08-web-update-coverage.t t/11-coverage-closure.t t/14-coverage-closure-extra.t t/15-release-metadata.t`
+**Related Files:** `lib/Developer/Dashboard/PageDocument.pm`, `lib/Developer/Dashboard/PageRuntime.pm`, `lib/Developer/Dashboard/Web/App.pm`, `README.md`, `lib/Developer/Dashboard.pm`, `SOFTWARE_SPEC.md`, `SKILL.md`, `lib/Developer/Dashboard/SKILLS.pm`, `t/08-web-update-coverage.t`, `t/11-coverage-closure.t`, `t/14-coverage-closure-extra.t`, `t/15-release-metadata.t`
+
+---
+
 ## CODE: SKILL-AUTHORING-BLIND-SPOT
 
 **Date:** 2026-04-05 10:40:00 UTC

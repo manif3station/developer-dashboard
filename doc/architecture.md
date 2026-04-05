@@ -88,7 +88,7 @@ instead of a loose pile of utilities.
   Resolves saved pages and generated provider pages into one page-document model.
 
 - `Developer::Dashboard::PageRuntime`
-  Applies Template Toolkit rendering for `HTML` and `FORM.TT`, then executes older `CODE*` sections inside one throwaway sandpit package per page run and captures their output for page rendering.
+  Applies Template Toolkit rendering for `HTML`, then executes older `CODE*` sections inside one throwaway sandpit package per page run and captures their output for page rendering.
 
 - `Developer::Dashboard::Web::App`
   Implements the browser service layer for page rendering, page actions, helper
@@ -154,7 +154,7 @@ Page source compatibility is explicit:
 
 - bookmark files serialize back to the original `KEY: ...` plus divider-line syntax
 - older `KEY: ...` documents separated by the original divider line are supported directly
-- `HTML` and `FORM.TT` are rendered through Template Toolkit with access to `stash`, `ENV`, and `SYSTEM`
+- `HTML` is rendered through Template Toolkit with access to `stash`, `ENV`, and `SYSTEM`
 - `TITLE` populates the document `<title>` and is exposed to Template Toolkit as `title`, but it is not injected into the page body automatically
 - `CODE*` blocks run through the older page runtime, merge returned hashes into stash, dump returned hash and array values into the runtime output area, append printed `STDOUT` to the page, and show `STDERR` as red error output
 - one generated sandpit package is reused across `CODE*` blocks for a single render, then destroyed so package globals do not leak into later requests

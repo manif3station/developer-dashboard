@@ -479,10 +479,10 @@ SOURCE
         );
         is( $state{section}, 'HTML', 'web app editor-line highlighter updates section tracking from directives' );
     }
-    like(
-        $app->_highlight_section_text( 'body { color: red; }', { section => 'FORM', html_mode => 'style' } ),
-        qr/tok-attr|tok-value/,
-        'web app section highlighter routes FORM content through the HTML-aware highlighter',
+    is(
+        $app->_highlight_section_text( '<plain>', { section => 'FORM', html_mode => 'style' } ),
+        '&lt;plain&gt;',
+        'web app section highlighter treats removed FORM sections as plain escaped text',
     );
     like(
         $app->_highlight_section_text( '[% stash.name %]', { section => 'NOTE', html_mode => '' } ),

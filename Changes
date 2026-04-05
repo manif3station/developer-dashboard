@@ -1,5 +1,17 @@
 Revision history for Developer Dashboard
 
+1.69  2026-04-05
+    - removed the old split form-directive support from the parser, runtime
+      renderer, nav fragment renderer, and browser editor highlighter so
+      `HTML:` is the single supported bookmark markup section
+    - updated README, `Developer::Dashboard` POD, `SKILL.md`,
+      `Developer::Dashboard::SKILLS`, architecture docs, release docs, and
+      `SOFTWARE_SPEC.md` so public bookmark syntax guidance now documents
+      `HTML:` instead of a split form/body markup model
+    - tightened coverage and release-metadata tests so the removed bookmark
+      form directives cannot silently reappear in runtime rendering or public
+      documentation
+
 1.68  2026-04-05
     - added a shipped skill authoring guide in `SKILL.md` that explains the
       skill repository layout, command and hook model, bookmark routes,
@@ -650,12 +662,12 @@ Revision history for Developer Dashboard
 
 0.71  2026-03-31
 
-    - fixed bookmark runtime order so `CODE*` blocks run before Template Toolkit rendering and returned hashes can feed `[% stash.* %]` in `HTML:` and `FORM.TT:`
+    - fixed bookmark runtime order so `CODE*` blocks run before Template Toolkit rendering and returned hashes can feed `[% stash.* %]` in bookmark HTML
     - fixed the `hide` helper so `hide print $a` keeps the printed stdout while suppressing the Perl return value instead of dropping the whole block output
 
 0.70  2026-03-31
 
-    - fixed bookmark Template Toolkit rendering so `[% title %]` receives the `TITLE:` value inside `HTML:` and `FORM.TT:` sections
+    - fixed bookmark Template Toolkit rendering so `[% title %]` receives the `TITLE:` value inside bookmark HTML sections
     - fixed transient play and view-source URLs so they keep the raw bookmark instruction text instead of baking rendered values such as `[% stash.foo %]` into `1` after a render pass
 
 0.69  2026-03-31

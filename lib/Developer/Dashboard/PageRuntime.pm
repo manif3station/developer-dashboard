@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '1.68';
+our $VERSION = '1.69';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
@@ -156,7 +156,7 @@ sub _runtime_value_text {
 }
 
 # _render_templates(%args)
-# Processes older HTML and FORM.TT sections through Template Toolkit.
+# Processes bookmark HTML sections through Template Toolkit.
 # Input: page document and runtime context hash.
 # Output: none; mutates page layout in place.
 sub _render_templates {
@@ -184,7 +184,7 @@ sub _render_templates {
         }
     );
 
-    for my $field ( qw(body form_tt) ) {
+    for my $field (qw(body)) {
         my $template = $layout->{$field};
         next if !defined $template || $template eq '';
         my $rendered = '';
@@ -233,16 +233,6 @@ sub _render_templates {
         }
 
         push @{ $page->{meta}{runtime_errors} ||= [] }, $tt->error;
-    }
-
-    if ( defined $layout->{form} && $layout->{form} ne '' ) {
-        my $form = $layout->{form};
-        $form =~ s/\[\%([\w\_]+)\%\]/_escape_html($page->{$1})/ge;
-        $form =~ s/\[\#([\w\_]+)\#\]/_escape_html($state->{$1})/ge;
-        if ( ref( $args{runtime_context}{params} ) eq 'HASH' ) {
-            $form =~ s/\{\{([\w\_\-]+)\}\}/_escape_html($args{runtime_context}{params}{$1})/ge;
-        }
-        $page->{layout}{form} = $form;
     }
 }
 
@@ -900,20 +890,6 @@ sub _destroy_sandpit {
     no strict 'refs';
     %{"${stash}::"} = ();
     return;
-}
-
-# _escape_html($text)
-# Escapes scalar text for safe HTML interpolation in older FORM blocks.
-# Input: text scalar.
-# Output: escaped text scalar.
-sub _escape_html {
-    my ($text) = @_;
-    $text = '' if !defined $text;
-    $text =~ s/&/&amp;/g;
-    $text =~ s/</&lt;/g;
-    $text =~ s/>/&gt;/g;
-    $text =~ s/"/&quot;/g;
-    return $text;
 }
 
 # _runtime_legacy_value($value)

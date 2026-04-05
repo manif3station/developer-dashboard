@@ -3,12 +3,12 @@ package Developer::Dashboard::PageDocument;
 use strict;
 use warnings;
 
-our $VERSION = '1.68';
+our $VERSION = '1.69';
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 
 our $LEGACY_SEP = ':--------------------------------------------------------------------------------:';
-our @LEGACY_KEYS = ( qw(TITLE ICON BOOKMARK STASH NOTE HTML FORM.TT FORM), map { sprintf 'CODE%d', $_ } 0 .. 1000 );
+our @LEGACY_KEYS = ( qw(TITLE ICON BOOKMARK STASH NOTE HTML), map { sprintf 'CODE%d', $_ } 0 .. 1000 );
 
 # new(%args)
 # Constructs a page document from normalized field values.
@@ -104,9 +104,7 @@ sub from_instruction {
         description => _trim_trailing_newline( join( "\n", @{ $sections{NOTE} || $sections{DESCRIPTION} || [] } ) ),
         state       => $state,
         layout      => {
-            body    => _trim_trailing_newline( join( "\n", @{ $sections{HTML} || [] } ) ),
-            form    => _trim_trailing_newline( join( "\n", @{ $sections{FORM} || [] } ) ),
-            form_tt => _trim_trailing_newline( join( "\n", @{ $sections{'FORM.TT'} || [] } ) ),
+            body => _trim_trailing_newline( join( "\n", @{ $sections{HTML} || [] } ) ),
         },
         meta        => {
             %meta,
@@ -196,8 +194,6 @@ sub legacy_instruction {
     push @sections, [ 'NOTE', $self->{description} ] if defined $self->{description} && $self->{description} ne '';
     push @sections, [ 'STASH', _legacy_stash_text( $self->{state} || {} ) ];
     push @sections, [ 'HTML', $self->{layout}{body} ] if defined $self->{layout}{body} && $self->{layout}{body} ne '';
-    push @sections, [ 'FORM.TT', $self->{layout}{form_tt} ] if defined $self->{layout}{form_tt} && $self->{layout}{form_tt} ne '';
-    push @sections, [ 'FORM', $self->{layout}{form} ] if defined $self->{layout}{form} && $self->{layout}{form} ne '';
 
     if ( ref( $self->{meta}{codes} ) eq 'ARRAY' ) {
         for my $code ( @{ $self->{meta}{codes} } ) {
@@ -244,13 +240,6 @@ sub render_html {
     my $chrome_html = defined $opts{chrome_html} ? $opts{chrome_html} : '';
     my $nav_html = defined $opts{nav_html} ? $opts{nav_html} : '';
 
-    my $form_section = '';
-    if ( defined $self->{layout}{form_tt} && $self->{layout}{form_tt} ne '' ) {
-        $form_section .= $self->{layout}{form_tt};
-    }
-    if ( defined $self->{layout}{form} && $self->{layout}{form} ne '' ) {
-        $form_section .= $self->{layout}{form};
-    }
     my $runtime_bootstrap = '';
     my $runtime_output = '';
     for my $chunk ( @{ $self->{meta}{runtime_outputs} || [] } ) {
@@ -375,7 +364,6 @@ $legacy_bootstrap
   @{[ $desc ne '' ? qq{<p>$desc</p>} : '' ]}
   <section class="body">$body_html</section>
   $runtime_bootstrap
-  $form_section
   $runtime_output
   $runtime_errors
 </main>
