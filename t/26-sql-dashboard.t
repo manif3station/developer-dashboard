@@ -107,10 +107,13 @@ my ( $render_code, undef, $render_body ) = @{ $app->handle(
 ) };
 is( $render_code, 200, 'sql-dashboard saved route renders through the web app' );
 like( $render_body, qr/Connection Profiles/, 'sql-dashboard render exposes connection profile management' );
-like( $render_body, qr/SQL Collections/, 'sql-dashboard render exposes SQL collection management' );
+like( $render_body, qr/SQL Workspace/, 'sql-dashboard render exposes the merged SQL workspace' );
+unlike( $render_body, qr/data-sql-main-tab="collections"/, 'sql-dashboard render merges SQL collections into the workspace instead of keeping a separate main tab' );
 like( $render_body, qr/Schema Explorer/, 'sql-dashboard render exposes schema explorer controls' );
 like( $render_body, qr/Run SQL/, 'sql-dashboard render exposes the SQL execution action' );
 like( $render_body, qr/<select id="sql-profile-driver"/, 'sql-dashboard render exposes the installed-driver dropdown instead of a free-text driver field' );
+like( $render_body, qr/id="sql-workspace-nav"/, 'sql-dashboard render exposes the workspace navigation rail' );
+like( $render_body, qr/id="sql-active-sql-name"/, 'sql-dashboard render exposes the active saved SQL name badge' );
 like( $render_body, qr/URLSearchParams/, 'sql-dashboard render reads workspace state from the URL' );
 like( $render_body, qr/history\.pushState/, 'sql-dashboard render updates browser history for shareable workspace state' );
 like( $render_body, qr/params\.get\('connection'\)/, 'sql-dashboard render reads a portable connection id from the URL instead of a local profile name' );
@@ -215,6 +218,11 @@ my $save_collection_payload = json_encode(
                 name => 'Users Query',
                 sql  => "select * from users\n",
             },
+            {
+                id   => 'orders-query',
+                name => 'Orders Query',
+                sql  => "select * from orders\n",
+            },
         ],
     }
 );
@@ -250,6 +258,11 @@ is_deeply(
     [ map { $_->{name} } @{ $bootstrap_after_collection_payload->{collections} || [] } ],
     ['Shared Queries'],
     'sql-dashboard bootstrap reloads saved SQL collections from disk',
+);
+is_deeply(
+    [ map { $_->{name} } @{ $bootstrap_after_collection_payload->{collections}[0]{items} || [] } ],
+    [ 'Orders Query', 'Users Query' ],
+    'sql-dashboard bootstrap reloads multiple saved SQL entries inside one collection',
 );
 
 my $execute_settings = json_encode(

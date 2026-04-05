@@ -3,7 +3,7 @@ package Developer::Dashboard::Platform;
 use strict;
 use warnings;
 
-our $VERSION = '1.73';
+our $VERSION = '1.74';
 
 use Exporter 'import';
 use File::Basename qw(basename);

@@ -190,7 +190,29 @@ async function main() {
     throw new Error('profile save banner did not confirm the saved profile');
   }
 
+  const mainTabs = await page.locator('[data-sql-main-tab]').allTextContents();
+  if (mainTabs.includes('SQL Collections')) {
+    throw new Error('workspace should own SQL collections instead of keeping a separate main tab: ' + JSON.stringify(mainTabs));
+  }
+
   await page.locator('[data-sql-main-tab="workspace"]').click();
+  const workspaceLayout = await page.evaluate(() => {
+    const workspacePanel = document.getElementById('sql-panel-workspace');
+    const workspaceNav = document.getElementById('sql-workspace-nav');
+    const workspaceEditor = document.getElementById('sql-workspace-editor');
+    const collectionTabs = document.getElementById('sql-collection-tabs');
+    const itemList = document.getElementById('sql-collection-item-list');
+    return {
+      navInWorkspace: !!(workspacePanel && workspaceNav && workspacePanel.contains(workspaceNav)),
+      editorInWorkspace: !!(workspacePanel && workspaceEditor && workspacePanel.contains(workspaceEditor)),
+      collectionTabsInNav: !!(workspaceNav && collectionTabs && workspaceNav.contains(collectionTabs)),
+      itemListInNav: !!(workspaceNav && itemList && workspaceNav.contains(itemList))
+    };
+  });
+  if (!workspaceLayout.navInWorkspace || !workspaceLayout.editorInWorkspace || !workspaceLayout.collectionTabsInNav || !workspaceLayout.itemListInNav) {
+    throw new Error('workspace layout did not merge collection navigation into one master-detail panel: ' + JSON.stringify(workspaceLayout));
+  }
+
   const sqlText = [
     'select * from users',
     ':~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:',
@@ -239,7 +261,6 @@ async function main() {
     throw new Error('sql execute DOM missed the active profile details: ' + JSON.stringify(executeDom));
   }
 
-  await page.locator('[data-sql-main-tab="collections"]').click();
   await page.locator('#sql-collection-name').fill('Shared Queries');
   await page.locator('#sql-collection-item-name').fill('Users Query');
   const collectionResponse = await Promise.all([
@@ -254,14 +275,65 @@ async function main() {
   }
   await page.waitForFunction(() => {
     return !!document.querySelector('[data-sql-collection-tab="Shared Queries"]') &&
-      !!document.querySelector('[data-sql-collection-item-tab="users-query"]');
+      !!document.querySelector('[data-sql-collection-item-link="users-query"]');
   });
 
-  await page.locator('[data-sql-collection-item-tab="users-query"]').click();
+  await page.locator('#sql-collection-item-new').click();
+  await page.locator('#sql-collection-item-name').fill('Orders Query');
+  await page.locator('#sql-editor').fill("select * from orders\n");
+  const secondCollectionResponse = await Promise.all([
+    page.waitForResponse((response) => {
+      return response.url().includes('/ajax/sql-dashboard-collections-save') && response.status() === 200;
+    }),
+    page.locator('#sql-collection-item-save').click()
+  ]).then((values) => values[0]);
+  const secondCollectionPayload = await secondCollectionResponse.json();
+  if (!secondCollectionPayload || !secondCollectionPayload.ok) {
+    throw new Error('second sql collection save request failed: ' + JSON.stringify(secondCollectionPayload || {}));
+  }
+
+  await page.waitForFunction(() => {
+    return !!document.querySelector('[data-sql-collection-item-link="users-query"]') &&
+      !!document.querySelector('[data-sql-collection-item-link="orders-query"]');
+  });
+
+  await page.locator('[data-sql-collection-item-link="users-query"]').click();
   await page.waitForTimeout(250);
-  const restoredCollectionSql = await page.locator('#sql-editor').inputValue();
-  if (!String(restoredCollectionSql || '').includes('select * from users')) {
-    throw new Error('saved SQL collection item did not restore the saved SQL text');
+  const restoredUsersCollection = await page.evaluate(() => {
+    const sql = document.getElementById('sql-editor');
+    const active = document.getElementById('sql-active-sql-name');
+    return {
+      sql: sql ? sql.value : '',
+      active: active ? active.textContent : ''
+    };
+  });
+  if (!String(restoredUsersCollection.sql || '').includes('select * from users')) {
+    throw new Error('saved SQL collection item did not restore the first saved SQL text');
+  }
+  if (!String(restoredUsersCollection.active || '').includes('Users Query')) {
+    throw new Error('workspace did not keep the active saved SQL name visible for the selected query: ' + JSON.stringify(restoredUsersCollection));
+  }
+
+  await page.locator('[data-sql-collection-item-link="orders-query"]').click();
+  await page.waitForTimeout(250);
+  const restoredOrdersCollection = await page.evaluate(() => {
+    const sql = document.getElementById('sql-editor');
+    const active = document.getElementById('sql-active-sql-name');
+    const sidebarTitle = document.getElementById('sql-collection-item-list-title');
+    return {
+      sql: sql ? sql.value : '',
+      active: active ? active.textContent : '',
+      sidebarTitle: sidebarTitle ? sidebarTitle.textContent : ''
+    };
+  });
+  if (!String(restoredOrdersCollection.sql || '').includes('select * from orders')) {
+    throw new Error('second saved SQL collection item did not restore its SQL text: ' + JSON.stringify(restoredOrdersCollection));
+  }
+  if (!String(restoredOrdersCollection.active || '').includes('Orders Query')) {
+    throw new Error('workspace active saved SQL name did not switch to the selected query: ' + JSON.stringify(restoredOrdersCollection));
+  }
+  if (!String(restoredOrdersCollection.sidebarTitle || '').includes('Shared Queries')) {
+    throw new Error('saved SQL list does not clearly show which collection owns the visible SQL list: ' + JSON.stringify(restoredOrdersCollection));
   }
 
   const workspaceUrl = page.url();
@@ -309,16 +381,21 @@ async function main() {
   const restoredState = await page.evaluate(() => {
     const sql = document.getElementById('sql-editor');
     const badge = document.getElementById('sql-active-profile');
+    const activeSql = document.getElementById('sql-active-sql-name');
     return {
       sql: sql ? sql.value : '',
-      badge: badge ? badge.textContent : ''
+      badge: badge ? badge.textContent : '',
+      activeSql: activeSql ? activeSql.textContent : ''
     };
   });
-  if (!String(restoredState.sql || '').includes('select * from users')) {
+  if (!String(restoredState.sql || '').includes('select * from orders')) {
     throw new Error('reloaded share URL did not restore the current SQL text: ' + JSON.stringify(restoredState));
   }
   if (!String(restoredState.badge || '').includes('Playwright Profile')) {
     throw new Error('reloaded share URL did not restore the active profile: ' + JSON.stringify(restoredState));
+  }
+  if (!String(restoredState.activeSql || '').includes('Orders Query')) {
+    throw new Error('reloaded share URL did not restore the active saved SQL label: ' + JSON.stringify(restoredState));
   }
 
   await page.locator('[data-sql-main-tab="profiles"]').click();

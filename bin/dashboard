@@ -3819,13 +3819,13 @@ sub _sql_dashboard_page {
 sub _sql_dashboard_html {
     return <<'HTML';
 <style>
-.sql-shell { display:grid; gap:18px; color:#1d2328; }
+.sql-shell { display:grid; gap:18px; color:#24313c; }
 .sql-banner { padding:12px 14px; border:1px solid #d5c36a; background:#fff6d6; color:#563f00; }
 .sql-banner.is-error { border-color:#d89a9a; background:#fff1f1; color:#7f1d1d; }
-.sql-main-tabs, .sql-subtabs { display:flex; gap:6px; flex-wrap:wrap; align-items:flex-end; border-bottom:1px solid #bfc8cf; }
-.sql-main-tab, .sql-subtab { display:inline-block; padding:10px 14px; border:1px solid #bfc8cf; border-bottom:none; background:#e7edf2; color:#1d2328; text-decoration:none; font-weight:600; }
-.sql-main-tab.is-active, .sql-subtab.is-active { background:#ffffff; position:relative; top:1px; }
-.sql-panel { display:none; border:1px solid #bfc8cf; background:#ffffff; padding:16px; }
+.sql-main-tabs, .sql-subtabs { display:flex; gap:0; flex-wrap:wrap; align-items:flex-end; border-bottom:1px solid #aeb9c3; }
+.sql-main-tab, .sql-subtab { display:inline-block; margin:0 4px -1px 0; padding:10px 14px; border:1px solid #aeb9c3; border-bottom:1px solid #aeb9c3; background:linear-gradient(180deg, #f6f8fa 0%, #dfe7ef 100%); color:#20303b; text-decoration:none; font-weight:700; }
+.sql-main-tab.is-active, .sql-subtab.is-active { background:#ffffff; border-bottom-color:#ffffff; position:relative; top:1px; }
+.sql-panel { display:none; border:1px solid #bcc7cf; background:#ffffff; padding:16px; }
 .sql-panel.is-active { display:block; }
 .sql-grid { display:grid; gap:16px; }
 .sql-two-col { grid-template-columns: minmax(320px, 1fr) minmax(360px, 2fr); }
@@ -3838,6 +3838,17 @@ sub _sql_dashboard_html {
 .sql-toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
 .sql-action { display:inline-block; padding:9px 12px; border:1px solid #6b7c89; background:#f4f7fa; color:#16212a; text-decoration:none; font-weight:600; }
 .sql-badge { display:inline-block; padding:6px 10px; border:1px solid #c8d3da; background:#f4f7fa; color:#31404a; font-size:13px; }
+.sql-workspace-layout { display:grid; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); border:1px solid #cbd3da; background:#f7fafc; }
+.sql-workspace-nav { display:grid; gap:16px; align-content:start; padding:14px; border-right:1px solid #cbd3da; background:linear-gradient(180deg, #eef3f7 0%, #e6edf3 100%); }
+.sql-workspace-editor { display:grid; gap:14px; align-content:start; padding:16px; background:#fbfcfd; }
+.sql-nav-section { display:grid; gap:10px; }
+.sql-nav-section h3, .sql-nav-section h4 { margin:0; }
+.sql-list { border:1px solid #c2ccd4; background:#ffffff; }
+.sql-list-item { display:block; padding:10px 12px; border-top:1px solid #d7dee4; color:#1d2b35; text-decoration:none; }
+.sql-list-item:first-child { border-top:none; }
+.sql-list-item.is-active { background:#dce8f3; font-weight:700; }
+.sql-list-item small { display:block; margin-top:4px; color:#5b6873; font-weight:400; }
+.sql-inline-fields { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; }
 .sql-result-info { min-height:120px; padding:12px; border:1px solid #c5d0d8; background:#16212a; color:#edf3f7; white-space:pre-wrap; overflow:auto; }
 .sql-result-html { margin-top:12px; overflow:auto; }
 .sql-result-html table { width:100%; border-collapse:collapse; }
@@ -3855,8 +3866,7 @@ sub _sql_dashboard_html {
   <div id="sql-banner" class="sql-banner" hidden></div>
   <nav class="sql-main-tabs" aria-label="SQL Dashboard Sections">
     <a href="#" class="sql-main-tab is-active" data-sql-main-tab="profiles" role="tab" aria-selected="true">Connection Profiles</a>
-    <a href="#" class="sql-main-tab" data-sql-main-tab="collections" role="tab" aria-selected="false">SQL Collections</a>
-    <a href="#" class="sql-main-tab" data-sql-main-tab="workspace" role="tab" aria-selected="false">Workspace</a>
+    <a href="#" class="sql-main-tab" data-sql-main-tab="workspace" role="tab" aria-selected="false">SQL Workspace</a>
     <a href="#" class="sql-main-tab" data-sql-main-tab="schema" role="tab" aria-selected="false">Schema Explorer</a>
   </nav>
 
@@ -3899,53 +3909,55 @@ sub _sql_dashboard_html {
     </div>
   </section>
 
-  <section id="sql-panel-collections" class="sql-panel">
-    <div class="sql-grid sql-two-col">
-      <div class="sql-card">
-        <div class="sql-toolbar">
-          <a href="#" id="sql-collection-new" class="sql-action">New Collection</a>
-          <a href="#" id="sql-collection-save" class="sql-action">Save Collection</a>
-          <a href="#" id="sql-collection-delete" class="sql-action">Delete Collection</a>
-        </div>
-        <div id="sql-collection-tabs" class="sql-subtabs" aria-label="Saved SQL Collections"></div>
-        <div id="sql-collection-tabs-empty" class="sql-empty">No saved SQL collections yet. Collections stay separate from connection profiles.</div>
-      </div>
-      <div class="sql-card">
-        <h3>SQL Collections</h3>
-        <div class="sql-form-grid">
+  <section id="sql-panel-workspace" class="sql-panel">
+    <div class="sql-workspace-layout">
+      <aside id="sql-workspace-nav" class="sql-workspace-nav">
+        <div class="sql-nav-section">
+          <div class="sql-toolbar">
+            <a href="#" id="sql-collection-new" class="sql-action">New Collection</a>
+            <a href="#" id="sql-collection-save" class="sql-action">Save Collection</a>
+            <a href="#" id="sql-collection-delete" class="sql-action">Delete Collection</a>
+          </div>
           <label>Collection Name
             <input id="sql-collection-name" type="text" placeholder="Reporting Queries">
           </label>
+          <div id="sql-collection-tabs" class="sql-subtabs" aria-label="Saved SQL Collections"></div>
+          <div id="sql-collection-tabs-empty" class="sql-empty">No saved SQL collections yet. Collections stay separate from connection profiles.</div>
+        </div>
+        <div class="sql-nav-section">
+          <div class="sql-toolbar">
+            <strong id="sql-collection-item-list-title">Saved SQL</strong>
+            <a href="#" id="sql-collection-item-new" class="sql-action">New SQL</a>
+          </div>
+          <div id="sql-collection-item-list" class="sql-list" aria-label="Saved SQL Entries"></div>
+          <div id="sql-collection-item-tabs-empty" class="sql-empty">Select a collection to view its saved SQL entries.</div>
+          <span class="sql-badge">Collections and connection profiles are intentionally unrelated</span>
+        </div>
+      </aside>
+      <section id="sql-workspace-editor" class="sql-workspace-editor">
+        <div class="sql-toolbar">
+          <span id="sql-active-profile" class="sql-badge">No active profile selected</span>
+          <span id="sql-active-collection" class="sql-badge">No active collection</span>
+          <span id="sql-active-sql-name" class="sql-badge">Unsaved SQL</span>
+        </div>
+        <div class="sql-inline-fields">
           <label>SQL Name
             <input id="sql-collection-item-name" type="text" placeholder="Users By Status">
           </label>
         </div>
         <div class="sql-toolbar">
+          <a href="#" id="sql-run" class="sql-action">Run SQL</a>
           <a href="#" id="sql-collection-item-save" class="sql-action">Save SQL To Collection</a>
           <a href="#" id="sql-collection-item-delete" class="sql-action">Delete SQL From Collection</a>
-          <span class="sql-badge">Collections and connection profiles are intentionally unrelated</span>
+          <a href="#" id="sql-open-schema" class="sql-action">Open Schema Explorer</a>
         </div>
-        <div id="sql-collection-item-tabs" class="sql-subtabs" aria-label="Saved SQL Entries"></div>
-        <div id="sql-collection-item-tabs-empty" class="sql-empty">Select a collection to view its saved SQL entries.</div>
-      </div>
-    </div>
-  </section>
-
-  <section id="sql-panel-workspace" class="sql-panel">
-    <div class="sql-card">
-      <div class="sql-toolbar">
-        <span id="sql-active-profile" class="sql-badge">No active profile selected</span>
-        <a href="#" id="sql-run" class="sql-action">Run SQL</a>
-        <a href="#" id="sql-open-schema" class="sql-action">Open Schema Explorer</a>
-      </div>
-      <div class="sql-stack">
         <label>SQL
           <textarea id="sql-editor" rows="16" placeholder="select * from users"></textarea>
         </label>
         <p class="sql-help">Use <code>SQLS_SEP</code> (<code>:------------------------------------------------------------------------------:</code>) between statements and <code>INSTRUCTION_SEP</code> (<code>:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:</code>) for <code>STASH</code>, <code>ROW</code>, <code>BEFORE</code>, and <code>AFTER</code> hooks.</p>
         <pre id="sql-result-info" class="sql-result-info">Select a profile and run SQL.</pre>
         <div id="sql-result-html" class="sql-result-html"></div>
-      </div>
+      </section>
     </div>
   </section>
 
@@ -3980,6 +3992,9 @@ sub _sql_dashboard_html {
     active_profile_name: '',
     active_collection_name: '',
     active_collection_item_id: '',
+    collection_item_draft: 0,
+    collection_name_draft: '',
+    collection_item_name_draft: '',
     schema: { tables: [], columns: [], active_table: '' },
     sql: '',
     result_html: '',
@@ -4093,6 +4108,11 @@ sub _sql_dashboard_html {
     })[0] || null;
   }
 
+  function collectionItemIdFromName(name) {
+    name = String(name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return name || 'sql-item';
+  }
+
   function currentFormConnectionId() {
     return connectionIdFromParts(byId('sql-profile-dsn').value, byId('sql-profile-user').value);
   }
@@ -4183,8 +4203,10 @@ sub _sql_dashboard_html {
   function loadCollectionIntoForm(collection, item) {
     collection = collection || {};
     item = item || null;
-    byId('sql-collection-name').value = collection.name || '';
-    byId('sql-collection-item-name').value = item && item.name ? item.name : '';
+    state.collection_name_draft = collection.name || state.collection_name_draft || '';
+    state.collection_item_name_draft = item && item.name ? item.name : (state.collection_item_name_draft || '');
+    byId('sql-collection-name').value = state.collection_name_draft;
+    byId('sql-collection-item-name').value = state.collection_item_name_draft;
   }
 
   function profilePayloadFromForm() {
@@ -4266,7 +4288,7 @@ sub _sql_dashboard_html {
   function applyRoute(route, options) {
     options = options || {};
     if (route.tab) {
-      state.main_tab = route.tab;
+      state.main_tab = route.tab === 'collections' ? 'workspace' : route.tab;
     }
     if (route.connection) {
       var matchedProfile = findProfileByConnection(route.connection);
@@ -4290,6 +4312,7 @@ sub _sql_dashboard_html {
     }
     if (route.item) {
       state.active_collection_item_id = route.item;
+      state.collection_item_draft = 0;
     }
     if (route.sql) {
       state.sql = route.sql;
@@ -4303,10 +4326,22 @@ sub _sql_dashboard_html {
   function render(options) {
     options = options || {};
     var activeProfile = currentProfile();
+    if (!state.active_collection_name && state.collections.length) {
+      state.active_collection_name = state.collections[0].name || '';
+    }
     var activeCollection = currentCollection();
     var activeCollectionItem = currentCollectionItem();
+    if (activeCollection && activeCollection.items && activeCollection.items.length && !activeCollectionItem && state.active_collection_item_id) {
+      state.active_collection_item_id = '';
+    }
+    if (activeCollection && activeCollection.items && activeCollection.items.length && !activeCollectionItem && !state.active_collection_item_id && !state.collection_item_draft) {
+      state.active_collection_item_id = activeCollection.items[0].id || '';
+      activeCollectionItem = currentCollectionItem();
+    }
     byId('sql-editor').value = state.sql || byId('sql-editor').value || '';
     byId('sql-active-profile').textContent = activeProfile ? ('Active Connection: ' + (activeProfile.name || activeProfile.connection_id || currentFormConnectionId())) : 'No active profile selected';
+    byId('sql-active-collection').textContent = activeCollection ? ('Collection: ' + activeCollection.name) : (state.collection_name_draft && state.collection_name_draft.trim() ? ('Collection: ' + state.collection_name_draft.trim()) : 'No active collection');
+    byId('sql-active-sql-name').textContent = activeCollectionItem ? ('Saved SQL: ' + activeCollectionItem.name) : (state.collection_item_name_draft && state.collection_item_name_draft.trim() ? ('Unsaved SQL: ' + state.collection_item_name_draft.trim()) : 'Unsaved SQL');
     byId('sql-schema-profile').textContent = activeProfile ? ('Schema Explorer: ' + (activeProfile.name || activeProfile.connection_id || currentFormConnectionId())) : 'Schema Explorer';
     byId('sql-result-info').textContent = state.result_info || 'Select a profile and run SQL.';
     byId('sql-result-html').innerHTML = state.result_html || '';
@@ -4354,33 +4389,36 @@ sub _sql_dashboard_html {
         event.preventDefault();
         state.active_collection_name = collection.name;
         state.active_collection_item_id = ((collection.items || [])[0] || {}).id || '';
+        state.collection_item_draft = 0;
+        state.collection_item_name_draft = '';
         loadCollectionIntoForm(collection, currentCollectionItem());
+        state.main_tab = 'workspace';
         render({ replaceRoute: false });
       });
       collectionTabs.appendChild(tab);
     });
     byId('sql-collection-tabs-empty').style.display = (state.collections || []).length ? 'none' : 'block';
-    if (activeCollection && activeCollection.items && activeCollection.items.length && !activeCollectionItem) {
-      state.active_collection_item_id = activeCollection.items[0].id || '';
-      activeCollectionItem = currentCollectionItem();
-    }
-    var collectionItemTabs = byId('sql-collection-item-tabs');
-    collectionItemTabs.innerHTML = '';
+    var collectionItemList = byId('sql-collection-item-list');
+    collectionItemList.innerHTML = '';
+    byId('sql-collection-item-list-title').textContent = activeCollection ? ('Saved SQL in ' + activeCollection.name) : 'Saved SQL';
     (activeCollection && activeCollection.items || []).forEach(function (item) {
-      var tab = document.createElement('a');
-      tab.href = '#';
-      tab.className = 'sql-subtab' + (item.id === state.active_collection_item_id ? ' is-active' : '');
-      tab.textContent = item.name;
-      tab.setAttribute('data-sql-collection-item-tab', item.id);
-      tab.addEventListener('click', function (event) {
+      var link = document.createElement('a');
+      var preview = String(item.sql || '').split(/\r?\n/)[0] || 'Saved SQL';
+      link.href = '#';
+      link.className = 'sql-list-item' + (item.id === state.active_collection_item_id ? ' is-active' : '');
+      link.innerHTML = '<span>' + escapeHtml(item.name) + '</span><small>' + escapeHtml(preview) + '</small>';
+      link.setAttribute('data-sql-collection-item-link', item.id);
+      link.setAttribute('data-sql-collection-item-tab', item.id);
+      link.addEventListener('click', function (event) {
         event.preventDefault();
         state.active_collection_item_id = item.id;
+        state.collection_item_draft = 0;
         state.sql = item.sql || '';
         loadCollectionIntoForm(activeCollection, item);
         state.main_tab = 'workspace';
         render({ replaceRoute: false });
       });
-      collectionItemTabs.appendChild(tab);
+      collectionItemList.appendChild(link);
     });
     byId('sql-collection-item-tabs-empty').style.display = activeCollection && activeCollection.items && activeCollection.items.length ? 'none' : 'block';
     loadCollectionIntoForm(activeCollection || {}, activeCollectionItem);
@@ -4532,7 +4570,7 @@ sub _sql_dashboard_html {
         state.active_collection_name = state.collections[0].name || '';
         state.active_collection_item_id = (((state.collections[0] || {}).items || [])[0] || {}).id || '';
       }
-    renderDriverOptions((state.profile_draft && state.profile_draft.driver) || '');
+      renderDriverOptions((state.profile_draft && state.profile_draft.driver) || '');
       applyRoute(readRoute(), { replaceRoute: true });
       banner(payload.errors && payload.errors.length ? payload.errors.join(' ') : '', (payload.errors || []).length > 0);
       maybeAutoRunSharedRoute(readRoute());
@@ -4604,8 +4642,11 @@ sub _sql_dashboard_html {
     event.preventDefault();
     state.active_collection_name = '';
     state.active_collection_item_id = '';
+    state.collection_item_draft = 1;
+    state.collection_name_draft = '';
+    state.collection_item_name_draft = '';
     loadCollectionIntoForm({}, null);
-    state.main_tab = 'collections';
+    state.main_tab = 'workspace';
     render({ replaceRoute: false });
   });
 
@@ -4619,6 +4660,7 @@ sub _sql_dashboard_html {
       banner('Collection name is required.', true);
       return;
     }
+    state.collection_name_draft = collection.name;
     saveCollectionToServer(collection, originalName).then(function (savedCollection) {
       if (originalName && originalName !== savedCollection.name) {
         state.collections = state.collections.filter(function (item) {
@@ -4626,6 +4668,11 @@ sub _sql_dashboard_html {
         });
         upsertCollection(savedCollection);
       }
+      if (!state.active_collection_item_id && savedCollection.items && savedCollection.items.length && !state.collection_item_draft) {
+        state.active_collection_item_id = savedCollection.items[0].id || '';
+      }
+      state.collection_name_draft = savedCollection.name || '';
+      state.main_tab = 'workspace';
       banner('Collection saved: ' + savedCollection.name, false);
       render({ replaceRoute: false });
     }).catch(function (error) {
@@ -4649,12 +4696,27 @@ sub _sql_dashboard_html {
       });
       state.active_collection_name = state.collections.length ? state.collections[0].name : '';
       state.active_collection_item_id = (((state.collections[0] || {}).items || [])[0] || {}).id || '';
+      state.collection_item_draft = 0;
+      state.collection_name_draft = state.active_collection_name || '';
+      state.collection_item_name_draft = '';
       loadCollectionIntoForm(currentCollection() || {}, currentCollectionItem());
       banner('Collection deleted: ' + payload.removed, false);
       render({ replaceRoute: false });
     }).catch(function (error) {
       banner('Collection delete failed: ' + error.message, true);
     });
+  });
+
+  byId('sql-collection-item-new').addEventListener('click', function (event) {
+    event.preventDefault();
+    state.active_collection_item_id = '';
+    state.collection_item_draft = 1;
+    state.collection_item_name_draft = '';
+    byId('sql-collection-item-name').value = '';
+    byId('sql-active-sql-name').textContent = 'Unsaved SQL';
+    state.main_tab = 'workspace';
+    render({ replaceRoute: false });
+    byId('sql-collection-item-name').focus();
   });
 
   byId('sql-collection-item-save').addEventListener('click', function (event) {
@@ -4674,13 +4736,20 @@ sub _sql_dashboard_html {
       banner('SQL text is required before saving SQL.', true);
       return;
     }
+    state.collection_name_draft = collectionName;
+    state.collection_item_name_draft = itemName;
     var collection = currentCollection();
     if (!collection || collection.name !== collectionName) {
       collection = { name: collectionName, items: [] };
     }
     collection = collectionPayloadFromState(collection);
     collection.name = collectionName;
-    var itemId = state.active_collection_item_id || itemName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'sql-item';
+    var requestedItemId = collectionItemIdFromName(itemName);
+    var activeItem = currentCollectionItem();
+    var itemId = requestedItemId;
+    if (!state.collection_item_draft && activeItem && activeItem.name === itemName) {
+      itemId = activeItem.id;
+    }
     var replaced = false;
     collection.items = (collection.items || []).map(function (item) {
       if (item && item.id === itemId) {
@@ -4696,7 +4765,11 @@ sub _sql_dashboard_html {
     saveCollectionToServer(collection, state.active_collection_name || '').then(function (savedCollection) {
       state.active_collection_name = savedCollection.name;
       state.active_collection_item_id = itemId;
+      state.collection_item_draft = 0;
+      state.collection_name_draft = savedCollection.name || '';
+      state.collection_item_name_draft = itemName;
       state.sql = sql;
+      state.main_tab = 'workspace';
       banner('SQL saved to collection: ' + savedCollection.name, false);
       render({ replaceRoute: false });
     }).catch(function (error) {
@@ -4723,6 +4796,9 @@ sub _sql_dashboard_html {
     saveCollectionToServer(collection, collection.name).then(function (savedCollection) {
       state.active_collection_name = savedCollection.name;
       state.active_collection_item_id = nextItem && nextItem.id ? nextItem.id : '';
+      state.collection_item_draft = state.active_collection_item_id ? 0 : 1;
+      state.collection_name_draft = savedCollection.name || '';
+      state.collection_item_name_draft = nextItem && nextItem.name ? nextItem.name : '';
       loadCollectionIntoForm(savedCollection, nextItem);
       banner('SQL removed from collection: ' + savedCollection.name, false);
       render({ replaceRoute: false });
@@ -4764,6 +4840,17 @@ sub _sql_dashboard_html {
   byId('sql-editor').addEventListener('input', function () {
     state.sql = byId('sql-editor').value;
     syncRoute(true);
+  });
+
+  byId('sql-collection-name').addEventListener('input', function () {
+    state.collection_name_draft = byId('sql-collection-name').value;
+  });
+
+  byId('sql-collection-item-name').addEventListener('input', function () {
+    state.collection_item_name_draft = byId('sql-collection-item-name').value;
+    if (!state.active_collection_item_id || state.collection_item_draft) {
+      byId('sql-active-sql-name').textContent = state.collection_item_name_draft.trim() ? ('Unsaved SQL: ' + state.collection_item_name_draft.trim()) : 'Unsaved SQL';
+    }
   });
 
   byId('sql-profile-dsn').addEventListener('input', function () {

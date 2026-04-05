@@ -906,17 +906,23 @@ saved password, the bookmark reruns the shared SQL there, otherwise it opens
 a draft connection profile built from that connection id so the other user
 can add the local password and run it. The profile editor now renders the
 driver field as a dropdown of installed `DBD::*` modules and rewrites only
-the `dbi:<Driver>:` DSN prefix when you switch drivers. The bookmark renders
-connection profiles, SQL collections, collection items, and schema tables as
-click-through tabs instead of one long vertical stack, executes SQL through
-generic `DBI`, and uses DBI metadata calls such as `table_info` and
-`column_info` for the schema browser. It preserves programmable statement
-blocks through `SQLS_SEP` and `INSTRUCTION_SEP`, including `STASH`, `ROW`,
-`BEFORE`, and `AFTER` hooks, so result rows can still be transformed locally
-before rendering. Its saved Ajax endpoints run through singleton workers. No
-`DBD::*` driver ships in the base tarball by default; install the one you
-need with `dashboard cpan DBD::Driver`, and the bookmark will return explicit
-install guidance when a selected driver is missing.
+the `dbi:<Driver>:` DSN prefix when you switch drivers. The main browser flow
+now merges collections and editing into one `SQL Workspace` tab with a
+phpMyAdmin-style master-detail layout: collection tabs stay in the left
+navigation rail, the saved SQL list for the active collection appears
+directly below that heading, the right pane keeps the editor plus results
+together, and the active saved SQL name stays visible while you work. Saving
+a different SQL name into the same collection adds a second saved SQL entry
+instead of overwriting the selected one. The bookmark still renders profile
+tabs and schema tabs, executes SQL through generic `DBI`, and uses DBI
+metadata calls such as `table_info` and `column_info` for the schema
+browser. It preserves programmable statement blocks through `SQLS_SEP` and
+`INSTRUCTION_SEP`, including `STASH`, `ROW`, `BEFORE`, and `AFTER` hooks, so
+result rows can still be transformed locally before rendering. Its saved Ajax
+endpoints run through singleton workers. No `DBD::*` driver ships in the
+base tarball by default; install the one you need with `dashboard cpan
+DBD::Driver`, and the bookmark will return explicit install guidance when a
+selected driver is missing.
 
 ### Skills System
 

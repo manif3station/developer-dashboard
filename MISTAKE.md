@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: SQL-WORKSPACE-UX-SPLIT
+
+**Date:** 2026-04-05 23:55:00 UTC
+**Area:** SQL workspace navigation, saved-query persistence flow, and bookmark-local browser UX
+**Symptom:** The bookmark-local `sql-dashboard` separated collections from the SQL editor into different top-level screens, pushed the collection tabs and saved SQL entries far apart, hid the active saved SQL name after selection, and overwrote the selected saved SQL when the user tried to save a different SQL name into the same collection
+**Why It Was Dangerous:** The workspace looked disconnected and confusing, users could not easily tell which saved SQL belonged to which collection, and saving a second query into one collection silently destroyed the first query instead of creating a new saved entry
+**Root Cause:** I treated the collection layer as a separate settings panel rather than part of the day-to-day SQL workspace, so the layout never formed one coherent master-detail flow and the save logic reused the selected item id too aggressively
+**How Ellen Solved It:** Merged collections and editing into one `SQL Workspace` tab, rebuilt the workspace as a phpMyAdmin-style master-detail layout with collection tabs plus the active collection's saved SQL list in the left navigation rail and the editor/results together on the right, kept the active saved SQL name visible, added a dedicated `New SQL` draft flow, and changed the save logic so a different SQL name creates another saved SQL entry in the same collection instead of overwriting the selected one
+**How To Detect Earlier Next Time:** When a feature combines saved navigation state and an editor, verify the whole flow in the browser from the user's point of view instead of only checking that the underlying JSON can hold multiple items
+**Prevention Rule:** For bookmark-local workspaces, keep navigation and editing in one coherent panel, keep the currently selected saved artifact visible in the UI, and treat “new name in same collection” as a multi-save scenario unless the user explicitly chose to overwrite
+**Verification:** `prove -lv t/26-sql-dashboard.t`, `prove -lv t/27-sql-dashboard-playwright.t`
+**Related Files:** `bin/dashboard`, `t/05-cli-smoke.t`, `t/26-sql-dashboard.t`, `t/27-sql-dashboard-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`, `doc/integration-test-plan.md`, `doc/update-and-release.md`, `SOFTWARE_SPEC.md`
+
+---
+
 ## CODE: SQL-WORKSPACE-PORTABILITY-GAP
 
 **Date:** 2026-04-05 23:25:00 UTC

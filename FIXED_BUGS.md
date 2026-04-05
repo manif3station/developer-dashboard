@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 2026-04-05 (Phase 39: SQL Workspace Layout And Multi-Save)
+
+- Fixed the SQL workspace usability split by merging SQL collections and editing into one `SQL Workspace` tab with a phpMyAdmin-style master-detail layout so the active collection tabs and that collection's saved SQL list stay together in the left navigation rail beside the editor.
+- Fixed the saved-SQL context gap by keeping the active saved SQL name visible in the workspace and making the saved SQL list heading show which collection owns the visible SQL list.
+- Fixed the SQL collection overwrite bug by treating a different SQL name in the same collection as a new saved SQL entry instead of overwriting the selected one, and expanded the unit, browser, and CLI smoke coverage around that flow.
+- Fixed the `dzil build` duplicate-license blocker by excluding the tracked `LICENSE` file from `GatherDir` so the `[License]` plugin can generate the packaged license file without aborting the build.
+
 ## 2026-04-05 (Phase 38: SQL Collections And Shareable Connections)
 
 - Fixed the SQL workspace portability gap by replacing profile-name URL state with a portable `connection=dsn|user` id, rebuilding a draft profile from that shared id on machines that do not already have the saved connection, and auto-running the shared SQL only when a matching locally saved password already exists.

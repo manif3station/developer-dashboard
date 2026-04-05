@@ -1,5 +1,26 @@
 Revision history for Developer Dashboard
 
+1.74  2026-04-05
+    - fixed the sql-dashboard workspace split by merging SQL collections and
+      editing into one `SQL Workspace` tab with a phpMyAdmin-style
+      master-detail layout, keeping collection tabs plus the active
+      collection's saved SQL list together in a left navigation rail while the
+      editor and results stay together on the right
+    - fixed the multi-save overwrite bug in sql-dashboard so saving a new SQL
+      name into the same collection creates another saved SQL entry instead of
+      overwriting the currently selected one, and kept the active saved SQL
+      name visible in the workspace while switching between saved queries
+    - expanded `t/26-sql-dashboard.t`, `t/27-sql-dashboard-playwright.t`, and
+      `t/05-cli-smoke.t` to cover the merged workspace layout, multi-SQL
+      collection persistence, source markup, and active saved-SQL labeling
+    - fixed the release packaging blocker by excluding the tracked `LICENSE`
+      file from `GatherDir` so `[License]` can generate the built-dist license
+      file without duplicate-file aborts, and added a release-metadata guard
+      for that rule
+    - updated README, main module POD, architecture/testing/integration docs,
+      and `SOFTWARE_SPEC.md` so the shipped SQL workspace description matches
+      the merged workspace flow
+
 1.73  2026-04-05
     - fixed the sql-dashboard share-state portability gap by replacing local
       profile-name URL state with a portable `connection=dsn|user` id,
