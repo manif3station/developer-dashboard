@@ -186,7 +186,7 @@ BOOKMARK
     _assert_match( $init_data->{runtime_root} || '', qr/\.developer-dashboard/, 'dashboard init returns runtime root' );
     _assert( grep { $_ eq 'welcome' } @{ $init_data->{pages} || [] }, 'dashboard init seeds welcome page' );
     _assert( grep { $_ eq 'api-dashboard' } @{ $init_data->{pages} || [] }, 'dashboard init seeds api-dashboard page' );
-    _assert( grep { $_ eq 'db-dashboard' } @{ $init_data->{pages} || [] }, 'dashboard init seeds db-dashboard page' );
+    _assert( grep { $_ eq 'sql-dashboard' } @{ $init_data->{pages} || [] }, 'dashboard init seeds sql-dashboard page' );
 
     make_path($update_root);
     _write_text(

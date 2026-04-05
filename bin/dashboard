@@ -111,6 +111,7 @@ my $paths = Developer::Dashboard::PathRegistry->new(
     workspace_roots => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
     project_roots   => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
 );
+_apply_runtime_perl5lib( paths => $paths );
 my $files      = Developer::Dashboard::FileRegistry->new( paths => $paths );
 my $indicators = Developer::Dashboard::IndicatorStore->new( paths => $paths );
 my $collectors = Developer::Dashboard::Collector->new( paths => $paths );
@@ -240,6 +241,183 @@ sub _sync_configured_collector_indicators {
     $indicators->sync_collectors( _collector_jobs() );
     $COLLECTOR_INDICATORS_SYNCED = 1;
     return 1;
+}
+
+# _runtime_cpanfile_path(%args)
+# Resolves the project-local cpanfile used by dashboard cpan installs.
+# Input: hash containing an optional path registry under the "paths" key.
+# Output: absolute cpanfile path string.
+sub _runtime_cpanfile_path {
+    my (%args) = @_;
+    my $active_paths = $args{paths} || $paths;
+    return File::Spec->catfile( $active_paths->runtime_root, 'cpanfile' );
+}
+
+# _runtime_local_root(%args)
+# Resolves and creates the project-local cpanm installation root.
+# Input: hash containing an optional path registry under the "paths" key.
+# Output: absolute local-root path string.
+sub _runtime_local_root {
+    my (%args) = @_;
+    my $active_paths = $args{paths} || $paths;
+    my $dir = File::Spec->catdir( $active_paths->runtime_root, 'local' );
+    if ( !-d $dir ) {
+        require File::Path;
+        File::Path::make_path($dir);
+    }
+    if ( $active_paths->can('secure_dir_permissions') ) {
+        $active_paths->secure_dir_permissions($dir);
+    }
+    return $dir;
+}
+
+# _runtime_local_lib(%args)
+# Resolves the runtime-local Perl library directory exposed to dashboard subprocesses.
+# Input: hash containing an optional path registry under the "paths" key.
+# Output: absolute local Perl library path string.
+sub _runtime_local_lib {
+    my (%args) = @_;
+    return File::Spec->catdir( _runtime_local_root(%args), 'lib', 'perl5' );
+}
+
+# _runtime_perl5lib_env(%args)
+# Builds the PERL5LIB environment update for runtime-local optional modules.
+# Input: hash containing an optional path registry under the "paths" key.
+# Output: hash containing the merged PERL5LIB value.
+sub _runtime_perl5lib_env {
+    my (%args) = @_;
+    my $path_sep  = $Config::Config{path_sep} || ':';
+    my $local_lib = _runtime_local_lib(%args);
+    my @perl5lib  = grep { defined $_ && $_ ne '' } split /\Q$path_sep\E/, ( $ENV{PERL5LIB} || '' );
+    unshift @perl5lib, $local_lib if -d $local_lib && !grep { $_ eq $local_lib } @perl5lib;
+    return (
+        PERL5LIB => join( $path_sep, @perl5lib ),
+    );
+}
+
+# _apply_runtime_perl5lib(%args)
+# Exposes the runtime-local Perl library to the current dashboard process.
+# Input: hash containing an optional path registry under the "paths" key.
+# Output: true value.
+sub _apply_runtime_perl5lib {
+    my (%args) = @_;
+    my %env = _runtime_perl5lib_env(%args);
+    @ENV{ keys %env } = values %env;
+    return 1;
+}
+
+# _normalize_runtime_cpan_modules(@modules)
+# Validates requested module names, trims whitespace, and removes duplicates while preserving order.
+# Input: zero or more requested module-name strings.
+# Output: ordered list of validated module-name strings.
+sub _normalize_runtime_cpan_modules {
+    my (@modules) = @_;
+    my @normalized;
+    my %seen;
+    for my $module (@modules) {
+        next if !defined $module;
+        $module =~ s/^\s+//;
+        $module =~ s/\s+$//;
+        next if $module eq '';
+        die "Invalid module name '$module'\n" if $module !~ /\A[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z0-9_]+)*\z/;
+        next if $seen{$module}++;
+        push @normalized, $module;
+    }
+    return @normalized;
+}
+
+# _effective_runtime_cpan_modules(@modules)
+# Expands requested module names so any requested DBD driver also installs DBI.
+# Input: ordered list of validated requested module-name strings.
+# Output: ordered list of module names that should be installed and persisted.
+sub _effective_runtime_cpan_modules {
+    my (@modules) = @_;
+    my @effective = @modules;
+    if ( grep { /^DBD::/ } @modules ) {
+        unshift @effective, 'DBI' if !grep { $_ eq 'DBI' } @effective;
+    }
+    my %seen;
+    return grep { !$seen{$_}++ } @effective;
+}
+
+# _append_runtime_cpan_modules(%args)
+# Appends missing module requirements to the runtime cpanfile without duplicating existing entries.
+# Input: hash containing an optional path registry under the "paths" key plus a required array reference under "modules".
+# Output: absolute cpanfile path string.
+sub _append_runtime_cpan_modules {
+    my (%args) = @_;
+    my $active_paths = $args{paths} || $paths;
+    my $modules      = $args{modules};
+    die "No modules provided\n" if ref($modules) ne 'ARRAY' || !@{$modules};
+    my $cpanfile = _runtime_cpanfile_path( paths => $active_paths );
+    my %existing;
+    if ( -f $cpanfile ) {
+        open my $in, '<', $cpanfile or die "Unable to read $cpanfile: $!";
+        while ( my $line = <$in> ) {
+            next if $line !~ /requires\s+'([^']+)'/;
+            $existing{$1} = 1;
+        }
+        close $in or die "Unable to close $cpanfile: $!";
+    }
+    open my $out, '>>', $cpanfile or die "Unable to append $cpanfile: $!";
+    for my $module ( @{$modules} ) {
+        next if $existing{$module};
+        print {$out} "requires '$module';\n";
+    }
+    close $out or die "Unable to close $cpanfile: $!";
+    if ( $active_paths->can('secure_file_permissions') ) {
+        $active_paths->secure_file_permissions($cpanfile);
+    }
+    return $cpanfile;
+}
+
+# _install_runtime_cpan_modules(%args)
+# Installs optional runtime Perl modules into the project-local local-lib tree and records them in the runtime cpanfile.
+# Input: hash containing an optional path registry under the "paths" key and a required array reference of requested modules under "modules".
+# Output: result hash reference containing ok/error state, effective module list, paths, and captured command output.
+sub _install_runtime_cpan_modules {
+    my (%args) = @_;
+    my $active_paths = $args{paths} || $paths;
+    my $modules      = $args{modules};
+    return { error => 'No modules provided' } if ref($modules) ne 'ARRAY' || !@{$modules};
+
+    my @requested = _normalize_runtime_cpan_modules( @{$modules} );
+    return { error => 'No valid modules provided' } if !@requested;
+
+    my @install_modules = _effective_runtime_cpan_modules(@requested);
+    my $local_root      = _runtime_local_root( paths => $active_paths );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'cpanm', '-L', $local_root, @install_modules );
+        return $? >> 8;
+    };
+    return {
+        error        => "Failed to install runtime Perl modules with cpanm: $stderr",
+        stdout       => $stdout,
+        stderr       => $stderr,
+        requested    => \@requested,
+        installed    => \@install_modules,
+        runtime_root => $active_paths->runtime_root,
+        local_root   => $local_root,
+        cpanfile     => _runtime_cpanfile_path( paths => $active_paths ),
+    } if $exit != 0;
+
+    _append_runtime_cpan_modules(
+        paths   => $active_paths,
+        modules => \@install_modules,
+    );
+    _apply_runtime_perl5lib( paths => $active_paths );
+
+    return {
+        ok           => 1,
+        stdout       => $stdout,
+        stderr       => $stderr,
+        requested    => \@requested,
+        installed    => \@install_modules,
+        runtime_root => $active_paths->runtime_root,
+        local_root   => $local_root,
+        cpanfile     => _runtime_cpanfile_path( paths => $active_paths ),
+    };
 }
 
 if ( $cmd eq 'ps1' ) {
@@ -520,7 +698,7 @@ elsif ( $cmd eq 'init' ) {
     my @pages = $pages->list_saved_pages;
     _seed_init_page( $pages, \@pages, _welcome_page() );
     _seed_init_page( $pages, \@pages, _api_dashboard_page() );
-    _seed_init_page( $pages, \@pages, _db_dashboard_page() );
+    _seed_init_page( $pages, \@pages, _sql_dashboard_page() );
     my $internal_cli = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
 
     print json_encode(
@@ -532,6 +710,23 @@ elsif ( $cmd eq 'init' ) {
             pages        => [ $pages->list_saved_pages ],
         }
     );
+    exit 0;
+}
+elsif ( $cmd eq 'cpan' ) {
+    my @modules = @ARGV;
+    my $result = eval {
+        _install_runtime_cpan_modules(
+            paths   => $paths,
+            modules => \@modules,
+        );
+    };
+    if ($@) {
+        my $error = $@;
+        $error =~ s/\s+\z//;
+        die "$error\n";
+    }
+    die $result->{error} . "\n" if $result->{error};
+    print json_encode($result);
     exit 0;
 }
 elsif ( $cmd eq 'version' ) {
@@ -3584,75 +3779,1092 @@ CODE4: Ajax jvar => 'configs.send.request', type => 'json', file => 'api-dashboa
 BOOKMARK
 }
 
-# _db_dashboard_page()
-# Builds the seeded DB dashboard bookmark page as a neutral SQL workspace without embedding connection details or credentials.
+# _sql_dashboard_page()
+# Builds the seeded SQL dashboard bookmark page with generic DBI profile management, schema browsing, and programmable SQL execution.
 # Input: none.
 # Output: Developer::Dashboard::PageDocument object.
-sub _db_dashboard_page {
-    return Developer::Dashboard::PageDocument->new(
-        id          => 'db-dashboard',
-        title       => 'DB Dashboard',
-        description => 'A generic SQL scratchpad and result workspace with no bundled credentials or vendor-specific defaults.',
-        layout      => {
-            body => <<'HTML',
+sub _sql_dashboard_page {
+    my $section = ":--------------------------------------------------------------------------------:\n";
+    my $instruction = ''
+      . "TITLE: SQL Dashboard\n"
+      . $section
+      . "BOOKMARK: sql-dashboard\n"
+      . $section
+      . "STASH:\n"
+      . "  SQLS_SEP => ':------------------------------------------------------------------------------:'\n"
+      . "  INSTRUCTION_SEP => ':~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:'\n"
+      . $section
+      . "HTML: " . _sql_dashboard_html() . "\n"
+      . $section
+      . "CODE1: Ajax jvar => 'configs.profiles.bootstrap', type => 'json', file => 'sql-dashboard-profiles-bootstrap', code => q{\n" . _sql_dashboard_profiles_bootstrap_code() . "\n};\n"
+      . $section
+      . "CODE2: Ajax jvar => 'configs.profiles.save', type => 'json', file => 'sql-dashboard-profiles-save', code => q{\n" . _sql_dashboard_profiles_save_code() . "\n};\n"
+      . $section
+      . "CODE3: Ajax jvar => 'configs.profiles.delete', type => 'json', file => 'sql-dashboard-profiles-delete', code => q{\n" . _sql_dashboard_profiles_delete_code() . "\n};\n"
+      . $section
+      . "CODE4: Ajax jvar => 'configs.sql.execute', type => 'json', file => 'sql-dashboard-execute', code => q{\n" . _sql_dashboard_execute_code() . "\n};\n"
+      . $section
+      . "CODE5: Ajax jvar => 'configs.schema.browse', type => 'json', file => 'sql-dashboard-schema-browse', code => q{\n" . _sql_dashboard_schema_code() . "\n};\n";
+    return Developer::Dashboard::PageDocument->from_instruction($instruction);
+}
+
+# _sql_dashboard_html()
+# Builds the seeded SQL dashboard HTML, CSS, and browser logic.
+# Input: none.
+# Output: HTML source string.
+sub _sql_dashboard_html {
+    return <<'HTML';
 <style>
-.db-dashboard-grid { display:grid; gap:16px; }
-.db-dashboard-card { border:1px solid #d9d3c7; padding:16px; background:#fffaf1; }
-.db-dashboard-row { display:grid; gap:12px; margin-bottom:12px; }
-.db-dashboard-row input, .db-dashboard-row textarea { width:100%; box-sizing:border-box; padding:10px; font-family: monospace; }
-.db-dashboard-toolbar { display:flex; gap:12px; flex-wrap:wrap; }
-.db-dashboard-result { min-height:220px; white-space:pre-wrap; overflow:auto; background:#1f2a2e; color:#f4efe3; padding:12px; }
+.sql-shell { display:grid; gap:18px; color:#1d2328; }
+.sql-banner { padding:12px 14px; border:1px solid #d5c36a; background:#fff6d6; color:#563f00; }
+.sql-banner.is-error { border-color:#d89a9a; background:#fff1f1; color:#7f1d1d; }
+.sql-main-tabs, .sql-subtabs { display:flex; gap:6px; flex-wrap:wrap; align-items:flex-end; border-bottom:1px solid #bfc8cf; }
+.sql-main-tab, .sql-subtab { display:inline-block; padding:10px 14px; border:1px solid #bfc8cf; border-bottom:none; background:#e7edf2; color:#1d2328; text-decoration:none; font-weight:600; }
+.sql-main-tab.is-active, .sql-subtab.is-active { background:#ffffff; position:relative; top:1px; }
+.sql-panel { display:none; border:1px solid #bfc8cf; background:#ffffff; padding:16px; }
+.sql-panel.is-active { display:block; }
+.sql-grid { display:grid; gap:16px; }
+.sql-two-col { grid-template-columns: minmax(320px, 1fr) minmax(360px, 2fr); }
+.sql-card { border:1px solid #d8dee3; background:#fbfcfd; padding:14px; }
+.sql-card h3 { margin-top:0; }
+.sql-form-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; }
+.sql-form-grid label, .sql-stack label { display:grid; gap:6px; font-weight:600; color:#24313c; }
+.sql-form-grid input, .sql-form-grid textarea, .sql-stack textarea, .sql-stack select, .sql-stack input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #b8c1c9; background:#fff; font-family:monospace; }
+.sql-stack { display:grid; gap:12px; }
+.sql-toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+.sql-action { display:inline-block; padding:9px 12px; border:1px solid #6b7c89; background:#f4f7fa; color:#16212a; text-decoration:none; font-weight:600; }
+.sql-badge { display:inline-block; padding:6px 10px; border:1px solid #c8d3da; background:#f4f7fa; color:#31404a; font-size:13px; }
+.sql-result-info { min-height:120px; padding:12px; border:1px solid #c5d0d8; background:#16212a; color:#edf3f7; white-space:pre-wrap; overflow:auto; }
+.sql-result-html { margin-top:12px; overflow:auto; }
+.sql-result-html table { width:100%; border-collapse:collapse; }
+.sql-result-html th, .sql-result-html td { border:1px solid #d0d8df; padding:8px 10px; text-align:left; vertical-align:top; }
+.sql-result-html th { background:#eef3f7; }
+.sql-help { margin:0; color:#4b5a66; font-size:13px; }
+.sql-schema-grid { display:grid; grid-template-columns: minmax(260px, 1fr) minmax(320px, 1fr); gap:16px; }
+.sql-empty { padding:12px; border:1px dashed #bcc7cf; background:#f8fafb; color:#55636d; }
+.sql-checkbox { display:flex; gap:10px; align-items:center; font-weight:600; color:#24313c; }
+@media (max-width: 920px) {
+  .sql-two-col, .sql-schema-grid { grid-template-columns: 1fr; }
+}
 </style>
-<div class="db-dashboard-grid">
-  <section class="db-dashboard-card">
-    <h2>Connection Notes</h2>
-    <div class="db-dashboard-row">
-      <label for="db-target">Target</label>
-      <input id="db-target" placeholder="Write the target database or environment name">
-    </div>
-    <div class="db-dashboard-row">
-      <label for="db-query">SQL</label>
-      <textarea id="db-query" rows="12" placeholder="select now();"></textarea>
-    </div>
-    <div class="db-dashboard-toolbar">
-      <button type="button" id="db-preview">Preview Query</button>
-      <button type="button" id="db-clear">Clear</button>
+<div class="sql-shell">
+  <div id="sql-banner" class="sql-banner" hidden></div>
+  <nav class="sql-main-tabs" aria-label="SQL Dashboard Sections">
+    <a href="#" class="sql-main-tab is-active" data-sql-main-tab="profiles" role="tab" aria-selected="true">Connection Profiles</a>
+    <a href="#" class="sql-main-tab" data-sql-main-tab="workspace" role="tab" aria-selected="false">Workspace</a>
+    <a href="#" class="sql-main-tab" data-sql-main-tab="schema" role="tab" aria-selected="false">Schema Explorer</a>
+  </nav>
+
+  <section id="sql-panel-profiles" class="sql-panel is-active">
+    <div class="sql-grid sql-two-col">
+      <div class="sql-card">
+        <div class="sql-toolbar">
+          <a href="#" id="sql-profile-new" class="sql-action">New Profile</a>
+          <a href="#" id="sql-profile-save" class="sql-action">Save Profile</a>
+          <a href="#" id="sql-profile-delete" class="sql-action">Delete Profile</a>
+        </div>
+        <div id="sql-profile-tabs" class="sql-subtabs" aria-label="Saved Connection Profiles"></div>
+        <div id="sql-profile-tabs-empty" class="sql-empty">No saved profiles yet. Create one and install a driver with <code>dashboard cpan DBD::Driver</code>.</div>
+      </div>
+      <div class="sql-card">
+        <h3>Connection Profiles</h3>
+        <div class="sql-form-grid">
+          <label>Profile Name
+            <input id="sql-profile-name" type="text" placeholder="Reporting DB">
+          </label>
+          <label>Driver Module
+            <input id="sql-profile-driver" type="text" placeholder="DBD::SQLite">
+          </label>
+          <label>DSN
+            <input id="sql-profile-dsn" type="text" placeholder="dbi:SQLite:dbname=/tmp/demo.db">
+          </label>
+          <label>User
+            <input id="sql-profile-user" type="text" placeholder="demo">
+          </label>
+          <label>Password
+            <input id="sql-profile-password" type="password" placeholder="Stored only when requested">
+          </label>
+          <label>DBI Attrs JSON
+            <input id="sql-profile-attrs" type="text" placeholder='{"RaiseError":1,"PrintError":0,"AutoCommit":1}'>
+          </label>
+        </div>
+        <label class="sql-checkbox"><input id="sql-profile-save-password" type="checkbox"> Save password to the local runtime profile file</label>
+        <p class="sql-help">Profiles are stored under <code>.developer-dashboard/config/sql-dashboard/&lt;profile-name&gt;.json</code>. Passwords stay out of share URLs.</p>
+      </div>
     </div>
   </section>
-  <section class="db-dashboard-card">
-    <h2>Scratch Output</h2>
-    <pre id="db-result" class="db-dashboard-result">Write a query and preview it here. Execution is intentionally left to your own project-specific tooling.</pre>
+
+  <section id="sql-panel-workspace" class="sql-panel">
+    <div class="sql-card">
+      <div class="sql-toolbar">
+        <span id="sql-active-profile" class="sql-badge">No active profile selected</span>
+        <a href="#" id="sql-run" class="sql-action">Run SQL</a>
+        <a href="#" id="sql-open-schema" class="sql-action">Open Schema Explorer</a>
+      </div>
+      <div class="sql-stack">
+        <label>SQL
+          <textarea id="sql-editor" rows="16" placeholder="select * from users"></textarea>
+        </label>
+        <p class="sql-help">Use <code>SQLS_SEP</code> (<code>:------------------------------------------------------------------------------:</code>) between statements and <code>INSTRUCTION_SEP</code> (<code>:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:</code>) for <code>STASH</code>, <code>ROW</code>, <code>BEFORE</code>, and <code>AFTER</code> hooks.</p>
+        <pre id="sql-result-info" class="sql-result-info">Select a profile and run SQL.</pre>
+        <div id="sql-result-html" class="sql-result-html"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="sql-panel-schema" class="sql-panel">
+    <div class="sql-card">
+      <div class="sql-toolbar">
+        <span id="sql-schema-profile" class="sql-badge">Schema Explorer</span>
+        <a href="#" id="sql-schema-refresh" class="sql-action">Refresh Schema</a>
+      </div>
+      <div class="sql-schema-grid">
+        <div>
+          <h3>Tables</h3>
+          <div id="sql-table-tabs" class="sql-subtabs"></div>
+          <div id="sql-table-tabs-empty" class="sql-empty">Choose a profile and refresh the schema to load table tabs.</div>
+        </div>
+        <div>
+          <h3>Columns</h3>
+          <div id="sql-column-list" class="sql-empty">Select a table tab to view columns.</div>
+        </div>
+      </div>
+    </div>
   </section>
 </div>
 <script>
 (function () {
-  const targetEl = document.getElementById('db-target');
-  const queryEl = document.getElementById('db-query');
-  const resultEl = document.getElementById('db-result');
-  document.getElementById('db-clear').addEventListener('click', function () {
-    targetEl.value = '';
-    queryEl.value = '';
-    resultEl.textContent = 'Write a query and preview it here. Execution is intentionally left to your own project-specific tooling.';
+  var SQLS_SEP = ':------------------------------------------------------------------------------:';
+  var INSTRUCTION_SEP = ':~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:';
+  var state = {
+    main_tab: 'profiles',
+    profiles: [],
+    active_profile_name: '',
+    schema: { tables: [], columns: [], active_table: '' },
+    sql: '',
+    result_html: '',
+    result_info: 'Select a profile and run SQL.'
+  };
+  var endpointFallbacks = {
+    'profiles.bootstrap': '/ajax/sql-dashboard-profiles-bootstrap?type=json',
+    'profiles.save': '/ajax/sql-dashboard-profiles-save?type=json',
+    'profiles.delete': '/ajax/sql-dashboard-profiles-delete?type=json',
+    'sql.execute': '/ajax/sql-dashboard-execute?type=json',
+    'schema.browse': '/ajax/sql-dashboard-schema-browse?type=json'
+  };
+
+  function byId(id) {
+    return document.getElementById(id);
+  }
+
+  function banner(message, isError) {
+    var node = byId('sql-banner');
+    if (!message) {
+      node.hidden = true;
+      node.textContent = '';
+      node.className = 'sql-banner';
+      return;
+    }
+    node.hidden = false;
+    node.className = 'sql-banner' + (isError ? ' is-error' : '');
+    node.textContent = message;
+  }
+
+  function endpoint(path) {
+    var root = (typeof window.configs !== 'undefined' && window.configs) ? window.configs : {};
+    var node = root;
+    path.split('.').forEach(function (part) {
+      node = node && typeof node === 'object' ? node[part] : undefined;
+    });
+    return node || endpointFallbacks[path] || '';
+  }
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function findProfile(name) {
+    return (state.profiles || []).filter(function (profile) {
+      return profile && profile.name === name;
+    })[0] || null;
+  }
+
+  function currentProfile() {
+    return findProfile(state.active_profile_name);
+  }
+
+  function currentRoute() {
+    return {
+      tab: state.main_tab || '',
+      profile: state.active_profile_name || '',
+      table: state.schema.active_table || '',
+      sql: byId('sql-editor').value || ''
+    };
+  }
+
+  function routeQuery(route) {
+    var params = new window.URLSearchParams();
+    if (route.tab) params.set('tab', route.tab);
+    if (route.profile) params.set('profile', route.profile);
+    if (route.table) params.set('table', route.table);
+    if (route.sql) params.set('sql', route.sql);
+    return params.toString();
+  }
+
+  function readRoute() {
+    var params = new window.URLSearchParams(window.location.search || '');
+    return {
+      tab: params.get('tab') || '',
+      profile: params.get('profile') || '',
+      table: params.get('table') || '',
+      sql: params.get('sql') || ''
+    };
+  }
+
+  function syncRoute(replaceRoute) {
+    if (!window.history || !window.URLSearchParams) return;
+    var query = routeQuery(currentRoute());
+    var target = window.location.pathname + (query ? '?' + query : '');
+    var current = window.location.pathname + window.location.search;
+    if (target === current) return;
+    if (replaceRoute) {
+      window.history.replaceState(currentRoute(), '', target);
+      return;
+    }
+    window.history.pushState(currentRoute(), '', target);
+  }
+
+  function applyRoute(route, options) {
+    options = options || {};
+    if (route.tab) {
+      state.main_tab = route.tab;
+    }
+    if (route.profile && findProfile(route.profile)) {
+      state.active_profile_name = route.profile;
+    }
+    if (route.sql) {
+      state.sql = route.sql;
+    }
+    if (route.table) {
+      state.schema.active_table = route.table;
+    }
+    render(options);
+  }
+
+  function profilePayloadFromForm() {
+    return {
+      name: byId('sql-profile-name').value.trim(),
+      driver: byId('sql-profile-driver').value.trim(),
+      dsn: byId('sql-profile-dsn').value.trim(),
+      user: byId('sql-profile-user').value.trim(),
+      password: byId('sql-profile-password').value,
+      save_password: byId('sql-profile-save-password').checked ? 1 : 0,
+      attrs_json: byId('sql-profile-attrs').value.trim()
+    };
+  }
+
+  function loadProfileIntoForm(profile) {
+    profile = profile || {};
+    byId('sql-profile-name').value = profile.name || '';
+    byId('sql-profile-driver').value = profile.driver || '';
+    byId('sql-profile-dsn').value = profile.dsn || '';
+    byId('sql-profile-user').value = profile.user || '';
+    byId('sql-profile-password').value = profile.password || '';
+    byId('sql-profile-save-password').checked = profile.save_password ? true : false;
+    byId('sql-profile-attrs').value = profile.attrs_json || '';
+  }
+
+  function render(options) {
+    options = options || {};
+    var routeReplace = options.replaceRoute;
+    var activeProfile = currentProfile();
+    byId('sql-editor').value = state.sql || byId('sql-editor').value || '';
+    byId('sql-active-profile').textContent = activeProfile ? ('Active Profile: ' + activeProfile.name) : 'No active profile selected';
+    byId('sql-schema-profile').textContent = activeProfile ? ('Schema Explorer: ' + activeProfile.name) : 'Schema Explorer';
+    byId('sql-result-info').textContent = state.result_info || 'Select a profile and run SQL.';
+    byId('sql-result-html').innerHTML = state.result_html || '';
+
+    Array.prototype.forEach.call(document.querySelectorAll('.sql-main-tab'), function (tab) {
+      var active = tab.getAttribute('data-sql-main-tab') === state.main_tab;
+      tab.classList.toggle('is-active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.sql-panel'), function (panel) {
+      panel.classList.toggle('is-active', panel.id === 'sql-panel-' + state.main_tab);
+    });
+
+    var profileTabs = byId('sql-profile-tabs');
+    profileTabs.innerHTML = '';
+    (state.profiles || []).forEach(function (profile) {
+      var tab = document.createElement('a');
+      tab.href = '#';
+      tab.className = 'sql-subtab' + (profile.name === state.active_profile_name ? ' is-active' : '');
+      tab.textContent = profile.name;
+      tab.setAttribute('data-sql-profile-tab', profile.name);
+      tab.addEventListener('click', function (event) {
+        event.preventDefault();
+        state.active_profile_name = profile.name;
+        loadProfileIntoForm(profile);
+        render({ replaceRoute: false });
+      });
+      profileTabs.appendChild(tab);
+    });
+    byId('sql-profile-tabs-empty').style.display = (state.profiles || []).length ? 'none' : 'block';
+
+    if (activeProfile) {
+      loadProfileIntoForm(activeProfile);
+    }
+
+    var tableTabs = byId('sql-table-tabs');
+    tableTabs.innerHTML = '';
+    (state.schema.tables || []).forEach(function (row) {
+      var tableName = row.TABLE_NAME || row.table_name || '';
+      if (!tableName) return;
+      var tab = document.createElement('a');
+      tab.href = '#';
+      tab.className = 'sql-subtab' + (tableName === state.schema.active_table ? ' is-active' : '');
+      tab.textContent = tableName;
+      tab.setAttribute('data-sql-table-tab', tableName);
+      tab.addEventListener('click', function (event) {
+        event.preventDefault();
+        state.schema.active_table = tableName;
+        state.main_tab = 'schema';
+        render({ replaceRoute: false });
+        refreshSchema(tableName);
+      });
+      tableTabs.appendChild(tab);
+    });
+    byId('sql-table-tabs-empty').style.display = (state.schema.tables || []).length ? 'none' : 'block';
+    renderColumns();
+    syncRoute(!!routeReplace);
+  }
+
+  function renderColumns() {
+    var activeTable = state.schema.active_table;
+    var columns = (state.schema.columns || []).filter(function (row) {
+      return !activeTable || (row.TABLE_NAME || activeTable) === activeTable;
+    });
+    if (!columns.length) {
+      byId('sql-column-list').className = 'sql-empty';
+      byId('sql-column-list').innerHTML = activeTable ? ('No column metadata returned for ' + escapeHtml(activeTable) + '.') : 'Select a table tab to view columns.';
+      return;
+    }
+    var html = '<table><thead><tr><th>Column</th><th>Type</th><th>Length</th></tr></thead><tbody>';
+    columns.forEach(function (row) {
+      html += '<tr><td><pre>' + escapeHtml(row.COLUMN_NAME || '') + '</pre></td><td><pre>' + escapeHtml(row.DATA_TYPE || '') + '</pre></td><td><pre>' + escapeHtml(row.DATA_LENGTH || '') + '</pre></td></tr>';
+    });
+    html += '</tbody></table>';
+    byId('sql-column-list').className = '';
+    byId('sql-column-list').innerHTML = html;
+  }
+
+  function requestJson(url, method, body) {
+    method = method || 'GET';
+    var options = { method: method, headers: {} };
+    if (body) {
+      var form = new window.URLSearchParams();
+      Object.keys(body).forEach(function (key) {
+        form.append(key, body[key]);
+      });
+      options.headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=UTF-8';
+      options.body = form.toString();
+    }
+    return window.fetch(url, options).then(function (response) {
+      return response.text().then(function (text) {
+        var payload;
+        try {
+          payload = text ? JSON.parse(text) : {};
+        } catch (error) {
+          throw new Error(text || ('Invalid JSON response from ' + url));
+        }
+        if (!response.ok) {
+          throw new Error((payload && payload.error) || text || ('HTTP ' + response.status));
+        }
+        return payload;
+      });
+    });
+  }
+
+  function bootstrapProfiles() {
+    return requestJson(endpoint('profiles.bootstrap'), 'GET').then(function (payload) {
+      if (!payload || !payload.ok) {
+        banner((payload && payload.error) || 'Unable to load SQL connection profiles.', true);
+        return;
+      }
+      state.profiles = payload.profiles || [];
+      if (!state.active_profile_name && state.profiles.length) {
+        state.active_profile_name = state.profiles[0].name || '';
+      }
+      applyRoute(readRoute(), { replaceRoute: true });
+      banner(payload.errors && payload.errors.length ? payload.errors.join(' ') : '', (payload.errors || []).length > 0);
+    }).catch(function (error) {
+      banner('Unable to load SQL connection profiles: ' + error.message, true);
+    });
+  }
+
+  byId('sql-profile-new').addEventListener('click', function (event) {
+    event.preventDefault();
+    state.active_profile_name = '';
+    loadProfileIntoForm({
+      attrs_json: '{"RaiseError":1,"PrintError":0,"AutoCommit":1}'
+    });
+    state.main_tab = 'profiles';
+    render({ replaceRoute: false });
   });
-  document.getElementById('db-preview').addEventListener('click', function () {
-    const target = targetEl.value.trim() || '(unspecified target)';
-    const query = queryEl.value.trim() || '(empty query)';
-    resultEl.textContent = [
-      'Target: ' + target,
-      '',
-      'SQL Preview:',
-      query
-    ].join('\n');
+
+  byId('sql-profile-save').addEventListener('click', function (event) {
+    event.preventDefault();
+    var profile = profilePayloadFromForm();
+    var originalName = state.active_profile_name || '';
+    requestJson(endpoint('profiles.save'), 'POST', {
+      profile: JSON.stringify(profile),
+      original_name: originalName
+    }).then(function (payload) {
+      if (!payload.ok) throw new Error(payload.error || 'Unable to save profile');
+      var existingIndex = -1;
+      state.profiles.forEach(function (item, index) {
+        if (item && item.name === originalName) existingIndex = index;
+      });
+      if (existingIndex > -1) state.profiles.splice(existingIndex, 1);
+      state.profiles.push(payload.profile);
+      state.profiles.sort(function (left, right) {
+        return String(left.name || '').localeCompare(String(right.name || ''));
+      });
+      state.active_profile_name = payload.profile.name;
+      banner('Profile saved: ' + payload.profile.name, false);
+      render({ replaceRoute: false });
+    }).catch(function (error) {
+      banner('Profile save failed: ' + error.message, true);
+    });
   });
+
+  byId('sql-profile-delete').addEventListener('click', function (event) {
+    event.preventDefault();
+    if (!state.active_profile_name) {
+      banner('Select a profile to delete.', true);
+      return;
+    }
+    requestJson(endpoint('profiles.delete'), 'POST', {
+      name: state.active_profile_name
+    }).then(function (payload) {
+      if (!payload.ok) throw new Error(payload.error || 'Unable to delete profile');
+      state.profiles = (state.profiles || []).filter(function (profile) {
+        return profile && profile.name !== state.active_profile_name;
+      });
+      state.active_profile_name = state.profiles.length ? state.profiles[0].name : '';
+      banner('Profile deleted: ' + payload.removed, false);
+      render({ replaceRoute: false });
+    }).catch(function (error) {
+      banner('Profile delete failed: ' + error.message, true);
+    });
+  });
+
+  byId('sql-run').addEventListener('click', function (event) {
+    event.preventDefault();
+    var profile = profilePayloadFromForm();
+    profile.profile_name = state.active_profile_name || profile.name || '';
+    profile.sql = byId('sql-editor').value;
+    state.sql = profile.sql;
+    requestJson(endpoint('sql.execute'), 'POST', {
+      settings: JSON.stringify(profile)
+    }).then(function (payload) {
+      if (!payload.ok) throw new Error(payload.error || 'Unable to run SQL');
+      state.result_html = payload.html || '';
+      state.result_info = JSON.stringify(payload.details || {}, null, 2);
+      state.main_tab = 'workspace';
+      banner('SQL executed successfully.', false);
+      render({ replaceRoute: false });
+    }).catch(function (error) {
+      state.result_html = '';
+      state.result_info = 'Execution failed.\n\n' + error.message;
+      state.main_tab = 'workspace';
+      banner('SQL execution failed: ' + error.message, true);
+      render({ replaceRoute: false });
+    });
+  });
+
+  function refreshSchema(targetTable) {
+    var profile = profilePayloadFromForm();
+    profile.profile_name = state.active_profile_name || profile.name || '';
+    if (targetTable) {
+      state.schema.active_table = targetTable;
+    }
+    profile.table_name = targetTable || state.schema.active_table || '';
+    requestJson(endpoint('schema.browse'), 'POST', {
+      settings: JSON.stringify(profile)
+    }).then(function (payload) {
+      if (!payload.ok) throw new Error(payload.error || 'Unable to load schema');
+      state.schema.tables = payload.tables || [];
+      state.schema.columns = payload.columns || [];
+      if (payload.selected_table) {
+        state.schema.active_table = payload.selected_table;
+      }
+      if (!state.schema.active_table && state.schema.tables.length) {
+        state.schema.active_table = state.schema.tables[0].TABLE_NAME || '';
+      }
+      state.main_tab = 'schema';
+      banner('Schema refreshed.', false);
+      render({ replaceRoute: false });
+    }).catch(function (error) {
+      banner('Schema refresh failed: ' + error.message, true);
+    });
+  }
+
+  byId('sql-schema-refresh').addEventListener('click', function (event) {
+    event.preventDefault();
+    refreshSchema();
+  });
+
+  byId('sql-open-schema').addEventListener('click', function (event) {
+    event.preventDefault();
+    state.main_tab = 'schema';
+    render({ replaceRoute: false });
+    refreshSchema();
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll('.sql-main-tab'), function (tab) {
+    tab.addEventListener('click', function (event) {
+      event.preventDefault();
+      state.main_tab = tab.getAttribute('data-sql-main-tab') || 'profiles';
+      render({ replaceRoute: false });
+    });
+  });
+
+  byId('sql-editor').addEventListener('input', function () {
+    state.sql = byId('sql-editor').value;
+    syncRoute(true);
+  });
+
+  window.addEventListener('popstate', function (event) {
+    applyRoute((event && event.state) || readRoute(), { replaceRoute: true });
+  });
+
+  loadProfileIntoForm({
+    attrs_json: '{"RaiseError":1,"PrintError":0,"AutoCommit":1}'
+  });
+  bootstrapProfiles();
 }());
 </script>
 HTML
+}
+
+# _sql_dashboard_profile_helpers()
+# Builds shared Perl helpers used by the saved sql-dashboard profile endpoints.
+# Input: none.
+# Output: Perl source string.
+sub _sql_dashboard_profile_helpers {
+    return <<'PERL';
+use Developer::Dashboard::Folder ();
+use Developer::Dashboard::JSON qw(json_encode json_decode);
+use File::Path qw(make_path);
+use File::Spec;
+
+sub sql_dashboard_trim {
+    my ($text) = @_;
+    $text = '' if !defined $text;
+    $text =~ s/^\s+//;
+    $text =~ s/\s+\z//;
+    return $text;
+}
+
+sub sql_dashboard_escape_html {
+    my ($text) = @_;
+    $text = '' if !defined $text;
+    $text =~ s/&/&amp;/g;
+    $text =~ s/</&lt;/g;
+    $text =~ s/>/&gt;/g;
+    $text =~ s/"/&quot;/g;
+    return $text;
+}
+
+sub sql_dashboard_profile_dir {
+    my $dir = File::Spec->catdir( Developer::Dashboard::Folder->configs, 'sql-dashboard' );
+    make_path($dir) if !-d $dir;
+    return $dir;
+}
+
+sub sql_dashboard_profile_filename {
+    my ($name) = @_;
+    $name = sql_dashboard_trim($name);
+    die "Missing profile name\n" if $name eq '';
+    die "Invalid profile name\n" if $name =~ /[[:cntrl:]]/;
+    $name =~ s{[\\/]+}{_}g;
+    return $name . '.json';
+}
+
+sub sql_dashboard_profile_path {
+    my ($name) = @_;
+    return File::Spec->catfile( sql_dashboard_profile_dir(), sql_dashboard_profile_filename($name) );
+}
+
+sub sql_dashboard_decode_profile_payload {
+    my ($json_text) = @_;
+    die "Missing profile payload\n" if !defined $json_text || $json_text eq '';
+    my $profile = json_decode($json_text);
+    die "Profile payload must be a JSON object\n" if ref($profile) ne 'HASH';
+    $profile->{name}          = sql_dashboard_trim( $profile->{name} );
+    $profile->{driver}        = sql_dashboard_trim( $profile->{driver} );
+    $profile->{dsn}           = sql_dashboard_trim( $profile->{dsn} );
+    $profile->{user}          = sql_dashboard_trim( $profile->{user} );
+    $profile->{attrs_json}    = sql_dashboard_trim( $profile->{attrs_json} );
+    $profile->{password}      = defined $profile->{password} ? $profile->{password} : '';
+    $profile->{save_password} = $profile->{save_password} ? 1 : 0;
+    die "Missing profile name\n" if $profile->{name} eq '';
+    die "Missing driver module\n" if $profile->{driver} eq '';
+    die "Missing DSN\n" if $profile->{dsn} eq '';
+    die "Missing database user\n" if $profile->{user} eq '';
+    if ( $profile->{attrs_json} ne '' ) {
+        my $attrs = json_decode( $profile->{attrs_json} );
+        die "DBI attrs_json must decode to a JSON object\n" if ref($attrs) ne 'HASH';
+    }
+    if ( !$profile->{save_password} ) {
+        delete $profile->{password};
+    }
+    return $profile;
+}
+
+sub sql_dashboard_read_profile {
+    my ($name) = @_;
+    my $path = sql_dashboard_profile_path($name);
+    open my $fh, '<', $path or die "Unable to read $path: $!";
+    local $/;
+    my $json_text = <$fh>;
+    close $fh or die "Unable to close $path: $!";
+    my $profile = json_decode($json_text);
+    die "Invalid sql-dashboard profile file $path\n" if ref($profile) ne 'HASH';
+    return $profile;
+}
+
+sub sql_dashboard_list_profiles {
+    my @profiles;
+    my @errors;
+    my $dir = sql_dashboard_profile_dir();
+    opendir my $dh, $dir or die "Unable to read $dir: $!";
+    while ( my $entry = readdir $dh ) {
+        next if $entry eq '.' || $entry eq '..';
+        next if $entry !~ /\.json\z/;
+        my $path = File::Spec->catfile( $dir, $entry );
+        next if !-f $path;
+        eval {
+            open my $fh, '<', $path or die "Unable to read $path: $!";
+            local $/;
+            my $json_text = <$fh>;
+            close $fh or die "Unable to close $path: $!";
+            my $profile = json_decode($json_text);
+            die "Profile file $path did not decode to a JSON object\n" if ref($profile) ne 'HASH';
+            push @profiles, $profile;
+            1;
+        } or do {
+            my $error = $@ || "Unable to read $path\n";
+            $error =~ s/\s+\z//;
+            push @errors, $error;
+        };
+    }
+    closedir $dh or die "Unable to close $dir: $!";
+    @profiles = sort { ( $a->{name} || '' ) cmp ( $b->{name} || '' ) } @profiles;
+    return ( \@profiles, \@errors );
+}
+PERL
+}
+
+# _sql_dashboard_runtime_helpers()
+# Builds the saved sql-dashboard helpers that resolve profiles into generic DBI connection settings and render result HTML safely.
+# Input: none.
+# Output: Perl source string.
+sub _sql_dashboard_runtime_helpers {
+    return _sql_dashboard_profile_helpers() . <<'PERL';
+sub sql_dashboard_driver_module {
+    my ($settings) = @_;
+    my $driver = sql_dashboard_trim( $settings->{driver} );
+    if ( $driver eq '' ) {
+        my $dsn = sql_dashboard_trim( $settings->{dsn} );
+        if ( $dsn =~ /\Adbi:([^:]+):/i ) {
+            $driver = 'DBD::' . $1;
+        }
+    }
+    die "Missing driver module\n" if $driver eq '';
+    die "Invalid driver module '$driver'\n" if $driver !~ /\A[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z0-9_]+)*\z/;
+    return $driver;
+}
+
+sub sql_dashboard_resolve_settings {
+    my ($settings) = @_;
+    die "SQL settings payload must be a JSON object\n" if ref($settings) ne 'HASH';
+    my %resolved = %{$settings};
+    if ( sql_dashboard_trim( $resolved{profile_name} ) ne '' ) {
+        my $profile = sql_dashboard_read_profile( $resolved{profile_name} );
+        %resolved = ( %{$profile}, %resolved );
+    }
+    $resolved{driver}     = sql_dashboard_driver_module( \%resolved );
+    $resolved{dsn}        = sql_dashboard_trim( $resolved{dsn} );
+    $resolved{user}       = sql_dashboard_trim( $resolved{user} );
+    $resolved{password}   = defined $resolved{password} ? $resolved{password} : '';
+    $resolved{attrs_json} = sql_dashboard_trim( $resolved{attrs_json} );
+    die "Missing DSN\n" if $resolved{dsn} eq '';
+    die "Missing database user\n" if $resolved{user} eq '';
+    return \%resolved;
+}
+
+sub sql_dashboard_require_db_stack {
+    my ($settings) = @_;
+    eval { require DBI; 1 } or die "Missing DBI. Install it with dashboard cpan DBI\n";
+    my $driver = $settings->{driver};
+    eval "require $driver; 1" or die "Missing $driver. Install it with dashboard cpan $driver\n";
+    return 1;
+}
+
+sub sql_dashboard_connect {
+    my ($settings) = @_;
+    sql_dashboard_require_db_stack($settings);
+    my $attrs = {
+        RaiseError => 1,
+        PrintError => 0,
+        AutoCommit => 1,
+    };
+    if ( $settings->{attrs_json} ne '' ) {
+        my $decoded = json_decode( $settings->{attrs_json} );
+        die "DBI attrs_json must decode to a JSON object\n" if ref($decoded) ne 'HASH';
+        %{$attrs} = ( %{$attrs}, %{$decoded} );
+    }
+    my $dbh = DBI->connect( $settings->{dsn}, $settings->{user}, $settings->{password}, $attrs );
+    die "Unable to connect to $settings->{dsn}\n" if !$dbh;
+    return $dbh;
+}
+
+sub sql_dashboard_parse_sql_blocks {
+    my ( $sql_text, $sqls_sep, $instruction_sep ) = @_;
+    my @blocks;
+    for my $raw_block ( split /\Q$sqls_sep\E/s, $sql_text ) {
+        next if !defined $raw_block;
+        $raw_block =~ s/^\s+//;
+        $raw_block =~ s/\s+\z//;
+        next if $raw_block eq '';
+        my ( $sql, @raw_instructions ) = split /\Q$instruction_sep\E/s, $raw_block;
+        $sql = '' if !defined $sql;
+        $sql =~ s/^\s+//;
+        $sql =~ s/\s+\z//;
+        next if $sql eq '';
+        my %instructions;
+        for my $instruction (@raw_instructions) {
+            next if !defined $instruction;
+            $instruction =~ s/^\s+//;
+            $instruction =~ s/\s+\z//;
+            next if $instruction eq '';
+            if ( $instruction =~ /\ASTASH:\s*(.+)\z/s ) {
+                my $hash = eval "no strict; no warnings; { $1 }";
+                die "STASH Error: $@\n" if $@;
+                die "STASH instruction must return a hash reference\n" if ref($hash) ne 'HASH';
+                $instructions{stash} ||= [];
+                push @{ $instructions{stash} }, $hash;
+            }
+            elsif ( $instruction =~ /\AROW:\s*(.+)\z/s ) {
+                my $code = "sub {\nmy (\$row, \$row_number_ref, \$columns, \$sth, \$dbh, \$stash) = \@_;\n$1\n}";
+                my $sub = eval $code;
+                die "ROW Error: $@\n" if $@;
+                $instructions{row} = $sub;
+            }
+            elsif ( $instruction =~ /\ABEFORE:\s*(.+)\z/s ) {
+                my $code = "sub {\nmy (\$columns, \$sth, \$dbh, \$stash) = \@_;\n$1\n}";
+                my $sub = eval $code;
+                die "BEFORE Error: $@\n" if $@;
+                $instructions{before} = $sub;
+            }
+            elsif ( $instruction =~ /\AAFTER:\s*(.+)\z/s ) {
+                my $code = "sub {\nmy (\$columns, \$dbh, \$stash) = \@_;\n$1\n}";
+                my $sub = eval $code;
+                die "AFTER Error: $@\n" if $@;
+                $instructions{after} = $sub;
+            }
+            else {
+                die "Unknown instruction block: $instruction\n";
+            }
+        }
+        push @blocks, {
+            sql          => $sql,
+            instructions => \%instructions,
+        };
+    }
+    return \@blocks;
+}
+
+sub sql_dashboard_render_table_html {
+    my ( $columns, $rows, $statement_sql, $rows_affected ) = @_;
+    my $html = '<table><thead>';
+    $html .= '<tr><th colspan="' . ( scalar(@{$columns}) + 1 ) . '">SQL: <code>' . sql_dashboard_escape_html($statement_sql) . '</code></th></tr>';
+    if ( !@{$columns} ) {
+        $html .= '<tr><th>Rows affected: ' . sql_dashboard_escape_html($rows_affected) . '</th></tr></thead><tbody></tbody></table>';
+        return $html;
+    }
+    $html .= '<tr><th>#</th>';
+    for my $column ( @{$columns} ) {
+        $html .= '<th>' . sql_dashboard_escape_html($column) . '</th>';
+    }
+    $html .= '</tr></thead><tbody>';
+    for my $row_entry ( @{$rows} ) {
+        my $style = $row_entry->{hl} ? ' style="' . sql_dashboard_escape_html( $row_entry->{hl} ) . '"' : '';
+        $html .= '<tr' . $style . '><td><pre>' . sql_dashboard_escape_html( $row_entry->{row_number} ) . '</pre></td>';
+        for my $column ( @{$columns} ) {
+            my $value = $row_entry->{values}{$column};
+            if ( ref($value) eq 'HASH' && exists $value->{html} ) {
+                $html .= '<td>' . $value->{html} . '</td>';
+            }
+            else {
+                $html .= '<td><pre>' . sql_dashboard_escape_html($value) . '</pre></td>';
+            }
+        }
+        $html .= '</tr>';
+    }
+    $html .= '</tbody></table>';
+    return $html;
+}
+PERL
+}
+
+# _sql_dashboard_profiles_bootstrap_code()
+# Builds the saved sql-dashboard bootstrap Ajax handler.
+# Input: none.
+# Output: Perl source string.
+sub _sql_dashboard_profiles_bootstrap_code {
+    return _sql_dashboard_profile_helpers() . <<'PERL';
+my $payload;
+eval {
+    my ( $profiles, $errors ) = sql_dashboard_list_profiles();
+    $payload = {
+        ok       => 1,
+        profiles => $profiles,
+        errors   => $errors,
+    };
+    1;
+} or do {
+    my $error = $@ || 'Unknown sql-dashboard bootstrap failure';
+    $error =~ s/\s+\z//;
+    $payload = {
+        ok       => 0,
+        error    => $error,
+        profiles => [],
+        errors   => [],
+    };
+};
+print j $payload;
+PERL
+}
+
+# _sql_dashboard_profiles_save_code()
+# Builds the saved sql-dashboard profile-save Ajax handler.
+# Input: none.
+# Output: Perl source string.
+sub _sql_dashboard_profiles_save_code {
+    return _sql_dashboard_profile_helpers() . <<'PERL';
+my $payload;
+eval {
+    my $profile = sql_dashboard_decode_profile_payload( params->{profile} );
+    my $original_name = sql_dashboard_trim( params->{original_name} );
+    my $path = sql_dashboard_profile_path( $profile->{name} );
+    if ( $original_name ne '' && $original_name ne $profile->{name} ) {
+        my $original_path = sql_dashboard_profile_path($original_name);
+        unlink $original_path if -f $original_path;
+    }
+    open my $fh, '>', $path or die "Unable to write $path: $!";
+    print {$fh} json_encode($profile);
+    close $fh or die "Unable to close $path: $!";
+    $payload = {
+        ok      => 1,
+        profile => $profile,
+    };
+    1;
+} or do {
+    my $error = $@ || 'Unknown sql-dashboard profile save failure';
+    $error =~ s/\s+\z//;
+    $payload = {
+        ok    => 0,
+        error => $error,
+    };
+};
+print j $payload;
+PERL
+}
+
+# _sql_dashboard_profiles_delete_code()
+# Builds the saved sql-dashboard profile-delete Ajax handler.
+# Input: none.
+# Output: Perl source string.
+sub _sql_dashboard_profiles_delete_code {
+    return _sql_dashboard_profile_helpers() . <<'PERL';
+my $payload;
+eval {
+    my $name = sql_dashboard_trim( params->{name} );
+    die "Missing profile name\n" if $name eq '';
+    my $path = sql_dashboard_profile_path($name);
+    unlink $path or die "Unable to remove $path: $!" if -e $path;
+    $payload = {
+        ok      => 1,
+        removed => $name,
+    };
+    1;
+} or do {
+    my $error = $@ || 'Unknown sql-dashboard profile delete failure';
+    $error =~ s/\s+\z//;
+    $payload = {
+        ok    => 0,
+        error => $error,
+    };
+};
+print j $payload;
+PERL
+}
+
+# _sql_dashboard_execute_code()
+# Builds the saved sql-dashboard SQL execution Ajax handler.
+# Input: none.
+# Output: Perl source string.
+sub _sql_dashboard_execute_code {
+    return _sql_dashboard_runtime_helpers() . <<'PERL';
+my $payload;
+eval {
+    my $settings = json_decode( params->{settings} || '{}' );
+    my $resolved = sql_dashboard_resolve_settings($settings);
+    my $sql_text = $settings->{sql} // '';
+    $sql_text = sql_dashboard_trim($sql_text);
+    die "Missing SQL\n" if $sql_text eq '';
+    my $sqls_sep        = ':------------------------------------------------------------------------------:';
+    my $instruction_sep = ':~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:';
+    my $blocks = sql_dashboard_parse_sql_blocks( $sql_text, $sqls_sep, $instruction_sep );
+    die "No SQL statements were parsed\n" if !@{$blocks};
+    my $dbh = sql_dashboard_connect($resolved);
+    my %stash;
+    my @results;
+    my @html;
+    for my $block ( @{$blocks} ) {
+        my $sql = $block->{sql};
+        my $sth = $dbh->prepare($sql);
+        $sth->execute();
+        my $columns = $sth->{NAME} || [];
+        for my $stash_update ( @{ $block->{instructions}{stash} || [] } ) {
+            %stash = ( %stash, %{$stash_update} );
+        }
+        if ( $block->{instructions}{before} ) {
+            $block->{instructions}{before}->( $columns, $sth, $dbh, \%stash );
+        }
+        my @rows;
+        my $row_number = 0;
+        if ( @{$columns} ) {
+            while ( my $row = $sth->fetchrow_hashref ) {
+                $row_number++;
+                my $options = {};
+                if ( $block->{instructions}{row} ) {
+                    my $row_result = $block->{instructions}{row}->( $row, \$row_number, $columns, $sth, $dbh, \%stash );
+                    $options = $row_result if ref($row_result) eq 'HASH';
+                }
+                next if $options->{next};
+                push @rows, {
+                    row_number => $row_number,
+                    hl         => $options->{hl} || '',
+                    values     => { %{$row} },
+                };
+            }
+        }
+        if ( $block->{instructions}{after} ) {
+            $block->{instructions}{after}->( $columns, $dbh, \%stash );
+        }
+        my $rows_affected = @{$columns} ? scalar(@rows) : $sth->rows;
+        my $statement_html = sql_dashboard_render_table_html( $columns, \@rows, $sql, $rows_affected );
+        push @html, $statement_html;
+        push @results, {
+            sql           => $sql,
+            row_count     => $rows_affected,
+            columns       => $columns,
+            rows          => \@rows,
+            rows_affected => @{$columns} ? 0 : $rows_affected,
+        };
+    }
+    $dbh->disconnect if $dbh && $dbh->can('disconnect');
+    $payload = {
+        ok      => 1,
+        html    => join( "\n", @html ),
+        results => \@results,
+        details => {
+            profile_name => $resolved->{profile_name} || '',
+            driver       => $resolved->{driver},
+            dsn          => $resolved->{dsn},
+            user         => $resolved->{user},
         },
-        state => {},
-        actions => [
-            { id => 'source', label => 'View Source', kind => 'builtin', builtin => 'page.source', safe => 1 },
-        ],
-    );
+    };
+    1;
+} or do {
+    my $error = $@ || 'Unknown sql-dashboard execution failure';
+    $error =~ s/\s+\z//;
+    $payload = {
+        ok    => 0,
+        error => $error,
+        html  => '',
+        results => [],
+    };
+};
+print j $payload;
+PERL
+}
+
+# _sql_dashboard_schema_code()
+# Builds the saved sql-dashboard schema-browser Ajax handler.
+# Input: none.
+# Output: Perl source string.
+sub _sql_dashboard_schema_code {
+    return _sql_dashboard_runtime_helpers() . <<'PERL';
+my $payload;
+eval {
+    my $settings = json_decode( params->{settings} || '{}' );
+    my $resolved = sql_dashboard_resolve_settings($settings);
+    my $dbh = sql_dashboard_connect($resolved);
+    my $table_sth = $dbh->table_info( undef, undef, '%', 'TABLE' );
+    $table_sth->execute() if $table_sth->can('execute');
+    my @tables;
+    while ( my $row = $table_sth->fetchrow_hashref ) {
+        next if !defined $row->{TABLE_NAME} || $row->{TABLE_NAME} eq '';
+        push @tables, {
+            TABLE_NAME => $row->{TABLE_NAME},
+        };
+    }
+    @tables = sort { $a->{TABLE_NAME} cmp $b->{TABLE_NAME} } @tables;
+    my $selected_table = sql_dashboard_trim( $settings->{table_name} );
+    $selected_table = $tables[0]{TABLE_NAME} if $selected_table eq '' && @tables;
+    my @columns;
+    if ( $selected_table ne '' ) {
+        my $column_sth = $dbh->column_info( undef, undef, $selected_table, '%' );
+        $column_sth->execute() if $column_sth->can('execute');
+        while ( my $row = $column_sth->fetchrow_hashref ) {
+            push @columns, {
+                TABLE_NAME  => $selected_table,
+                COLUMN_NAME => $row->{COLUMN_NAME},
+                DATA_TYPE   => $row->{DATA_TYPE},
+                DATA_LENGTH => $row->{DATA_LENGTH},
+            };
+        }
+    }
+    $dbh->disconnect if $dbh && $dbh->can('disconnect');
+    $payload = {
+        ok             => 1,
+        selected_table => $selected_table,
+        tables         => \@tables,
+        columns        => \@columns,
+    };
+    1;
+} or do {
+    my $error = $@ || 'Unknown sql-dashboard schema failure';
+    $error =~ s/\s+\z//;
+    $payload = {
+        ok             => 0,
+        error          => $error,
+        selected_table => '',
+        tables         => [],
+        columns        => [],
+    };
+};
+print j $payload;
+PERL
 }
 
 # _shell_dashboard_command()

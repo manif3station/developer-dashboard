@@ -82,7 +82,7 @@ close $seeded_config_fh;
 my $pages = _run("$perl -I'$lib' '$dashboard' page list");
 like($pages, qr/welcome/, 'welcome page listed');
 like($pages, qr/api-dashboard/, 'dashboard init seeds the API dashboard bookmark');
-like($pages, qr/db-dashboard/, 'dashboard init seeds the DB dashboard bookmark');
+like($pages, qr/sql-dashboard/, 'dashboard init seeds the SQL dashboard bookmark');
 my $api_page_source = _run("$perl -I'$lib' '$dashboard' page source api-dashboard");
 like($api_page_source, qr/^TITLE:\s+API Dashboard/m, 'api-dashboard source is available as a saved bookmark');
 unlike($api_page_source, qr/companies house|username=|password=|dsn=/i, 'api-dashboard bookmark source stays free of legacy sensitive details');
@@ -105,9 +105,21 @@ like($api_page_source, qr/data-api-token-input/, 'api-dashboard source tags per-
 like($api_page_source, qr/api-collection-tab/, 'api-dashboard source exposes collection tabs instead of only stacked collection cards');
 unlike($api_page_source, qr/opendir my \$dh, \$dir or do|open my \$fh, '<', \$path or do|\}\s+or do\s+\{/, 'api-dashboard saved ajax code avoids Perl control-flow precedence warnings in generated handlers');
 unlike($api_page_source, qr/!\s*\(\s*\$uri->scheme\s*\|\|\s*''\s*\)\s*=~/, 'api-dashboard saved ajax code avoids precedence-ambiguous URL scheme guards');
-my $db_page_source = _run("$perl -I'$lib' '$dashboard' page source db-dashboard");
-like($db_page_source, qr/^TITLE:\s+DB Dashboard/m, 'db-dashboard source is available as a saved bookmark');
-unlike($db_page_source, qr/companies house|username=|password=|dsn=/i, 'db-dashboard bookmark source stays free of legacy sensitive details');
+my $sql_page_source = _run("$perl -I'$lib' '$dashboard' page source sql-dashboard");
+like($sql_page_source, qr/^TITLE:\s+SQL Dashboard/m, 'sql-dashboard source is available as a saved bookmark');
+unlike($sql_page_source, qr/companies house|ewf|xmlgw|chips|tuxedo|chs|grover|cidev|pbs|username=|password=/i, 'sql-dashboard bookmark source stays free of sensitive or internal legacy details');
+like($sql_page_source, qr/Connection Profiles/, 'sql-dashboard source exposes connection profile management');
+like($sql_page_source, qr/Schema Explorer/, 'sql-dashboard source exposes a schema explorer area');
+like($sql_page_source, qr/URLSearchParams/, 'sql-dashboard source parses shareable workspace state from the URL');
+like($sql_page_source, qr/history\.pushState/, 'sql-dashboard source keeps workspace state in browser history');
+like($sql_page_source, qr/configs\.profiles\.bootstrap/, 'sql-dashboard source binds a profile bootstrap ajax endpoint');
+like($sql_page_source, qr/configs\.profiles\.save/, 'sql-dashboard source binds a profile save ajax endpoint');
+like($sql_page_source, qr/configs\.profiles\.delete/, 'sql-dashboard source binds a profile delete ajax endpoint');
+like($sql_page_source, qr/configs\.sql\.execute/, 'sql-dashboard source binds a saved sql execution ajax endpoint');
+like($sql_page_source, qr/configs\.schema\.browse/, 'sql-dashboard source binds a schema browse ajax endpoint');
+like($sql_page_source, qr/config\/sql-dashboard/, 'sql-dashboard source targets the runtime config/sql-dashboard storage path');
+like($sql_page_source, qr/SQLS_SEP/, 'sql-dashboard source carries programmable multi-statement separators');
+like($sql_page_source, qr/INSTRUCTION_SEP/, 'sql-dashboard source carries programmable instruction separators');
 
 my $page_source = _run("$perl -I'$lib' '$dashboard' page source welcome");
 like($page_source, qr/^BOOKMARK:\s+welcome/m, 'page source prefers saved page ids over token decoding');
@@ -354,6 +366,16 @@ chmod 0755, $fake_docker or die "Unable to chmod $fake_docker: $!";
 my $docker_exec_output = _run("PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' docker compose up -d --build green");
 like( $docker_exec_output, qr/^DOCKER:compose /m, 'dashboard docker compose execs the real docker command for non-dry-run invocations' );
 unlike( $docker_exec_output, qr/\"command\"\s*:/, 'dashboard docker compose no longer prints JSON envelopes for non-dry-run invocations' );
+my $fake_cpanm_log = File::Spec->catfile( $fake_bin, 'cpanm.log' );
+my $fake_cpanm = File::Spec->catfile( $fake_bin, 'cpanm' );
+open my $fake_cpanm_fh, '>', $fake_cpanm or die "Unable to write $fake_cpanm: $!";
+print {$fake_cpanm_fh} <<"SH";
+#!/bin/sh
+printf '%s\\n' "\$*" >> '$fake_cpanm_log'
+exit 0
+SH
+close $fake_cpanm_fh;
+chmod 0755, $fake_cpanm or die "Unable to chmod $fake_cpanm: $!";
 
 my $open_root = File::Spec->catdir( $ENV{HOME}, 'open-file-fixtures' );
 make_path($open_root);
@@ -759,7 +781,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.69\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.71\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' tomq alpha.beta});
 is( $toml_value, "4\n", 'tomq extracts scalar TOML values' );
@@ -909,6 +931,23 @@ make_path($project_local_bookmarks);
 my $project_local_paths = _run("cd '$project_root' && $perl -I'$repo/lib' '$repo/bin/dashboard' paths");
 like( $project_local_paths, qr/"runtime_root"\s*:\s*"\Q$project_root\/.developer-dashboard\E"/, 'dashboard paths reports the project-local runtime root when present' );
 like( $project_local_paths, qr/"dashboards_root"\s*:\s*"\Q$project_local_bookmarks\E"/, 'dashboard paths reports the project-local dashboards root when present' );
+my $project_cpan_output = _run("cd '$project_root' && PATH='$fake_bin':\"\$PATH\" $perl -I'$repo/lib' '$repo/bin/dashboard' cpan DBD::Mock");
+like( $project_cpan_output, qr/"ok"\s*:\s*1/, 'dashboard cpan reports success' );
+like( $project_cpan_output, qr/"runtime_root"\s*:\s*"\Q$project_root\/.developer-dashboard\E"/, 'dashboard cpan reports the project-local runtime root' );
+like( $project_cpan_output, qr/"cpanfile"\s*:\s*"\Q$project_root\/.developer-dashboard\/cpanfile\E"/, 'dashboard cpan reports the runtime cpanfile path' );
+like( $project_cpan_output, qr/"local_root"\s*:\s*"\Q$project_root\/.developer-dashboard\/local\E"/, 'dashboard cpan reports the runtime local library root' );
+open my $project_cpanfile_fh, '<', File::Spec->catfile( $project_root, '.developer-dashboard', 'cpanfile' )
+  or die "Unable to read project runtime cpanfile: $!";
+my $project_cpanfile = do { local $/; <$project_cpanfile_fh> };
+close $project_cpanfile_fh;
+like( $project_cpanfile, qr/requires 'DBI';/, 'dashboard cpan records DBI in the runtime cpanfile when installing a DBD driver' );
+like( $project_cpanfile, qr/requires 'DBD::Mock';/, 'dashboard cpan records the requested DBD driver in the runtime cpanfile' );
+open my $fake_cpanm_log_fh, '<', $fake_cpanm_log or die "Unable to read $fake_cpanm_log: $!";
+my $fake_cpanm_args = do { local $/; <$fake_cpanm_log_fh> };
+close $fake_cpanm_log_fh;
+like( $fake_cpanm_args, qr/-L \Q$project_root\/.developer-dashboard\/local\E/, 'dashboard cpan installs into the project-local runtime local library' );
+like( $fake_cpanm_args, qr/\bDBI\b/, 'dashboard cpan installs DBI automatically for DBD drivers' );
+like( $fake_cpanm_args, qr/\bDBD::Mock\b/, 'dashboard cpan installs the requested DBD driver' );
 
 done_testing;
 

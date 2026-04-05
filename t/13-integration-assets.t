@@ -74,6 +74,7 @@ like( $runner, qr/_capture_stream_prefix/, 'integration runner captures early aj
 like( $runner, qr/_distribution_version/, 'integration runner reads the expected installed version from the extracted tarball instead of hard-coding a release number' );
 like( $runner, qr/\.developer-dashboard/, 'integration runner provisions a fake-project local runtime tree' );
 like( $runner, qr/cpanm install host-built tarball.*dashboard init.*api-dashboard/s, 'integration runner builds the fake-project local runtime only after the tarball install step' );
+like( $runner, qr/dashboard init seeds sql-dashboard page/, 'integration runner expects the sql-dashboard starter page after dashboard init' );
 like( $runner, qr/__END__/, 'integration runner carries POD trailer' );
 
 open my $docker_fh, '<', 'integration/blank-env/Dockerfile' or die $!;

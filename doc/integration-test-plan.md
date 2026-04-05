@@ -80,32 +80,34 @@ The integration run creates:
 7. Verify bare `dashboard` returns usage output.
 8. Verify `dashboard version` reports the installed runtime version.
 9. Create a fake project root with a local `./.developer-dashboard` runtime tree.
-10. Run `dashboard init` from inside that fake project and confirm the project-local runtime roots plus `welcome`, `api-dashboard`, and `db-dashboard` starter pages exist.
+10. Run `dashboard init` from inside that fake project and confirm the project-local runtime roots plus `welcome`, `api-dashboard`, and `sql-dashboard` starter pages exist.
 11. Browser-check the seeded `api-dashboard` page from that fake project and confirm the Postman-style shell shows the collection tabs, request tabs, request-token form for `{{token}}` placeholders, import/export controls, and any `./.developer-dashboard/config/api-dashboard/*.json` collections loaded on startup.
 11.1. When an `api-dashboard` import bug only reproduces with a real external Postman file, run `API_DASHBOARD_IMPORT_FIXTURE=/path/to/collection.postman_collection.json prove -lv t/23-api-dashboard-import-fixture-playwright.t` on the host to verify that the visible browser import control can load the fixture, render the collection in the Collections tab, and persist the Postman JSON under `config/api-dashboard`.
 11.2. When changing the `api-dashboard` layout, run `prove -lv t/24-api-dashboard-tabs-playwright.t` on the host to verify the top-level Collections/Workspace tabs, the collection tab strip, and the inner Request Details/Response Body/Response Headers tabs below the response `pre` in a real browser.
 11.3. When changing `api-dashboard` import transport or saved-Ajax payload handling, run `prove -lv t/25-api-dashboard-large-import-playwright.t` on the host to verify that a deliberately oversized Postman collection still imports through the visible browser control without tripping the saved-Ajax argument-size limit.
-11. Seed a user-provided fake-project `./.developer-dashboard/cli/update` command plus `update.d` hooks in the clean container, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes, including later-hook reads through `Runtime::Result`.
-12. Exercise path, prompt, shell, encode/decode, and indicator commands.
-13. Exercise collector write/run/read/start/restart/stop flows, including fake-project config collector definitions.
-14. Restart the installed runtime with one intentionally broken Perl config collector and one healthy config collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state, even when prompt/browser status refreshes run during the restart window.
-15. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
-16. Exercise builtin action execution.
-17. Exercise docker compose dry-run resolution against a temporary project.
-18. Start the installed web service.
-19. Confirm exact-loopback access reaches the editor page in Chromium.
-20. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
-21. Confirm the browser inserts sorted rendered `nav/*.tt` bookmark fragments between the top chrome and the main page body.
-22. Confirm the browser top-right status strip shows configured collector icons, not collector names, that UTF-8 icons such as `🐳` and `💰` are visibly rendered, and that renamed collectors no longer leave stale managed indicators behind.
-23. Confirm an installed saved bookmark page can declare `var endpoints = {};`, then use `fetch_value()` and `stream_value()` from `$(document).ready(...)` against saved `/ajax/<file>` routes without inline-script ordering failures or browser console `ReferenceError`s.
-24. Confirm an installed long-running saved `/ajax/<file>` route starts streaming the first output chunks promptly instead of buffering until the worker exits.
-25. Confirm non-loopback self-access returns `401` with an empty body and without a login form before any helper user exists in the active runtime.
-26. Add a helper user for the outsider browser flow, then confirm non-loopback self-access reaches the helper login page in Chromium.
-27. Log in as a helper through the HTTP helper flow.
-28. Confirm helper page chrome shows `Logout`.
-29. Log out and confirm the helper account is removed.
-30. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
-31. Stop the runtime and confirm the web service is gone.
+12. Browser-check the seeded `sql-dashboard` page from that fake project and confirm the profile tabs, workspace tab, schema explorer, shareable URL state, and any `./.developer-dashboard/config/sql-dashboard/*.json` profiles loaded on startup.
+13. Exercise `dashboard cpan DBD::Driver` inside the fake project and confirm the requested driver plus `DBI` are installed into `./.developer-dashboard/local` and recorded in `./.developer-dashboard/cpanfile`.
+14. Seed a user-provided fake-project `./.developer-dashboard/cli/update` command plus `update.d` hooks in the clean container, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes, including later-hook reads through `Runtime::Result`.
+15. Exercise path, prompt, shell, encode/decode, and indicator commands.
+16. Exercise collector write/run/read/start/restart/stop flows, including fake-project config collector definitions.
+17. Restart the installed runtime with one intentionally broken Perl config collector and one healthy config collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state, even when prompt/browser status refreshes run during the restart window.
+18. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
+19. Exercise builtin action execution.
+20. Exercise docker compose dry-run resolution against a temporary project.
+21. Start the installed web service.
+22. Confirm exact-loopback access reaches the editor page in Chromium.
+23. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
+24. Confirm the browser inserts sorted rendered `nav/*.tt` bookmark fragments between the top chrome and the main page body.
+25. Confirm the browser top-right status strip shows configured collector icons, not collector names, that UTF-8 icons such as `🐳` and `💰` are visibly rendered, and that renamed collectors no longer leave stale managed indicators behind.
+26. Confirm an installed saved bookmark page can declare `var endpoints = {};`, then use `fetch_value()` and `stream_value()` from `$(document).ready(...)` against saved `/ajax/<file>` routes without inline-script ordering failures or browser console `ReferenceError`s.
+27. Confirm an installed long-running saved `/ajax/<file>` route starts streaming the first output chunks promptly instead of buffering until the worker exits.
+28. Confirm non-loopback self-access returns `401` with an empty body and without a login form before any helper user exists in the active runtime.
+29. Add a helper user for the outsider browser flow, then confirm non-loopback self-access reaches the helper login page in Chromium.
+30. Log in as a helper through the HTTP helper flow.
+31. Confirm helper page chrome shows `Logout`.
+32. Log out and confirm the helper account is removed.
+33. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
+34. Stop the runtime and confirm the web service is gone.
 
 ## Expected Results
 

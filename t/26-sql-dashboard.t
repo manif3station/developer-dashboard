@@ -1,0 +1,422 @@
+use strict;
+use warnings;
+use utf8;
+
+use Capture::Tiny qw(capture);
+use Encode qw(decode);
+use File::Path qw(make_path);
+use File::Spec;
+use File::Temp qw(tempdir);
+use Test::More;
+use URI::Escape qw(uri_escape);
+
+use lib 'lib';
+
+use Developer::Dashboard::Auth;
+use Developer::Dashboard::Config;
+use Developer::Dashboard::FileRegistry;
+use Developer::Dashboard::IndicatorStore;
+use Developer::Dashboard::JSON qw(json_decode json_encode);
+use Developer::Dashboard::PageDocument;
+use Developer::Dashboard::PageRuntime;
+use Developer::Dashboard::PageStore;
+use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::Prompt;
+use Developer::Dashboard::SessionStore;
+use Developer::Dashboard::Web::App;
+
+sub drain_stream_body {
+    my ($body) = @_;
+    return $body if ref($body) ne 'HASH' || ref( $body->{stream} ) ne 'CODE';
+    my $output = '';
+    $body->{stream}->( sub { $output .= $_[0] if defined $_[0] } );
+    return $output;
+}
+
+local $ENV{HOME} = tempdir( CLEANUP => 1 );
+local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
+local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
+local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+
+my $repo_root     = File::Spec->rel2abs('.');
+my $repo_lib      = File::Spec->catdir( $repo_root, 'lib' );
+my $dashboard_bin = File::Spec->catfile( $repo_root, 'bin', 'dashboard' );
+
+chdir $ENV{HOME} or die "Unable to chdir to $ENV{HOME}: $!";
+
+my ( $seed_stdout, $seed_stderr, $seed_exit ) = capture {
+    system( $^X, "-I$repo_lib", $dashboard_bin, 'init' );
+};
+is( $seed_exit, 0, 'dashboard init exits cleanly for sql-dashboard fixture setup' );
+is( $seed_stderr, '', 'dashboard init keeps stderr clean for sql-dashboard fixture setup' );
+
+my $paths = Developer::Dashboard::PathRegistry->new;
+my $store = Developer::Dashboard::PageStore->new( paths => $paths );
+my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
+my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
+my $indicators = Developer::Dashboard::IndicatorStore->new( paths => $paths );
+my $auth = Developer::Dashboard::Auth->new(
+    files => $files,
+    paths => $paths,
+);
+my $sessions = Developer::Dashboard::SessionStore->new( paths => $paths );
+my $runtime  = Developer::Dashboard::PageRuntime->new( paths => $paths );
+my $prompt   = Developer::Dashboard::Prompt->new(
+    paths      => $paths,
+    indicators => $indicators,
+);
+my $app = Developer::Dashboard::Web::App->new(
+    auth     => $auth,
+    config   => $config,
+    pages    => $store,
+    prompt   => $prompt,
+    runtime  => $runtime,
+    sessions => $sessions,
+);
+
+my $sql_page_source = _page_source('sql-dashboard');
+my $sql_page = Developer::Dashboard::PageDocument->from_instruction($sql_page_source);
+$store->save_page($sql_page);
+
+my $runtime_local_lib = File::Spec->catdir( $paths->runtime_root, 'local', 'lib', 'perl5', 'DBD' );
+make_path($runtime_local_lib);
+_write_text(
+    File::Spec->catfile( $paths->runtime_root, 'local', 'lib', 'perl5', 'DBI.pm' ),
+    _fake_dbi_module(),
+);
+_write_text(
+    File::Spec->catfile( $paths->runtime_root, 'local', 'lib', 'perl5', 'DBD', 'Mock.pm' ),
+    _fake_dbd_mock_module(),
+);
+
+my $sql_profile_root = File::Spec->catdir( $paths->config_root, 'sql-dashboard' );
+make_path($sql_profile_root);
+my $seed_profile_file = File::Spec->catfile( $sql_profile_root, 'Seed Profile.json' );
+_write_text(
+    $seed_profile_file,
+    json_encode(
+        {
+            name         => 'Seed Profile',
+            driver       => 'DBD::Mock',
+            dsn          => 'dbi:Mock:seed',
+            user         => 'seed_user',
+            password     => 'seed-pass',
+            save_password => 1,
+            attrs_json   => '{"RaiseError":1,"PrintError":0,"AutoCommit":1}',
+        }
+    )
+);
+
+my ( $render_code, undef, $render_body ) = @{ $app->handle(
+    path        => '/app/sql-dashboard',
+    query       => '',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is( $render_code, 200, 'sql-dashboard saved route renders through the web app' );
+like( $render_body, qr/Connection Profiles/, 'sql-dashboard render exposes connection profile management' );
+like( $render_body, qr/Schema Explorer/, 'sql-dashboard render exposes schema explorer controls' );
+like( $render_body, qr/Run SQL/, 'sql-dashboard render exposes the SQL execution action' );
+like( $render_body, qr/URLSearchParams/, 'sql-dashboard render reads workspace state from the URL' );
+like( $render_body, qr/history\.pushState/, 'sql-dashboard render updates browser history for shareable workspace state' );
+like( $render_body, qr{set_chain_value\(configs,'profiles\.bootstrap','/ajax/sql-dashboard-profiles-bootstrap\?type=json'\)}, 'sql-dashboard render binds the profile bootstrap ajax endpoint' );
+like( $render_body, qr{set_chain_value\(configs,'profiles\.save','/ajax/sql-dashboard-profiles-save\?type=json'\)}, 'sql-dashboard render binds the profile save ajax endpoint' );
+like( $render_body, qr{set_chain_value\(configs,'profiles\.delete','/ajax/sql-dashboard-profiles-delete\?type=json'\)}, 'sql-dashboard render binds the profile delete ajax endpoint' );
+like( $render_body, qr{set_chain_value\(configs,'sql\.execute','/ajax/sql-dashboard-execute\?type=json'\)}, 'sql-dashboard render binds the sql execution ajax endpoint' );
+like( $render_body, qr{set_chain_value\(configs,'schema\.browse','/ajax/sql-dashboard-schema-browse\?type=json'\)}, 'sql-dashboard render binds the schema browse ajax endpoint' );
+
+my ( $bootstrap_code, $bootstrap_type, $bootstrap_body_ref ) = @{ $app->handle(
+    path        => '/ajax/sql-dashboard-profiles-bootstrap',
+    query       => 'type=json',
+    method      => 'GET',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is( $bootstrap_code, 200, 'sql-dashboard profile bootstrap endpoint responds through the saved ajax file route' );
+like( $bootstrap_type, qr/application\/json/, 'sql-dashboard profile bootstrap endpoint returns json content' );
+my $bootstrap_payload = json_decode( drain_stream_body($bootstrap_body_ref) );
+ok( $bootstrap_payload->{ok}, 'sql-dashboard profile bootstrap reports success' );
+is_deeply(
+    [ map { $_->{name} } @{ $bootstrap_payload->{profiles} || [] } ],
+    ['Seed Profile'],
+    'sql-dashboard profile bootstrap loads connection profiles from config/sql-dashboard',
+);
+
+my $save_profile_payload = json_encode(
+    {
+        name          => 'Saved Profile',
+        driver        => 'DBD::Mock',
+        dsn           => 'dbi:Mock:saved',
+        user          => 'saved_user',
+        password      => 'saved-pass',
+        save_password => 1,
+        attrs_json    => '{"RaiseError":1,"PrintError":0,"AutoCommit":1}',
+    }
+);
+my ( $profile_save_code, $profile_save_type, $profile_save_body_ref ) = @{ $app->handle(
+    path        => '/ajax/sql-dashboard-profiles-save',
+    query       => 'type=json',
+    method      => 'POST',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+    body        => 'profile=' . uri_escape($save_profile_payload),
+) };
+is( $profile_save_code, 200, 'sql-dashboard profile save endpoint responds through the saved ajax file route' );
+like( $profile_save_type, qr/application\/json/, 'sql-dashboard profile save endpoint returns json content' );
+my $profile_save_payload = json_decode( drain_stream_body($profile_save_body_ref) );
+ok( $profile_save_payload->{ok}, 'sql-dashboard profile save reports success' );
+ok( -f File::Spec->catfile( $sql_profile_root, 'Saved Profile.json' ), 'sql-dashboard profile save writes config/sql-dashboard/<profile-name>.json' );
+
+my $execute_settings = json_encode(
+    {
+        profile_name => 'Seed Profile',
+        password     => 'seed-pass',
+        sql          => join(
+            "\n:------------------------------------------------------------------------------:\n",
+            join(
+                "\n:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:\n",
+                "select * from users",
+                q{STASH: prefix => 'mock-link'},
+                q{ROW: if (($row->{ID} || 0) == 2) { $row->{NAME} = { html => qq{<strong class="$stash->{prefix}">Bob</strong>} }; }},
+            ),
+            "update users set name = 'changed'",
+        ),
+    }
+);
+my ( $execute_code, $execute_type, $execute_body_ref ) = @{ $app->handle(
+    path        => '/ajax/sql-dashboard-execute',
+    query       => 'type=json',
+    method      => 'POST',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+    body        => 'settings=' . uri_escape($execute_settings),
+) };
+is( $execute_code, 200, 'sql-dashboard execute endpoint responds through the saved ajax file route' );
+like( $execute_type, qr/application\/json/, 'sql-dashboard execute endpoint returns json content' );
+my $execute_payload = json_decode( drain_stream_body($execute_body_ref) );
+ok( $execute_payload->{ok}, 'sql-dashboard execute reports success' );
+like( $execute_payload->{html}, qr/<table/, 'sql-dashboard execute returns rendered html for statement results' );
+like( $execute_payload->{html}, qr/<strong class="mock-link">Bob<\/strong>/, 'sql-dashboard execute honors programmable ROW html transforms' );
+like( $execute_payload->{html}, qr/Rows affected:\s*3/, 'sql-dashboard execute reports rows affected for non-select statements' );
+is( $execute_payload->{details}{profile_name}, 'Seed Profile', 'sql-dashboard execute reports the selected profile name' );
+is( $execute_payload->{results}[0]{row_count}, 2, 'sql-dashboard execute returns structured row counts for select statements' );
+
+my $schema_settings = json_encode(
+    {
+        profile_name => 'Seed Profile',
+        password     => 'seed-pass',
+        table_name   => 'USERS',
+    }
+);
+my ( $schema_code, $schema_type, $schema_body_ref ) = @{ $app->handle(
+    path        => '/ajax/sql-dashboard-schema-browse',
+    query       => 'type=json',
+    method      => 'POST',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+    body        => 'settings=' . uri_escape($schema_settings),
+) };
+is( $schema_code, 200, 'sql-dashboard schema endpoint responds through the saved ajax file route' );
+like( $schema_type, qr/application\/json/, 'sql-dashboard schema endpoint returns json content' );
+my $schema_payload = json_decode( drain_stream_body($schema_body_ref) );
+ok( $schema_payload->{ok}, 'sql-dashboard schema endpoint reports success' );
+is_deeply(
+    [ map { $_->{TABLE_NAME} } @{ $schema_payload->{tables} || [] } ],
+    [ 'ORDERS', 'USERS' ],
+    'sql-dashboard schema endpoint returns generic DBI table_info rows',
+);
+is_deeply(
+    [ map { $_->{COLUMN_NAME} } @{ $schema_payload->{columns} || [] } ],
+    [ 'ID', 'NAME' ],
+    'sql-dashboard schema endpoint returns generic DBI column_info rows for the selected table',
+);
+
+my $missing_driver_settings = json_encode(
+    {
+        driver   => 'DBD::Missing',
+        dsn      => 'dbi:Missing:test',
+        user     => 'demo',
+        password => 'demo',
+        sql      => 'select * from users',
+    }
+);
+my ( $missing_driver_code, $missing_driver_type, $missing_driver_body_ref ) = @{ $app->handle(
+    path        => '/ajax/sql-dashboard-execute',
+    query       => 'type=json',
+    method      => 'POST',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+    body        => 'settings=' . uri_escape($missing_driver_settings),
+) };
+is( $missing_driver_code, 200, 'sql-dashboard execute returns a json envelope for missing-driver failures' );
+like( $missing_driver_type, qr/application\/json/, 'sql-dashboard missing-driver failures stay inside the json envelope' );
+my $missing_driver_payload = json_decode( drain_stream_body($missing_driver_body_ref) );
+ok( !$missing_driver_payload->{ok}, 'sql-dashboard execute reports missing-driver failures explicitly' );
+like( $missing_driver_payload->{error}, qr/dashboard cpan DBD::Missing/, 'sql-dashboard execute explains how to install a missing driver' );
+
+my ( $profile_delete_code, $profile_delete_type, $profile_delete_body_ref ) = @{ $app->handle(
+    path        => '/ajax/sql-dashboard-profiles-delete',
+    query       => 'type=json',
+    method      => 'POST',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+    body        => 'name=' . uri_escape('Saved Profile'),
+) };
+is( $profile_delete_code, 200, 'sql-dashboard profile delete endpoint responds through the saved ajax file route' );
+like( $profile_delete_type, qr/application\/json/, 'sql-dashboard profile delete endpoint returns json content' );
+my $profile_delete_payload = json_decode( drain_stream_body($profile_delete_body_ref) );
+ok( $profile_delete_payload->{ok}, 'sql-dashboard profile delete reports success' );
+ok( !-e File::Spec->catfile( $sql_profile_root, 'Saved Profile.json' ), 'sql-dashboard profile delete removes config/sql-dashboard/<profile-name>.json' );
+
+done_testing;
+
+sub _page_source {
+    my ($id) = @_;
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( $^X, "-I$repo_lib", $dashboard_bin, 'page', 'source', $id );
+    };
+    is( $exit, 0, "page source command exits cleanly for $id" );
+    is( $stderr, '', "page source command keeps stderr clean for $id" );
+    return $stdout;
+}
+
+sub _write_text {
+    my ( $path, $text ) = @_;
+    my ( $volume, $directories, undef ) = File::Spec->splitpath($path);
+    my $dir = File::Spec->catpath( $volume, $directories, '' );
+    make_path($dir) if $dir ne '' && !-d $dir;
+    open my $fh, '>', $path or die "Unable to write $path: $!";
+    print {$fh} $text;
+    close $fh or die "Unable to close $path: $!";
+    return $path;
+}
+
+sub _fake_dbd_mock_module {
+    return <<'PERL';
+package DBD::Mock;
+
+use strict;
+use warnings;
+
+our $VERSION = '1.00';
+
+1;
+PERL
+}
+
+sub _fake_dbi_module {
+    return <<'PERL';
+package DBI;
+
+use strict;
+use warnings;
+
+sub connect {
+    my ( $class, $dsn, $user, $pass, $attrs ) = @_;
+    die "Unsupported DSN: $dsn\n" if !defined $dsn || $dsn !~ /^dbi:Mock:/i;
+    return bless {
+        dsn   => $dsn,
+        user  => $user,
+        pass  => $pass,
+        attrs => $attrs || {},
+    }, 'DBI::db';
+}
+
+package DBI::db;
+
+use strict;
+use warnings;
+
+sub prepare {
+    my ( $self, $sql ) = @_;
+    return bless {
+        db  => $self,
+        sql => $sql,
+    }, 'DBI::st';
+}
+
+sub table_info {
+    return bless {
+        mode => 'tables',
+    }, 'DBI::st';
+}
+
+sub column_info {
+    my ( $self, undef, undef, $table_name, undef ) = @_;
+    return bless {
+        mode       => 'columns',
+        table_name => $table_name,
+    }, 'DBI::st';
+}
+
+sub disconnect { return 1 }
+
+package DBI::st;
+
+use strict;
+use warnings;
+
+sub execute {
+    my ($self) = @_;
+    if ( ( $self->{mode} || '' ) eq 'tables' ) {
+        $self->{NAME} = [ 'TABLE_NAME' ];
+        $self->{_rows} = [
+            { TABLE_NAME => 'USERS' },
+            { TABLE_NAME => 'ORDERS' },
+        ];
+        return 1;
+    }
+    if ( ( $self->{mode} || '' ) eq 'columns' ) {
+        $self->{NAME} = [ 'COLUMN_NAME', 'DATA_TYPE', 'DATA_LENGTH' ];
+        $self->{_rows} = [
+            { COLUMN_NAME => 'ID',   DATA_TYPE => 'NUMBER',   DATA_LENGTH => 22 },
+            { COLUMN_NAME => 'NAME', DATA_TYPE => 'VARCHAR2', DATA_LENGTH => 255 },
+        ];
+        return 1;
+    }
+
+    my $sql = $self->{sql} || '';
+    if ( $sql =~ /^\s*select\b/i ) {
+        $self->{NAME} = [ 'ID', 'NAME' ];
+        $self->{_rows} = [
+            { ID => 1, NAME => 'Alice' },
+            { ID => 2, NAME => 'Bob' },
+        ];
+        return 1;
+    }
+
+    $self->{NAME}          = [];
+    $self->{_rows}         = [];
+    $self->{_rows_affected} = 3;
+    return 1;
+}
+
+sub fetchrow_hashref {
+    my ($self) = @_;
+    return shift @{ $self->{_rows} || [] };
+}
+
+sub rows {
+    my ($self) = @_;
+    return $self->{_rows_affected} if exists $self->{_rows_affected};
+    return scalar @{ $self->{_rows} || [] };
+}
+
+1;
+PERL
+}
+
+__END__
+
+=head1 NAME
+
+26-sql-dashboard.t - verify the seeded sql-dashboard bookmark and saved Ajax endpoints
+
+=head1 DESCRIPTION
+
+This test loads the seeded C<sql-dashboard> bookmark, exercises its saved Ajax
+profile/bootstrap/schema/execute flows, and verifies that runtime-local Perl
+modules under C<.developer-dashboard/local/lib/perl5> are visible to the saved
+Ajax worker process.
+
+=cut

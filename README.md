@@ -852,7 +852,7 @@ exists, `dashboard update` runs that command after any sorted hook files from
 `~/.developer-dashboard/cli/update/` or `~/.developer-dashboard/cli/update.d/`.
 
 `dashboard init` seeds three editable starter bookmarks when they are missing:
-`welcome`, `api-dashboard`, and `db-dashboard`.
+`welcome`, `api-dashboard`, and `sql-dashboard`.
 
 The seeded `api-dashboard` bookmark now behaves like a local Postman-style
 workspace. It keeps multiple request tabs in browser-local state, supports
@@ -877,6 +877,31 @@ TLS APIs without browser CORS rules. Oversized collection saves now spill the
 saved Ajax request payload through temp files instead of overflowing `execve`
 environment limits, and the bookmark rejects empty `200` save/delete responses
 instead of claiming success when nothing was persisted.
+
+`dashboard cpan <Module...>` installs optional Perl modules into the active
+runtime-local `./.developer-dashboard/local` tree and appends matching
+`requires 'Module';` lines to `./.developer-dashboard/cpanfile`. The command
+stays implemented in the `dashboard` entrypoint rather than introducing a
+separate SQL or CPAN manager product module, and saved Ajax workers infer the
+same runtime-local `local/lib/perl5` path directly from the active runtime
+root. When the requested modules include `DBD::*`, the command also installs
+and records `DBI` automatically so generic database driver requests work with
+a single command.
+
+The seeded `sql-dashboard` bookmark is a file-backed SQL workspace built
+inside the bookmark runtime itself rather than as a separate product module.
+It stores connection profiles under
+`config/sql-dashboard/<profile-name>.json`, keeps the active top-level tab,
+selected profile, selected schema table, and current SQL in the browser URL,
+renders connection profiles and schema tables as click-through tabs instead of
+one long vertical stack, executes SQL through generic `DBI`, and uses DBI
+metadata calls such as `table_info` and `column_info` for the schema browser.
+It preserves programmable statement blocks through `SQLS_SEP` and
+`INSTRUCTION_SEP`, including `STASH`, `ROW`, `BEFORE`, and `AFTER` hooks, so
+result rows can still be transformed locally before rendering. No `DBD::*`
+driver ships in the base tarball by default; install the one you need with
+`dashboard cpan DBD::Driver`, and the bookmark will return explicit install
+guidance when a selected driver is missing.
 
 ### Skills System
 
@@ -1083,6 +1108,17 @@ That browser test verifies the top-level Collections and Workspace tabs, the
 collection-to-collection tab strip inside the Collections view, and the inner
 Request Details, Response Body, and Response Headers tabs below the response
 `pre` box so the bookmark remains usable in constrained browser widths.
+
+For `sql-dashboard` browser coverage, run:
+
+```bash
+prove -lv t/27-sql-dashboard-playwright.t
+```
+
+That browser test creates a profile through the visible bookmark UI, runs
+programmable SQL through a fake runtime-local `DBI` stack under
+`.developer-dashboard/local/lib/perl5`, verifies the shareable URL state, and
+checks the schema table-tab browser.
 
 For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
 host:

@@ -48,15 +48,15 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.69', 'repo version bumped for the bookmark markup simplification release' );
-like( $pm, qr/^1\.69$/m, 'main POD version matches the module version' );
+is( $version, '1.71', 'repo version bumped for the sql isolation cleanup release' );
+like( $pm, qr/^1\.71$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.69$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.71$/m, 'dist.ini version matches the module version in the source tree' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.69"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.71"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.69\s+2026-04-05$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.71\s+2026-04-05$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -125,6 +125,15 @@ for my $doc ( $readme, $pm ) {
     like( $doc, qr/back\/forward navigation|browser URL/, 'docs describe browser navigation-aware api-dashboard state' );
     like( $doc, qr/PDF,\s+image,\s+and\s+TIFF\s+responses|PDF,\s+image,\s+and\s+TIFF/is, 'docs describe api-dashboard media preview support' );
     like( $doc, qr/empty `200` save\/delete responses|empty C<200> save\/delete responses|execve/s, 'docs describe the stricter api-dashboard save success handling and large-import transport guardrail' );
+    like( $doc, qr/dashboard cpan(?: <Module\.\.\.>| E<lt>Module\.\.\.E<gt>)?|C<dashboard cpan E<lt>Module\.\.\.E<gt>>/, 'docs describe the runtime-local dashboard cpan command' );
+    like( $doc, qr/sql-dashboard/, 'docs describe the seeded sql-dashboard workspace' );
+    like( $doc, qr/config\/sql-dashboard/, 'docs describe the runtime config/sql-dashboard profile storage path' );
+    like( $doc, qr/table_info|column_info/, 'docs describe generic DBI schema metadata browsing for sql-dashboard' );
+    like( $doc, qr/SQLS_SEP.*INSTRUCTION_SEP|INSTRUCTION_SEP.*SQLS_SEP/s, 'docs describe programmable sql-dashboard statement separators' );
+    like( $doc, qr/dashboard cpan DBD::Driver|DBD::\*/, 'docs describe optional DBD driver installation instead of bundling one database driver' );
+    like( $doc, qr/t\/27-sql-dashboard-playwright\.t/, 'docs describe the sql-dashboard Playwright browser verification' );
+    like( $doc, qr/bin\/dashboard|dashboard entrypoint|C<dashboard> entrypoint/, 'docs describe the dashboard cpan implementation as entrypoint-local' );
+    unlike( $doc, qr/CPANManager/, 'docs do not describe a dedicated CPAN manager module for the sql-dashboard runtime driver flow' );
     like( $doc, qr/SKILL\.md/, 'docs point readers at the skill authoring guide' );
     like( $doc, qr/Developer::Dashboard::SKILLS/, 'docs point readers at the shipped skill POD module' );
     unlike( $doc, qr/standalone `of` and `open-file`|standalone of and open-file/, 'docs no longer advertise public standalone of/open-file executables' );

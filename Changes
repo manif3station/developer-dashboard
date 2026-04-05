@@ -1,5 +1,35 @@
 Revision history for Developer Dashboard
 
+1.71  2026-04-05
+    - removed the stray `Developer::Dashboard::CPANManager` core module so the
+      generic SQL workspace stays isolated: `dashboard cpan <Module...>` now
+      remains script-local in `bin/dashboard`, while saved Ajax workers derive
+      `local/lib/perl5` directly from the active runtime root
+    - replaced the old direct manager-module unit coverage with
+      `t/28-runtime-cpan-env.t`, which verifies the runtime-local PERL5LIB
+      wiring and guards against reintroducing the dedicated manager module
+    - updated README, main module POD, architecture/testing/release docs,
+      `SOFTWARE_SPEC.md`, and bug logs so the shipped documentation matches the
+      isolated runtime-driver design
+
+1.70  2026-04-05
+    - replaced the seeded placeholder `db-dashboard` starter with a bookmark-local
+      `sql-dashboard` workspace that stores connection profiles under
+      `config/sql-dashboard/<profile-name>.json`, keeps shareable browser URL
+      state, executes SQL through generic `DBI`, browses schema metadata via
+      `table_info` and `column_info`, and preserves programmable `SQLS_SEP` /
+      `INSTRUCTION_SEP` statement hooks without moving the dashboard logic into
+      a dedicated core SQL module
+    - added `dashboard cpan <Module...>` for runtime-local optional Perl
+      modules, recording requested modules in `./.developer-dashboard/cpanfile`,
+      installing into `./.developer-dashboard/local`, and automatically adding
+      `DBI` when users request a `DBD::*` driver
+    - added SQL dashboard regression coverage in `t/26-sql-dashboard.t` and
+      real-browser coverage in `t/27-sql-dashboard-playwright.t`, added
+      runtime-driver regression coverage, and updated the testing docs,
+      integration plan, software spec, and release metadata to describe the
+      seeded SQL workspace and optional driver workflow
+
 1.69  2026-04-05
     - removed the old split form-directive support from the parser, runtime
       renderer, nav fragment renderer, and browser editor highlighter so

@@ -4,6 +4,36 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: BOOKMARK-ISOLATION-DRIFT
+
+**Date:** 2026-04-05 21:32:00 UTC
+**Area:** SQL workspace extraction and runtime dependency wiring
+**Symptom:** The new generic SQL workspace had been kept bookmark-local as requested, but I still introduced a separate `Developer::Dashboard::CPANManager` core module for the optional driver-install path
+**Why It Was Dangerous:** That drift quietly moved part of the SQL workspace support into the core product layer, making the shipped design harder to explain, harder to audit against the isolation rule, and easier to expand into more SQL-specific core code later
+**Root Cause:** I treated the optional runtime driver installer as harmless plumbing instead of noticing that it still broke the explicit "keep it in the bookmark/script flow, not a new module" rule for this feature
+**How Ellen Solved It:** Removed the extra module, kept `dashboard cpan <Module...>` implemented in `bin/dashboard`, made saved Ajax workers derive `local/lib/perl5` directly from the runtime root, replaced the module-focused unit test with runtime-behaviour coverage, and updated the public docs and software spec to match the isolated design
+**How To Detect Earlier Next Time:** When a user says a feature must stay isolated from the core system, treat helper modules and manager abstractions as scope violations too, not only the obvious feature code
+**Prevention Rule:** For bookmark-isolated features, keep supporting install and runtime glue in the existing entrypoint/runtime flow unless there is a clearly reusable system-wide need that the user has explicitly accepted
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/28-runtime-cpan-env.t`
+**Related Files:** `bin/dashboard`, `lib/Developer/Dashboard/PageRuntime.pm`, `t/00-load.t`, `t/05-cli-smoke.t`, `t/28-runtime-cpan-env.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`, `doc/update-and-release.md`, `SOFTWARE_SPEC.md`
+
+---
+
+## CODE: ORACLE-LOCK-IN
+
+**Date:** 2026-04-05 21:20:00 UTC
+**Area:** Seeded SQL workspace design and runtime dependency model
+**Symptom:** The starter SQL page was still a placeholder, and the older useful SQL workflow concept had been left tied to one database driver instead of becoming a generic, install-on-demand SQL workspace
+**Why It Was Dangerous:** A seeded SQL tool that depends on one bundled driver is not project-neutral, encourages dead-end rewrites around a specific database brand, and blocks users from adding the driver they actually need inside the runtime they are using
+**Root Cause:** I had not separated the reusable SQL workspace concept from its old Oracle-specific packaging assumptions, and I had not provided a runtime-local installation path for optional `DBD::*` drivers
+**How Ellen Solved It:** Rebuilt the starter as a bookmark-local `sql-dashboard`, persisted connection profiles under `config/sql-dashboard`, kept the SQL behavior inside the bookmark code, added a runtime-local `dashboard cpan <Module...>` command that installs into `./.developer-dashboard/local` and records the runtime `cpanfile`, and made `DBD::*` requests automatically install `DBI`
+**How To Detect Earlier Next Time:** When extracting a useful workflow from an older tool, check whether the feature logic is actually generic while the packaging or dependency model is still tied to one environment-specific backend
+**Prevention Rule:** Keep seeded dashboard workspaces project-neutral and move database-brand choice into runtime-local optional dependencies instead of bundling one default driver into the product
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/26-sql-dashboard.t`, `prove -lv t/27-sql-dashboard-playwright.t`
+**Related Files:** `bin/dashboard`, `lib/Developer/Dashboard/PageRuntime.pm`, `t/05-cli-smoke.t`, `t/26-sql-dashboard.t`, `t/27-sql-dashboard-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/integration-test-plan.md`, `SOFTWARE_SPEC.md`
+
+---
+
 ## CODE: BOOKMARK-FORM-BLOAT
 
 **Date:** 2026-04-05 12:10:00 UTC

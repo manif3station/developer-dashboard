@@ -96,11 +96,14 @@ The extension tests also cover:
 - CLI hook directories under `~/.developer-dashboard/cli/<command>` or `~/.developer-dashboard/cli/<command>.d` with sorted executable-only hook execution, live streamed hook progress, per-hook `RESULT` rewrites between hook runs, and `Runtime::Result` helper coverage
 - directory-backed custom commands through `~/.developer-dashboard/cli/<command>/run`
 - project-local `./.developer-dashboard` precedence over the home fallback for bookmarks, config, CLI commands and hooks, auth users, sessions, and isolated docker service folders
-- seeded `dashboard init` starter pages for `welcome`, `api-dashboard`, and `db-dashboard`
+- seeded `dashboard init` starter pages for `welcome`, `api-dashboard`, and `sql-dashboard`
 - browser-check the seeded `api-dashboard` bookmark in a fresh runtime and verify the Postman-style shell renders the collection tabs, request tabs, request-token form for `{{token}}` placeholders, import/export controls, and file-backed collections loaded from `config/api-dashboard`
 - when debugging `api-dashboard` import failures against a user-provided Postman file, run `API_DASHBOARD_IMPORT_FIXTURE=/path/to/collection.postman_collection.json prove -lv t/23-api-dashboard-import-fixture-playwright.t` to verify that the browser import control can load the fixture, render the collection in the Collections tab, and persist the Postman JSON to `config/api-dashboard`
 - when changing `api-dashboard` import transport or large collection handling, run `prove -lv t/25-api-dashboard-large-import-playwright.t` to verify that an above-threshold Postman import still completes through the browser without tripping the saved-Ajax process argument limit
 - when changing the `api-dashboard` layout, run `prove -lv t/24-api-dashboard-tabs-playwright.t` to keep the top-level Collections/Workspace tabs, the collection tab strip, and the inner Request Details/Response Body/Response Headers tabs below the response `pre` browser-verified
+- browser-check the seeded `sql-dashboard` bookmark in a fresh runtime and verify the profile tabs, workspace tab, schema explorer, shareable URL state, and file-backed connection profiles loaded from `config/sql-dashboard`
+- when changing the bookmark-local SQL execution or schema browser flow, run `prove -lv t/27-sql-dashboard-playwright.t` to keep profile editing, SQL execution, schema-table tabs, and shareable URL restoration browser-verified
+- when changing runtime-local optional Perl dependency handling, run `prove -lv t/05-cli-smoke.t` and `prove -lv t/28-runtime-cpan-env.t` to verify `dashboard cpan DBD::Driver` still installs into `./.developer-dashboard/local`, appends the runtime `cpanfile`, records `DBI` automatically for requested `DBD::*` drivers, and keeps the runtime-local `PERL5LIB` wiring script-local instead of reintroducing a dedicated manager module
 - Docker Compose file, project, service, addon, mode, and env resolution
 - bookmark syntax parsing, placeholder rendering, `TITLE` head-only rendering, and sandpit-isolated `CODE*` execution
 

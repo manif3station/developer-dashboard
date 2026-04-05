@@ -207,6 +207,41 @@ The runtime should distinguish between:
 - safe built-in actions
 - trusted local custom actions
 
+### 5. Seeded Workspaces And Optional Runtime Drivers
+
+The base runtime should ship a small set of editable starter bookmarks that
+demonstrate what the bookmark engine can do without bundling project-specific
+logic.
+
+Current seeded workspaces should include:
+
+- `welcome` as a neutral landing page
+- `api-dashboard` as a file-backed HTTP workspace
+- `sql-dashboard` as a file-backed SQL workspace
+
+The seeded `sql-dashboard` should keep its behavior inside the bookmark source
+itself rather than requiring a dedicated product module for the dashboard
+logic. It should support:
+
+- file-backed connection profiles under `config/sql-dashboard/<profile-name>.json`
+- create, edit, and delete flows for connection profiles
+- shareable browser URL state for the active profile, active tab, selected schema table, and current SQL text
+- generic `DBI` execution rather than a single database brand
+- schema browsing through metadata calls such as `table_info` and `column_info`
+- programmable result handling through statement separators and instruction hooks such as `SQLS_SEP`, `INSTRUCTION_SEP`, `STASH`, `ROW`, `BEFORE`, and `AFTER`
+
+Database driver support should be optional instead of bundled by default.
+The runtime should provide a command such as `dashboard cpan <Module...>` that:
+
+- installs requested Perl modules into the active runtime's local library tree
+- records those modules in `./.developer-dashboard/cpanfile`
+- keeps the implementation in the `dashboard` entrypoint instead of adding a dedicated SQL or CPAN manager product module
+- makes the runtime-local Perl library visible to bookmark Ajax workers and other dashboard-managed processes by deriving `local/lib/perl5` from the active runtime root
+- automatically installs `DBI` when a requested module is a `DBD::*` driver
+
+This keeps the base tarball generic and easier to install while still letting
+users opt into whichever database drivers their own projects require.
+
 ### 5. Directory Navigation Magic
 
 The new project should include reusable shell helpers inspired by the older folder-jumping behavior.

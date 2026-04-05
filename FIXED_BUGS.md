@@ -1,5 +1,17 @@
 # Fixed Bugs
 
+## 2026-04-05 (Phase 36: SQL Isolation Cleanup)
+
+- Fixed the isolation drift in the new SQL workspace release by removing the dedicated `Developer::Dashboard::CPANManager` core module and keeping runtime driver installation in the `dashboard cpan <Module...>` script path instead.
+- Fixed saved-Ajax runtime driver loading without the extra module by deriving `./.developer-dashboard/local/lib/perl5` directly from the active runtime root before bookmark Ajax workers spawn.
+- Replaced the old manager-module unit coverage with `t/28-runtime-cpan-env.t` and updated the public docs and software spec so the shipped description matches the script-local runtime driver design.
+
+## 2026-04-05 (Phase 35: Generic SQL Dashboard)
+
+- Fixed the seeded SQL workspace gap by replacing the placeholder `db-dashboard` starter with a bookmark-local `sql-dashboard` that keeps connection profiles under `config/sql-dashboard/<profile-name>.json`, restores shareable URL state, supports profile create/edit/delete, and runs SQL through generic `DBI` instead of a single database brand.
+- Fixed optional database-driver packaging drift by adding `dashboard cpan <Module...>`, which installs requested modules into `./.developer-dashboard/local`, appends them to the runtime `cpanfile`, and automatically records `DBI` when users request a `DBD::*` driver.
+- Added browser and saved-Ajax regression coverage for the SQL workspace, added runtime-driver regression coverage, and updated testing docs, integration docs, and `SOFTWARE_SPEC.md` so the seeded SQL workflow and runtime driver model stay documented and verified.
+
 ## 2026-04-05 (Phase 34: Bookmark Markup Simplification)
 
 - Removed the old split bookmark form directives so `HTML:` is now the only supported bookmark markup section.

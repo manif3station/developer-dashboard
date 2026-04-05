@@ -195,7 +195,8 @@ Use `Developer::Dashboard::Folder` for runtime path helpers. It resolves the
 same root-style names exposed by `dashboard paths`, including runtime,
 bookmark, config, and configured alias names such as `docker`, without relying
 on unscoped CPAN-global module names.
-`dashboard init` now seeds `welcome`, `api-dashboard`, and `db-dashboard` as editable saved bookmarks when those ids are missing.
+`dashboard init` now seeds `welcome`, `api-dashboard`, and `sql-dashboard` as editable saved bookmarks when those ids are missing.
+`dashboard cpan <Module...>` now manages optional runtime Perl modules under `./.developer-dashboard/local` and appends matching requirements to `./.developer-dashboard/cpanfile`, with automatic `DBI` handling for `DBD::*` requests, while keeping the implementation in `bin/dashboard` and letting saved Ajax workers derive `local/lib/perl5` directly from the runtime root.
 
 ## Release To PAUSE
 
@@ -277,6 +278,7 @@ For seeded UI workspaces such as `api-dashboard`, run a browser smoke from a
 fresh project-local runtime and verify the real rendered DOM includes the
 expected controls, tabs, and collection sidebar rather than only checking the
 saved bookmark source text.
+For the seeded `sql-dashboard`, also run `prove -lv t/27-sql-dashboard-playwright.t` so profile editing, SQL execution, schema tabs, and shareable URL restoration stay browser-verified.
 
 Command-output capture is implemented with `Capture::Tiny` `capture`, with exit codes returned from the capture block. The core runtime does not currently make outbound HTTP client requests.
 

@@ -3,10 +3,11 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '1.69';
+our $VERSION = '1.71';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
+use File::Spec;
 use File::Temp qw(tempfile);
 use IO::Select;
 use IPC::Open3 qw(open3);
@@ -601,7 +602,27 @@ sub _saved_ajax_env {
         );
         $env{QUERY_STRING} = '';
     }
+    if ( $self->{paths} ) {
+        my %runtime_env = $self->_runtime_local_perl_env;
+        @env{ keys %runtime_env } = values %runtime_env;
+    }
     return %env;
+}
+
+# _runtime_local_perl_env()
+# Builds the PERL5LIB environment override that exposes runtime-local optional modules to saved Ajax subprocesses.
+# Input: none.
+# Output: hash containing the merged PERL5LIB value.
+sub _runtime_local_perl_env {
+    my ($self) = @_;
+    my $paths = $self->{paths} || return ();
+    my $path_sep  = $^O eq 'MSWin32' ? ';' : ':';
+    my $local_lib = File::Spec->catdir( $paths->runtime_root, 'local', 'lib', 'perl5' );
+    my @perl5lib  = grep { defined $_ && $_ ne '' } split /\Q$path_sep\E/, ( $ENV{PERL5LIB} || '' );
+    unshift @perl5lib, $local_lib if -d $local_lib && !grep { $_ eq $local_lib } @perl5lib;
+    return (
+        PERL5LIB => join( $path_sep, @perl5lib ),
+    );
 }
 
 # _saved_ajax_inline_env_limit()

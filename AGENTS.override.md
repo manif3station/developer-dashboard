@@ -118,6 +118,8 @@ These happen after coding and before release.
 
 * Run integration tests.
 * Follow `doc/integration-test-plan.md`.
+* Check the dependencies list. Are they all needed? Remove the ones that are not being used anywhere in the code.
+* After clean up the dependencies. Make sure there is no missing dependencies that the code is reqired to be operational.
 * Build tarball with `dzil`.
 * Install it in a blank Docker environment using `cpanm` without `--notest`.
 
@@ -149,6 +151,14 @@ These are important, but only after the code is proven good.
 20. **Push after verification**
 
 * Only push after tests, coverage, docs, packaging, and verification are all done.
+* For this repo, use `~/bin/git-push-mf` for authenticated pushes through `git@github.mf:manif3station/developer-dashboard.git`.
+* `git-push-mf` bootstraps `SSH_ASKPASS` from `MF_PASS` in the shell environment and unlocks `~/.ssh/mf` non-interactively.
+* Typical usage:
+
+```bash
+git-push-mf origin master
+git-push-mf origin v1.69 BOOKMARK-FORM-BLOAT
+```
 
 21. **DO NOT DO PAUSE release rulesi until User ask you to**
 
