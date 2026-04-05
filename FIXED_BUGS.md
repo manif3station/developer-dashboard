@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-06 (Phase 40: SQL Workspace Quiet Editor And Inline Actions)
+
+- Fixed the SQL workspace clutter drift by making the editor the primary focus, growing the textarea with its content, and replacing the loud editor toolbar with one understated action row beneath the SQL textarea.
+- Fixed the redundant schema-open control in the SQL workspace by removing the extra in-editor button and keeping schema navigation on the top `Schema Explorer` tab instead.
+- Fixed the saved-SQL delete sprawl by moving deletion to a compact inline `[X]` affordance beside each saved SQL entry so the action stays visually tied to the item it removes.
+
 ## 2026-04-05 (Phase 39: SQL Workspace Layout And Multi-Save)
 
 - Fixed the SQL workspace usability split by merging SQL collections and editing into one `SQL Workspace` tab with a phpMyAdmin-style master-detail layout so the active collection tabs and that collection's saved SQL list stay together in the left navigation rail beside the editor.

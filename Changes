@@ -1,5 +1,22 @@
 Revision history for Developer Dashboard
 
+1.75  2026-04-06
+    - refined the sql-dashboard workspace UI so the editor is the clear
+      primary focus: the SQL textarea now auto-resizes with the current
+      content, the heavy editor toolbar is replaced by one quiet action row,
+      and the redundant in-workspace schema-open button is removed in favour
+      of the top schema tab
+    - moved saved-SQL deletion to a compact inline `[X]` control beside each
+      saved query so the visible list stays tied to its collection and no
+      longer burns space with a large delete banner
+    - expanded `t/05-cli-smoke.t`, `t/26-sql-dashboard.t`, and
+      `t/27-sql-dashboard-playwright.t` to cover the quieter source markup,
+      content-based editor auto-resize, inline saved-SQL deletion, and
+      schema-tab browser flow
+    - updated README, main module POD, architecture/testing/integration
+      docs, and `SOFTWARE_SPEC.md` so the shipped sql-dashboard UX
+      description matches the implemented workspace layout
+
 1.74  2026-04-05
     - fixed the sql-dashboard workspace split by merging SQL collections and
       editing into one `SQL Workspace` tab with a phpMyAdmin-style

@@ -3836,19 +3836,32 @@ sub _sql_dashboard_html {
 .sql-form-grid input, .sql-form-grid textarea, .sql-stack textarea, .sql-stack select, .sql-stack input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #b8c1c9; background:#fff; font-family:monospace; }
 .sql-stack { display:grid; gap:12px; }
 .sql-toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
-.sql-action { display:inline-block; padding:9px 12px; border:1px solid #6b7c89; background:#f4f7fa; color:#16212a; text-decoration:none; font-weight:600; }
-.sql-badge { display:inline-block; padding:6px 10px; border:1px solid #c8d3da; background:#f4f7fa; color:#31404a; font-size:13px; }
-.sql-workspace-layout { display:grid; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); border:1px solid #cbd3da; background:#f7fafc; }
+.sql-action { display:inline-flex; align-items:center; gap:4px; padding:2px 0; border:none; background:transparent; color:#345068; text-decoration:none; font-weight:600; font-size:13px; line-height:1.3; }
+.sql-action:hover, .sql-action:focus { color:#102131; text-decoration:underline; }
+.sql-action.sql-action-quiet { color:#617181; font-weight:500; }
+.sql-badge { display:inline-block; padding:4px 8px; border:1px solid #d5dde3; background:#f8fafb; color:#465560; font-size:12px; }
+.sql-workspace-layout { display:grid; grid-template-columns: minmax(250px, 300px) minmax(0, 1fr); border:1px solid #cbd3da; background:#f7fafc; }
 .sql-workspace-nav { display:grid; gap:16px; align-content:start; padding:14px; border-right:1px solid #cbd3da; background:linear-gradient(180deg, #eef3f7 0%, #e6edf3 100%); }
-.sql-workspace-editor { display:grid; gap:14px; align-content:start; padding:16px; background:#fbfcfd; }
+.sql-workspace-editor { display:grid; gap:14px; align-content:start; padding:18px; background:#fbfcfd; }
 .sql-nav-section { display:grid; gap:10px; }
 .sql-nav-section h3, .sql-nav-section h4 { margin:0; }
+.sql-nav-header { display:flex; gap:10px; align-items:center; justify-content:space-between; }
 .sql-list { border:1px solid #c2ccd4; background:#ffffff; }
-.sql-list-item { display:block; padding:10px 12px; border-top:1px solid #d7dee4; color:#1d2b35; text-decoration:none; }
-.sql-list-item:first-child { border-top:none; }
-.sql-list-item.is-active { background:#dce8f3; font-weight:700; }
+.sql-list-row { display:grid; grid-template-columns: minmax(0, 1fr) auto; gap:8px; align-items:start; padding:0; border-top:1px solid #d7dee4; }
+.sql-list-row:first-child { border-top:none; }
+.sql-list-row.is-active { background:#dce8f3; }
+.sql-list-item { display:block; padding:10px 12px; color:#1d2b35; text-decoration:none; min-width:0; }
+.sql-list-item.is-active { font-weight:700; }
 .sql-list-item small { display:block; margin-top:4px; color:#5b6873; font-weight:400; }
+.sql-inline-delete { display:inline-flex; align-items:center; justify-content:center; min-width:30px; padding:10px 8px; color:#7a2030; text-decoration:none; font-size:12px; font-weight:700; }
+.sql-inline-delete:hover, .sql-inline-delete:focus { text-decoration:none; color:#5a0f20; background:#f8dde2; }
 .sql-inline-fields { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:12px; }
+.sql-editor-frame { display:grid; gap:10px; border:1px solid #d2dae0; background:#ffffff; padding:12px; }
+.sql-editor-frame label { display:grid; gap:8px; font-weight:700; color:#24313c; }
+.sql-editor-frame textarea { width:100%; min-height:240px; max-height:75vh; box-sizing:border-box; padding:12px 14px; border:1px solid #b8c1c9; background:#fff; font-family:monospace; line-height:1.5; resize:none; overflow:hidden; }
+.sql-editor-actions { display:flex; gap:12px; flex-wrap:wrap; align-items:center; justify-content:space-between; padding-top:8px; border-top:1px solid #dbe2e8; }
+.sql-editor-actions-left { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+.sql-editor-note { color:#63727e; font-size:12px; }
 .sql-result-info { min-height:120px; padding:12px; border:1px solid #c5d0d8; background:#16212a; color:#edf3f7; white-space:pre-wrap; overflow:auto; }
 .sql-result-html { margin-top:12px; overflow:auto; }
 .sql-result-html table { width:100%; border-collapse:collapse; }
@@ -3859,7 +3872,9 @@ sub _sql_dashboard_html {
 .sql-empty { padding:12px; border:1px dashed #bcc7cf; background:#f8fafb; color:#55636d; }
 .sql-checkbox { display:flex; gap:10px; align-items:center; font-weight:600; color:#24313c; }
 @media (max-width: 920px) {
-  .sql-two-col, .sql-schema-grid { grid-template-columns: 1fr; }
+  .sql-two-col, .sql-schema-grid, .sql-workspace-layout { grid-template-columns: 1fr; }
+  .sql-workspace-nav { border-right:none; border-bottom:1px solid #cbd3da; }
+  .sql-editor-actions { align-items:flex-start; }
 }
 </style>
 <div class="sql-shell">
@@ -3925,9 +3940,9 @@ sub _sql_dashboard_html {
           <div id="sql-collection-tabs-empty" class="sql-empty">No saved SQL collections yet. Collections stay separate from connection profiles.</div>
         </div>
         <div class="sql-nav-section">
-          <div class="sql-toolbar">
+          <div class="sql-nav-header">
             <strong id="sql-collection-item-list-title">Saved SQL</strong>
-            <a href="#" id="sql-collection-item-new" class="sql-action">New SQL</a>
+            <a href="#" id="sql-collection-item-new" class="sql-action sql-action-quiet">New SQL</a>
           </div>
           <div id="sql-collection-item-list" class="sql-list" aria-label="Saved SQL Entries"></div>
           <div id="sql-collection-item-tabs-empty" class="sql-empty">Select a collection to view its saved SQL entries.</div>
@@ -3945,15 +3960,18 @@ sub _sql_dashboard_html {
             <input id="sql-collection-item-name" type="text" placeholder="Users By Status">
           </label>
         </div>
-        <div class="sql-toolbar">
-          <a href="#" id="sql-run" class="sql-action">Run SQL</a>
-          <a href="#" id="sql-collection-item-save" class="sql-action">Save SQL To Collection</a>
-          <a href="#" id="sql-collection-item-delete" class="sql-action">Delete SQL From Collection</a>
-          <a href="#" id="sql-open-schema" class="sql-action">Open Schema Explorer</a>
+        <div class="sql-editor-frame">
+          <label>SQL
+            <textarea id="sql-editor" rows="12" placeholder="select * from users"></textarea>
+          </label>
+          <div id="sql-editor-actions" class="sql-editor-actions">
+            <div class="sql-editor-actions-left">
+              <a href="#" id="sql-run" class="sql-action">&#127939; Run SQL</a>
+              <a href="#" id="sql-collection-item-save" class="sql-action">&#128190; Save SQL</a>
+            </div>
+            <span id="sql-editor-note" class="sql-editor-note">Edit SQL above, then use save to keep it in a collection or run to execute it with the active connection.</span>
+          </div>
         </div>
-        <label>SQL
-          <textarea id="sql-editor" rows="16" placeholder="select * from users"></textarea>
-        </label>
         <p class="sql-help">Use <code>SQLS_SEP</code> (<code>:------------------------------------------------------------------------------:</code>) between statements and <code>INSTRUCTION_SEP</code> (<code>:~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:</code>) for <code>STASH</code>, <code>ROW</code>, <code>BEFORE</code>, and <code>AFTER</code> hooks.</p>
         <pre id="sql-result-info" class="sql-result-info">Select a profile and run SQL.</pre>
         <div id="sql-result-html" class="sql-result-html"></div>
@@ -4209,6 +4227,16 @@ sub _sql_dashboard_html {
     byId('sql-collection-item-name').value = state.collection_item_name_draft;
   }
 
+  function autoResizeSqlEditor() {
+    var editor = byId('sql-editor');
+    if (!editor) return;
+    editor.style.height = 'auto';
+    var lines = String(editor.value || '').split(/\r?\n/).length;
+    var lineBasedHeight = 120 + (lines * 28);
+    var height = Math.max(editor.scrollHeight, lineBasedHeight, 240);
+    editor.style.height = height + 'px';
+  }
+
   function profilePayloadFromForm() {
     var dsn = byId('sql-profile-dsn').value.trim();
     var user = byId('sql-profile-user').value.trim();
@@ -4339,6 +4367,7 @@ sub _sql_dashboard_html {
       activeCollectionItem = currentCollectionItem();
     }
     byId('sql-editor').value = state.sql || byId('sql-editor').value || '';
+    autoResizeSqlEditor();
     byId('sql-active-profile').textContent = activeProfile ? ('Active Connection: ' + (activeProfile.name || activeProfile.connection_id || currentFormConnectionId())) : 'No active profile selected';
     byId('sql-active-collection').textContent = activeCollection ? ('Collection: ' + activeCollection.name) : (state.collection_name_draft && state.collection_name_draft.trim() ? ('Collection: ' + state.collection_name_draft.trim()) : 'No active collection');
     byId('sql-active-sql-name').textContent = activeCollectionItem ? ('Saved SQL: ' + activeCollectionItem.name) : (state.collection_item_name_draft && state.collection_item_name_draft.trim() ? ('Unsaved SQL: ' + state.collection_item_name_draft.trim()) : 'Unsaved SQL');
@@ -4402,6 +4431,8 @@ sub _sql_dashboard_html {
     collectionItemList.innerHTML = '';
     byId('sql-collection-item-list-title').textContent = activeCollection ? ('Saved SQL in ' + activeCollection.name) : 'Saved SQL';
     (activeCollection && activeCollection.items || []).forEach(function (item) {
+      var row = document.createElement('div');
+      row.className = 'sql-list-row' + (item.id === state.active_collection_item_id ? ' is-active' : '');
       var link = document.createElement('a');
       var preview = String(item.sql || '').split(/\r?\n/)[0] || 'Saved SQL';
       link.href = '#';
@@ -4418,7 +4449,42 @@ sub _sql_dashboard_html {
         state.main_tab = 'workspace';
         render({ replaceRoute: false });
       });
-      collectionItemList.appendChild(link);
+      row.appendChild(link);
+      var remove = document.createElement('a');
+      remove.href = '#';
+      remove.className = 'sql-inline-delete';
+      remove.textContent = '[X]';
+      remove.setAttribute('data-sql-collection-item-delete', item.id);
+      remove.setAttribute('aria-label', 'Delete ' + item.name);
+      remove.addEventListener('click', function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        var selectedCollection = currentCollection();
+        if (!selectedCollection) {
+          banner('Select a collection before deleting SQL.', true);
+          return;
+        }
+        var collectionPayload = collectionPayloadFromState(selectedCollection);
+        collectionPayload.items = (collectionPayload.items || []).filter(function (entry) {
+          return entry && entry.id !== item.id;
+        });
+        var nextItem = (collectionPayload.items || [])[0] || null;
+        saveCollectionToServer(collectionPayload, collectionPayload.name).then(function (savedCollection) {
+          state.active_collection_name = savedCollection.name;
+          state.active_collection_item_id = nextItem && nextItem.id ? nextItem.id : '';
+          state.collection_item_draft = state.active_collection_item_id ? 0 : 1;
+          state.collection_name_draft = savedCollection.name || '';
+          state.collection_item_name_draft = nextItem && nextItem.name ? nextItem.name : '';
+          state.sql = nextItem && nextItem.sql ? nextItem.sql : '';
+          loadCollectionIntoForm(savedCollection, nextItem);
+          banner('SQL removed from collection: ' + savedCollection.name, false);
+          render({ replaceRoute: false });
+        }).catch(function (error) {
+          banner('SQL delete failed: ' + error.message, true);
+        });
+      });
+      row.appendChild(remove);
+      collectionItemList.appendChild(row);
     });
     byId('sql-collection-item-tabs-empty').style.display = activeCollection && activeCollection.items && activeCollection.items.length ? 'none' : 'block';
     loadCollectionIntoForm(activeCollection || {}, activeCollectionItem);
@@ -4777,36 +4843,6 @@ sub _sql_dashboard_html {
     });
   });
 
-  byId('sql-collection-item-delete').addEventListener('click', function (event) {
-    event.preventDefault();
-    var collection = currentCollection();
-    if (!collection) {
-      banner('Select a collection before deleting SQL.', true);
-      return;
-    }
-    if (!state.active_collection_item_id) {
-      banner('Select a saved SQL entry to delete.', true);
-      return;
-    }
-    collection = collectionPayloadFromState(collection);
-    collection.items = (collection.items || []).filter(function (item) {
-      return item && item.id !== state.active_collection_item_id;
-    });
-    var nextItem = (collection.items || [])[0] || null;
-    saveCollectionToServer(collection, collection.name).then(function (savedCollection) {
-      state.active_collection_name = savedCollection.name;
-      state.active_collection_item_id = nextItem && nextItem.id ? nextItem.id : '';
-      state.collection_item_draft = state.active_collection_item_id ? 0 : 1;
-      state.collection_name_draft = savedCollection.name || '';
-      state.collection_item_name_draft = nextItem && nextItem.name ? nextItem.name : '';
-      loadCollectionIntoForm(savedCollection, nextItem);
-      banner('SQL removed from collection: ' + savedCollection.name, false);
-      render({ replaceRoute: false });
-    }).catch(function (error) {
-      banner('SQL delete failed: ' + error.message, true);
-    });
-  });
-
   byId('sql-run').addEventListener('click', function (event) {
     event.preventDefault();
     executeSql().catch(function () {});
@@ -4817,18 +4853,14 @@ sub _sql_dashboard_html {
     refreshSchema();
   });
 
-  byId('sql-open-schema').addEventListener('click', function (event) {
-    event.preventDefault();
-    state.main_tab = 'schema';
-    render({ replaceRoute: false });
-    refreshSchema();
-  });
-
   Array.prototype.forEach.call(document.querySelectorAll('.sql-main-tab'), function (tab) {
     tab.addEventListener('click', function (event) {
       event.preventDefault();
       state.main_tab = tab.getAttribute('data-sql-main-tab') || 'profiles';
       render({ replaceRoute: false });
+      if (state.main_tab === 'schema') {
+        refreshSchema();
+      }
     });
   });
 
@@ -4839,7 +4871,14 @@ sub _sql_dashboard_html {
 
   byId('sql-editor').addEventListener('input', function () {
     state.sql = byId('sql-editor').value;
+    autoResizeSqlEditor();
+    byId('sql-editor-note').textContent = 'Edit SQL above, then use save to keep it in a collection or run to execute it with the active connection.';
     syncRoute(true);
+  });
+
+  byId('sql-editor').addEventListener('blur', function () {
+    autoResizeSqlEditor();
+    byId('sql-editor-note').textContent = 'Edit SQL above, then use save to keep it in a collection or run to execute it with the active connection.';
   });
 
   byId('sql-collection-name').addEventListener('input', function () {

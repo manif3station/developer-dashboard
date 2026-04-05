@@ -111,9 +111,14 @@ like( $render_body, qr/SQL Workspace/, 'sql-dashboard render exposes the merged 
 unlike( $render_body, qr/data-sql-main-tab="collections"/, 'sql-dashboard render merges SQL collections into the workspace instead of keeping a separate main tab' );
 like( $render_body, qr/Schema Explorer/, 'sql-dashboard render exposes schema explorer controls' );
 like( $render_body, qr/Run SQL/, 'sql-dashboard render exposes the SQL execution action' );
+unlike( $render_body, qr/Open Schema Explorer/, 'sql-dashboard render removes the redundant open-schema button from the workspace' );
 like( $render_body, qr/<select id="sql-profile-driver"/, 'sql-dashboard render exposes the installed-driver dropdown instead of a free-text driver field' );
 like( $render_body, qr/id="sql-workspace-nav"/, 'sql-dashboard render exposes the workspace navigation rail' );
 like( $render_body, qr/id="sql-active-sql-name"/, 'sql-dashboard render exposes the active saved SQL name badge' );
+like( $render_body, qr/id="sql-editor-actions"/, 'sql-dashboard render exposes one understated action row beneath the editor' );
+like( $render_body, qr/id="sql-editor-note"/, 'sql-dashboard render exposes the editor status note beside the understated action row' );
+like( $render_body, qr/data-sql-collection-item-delete/, 'sql-dashboard render exposes inline delete affordances for saved SQL entries' );
+like( $render_body, qr/autoResizeSqlEditor/, 'sql-dashboard render auto-resizes the main SQL editor' );
 like( $render_body, qr/URLSearchParams/, 'sql-dashboard render reads workspace state from the URL' );
 like( $render_body, qr/history\.pushState/, 'sql-dashboard render updates browser history for shareable workspace state' );
 like( $render_body, qr/params\.get\('connection'\)/, 'sql-dashboard render reads a portable connection id from the URL instead of a local profile name' );

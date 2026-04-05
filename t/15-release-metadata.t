@@ -48,14 +48,14 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.74', 'repo version bumped for the sql workspace layout and multi-save release' );
-like( $pm, qr/^1\.74$/m, 'main POD version matches the module version' );
+is( $version, '1.75', 'repo version bumped for the sql workspace refinement release' );
+like( $pm, qr/^1\.75$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.74$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.75$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.74"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.75"/, 'META.json version matches the module version in the built distribution' );
 }
 like( $changes, qr/^1\.74\s+2026-04-05$/m, 'Changes top entry matches the bumped version' );
 
@@ -93,6 +93,8 @@ for my $module (
 }
 
 unlike( $makefile, qr/bin\/pjq|bin\/pyq|bin\/ptomq|bin\/pjp|bin\/jq|bin\/yq|bin\/tomq|bin\/propq|bin\/iniq|bin\/csvq|bin\/xmlq|bin\/of|bin\/open-file/, 'Makefile.PL does not install generic helper commands into the global PATH' );
+unlike( $makefile, qr/["']HTTP::Daemon["']\s*=>\s*0/, 'Makefile.PL no longer declares unused HTTP::Daemon metadata' );
+unlike( $makefile, qr/["']HTTP::Status["']\s*=>\s*0/, 'Makefile.PL no longer declares unused HTTP::Status metadata' );
 like( $makefile, qr/["']LWP::UserAgent["']\s*=>\s*0/, 'Makefile.PL declares the api-dashboard HTTP client runtime prerequisite' );
 like( $makefile, qr/["']HTTP::Request["']\s*=>\s*0/, 'Makefile.PL declares the api-dashboard request object runtime prerequisite' );
 like( $makefile, qr/["']LWP::Protocol::https["']\s*=>\s*0/, 'Makefile.PL declares the api-dashboard HTTPS protocol runtime prerequisite' );
@@ -135,6 +137,8 @@ for my $doc ( $readme, $pm ) {
     like( $doc, qr/config\/sql-dashboard\/collections/, 'docs describe the runtime config/sql-dashboard collection storage path' );
     like( $doc, qr/portable `connection` id|portable C<connection> id|dsn\|user/, 'docs describe the portable sql-dashboard connection id model' );
     like( $doc, qr/table_info|column_info/, 'docs describe generic DBI schema metadata browsing for sql-dashboard' );
+    like( $doc, qr/auto-resiz|auto resiz|large auto-resizing editor/, 'docs describe the sql-dashboard large auto-resizing editor' );
+    like( $doc, qr/inline `\[X\]`|inline C<\[X\]>|inline \[X\]/, 'docs describe inline saved-SQL deletion' );
     like( $doc, qr/SQLS_SEP.*INSTRUCTION_SEP|INSTRUCTION_SEP.*SQLS_SEP/s, 'docs describe programmable sql-dashboard statement separators' );
     like( $doc, qr/singleton workers|singleton saved-Ajax workers|singleton saved Ajax workers/, 'docs describe singleton sql-dashboard Ajax workers' );
     like( $doc, qr/dashboard cpan DBD::Driver|DBD::\*/, 'docs describe optional DBD driver installation instead of bundling one database driver' );

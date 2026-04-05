@@ -202,14 +202,20 @@ async function main() {
     const workspaceEditor = document.getElementById('sql-workspace-editor');
     const collectionTabs = document.getElementById('sql-collection-tabs');
     const itemList = document.getElementById('sql-collection-item-list');
+    const editorActions = document.getElementById('sql-editor-actions');
+    const editorNote = document.getElementById('sql-editor-note');
+    const openSchema = document.getElementById('sql-open-schema');
     return {
       navInWorkspace: !!(workspacePanel && workspaceNav && workspacePanel.contains(workspaceNav)),
       editorInWorkspace: !!(workspacePanel && workspaceEditor && workspacePanel.contains(workspaceEditor)),
       collectionTabsInNav: !!(workspaceNav && collectionTabs && workspaceNav.contains(collectionTabs)),
-      itemListInNav: !!(workspaceNav && itemList && workspaceNav.contains(itemList))
+      itemListInNav: !!(workspaceNav && itemList && workspaceNav.contains(itemList)),
+      actionsInEditor: !!(workspaceEditor && editorActions && workspaceEditor.contains(editorActions)),
+      noteInActions: !!(editorActions && editorNote && editorActions.contains(editorNote)),
+      removedOpenSchema: !openSchema
     };
   });
-  if (!workspaceLayout.navInWorkspace || !workspaceLayout.editorInWorkspace || !workspaceLayout.collectionTabsInNav || !workspaceLayout.itemListInNav) {
+  if (!workspaceLayout.navInWorkspace || !workspaceLayout.editorInWorkspace || !workspaceLayout.collectionTabsInNav || !workspaceLayout.itemListInNav || !workspaceLayout.actionsInEditor || !workspaceLayout.noteInActions || !workspaceLayout.removedOpenSchema) {
     throw new Error('workspace layout did not merge collection navigation into one master-detail panel: ' + JSON.stringify(workspaceLayout));
   }
 
@@ -222,7 +228,45 @@ async function main() {
     ':------------------------------------------------------------------------------:',
     "update users set name = 'changed'"
   ].join('\n');
+  const editorMetricsBefore = await page.evaluate(() => {
+    const editor = document.getElementById('sql-editor');
+    const save = document.getElementById('sql-collection-item-save');
+    const run = document.getElementById('sql-run');
+    return {
+      height: editor ? editor.offsetHeight : 0,
+      saveText: save ? save.textContent : '',
+      runText: run ? run.textContent : '',
+      saveFont: save ? window.getComputedStyle(save).fontSize : '',
+      runFont: run ? window.getComputedStyle(run).fontSize : ''
+    };
+  });
   await page.locator('#sql-editor').fill(sqlText);
+  await page.locator('#sql-editor').blur();
+  await page.waitForTimeout(250);
+  const editorMetricsAfter = await page.evaluate(() => {
+    const editor = document.getElementById('sql-editor');
+    const note = document.getElementById('sql-editor-note');
+    const actions = document.getElementById('sql-editor-actions');
+    return {
+      height: editor ? editor.offsetHeight : 0,
+      note: note ? note.textContent : '',
+      actionsTop: actions ? actions.getBoundingClientRect().top : 0,
+      editorBottom: editor ? editor.getBoundingClientRect().bottom : 0
+    };
+  });
+  if (!(editorMetricsAfter.height > editorMetricsBefore.height)) {
+    throw new Error('sql editor did not auto-grow for a larger SQL payload: ' + JSON.stringify({ editorMetricsBefore, editorMetricsAfter }));
+  }
+  if (!String(editorMetricsAfter.note || '').match(/run|save|edit/i)) {
+    throw new Error('editor action row did not expose a subtle status note after textarea blur: ' + JSON.stringify(editorMetricsAfter));
+  }
+  if (!(editorMetricsAfter.actionsTop >= editorMetricsAfter.editorBottom)) {
+    throw new Error('editor actions did not stay beneath the textarea: ' + JSON.stringify(editorMetricsAfter));
+  }
+  if (!String(editorMetricsBefore.saveText || '').match(/💾/) || !String(editorMetricsBefore.runText || '').match(/🏃/)) {
+    throw new Error('workspace actions did not switch to emoji-led affordances: ' + JSON.stringify(editorMetricsBefore));
+  }
+
   const executeResponse = await Promise.all([
     page.waitForResponse((response) => {
       return response.url().includes('/ajax/sql-dashboard-execute') && response.status() === 200;
@@ -294,7 +338,8 @@ async function main() {
 
   await page.waitForFunction(() => {
     return !!document.querySelector('[data-sql-collection-item-link="users-query"]') &&
-      !!document.querySelector('[data-sql-collection-item-link="orders-query"]');
+      !!document.querySelector('[data-sql-collection-item-link="orders-query"]') &&
+      !!document.querySelector('[data-sql-collection-item-delete="users-query"]');
   });
 
   await page.locator('[data-sql-collection-item-link="users-query"]').click();
@@ -336,6 +381,26 @@ async function main() {
     throw new Error('saved SQL list does not clearly show which collection owns the visible SQL list: ' + JSON.stringify(restoredOrdersCollection));
   }
 
+  const inlineDeleteText = await page.locator('[data-sql-collection-item-delete="users-query"]').textContent();
+  if (String(inlineDeleteText || '').trim() !== '[X]') {
+    throw new Error('saved SQL delete affordance is not the compact inline [X] control: ' + JSON.stringify({ inlineDeleteText }));
+  }
+
+  const deleteUsersResponse = await Promise.all([
+    page.waitForResponse((response) => {
+      return response.url().includes('/ajax/sql-dashboard-collections-save') && response.status() === 200;
+    }),
+    page.locator('[data-sql-collection-item-delete="users-query"]').click()
+  ]).then((values) => values[0]);
+  const deleteUsersPayload = await deleteUsersResponse.json();
+  if (!deleteUsersPayload || !deleteUsersPayload.ok) {
+    throw new Error('inline SQL delete request failed: ' + JSON.stringify(deleteUsersPayload || {}));
+  }
+  await page.waitForFunction(() => {
+    return !document.querySelector('[data-sql-collection-item-link="users-query"]') &&
+      !!document.querySelector('[data-sql-collection-item-link="orders-query"]');
+  });
+
   const workspaceUrl = page.url();
   if (!workspaceUrl.includes('connection=')) {
     throw new Error('share URL did not capture the portable connection id');
@@ -351,7 +416,7 @@ async function main() {
     page.waitForResponse((response) => {
       return response.url().includes('/ajax/sql-dashboard-schema-browse') && response.status() === 200;
     }),
-    page.locator('#sql-open-schema').click()
+    page.locator('[data-sql-main-tab="schema"]').click()
   ]).then((values) => values[0]);
   const schemaPayload = await schemaResponse.json();
   if (!schemaPayload || !schemaPayload.ok) {

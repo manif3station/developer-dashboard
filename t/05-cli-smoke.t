@@ -113,6 +113,11 @@ like($sql_page_source, qr/SQL Workspace/, 'sql-dashboard source exposes the merg
 unlike($sql_page_source, qr/data-sql-main-tab="collections"/, 'sql-dashboard source no longer exposes a separate collections main tab');
 like($sql_page_source, qr/sql-workspace-nav/, 'sql-dashboard source exposes the workspace navigation rail');
 like($sql_page_source, qr/sql-active-sql-name/, 'sql-dashboard source exposes the active saved SQL label');
+like($sql_page_source, qr/sql-editor-actions/, 'sql-dashboard source exposes the understated editor action row');
+like($sql_page_source, qr/sql-editor-note/, 'sql-dashboard source exposes the editor guidance note');
+like($sql_page_source, qr/sql-inline-delete/, 'sql-dashboard source exposes inline delete controls for saved SQL entries');
+unlike($sql_page_source, qr/sql-open-schema/, 'sql-dashboard source removes the redundant in-workspace schema button');
+like($sql_page_source, qr/autoResizeSqlEditor/, 'sql-dashboard source exposes content-based editor auto-resize');
 like($sql_page_source, qr/Schema Explorer/, 'sql-dashboard source exposes a schema explorer area');
 like($sql_page_source, qr/URLSearchParams/, 'sql-dashboard source parses shareable workspace state from the URL');
 like($sql_page_source, qr/history\.pushState/, 'sql-dashboard source keeps workspace state in browser history');
@@ -785,7 +790,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.74\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "1.75\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' tomq alpha.beta});
 is( $toml_value, "4\n", 'tomq extracts scalar TOML values' );

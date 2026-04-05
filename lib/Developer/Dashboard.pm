@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.74';
+our $VERSION = '1.75';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.74
+1.75
 
 =head1 INTRODUCTION
 
@@ -1454,16 +1454,21 @@ for the active collection appears directly below that heading, the right
 pane keeps the editor plus results together, and the active saved SQL name
 stays visible while you work. Saving a different SQL name into the same
 collection adds a second saved SQL entry instead of overwriting the selected
-one. The bookmark still renders profile tabs and schema tabs, executes SQL
-through generic C<DBI>, and uses DBI metadata calls such as C<table_info>
-and C<column_info> for the schema browser. It preserves programmable
-statement blocks through C<SQLS_SEP> and C<INSTRUCTION_SEP>, including
-C<STASH>, C<ROW>, C<BEFORE>, and C<AFTER> hooks, so result rows can still be
-transformed locally before rendering. Its saved Ajax endpoints run through
-singleton workers. No C<DBD::*> driver ships in the base tarball by default;
-install the one you need with C<dashboard cpan DBD::Driver>, and the
-bookmark will return explicit install guidance when a selected driver is
-missing.
+one. The workspace editor now keeps the SQL textarea as the primary focus
+with content-based auto-resize, uses one quiet action row under the editor
+instead of a loud toolbar, removes the redundant in-workspace schema button
+in favour of the top C<Schema Explorer> tab, and moves saved-SQL deletion to
+a compact inline C<[X]> control beside each saved query so the list stays
+visually tied to its collection. The bookmark still renders profile tabs and
+schema tabs, executes SQL through generic C<DBI>, and uses DBI metadata
+calls such as C<table_info> and C<column_info> for the schema browser. It
+preserves programmable statement blocks through C<SQLS_SEP> and
+C<INSTRUCTION_SEP>, including C<STASH>, C<ROW>, C<BEFORE>, and C<AFTER>
+hooks, so result rows can still be transformed locally before rendering. Its
+saved Ajax endpoints run through singleton workers. No C<DBD::*> driver
+ships in the base tarball by default; install the one you need with
+C<dashboard cpan DBD::Driver>, and the bookmark will return explicit install
+guidance when a selected driver is missing.
 
 =head2 Skills System
 

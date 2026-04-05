@@ -33,8 +33,6 @@ WriteMakefile(
         'MIME::Base64'          => 0,
         'IO::Compress::Gzip'    => 0,
         'IO::Uncompress::Gunzip'=> 0,
-        'HTTP::Daemon'          => 0,
-        'HTTP::Status'          => 0,
         'Template'              => 0,
         'URI'                   => 0,
         'URI::Escape'           => 0,

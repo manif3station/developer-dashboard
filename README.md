@@ -913,16 +913,21 @@ navigation rail, the saved SQL list for the active collection appears
 directly below that heading, the right pane keeps the editor plus results
 together, and the active saved SQL name stays visible while you work. Saving
 a different SQL name into the same collection adds a second saved SQL entry
-instead of overwriting the selected one. The bookmark still renders profile
-tabs and schema tabs, executes SQL through generic `DBI`, and uses DBI
-metadata calls such as `table_info` and `column_info` for the schema
-browser. It preserves programmable statement blocks through `SQLS_SEP` and
-`INSTRUCTION_SEP`, including `STASH`, `ROW`, `BEFORE`, and `AFTER` hooks, so
-result rows can still be transformed locally before rendering. Its saved Ajax
-endpoints run through singleton workers. No `DBD::*` driver ships in the
-base tarball by default; install the one you need with `dashboard cpan
-DBD::Driver`, and the bookmark will return explicit install guidance when a
-selected driver is missing.
+instead of overwriting the selected one. The workspace editor now keeps the
+SQL textarea as the primary focus with content-based auto-resize, uses one
+quiet action row under the editor instead of a loud toolbar, removes the
+redundant in-workspace schema button in favour of the top `Schema Explorer`
+tab, and moves saved-SQL deletion to a compact inline `[X]` control beside
+each saved query so the list stays visually tied to its collection. The
+bookmark still renders profile tabs and schema tabs, executes SQL through
+generic `DBI`, and uses DBI metadata calls such as `table_info` and
+`column_info` for the schema browser. It preserves programmable statement
+blocks through `SQLS_SEP` and `INSTRUCTION_SEP`, including `STASH`, `ROW`,
+`BEFORE`, and `AFTER` hooks, so result rows can still be transformed locally
+before rendering. Its saved Ajax endpoints run through singleton workers. No
+`DBD::*` driver ships in the base tarball by default; install the one you
+need with `dashboard cpan DBD::Driver`, and the bookmark will return
+explicit install guidance when a selected driver is missing.
 
 ### Skills System
 

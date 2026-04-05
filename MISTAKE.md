@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: SQL-EDITOR-CLUTTER-DRIFT
+
+**Date:** 2026-04-06 00:35:00 UTC
+**Area:** SQL workspace editor layout, saved-query affordances, and bookmark-local browser UX
+**Symptom:** The bookmark-local `sql-dashboard` still scattered large button-like actions around the workspace, kept the SQL textarea too constrained for the main job, left a redundant schema-open button inside the editor, and used a large delete action instead of tying delete to the saved SQL item itself
+**Why It Was Dangerous:** The editor no longer felt like the main working surface, the save/run controls visually competed with navigation, and the delete affordance looked disconnected from the saved query it was supposed to remove
+**Root Cause:** I stopped at a functional master-detail layout and did not finish the interface discipline, so the action density and sizing still reflected implementation convenience instead of the actual SQL-first workflow the user asked for
+**How Ellen Solved It:** Kept the editor as the visual focus with content-based auto-resize, replaced the heavy editor toolbar with one quiet action row under the textarea, removed the redundant in-workspace schema button in favour of the top schema tab, moved saved-query deletion to a compact inline `[X]` affordance beside each saved SQL item, and expanded the source/browser tests around that layout
+**How To Detect Earlier Next Time:** Browser-check the page for visual hierarchy, not just function, and ask whether each action is visually attached to the thing it changes
+**Prevention Rule:** For bookmark-local workspaces, keep the main editor obviously dominant, keep destructive actions attached to the exact row or item they affect, and do not duplicate navigation actions inside the editor when a top-level tab already owns that function
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/26-sql-dashboard.t`, `prove -lv t/27-sql-dashboard-playwright.t`
+**Related Files:** `bin/dashboard`, `t/05-cli-smoke.t`, `t/26-sql-dashboard.t`, `t/27-sql-dashboard-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`, `doc/integration-test-plan.md`, `doc/update-and-release.md`, `SOFTWARE_SPEC.md`
+
+---
+
 ## CODE: SQL-WORKSPACE-UX-SPLIT
 
 **Date:** 2026-04-05 23:55:00 UTC

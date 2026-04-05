@@ -230,6 +230,7 @@ logic. It should support:
 - create, edit, delete, and reuse flows for SQL collections that stay independent from connection profiles
 - one merged `SQL Workspace` tab with a phpMyAdmin-style master-detail layout where collection tabs live in a left navigation rail, the saved SQL list for the active collection sits directly below that heading, and the editor plus results stay together on the right
 - the active saved SQL name always visible in the workspace, and saving a different SQL name into the same collection adds another saved SQL entry instead of overwriting the selected one
+- a large primary SQL textarea with content-based auto-resize, one understated action row beneath the editor, no redundant in-workspace schema-open button, and compact inline `[X]` deletion for saved SQL entries beside the list item they belong to
 - shareable browser URL state for the portable `connection` id, active tab, selected collection, selected saved SQL item, selected schema table, and current SQL text instead of a saved SQL file
 - share URLs that carry `dsn|user` without a password and rebuild a draft connection profile on another machine when the matching saved profile is missing there
 - auto-run of shared SQL only when the receiving machine already has a matching saved profile with a saved local password

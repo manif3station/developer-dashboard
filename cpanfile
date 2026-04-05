@@ -10,7 +10,6 @@ requires 'IO::Uncompress::Gunzip';
 requires 'Dancer2';
 requires 'Plack';
 requires 'Starman';
-requires 'HTTP::Status';
 requires 'HTTP::Request';
 requires 'LWP::UserAgent';
 requires 'Template';
