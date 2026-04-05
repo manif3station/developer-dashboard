@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: SQL-WORKSPACE-PORTABILITY-GAP
+
+**Date:** 2026-04-05 23:25:00 UTC
+**Area:** SQL workspace sharing, bookmark-local persistence, and browser routing
+**Symptom:** The bookmark-local `sql-dashboard` still tied shared workspace URLs to local profile names, had no saved SQL collection layer independent from connection profiles, and used a free-text driver field instead of exposing the installed `DBD::*` set
+**Why It Was Dangerous:** Shared URLs were not portable across machines, saved SQL could not be organized and reused independently from credentials, and a free-text driver field made it too easy to build invalid DSNs or miss already-installed drivers
+**Root Cause:** I shipped the first generic SQL workspace around the connection-profile concept only, which left the old reusable ideas partially extracted: the saved SQL layer, the DSN-plus-user share identity, and the visible installed-driver chooser were still missing from the bookmark-local implementation
+**How Ellen Solved It:** Added bookmark-local SQL collections under `config/sql-dashboard/collections`, kept them unrelated to connection profiles, moved share URLs to a portable `connection=dsn|user` model, rebuilt draft connection profiles from shared URLs when a matching local profile is absent, auto-ran shared SQL only when a matching saved password already exists locally, replaced the driver text field with a discovered `DBD::*` dropdown that rewrites only the `dbi:<Driver>:` prefix, put all sql-dashboard saved Ajax endpoints onto singleton workers, and expanded the saved-Ajax plus Playwright coverage
+**How To Detect Earlier Next Time:** When cloning an older local-first workflow, check whether the real reusable unit is the saved workspace state rather than the local profile label, and verify that saved query artifacts stay independent from credentials
+**Prevention Rule:** For bookmark-local workspaces, keep share URLs portable, keep saved query content separate from saved connection secrets, prefer discovered runtime choices over free-text dependency names when the runtime can enumerate them, and put long-lived saved-Ajax flows on singleton workers from the start
+**Verification:** `prove -lv t/26-sql-dashboard.t`, `prove -lv t/27-sql-dashboard-playwright.t`
+**Related Files:** `bin/dashboard`, `t/26-sql-dashboard.t`, `t/27-sql-dashboard-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`, `doc/integration-test-plan.md`, `doc/security.md`, `SOFTWARE_SPEC.md`
+
+---
+
 ## CODE: PROFILE-SECRET-PERMISSION-GAP
 
 **Date:** 2026-04-05 22:40:00 UTC

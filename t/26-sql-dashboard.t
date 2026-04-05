@@ -97,6 +97,7 @@ _write_text(
 );
 
 my $sql_profile_root = File::Spec->catdir( $paths->config_root, 'sql-dashboard' );
+my $sql_collection_root = File::Spec->catdir( $sql_profile_root, 'collections' );
 
 my ( $render_code, undef, $render_body ) = @{ $app->handle(
     path        => '/app/sql-dashboard',
@@ -106,15 +107,20 @@ my ( $render_code, undef, $render_body ) = @{ $app->handle(
 ) };
 is( $render_code, 200, 'sql-dashboard saved route renders through the web app' );
 like( $render_body, qr/Connection Profiles/, 'sql-dashboard render exposes connection profile management' );
+like( $render_body, qr/SQL Collections/, 'sql-dashboard render exposes SQL collection management' );
 like( $render_body, qr/Schema Explorer/, 'sql-dashboard render exposes schema explorer controls' );
 like( $render_body, qr/Run SQL/, 'sql-dashboard render exposes the SQL execution action' );
+like( $render_body, qr/<select id="sql-profile-driver"/, 'sql-dashboard render exposes the installed-driver dropdown instead of a free-text driver field' );
 like( $render_body, qr/URLSearchParams/, 'sql-dashboard render reads workspace state from the URL' );
 like( $render_body, qr/history\.pushState/, 'sql-dashboard render updates browser history for shareable workspace state' );
-like( $render_body, qr{set_chain_value\(configs,'profiles\.bootstrap','/ajax/sql-dashboard-profiles-bootstrap\?type=json'\)}, 'sql-dashboard render binds the profile bootstrap ajax endpoint' );
-like( $render_body, qr{set_chain_value\(configs,'profiles\.save','/ajax/sql-dashboard-profiles-save\?type=json'\)}, 'sql-dashboard render binds the profile save ajax endpoint' );
-like( $render_body, qr{set_chain_value\(configs,'profiles\.delete','/ajax/sql-dashboard-profiles-delete\?type=json'\)}, 'sql-dashboard render binds the profile delete ajax endpoint' );
-like( $render_body, qr{set_chain_value\(configs,'sql\.execute','/ajax/sql-dashboard-execute\?type=json'\)}, 'sql-dashboard render binds the sql execution ajax endpoint' );
-like( $render_body, qr{set_chain_value\(configs,'schema\.browse','/ajax/sql-dashboard-schema-browse\?type=json'\)}, 'sql-dashboard render binds the schema browse ajax endpoint' );
+like( $render_body, qr/params\.get\('connection'\)/, 'sql-dashboard render reads a portable connection id from the URL instead of a local profile name' );
+like( $render_body, qr{set_chain_value\(configs,'profiles\.bootstrap','/ajax/sql-dashboard-profiles-bootstrap\?type=json&singleton=SQL_DASHBOARD_PROFILES_BOOTSTRAP'\)}, 'sql-dashboard render binds the profile bootstrap ajax endpoint through a singleton worker' );
+like( $render_body, qr{set_chain_value\(configs,'profiles\.save','/ajax/sql-dashboard-profiles-save\?type=json&singleton=SQL_DASHBOARD_PROFILES_SAVE'\)}, 'sql-dashboard render binds the profile save ajax endpoint through a singleton worker' );
+like( $render_body, qr{set_chain_value\(configs,'profiles\.delete','/ajax/sql-dashboard-profiles-delete\?type=json&singleton=SQL_DASHBOARD_PROFILES_DELETE'\)}, 'sql-dashboard render binds the profile delete ajax endpoint through a singleton worker' );
+like( $render_body, qr{set_chain_value\(configs,'collections\.save','/ajax/sql-dashboard-collections-save\?type=json&singleton=SQL_DASHBOARD_COLLECTIONS_SAVE'\)}, 'sql-dashboard render binds the SQL collection save ajax endpoint through a singleton worker' );
+like( $render_body, qr{set_chain_value\(configs,'collections\.delete','/ajax/sql-dashboard-collections-delete\?type=json&singleton=SQL_DASHBOARD_COLLECTIONS_DELETE'\)}, 'sql-dashboard render binds the SQL collection delete ajax endpoint through a singleton worker' );
+like( $render_body, qr{set_chain_value\(configs,'sql\.execute','/ajax/sql-dashboard-execute\?type=json&singleton=SQL_DASHBOARD_EXECUTE'\)}, 'sql-dashboard render binds the sql execution ajax endpoint through a singleton worker' );
+like( $render_body, qr{set_chain_value\(configs,'schema\.browse','/ajax/sql-dashboard-schema-browse\?type=json&singleton=SQL_DASHBOARD_SCHEMA_BROWSE'\)}, 'sql-dashboard render binds the schema browse ajax endpoint through a singleton worker' );
 
 my ( $bootstrap_code, $bootstrap_type, $bootstrap_body_ref ) = @{ $app->handle(
     path        => '/ajax/sql-dashboard-profiles-bootstrap',
@@ -131,6 +137,15 @@ is_deeply(
     [ map { $_->{name} } @{ $bootstrap_payload->{profiles} || [] } ],
     [],
     'sql-dashboard profile bootstrap returns an empty profile list before any profiles are saved',
+);
+is_deeply(
+    [ map { $_->{name} } @{ $bootstrap_payload->{collections} || [] } ],
+    [],
+    'sql-dashboard bootstrap returns an empty SQL collection list before any collections are saved',
+);
+ok(
+    scalar grep { $_ eq 'DBD::Mock' } @{ $bootstrap_payload->{drivers} || [] },
+    'sql-dashboard bootstrap lists installed DBD drivers for the driver dropdown',
 );
 is( _mode_octal($sql_profile_root), '0700', 'sql-dashboard profile root is created as an owner-only directory' );
 
@@ -157,6 +172,7 @@ is( $profile_save_code, 200, 'sql-dashboard profile save endpoint responds throu
 like( $profile_save_type, qr/application\/json/, 'sql-dashboard profile save endpoint returns json content' );
 my $profile_save_payload = json_decode( drain_stream_body($profile_save_body_ref) );
 ok( $profile_save_payload->{ok}, 'sql-dashboard profile save reports success' );
+is( $profile_save_payload->{profile}{connection_id}, 'dbi:Mock:saved|saved_user', 'sql-dashboard profile save returns the portable dsn+user connection id' );
 my $saved_profile_path = File::Spec->catfile( $sql_profile_root, 'Saved Profile.json' );
 ok( -f $saved_profile_path, 'sql-dashboard profile save writes config/sql-dashboard/<profile-name>.json' );
 is( _mode_octal($sql_profile_root), '0700', 'sql-dashboard profile root stays owner-only after saving a profile' );
@@ -182,13 +198,63 @@ is_deeply(
     ['Saved Profile'],
     'sql-dashboard bootstrap reloads saved profiles from disk',
 );
+is(
+    $bootstrap_after_save_payload->{profiles}[0]{connection_id},
+    'dbi:Mock:saved|saved_user',
+    'sql-dashboard bootstrap reloads the portable connection id for saved profiles',
+);
 is( _mode_octal($sql_profile_root), '0700', 'sql-dashboard bootstrap repairs an insecure profile root back to owner-only mode' );
 is( _mode_octal($saved_profile_path), '0600', 'sql-dashboard bootstrap repairs an insecure saved profile file back to owner-only mode' );
 
+my $save_collection_payload = json_encode(
+    {
+        name  => 'Shared Queries',
+        items => [
+            {
+                id   => 'users-query',
+                name => 'Users Query',
+                sql  => "select * from users\n",
+            },
+        ],
+    }
+);
+my ( $collection_save_code, $collection_save_type, $collection_save_body_ref ) = @{ $app->handle(
+    path        => '/ajax/sql-dashboard-collections-save',
+    query       => 'type=json',
+    method      => 'POST',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+    body        => 'collection=' . uri_escape($save_collection_payload),
+) };
+is( $collection_save_code, 200, 'sql-dashboard collection save endpoint responds through the saved ajax file route' );
+like( $collection_save_type, qr/application\/json/, 'sql-dashboard collection save endpoint returns json content' );
+my $collection_save_payload = json_decode( drain_stream_body($collection_save_body_ref) );
+ok( $collection_save_payload->{ok}, 'sql-dashboard collection save reports success' );
+my $saved_collection_path = File::Spec->catfile( $sql_collection_root, 'Shared Queries.json' );
+ok( -f $saved_collection_path, 'sql-dashboard collection save writes config/sql-dashboard/collections/<collection-name>.json' );
+is( _mode_octal($sql_collection_root), '0700', 'sql-dashboard collection root is owner-only' );
+is( _mode_octal($saved_collection_path), '0600', 'sql-dashboard collection save writes an owner-only collection json file' );
+
+my ( $bootstrap_after_collection_code, $bootstrap_after_collection_type, $bootstrap_after_collection_body_ref ) = @{ $app->handle(
+    path        => '/ajax/sql-dashboard-profiles-bootstrap',
+    query       => 'type=json',
+    method      => 'GET',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+ ) };
+is( $bootstrap_after_collection_code, 200, 'sql-dashboard bootstrap still responds after saving a collection' );
+like( $bootstrap_after_collection_type, qr/application\/json/, 'sql-dashboard bootstrap still returns json after saving a collection' );
+my $bootstrap_after_collection_payload = json_decode( drain_stream_body($bootstrap_after_collection_body_ref) );
+ok( $bootstrap_after_collection_payload->{ok}, 'sql-dashboard bootstrap reports success after saving a collection' );
+is_deeply(
+    [ map { $_->{name} } @{ $bootstrap_after_collection_payload->{collections} || [] } ],
+    ['Shared Queries'],
+    'sql-dashboard bootstrap reloads saved SQL collections from disk',
+);
+
 my $execute_settings = json_encode(
     {
-        profile_name => 'Saved Profile',
-        password     => 'saved-pass',
+        connection_id => 'dbi:Mock:saved|saved_user',
         sql          => join(
             "\n:------------------------------------------------------------------------------:\n",
             join(
@@ -217,6 +283,7 @@ like( $execute_payload->{html}, qr/<table/, 'sql-dashboard execute returns rende
 like( $execute_payload->{html}, qr/<strong class="mock-link">Bob<\/strong>/, 'sql-dashboard execute honors programmable ROW html transforms' );
 like( $execute_payload->{html}, qr/Rows affected:\s*3/, 'sql-dashboard execute reports rows affected for non-select statements' );
 is( $execute_payload->{details}{profile_name}, 'Saved Profile', 'sql-dashboard execute reports the selected profile name' );
+is( $execute_payload->{details}{connection_id}, 'dbi:Mock:saved|saved_user', 'sql-dashboard execute reports the resolved portable connection id' );
 is( $execute_payload->{results}[0]{row_count}, 2, 'sql-dashboard execute returns structured row counts for select statements' );
 
 my $schema_settings = json_encode(
@@ -285,6 +352,42 @@ like( $profile_delete_type, qr/application\/json/, 'sql-dashboard profile delete
 my $profile_delete_payload = json_decode( drain_stream_body($profile_delete_body_ref) );
 ok( $profile_delete_payload->{ok}, 'sql-dashboard profile delete reports success' );
 ok( !-e File::Spec->catfile( $sql_profile_root, 'Saved Profile.json' ), 'sql-dashboard profile delete removes config/sql-dashboard/<profile-name>.json' );
+
+my ( $bootstrap_after_profile_delete_code, $bootstrap_after_profile_delete_type, $bootstrap_after_profile_delete_body_ref ) = @{ $app->handle(
+    path        => '/ajax/sql-dashboard-profiles-bootstrap',
+    query       => 'type=json',
+    method      => 'GET',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is( $bootstrap_after_profile_delete_code, 200, 'sql-dashboard bootstrap still responds after deleting a profile' );
+like( $bootstrap_after_profile_delete_type, qr/application\/json/, 'sql-dashboard bootstrap still returns json after deleting a profile' );
+my $bootstrap_after_profile_delete_payload = json_decode( drain_stream_body($bootstrap_after_profile_delete_body_ref) );
+ok( $bootstrap_after_profile_delete_payload->{ok}, 'sql-dashboard bootstrap reports success after deleting a profile' );
+is_deeply(
+    [ map { $_->{name} } @{ $bootstrap_after_profile_delete_payload->{profiles} || [] } ],
+    [],
+    'sql-dashboard bootstrap shows that the deleted profile is gone',
+);
+is_deeply(
+    [ map { $_->{name} } @{ $bootstrap_after_profile_delete_payload->{collections} || [] } ],
+    ['Shared Queries'],
+    'sql-dashboard collections remain after deleting an unrelated connection profile',
+);
+
+my ( $collection_delete_code, $collection_delete_type, $collection_delete_body_ref ) = @{ $app->handle(
+    path        => '/ajax/sql-dashboard-collections-delete',
+    query       => 'type=json',
+    method      => 'POST',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+    body        => 'name=' . uri_escape('Shared Queries'),
+) };
+is( $collection_delete_code, 200, 'sql-dashboard collection delete endpoint responds through the saved ajax file route' );
+like( $collection_delete_type, qr/application\/json/, 'sql-dashboard collection delete endpoint returns json content' );
+my $collection_delete_payload = json_decode( drain_stream_body($collection_delete_body_ref) );
+ok( $collection_delete_payload->{ok}, 'sql-dashboard collection delete reports success' );
+ok( !-e $saved_collection_path, 'sql-dashboard collection delete removes config/sql-dashboard/collections/<collection-name>.json' );
 
 done_testing;
 

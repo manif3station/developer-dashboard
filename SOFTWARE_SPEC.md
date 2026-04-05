@@ -224,12 +224,18 @@ itself rather than requiring a dedicated product module for the dashboard
 logic. It should support:
 
 - file-backed connection profiles under `config/sql-dashboard/<profile-name>.json`
-- owner-only `config/sql-dashboard` directory permissions (`0700`) with owner-only profile json files (`0600`)
+- file-backed SQL collections under `config/sql-dashboard/collections/<collection-name>.json`
+- owner-only `config/sql-dashboard` and `config/sql-dashboard/collections` directory permissions (`0700`) with owner-only profile and collection json files (`0600`)
 - create, edit, and delete flows for connection profiles
-- shareable browser URL state for the active profile, active tab, selected schema table, and current SQL text instead of a saved SQL file
+- create, edit, delete, and reuse flows for SQL collections that stay independent from connection profiles
+- shareable browser URL state for the portable `connection` id, active tab, selected collection, selected saved SQL item, selected schema table, and current SQL text instead of a saved SQL file
+- share URLs that carry `dsn|user` without a password and rebuild a draft connection profile on another machine when the matching saved profile is missing there
+- auto-run of shared SQL only when the receiving machine already has a matching saved profile with a saved local password
 - generic `DBI` execution rather than a single database brand
+- installed-driver dropdown backed by visible `DBD::*` modules, with driver switches rewriting only the `dbi:<Driver>:` DSN prefix
 - schema browsing through metadata calls such as `table_info` and `column_info`
 - programmable result handling through statement separators and instruction hooks such as `SQLS_SEP`, `INSTRUCTION_SEP`, `STASH`, `ROW`, `BEFORE`, and `AFTER`
+- singleton saved-Ajax workers for bootstrap, profile save/delete, collection save/delete, execution, and schema browsing
 
 Database driver support should be optional instead of bundled by default.
 The runtime should provide a command such as `dashboard cpan <Module...>` that:

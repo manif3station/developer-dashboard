@@ -278,7 +278,7 @@ For seeded UI workspaces such as `api-dashboard`, run a browser smoke from a
 fresh project-local runtime and verify the real rendered DOM includes the
 expected controls, tabs, and collection sidebar rather than only checking the
 saved bookmark source text.
-For the seeded `sql-dashboard`, also run `prove -lv t/27-sql-dashboard-playwright.t` so profile editing, SQL execution, schema tabs, and shareable URL restoration stay browser-verified.
+For the seeded `sql-dashboard`, also run `prove -lv t/27-sql-dashboard-playwright.t` so driver-dropdown DSN rewriting, profile editing, SQL collection persistence, SQL execution, schema tabs, and shareable `connection` URL restoration stay browser-verified.
 
 Command-output capture is implemented with `Capture::Tiny` `capture`, with exit codes returned from the capture block. The core runtime does not currently make outbound HTTP client requests.
 

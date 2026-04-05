@@ -40,6 +40,7 @@ my $home_root    = tempdir( 'dd-sql-playwright-home-XXXXXX', CLEANUP => 1, TMPDI
 my $project_root = tempdir( 'dd-sql-playwright-project-XXXXXX', CLEANUP => 1, TMPDIR => 1 );
 my $runtime_root = File::Spec->catdir( $project_root, '.developer-dashboard' );
 my $config_root  = File::Spec->catdir( $runtime_root, 'config', 'sql-dashboard' );
+my $collection_root = File::Spec->catdir( $config_root, 'collections' );
 my $local_lib    = File::Spec->catdir( $runtime_root, 'local', 'lib', 'perl5' );
 
 make_path($runtime_root);
@@ -92,14 +93,18 @@ eval {
     is( $playwright_result->{stderr}, '', 'sql-dashboard Playwright flow does not emit stderr' );
     my $payload = _json_decode( $playwright_result->{stdout} );
     ok( $payload->{ok}, 'sql-dashboard Playwright flow reports success' );
+    ok( $payload->{profile_saved}, 'sql-dashboard Playwright flow confirmed that the profile save completed before share-url deletion checks' );
+    is( $payload->{saved_driver}, 'DBD::Mock', 'sql-dashboard Playwright flow saved the expected driver module' );
 
     my $saved_profile = File::Spec->catfile( $config_root, 'Playwright Profile.json' );
-    ok( -f $saved_profile, 'browser-created sql profile persists to config/sql-dashboard' );
+    my $saved_collection = File::Spec->catfile( $collection_root, 'Shared Queries.json' );
+    ok( !-e $saved_profile, 'browser-created sql profile is removed after the shared-url draft restoration check deletes it' );
+    ok( -f $saved_collection, 'browser-created sql collection persists to config/sql-dashboard/collections' );
     is( _mode_octal($config_root), '0700', 'browser-created sql profile root is owner-only' );
-    is( _mode_octal($saved_profile), '0600', 'browser-created sql profile file is owner-only' );
-    my $saved_text = _read_text($saved_profile);
-    like( $saved_text, qr/"name"\s*:\s*"Playwright Profile"/, 'saved sql profile keeps the browser-created profile name' );
-    like( $saved_text, qr/"driver"\s*:\s*"DBD::Mock"/, 'saved sql profile keeps the requested driver module' );
+    is( _mode_octal($collection_root), '0700', 'browser-created sql collection root is owner-only' );
+    is( _mode_octal($saved_collection), '0600', 'browser-created sql collection file is owner-only' );
+    my $saved_collection_text = _read_text($saved_collection);
+    like( $saved_collection_text, qr/"name"\s*:\s*"Shared Queries"/, 'saved sql collection keeps the browser-created collection name' );
 
     1;
 } or do {
@@ -150,9 +155,17 @@ async function main() {
     throw new Error('page errors before interaction: ' + JSON.stringify(pageErrors));
   }
 
+  const driverOptions = await page.locator('#sql-profile-driver option').allTextContents();
+  if (!driverOptions.some((value) => String(value || '').includes('DBD::Mock'))) {
+    throw new Error('driver dropdown did not expose the installed DBD::Mock module: ' + JSON.stringify(driverOptions));
+  }
   await page.locator('#sql-profile-name').fill('Playwright Profile');
-  await page.locator('#sql-profile-driver').fill('DBD::Mock');
-  await page.locator('#sql-profile-dsn').fill('dbi:Mock:playwright');
+  await page.locator('#sql-profile-dsn').fill('dbi:SQLite:playwright');
+  await page.locator('#sql-profile-driver').selectOption('DBD::Mock');
+  const dsnAfterDriverSelect = await page.locator('#sql-profile-dsn').inputValue();
+  if (dsnAfterDriverSelect !== 'dbi:Mock:playwright') {
+    throw new Error('driver dropdown did not rewrite the DSN prefix correctly: ' + JSON.stringify({ dsnAfterDriverSelect }));
+  }
   await page.locator('#sql-profile-user').fill('play_user');
   await page.locator('#sql-profile-password').fill('play-pass');
   await page.locator('#sql-profile-attrs').fill('{"RaiseError":1,"PrintError":0,"AutoCommit":1}');
@@ -226,9 +239,37 @@ async function main() {
     throw new Error('sql execute DOM missed the active profile details: ' + JSON.stringify(executeDom));
   }
 
+  await page.locator('[data-sql-main-tab="collections"]').click();
+  await page.locator('#sql-collection-name').fill('Shared Queries');
+  await page.locator('#sql-collection-item-name').fill('Users Query');
+  const collectionResponse = await Promise.all([
+    page.waitForResponse((response) => {
+      return response.url().includes('/ajax/sql-dashboard-collections-save') && response.status() === 200;
+    }),
+    page.locator('#sql-collection-item-save').click()
+  ]).then((values) => values[0]);
+  const collectionPayload = await collectionResponse.json();
+  if (!collectionPayload || !collectionPayload.ok) {
+    throw new Error('sql collection save request failed: ' + JSON.stringify(collectionPayload || {}));
+  }
+  await page.waitForFunction(() => {
+    return !!document.querySelector('[data-sql-collection-tab="Shared Queries"]') &&
+      !!document.querySelector('[data-sql-collection-item-tab="users-query"]');
+  });
+
+  await page.locator('[data-sql-collection-item-tab="users-query"]').click();
+  await page.waitForTimeout(250);
+  const restoredCollectionSql = await page.locator('#sql-editor').inputValue();
+  if (!String(restoredCollectionSql || '').includes('select * from users')) {
+    throw new Error('saved SQL collection item did not restore the saved SQL text');
+  }
+
   const workspaceUrl = page.url();
-  if (!workspaceUrl.includes('profile=Playwright+Profile')) {
-    throw new Error('share URL did not capture the active profile');
+  if (!workspaceUrl.includes('connection=')) {
+    throw new Error('share URL did not capture the portable connection id');
+  }
+  if (workspaceUrl.includes('profile=')) {
+    throw new Error('share URL still leaked the local profile name');
   }
   if (!workspaceUrl.includes('sql=')) {
     throw new Error('share URL did not capture the current SQL text');
@@ -280,8 +321,40 @@ async function main() {
     throw new Error('reloaded share URL did not restore the active profile: ' + JSON.stringify(restoredState));
   }
 
+  await page.locator('[data-sql-main-tab="profiles"]').click();
+  const deleteResponse = await Promise.all([
+    page.waitForResponse((response) => {
+      return response.url().includes('/ajax/sql-dashboard-profiles-delete') && response.status() === 200;
+    }),
+    page.locator('#sql-profile-delete').click()
+  ]).then((values) => values[0]);
+  const deletePayload = await deleteResponse.json();
+  if (!deletePayload || !deletePayload.ok) {
+    throw new Error('profile delete request failed: ' + JSON.stringify(deletePayload || {}));
+  }
+
+  await page.goto(workspaceUrl, { waitUntil: 'networkidle' });
+  await page.waitForTimeout(500);
+  const sharedDraft = await page.evaluate(() => {
+    return {
+      dsn: document.getElementById('sql-profile-dsn').value,
+      user: document.getElementById('sql-profile-user').value,
+      password: document.getElementById('sql-profile-password').value,
+      banner: document.getElementById('sql-banner').textContent
+    };
+  });
+  if (sharedDraft.dsn !== 'dbi:Mock:playwright' || sharedDraft.user !== 'play_user') {
+    throw new Error('shared URL did not rebuild the draft connection profile from the connection id: ' + JSON.stringify(sharedDraft));
+  }
+  if (sharedDraft.password !== '') {
+    throw new Error('shared URL draft profile should not carry a password');
+  }
+  if (!String(sharedDraft.banner || '').includes('Add the local password')) {
+    throw new Error('shared URL draft profile did not explain that a local password is still required: ' + JSON.stringify(sharedDraft));
+  }
+
   await browser.close();
-  process.stdout.write(JSON.stringify({ ok: true, consoleMessages, pageErrors }));
+  process.stdout.write(JSON.stringify({ ok: true, consoleMessages, pageErrors, profile_saved: true, saved_driver: 'DBD::Mock' }));
 }
 
 main().catch((error) => {

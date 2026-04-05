@@ -3796,15 +3796,19 @@ sub _sql_dashboard_page {
       . $section
       . "HTML: " . _sql_dashboard_html() . "\n"
       . $section
-      . "CODE1: Ajax jvar => 'configs.profiles.bootstrap', type => 'json', file => 'sql-dashboard-profiles-bootstrap', code => q{\n" . _sql_dashboard_profiles_bootstrap_code() . "\n};\n"
+      . "CODE1: Ajax jvar => 'configs.profiles.bootstrap', type => 'json', singleton => 'SQL_DASHBOARD_PROFILES_BOOTSTRAP', file => 'sql-dashboard-profiles-bootstrap', code => q{\n" . _sql_dashboard_profiles_bootstrap_code() . "\n};\n"
       . $section
-      . "CODE2: Ajax jvar => 'configs.profiles.save', type => 'json', file => 'sql-dashboard-profiles-save', code => q{\n" . _sql_dashboard_profiles_save_code() . "\n};\n"
+      . "CODE2: Ajax jvar => 'configs.profiles.save', type => 'json', singleton => 'SQL_DASHBOARD_PROFILES_SAVE', file => 'sql-dashboard-profiles-save', code => q{\n" . _sql_dashboard_profiles_save_code() . "\n};\n"
       . $section
-      . "CODE3: Ajax jvar => 'configs.profiles.delete', type => 'json', file => 'sql-dashboard-profiles-delete', code => q{\n" . _sql_dashboard_profiles_delete_code() . "\n};\n"
+      . "CODE3: Ajax jvar => 'configs.profiles.delete', type => 'json', singleton => 'SQL_DASHBOARD_PROFILES_DELETE', file => 'sql-dashboard-profiles-delete', code => q{\n" . _sql_dashboard_profiles_delete_code() . "\n};\n"
       . $section
-      . "CODE4: Ajax jvar => 'configs.sql.execute', type => 'json', file => 'sql-dashboard-execute', code => q{\n" . _sql_dashboard_execute_code() . "\n};\n"
+      . "CODE4: Ajax jvar => 'configs.collections.save', type => 'json', singleton => 'SQL_DASHBOARD_COLLECTIONS_SAVE', file => 'sql-dashboard-collections-save', code => q{\n" . _sql_dashboard_collections_save_code() . "\n};\n"
       . $section
-      . "CODE5: Ajax jvar => 'configs.schema.browse', type => 'json', file => 'sql-dashboard-schema-browse', code => q{\n" . _sql_dashboard_schema_code() . "\n};\n";
+      . "CODE5: Ajax jvar => 'configs.collections.delete', type => 'json', singleton => 'SQL_DASHBOARD_COLLECTIONS_DELETE', file => 'sql-dashboard-collections-delete', code => q{\n" . _sql_dashboard_collections_delete_code() . "\n};\n"
+      . $section
+      . "CODE6: Ajax jvar => 'configs.sql.execute', type => 'json', singleton => 'SQL_DASHBOARD_EXECUTE', file => 'sql-dashboard-execute', code => q{\n" . _sql_dashboard_execute_code() . "\n};\n"
+      . $section
+      . "CODE7: Ajax jvar => 'configs.schema.browse', type => 'json', singleton => 'SQL_DASHBOARD_SCHEMA_BROWSE', file => 'sql-dashboard-schema-browse', code => q{\n" . _sql_dashboard_schema_code() . "\n};\n";
     return Developer::Dashboard::PageDocument->from_instruction($instruction);
 }
 
@@ -3851,6 +3855,7 @@ sub _sql_dashboard_html {
   <div id="sql-banner" class="sql-banner" hidden></div>
   <nav class="sql-main-tabs" aria-label="SQL Dashboard Sections">
     <a href="#" class="sql-main-tab is-active" data-sql-main-tab="profiles" role="tab" aria-selected="true">Connection Profiles</a>
+    <a href="#" class="sql-main-tab" data-sql-main-tab="collections" role="tab" aria-selected="false">SQL Collections</a>
     <a href="#" class="sql-main-tab" data-sql-main-tab="workspace" role="tab" aria-selected="false">Workspace</a>
     <a href="#" class="sql-main-tab" data-sql-main-tab="schema" role="tab" aria-selected="false">Schema Explorer</a>
   </nav>
@@ -3873,7 +3878,7 @@ sub _sql_dashboard_html {
             <input id="sql-profile-name" type="text" placeholder="Reporting DB">
           </label>
           <label>Driver Module
-            <input id="sql-profile-driver" type="text" placeholder="DBD::SQLite">
+            <select id="sql-profile-driver"></select>
           </label>
           <label>DSN
             <input id="sql-profile-dsn" type="text" placeholder="dbi:SQLite:dbname=/tmp/demo.db">
@@ -3889,7 +3894,39 @@ sub _sql_dashboard_html {
           </label>
         </div>
         <label class="sql-checkbox"><input id="sql-profile-save-password" type="checkbox"> Save password to the local runtime profile file</label>
-        <p class="sql-help">Profiles are stored under <code>.developer-dashboard/config/sql-dashboard/&lt;profile-name&gt;.json</code>. Passwords stay out of share URLs.</p>
+        <p class="sql-help">Profiles are stored under <code>.developer-dashboard/config/sql-dashboard/&lt;profile-name&gt;.json</code>. Shared URLs only carry the portable <code>connection</code> id built from DSN and user.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="sql-panel-collections" class="sql-panel">
+    <div class="sql-grid sql-two-col">
+      <div class="sql-card">
+        <div class="sql-toolbar">
+          <a href="#" id="sql-collection-new" class="sql-action">New Collection</a>
+          <a href="#" id="sql-collection-save" class="sql-action">Save Collection</a>
+          <a href="#" id="sql-collection-delete" class="sql-action">Delete Collection</a>
+        </div>
+        <div id="sql-collection-tabs" class="sql-subtabs" aria-label="Saved SQL Collections"></div>
+        <div id="sql-collection-tabs-empty" class="sql-empty">No saved SQL collections yet. Collections stay separate from connection profiles.</div>
+      </div>
+      <div class="sql-card">
+        <h3>SQL Collections</h3>
+        <div class="sql-form-grid">
+          <label>Collection Name
+            <input id="sql-collection-name" type="text" placeholder="Reporting Queries">
+          </label>
+          <label>SQL Name
+            <input id="sql-collection-item-name" type="text" placeholder="Users By Status">
+          </label>
+        </div>
+        <div class="sql-toolbar">
+          <a href="#" id="sql-collection-item-save" class="sql-action">Save SQL To Collection</a>
+          <a href="#" id="sql-collection-item-delete" class="sql-action">Delete SQL From Collection</a>
+          <span class="sql-badge">Collections and connection profiles are intentionally unrelated</span>
+        </div>
+        <div id="sql-collection-item-tabs" class="sql-subtabs" aria-label="Saved SQL Entries"></div>
+        <div id="sql-collection-item-tabs-empty" class="sql-empty">Select a collection to view its saved SQL entries.</div>
       </div>
     </div>
   </section>
@@ -3934,12 +3971,15 @@ sub _sql_dashboard_html {
 </div>
 <script>
 (function () {
-  var SQLS_SEP = ':------------------------------------------------------------------------------:';
-  var INSTRUCTION_SEP = ':~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~:';
   var state = {
     main_tab: 'profiles',
     profiles: [],
+    profile_draft: null,
+    drivers: [],
+    collections: [],
     active_profile_name: '',
+    active_collection_name: '',
+    active_collection_item_id: '',
     schema: { tables: [], columns: [], active_table: '' },
     sql: '',
     result_html: '',
@@ -3949,6 +3989,8 @@ sub _sql_dashboard_html {
     'profiles.bootstrap': '/ajax/sql-dashboard-profiles-bootstrap?type=json',
     'profiles.save': '/ajax/sql-dashboard-profiles-save?type=json',
     'profiles.delete': '/ajax/sql-dashboard-profiles-delete?type=json',
+    'collections.save': '/ajax/sql-dashboard-collections-save?type=json',
+    'collections.delete': '/ajax/sql-dashboard-collections-delete?type=json',
     'sql.execute': '/ajax/sql-dashboard-execute?type=json',
     'schema.browse': '/ajax/sql-dashboard-schema-browse?type=json'
   };
@@ -3987,20 +4029,80 @@ sub _sql_dashboard_html {
       .replace(/"/g, '&quot;');
   }
 
+  function connectionIdFromParts(dsn, user) {
+    dsn = String(dsn || '').trim();
+    user = String(user || '').trim();
+    if (!dsn || !user) return '';
+    return dsn + '|' + user;
+  }
+
+  function parseConnectionId(connectionId) {
+    connectionId = String(connectionId || '');
+    if (!connectionId) return null;
+    var index = connectionId.lastIndexOf('|');
+    if (index < 1) return null;
+    var dsn = connectionId.slice(0, index);
+    var user = connectionId.slice(index + 1);
+    if (!dsn || !user) return null;
+    var driver = '';
+    var match = dsn.match(/^dbi:([^:]+):/i);
+    if (match && match[1]) driver = 'DBD::' + match[1];
+    return {
+      connection_id: connectionId,
+      dsn: dsn,
+      user: user,
+      driver: driver,
+      name: '',
+      attrs_json: '{"RaiseError":1,"PrintError":0,"AutoCommit":1}',
+      save_password: 0
+    };
+  }
+
   function findProfile(name) {
     return (state.profiles || []).filter(function (profile) {
       return profile && profile.name === name;
     })[0] || null;
   }
 
+  function findProfileByConnection(connectionId) {
+    return (state.profiles || []).filter(function (profile) {
+      if (!profile) return false;
+      return String(profile.connection_id || connectionIdFromParts(profile.dsn, profile.user)) === String(connectionId || '');
+    })[0] || null;
+  }
+
+  function findCollection(name) {
+    return (state.collections || []).filter(function (collection) {
+      return collection && collection.name === name;
+    })[0] || null;
+  }
+
   function currentProfile() {
-    return findProfile(state.active_profile_name);
+    return findProfile(state.active_profile_name) || state.profile_draft || null;
+  }
+
+  function currentCollection() {
+    return findCollection(state.active_collection_name);
+  }
+
+  function currentCollectionItem() {
+    var collection = currentCollection();
+    if (!collection || !collection.items) return null;
+    return (collection.items || []).filter(function (item) {
+      return item && item.id === state.active_collection_item_id;
+    })[0] || null;
+  }
+
+  function currentFormConnectionId() {
+    return connectionIdFromParts(byId('sql-profile-dsn').value, byId('sql-profile-user').value);
   }
 
   function currentRoute() {
     return {
       tab: state.main_tab || '',
-      profile: state.active_profile_name || '',
+      connection: currentFormConnectionId() || (currentProfile() && currentProfile().connection_id) || '',
+      collection: state.active_collection_name || '',
+      item: state.active_collection_item_id || '',
       table: state.schema.active_table || '',
       sql: byId('sql-editor').value || ''
     };
@@ -4009,7 +4111,9 @@ sub _sql_dashboard_html {
   function routeQuery(route) {
     var params = new window.URLSearchParams();
     if (route.tab) params.set('tab', route.tab);
-    if (route.profile) params.set('profile', route.profile);
+    if (route.connection) params.set('connection', route.connection);
+    if (route.collection) params.set('collection', route.collection);
+    if (route.item) params.set('item', route.item);
     if (route.table) params.set('table', route.table);
     if (route.sql) params.set('sql', route.sql);
     return params.toString();
@@ -4019,7 +4123,9 @@ sub _sql_dashboard_html {
     var params = new window.URLSearchParams(window.location.search || '');
     return {
       tab: params.get('tab') || '',
-      profile: params.get('profile') || '',
+      connection: params.get('connection') || '',
+      collection: params.get('collection') || '',
+      item: params.get('item') || '',
       table: params.get('table') || '',
       sql: params.get('sql') || ''
     };
@@ -4038,13 +4144,152 @@ sub _sql_dashboard_html {
     window.history.pushState(currentRoute(), '', target);
   }
 
+  function renderDriverOptions(selectedDriver) {
+    var select = byId('sql-profile-driver');
+    var selected = String(selectedDriver || select.value || '');
+    var drivers = (state.drivers || []).slice();
+    if (selected && drivers.indexOf(selected) === -1) {
+      drivers.push(selected);
+    }
+    drivers.sort(function (left, right) {
+      return String(left || '').localeCompare(String(right || ''));
+    });
+    select.innerHTML = '';
+    var blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = drivers.length ? 'Select installed driver' : 'Install a DBD::* driver first';
+    select.appendChild(blank);
+    drivers.forEach(function (driver) {
+      var option = document.createElement('option');
+      option.value = driver;
+      option.textContent = driver;
+      if (driver === selected) option.selected = true;
+      select.appendChild(option);
+    });
+    if (selected) select.value = selected;
+  }
+
+  function loadProfileIntoForm(profile) {
+    profile = profile || {};
+    renderDriverOptions(profile.driver || '');
+    byId('sql-profile-name').value = profile.name || '';
+    byId('sql-profile-dsn').value = profile.dsn || '';
+    byId('sql-profile-user').value = profile.user || '';
+    byId('sql-profile-password').value = profile.password || '';
+    byId('sql-profile-save-password').checked = profile.save_password ? true : false;
+    byId('sql-profile-attrs').value = profile.attrs_json || '{"RaiseError":1,"PrintError":0,"AutoCommit":1}';
+  }
+
+  function loadCollectionIntoForm(collection, item) {
+    collection = collection || {};
+    item = item || null;
+    byId('sql-collection-name').value = collection.name || '';
+    byId('sql-collection-item-name').value = item && item.name ? item.name : '';
+  }
+
+  function profilePayloadFromForm() {
+    var dsn = byId('sql-profile-dsn').value.trim();
+    var user = byId('sql-profile-user').value.trim();
+    return {
+      name: byId('sql-profile-name').value.trim(),
+      driver: byId('sql-profile-driver').value.trim(),
+      dsn: dsn,
+      user: user,
+      password: byId('sql-profile-password').value,
+      save_password: byId('sql-profile-save-password').checked ? 1 : 0,
+      attrs_json: byId('sql-profile-attrs').value.trim(),
+      connection_id: connectionIdFromParts(dsn, user)
+    };
+  }
+
+  function collectionPayloadFromState(collection) {
+    return {
+      name: String(collection && collection.name || '').trim(),
+      items: (collection && collection.items || []).map(function (item) {
+        return {
+          id: String(item && item.id || '').trim(),
+          name: String(item && item.name || '').trim(),
+          sql: item && item.sql ? String(item.sql) : ''
+        };
+      })
+    };
+  }
+
+  function upsertCollection(collection) {
+    var existingIndex = -1;
+    state.collections.forEach(function (item, index) {
+      if (item && item.name === collection.name) existingIndex = index;
+    });
+    if (existingIndex > -1) {
+      state.collections.splice(existingIndex, 1, collection);
+    } else {
+      state.collections.push(collection);
+    }
+    state.collections.sort(function (left, right) {
+      return String(left.name || '').localeCompare(String(right.name || ''));
+    });
+  }
+
+  function saveCollectionToServer(collection, originalName) {
+    return requestJson(endpoint('collections.save'), 'POST', {
+      collection: JSON.stringify(collectionPayloadFromState(collection)),
+      original_name: originalName || ''
+    }).then(function (payload) {
+      if (!payload || !payload.ok) throw new Error((payload && payload.error) || 'Unable to save SQL collection');
+      upsertCollection(payload.collection);
+      state.active_collection_name = payload.collection.name || '';
+      return payload.collection;
+    });
+  }
+
+  function driverShortName(driver) {
+    return String(driver || '').replace(/^DBD::/, '');
+  }
+
+  function updateDsnDriverPrefix() {
+    var driver = byId('sql-profile-driver').value.trim();
+    if (!driver) return;
+    var shortName = driverShortName(driver);
+    var dsnField = byId('sql-profile-dsn');
+    var dsn = dsnField.value.trim();
+    if (!dsn) {
+      dsnField.value = 'dbi:' + shortName + ':';
+      return;
+    }
+    if (/^dbi:[^:]+:/i.test(dsn)) {
+      dsnField.value = dsn.replace(/^dbi:[^:]+:/i, 'dbi:' + shortName + ':');
+      return;
+    }
+    dsnField.value = 'dbi:' + shortName + ':' + dsn;
+  }
+
   function applyRoute(route, options) {
     options = options || {};
     if (route.tab) {
       state.main_tab = route.tab;
     }
-    if (route.profile && findProfile(route.profile)) {
-      state.active_profile_name = route.profile;
+    if (route.connection) {
+      var matchedProfile = findProfileByConnection(route.connection);
+      if (matchedProfile) {
+        state.active_profile_name = matchedProfile.name || '';
+        state.profile_draft = null;
+        loadProfileIntoForm(matchedProfile);
+      } else {
+        state.active_profile_name = '';
+        state.profile_draft = parseConnectionId(route.connection);
+        if (state.profile_draft) {
+          loadProfileIntoForm(state.profile_draft);
+        }
+      }
+    } else if (!state.active_profile_name && !state.profile_draft && state.profiles.length) {
+      state.active_profile_name = state.profiles[0].name || '';
+      loadProfileIntoForm(state.profiles[0]);
+    }
+    if (route.collection && findCollection(route.collection)) {
+      state.active_collection_name = route.collection;
+    }
+    if (route.item) {
+      state.active_collection_item_id = route.item;
     }
     if (route.sql) {
       state.sql = route.sql;
@@ -4055,36 +4300,14 @@ sub _sql_dashboard_html {
     render(options);
   }
 
-  function profilePayloadFromForm() {
-    return {
-      name: byId('sql-profile-name').value.trim(),
-      driver: byId('sql-profile-driver').value.trim(),
-      dsn: byId('sql-profile-dsn').value.trim(),
-      user: byId('sql-profile-user').value.trim(),
-      password: byId('sql-profile-password').value,
-      save_password: byId('sql-profile-save-password').checked ? 1 : 0,
-      attrs_json: byId('sql-profile-attrs').value.trim()
-    };
-  }
-
-  function loadProfileIntoForm(profile) {
-    profile = profile || {};
-    byId('sql-profile-name').value = profile.name || '';
-    byId('sql-profile-driver').value = profile.driver || '';
-    byId('sql-profile-dsn').value = profile.dsn || '';
-    byId('sql-profile-user').value = profile.user || '';
-    byId('sql-profile-password').value = profile.password || '';
-    byId('sql-profile-save-password').checked = profile.save_password ? true : false;
-    byId('sql-profile-attrs').value = profile.attrs_json || '';
-  }
-
   function render(options) {
     options = options || {};
-    var routeReplace = options.replaceRoute;
     var activeProfile = currentProfile();
+    var activeCollection = currentCollection();
+    var activeCollectionItem = currentCollectionItem();
     byId('sql-editor').value = state.sql || byId('sql-editor').value || '';
-    byId('sql-active-profile').textContent = activeProfile ? ('Active Profile: ' + activeProfile.name) : 'No active profile selected';
-    byId('sql-schema-profile').textContent = activeProfile ? ('Schema Explorer: ' + activeProfile.name) : 'Schema Explorer';
+    byId('sql-active-profile').textContent = activeProfile ? ('Active Connection: ' + (activeProfile.name || activeProfile.connection_id || currentFormConnectionId())) : 'No active profile selected';
+    byId('sql-schema-profile').textContent = activeProfile ? ('Schema Explorer: ' + (activeProfile.name || activeProfile.connection_id || currentFormConnectionId())) : 'Schema Explorer';
     byId('sql-result-info').textContent = state.result_info || 'Select a profile and run SQL.';
     byId('sql-result-html').innerHTML = state.result_html || '';
 
@@ -4108,16 +4331,59 @@ sub _sql_dashboard_html {
       tab.addEventListener('click', function (event) {
         event.preventDefault();
         state.active_profile_name = profile.name;
+        state.profile_draft = null;
         loadProfileIntoForm(profile);
         render({ replaceRoute: false });
       });
       profileTabs.appendChild(tab);
     });
     byId('sql-profile-tabs-empty').style.display = (state.profiles || []).length ? 'none' : 'block';
-
     if (activeProfile) {
       loadProfileIntoForm(activeProfile);
     }
+
+    var collectionTabs = byId('sql-collection-tabs');
+    collectionTabs.innerHTML = '';
+    (state.collections || []).forEach(function (collection) {
+      var tab = document.createElement('a');
+      tab.href = '#';
+      tab.className = 'sql-subtab' + (collection.name === state.active_collection_name ? ' is-active' : '');
+      tab.textContent = collection.name;
+      tab.setAttribute('data-sql-collection-tab', collection.name);
+      tab.addEventListener('click', function (event) {
+        event.preventDefault();
+        state.active_collection_name = collection.name;
+        state.active_collection_item_id = ((collection.items || [])[0] || {}).id || '';
+        loadCollectionIntoForm(collection, currentCollectionItem());
+        render({ replaceRoute: false });
+      });
+      collectionTabs.appendChild(tab);
+    });
+    byId('sql-collection-tabs-empty').style.display = (state.collections || []).length ? 'none' : 'block';
+    if (activeCollection && activeCollection.items && activeCollection.items.length && !activeCollectionItem) {
+      state.active_collection_item_id = activeCollection.items[0].id || '';
+      activeCollectionItem = currentCollectionItem();
+    }
+    var collectionItemTabs = byId('sql-collection-item-tabs');
+    collectionItemTabs.innerHTML = '';
+    (activeCollection && activeCollection.items || []).forEach(function (item) {
+      var tab = document.createElement('a');
+      tab.href = '#';
+      tab.className = 'sql-subtab' + (item.id === state.active_collection_item_id ? ' is-active' : '');
+      tab.textContent = item.name;
+      tab.setAttribute('data-sql-collection-item-tab', item.id);
+      tab.addEventListener('click', function (event) {
+        event.preventDefault();
+        state.active_collection_item_id = item.id;
+        state.sql = item.sql || '';
+        loadCollectionIntoForm(activeCollection, item);
+        state.main_tab = 'workspace';
+        render({ replaceRoute: false });
+      });
+      collectionItemTabs.appendChild(tab);
+    });
+    byId('sql-collection-item-tabs-empty').style.display = activeCollection && activeCollection.items && activeCollection.items.length ? 'none' : 'block';
+    loadCollectionIntoForm(activeCollection || {}, activeCollectionItem);
 
     var tableTabs = byId('sql-table-tabs');
     tableTabs.innerHTML = '';
@@ -4140,7 +4406,7 @@ sub _sql_dashboard_html {
     });
     byId('sql-table-tabs-empty').style.display = (state.schema.tables || []).length ? 'none' : 'block';
     renderColumns();
-    syncRoute(!!routeReplace);
+    syncRoute(!!options.replaceRoute);
   }
 
   function renderColumns() {
@@ -4189,6 +4455,67 @@ sub _sql_dashboard_html {
     });
   }
 
+  function executeSql() {
+    var profile = profilePayloadFromForm();
+    profile.sql = byId('sql-editor').value;
+    state.sql = profile.sql;
+    return requestJson(endpoint('sql.execute'), 'POST', {
+      settings: JSON.stringify(profile)
+    }).then(function (payload) {
+      if (!payload.ok) throw new Error(payload.error || 'Unable to run SQL');
+      state.result_html = payload.html || '';
+      state.result_info = JSON.stringify(payload.details || {}, null, 2);
+      state.main_tab = 'workspace';
+      banner('SQL executed successfully.', false);
+      render({ replaceRoute: false });
+      return payload;
+    }).catch(function (error) {
+      state.result_html = '';
+      state.result_info = 'Execution failed.\n\n' + error.message;
+      state.main_tab = 'workspace';
+      banner('SQL execution failed: ' + error.message, true);
+      render({ replaceRoute: false });
+      throw error;
+    });
+  }
+
+  function maybeAutoRunSharedRoute(route) {
+    if (!route || !route.connection || !route.sql) return;
+    var payload = profilePayloadFromForm();
+    if (!payload.password) {
+      banner('Shared SQL loaded. Add the local password for this connection profile before running it here.', false);
+      render({ replaceRoute: true });
+      return;
+    }
+    executeSql().catch(function () {});
+  }
+
+  function refreshSchema(targetTable) {
+    var profile = profilePayloadFromForm();
+    if (targetTable) {
+      state.schema.active_table = targetTable;
+    }
+    profile.table_name = targetTable || state.schema.active_table || '';
+    requestJson(endpoint('schema.browse'), 'POST', {
+      settings: JSON.stringify(profile)
+    }).then(function (payload) {
+      if (!payload.ok) throw new Error(payload.error || 'Unable to load schema');
+      state.schema.tables = payload.tables || [];
+      state.schema.columns = payload.columns || [];
+      if (payload.selected_table) {
+        state.schema.active_table = payload.selected_table;
+      }
+      if (!state.schema.active_table && state.schema.tables.length) {
+        state.schema.active_table = state.schema.tables[0].TABLE_NAME || '';
+      }
+      state.main_tab = 'schema';
+      banner('Schema refreshed.', false);
+      render();
+    }).catch(function (error) {
+      banner('Schema refresh failed: ' + error.message, true);
+    });
+  }
+
   function bootstrapProfiles() {
     return requestJson(endpoint('profiles.bootstrap'), 'GET').then(function (payload) {
       if (!payload || !payload.ok) {
@@ -4196,11 +4523,19 @@ sub _sql_dashboard_html {
         return;
       }
       state.profiles = payload.profiles || [];
+      state.collections = payload.collections || [];
+      state.drivers = payload.drivers || [];
       if (!state.active_profile_name && state.profiles.length) {
         state.active_profile_name = state.profiles[0].name || '';
       }
+      if (!state.active_collection_name && state.collections.length) {
+        state.active_collection_name = state.collections[0].name || '';
+        state.active_collection_item_id = (((state.collections[0] || {}).items || [])[0] || {}).id || '';
+      }
+    renderDriverOptions((state.profile_draft && state.profile_draft.driver) || '');
       applyRoute(readRoute(), { replaceRoute: true });
       banner(payload.errors && payload.errors.length ? payload.errors.join(' ') : '', (payload.errors || []).length > 0);
+      maybeAutoRunSharedRoute(readRoute());
     }).catch(function (error) {
       banner('Unable to load SQL connection profiles: ' + error.message, true);
     });
@@ -4209,9 +4544,11 @@ sub _sql_dashboard_html {
   byId('sql-profile-new').addEventListener('click', function (event) {
     event.preventDefault();
     state.active_profile_name = '';
-    loadProfileIntoForm({
-      attrs_json: '{"RaiseError":1,"PrintError":0,"AutoCommit":1}'
-    });
+    state.profile_draft = {
+      attrs_json: '{"RaiseError":1,"PrintError":0,"AutoCommit":1}',
+      save_password: 0
+    };
+    loadProfileIntoForm(state.profile_draft);
     state.main_tab = 'profiles';
     render({ replaceRoute: false });
   });
@@ -4225,16 +4562,15 @@ sub _sql_dashboard_html {
       original_name: originalName
     }).then(function (payload) {
       if (!payload.ok) throw new Error(payload.error || 'Unable to save profile');
-      var existingIndex = -1;
-      state.profiles.forEach(function (item, index) {
-        if (item && item.name === originalName) existingIndex = index;
+      state.profiles = (state.profiles || []).filter(function (item) {
+        return item && item.name !== originalName;
       });
-      if (existingIndex > -1) state.profiles.splice(existingIndex, 1);
       state.profiles.push(payload.profile);
       state.profiles.sort(function (left, right) {
         return String(left.name || '').localeCompare(String(right.name || ''));
       });
       state.active_profile_name = payload.profile.name;
+      state.profile_draft = null;
       banner('Profile saved: ' + payload.profile.name, false);
       render({ replaceRoute: false });
     }).catch(function (error) {
@@ -4255,7 +4591,8 @@ sub _sql_dashboard_html {
       state.profiles = (state.profiles || []).filter(function (profile) {
         return profile && profile.name !== state.active_profile_name;
       });
-      state.active_profile_name = state.profiles.length ? state.profiles[0].name : '';
+      state.active_profile_name = '';
+      state.profile_draft = null;
       banner('Profile deleted: ' + payload.removed, false);
       render({ replaceRoute: false });
     }).catch(function (error) {
@@ -4263,56 +4600,141 @@ sub _sql_dashboard_html {
     });
   });
 
-  byId('sql-run').addEventListener('click', function (event) {
+  byId('sql-collection-new').addEventListener('click', function (event) {
     event.preventDefault();
-    var profile = profilePayloadFromForm();
-    profile.profile_name = state.active_profile_name || profile.name || '';
-    profile.sql = byId('sql-editor').value;
-    state.sql = profile.sql;
-    requestJson(endpoint('sql.execute'), 'POST', {
-      settings: JSON.stringify(profile)
-    }).then(function (payload) {
-      if (!payload.ok) throw new Error(payload.error || 'Unable to run SQL');
-      state.result_html = payload.html || '';
-      state.result_info = JSON.stringify(payload.details || {}, null, 2);
-      state.main_tab = 'workspace';
-      banner('SQL executed successfully.', false);
+    state.active_collection_name = '';
+    state.active_collection_item_id = '';
+    loadCollectionIntoForm({}, null);
+    state.main_tab = 'collections';
+    render({ replaceRoute: false });
+  });
+
+  byId('sql-collection-save').addEventListener('click', function (event) {
+    event.preventDefault();
+    var originalName = state.active_collection_name || '';
+    var collection = currentCollection() || { items: [] };
+    collection = collectionPayloadFromState(collection);
+    collection.name = byId('sql-collection-name').value.trim();
+    if (!collection.name) {
+      banner('Collection name is required.', true);
+      return;
+    }
+    saveCollectionToServer(collection, originalName).then(function (savedCollection) {
+      if (originalName && originalName !== savedCollection.name) {
+        state.collections = state.collections.filter(function (item) {
+          return item && item.name !== originalName;
+        });
+        upsertCollection(savedCollection);
+      }
+      banner('Collection saved: ' + savedCollection.name, false);
       render({ replaceRoute: false });
     }).catch(function (error) {
-      state.result_html = '';
-      state.result_info = 'Execution failed.\n\n' + error.message;
-      state.main_tab = 'workspace';
-      banner('SQL execution failed: ' + error.message, true);
-      render({ replaceRoute: false });
+      banner('Collection save failed: ' + error.message, true);
     });
   });
 
-  function refreshSchema(targetTable) {
-    var profile = profilePayloadFromForm();
-    profile.profile_name = state.active_profile_name || profile.name || '';
-    if (targetTable) {
-      state.schema.active_table = targetTable;
+  byId('sql-collection-delete').addEventListener('click', function (event) {
+    event.preventDefault();
+    var name = state.active_collection_name || byId('sql-collection-name').value.trim();
+    if (!name) {
+      banner('Select a collection to delete.', true);
+      return;
     }
-    profile.table_name = targetTable || state.schema.active_table || '';
-    requestJson(endpoint('schema.browse'), 'POST', {
-      settings: JSON.stringify(profile)
+    requestJson(endpoint('collections.delete'), 'POST', {
+      name: name
     }).then(function (payload) {
-      if (!payload.ok) throw new Error(payload.error || 'Unable to load schema');
-      state.schema.tables = payload.tables || [];
-      state.schema.columns = payload.columns || [];
-      if (payload.selected_table) {
-        state.schema.active_table = payload.selected_table;
-      }
-      if (!state.schema.active_table && state.schema.tables.length) {
-        state.schema.active_table = state.schema.tables[0].TABLE_NAME || '';
-      }
-      state.main_tab = 'schema';
-      banner('Schema refreshed.', false);
+      if (!payload || !payload.ok) throw new Error((payload && payload.error) || 'Unable to delete SQL collection');
+      state.collections = (state.collections || []).filter(function (collection) {
+        return collection && collection.name !== name;
+      });
+      state.active_collection_name = state.collections.length ? state.collections[0].name : '';
+      state.active_collection_item_id = (((state.collections[0] || {}).items || [])[0] || {}).id || '';
+      loadCollectionIntoForm(currentCollection() || {}, currentCollectionItem());
+      banner('Collection deleted: ' + payload.removed, false);
       render({ replaceRoute: false });
     }).catch(function (error) {
-      banner('Schema refresh failed: ' + error.message, true);
+      banner('Collection delete failed: ' + error.message, true);
     });
-  }
+  });
+
+  byId('sql-collection-item-save').addEventListener('click', function (event) {
+    event.preventDefault();
+    var collectionName = byId('sql-collection-name').value.trim() || state.active_collection_name || '';
+    var itemName = byId('sql-collection-item-name').value.trim();
+    var sql = byId('sql-editor').value;
+    if (!collectionName) {
+      banner('Collection name is required before saving SQL.', true);
+      return;
+    }
+    if (!itemName) {
+      banner('SQL name is required before saving SQL.', true);
+      return;
+    }
+    if (!sql.trim()) {
+      banner('SQL text is required before saving SQL.', true);
+      return;
+    }
+    var collection = currentCollection();
+    if (!collection || collection.name !== collectionName) {
+      collection = { name: collectionName, items: [] };
+    }
+    collection = collectionPayloadFromState(collection);
+    collection.name = collectionName;
+    var itemId = state.active_collection_item_id || itemName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'sql-item';
+    var replaced = false;
+    collection.items = (collection.items || []).map(function (item) {
+      if (item && item.id === itemId) {
+        replaced = true;
+        return { id: itemId, name: itemName, sql: sql };
+      }
+      return item;
+    });
+    if (!replaced) collection.items.push({ id: itemId, name: itemName, sql: sql });
+    collection.items.sort(function (left, right) {
+      return String(left.name || '').localeCompare(String(right.name || ''));
+    });
+    saveCollectionToServer(collection, state.active_collection_name || '').then(function (savedCollection) {
+      state.active_collection_name = savedCollection.name;
+      state.active_collection_item_id = itemId;
+      state.sql = sql;
+      banner('SQL saved to collection: ' + savedCollection.name, false);
+      render({ replaceRoute: false });
+    }).catch(function (error) {
+      banner('SQL collection save failed: ' + error.message, true);
+    });
+  });
+
+  byId('sql-collection-item-delete').addEventListener('click', function (event) {
+    event.preventDefault();
+    var collection = currentCollection();
+    if (!collection) {
+      banner('Select a collection before deleting SQL.', true);
+      return;
+    }
+    if (!state.active_collection_item_id) {
+      banner('Select a saved SQL entry to delete.', true);
+      return;
+    }
+    collection = collectionPayloadFromState(collection);
+    collection.items = (collection.items || []).filter(function (item) {
+      return item && item.id !== state.active_collection_item_id;
+    });
+    var nextItem = (collection.items || [])[0] || null;
+    saveCollectionToServer(collection, collection.name).then(function (savedCollection) {
+      state.active_collection_name = savedCollection.name;
+      state.active_collection_item_id = nextItem && nextItem.id ? nextItem.id : '';
+      loadCollectionIntoForm(savedCollection, nextItem);
+      banner('SQL removed from collection: ' + savedCollection.name, false);
+      render({ replaceRoute: false });
+    }).catch(function (error) {
+      banner('SQL delete failed: ' + error.message, true);
+    });
+  });
+
+  byId('sql-run').addEventListener('click', function (event) {
+    event.preventDefault();
+    executeSql().catch(function () {});
+  });
 
   byId('sql-schema-refresh').addEventListener('click', function (event) {
     event.preventDefault();
@@ -4334,8 +4756,21 @@ sub _sql_dashboard_html {
     });
   });
 
+  byId('sql-profile-driver').addEventListener('change', function () {
+    updateDsnDriverPrefix();
+    syncRoute(true);
+  });
+
   byId('sql-editor').addEventListener('input', function () {
     state.sql = byId('sql-editor').value;
+    syncRoute(true);
+  });
+
+  byId('sql-profile-dsn').addEventListener('input', function () {
+    syncRoute(true);
+  });
+
+  byId('sql-profile-user').addEventListener('input', function () {
     syncRoute(true);
   });
 
@@ -4344,8 +4779,10 @@ sub _sql_dashboard_html {
   });
 
   loadProfileIntoForm({
-    attrs_json: '{"RaiseError":1,"PrintError":0,"AutoCommit":1}'
+    attrs_json: '{"RaiseError":1,"PrintError":0,"AutoCommit":1}',
+    save_password: 0
   });
+  renderDriverOptions('');
   bootstrapProfiles();
 }());
 </script>
@@ -4379,6 +4816,39 @@ sub sql_dashboard_escape_html {
     $text =~ s/>/&gt;/g;
     $text =~ s/"/&quot;/g;
     return $text;
+}
+
+# sql_dashboard_connection_id($dsn, $user)
+# Purpose: build the shareable sql-dashboard connection id from DSN and user without exposing the password.
+# Input: DSN string and database username string.
+# Output: connection id string in the form "dsn|user".
+sub sql_dashboard_connection_id {
+    my ( $dsn, $user ) = @_;
+    $dsn  = sql_dashboard_trim($dsn);
+    $user = sql_dashboard_trim($user);
+    return '' if $dsn eq '' || $user eq '';
+    return $dsn . '|' . $user;
+}
+
+# sql_dashboard_parse_connection_id($connection_id)
+# Purpose: recover DSN, user, and inferred driver details from one shareable sql-dashboard connection id.
+# Input: connection id string in the form "dsn|user".
+# Output: hash reference with connection_id, dsn, user, and driver keys or undef for invalid input.
+sub sql_dashboard_parse_connection_id {
+    my ($connection_id) = @_;
+    $connection_id = sql_dashboard_trim($connection_id);
+    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|([^|]+)\z/;
+    my ( $dsn, $user ) = ( $1, $2 );
+    my $driver = '';
+    if ( $dsn =~ /\Adbi:([^:]+):/i ) {
+        $driver = 'DBD::' . $1;
+    }
+    return {
+        connection_id => $connection_id,
+        dsn           => $dsn,
+        user          => $user,
+        driver        => $driver,
+    };
 }
 
 # sql_dashboard_secure_dir($dir)
@@ -4422,6 +4892,55 @@ sub sql_dashboard_profile_path {
     return File::Spec->catfile( sql_dashboard_profile_dir(), sql_dashboard_profile_filename($name) );
 }
 
+# sql_dashboard_collection_dir()
+# Purpose: resolve and secure the sql-dashboard collection directory used for saved SQL collections.
+# Input: none.
+# Output: absolute collection directory path with 0700 permissions enforced.
+sub sql_dashboard_collection_dir {
+    my $dir = File::Spec->catdir( sql_dashboard_profile_dir(), 'collections' );
+    return sql_dashboard_secure_dir($dir);
+}
+
+# sql_dashboard_collection_filename($name)
+# Purpose: turn one sql-dashboard collection name into a safe JSON filename.
+# Input: collection name string.
+# Output: filename string ending in .json.
+sub sql_dashboard_collection_filename {
+    my ($name) = @_;
+    $name = sql_dashboard_trim($name);
+    die "Missing collection name\n" if $name eq '';
+    die "Invalid collection name\n" if $name =~ /[[:cntrl:]]/;
+    $name =~ s{[\\/]+}{_}g;
+    return $name . '.json';
+}
+
+# sql_dashboard_collection_path($name)
+# Purpose: resolve one sql-dashboard collection JSON path on disk.
+# Input: collection name string.
+# Output: absolute collection JSON file path.
+sub sql_dashboard_collection_path {
+    my ($name) = @_;
+    return File::Spec->catfile( sql_dashboard_collection_dir(), sql_dashboard_collection_filename($name) );
+}
+
+# sql_dashboard_normalize_profile($profile)
+# Purpose: enrich one sql-dashboard profile hash with the portable connection id used in share URLs.
+# Input: profile hash reference.
+# Output: normalized profile hash reference.
+sub sql_dashboard_normalize_profile {
+    my ($profile) = @_;
+    die "Profile must be a hash reference\n" if ref($profile) ne 'HASH';
+    $profile->{name}          = sql_dashboard_trim( $profile->{name} );
+    $profile->{driver}        = sql_dashboard_trim( $profile->{driver} );
+    $profile->{dsn}           = sql_dashboard_trim( $profile->{dsn} );
+    $profile->{user}          = sql_dashboard_trim( $profile->{user} );
+    $profile->{attrs_json}    = sql_dashboard_trim( $profile->{attrs_json} );
+    $profile->{save_password} = $profile->{save_password} ? 1 : 0;
+    $profile->{password}      = '' if !defined $profile->{password};
+    $profile->{connection_id} = sql_dashboard_connection_id( $profile->{dsn}, $profile->{user} );
+    return $profile;
+}
+
 sub sql_dashboard_decode_profile_payload {
     my ($json_text) = @_;
     die "Missing profile payload\n" if !defined $json_text || $json_text eq '';
@@ -4445,7 +4964,43 @@ sub sql_dashboard_decode_profile_payload {
     if ( !$profile->{save_password} ) {
         delete $profile->{password};
     }
-    return $profile;
+    return sql_dashboard_normalize_profile($profile);
+}
+
+# sql_dashboard_decode_collection_payload($json_text)
+# Purpose: validate and normalize one sql-dashboard SQL collection payload from the browser.
+# Input: JSON text string containing collection metadata and SQL items.
+# Output: normalized collection hash reference.
+sub sql_dashboard_decode_collection_payload {
+    my ($json_text) = @_;
+    die "Missing collection payload\n" if !defined $json_text || $json_text eq '';
+    my $collection = json_decode($json_text);
+    die "Collection payload must be a JSON object\n" if ref($collection) ne 'HASH';
+    $collection->{name} = sql_dashboard_trim( $collection->{name} );
+    die "Missing collection name\n" if $collection->{name} eq '';
+    die "Collection items must be an array\n" if ref( $collection->{items} ) ne 'ARRAY';
+    my @items;
+    for my $item ( @{ $collection->{items} } ) {
+        die "Collection item must be a JSON object\n" if ref($item) ne 'HASH';
+        my $name = sql_dashboard_trim( $item->{name} );
+        my $id   = sql_dashboard_trim( $item->{id} );
+        my $sql  = defined $item->{sql} ? $item->{sql} : '';
+        die "Missing collection item name\n" if $name eq '';
+        if ( $id eq '' ) {
+            $id = lc($name);
+            $id =~ s/[^a-z0-9]+/-/g;
+            $id =~ s/^-+|-+\z//g;
+            $id = 'sql-item' if $id eq '';
+        }
+        push @items, {
+            id   => $id,
+            name => $name,
+            sql  => $sql,
+        };
+    }
+    @items = sort { ( $a->{name} || '' ) cmp ( $b->{name} || '' ) } @items;
+    $collection->{items} = \@items;
+    return $collection;
 }
 
 sub sql_dashboard_read_profile {
@@ -4458,7 +5013,22 @@ sub sql_dashboard_read_profile {
     close $fh or die "Unable to close $path: $!";
     my $profile = json_decode($json_text);
     die "Invalid sql-dashboard profile file $path\n" if ref($profile) ne 'HASH';
-    return $profile;
+    return sql_dashboard_normalize_profile($profile);
+}
+
+# sql_dashboard_read_collection($name)
+# Purpose: read one saved sql-dashboard collection JSON file from disk.
+# Input: collection name string.
+# Output: normalized collection hash reference.
+sub sql_dashboard_read_collection {
+    my ($name) = @_;
+    my $path = sql_dashboard_collection_path($name);
+    sql_dashboard_secure_file($path);
+    open my $fh, '<', $path or die "Unable to read $path: $!";
+    local $/;
+    my $json_text = <$fh>;
+    close $fh or die "Unable to close $path: $!";
+    return sql_dashboard_decode_collection_payload($json_text);
 }
 
 sub sql_dashboard_list_profiles {
@@ -4479,7 +5049,7 @@ sub sql_dashboard_list_profiles {
             close $fh or die "Unable to close $path: $!";
             my $profile = json_decode($json_text);
             die "Profile file $path did not decode to a JSON object\n" if ref($profile) ne 'HASH';
-            push @profiles, $profile;
+            push @profiles, sql_dashboard_normalize_profile($profile);
             1;
         } or do {
             my $error = $@ || "Unable to read $path\n";
@@ -4490,6 +5060,74 @@ sub sql_dashboard_list_profiles {
     closedir $dh or die "Unable to close $dir: $!";
     @profiles = sort { ( $a->{name} || '' ) cmp ( $b->{name} || '' ) } @profiles;
     return ( \@profiles, \@errors );
+}
+
+# sql_dashboard_list_collections()
+# Purpose: read every saved sql-dashboard collection from disk and surface any parse failures.
+# Input: none.
+# Output: array reference of normalized collections and array reference of read errors.
+sub sql_dashboard_list_collections {
+    my @collections;
+    my @errors;
+    my $dir = sql_dashboard_collection_dir();
+    opendir my $dh, $dir or die "Unable to read $dir: $!";
+    while ( my $entry = readdir $dh ) {
+        next if $entry eq '.' || $entry eq '..';
+        next if $entry !~ /\.json\z/;
+        my $path = File::Spec->catfile( $dir, $entry );
+        next if !-f $path;
+        eval {
+            sql_dashboard_secure_file($path);
+            open my $fh, '<', $path or die "Unable to read $path: $!";
+            local $/;
+            my $json_text = <$fh>;
+            close $fh or die "Unable to close $path: $!";
+            push @collections, sql_dashboard_decode_collection_payload($json_text);
+            1;
+        } or do {
+            my $error = $@ || "Unable to read $path\n";
+            $error =~ s/\s+\z//;
+            push @errors, $error;
+        };
+    }
+    closedir $dh or die "Unable to close $dir: $!";
+    @collections = sort { ( $a->{name} || '' ) cmp ( $b->{name} || '' ) } @collections;
+    return ( \@collections, \@errors );
+}
+
+# sql_dashboard_list_drivers()
+# Purpose: discover installed DBD::* modules visible to the sql-dashboard bookmark worker.
+# Input: none.
+# Output: array reference of sorted DBD::* module names.
+sub sql_dashboard_list_drivers {
+    my %drivers;
+    for my $inc (@INC) {
+        next if !defined $inc || ref($inc);
+        my $dir = File::Spec->catdir( $inc, 'DBD' );
+        next if !-d $dir;
+        opendir my $dh, $dir or next;
+        while ( my $entry = readdir $dh ) {
+            next if $entry !~ /\A([A-Za-z_][A-Za-z0-9_]*)\.pm\z/;
+            $drivers{ 'DBD::' . $1 } = 1;
+        }
+        closedir $dh;
+    }
+    return [ sort keys %drivers ];
+}
+
+# sql_dashboard_find_profile_by_connection_id($connection_id)
+# Purpose: resolve one shareable sql-dashboard connection id back to a saved local profile when it exists.
+# Input: connection id string.
+# Output: normalized profile hash reference or undef.
+sub sql_dashboard_find_profile_by_connection_id {
+    my ($connection_id) = @_;
+    $connection_id = sql_dashboard_trim($connection_id);
+    return undef if $connection_id eq '';
+    my ( $profiles, undef ) = sql_dashboard_list_profiles();
+    for my $profile ( @{$profiles} ) {
+        return $profile if ( $profile->{connection_id} || '' ) eq $connection_id;
+    }
+    return undef;
 }
 PERL
 }
@@ -4522,11 +5160,25 @@ sub sql_dashboard_resolve_settings {
         my $profile = sql_dashboard_read_profile( $resolved{profile_name} );
         %resolved = ( %{$profile}, %resolved );
     }
+    elsif ( sql_dashboard_trim( $resolved{connection_id} ) ne '' ) {
+        my $profile = sql_dashboard_find_profile_by_connection_id( $resolved{connection_id} );
+        if ($profile) {
+            %resolved = ( %{$profile}, %resolved );
+            $resolved{profile_name} = $profile->{name};
+        }
+        my $parsed = sql_dashboard_parse_connection_id( $resolved{connection_id} );
+        if ($parsed) {
+            $resolved{dsn}    = $parsed->{dsn}    if sql_dashboard_trim( $resolved{dsn} ) eq '';
+            $resolved{user}   = $parsed->{user}   if sql_dashboard_trim( $resolved{user} ) eq '';
+            $resolved{driver} = $parsed->{driver} if sql_dashboard_trim( $resolved{driver} ) eq '';
+        }
+    }
     $resolved{driver}     = sql_dashboard_driver_module( \%resolved );
     $resolved{dsn}        = sql_dashboard_trim( $resolved{dsn} );
     $resolved{user}       = sql_dashboard_trim( $resolved{user} );
     $resolved{password}   = defined $resolved{password} ? $resolved{password} : '';
     $resolved{attrs_json} = sql_dashboard_trim( $resolved{attrs_json} );
+    $resolved{connection_id} = sql_dashboard_connection_id( $resolved{dsn}, $resolved{user} );
     die "Missing DSN\n" if $resolved{dsn} eq '';
     die "Missing database user\n" if $resolved{user} eq '';
     return \%resolved;
@@ -4656,20 +5308,26 @@ sub _sql_dashboard_profiles_bootstrap_code {
 my $payload;
 eval {
     my ( $profiles, $errors ) = sql_dashboard_list_profiles();
+    my ( $collections, $collection_errors ) = sql_dashboard_list_collections();
+    my $drivers = sql_dashboard_list_drivers();
     $payload = {
-        ok       => 1,
-        profiles => $profiles,
-        errors   => $errors,
+        ok          => 1,
+        profiles    => $profiles,
+        collections => $collections,
+        drivers     => $drivers,
+        errors      => [ @{$errors}, @{$collection_errors} ],
     };
     1;
 } or do {
     my $error = $@ || 'Unknown sql-dashboard bootstrap failure';
     $error =~ s/\s+\z//;
     $payload = {
-        ok       => 0,
-        error    => $error,
-        profiles => [],
-        errors   => [],
+        ok          => 0,
+        error       => $error,
+        profiles    => [],
+        collections => [],
+        drivers     => [],
+        errors      => [],
     };
 };
 print j $payload;
@@ -4731,6 +5389,71 @@ eval {
     1;
 } or do {
     my $error = $@ || 'Unknown sql-dashboard profile delete failure';
+    $error =~ s/\s+\z//;
+    $payload = {
+        ok    => 0,
+        error => $error,
+    };
+};
+print j $payload;
+PERL
+}
+
+# _sql_dashboard_collections_save_code()
+# Builds the saved sql-dashboard collection-save Ajax handler.
+# Input: none.
+# Output: Perl source string.
+sub _sql_dashboard_collections_save_code {
+    return _sql_dashboard_profile_helpers() . <<'PERL';
+my $payload;
+eval {
+    my $collection = sql_dashboard_decode_collection_payload( params->{collection} );
+    my $original_name = sql_dashboard_trim( params->{original_name} );
+    my $path = sql_dashboard_collection_path( $collection->{name} );
+    if ( $original_name ne '' && $original_name ne $collection->{name} ) {
+        my $original_path = sql_dashboard_collection_path($original_name);
+        unlink $original_path if -f $original_path;
+    }
+    open my $fh, '>', $path or die "Unable to write $path: $!";
+    print {$fh} json_encode($collection);
+    close $fh or die "Unable to close $path: $!";
+    sql_dashboard_secure_file($path);
+    $payload = {
+        ok         => 1,
+        collection => $collection,
+    };
+    1;
+} or do {
+    my $error = $@ || 'Unknown sql-dashboard collection save failure';
+    $error =~ s/\s+\z//;
+    $payload = {
+        ok    => 0,
+        error => $error,
+    };
+};
+print j $payload;
+PERL
+}
+
+# _sql_dashboard_collections_delete_code()
+# Builds the saved sql-dashboard collection-delete Ajax handler.
+# Input: none.
+# Output: Perl source string.
+sub _sql_dashboard_collections_delete_code {
+    return _sql_dashboard_profile_helpers() . <<'PERL';
+my $payload;
+eval {
+    my $name = sql_dashboard_trim( params->{name} );
+    die "Missing collection name\n" if $name eq '';
+    my $path = sql_dashboard_collection_path($name);
+    unlink $path or die "Unable to remove $path: $!" if -e $path;
+    $payload = {
+        ok      => 1,
+        removed => $name,
+    };
+    1;
+} or do {
+    my $error = $@ || 'Unknown sql-dashboard collection delete failure';
     $error =~ s/\s+\z//;
     $payload = {
         ok    => 0,
@@ -4811,10 +5534,11 @@ eval {
         html    => join( "\n", @html ),
         results => \@results,
         details => {
-            profile_name => $resolved->{profile_name} || '',
-            driver       => $resolved->{driver},
-            dsn          => $resolved->{dsn},
-            user         => $resolved->{user},
+            profile_name  => $resolved->{profile_name} || '',
+            connection_id => $resolved->{connection_id} || '',
+            driver        => $resolved->{driver},
+            dsn           => $resolved->{dsn},
+            user          => $resolved->{user},
         },
     };
     1;

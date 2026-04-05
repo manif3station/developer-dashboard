@@ -48,13 +48,13 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.72', 'repo version bumped for the sql profile permission hardening release' );
-like( $pm, qr/^1\.72$/m, 'main POD version matches the module version' );
+is( $version, '1.73', 'repo version bumped for the sql workspace collections and shareable connection release' );
+like( $pm, qr/^1\.73$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.72$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.73$/m, 'dist.ini version matches the module version in the source tree' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.72"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.73"/, 'META.json version matches the module version in the built distribution' );
 }
 like( $changes, qr/^1\.72\s+2026-04-05$/m, 'Changes top entry matches the bumped version' );
 
@@ -131,8 +131,11 @@ for my $doc ( $readme, $pm ) {
     like( $doc, qr/dashboard cpan(?: <Module\.\.\.>| E<lt>Module\.\.\.E<gt>)?|C<dashboard cpan E<lt>Module\.\.\.E<gt>>/, 'docs describe the runtime-local dashboard cpan command' );
     like( $doc, qr/sql-dashboard/, 'docs describe the seeded sql-dashboard workspace' );
     like( $doc, qr/config\/sql-dashboard/, 'docs describe the runtime config/sql-dashboard profile storage path' );
+    like( $doc, qr/config\/sql-dashboard\/collections/, 'docs describe the runtime config/sql-dashboard collection storage path' );
+    like( $doc, qr/portable `connection` id|portable C<connection> id|dsn\|user/, 'docs describe the portable sql-dashboard connection id model' );
     like( $doc, qr/table_info|column_info/, 'docs describe generic DBI schema metadata browsing for sql-dashboard' );
     like( $doc, qr/SQLS_SEP.*INSTRUCTION_SEP|INSTRUCTION_SEP.*SQLS_SEP/s, 'docs describe programmable sql-dashboard statement separators' );
+    like( $doc, qr/singleton workers|singleton saved-Ajax workers|singleton saved Ajax workers/, 'docs describe singleton sql-dashboard Ajax workers' );
     like( $doc, qr/dashboard cpan DBD::Driver|DBD::\*/, 'docs describe optional DBD driver installation instead of bundling one database driver' );
     like( $doc, qr/t\/27-sql-dashboard-playwright\.t/, 'docs describe the sql-dashboard Playwright browser verification' );
     like( $doc, qr/bin\/dashboard|dashboard entrypoint|C<dashboard> entrypoint/, 'docs describe the dashboard cpan implementation as entrypoint-local' );

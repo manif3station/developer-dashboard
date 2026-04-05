@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-05 (Phase 38: SQL Collections And Shareable Connections)
+
+- Fixed the SQL workspace portability gap by replacing profile-name URL state with a portable `connection=dsn|user` id, rebuilding a draft profile from that shared id on machines that do not already have the saved connection, and auto-running the shared SQL only when a matching locally saved password already exists.
+- Fixed the missing SQL collection layer by persisting saved SQL under `./.developer-dashboard/config/sql-dashboard/collections/<collection-name>.json`, keeping collections independent from connection profiles, and restoring those collections as tabbed browser state on load.
+- Fixed the SQL driver-selection gap by replacing the free-text driver field with a dropdown of visible `DBD::*` modules that rewrites only the `dbi:<Driver>:` DSN prefix, moved all sql-dashboard saved Ajax endpoints onto singleton workers, and expanded the saved-Ajax plus Playwright coverage around the new flow.
+
 ## 2026-04-05 (Phase 37: SQL Profile Permission Hardening)
 
 - Fixed the SQL workspace profile-storage permission gap by tightening `./.developer-dashboard/config/sql-dashboard` to owner-only `0700` and every saved profile JSON file to owner-only `0600`.

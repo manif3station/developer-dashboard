@@ -1,5 +1,27 @@
 Revision history for Developer Dashboard
 
+1.73  2026-04-05
+    - fixed the sql-dashboard share-state portability gap by replacing local
+      profile-name URL state with a portable `connection=dsn|user` id,
+      rebuilding draft connection profiles from shared URLs when the receiving
+      machine does not already have the saved connection, and auto-running the
+      shared SQL only when a matching locally saved password already exists
+    - added bookmark-local SQL collection persistence under
+      `config/sql-dashboard/collections/<collection-name>.json`, kept those
+      collection files independent from connection profiles, tightened the
+      collection directory and files to owner-only `0700` / `0600`, and made
+      the workspace load saved collections as tabs
+    - replaced the sql-dashboard free-text driver field with an installed
+      `DBD::*` dropdown that rewrites only the `dbi:<Driver>:` DSN prefix, ran
+      the sql-dashboard saved Ajax endpoints through singleton workers, and
+      expanded `t/26-sql-dashboard.t` plus
+      `t/27-sql-dashboard-playwright.t` to cover the new browser and saved
+      Ajax flow
+    - updated README, main module POD, architecture/testing/integration/
+      security docs, and `SOFTWARE_SPEC.md` so the shipped SQL workspace
+      description matches the collection model, portable connection URLs, and
+      singleton bookmark Ajax design
+
 1.72  2026-04-05
     - fixed the sql-dashboard profile-permission gap by tightening
       `config/sql-dashboard` to `0700`, writing saved profile JSON files at

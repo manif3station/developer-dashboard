@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.72';
+our $VERSION = '1.73';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.72
+1.73
 
 =head1 INTRODUCTION
 
@@ -1433,18 +1433,31 @@ inside the bookmark runtime itself rather than as a separate product module.
 It stores connection profiles under
 F<config/sql-dashboard/E<lt>profile-nameE<gt>.json>, keeps that
 F<config/sql-dashboard> directory owner-only at C<0700>, writes each saved
-profile JSON file owner-only at C<0600>, keeps the active top-level tab,
-selected profile, selected schema table, and current SQL in the browser URL
-instead of a saved SQL file, renders connection profiles and schema tables as
-click-through tabs instead of one long vertical stack, executes SQL through
-generic C<DBI>, and uses DBI metadata calls such as C<table_info> and
-C<column_info> for the schema browser. It preserves programmable statement
-blocks through C<SQLS_SEP> and C<INSTRUCTION_SEP>, including C<STASH>,
-C<ROW>, C<BEFORE>, and C<AFTER> hooks, so result rows can still be
-transformed locally before rendering. No C<DBD::*> driver ships in the base
-tarball by default; install the one you need with C<dashboard cpan
-DBD::Driver>, and the bookmark will return explicit install guidance when a
-selected driver is missing.
+profile JSON file owner-only at C<0600>, stores saved SQL collections under
+F<config/sql-dashboard/collections/E<lt>collection-nameE<gt>.json> with the
+same owner-only C<0700> / C<0600> directory and file permissions, keeps the
+active top-level tab, portable C<connection> id, selected collection,
+selected saved SQL item, selected schema table, and current SQL in the
+browser URL instead of a saved SQL file, and treats SQL collections and
+connection profiles as separate concepts so the same saved SQL can run
+against different connections. Share URLs only carry the DSN-plus-user
+connection id without a password; if another machine already has a matching
+saved profile with a saved password, the bookmark reruns the shared SQL
+there, otherwise it opens a draft connection profile built from that
+connection id so the other user can add the local password and run it. The
+profile editor now renders the driver field as a dropdown of installed
+C<DBD::*> modules and rewrites only the C<dbi:E<lt>DriverE<gt>:> DSN prefix
+when you switch drivers. The bookmark renders connection profiles, SQL
+collections, collection items, and schema tables as click-through tabs
+instead of one long vertical stack, executes SQL through generic C<DBI>, and
+uses DBI metadata calls such as C<table_info> and C<column_info> for the
+schema browser. It preserves programmable statement blocks through
+C<SQLS_SEP> and C<INSTRUCTION_SEP>, including C<STASH>, C<ROW>, C<BEFORE>,
+and C<AFTER> hooks, so result rows can still be transformed locally before
+rendering. Its saved Ajax endpoints run through singleton workers. No
+C<DBD::*> driver ships in the base tarball by default; install the one you
+need with C<dashboard cpan DBD::Driver>, and the bookmark will return
+explicit install guidance when a selected driver is missing.
 
 =head2 Skills System
 
