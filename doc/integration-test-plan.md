@@ -163,19 +163,21 @@ For Windows verification outside the Linux container flow, run the checked-in
 Strawberry Perl smoke on a Windows host:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.46.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz
 ```
 
 For release-grade Windows compatibility claims, run the same smoke through the
-prepared QEMU Windows guest:
+host-side Windows VM helper:
 
 ```bash
-WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
-WINDOWS_SSH_USER=developer \
-WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.46.tar.gz \
-integration/windows/run-qemu-windows-smoke.sh
+WINDOWS_QEMU_ENV_FILE=.developer-dashboard/windows-qemu.env \
+integration/windows/run-host-windows-smoke.sh
 ```
+
+That helper loads reusable env-file settings, builds a fresh tarball when
+needed, and then delegates to `integration/windows/run-qemu-windows-smoke.sh`.
+The supported runtime baseline inside Windows is PowerShell plus Strawberry
+Perl. Git Bash is optional. Scoop is optional. They are setup helpers only.
 
 Build the tarball on the host and run the integration harness with:
 

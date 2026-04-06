@@ -1,5 +1,21 @@
 Revision history for Developer Dashboard
 
+1.77  2026-04-06
+    - added a rerunnable Windows VM verification path with
+      `integration/windows/run-host-windows-smoke.sh`,
+      `integration/windows/run-qemu-windows-smoke.sh`, and the optional
+      live `t/29-windows-qemu-smoke.t` gate under `t/`
+    - taught the Windows QEMU launcher to load reusable env-file settings,
+      recover from stale `kvm` group sessions via `sg kvm`, support a
+      Dockur-backed VM path, and auto-resolve the current 64-bit Strawberry
+      Perl MSI from the official Strawberry Perl release feed when needed
+    - updated the Strawberry/QEMU Windows smoke docs, README, main POD, and
+      `SOFTWARE_SPEC.md` so the supported Windows baseline stays explicit:
+      PowerShell plus Strawberry Perl, with Git Bash and Scoop treated only
+      as optional setup helpers
+    - tightened Windows integration asset coverage so the checked-in smoke
+      launchers must stay executable and version-agnostic
+
 1.76  2026-04-06
     - added a hide/show `Request Credentials` section to the seeded
       `api-dashboard` workspace, with bookmark-local `Basic`, `API Token`,

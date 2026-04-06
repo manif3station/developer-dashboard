@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: WINDOWS-QEMU-RERUN-GAP
+
+**Date:** 2026-04-06 15:10:00 UTC
+**Area:** Windows VM verification flow, host-side rerun ergonomics, and KVM session readiness
+**Symptom:** The repo had Windows smoke assets, but they still depended on tribal setup: the QEMU launcher was not wired behind a one-command host helper, the checked-in launcher itself was not executable, the current login session could miss the newly added `kvm` group even though the machine was configured correctly, and the Dockur-backed path still expected a hand-maintained Strawberry Perl installer URL
+**Why It Was Dangerous:** The project could claim Windows coverage on paper while future reruns failed immediately on permissions, stale setup assumptions, or missing executable bits, and the support boundary between PowerShell/Strawberry Perl and optional tools like Git Bash or Scoop stayed too implicit for a real release gate
+**Root Cause:** I had stopped at individual smoke scripts and not finished the operational path around them, so the repo still lacked a deterministic rerun entrypoint, a session-recovery path for `kvm`, executable-bit coverage, and a stable way to resolve the Windows Perl installer without baking stale release URLs into docs
+**How Ellen Solved It:** Added `integration/windows/run-host-windows-smoke.sh`, made the QEMU launcher load reusable env files, support both prepared-image and Dockur-backed paths, re-exec under `sg kvm` when the current shell had stale groups, auto-resolve the latest 64-bit Strawberry Perl MSI from the official Strawberry Perl release feed, tightened the asset tests around executable bits, and updated the README/POD/doc/spec language to state the supported Windows baseline explicitly
+**How To Detect Earlier Next Time:** Always try the checked-in host helper itself instead of only reading the script, verify launchers are executable in the repo, and probe `/dev/kvm` both directly and through `sg kvm` when a user says they already joined the `kvm` group
+**Prevention Rule:** Every heavy integration path needs one rerunnable checked-in host entrypoint, executable-bit coverage in `t/`, and an explicit support-boundary statement in the user docs so the release claim matches what operators can actually rerun
+**Verification:** `prove -lv t/13-integration-assets.t t/29-windows-qemu-smoke.t`, `bash -n integration/windows/run-qemu-windows-smoke.sh integration/windows/run-host-windows-smoke.sh`, `WINDOWS_QEMU_MODE=dockur WINDOWS_DOCKUR_TIMEOUT_SECS=30 integration/windows/run-qemu-windows-smoke.sh`
+**Related Files:** `integration/windows/run-host-windows-smoke.sh`, `integration/windows/run-qemu-windows-smoke.sh`, `integration/windows/run-strawberry-smoke.ps1`, `t/13-integration-assets.t`, `t/29-windows-qemu-smoke.t`, `doc/windows-testing.md`, `doc/testing.md`, `doc/integration-test-plan.md`, `doc/update-and-release.md`, `README.md`, `lib/Developer/Dashboard.pm`, `SOFTWARE_SPEC.md`
+
+---
+
 ## CODE: API-AUTH-SHADOW-GAP
 
 **Date:** 2026-04-06 01:35:00 UTC

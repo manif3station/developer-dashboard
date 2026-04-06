@@ -14,6 +14,9 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+# Purpose: run a command with logging and fail on non-zero exit.
+# Input: Command array and an optional label string.
+# Output: writes the command to stdout and throws on a non-zero exit code.
 function Invoke-LoggedCommand {
     param(
         [Parameter(Mandatory = $true)]
@@ -30,6 +33,9 @@ function Invoke-LoggedCommand {
     }
 }
 
+# Purpose: resolve the Strawberry Perl interpreter path for the Windows smoke.
+# Input: optional explicit Perl interpreter path.
+# Output: returns the absolute Perl interpreter path or throws if none is found.
 function Get-PerlBin {
     param([string]$Requested)
     if ($Requested -ne "") {
@@ -52,6 +58,9 @@ function Get-PerlBin {
     throw "Unable to find a Strawberry Perl interpreter"
 }
 
+# Purpose: resolve the installed dashboard command path.
+# Input: optional explicit dashboard executable path.
+# Output: returns the dashboard executable path or throws if it is missing from PATH.
 function Get-DashboardBin {
     param([string]$Requested)
     if ($Requested -ne "") {
@@ -66,6 +75,9 @@ function Get-DashboardBin {
     throw "Unable to find installed dashboard command in PATH"
 }
 
+# Purpose: assert that a text blob contains a required fragment.
+# Input: text to inspect, the required fragment, and a label for error reporting.
+# Output: returns nothing and throws if the fragment is absent.
 function Invoke-AssertContains {
     param(
         [Parameter(Mandatory = $true)]
@@ -83,6 +95,9 @@ function Invoke-AssertContains {
     }
 }
 
+# Purpose: assert that a text blob omits a forbidden fragment.
+# Input: text to inspect, the forbidden fragment, and a label for error reporting.
+# Output: returns nothing and throws if the fragment is present.
 function Invoke-AssertNotContains {
     param(
         [Parameter(Mandatory = $true)]
@@ -100,6 +115,9 @@ function Invoke-AssertNotContains {
     }
 }
 
+# Purpose: locate an Edge or Chrome browser binary for DOM smoke checks.
+# Input: none.
+# Output: returns a browser path or $null when no supported browser exists.
 function Get-BrowserBinary {
     $candidates = @(
         "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
@@ -117,6 +135,9 @@ function Get-BrowserBinary {
     return $null
 }
 
+# Purpose: wait until the dashboard HTTP endpoint responds.
+# Input: target URL string.
+# Output: returns when the URL responds with a non-5xx code or throws on timeout.
 function Wait-HttpOk {
     param([Parameter(Mandatory = $true)][string]$Url)
 
@@ -136,6 +157,9 @@ function Wait-HttpOk {
     throw "Timed out waiting for HTTP response from $Url"
 }
 
+# Purpose: dump the rendered DOM of a page through a real Windows browser.
+# Input: browser path, target URL, and browser user-data directory path.
+# Output: returns the dumped DOM as text or throws on browser failure.
 function Get-DumpDom {
     param(
         [Parameter(Mandatory = $true)][string]$Browser,
@@ -280,7 +304,7 @@ run-strawberry-smoke.ps1 - verify the built tarball under Strawberry Perl and Po
 
 =head1 SYNOPSIS
 
-  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.43.tar.gz
+  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz
 
 =head1 DESCRIPTION
 

@@ -258,6 +258,18 @@ The runtime should provide a command such as `dashboard cpan <Module...>` that:
 
 - installs requested Perl modules into the active runtime's local library tree
 - records those modules in `./.developer-dashboard/cpanfile`
+
+Windows support should follow the same boundary in code, docs, and release
+verification:
+
+- the supported baseline on Windows is PowerShell plus Strawberry Perl
+- Git Bash is optional and Scoop is optional; they are setup helpers, not runtime requirements
+- fast forced-Windows logic checks should stay in `t/`
+- a real Windows smoke should use `integration/windows/run-strawberry-smoke.ps1`
+- the rerunnable VM gate should use `integration/windows/run-host-windows-smoke.sh`
+  with reusable env-file settings that delegate to the lower-level QEMU
+  launcher
+- the Dockur-backed path should be able to auto-resolve the current 64-bit Strawberry Perl MSI from the official Strawberry Perl release feed instead of requiring a stale installer URL to be hard-coded in docs
 - keeps the implementation in the `dashboard` entrypoint instead of adding a dedicated SQL or CPAN manager product module
 - makes the runtime-local Perl library visible to bookmark Ajax workers and other dashboard-managed processes by deriving `local/lib/perl5` from the active runtime root
 - automatically installs `DBI` when a requested module is a `DBD::*` driver

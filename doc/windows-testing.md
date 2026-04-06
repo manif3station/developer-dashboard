@@ -5,9 +5,9 @@
 This document defines how Developer Dashboard proves Windows compatibility
 without relying on guesswork or POSIX-only assumptions.
 
-The supported Windows target is a Strawberry Perl install with PowerShell
-available. The verification flow is layered so fast tests catch regressions
-before the slower VM gate runs.
+The supported baseline on Windows is PowerShell plus Strawberry Perl. Git Bash optional. Scoop optional. They are setup helpers, not runtime
+requirements for the installed `dashboard` command. The verification flow is
+layered so fast tests catch regressions before the slower VM gate runs.
 
 ## Verification Layers
 
@@ -30,17 +30,30 @@ before the slower VM gate runs.
 
 3. Full-system QEMU smoke
 
-- boot a prepared Windows VM with `integration/windows/run-qemu-windows-smoke.sh`
-- copy the built tarball into the guest
-- run the same Strawberry Perl smoke inside the VM
+- run the one-command host helper `integration/windows/run-host-windows-smoke.sh`
+- that helper loads reusable `windows-qemu.env` settings, builds a fresh tarball when needed, and delegates to `integration/windows/run-qemu-windows-smoke.sh`
+- `run-qemu-windows-smoke.sh` supports two host paths:
+  - `WINDOWS_QEMU_MODE=prepared` for a prebuilt qcow2 image reached over SSH
+  - `WINDOWS_QEMU_MODE=dockur` for a KVM-backed `dockurr/windows` container with OEM and shared-folder bootstrap files
 - use this gate before claiming release-grade Windows compatibility
 
 ## Host Requirements
 
-- `qemu-system-x86_64` for the VM gate
-- a prepared Windows qcow2 image with Strawberry Perl, PowerShell, and OpenSSH
-- SSH access into the guest
-- a built tarball such as `Developer-Dashboard-1.46.tar.gz`
+- `qemu-system-x86_64` and `/dev/kvm` access for the prepared-image VM gate
+- Docker plus `/dev/kvm` access for the Dockur-backed VM gate
+- a reusable env file at `WINDOWS_QEMU_ENV_FILE`, `./.developer-dashboard/windows-qemu.env`, or `~/.developer-dashboard/windows-qemu.env`
+- either:
+  - a prepared Windows qcow2 image with Strawberry Perl, PowerShell, OpenSSH, and optionally Edge or Chrome
+  - or a Dockur OEM bootstrap configuration; `WINDOWS_STRAWBERRY_URL` is optional because the launcher can resolve the current 64-bit Strawberry Perl MSI from the official `releases.json` feed
+
+Example `windows-qemu.env`:
+
+```bash
+WINDOWS_QEMU_MODE=dockur
+WINDOWS_DOCKUR_VERSION=2022
+WINDOWS_RAM_MB=8192
+WINDOWS_CPU_COUNT=4
+```
 
 ## Commands
 
@@ -53,18 +66,20 @@ prove -lv t/07-core-units.t t/05-cli-smoke.t
 Run the Strawberry Perl smoke on a Windows host with:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.46.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz
 ```
 
-Run the full-system QEMU gate from a Linux host with:
+Run the full-system Windows VM gate from a Linux host with:
 
 ```bash
-WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
-WINDOWS_SSH_USER=developer \
-WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.46.tar.gz \
-integration/windows/run-qemu-windows-smoke.sh
+WINDOWS_QEMU_ENV_FILE=.developer-dashboard/windows-qemu.env \
+integration/windows/run-host-windows-smoke.sh
 ```
+
+The first Dockur-backed run can take a long time because it may need to
+download Windows media, complete unattended guest setup, install Strawberry
+Perl, and then run the smoke. The helper is meant to make that long path
+rerunnable, not instant.
 
 ## Release Rule
 

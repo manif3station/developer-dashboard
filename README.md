@@ -777,9 +777,12 @@ without requiring a Unix shell just to load the dashboard runtime.
 
 The checked-in Windows verification assets follow the same layered approach:
 fast forced-Windows unit coverage in `t/`, a real Strawberry Perl host smoke in
-`integration/windows/run-strawberry-smoke.ps1`, and a prepared full-system VM
-gate in `integration/windows/run-qemu-windows-smoke.sh` for release-grade
-Windows compatibility claims.
+`integration/windows/run-strawberry-smoke.ps1`, and a host-side rerun helper in
+`integration/windows/run-host-windows-smoke.sh` that delegates to
+`integration/windows/run-qemu-windows-smoke.sh` for release-grade Windows
+compatibility claims. The supported baseline on Windows is PowerShell plus
+Strawberry Perl. Git Bash is optional. Scoop is optional. They are setup
+helpers, not runtime requirements for the installed `dashboard` command.
 
 ### Browser Access Model
 
@@ -1161,16 +1164,21 @@ For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
 host:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.46.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz
 ```
 
-Before calling a release Windows-compatible, also run the same smoke through a
-prepared QEMU Windows guest:
+Before calling a release Windows-compatible, also run the same smoke through
+the host-side Windows VM helper:
 
 ```bash
-WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
-WINDOWS_SSH_USER=developer \
-WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.46.tar.gz \
-integration/windows/run-qemu-windows-smoke.sh
+WINDOWS_QEMU_ENV_FILE=.developer-dashboard/windows-qemu.env \
+integration/windows/run-host-windows-smoke.sh
 ```
+
+That helper keeps the Windows VM path rerunnable by loading a reusable env
+file, rebuilding the latest tarball when needed, and then delegating to the
+checked-in QEMU launcher. The supported baseline on Windows is PowerShell plus
+Strawberry Perl. Git Bash is optional. Scoop is optional. They are setup
+helpers only. In the Dockur-backed path, the launcher can resolve the latest
+64-bit Strawberry Perl MSI from Strawberry Perl's official `releases.json`
+feed so the env file does not need a pinned installer URL for every rerun.

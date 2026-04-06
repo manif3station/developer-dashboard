@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 2026-04-06 (Phase 42: Windows VM Smoke Rerun And Support Boundary)
+
+- Fixed the Windows smoke rerun gap by adding `integration/windows/run-host-windows-smoke.sh`, a one-command host helper that loads reusable `windows-qemu.env` settings, builds a fresh tarball when needed, and delegates to the checked-in QEMU launcher.
+- Fixed the stale-session KVM gap by teaching `integration/windows/run-qemu-windows-smoke.sh` to re-exec under `sg kvm` when the user has been added to the `kvm` group but the current shell has not picked that group up yet.
+- Fixed the Dockur bootstrap drift by adding a Dockur-backed Windows VM mode, official Strawberry Perl release-feed MSI auto-resolution, and updated docs/tests around the supported Windows runtime baseline: PowerShell plus Strawberry Perl, with Git Bash and Scoop kept optional.
+- Fixed the executable-bit blind spot by expanding `t/13-integration-assets.t` so the checked-in Windows smoke launchers must remain executable in the repo.
+
 ## 2026-04-06 (Phase 41: API Dashboard Request Credentials And Secure Persistence)
 
 - Fixed the missing `api-dashboard` request-auth flow by adding a hide/show workspace credentials panel with bookmark-local `Basic`, `API Token`, `API Key`, `OAuth2`, `Apple Login`, `Amazon Login`, `Facebook Login`, and `Microsoft Login` presets backed by Postman `request.auth` import/export.

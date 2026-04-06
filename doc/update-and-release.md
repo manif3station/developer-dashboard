@@ -254,19 +254,22 @@ For Windows-targeted changes, verify the built tarball under a real Strawberry
 Perl environment before release:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-1.46.tar.gz
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz
 ```
 
 For release-grade Windows compatibility claims, also run the prepared QEMU
 guest smoke:
 
 ```bash
-WINDOWS_IMAGE=/var/lib/vm/windows-dev.qcow2 \
-WINDOWS_SSH_USER=developer \
-WINDOWS_SSH_KEY=~/.ssh/id_ed25519 \
-TARBALL=/path/to/Developer-Dashboard-1.46.tar.gz \
-integration/windows/run-qemu-windows-smoke.sh
+WINDOWS_QEMU_ENV_FILE=.developer-dashboard/windows-qemu.env \
+integration/windows/run-host-windows-smoke.sh
 ```
+
+That helper keeps the Windows VM flow rerunnable by loading a reusable env
+file, rebuilding the latest tarball when needed, and then delegating to the
+checked-in QEMU launcher. The supported Windows runtime baseline is PowerShell
+plus Strawberry Perl. Git Bash is optional. Scoop is optional. They are setup
+helpers only.
 
 For browser-facing bookmark Ajax changes, also run a real browser smoke that
 verifies saved Ajax bindings are emitted before inline page scripts and that

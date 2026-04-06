@@ -13,6 +13,10 @@ ok( -f 'integration/browser/run-bookmark-browser-smoke.pl', 'bookmark browser sm
 ok( -f 'doc/windows-testing.md', 'Windows verification document exists' );
 ok( -f 'integration/windows/run-strawberry-smoke.ps1', 'Windows Strawberry Perl smoke script exists' );
 ok( -f 'integration/windows/run-qemu-windows-smoke.sh', 'Windows QEMU smoke launcher exists' );
+ok( -f 'integration/windows/run-host-windows-smoke.sh', 'Windows host rerun helper exists' );
+ok( -f 't/29-windows-qemu-smoke.t', 'Windows QEMU smoke test exists under t/' );
+ok( -x 'integration/windows/run-qemu-windows-smoke.sh', 'Windows QEMU smoke launcher is executable' );
+ok( -x 'integration/windows/run-host-windows-smoke.sh', 'Windows host rerun helper is executable' );
 
 open my $plan_fh, '<', 'doc/integration-test-plan.md' or die $!;
 my $plan = do { local $/; <$plan_fh> };
@@ -44,7 +48,13 @@ close $windows_doc_fh;
 like( $windows_doc, qr/Strawberry Perl/, 'Windows verification doc targets Strawberry Perl explicitly' );
 like( $windows_doc, qr/run-strawberry-smoke\.ps1/, 'Windows verification doc references the host-side Strawberry smoke script' );
 like( $windows_doc, qr/run-qemu-windows-smoke\.sh/, 'Windows verification doc references the QEMU smoke launcher' );
+like( $windows_doc, qr/run-host-windows-smoke\.sh/, 'Windows verification doc references the one-command host rerun helper' );
 like( $windows_doc, qr/qemu-system-x86_64/, 'Windows verification doc documents the QEMU dependency' );
+like( $windows_doc, qr/windows-qemu\.env|WINDOWS_QEMU_ENV_FILE/, 'Windows verification doc explains reusable QEMU environment configuration' );
+like( $windows_doc, qr/Git Bash.*optional|optional.*Git Bash/i, 'Windows verification doc treats Git Bash as optional' );
+like( $windows_doc, qr/Scoop.*optional|optional.*Scoop/i, 'Windows verification doc treats Scoop as optional' );
+like( $windows_doc, qr/PowerShell.*Strawberry Perl.*supported baseline|supported baseline.*PowerShell.*Strawberry Perl/is, 'Windows verification doc defines the supported Windows runtime baseline' );
+unlike( $windows_doc, qr/Developer-Dashboard-1\.\d+\.tar\.gz/, 'Windows verification doc avoids hard-coded release tarball versions' );
 
 open my $smoke_fh, '<', 'integration/browser/run-bookmark-browser-smoke.pl' or die $!;
 my $smoke = do { local $/; <$smoke_fh> };
@@ -109,6 +119,7 @@ like( $windows_smoke, qr/dashboard collector run/, 'Windows Strawberry smoke scr
 like( $windows_smoke, qr/Invoke-WebRequest/, 'Windows Strawberry smoke script verifies browser-facing HTTP routes with PowerShell web requests' );
 like( $windows_smoke, qr/msedge\.exe|chrome\.exe/, 'Windows Strawberry smoke script looks for a Windows browser binary for DOM smoke checks' );
 like( $windows_smoke, qr/__END__/, 'Windows Strawberry smoke script carries POD trailer' );
+unlike( $windows_smoke, qr/Developer-Dashboard-1\.\d+\.tar\.gz/, 'Windows Strawberry smoke script POD avoids hard-coded release tarball versions' );
 
 open my $qemu_fh, '<', 'integration/windows/run-qemu-windows-smoke.sh' or die $!;
 my $qemu = do { local $/; <$qemu_fh> };
@@ -116,7 +127,20 @@ close $qemu_fh;
 like( $qemu, qr/qemu-system-x86_64/, 'Windows QEMU launcher boots a Windows VM with qemu-system-x86_64' );
 like( $qemu, qr/scp|ssh/, 'Windows QEMU launcher copies the tarball and smoke script into the guest over SSH' );
 like( $qemu, qr/run-strawberry-smoke\.ps1/, 'Windows QEMU launcher runs the Strawberry smoke script inside the guest' );
+like( $qemu, qr/windows-qemu\.env|WINDOWS_QEMU_ENV_FILE/, 'Windows QEMU launcher supports a reusable environment file' );
+like( $qemu, qr/\/dev\/kvm|enable-kvm/, 'Windows QEMU launcher manages KVM availability explicitly' );
 like( $qemu, qr/__END__/, 'Windows QEMU launcher carries POD trailer' );
+unlike( $qemu, qr/Developer-Dashboard-1\.\d+\.tar\.gz/, 'Windows QEMU launcher POD avoids hard-coded release tarball versions' );
+
+open my $windows_host_fh, '<', 'integration/windows/run-host-windows-smoke.sh' or die $!;
+my $windows_host = do { local $/; <$windows_host_fh> };
+close $windows_host_fh;
+like( $windows_host, qr/dzil build/, 'Windows host rerun helper builds a fresh tarball when needed' );
+like( $windows_host, qr/run-qemu-windows-smoke\.sh/, 'Windows host rerun helper delegates to the QEMU launcher' );
+like( $windows_host, qr/windows-qemu\.env|WINDOWS_QEMU_ENV_FILE/, 'Windows host rerun helper supports the reusable environment file' );
+like( $windows_host, qr/Developer-Dashboard-\*\.tar\.gz|\*\.tar\.gz/, 'Windows host rerun helper uses version-agnostic tarball discovery' );
+like( $windows_host, qr/__END__/, 'Windows host rerun helper carries POD trailer' );
+unlike( $windows_host, qr/Developer-Dashboard-1\.\d+\.tar\.gz/, 'Windows host rerun helper POD avoids hard-coded release tarball versions' );
 
 if ( -f 'dist.ini' ) {
     open my $dist_fh, '<', 'dist.ini' or die $!;

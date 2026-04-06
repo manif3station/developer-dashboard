@@ -172,9 +172,12 @@ For Windows-targeted changes, keep the verification layered:
 
 - run the fast forced-Windows unit coverage in `t/`
 - run the real Strawberry Perl smoke on a Windows host with `integration/windows/run-strawberry-smoke.ps1`
-- run the full-system QEMU guest smoke with `integration/windows/run-qemu-windows-smoke.sh` before making a release-grade Windows compatibility claim
+- run the full-system QEMU guest smoke with `integration/windows/run-host-windows-smoke.sh` before making a release-grade Windows compatibility claim
 
 The Strawberry smoke verifies `dashboard shell ps`, `dashboard ps1`, one
 PowerShell-backed collector command, one saved Ajax PowerShell handler through
 `Invoke-WebRequest`, and a browser DOM dump through Edge or Chrome when either
 browser is present in the Windows environment.
+The supported Windows runtime baseline is PowerShell plus Strawberry Perl.
+Git Bash is optional. Scoop is optional. They remain setup helpers, not
+runtime requirements for Developer Dashboard itself.
