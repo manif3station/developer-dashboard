@@ -1,5 +1,36 @@
 Revision history for Developer Dashboard
 
+1.79  2026-04-06
+    - excluded `cover_db` from the release gather rules so a local
+      Devel::Cover run no longer leaks coverage artifacts into built tarballs
+    - tightened the release metadata coverage so the source tree now guards
+      the clean-tarball rule directly before `dzil build`
+    - kept the Windows Strawberry Perl path-resolution fix, the
+      Dockur/QEMU host-staged MSI flow, the Windows guest `cpanm --notest`
+      dependency policy, and the hardened SSL live-server regression test
+      from the earlier 1.78 work on the first clean release artifact
+
+1.78  2026-04-06
+    - fixed the Windows Strawberry Perl smoke bootstrap so a blank or
+      command-name-only Perl resolution no longer dies before the fallback
+      path resolver can run; the smoke now falls back through PowerShell
+      command metadata and `where.exe` before deriving Strawberry runtime
+      paths
+    - hardened the Windows QEMU/Dockur smoke flow so the host stages the
+      Strawberry Perl MSI into the OEM bundle, the launcher supports
+      configurable retained web/RDP ports plus reusable cached ISO workdirs,
+      and the Windows guest can install the built tarball with `cpanm --notest`
+      during the dependency layer while still running the full dashboard
+      runtime smoke afterward
+    - fixed `t/17-web-server-ssl.t` so an intermittent live TLS connect
+      failure reports the underlying `IO::Socket::SSL` error and fails the
+      remaining HTTPS assertions cleanly instead of crashing the test file on
+      an undefined socket handle
+    - updated the Windows verification docs, release metadata guard, main POD,
+      and software spec so the checked-in verification path matches the
+      shipped Windows smoke helpers and the verified Ubuntu blank-environment
+      tarball install path
+
 1.77  2026-04-06
     - added a rerunnable Windows VM verification path with
       `integration/windows/run-host-windows-smoke.sh`,

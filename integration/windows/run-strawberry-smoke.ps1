@@ -8,6 +8,10 @@ param(
 
     [string]$DashboardBin = "",
 
+    [string]$StatusRoot = "",
+
+    [switch]$SkipCpanmTests,
+
     [switch]$KeepTemp
 )
 
@@ -22,15 +26,84 @@ function Invoke-LoggedCommand {
         [Parameter(Mandatory = $true)]
         [string[]]$Command,
 
-        [string]$Label = "command"
+        [string]$Label = "command",
+
+        [string]$LogPath = ""
     )
 
     Write-Host "==> $Label"
     Write-Host ($Command -join ' ')
-    & $Command[0] @Command[1..($Command.Length - 1)]
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Label failed with exit code $LASTEXITCODE"
+    $savedErrorActionPreference = $ErrorActionPreference
+    $command_args = @()
+    if ($Command.Length -gt 1) {
+        $command_args = $Command[1..($Command.Length - 1)]
     }
+    try {
+        $ErrorActionPreference = 'Continue'
+        if ($LogPath -ne "") {
+            & $Command[0] @command_args 2>&1 | Tee-Object -FilePath $LogPath
+        }
+        else {
+            & $Command[0] @command_args
+        }
+    }
+    finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
+
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0) {
+        if ($LogPath -ne "" -and (Test-Path $LogPath)) {
+            throw "$Label failed with exit code $exitCode; see $LogPath"
+        }
+        throw "$Label failed with exit code $exitCode"
+    }
+}
+
+# Purpose: resolve a PowerShell command object into a usable filesystem path.
+# Input: a command object returned by Get-Command.
+# Output: returns an executable path string or an empty string when no path exists.
+function Get-CommandExecutablePath {
+    param($CommandInfo)
+
+    if (-not $CommandInfo) {
+        return ""
+    }
+
+    foreach ($propertyName in @("Source", "Path", "Definition")) {
+        $value = $CommandInfo.$propertyName
+        if ($null -ne $value -and $value -ne "" -and (Test-Path $value)) {
+            return $value
+        }
+    }
+
+    return ""
+}
+
+# Purpose: resolve an executable path through Windows where.exe for commands
+# that PowerShell can see by name but does not expose as a usable filesystem path.
+# Input: executable name such as perl.exe.
+# Output: returns the first matching filesystem path or an empty string.
+function Get-WhereExecutablePath {
+    param([Parameter(Mandatory = $true)][string]$CommandName)
+
+    $where = Get-Command where.exe -ErrorAction SilentlyContinue
+    if (-not $where) {
+        return ""
+    }
+
+    $matches = & $where.Source $CommandName 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        return ""
+    }
+
+    foreach ($match in @($matches)) {
+        if ($null -ne $match -and $match -ne "" -and (Test-Path $match)) {
+            return $match
+        }
+    }
+
+    return ""
 }
 
 # Purpose: resolve the Strawberry Perl interpreter path for the Windows smoke.
@@ -39,7 +112,20 @@ function Invoke-LoggedCommand {
 function Get-PerlBin {
     param([string]$Requested)
     if ($Requested -ne "") {
-        return $Requested
+        if (Test-Path $Requested) {
+            return $Requested
+        }
+
+        $requestedCommand = Get-Command $Requested -ErrorAction SilentlyContinue
+        $requestedPath = Get-CommandExecutablePath -CommandInfo $requestedCommand
+        if ($requestedPath -ne "") {
+            return $requestedPath
+        }
+
+        $requestedWherePath = Get-WhereExecutablePath -CommandName $Requested
+        if ($requestedWherePath -ne "") {
+            return $requestedWherePath
+        }
     }
 
     $candidates = @(
@@ -50,12 +136,123 @@ function Get-PerlBin {
 
     foreach ($candidate in $candidates) {
         $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
-        if ($cmd) {
-            return $cmd.Source
+        $commandPath = Get-CommandExecutablePath -CommandInfo $cmd
+        if ($commandPath -ne "") {
+            return $commandPath
+        }
+        $wherePath = Get-WhereExecutablePath -CommandName $candidate
+        if ($wherePath -ne "") {
+            return $wherePath
+        }
+        if (Test-Path $candidate) {
+            return $candidate
         }
     }
 
     throw "Unable to find a Strawberry Perl interpreter"
+}
+
+# Purpose: add the Strawberry Perl runtime directories to PATH for the current
+# PowerShell session so batch wrappers like cpanm.bat and dashboard resolve the
+# same perl and toolchain that the installer just added.
+# Input: resolved Perl interpreter path.
+# Output: returns nothing and mutates $env:PATH for the current session.
+function Set-StrawberryPath {
+    param([AllowEmptyString()][string]$ResolvedPerl = "")
+
+    if ([string]::IsNullOrWhiteSpace($ResolvedPerl)) {
+        $ResolvedPerl = Get-PerlBin -Requested "perl"
+    }
+
+    if ([string]::IsNullOrWhiteSpace($ResolvedPerl)) {
+        throw "Unable to resolve a filesystem path for Perl interpreter [blank]"
+    }
+
+    if (-not (Test-Path $ResolvedPerl)) {
+        $resolvedCommand = Get-Command $ResolvedPerl -ErrorAction SilentlyContinue
+        $commandPath = Get-CommandExecutablePath -CommandInfo $resolvedCommand
+        if ($commandPath -eq "") {
+            $commandPath = Get-WhereExecutablePath -CommandName $ResolvedPerl
+        }
+        if ($commandPath -eq "") {
+            throw "Unable to resolve a filesystem path for Perl interpreter [$ResolvedPerl]"
+        }
+        $ResolvedPerl = $commandPath
+    }
+
+    $perlBinDir = Split-Path -Parent $ResolvedPerl
+    $perlRoot = Split-Path -Parent $perlBinDir
+    $strawberryRoot = Split-Path -Parent $perlRoot
+    $cBinDir = Join-Path $strawberryRoot "c\\bin"
+    $siteBinDir = Join-Path $perlRoot "site\\bin"
+    $pathEntries = @($perlBinDir, $siteBinDir, $cBinDir)
+    $existing = @($env:PATH -split ';' | Where-Object { $_ -ne '' })
+
+    foreach ($entry in [System.Collections.Generic.List[string]]($pathEntries)) {
+        if (-not ($existing -contains $entry) -and (Test-Path $entry)) {
+            $existing = @($entry) + $existing
+        }
+    }
+
+    $env:PATH = ($existing -join ';')
+}
+
+# Purpose: resolve the cpanm command path for the Windows smoke, including
+# Strawberry-specific installed locations.
+# Input: resolved Perl interpreter path.
+# Output: returns an executable cpanm command path or $null if none is found.
+function Get-CpanmBin {
+    param([Parameter(Mandatory = $true)][string]$ResolvedPerl)
+
+    $perlRoot = Split-Path -Parent (Split-Path -Parent $ResolvedPerl)
+    $candidates = @(
+        "cpanm",
+        (Join-Path $perlRoot "bin\\cpanm.bat"),
+        (Join-Path $perlRoot "bin\\cpanm"),
+        "C:\\Strawberry\\perl\\bin\\cpanm.bat",
+        "C:\\Strawberry\\perl\\bin\\cpanm"
+    )
+
+    foreach ($candidate in $candidates) {
+        $cmd = Get-Command $candidate -ErrorAction SilentlyContinue
+        $commandPath = Get-CommandExecutablePath -CommandInfo $cmd
+        if ($commandPath -ne "") {
+            return $commandPath
+        }
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
+# Purpose: ensure cpanm exists so the Windows smoke can install the tarball the
+# same way as other integration flows.
+# Input: resolved Perl interpreter path.
+# Output: returns an executable cpanm command path or throws if bootstrap fails.
+function Install-CpanmIfMissing {
+    param([Parameter(Mandatory = $true)][string]$ResolvedPerl)
+
+    $cpanm = Get-CpanmBin -ResolvedPerl $ResolvedPerl
+    if ($cpanm) {
+        return $cpanm
+    }
+
+    $env:PERL_MM_USE_DEFAULT = "1"
+    Invoke-LoggedCommand -Label "bootstrap App::cpanminus" -Command @(
+        $ResolvedPerl,
+        "-MCPAN",
+        "-e",
+        "CPAN::Shell->notest(qw(App::cpanminus))"
+    )
+
+    $cpanm = Get-CpanmBin -ResolvedPerl $ResolvedPerl
+    if (-not $cpanm) {
+        throw "Unable to find cpanm after bootstrapping App::cpanminus"
+    }
+
+    return $cpanm
 }
 
 # Purpose: resolve the installed dashboard command path.
@@ -68,8 +265,9 @@ function Get-DashboardBin {
     }
 
     $cmd = Get-Command dashboard -ErrorAction SilentlyContinue
-    if ($cmd) {
-        return $cmd.Source
+    $commandPath = Get-CommandExecutablePath -CommandInfo $cmd
+    if ($commandPath -ne "") {
+        return $commandPath
     }
 
     throw "Unable to find installed dashboard command in PATH"
@@ -174,14 +372,110 @@ function Get-DumpDom {
     return ($dump | Out-String)
 }
 
+# Purpose: copy the source tarball to a local temporary file so cpanm does not
+# depend on a UNC path or file:// translation when running under Windows.
+# Input: source tarball path, which may point to a network share.
+# Output: returns a local temporary tarball path.
+function Copy-TarballToLocalTemp {
+    param([Parameter(Mandatory = $true)][string]$SourceTarball)
+
+    $destination = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetFileName($SourceTarball))
+    Copy-Item -Path $SourceTarball -Destination $destination -Force
+    return $destination
+}
+
+# Purpose: write the current Windows smoke phase into the shared status root
+# when one is available.
+# Input: short phase string.
+# Output: returns nothing and updates status.txt best-effort.
+function Write-PhaseStatus {
+    param([Parameter(Mandatory = $true)][string]$Phase)
+
+    if ($StatusRoot -eq "" -or -not (Test-Path $StatusRoot)) {
+        return
+    }
+
+    Set-Content -Path (Join-Path $StatusRoot "status.txt") -Value $Phase
+}
+
+# Purpose: copy a diagnostic artifact into the shared status root when one is
+# available.
+# Input: source file path and destination file name.
+# Output: returns nothing and copies the file best-effort.
+function Copy-StatusArtifact {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$DestinationName
+    )
+
+    if ($StatusRoot -eq "" -or -not (Test-Path $StatusRoot) -or -not (Test-Path $SourcePath)) {
+        return
+    }
+
+    Copy-Item -Path $SourcePath -Destination (Join-Path $StatusRoot $DestinationName) -Force
+}
+
+# Purpose: disable the Windows firewall inside the disposable smoke guest so
+# CPAN dependency tests that open local listeners do not stall on host policy.
+# Input: none.
+# Output: returns nothing or throws when the firewall cannot be disabled.
+function Disable-WindowsFirewallForSmoke {
+    $cmd = Get-Command Set-NetFirewallProfile -ErrorAction SilentlyContinue
+    if ($cmd) {
+        try {
+            Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
+            return
+        }
+        catch {
+            throw "Set-NetFirewallProfile failed: $($_.Exception.Message)"
+        }
+    }
+
+    Invoke-LoggedCommand -Label "disable Windows firewall for smoke" -Command @(
+        "netsh.exe",
+        "advfirewall",
+        "set",
+        "allprofiles",
+        "state",
+        "off"
+    )
+}
+
 $Perl = Get-PerlBin -Requested $PerlBin
+Set-StrawberryPath -ResolvedPerl $Perl
+$Cpanm = Install-CpanmIfMissing -ResolvedPerl $Perl
+Disable-WindowsFirewallForSmoke
 
 if (-not (Test-Path $Tarball)) {
     throw "Tarball does not exist: $Tarball"
 }
 
-Invoke-LoggedCommand -Label "install Developer Dashboard tarball with cpanm" -Command @("cpanm", $Tarball)
+Write-PhaseStatus -Phase "prepare-local-tarball"
+$LocalTarball = Copy-TarballToLocalTemp -SourceTarball $Tarball
+$cpanmLog = Join-Path ([System.IO.Path]::GetTempPath()) ("dd-win-cpanm-" + [guid]::NewGuid().ToString("N") + ".log")
+if ($StatusRoot -ne "" -and (Test-Path $StatusRoot)) {
+    $cpanmLog = Join-Path $StatusRoot "cpanm-install.log"
+}
+try {
+    Write-PhaseStatus -Phase "install-tarball"
+    $cpanmCommand = @($Cpanm, "--verbose")
+    if ($SkipCpanmTests) {
+        $cpanmCommand += "--notest"
+    }
+    $cpanmCommand += $LocalTarball
+    Invoke-LoggedCommand -Label "install Developer Dashboard tarball with cpanm" -Command $cpanmCommand -LogPath $cpanmLog
+}
+catch {
+    Copy-StatusArtifact -SourcePath $cpanmLog -DestinationName "cpanm-install.log"
+    if (Test-Path $cpanmLog) {
+        $cpanmTranscript = Get-Content -Path $cpanmLog -Raw
+        throw "$($_.Exception.Message)`n$cpanmTranscript"
+    }
+    throw
+}
+Copy-StatusArtifact -SourcePath $cpanmLog -DestinationName "cpanm-install.log"
 
+Write-PhaseStatus -Phase "locate-dashboard-bin"
 $Dashboard = Get-DashboardBin -Requested $DashboardBin
 
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("dd-win-smoke-" + [guid]::NewGuid().ToString("N"))
@@ -228,6 +522,7 @@ $configJson = @"
 "@
 Set-Content -Path (Join-Path $configRoot "config.json") -Value $configJson
 
+Write-PhaseStatus -Phase "bootstrap-powershell"
 $psBootstrap = & $Dashboard shell ps | Out-String
 if ($LASTEXITCODE -ne 0) {
     throw "dashboard shell ps failed with exit code $LASTEXITCODE"
@@ -246,6 +541,7 @@ if ([string]::IsNullOrWhiteSpace($promptText)) {
 
 Push-Location $projectRoot
 try {
+    Write-PhaseStatus -Phase "run-page-and-collector-checks"
     Invoke-LoggedCommand -Label "dashboard page list" -Command @($Dashboard, "page", "list")
     Invoke-LoggedCommand -Label "dashboard collector run windows.collector" -Command @($Dashboard, "collector", "run", "windows.collector")
 
@@ -257,8 +553,10 @@ try {
 
     Invoke-LoggedCommand -Label "dashboard auth add-user helper smoke-pass-123" -Command @($Dashboard, "auth", "add-user", "helper", "smoke-pass-123")
 
+    Write-PhaseStatus -Phase "start-dashboard-server"
     $serve = Start-Process -FilePath $Dashboard -ArgumentList @("serve", "--host", "127.0.0.1", "--port", $Port) -PassThru -NoNewWindow
     try {
+        Write-PhaseStatus -Phase "wait-for-http"
         Wait-HttpOk -Url "http://127.0.0.1:$Port/"
 
         $root = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/"
@@ -272,6 +570,7 @@ try {
 
         $browser = Get-BrowserBinary
         if ($browser) {
+            Write-PhaseStatus -Phase "browser-dom-check"
             $dom = Get-DumpDom -Browser $browser -Url "http://127.0.0.1:$Port/app/sample" -UserDataDir $profileRoot
             Invoke-AssertContains -Text $dom -Fragment "hello from windows smoke" -Label "browser DOM"
         }
@@ -293,6 +592,7 @@ finally {
     }
 }
 
+Write-PhaseStatus -Phase "success"
 Write-Host "Windows Strawberry Perl smoke passed"
 
 <#

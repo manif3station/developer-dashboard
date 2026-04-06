@@ -48,16 +48,17 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.77', 'repo version bumped for the Windows VM smoke rerun release' );
-like( $pm, qr/^1\.77$/m, 'main POD version matches the module version' );
+is( $version, '1.79', 'repo version bumped for the clean Windows path-fix and packaging-hygiene release' );
+like( $pm, qr/^1\.79$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.77$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.79$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
+    like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.77"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.79"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.77\s+2026-04-06$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.79\s+2026-04-06$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(

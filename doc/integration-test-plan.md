@@ -178,6 +178,9 @@ That helper loads reusable env-file settings, builds a fresh tarball when
 needed, and then delegates to `integration/windows/run-qemu-windows-smoke.sh`.
 The supported runtime baseline inside Windows is PowerShell plus Strawberry
 Perl. Git Bash is optional. Scoop is optional. They are setup helpers only.
+In the Dockur-backed path, the host launcher stages the Strawberry Perl MSI
+into the OEM bundle and the Windows guest currently installs the tarball with
+`cpanm --notest` before running the real dashboard smoke checks.
 
 Build the tarball on the host and run the integration harness with:
 

@@ -220,6 +220,10 @@ tar -tzf Developer-Dashboard-1.46.tar.gz | grep run-host-integration.sh
 cpanm /tmp/Developer-Dashboard-1.46.tar.gz -v
 ```
 
+The release gather rules must also exclude local coverage output such as
+`cover_db`, so a covered test run before `dzil build` does not leak
+Devel::Cover artifacts into the public tarball.
+
 The installed executable audit should also confirm that the built tarball
 exports only `dashboard` into the global PATH. Generic helper names such as
 `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, and

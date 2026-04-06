@@ -35,6 +35,9 @@ layered so fast tests catch regressions before the slower VM gate runs.
 - `run-qemu-windows-smoke.sh` supports two host paths:
   - `WINDOWS_QEMU_MODE=prepared` for a prebuilt qcow2 image reached over SSH
   - `WINDOWS_QEMU_MODE=dockur` for a KVM-backed `dockurr/windows` container with OEM and shared-folder bootstrap files
+- in the Dockur-backed path, the host launcher stages the Strawberry Perl MSI
+  into the OEM bundle and can keep retained guests on configurable host web
+  and RDP ports for reruns
 - use this gate before claiming release-grade Windows compatibility
 
 ## Host Requirements
@@ -80,6 +83,12 @@ The first Dockur-backed run can take a long time because it may need to
 download Windows media, complete unattended guest setup, install Strawberry
 Perl, and then run the smoke. The helper is meant to make that long path
 rerunnable, not instant.
+
+Inside the Windows guest smoke, the tarball install currently uses
+`cpanm --notest` for third-party dependency setup. The release-grade
+verification still comes from the Developer Dashboard smoke that runs after
+that install step: `dashboard shell ps`, `dashboard ps1`, collector, saved
+Ajax, web, and browser checks still execute in the guest.
 
 ## Release Rule
 

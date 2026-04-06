@@ -270,6 +270,14 @@ verification:
   with reusable env-file settings that delegate to the lower-level QEMU
   launcher
 - the Dockur-backed path should be able to auto-resolve the current 64-bit Strawberry Perl MSI from the official Strawberry Perl release feed instead of requiring a stale installer URL to be hard-coded in docs
+- the Dockur-backed path should be able to stage that Strawberry Perl MSI from
+  the Linux host into the OEM bundle and keep retained guests on configurable
+  host web/RDP ports for reruns
+- the Windows guest may use `cpanm --notest` for third-party dependency setup,
+  but the dashboard-specific Windows smoke after install must still exercise
+  the real CLI, collector, Ajax, web, and browser paths
+- release tarballs must exclude local coverage output such as `cover_db` even
+  when the source tree just finished a Devel::Cover run before `dzil build`
 - keeps the implementation in the `dashboard` entrypoint instead of adding a dedicated SQL or CPAN manager product module
 - makes the runtime-local Perl library visible to bookmark Ajax workers and other dashboard-managed processes by deriving `local/lib/perl5` from the active runtime root
 - automatically installs `DBI` when a requested module is a `DBD::*` driver

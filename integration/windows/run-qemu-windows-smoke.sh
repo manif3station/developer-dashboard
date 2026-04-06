@@ -14,12 +14,17 @@ WINDOWS_DOCKUR_VERSION="${WINDOWS_DOCKUR_VERSION:-11}"
 WINDOWS_DOCKUR_NAME="${WINDOWS_DOCKUR_NAME:-dd-windows-smoke}"
 WINDOWS_DOCKUR_WORKDIR="${WINDOWS_DOCKUR_WORKDIR:-$ROOT_DIR/.developer-dashboard/windows-dockur}"
 WINDOWS_DOCKUR_TIMEOUT_SECS="${WINDOWS_DOCKUR_TIMEOUT_SECS:-7200}"
+WINDOWS_DOCKUR_WEB_PORT="${WINDOWS_DOCKUR_WEB_PORT:-8006}"
+WINDOWS_DOCKUR_RDP_PORT="${WINDOWS_DOCKUR_RDP_PORT:-3389}"
+WINDOWS_SKIP_CPANM_TESTS="${WINDOWS_SKIP_CPANM_TESTS:-1}"
 WINDOWS_STRAWBERRY_URL="${WINDOWS_STRAWBERRY_URL:-}"
 WINDOWS_DOCKUR_USERNAME="${WINDOWS_DOCKUR_USERNAME:-developer}"
 WINDOWS_DOCKUR_PASSWORD="${WINDOWS_DOCKUR_PASSWORD:-developer-pass-123}"
+WINDOWS_DOCKUR_KEEP_RUNNING="${WINDOWS_DOCKUR_KEEP_RUNNING:-1}"
 DD_WINDOWS_KVM_REEXEC="${DD_WINDOWS_KVM_REEXEC:-0}"
 QEMU_PID=""
 DOCKUR_STARTED=0
+DOCKUR_LOG_PID=""
 
 load_windows_env() {
   # Purpose: import reusable Windows smoke settings from an env file.
@@ -108,6 +113,33 @@ resolve_strawberry_url() {
   export WINDOWS_STRAWBERRY_URL
 }
 
+prepare_strawberry_installer() {
+  # Purpose: cache the Strawberry Perl MSI in the OEM folder so Windows setup
+  # does not depend on a live in-guest HTTP download before the smoke starts.
+  # Input: resolved WINDOWS_STRAWBERRY_URL plus the Dockur OEM workdir.
+  # Output: writes strawberry-perl-installer.msi into the OEM folder when missing.
+  local oem_dir="$WINDOWS_DOCKUR_WORKDIR/oem"
+  local installer_path="$oem_dir/strawberry-perl-installer.msi"
+
+  mkdir -p "$oem_dir"
+  if [[ -s "$installer_path" ]]; then
+    return
+  fi
+
+  perl -MLWP::UserAgent -e '
+    use strict;
+    use warnings;
+
+    my ( $url, $target ) = @ARGV;
+    die "missing Strawberry Perl URL\n" if !defined $url || $url eq q{};
+    die "missing Strawberry Perl target path\n" if !defined $target || $target eq q{};
+
+    my $ua = LWP::UserAgent->new( timeout => 120 );
+    my $res = $ua->mirror( $url, $target );
+    die $res->status_line . "\n" if !$res->is_success && $res->code != 304;
+  ' "$WINDOWS_STRAWBERRY_URL" "$installer_path"
+}
+
 prepare_dockur_oem_bundle() {
   # Purpose: stage the Dockur OEM and shared-folder files used by the Windows smoke.
   # Input: the built tarball path plus optional Windows Strawberry installer URL.
@@ -119,6 +151,7 @@ prepare_dockur_oem_bundle() {
   local install_bat="$oem_dir/install.bat"
 
   resolve_strawberry_url
+  prepare_strawberry_installer
   mkdir -p "$storage_dir" "$shared_dir" "$oem_dir"
   cp "$TARBALL" "$shared_dir/"
   cp "$ROOT_DIR/integration/windows/run-strawberry-smoke.ps1" "$oem_dir/"
@@ -144,19 +177,32 @@ function Write-Status {
 try {
     Write-Status -Name "status.txt" -Value "starting"
     \$shared = "\\\\host.lan\\Data"
+    Write-Status -Name "status.txt" -Value "locate-tarball"
     \$tarball = Get-ChildItem -Path \$shared -Filter "Developer-Dashboard-*.tar.gz" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if (-not \$tarball) {
         throw "Unable to locate Developer Dashboard tarball in \$shared"
     }
 
+    Write-Status -Name "status.txt" -Value "locate-strawberry-perl"
     \$perl = Get-Command perl -ErrorAction SilentlyContinue
     if (-not \$perl) {
+        Write-Status -Name "status.txt" -Value "install-strawberry-perl"
         \$installer = "C:\\OEM\\strawberry-perl-installer.msi"
-        Invoke-WebRequest -UseBasicParsing -Uri "$WINDOWS_STRAWBERRY_URL" -OutFile \$installer
+        if (-not (Test-Path \$installer)) {
+            throw "Unable to find staged Strawberry Perl installer at \$installer"
+        }
         Start-Process msiexec.exe -ArgumentList @('/i', \$installer, '/qn', '/norestart') -Wait
     }
 
-    & "C:\\OEM\\run-strawberry-smoke.ps1" -Tarball \$tarball.FullName
+    Write-Status -Name "status.txt" -Value "run-strawberry-smoke"
+    \$smokeArgs = @(
+        '-Tarball', \$tarball.FullName,
+        '-StatusRoot', \$shared
+    )
+    if ("$WINDOWS_SKIP_CPANM_TESTS" -eq "1") {
+        \$smokeArgs += '-SkipCpanmTests'
+    }
+    & "C:\\OEM\\run-strawberry-smoke.ps1" @smokeArgs
     Write-Status -Name "status.txt" -Value "success"
 }
 catch {
@@ -223,30 +269,43 @@ run_dockur_smoke() {
   local shared_dir="$WINDOWS_DOCKUR_WORKDIR/shared"
   local status_file="$shared_dir/status.txt"
   local error_file="$shared_dir/error.txt"
+  local host_log_file="$shared_dir/dockur-host.log"
+  local container_log_file="$shared_dir/dockur-container.log"
 
   prepare_dockur_oem_bundle
   rm -f "$status_file" "$error_file"
 
-  echo "==> start Dockur Windows container"
-  docker rm -f "$WINDOWS_DOCKUR_NAME" >/dev/null 2>&1 || true
-  docker run -d \
-    --name "$WINDOWS_DOCKUR_NAME" \
-    --device=/dev/kvm \
-    --device=/dev/net/tun \
-    --cap-add NET_ADMIN \
-    -e "VERSION=$WINDOWS_DOCKUR_VERSION" \
-    -e "RAM_SIZE=${WINDOWS_RAM_MB}M" \
-    -e "CPU_CORES=$WINDOWS_CPU_COUNT" \
-    -e "USERNAME=$WINDOWS_DOCKUR_USERNAME" \
-    -e "PASSWORD=$WINDOWS_DOCKUR_PASSWORD" \
-    -p 8006:8006 \
-    -p 3389:3389/tcp \
-    -p 3389:3389/udp \
-    -v "$WINDOWS_DOCKUR_WORKDIR/storage:/storage" \
-    -v "$WINDOWS_DOCKUR_WORKDIR/shared:/shared" \
-    -v "$WINDOWS_DOCKUR_WORKDIR/oem:/oem" \
-    "$WINDOWS_DOCKUR_IMAGE" >/dev/null
-  DOCKUR_STARTED=1
+  local container_id=""
+  if docker ps -a --format '{{.Names}}' | grep -Fxq "$WINDOWS_DOCKUR_NAME"; then
+    echo "==> reusing existing Dockur Windows container"
+    container_id="$(docker ps -a --filter "name=^${WINDOWS_DOCKUR_NAME}$" --format '{{.ID}}' | head -n1)"
+    if ! docker ps --format '{{.Names}}' | grep -Fxq "$WINDOWS_DOCKUR_NAME"; then
+      docker start "$WINDOWS_DOCKUR_NAME" >/dev/null
+    fi
+  else
+    echo "==> start Dockur Windows container"
+    container_id="$(docker run -d \
+      --name "$WINDOWS_DOCKUR_NAME" \
+      --device=/dev/kvm \
+      --device=/dev/net/tun \
+      --cap-add NET_ADMIN \
+      -e "VERSION=$WINDOWS_DOCKUR_VERSION" \
+      -e "RAM_SIZE=${WINDOWS_RAM_MB}M" \
+      -e "CPU_CORES=$WINDOWS_CPU_COUNT" \
+      -e "USERNAME=$WINDOWS_DOCKUR_USERNAME" \
+      -e "PASSWORD=$WINDOWS_DOCKUR_PASSWORD" \
+      -p "${WINDOWS_DOCKUR_WEB_PORT}:8006" \
+      -p "${WINDOWS_DOCKUR_RDP_PORT}:3389/tcp" \
+      -p "${WINDOWS_DOCKUR_RDP_PORT}:3389/udp" \
+      -v "$WINDOWS_DOCKUR_WORKDIR/storage:/storage" \
+      -v "$WINDOWS_DOCKUR_WORKDIR/shared:/shared" \
+      -v "$WINDOWS_DOCKUR_WORKDIR/oem:/oem" \
+      "$WINDOWS_DOCKUR_IMAGE")"
+    DOCKUR_STARTED=1
+  fi
+  : >"$container_log_file"
+  docker logs -f "$container_id" >"$container_log_file" 2>&1 &
+  DOCKUR_LOG_PID="$!"
 
   echo "==> wait for Dockur Windows smoke marker"
   local deadline=$(( $(date +%s) + WINDOWS_DOCKUR_TIMEOUT_SECS ))
@@ -264,6 +323,18 @@ run_dockur_smoke() {
         echo "Dockur Windows smoke failed" >&2
         exit 1
       fi
+    fi
+    if ! docker ps -a --format '{{.Names}}' | grep -Fxq "$WINDOWS_DOCKUR_NAME"; then
+      {
+        echo "Dockur Windows container disappeared before reporting success"
+        [[ -f "$status_file" ]] && {
+          echo
+          echo "last status:"
+          cat "$status_file"
+        }
+      } >"$host_log_file"
+      cat "$host_log_file" >&2
+      exit 1
     fi
     sleep 10
   done
@@ -289,7 +360,13 @@ cleanup() {
     wait "$QEMU_PID" || true
   fi
   if [[ "$DOCKUR_STARTED" -eq 1 ]]; then
-    docker rm -f "$WINDOWS_DOCKUR_NAME" >/dev/null 2>&1 || true
+    if [[ -n "$DOCKUR_LOG_PID" ]] && kill -0 "$DOCKUR_LOG_PID" 2>/dev/null; then
+      kill "$DOCKUR_LOG_PID" >/dev/null 2>&1 || true
+      wait "$DOCKUR_LOG_PID" >/dev/null 2>&1 || true
+    fi
+    if [[ "$WINDOWS_DOCKUR_KEEP_RUNNING" != "1" ]]; then
+      docker rm -f "$WINDOWS_DOCKUR_NAME" >/dev/null 2>&1 || true
+    fi
   fi
 }
 trap cleanup EXIT

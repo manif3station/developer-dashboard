@@ -616,15 +616,23 @@ sub _mode_octal {
         Timeout         => 5,
     );
     ok( $https_socket, 'live SSL frontend accepts a direct TLS client on the public port' );
-    print {$https_socket} "GET / HTTP/1.1\r\nHost: 127.0.0.1:$port\r\nConnection: close\r\n\r\n"
-      or die "Unable to write HTTPS test request: $!";
-    my $https_raw = do {
-        local $/;
-        <$https_socket>;
-    };
-    close $https_socket;
-    like( $https_raw, qr/^HTTP\/1\.1 200 OK\r\n/, 'live SSL frontend still serves HTTPS on the public port' );
-    like( $https_raw, qr/\r\n\r\nOK\z/s, 'live SSL frontend preserves the HTTPS app response body' );
+    my $https_raw = '';
+    if ($https_socket) {
+        print {$https_socket} "GET / HTTP/1.1\r\nHost: 127.0.0.1:$port\r\nConnection: close\r\n\r\n"
+          or die "Unable to write HTTPS test request: $!";
+        $https_raw = do {
+            local $/;
+            <$https_socket>;
+        };
+        close $https_socket;
+        like( $https_raw, qr/^HTTP\/1\.1 200 OK\r\n/, 'live SSL frontend still serves HTTPS on the public port' );
+        like( $https_raw, qr/\r\n\r\nOK\z/s, 'live SSL frontend preserves the HTTPS app response body' );
+    }
+    else {
+        diag( 'IO::Socket::SSL connect error: ' . ( IO::Socket::SSL::errstr() || 'unknown SSL error' ) );
+        fail('live SSL frontend still serves HTTPS on the public port');
+        fail('live SSL frontend preserves the HTTPS app response body');
+    }
 
     kill 'TERM', $pid;
     waitpid( $pid, 0 );

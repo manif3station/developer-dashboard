@@ -4,6 +4,36 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: COVERAGE-ARTIFACT-LEAK
+
+**Date:** 2026-04-06 23:59:00 UTC
+**Area:** release packaging, Dist::Zilla gather rules, and artifact hygiene
+**Symptom:** The first `1.78` tarball built cleanly and passed built-dist checks, but it still shipped `cover_db/` because the repo had just finished a Devel::Cover run before `dzil build`
+**Why It Was Dangerous:** It bloated the public distribution with local coverage data, proved the release gather rules were trusting the working tree too much, and would have reused a dirty tarball unless the artifact itself was inspected directly
+**Root Cause:** I verified coverage before build, but the gather rules did not exclude `cover_db`, and the release metadata tests only checked versioning and dependency hygiene instead of asserting that local coverage artifacts stay out of the dist
+**How Ellen Solved It:** Added explicit `cover_db` exclusions to the source gather rules, tightened the release metadata test to enforce that exclusion, and bumped to the next clean version instead of reusing the dirty `1.78` tarball
+**How To Detect Earlier Next Time:** Always inspect the built tarball contents after any covered run, not just the test results, and treat local artifact directories as first-class dist exclusions
+**Prevention Rule:** Release gather rules and release metadata tests must explicitly exclude local coverage artifacts such as `cover_db` before any tarball is accepted as shippable
+**Verification:** `prove -lv t/15-release-metadata.t`, `dzil build`, `tar -tzf Developer-Dashboard-1.79.tar.gz | rg '^Developer-Dashboard-1.79/cover_db/'`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `dist.ini`, `MANIFEST.SKIP`, `t/15-release-metadata.t`, `Changes`, `FIXED_BUGS.md`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/update-and-release.md`, `SOFTWARE_SPEC.md`
+
+---
+
+## CODE: WINDOWS-PATH-BIND-TRAP
+
+**Date:** 2026-04-06 22:40:00 UTC
+**Area:** Windows PowerShell smoke bootstrap, executable path resolution, and test-failure quality
+**Symptom:** The Windows first-boot smoke could install Strawberry Perl, but then died before the real dashboard smoke because `Set-StrawberryPath` rejected an empty `ResolvedPerl` argument at the parameter-binding layer, and the SSL live-server test could still crash the test file by dereferencing an undefined `IO::Socket::SSL` handle after a failed connect
+**Why It Was Dangerous:** It created the illusion that the next blocker was deep Windows runtime behavior when the real failure was still in the smoke harness, and the SSL regression test could hide the true TLS error behind an avoidable Perl exception instead of producing a clean failing assertion
+**Root Cause:** I assumed the fallback resolver inside `Set-StrawberryPath` would run even when the argument was blank, but PowerShell rejected the call before the function body executed; in parallel, I treated an `ok($socket)` assertion as enough and still dereferenced the handle unconditionally afterward
+**How Ellen Solved It:** Allowed empty `ResolvedPerl` input so the fallback resolver can run, added Windows-native `where.exe` path resolution on top of PowerShell command metadata, staged the Windows smoke around real executable paths instead of command names, and hardened `t/17-web-server-ssl.t` so a failed TLS connect now reports the SSL error and fails cleanly without crashing the file
+**How To Detect Earlier Next Time:** When a Windows harness passes command names around, test the blank-path case explicitly and remember that PowerShell parameter binding can fail before the body runs; for socket tests, always exercise the failure branch and confirm the file still reaches `done_testing`
+**Prevention Rule:** Windows smoke helpers must resolve command names into filesystem paths before deriving runtime directories, and tests must never dereference a resource after an assertion says it may be undef
+**Verification:** `prove -lv t/13-integration-assets.t`, `prove -lv t/17-web-server-ssl.t`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `integration/windows/run-strawberry-smoke.ps1`, `integration/windows/run-qemu-windows-smoke.sh`, `t/13-integration-assets.t`, `t/17-web-server-ssl.t`, `doc/windows-testing.md`, `doc/testing.md`, `doc/integration-test-plan.md`, `README.md`, `lib/Developer/Dashboard.pm`, `SOFTWARE_SPEC.md`
+
+---
+
 ## CODE: WINDOWS-QEMU-RERUN-GAP
 
 **Date:** 2026-04-06 15:10:00 UTC

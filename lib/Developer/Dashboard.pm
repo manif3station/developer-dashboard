@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.77';
+our $VERSION = '1.79';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.77
+1.79
 
 =head1 INTRODUCTION
 
@@ -786,6 +786,10 @@ Build the distribution:
   rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
   dzil build
 
+The release gather rules exclude local coverage output such as F<cover_db>, so
+covered runs before C<dzil build> do not leak Devel::Cover artifacts into the
+shipped tarball.
+
 Run the CLI directly from the repository:
 
   perl -Ilib bin/dashboard init
@@ -1141,7 +1145,10 @@ helper in F<integration/windows/run-host-windows-smoke.sh> that delegates to
 F<integration/windows/run-qemu-windows-smoke.sh> for release-grade Windows
 compatibility claims. The supported baseline on Windows is PowerShell plus
 Strawberry Perl. Git Bash is optional. Scoop is optional. They are setup
-helpers, not runtime requirements for the installed C<dashboard> command.
+helpers, not runtime requirements for the installed C<dashboard> command. In
+the Dockur-backed path, the launcher stages the Strawberry Perl MSI from the
+Linux host into the OEM bundle and can keep multiple retained Windows guests
+alive on configurable host web/RDP ports while it reruns the same smoke.
 
 =head2 Browser Access Model
 
@@ -1385,6 +1392,9 @@ Strawberry Perl. Git Bash is optional. Scoop is optional. They are setup
 helpers only. In the Dockur-backed path, the launcher can resolve the latest
 64-bit Strawberry Perl MSI from Strawberry Perl's official C<releases.json>
 feed so the env file does not need a pinned installer URL for every rerun.
+That same Windows guest smoke can install the tarball with C<cpanm --notest>
+for third-party dependency setup while still running the full Developer
+Dashboard CLI, collector, Ajax, web, and browser smoke afterward.
 
 =head2 Updating Runtime State
 

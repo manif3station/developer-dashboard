@@ -145,6 +145,8 @@ This integration path builds the distribution tarball on the host with
 `dzil build`, runs the prebuilt `dd-int-test:latest` container with only that
 tarball mounted into it, installs the tarball with `cpanm`, and then
 exercises the installed `dashboard` command inside the clean Perl container.
+The release gather rules also exclude local `cover_db` output so a covered
+host run does not contaminate the tarball under test.
 
 The shipped runtime-manager lifecycle checks now also fall back to `/proc`
 socket ownership scans when that prebuilt image does not include `ss`, and
@@ -178,6 +180,10 @@ The Strawberry smoke verifies `dashboard shell ps`, `dashboard ps1`, one
 PowerShell-backed collector command, one saved Ajax PowerShell handler through
 `Invoke-WebRequest`, and a browser DOM dump through Edge or Chrome when either
 browser is present in the Windows environment.
+In the Dockur-backed guest path, the launcher stages the Strawberry Perl MSI
+from the Linux host and the Windows tarball install currently uses
+`cpanm --notest` for third-party dependency setup before the real dashboard
+runtime smoke runs.
 The supported Windows runtime baseline is PowerShell plus Strawberry Perl.
 Git Bash is optional. Scoop is optional. They remain setup helpers, not
 runtime requirements for Developer Dashboard itself.

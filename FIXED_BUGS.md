@@ -1,5 +1,18 @@
 # Fixed Bugs
 
+## 2026-04-06 (Phase 44: Coverage Artifact Tarball Leak)
+
+- Fixed the release-artifact hygiene leak by excluding `cover_db` from the Dist::Zilla gather rules so a local covered test run no longer ships Devel::Cover output inside the public tarball.
+- Tightened the release metadata guard so the source tree now checks that `cover_db` stays excluded before the next build is accepted.
+- Rebuilt the release around the clean `1.79` tarball after confirming the earlier `1.78` artifact was contaminated by local coverage output.
+
+## 2026-04-06 (Phase 43: Windows Perl Path Resolution And SSL Test Hardening)
+
+- Fixed the Windows Strawberry smoke path-resolution bug by allowing an empty `ResolvedPerl` value to reach the fallback resolver, then resolving real executable paths through PowerShell command metadata plus `where.exe` before deriving Strawberry runtime directories.
+- Fixed the rerunnable Dockur smoke drift by staging the Strawberry Perl MSI from the Linux host into the OEM bundle, supporting configurable retained host ports, and allowing the Windows guest smoke to use `cpanm --notest` for third-party dependency installs while still running the real dashboard runtime smoke afterward.
+- Fixed the SSL live-server regression test so a failed `IO::Socket::SSL->new(...)` now reports the underlying SSL error and produces clean test failures instead of dereferencing an undefined socket handle and aborting the file.
+- Re-verified the normal Linux install path with the blank-environment host integration, which still installs `Developer-Dashboard-1.78` successfully and completes the end-to-end runtime smoke after the Windows-harness changes.
+
 ## 2026-04-06 (Phase 42: Windows VM Smoke Rerun And Support Boundary)
 
 - Fixed the Windows smoke rerun gap by adding `integration/windows/run-host-windows-smoke.sh`, a one-command host helper that loads reusable `windows-qemu.env` settings, builds a fresh tarball when needed, and delegates to the checked-in QEMU launcher.
