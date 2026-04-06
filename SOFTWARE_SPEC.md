@@ -219,6 +219,19 @@ Current seeded workspaces should include:
 - `api-dashboard` as a file-backed HTTP workspace
 - `sql-dashboard` as a file-backed SQL workspace
 
+The seeded `api-dashboard` should keep its behavior inside the bookmark source
+itself rather than requiring a dedicated product module for the dashboard
+logic. It should support:
+
+- file-backed Postman collections under `config/api-dashboard/<collection-name>.json`
+- owner-only `config/api-dashboard` directory permissions (`0700`) with owner-only saved collection json files (`0600`) because request auth can be stored there
+- request tabs, collection tabs, and browser URL restoration for the active collection/request/tab state
+- request-token carry-over for `{{token}}` placeholders across requests in the same collection
+- a hide/show request-credentials panel inside the workspace with `Basic`, `API Token`, `API Key`, `OAuth2`, `Apple Login`, `Amazon Login`, `Facebook Login`, and `Microsoft Login` presets
+- Postman `request.auth` import/export so saved collections stay valid Postman v2.1 JSON while the bookmark can still render and edit the credentials in-browser
+- outgoing auth application through headers or query strings during request send, including provider-style OAuth token presets that keep the actual token and client values user-supplied
+- browser previews for JSON, text, PDF, image, and TIFF responses
+
 The seeded `sql-dashboard` should keep its behavior inside the bookmark source
 itself rather than requiring a dedicated product module for the dashboard
 logic. It should support:

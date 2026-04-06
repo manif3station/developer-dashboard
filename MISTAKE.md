@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: API-AUTH-SHADOW-GAP
+
+**Date:** 2026-04-06 01:35:00 UTC
+**Area:** API workspace auth UX, Postman request auth parity, and project-local bookmark persistence security
+**Symptom:** The seeded `api-dashboard` could save collections and send requests, but it still treated request auth as manual header editing only, dropped imported Postman `request.auth` into blind spots instead of a real editor surface, and the served project-local runtime path would have left saved collection storage at default filesystem modes even after request auth secrets started landing there
+**Why It Was Dangerous:** Operators could not safely understand or reuse request auth across saved requests, imported auth settings were easy to miss or re-break in the browser, and saved collection JSON files could have stored live usernames, passwords, or tokens with broader project-default permissions than intended
+**Root Cause:** I had rebuilt the bookmark around URL/header/body tokens and request tabs, but I had not promoted request auth into the same first-class request model, and I relied on home-runtime permission helpers even though the bookmark’s real saved collection path also runs under project-local `./.developer-dashboard`
+**How Ellen Solved It:** Added a bookmark-local hide/show request-credentials panel with Postman-compatible `Basic`, `API Token`, `API Key`, `OAuth2`, `Apple Login`, `Amazon Login`, `Facebook Login`, and `Microsoft Login` presets, wired `request.auth` import/export into the browser model and saved collection JSON, applied auth to outgoing headers/query strings during send, and explicitly tightened the project-local `config/api-dashboard` directory and saved collection files to `0700` / `0600`
+**How To Detect Earlier Next Time:** When a saved workspace claims Postman-style parity, check whether imported `request.auth` survives visibly in the browser, not just whether raw manual headers can be typed by hand, and treat any new secret-bearing bookmark persistence path as a permissions audit target immediately
+**Prevention Rule:** Bookmark-local workspaces must model request auth explicitly when the saved format supports it, and any project-local bookmark storage that can now persist secrets must enforce owner-only permissions directly instead of assuming home-runtime hardening helpers cover every runtime root
+**Verification:** `prove -lv t/03-web-app.t`, `prove -lv t/22-api-dashboard-playwright.t`, `prove -lv t/24-api-dashboard-tabs-playwright.t`
+**Related Files:** `bin/dashboard`, `t/03-web-app.t`, `t/22-api-dashboard-playwright.t`, `t/24-api-dashboard-tabs-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/security.md`, `doc/testing.md`, `doc/integration-test-plan.md`, `SOFTWARE_SPEC.md`
+
+---
+
 ## CODE: SQL-EDITOR-CLUTTER-DRIFT
 
 **Date:** 2026-04-06 00:35:00 UTC

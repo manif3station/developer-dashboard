@@ -867,16 +867,27 @@ one long vertical stack, shows a request-specific token form above the editor
 whenever the selected request uses `{{token}}` placeholders, carries those
 token values across matching placeholders in other requests from the same
 collection, resolves those token values into the visible request URL, headers,
-and body fields, renders Request Details, Response Body, and Response Headers
-as inner workspace tabs below the response `pre` box, defaults Response Body
-back to the active tab after each send, previews JSON, text, PDF, image, and
-TIFF responses appropriately, and sends requests through its saved Ajax
-endpoint backed by `LWP::UserAgent`. HTTPS endpoints also require the packaged
-`LWP::Protocol::https` runtime prerequisite, so clean installs can test normal
-TLS APIs without browser CORS rules. Oversized collection saves now spill the
-saved Ajax request payload through temp files instead of overflowing `execve`
-environment limits, and the bookmark rejects empty `200` save/delete responses
-instead of claiming success when nothing was persisted.
+and body fields, renders a hide/show `Request Credentials` section in the
+workspace with Postman-compatible `Basic`, `API Token`, `API Key`, `OAuth2`,
+`Apple Login`, `Amazon Login`, `Facebook Login`, and `Microsoft Login`
+presets, hydrates imported Postman `request.auth` data back into that
+credentials panel, exports saved request auth back into valid Postman JSON,
+and applies the configured auth to outgoing headers or query strings when the
+request is sent. The OAuth-style provider presets fill common authorize/token
+URLs, but the actual access token and client details remain values the user
+enters for that request. The bookmark also tightens project-local
+`config/api-dashboard` to `0700` and each saved collection JSON file there to
+`0600`, because saved request auth can include secrets inside the Postman
+collection JSON. It renders Request Details, Response Body, and Response
+Headers as inner workspace tabs below the response `pre` box, defaults
+Response Body back to the active tab after each send, previews JSON, text,
+PDF, image, and TIFF responses appropriately, and sends requests through its
+saved Ajax endpoint backed by `LWP::UserAgent`. HTTPS endpoints also require
+the packaged `LWP::Protocol::https` runtime prerequisite, so clean installs
+can test normal TLS APIs without browser CORS rules. Oversized collection
+saves now spill the saved Ajax request payload through temp files instead of
+overflowing `execve` environment limits, and the bookmark rejects empty `200`
+save/delete responses instead of claiming success when nothing was persisted.
 
 `dashboard cpan <Module...>` installs optional Perl modules into the active
 runtime-local `./.developer-dashboard/local` tree and appends matching

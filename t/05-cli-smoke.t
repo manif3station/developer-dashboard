@@ -26,6 +26,7 @@ my $repo = getcwd();
 chdir $ENV{HOME} or die "Unable to chdir to $ENV{HOME}: $!";
 my $lib = File::Spec->catdir( $repo, 'lib' );
 my $dashboard = File::Spec->catfile( $repo, 'bin', 'dashboard' );
+my $expected_version = _module_version( File::Spec->catfile( $lib, 'Developer', 'Dashboard.pm' ) );
 my $runtime_cli_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );
 my $runtime_jq = File::Spec->catfile( $runtime_cli_root, 'jq' );
 my $runtime_yq = File::Spec->catfile( $runtime_cli_root, 'yq' );
@@ -790,7 +791,7 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
-is( _run("$perl -I'$lib' '$dashboard' version"), "1.75\n", 'dashboard version prints the installed dashboard version' );
+is( _run("$perl -I'$lib' '$dashboard' version"), "$expected_version\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' tomq alpha.beta});
 is( $toml_value, "4\n", 'tomq extracts scalar TOML values' );
@@ -981,6 +982,16 @@ sub _find_free_port {
     my $port = $socket->sockport();
     close $socket or die "Unable to release reserved local TCP port $port: $!";
     return $port;
+}
+
+sub _module_version {
+    my ($path) = @_;
+    open my $fh, '<', $path or die "Unable to read $path: $!";
+    my $content = do { local $/; <$fh> };
+    close $fh;
+    $content =~ /our \$VERSION = '([^']+)'/
+      or die "Unable to find module version in $path";
+    return $1;
 }
 
 __END__

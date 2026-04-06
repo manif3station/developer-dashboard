@@ -87,15 +87,36 @@ eval {
                                     key   => 'Accept',
                                     value => 'application/json',
                                 },
-                                {
-                                    key   => 'Authorization',
-                                    value => 'Bearer {{token}}',
-                                },
                             ],
+                            auth        => {
+                                type   => 'oauth2',
+                                oauth2 => [
+                                    {
+                                        key   => 'provider',
+                                        value => 'microsoft-login',
+                                        type  => 'string',
+                                    },
+                                    {
+                                        key   => 'accessToken',
+                                        value => '{{token}}',
+                                        type  => 'string',
+                                    },
+                                    {
+                                        key   => 'tokenType',
+                                        value => 'Bearer',
+                                        type  => 'string',
+                                    },
+                                    {
+                                        key   => 'addTokenTo',
+                                        value => 'header',
+                                        type  => 'string',
+                                    },
+                                ],
+                            },
                             url         => {
                                 raw => '{{base_url}}/echo?name=seed-auth',
                             },
-                            description => 'Seeded request with shared collection token placeholders.',
+                            description => 'Seeded request with shared collection token placeholders and imported OAuth provider auth.',
                         },
                     },
                     {
@@ -205,12 +226,25 @@ eval {
     ok( -f $seed_file, 'seed collection file remains on disk after the browser flow' );
     ok( -f $saved_collection_file, 'browser-created collection persists to config/api-dashboard' );
     ok( !-e $imported_collection_file, 'browser-deleted imported collection file is removed from config/api-dashboard' );
+    is( sprintf( '%04o', ( stat($config_root) )[2] & 07777 ), '0700', 'api-dashboard browser flow keeps the collection directory owner-only' );
+    is( sprintf( '%04o', ( stat($saved_collection_file) )[2] & 07777 ), '0600', 'api-dashboard browser-created collection files stay owner-only' );
 
     my $saved_collection = json_decode( _read_text($saved_collection_file) );
     is( $saved_collection->{info}{name}, 'Playwright Collection Renamed', 'saved collection json uses the renamed collection name' );
     is( $saved_collection->{info}{schema}, 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json', 'saved collection json keeps the Postman v2.1 schema' );
     is( $saved_collection->{item}[0]{name}, 'Playwright JSON', 'saved collection json keeps the saved request item name' );
-    is( $saved_collection->{item}[0]{request}{url}{raw}, '{{base_url}}/json?name=playwright', 'saved collection json keeps the variable-aware request URL' );
+    is( $saved_collection->{item}[0]{request}{url}{raw}, '{{base_url}}/echo?name=playwright', 'saved collection json keeps the variable-aware request URL' );
+    is( $saved_collection->{item}[0]{request}{auth}{type}, 'basic', 'saved collection json keeps the request auth as valid Postman basic auth' );
+    is(
+        $saved_collection->{item}[0]{request}{auth}{basic}[0]{value},
+        'play-user',
+        'saved collection json keeps the Postman basic username value'
+    );
+    is(
+        $saved_collection->{item}[0]{request}{auth}{basic}[1]{value},
+        'play-pass',
+        'saved collection json keeps the Postman basic password value'
+    );
 
     1;
 } or do {
@@ -559,6 +593,23 @@ async function openResponseTab(page, name) {
   await page.getByRole('tab', { name }).click();
 }
 
+async function openCredentials(page) {
+  const toggle = page.locator('#api-auth-toggle');
+  await toggle.waitFor();
+  const isHidden = await page.evaluate(() => {
+    const fields = document.querySelector('#api-auth-fields');
+    return !fields || !!fields.hidden;
+  });
+  if (isHidden) {
+    await toggle.click();
+  }
+  await page.waitForFunction(() => {
+    const fields = document.querySelector('#api-auth-fields');
+    const toggleButton = document.querySelector('#api-auth-toggle');
+    return fields && toggleButton && !fields.hidden && /Hide Credentials/.test(toggleButton.textContent || '');
+  });
+}
+
 async function waitForImportBanner(page, collectionName) {
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
@@ -654,6 +705,33 @@ async function main() {
       return input && input.value.includes('/echo?name=seed-auth');
     });
     await page.waitForFunction(() => {
+      const toggleButton = document.querySelector('#api-auth-toggle');
+      const fields = document.querySelector('#api-auth-fields');
+      return toggleButton && fields && fields.hidden && /Show Credentials/.test(toggleButton.textContent || '');
+    });
+    await openCredentials(page);
+    await page.waitForFunction(() => {
+      const select = document.querySelector('#api-auth-kind');
+      if (!select) return false;
+      const labels = Array.from(select.options).map((node) => node.textContent.trim());
+      return labels.includes('Basic')
+        && labels.includes('OAuth2')
+        && labels.includes('API Token')
+        && labels.includes('API Key')
+        && labels.includes('Apple Login')
+        && labels.includes('Amazon Login')
+        && labels.includes('Facebook Login')
+        && labels.includes('Microsoft Login')
+        && select.value === 'microsoft-login';
+    });
+    await page.waitForFunction(() => {
+      const accessToken = document.querySelector('#api-auth-oauth-access-token');
+      const authUrl = document.querySelector('#api-auth-oauth-authorize-url');
+      return accessToken && authUrl
+        && accessToken.offsetParent !== null
+        && /login\.microsoftonline\.com/.test(authUrl.value || '');
+    });
+    await page.waitForFunction(() => {
       const inputs = Array.from(document.querySelectorAll('#api-token-fields input[data-api-token-input]'));
       const names = inputs.map((node) => node.getAttribute('data-api-token-input'));
       return names.includes('base_url') && names.includes('token');
@@ -663,10 +741,10 @@ async function main() {
     await page.locator('#api-token-fields input[data-api-token-input="token"]').dispatchEvent('change');
     await page.waitForFunction((baseUrl) => {
       const url = document.querySelector('#api-request-url');
-      const headers = document.querySelector('#api-request-headers');
-      return url && headers
+      const authToken = document.querySelector('#api-auth-oauth-access-token');
+      return url && authToken
         && url.value === `${baseUrl}/echo?name=seed-auth`
-        && headers.value.includes('Bearer shared-token-123');
+        && authToken.value === 'shared-token-123';
     }, process.env.API_BASE_URL);
 
     await openShellTab(page, 'Workspace');
@@ -713,11 +791,15 @@ async function main() {
     await openShellTab(page, 'Workspace');
     await page.locator('#api-request-name').fill('Playwright JSON');
     await page.locator('#api-request-method').selectOption('GET');
-    await page.locator('#api-request-url').fill('{{base_url}}/json?name=playwright');
+    await page.locator('#api-request-url').fill('{{base_url}}/echo?name=playwright');
     await page.locator('#api-request-variables').fill(`base_url=${process.env.API_BASE_URL}`);
     await page.locator('#api-request-headers').fill('Accept: application/json');
     await page.locator('#api-request-body').fill('');
     await page.locator('#api-request-description').fill('Saved through the Playwright api-dashboard coverage test.');
+    await openCredentials(page);
+    await page.locator('#api-auth-kind').selectOption('basic');
+    await page.locator('#api-auth-basic-username').fill('play-user');
+    await page.locator('#api-auth-basic-password').fill('play-pass');
 
     await page.getByRole('button', { name: 'Save Request To Collection' }).click();
     await page.waitForFunction(() => {
@@ -736,7 +818,9 @@ async function main() {
     });
     await page.waitForFunction(() => {
       const body = document.querySelector('#api-response-body');
-      return body && body.textContent.includes('"name" : "playwright"');
+      return body
+        && body.textContent.includes('"name" : "playwright"')
+        && body.textContent.includes('"authorization" : "Basic cGxheS11c2VyOnBsYXktcGFzcw=="');
     });
     await page.getByRole('tab', { name: 'Request Details' }).waitFor();
     await page.getByRole('tab', { name: 'Response Body' }).waitFor();
@@ -808,7 +892,17 @@ async function main() {
     await clickRequest(page, 'Playwright JSON');
     await page.waitForFunction(() => {
       const input = document.querySelector('#api-request-url');
-      return input && input.value.includes('/json?name=playwright');
+      return input && input.value.includes('/echo?name=playwright');
+    });
+    await openCredentials(page);
+    await page.waitForFunction(() => {
+      const select = document.querySelector('#api-auth-kind');
+      const username = document.querySelector('#api-auth-basic-username');
+      const password = document.querySelector('#api-auth-basic-password');
+      return select && username && password
+        && select.value === 'basic'
+        && username.value === 'play-user'
+        && password.value === 'play-pass';
     });
 
     if (consoleErrors.length) {
@@ -843,8 +937,8 @@ This test starts an isolated dashboard runtime, seeds one stored Postman
 collection under C<config/api-dashboard>, and then drives the seeded
 C<api-dashboard> bookmark through a real Playwright browser session. The flow
 verifies file-backed collection bootstrap, shared token carry-over across
-requests in the same collection, create/rename/save, request send, import,
-export, delete, and reload persistence against the project-local
-runtime tree.
+requests in the same collection, imported and saved request-auth handling,
+owner-only collection persistence, create/rename/save, request send, import,
+export, delete, and reload persistence against the project-local runtime tree.
 
 =cut

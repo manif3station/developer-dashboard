@@ -1,5 +1,23 @@
 Revision history for Developer Dashboard
 
+1.76  2026-04-06
+    - added a hide/show `Request Credentials` section to the seeded
+      `api-dashboard` workspace, with bookmark-local `Basic`, `API Token`,
+      `API Key`, `OAuth2`, `Apple Login`, `Amazon Login`, `Facebook Login`,
+      and `Microsoft Login` presets backed by Postman `request.auth`
+      import/export
+    - fixed api-dashboard request send so saved request auth now applies to
+      outgoing headers or query strings instead of forcing operators back to
+      manual header editing, while imported provider-style auth presets
+      hydrate back into the browser editor
+    - hardened project-local `config/api-dashboard` persistence to owner-only
+      `0700` / `0600` permissions because saved Postman collections can now
+      contain live request-auth secrets, and expanded browser plus saved-Ajax
+      coverage around that storage model
+    - updated README, main module POD, architecture/testing/integration
+      docs, security notes, and `SOFTWARE_SPEC.md` so the shipped
+      api-dashboard auth workflow and storage model stay documented
+
 1.75  2026-04-06
     - refined the sql-dashboard workspace UI so the editor is the clear
       primary focus: the SQL textarea now auto-resizes with the current

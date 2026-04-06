@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-06 (Phase 41: API Dashboard Request Credentials And Secure Persistence)
+
+- Fixed the missing `api-dashboard` request-auth flow by adding a hide/show workspace credentials panel with bookmark-local `Basic`, `API Token`, `API Key`, `OAuth2`, `Apple Login`, `Amazon Login`, `Facebook Login`, and `Microsoft Login` presets backed by Postman `request.auth` import/export.
+- Fixed the request-auth execution gap by applying saved request auth to outgoing headers or query strings during `api-dashboard` sends instead of forcing operators to hand-maintain equivalent raw headers for every request.
+- Fixed the project-local `api-dashboard` secret-storage gap by tightening `./.developer-dashboard/config/api-dashboard` to owner-only `0700` and every saved collection JSON file there to owner-only `0600`, and expanded the saved-Ajax plus Playwright coverage around that path.
+
 ## 2026-04-06 (Phase 40: SQL Workspace Quiet Editor And Inline Actions)
 
 - Fixed the SQL workspace clutter drift by making the editor the primary focus, growing the textarea with its content, and replacing the loud editor toolbar with one understated action row beneath the SQL textarea.

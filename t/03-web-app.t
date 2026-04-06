@@ -168,6 +168,12 @@ like( $api_render_body, qr{set_chain_value\(configs,'collections\.delete','/ajax
 like( $api_render_body, qr{set_chain_value\(configs,'send\.request','/ajax/api-dashboard-send-request\?type=json'\)}, 'api-dashboard render binds the saved request sender ajax endpoint' );
 like( $api_render_body, qr/var requestPayload = payload && payload\.request \|\| \{\};/, 'api-dashboard render guards request detail rendering when the UI shows a transient status payload' );
 like( $api_render_body, qr/var responsePayload = payload && payload\.response \|\| \{\};/, 'api-dashboard render guards response detail rendering when the UI shows a transient status payload' );
+like( $api_render_body, qr/Show Credentials/, 'api-dashboard render exposes a hide and show credentials section in the workspace' );
+like( $api_render_body, qr/id="api-auth-kind"/, 'api-dashboard render exposes a credentials type selector in the workspace' );
+like( $api_render_body, qr/Apple Login/, 'api-dashboard render exposes the Apple login credentials preset' );
+like( $api_render_body, qr/Amazon Login/, 'api-dashboard render exposes the Amazon login credentials preset' );
+like( $api_render_body, qr/Facebook Login/, 'api-dashboard render exposes the Facebook login credentials preset' );
+like( $api_render_body, qr/Microsoft Login/, 'api-dashboard render exposes the Microsoft login credentials preset' );
 like( $api_page_stdout, qr/use LWP::Protocol::https \(\);/, 'api-dashboard saved ajax sender explicitly loads HTTPS protocol support' );
 my $api_dashboard_config_root = File::Spec->catdir( $paths->config_root, 'api-dashboard' );
 make_path($api_dashboard_config_root);
@@ -257,6 +263,8 @@ ok( $api_collection_save_payload->{ok}, 'api-dashboard collection save endpoint 
 is( $api_collection_save_payload->{collection}{info}{name}, 'Saved Collection', 'api-dashboard collection save endpoint returns the saved Postman collection' );
 my $saved_collection_file = File::Spec->catfile( $api_dashboard_config_root, 'Saved Collection.json' );
 ok( -f $saved_collection_file, 'api-dashboard collection save endpoint writes config/api-dashboard/<collection-name>.json' );
+is( sprintf( '%04o', ( stat($api_dashboard_config_root) )[2] & 07777 ), '0700', 'api-dashboard collection directory is tightened to owner-only permissions' );
+is( sprintf( '%04o', ( stat($saved_collection_file) )[2] & 07777 ), '0600', 'api-dashboard collection files are tightened to owner-only permissions' );
 my $saved_collection_raw = do {
     open my $saved_collection_fh, '<', $saved_collection_file or die "Unable to read $saved_collection_file: $!";
     local $/;
@@ -476,6 +484,163 @@ like( $api_send_payload->{request}{headers_text}, qr/X-Test: api-dashboard/, 'ap
 my $probe_wait_pid = waitpid( $probe_pid, 0 );
 is( $probe_wait_pid, $probe_pid, 'probe listener child exits after the api-dashboard sender call' );
 is( $?, 0, 'probe listener child exits cleanly after serving the api-dashboard sender call' );
+
+my $auth_listener = IO::Socket::INET->new(
+    LocalAddr => '127.0.0.1',
+    LocalPort => 0,
+    Listen    => 1,
+    Proto     => 'tcp',
+    ReuseAddr => 1,
+) or die "Unable to start auth listener: $!";
+my $auth_port = $auth_listener->sockport;
+my $auth_pid = fork();
+die "Unable to fork auth listener: $!" if !defined $auth_pid;
+if ( !$auth_pid ) {
+    my $client = $auth_listener->accept or die "Unable to accept auth connection: $!";
+    my $request_line = <$client>;
+    die "Unable to read auth request line" if !defined $request_line;
+    $request_line =~ s/\r?\n\z//;
+    my ( $method, $target ) = split /\s+/, $request_line;
+    my %headers;
+    while ( my $line = <$client> ) {
+        $line =~ s/\r?\n\z//;
+        last if $line eq '';
+        my ( $key, $value ) = split /:\s*/, $line, 2;
+        $headers{ lc($key) } = defined $value ? $value : '';
+    }
+    my $payload = json_encode(
+        {
+            ok            => 1,
+            method        => $method || '',
+            target        => $target || '',
+            authorization => $headers{authorization} || '',
+        }
+    );
+    print {$client} "HTTP/1.1 200 OK\r\n";
+    print {$client} "Content-Type: application/json\r\n";
+    print {$client} "Content-Length: " . length($payload) . "\r\n";
+    print {$client} "\r\n";
+    print {$client} $payload;
+    close $client or die "Unable to close auth client: $!";
+    exit 0;
+}
+close $auth_listener or die "Unable to close parent auth listener: $!";
+my $api_auth_send_settings = json_encode(
+    {
+        method           => 'GET',
+        url              => "http://127.0.0.1:$auth_port/secure",
+        headers_text     => "Accept: application/json\nAuthorization: Bearer stale-token",
+        body             => '',
+        timeout_s        => 5,
+        follow_redirects => 1,
+        insecure_tls     => 0,
+        auth             => {
+            type     => 'basic',
+            username => 'api-user',
+            password => 'api-pass',
+        },
+    }
+);
+my ($api_auth_send_code, $api_auth_send_type, $api_auth_send_body_ref) = @{ $app->handle(
+    path        => '/ajax/api-dashboard-send-request',
+    query       => 'type=json',
+    method      => 'POST',
+    body        => 'settings=' . uri_escape($api_auth_send_settings),
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is( $api_auth_send_code, 200, 'api-dashboard sender accepts request auth settings through the saved ajax route' );
+like( $api_auth_send_type, qr/application\/json/, 'api-dashboard sender keeps auth-backed requests inside the json envelope' );
+my $api_auth_send_payload = json_decode( drain_stream_body($api_auth_send_body_ref) );
+ok( $api_auth_send_payload->{ok}, 'api-dashboard sender reports success for auth-backed requests' );
+my $api_auth_echo = json_decode( $api_auth_send_payload->{response}{body} );
+is(
+    $api_auth_echo->{authorization},
+    'Basic YXBpLXVzZXI6YXBpLXBhc3M=',
+    'api-dashboard sender replaces stale Authorization headers with Basic auth credentials from the request auth settings'
+);
+my $auth_wait_pid = waitpid( $auth_pid, 0 );
+is( $auth_wait_pid, $auth_pid, 'auth listener child exits after the api-dashboard auth sender call' );
+is( $?, 0, 'auth listener child exits cleanly after serving the api-dashboard auth sender call' );
+
+my $apikey_listener = IO::Socket::INET->new(
+    LocalAddr => '127.0.0.1',
+    LocalPort => 0,
+    Listen    => 1,
+    Proto     => 'tcp',
+    ReuseAddr => 1,
+) or die "Unable to start api key listener: $!";
+my $apikey_port = $apikey_listener->sockport;
+my $apikey_pid = fork();
+die "Unable to fork api key listener: $!" if !defined $apikey_pid;
+if ( !$apikey_pid ) {
+    my $client = $apikey_listener->accept or die "Unable to accept api key connection: $!";
+    my $request_line = <$client>;
+    die "Unable to read api key request line" if !defined $request_line;
+    $request_line =~ s/\r?\n\z//;
+    my ( $method, $target ) = split /\s+/, $request_line;
+    while ( my $line = <$client> ) {
+        last if $line =~ /^\r?\n$/;
+    }
+    my $payload = json_encode(
+        {
+            ok     => 1,
+            method => $method || '',
+            target => $target || '',
+        }
+    );
+    print {$client} "HTTP/1.1 200 OK\r\n";
+    print {$client} "Content-Type: application/json\r\n";
+    print {$client} "Content-Length: " . length($payload) . "\r\n";
+    print {$client} "\r\n";
+    print {$client} $payload;
+    close $client or die "Unable to close api key client: $!";
+    exit 0;
+}
+close $apikey_listener or die "Unable to close parent api key listener: $!";
+my $api_apikey_send_settings = json_encode(
+    {
+        method           => 'GET',
+        url              => "http://127.0.0.1:$apikey_port/secure?name=ping",
+        headers_text     => "Accept: application/json",
+        body             => '',
+        timeout_s        => 5,
+        follow_redirects => 1,
+        insecure_tls     => 0,
+        auth             => {
+            type  => 'apikey',
+            key   => 'api_key',
+            value => 'abc123',
+            in    => 'query',
+        },
+    }
+);
+my ($api_apikey_send_code, $api_apikey_send_type, $api_apikey_send_body_ref) = @{ $app->handle(
+    path        => '/ajax/api-dashboard-send-request',
+    query       => 'type=json',
+    method      => 'POST',
+    body        => 'settings=' . uri_escape($api_apikey_send_settings),
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is( $api_apikey_send_code, 200, 'api-dashboard sender accepts API key auth settings through the saved ajax route' );
+like( $api_apikey_send_type, qr/application\/json/, 'api-dashboard sender returns api key requests as json payloads' );
+my $api_apikey_send_payload = json_decode( drain_stream_body($api_apikey_send_body_ref) );
+ok( $api_apikey_send_payload->{ok}, 'api-dashboard sender reports success for API key requests' );
+is(
+    $api_apikey_send_payload->{request}{url},
+    "http://127.0.0.1:$apikey_port/secure?name=ping&api_key=abc123",
+    'api-dashboard sender appends query-style API key auth to the dispatched request URL'
+);
+my $api_apikey_echo = json_decode( $api_apikey_send_payload->{response}{body} );
+is(
+    $api_apikey_echo->{target},
+    '/secure?name=ping&api_key=abc123',
+    'api-dashboard sender forwards query-style API key auth to the upstream request target'
+);
+my $apikey_wait_pid = waitpid( $apikey_pid, 0 );
+is( $apikey_wait_pid, $apikey_pid, 'api key listener child exits after the api-dashboard api key sender call' );
+is( $?, 0, 'api key listener child exits cleanly after serving the api-dashboard api key sender call' );
 
 my $preview_listener = IO::Socket::INET->new(
     LocalAddr => '127.0.0.1',

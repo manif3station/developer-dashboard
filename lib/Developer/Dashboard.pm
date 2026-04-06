@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.75';
+our $VERSION = '1.76';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.75
+1.76
 
 =head1 INTRODUCTION
 
@@ -1405,15 +1405,26 @@ click-through tabs instead of one long vertical stack, shows a request-specific
 token form above the editor whenever the selected request uses
 C<{{token}}> placeholders, carries those token values across matching
 placeholders in other requests from the same collection, resolves those token
-values into the visible request URL, headers, and body fields, renders Request
-Details, Response Body, and Response Headers as inner workspace tabs below the
-response C<pre> box, defaults Response Body back to the active tab after each
-send, previews JSON, text, PDF, image, and TIFF responses appropriately, and
-sends requests through its saved Ajax endpoint backed by C<LWP::UserAgent>.
-HTTPS endpoints also require the packaged
-C<LWP::Protocol::https> runtime prerequisite, so clean installs can test
-normal TLS APIs without browser CORS rules. Oversized collection saves now
-spill the saved Ajax request payload through temp files instead of
+values into the visible request URL, headers, and body fields, renders a
+hide/show C<Request Credentials> section in the workspace with
+Postman-compatible C<Basic>, C<API Token>, C<API Key>, C<OAuth2>,
+C<Apple Login>, C<Amazon Login>, C<Facebook Login>, and C<Microsoft Login>
+presets, hydrates imported Postman C<request.auth> data back into that
+credentials panel, exports saved request auth back into valid Postman JSON,
+and applies the configured auth to outgoing headers or query strings when the
+request is sent. The OAuth-style provider presets fill common authorize/token
+URLs, but the actual access token and client details remain values the user
+enters for that request. The bookmark also tightens project-local
+F<config/api-dashboard> to C<0700> and each saved collection JSON file there
+to C<0600>, because saved request auth can include secrets inside the Postman
+collection JSON. It renders Request Details, Response Body, and Response
+Headers as inner workspace tabs below the response C<pre> box, defaults
+Response Body back to the active tab after each send, previews JSON, text,
+PDF, image, and TIFF responses appropriately, and sends requests through its
+saved Ajax endpoint backed by C<LWP::UserAgent>. HTTPS endpoints also require
+the packaged C<LWP::Protocol::https> runtime prerequisite, so clean installs
+can test normal TLS APIs without browser CORS rules. Oversized collection
+saves now spill the saved Ajax request payload through temp files instead of
 overflowing C<execve> environment limits, and the bookmark rejects empty
 C<200> save/delete responses instead of claiming success when nothing was
 persisted.

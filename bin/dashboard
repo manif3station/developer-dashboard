@@ -1392,11 +1392,19 @@ HTML: <script src="/js/jquery.js"></script>
 .api-field input, .api-field select, .api-field textarea { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #d8ccb8; border-radius:12px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:0.95rem; background:#fffefb; }
 .api-field textarea { min-height:140px; resize:vertical; }
 .api-field-full { grid-column:1 / -1; }
-.api-token-shell { border:1px solid #e6ddcf; border-radius:14px; padding:12px; background:#fffaf1; }
+.api-token-shell, .api-auth-shell { border:1px solid #e6ddcf; border-radius:14px; padding:12px; background:#fffaf1; }
 .api-token-help { margin:0; color:#6a767b; font-size:0.9rem; }
 .api-token-fields { display:grid; gap:10px; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); margin-top:12px; }
 .api-token-field { display:grid; gap:6px; }
 .api-token-field input { width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #d8ccb8; border-radius:12px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:0.95rem; background:#fffefb; }
+.api-auth-head { display:flex; gap:12px; justify-content:space-between; align-items:flex-start; }
+.api-auth-head label { display:block; margin-bottom:6px; }
+.api-auth-toggle { border:1px solid #d1b783; border-radius:999px; background:#fff7e7; color:#6a4512; cursor:pointer; font-weight:600; padding:9px 14px; white-space:nowrap; }
+.api-auth-toggle:hover { background:#f7e1af; }
+.api-auth-fields { display:grid; gap:14px; grid-template-columns:repeat(2, minmax(0, 1fr)); margin-top:12px; }
+.api-auth-group { display:grid; gap:12px; grid-template-columns:repeat(2, minmax(0, 1fr)); grid-column:1 / -1; }
+.api-auth-group[hidden] { display:none !important; }
+.api-auth-summary { margin:0; color:#6a767b; line-height:1.5; }
 .api-inline-toggles { display:flex; gap:14px; flex-wrap:wrap; align-items:center; }
 .api-inline-toggles label { font-weight:600; color:#1f2a2e; display:inline-flex; gap:6px; align-items:center; }
 .api-request-actions { display:flex; gap:10px; flex-wrap:wrap; }
@@ -1414,6 +1422,8 @@ HTML: <script src="/js/jquery.js"></script>
 .api-banner { border:1px solid #d1b783; border-radius:14px; background:#fff6e2; color:#6a4512; padding:12px 14px; display:none; margin-bottom:12px; }
 @media (max-width: 980px) {
   .api-editor-grid { grid-template-columns:1fr; }
+  .api-auth-fields, .api-auth-group { grid-template-columns:1fr; }
+  .api-auth-head { flex-direction:column; }
 }
 </style>
 <div class="api-postman-shell">
@@ -1482,6 +1492,109 @@ HTML: <script src="/js/jquery.js"></script>
           <p class="api-token-help">Fill placeholders used by the selected request. Values are shared across the active collection and carry over to matching tokens in other requests from the same collection.</p>
           <div id="api-token-fields" class="api-token-fields"></div>
         </div>
+        <div class="api-field api-field-full api-auth-shell" id="api-auth-shell">
+          <div class="api-auth-head">
+            <div>
+              <label for="api-auth-kind">Request Credentials</label>
+              <p class="api-token-help">Hide or show Postman-compatible request auth. Provider presets fill common OAuth defaults; the bookmark uses the values entered here when sending requests.</p>
+            </div>
+            <button type="button" id="api-auth-toggle" class="api-auth-toggle" aria-expanded="false" aria-controls="api-auth-fields">Show Credentials</button>
+          </div>
+          <div id="api-auth-fields" class="api-auth-fields" hidden>
+            <div class="api-field">
+              <label for="api-auth-kind">Credential Type</label>
+              <select id="api-auth-kind">
+                <option value="none">No Credentials</option>
+                <option value="basic">Basic</option>
+                <option value="api-token">API Token</option>
+                <option value="api-key">API Key</option>
+                <option value="oauth2">OAuth2</option>
+                <option value="apple-login">Apple Login</option>
+                <option value="amazon-login">Amazon Login</option>
+                <option value="facebook-login">Facebook Login</option>
+                <option value="microsoft-login">Microsoft Login</option>
+              </select>
+            </div>
+            <div class="api-field">
+              <label for="api-auth-summary">Credential Summary</label>
+              <p id="api-auth-summary" class="api-auth-summary">No request credentials configured.</p>
+            </div>
+            <div class="api-auth-group" data-api-auth-group="basic" hidden>
+              <div class="api-field">
+                <label for="api-auth-basic-username">Username</label>
+                <input id="api-auth-basic-username" placeholder="api-user">
+              </div>
+              <div class="api-field">
+                <label for="api-auth-basic-password">Password</label>
+                <input id="api-auth-basic-password" type="password" placeholder="secret">
+              </div>
+            </div>
+            <div class="api-auth-group" data-api-auth-group="api-token" hidden>
+              <div class="api-field api-field-full">
+                <label for="api-auth-token">Token</label>
+                <input id="api-auth-token" placeholder="{{token}}">
+              </div>
+            </div>
+            <div class="api-auth-group" data-api-auth-group="api-key" hidden>
+              <div class="api-field">
+                <label for="api-auth-api-key-name">Key Name</label>
+                <input id="api-auth-api-key-name" placeholder="X-API-Key">
+              </div>
+              <div class="api-field">
+                <label for="api-auth-api-key-value">Key Value</label>
+                <input id="api-auth-api-key-value" placeholder="{{api_key}}">
+              </div>
+              <div class="api-field">
+                <label for="api-auth-api-key-in">Send In</label>
+                <select id="api-auth-api-key-in">
+                  <option value="header">Header</option>
+                  <option value="query">Query String</option>
+                </select>
+              </div>
+            </div>
+            <div class="api-auth-group" data-api-auth-group="oauth2 apple-login amazon-login facebook-login microsoft-login" hidden>
+              <div class="api-field">
+                <label for="api-auth-oauth-access-token">Access Token</label>
+                <input id="api-auth-oauth-access-token" placeholder="{{token}}">
+              </div>
+              <div class="api-field">
+                <label for="api-auth-oauth-token-type">Token Type</label>
+                <input id="api-auth-oauth-token-type" placeholder="Bearer">
+              </div>
+              <div class="api-field">
+                <label for="api-auth-oauth-add-to">Send Token In</label>
+                <select id="api-auth-oauth-add-to">
+                  <option value="header">Authorization Header</option>
+                  <option value="query">Query String</option>
+                </select>
+              </div>
+              <div class="api-field">
+                <label for="api-auth-oauth-client-id">Client ID</label>
+                <input id="api-auth-oauth-client-id" placeholder="{{client_id}}">
+              </div>
+              <div class="api-field">
+                <label for="api-auth-oauth-client-secret">Client Secret</label>
+                <input id="api-auth-oauth-client-secret" type="password" placeholder="{{client_secret}}">
+              </div>
+              <div class="api-field">
+                <label for="api-auth-oauth-scope">Scope</label>
+                <input id="api-auth-oauth-scope" placeholder="openid profile">
+              </div>
+              <div class="api-field">
+                <label for="api-auth-oauth-audience">Audience</label>
+                <input id="api-auth-oauth-audience" placeholder="api://default">
+              </div>
+              <div class="api-field">
+                <label for="api-auth-oauth-authorize-url">Authorize URL</label>
+                <input id="api-auth-oauth-authorize-url" placeholder="https://provider.test/authorize">
+              </div>
+              <div class="api-field">
+                <label for="api-auth-oauth-token-url">Access Token URL</label>
+                <input id="api-auth-oauth-token-url" placeholder="https://provider.test/token">
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="api-field api-field-full">
           <label for="api-request-url">URL</label>
           <input id="api-request-url" placeholder="https://example.test/api/orders">
@@ -1542,7 +1655,7 @@ HTML: <script src="/js/jquery.js"></script>
 <script>
 var configs = {};
 (function () {
-  var STORAGE_KEY = 'developer-dashboard:api-dashboard:v6';
+  var STORAGE_KEY = 'developer-dashboard:api-dashboard:v7';
   var POSTMAN_SCHEMA = 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json';
   var state = null;
 
@@ -1560,6 +1673,150 @@ var configs = {};
   // Output: cloned value.
   function clone(value) {
     return JSON.parse(JSON.stringify(value));
+  }
+
+  // authTypeForKind(kind)
+  // Purpose: map one visible credential kind to the underlying Postman auth type.
+  // Input: credential kind string.
+  // Output: Postman auth type string.
+  function authTypeForKind(kind) {
+    if (kind === 'basic') return 'basic';
+    if (kind === 'api-token') return 'bearer';
+    if (kind === 'api-key') return 'apikey';
+    if (kind === 'oauth2' || kind === 'apple-login' || kind === 'amazon-login' || kind === 'facebook-login' || kind === 'microsoft-login') return 'oauth2';
+    return 'noauth';
+  }
+
+  // authKindFromType(type, provider)
+  // Purpose: infer the visible credential kind from a Postman auth type and optional provider hint.
+  // Input: Postman auth type string and provider string.
+  // Output: credential kind string.
+  function authKindFromType(type, provider) {
+    var normalizedType = String(type || '').toLowerCase();
+    var normalizedProvider = String(provider || '').toLowerCase();
+    if (normalizedType === 'basic') return 'basic';
+    if (normalizedType === 'bearer') return 'api-token';
+    if (normalizedType === 'apikey') return 'api-key';
+    if (normalizedType === 'oauth2') {
+      if (normalizedProvider === 'apple-login') return 'apple-login';
+      if (normalizedProvider === 'amazon-login') return 'amazon-login';
+      if (normalizedProvider === 'facebook-login') return 'facebook-login';
+      if (normalizedProvider === 'microsoft-login') return 'microsoft-login';
+      return 'oauth2';
+    }
+    return 'none';
+  }
+
+  // authDefaultsForKind(kind)
+  // Purpose: return bookmark-local provider defaults for one visible credential kind.
+  // Input: credential kind string.
+  // Output: defaults hash.
+  function authDefaultsForKind(kind) {
+    if (kind === 'api-key') return { key: 'X-API-Key', in: 'header' };
+    if (kind === 'oauth2') return { provider: '', token_type: 'Bearer', add_to: 'header', authorize_url: '', access_token_url: '' };
+    if (kind === 'apple-login') return { provider: 'apple-login', token_type: 'Bearer', add_to: 'header', authorize_url: 'https://appleid.apple.com/auth/authorize', access_token_url: 'https://appleid.apple.com/auth/token' };
+    if (kind === 'amazon-login') return { provider: 'amazon-login', token_type: 'Bearer', add_to: 'header', authorize_url: 'https://www.amazon.com/ap/oa', access_token_url: 'https://api.amazon.com/auth/o2/token' };
+    if (kind === 'facebook-login') return { provider: 'facebook-login', token_type: 'Bearer', add_to: 'header', authorize_url: 'https://www.facebook.com/dialog/oauth', access_token_url: 'https://graph.facebook.com/oauth/access_token' };
+    if (kind === 'microsoft-login') return { provider: 'microsoft-login', token_type: 'Bearer', add_to: 'header', authorize_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/authorize', access_token_url: 'https://login.microsoftonline.com/common/oauth2/v2.0/token' };
+    return {};
+  }
+
+  // defaultAuthSettings()
+  // Purpose: build the default request-auth model used by the bookmark editor and Postman export/import.
+  // Input: none.
+  // Output: auth hash.
+  function defaultAuthSettings() {
+    return {
+      kind: 'none',
+      type: 'noauth',
+      open: false,
+      username: '',
+      password: '',
+      token: '',
+      key: 'X-API-Key',
+      value: '',
+      in: 'header',
+      access_token: '',
+      token_type: 'Bearer',
+      add_to: 'header',
+      client_id: '',
+      client_secret: '',
+      scope: '',
+      audience: '',
+      authorize_url: '',
+      access_token_url: '',
+      provider: ''
+    };
+  }
+
+  // normalizeAuthSettings(input)
+  // Purpose: sanitize request-auth settings loaded from browser state or imported Postman data.
+  // Input: candidate auth hash.
+  // Output: normalized auth hash.
+  function normalizeAuthSettings(input) {
+    var source = input && typeof input === 'object' ? input : {};
+    var auth = defaultAuthSettings();
+    Object.keys(auth).forEach(function (key) {
+      if (key === 'open') {
+        auth.open = !!source.open;
+        return;
+      }
+      if (Object.prototype.hasOwnProperty.call(source, key) && source[key] != null) auth[key] = String(source[key]);
+    });
+    var provider = auth.provider || source.provider || '';
+    var kind = source.kind ? String(source.kind) : authKindFromType(source.type || auth.type, provider);
+    auth.kind = kind || 'none';
+    auth.type = authTypeForKind(auth.kind);
+    var defaults = authDefaultsForKind(auth.kind);
+    Object.keys(defaults).forEach(function (key) {
+      if (!auth[key]) auth[key] = defaults[key];
+    });
+    if (auth.kind === 'none') auth.provider = '';
+    return auth;
+  }
+
+  // authPairsToHash(items)
+  // Purpose: convert a Postman auth parameter array into a lookup hash.
+  // Input: Postman auth entry array.
+  // Output: plain object.
+  function authPairsToHash(items) {
+    var hash = {};
+    (Array.isArray(items) ? items : []).forEach(function (item) {
+      if (!item || typeof item !== 'object' || !item.key) return;
+      hash[item.key] = item.value == null ? '' : String(item.value);
+    });
+    return hash;
+  }
+
+  // importAuthSettings(auth)
+  // Purpose: convert a Postman request auth object into the bookmark-local auth model.
+  // Input: Postman auth hash.
+  // Output: normalized auth hash.
+  function importAuthSettings(auth) {
+    if (!auth || typeof auth !== 'object') return defaultAuthSettings();
+    var type = String(auth.type || '').toLowerCase();
+    if (!type || type === 'noauth') return defaultAuthSettings();
+    var source = authPairsToHash(auth[type] || []);
+    return normalizeAuthSettings({
+      kind: authKindFromType(type, source.provider || ''),
+      type: type,
+      username: source.username || '',
+      password: source.password || '',
+      token: source.token || '',
+      key: source.key || 'X-API-Key',
+      value: source.value || '',
+      in: source.in || 'header',
+      access_token: source.accessToken || source.access_token || '',
+      token_type: source.tokenType || source.token_type || 'Bearer',
+      add_to: source.addTokenTo || source.add_to || 'header',
+      client_id: source.clientId || source.client_id || '',
+      client_secret: source.clientSecret || source.client_secret || '',
+      scope: source.scope || '',
+      audience: source.audience || '',
+      authorize_url: source.authUrl || source.authorize_url || '',
+      access_token_url: source.accessTokenUrl || source.access_token_url || '',
+      provider: source.provider || ''
+    });
   }
 
   // showBanner(message, isError)
@@ -1589,7 +1846,8 @@ var configs = {};
       description: '',
       timeout_s: 120,
       insecure_tls: false,
-      follow_redirects: true
+      follow_redirects: true,
+      auth: defaultAuthSettings()
     };
   }
 
@@ -1681,6 +1939,7 @@ var configs = {};
     if (request.timeout_s) data.timeout_s = request.timeout_s;
     if (request.insecure_tls) data.insecure_tls = true;
     if (request.follow_redirects === false) data.follow_redirects = false;
+    data.auth = normalizeAuthSettings(request.auth || {});
     return data;
   }
 
@@ -2036,6 +2295,7 @@ var configs = {};
       request && request.headers_text || '',
       request && request.body || ''
     ].join('\n');
+    joined += '\n' + authTemplateValues(request && request.auth).join('\n');
     var found = {};
     joined.replace(/\{\{([^{}]+)\}\}/g, function (_, token) {
       var key = String(token || '').trim();
@@ -2043,6 +2303,28 @@ var configs = {};
       return _;
     });
     return Object.keys(found).sort();
+  }
+
+  // authTemplateValues(auth)
+  // Purpose: collect auth-field strings that may contain collection token placeholders.
+  // Input: normalized auth hash.
+  // Output: array of string values.
+  function authTemplateValues(auth) {
+    var value = normalizeAuthSettings(auth || {});
+    return [
+      value.username,
+      value.password,
+      value.token,
+      value.key,
+      value.value,
+      value.access_token,
+      value.client_id,
+      value.client_secret,
+      value.scope,
+      value.audience,
+      value.authorize_url,
+      value.access_token_url
+    ];
   }
 
   // upsertCollectionVariable(collection, key, value)
@@ -2144,16 +2426,77 @@ var configs = {};
         upsertCollectionVariable(collection, name, input.value);
         document.getElementById('api-request-variables').value = formatVariables(collection.variable || []);
         renderResolvedRequestFields(collection, activeTab());
+        renderAuthFields(collection, activeTab());
         saveState();
       });
       input.addEventListener('change', function () {
         upsertCollectionVariable(collection, name, input.value);
         document.getElementById('api-request-variables').value = formatVariables(collection.variable || []);
+        renderAuthFields(collection, activeTab());
         persistWorkspace(true);
       });
       field.appendChild(label);
       field.appendChild(input);
       fields.appendChild(field);
+    });
+  }
+
+  // authSummary(auth)
+  // Purpose: describe the currently selected request-auth mode in human-readable workspace text.
+  // Input: normalized auth hash.
+  // Output: summary string.
+  function authSummary(auth) {
+    var value = normalizeAuthSettings(auth || {});
+    if (value.kind === 'basic') return 'Basic auth will send an Authorization header with the current username and password.';
+    if (value.kind === 'api-token') return 'API Token auth will send an Authorization header with the current token value.';
+    if (value.kind === 'api-key') return 'API Key auth will send the current key in a header or query string, depending on the selected target.';
+    if (value.kind === 'oauth2') return 'OAuth2 auth stores a manual access token and optional client metadata for the current request.';
+    if (value.kind === 'apple-login' || value.kind === 'amazon-login' || value.kind === 'facebook-login' || value.kind === 'microsoft-login') {
+      return value.kind.replace(/-/g, ' ').replace(/\b\w/g, function (chr) { return chr.toUpperCase(); }) + ' uses the OAuth2 fields below with provider defaults.';
+    }
+    return 'No request credentials configured.';
+  }
+
+  // renderAuthFields(collection, tab)
+  // Purpose: render the hide/show request-auth editor and keep provider-specific fields aligned with the active request.
+  // Input: collection hash and active tab hash.
+  // Output: none.
+  function renderAuthFields(collection, tab) {
+    var toggle = document.getElementById('api-auth-toggle');
+    var shell = document.getElementById('api-auth-fields');
+    var summary = document.getElementById('api-auth-summary');
+    if (!tab) {
+      shell.hidden = true;
+      toggle.textContent = 'Show Credentials';
+      toggle.setAttribute('aria-expanded', 'false');
+      summary.textContent = 'No request credentials configured.';
+      return;
+    }
+    var auth = normalizeAuthSettings(tab.request.auth || {});
+    tab.request.auth = auth;
+    shell.hidden = !auth.open;
+    toggle.textContent = auth.open ? 'Hide Credentials' : 'Show Credentials';
+    toggle.setAttribute('aria-expanded', auth.open ? 'true' : 'false');
+    document.getElementById('api-auth-kind').value = auth.kind;
+    setResolvedFieldValue('api-auth-basic-username', auth.username, applyVariables(collection, auth.username));
+    setResolvedFieldValue('api-auth-basic-password', auth.password, applyVariables(collection, auth.password));
+    setResolvedFieldValue('api-auth-token', auth.token, applyVariables(collection, auth.token));
+    setResolvedFieldValue('api-auth-api-key-name', auth.key, applyVariables(collection, auth.key));
+    setResolvedFieldValue('api-auth-api-key-value', auth.value, applyVariables(collection, auth.value));
+    document.getElementById('api-auth-api-key-in').value = auth.in || 'header';
+    setResolvedFieldValue('api-auth-oauth-access-token', auth.access_token, applyVariables(collection, auth.access_token));
+    setResolvedFieldValue('api-auth-oauth-token-type', auth.token_type, applyVariables(collection, auth.token_type));
+    document.getElementById('api-auth-oauth-add-to').value = auth.add_to || 'header';
+    setResolvedFieldValue('api-auth-oauth-client-id', auth.client_id, applyVariables(collection, auth.client_id));
+    setResolvedFieldValue('api-auth-oauth-client-secret', auth.client_secret, applyVariables(collection, auth.client_secret));
+    setResolvedFieldValue('api-auth-oauth-scope', auth.scope, applyVariables(collection, auth.scope));
+    setResolvedFieldValue('api-auth-oauth-audience', auth.audience, applyVariables(collection, auth.audience));
+    setResolvedFieldValue('api-auth-oauth-authorize-url', auth.authorize_url, applyVariables(collection, auth.authorize_url));
+    setResolvedFieldValue('api-auth-oauth-token-url', auth.access_token_url, applyVariables(collection, auth.access_token_url));
+    summary.textContent = authSummary(auth);
+    Array.prototype.slice.call(document.querySelectorAll('[data-api-auth-group]')).forEach(function (node) {
+      var kinds = String(node.getAttribute('data-api-auth-group') || '').split(/\s+/);
+      node.hidden = kinds.indexOf(auth.kind) === -1;
     });
   }
 
@@ -2523,6 +2866,7 @@ var configs = {};
     var tab = activeTab();
     if (!tab) {
       document.getElementById('api-token-shell').hidden = true;
+      renderAuthFields(null, null);
       renderResponse(null);
       return;
     }
@@ -2537,6 +2881,7 @@ var configs = {};
     document.getElementById('api-request-variables').value = formatVariables(collection ? collection.variable : []);
     document.getElementById('api-collection-name').value = collection ? collection.name : '';
     renderTokenFields(collection, tab);
+    renderAuthFields(collection, tab);
     renderResponse(tab.response || null);
   }
 
@@ -2571,6 +2916,26 @@ var configs = {};
     tab.request.timeout_s = parseInt(document.getElementById('api-timeout').value || '120', 10) || 120;
     tab.request.follow_redirects = document.getElementById('api-follow-redirects').checked;
     tab.request.insecure_tls = document.getElementById('api-insecure-tls').checked;
+    tab.request.auth = normalizeAuthSettings({
+      kind: document.getElementById('api-auth-kind').value,
+      open: !document.getElementById('api-auth-fields').hidden,
+      username: readResolvedFieldValue('api-auth-basic-username', collection),
+      password: readResolvedFieldValue('api-auth-basic-password', collection),
+      token: readResolvedFieldValue('api-auth-token', collection),
+      key: readResolvedFieldValue('api-auth-api-key-name', collection),
+      value: readResolvedFieldValue('api-auth-api-key-value', collection),
+      in: document.getElementById('api-auth-api-key-in').value,
+      access_token: readResolvedFieldValue('api-auth-oauth-access-token', collection),
+      token_type: readResolvedFieldValue('api-auth-oauth-token-type', collection),
+      add_to: document.getElementById('api-auth-oauth-add-to').value,
+      client_id: readResolvedFieldValue('api-auth-oauth-client-id', collection),
+      client_secret: readResolvedFieldValue('api-auth-oauth-client-secret', collection),
+      scope: readResolvedFieldValue('api-auth-oauth-scope', collection),
+      audience: readResolvedFieldValue('api-auth-oauth-audience', collection),
+      authorize_url: readResolvedFieldValue('api-auth-oauth-authorize-url', collection),
+      access_token_url: readResolvedFieldValue('api-auth-oauth-token-url', collection),
+      provider: authDefaultsForKind(document.getElementById('api-auth-kind').value).provider || ''
+    });
     tab.title = tab.request.name;
     if (collection) {
       collection.variable = parseVariablesText(document.getElementById('api-request-variables').value);
@@ -2856,7 +3221,8 @@ var configs = {};
       timeout_s: 120,
       insecure_tls: false,
       follow_redirects: true,
-      name: request && request.name ? request.name : 'Request'
+      name: request && request.name ? request.name : 'Request',
+      auth: importAuthSettings(request && request.auth)
     };
   }
 
@@ -2899,6 +3265,72 @@ var configs = {};
     });
   }
 
+  // exportAuthSettings(auth)
+  // Purpose: convert bookmark-local auth settings into a valid Postman request.auth payload.
+  // Input: normalized auth hash.
+  // Output: Postman auth hash or undefined when no auth is configured.
+  function exportAuthSettings(auth) {
+    var value = normalizeAuthSettings(auth || {});
+    if (value.kind === 'none') return undefined;
+    if (value.kind === 'basic') {
+      return {
+        type: 'basic',
+        basic: [
+          { key: 'username', value: value.username || '', type: 'string' },
+          { key: 'password', value: value.password || '', type: 'string' }
+        ]
+      };
+    }
+    if (value.kind === 'api-token') {
+      return {
+        type: 'bearer',
+        bearer: [
+          { key: 'token', value: value.token || '', type: 'string' }
+        ]
+      };
+    }
+    if (value.kind === 'api-key') {
+      return {
+        type: 'apikey',
+        apikey: [
+          { key: 'key', value: value.key || '', type: 'string' },
+          { key: 'value', value: value.value || '', type: 'string' },
+          { key: 'in', value: value.in || 'header', type: 'string' }
+        ]
+      };
+    }
+    var oauth = [
+      { key: 'accessToken', value: value.access_token || '', type: 'string' },
+      { key: 'tokenType', value: value.token_type || 'Bearer', type: 'string' },
+      { key: 'addTokenTo', value: value.add_to || 'header', type: 'string' }
+    ];
+    if (value.provider) oauth.push({ key: 'provider', value: value.provider, type: 'string' });
+    if (value.client_id) oauth.push({ key: 'clientId', value: value.client_id, type: 'string' });
+    if (value.client_secret) oauth.push({ key: 'clientSecret', value: value.client_secret, type: 'string' });
+    if (value.scope) oauth.push({ key: 'scope', value: value.scope, type: 'string' });
+    if (value.audience) oauth.push({ key: 'audience', value: value.audience, type: 'string' });
+    if (value.authorize_url) oauth.push({ key: 'authUrl', value: value.authorize_url, type: 'string' });
+    if (value.access_token_url) oauth.push({ key: 'accessTokenUrl', value: value.access_token_url, type: 'string' });
+    return {
+      type: 'oauth2',
+      oauth2: oauth
+    };
+  }
+
+  // resolveAuthSettings(auth, collection)
+  // Purpose: apply collection token expansion to the active request-auth settings before request dispatch.
+  // Input: normalized auth hash and collection hash.
+  // Output: resolved auth hash.
+  function resolveAuthSettings(auth, collection) {
+    var value = normalizeAuthSettings(auth || {});
+    Object.keys(value).forEach(function (key) {
+      if (key === 'open' || key === 'kind') return;
+      if (typeof value[key] === 'string') value[key] = applyVariables(collection, value[key]);
+    });
+    value.type = authTypeForKind(value.kind);
+    return value;
+  }
+
   // exportPostmanNode(node)
   // Purpose: convert one local node back into Postman-compatible JSON.
   // Input: local node hash.
@@ -2910,6 +3342,7 @@ var configs = {};
         item: (node.item || []).map(exportPostmanNode)
       };
     }
+    var auth = exportAuthSettings(node.request.auth);
     return {
       name: node.name,
       request: {
@@ -2926,7 +3359,8 @@ var configs = {};
         }).filter(Boolean),
         body: node.request.body ? { mode: 'raw', raw: node.request.body } : undefined,
         url: { raw: node.request.url || '' },
-        description: node.request.description || ''
+        description: node.request.description || '',
+        auth: auth
       }
     };
   }
@@ -3241,6 +3675,7 @@ var configs = {};
     payload.url = applyVariables(collection, payload.url);
     payload.headers_text = applyVariables(collection, payload.headers_text);
     payload.body = applyVariables(collection, payload.body);
+    payload.auth = resolveAuthSettings(payload.auth, collection);
     $.ajax({
       method: 'POST',
       url: configs.send.request,
@@ -3264,12 +3699,37 @@ var configs = {};
   // Input: none.
   // Output: none.
   function bindForm() {
-    ['api-request-name', 'api-request-method', 'api-request-url', 'api-request-headers', 'api-request-body', 'api-request-description', 'api-timeout', 'api-follow-redirects', 'api-insecure-tls', 'api-request-variables'].forEach(function (id) {
+    ['api-request-name', 'api-request-method', 'api-request-url', 'api-request-headers', 'api-request-body', 'api-request-description', 'api-timeout', 'api-follow-redirects', 'api-insecure-tls', 'api-request-variables', 'api-auth-basic-username', 'api-auth-basic-password', 'api-auth-token', 'api-auth-api-key-name', 'api-auth-api-key-value', 'api-auth-api-key-in', 'api-auth-oauth-access-token', 'api-auth-oauth-token-type', 'api-auth-oauth-add-to', 'api-auth-oauth-client-id', 'api-auth-oauth-client-secret', 'api-auth-oauth-scope', 'api-auth-oauth-audience', 'api-auth-oauth-authorize-url', 'api-auth-oauth-token-url'].forEach(function (id) {
       var element = document.getElementById(id);
       var eventName = element && element.tagName === 'SELECT' ? 'change' : 'input';
       if (!element) return;
       element.addEventListener(eventName, syncActiveTabFromForm);
       if (eventName !== 'change') element.addEventListener('change', syncActiveTabFromForm);
+    });
+    document.getElementById('api-auth-toggle').addEventListener('click', function () {
+      var tab = activeTab();
+      if (!tab) return;
+      var auth = normalizeAuthSettings(tab.request.auth || {});
+      auth.open = !auth.open;
+      tab.request.auth = auth;
+      saveState();
+      renderEditor();
+    });
+    document.getElementById('api-auth-kind').addEventListener('change', function (event) {
+      var tab = activeTab();
+      if (!tab) return;
+      var auth = normalizeAuthSettings(tab.request.auth || {});
+      auth.kind = event.target.value || 'none';
+      auth.type = authTypeForKind(auth.kind);
+      auth.open = true;
+      var defaults = authDefaultsForKind(auth.kind);
+      Object.keys(defaults).forEach(function (key) {
+        auth[key] = defaults[key];
+      });
+      if (auth.kind === 'none') auth.provider = '';
+      tab.request.auth = auth;
+      saveState();
+      renderEditor();
     });
     document.getElementById('api-new-collection').addEventListener('click', createCollection);
     document.getElementById('api-rename-collection').addEventListener('click', renameSelectedCollection);
@@ -3360,8 +3820,9 @@ CODE1: Ajax jvar => 'configs.collections.bootstrap', type => 'json', file => 'ap
 
   sub _api_dashboard_collection_root {
     my $dir = File::Spec->catdir( Developer::Dashboard::Folder->configs, 'api-dashboard' );
-    make_path($dir) if $dir ne '' && !-d $dir;
+    make_path( $dir, { mode => 0700 } ) if $dir ne '' && !-d $dir;
     Developer::Dashboard::PathRegistry->new->secure_dir_permissions($dir);
+    chmod 0700, $dir or die "Unable to chmod $dir to 0700: $!" if $dir ne '' && -d $dir;
     return $dir;
   }
 
@@ -3418,6 +3879,7 @@ CODE1: Ajax jvar => 'configs.collections.bootstrap', type => 'json', file => 'ap
 
     my $path = File::Spec->catfile( $dir, $entry );
     next if !-f $path;
+    chmod 0600, $path or die "Unable to chmod $path to 0600: $!";
 
     my $raw = eval { _api_dashboard_slurp($path) };
     if ($@) {
@@ -3477,8 +3939,9 @@ CODE2: Ajax jvar => 'configs.collections.save', type => 'json', file => 'api-das
 
   sub _api_dashboard_collection_root {
     my $dir = File::Spec->catdir( Developer::Dashboard::Folder->configs, 'api-dashboard' );
-    make_path($dir) if $dir ne '' && !-d $dir;
+    make_path( $dir, { mode => 0700 } ) if $dir ne '' && !-d $dir;
     _api_dashboard_paths()->secure_dir_permissions($dir);
+    chmod 0700, $dir or die "Unable to chmod $dir to 0700: $!" if $dir ne '' && -d $dir;
     return $dir;
   }
 
@@ -3526,15 +3989,18 @@ CODE2: Ajax jvar => 'configs.collections.save', type => 'json', file => 'api-das
     my ( $file, $text ) = @_;
     my $tmp = "$file.pending";
     my $dir = dirname($file);
-    make_path($dir) if !-d $dir;
+    make_path( $dir, { mode => 0700 } ) if !-d $dir;
     _api_dashboard_paths()->secure_dir_permissions($dir);
+    chmod 0700, $dir or die "Unable to chmod $dir to 0700: $!";
     open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
     print {$fh} defined $text ? $text : '';
     close $fh or die "Unable to close $tmp: $!";
     _api_dashboard_paths()->secure_file_permissions($tmp);
+    chmod 0600, $tmp or die "Unable to chmod $tmp to 0600: $!";
     unlink $file if -f $file;
     rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
     _api_dashboard_paths()->secure_file_permissions($file);
+    chmod 0600, $file or die "Unable to chmod $file to 0600: $!";
     return $file;
   }
 
@@ -3591,8 +4057,9 @@ CODE3: Ajax jvar => 'configs.collections.delete', type => 'json', file => 'api-d
 
   sub _api_dashboard_collection_root {
     my $dir = File::Spec->catdir( Developer::Dashboard::Folder->configs, 'api-dashboard' );
-    make_path($dir) if $dir ne '' && !-d $dir;
+    make_path( $dir, { mode => 0700 } ) if $dir ne '' && !-d $dir;
     Developer::Dashboard::PathRegistry->new->secure_dir_permissions($dir);
+    chmod 0700, $dir or die "Unable to chmod $dir to 0700: $!" if $dir ne '' && -d $dir;
     return $dir;
   }
 
@@ -3652,6 +4119,84 @@ CODE4: Ajax jvar => 'configs.send.request', type => 'json', file => 'api-dashboa
     return \@pairs;
   }
 
+  sub _api_dashboard_set_header_text {
+    my ( $text, $key, $value ) = @_;
+    my @kept;
+    for my $line ( split /\n/, ( defined $text ? $text : '' ) ) {
+      $line =~ s/\r//g;
+      next if $line !~ /\S/;
+      my ( $existing_key ) = split /\s*:\s*/, $line, 2;
+      next if defined $existing_key && lc($existing_key) eq lc($key);
+      push @kept, $line;
+    }
+    push @kept, "$key: $value" if defined $value && $value ne '';
+    return join "\n", @kept;
+  }
+
+  sub _api_dashboard_apply_query_param {
+    my ( $uri, $key, $value ) = @_;
+    return if !defined $uri || !defined $key || $key eq '' || !defined $value || $value eq '';
+    my @current = $uri->query_form;
+    my @pairs;
+    while (@current) {
+      my $existing_key   = shift @current;
+      my $existing_value = shift @current;
+      next if defined $existing_key && $existing_key eq $key;
+      push @pairs, $existing_key, $existing_value;
+    }
+    push @pairs, $key, $value;
+    $uri->query_form(@pairs);
+  }
+
+  sub _api_dashboard_apply_auth {
+    my ( $settings, $uri ) = @_;
+    my $auth = $settings->{auth};
+    return if ref($auth) ne 'HASH';
+    my $type = lc( $auth->{type} || '' );
+    return if $type eq '' || $type eq 'noauth';
+
+    if ( $type eq 'basic' ) {
+      my $username = defined $auth->{username} ? $auth->{username} : '';
+      my $password = defined $auth->{password} ? $auth->{password} : '';
+      my $value = 'Basic ' . encode_base64( "$username:$password", '' );
+      $settings->{headers_text} = _api_dashboard_set_header_text( $settings->{headers_text}, 'Authorization', $value );
+      return;
+    }
+
+    if ( $type eq 'bearer' ) {
+      my $token = defined $auth->{token} ? $auth->{token} : '';
+      return if $token eq '';
+      my $value = 'Bearer ' . $token;
+      $settings->{headers_text} = _api_dashboard_set_header_text( $settings->{headers_text}, 'Authorization', $value );
+      return;
+    }
+
+    if ( $type eq 'apikey' ) {
+      my $key = defined $auth->{key} ? $auth->{key} : '';
+      my $value = defined $auth->{value} ? $auth->{value} : '';
+      my $in = lc( $auth->{in} || 'header' );
+      if ( $in eq 'query' ) {
+        _api_dashboard_apply_query_param( $uri, $key, $value );
+        return;
+      }
+      $settings->{headers_text} = _api_dashboard_set_header_text( $settings->{headers_text}, $key, $value );
+      return;
+    }
+
+    if ( $type eq 'oauth2' ) {
+      my $token = defined $auth->{access_token} ? $auth->{access_token} : '';
+      return if $token eq '';
+      my $token_type = defined $auth->{token_type} && $auth->{token_type} ne '' ? $auth->{token_type} : 'Bearer';
+      my $add_to = lc( $auth->{add_to} || 'header' );
+      if ( $add_to eq 'query' ) {
+        _api_dashboard_apply_query_param( $uri, 'access_token', $token );
+        return;
+      }
+      $settings->{headers_text} = _api_dashboard_set_header_text( $settings->{headers_text}, 'Authorization', $token_type . ' ' . $token );
+      return;
+    }
+  }
+
   sub _api_dashboard_is_textual {
     my ( $content_type, $content ) = @_;
     return 1 if ( $content_type || '' ) =~ m{(?:json|xml|javascript|html|text|x-www-form-urlencoded)}i;
@@ -3684,6 +4229,7 @@ CODE4: Ajax jvar => 'configs.send.request', type => 'json', file => 'api-dashboa
     die "Request URL is required" if $url eq '';
     my $uri = URI->new($url);
     die "Request URL must use http or https" if ( ( $uri->scheme || '' ) !~ /\Ahttps?\z/i );
+    _api_dashboard_apply_auth( $settings, $uri );
 
     my $timeout_s = int( $settings->{timeout_s} || 120 );
     $timeout_s = 120 if $timeout_s < 1 || $timeout_s > 600;
