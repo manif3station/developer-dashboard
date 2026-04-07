@@ -568,7 +568,6 @@ elsif ( $cmd eq 'init' ) {
     );
 
     my @pages = $pages->list_saved_pages;
-    _seed_init_page( $pages, \@pages, Developer::Dashboard::CLI::SeededPages::welcome_page() );
     _seed_init_page( $pages, \@pages, Developer::Dashboard::CLI::SeededPages::api_dashboard_page() );
     _seed_init_page( $pages, \@pages, Developer::Dashboard::CLI::SeededPages::sql_dashboard_page() );
     my $internal_cli = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );

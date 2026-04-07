@@ -16,6 +16,9 @@ use Developer::Dashboard::UpdateManager;
 
 my $repo = getcwd();
 local $ENV{HOME} = tempdir(CLEANUP => 1);
+local $ENV{DEVELOPER_DASHBOARD_RUNTIME_LAYERS} = $ENV{HOME} . '/.developer-dashboard';
+local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS}      = $ENV{HOME} . '/.developer-dashboard/dashboards';
+local $ENV{DEVELOPER_DASHBOARD_CONFIGS}        = $ENV{HOME} . '/.developer-dashboard/config';
 
 my $paths = Developer::Dashboard::PathRegistry->new;
 my $files = Developer::Dashboard::FileRegistry->new(paths => $paths);
@@ -39,7 +42,9 @@ ok(ref($result) eq 'ARRAY', 'update returns array of step results');
 ok(@$result >= 3, 'all update steps executed');
 
 ok(-f $files->global_config, 'global config written');
-ok(-f $paths->dashboards_root . '/welcome', 'welcome page written');
+ok(-f $paths->dashboards_root . '/api-dashboard', 'api-dashboard page written');
+ok(-f $paths->dashboards_root . '/sql-dashboard', 'sql-dashboard page written');
+ok(!-f $paths->dashboards_root . '/welcome', 'welcome page is no longer written');
 ok(-f $paths->config_root . '/shell/bashrc.sh', 'shell bootstrap written');
 
 done_testing;

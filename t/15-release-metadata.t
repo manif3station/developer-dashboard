@@ -50,18 +50,18 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.90', 'repo version bumped for the macOS path-root alias install fix release' );
-like( $pm, qr/^1\.90$/m, 'main POD version matches the module version' );
+is( $version, '1.91', 'repo version bumped for the welcome starter bookmark removal release' );
+like( $pm, qr/^1\.91$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.90$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.91$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
     like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.90"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.91"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.90\s+2026-04-07$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.91\s+2026-04-07$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(

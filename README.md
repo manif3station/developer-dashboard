@@ -571,7 +571,7 @@ Resolve or open files from the CLI:
 dashboard of --print My::Module
 dashboard open-file --print com.example.App
 dashboard open-file --print path/to/file.txt
-dashboard open-file --print bookmarks welcome
+dashboard open-file --print bookmarks api-dashboard
 ```
 
 Query structured files from the CLI:
@@ -907,8 +907,8 @@ If `~/.developer-dashboard/cli/update` or `~/.developer-dashboard/cli/update/run
 exists, `dashboard update` runs that command after any sorted hook files from
 `~/.developer-dashboard/cli/update/` or `~/.developer-dashboard/cli/update.d/`.
 
-`dashboard init` seeds three editable starter bookmarks when they are missing:
-`welcome`, `api-dashboard`, and `sql-dashboard`.
+`dashboard init` seeds two editable starter bookmarks when they are missing:
+`api-dashboard` and `sql-dashboard`.
 
 Re-running `dashboard init` keeps an existing
 `~/.developer-dashboard/config/config.json` intact. The command only fills in

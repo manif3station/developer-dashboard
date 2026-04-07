@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.90';
+our $VERSION = '1.91';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.90
+1.91
 
 =head1 INTRODUCTION
 
@@ -936,7 +936,7 @@ Resolve or open files from the CLI:
   dashboard of --print My::Module
   dashboard open-file --print com.example.App
   dashboard open-file --print path/to/file.txt
-  dashboard open-file --print bookmarks welcome
+  dashboard open-file --print bookmarks api-dashboard
 
 Query structured files from the CLI:
 
@@ -1465,8 +1465,8 @@ F<./.developer-dashboard/cli/update/run> exists in the current project it is
 used first; otherwise the home runtime fallback is used. C<dashboard update>
 runs that command after any sorted hook files from F<update/> or F<update.d>.
 
-C<dashboard init> seeds three editable starter bookmarks when they are
-missing: C<welcome>, C<api-dashboard>, and C<sql-dashboard>.
+C<dashboard init> seeds two editable starter bookmarks when they are
+missing: C<api-dashboard> and C<sql-dashboard>.
 
 Re-running C<dashboard init> keeps an existing
 F<~/.developer-dashboard/config/config.json> intact. The command only fills

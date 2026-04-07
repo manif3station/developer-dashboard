@@ -4,6 +4,36 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: WELCOME-SEED-DEAD-WEIGHT
+
+**Date:** 2026-04-07 17:45:00 UTC
+**Area:** runtime bootstrap defaults, starter bookmarks, and update-test isolation
+**Symptom:** `dashboard init` and runtime bootstrap were still treated as if they should ship a default `welcome` bookmark, and the update-manager regression test kept reading the repo checkout's own `.developer-dashboard` tree instead of a fresh isolated runtime
+**Why It Was Dangerous:** It kept shipping a default bookmark that the product no longer wanted, polluted fresh runtimes with dead-weight starter content, and hid the real bootstrap behavior behind a misleading test that was looking at stale repo-local state
+**Root Cause:** Earlier starter-bookmark extraction moved `welcome` into shipped seeded assets and later code/tests kept assuming it belonged in the default set, while the updater test ran from the repo root without pinning bookmark/config paths away from the checkout's own runtime tree
+**How Ellen Solved It:** Removed the shipped `welcome.page` asset, stopped both `dashboard init` and `01-bootstrap-runtime.pl` from seeding `welcome`, updated the CLI/update/integration assertions to require only `api-dashboard` and `sql-dashboard`, and pinned the update-manager test to an isolated temp-home bookmark/config root so it checks the actual bootstrap output
+**How To Detect Earlier Next Time:** After changing starter defaults, run `dashboard init`, `dashboard page list`, and the update-manager test from a clean temp home and confirm the seeded page set exactly matches the documented contract instead of inheriting a repo-local runtime tree
+**Prevention Rule:** Starter bookmark defaults are an explicit contract. If a bookmark is not meant to ship by default, it must not exist in seeded assets, init/bootstrap code, or current-contract documentation
+**Verification:** `prove -lv t/04-update-manager.t`, `prove -lv t/05-cli-smoke.t`, `prove -lv t/30-dashboard-loader.t`, `prove -lr t`, `dzil build`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `lib/Developer/Dashboard/CLI/SeededPages.pm`, `share/private-cli/_dashboard-core`, `updates/01-bootstrap-runtime.pl`, `share/seeded-pages/`, `t/04-update-manager.t`, `t/05-cli-smoke.t`, `t/30-dashboard-loader.t`, `integration/blank-env/run-integration.pl`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/update-and-release.md`, `doc/testing.md`, `doc/integration-test-plan.md`, `SOFTWARE_SPEC.md`
+
+---
+
+## CODE: SCORECARD-SHELL-ENV-DRIFT
+
+**Date:** 2026-04-07 17:30:00 UTC
+**Area:** security verification, shell environment handling, and Scorecard execution
+**Symptom:** Scorecard was reported as blocked by missing GitHub auth even though it worked from the user shell on the same machine
+**Why It Was Dangerous:** It produced a false security-status report, hid the real Scorecard result, and wasted time by blaming missing auth instead of checking the correct shell path
+**Root Cause:** The check was run through a non-interactive `bash -lc` path that did not inherit `GITHUB_AUTH_TOKEN` from the interactive shell init, while the real user path loaded the token correctly through `bash -ic`
+**How Ellen Solved It:** Verified the environment difference directly, confirmed that `bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"` works on this machine, and documented that exact command as the required Scorecard path in the override rules
+**How To Detect Earlier Next Time:** Compare the environment visible to the tool shell and an interactive shell before claiming auth is missing, especially when a user says a command already works locally
+**Prevention Rule:** On this machine, Scorecard must be verified through the interactive shell path before claiming it is blocked or unauthenticated
+**Verification:** `bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"`
+**Related Files:** `AGENTS.override.md`, `MISTAKE.md`
+
+---
+
 ## CODE: PATH-ROOT-ALIAS-ASSERTION-DRIFT
 
 **Date:** 2026-04-07 17:20:00 UTC

@@ -220,7 +220,7 @@ logic.
 
 Current seeded workspaces should include:
 
-- `welcome` as a neutral landing page
+- `api-dashboard` and `sql-dashboard` as the default starter bookmarks
 - `api-dashboard` as a file-backed HTTP workspace
 - `sql-dashboard` as a file-backed SQL workspace
 

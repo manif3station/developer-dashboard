@@ -1,5 +1,14 @@
 Revision history for Developer Dashboard
 
+1.91  2026-04-07
+    - stopped seeding the default `welcome` bookmark during `dashboard init`
+      and runtime bootstrap, so fresh runtimes now start with only
+      `api-dashboard` and `sql-dashboard`
+    - fixed update-manager regression coverage so the bootstrap test now pins
+      bookmark and config writes to an isolated home runtime instead of
+      accidentally reading the repo's own checked-out `.developer-dashboard`
+      tree
+
 1.90  2026-04-07
     - fixed the packaged `t/21-refactor-coverage.t` `dashboard path
       project-root` assertion so it now compares path identity instead of raw

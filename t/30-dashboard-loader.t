@@ -29,9 +29,10 @@ like( $source, qr/_builtin_helper_path/, 'dashboard entrypoint resolves staged p
 
 my $share_seeded_root = File::Spec->catdir( $repo_root, 'share', 'seeded-pages' );
 ok( -d $share_seeded_root, 'seeded bookmark assets are shipped outside the dashboard entrypoint' );
-for my $page (qw(welcome.page api-dashboard.page sql-dashboard.page)) {
+for my $page (qw(api-dashboard.page sql-dashboard.page)) {
     ok( -f File::Spec->catfile( $share_seeded_root, $page ), "share/seeded-pages/$page is shipped" );
 }
+ok( !-f File::Spec->catfile( $share_seeded_root, 'welcome.page' ), 'share/seeded-pages/welcome.page is no longer shipped' );
 
 my $lib = File::Spec->catdir( $repo_root, 'lib' );
 my $fake_lib = tempdir( CLEANUP => 1 );

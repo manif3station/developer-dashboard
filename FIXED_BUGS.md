@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 55: Welcome Seed Dead Weight)
+
+- Stopped seeding the default `welcome` bookmark during `dashboard init` and runtime bootstrap.
+- Fixed fresh runtime defaults so new installs and blank environments now start with only `api-dashboard` and `sql-dashboard`.
+- Fixed update-manager regression coverage so it verifies an isolated home runtime instead of tripping over the repo checkout's own `.developer-dashboard` tree.
+
 ## 2026-04-07 (Phase 54: Path Root Alias Assertion Drift)
 
 - Fixed the packaged `t/21-refactor-coverage.t` `dashboard path project-root` assertion so it now compares path identity instead of raw strings.

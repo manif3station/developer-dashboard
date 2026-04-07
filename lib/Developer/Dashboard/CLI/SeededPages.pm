@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::SeededPages;
 use strict;
 use warnings;
 
-our $VERSION = '1.90';
+our $VERSION = '1.91';
 
 use File::Basename qw(dirname);
 use File::Spec;
@@ -12,14 +12,6 @@ use File::ShareDir qw(dist_dir);
 use Developer::Dashboard::PageDocument;
 
 my %PAGE_CACHE;
-
-# welcome_page()
-# Loads the seeded welcome bookmark definition from the shipped asset file.
-# Input: none.
-# Output: Developer::Dashboard::PageDocument object.
-sub welcome_page {
-    return _page_from_asset('welcome.page');
-}
 
 # api_dashboard_page()
 # Loads the seeded api-dashboard bookmark definition from the shipped asset file.
@@ -118,8 +110,8 @@ Developer::Dashboard::CLI::SeededPages - shipped bookmark assets for dashboard i
 =head1 DESCRIPTION
 
 Loads the shipped seeded bookmark instruction files used by C<dashboard init>
-so the public C<dashboard> entrypoint does not need to embed the full bookmark
-source for the welcome, API, and SQL dashboards.
+and runtime bootstrap so the public C<dashboard> entrypoint does not need to
+embed the full bookmark source for the API and SQL dashboards.
 
 =for comment FULL-POD-DOC START
 

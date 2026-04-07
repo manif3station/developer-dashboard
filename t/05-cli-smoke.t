@@ -105,7 +105,7 @@ is_deeply(
 );
 
 my $pages = _run("$perl -I'$lib' '$dashboard' page list");
-like($pages, qr/welcome/, 'welcome page listed');
+unlike($pages, qr/\bwelcome\b/, 'dashboard init no longer seeds a welcome page');
 like($pages, qr/api-dashboard/, 'dashboard init seeds the API dashboard bookmark');
 like($pages, qr/sql-dashboard/, 'dashboard init seeds the SQL dashboard bookmark');
 my $api_page_source = _run("$perl -I'$lib' '$dashboard' page source api-dashboard");
@@ -155,8 +155,8 @@ like($sql_page_source, qr/config\/sql-dashboard/, 'sql-dashboard source targets 
 like($sql_page_source, qr/SQLS_SEP/, 'sql-dashboard source carries programmable multi-statement separators');
 like($sql_page_source, qr/INSTRUCTION_SEP/, 'sql-dashboard source carries programmable instruction separators');
 
-my $page_source = _run("$perl -I'$lib' '$dashboard' page source welcome");
-like($page_source, qr/^BOOKMARK:\s+welcome/m, 'page source prefers saved page ids over token decoding');
+my $page_source = _run("$perl -I'$lib' '$dashboard' page source api-dashboard");
+like($page_source, qr/^BOOKMARK:\s+api-dashboard/m, 'page source prefers saved page ids over token decoding');
 
 my $collector = _run("$perl -I'$lib' '$dashboard' collector run example.collector");
 like($collector, qr/example collector output/, 'collector run works');
