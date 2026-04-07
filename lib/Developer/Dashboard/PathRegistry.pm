@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '1.82';
+our $VERSION = '1.83';
 
 use Cwd qw(cwd);
 use File::Basename qw(dirname);
@@ -80,10 +80,11 @@ sub named_paths {
 # runtime_root()
 # Returns the effective runtime root directory.
 # Input: none.
-# Output: project-local runtime directory when available, otherwise the home runtime directory.
+# Output: deepest discovered runtime layer directory, falling back to the home runtime directory.
 sub runtime_root {
     my ($self) = @_;
-    return $self->project_runtime_root || $self->home_runtime_root;
+    my @layers = $self->runtime_layers;
+    return $layers[-1] || $self->home_runtime_root;
 }
 
 # home_runtime_root()
@@ -120,12 +121,22 @@ sub project_runtime_root {
 # runtime_roots()
 # Returns the effective runtime roots in lookup order.
 # Input: none.
-# Output: ordered list of runtime root directory path strings.
+# Output: ordered list of runtime root directory path strings from deepest layer to home fallback.
 sub runtime_roots {
+    my ($self) = @_;
+    return reverse $self->runtime_layers;
+}
+
+# runtime_layers()
+# Returns the effective runtime roots in inheritance order from home to the
+# current working directory layer.
+# Input: none.
+# Output: ordered list of runtime root directory path strings from home to deepest layer.
+sub runtime_layers {
     my ($self) = @_;
     my @roots;
     my %seen;
-    for my $root ( $self->project_runtime_root, $self->home_runtime_root ) {
+    for my $root ( $self->_runtime_layers_from_env, $self->home_runtime_root, $self->_ancestor_runtime_layers ) {
         next if !defined $root || $root eq '';
         next if $seen{$root}++;
         push @roots, $root;
@@ -181,7 +192,19 @@ sub dashboards_roots {
     if ( my $dir = $ENV{DEVELOPER_DASHBOARD_BOOKMARKS} ) {
         return ( $self->_ensure_dir( $self->_expand_home($dir) ) );
     }
-    return map { $self->_ensure_dir( File::Spec->catdir( $_, 'dashboards' ) ) } $self->runtime_roots;
+    return map { File::Spec->catdir( $_, 'dashboards' ) } $self->runtime_roots;
+}
+
+# dashboards_layers()
+# Returns the bookmark roots in inheritance order from home to deepest layer.
+# Input: none.
+# Output: ordered list of bookmark root directory path strings.
+sub dashboards_layers {
+    my ($self) = @_;
+    if ( my $dir = $ENV{DEVELOPER_DASHBOARD_BOOKMARKS} ) {
+        return ( $self->_ensure_dir( $self->_expand_home($dir) ) );
+    }
+    return map { File::Spec->catdir( $_, 'dashboards' ) } $self->runtime_layers;
 }
 
 # bookmarks()
@@ -217,7 +240,17 @@ sub cli_root {
 # Output: ordered list of CLI root directory path strings.
 sub cli_roots {
     my ($self) = @_;
-    return map { $self->_ensure_dir( File::Spec->catdir( $_, 'cli' ) ) } $self->runtime_roots;
+    return map { File::Spec->catdir( $_, 'cli' ) } $self->runtime_roots;
+}
+
+# cli_layers()
+# Returns the CLI extension roots in inheritance order from home to deepest
+# layer.
+# Input: none.
+# Output: ordered list of CLI root directory path strings.
+sub cli_layers {
+    my ($self) = @_;
+    return map { File::Spec->catdir( $_, 'cli' ) } $self->runtime_layers;
 }
 
 # skills_root()
@@ -248,6 +281,15 @@ sub collectors_root {
     return $self->_ensure_dir( File::Spec->catdir( $self->state_root, 'collectors' ) );
 }
 
+# collectors_roots()
+# Returns the collector state roots in lookup order from deepest layer to home.
+# Input: none.
+# Output: ordered list of collector state root directory path strings.
+sub collectors_roots {
+    my ($self) = @_;
+    return map { File::Spec->catdir( $_, 'state', 'collectors' ) } $self->runtime_roots;
+}
+
 # indicators_root()
 # Returns the indicators state root directory.
 # Input: none.
@@ -255,6 +297,15 @@ sub collectors_root {
 sub indicators_root {
     my ($self) = @_;
     return $self->_ensure_dir( File::Spec->catdir( $self->state_root, 'indicators' ) );
+}
+
+# indicators_roots()
+# Returns the indicator state roots in lookup order from deepest layer to home.
+# Input: none.
+# Output: ordered list of indicator state root directory path strings.
+sub indicators_roots {
+    my ($self) = @_;
+    return map { File::Spec->catdir( $_, 'state', 'indicators' ) } $self->runtime_roots;
 }
 
 # sessions_root()
@@ -272,7 +323,7 @@ sub sessions_root {
 # Output: ordered list of session root directory path strings.
 sub sessions_roots {
     my ($self) = @_;
-    return map { $self->_ensure_dir( File::Spec->catdir( $_, 'state', 'sessions' ) ) } $self->runtime_roots;
+    return map { File::Spec->catdir( $_, 'state', 'sessions' ) } $self->runtime_roots;
 }
 
 # temp_root()
@@ -305,7 +356,20 @@ sub config_roots {
     if ( my $dir = $ENV{DEVELOPER_DASHBOARD_CONFIGS} ) {
         return ( $self->_ensure_dir( $self->_expand_home($dir) ) );
     }
-    return map { $self->_ensure_dir( File::Spec->catdir( $_, 'config' ) ) } $self->runtime_roots;
+    return map { File::Spec->catdir( $_, 'config' ) } $self->runtime_roots;
+}
+
+# config_layers()
+# Returns the configuration roots in inheritance order from home to deepest
+# layer.
+# Input: none.
+# Output: ordered list of configuration root directory path strings.
+sub config_layers {
+    my ($self) = @_;
+    if ( my $dir = $ENV{DEVELOPER_DASHBOARD_CONFIGS} ) {
+        return ( $self->_ensure_dir( $self->_expand_home($dir) ) );
+    }
+    return map { File::Spec->catdir( $_, 'config' ) } $self->runtime_layers;
 }
 
 # auth_root()
@@ -323,7 +387,7 @@ sub auth_root {
 # Output: ordered list of auth root directory path strings.
 sub auth_roots {
     my ($self) = @_;
-    return map { $self->_ensure_dir( File::Spec->catdir( $_, 'auth' ) ) } $self->config_roots;
+    return map { File::Spec->catdir( $_, 'auth' ) } $self->config_roots;
 }
 
 # repo_dashboard_root()
@@ -350,7 +414,17 @@ sub users_root {
 # Output: ordered list of user storage directory path strings.
 sub users_roots {
     my ($self) = @_;
-    return map { $self->_ensure_dir( File::Spec->catdir( $_, 'users' ) ) } $self->auth_roots;
+    return map { File::Spec->catdir( $_, 'users' ) } $self->auth_roots;
+}
+
+# runtime_local_lib_roots()
+# Returns the runtime-local Perl library roots in lookup order from deepest
+# layer to home.
+# Input: none.
+# Output: ordered list of runtime-local perl5 directory paths.
+sub runtime_local_lib_roots {
+    my ($self) = @_;
+    return map { File::Spec->catdir( $_, 'local', 'lib', 'perl5' ) } $self->runtime_roots;
 }
 
 # current_project_root()
@@ -616,6 +690,57 @@ sub _expand_home {
     $path =~ s/^\$HOME(?=\/|$)/$self->{home}/;
     $path =~ s/^~/$self->{home}/;
     return $path;
+}
+
+# _ancestor_runtime_layers()
+# Discovers every existing .developer-dashboard layer between the current
+# working directory and the configured home directory, excluding the home
+# runtime root itself.
+# Input: none.
+# Output: ordered list of runtime root directory path strings from parentmost
+# child layer to the deepest current layer.
+sub _ancestor_runtime_layers {
+    my ($self) = @_;
+    my $cwd = eval { cwd() };
+    return () if !defined $cwd || $cwd eq '';
+    my $home = $self->home;
+    my $home_runtime = $self->home_runtime_path;
+    my $project_root = eval { $self->current_project_root } || '';
+    my $stop_dir = '';
+    if ( $cwd eq $home || $cwd =~ /^\Q$home\E\// ) {
+        $stop_dir = $home;
+    }
+    elsif ( $project_root ne '' && ( $cwd eq $project_root || $cwd =~ /^\Q$project_root\E\// ) ) {
+        $stop_dir = $project_root;
+    }
+    else {
+        return ();
+    }
+
+    my @layers;
+    my $dir = $cwd;
+    while ($dir) {
+        my $candidate = File::Spec->catdir( $dir, '.developer-dashboard' );
+        push @layers, $candidate if -d $candidate && $candidate ne $home_runtime;
+        last if $dir eq $stop_dir;
+        my $parent = dirname($dir);
+        last if !$parent || $parent eq $dir;
+        $dir = $parent;
+    }
+    return reverse @layers;
+}
+
+# _runtime_layers_from_env()
+# Reads an explicit runtime-layer chain from the process environment when one
+# is provided by the parent runtime process.
+# Input: none.
+# Output: ordered list of runtime root directory path strings from home to
+# deepest layer.
+sub _runtime_layers_from_env {
+    my ($self) = @_;
+    my $raw = $ENV{DEVELOPER_DASHBOARD_RUNTIME_LAYERS} || '';
+    return () if $raw eq '';
+    return grep { defined $_ && $_ ne '' } split /\n/, $raw;
 }
 
 1;

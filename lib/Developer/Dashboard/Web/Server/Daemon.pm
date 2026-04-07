@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server::Daemon;
 use strict;
 use warnings;
 
-our $VERSION = '1.82';
+our $VERSION = '1.83';
 
 # new(%args)
 # Constructs the lightweight daemon descriptor used by RuntimeManager.

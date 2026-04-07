@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.82';
+our $VERSION = '1.83';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.82
+1.83
 
 =head1 INTRODUCTION
 
@@ -195,6 +195,13 @@ C<BOOKMARK: nav/foo.tt>. On a page like C</app/index>, the direct C<nav/*.tt>
 files are loaded in sorted filename order, rendered through the normal page
 runtime, and inserted above the page body. Non-C<.tt> files and subdirectories
 under C<nav/> are ignored by that shared-nav renderer.
+
+Under C<DD-OOP-LAYERS>, the shared nav renderer now scans every inherited
+F<dashboards/nav/> layer from F<~/.developer-dashboard> down to the current
+directory, keeps parent-only fragments visible, and lets a deeper layer
+replace the same C<nav/E<lt>nameE<gt>.tt> id without losing the rest of the
+shared nav set. Template includes used by those bookmarks follow the same
+layered bookmark lookup path.
 
 Shared nav fragments and normal bookmark pages both render through Template
 Toolkit with C<env.current_page> set to the active request path, such as
@@ -672,11 +679,21 @@ C<dashboard foobar a b> will exec the first matching
 F<cli/foobar> with C<a b> as argv, while preserving stdin, stdout, and
 stderr.
 
+C<DD-OOP-LAYERS> is now the runtime contract for the whole local ecosystem.
+Starting at F<~/.developer-dashboard> and walking down through every parent
+directory until the current working directory, every existing
+F<.developer-dashboard/> layer participates. The deepest layer stays the write
+target and the first lookup hit, but bookmarks, C<nav/*.tt>, config,
+collectors, indicators, auth/session state lookups, runtime
+F<local/lib/perl5>, and custom CLI hooks are all inherited across the full
+chain instead of only a single project-or-home split.
+
 Per-command hook files can live under either
 F<./.developer-dashboard/cli/E<lt>commandE<gt>> or
-F<./.developer-dashboard/cli/E<lt>commandE<gt>.d> first, then the same paths
-under F<~/.developer-dashboard/cli/>. Executable files in the selected
-directory are run in sorted filename order before the real command runs,
+F<./.developer-dashboard/cli/E<lt>commandE<gt>.d> in every inherited layer
+from F<~/.developer-dashboard> down to the current directory. Executable files
+in those directories are run in sorted filename order within each layer, with
+the layers themselves running top-down from home to the deepest current layer,
 non-executable files are skipped, and each hook now streams its own
 C<stdout> and C<stderr> live to the terminal while still accumulating those
 channels into C<RESULT> as JSON. Built-in commands such as C<dashboard jq>
@@ -836,12 +853,12 @@ F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>.
 
 If you want C<dashboard update>, provide it as a normal user command at
 F<~/.developer-dashboard/cli/update> or
-F<~/.developer-dashboard/cli/update/run>. Its hook files can live under
-F<~/.developer-dashboard/cli/update> or
-F<~/.developer-dashboard/cli/update.d>, and the real command receives the
-final C<RESULT> JSON through the environment after those hook files run.
-Each later hook also sees the latest rewritten C<RESULT> from the earlier hook
-set, and Perl code can read that payload through C<Runtime::Result>.
+F<~/.developer-dashboard/cli/update/run> in any inherited layer, with the
+deepest matching layer winning the final command path. Its hook files can live
+under F<update/> or F<update.d>, and the real command receives the final
+C<RESULT> JSON through the environment after those hook files run. Each later
+hook also sees the latest rewritten C<RESULT> from the earlier hook set, and
+Perl code can read that payload through C<Runtime::Result>.
 
 Use C<dashboard version> to print the installed Developer Dashboard version.
 

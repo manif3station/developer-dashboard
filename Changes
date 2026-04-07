@@ -1,5 +1,20 @@
 Revision history for Developer Dashboard
 
+1.83  2026-04-07
+    - introduced the `DD-OOP-LAYERS` runtime contract so every existing
+      `.developer-dashboard/` layer from `~/.developer-dashboard` down to the
+      current working directory now participates in command lookup,
+      bookmark/nav lookup, config inheritance, collector/indicator state
+      lookup, auth/session fallback, and runtime-local `local/lib/perl5`
+      exposure
+    - fixed top-level CLI inheritance so non-repo current-directory and
+      parent-directory layers participate together, with the deepest matching
+      command winning while per-command hooks run from home to leaf across all
+      discovered layers
+    - fixed layered bookmark rendering so shared `nav/*.tt` fragments and TT
+      includes merge across inherited dashboard roots, and tightened config
+      array merging for layered `collectors` and `providers`
+
 1.82  2026-04-07
     - fixed lazy top-level CLI resolution so `dashboard <command>` now checks
       the current directory's `./.developer-dashboard/cli` before falling back

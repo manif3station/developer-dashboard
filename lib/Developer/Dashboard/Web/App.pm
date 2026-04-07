@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '1.82';
+our $VERSION = '1.83';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -1504,22 +1504,29 @@ sub _nav_items_html {
     return '' if $page_id =~ m{\Anav/};
 
     my $paths = $self->{pages}{paths} || return '';
-    my $nav_root = File::Spec->catdir( $paths->dashboards_root, 'nav' );
-    return '' if !-d $nav_root;
-
-    opendir my $dh, $nav_root or return '';
-    my @entries = sort grep {
-        $_ ne '.' && $_ ne '..'
-          && $_ =~ /\.tt\z/
-          && -f File::Spec->catfile( $nav_root, $_ )
-    } readdir $dh;
-    closedir $dh;
-    return '' if !@entries;
+    my @roots = $paths->can('dashboards_layers') ? $paths->dashboards_layers : $paths->dashboards_roots;
+    my %nav_ids;
+    my @nav_ids;
+    for my $dashboards_root (@roots) {
+        my $nav_root = File::Spec->catdir( $dashboards_root, 'nav' );
+        next if !-d $nav_root;
+        opendir my $dh, $nav_root or next;
+        for my $entry ( sort grep {
+            $_ ne '.' && $_ ne '..'
+              && $_ =~ /\.tt\z/
+              && -f File::Spec->catfile( $nav_root, $_ )
+        } readdir $dh )
+        {
+            my $nav_id = 'nav/' . $entry;
+            push @nav_ids, $nav_id if !$nav_ids{$nav_id}++;
+        }
+        closedir $dh;
+    }
+    return '' if !@nav_ids;
 
     my @items;
     my $current_page = $args{runtime_context}{current_page} || '';
-    for my $entry (@entries) {
-        my $nav_id = 'nav/' . $entry;
+    for my $nav_id (@nav_ids) {
         my $nav_page = eval { $self->_load_named_page($nav_id) };
         next if !$nav_page || $@;
         $nav_page->{meta}{raw_instruction} = $nav_page->canonical_instruction;

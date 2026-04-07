@@ -3,7 +3,7 @@ package Developer::Dashboard::Collector;
 use strict;
 use warnings;
 
-our $VERSION = '1.82';
+our $VERSION = '1.83';
 
 use File::Spec;
 use POSIX qw(strftime);
@@ -55,11 +55,13 @@ sub write_job {
 # Output: job hash reference or undef when missing.
 sub read_job {
     my ( $self, $name ) = @_;
-    my $file = $self->collector_paths($name)->{job};
-    return if !-f $file;
-    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
-    local $/;
-    return json_decode(<$fh>);
+    for my $file ( $self->_collector_file_candidates( $name, 'job.json' ) ) {
+        next if !-f $file;
+        open my $fh, '<:raw', $file or die "Unable to read $file: $!";
+        local $/;
+        return json_decode(<$fh>);
+    }
+    return;
 }
 
 # write_result($name, %result)
@@ -120,13 +122,14 @@ sub write_status {
 # Output: status hash reference or undef when missing.
 sub read_status {
     my ( $self, $name ) = @_;
-    my $file = $self->collector_paths($name)->{status};
-    return if !-f $file;
-    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
-    local $/;
-    my $raw = <$fh>;
-    my $data = eval { json_decode($raw) };
-    return $data if !$@;
+    for my $file ( $self->_collector_file_candidates( $name, 'status.json' ) ) {
+        next if !-f $file;
+        open my $fh, '<:raw', $file or die "Unable to read $file: $!";
+        local $/;
+        my $raw = <$fh>;
+        my $data = eval { json_decode($raw) };
+        return $data if !$@;
+    }
     return;
 }
 
@@ -136,12 +139,11 @@ sub read_status {
 # Output: hash reference with stdout, stderr, combined, and last_run.
 sub read_output {
     my ( $self, $name ) = @_;
-    my $paths = $self->collector_paths($name);
     return {
-        'stdout'   => _slurp( $paths->{stdout} ),
-        'stderr'   => _slurp( $paths->{stderr} ),
-        'combined' => _slurp( $paths->{combined} ),
-        'last_run' => _slurp( $paths->{last_run} ),
+        'stdout'   => $self->_first_existing_text_file( $name, 'stdout' ),
+        'stderr'   => $self->_first_existing_text_file( $name, 'stderr' ),
+        'combined' => $self->_first_existing_text_file( $name, 'combined' ),
+        'last_run' => $self->_first_existing_text_file( $name, 'last_run' ),
     };
 }
 
@@ -164,18 +166,42 @@ sub inspect_collector {
 # Output: sorted list of status hash references.
 sub list_collectors {
     my ($self) = @_;
-    my $root = $self->{paths}->collectors_root;
-    opendir my $dh, $root or return;
-
-    my @items;
-    while ( my $entry = readdir $dh ) {
-        next if $entry eq '.' || $entry eq '..';
-        my $status = eval { $self->read_status($entry) };
-        push @items, $status if $status;
+    my %items;
+    for my $root ( $self->{paths}->collectors_roots ) {
+        next if !-d $root;
+        opendir my $dh, $root or next;
+        while ( my $entry = readdir $dh ) {
+            next if $entry eq '.' || $entry eq '..';
+            next if $items{$entry};
+            my $status = eval { $self->read_status($entry) };
+            $items{$entry} = $status if $status;
+        }
+        closedir $dh;
     }
-    closedir $dh;
 
-    return sort { $a->{name} cmp $b->{name} } @items;
+    return sort { $a->{name} cmp $b->{name} } values %items;
+}
+
+# _collector_file_candidates($name, $filename)
+# Returns candidate collector file paths across every runtime layer in lookup
+# order from deepest to home.
+# Input: collector name string and collector-relative filename string.
+# Output: ordered list of file path strings.
+sub _collector_file_candidates {
+    my ( $self, $name, $filename ) = @_;
+    return map { File::Spec->catfile( $_, $name, $filename ) } $self->{paths}->collectors_roots;
+}
+
+# _first_existing_text_file($name, $filename)
+# Reads the first existing collector text artifact across every runtime layer.
+# Input: collector name string and collector-relative filename string.
+# Output: file content string or an empty string when missing.
+sub _first_existing_text_file {
+    my ( $self, $name, $filename ) = @_;
+    for my $file ( $self->_collector_file_candidates( $name, $filename ) ) {
+        return _slurp($file) if -f $file;
+    }
+    return '';
 }
 
 # _atomic_write_json($file, $data)

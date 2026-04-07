@@ -319,6 +319,15 @@ different directory, and then `~/.developer-dashboard/cli`. For example,
 `dashboard foobar a b` will exec the first matching
 `cli/foobar` with `a b` as argv, while preserving stdin, stdout, and stderr.
 
+`DD-OOP-LAYERS` is now the runtime contract for the whole local ecosystem.
+Starting at `~/.developer-dashboard` and walking down through every parent
+directory until the current working directory, every existing
+`.developer-dashboard/` layer participates. The deepest layer stays the write
+target and the first lookup hit, but bookmarks, `nav/*.tt`, config,
+collectors, indicators, auth/session state lookups, runtime `local/lib/perl5`,
+and custom CLI hooks are all inherited across the full chain instead of only a
+single project-or-home split.
+
 ### Shared Nav Fragments
 
 If `nav/*.tt` files exist under the saved bookmark root, every non-nav page
@@ -340,6 +349,13 @@ The bookmark editor can save those nested ids directly, for example
 files are loaded in sorted filename order, rendered through the normal page
 runtime, and inserted above the page body. Non-`.tt` files and subdirectories
 under `nav/` are ignored by that shared-nav renderer.
+
+Under `DD-OOP-LAYERS`, the shared nav renderer now scans every inherited
+`dashboards/nav/` layer from `~/.developer-dashboard` down to the current
+directory, keeps parent-only fragments visible, and lets a deeper layer
+replace the same `nav/<name>.tt` id without losing the rest of the shared nav
+set. Template includes used by those bookmarks follow the same layered
+bookmark lookup path.
 
 Shared nav fragments and normal bookmark pages both render through Template
 Toolkit with `env.current_page` set to the active request path, such as
@@ -459,9 +475,10 @@ printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard jq alpha.beta
 
 Per-command hook files can live under either
 `./.developer-dashboard/cli/<command>/` or
-`./.developer-dashboard/cli/<command>.d/` first, then the same paths under
-`~/.developer-dashboard/cli/`. Executable files in the selected directory
-are run in sorted filename order before the real command runs,
+`./.developer-dashboard/cli/<command>.d/` in every inherited layer from
+`~/.developer-dashboard` down to the current directory. Executable files in
+those directories are run in sorted filename order within each layer, with the
+layers themselves running top-down from home to the deepest current layer,
 non-executable files are skipped, and each hook now streams its own `stdout`
 and `stderr` live to the terminal while still accumulating those channels into
 `RESULT` as JSON. Built-in
@@ -478,9 +495,10 @@ success/error report for each sorted hook file.
 
 If you want `dashboard update`, provide it as a normal user command at
 `./.developer-dashboard/cli/update` or `./.developer-dashboard/cli/update/run`
-first, with the home runtime as fallback. Its hook files can live under
-`update/` or `update.d/`, and the real command receives the final `RESULT`
-JSON through the environment after those hook files run.
+in any inherited layer, with the deepest matching layer winning the final
+command path. Its hook files can live under `update/` or `update.d/`, and the
+real command receives the final `RESULT` JSON through the environment after
+those hook files run.
 
 Use `dashboard version` to print the installed Developer Dashboard version.
 

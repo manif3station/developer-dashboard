@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: DD-OOP-LAYERS
+
+**Date:** 2026-04-07 10:10:00 UTC
+**Area:** runtime inheritance, custom CLI hooks, bookmark lookup, and layered local state
+**Symptom:** The runtime kept treating local override behavior as a shallow project-vs-home split, so intermediate `.developer-dashboard/` layers were skipped, matching hook directories stopped at the first hit, and different parts of the system inherited different subsets of runtime state
+**Why It Was Dangerous:** It made local behavior inconsistent, broke the user's expected "inheritance" model in nested worktrees, and let commands, bookmarks, config, and runtime-local Perl modules disagree about which layer stack was actually active
+**Root Cause:** I fixed isolated path-resolution bugs one surface at a time and left the runtime without one authoritative layer contract, so CLI lookup, hook execution, nav rendering, config loading, and state stores all evolved different two-root assumptions
+**How Ellen Solved It:** Moved the layer model into `PathRegistry`, defined `DD-OOP-LAYERS` as a home-to-leaf runtime chain with deepest-first lookup and deepest-layer writes, applied that contract to CLI command resolution, top-down hook execution, bookmark/nav/include lookup, layered config merging, collector/indicator reads, and runtime-local `local/lib/perl5` exposure, and documented the rule in the public docs plus `AGENTS.override.md`
+**How To Detect Earlier Next Time:** Create nested directories with `.developer-dashboard/` at home, parent, and leaf levels, then verify that commands, hooks, nav fragments, config, collector state, indicator state, and saved-Ajax `PERL5LIB` all see the same layer chain
+**Prevention Rule:** Runtime inheritance must be implemented once as a shared layer contract and then reused everywhere; never let one subsystem fall back to a private project-vs-home shortcut
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/07-core-units.t`, `prove -lv t/08-web-update-coverage.t`, `prove -lv t/28-runtime-cpan-env.t`, `prove -lr t`, `cover -delete && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t`, `dzil build`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `bin/dashboard`, `lib/Developer/Dashboard/PathRegistry.pm`, `lib/Developer/Dashboard/Config.pm`, `lib/Developer/Dashboard/Collector.pm`, `lib/Developer/Dashboard/IndicatorStore.pm`, `lib/Developer/Dashboard/PageRuntime.pm`, `lib/Developer/Dashboard/Web/App.pm`, `t/05-cli-smoke.t`, `t/07-core-units.t`, `t/08-web-update-coverage.t`, `t/28-runtime-cpan-env.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `SOFTWARE_SPEC.md`, `AGENTS.override.md`
+
+---
+
 ## CODE: CLI-ROOT-BLIND-SPOT
 
 **Date:** 2026-04-07 09:35:00 UTC

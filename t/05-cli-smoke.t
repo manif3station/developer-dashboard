@@ -190,7 +190,13 @@ ok(
     ),
     'dashboard doctor reports insecure legacy bookmark files',
 );
-is( $doctor_report->{hooks}{'00-extra.pl'}{stdout}, "doctor-hook-ok\n", 'dashboard doctor includes hook stdout in RESULT-backed output' );
+ok(
+    grep(
+        { ref($_) eq 'HASH' && $_->{stdout} && $_->{stdout} eq "doctor-hook-ok\n" }
+        values %{ $doctor_report->{hooks} || {} }
+    ),
+    'dashboard doctor includes hook stdout in RESULT-backed output',
+);
 
 my $doctor_fixed = json_decode( _run("$perl -I'$lib' '$dashboard' doctor --fix") );
 ok( !$doctor_fixed->{ok}, 'dashboard doctor --fix still reports the findings it repaired in that run' );
@@ -938,6 +944,16 @@ chmod 0755, File::Spec->catfile( $cli_root, 'jq.d', '02-home-only.pl' )
   or die "Unable to chmod home fallback hook: $!";
 my $project_tool_hook_root = File::Spec->catdir( $project_cli_root, 'tool.d' );
 make_path($project_tool_hook_root);
+make_path( File::Spec->catdir( $cli_root, 'tool.d' ) );
+open my $home_tool_hook_fh, '>', File::Spec->catfile( $cli_root, 'tool.d', '01-home-tool.pl' )
+  or die "Unable to write home tool hook: $!";
+print {$home_tool_hook_fh} <<'PL';
+#!/usr/bin/env perl
+print "home-hook\n";
+PL
+close $home_tool_hook_fh;
+chmod 0755, File::Spec->catfile( $cli_root, 'tool.d', '01-home-tool.pl' )
+  or die "Unable to chmod home tool hook: $!";
 open my $project_pjq_first_fh, '>', File::Spec->catfile( $project_tool_hook_root, '00-project-first.pl' )
   or die "Unable to write project-first hook: $!";
 print {$project_pjq_first_fh} <<'PL';
@@ -972,9 +988,103 @@ my ( $project_hook_stdout, $project_hook_stderr, $project_hook_exit ) = capture 
 };
 is( $project_hook_exit, 0, 'project-local hook-backed command exits successfully' );
 like( $project_hook_stdout, qr/project-hook/, 'project-local hook directories run before the final command' );
-unlike( $project_hook_stdout, qr/home-hook/, 'project-local hook directories override home hook directories instead of merging them' );
+like( $project_hook_stdout, qr/home-hook/, 'project-local hook-backed commands still inherit matching home hook directories' );
 like( $project_hook_stdout, qr/00-project-first\.pl/, 'project-local hook results are propagated into RESULT for the final command' );
 is( $project_hook_stderr, '', 'project-local hook-backed command keeps stderr clean' );
+
+my $layer_root = File::Spec->catdir( $ENV{HOME}, 'projects', 'oop-layer-root' );
+my $layer_parent = File::Spec->catdir( $layer_root, 'parent' );
+my $layer_leaf = File::Spec->catdir( $layer_parent, 'leaf' );
+my $layer_home_cli = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );
+my $layer_parent_cli = File::Spec->catdir( $layer_parent, '.developer-dashboard', 'cli' );
+my $layer_leaf_cli = File::Spec->catdir( $layer_leaf, '.developer-dashboard', 'cli' );
+make_path( File::Spec->catdir( $layer_home_cli, 'global-only' ) );
+open my $home_global_run_fh, '>', File::Spec->catfile( $layer_home_cli, 'global-only', 'run' )
+  or die "Unable to write home global-only command: $!";
+print {$home_global_run_fh} <<'SH';
+#!/bin/sh
+printf 'home-global:%s\n' "$*"
+SH
+close $home_global_run_fh;
+chmod 0755, File::Spec->catfile( $layer_home_cli, 'global-only', 'run' )
+  or die "Unable to chmod home global-only command: $!";
+make_path( File::Spec->catdir( $layer_leaf_cli, 'foobar' ) );
+open my $layer_foobar_fh, '>', File::Spec->catfile( $layer_leaf_cli, 'foobar', 'run' )
+  or die "Unable to write layered foobar command: $!";
+print {$layer_foobar_fh} <<'SH';
+#!/bin/sh
+printf 'leaf-foobar:%s\n' "$*"
+SH
+close $layer_foobar_fh;
+chmod 0755, File::Spec->catfile( $layer_leaf_cli, 'foobar', 'run' )
+  or die "Unable to chmod layered foobar command: $!";
+make_path( File::Spec->catdir( $layer_home_cli, 'layered-tool.d' ) );
+open my $layer_home_hook_fh, '>', File::Spec->catfile( $layer_home_cli, 'layered-tool.d', '00-home.pl' )
+  or die "Unable to write home layered hook: $!";
+print {$layer_home_hook_fh} <<'PL';
+#!/usr/bin/env perl
+print "home-layer\n";
+PL
+close $layer_home_hook_fh;
+chmod 0755, File::Spec->catfile( $layer_home_cli, 'layered-tool.d', '00-home.pl' )
+  or die "Unable to chmod home layered hook: $!";
+make_path( File::Spec->catdir( $layer_parent_cli, 'layered-tool.d' ) );
+open my $layer_parent_hook_fh, '>', File::Spec->catfile( $layer_parent_cli, 'layered-tool.d', '10-parent.pl' )
+  or die "Unable to write parent layered hook: $!";
+print {$layer_parent_hook_fh} <<'PL';
+#!/usr/bin/env perl
+print "parent-layer\n";
+PL
+close $layer_parent_hook_fh;
+chmod 0755, File::Spec->catfile( $layer_parent_cli, 'layered-tool.d', '10-parent.pl' )
+  or die "Unable to chmod parent layered hook: $!";
+make_path( File::Spec->catdir( $layer_leaf_cli, 'layered-tool.d' ) );
+open my $layer_leaf_hook_fh, '>', File::Spec->catfile( $layer_leaf_cli, 'layered-tool.d', '20-leaf.pl' )
+  or die "Unable to write leaf layered hook: $!";
+print {$layer_leaf_hook_fh} <<'PL';
+#!/usr/bin/env perl
+print "leaf-layer\n";
+PL
+close $layer_leaf_hook_fh;
+chmod 0755, File::Spec->catfile( $layer_leaf_cli, 'layered-tool.d', '20-leaf.pl' )
+  or die "Unable to chmod leaf layered hook: $!";
+open my $layer_tool_run_fh, '>', File::Spec->catfile( $layer_leaf_cli, 'layered-tool' )
+  or die "Unable to write layered tool command: $!";
+print {$layer_tool_run_fh} <<'PL';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+print $ENV{RESULT} // '';
+PL
+close $layer_tool_run_fh;
+chmod 0755, File::Spec->catfile( $layer_leaf_cli, 'layered-tool' )
+  or die "Unable to chmod layered tool command: $!";
+
+my ( $layered_command_stdout, undef, $layered_command_exit ) = capture {
+    system 'sh', '-c', "cd '$layer_leaf' && $perl -I'$repo/lib' '$repo/bin/dashboard' foobar one two";
+    return $? >> 8;
+};
+is( $layered_command_exit, 0, 'deepest non-repo layer custom command exits successfully' );
+like( $layered_command_stdout, qr/^leaf-foobar:one two$/m, 'deepest current-directory layer overrides home CLI commands even without a git repo' );
+
+my $tmp_no_layer = tempdir( CLEANUP => 1 );
+my ( $home_fallback_stdout, undef, $home_fallback_exit ) = capture {
+    system 'sh', '-c', "cd '$tmp_no_layer' && $perl -I'$repo/lib' '$repo/bin/dashboard' global-only here";
+    return $? >> 8;
+};
+is( $home_fallback_exit, 0, 'home CLI fallback command exits successfully outside any project layer' );
+like( $home_fallback_stdout, qr/^home-global:here$/m, 'home CLI fallback command resolves when no local layer exists' );
+
+my ( $layered_hook_stdout, $layered_hook_stderr, $layered_hook_exit ) = capture {
+    system 'sh', '-c', "cd '$layer_leaf' && $perl -I'$repo/lib' '$repo/bin/dashboard' layered-tool";
+    return $? >> 8;
+};
+is( $layered_hook_exit, 0, 'layered hook-backed command exits successfully' );
+like( $layered_hook_stdout, qr/home-layer.*parent-layer.*leaf-layer/s, 'layered hooks run from home to leaf order across every discovered .developer-dashboard layer' );
+like( $layered_hook_stdout, qr/00-home\.pl/, 'home hook output is preserved in RESULT for the final command' );
+like( $layered_hook_stdout, qr/10-parent\.pl/, 'parent hook output is preserved in RESULT for the final command' );
+like( $layered_hook_stdout, qr/20-leaf\.pl/, 'leaf hook output is preserved in RESULT for the final command' );
+is( $layered_hook_stderr, '', 'layered hook-backed command keeps stderr clean' );
 
 my $project_local_bookmarks = File::Spec->catdir( $project_root, '.developer-dashboard', 'dashboards' );
 make_path($project_local_bookmarks);

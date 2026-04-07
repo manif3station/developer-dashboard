@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '1.82';
+our $VERSION = '1.83';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
@@ -181,7 +181,7 @@ sub _render_templates {
     my $tt = Template->new(
         {
             EVAL_PERL   => 1,
-            INCLUDE_PATH => $self->{paths} ? $self->{paths}->dashboards_root : '.',
+            INCLUDE_PATH => $self->{paths} ? [ $self->{paths}->dashboards_roots ] : '.',
         }
     );
 
@@ -583,6 +583,7 @@ sub _saved_ajax_env {
         DEVELOPER_DASHBOARD_AJAX_SINGLETON => $self->_normalize_saved_ajax_singleton( $args{singleton} ),
         DEVELOPER_DASHBOARD_AJAX_TYPE      => $args{type} || '',
         DEVELOPER_DASHBOARD_AJAX_PARAMS    => $params_json,
+        DEVELOPER_DASHBOARD_RUNTIME_LAYERS => $self->{paths} ? join( "\n", $self->{paths}->runtime_layers ) : '',
         QUERY_STRING                       => $query_string,
         REQUEST_METHOD                     => 'GET',
     );
@@ -616,10 +617,13 @@ sub _saved_ajax_env {
 sub _runtime_local_perl_env {
     my ($self) = @_;
     my $paths = $self->{paths} || return ();
-    my $path_sep  = $^O eq 'MSWin32' ? ';' : ':';
-    my $local_lib = File::Spec->catdir( $paths->runtime_root, 'local', 'lib', 'perl5' );
-    my @perl5lib  = grep { defined $_ && $_ ne '' } split /\Q$path_sep\E/, ( $ENV{PERL5LIB} || '' );
-    unshift @perl5lib, $local_lib if -d $local_lib && !grep { $_ eq $local_lib } @perl5lib;
+    my $path_sep = $^O eq 'MSWin32' ? ';' : ':';
+    my @perl5lib = grep { defined $_ && $_ ne '' } split /\Q$path_sep\E/, ( $ENV{PERL5LIB} || '' );
+    for my $local_lib ( reverse $paths->runtime_local_lib_roots ) {
+        next if !-d $local_lib;
+        next if grep { $_ eq $local_lib } @perl5lib;
+        unshift @perl5lib, $local_lib;
+    }
     return (
         PERL5LIB => join( $path_sep, @perl5lib ),
     );

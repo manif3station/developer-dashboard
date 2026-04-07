@@ -16,6 +16,7 @@ my $changes = _slurp( _repo_path('Changes') );
 my $dist = _slurp_optional( _repo_path('dist.ini') );
 my $meta = _slurp_optional( _repo_path('META.json') );
 my $makefile = _slurp( _repo_path('Makefile.PL') );
+my $agents_override = _slurp_optional( _repo_path('AGENTS.override.md') );
 my @doc_paths = (
     _repo_path('README.md'),
     _repo_path('SKILL.md'),
@@ -48,18 +49,18 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.82', 'repo version bumped for the non-repo CLI root lookup release' );
-like( $pm, qr/^1\.82$/m, 'main POD version matches the module version' );
+is( $version, '1.83', 'repo version bumped for the DD-OOP-LAYERS release' );
+like( $pm, qr/^1\.83$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.82$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.83$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
     like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.82"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.83"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.82\s+2026-04-07$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.83\s+2026-04-07$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -150,6 +151,8 @@ for my $doc ( $readme, $pm ) {
     like( $doc, qr/share\/seeded-pages/, 'docs describe shipped seeded bookmark assets outside the main command script' );
     like( $doc, qr/distribution share dir|distribution share directory|cpanm install.*source checkout/s, 'docs describe installed seeded bookmark asset lookup through the dist share directory' );
     like( $doc, qr/stays thin for lightweight commands|thin for lightweight commands.*dashboard jq|dashboard jq.*before the web runtime is built/s, 'docs describe the thin lazy loader path for lightweight commands' );
+    like( $doc, qr/DD-OOP-LAYERS/, 'docs describe the layered runtime inheritance contract explicitly' );
+    like( $doc, qr/local\/lib\/perl5/, 'docs describe layered runtime local Perl library exposure' );
     unlike( $doc, qr/CPANManager/, 'docs do not describe a dedicated CPAN manager module for the sql-dashboard runtime driver flow' );
     like( $doc, qr/SKILL\.md/, 'docs point readers at the skill authoring guide' );
     like( $doc, qr/Developer::Dashboard::SKILLS/, 'docs point readers at the shipped skill POD module' );
@@ -197,6 +200,7 @@ for my $doc ($readme) {
 }
 like( $release_doc, qr/dzil build/, 'release doc still documents the dzil build step' );
 like( $release_doc, qr/cpanm .*Developer-Dashboard-1\.\d+\.tar\.gz/, 'release doc still documents tarball installation verification' );
+like( $agents_override, qr/DD-OOP-LAYERS/, 'AGENTS.override.md documents the layered runtime contract' );
 
 done_testing();
 

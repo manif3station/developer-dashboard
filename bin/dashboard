@@ -302,10 +302,26 @@ sub _runtime_local_lib {
 # Output: hash containing the merged PERL5LIB value.
 sub _runtime_perl5lib_env {
     my (%args) = @_;
-    my $path_sep  = $Config::Config{path_sep} || ':';
-    my $local_lib = _runtime_local_lib(%args);
-    my @perl5lib  = grep { defined $_ && $_ ne '' } split /\Q$path_sep\E/, ( $ENV{PERL5LIB} || '' );
-    unshift @perl5lib, $local_lib if -d $local_lib && !grep { $_ eq $local_lib } @perl5lib;
+    my $path_sep = $Config::Config{path_sep} || ':';
+    my @perl5lib = grep { defined $_ && $_ ne '' } split /\Q$path_sep\E/, ( $ENV{PERL5LIB} || '' );
+    my @local_libs;
+    if ( my $paths = $args{paths} ) {
+        if ( $paths->can('runtime_local_lib_roots') ) {
+            @local_libs = $paths->runtime_local_lib_roots;
+        }
+        else {
+            @local_libs = ( _runtime_local_lib(%args) );
+        }
+    }
+    else {
+        @local_libs = ( _runtime_local_lib(%args) );
+    }
+    for my $local_lib ( reverse @local_libs ) {
+        next if !defined $local_lib || $local_lib eq '';
+        next if !-d $local_lib;
+        next if grep { $_ eq $local_lib } @perl5lib;
+        unshift @perl5lib, $local_lib;
+    }
     return (
         PERL5LIB => join( $path_sep, @perl5lib ),
     );
@@ -1141,26 +1157,29 @@ sub _prime_command_result_env {
     $ENV{DEVELOPER_DASHBOARD_COMMAND} = $cmd if defined $cmd && $cmd ne '';
     return 1 if !defined $cmd || $cmd eq '';
 
-    my $hook_root = _command_hook_root($cmd);
-    return 1 if !-d $hook_root;
+    my @hook_roots = _command_hook_roots($cmd);
+    return 1 if !@hook_roots;
     my $stream = $cmd eq 'doctor' ? 0 : 1;
 
-    opendir my $dh, $hook_root or return 1;
     my %results;
-    for my $entry ( sort grep { $_ ne '.' && $_ ne '..' } readdir $dh ) {
-        my $path = File::Spec->catfile( $hook_root, $entry );
-        next if !is_runnable_file($path);
-        next if $entry eq 'run';
+    for my $hook_root (@hook_roots) {
+        opendir my $dh, $hook_root or next;
+        for my $entry ( sort grep { $_ ne '.' && $_ ne '..' } readdir $dh ) {
+            my $path = File::Spec->catfile( $hook_root, $entry );
+            next if !is_runnable_file($path);
+            next if $entry eq 'run';
 
-        my $hook_result = _run_command_hook_streaming( $path, stream => $stream, argv => \@argv );
-        $results{$entry} = {
-            stdout => $hook_result->{stdout},
-            stderr => $hook_result->{stderr},
-        };
-        $results{$entry}{exit_code} = $hook_result->{exit_code} if defined $hook_result->{exit_code};
-        $ENV{RESULT} = JSON::XS->new->canonical->encode( \%results );
+            my $hook_result = _run_command_hook_streaming( $path, stream => $stream, argv => \@argv );
+            my $result_key = exists $results{$entry} ? _command_hook_result_key($path) : $entry;
+            $results{$result_key} = {
+                stdout => $hook_result->{stdout},
+                stderr => $hook_result->{stderr},
+            };
+            $results{$result_key}{exit_code} = $hook_result->{exit_code} if defined $hook_result->{exit_code};
+            $ENV{RESULT} = JSON::XS->new->canonical->encode( \%results );
+        }
+        closedir $dh;
     }
-    closedir $dh;
 
     delete $ENV{RESULT} if !%results;
     return 1;
@@ -1223,20 +1242,26 @@ sub _run_command_hook_streaming {
     };
 }
 
-# _command_hook_root($cmd)
-# Resolves the per-command hook directory under the runtime CLI extension root.
+# _command_hook_roots($cmd)
+# Resolves every per-command hook directory under the layered runtime CLI
+# extension roots from home to the deepest current layer.
 # Input: top-level command name string.
-# Output: directory path string, preferring <command>/ over <command>.d/.
-sub _command_hook_root {
+# Output: ordered list of directory path strings, preferring <command>/ over
+# <command>.d/ within each layer.
+sub _command_hook_roots {
     my ($cmd) = @_;
-    return '' if !defined $cmd || $cmd eq '';
-    for my $root ( _cli_runtime_roots() ) {
+    return () if !defined $cmd || $cmd eq '';
+    my @roots;
+    for my $root ( _cli_runtime_layers() ) {
         my $plain_root = File::Spec->catdir( $root, $cmd );
-        return $plain_root if -d $plain_root;
+        if ( -d $plain_root ) {
+            push @roots, $plain_root;
+            next;
+        }
         my $d_root = File::Spec->catdir( $root, $cmd . '.d' );
-        return $d_root if -d $d_root;
+        push @roots, $d_root if -d $d_root;
     }
-    return File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', $cmd );
+    return @roots;
 }
 
 # _custom_command_path($cmd)
@@ -1263,29 +1288,39 @@ sub _custom_command_path {
     return File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', $cmd );
 }
 
+# _command_hook_result_key($path)
+# Builds one RESULT hash key for a hook file so layered hooks with the same
+# filename do not clobber each other.
+# Input: absolute hook file path string.
+# Output: stable hook result key string.
+sub _command_hook_result_key {
+    my ($path) = @_;
+    my $home = $ENV{HOME} || '';
+    return File::Spec->abs2rel( $path, $home ) if $home ne '';
+    return $path;
+}
+
+# _cli_runtime_layers()
+# Returns home-to-leaf CLI roots for layered hook execution and inheritance.
+# Input: none.
+# Output: ordered list of CLI root directory path strings.
+sub _cli_runtime_layers {
+    require Developer::Dashboard::PathRegistry;
+    my $paths = Developer::Dashboard::PathRegistry->new(
+        home            => $ENV{HOME},
+        workspace_roots => [],
+        project_roots   => [],
+    );
+    return $paths->cli_layers;
+}
+
 # _cli_runtime_roots()
-# Returns current-directory, project-local, then home CLI roots for top-level command resolution before the heavy runtime loads.
+# Returns layered CLI roots in deepest-first lookup order for top-level command
+# resolution before the heavy runtime loads.
 # Input: none.
 # Output: ordered list of CLI root directory path strings.
 sub _cli_runtime_roots {
-    my @roots;
-    my %seen;
-    my $cwd = cwd();
-    my $project_root = _project_root_for($cwd);
-    my $cwd_runtime_root = File::Spec->catdir( $cwd, '.developer-dashboard', 'cli' );
-    my $project_runtime_root
-      = defined $project_root ? File::Spec->catdir( $project_root, '.developer-dashboard', 'cli' ) : ();
-    for my $root (
-        ( -d File::Spec->catdir( $cwd, '.developer-dashboard' ) ? $cwd_runtime_root : () ),
-        ( defined $project_root && -d File::Spec->catdir( $project_root, '.developer-dashboard' ) ? $project_runtime_root : () ),
-        File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' ),
-      )
-    {
-        next if !defined $root || $root eq '';
-        next if $seen{$root}++;
-        push @roots, $root;
-    }
-    return @roots;
+    return reverse _cli_runtime_layers();
 }
 
 # _project_root_for($start_dir)

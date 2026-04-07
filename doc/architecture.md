@@ -166,7 +166,8 @@ Page source compatibility is explicit:
 - edit and render views include shared top chrome with share/source links plus the original status-plus-alias indicator strip, refreshed from `/system/status`, alongside the local user, a machine IP link chosen from the active interfaces, and a browser-updated date/time
 - direct `nav/*.tt` saved bookmarks are treated as shared nav fragments, so `/app/nav/foo.tt` remains editable like any other bookmark while non-nav pages insert the sorted rendered `nav/*.tt` outputs between the top chrome and the main page body
 - bookmark Template Toolkit rendering exposes `env.current_page` and `env.runtime_context.current_page`, so saved pages and nav fragments can branch on the active request path without losing the rest of the runtime context
-- when the active project contains `./.developer-dashboard`, the page store, config loader, CLI hook resolver, auth/session stores, and isolated docker service lookup all read that tree first and then fall back to `~/.developer-dashboard`
+- `DD-OOP-LAYERS` is the cross-runtime contract: starting at `~/.developer-dashboard` and walking down through every parent directory until the current working directory, every existing `.developer-dashboard/` layer participates as one inherited runtime stack
+- under `DD-OOP-LAYERS`, the deepest discovered layer stays the write target and first lookup hit, while bookmarks, shared `nav/*.tt`, config, collectors, indicators, auth/session stores, runtime `local/lib/perl5`, static assets, and custom CLI hooks are all inherited across the full layer chain instead of only one project-or-home split
 - `dashboard init` seeds `welcome`, `api-dashboard`, and `sql-dashboard` as normal editable saved bookmarks, but rerunning it preserves an existing `~/.developer-dashboard/config/config.json` instead of overwriting user config
 - the public `dashboard` entrypoint stays thin for lightweight commands such as `jq`, `yq`, `of`, `open-file`, `ticket`, and `version`, and the shipped starter bookmark source now lives under `share/seeded-pages/` so those bookmark bodies do not bloat the command script; installed copies resolve the same assets from the distribution share dir
 - the seeded `api-dashboard` bookmark is a Postman-style workspace built inside the bookmark runtime, with local tab state, Postman collection import/export, file-backed collection persistence under `config/api-dashboard/<collection-name>.json`, owner-only `config/api-dashboard` and saved collection file permissions (`0700` / `0600`) because saved request auth can carry secrets, automatic reload of every stored collection on startup, browser URL restoration for active collection/request/tab navigation, request-token carry-over for `{{token}}` placeholders, a hide/show request-credentials panel with `Basic`, `API Token`, `API Key`, `OAuth2`, `Apple Login`, `Amazon Login`, `Facebook Login`, and `Microsoft Login` presets backed by Postman `request.auth` import/export, browser-side previews for JSON/text/PDF/image/TIFF responses, and a saved Ajax request sender backed by `LWP::UserAgent`
@@ -196,11 +197,11 @@ The core supports compatibility-style environment overrides for project customiz
 
 The runtime also supports user CLI extensions:
 
-- unknown top-level `dashboard` subcommands are resolved from the current working directory `./.developer-dashboard/cli` first, then the nearest git-backed project runtime `./.developer-dashboard/cli` when distinct, and then `~/.developer-dashboard/cli`
+- unknown top-level `dashboard` subcommands are resolved through the `DD-OOP-LAYERS` stack with the deepest matching `./.developer-dashboard/cli/<command>` winning over parent layers and finally `~/.developer-dashboard/cli`
 - the matching executable receives the remaining argv unchanged
 - stdin, stdout, and stderr are preserved through `exec`
-- every top-level command also has an optional hook directory at `./.developer-dashboard/cli/<command>` or `./.developer-dashboard/cli/<command>.d`, with the home runtime as fallback
-- executable hook files from that directory run in sorted filename order before the real command starts
+- every top-level command also has optional hook directories at `./.developer-dashboard/cli/<command>` or `./.developer-dashboard/cli/<command>.d` in every inherited layer
+- executable hook files run in sorted filename order within each layer, and the layers themselves execute from `~/.developer-dashboard` down to the deepest current layer
 - non-executable files in the hook directory are skipped
 - hook `stdout` and `stderr` stream live to the terminal while also being accumulated into `RESULT` JSON for later hooks and the final command
 - after each hook exits, the updated `RESULT` JSON is written back into the environment before the next hook starts

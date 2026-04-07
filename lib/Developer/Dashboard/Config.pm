@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '1.82';
+our $VERSION = '1.83';
 
 use File::Spec;
 use Cwd qw(cwd);
@@ -110,10 +110,50 @@ sub _merge_hashes {
             $merged{$key} = $self->_merge_hashes( $left->{$key}, $right->{$key} );
             next;
         }
+        if ( ref( $left->{$key} ) eq 'ARRAY' && ref( $right->{$key} ) eq 'ARRAY' ) {
+            if ( $key eq 'collectors' ) {
+                $merged{$key} = $self->_merge_named_hash_array( $left->{$key}, $right->{$key}, 'name' );
+                next;
+            }
+            if ( $key eq 'providers' ) {
+                $merged{$key} = $self->_merge_named_hash_array( $left->{$key}, $right->{$key}, 'id' );
+                next;
+            }
+        }
         $merged{$key} = $right->{$key};
     }
 
     return \%merged;
+}
+
+# _merge_named_hash_array($left, $right, $identity_key)
+# Merges configuration arrays of hashes while preserving order and allowing
+# deeper layers to override matching logical identities.
+# Input: left and right array references plus the identity key string.
+# Output: merged array reference.
+sub _merge_named_hash_array {
+    my ( $self, $left, $right, $identity_key ) = @_;
+    my @merged = ();
+    my %positions;
+
+    for my $item ( @{ $left || [] }, @{ $right || [] } ) {
+        if (
+            ref($item) eq 'HASH'
+            && defined $identity_key
+            && $identity_key ne ''
+            && defined $item->{$identity_key}
+            && $item->{$identity_key} ne ''
+        ) {
+            if ( exists $positions{ $item->{$identity_key} } ) {
+                $merged[ $positions{ $item->{$identity_key} } ] = $item;
+                next;
+            }
+            $positions{ $item->{$identity_key} } = scalar @merged;
+        }
+        push @merged, $item;
+    }
+
+    return \@merged;
 }
 
 # collectors()

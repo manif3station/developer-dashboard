@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '1.82';
+our $VERSION = '1.83';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -273,7 +273,8 @@ sub _run_loop_child {
         my $due = $self->_job_is_due( $job, $name );
         eval { $self->run_once($job) } if $due;
         if ($@) {
-            my $message = sprintf "[%s][%s] %s\n", _now_iso8601(), $name, $@;
+            my $error = "$@";
+            my $message = sprintf "[%s][%s] %s\n", _now_iso8601(), $name, $error;
             $self->{files}->append( 'collector_log', $message );
             $self->_write_loop_state(
                 $name,
@@ -287,7 +288,7 @@ sub _run_loop_child {
                     schedule     => $schedule_mode,
                     status       => 'error',
                     heartbeat_at => _now_iso8601(),
-                    error        => "$@",
+                    error        => $error,
                 }
             );
         }

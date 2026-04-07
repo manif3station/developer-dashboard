@@ -233,6 +233,15 @@ The shipped source for seeded workspaces should live outside the main command
 script as shipped assets or dedicated modules so bookmark bodies do not bloat
 the public `dashboard` entrypoint.
 
+`DD-OOP-LAYERS` is a required runtime contract. Starting at
+`~/.developer-dashboard` and walking down through every parent directory until
+the current working directory, every existing `.developer-dashboard/` layer
+must participate as one inherited runtime stack. The deepest layer must remain
+the write target and first lookup hit, but bookmarks, shared `nav/*.tt`,
+config, collectors, indicators, auth/session lookups, runtime
+`local/lib/perl5`, static assets, and custom CLI hooks must all inherit across
+that full layer chain.
+
 The seeded `api-dashboard` should keep its behavior inside the bookmark source
 itself rather than requiring a dedicated product module for the dashboard
 logic. It should support:
@@ -272,6 +281,14 @@ The runtime should provide a command such as `dashboard cpan <Module...>` that:
 
 - installs requested Perl modules into the active runtime's local library tree
 - records those modules in `./.developer-dashboard/cpanfile`
+
+The `dashboard` CLI and bookmark runtime must apply `DD-OOP-LAYERS`
+consistently:
+
+- custom commands resolve from the deepest matching `./.developer-dashboard/cli/<command>` layer, then outward toward `~/.developer-dashboard/cli`
+- per-command hooks in `<command>/` or `<command>.d/` run for every discovered layer from home to leaf
+- shared `nav/*.tt` and bookmark TT includes merge across all layers while letting the deepest matching bookmark id override parent copies
+- config arrays such as `collectors` and `providers` merge across layers by logical identity instead of dropping parent entries wholesale
 
 Windows support should follow the same boundary in code, docs, and release
 verification:

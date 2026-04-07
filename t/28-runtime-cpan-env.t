@@ -15,19 +15,45 @@ use Developer::Dashboard::PageRuntime;
 
     sub new {
         my ( $class, %args ) = @_;
-        return bless { root => $args{root} }, $class;
+        return bless {
+            root  => $args{root},
+            roots => $args{roots} || [ $args{root} ],
+        }, $class;
     }
 
     sub runtime_root {
         my ($self) = @_;
         return $self->{root};
     }
+
+    sub runtime_roots {
+        my ($self) = @_;
+        return @{ $self->{roots} };
+    }
+
+    sub runtime_layers {
+        my ($self) = @_;
+        return reverse @{ $self->{roots} };
+    }
+
+    sub dashboards_roots {
+        my ($self) = @_;
+        return map { File::Spec->catdir( $_, 'dashboards' ) } @{ $self->{roots} };
+    }
+
+    sub runtime_local_lib_roots {
+        my ($self) = @_;
+        return map { File::Spec->catdir( $_, 'local', 'lib', 'perl5' ) } @{ $self->{roots} };
+    }
 }
 
-my $root    = tempdir( CLEANUP => 1 );
-my $paths   = Local::FakePaths->new( root => $root );
+my $parent_root = tempdir( CLEANUP => 1 );
+my $root        = File::Spec->catdir( $parent_root, 'leaf-runtime' );
+make_path($root);
+my $paths   = Local::FakePaths->new( root => $root, roots => [ $root, $parent_root ] );
 my $runtime = Developer::Dashboard::PageRuntime->new( paths => $paths );
 my $lib_dir = File::Spec->catdir( $root, 'local', 'lib', 'perl5' );
+my $parent_lib_dir = File::Spec->catdir( $parent_root, 'local', 'lib', 'perl5' );
 
 {
     local $ENV{PERL5LIB} = 'alpha:beta';
@@ -56,8 +82,9 @@ make_path($lib_dir);
     );
 }
 
+make_path($parent_lib_dir);
 {
-    local $ENV{PERL5LIB} = join( ':', $lib_dir, 'alpha' );
+    local $ENV{PERL5LIB} = 'alpha:beta';
     my %env = $runtime->_saved_ajax_env(
         path   => '/tmp/example.pl',
         page   => 'sql-dashboard',
@@ -66,8 +93,28 @@ make_path($lib_dir);
     );
     is(
         $env{PERL5LIB},
-        join( ':', $lib_dir, 'alpha' ),
-        'saved ajax env does not duplicate the runtime local lib in PERL5LIB',
+        join( ':', $lib_dir, $parent_lib_dir, 'alpha', 'beta' ),
+        'saved ajax env prepends every layered runtime local lib in lookup order',
+    );
+    is(
+        $env{DEVELOPER_DASHBOARD_RUNTIME_LAYERS},
+        join( "\n", $parent_root, $root ),
+        'saved ajax env exports the full runtime layer chain for detached ajax workers',
+    );
+}
+
+{
+    local $ENV{PERL5LIB} = join( ':', $lib_dir, $parent_lib_dir, 'alpha' );
+    my %env = $runtime->_saved_ajax_env(
+        path   => '/tmp/example.pl',
+        page   => 'sql-dashboard',
+        type   => 'json',
+        params => { one => 1 },
+    );
+    is(
+        $env{PERL5LIB},
+        join( ':', $lib_dir, $parent_lib_dir, 'alpha' ),
+        'saved ajax env does not duplicate layered runtime local libs in PERL5LIB',
     );
 }
 

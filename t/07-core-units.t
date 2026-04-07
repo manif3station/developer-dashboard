@@ -302,6 +302,14 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
     is_same_path( $paths->project_runtime_root, File::Spec->catdir( $local_repo, '.developer-dashboard' ), 'project_runtime_root resolves only when the repo already contains a dashboard root' );
     is_same_path( $paths->runtime_root, File::Spec->catdir( $local_repo, '.developer-dashboard' ), 'runtime_root prefers the project-local dashboard root when present' );
     is_same_paths(
+        [ $paths->runtime_layers ],
+        [
+            File::Spec->catdir( $home, '.developer-dashboard' ),
+            File::Spec->catdir( $local_repo, '.developer-dashboard' ),
+        ],
+        'runtime_layers returns the inherited runtime chain from home to the active project layer',
+    );
+    is_same_paths(
         [ $paths->runtime_roots ],
         [
             File::Spec->catdir( $local_repo, '.developer-dashboard' ),
@@ -326,7 +334,136 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
         ],
         'cli_roots returns project-local then home fallback roots',
     );
+    is_same_paths(
+        [ $paths->cli_layers ],
+        [
+            File::Spec->catdir( $home, '.developer-dashboard', 'cli' ),
+            File::Spec->catdir( $local_repo, '.developer-dashboard', 'cli' ),
+        ],
+        'cli_layers returns home then project-local CLI inheritance roots',
+    );
+    is_same_paths(
+        [ $paths->config_layers ],
+        [
+            File::Spec->catdir( $home, '.developer-dashboard', 'config' ),
+            File::Spec->catdir( $local_repo, '.developer-dashboard', 'config' ),
+        ],
+        'config_layers returns home then project-local config inheritance roots',
+    );
     chdir $home or die $!;
+}
+{
+    my $layer_root = File::Spec->catdir( $home, 'dd-oop-layers' );
+    my $layer_parent = File::Spec->catdir( $layer_root, 'parent' );
+    my $layer_leaf = File::Spec->catdir( $layer_parent, 'leaf' );
+    make_path( File::Spec->catdir( $layer_root, '.developer-dashboard' ) );
+    make_path( File::Spec->catdir( $layer_parent, '.developer-dashboard' ) );
+    make_path( File::Spec->catdir( $layer_leaf, '.developer-dashboard' ) );
+    chdir $layer_leaf or die $!;
+
+    my $layer_paths = Developer::Dashboard::PathRegistry->new( home => $home );
+    is_same_paths(
+        [ $layer_paths->runtime_layers ],
+        [
+            File::Spec->catdir( $home, '.developer-dashboard' ),
+            File::Spec->catdir( $layer_root, '.developer-dashboard' ),
+            File::Spec->catdir( $layer_parent, '.developer-dashboard' ),
+            File::Spec->catdir( $layer_leaf, '.developer-dashboard' ),
+        ],
+        'runtime_layers walks every .developer-dashboard ancestor from home to the current leaf layer',
+    );
+    is_same_paths(
+        [ $layer_paths->runtime_roots ],
+        [
+            File::Spec->catdir( $layer_leaf, '.developer-dashboard' ),
+            File::Spec->catdir( $layer_parent, '.developer-dashboard' ),
+            File::Spec->catdir( $layer_root, '.developer-dashboard' ),
+            File::Spec->catdir( $home, '.developer-dashboard' ),
+        ],
+        'runtime_roots keeps deepest-first lookup order across every discovered layer',
+    );
+    is_same_path( $layer_paths->runtime_root, File::Spec->catdir( $layer_leaf, '.developer-dashboard' ), 'runtime_root writes to the deepest discovered layer' );
+    chdir $home or die $!;
+}
+{
+    my $outside_root = tempdir( CLEANUP => 1 );
+    my $outside_parent = File::Spec->catdir( $outside_root, 'parent' );
+    my $outside_leaf = File::Spec->catdir( $outside_parent, 'leaf' );
+    system( 'git', 'init', '-q', $outside_root ) == 0 or die 'Unable to initialize outside-home git fixture';
+    make_path( File::Spec->catdir( $outside_parent, '.developer-dashboard' ) );
+    make_path( File::Spec->catdir( $outside_leaf, '.developer-dashboard' ) );
+    chdir $outside_leaf or die $!;
+
+    my $outside_paths = Developer::Dashboard::PathRegistry->new( home => $home );
+    is_same_paths(
+        [ $outside_paths->runtime_layers ],
+        [
+            File::Spec->catdir( $home, '.developer-dashboard' ),
+            File::Spec->catdir( $outside_parent, '.developer-dashboard' ),
+            File::Spec->catdir( $outside_leaf, '.developer-dashboard' ),
+        ],
+        'runtime_layers still walks current and parent .developer-dashboard layers when the working tree lives outside HOME',
+    );
+    chdir $home or die $!;
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::PathRegistry::cwd = sub { return undef; };
+    my @warnings;
+    local $SIG{__WARN__} = sub { push @warnings, @_ };
+    my $paths_without_cwd = Developer::Dashboard::PathRegistry->new( home => $home );
+    is_same_paths(
+        [ $paths_without_cwd->runtime_layers ],
+        [ File::Spec->catdir( $home, '.developer-dashboard' ) ],
+        'runtime_layers falls back to the home layer when cwd is unavailable',
+    );
+    is_deeply( \@warnings, [], 'runtime_layers does not warn when cwd is unavailable' );
+}
+{
+    my $outside_no_repo = tempdir( CLEANUP => 1 );
+    no warnings 'redefine';
+    local *Developer::Dashboard::PathRegistry::cwd = sub { return $outside_no_repo; };
+    local *Developer::Dashboard::PathRegistry::current_project_root = sub { return undef; };
+    is_same_paths(
+        [ Developer::Dashboard::PathRegistry->new( home => $home )->runtime_layers ],
+        [ File::Spec->catdir( $home, '.developer-dashboard' ) ],
+        'runtime_layers falls back to the home layer when cwd is outside HOME and no project layer applies',
+    );
+}
+{
+    my $layer_parent = File::Spec->catdir( $home, 'dirname-guard-parent' );
+    my $layer_leaf = File::Spec->catdir( $layer_parent, 'leaf' );
+    make_path( File::Spec->catdir( $layer_leaf, '.developer-dashboard' ) );
+    no warnings 'redefine';
+    local *Developer::Dashboard::PathRegistry::cwd = sub { return $layer_leaf; };
+    local *Developer::Dashboard::PathRegistry::dirname = sub { return $_[0] };
+    is_same_paths(
+        [ Developer::Dashboard::PathRegistry->new( home => $home )->runtime_layers ],
+        [
+            File::Spec->catdir( $home, '.developer-dashboard' ),
+            File::Spec->catdir( $layer_leaf, '.developer-dashboard' ),
+        ],
+        'runtime_layers stops cleanly when dirname cannot advance to a parent layer',
+    );
+}
+{
+    local $ENV{DEVELOPER_DASHBOARD_RUNTIME_LAYERS} = join(
+        "\n",
+        File::Spec->catdir( $home, '.developer-dashboard' ),
+        File::Spec->catdir( $home, 'dd-oop-layers', 'parent', '.developer-dashboard' ),
+        File::Spec->catdir( $home, 'dd-oop-layers', 'parent', 'leaf', '.developer-dashboard' ),
+    );
+    no warnings 'redefine';
+    local *Developer::Dashboard::PathRegistry::cwd = sub { return undef; };
+    is_same_paths(
+        [ Developer::Dashboard::PathRegistry->new( home => $home )->runtime_layers ],
+        [
+            File::Spec->catdir( $home, '.developer-dashboard' ),
+            File::Spec->catdir( $home, 'dd-oop-layers', 'parent', '.developer-dashboard' ),
+            File::Spec->catdir( $home, 'dd-oop-layers', 'parent', 'leaf', '.developer-dashboard' ),
+        ],
+        'runtime_layers honors the explicit runtime layer chain exported by parent processes',
+    );
 }
 
 {
@@ -335,6 +472,22 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
         [ $paths->dashboards_roots ],
         [ File::Spec->catdir( $home, 'bookmarks-env' ) ],
         'dashboards_roots honors the bookmarks environment override',
+    );
+}
+{
+    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS} = '~/bookmarks-layers-env';
+    is_deeply(
+        [ $paths->dashboards_layers ],
+        [ File::Spec->catdir( $home, 'bookmarks-layers-env' ) ],
+        'dashboards_layers honors the bookmarks environment override',
+    );
+}
+{
+    local $ENV{DEVELOPER_DASHBOARD_CONFIGS} = '~/config-layers-env';
+    is_deeply(
+        [ $paths->config_layers ],
+        [ File::Spec->catdir( $home, 'config-layers-env' ) ],
+        'config_layers honors the config environment override',
     );
 }
 
@@ -964,6 +1117,7 @@ $collector->write_job(
 );
 ok( -f $collector_paths->{job}, 'write_job persists job metadata' );
 is( $collector->read_job('alpha.collector')->{command}, q{printf 'alpha'}, 'read_job returns job metadata' );
+ok( !defined $collector->read_job('missing.collector'), 'read_job returns undef for missing job files' );
 ok( !defined $collector->read_status('missing.collector'), 'read_status returns undef for missing status' );
 
 $collector->write_result(
@@ -984,6 +1138,16 @@ is( $collector->inspect_collector('alpha.collector')->{job}{name}, 'alpha.collec
 $collector->write_result( 'beta.collector', exit_code => 0 );
 is( $collector->read_output('beta.collector')->{stdout}, '', 'read_output falls back to empty stdout' );
 is( $collector->read_output('beta.collector')->{stderr}, '', 'read_output falls back to empty stderr' );
+is_deeply(
+    $collector->read_output('missing.collector'),
+    {
+        stdout   => '',
+        stderr   => '',
+        combined => '',
+        last_run => '',
+    },
+    'read_output returns empty artifacts for a missing collector',
+);
 $collector->write_result( 'beta.collector', exit_code => 0 );
 ok( -f $collector->collector_paths('beta.collector')->{status}, 'write_result overwrites existing collector files cleanly' );
 
@@ -1286,6 +1450,11 @@ print {$local_cfg} <<'JSON';
   },
   "collectors": [
     {
+      "name": "home.collector",
+      "command": "printf 'local-home'",
+      "cwd": "home"
+    },
+    {
       "name": "local.collector",
       "command": "printf 'local'",
       "cwd": "home"
@@ -1294,6 +1463,64 @@ print {$local_cfg} <<'JSON';
 }
 JSON
 close $local_cfg;
+
+my $layered_parent = File::Spec->catdir( $home, 'repo-for-config', 'app-parent' );
+my $layered_leaf = File::Spec->catdir( $layered_parent, 'app-leaf' );
+make_path( File::Spec->catdir( $layered_parent, '.developer-dashboard', 'config' ) );
+make_path( File::Spec->catdir( $layered_leaf, '.developer-dashboard', 'config' ) );
+open my $parent_cfg, '>', File::Spec->catfile( $layered_parent, '.developer-dashboard', 'config', 'config.json' ) or die $!;
+print {$parent_cfg} <<'JSON';
+{
+  "path_aliases": {
+    "parent_only": "~/parent-only"
+  },
+  "collectors": [
+    {
+      "name": "parent.collector",
+      "command": "printf 'parent'",
+      "cwd": "home"
+    }
+  ],
+  "providers": [
+    {
+      "id": "shared-provider",
+      "title": "Parent Provider"
+    }
+  ]
+}
+JSON
+close $parent_cfg;
+open my $leaf_cfg, '>', File::Spec->catfile( $layered_leaf, '.developer-dashboard', 'config', 'config.json' ) or die $!;
+print {$leaf_cfg} <<'JSON';
+{
+  "path_aliases": {
+    "leaf_only": "~/leaf-only"
+  },
+  "collectors": [
+    {
+      "name": "leaf.collector",
+      "command": "printf 'leaf'",
+      "cwd": "home"
+    },
+    {
+      "name": "parent.collector",
+      "command": "printf 'leaf-parent'",
+      "cwd": "home"
+    }
+  ],
+  "providers": [
+    {
+      "id": "leaf-provider",
+      "title": "Leaf Provider"
+    },
+    {
+      "id": "shared-provider",
+      "title": "Leaf Provider Override"
+    }
+  ]
+}
+JSON
+close $leaf_cfg;
 
 {
     my $utf8_home = tempdir( CLEANUP => 1 );
@@ -1359,10 +1586,11 @@ JSON
                 local_only => '~/local-only',
             },
             collectors => [
-                { name => 'local.collector', command => q{printf 'local'}, cwd => 'home' },
+                { name => 'home.collector',  command => q{printf 'local-home'}, cwd => 'home' },
+                { name => 'local.collector', command => q{printf 'local'},      cwd => 'home' },
             ],
         },
-        'load_global gives the project-local runtime config precedence while still merging nested hash domains such as path aliases',
+        'load_global gives the project-local runtime config precedence while merging nested hashes and collector arrays by collector name',
     );
     is( $config->merged->{default_mode}, 'source', 'merged gives repo config precedence over global config' );
     my $collectors = $config->collectors;
@@ -1378,6 +1606,39 @@ JSON
         }
     );
     is_same_path( $saved_global, $local_config_file, 'save_global writes into the project-local runtime config when it exists' );
+}
+{
+    chdir $layered_leaf or die $!;
+    my $layered_paths = Developer::Dashboard::PathRegistry->new( home => $home );
+    my $layered_files = Developer::Dashboard::FileRegistry->new( paths => $layered_paths );
+    my $layered_config = Developer::Dashboard::Config->new( paths => $layered_paths, files => $layered_files );
+    is_deeply(
+        $layered_config->load_global,
+        {
+            path_aliases => {
+                home_only   => '~/home-only',
+                saved_here  => '~/saved-here',
+                parent_only => '~/parent-only',
+                leaf_only   => '~/leaf-only',
+            },
+            collectors => [
+                { name => 'home.collector',   command => q{printf 'home'},        cwd => 'home' },
+                { name => 'parent.collector', command => q{printf 'leaf-parent'}, cwd => 'home' },
+                { name => 'leaf.collector',   command => q{printf 'leaf'},        cwd => 'home' },
+            ],
+            providers => [
+                { id => 'shared-provider', title => 'Leaf Provider Override' },
+                { id => 'leaf-provider',   title => 'Leaf Provider' },
+            ],
+        },
+        'load_global merges every runtime layer from home to leaf and lets deeper collectors and providers override matching names or ids',
+    );
+    is_deeply(
+        [ map { $_->{id} } @{ $layered_config->providers } ],
+        [ 'shared-provider', 'leaf-provider' ],
+        'providers exposes the layered provider set after id-based merge',
+    );
+    chdir $original_cwd or die $!;
 }
 {
     local $ENV{DEVELOPER_DASHBOARD_CHECKERS} = 'repo.collector::config.two';
@@ -1417,6 +1678,59 @@ chdir $original_cwd or die $!;
     ok( !defined $auth->get_user('fallback'), 'auth remove_user removes matching records from all runtime roots' );
     $sessions->delete('fallback-session');
     ok( !defined $sessions->get('fallback-session'), 'session delete removes matching records from all runtime roots' );
+    chdir $home or die $!;
+}
+
+{
+    my $state_home = tempdir( CLEANUP => 1 );
+    my $layer_root = File::Spec->catdir( $state_home, 'state-layers' );
+    my $layer_parent = File::Spec->catdir( $layer_root, 'parent' );
+    my $layer_leaf = File::Spec->catdir( $layer_parent, 'leaf' );
+    for my $dir (
+        File::Spec->catdir( $layer_root, '.developer-dashboard', 'state', 'collectors', 'shared.collector' ),
+        File::Spec->catdir( $layer_root, '.developer-dashboard', 'state', 'indicators', 'shared-indicator' ),
+        File::Spec->catdir( $layer_parent, '.developer-dashboard', 'state', 'collectors', 'parent.collector' ),
+        File::Spec->catdir( $layer_parent, '.developer-dashboard', 'state', 'indicators', 'parent-indicator' ),
+        File::Spec->catdir( $layer_leaf, '.developer-dashboard', 'state', 'collectors', 'shared.collector' ),
+        File::Spec->catdir( $layer_leaf, '.developer-dashboard', 'state', 'indicators', 'shared-indicator' ),
+    ) {
+        make_path($dir);
+    }
+    open my $home_collect_status, '>', File::Spec->catfile( $layer_root, '.developer-dashboard', 'state', 'collectors', 'shared.collector', 'status.json' ) or die $!;
+    print {$home_collect_status} qq|{"name":"shared.collector","status":"home"}|;
+    close $home_collect_status;
+    open my $parent_collect_status, '>', File::Spec->catfile( $layer_parent, '.developer-dashboard', 'state', 'collectors', 'parent.collector', 'status.json' ) or die $!;
+    print {$parent_collect_status} qq|{"name":"parent.collector","status":"parent"}|;
+    close $parent_collect_status;
+    open my $leaf_collect_status, '>', File::Spec->catfile( $layer_leaf, '.developer-dashboard', 'state', 'collectors', 'shared.collector', 'status.json' ) or die $!;
+    print {$leaf_collect_status} qq|{"name":"shared.collector","status":"leaf"}|;
+    close $leaf_collect_status;
+    open my $home_indicator_status, '>', File::Spec->catfile( $layer_root, '.developer-dashboard', 'state', 'indicators', 'shared-indicator', 'status.json' ) or die $!;
+    print {$home_indicator_status} qq|{"name":"shared-indicator","label":"home"}|;
+    close $home_indicator_status;
+    open my $parent_indicator_status, '>', File::Spec->catfile( $layer_parent, '.developer-dashboard', 'state', 'indicators', 'parent-indicator', 'status.json' ) or die $!;
+    print {$parent_indicator_status} qq|{"name":"parent-indicator","label":"parent"}|;
+    close $parent_indicator_status;
+    open my $leaf_indicator_status, '>', File::Spec->catfile( $layer_leaf, '.developer-dashboard', 'state', 'indicators', 'shared-indicator', 'status.json' ) or die $!;
+    print {$leaf_indicator_status} qq|{"name":"shared-indicator","label":"leaf"}|;
+    close $leaf_indicator_status;
+
+    chdir $layer_leaf or die $!;
+    my $layer_paths = Developer::Dashboard::PathRegistry->new( home => $state_home );
+    my $collector_store = Developer::Dashboard::Collector->new( paths => $layer_paths );
+    my $indicator_store = Developer::Dashboard::IndicatorStore->new( paths => $layer_paths );
+    is( $collector_store->read_status('shared.collector')->{status}, 'leaf', 'collector reads prefer the deepest layer status' );
+    is_deeply(
+        [ map { $_->{name} } $collector_store->list_collectors ],
+        [ 'parent.collector', 'shared.collector' ],
+        'collector listing unions every layer while deduping by collector name',
+    );
+    is( $indicator_store->get_indicator('shared-indicator')->{label}, 'leaf', 'indicator reads prefer the deepest layer status' );
+    is_deeply(
+        [ map { $_->{name} } $indicator_store->list_indicators ],
+        [ 'parent-indicator', 'shared-indicator' ],
+        'indicator listing unions every layer while deduping by indicator name',
+    );
     chdir $home or die $!;
 }
 

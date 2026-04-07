@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '1.82';
+our $VERSION = '1.83';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -112,8 +112,11 @@ sub set_indicator {
 # Output: indicator hash reference or undef when missing.
 sub get_indicator {
     my ( $self, $name ) = @_;
-    my $file = File::Spec->catfile( $self->{paths}->indicator_dir($name), 'status.json' );
-    return $self->_read_indicator_file($file);
+    for my $file ( $self->_indicator_file_candidates($name) ) {
+        my $item = $self->_read_indicator_file($file);
+        return $item if $item;
+    }
+    return;
 }
 
 # list_indicators()
@@ -122,18 +125,20 @@ sub get_indicator {
 # Output: sorted list of indicator hash references.
 sub list_indicators {
     my ($self) = @_;
-    my $root = $self->{paths}->indicators_root;
-    opendir my $dh, $root or return;
-
-    my @items;
-    while ( my $entry = readdir $dh ) {
-        next if $entry eq '.' || $entry eq '..';
-        my $item = eval { $self->get_indicator($entry) };
-        push @items, $item if $item;
+    my %items;
+    for my $root ( $self->{paths}->indicators_roots ) {
+        next if !-d $root;
+        opendir my $dh, $root or next;
+        while ( my $entry = readdir $dh ) {
+            next if $entry eq '.' || $entry eq '..';
+            next if $items{$entry};
+            my $item = eval { $self->get_indicator($entry) };
+            $items{$entry} = $item if $item;
+        }
+        closedir $dh;
     }
-    closedir $dh;
 
-    return sort { ($a->{priority} || 999) <=> ($b->{priority} || 999) || $a->{name} cmp $b->{name} } @items;
+    return sort { ($a->{priority} || 999) <=> ($b->{priority} || 999) || $a->{name} cmp $b->{name} } values %items;
 }
 
 # sync_collectors($jobs)
@@ -202,11 +207,22 @@ sub sync_collectors {
 sub delete_indicator {
     my ( $self, $name ) = @_;
     return 1 if !defined $name || $name eq '';
-    my $dir  = $self->{paths}->indicator_dir($name);
-    my $file = File::Spec->catfile( $dir, 'status.json' );
-    unlink $file if -f $file;
-    rmdir $dir if -d $dir;
+    for my $dir ( map { File::Spec->catdir( $_, $name ) } $self->{paths}->indicators_roots ) {
+        my $file = File::Spec->catfile( $dir, 'status.json' );
+        unlink $file if -f $file;
+        rmdir $dir if -d $dir;
+    }
     return 1;
+}
+
+# _indicator_file_candidates($name)
+# Returns candidate indicator status files across every runtime layer in lookup
+# order from deepest to home.
+# Input: indicator name string.
+# Output: ordered list of file path strings.
+sub _indicator_file_candidates {
+    my ( $self, $name ) = @_;
+    return map { File::Spec->catfile( $_, $name, 'status.json' ) } $self->{paths}->indicators_roots;
 }
 
 # mark_stale($name, %opts)

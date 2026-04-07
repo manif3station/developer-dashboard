@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 47: DD-OOP-LAYERS)
+
+- Fixed the split runtime-layer model by making every existing `.developer-dashboard/` directory from `~/.developer-dashboard` down to the current working directory participate in one inherited runtime stack instead of only a project-vs-home pair.
+- Fixed layered custom command lookup so the deepest matching CLI command still wins, while per-command hooks now run across every discovered layer from home to leaf instead of stopping at the first matching hook directory.
+- Fixed layered bookmark/runtime inheritance so shared `nav/*.tt`, bookmark TT includes, config `collectors` and `providers`, collector/indicator state lookups, and runtime `local/lib/perl5` exposure now follow the same DD-OOP-LAYERS contract.
+
 ## 2026-04-07 (Phase 46: Non-Repo CLI Root Blind Spot)
 
 - Fixed top-level custom command lookup so `dashboard <command>` now checks the current working directory's `./.developer-dashboard/cli` first, even when that directory is not inside a git repo.

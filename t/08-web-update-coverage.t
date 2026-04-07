@@ -253,6 +253,89 @@ my $nav_self_render = $app->_nav_items_html(
 );
 is( $nav_self_render, '', 'shared nav renderer does not inject nav items while rendering a nav bookmark itself' );
 
+{
+    my $layer_root = File::Spec->catdir( $home, 'nav-layer-root' );
+    my $layer_parent = File::Spec->catdir( $layer_root, 'parent' );
+    my $layer_leaf = File::Spec->catdir( $layer_parent, 'leaf' );
+    make_path( File::Spec->catdir( $layer_parent, '.developer-dashboard', 'dashboards', 'nav' ) );
+    make_path( File::Spec->catdir( $layer_parent, '.developer-dashboard', 'dashboards', 'partials' ) );
+    make_path( File::Spec->catdir( $layer_leaf, '.developer-dashboard', 'dashboards', 'nav' ) );
+
+    open my $parent_partial_fh, '>', File::Spec->catfile( $layer_parent, '.developer-dashboard', 'dashboards', 'partials', 'nav-fragment.tt' ) or die $!;
+    print {$parent_partial_fh} "parent-fragment\n";
+    close $parent_partial_fh;
+
+    open my $parent_nav_fh, '>', File::Spec->catfile( $layer_parent, '.developer-dashboard', 'dashboards', 'nav', 'parent-only.tt' ) or die $!;
+    print {$parent_nav_fh} <<'PAGE';
+TITLE: Parent Only
+:--------------------------------------------------------------------------------:
+BOOKMARK: nav/parent-only.tt
+:--------------------------------------------------------------------------------:
+HTML: <div id="parent-only-nav">parent only</div>
+PAGE
+    close $parent_nav_fh;
+
+    open my $parent_shared_nav_fh, '>', File::Spec->catfile( $layer_parent, '.developer-dashboard', 'dashboards', 'nav', 'shared.tt' ) or die $!;
+    print {$parent_shared_nav_fh} <<'PAGE';
+TITLE: Parent Shared
+:--------------------------------------------------------------------------------:
+BOOKMARK: nav/shared.tt
+:--------------------------------------------------------------------------------:
+HTML: <div id="shared-nav-parent">parent shared</div>
+PAGE
+    close $parent_shared_nav_fh;
+
+    open my $leaf_nav_fh, '>', File::Spec->catfile( $layer_leaf, '.developer-dashboard', 'dashboards', 'nav', 'leaf-only.tt' ) or die $!;
+    print {$leaf_nav_fh} <<'PAGE';
+TITLE: Leaf Only
+:--------------------------------------------------------------------------------:
+BOOKMARK: nav/leaf-only.tt
+:--------------------------------------------------------------------------------:
+HTML: <div id="leaf-only-nav">[% INCLUDE "partials/nav-fragment.tt" %]</div>
+PAGE
+    close $leaf_nav_fh;
+
+    open my $leaf_shared_nav_fh, '>', File::Spec->catfile( $layer_leaf, '.developer-dashboard', 'dashboards', 'nav', 'shared.tt' ) or die $!;
+    print {$leaf_shared_nav_fh} <<'PAGE';
+TITLE: Leaf Shared
+:--------------------------------------------------------------------------------:
+BOOKMARK: nav/shared.tt
+:--------------------------------------------------------------------------------:
+HTML: <div id="shared-nav-leaf">leaf shared</div>
+PAGE
+    close $leaf_shared_nav_fh;
+
+    chdir $layer_leaf or die $!;
+    my $layer_paths = Developer::Dashboard::PathRegistry->new( home => $home );
+    my $layer_store = Developer::Dashboard::PageStore->new( paths => $layer_paths );
+    my $layer_runtime = Developer::Dashboard::PageRuntime->new( paths => $layer_paths );
+    my $layer_files = Developer::Dashboard::FileRegistry->new( paths => $layer_paths );
+    my $layer_auth = Developer::Dashboard::Auth->new( files => $layer_files, paths => $layer_paths );
+    my $layer_sessions = Developer::Dashboard::SessionStore->new( paths => $layer_paths );
+    my $layer_app = Developer::Dashboard::Web::App->new(
+        auth     => $layer_auth,
+        pages    => $layer_store,
+        runtime  => $layer_runtime,
+        sessions => $layer_sessions,
+    );
+    my $layer_page = Developer::Dashboard::PageDocument->new(
+        id     => 'layered-page',
+        title  => 'Layered Page',
+        layout => { body => 'layered body' },
+    );
+    $layer_store->save_page($layer_page);
+    my $layer_nav_html = $layer_app->_nav_items_html(
+        page            => $layer_page,
+        runtime_context => { params => {} },
+    );
+    like( $layer_nav_html, qr/parent-only-nav/, 'nav renderer includes parent-layer nav fragments' );
+    like( $layer_nav_html, qr/leaf-only-nav/, 'nav renderer includes leaf-layer nav fragments' );
+    like( $layer_nav_html, qr/parent-fragment/, 'nav renderer resolves TT includes from ancestor dashboard layers' );
+    like( $layer_nav_html, qr/shared-nav-leaf/, 'nav renderer prefers the deepest matching nav bookmark id' );
+    unlike( $layer_nav_html, qr/shared-nav-parent/, 'nav renderer suppresses overridden parent nav fragments when a deeper layer replaces the same id' );
+    chdir $home or die $!;
+}
+
 my $fragment = $app->_page_fragment_html(
     Developer::Dashboard::PageDocument->new(
         layout => { body => '<div id="frag-body"></div>', form_tt => '<div id="frag-form-tt"></div>', form => '<div id="frag-form"></div>' },
