@@ -1,5 +1,14 @@
 Revision history for Developer Dashboard
 
+1.89  2026-04-07
+    - fixed DD-OOP-LAYERS path discovery on symlink-heavy platforms such as
+      macOS by comparing canonical path identities instead of raw path strings,
+      so `/var/...` and `/private/var/...` aliases no longer collapse runtime
+      layer inheritance back to the home layer
+    - added regression coverage for canonical-cwd versus symlinked-home layer
+      discovery and re-verified the layered nav rendering path that depends on
+      the same runtime-layer contract
+
 1.88  2026-04-07
     - fixed `dashboard serve` so it now starts configured collector loops
       alongside the web service instead of leaving collectors untouched until a

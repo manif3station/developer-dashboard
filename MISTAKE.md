@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: CANONICAL-PATH-LAYER-DRIFT
+
+**Date:** 2026-04-07 16:30:00 UTC
+**Area:** DD-OOP-LAYERS path discovery, symlink normalization, and macOS portability
+**Symptom:** DD-OOP-LAYERS tests passed on Linux but failed on macOS when temp and home paths appeared through different aliases such as `/var/...` and `/private/var/...`, causing runtime layers to collapse back to the home layer and breaking layered nav rendering
+**Why It Was Dangerous:** It made layered runtime inheritance unreliable on macOS, broke deepest-layer writes, and caused higher-level features such as layered nav fragments to fail even though the layer directories existed
+**Root Cause:** PathRegistry compared raw path strings for ancestry, stop conditions, and duplicate suppression instead of comparing canonical filesystem identities
+**How Ellen Solved It:** Added canonical path identity helpers, used them for DD-OOP-LAYERS ancestry checks and dedupe logic, and added a symlinked-home versus canonical-cwd regression test that matches the macOS alias pattern
+**How To Detect Earlier Next Time:** Run DD-OOP-LAYERS tests with a symlinked home path and a canonical cwd path, or compare `HOME` and `cwd` through `abs_path` before trusting any raw-string ancestry logic
+**Prevention Rule:** Any filesystem ancestry, dedupe, or layer-walk logic must compare canonical path identities when symlink aliases can exist
+**Verification:** `prove -lv t/07-core-units.t t/08-web-update-coverage.t`, `prove -lr t`
+**Related Files:** `lib/Developer/Dashboard/PathRegistry.pm`, `t/07-core-units.t`, `t/08-web-update-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: COLLECTOR-LIFECYCLE-DRIFT
 
 **Date:** 2026-04-07 20:20:00 UTC

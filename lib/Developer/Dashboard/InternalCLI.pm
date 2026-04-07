@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '1.88';
+our $VERSION = '1.89';
 
 use File::Basename qw(dirname);
 use File::Copy qw(copy);

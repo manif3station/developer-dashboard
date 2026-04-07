@@ -82,6 +82,7 @@ The runtime-manager tests also cover:
 
 - background web startup handshake and web-state persistence
 - `dashboard serve` collector startup and failure handling, including explicit startup errors and cleanup of already-started loops when a later collector fails
+- DD-OOP-LAYERS canonical-path normalization, including a symlinked-home versus canonical-cwd regression that matches macOS `/var/...` and `/private/var/...` alias behaviour
 - `dashboard web: <host>:<port>` process-title detection
 - `pkill` fallback when pid files are stale or missing
 - `/proc` listener-pid fallback when minimal Linux containers do not provide `ss`

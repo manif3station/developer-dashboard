@@ -3,9 +3,9 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '1.88';
+our $VERSION = '1.89';
 
-use Cwd qw(cwd);
+use Cwd qw(abs_path cwd);
 use File::Basename qw(dirname);
 use File::Find ();
 use File::Path qw(make_path);
@@ -138,7 +138,8 @@ sub runtime_layers {
     my %seen;
     for my $root ( $self->_runtime_layers_from_env, $self->home_runtime_root, $self->_ancestor_runtime_layers ) {
         next if !defined $root || $root eq '';
-        next if $seen{$root}++;
+        my $identity = $self->_path_identity($root);
+        next if $seen{$identity}++;
         push @roots, $root;
     }
     return @roots;
@@ -619,9 +620,7 @@ sub ensure_dir {
 sub is_home_runtime_path {
     my ( $self, $path ) = @_;
     return 0 if !defined $path || $path eq '';
-    my $home_runtime = $self->home_runtime_path;
-    return 1 if $path eq $home_runtime;
-    return index( $path, $home_runtime . '/' ) == 0 ? 1 : 0;
+    return $self->_same_or_descendant_path( $path, $self->home_runtime_path ) ? 1 : 0;
 }
 
 # secure_dir_permissions($dir)
@@ -707,10 +706,10 @@ sub _ancestor_runtime_layers {
     my $home_runtime = $self->home_runtime_path;
     my $project_root = eval { $self->current_project_root } || '';
     my $stop_dir = '';
-    if ( $cwd eq $home || $cwd =~ /^\Q$home\E\// ) {
+    if ( $self->_same_or_descendant_path( $cwd, $home ) ) {
         $stop_dir = $home;
     }
-    elsif ( $project_root ne '' && ( $cwd eq $project_root || $cwd =~ /^\Q$project_root\E\// ) ) {
+    elsif ( $project_root ne '' && $self->_same_or_descendant_path( $cwd, $project_root ) ) {
         $stop_dir = $project_root;
     }
     else {
@@ -721,13 +720,40 @@ sub _ancestor_runtime_layers {
     my $dir = $cwd;
     while ($dir) {
         my $candidate = File::Spec->catdir( $dir, '.developer-dashboard' );
-        push @layers, $candidate if -d $candidate && $candidate ne $home_runtime;
-        last if $dir eq $stop_dir;
+        push @layers, $candidate if -d $candidate && $self->_path_identity($candidate) ne $self->_path_identity($home_runtime);
+        last if $self->_path_identity($dir) eq $self->_path_identity($stop_dir);
         my $parent = dirname($dir);
         last if !$parent || $parent eq $dir;
         $dir = $parent;
     }
     return reverse @layers;
+}
+
+# _path_identity($path)
+# Normalizes a path for identity and ancestry comparisons without requiring the
+# caller to care about symlink aliases such as /var versus /private/var on macOS.
+# Input: path string.
+# Output: canonical existing path or a stable canonpath string.
+sub _path_identity {
+    my ( $self, $path ) = @_;
+    return '' if !defined $path || $path eq '';
+    my $resolved = eval { abs_path($path) };
+    return $resolved if defined $resolved && $resolved ne '';
+    return File::Spec->canonpath($path);
+}
+
+# _same_or_descendant_path($path, $root)
+# Checks whether one path is identical to or nested beneath another path after
+# canonical normalization.
+# Input: candidate path string and root path string.
+# Output: boolean.
+sub _same_or_descendant_path {
+    my ( $self, $path, $root ) = @_;
+    return 0 if !defined $path || $path eq '' || !defined $root || $root eq '';
+    my $path_id = $self->_path_identity($path);
+    my $root_id = $self->_path_identity($root);
+    return 1 if $path_id eq $root_id;
+    return index( $path_id, $root_id . '/' ) == 0 ? 1 : 0;
 }
 
 # _runtime_layers_from_env()

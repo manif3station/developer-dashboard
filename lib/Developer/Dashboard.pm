@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.88';
+our $VERSION = '1.89';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.88
+1.89
 
 =head1 INTRODUCTION
 
@@ -1250,6 +1250,10 @@ C<🧑‍💻> are repaired so edit and play routes stop showing Unicode replace
 boxes from older bookmark files.
 
 The default web bind is C<0.0.0.0:7890>. Trust is still decided from the request origin and host header, not from the listen address.
+
+C<DD-OOP-LAYERS> comparisons normalize canonical path identities, so symlinked
+aliases such as macOS C</var/...> versus C</private/var/...> do not break
+layer discovery, deepest-layer writes, or layered bookmark/nav lookup.
 
 =head2 Runtime Lifecycle
 

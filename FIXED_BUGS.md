@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 53: Canonical Path Layer Drift)
+
+- Fixed DD-OOP-LAYERS discovery on symlink-heavy platforms such as macOS by comparing canonical path identities instead of raw path strings.
+- Fixed layered runtime lookup so `/var/...` versus `/private/var/...` aliases no longer collapse runtime discovery back to the home layer or break deepest-layer writes.
+- Added regression coverage for symlinked-home versus canonical-cwd path comparisons and re-verified the layered nav renderer that depends on the same runtime-layer chain.
+
 ## 2026-04-07 (Phase 52: Collector Lifecycle Drift)
 
 - Fixed the `dashboard serve` lifecycle gap so a plain serve now starts configured collector loops alongside the web service instead of leaving collectors idle until a later restart.

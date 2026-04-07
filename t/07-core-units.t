@@ -433,6 +433,31 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
     );
 }
 {
+    my $real_home = tempdir( CLEANUP => 1 );
+    my $alias_parent = tempdir( CLEANUP => 1 );
+    my $alias_home = File::Spec->catdir( $alias_parent, 'home-alias' );
+    SKIP: {
+        skip 'symlink regression requires symlink support', 1 if !eval { symlink( $real_home, $alias_home ); 1 };
+        make_path( File::Spec->catdir( $real_home, '.developer-dashboard' ) );
+        make_path( File::Spec->catdir( $real_home, 'dd-oop-layers', 'parent', '.developer-dashboard' ) );
+        make_path( File::Spec->catdir( $real_home, 'dd-oop-layers', 'parent', 'leaf', '.developer-dashboard' ) );
+        my $real_leaf = File::Spec->catdir( $real_home, 'dd-oop-layers', 'parent', 'leaf' );
+        no warnings 'redefine';
+        local *Developer::Dashboard::PathRegistry::cwd = sub { return $real_leaf; };
+        local *Developer::Dashboard::PathRegistry::current_project_root = sub { return undef; };
+        my $alias_paths = Developer::Dashboard::PathRegistry->new( home => $alias_home );
+        is_same_paths(
+            [ $alias_paths->runtime_layers ],
+            [
+                File::Spec->catdir( $alias_home, '.developer-dashboard' ),
+                File::Spec->catdir( $alias_home, 'dd-oop-layers', 'parent', '.developer-dashboard' ),
+                File::Spec->catdir( $alias_home, 'dd-oop-layers', 'parent', 'leaf', '.developer-dashboard' ),
+            ],
+            'runtime_layers survives canonical cwd paths when home is addressed through a symlink alias',
+        );
+    }
+}
+{
     my $layer_parent = File::Spec->catdir( $home, 'dirname-guard-parent' );
     my $layer_leaf = File::Spec->catdir( $layer_parent, 'leaf' );
     make_path( File::Spec->catdir( $layer_leaf, '.developer-dashboard' ) );

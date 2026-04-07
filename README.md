@@ -858,6 +858,10 @@ This keeps the fast path for exact loopback access while making non-canonical or
 
 The default web bind is `0.0.0.0:7890`. Trust is still decided from the request origin and host header, not from the listen address.
 
+`DD-OOP-LAYERS` comparisons normalize canonical path identities, so symlinked
+aliases such as macOS `/var/...` versus `/private/var/...` do not break layer
+discovery, deepest-layer writes, or layered bookmark/nav lookup.
+
 ### Runtime Lifecycle
 
 - `dashboard serve` starts the web service in the background by default
