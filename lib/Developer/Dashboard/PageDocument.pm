@@ -3,7 +3,7 @@ package Developer::Dashboard::PageDocument;
 use strict;
 use warnings;
 
-our $VERSION = '1.79';
+our $VERSION = '1.81';
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 
@@ -397,7 +397,7 @@ sub _decode_stash_section {
         return $value if ref($value) eq 'HASH';
         return {};
     }
-    my $hash = eval "no warnings; +{ $text }";
+    my $hash = eval "+{ $text }";
     return ref($hash) eq 'HASH' ? $hash : {};
 }
 

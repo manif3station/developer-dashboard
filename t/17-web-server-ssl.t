@@ -609,12 +609,17 @@ sub _mode_octal {
         'live SSL frontend redirects plain HTTP to the equivalent HTTPS URL on the same public port'
     );
 
-    my $https_socket = IO::Socket::SSL->new(
-        PeerHost        => '127.0.0.1',
-        PeerPort        => $port,
-        SSL_verify_mode => 0,
-        Timeout         => 5,
-    );
+    my $https_socket;
+    for ( 1 .. 50 ) {
+        $https_socket = IO::Socket::SSL->new(
+            PeerHost        => '127.0.0.1',
+            PeerPort        => $port,
+            SSL_verify_mode => 0,
+            Timeout         => 5,
+        );
+        last if $https_socket;
+        sleep 0.1;
+    }
     ok( $https_socket, 'live SSL frontend accepts a direct TLS client on the public port' );
     my $https_raw = '';
     if ($https_socket) {

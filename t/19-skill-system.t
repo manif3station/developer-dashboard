@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 =head1 Test Developer::Dashboard Skill System
 
 Tests isolated skill installation, update, uninstallation, dependency layout,

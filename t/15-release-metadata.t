@@ -48,17 +48,18 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.79', 'repo version bumped for the clean Windows path-fix and packaging-hygiene release' );
-like( $pm, qr/^1\.79$/m, 'main POD version matches the module version' );
+is( $version, '1.81', 'repo version bumped for the thin-entrypoint and non-destructive init release' );
+like( $pm, qr/^1\.81$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.79$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.81$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
     like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
+    like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.79"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.81"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.79\s+2026-04-06$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.81\s+2026-04-07$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -145,6 +146,10 @@ for my $doc ( $readme, $pm ) {
     like( $doc, qr/dashboard cpan DBD::Driver|DBD::\*/, 'docs describe optional DBD driver installation instead of bundling one database driver' );
     like( $doc, qr/t\/27-sql-dashboard-playwright\.t/, 'docs describe the sql-dashboard Playwright browser verification' );
     like( $doc, qr/bin\/dashboard|dashboard entrypoint|C<dashboard> entrypoint/, 'docs describe the dashboard cpan implementation as entrypoint-local' );
+    like( $doc, qr/config\/config\.json.*intact|preserves an existing .*config\/config\.json/s, 'docs describe non-destructive dashboard init reruns' );
+    like( $doc, qr/share\/seeded-pages/, 'docs describe shipped seeded bookmark assets outside the main command script' );
+    like( $doc, qr/distribution share dir|distribution share directory|cpanm install.*source checkout/s, 'docs describe installed seeded bookmark asset lookup through the dist share directory' );
+    like( $doc, qr/stays thin for lightweight commands|thin for lightweight commands.*dashboard jq|dashboard jq.*before the web runtime is built/s, 'docs describe the thin lazy loader path for lightweight commands' );
     unlike( $doc, qr/CPANManager/, 'docs do not describe a dedicated CPAN manager module for the sql-dashboard runtime driver flow' );
     like( $doc, qr/SKILL\.md/, 'docs point readers at the skill authoring guide' );
     like( $doc, qr/Developer::Dashboard::SKILLS/, 'docs point readers at the shipped skill POD module' );

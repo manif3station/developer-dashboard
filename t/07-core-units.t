@@ -646,6 +646,48 @@ my $saved_global = {
 };
 $config->save_global($saved_global);
 is_deeply( $config->load_global, $saved_global, 'save_global round-trips config content' );
+my $saved_default_merge_path = $config->save_global_defaults(
+    {
+        default_mode => 'browse',
+        web          => {
+            host    => '127.0.0.1',
+            workers => 9,
+            ssl     => 1,
+        },
+        providers => [
+            {
+                title => 'Default Provider',
+            },
+        ],
+    }
+);
+ok( -f $saved_default_merge_path, 'save_global_defaults writes the merged config file' );
+is_deeply(
+    $config->load_global,
+    {
+        default_mode => 'render',
+        collectors   => [
+            {
+                name     => 'global.collector',
+                command  => q{printf 'global'},
+                cwd      => 'home',
+                interval => 5,
+            },
+        ],
+        web => {
+            host    => '127.0.0.1',
+            workers => 9,
+            ssl     => 1,
+        },
+        providers => [
+            {
+                title => 'Default Provider',
+            },
+        ],
+    },
+    'save_global_defaults preserves existing user settings while adding only missing defaults',
+);
+$config->save_global($saved_global);
 my $global_alias_config = Developer::Dashboard::Config->new( files => $files, paths => $paths, repo_root => $home );
 $global_alias_config->save_global_path_alias( 'foo', File::Spec->catdir( $home, 'foo-path' ) );
 is_deeply(
@@ -762,6 +804,95 @@ my $html = $page->render_html;
 like( $html, qr/Page &lt;One&gt;/, 'render_html escapes title text' );
 like( $html, qr/Desc &quot;here&quot;/, 'render_html includes escaped note text' );
 like( $html, qr/Hello <world>/, 'render_html keeps bookmark HTML body intact' );
+
+my $modern_instruction = <<'PAGE';
+=== TITLE ===
+Modern Page
+=== ICON ===
+fa-rocket
+=== BOOKMARK ===
+modern-page
+=== NOTE ===
+Modern note
+=== STASH ===
+{"alpha":1}
+=== HTML ===
+<section>Modern body</section>
+=== CODE1 ===
+print "code one";
+=== CODE2 ===
+print "code two";
+PAGE
+my $modern_page = Developer::Dashboard::PageDocument->from_instruction($modern_instruction);
+is( $modern_page->as_hash->{id}, 'modern-page', 'from_instruction parses modern bookmark id sections' );
+is( $modern_page->as_hash->{meta}{icon}, 'fa-rocket', 'from_instruction parses ICON sections from modern bookmark source' );
+is_deeply( $modern_page->as_hash->{state}, { alpha => 1 }, 'from_instruction decodes JSON STASH sections from modern bookmark source' );
+is_deeply(
+    $modern_page->as_hash->{meta}{codes},
+    [
+        { id => 'CODE1', body => q{print "code one";} },
+        { id => 'CODE2', body => q{print "code two";} },
+    ],
+    'from_instruction preserves modern CODE sections in page metadata',
+);
+like( $modern_page->instruction_text, qr/^TITLE:\s+Modern Page/m, 'instruction_text aliases canonical legacy instruction output' );
+is( $modern_page->render_template('ignored'), $modern_page, 'render_template compatibility path still returns the page object' );
+is_deeply(
+    Developer::Dashboard::PageDocument::_decode_structured_json('{"mode":"modern"}'),
+    { mode => 'modern' },
+    '_decode_structured_json decodes structured JSON payloads',
+);
+is_deeply(
+    Developer::Dashboard::PageDocument::_decode_structured_json(''),
+    {},
+    '_decode_structured_json returns an empty hash for blank payloads',
+);
+is_deeply(
+    Developer::Dashboard::PageDocument::_decode_stash_section('["not","a","hash"]'),
+    {},
+    '_decode_stash_section rejects non-hash JSON payloads for STASH sections',
+);
+is(
+    Developer::Dashboard::PageDocument::_template_value( 'stash.profile.name', { stash => { profile => { name => 'Alice' } } } ),
+    'Alice',
+    '_template_value resolves nested placeholder paths',
+);
+is(
+    Developer::Dashboard::PageDocument::_template_value( 'stash.profile.missing', { stash => { profile => { name => 'Alice' } } } ),
+    '',
+    '_template_value returns an empty string for missing placeholder paths',
+);
+is(
+    Developer::Dashboard::PageDocument::_legacy_value( [ 'one', 2 ] ),
+    "[\n  'one',\n  2\n]",
+    '_legacy_value serializes array references for legacy stash output',
+);
+is(
+    Developer::Dashboard::PageDocument::_legacy_value( { two => 2 } ),
+    "{\n  two => 2\n}",
+    '_legacy_value serializes hash references for legacy stash output',
+);
+my $coded_legacy_page = Developer::Dashboard::PageDocument->new(
+    id          => 'coded-page',
+    title       => 'Coded Page',
+    description => 'Has codes',
+    layout      => { body => '<p>Body</p>' },
+    state       => { alpha => 1 },
+    meta        => {
+        icon  => 'fa-code',
+        codes => [
+            { id => 'CODE1', body => 'print "one";' },
+            'skip-me',
+            { id => 'BROKEN', body => 'print "broken";' },
+            { id => 'CODE2', body => 'print "two";' },
+        ],
+    },
+);
+my $coded_legacy_instruction = $coded_legacy_page->legacy_instruction;
+like( $coded_legacy_instruction, qr/^ICON:\s+fa-code/m, 'legacy_instruction includes ICON sections when present' );
+like( $coded_legacy_instruction, qr/^CODE1:\s+print "one";/m, 'legacy_instruction includes valid CODE1 sections' );
+like( $coded_legacy_instruction, qr/^CODE2:\s+print "two";/m, 'legacy_instruction includes valid CODE2 sections' );
+unlike( $coded_legacy_instruction, qr/^BROKEN:/m, 'legacy_instruction skips invalid code section identifiers' );
 
 my $page_store = Developer::Dashboard::PageStore->new( paths => $paths );
 dies_like( sub { Developer::Dashboard::PageStore->new }, qr/Missing paths registry/, 'page store requires paths' );

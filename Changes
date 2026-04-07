@@ -1,5 +1,27 @@
 Revision history for Developer Dashboard
 
+1.81  2026-04-07
+    - kept the public `dashboard` entrypoint thinner by moving the shipped
+      `welcome`, `api-dashboard`, and `sql-dashboard` starter bookmark source
+      into `share/seeded-pages/` and loading those assets on demand during
+      `dashboard init` instead of embedding the bookmark bodies directly in
+      the command script
+    - fixed the seeded bookmark asset loader so installed copies resolve
+      those starter pages from the distribution share directory instead of a
+      repo-only relative path, which restores `dashboard init` after `cpanm`
+      installation in blank environments
+    - added explicit lightweight early-return paths for `dashboard ticket`
+      and `dashboard version`, and kept the existing `jq`/`yq`/`open-file`
+      style helpers on the lazy path so those commands do not build the full
+      web runtime first
+    - fixed `dashboard init` and `dashboard config init` so rerunning either
+      command preserves an existing `~/.developer-dashboard/config/config.json`
+      while still filling missing default collector config, helper commands,
+      and starter bookmarks
+    - tightened CLI smoke and loader coverage around the non-destructive init
+      path, the seeded-page asset loader, and the `/usr/bin/env perl`
+      shebang rule for shipped Perl scripts
+
 1.79  2026-04-06
     - excluded `cover_db` from the release gather rules so a local
       Devel::Cover run no longer leaks coverage artifacts into built tarballs

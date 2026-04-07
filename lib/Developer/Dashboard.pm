@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.79';
+our $VERSION = '1.81';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.79
+1.81
 
 =head1 INTRODUCTION
 
@@ -1409,6 +1409,21 @@ runs that command after any sorted hook files from F<update/> or F<update.d>.
 
 C<dashboard init> seeds three editable starter bookmarks when they are
 missing: C<welcome>, C<api-dashboard>, and C<sql-dashboard>.
+
+Re-running C<dashboard init> keeps an existing
+F<~/.developer-dashboard/config/config.json> intact. The command only fills
+in missing default collector config, refreshes missing private helper
+commands, and seeds starter bookmarks that are not already present.
+
+The public C<dashboard> entrypoint also stays thin for lightweight commands
+such as C<dashboard jq>, C<dashboard yq>, C<dashboard of>,
+C<dashboard open-file>, C<dashboard ticket>, and C<dashboard version>: those
+paths return before the web runtime is built. The shipped starter bookmark
+source lives under F<share/seeded-pages/> and is loaded on demand during
+C<dashboard init> instead of being embedded directly in the command script.
+Installed copies resolve the same seeded pages from the distribution share directory,
+so C<dashboard init> works after a C<cpanm> install and not just from a source
+checkout.
 
 The seeded C<api-dashboard> bookmark now behaves like a local Postman-style
 workspace. It keeps multiple request tabs in browser-local state, supports

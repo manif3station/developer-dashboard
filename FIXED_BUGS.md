@@ -1,5 +1,13 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 45: Entry Point Bloat And Init Config Clobber)
+
+- Fixed the `dashboard` entrypoint bloat by moving the shipped `welcome`, `api-dashboard`, and `sql-dashboard` starter bookmark source into `share/seeded-pages/`, so the public command no longer embeds those large bookmark bodies directly.
+- Fixed installed seeded-page lookup so `dashboard init` now resolves those shipped starter bookmarks from the distribution share directory after `cpanm` installs, instead of assuming a source-tree relative path that only exists in the repo checkout.
+- Fixed lightweight-command loading drift by keeping `dashboard jq`, `dashboard yq`, `dashboard of`, `dashboard open-file`, `dashboard ticket`, and `dashboard version` on explicit early-return paths that do not build the full web runtime first.
+- Fixed `dashboard init` and `dashboard config init` so rerunning them preserves an existing `~/.developer-dashboard/config/config.json` instead of overwriting the user's saved config while still filling in missing defaults, helpers, and starter pages.
+- Fixed shipped Perl shebang drift by restoring `/usr/bin/env perl` on the remaining test entrypoints and adding a loader regression test that guards every shipped Perl script path we rely on.
+
 ## 2026-04-06 (Phase 44: Coverage Artifact Tarball Leak)
 
 - Fixed the release-artifact hygiene leak by excluding `cover_db` from the Dist::Zilla gather rules so a local covered test run no longer ships Devel::Cover output inside the public tarball.

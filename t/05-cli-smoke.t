@@ -80,6 +80,17 @@ $seeded_config_json = encode( 'UTF-8', $seeded_config_json ) if utf8::is_utf8($s
 print {$seeded_config_fh} $seeded_config_json;
 close $seeded_config_fh;
 
+my $reinit = _run("$perl -I'$lib' '$dashboard' init");
+like($reinit, qr/config_file/, 'dashboard init can be re-run after a config already exists');
+open my $preserved_config_fh, '<:raw', $global_config_file or die "Unable to read $global_config_file: $!";
+my $preserved_config_json = do { local $/; <$preserved_config_fh> };
+close $preserved_config_fh;
+is_deeply(
+    json_decode($preserved_config_json),
+    json_decode($seeded_config_json),
+    'dashboard init preserves an existing config.json instead of overwriting it',
+);
+
 my $pages = _run("$perl -I'$lib' '$dashboard' page list");
 like($pages, qr/welcome/, 'welcome page listed');
 like($pages, qr/api-dashboard/, 'dashboard init seeds the API dashboard bookmark');

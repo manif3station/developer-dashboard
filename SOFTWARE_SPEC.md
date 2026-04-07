@@ -90,6 +90,11 @@ This implies:
 - documented CLI entrypoints
 - stable module namespaces
 - optional features that degrade cleanly when dependencies are absent
+- a thin public `dashboard` entrypoint that lazy-loads the full runtime only
+  for commands that actually need it
+- shipped seeded bookmark assets that live outside the main command script and
+  resolve correctly both from a source checkout and from the installed
+  distribution share directory
 
 Recommendation:
 
@@ -218,6 +223,15 @@ Current seeded workspaces should include:
 - `welcome` as a neutral landing page
 - `api-dashboard` as a file-backed HTTP workspace
 - `sql-dashboard` as a file-backed SQL workspace
+
+`dashboard init` must preserve an existing
+`~/.developer-dashboard/config/config.json`. Re-running it may add missing
+defaults, helper commands, or seeded pages, but it must not wipe or replace
+user config.
+
+The shipped source for seeded workspaces should live outside the main command
+script as shipped assets or dedicated modules so bookmark bodies do not bloat
+the public `dashboard` entrypoint.
 
 The seeded `api-dashboard` should keep its behavior inside the bookmark source
 itself rather than requiring a dedicated product module for the dashboard

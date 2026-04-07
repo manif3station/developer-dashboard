@@ -864,6 +864,20 @@ exists, `dashboard update` runs that command after any sorted hook files from
 `dashboard init` seeds three editable starter bookmarks when they are missing:
 `welcome`, `api-dashboard`, and `sql-dashboard`.
 
+Re-running `dashboard init` keeps an existing
+`~/.developer-dashboard/config/config.json` intact. The command only fills in
+missing default collector config, refreshes missing private helper commands,
+and seeds starter bookmarks that are not already present.
+
+The public `dashboard` entrypoint also stays thin for lightweight commands
+such as `dashboard jq`, `dashboard yq`, `dashboard of`, `dashboard open-file`,
+`dashboard ticket`, and `dashboard version`: those paths return before the web
+runtime is built. The shipped starter bookmark source lives under
+`share/seeded-pages/` and is loaded on demand during `dashboard init` instead
+of being embedded directly in the command script. Installed copies resolve the same
+seeded pages from the distribution share directory, so `dashboard init` works
+after `cpanm` installs and not just from a source checkout.
+
 The seeded `api-dashboard` bookmark now behaves like a local Postman-style
 workspace. It keeps multiple request tabs in browser-local state, supports
 import and export of Postman collection v2.1 JSON through the Collections tab,

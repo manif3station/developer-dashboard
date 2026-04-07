@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: ENTRYPOINT-BLOAT
+
+**Date:** 2026-04-07 00:20:00 UTC
+**Area:** CLI entrypoint shape, seeded bookmark storage, and init safety
+**Symptom:** The public `dashboard` script had grown large enough to carry the shipped API and SQL bookmark bodies directly, and rerunning `dashboard init` or `dashboard config init` overwrote an existing `~/.developer-dashboard/config/config.json`
+**Why It Was Dangerous:** It made the main command harder to reason about, blurred the boundary between the thin entrypoint and the heavier runtime, and let a harmless-looking rerun of `dashboard init` destroy user config
+**Root Cause:** I treated the seeded bookmarks as convenient inline code inside `bin/dashboard` and reused `save_global(...)` for init defaults, so the same path that was meant to seed missing state also rewrote the user's whole config file
+**How Ellen Solved It:** Moved the shipped `welcome`, `api-dashboard`, and `sql-dashboard` bookmark source into `share/seeded-pages/`, added `Developer::Dashboard::CLI::SeededPages` to load them on demand during `dashboard init`, resolved installed copies through the distribution share directory instead of a repo-only path, kept lightweight commands on explicit early-return paths, introduced config-default merging so init fills missing defaults without clobbering existing config, and added loader plus CLI smoke regressions around those rules
+**How To Detect Earlier Next Time:** When a public entrypoint keeps getting longer, inspect whether large static assets or whole workspace definitions are living there; when an init command writes config, rerun it in tests after seeding a non-default config file and confirm the file survives unchanged
+**Prevention Rule:** Keep the public `dashboard` entrypoint thin and lazy, keep shipped starter bookmark bodies outside the command script, and never let `dashboard init` overwrite an existing `config.json`
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/30-dashboard-loader.t`, `prove -lr t`, `cover -delete && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t`, `dzil build`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `bin/dashboard`, `lib/Developer/Dashboard/CLI/SeededPages.pm`, `lib/Developer/Dashboard/Config.pm`, `share/seeded-pages/`, `t/05-cli-smoke.t`, `t/30-dashboard-loader.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `SOFTWARE_SPEC.md`
+
+---
+
 ## CODE: COVERAGE-ARTIFACT-LEAK
 
 **Date:** 2026-04-06 23:59:00 UTC

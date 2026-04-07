@@ -1,4 +1,4 @@
-#!/usr/bin/perl
+#!/usr/bin/env perl
 =head1 Test Skill Web Routes
 
 Tests isolated skill bookmark routes under /skill/:repo-name/:route.

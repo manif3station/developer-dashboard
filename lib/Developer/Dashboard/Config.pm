@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '1.79';
+our $VERSION = '1.81';
 
 use File::Spec;
 use Cwd qw(cwd);
@@ -53,6 +53,19 @@ sub save_global {
     close $fh;
     $self->{paths}->secure_file_permissions($file);
     return $file;
+}
+
+# save_global_defaults($defaults)
+# Persists only missing global configuration defaults without overwriting
+# existing user settings in config.json.
+# Input: defaults hash reference.
+# Output: written file path string.
+sub save_global_defaults {
+    my ( $self, $defaults ) = @_;
+    $defaults ||= {};
+    my $current = $self->load_global;
+    my $merged = $self->_merge_hashes( $defaults, $current );
+    return $self->save_global($merged);
 }
 
 # load_repo()
