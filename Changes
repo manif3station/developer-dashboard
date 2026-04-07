@@ -1,5 +1,14 @@
 Revision history for Developer Dashboard
 
+1.87  2026-04-07
+    - fixed the `t/07-core-units.t` doctor hook assertion so it now clears
+      ambient `RESULT` state before checking the empty-hook path, which keeps
+      install-time and inherited-environment test runs from failing on
+      unrelated hook data
+    - documented the doctor hook environment expectation in the testing notes
+      so future env-sensitive unit checks do not assume a clean process
+      environment unless they establish it explicitly
+
 1.86  2026-04-07
     - added the `FULL-POD-DOC` contributor contract and enforced it in
       release metadata so every repo-owned Perl file now documents what it is,

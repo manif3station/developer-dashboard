@@ -115,6 +115,9 @@ The repository also now enforces:
   the file exists, when to use it, how to use it, what uses it, and a concrete
   example, with `t/15-release-metadata.t` acting as the release gate for that
   documentation floor
+- explicit setup for env-sensitive tests, so checks that depend on blank
+  variables such as `RESULT` clear or localize that state instead of assuming
+  the parent shell or packaging harness starts empty
 
 The web tests also cover the access model:
 

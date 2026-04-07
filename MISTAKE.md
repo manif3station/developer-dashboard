@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: DOCTOR-RESULT-ASSUMPTION-LEAK
+
+**Date:** 2026-04-07 14:55:00 UTC
+**Area:** unit-test isolation, inherited environment state, and install-time verification
+**Symptom:** `t/07-core-units.t` failed on the assertion that doctor hook results should be empty, but only when the test process inherited a populated `RESULT` environment variable from outside the test itself
+**Why It Was Dangerous:** It made the packaged install path look broken even though the runtime code was doing the documented thing, and it let ambient shell state destabilize one of the core unit gates
+**Root Cause:** The test assumed a clean process environment instead of establishing one explicitly before exercising `Developer::Dashboard::Doctor->run`
+**How Ellen Solved It:** Cleared `ENV{RESULT}` locally inside the doctor empty-hook assertion path, reran the focused test, and reran the full suite to verify the fix against the normal packaging/install flow
+**How To Detect Earlier Next Time:** Run env-sensitive tests under a shell that exports extra variables and check whether the assertion is truly about runtime behaviour or only about the test harness state
+**Prevention Rule:** Any test that depends on missing or empty environment variables must set that precondition explicitly instead of assuming the parent shell is clean
+**Verification:** `prove -lv t/07-core-units.t`, `prove -lr t`
+**Related Files:** `t/07-core-units.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: POD-GUESSWORK-DRIFT
 
 **Date:** 2026-04-07 16:05:00 UTC

@@ -206,6 +206,8 @@ is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'a
     chmod 0644, $legacy_file or die "Unable to chmod $legacy_file: $!";
 
     my $doctor = Developer::Dashboard::Doctor->new( paths => $secure_paths );
+    local $ENV{RESULT};
+    delete $ENV{RESULT};
     my $doctor_report = $doctor->run;
     ok( !$doctor_report->{ok}, 'doctor flags legacy permission drift' );
     is_deeply( $doctor_report->{hooks}, {}, 'doctor returns an empty hook set without RESULT data' );

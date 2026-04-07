@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 51: Doctor Result Assumption Leak)
+
+- Fixed the `t/07-core-units.t` doctor assertion so it now clears ambient `RESULT` state before checking the empty-hook path.
+- Fixed install-time fragility where inherited hook output in the environment could make the doctor unit test fail even though the runtime code was correct.
+- Re-verified the full test suite after the guardrail change so the packaged install path no longer trips over that bad assumption.
+
 ## 2026-04-07 (Phase 50: Pod Guesswork Drift)
 
 - Fixed contributor-documentation drift by adding the `FULL-POD-DOC` rule, so every repo-owned Perl file now explains what it is, what it is for, why it exists, when to use it, how to use it, what uses it, and a concrete example instead of stopping at terse stub POD.

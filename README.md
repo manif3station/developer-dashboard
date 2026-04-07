@@ -1149,6 +1149,9 @@ breaking TAP from daemon-style child processes.
 The runtime-manager coverage cases also use bounded child reaping for stubborn
 process shutdown scenarios, so `Devel::Cover` runs do not stall indefinitely
 after the escalation path has already been exercised.
+Tests that depend on a missing or empty environment variable now establish that
+state explicitly inside the test file, rather than assuming the parent shell
+or install harness starts clean.
 
 For fast saved-bookmark browser regressions, run the dedicated smoke script:
 
