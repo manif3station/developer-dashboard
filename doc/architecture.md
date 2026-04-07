@@ -196,7 +196,7 @@ The core supports compatibility-style environment overrides for project customiz
 
 The runtime also supports user CLI extensions:
 
-- unknown top-level `dashboard` subcommands are resolved from `./.developer-dashboard/cli` first and then `~/.developer-dashboard/cli`
+- unknown top-level `dashboard` subcommands are resolved from the current working directory `./.developer-dashboard/cli` first, then the nearest git-backed project runtime `./.developer-dashboard/cli` when distinct, and then `~/.developer-dashboard/cli`
 - the matching executable receives the remaining argv unchanged
 - stdin, stdout, and stderr are preserved through `exec`
 - every top-level command also has an optional hook directory at `./.developer-dashboard/cli/<command>` or `./.developer-dashboard/cli/<command>.d`, with the home runtime as fallback

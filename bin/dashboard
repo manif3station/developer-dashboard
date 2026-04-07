@@ -1264,7 +1264,7 @@ sub _custom_command_path {
 }
 
 # _cli_runtime_roots()
-# Returns project-local then home CLI roots for top-level command resolution before the heavy runtime loads.
+# Returns current-directory, project-local, then home CLI roots for top-level command resolution before the heavy runtime loads.
 # Input: none.
 # Output: ordered list of CLI root directory path strings.
 sub _cli_runtime_roots {
@@ -1272,10 +1272,12 @@ sub _cli_runtime_roots {
     my %seen;
     my $cwd = cwd();
     my $project_root = _project_root_for($cwd);
+    my $cwd_runtime_root = File::Spec->catdir( $cwd, '.developer-dashboard', 'cli' );
+    my $project_runtime_root
+      = defined $project_root ? File::Spec->catdir( $project_root, '.developer-dashboard', 'cli' ) : ();
     for my $root (
-        ( defined $project_root && -d File::Spec->catdir( $project_root, '.developer-dashboard' )
-            ? File::Spec->catdir( $project_root, '.developer-dashboard', 'cli' )
-            : () ),
+        ( -d File::Spec->catdir( $cwd, '.developer-dashboard' ) ? $cwd_runtime_root : () ),
+        ( defined $project_root && -d File::Spec->catdir( $project_root, '.developer-dashboard' ) ? $project_runtime_root : () ),
         File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' ),
       )
     {

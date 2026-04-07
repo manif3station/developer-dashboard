@@ -1,5 +1,16 @@
 Revision history for Developer Dashboard
 
+1.82  2026-04-07
+    - fixed lazy top-level CLI resolution so `dashboard <command>` now checks
+      the current directory's `./.developer-dashboard/cli` before falling back
+      to the nearest git-backed project runtime and then
+      `~/.developer-dashboard/cli`, which restores local per-directory custom
+      commands even outside git repos
+    - kept home-runtime fallback working from non-repo directories that only
+      contain `./.developer-dashboard/` without a matching local CLI override
+    - expanded CLI smoke coverage around the non-git local override and the
+      non-repo home fallback command path
+
 1.81  2026-04-07
     - kept the public `dashboard` entrypoint thinner by moving the shipped
       `welcome`, `api-dashboard`, and `sql-dashboard` starter bookmark source

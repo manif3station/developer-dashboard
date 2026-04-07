@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.81';
+our $VERSION = '1.82';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.81
+1.82
 
 =head1 INTRODUCTION
 
@@ -665,8 +665,10 @@ helpers such as C<fetch_value(endpoints.foo, '#foo')> on first render.
 =head2 User CLI Extensions
 
 Unknown top-level subcommands can be provided by executable files under
-F<./.developer-dashboard/cli> first and then F<~/.developer-dashboard/cli>.
-For example, C<dashboard foobar a b> will exec the first matching
+the current working directory's F<./.developer-dashboard/cli> first, then the
+nearest git-backed project runtime F<./.developer-dashboard/cli> when it is a
+different directory, and then F<~/.developer-dashboard/cli>. For example,
+C<dashboard foobar a b> will exec the first matching
 F<cli/foobar> with C<a b> as argv, while preserving stdin, stdout, and
 stderr.
 

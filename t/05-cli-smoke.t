@@ -868,6 +868,35 @@ is( $ext_exit, 0, 'user CLI extension exits successfully' );
 is( $ext_stderr, '', 'user CLI extension keeps stderr clean' );
 like( $ext_stdout, qr/^argv:one two\|stdin:hello-extension$/m, 'user CLI extension receives argv and stdin passthrough' );
 
+my $nonrepo_root = File::Spec->catdir( $ENV{HOME}, 'projects', 'nonrepo-local-cli-project' );
+my $nonrepo_cli_root = File::Spec->catdir( $nonrepo_root, '.developer-dashboard', 'cli' );
+make_path($nonrepo_cli_root);
+open my $nonrepo_ext_fh, '>', File::Spec->catfile( $nonrepo_cli_root, 'foobar' )
+  or die "Unable to write non-repo custom command: $!";
+print {$nonrepo_ext_fh} <<'SH';
+#!/bin/sh
+printf 'nonrepo-command:%s\n' "$*"
+SH
+close $nonrepo_ext_fh;
+chmod 0755, File::Spec->catfile( $nonrepo_cli_root, 'foobar' )
+  or die "Unable to chmod non-repo custom command: $!";
+
+my ( $nonrepo_command_stdout, undef, $nonrepo_command_exit ) = capture {
+    system 'sh', '-c', "cd '$nonrepo_root' && $perl -I'$repo/lib' '$repo/bin/dashboard' foobar one two";
+    return $? >> 8;
+};
+is( $nonrepo_command_exit, 0, 'non-repo local custom command exits successfully' );
+like( $nonrepo_command_stdout, qr/^nonrepo-command:one two$/m, 'non-repo local .developer-dashboard CLI command overrides the home CLI command' );
+
+my $empty_nonrepo_root = File::Spec->catdir( $ENV{HOME}, 'projects', 'nonrepo-home-fallback-project' );
+make_path( File::Spec->catdir( $empty_nonrepo_root, '.developer-dashboard' ) );
+my ( $empty_nonrepo_stdout, undef, $empty_nonrepo_exit ) = capture {
+    system 'sh', '-c', "cd '$empty_nonrepo_root' && printf '' | $perl -I'$repo/lib' '$repo/bin/dashboard' foobar one two";
+    return $? >> 8;
+};
+is( $empty_nonrepo_exit, 0, 'home custom command still exits successfully from a non-repo directory' );
+like( $empty_nonrepo_stdout, qr/^argv:one two\|stdin:$/m, 'home CLI command still resolves when a non-repo directory lacks a local CLI override' );
+
 my $plain_repo = File::Spec->catdir( $ENV{HOME}, 'projects', 'plain-restart-project' );
 make_path( File::Spec->catdir( $plain_repo, '.git' ) );
 my ( $plain_restart_stdout, $plain_restart_stderr, $plain_restart_exit ) = capture {

@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: CLI-ROOT-BLIND-SPOT
+
+**Date:** 2026-04-07 09:35:00 UTC
+**Area:** thin CLI dispatch, local runtime discovery, and non-repo overrides
+**Symptom:** `dashboard foobar` ignored an executable under the current directory's `./.developer-dashboard/cli/foobar` unless the current directory also lived under a git repo with a discoverable project root
+**Why It Was Dangerous:** It broke the documented local-before-home CLI override rule, made per-directory custom commands unreliable in scratch directories and `/tmp` workspaces, and pushed users onto the wrong home command even when a closer local override existed
+**Root Cause:** The thin pre-runtime resolver treated "project root" and "current directory" as the same thing and only considered a local CLI root when `_project_root_for(...)` found a `.git` directory
+**How Ellen Solved It:** Split the lightweight root ordering into three layers: current directory `./.developer-dashboard/cli`, nearest git-backed project `./.developer-dashboard/cli` when distinct, and then `~/.developer-dashboard/cli`, while keeping deduplication and home fallback intact
+**How To Detect Earlier Next Time:** Reproduce top-level custom command lookup from a plain directory in `/tmp` that has `./.developer-dashboard/cli/<command>` but no `.git`, and separately from a plain directory that only has `./.developer-dashboard/` plus a home fallback command
+**Prevention Rule:** Thin command dispatch must treat the current directory runtime root as a first-class lookup source even when no git project root exists
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lr t`, `cover -delete && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t`, `dzil build`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `bin/dashboard`, `t/05-cli-smoke.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: ENTRYPOINT-BLOAT
 
 **Date:** 2026-04-07 00:20:00 UTC

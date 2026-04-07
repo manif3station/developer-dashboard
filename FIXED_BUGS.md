@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 46: Non-Repo CLI Root Blind Spot)
+
+- Fixed top-level custom command lookup so `dashboard <command>` now checks the current working directory's `./.developer-dashboard/cli` first, even when that directory is not inside a git repo.
+- Fixed the lazy command-root resolver so a non-repo directory with `./.developer-dashboard/` but no matching local CLI override still falls back cleanly to `~/.developer-dashboard/cli/<command>`.
+- Added CLI smoke coverage for both non-git local override resolution and non-repo home fallback resolution so the pre-runtime command-dispatch path stays correct.
+
 ## 2026-04-07 (Phase 45: Entry Point Bloat And Init Config Clobber)
 
 - Fixed the `dashboard` entrypoint bloat by moving the shipped `welcome`, `api-dashboard`, and `sql-dashboard` starter bookmark source into `share/seeded-pages/`, so the public command no longer embeds those large bookmark bodies directly.

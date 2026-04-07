@@ -313,8 +313,10 @@ helpers such as `fetch_value(endpoints.foo, '#foo')` on first render.
 ### User CLI Extensions
 
 Unknown top-level subcommands can be provided by executable files under
-`./.developer-dashboard/cli` first and then `~/.developer-dashboard/cli`.
-For example, `dashboard foobar a b` will exec the first matching
+the current working directory's `./.developer-dashboard/cli` first, then the
+nearest git-backed project runtime `./.developer-dashboard/cli` when it is a
+different directory, and then `~/.developer-dashboard/cli`. For example,
+`dashboard foobar a b` will exec the first matching
 `cli/foobar` with `a b` as argv, while preserving stdin, stdout, and stderr.
 
 ### Shared Nav Fragments
