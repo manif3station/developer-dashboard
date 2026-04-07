@@ -1,5 +1,18 @@
 Revision history for Developer Dashboard
 
+1.85  2026-04-07
+    - finished the `dashboard` switchboard extraction by moving the remaining
+      built-in command bodies out of `bin/dashboard` and into staged private
+      helper assets under `share/private-cli/`
+    - added the shared private `_dashboard-core` helper runtime so broad
+      built-in commands such as `init`, `serve`, `doctor`, `page`, `config`,
+      `collector`, `docker`, `shell`, `skills`, and related commands now run
+      outside the public entrypoint while `jq`/`of`/`ticket`/`path`/`paths`/`ps1`
+      keep their dedicated helper bodies
+    - fixed shell bootstrap handoff so generated shell helpers always re-enter
+      the public `dashboard` command through Perl instead of accidentally
+      calling the staged private core directly
+
 1.84  2026-04-07
     - restored the thin `dashboard` switchboard model for lightweight
       commands by moving the built-in helper script sources into

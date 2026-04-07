@@ -256,7 +256,7 @@ These protect user data and existing local setup.
 ### 23B. `dashboard` stays a switchboard
 
 1. Keep the public `dashboard` command as a thin switchboard.
-2. Built-in lightweight commands must hand off to staged helper scripts instead of loading their implementation directly in `bin/dashboard`.
+2. Built-in commands must hand off to staged helper scripts instead of loading their implementation directly in `bin/dashboard`.
 3. Do not embed helper script bodies or other large command assets in `bin/dashboard`.
 4. Built-in helper assets must live outside the entrypoint and remain lazily staged into `~/.developer-dashboard/cli/`.
 

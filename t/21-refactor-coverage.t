@@ -74,7 +74,14 @@ like(
 );
 for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
     my $content = Developer::Dashboard::InternalCLI::helper_content($helper);
-    if ( $helper eq 'of' || $helper eq 'open-file' ) {
+    if ( $helper =~ /\A(?:encode|decode|indicator|collector|config|auth|init|cpan|page|action|docker|serve|stop|restart|shell|doctor|skills|skill)\z/ ) {
+        like(
+            $content,
+            qr/\Q_dashboard-core\E/,
+            "helper_content renders the staged $helper wrapper that delegates into _dashboard-core",
+        );
+    }
+    elsif ( $helper eq 'of' || $helper eq 'open-file' ) {
         like(
             $content,
             qr/\Qrun_open_file_command( args => \@ARGV );\E/,
@@ -113,6 +120,7 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
 my $seeded_helpers = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
 my @helper_names = Developer::Dashboard::InternalCLI::helper_names();
 is( scalar(@$seeded_helpers), scalar(@helper_names), 'ensure_helpers writes every shipped helper once' );
+ok( -f File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', '_dashboard-core' ), 'ensure_helpers also stages the shared _dashboard-core runtime' );
 ok( grep( $_ =~ m{/\Qof\E$}, @$seeded_helpers ), 'ensure_helpers writes the private of helper' );
 ok( grep( $_ =~ m{/\Qopen-file\E$}, @$seeded_helpers ), 'ensure_helpers writes the private open-file helper' );
 ok( grep( $_ =~ m{/\Qticket\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ticket helper' );

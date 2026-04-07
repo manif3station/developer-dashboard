@@ -201,10 +201,10 @@ generic package names.
 - `dashboard iniq`, `dashboard csvq`, and `dashboard xmlq`
   Parse INI, CSV, and XML file input with dotted path extraction.
 
-- private `~/.developer-dashboard/cli/jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, `of`, `open-file`, `ticket`, `path`, `paths`, and `ps1`
-  Provide dashboard-managed helper assets without installing generic command names into the global PATH.
+- private `~/.developer-dashboard/cli/*` built-in helpers plus `~/.developer-dashboard/cli/_dashboard-core`
+  Provide dashboard-managed helper assets without installing generic command names into the global PATH. Query/open-file/ticket/path/prompt helpers keep their own dedicated helper bodies, while the remaining built-in commands stage thin wrappers that hand off to the shared private `_dashboard-core` runtime.
 
-Only `dashboard` is intended to be the public CPAN-facing command-line entrypoint. Generic helper names such as `ticket`, `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, `path`, `paths`, and `ps1` are intentionally kept out of the installed global PATH to avoid polluting the wider Perl and shell ecosystem, but the built-in private wrappers for those commands are still staged under `~/.developer-dashboard/cli/`.
+Only `dashboard` is intended to be the public CPAN-facing command-line entrypoint. The real built-in command bodies now live outside `bin/dashboard` under `share/private-cli/`, then stage into `~/.developer-dashboard/cli/` on demand. Generic helper names such as `ticket`, `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, `path`, and `paths` are intentionally kept out of the installed global PATH to avoid polluting the wider Perl and shell ecosystem.
 
 - `dashboard ticket`
   Creates or reuses a tmux session for the requested ticket reference, seeds `TICKET_REF` plus dashboard-friendly branch aliases into that session environment, and attaches to it through a dashboard-managed private helper instead of a public standalone binary.
@@ -895,14 +895,16 @@ Re-running `dashboard init` keeps an existing
 missing default collector config, refreshes missing private helper commands,
 and seeds starter bookmarks that are not already present.
 
-The public `dashboard` entrypoint also stays thin for lightweight commands
-such as `dashboard jq`, `dashboard yq`, `dashboard of`, `dashboard open-file`,
-`dashboard ticket`, `dashboard path`, `dashboard paths`, `dashboard ps1`, and
-`dashboard version`: those paths hand off to staged helper scripts before the
-web runtime is built. The shipped starter bookmark source lives under
-`share/seeded-pages/`, and the shipped helper scripts live under
-`share/private-cli/`, so neither bookmark bodies nor helper script bodies are
-embedded directly in the command script. Installed copies resolve the same
+The public `dashboard` entrypoint also stays thin for all built-in commands.
+It only stages and execs helper assets from `share/private-cli/`: dedicated
+helper bodies for `dashboard jq`, `dashboard yq`, `dashboard of`,
+`dashboard open-file`, `dashboard ticket`, `dashboard path`, `dashboard
+paths`, and `dashboard ps1`, plus thin wrappers for the remaining built-ins
+that hand off to the shared private `_dashboard-core` runtime. The shipped
+starter bookmark source lives under `share/seeded-pages/`, and the shipped
+helper scripts live under `share/private-cli/`, so neither bookmark bodies nor
+helper script bodies are embedded directly in the command script. Installed
+copies resolve the same
 seeded pages and helper assets from the distribution share directory, so
 `dashboard init` works after `cpanm` installs and not just from a source
 checkout.

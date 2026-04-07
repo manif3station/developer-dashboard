@@ -248,6 +248,13 @@ seed built-in helper scripts under `~/.developer-dashboard/cli/`, while
 user-provided commands and hook directories continue to participate across the
 full `DD-OOP-LAYERS` chain.
 
+The public `dashboard` entrypoint must remain a real switchboard. Built-in
+command bodies must live outside `bin/dashboard` under `share/private-cli/`.
+Dedicated helper bodies may serve focused commands such as query, open-file,
+ticket, path, and prompt helpers, while broader built-in command sets may use
+thin staged wrappers that delegate into a private shared runtime such as
+`~/.developer-dashboard/cli/_dashboard-core`.
+
 The seeded `api-dashboard` should keep its behavior inside the bookmark source
 itself rather than requiring a dedicated product module for the dashboard
 logic. It should support:

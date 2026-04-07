@@ -41,6 +41,7 @@ my $runtime_ticket = File::Spec->catfile( $runtime_cli_root, 'ticket' );
 my $runtime_path = File::Spec->catfile( $runtime_cli_root, 'path' );
 my $runtime_paths = File::Spec->catfile( $runtime_cli_root, 'paths' );
 my $runtime_ps1 = File::Spec->catfile( $runtime_cli_root, 'ps1' );
+my $runtime_dashboard_core = File::Spec->catfile( $runtime_cli_root, '_dashboard-core' );
 
 my $init = _run("$perl -I'$lib' '$dashboard' init");
 like($init, qr/runtime_root/, 'dashboard init works');
@@ -48,6 +49,8 @@ for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runti
     ok( -f $helper, "dashboard init seeds private helper $helper" );
     ok( -x $helper, "dashboard init marks private helper $helper executable" );
 }
+ok( -f $runtime_dashboard_core, 'dashboard init seeds the private built-in core helper runtime' );
+ok( -x $runtime_dashboard_core, 'dashboard init marks the private built-in core helper runtime executable' );
 my $home_only_init_project = File::Spec->catdir( $ENV{HOME}, 'projects', 'home-only-init-project' );
 my $home_only_local_cli = File::Spec->catdir( $home_only_init_project, '.developer-dashboard', 'cli' );
 make_path( File::Spec->catdir( $home_only_init_project, '.git' ), $home_only_local_cli );

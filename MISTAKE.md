@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: BUILTIN-BODY-LEAK
+
+**Date:** 2026-04-07 12:30:00 UTC
+**Area:** entrypoint design, built-in CLI extraction, and shell bootstrap handoff
+**Symptom:** `bin/dashboard` was still carrying the implementation bodies for the broader built-in command set, so the public entrypoint was thinner than before but still not the switchboard the product contract required
+**Why It Was Dangerous:** It kept the main command large, made lazy-loading claims misleading, and let helper-generated shell bootstrap scripts accidentally point at private runtime code paths instead of the public `dashboard` entrypoint
+**Root Cause:** I stopped after extracting only the first group of helpers and left the rest of the built-in branches inside `bin/dashboard`, then reused `$0` inside the staged private core even though that process is no longer the public command
+**How Ellen Solved It:** Replaced `bin/dashboard` with a real switchboard that only stages helpers, runs layered hooks, resolves commands, and execs them; moved the remaining built-in command bodies into `share/private-cli/_dashboard-core` plus thin staged wrappers; and carried the public entrypoint plus repo-lib path into the helper environment so generated shell helpers always re-enter `dashboard` through Perl
+**How To Detect Earlier Next Time:** Count the public entrypoint lines after every extraction, grep `bin/dashboard` for direct built-in command branches before release, and run the shell bootstrap smoke after any helper or switchboard refactor so path resolution failures show up immediately
+**Prevention Rule:** The public `dashboard` command must not own built-in command bodies; those bodies belong in staged private helpers outside the entrypoint, and any helper-generated shell bootstrap must explicitly target the public command path rather than whatever helper process happens to be running
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/21-refactor-coverage.t`, `prove -lv t/30-dashboard-loader.t`, `prove -lr t`, `cover -delete && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t`, `dzil build`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `bin/dashboard`, `share/private-cli/_dashboard-core`, `share/private-cli/*`, `lib/Developer/Dashboard/InternalCLI.pm`, `Makefile.PL`, `t/05-cli-smoke.t`, `t/15-release-metadata.t`, `t/21-refactor-coverage.t`, `t/30-dashboard-loader.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `SOFTWARE_SPEC.md`, `AGENTS.override.md`
+
+---
+
 ## CODE: SWITCHBOARD-LAYER-LEAK
 
 **Date:** 2026-04-07 11:40:00 UTC

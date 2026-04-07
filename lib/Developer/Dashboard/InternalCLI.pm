@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '1.84';
+our $VERSION = '1.85';
 
 use File::Basename qw(dirname);
 use File::Copy qw(copy);
@@ -15,7 +15,11 @@ use File::ShareDir qw(dist_dir);
 # Input: none.
 # Output: ordered list of helper command name strings.
 sub helper_names {
-    return qw(jq yq tomq propq iniq csvq xmlq of open-file ticket path paths ps1);
+    return qw(
+      jq yq tomq propq iniq csvq xmlq
+      of open-file ticket path paths ps1
+      encode decode indicator collector config auth init cpan page action docker serve stop restart shell doctor skills skill
+    );
 }
 
 # helper_aliases()
@@ -81,10 +85,15 @@ sub ensure_helpers {
     my $paths = $args{paths} || die 'Missing paths registry';
 
     my @written;
+    $paths->ensure_dir( _helper_install_root($paths) );
+    my $core_target = File::Spec->catfile( _helper_install_root($paths), '_dashboard-core' );
+    my $core_source = _helper_asset_path('_dashboard-core');
+    copy( $core_source, $core_target ) or die "Unable to copy $core_source to $core_target: $!";
+    $paths->secure_file_permissions( $core_target, executable => 1 );
+
     for my $name ( helper_names() ) {
         my $target = helper_path( paths => $paths, name => $name );
         my $source = _helper_asset_path($name);
-        $paths->ensure_dir( _helper_install_root($paths) );
         copy( $source, $target ) or die "Unable to copy $source to $target: $!";
         $paths->secure_file_permissions( $target, executable => 1 );
         push @written, $target;

@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 49: Built-In Body Leak)
+
+- Fixed the remaining `dashboard` entrypoint bloat by moving the rest of the built-in command bodies out of `bin/dashboard`, so the public command is now only a switchboard that stages helpers, runs layered hooks, resolves the final target, and execs it.
+- Fixed built-in command extraction by adding a shared private `~/.developer-dashboard/cli/_dashboard-core` runtime plus staged wrappers for the broader built-in command set, while keeping dedicated helper bodies for query, open-file, ticket, path, and prompt commands.
+- Fixed shell bootstrap drift by making generated shell helpers re-enter the public `dashboard` entrypoint through Perl, with the repo `lib/` path carried across the helper handoff during source-tree runs.
+
 ## 2026-04-07 (Phase 48: Switchboard Layer Leak)
 
 - Fixed the thin-entrypoint drift by moving the built-in lightweight helper sources into `share/private-cli/`, so `dashboard jq`, `dashboard of`, `dashboard ticket`, `dashboard path`, `dashboard paths`, and `dashboard ps1` now hand off through staged helper scripts instead of loading their implementations directly inside `bin/dashboard`.
