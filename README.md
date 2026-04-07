@@ -928,6 +928,13 @@ Re-running `dashboard init` keeps an existing
 missing default collector config, refreshes missing private helper commands,
 and seeds starter bookmarks that are not already present.
 
+Home helper staging is non-destructive too. `dashboard init` may add or update
+dashboard-managed built-in helpers under `~/.developer-dashboard/cli/`, but it
+must preserve any pre-existing user-owned files, directories, and unrelated
+notes in that same folder. If a user already owns `~/.developer-dashboard/cli/jq`
+or any other colliding helper path, init must leave that file alone instead of
+overwriting or deleting it.
+
 The public `dashboard` entrypoint also stays thin for all built-in commands.
 It only stages and execs helper assets from `share/private-cli/`: dedicated
 helper bodies for `dashboard jq`, `dashboard yq`, `dashboard of`,

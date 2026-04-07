@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '1.93';
+our $VERSION = '1.94';
 
 use File::Basename qw(dirname);
 use File::Copy qw(copy);
@@ -67,8 +67,8 @@ sub helper_path {
 # Output: full executable source text string.
 sub helper_content {
     my ($name) = @_;
-    $name = canonical_helper_name($name);
-    die "Unsupported helper command '$name'" if $name eq '';
+    $name = $name eq '_dashboard-core' ? $name : canonical_helper_name($name);
+    die "Unsupported helper command '$name'" if !defined $name || $name eq '';
     my $path = _helper_asset_path($name);
     open my $fh, '<:raw', $path or die "Unable to read $path: $!";
     my $content = do { local $/; <$fh> };
@@ -87,19 +87,92 @@ sub ensure_helpers {
     my @written;
     $paths->ensure_dir( _helper_install_root($paths) );
     my $core_target = File::Spec->catfile( _helper_install_root($paths), '_dashboard-core' );
-    my $core_source = _helper_asset_path('_dashboard-core');
-    copy( $core_source, $core_target ) or die "Unable to copy $core_source to $core_target: $!";
-    $paths->secure_file_permissions( $core_target, executable => 1 );
+    if ( _stage_managed_helper( paths => $paths, name => '_dashboard-core', target => $core_target ) ) {
+        $paths->secure_file_permissions( $core_target, executable => 1 );
+    }
 
     for my $name ( helper_names() ) {
         my $target = helper_path( paths => $paths, name => $name );
-        my $source = _helper_asset_path($name);
-        copy( $source, $target ) or die "Unable to copy $source to $target: $!";
+        next if !_stage_managed_helper( paths => $paths, name => $name, target => $target );
         $paths->secure_file_permissions( $target, executable => 1 );
         push @written, $target;
     }
 
     return \@written;
+}
+
+# _stage_managed_helper(%args)
+# Writes one dashboard-managed helper file only when the existing target is
+# absent or already owned by the dashboard runtime.
+# Input: path registry, helper name, and target path.
+# Output: boolean true when the helper was written or updated, false when a
+# user-owned existing target was preserved.
+sub _stage_managed_helper {
+    my (%args) = @_;
+    my $target = $args{target} || die 'Missing helper target';
+    my $name   = $args{name}   || die 'Missing helper name';
+    my $content = _managed_helper_content($name);
+
+    if ( -e $target ) {
+        return 0 if !-f $target;
+        open my $existing_fh, '<:raw', $target or die "Unable to read $target: $!";
+        my $existing = do { local $/; <$existing_fh> };
+        close $existing_fh or die "Unable to close $target: $!";
+        return 0 if !_is_dashboard_managed_helper( $existing, $name );
+        return 1 if $existing eq $content;
+    }
+
+    open my $fh, '>:raw', $target or die "Unable to write $target: $!";
+    print {$fh} $content;
+    close $fh or die "Unable to close $target: $!";
+    return 1;
+}
+
+# _managed_helper_content($name)
+# Returns the staged helper body with a dashboard ownership marker injected
+# after any shebang line.
+# Input: canonical helper command name.
+# Output: helper source text string.
+sub _managed_helper_content {
+    my ($name) = @_;
+    my $content = helper_content($name);
+    my $marker  = _managed_helper_marker($name) . "\n";
+    return $content if $content =~ /\Q$marker\E/;
+    if ( $content =~ /\A(#![^\n]*\n)/ ) {
+        substr( $content, length($1), 0, $marker );
+        return $content;
+    }
+    return $marker . $content;
+}
+
+# _managed_helper_marker($name)
+# Returns the stable marker string used to identify dashboard-managed staged
+# helper files.
+# Input: helper name string.
+# Output: marker comment string.
+sub _managed_helper_marker {
+    my ($name) = @_;
+    return "# developer-dashboard-managed-helper: $name";
+}
+
+# _is_dashboard_managed_helper($content, $name)
+# Detects whether an existing helper file was previously staged by dashboard,
+# including older pre-marker releases that carried the built-in helper POD.
+# Input: existing file content plus helper name.
+# Output: boolean true when dashboard owns the target and may update it.
+sub _is_dashboard_managed_helper {
+    my ( $content, $name ) = @_;
+    return 0 if !defined $content;
+    return 1 if $content =~ /^\Q@{[ _managed_helper_marker($name) ]}\E$/m;
+    if ( $name eq '_dashboard-core' ) {
+        return 1
+          if $content =~ /Missing built-in dashboard command/
+          && $content =~ /Developer::Dashboard::CLI::SeededPages/;
+    }
+    return 1
+      if $content =~ /LAZY-THIN-CMD/
+      && $content =~ /Developer Dashboard/;
+    return 0;
 }
 
 # _helper_install_root($paths)

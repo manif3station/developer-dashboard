@@ -103,6 +103,33 @@ is_deeply(
     json_decode($seeded_config_json),
     'dashboard init preserves an existing config.json instead of overwriting it',
 );
+{
+    my $preserve_home = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = $preserve_home;
+    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
+    local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
+    local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+    my $preserve_cli_root = File::Spec->catdir( $preserve_home, '.developer-dashboard', 'cli' );
+    make_path($preserve_cli_root);
+    my $user_owned_jq = File::Spec->catfile( $preserve_cli_root, 'jq' );
+    open my $user_owned_jq_fh, '>', $user_owned_jq or die "Unable to write $user_owned_jq: $!";
+    print {$user_owned_jq_fh} "#!/usr/bin/env perl\nprint qq(user-owned-jq\\n);\n";
+    close $user_owned_jq_fh;
+    chmod 0755, $user_owned_jq or die "Unable to chmod $user_owned_jq: $!";
+    my $user_cli_note = File::Spec->catfile( $preserve_cli_root, 'keep-me.txt' );
+    open my $user_cli_note_fh, '>', $user_cli_note or die "Unable to write $user_cli_note: $!";
+    print {$user_cli_note_fh} "keep me\n";
+    close $user_cli_note_fh;
+
+    my $preserve_user_cli = _run("$perl -I'$lib' '$dashboard' init");
+    like( $preserve_user_cli, qr/config_file/, 'dashboard init can be re-run when user-owned files already exist in the home runtime CLI root' );
+    open my $preserved_user_jq_fh, '<', $user_owned_jq or die "Unable to read $user_owned_jq: $!";
+    my $preserved_user_jq = do { local $/; <$preserved_user_jq_fh> };
+    close $preserved_user_jq_fh;
+    is( $preserved_user_jq, "#!/usr/bin/env perl\nprint qq(user-owned-jq\\n);\n", 'dashboard init preserves a pre-existing user-owned helper collision in ~/.developer-dashboard/cli' );
+    ok( -f $user_cli_note, 'dashboard init does not delete unrelated files from ~/.developer-dashboard/cli' );
+    is( _run("$perl -I'$lib' '$dashboard' jq"), "user-owned-jq\n", 'dashboard jq continues to run the preserved user-owned helper after dashboard init' );
+}
 
 my $pages = _run("$perl -I'$lib' '$dashboard' page list");
 unlike($pages, qr/\bwelcome\b/, 'dashboard init no longer seeds a welcome page');
@@ -984,8 +1011,9 @@ like( $empty_nonrepo_stdout, qr/^argv:one two\|stdin:$/m, 'home CLI command stil
 
 my $plain_repo = File::Spec->catdir( $ENV{HOME}, 'projects', 'plain-restart-project' );
 make_path( File::Spec->catdir( $plain_repo, '.git' ) );
+my $plain_restart_port = _find_free_port();
 my ( $plain_restart_stdout, $plain_restart_stderr, $plain_restart_exit ) = capture {
-    system 'sh', '-c', "cd '$plain_repo' && $perl -I'$repo/lib' '$repo/bin/dashboard' restart --host 127.0.0.1 --port 17891";
+    system 'sh', '-c', "cd '$plain_repo' && $perl -I'$repo/lib' '$repo/bin/dashboard' restart --host 127.0.0.1 --port $plain_restart_port";
     return $? >> 8;
 };
 is( $plain_restart_exit, 0, 'dashboard restart succeeds from a repo without a project-local dashboard root' );

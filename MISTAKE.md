@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: HOME-CLI-HELPER-OWNERSHIP-DRIFT
+
+**Date:** 2026-04-07 20:35:00 UTC
+**Area:** `dashboard init`, built-in helper staging, and home runtime safety
+**Symptom:** Re-running `dashboard init` could make a user think a file under `~/.developer-dashboard/cli/` had been removed because a user-owned helper such as `jq` was silently overwritten by the dashboard-managed built-in helper of the same name
+**Why It Was Dangerous:** It destroyed user customizations in the one place that is supposed to remain editable, blurred the contract between dashboard-managed helpers and user-owned commands, and made init look destructive even though it should only add or refresh dashboard-owned files
+**Root Cause:** `Developer::Dashboard::InternalCLI::ensure_helpers` copied shipped built-in helpers unconditionally into `~/.developer-dashboard/cli/` and had no ownership marker to distinguish dashboard-managed staged helpers from user-owned files that happened to share the same path
+**How Ellen Solved It:** Reproduced the overwrite with a pre-existing `~/.developer-dashboard/cli/jq`, added unit and CLI smoke regressions for that exact collision, marked dashboard-managed staged helpers with a stable ownership marker, and changed helper staging so only dashboard-owned helpers may refresh while user-owned colliding files, unrelated notes, and directories are preserved
+**How To Detect Earlier Next Time:** Before shipping any `dashboard init` or helper-staging change, create a temp home with a user-owned `~/.developer-dashboard/cli/jq` and an unrelated file, rerun init, and verify that the user helper content and unrelated file both survive unchanged
+**Prevention Rule:** Home helper staging must be non-destructive: `dashboard init` may add or update dashboard-managed built-in helpers under `~/.developer-dashboard/cli/`, but it must never overwrite or delete pre-existing user-owned files or unrelated files there
+**Verification:** `prove -lv t/05-cli-smoke.t t/21-refactor-coverage.t`, `prove -lr t`, `dzil build`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `lib/Developer/Dashboard/InternalCLI.pm`, `t/05-cli-smoke.t`, `t/21-refactor-coverage.t`, `t/15-release-metadata.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`, `SOFTWARE_SPEC.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: RAW-NAV-TT-BYPASS
 
 **Date:** 2026-04-07 18:35:00 UTC

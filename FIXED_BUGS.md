@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 58: Home CLI Helper Ownership Drift)
+
+- Fixed `dashboard init` so it no longer overwrites a pre-existing user-owned helper file in `~/.developer-dashboard/cli/` when that path collides with a built-in helper name such as `jq`.
+- Fixed home helper staging so dashboard-managed built-ins may still refresh, but unrelated files and directories in `~/.developer-dashboard/cli/` are preserved instead of being deleted or clobbered.
+- Added unit-level and end-to-end CLI coverage for preserved helper collisions plus unrelated-file survival under the home runtime CLI root.
+
 ## 2026-04-07 (Phase 57: Raw Nav TT Bypass)
 
 - Fixed shared `nav/*.tt` support so raw Template Toolkit fragment files such as `nav/here.tt` now render in the shared nav strip and through `/app/nav/<name>.tt` instead of being ignored unless they were wrapped as full bookmark documents.

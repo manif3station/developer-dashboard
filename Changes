@@ -1,5 +1,15 @@
 Revision history for Developer Dashboard
 
+1.94  2026-04-07
+    - fixed `dashboard init` helper staging so it no longer overwrites a
+      user-owned colliding file under `~/.developer-dashboard/cli/` when that
+      filename matches a built-in helper such as `jq`
+    - kept helper refresh non-destructive by only updating dashboard-managed
+      staged helpers while preserving unrelated files and directories in the
+      home runtime CLI root
+    - added unit and CLI smoke coverage for preserved user-owned home helper
+      collisions and documented the non-destructive helper staging contract
+
 1.93  2026-04-07
     - fixed shared `nav/*.tt` rendering so raw Template Toolkit fragment files
       such as `nav/here.tt` now render in the shared nav strip and through

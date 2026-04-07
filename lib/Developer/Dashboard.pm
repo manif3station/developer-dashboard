@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.93';
+our $VERSION = '1.94';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.93
+1.94
 
 =head1 INTRODUCTION
 
@@ -1484,6 +1484,14 @@ Re-running C<dashboard init> keeps an existing
 F<~/.developer-dashboard/config/config.json> intact. The command only fills
 in missing default collector config, refreshes missing private helper
 commands, and seeds starter bookmarks that are not already present.
+
+Home helper staging is non-destructive too. C<dashboard init> may add or
+update dashboard-managed built-in helpers under
+F<~/.developer-dashboard/cli/>, but it must preserve any pre-existing
+user-owned files, directories, and unrelated notes in that same folder. If a
+user already owns F<~/.developer-dashboard/cli/jq> or any other colliding
+helper path, init must leave that file alone instead of overwriting or
+deleting it.
 
 The public C<dashboard> entrypoint also stays thin for all built-in commands.
 It only stages and execs helper assets from F<share/private-cli/>: dedicated

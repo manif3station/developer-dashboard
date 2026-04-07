@@ -139,6 +139,103 @@ ok( grep( $_ =~ m{/\Qticket\E$}, @$seeded_helpers ), 'ensure_helpers writes the 
 ok( grep( $_ =~ m{/\Qpath\E$}, @$seeded_helpers ), 'ensure_helpers writes the private path helper' );
 ok( grep( $_ =~ m{/\Qpaths\E$}, @$seeded_helpers ), 'ensure_helpers writes the private paths helper' );
 ok( grep( $_ =~ m{/\Qps1\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ps1 helper' );
+{
+    my $preserve_home = tempdir( CLEANUP => 1 );
+    my $preserve_paths = Developer::Dashboard::PathRegistry->new( home => $preserve_home );
+    my $preserve_cli_root = File::Spec->catdir( $preserve_home, '.developer-dashboard', 'cli' );
+    make_path($preserve_cli_root);
+    my $user_jq = File::Spec->catfile( $preserve_cli_root, 'jq' );
+    open my $user_jq_fh, '>', $user_jq or die "Unable to write $user_jq: $!";
+    print {$user_jq_fh} "#!/usr/bin/env perl\nprint qq(user-jq\\n);\n";
+    close $user_jq_fh;
+    chmod 0755, $user_jq or die "Unable to chmod $user_jq: $!";
+    my $user_note = File::Spec->catfile( $preserve_cli_root, 'user-note.txt' );
+    open my $user_note_fh, '>', $user_note or die "Unable to write $user_note: $!";
+    print {$user_note_fh} "keep me\n";
+    close $user_note_fh;
+
+    my $preserved_helpers = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $preserve_paths );
+    open my $preserved_jq_fh, '<', $user_jq or die "Unable to read $user_jq: $!";
+    my $preserved_jq = do { local $/; <$preserved_jq_fh> };
+    close $preserved_jq_fh;
+
+    is( $preserved_jq, "#!/usr/bin/env perl\nprint qq(user-jq\\n);\n", 'ensure_helpers preserves a pre-existing user-owned helper file instead of overwriting it' );
+    ok( -f $user_note, 'ensure_helpers does not delete unrelated user files from the home runtime CLI root' );
+    ok( !grep( $_ =~ m{/\Qjq\E$}, @{$preserved_helpers} ), 'ensure_helpers reports colliding user-owned helper files as preserved rather than rewritten' );
+}
+{
+    local *Developer::Dashboard::InternalCLI::helper_content = sub {
+        return "#!/usr/bin/env perl\n# developer-dashboard-managed-helper: jq\nprint qq(managed\\n);\n";
+    };
+    is(
+        Developer::Dashboard::InternalCLI::_managed_helper_content('jq'),
+        "#!/usr/bin/env perl\n# developer-dashboard-managed-helper: jq\nprint qq(managed\\n);\n",
+        '_managed_helper_content leaves already-marked helper bodies unchanged',
+    );
+}
+{
+    local *Developer::Dashboard::InternalCLI::helper_content = sub {
+        return "print qq(no-shebang\\n);\n";
+    };
+    is(
+        Developer::Dashboard::InternalCLI::_managed_helper_content('jq'),
+        "# developer-dashboard-managed-helper: jq\nprint qq(no-shebang\\n);\n",
+        '_managed_helper_content prepends the ownership marker when helper content has no shebang',
+    );
+}
+{
+    my $preserve_home = tempdir( CLEANUP => 1 );
+    my $preserve_paths = Developer::Dashboard::PathRegistry->new( home => $preserve_home );
+    my $preserve_cli_root = File::Spec->catdir( $preserve_home, '.developer-dashboard', 'cli' );
+    make_path($preserve_cli_root);
+    my $managed_jq = File::Spec->catfile( $preserve_cli_root, 'jq' );
+    my $managed_body = Developer::Dashboard::InternalCLI::_managed_helper_content('jq');
+    open my $managed_jq_fh, '>', $managed_jq or die "Unable to write $managed_jq: $!";
+    print {$managed_jq_fh} $managed_body;
+    close $managed_jq_fh;
+
+    ok(
+        Developer::Dashboard::InternalCLI::_stage_managed_helper(
+            paths  => $preserve_paths,
+            name   => 'jq',
+            target => $managed_jq,
+        ),
+        '_stage_managed_helper treats an already-managed matching helper file as refreshable',
+    );
+    open my $managed_verify_fh, '<', $managed_jq or die "Unable to read $managed_jq: $!";
+    my $managed_verify = do { local $/; <$managed_verify_fh> };
+    close $managed_verify_fh;
+    is( $managed_verify, $managed_body, '_stage_managed_helper leaves an already-managed matching helper unchanged on disk' );
+}
+ok(
+    Developer::Dashboard::InternalCLI::_is_dashboard_managed_helper(
+        "#!/usr/bin/env perl\n# old helper\nMissing built-in dashboard command\nDeveloper::Dashboard::CLI::SeededPages\n",
+        '_dashboard-core',
+    ),
+    '_is_dashboard_managed_helper accepts the older pre-marker _dashboard-core helper body',
+);
+ok(
+    Developer::Dashboard::InternalCLI::_is_dashboard_managed_helper(
+        "#!/usr/bin/env perl\n# LAZY-THIN-CMD\n# Developer Dashboard\n",
+        'jq',
+    ),
+    '_is_dashboard_managed_helper accepts older pre-marker helper bodies via the legacy thin-command marker',
+);
+{
+    my $preserve_home = tempdir( CLEANUP => 1 );
+    my $preserve_paths = Developer::Dashboard::PathRegistry->new( home => $preserve_home );
+    my $preserve_cli_root = File::Spec->catdir( $preserve_home, '.developer-dashboard', 'cli' );
+    my $directory_target = File::Spec->catdir( $preserve_cli_root, 'jq' );
+    make_path($directory_target);
+    ok(
+        !Developer::Dashboard::InternalCLI::_stage_managed_helper(
+            paths  => $preserve_paths,
+            name   => 'jq',
+            target => $directory_target,
+        ),
+        '_stage_managed_helper preserves a colliding directory target instead of replacing it',
+    );
+}
 like(
     Developer::Dashboard::InternalCLI::_repo_private_cli_root(),
     qr/share\/private-cli\z/,

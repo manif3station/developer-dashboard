@@ -248,6 +248,11 @@ seed built-in helper scripts under `~/.developer-dashboard/cli/`, while
 user-provided commands and hook directories continue to participate across the
 full `DD-OOP-LAYERS` chain.
 
+Home helper staging must stay non-destructive. `dashboard init` may add or
+update dashboard-managed built-in helpers under `~/.developer-dashboard/cli/`,
+but it must preserve pre-existing user-owned colliding files plus unrelated
+files and directories there instead of deleting or overwriting them.
+
 The public `dashboard` entrypoint must remain a real switchboard. Built-in
 command bodies must live outside `bin/dashboard` under `share/private-cli/`.
 Dedicated helper bodies may serve focused commands such as query, open-file,
