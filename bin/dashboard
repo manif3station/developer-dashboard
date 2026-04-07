@@ -414,4 +414,36 @@ The real built-in command implementations live outside this entrypoint, either
 in private staged helper scripts under F<share/private-cli/> or in reusable
 Perl modules loaded by those helpers.
 
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+Public entrypoint script in the Developer Dashboard codebase. This file bootstraps the runtime, resolves DD-OOP-LAYERS hooks and command targets, stages private helpers, and hands execution off to the final command.
+Open this file when you need the implementation, regression coverage, or runtime entrypoint for that responsibility rather than guessing which part of the tree owns it.
+
+=head1 WHY IT EXISTS
+
+It exists as the one public executable users run. Its job is intentionally narrow: bootstrap the environment, evaluate layered hooks, resolve the final command, and hand off without owning the heavy implementation bodies itself.
+
+=head1 WHEN TO USE
+
+Use this file when you are changing top-level command bootstrap, layered hook execution, helper staging, or command handoff behaviour.
+
+=head1 HOW TO USE
+
+Run C<dashboard E<lt>commandE<gt>>. If you are changing this file, keep it focused on bootstrap, layered hook execution, helper staging, command resolution, and C<exec>; move heavy behaviour into modules or staged helper scripts instead.
+
+=head1 WHAT USES IT
+
+It is used directly by end users, by tests that execute C<dashboard ...>, by staged shell helpers that re-enter the public command, and by release/integration smoke flows.
+
+=head1 EXAMPLES
+
+  dashboard paths
+  dashboard page list
+
+Both commands go through this public switchboard, which then resolves hooks and hands off to the real helper implementation.
+
+=for comment FULL-POD-DOC END
+
 =cut

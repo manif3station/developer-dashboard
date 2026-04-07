@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 50: Pod Guesswork Drift)
+
+- Fixed contributor-documentation drift by adding the `FULL-POD-DOC` rule, so every repo-owned Perl file now explains what it is, what it is for, why it exists, when to use it, how to use it, what uses it, and a concrete example instead of stopping at terse stub POD.
+- Fixed release-metadata blind spots by making `t/15-release-metadata.t` scan every repo-owned Perl file for the required documentation sections under `__END__`.
+- Fixed README/manual/testing drift by documenting the new comprehensive POD floor in the public docs as well as the contributor override rules.
+
 ## 2026-04-07 (Phase 49: Built-In Body Leak)
 
 - Fixed the remaining `dashboard` entrypoint bloat by moving the rest of the built-in command bodies out of `bin/dashboard`, so the public command is now only a switchboard that stages helpers, runs layered hooks, resolves the final target, and execs it.

@@ -1168,3 +1168,45 @@ This internal helper runs the heavier built-in Developer Dashboard commands
 after the public C<dashboard> entrypoint has already handled hook execution and
 switchboard dispatch. It is staged under F<~/.developer-dashboard/cli/> as
 F<_dashboard-core> and is not meant to be called by users directly.
+
+__END__
+
+=pod
+
+=head1 NAME
+
+_dashboard-core - contains the shared private built-in command runtime that the staged helper scripts hand off into.
+
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+Private helper script in the Developer Dashboard codebase. This file contains the shared private built-in command runtime that the staged helper scripts hand off into.
+Open this file when you need the implementation, regression coverage, or runtime entrypoint for that responsibility rather than guessing which part of the tree owns it.
+
+=head1 WHY IT EXISTS
+
+It exists so C<bin/dashboard> can stay thin under the LAZY-THIN-CMD rule while still providing built-in commands through staged helper scripts under C<~/.developer-dashboard/cli/>.
+
+=head1 WHEN TO USE
+
+Use this file when you need to understand how a built-in C<dashboard> subcommand is staged and handed off after helper extraction into the home runtime.
+
+=head1 HOW TO USE
+
+This script is not meant to be called directly by users. The staged private helper wrappers exec into it after C<dashboard init> or on-demand helper staging has populated C<~/.developer-dashboard/cli/>.
+
+=head1 WHAT USES IT
+
+It is used by the staged built-in helper wrappers under C<~/.developer-dashboard/cli/> after C<bin/dashboard> has extracted or refreshed them.
+
+=head1 EXAMPLES
+
+  dashboard init
+  ~/.developer-dashboard/cli/jq . foo.json
+
+The first command stages the private helpers. The second shows the staged helper path that eventually hands off into C<_dashboard-core>.
+
+=for comment FULL-POD-DOC END
+
+=cut

@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: POD-GUESSWORK-DRIFT
+
+**Date:** 2026-04-07 16:05:00 UTC
+**Area:** contributor documentation, POD quality, and release guardrails
+**Symptom:** Most Perl files only carried terse NAME/DESCRIPTION POD, so contributors still had to reverse-engineer the code to understand what a file was for, why it existed, when to use it, or what called it
+**Why It Was Dangerous:** It turned the codebase into a guessing game, slowed reviews and fixes, and let documentation quality drift even while the repo claimed POD was mandatory everywhere
+**Root Cause:** I treated “POD exists” as sufficient instead of enforcing a stronger floor that matched how the project actually expects contributors to work through modules, helper scripts, tests, and integration assets
+**How Ellen Solved It:** Added the `FULL-POD-DOC` rule to `AGENTS.override.md`, expanded every repo-owned Perl file with a standard comprehensive POD block, documented the same contract in the README and main module manual, and made `t/15-release-metadata.t` fail if any Perl file drops the required sections
+**How To Detect Earlier Next Time:** Scan a few random modules, tests, and helper scripts before release and ask whether a new contributor could explain their role without reading the implementation; if the answer is no, the POD floor is not high enough yet
+**Prevention Rule:** `FULL-POD-DOC` is mandatory for every repo-owned Perl file: document what it is, what it is for, why it exists, when to use it, how to use it, what uses it, and at least one concrete example under `__END__`
+**Verification:** `prove -lv t/15-release-metadata.t`, `prove -lr t`, `cover -delete && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t`, `dzil build`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `AGENTS.override.md`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `t/15-release-metadata.t`, `app.psgi`, `bin/dashboard`, `lib/**/*.pm`, `share/private-cli/*`, `t/*.t`, `updates/*.pl`
+
+---
+
 ## CODE: BUILTIN-BODY-LEAK
 
 **Date:** 2026-04-07 12:30:00 UTC

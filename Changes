@@ -1,5 +1,17 @@
 Revision history for Developer Dashboard
 
+1.86  2026-04-07
+    - added the `FULL-POD-DOC` contributor contract and enforced it in
+      release metadata so every repo-owned Perl file now documents what it is,
+      what it is for, why it exists, when to use it, how to use it, what uses
+      it, and at least one concrete example
+    - expanded POD across the public entrypoint, modules, tests, staged
+      private helpers, integration scripts, and update scripts instead of
+      leaving terse NAME/DESCRIPTION stubs that forced contributors to guess
+      file roles from the code alone
+    - documented the new POD floor in the README, main module manual, and
+      testing guide so contributor expectations and release checks stay aligned
+
 1.85  2026-04-07
     - finished the `dashboard` switchboard extraction by moving the remaining
       built-in command bodies out of `bin/dashboard` and into staged private

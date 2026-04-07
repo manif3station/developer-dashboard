@@ -111,6 +111,10 @@ The repository also now enforces:
 
 - function-level purpose/input/output comments across the Perl codebase
 - POD trailers under `__END__` for modules, scripts, update scripts, and tests
+- `FULL-POD-DOC` sections in every repo-owned Perl file, covering purpose, why
+  the file exists, when to use it, how to use it, what uses it, and a concrete
+  example, with `t/15-release-metadata.t` acting as the release gate for that
+  documentation floor
 
 The web tests also cover the access model:
 

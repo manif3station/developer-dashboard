@@ -2,6 +2,7 @@ use strict;
 use warnings;
 
 use Cwd qw(abs_path);
+use File::Find qw(find);
 use File::Spec;
 use FindBin qw($RealBin);
 use Test::More;
@@ -49,18 +50,18 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.85', 'repo version bumped for the built-in body extraction release' );
-like( $pm, qr/^1\.85$/m, 'main POD version matches the module version' );
+is( $version, '1.86', 'repo version bumped for the FULL-POD-DOC release' );
+like( $pm, qr/^1\.86$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.85$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.86$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
     like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.85"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.86"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.85\s+2026-04-07$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.86\s+2026-04-07$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -201,6 +202,21 @@ for my $doc ($readme) {
 like( $release_doc, qr/dzil build/, 'release doc still documents the dzil build step' );
 like( $release_doc, qr/cpanm .*Developer-Dashboard-1\.\d+\.tar\.gz/, 'release doc still documents tarball installation verification' );
 like( $agents_override, qr/DD-OOP-LAYERS/, 'AGENTS.override.md documents the layered runtime contract' );
+like( $agents_override, qr/FULL-POD-DOC/, 'AGENTS.override.md documents the FULL-POD-DOC rule' );
+like( $readme, qr/FULL-POD-DOC/, 'README documents the FULL-POD-DOC contributor contract' );
+like( $pm, qr/FULL-POD-DOC/, 'main module POD documents the FULL-POD-DOC contributor contract' );
+
+for my $path ( _perl_doc_paths() ) {
+    my $content = _slurp($path);
+    like( $content, qr/^__END__$/m, "$path keeps Perl POD after __END__" );
+    like( $content, qr/^=head1 NAME$/m, "$path documents NAME" );
+    like( $content, qr/^=head1 PURPOSE$/m, "$path documents PURPOSE" );
+    like( $content, qr/^=head1 WHY IT EXISTS$/m, "$path documents WHY IT EXISTS" );
+    like( $content, qr/^=head1 WHEN TO USE$/m, "$path documents WHEN TO USE" );
+    like( $content, qr/^=head1 HOW TO USE$/m, "$path documents HOW TO USE" );
+    like( $content, qr/^=head1 WHAT USES IT$/m, "$path documents WHAT USES IT" );
+    like( $content, qr/^=head1 EXAMPLES$/m, "$path documents EXAMPLES" );
+}
 
 done_testing();
 
@@ -229,6 +245,40 @@ sub _extract_pod {
     return $1 // '';
 }
 
+sub _perl_doc_paths {
+    my @paths;
+    my @roots = (
+        _repo_path('lib'),
+        _repo_path('t'),
+        _repo_path('share', 'private-cli'),
+        _repo_path('updates'),
+        _repo_path('integration'),
+    );
+    push @paths, grep { -f $_ } (
+        _repo_path('app.psgi'),
+        _repo_path('bin', 'dashboard'),
+    );
+
+    for my $root (@roots) {
+        next if !-d $root;
+        find(
+            {
+                no_chdir => 1,
+                wanted   => sub {
+                    return if !-f $_;
+                    return if $_ =~ m{/OLD_CODE/};
+                    return if $_ !~ /\.(?:pm|pl|t)\z/ && $_ !~ m{/share/private-cli/[^/]+\z};
+                    push @paths, $File::Find::name;
+                },
+            },
+            $root,
+        );
+    }
+
+    my %seen;
+    return sort grep { !$seen{$_}++ } @paths;
+}
+
 __END__
 
 =head1 NAME
@@ -240,5 +290,36 @@ __END__
 This test keeps the shipped version metadata, public executable list, and core
 documentation aligned for the private-helper and isolated-skill packaging
 model.
+
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+Test file in the Developer Dashboard codebase. This file verifies release metadata, shipped assets, docs, and contributor guardrails.
+Open this file when you need the implementation, regression coverage, or runtime entrypoint for that responsibility rather than guessing which part of the tree owns it.
+
+=head1 WHY IT EXISTS
+
+It exists to enforce the TDD contract for this behaviour, stop regressions from shipping, and keep the mandatory coverage and release gates honest.
+
+=head1 WHEN TO USE
+
+Use this file when you are reproducing or fixing behaviour in its area, when you want a focused regression check before the full suite, or when you need to extend coverage without waiting for every unrelated test.
+
+=head1 HOW TO USE
+
+Run it directly with C<prove -lv t/15-release-metadata.t> while iterating, then keep it green under C<prove -lr t> before release. Add or update assertions here before changing the implementation that it covers.
+
+=head1 WHAT USES IT
+
+It is used by developers during TDD, by the full C<prove -lr t> suite, by coverage runs, and by release verification before commit or push.
+
+=head1 EXAMPLES
+
+  prove -lv t/15-release-metadata.t
+
+Run that command while working on the behaviour this test owns, then rerun C<prove -lr t> before release.
+
+=for comment FULL-POD-DOC END
 
 =cut

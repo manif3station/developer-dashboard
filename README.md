@@ -166,6 +166,15 @@ generic package names.
 
 ## Documentation
 
+### Contributor Documentation Contract
+
+`FULL-POD-DOC` is a repo contract. Every repo-owned Perl file must end with
+POD under `__END__` that explains what the file is, what it is for, why it
+exists, when to use it, how to use it, what uses it, and at least one
+concrete example. Contributors should be able to open any module, script,
+helper, or test and understand its role without reverse-engineering the tree
+first.
+
 ### Main Concepts
 
 - `Developer::Dashboard::PathRegistry`
