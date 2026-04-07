@@ -644,6 +644,25 @@ ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a 
 }
 
 {
+    my $ajax_poll_count = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::running_web = sub { return };
+    local *Developer::Dashboard::RuntimeManager::_pkill_perl = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_find_legacy_web_processes = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_wait_for_port_release = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_find_processes_by_prefix = sub {
+        my ( undef, $prefix ) = @_;
+        return () if $prefix ne 'dashboard ajax:';
+        $ajax_poll_count++;
+        return () if $ajax_poll_count > 31;
+        return ( { pid => 999_991, args => 'dashboard ajax: COVER-KILL' } );
+    };
+    is( $manager->stop_web, undef, 'stop_web still completes when only lingering ajax singleton workers remain for the post-loop KILL branch' );
+}
+
+{
     my $web_pid = $manager->start_web( host => '0.0.0.0', port => 7904 );
     ok( $web_pid > 0, 'background web process starts before restart singleton cleanup coverage' );
     my $ajax_pid = fork();

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.91';
+our $VERSION = '1.92';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.91
+1.92
 
 =head1 INTRODUCTION
 
@@ -990,6 +990,11 @@ List saved pages:
 Render a saved page:
 
   dashboard page render sample
+
+C<dashboard page render> now uses the same page-runtime preparation path as
+the browser route, so saved bookmark TT such as C<[% title %]> and
+C<[% stash.foo %]> is rendered there too instead of only working under
+C</app/E<lt>idE<gt>>.
 
 Encode and decode transient pages:
 

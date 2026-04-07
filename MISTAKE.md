@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: CLI-TT-RENDER-BYPASS
+
+**Date:** 2026-04-07 18:05:00 UTC
+**Area:** bookmark rendering, CLI/browser parity, and Template Toolkit execution
+**Symptom:** `dashboard page render <id>` printed raw `[% title %]` and `[% stash.foo %]` placeholders even though the same bookmark rendered correctly in the browser
+**Why It Was Dangerous:** It made saved bookmark rendering inconsistent across interfaces, hid the real bookmark output behind plain HTML fallback, and let a broken CLI path ship even though the browser route looked healthy
+**Root Cause:** The browser route prepared pages through `Developer::Dashboard::PageRuntime->prepare_page`, but the CLI `page render` action bypassed that runtime step and called `render_html` directly on the loaded page document
+**How Ellen Solved It:** Reproduced the browser path with a real Chromium bookmark smoke, added CLI smoke coverage for a saved bookmark containing Template Toolkit placeholders, and changed the `_dashboard-core` `page render` action to call `PageRuntime->prepare_page` before `render_html`
+**How To Detect Earlier Next Time:** When bookmark rendering changes, check both `/app/<id>` in a browser and `dashboard page render <id>` from the CLI with the same TT bookmark so CLI/browser parity is explicit instead of assumed
+**Prevention Rule:** Any code path that claims to render bookmark HTML must go through the shared page runtime preparation layer instead of calling `render_html` directly on an unprepared page
+**Verification:** `prove -lv t/05-cli-smoke.t`, `perl integration/browser/run-bookmark-browser-smoke.pl --bookmark-file /tmp/dd-tt-browser-repro.bookmark --expect-page-fragment '<h1>TT Browser Demo</h1> 42' --expect-dom-fragment '<h1>TT Browser Demo</h1> 42'`
+**Related Files:** `share/private-cli/_dashboard-core`, `t/05-cli-smoke.t`, `lib/Developer/Dashboard/PageRuntime.pm`, `lib/Developer/Dashboard/Web/App.pm`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`
+
+---
+
 ## CODE: WELCOME-SEED-DEAD-WEIGHT
 
 **Date:** 2026-04-07 17:45:00 UTC

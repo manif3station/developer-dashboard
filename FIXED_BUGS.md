@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 56: CLI TT Render Bypass)
+
+- Fixed `dashboard page render` so saved bookmark pages now pass through `Developer::Dashboard::PageRuntime->prepare_page` before HTML rendering.
+- Fixed CLI-side Template Toolkit rendering for bookmark `HTML:` sections, so `[% title %]` and other stash placeholders no longer leak into rendered output as raw text.
+- Added CLI smoke coverage for saved-page TT rendering and re-verified the real browser bookmark render path with a live Chromium smoke.
+
 ## 2026-04-07 (Phase 55: Welcome Seed Dead Weight)
 
 - Stopped seeding the default `welcome` bookmark during `dashboard init` and runtime bootstrap.

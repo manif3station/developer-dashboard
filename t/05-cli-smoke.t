@@ -158,6 +158,23 @@ like($sql_page_source, qr/INSTRUCTION_SEP/, 'sql-dashboard source carries progra
 my $page_source = _run("$perl -I'$lib' '$dashboard' page source api-dashboard");
 like($page_source, qr/^BOOKMARK:\s+api-dashboard/m, 'page source prefers saved page ids over token decoding');
 
+my $tt_page_instruction = <<'BOOKMARK';
+TITLE: TT CLI Demo
+:--------------------------------------------------------------------------------:
+BOOKMARK: tt-cli-demo
+:--------------------------------------------------------------------------------:
+STASH: foo => 42
+:--------------------------------------------------------------------------------:
+HTML: <h1>[% title %]</h1> [% stash.foo %]
+BOOKMARK
+my $tt_page_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'dashboards', 'tt-cli-demo' );
+open my $tt_page_fh, '>', $tt_page_file or die "Unable to write $tt_page_file: $!";
+print {$tt_page_fh} $tt_page_instruction;
+close $tt_page_fh;
+my $tt_page_render = _run("$perl -I'$lib' '$dashboard' page render tt-cli-demo");
+like( $tt_page_render, qr{<h1>\s*TT CLI Demo\s*</h1>\s*42}s, 'dashboard page render applies Template Toolkit to saved bookmark HTML before rendering' );
+unlike( $tt_page_render, qr/\[%\s*title\s*%\]|\[%\s*stash\.foo\s*%\]/, 'dashboard page render does not leave raw TT placeholders in the rendered HTML output' );
+
 my $collector = _run("$perl -I'$lib' '$dashboard' collector run example.collector");
 like($collector, qr/example collector output/, 'collector run works');
 

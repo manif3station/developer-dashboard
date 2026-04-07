@@ -1,5 +1,13 @@
 Revision history for Developer Dashboard
 
+1.92  2026-04-07
+    - fixed `dashboard page render` so saved bookmark pages now run through
+      the same `PageRuntime->prepare_page` path as the browser, which restores
+      Template Toolkit rendering for bookmark `HTML:` sections instead of
+      printing raw `[% ... %]` placeholders
+    - added CLI smoke coverage for saved-page Template Toolkit rendering and
+      re-verified the browser bookmark smoke path with a real TT bookmark file
+
 1.91  2026-04-07
     - stopped seeding the default `welcome` bookmark during `dashboard init`
       and runtime bootstrap, so fresh runtimes now start with only

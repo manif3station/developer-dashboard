@@ -687,6 +687,7 @@ elsif ( $cmd eq 'page' ) {
     elsif ( $action eq 'render' ) {
         my $source = shift @ARGV || '';
         my $page;
+        my $source_kind = 'transient';
         if ($source) {
             if ( -f $source ) {
                 open my $fh, '<', $source or die "Unable to read $source: $!";
@@ -698,6 +699,7 @@ elsif ( $cmd eq 'page' ) {
             }
             else {
                 $page = $resolver->load_named_page($source);
+                $source_kind = $page->{meta}{source_kind} || 'saved';
             }
         }
         else {
@@ -707,6 +709,11 @@ elsif ( $cmd eq 'page' ) {
               ? Developer::Dashboard::PageDocument->from_json($source)
               : Developer::Dashboard::PageDocument->from_instruction($source);
         }
+        $page = $page_runtime->prepare_page(
+            page            => $page,
+            source          => $source_kind,
+            runtime_context => { params => {} },
+        );
         $page->with_mode('render');
         print $page->render_html;
         exit 0;

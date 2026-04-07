@@ -647,6 +647,10 @@ Render a saved page:
 dashboard page render sample
 ```
 
+`dashboard page render` now uses the same page-runtime preparation path as the
+browser route, so saved bookmark TT such as `[% title %]` and `[% stash.foo %]`
+is rendered there too instead of only working under `/app/<id>`.
+
 Encode and decode transient pages:
 
 ```bash
