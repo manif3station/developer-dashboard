@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 52: Collector Lifecycle Drift)
+
+- Fixed the `dashboard serve` lifecycle gap so a plain serve now starts configured collector loops alongside the web service instead of leaving collectors idle until a later restart.
+- Fixed silent collector startup failure handling by surfacing the real loop startup error and stopping any collectors already launched in the same action.
+- Added runtime-manager and CLI smoke coverage proving that `dashboard serve`, `dashboard restart`, and `dashboard stop` all keep collectors under the same managed lifecycle.
+
 ## 2026-04-07 (Phase 51: Doctor Result Assumption Leak)
 
 - Fixed the `t/07-core-units.t` doctor assertion so it now clears ambient `RESULT` state before checking the empty-hook path.

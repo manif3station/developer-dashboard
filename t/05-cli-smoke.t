@@ -320,6 +320,55 @@ is($serve_logs_tail, "Dancer2 boot line\n", 'dashboard serve logs -n prints only
     kill 'TERM', $pid;
     waitpid( $pid, 0 );
 }
+{
+    my $serve_home = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = $serve_home;
+    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
+    local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
+    local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+    my $serve_init = _run("$perl -I'$lib' '$dashboard' init");
+    like( $serve_init, qr/runtime_root/, 'isolated lifecycle smoke home initializes a runtime for serve/restart collector checks' );
+    my $serve_config_file = File::Spec->catfile( $serve_home, '.developer-dashboard', 'config', 'config.json' );
+    open my $serve_config_fh, '>:raw', $serve_config_file or die "Unable to write $serve_config_file: $!";
+    my $serve_config_json = json_encode(
+        {
+            collectors => [
+                {
+                    name     => 'tick.collector',
+                    command  => q{perl -MTime::HiRes=time -e 'printf qq{%.6f\n}, time'},
+                    cwd      => 'home',
+                    interval => 1,
+                },
+            ],
+        }
+    );
+    $serve_config_json = encode( 'UTF-8', $serve_config_json ) if utf8::is_utf8($serve_config_json);
+    print {$serve_config_fh} $serve_config_json;
+    close $serve_config_fh;
+    my $serve_port = _find_free_port();
+    my $serve_json = json_decode( _run("$perl -I'$lib' '$dashboard' serve --host 127.0.0.1 --port $serve_port") );
+    ok( $serve_json->{pid}, 'dashboard serve returns a managed web pid for the collector lifecycle smoke test' );
+    my $first_stdout = '';
+    for ( 1 .. 40 ) {
+        my $output = json_decode( _run("$perl -I'$lib' '$dashboard' collector output tick.collector") );
+        $first_stdout = $output->{stdout} || '';
+        last if $first_stdout =~ /^\d+\.\d+\n$/;
+        sleep 0.25;
+    }
+    like( $first_stdout, qr/^\d+\.\d+\n$/, 'dashboard serve starts configured interval collectors so collector output begins changing without a separate restart' );
+    my $restart_json = json_decode( _run("$perl -I'$lib' '$dashboard' restart --host 127.0.0.1 --port $serve_port") );
+    ok( $restart_json->{web_pid}, 'dashboard restart still returns a managed web pid in the collector lifecycle smoke test' );
+    my $second_stdout = '';
+    for ( 1 .. 40 ) {
+        my $output = json_decode( _run("$perl -I'$lib' '$dashboard' collector output tick.collector") );
+        $second_stdout = $output->{stdout} || '';
+        last if $second_stdout =~ /^\d+\.\d+\n$/ && $second_stdout ne $first_stdout;
+        sleep 0.25;
+    }
+    unlike( $second_stdout, qr/^\Q$first_stdout\E$/, 'dashboard restart restarts collector loops and refreshes collector output after the serve-started run' );
+    my $serve_stop = json_decode( _run("$perl -I'$lib' '$dashboard' stop") );
+    ok( ref( $serve_stop->{collectors} ) eq 'ARRAY', 'dashboard stop still returns the collector stop list after serve/restart lifecycle control' );
+}
 
 my $bookmarks_root = _run("$perl -I'$lib' '$dashboard' path resolve bookmarks_root");
 is( $bookmarks_root, File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'dashboards' ) . "\n", 'dashboard path resolve supports bookmarks_root alias' );

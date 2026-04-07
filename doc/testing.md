@@ -81,6 +81,7 @@ The test suite also covers collector loop management:
 The runtime-manager tests also cover:
 
 - background web startup handshake and web-state persistence
+- `dashboard serve` collector startup and failure handling, including explicit startup errors and cleanup of already-started loops when a later collector fails
 - `dashboard web: <host>:<port>` process-title detection
 - `pkill` fallback when pid files are stale or missing
 - `/proc` listener-pid fallback when minimal Linux containers do not provide `ss`

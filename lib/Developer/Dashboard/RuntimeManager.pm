@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '1.87';
+our $VERSION = '1.88';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -211,9 +211,78 @@ sub start_collectors {
         my $schedule = $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' );
         next if $schedule eq 'manual';
         my $pid = eval { $self->{runner}->start_loop($job) };
+        if ($@) {
+            my $error = $@;
+            chomp $error;
+            for my $started (@started) {
+                eval { $self->{runner}->stop_loop( $started->{name} ) };
+            }
+            my $name = $job->{name} || '(unnamed)';
+            die "Failed to start collector '$name': $error\n";
+        }
         push @started, { name => $job->{name}, pid => $pid } if defined $pid;
     }
     return @started;
+}
+
+# serve_all(%args)
+# Starts the web service and ensures configured collector loops follow the same
+# lifecycle action.
+# Input: host, port, worker count, ssl flag, and foreground options.
+# Output: hash reference describing the started web pid/result and collector actions.
+sub serve_all {
+    my ( $self, %args ) = @_;
+    my $host = '0.0.0.0';
+    $host = $args{host} if defined $args{host};
+    my $port = 7890;
+    $port = $args{port} if defined $args{port};
+    my $workers = 1;
+    $workers = $args{workers} if defined $args{workers};
+    my $ssl = $args{ssl} ? 1 : 0;
+    my $foreground = $args{foreground} ? 1 : 0;
+
+    if ($foreground) {
+        my @collectors = $self->start_collectors;
+        my $result = eval {
+            $self->start_web(
+                foreground => 1,
+                host       => $host,
+                port       => $port,
+                workers    => $workers,
+                ssl        => $ssl,
+            );
+        };
+        my $error = $@;
+        my @stopped_collectors = $self->stop_collectors;
+        die $error if $error;
+        return {
+            foreground         => 1,
+            host               => $host,
+            port               => $port,
+            workers            => $workers,
+            ssl                => $ssl,
+            collectors         => \@collectors,
+            stopped_collectors => \@stopped_collectors,
+            result             => $result,
+        };
+    }
+
+    my $pid = $self->start_web(
+        foreground => 0,
+        host       => $host,
+        port       => $port,
+        workers    => $workers,
+        ssl        => $ssl,
+    );
+    my @collectors = $self->start_collectors;
+    return {
+        host       => $host,
+        port       => $port,
+        workers    => $workers,
+        ssl        => $ssl,
+        pid        => $pid,
+        collectors => \@collectors,
+    };
 }
 
 # stop_collectors()
@@ -881,7 +950,7 @@ collector loops, including stop and restart orchestration.
 
 =head1 METHODS
 
-=head2 new, start_web, running_web, stop_web, start_collectors, stop_collectors, stop_all, restart_all, web_state, web_log
+=head2 new, start_web, running_web, stop_web, start_collectors, serve_all, stop_collectors, stop_all, restart_all, web_state, web_log
 
 Construct and manage the dashboard runtime.
 

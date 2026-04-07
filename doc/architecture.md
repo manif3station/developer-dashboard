@@ -134,6 +134,7 @@ Collector loops are managed explicitly:
 Web service lifecycle is managed the same way:
 
 - `dashboard serve` backgrounds the web service by default
+- `dashboard serve` starts the configured collector loops alongside the web service, so `serve`, `stop`, and `restart` all act on the same managed runtime set
 - `dashboard stop` stops both the web service and collector loops
 - `dashboard restart` stops both, restarts configured collectors, then starts the web service again
 - the web process title is set to `dashboard web: <host>:<port>`

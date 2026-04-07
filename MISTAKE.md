@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: COLLECTOR-LIFECYCLE-DRIFT
+
+**Date:** 2026-04-07 20:20:00 UTC
+**Area:** runtime lifecycle control, collector orchestration, and serve/restart parity
+**Symptom:** `dashboard serve` brought up the web service, but configured collectors stayed idle until `dashboard restart`, so runtime actions could leave collectors out of sync with the managed web state
+**Why It Was Dangerous:** It made collectors look unmanaged and unpredictable, hid startup failures behind a partially healthy web runtime, and broke the user expectation that `serve`, `stop`, and `restart` control one coherent dashboard runtime
+**Root Cause:** The serve path called the web startup helper directly instead of the full collector-aware lifecycle, and collector startup failures were swallowed inside `start_collectors`
+**How Ellen Solved It:** Reproduced the mismatch with a real interval collector in CLI smoke tests, added a `serve_all` lifecycle path that starts the web service and collectors together, and changed collector startup to fail loudly while cleaning up already-started loops
+**How To Detect Earlier Next Time:** Compare `dashboard serve` and `dashboard restart` against the same runtime with a real configured collector and verify collector output changes without relying on restart to wake it up
+**Prevention Rule:** Any runtime action that claims to manage the dashboard service must include configured collectors in the same lifecycle contract, and collector startup failures must be explicit rather than swallowed
+**Verification:** `prove -lv t/05-cli-smoke.t t/09-runtime-manager.t`, `prove -lr t`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `lib/Developer/Dashboard/RuntimeManager.pm`, `share/private-cli/_dashboard-core`, `t/05-cli-smoke.t`, `t/09-runtime-manager.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: DOCTOR-RESULT-ASSUMPTION-LEAK
 
 **Date:** 2026-04-07 14:55:00 UTC

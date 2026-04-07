@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.87';
+our $VERSION = '1.88';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.87
+1.88
 
 =head1 INTRODUCTION
 
@@ -1260,6 +1260,12 @@ The runtime manager follows the older local-service pattern:
 =item *
 
 C<dashboard serve> starts the web service in the background by default
+
+=item *
+
+C<dashboard serve> starts the configured collector loops alongside the web
+service, so a plain serve keeps collectors and the web runtime under the same
+lifecycle action
 
 =item *
 

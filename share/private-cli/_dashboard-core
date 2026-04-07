@@ -810,17 +810,21 @@ elsif ( $cmd eq 'serve' ) {
         my $saved = $config->save_global_web_workers($workers);
         my $running = $runtime->running_web;
         my $pid;
+        my $collectors = [];
         if ( !$running ) {
-            $pid = $runtime->start_web(
+            my $served = $runtime->serve_all(
                 host    => $host,
                 port    => $port,
                 workers => $saved->{workers},
             );
+            $pid = $served->{pid};
+            $collectors = $served->{collectors} || [];
         }
         print json_encode(
             {
                 %{$saved},
                 ( defined $pid ? ( pid => $pid ) : () ),
+                ( @{$collectors} ? ( collectors => $collectors ) : () ),
             }
         );
         exit 0;
@@ -846,7 +850,7 @@ elsif ( $cmd eq 'serve' ) {
         workers => $workers,
         ssl     => $ssl,
     );
-    my $result = $runtime->start_web(
+    my $result = $runtime->serve_all(
         foreground => $foreground,
         host       => $host,
         port       => $port,
@@ -854,15 +858,7 @@ elsif ( $cmd eq 'serve' ) {
         ssl        => $ssl,
     );
     if (!$foreground) {
-        print json_encode(
-            {
-                host    => $host,
-                port    => $port,
-                workers => $workers,
-                ssl     => $ssl,
-                pid     => $result,
-            }
-        );
+        print json_encode($result);
     }
     exit 0;
 }

@@ -861,6 +861,7 @@ The default web bind is `0.0.0.0:7890`. Trust is still decided from the request 
 ### Runtime Lifecycle
 
 - `dashboard serve` starts the web service in the background by default
+- `dashboard serve` starts the configured collector loops alongside the web service, so a plain serve keeps collectors and the web runtime under the same lifecycle action
 - `dashboard serve --foreground` keeps the web service attached to the terminal
 - `dashboard serve --ssl` enables HTTPS in Starman with the generated local certificate and key, redirects non-HTTPS requests to the matching `https://...` URL, and reuses the saved SSL setting on later `dashboard restart` runs unless you override it
 - `dashboard serve logs` prints the combined Dancer2 and Starman runtime log captured in the dashboard log file, `dashboard serve logs -n 100` starts from the last 100 lines, and `dashboard serve logs -f` follows appended output live

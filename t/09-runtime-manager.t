@@ -51,6 +51,7 @@ sub wait_for_child_exit {
     sub running_loops { @{ $_[0]{loops} } }
     sub start_loop {
         my ( $self, $job ) = @_;
+        die $self->{fail}{ $job->{name} } if ref( $self->{fail} ) eq 'HASH' && exists $self->{fail}{ $job->{name} };
         push @{ $self->{started} }, $job->{name};
         push @{ $self->{loops} }, { name => $job->{name}, pid => 1000 + @{ $self->{started} } };
         return 1000 + @{ $self->{started} };
@@ -515,6 +516,66 @@ is_deeply( $runner->{stopped}, [ 'alpha.collector', 'beta.collector' ], 'stop_co
 
 my @started_collectors = $manager->start_collectors;
 is_deeply( [ map { $_->{name} } @started_collectors ], [ 'alpha.collector', 'beta.collector' ], 'start_collectors starts configured collectors' );
+
+{
+    local $runner->{started} = [];
+    local $runner->{stopped} = [];
+    local $runner->{loops}   = [];
+    local $runner->{fail}    = { 'beta.collector' => "beta start failed\n" };
+    my $error = eval { $manager->start_collectors; 1 } ? '' : $@;
+    like( $error, qr/Failed to start collector 'beta\.collector': beta start failed/, 'start_collectors surfaces collector loop startup failures explicitly' );
+    is_deeply( $runner->{started}, [ 'alpha.collector' ], 'start_collectors stops launching collectors after a startup failure' );
+    is_deeply( $runner->{stopped}, ['alpha.collector'], 'start_collectors cleans up already-started collectors when a later collector fails to start' );
+}
+
+{
+    my %forwarded;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::start_web = sub {
+        my ( undef, %args ) = @_;
+        %forwarded = %args;
+        return 9903;
+    };
+    local *Developer::Dashboard::RuntimeManager::start_collectors = sub {
+        return (
+            { name => 'alpha.collector', pid => 1101 },
+            { name => 'beta.collector',  pid => 1102 },
+        );
+    };
+    my $served = $manager->serve_all( host => '127.0.0.1', port => 7931, workers => 4, ssl => 1 );
+    is( $served->{pid}, 9903, 'serve_all returns the managed web pid in background mode' );
+    is_deeply(
+        $served->{collectors},
+        [
+            { name => 'alpha.collector', pid => 1101 },
+            { name => 'beta.collector',  pid => 1102 },
+        ],
+        'serve_all reports the configured collectors it started in background mode',
+    );
+    is_deeply( \%forwarded, { foreground => 0, host => '127.0.0.1', port => 7931, workers => 4, ssl => 1 }, 'serve_all forwards normalized background web arguments to start_web' );
+}
+
+{
+    my @calls;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::start_collectors = sub {
+        push @calls, 'start_collectors';
+        return ( { name => 'alpha.collector', pid => 1201 } );
+    };
+    local *Developer::Dashboard::RuntimeManager::start_web = sub {
+        my ( undef, %args ) = @_;
+        push @calls, 'start_web_foreground' if $args{foreground};
+        return 'foreground-ok';
+    };
+    local *Developer::Dashboard::RuntimeManager::stop_collectors = sub {
+        push @calls, 'stop_collectors';
+        return ('alpha.collector');
+    };
+    my $served = $manager->serve_all( foreground => 1, host => '127.0.0.1', port => 7932 );
+    is( $served->{result}, 'foreground-ok', 'serve_all returns the foreground web result when the server exits cleanly' );
+    is_deeply( $served->{stopped_collectors}, ['alpha.collector'], 'serve_all stops managed collectors after a foreground web session exits' );
+    is_deeply( \@calls, [ 'start_collectors', 'start_web_foreground', 'stop_collectors' ], 'serve_all wraps the foreground web session with collector lifecycle control' );
+}
 
 my $restart = $manager->restart_all( host => '0.0.0.0', port => 7903 );
 ok( $restart->{web_pid} > 0, 'restart_all starts a background web process' );

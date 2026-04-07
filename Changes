@@ -1,5 +1,15 @@
 Revision history for Developer Dashboard
 
+1.88  2026-04-07
+    - fixed `dashboard serve` so it now starts configured collector loops
+      alongside the web service instead of leaving collectors untouched until a
+      later `dashboard restart`
+    - fixed collector startup error handling so runtime manager now surfaces
+      loop startup failures explicitly and stops any already-started collectors
+      from the same action instead of silently continuing in a broken state
+    - added runtime-manager and CLI smoke coverage for the collector lifecycle
+      contract so `serve`, `restart`, and `stop` stay aligned
+
 1.87  2026-04-07
     - fixed the `t/07-core-units.t` doctor hook assertion so it now clears
       ambient `RESULT` state before checking the empty-hook path, which keeps
