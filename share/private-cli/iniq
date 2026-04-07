@@ -28,6 +28,6 @@ iniq - INI query command for Developer Dashboard
 
 =head1 DESCRIPTION
 
-This command provides INI file path extraction for Developer Dashboard.
+This command provides INI path extraction for Developer Dashboard.
 
 =cut

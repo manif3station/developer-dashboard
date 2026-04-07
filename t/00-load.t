@@ -16,6 +16,7 @@ my @modules = qw(
   Developer::Dashboard::Runtime::Result
   Developer::Dashboard::InternalCLI
   Developer::Dashboard::CLI::OpenFile
+  Developer::Dashboard::CLI::Paths
   Developer::Dashboard::CLI::Query
   Developer::Dashboard::IndicatorStore
   Developer::Dashboard::Collector

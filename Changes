@@ -1,5 +1,20 @@
 Revision history for Developer Dashboard
 
+1.84  2026-04-07
+    - restored the thin `dashboard` switchboard model for lightweight
+      commands by moving the built-in helper script sources into
+      `share/private-cli/`, dispatching `jq`/`of`/`ticket`/`path`/`paths`/`ps1`
+      through staged helper scripts, and removing the direct
+      `CLI::Query`/`CLI::OpenFile`/`CLI::Ticket` loading path from
+      `bin/dashboard`
+    - fixed built-in helper staging so `dashboard init` and on-demand helper
+      extraction now always seed dashboard-managed helpers only under
+      `~/.developer-dashboard/cli/`, while layered lookup and hook execution
+      still apply to user-provided commands across `DD-OOP-LAYERS`
+    - restored the classic prompt branch detection path by parsing `git branch`
+      output for the trailing `🌿branch` suffix instead of relying on the
+      newer `git rev-parse --abbrev-ref HEAD` shortcut
+
 1.83  2026-04-07
     - introduced the `DD-OOP-LAYERS` runtime contract so every existing
       `.developer-dashboard/` layer from `~/.developer-dashboard` down to the

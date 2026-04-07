@@ -242,6 +242,12 @@ config, collectors, indicators, auth/session lookups, runtime
 `local/lib/perl5`, static assets, and custom CLI hooks must all inherit across
 that full layer chain.
 
+Dashboard-managed built-in helper extraction is the explicit exception to the
+layered write target. `dashboard init` and on-demand helper staging must only
+seed built-in helper scripts under `~/.developer-dashboard/cli/`, while
+user-provided commands and hook directories continue to participate across the
+full `DD-OOP-LAYERS` chain.
+
 The seeded `api-dashboard` should keep its behavior inside the bookmark source
 itself rather than requiring a dedicated product module for the dashboard
 logic. It should support:

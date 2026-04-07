@@ -59,43 +59,18 @@ elsif ( $cmd eq 'help' || $cmd eq '--help' || $cmd eq '-h' ) {
     );
 }
 
-# Handle query commands directly (don't try to exec them as files)
-if ( $cmd && $cmd =~ /^(pjq|jq|pyq|yq|ptomq|tomq|pjp|propq|iniq|csvq|xmlq)$/ ) {
-    require Developer::Dashboard::PathRegistry;
-    my $paths = Developer::Dashboard::PathRegistry->new(
-        workspace_roots => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
-        project_roots   => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
-    );
-    Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
-    require Developer::Dashboard::CLI::Query;
-    Developer::Dashboard::CLI::Query::run_query_command( command => $cmd, args => \@ARGV );
-    exit 0;
-}
-
-if ( $cmd eq 'of' || $cmd eq 'open-file' ) {
-    require Developer::Dashboard::PathRegistry;
-    require Developer::Dashboard::CLI::OpenFile;
-    my $paths = Developer::Dashboard::PathRegistry->new(
-        workspace_roots => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
-        project_roots   => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
-    );
-    Developer::Dashboard::CLI::OpenFile::run_open_file_command( paths => $paths, args => \@ARGV );
-    exit 0;
-}
-
-if ( $cmd eq 'ticket' ) {
-    require Developer::Dashboard::CLI::Ticket;
-    Developer::Dashboard::CLI::Ticket::run_ticket_command(
-        args       => \@ARGV,
-        env_ticket => $ENV{TICKET_REF},
-    );
-    exit 0;
-}
-
 if ( $cmd eq 'version' ) {
     require Developer::Dashboard;
     print $Developer::Dashboard::VERSION, "\n";
     exit 0;
+}
+
+if ( my $helper_path = _builtin_helper_path($cmd) ) {
+    _exec_switchboard_command( $helper_path, @ARGV );
+}
+
+if ( !_requires_main_runtime($cmd) ) {
+    _exec_switchboard_command( _custom_command_path($cmd), @ARGV );
 }
 
 require Developer::Dashboard::Auth;
@@ -452,104 +427,7 @@ sub _install_runtime_cpan_modules {
     };
 }
 
-if ( $cmd eq 'ps1' ) {
-    _sync_configured_collector_indicators();
-    _prime_ticket_ref_env();
-    my $jobs = 0;
-    my $cwd  = cwd();
-    my $mode = 'compact';
-    my $color = 0;
-    my $max_age = 300;
-    GetOptionsFromArray(
-        \@ARGV,
-        'jobs=i' => \$jobs,
-        'cwd=s'  => \$cwd,
-        'mode=s' => \$mode,
-        'color!' => \$color,
-        'max-age=i' => \$max_age,
-    );
-    print $prompt->render( jobs => $jobs, cwd => $cwd, mode => $mode, color => $color, max_age => $max_age );
-    exit 0;
-}
-elsif ( $cmd eq 'paths' ) {
-    _load_configured_path_aliases();
-    my %out = (
-        home           => $paths->home,
-        home_runtime_root => $paths->home_runtime_root,
-        project_runtime_root => scalar $paths->project_runtime_root,
-        runtime_root   => $paths->runtime_root,
-        state_root     => $paths->state_root,
-        cache_root     => $paths->cache_root,
-        logs_root      => $paths->logs_root,
-        dashboards_root=> $paths->dashboards_root,
-        bookmarks_root => $paths->bookmarks_root,
-        cli_root       => $paths->cli_root,
-        collectors_root=> $paths->collectors_root,
-        indicators_root=> $paths->indicators_root,
-        config_root    => $paths->config_root,
-        current_project_root => scalar $paths->current_project_root,
-        %{ $paths->named_paths },
-    );
-    print json_encode(\%out);
-    exit 0;
-}
-elsif ( $cmd eq 'path' ) {
-    my $action = shift @ARGV || '';
-    if ( $action eq 'resolve' ) {
-        _load_configured_path_aliases();
-        my $name = shift @ARGV || die "Usage: dashboard path resolve <name>\n";
-        print $paths->resolve_dir($name), "\n";
-        exit 0;
-    }
-    elsif ( $action eq 'locate' ) {
-        my @found = $paths->locate_projects(@ARGV);
-        print json_encode( \@found );
-        exit 0;
-    }
-    elsif ( $action eq 'add' ) {
-        my $name = shift @ARGV || die "Usage: dashboard path add <name> <path>\n";
-        my $path = shift @ARGV || die "Usage: dashboard path add <name> <path>\n";
-        my $saved = $config->save_global_path_alias( $name, $path );
-        $paths->register_named_paths( { $name => $path } );
-        $saved->{resolved} = $paths->resolve_dir($name);
-        print json_encode($saved);
-        exit 0;
-    }
-    elsif ( $action eq 'del' ) {
-        my $name = shift @ARGV || die "Usage: dashboard path del <name>\n";
-        my $deleted = $config->remove_global_path_alias($name);
-        $paths->unregister_named_path($name);
-        print json_encode($deleted);
-        exit 0;
-    }
-    elsif ( $action eq 'project-root' ) {
-        my $root = $paths->current_project_root;
-        print defined $root ? "$root\n" : '';
-        exit 0;
-    }
-    elsif ( $action eq 'list' ) {
-        _load_configured_path_aliases();
-        my %out = (
-            home         => $paths->home,
-            home_runtime => $paths->home_runtime_root,
-            project_runtime => scalar $paths->project_runtime_root,
-            runtime      => $paths->runtime_root,
-            state        => $paths->state_root,
-            cache        => $paths->cache_root,
-            logs         => $paths->logs_root,
-            dashboards   => $paths->dashboards_root,
-            bookmarks    => $paths->bookmarks_root,
-            cli          => $paths->cli_root,
-            config       => $paths->config_root,
-            collectors   => $paths->collectors_root,
-            indicators   => $paths->indicators_root,
-            %{ $paths->named_paths },
-        );
-        print json_encode(\%out);
-        exit 0;
-    }
-}
-elsif ( $cmd eq 'encode' ) {
+if ( $cmd eq 'encode' ) {
     local $/;
     my $text = <STDIN>;
     print encode_payload($text), "\n";
@@ -1271,21 +1149,88 @@ sub _command_hook_roots {
 sub _custom_command_path {
     my ($cmd) = @_;
     return '' if !defined $cmd || $cmd eq '';
-    if ( my $helper = Developer::Dashboard::InternalCLI::canonical_helper_name($cmd) ) {
-        require Developer::Dashboard::PathRegistry;
-        my $paths = Developer::Dashboard::PathRegistry->new(
-            home            => $ENV{HOME},
-            workspace_roots => [],
-            project_roots   => [],
-        );
-        Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
-        return Developer::Dashboard::InternalCLI::helper_path( paths => $paths, name => $helper );
-    }
     for my $root ( _cli_runtime_roots() ) {
         my $path = File::Spec->catfile( $root, $cmd );
         return $path if -e $path;
     }
-    return File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', $cmd );
+    return '';
+}
+
+# _builtin_helper_path($cmd)
+# Resolves and stages one built-in lightweight helper command under the home
+# runtime CLI root.
+# Input: top-level command name string.
+# Output: helper file path string or empty string when the command is not a
+# built-in lightweight helper.
+sub _builtin_helper_path {
+    my ($cmd) = @_;
+    my $helper = Developer::Dashboard::InternalCLI::canonical_helper_name($cmd);
+    return '' if $helper eq '';
+    require Developer::Dashboard::PathRegistry;
+    my $paths = Developer::Dashboard::PathRegistry->new(
+        home            => $ENV{HOME},
+        workspace_roots => [],
+        project_roots   => [],
+    );
+    Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
+    return Developer::Dashboard::InternalCLI::helper_path( paths => $paths, name => $helper );
+}
+
+# _requires_main_runtime($cmd)
+# Reports whether one command must stay in the main dashboard runtime instead
+# of being handed off to a staged lightweight helper or layered custom command.
+# Input: top-level command name string.
+# Output: boolean value.
+sub _requires_main_runtime {
+    my ($cmd) = @_;
+    return 0 if !defined $cmd || $cmd eq '';
+    my %core = map { $_ => 1 } qw(
+      encode
+      decode
+      indicator
+      collector
+      config
+      auth
+      init
+      cpan
+      page
+      action
+      docker
+      serve
+      stop
+      restart
+      shell
+      doctor
+      skills
+      skill
+    );
+    return $core{$cmd} ? 1 : 0;
+}
+
+# _exec_switchboard_command($path, @argv)
+# Executes one resolved helper or layered custom command target from the thin
+# dashboard switchboard path.
+# Input: resolved file or directory path plus argv list for the target command.
+# Output: never returns on success because the current process is replaced;
+# returns false when no runnable target exists.
+sub _exec_switchboard_command {
+    my ( $path, @argv ) = @_;
+    return 0 if !defined $path || $path eq '';
+
+    if ( -d $path ) {
+        my $run = _resolve_directory_runner($path);
+        if ($run) {
+            my @command = command_argv_for_path($run);
+            exec { $command[0] } @command, @argv;
+            die "Unable to exec $run: $!";
+        }
+    }
+    if ( my $command_path = resolve_runnable_file($path) ) {
+        my @command = command_argv_for_path($command_path);
+        exec { $command[0] } @command, @argv;
+        die "Unable to exec $command_path: $!";
+    }
+    return 0;
 }
 
 # _command_hook_result_key($path)

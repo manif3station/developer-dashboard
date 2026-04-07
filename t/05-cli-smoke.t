@@ -38,13 +38,23 @@ my $runtime_xmlq = File::Spec->catfile( $runtime_cli_root, 'xmlq' );
 my $runtime_of = File::Spec->catfile( $runtime_cli_root, 'of' );
 my $runtime_open_file = File::Spec->catfile( $runtime_cli_root, 'open-file' );
 my $runtime_ticket = File::Spec->catfile( $runtime_cli_root, 'ticket' );
+my $runtime_path = File::Spec->catfile( $runtime_cli_root, 'path' );
+my $runtime_paths = File::Spec->catfile( $runtime_cli_root, 'paths' );
+my $runtime_ps1 = File::Spec->catfile( $runtime_cli_root, 'ps1' );
 
 my $init = _run("$perl -I'$lib' '$dashboard' init");
 like($init, qr/runtime_root/, 'dashboard init works');
-for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runtime_iniq, $runtime_csvq, $runtime_xmlq, $runtime_of, $runtime_open_file, $runtime_ticket ) {
+for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runtime_iniq, $runtime_csvq, $runtime_xmlq, $runtime_of, $runtime_open_file, $runtime_ticket, $runtime_path, $runtime_paths, $runtime_ps1 ) {
     ok( -f $helper, "dashboard init seeds private helper $helper" );
     ok( -x $helper, "dashboard init marks private helper $helper executable" );
 }
+my $home_only_init_project = File::Spec->catdir( $ENV{HOME}, 'projects', 'home-only-init-project' );
+my $home_only_local_cli = File::Spec->catdir( $home_only_init_project, '.developer-dashboard', 'cli' );
+make_path( File::Spec->catdir( $home_only_init_project, '.git' ), $home_only_local_cli );
+my $home_only_init = _run("cd '$home_only_init_project' && $perl -I'$lib' '$dashboard' init");
+like( $home_only_init, qr/"runtime_root"\s*:\s*"\Q$home_only_init_project\/.developer-dashboard\E"/, 'dashboard init still reports the local runtime root when run inside a project layer' );
+ok( !-e File::Spec->catfile( $home_only_local_cli, 'jq' ), 'dashboard init does not offload built-in helpers into the local project CLI layer' );
+ok( -f $runtime_jq, 'dashboard init keeps the built-in helper staged at the home runtime CLI root' );
 my $global_config_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'config.json' );
 make_path( File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'config' ) );
 open my $seeded_config_fh, '>:raw', $global_config_file or die "Unable to write $global_config_file: $!";

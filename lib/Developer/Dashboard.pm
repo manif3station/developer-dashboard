@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.83';
+our $VERSION = '1.84';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.83
+1.84
 
 =head1 INTRODUCTION
 
@@ -521,15 +521,15 @@ data-inspection toolkit that fits naturally into shell workflows.
 =item * Private CLI Helper Assets
 
 Private F<~/.developer-dashboard/cli/> helper files provide the built-in
-query, open-file, and ticket helper behaviour without installing generic command
-names into the global PATH.
+query, open-file, ticket, path, and prompt helper behaviour without
+installing generic command names into the global PATH.
 
 Only C<dashboard> is intended to be the public CPAN-facing command-line
 entrypoint. Generic helper names such as C<ticket>, C<of>, C<open-file>,
-C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, and C<xmlq> are
-intentionally kept out of the installed global PATH to avoid polluting the
-wider Perl and shell ecosystem, but their built-in private wrappers are still
-staged under F<~/.developer-dashboard/cli/>.
+C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, C<xmlq>, C<path>,
+C<paths>, and C<ps1> are intentionally kept out of the installed global PATH
+to avoid polluting the wider Perl and shell ecosystem, but their built-in
+private wrappers are still staged under F<~/.developer-dashboard/cli/>.
 
 C<dashboard ticket> creates or reuses a tmux session for the requested ticket
 reference, seeds C<TICKET_REF> plus dashboard-friendly branch aliases into that
@@ -839,6 +839,14 @@ User CLI extensions can be tested from the repository too:
   printf '#!/usr/bin/env perl\nprint "seed\\n";\n' > ~/.developer-dashboard/cli/jq.d/00-seed.pl
   chmod +x ~/.developer-dashboard/cli/jq.d/00-seed.pl
   printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard jq alpha.beta
+
+Dashboard-managed built-in helpers are different from user commands. The
+built-in lightweight helpers for C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>,
+C<csvq>, C<xmlq>, C<of>, C<open-file>, C<ticket>, C<path>, C<paths>, and
+C<ps1> are always staged only under F<~/.developer-dashboard/cli/>. Under
+C<DD-OOP-LAYERS>, layered lookup still applies to user-provided commands and
+hook directories, but C<dashboard init> does not copy those built-in helpers
+into child project layers.
 
 Each top-level dashboard command can also use an optional hook directory at
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>>. Executable files from that
@@ -1436,13 +1444,15 @@ commands, and seeds starter bookmarks that are not already present.
 
 The public C<dashboard> entrypoint also stays thin for lightweight commands
 such as C<dashboard jq>, C<dashboard yq>, C<dashboard of>,
-C<dashboard open-file>, C<dashboard ticket>, and C<dashboard version>: those
-paths return before the web runtime is built. The shipped starter bookmark
-source lives under F<share/seeded-pages/> and is loaded on demand during
-C<dashboard init> instead of being embedded directly in the command script.
-Installed copies resolve the same seeded pages from the distribution share directory,
-so C<dashboard init> works after a C<cpanm> install and not just from a source
-checkout.
+C<dashboard open-file>, C<dashboard ticket>, C<dashboard path>,
+C<dashboard paths>, C<dashboard ps1>, and C<dashboard version>: those paths
+hand off to staged helper scripts before the web runtime is built. The shipped
+starter bookmark source lives under F<share/seeded-pages/>, and the shipped
+helper scripts live under F<share/private-cli/>, so neither bookmark bodies
+nor helper script bodies are embedded directly in the command script.
+Installed copies resolve the same seeded pages and helper assets from the
+distribution share directory, so C<dashboard init> works after a C<cpanm>
+install and not just from a source checkout.
 
 The seeded C<api-dashboard> bookmark now behaves like a local Postman-style
 workspace. It keeps multiple request tabs in browser-local state, supports

@@ -14,8 +14,11 @@ use lib 'lib';
 
 use Developer::Dashboard::CLI::Query ();
 use Developer::Dashboard::CLI::Ticket ();
+use Developer::Dashboard::CLI::Paths ();
 use Developer::Dashboard::InternalCLI ();
+use Developer::Dashboard::JSON qw(json_decode);
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::Prompt;
 use Developer::Dashboard::Runtime::Result ();
 use Developer::Dashboard::SkillDispatcher;
 use Developer::Dashboard::SkillManager;
@@ -57,6 +60,7 @@ is_deeply(
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('pjq'), 'jq', 'legacy helper alias normalizes to jq' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('xmlq'), 'xmlq', 'current helper name stays unchanged' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('ticket'), 'ticket', 'ticket helper name stays unchanged' );
+is( Developer::Dashboard::InternalCLI::canonical_helper_name('paths'), 'paths', 'paths helper name stays unchanged' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('bogus'), '', 'unsupported helper names normalize to empty string' );
 like(
     _dies( sub { Developer::Dashboard::InternalCLI::helper_path( paths => $paths, name => 'bogus' ) } ),
@@ -84,20 +88,197 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
             'helper_content renders the embedded ticket helper body',
         );
     }
+    elsif ( $helper eq 'path' || $helper eq 'paths' ) {
+        like(
+            $content,
+            qr/\Qrun_paths_command( command => '$helper', args => \@ARGV );\E/,
+            "helper_content renders the shipped $helper helper body",
+        );
+    }
+    elsif ( $helper eq 'ps1' ) {
+        like(
+            $content,
+            qr/\QThis private helper is staged under F<~\/.developer-dashboard\/cli\/>\E/,
+            'helper_content renders the shipped ps1 helper body',
+        );
+    }
     else {
         like(
             $content,
             qr/\Qrun_query_command( command => '$helper', args => \@ARGV );\E/,
-            "helper_content renders the embedded $helper query helper body",
+            "helper_content renders the shipped $helper query helper body",
         );
     }
 }
 my $seeded_helpers = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
 my @helper_names = Developer::Dashboard::InternalCLI::helper_names();
-is( scalar(@$seeded_helpers), scalar(@helper_names), 'ensure_helpers writes every embedded helper once' );
+is( scalar(@$seeded_helpers), scalar(@helper_names), 'ensure_helpers writes every shipped helper once' );
 ok( grep( $_ =~ m{/\Qof\E$}, @$seeded_helpers ), 'ensure_helpers writes the private of helper' );
 ok( grep( $_ =~ m{/\Qopen-file\E$}, @$seeded_helpers ), 'ensure_helpers writes the private open-file helper' );
 ok( grep( $_ =~ m{/\Qticket\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ticket helper' );
+ok( grep( $_ =~ m{/\Qpath\E$}, @$seeded_helpers ), 'ensure_helpers writes the private path helper' );
+ok( grep( $_ =~ m{/\Qpaths\E$}, @$seeded_helpers ), 'ensure_helpers writes the private paths helper' );
+ok( grep( $_ =~ m{/\Qps1\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ps1 helper' );
+like(
+    Developer::Dashboard::InternalCLI::_repo_private_cli_root(),
+    qr/share\/private-cli\z/,
+    'internal CLI resolves helper assets from share/private-cli in the repo tree',
+);
+{
+    my $shared_root = tempdir( CLEANUP => 1 );
+    local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { return File::Spec->catdir( $shared_root, 'missing-private-cli' ) };
+    local *Developer::Dashboard::InternalCLI::dist_dir = sub { return $shared_root };
+
+    is(
+        Developer::Dashboard::InternalCLI::_shared_private_cli_root(),
+        File::Spec->catdir( $shared_root, 'private-cli' ),
+        'internal CLI resolves the installed shared helper root through File::ShareDir',
+    );
+    is(
+        Developer::Dashboard::InternalCLI::_helper_asset_path('jq'),
+        File::Spec->catfile( $shared_root, 'private-cli', 'jq' ),
+        'internal CLI falls back to the installed shared helper asset path when the repo asset is unavailable',
+    );
+}
+
+my $layer_project = File::Spec->catdir( $ENV{HOME}, 'projects', 'cli-helper-layer-project' );
+make_path( File::Spec->catdir( $layer_project, '.developer-dashboard', 'cli' ) );
+my $layered_paths = Developer::Dashboard::PathRegistry->new(
+    home            => $ENV{HOME},
+    cwd             => $layer_project,
+    workspace_roots => [ File::Spec->catdir( $ENV{HOME}, 'projects' ) ],
+    project_roots   => [ File::Spec->catdir( $ENV{HOME}, 'projects' ) ],
+);
+is(
+    Developer::Dashboard::InternalCLI::helper_path( paths => $layered_paths, name => 'jq' ),
+    File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'jq' ),
+    'helper_path always stages built-in helpers under the home runtime CLI root',
+);
+
+my $paths_output = capture {
+    Developer::Dashboard::CLI::Paths::run_paths_command( command => 'paths', args => [] );
+};
+like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payload' );
+{
+    my $cwd = getcwd();
+    my $projects_root = File::Spec->catdir( $ENV{HOME}, 'projects' );
+    my $src_root      = File::Spec->catdir( $ENV{HOME}, 'src' );
+    my $work_root     = File::Spec->catdir( $ENV{HOME}, 'work' );
+    my $project_dir   = File::Spec->catdir( $projects_root, 'path-cmd-project' );
+    my $src_project   = File::Spec->catdir( $src_root,      'locate-sample-app' );
+    my $work_project  = File::Spec->catdir( $work_root,     'other-sample-app' );
+    my $named_dir     = File::Spec->catdir( $ENV{HOME},     'named-target' );
+
+    make_path( File::Spec->catdir( $project_dir, '.git' ) );
+    make_path($src_project);
+    make_path($work_project);
+    make_path($named_dir);
+    chdir $project_dir or die "Unable to chdir to $project_dir: $!";
+
+    my ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => [ 'add', 'named-home-target', $named_dir ],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths add writes no stderr on success' );
+    my $added_alias = json_decode($stdout);
+    is( $added_alias->{name}, 'named-home-target', 'CLI::Paths add returns the saved alias name' );
+    is( $added_alias->{path}, $named_dir, 'CLI::Paths add expands the saved alias path for runtime use' );
+    is( $added_alias->{resolved}, $named_dir, 'CLI::Paths add returns the resolved directory path' );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => ['resolve', 'named-home-target'],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths resolve writes no stderr on success' );
+    is( $stdout, "$named_dir\n", 'CLI::Paths resolve prints the resolved alias path' );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => [ 'locate', 'sample' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths locate writes no stderr on success' );
+    my $located = json_decode($stdout);
+    is_deeply(
+        [ sort @{$located} ],
+        [ sort ( $src_project, $work_project ) ],
+        'CLI::Paths locate returns matching workspace and project roots',
+    );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => ['project-root'],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths project-root writes no stderr on success' );
+    is( $stdout, "$project_dir\n", 'CLI::Paths project-root reports the current git project root' );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => ['list'],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths list writes no stderr on success' );
+    my $listed_paths = json_decode($stdout);
+    is( $listed_paths->{named_home_target}, undef, 'CLI::Paths list preserves alias keys exactly as saved' );
+    is( $listed_paths->{'named-home-target'}, $named_dir, 'CLI::Paths list includes saved aliases' );
+    is( $listed_paths->{home}, $ENV{HOME}, 'CLI::Paths list includes the home directory path' );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => [ 'del', 'named-home-target' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths del writes no stderr on success' );
+    my $deleted_alias = json_decode($stdout);
+    is( $deleted_alias->{name}, 'named-home-target', 'CLI::Paths del returns the deleted alias name' );
+    is( $deleted_alias->{removed}, 1, 'CLI::Paths del reports successful removal' );
+
+    like(
+        _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => ['bogus'] ) } ),
+        qr/Usage: dashboard path <resolve\|locate\|add\|del\|project-root\|list> \.\.\./,
+        'CLI::Paths rejects unsupported path subcommands with a usage error',
+    );
+
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
+}
+{
+    my $empty_home = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = $empty_home;
+    my $cwd = getcwd();
+    chdir $empty_home or die "Unable to chdir to $empty_home: $!";
+    my $paths_from_empty_home = Developer::Dashboard::CLI::Paths::_build_paths();
+    is_deeply( [ $paths_from_empty_home->workspace_roots ], [], 'CLI::Paths _build_paths skips missing default workspace roots' );
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
+}
+{
+    my $prompt_paths = Developer::Dashboard::PathRegistry->new( home => $ENV{HOME} );
+    my $prompt = Developer::Dashboard::Prompt->new(
+        indicators => bless( {}, 'Local::PromptIndicators' ),
+        paths      => $prompt_paths,
+    );
+    my $project_dir = tempdir( CLEANUP => 1 );
+
+    no warnings 'once';
+    local *Local::PromptIndicators::list_indicators    = sub { return (); };
+    local *Local::PromptIndicators::prompt_status_icon = sub { return ''; };
+    local *Local::PromptIndicators::is_stale           = sub { return 0; };
+    local *Developer::Dashboard::Prompt::capture       = sub (&) { return ( "  main\n  detached\n", '', 0 ) };
+
+    is(
+        $prompt->_git_branch($project_dir),
+        undef,
+        'Prompt _git_branch returns undef when git branch output has no current-branch marker',
+    );
+}
 
 is(
     Developer::Dashboard::CLI::Ticket::resolve_ticket_request(

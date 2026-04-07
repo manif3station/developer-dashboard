@@ -61,6 +61,6 @@ sub MY::postamble {
 install :: install-private-cli-tools
 
 install-private-cli-tools :
-	$(NOECHO) $(PERL) -e 'use File::Path qw(make_path); use File::Copy; my $$home = $$ENV{HOME} || (getpwuid($$>))[7]; my $$cli_dir = File::Spec->catdir($$home, ".developer-dashboard", "cli"); make_path($$cli_dir) unless -d $$cli_dir; for my $$cmd (qw(jq yq tomq propq iniq csvq xmlq)) { my $$src = File::Spec->catfile("private-cli", $$cmd); my $$dst = File::Spec->catfile($$cli_dir, $$cmd); if (-f $$src) { File::Copy::copy($$src, $$dst) or warn "Failed to copy $$src to $$dst: $$!"; chmod(0755, $$dst); print "Installed $$cmd to $$cli_dir\n"; } }'
+	$(NOECHO) $(PERL) -e 'use File::Copy; use File::Path qw(make_path); use File::Spec; my $$home = $$ENV{HOME} || (getpwuid($$>))[7]; my $$cli_dir = File::Spec->catdir($$home, ".developer-dashboard", "cli"); make_path($$cli_dir) unless -d $$cli_dir; for my $$cmd (qw(jq yq tomq propq iniq csvq xmlq of open-file ticket path paths ps1)) { my $$src = File::Spec->catfile("share", "private-cli", $$cmd); my $$dst = File::Spec->catfile($$cli_dir, $$cmd); if (-f $$src) { File::Copy::copy($$src, $$dst) or warn "Failed to copy $$src to $$dst: $$!"; chmod(0755, $$dst); print "Installed $$cmd to $$cli_dir\n"; } }'
 END_POSTAMBLE
 }

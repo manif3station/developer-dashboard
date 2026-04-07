@@ -1,0 +1,35 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use FindBin qw($Bin);
+use lib "$Bin/../lib";
+
+use Developer::Dashboard::CLI::OpenFile qw(run_open_file_command);
+
+# main(@ARGV)
+# Runs the of open-file helper for Developer Dashboard.
+# Input: command-line arguments from @ARGV and optional STDIN.
+# Output: prints matching paths or execs the configured editor, then exits.
+run_open_file_command( args => \@ARGV );
+
+__END__
+
+=pod
+
+=head1 NAME
+
+of - private open-file helper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard of [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/> so the main
+C<dashboard> command can keep file-opening behaviour available without
+installing a generic executable into the user's global PATH.
+
+=cut

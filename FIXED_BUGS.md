@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 48: Switchboard Layer Leak)
+
+- Fixed the thin-entrypoint drift by moving the built-in lightweight helper sources into `share/private-cli/`, so `dashboard jq`, `dashboard of`, `dashboard ticket`, `dashboard path`, `dashboard paths`, and `dashboard ps1` now hand off through staged helper scripts instead of loading their implementations directly inside `bin/dashboard`.
+- Fixed home-vs-layer helper staging drift so `dashboard init` and on-demand helper extraction now always seed dashboard-managed built-in helpers only under `~/.developer-dashboard/cli/`, while layered lookup and hook execution still apply to user-provided commands across `DD-OOP-LAYERS`.
+- Fixed prompt branch detection drift by restoring the older `git branch` parsing path, keeping the trailing `🌿branch` prompt marker aligned with the classic shell helper behavior.
+
 ## 2026-04-07 (Phase 47: DD-OOP-LAYERS)
 
 - Fixed the split runtime-layer model by making every existing `.developer-dashboard/` directory from `~/.developer-dashboard` down to the current working directory participate in one inherited runtime stack instead of only a project-vs-home pair.

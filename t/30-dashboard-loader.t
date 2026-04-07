@@ -20,6 +20,9 @@ unlike( $source, qr/BOOKMARK:\s+api-dashboard/, 'dashboard entrypoint no longer 
 unlike( $source, qr/TITLE:\s+SQL Dashboard/, 'dashboard entrypoint no longer embeds the sql-dashboard bookmark source' );
 unlike( $source, qr/BOOKMARK:\s+sql-dashboard/, 'dashboard entrypoint no longer embeds the sql-dashboard bookmark id source' );
 like( $source, qr/Developer::Dashboard::CLI::SeededPages/, 'dashboard entrypoint delegates seeded bookmark creation to a dedicated module' );
+unlike( $source, qr/Developer::Dashboard::CLI::Query/, 'dashboard entrypoint no longer loads the query CLI module directly' );
+unlike( $source, qr/Developer::Dashboard::CLI::OpenFile/, 'dashboard entrypoint no longer loads the open-file CLI module directly' );
+unlike( $source, qr/Developer::Dashboard::CLI::Ticket/, 'dashboard entrypoint no longer loads the ticket CLI module directly' );
 
 my $repo_seeded_root = Developer::Dashboard::CLI::SeededPages::_repo_seeded_pages_root();
 my $welcome_seeded_path = Developer::Dashboard::CLI::SeededPages::_seeded_page_asset_path('welcome.page');
@@ -117,7 +120,7 @@ my @perl_scripts = (
     ),
     ),
     (
-    map { File::Spec->catfile( $repo_root, 'private-cli', $_ ) } qw(
+    map { File::Spec->catfile( $repo_root, 'share', 'private-cli', $_ ) } qw(
       jq
       yq
       tomq
@@ -125,6 +128,12 @@ my @perl_scripts = (
       iniq
       csvq
       xmlq
+      of
+      open-file
+      ticket
+      path
+      paths
+      ps1
     ),
     ),
     (

@@ -9,7 +9,7 @@ use lib "$Bin/../lib";
 use Developer::Dashboard::CLI::Query qw(run_query_command);
 
 # main(@ARGV)
-# Runs the Java-properties query command for Developer Dashboard.
+# Runs the Java properties query command for Developer Dashboard.
 # Input: command-line arguments from @ARGV and optional STDIN.
 # Output: prints the selected properties value, then exits.
 run_query_command( command => 'propq', args => \@ARGV );
@@ -20,7 +20,7 @@ __END__
 
 =head1 NAME
 
-propq - Java-properties query command for Developer Dashboard
+propq - Java properties query command for Developer Dashboard
 
 =head1 SYNOPSIS
 
@@ -28,6 +28,6 @@ propq - Java-properties query command for Developer Dashboard
 
 =head1 DESCRIPTION
 
-This command provides Java-properties path extraction for Developer Dashboard.
+This command provides Java properties path extraction for Developer Dashboard.
 
 =cut

@@ -3,16 +3,19 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '1.83';
+our $VERSION = '1.84';
 
+use File::Basename qw(dirname);
+use File::Copy qw(copy);
 use File::Spec;
+use File::ShareDir qw(dist_dir);
 
 # helper_names()
 # Returns the built-in private helper command names that dashboard manages.
 # Input: none.
 # Output: ordered list of helper command name strings.
 sub helper_names {
-    return qw(jq yq tomq propq iniq csvq xmlq of open-file ticket);
+    return qw(jq yq tomq propq iniq csvq xmlq of open-file ticket path paths ps1);
 }
 
 # helper_aliases()
@@ -42,7 +45,7 @@ sub canonical_helper_name {
 }
 
 # helper_path(%args)
-# Resolves one private helper executable path under the runtime CLI root.
+# Resolves one private helper executable path under the home runtime CLI root.
 # Input: path registry object plus helper command name.
 # Output: helper file path string.
 sub helper_path {
@@ -50,144 +53,27 @@ sub helper_path {
     my $paths = $args{paths} || die 'Missing paths registry';
     my $name  = canonical_helper_name( $args{name} );
     die "Unsupported helper command '$args{name}'" if $name eq '';
-    return File::Spec->catfile( $paths->cli_root, $name );
+    return File::Spec->catfile( _helper_install_root($paths), $name );
 }
 
 # helper_content($name)
-# Builds one self-contained private helper executable body.
+# Loads one shipped private helper executable source body from the helper asset
+# directory.
 # Input: canonical helper command name.
 # Output: full executable source text string.
 sub helper_content {
     my ($name) = @_;
     $name = canonical_helper_name($name);
     die "Unsupported helper command '$name'" if $name eq '';
-
-    if ( $name eq 'of' || $name eq 'open-file' ) {
-        my $content = <<'PERL';
-#!/usr/bin/env perl
-
-use strict;
-use warnings;
-
-use FindBin qw($Bin);
-use lib "$Bin/../lib";
-
-use Developer::Dashboard::CLI::OpenFile qw(run_open_file_command);
-
-# main(\@ARGV)
-# Runs the __NAME__ open-file helper for Developer Dashboard.
-# Input: command-line arguments from \@ARGV and optional STDIN.
-# Output: prints matching paths or execs the configured editor, then exits.
-run_open_file_command( args => \@ARGV );
-
-__END__
-
-=pod
-
-=head1 NAME
-
-__NAME__ - private open-file helper for Developer Dashboard
-
-=head1 SYNOPSIS
-
-  dashboard __NAME__ [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
-
-=head1 DESCRIPTION
-
-This private helper is staged under F<~/.developer-dashboard/cli/> so the main
-C<dashboard> command can keep file-opening behaviour available without
-installing a generic executable into the user's global PATH.
-
-=cut
-PERL
-        $content =~ s/__NAME__/$name/g;
-        return $content;
-    }
-
-    if ( $name eq 'ticket' ) {
-        my $content = <<'PERL';
-#!/usr/bin/env perl
-
-use strict;
-use warnings;
-
-use FindBin qw($Bin);
-use lib "$Bin/../lib";
-
-use Developer::Dashboard::CLI::Ticket qw(run_ticket_command);
-
-# main(\@ARGV)
-# Runs the ticket helper for Developer Dashboard.
-# Input: command-line arguments from \@ARGV.
-# Output: creates or attaches to the requested tmux ticket session, then exits.
-run_ticket_command( args => \@ARGV );
-
-__END__
-
-=pod
-
-=head1 NAME
-
-ticket - private tmux ticket helper for Developer Dashboard
-
-=head1 SYNOPSIS
-
-  dashboard ticket <ticket-ref>
-
-=head1 DESCRIPTION
-
-This private helper is staged under F<~/.developer-dashboard/cli/> so the main
-C<dashboard> command can keep ticket-session behaviour available without
-installing a generic executable into the user's global PATH.
-
-=cut
-PERL
-        return $content;
-    }
-
-    my $content = <<'PERL';
-#!/usr/bin/env perl
-
-use strict;
-use warnings;
-
-use FindBin qw($Bin);
-use lib "$Bin/../lib";
-
-use Developer::Dashboard::CLI::Query qw(run_query_command);
-
-# main(\@ARGV)
-# Runs the __NAME__ query command for Developer Dashboard.
-# Input: command-line arguments from \@ARGV and optional STDIN.
-# Output: prints the selected value, then exits.
-run_query_command( command => '__NAME__', args => \@ARGV );
-
-__END__
-
-=pod
-
-=head1 NAME
-
-__NAME__ - private query command for Developer Dashboard
-
-=head1 SYNOPSIS
-
-  dashboard __NAME__ [path] [file]
-
-=head1 DESCRIPTION
-
-This private helper is staged under F<~/.developer-dashboard/cli/> so the main
-C<dashboard> command can dispatch the __NAME__ query tool without installing a
-generic executable into the user's global PATH.
-
-=cut
-PERL
-    $content =~ s/__NAME__/$name/g;
+    my $path = _helper_asset_path($name);
+    open my $fh, '<:raw', $path or die "Unable to read $path: $!";
+    my $content = do { local $/; <$fh> };
+    close $fh or die "Unable to close $path: $!";
     return $content;
 }
 
 # ensure_helpers(%args)
-# Seeds the built-in private helper executables into the runtime CLI root.
+# Seeds the built-in private helper executables into the home runtime CLI root.
 # Input: path registry object.
 # Output: array reference of written helper file paths.
 sub ensure_helpers {
@@ -197,17 +83,58 @@ sub ensure_helpers {
     my @written;
     for my $name ( helper_names() ) {
         my $target = helper_path( paths => $paths, name => $name );
-        $paths->ensure_dir( $paths->cli_root );
-        my $content = helper_content($name);
-
-        open my $out, '>', $target or die "Unable to write $target: $!";
-        print {$out} $content;
-        close $out;
+        my $source = _helper_asset_path($name);
+        $paths->ensure_dir( _helper_install_root($paths) );
+        copy( $source, $target ) or die "Unable to copy $source to $target: $!";
         $paths->secure_file_permissions( $target, executable => 1 );
         push @written, $target;
     }
 
     return \@written;
+}
+
+# _helper_install_root($paths)
+# Returns the home runtime CLI root used for built-in helper staging.
+# Input: path registry object.
+# Output: directory path string.
+sub _helper_install_root {
+    my ($paths) = @_;
+    return File::Spec->catdir( $paths->home_runtime_root, 'cli' );
+}
+
+# _helper_asset_path($name)
+# Resolves one private helper asset path from the repo share tree during
+# development or from the installed distribution share dir after install.
+# Input: canonical helper command name.
+# Output: absolute helper asset file path string.
+sub _helper_asset_path {
+    my ($name) = @_;
+    my $repo_path = File::Spec->catfile( _repo_private_cli_root(), $name );
+    return $repo_path if -f $repo_path;
+    return File::Spec->catfile( _shared_private_cli_root(), $name );
+}
+
+# _repo_private_cli_root()
+# Resolves the repo-tree private CLI helper asset directory.
+# Input: none.
+# Output: absolute private helper asset directory path string.
+sub _repo_private_cli_root {
+    return File::Spec->catdir(
+        dirname(__FILE__),
+        File::Spec->updir,
+        File::Spec->updir,
+        File::Spec->updir,
+        'share',
+        'private-cli',
+    );
+}
+
+# _shared_private_cli_root()
+# Resolves the installed distribution share directory for private helper assets.
+# Input: none.
+# Output: absolute helper asset directory path inside the installed dist share.
+sub _shared_private_cli_root {
+    return File::Spec->catdir( dist_dir('Developer-Dashboard'), 'private-cli' );
 }
 
 1;

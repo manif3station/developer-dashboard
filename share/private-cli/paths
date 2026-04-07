@@ -1,0 +1,35 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use FindBin qw($Bin);
+use lib "$Bin/../lib";
+
+use Developer::Dashboard::CLI::Paths ();
+
+# main(@ARGV)
+# Runs the paths helper for Developer Dashboard.
+# Input: command-line arguments from @ARGV.
+# Output: prints the active runtime path JSON payload, then exits.
+Developer::Dashboard::CLI::Paths::run_paths_command( command => 'paths', args => \@ARGV );
+
+__END__
+
+=pod
+
+=head1 NAME
+
+paths - private runtime path helper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard paths
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/> so the main
+C<dashboard> command can expose the active runtime path set without loading the
+full runtime first.
+
+=cut

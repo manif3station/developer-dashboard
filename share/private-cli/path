@@ -1,0 +1,35 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use FindBin qw($Bin);
+use lib "$Bin/../lib";
+
+use Developer::Dashboard::CLI::Paths ();
+
+# main(@ARGV)
+# Runs the path helper for Developer Dashboard.
+# Input: command-line arguments from @ARGV.
+# Output: prints path alias or runtime path JSON data, then exits.
+Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => \@ARGV );
+
+__END__
+
+=pod
+
+=head1 NAME
+
+path - private path helper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard path <resolve|locate|add|del|project-root|list> ...
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/> so the main
+C<dashboard> command can keep path registry operations available without
+loading the full runtime first.
+
+=cut

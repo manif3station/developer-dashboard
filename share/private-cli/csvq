@@ -28,6 +28,6 @@ csvq - CSV query command for Developer Dashboard
 
 =head1 DESCRIPTION
 
-This command provides CSV file path extraction for Developer Dashboard.
+This command provides CSV row and column extraction for Developer Dashboard.
 
 =cut

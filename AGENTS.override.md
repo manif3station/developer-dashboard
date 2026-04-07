@@ -251,6 +251,14 @@ These protect user data and existing local setup.
 6. This includes bookmarks, shared `nav/*.tt`, config, collectors, indicators, auth/session lookups, runtime `local/lib/perl5`, static assets, `@INC` exposure, and CLI hooks.
 7. Per-command hooks from `<command>/` or `<command>.d/` must run for every discovered layer from home to leaf.
 8. Do not collapse the model back to a simple project-vs-home split.
+9. Dashboard-managed built-in helper extraction is the explicit home-only exception: `dashboard init` and on-demand helper staging seed built-in helpers only under `~/.developer-dashboard/cli/`, not into child project layers.
+
+### 23B. `dashboard` stays a switchboard
+
+1. Keep the public `dashboard` command as a thin switchboard.
+2. Built-in lightweight commands must hand off to staged helper scripts instead of loading their implementation directly in `bin/dashboard`.
+3. Do not embed helper script bodies or other large command assets in `bin/dashboard`.
+4. Built-in helper assets must live outside the entrypoint and remain lazily staged into `~/.developer-dashboard/cli/`.
 
 ---
 

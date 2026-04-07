@@ -201,10 +201,10 @@ generic package names.
 - `dashboard iniq`, `dashboard csvq`, and `dashboard xmlq`
   Parse INI, CSV, and XML file input with dotted path extraction.
 
-- private `~/.developer-dashboard/cli/jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, `of`, `open-file`, and `ticket`
+- private `~/.developer-dashboard/cli/jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, `of`, `open-file`, `ticket`, `path`, `paths`, and `ps1`
   Provide dashboard-managed helper assets without installing generic command names into the global PATH.
 
-Only `dashboard` is intended to be the public CPAN-facing command-line entrypoint. Generic helper names such as `ticket`, `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, and `xmlq` are intentionally kept out of the installed global PATH to avoid polluting the wider Perl and shell ecosystem, but the built-in private wrappers for those commands are still staged under `~/.developer-dashboard/cli/`.
+Only `dashboard` is intended to be the public CPAN-facing command-line entrypoint. Generic helper names such as `ticket`, `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, `path`, `paths`, and `ps1` are intentionally kept out of the installed global PATH to avoid polluting the wider Perl and shell ecosystem, but the built-in private wrappers for those commands are still staged under `~/.developer-dashboard/cli/`.
 
 - `dashboard ticket`
   Creates or reuses a tmux session for the requested ticket reference, seeds `TICKET_REF` plus dashboard-friendly branch aliases into that session environment, and attaches to it through a dashboard-managed private helper instead of a public standalone binary.
@@ -327,6 +327,12 @@ target and the first lookup hit, but bookmarks, `nav/*.tt`, config,
 collectors, indicators, auth/session state lookups, runtime `local/lib/perl5`,
 and custom CLI hooks are all inherited across the full chain instead of only a
 single project-or-home split.
+
+Dashboard-managed built-in helper extraction is the one explicit exception:
+`dashboard init` and on-demand helper staging always write the built-in helper
+scripts only to `~/.developer-dashboard/cli/`. Layered lookup still applies to
+user commands and hook directories, but built-in helper offloading does not
+seed duplicate copies into child project layers.
 
 ### Shared Nav Fragments
 
@@ -891,12 +897,15 @@ and seeds starter bookmarks that are not already present.
 
 The public `dashboard` entrypoint also stays thin for lightweight commands
 such as `dashboard jq`, `dashboard yq`, `dashboard of`, `dashboard open-file`,
-`dashboard ticket`, and `dashboard version`: those paths return before the web
-runtime is built. The shipped starter bookmark source lives under
-`share/seeded-pages/` and is loaded on demand during `dashboard init` instead
-of being embedded directly in the command script. Installed copies resolve the same
-seeded pages from the distribution share directory, so `dashboard init` works
-after `cpanm` installs and not just from a source checkout.
+`dashboard ticket`, `dashboard path`, `dashboard paths`, `dashboard ps1`, and
+`dashboard version`: those paths hand off to staged helper scripts before the
+web runtime is built. The shipped starter bookmark source lives under
+`share/seeded-pages/`, and the shipped helper scripts live under
+`share/private-cli/`, so neither bookmark bodies nor helper script bodies are
+embedded directly in the command script. Installed copies resolve the same
+seeded pages and helper assets from the distribution share directory, so
+`dashboard init` works after `cpanm` installs and not just from a source
+checkout.
 
 The seeded `api-dashboard` bookmark now behaves like a local Postman-style
 workspace. It keeps multiple request tabs in browser-local state, supports

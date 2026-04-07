@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: SWITCHBOARD-LAYER-LEAK
+
+**Date:** 2026-04-07 11:40:00 UTC
+**Area:** thin CLI dispatch, built-in helper staging, and prompt branch rendering
+**Symptom:** The public `dashboard` entrypoint still loaded lightweight CLI implementations directly, `dashboard init` seeded built-in helper commands into whichever runtime layer happened to be active, and the prompt branch detection had drifted away from the older shell-helper behavior
+**Why It Was Dangerous:** It blurred the boundary between the thin switchboard and the real command implementations, polluted child project layers with dashboard-managed helper copies, and made prompt output feel visibly off even when the branch label was technically present
+**Root Cause:** I stopped after moving bookmark bodies out of `bin/dashboard` and left the same anti-pattern in place for lightweight CLI commands, while reusing the active runtime write target for helper staging even though those built-ins are part of the home toolchain rather than layer-local user content
+**How Ellen Solved It:** Moved the shipped helper script sources into `share/private-cli/`, made `Developer::Dashboard::InternalCLI` stage those assets only under `~/.developer-dashboard/cli/`, kept `dashboard` as a real switchboard that execs staged helpers for lightweight built-ins, added a dedicated `CLI::Paths` helper module for `path` and `paths`, and restored prompt branch detection by parsing `git branch` output in the older style
+**How To Detect Earlier Next Time:** Read `bin/dashboard` before shipping and reject any direct lightweight command implementation load, run `dashboard init` from inside a project layer and assert no built-in helper appears under `./.developer-dashboard/cli/`, and check prompt output against the classic shell helper instead of only checking that some branch string appears
+**Prevention Rule:** The public `dashboard` command must stay a switchboard, dashboard-managed helper extraction must stay home-only, and prompt compatibility changes must be checked against the older operator-visible format rather than only internal helper output
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/21-refactor-coverage.t`, `prove -lv t/30-dashboard-loader.t`, `prove -lr t`, `cover -delete && HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t`, `dzil build`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `bin/dashboard`, `lib/Developer/Dashboard/InternalCLI.pm`, `lib/Developer/Dashboard/CLI/Paths.pm`, `lib/Developer/Dashboard/Prompt.pm`, `share/private-cli/*`, `Makefile.PL`, `t/05-cli-smoke.t`, `t/15-release-metadata.t`, `t/21-refactor-coverage.t`, `t/30-dashboard-loader.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `SOFTWARE_SPEC.md`, `AGENTS.override.md`
+
+---
+
 ## CODE: DD-OOP-LAYERS
 
 **Date:** 2026-04-07 10:10:00 UTC

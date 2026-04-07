@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '1.83';
+our $VERSION = '1.84';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -105,7 +105,8 @@ sub _indicator_parts {
 }
 
 # _git_branch($project_root)
-# Reads the current git branch for a project root if available.
+# Reads the current git branch for a project root if available using the older
+# `git branch` parsing style so the prompt matches the classic shell helper.
 # Input: project root directory path.
 # Output: branch name string or undef when unavailable.
 sub _git_branch {
@@ -115,13 +116,17 @@ sub _git_branch {
     my $old = cwd();
     chdir $project_root or return;
     my ( $stdout, undef, $exit_code ) = capture {
-        system 'git', 'rev-parse', '--abbrev-ref', 'HEAD';
+        system 'git', 'branch';
         return $? >> 8;
     };
     chdir $old or die "Unable to restore cwd to $old: $!";
     return if $exit_code != 0;
-    $stdout =~ s/\s+$// if defined $stdout;
-    return $stdout;
+    return if !defined $stdout || $stdout eq '';
+    for my $line ( split /\n/, $stdout ) {
+        next if !defined $line;
+        return $1 if $line =~ /^\*\s+(.+)$/;
+    }
+    return;
 }
 
 1;
