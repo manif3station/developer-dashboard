@@ -3,7 +3,7 @@ package Developer::Dashboard::UpdateManager;
 use strict;
 use warnings;
 
-our $VERSION = '1.95';
+our $VERSION = '1.96';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);

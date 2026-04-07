@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 60: TT Error Source Leak)
+
+- Fixed bookmark `HTML:` render failures so Template Toolkit syntax errors now show a visible runtime error instead of leaking raw `[% ... %]` source into rendered page output.
+- Fixed shared `nav/*.tt` error handling so broken nav fragments still surface their TT parse error in the shared nav strip instead of disappearing silently because `Template::Exception` objects were being skipped by the HTML fragment renderer.
+- Added web-route, nav-renderer, CLI, and real-browser regression coverage for broken TT syntax in saved pages and raw nav fragments.
+
 ## 2026-04-07 (Phase 59: Init MD5 Rewrite Drift)
 
 - Fixed `dashboard init` so dashboard-managed helper files under `~/.developer-dashboard/cli/` are compared by MD5 in Perl and skipped when the shipped content is unchanged, instead of being needlessly rewritten.

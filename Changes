@@ -1,5 +1,15 @@
 Revision history for Developer Dashboard
 
+1.96  2026-04-07
+    - fixed bookmark `HTML:` and shared `nav/*.tt` Template Toolkit syntax
+      failures so render mode now shows a visible runtime error instead of
+      leaking raw `[% ... %]` source back into the page
+    - stringified Template Toolkit exceptions before storing them in
+      `runtime_errors`, which restores browser-visible nav error reporting
+      instead of silently dropping broken nav fragments
+    - added browser, web-route, nav-renderer, and CLI coverage for broken TT
+      syntax in saved pages and raw nav fragments
+
 1.95  2026-04-07
     - made `dashboard init` compare dashboard-managed helper files and shipped
       starter bookmark files by MD5 inside Perl before writing, so unchanged

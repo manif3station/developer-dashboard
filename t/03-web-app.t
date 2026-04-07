@@ -848,6 +848,20 @@ like($body1d_raw_nav_source, qr/\[% index = '\/app\/index' %\]/, 'raw nav tt sou
 my ($code1d_saved_with_raw_nav, undef, $body1d_saved_with_raw_nav) = @{ $app->handle(path => '/app/index', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code1d_saved_with_raw_nav, 200, 'legacy /app/index route still responds after adding a raw nav tt fragment');
 like($body1d_saved_with_raw_nav, qr{<li data-nav-id="nav/here\.tt">\s*<a href=/app/index>/app/index</a>\s*</li>}s, 'saved page render includes raw nav tt fragment files in the shared nav output');
+open my $broken_raw_nav_fh, '>', File::Spec->catfile( $paths->dashboards_root, 'nav', 'here.tt' ) or die $!;
+print {$broken_raw_nav_fh} <<'TT';
+[% index = '/app/index' %]
+<a href="[% IF index %]">[% index %]</a>
+TT
+close $broken_raw_nav_fh;
+my ($code1d_broken_raw_nav_page, undef, $body1d_broken_raw_nav_page) = @{ $app->handle(path => '/app/nav/here.tt', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($code1d_broken_raw_nav_page, 200, 'legacy /app route still responds for a raw nav tt fragment with a syntax error');
+like($body1d_broken_raw_nav_page, qr/runtime-error/, 'legacy /app raw nav tt route exposes a runtime error for TT syntax failures');
+unlike($body1d_broken_raw_nav_page, qr/\[%\s*IF\s+index\s*%\]|\[%\s*index\s*%\]/, 'legacy /app raw nav tt route does not leak raw TT source when Template Toolkit parsing fails');
+my ($code1d_saved_with_broken_raw_nav, undef, $body1d_saved_with_broken_raw_nav) = @{ $app->handle(path => '/app/index', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($code1d_saved_with_broken_raw_nav, 200, 'legacy /app/index route still responds after a raw nav tt fragment gains a syntax error');
+like($body1d_saved_with_broken_raw_nav, qr/runtime-error/, 'saved page render surfaces nav TT syntax failures as runtime errors');
+unlike($body1d_saved_with_broken_raw_nav, qr/\[%\s*IF\s+index\s*%\]|\[%\s*index\s*%\]/, 'saved page render does not leak raw nav TT source when Template Toolkit parsing fails');
 
 my ($code1d_tt, undef, $body1d_tt) = @{ $app->handle(
     path        => '/',
@@ -883,6 +897,23 @@ is($code1d_tt_render, 200, 'TT bookmark play route ok');
 like($body1d_tt_render, qr{<h1>\s*Sample Dashboard\s*</h1>\s*1}s, 'TT render receives TITLE and STASH values');
 my ($tt_view_source_url) = $body1d_tt_render =~ m{<a href="([^"]+)" id="view-source-url">View Source</a>};
 is($tt_view_source_url, '/app/index/edit', 'TT render exposes a saved bookmark view source link');
+my $broken_tt_instruction = <<'PAGE';
+TITLE: Broken TT Bookmark
+:--------------------------------------------------------------------------------:
+BOOKMARK: broken-tt
+:--------------------------------------------------------------------------------:
+HTML: <div>before [% IF stash.foo %] broken</div>
+PAGE
+$store->save_page( Developer::Dashboard::PageDocument->from_instruction($broken_tt_instruction) );
+my ($code1d_broken_tt_render, undef, $body1d_broken_tt_render) = @{ $app->handle(
+    path        => '/app/broken-tt',
+    query       => '',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is($code1d_broken_tt_render, 200, 'TT bookmark render route still responds when Template Toolkit parsing fails');
+like($body1d_broken_tt_render, qr/runtime-error/, 'TT bookmark render route surfaces the Template Toolkit syntax error');
+unlike($body1d_broken_tt_render, qr/\[%\s*IF\s+stash\.foo\s*%\]/, 'TT bookmark render route does not leak raw TT syntax when Template Toolkit parsing fails');
 my ($code1d_tt_view_source, $type1d_tt_view_source, $body1d_tt_view_source) = @{ $app->handle(
     path        => '/app/index/edit',
     query       => '',

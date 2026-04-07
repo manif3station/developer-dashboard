@@ -933,6 +933,11 @@ file, it compares the existing content against the shipped content by MD5
 inside Perl first. If the content already matches, init skips the copy
 instead of rewriting the file unnecessarily.
 
+When bookmark `HTML:` or shared `nav/*.tt` fragments hit a Template Toolkit
+syntax error, render mode now shows a visible `runtime-error` block instead of
+leaking the raw `[% ... %]` source into the browser or `dashboard page render`
+output.
+
 Home helper staging is non-destructive too. `dashboard init` may add or update
 dashboard-managed built-in helpers under `~/.developer-dashboard/cli/`, but it
 must preserve any pre-existing user-owned files, directories, and unrelated

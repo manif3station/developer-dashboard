@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.95';
+our $VERSION = '1.96';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.95
+1.96
 
 =head1 INTRODUCTION
 
@@ -1489,6 +1489,11 @@ When C<dashboard init> refreshes a dashboard-managed helper or shipped
 starter file, it compares the existing content against the shipped content by
 MD5 inside Perl first. If the content already matches, init skips the copy
 instead of rewriting the file unnecessarily.
+
+When bookmark C<HTML:> or shared C<nav/*.tt> fragments hit a Template Toolkit
+syntax error, render mode now shows a visible C<runtime-error> block instead
+of leaking the raw C<[% ... %]> source into the browser or
+C<dashboard page render> output.
 
 Home helper staging is non-destructive too. C<dashboard init> may add or
 update dashboard-managed built-in helpers under

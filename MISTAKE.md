@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: TT-ERROR-SOURCE-LEAK
+
+**Date:** 2026-04-07 21:40:00 UTC
+**Area:** bookmark rendering, shared nav rendering, Template Toolkit error handling, and browser/CLI parity
+**Symptom:** A broken bookmark `HTML:` section or raw `nav/*.tt` fragment leaked raw `[% ... %]` source back into rendered output, and broken nav fragments could disappear entirely instead of showing the TT error
+**Why It Was Dangerous:** It hid real template failures, exposed raw template source in the browser and CLI output, and made the shared nav look empty or inconsistent instead of telling the user exactly what broke
+**Root Cause:** `PageRuntime` kept the original template body when `Template->process` failed and stored `Template::Exception` objects directly in `runtime_errors`, while the fragment renderers only emitted string runtime errors
+**How Ellen Solved It:** Reproduced the bug on a real saved bookmark page with a broken `nav/here.tt`, added web, nav, and CLI regressions for true TT parse failures, blanked the failed rendered body, stringified TT exceptions before storing them, and re-verified the saved-page browser path in Chromium
+**How To Detect Earlier Next Time:** Create a saved bookmark plus a raw `nav/*.tt` fragment with a missing `END`, load the normal `/app/<id>` page in a browser, and verify that a `runtime-error` block is visible while no raw `[% ... %]` tokens remain in the DOM
+**Prevention Rule:** Template Toolkit syntax failures must be visible errors, not source leaks: render paths may show a `runtime-error` block, but they must never emit raw broken TT source back into rendered bookmark or nav HTML
+**Verification:** `prove -lv t/03-web-app.t t/05-cli-smoke.t t/08-web-update-coverage.t`, Chromium headless DOM dump for `/app/index`, `prove -lr t`
+**Related Files:** `lib/Developer/Dashboard/PageRuntime.pm`, `t/03-web-app.t`, `t/05-cli-smoke.t`, `t/08-web-update-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: INIT-MD5-REWRITE-DRIFT
 
 **Date:** 2026-04-07 21:20:00 UTC

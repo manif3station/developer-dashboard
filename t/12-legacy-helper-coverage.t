@@ -688,7 +688,8 @@ my $tt_error_page = Developer::Dashboard::PageDocument->new(
     layout => { body => '[% THROW boom "bad" %]' },
 );
 $runtime->prepare_page( page => $tt_error_page, source => 'saved', runtime_context => {} );
-like( $tt_error_page->{layout}{body}, qr/THROW boom/, 'prepare_page leaves unsupported template directives untouched' );
+is( $tt_error_page->{layout}{body}, '', 'prepare_page clears the failed template body when Template Toolkit parsing fails' );
+like( join( '', @{ $tt_error_page->{meta}{runtime_errors} || [] } ), qr/boom error - bad|THROW boom|parse error|unexpected/i, 'prepare_page records a visible Template Toolkit runtime error for unsupported directives' );
 is( $runtime->_system_context( runtime_context => {}, source => '' )->{cwd}, '.', '_system_context defaults cwd when omitted' );
 is( Developer::Dashboard::Web::App::_escape_html('<x>'), '&lt;x&gt;', '_escape_html escapes HTML markup' );
 

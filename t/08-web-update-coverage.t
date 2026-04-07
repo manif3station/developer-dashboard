@@ -255,6 +255,18 @@ like( $nav_render, qr/nav-form-body/, 'shared nav renderer includes HTML body fr
 like( $nav_render, qr{<li data-nav-id="nav/here\.tt">\s*<a href=/app/index>/app/index</a>\s*</li>}s, 'shared nav renderer executes raw nav tt fragment files through Template Toolkit' );
 unlike( $nav_render, qr/broken\.tt/, 'shared nav renderer skips invalid nav tt bookmark files' );
 unlike( $nav_render, qr/empty\.tt/, 'shared nav renderer skips nav tt bookmarks that render an empty fragment' );
+open my $nav_broken_tt_fh, '>', $nav_raw_tt_file or die $!;
+print {$nav_broken_tt_fh} <<'TT';
+[% index = '/app/index' %]
+<a href="[% IF index %]">[% index %]</a>
+TT
+close $nav_broken_tt_fh;
+my $nav_broken_render = $app->_nav_items_html(
+    page            => $page,
+    runtime_context => { params => {} },
+);
+like( $nav_broken_render, qr/runtime-error/, 'shared nav renderer surfaces Template Toolkit syntax failures from raw nav tt fragments' );
+unlike( $nav_broken_render, qr/\[%\s*IF\s+index\s*%\]|\[%\s*index\s*%\]/, 'shared nav renderer does not leak raw nav tt source after Template Toolkit parse failures' );
 
 my $nav_self_render = $app->_nav_items_html(
     page            => $nav_form,
@@ -357,6 +369,18 @@ unlike( $fragment, qr/frag-form/, '_page_fragment_html ignores removed form cont
 like( $fragment, qr/frag-output/, '_page_fragment_html includes runtime output fragments' );
 like( $fragment, qr/runtime-error/, '_page_fragment_html renders runtime errors' );
 is( $app->_page_fragment_html(), '', '_page_fragment_html returns empty html when no page is provided' );
+my $prepared_broken_page = $runtime->prepare_page(
+    page => Developer::Dashboard::PageDocument->new(
+        id     => 'broken-template',
+        title  => 'Broken Template',
+        layout => { body => '<div>before [% IF stash.name %] broken</div>' },
+    ),
+    runtime_context => { params => {}, current_page => '/app/broken-template' },
+    source          => 'saved',
+);
+my $broken_fragment = $app->_page_fragment_html($prepared_broken_page);
+like( $broken_fragment, qr/runtime-error/, '_page_fragment_html shows Template Toolkit syntax failures from broken bookmark bodies' );
+unlike( $broken_fragment, qr/\[%\s*IF\s+stash\.name\s*%\]/, '_page_fragment_html does not leak raw TT syntax from broken bookmark bodies' );
 
 my ( $not_found_code, $not_found_type, $not_found_body ) = @{ $app->handle( path => '/missing', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $not_found_code, 404, 'unknown routes return not found' );

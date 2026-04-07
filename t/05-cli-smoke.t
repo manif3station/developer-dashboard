@@ -210,6 +210,20 @@ close $tt_page_fh;
 my $tt_page_render = _run("$perl -I'$lib' '$dashboard' page render tt-cli-demo");
 like( $tt_page_render, qr{<h1>\s*TT CLI Demo\s*</h1>\s*42}s, 'dashboard page render applies Template Toolkit to saved bookmark HTML before rendering' );
 unlike( $tt_page_render, qr/\[%\s*title\s*%\]|\[%\s*stash\.foo\s*%\]/, 'dashboard page render does not leave raw TT placeholders in the rendered HTML output' );
+my $broken_tt_page_instruction = <<'BOOKMARK';
+TITLE: Broken TT CLI Demo
+:--------------------------------------------------------------------------------:
+BOOKMARK: tt-cli-broken
+:--------------------------------------------------------------------------------:
+HTML: <div>before [% IF stash.foo %] broken</div>
+BOOKMARK
+my $broken_tt_page_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'dashboards', 'tt-cli-broken' );
+open my $broken_tt_page_fh, '>', $broken_tt_page_file or die "Unable to write $broken_tt_page_file: $!";
+print {$broken_tt_page_fh} $broken_tt_page_instruction;
+close $broken_tt_page_fh;
+my $broken_tt_page_render = _run("$perl -I'$lib' '$dashboard' page render tt-cli-broken");
+like( $broken_tt_page_render, qr/runtime-error/, 'dashboard page render surfaces Template Toolkit syntax failures as runtime errors' );
+unlike( $broken_tt_page_render, qr/\[%\s*IF\s+stash\.foo\s*%\]/, 'dashboard page render does not leak raw TT syntax after a Template Toolkit parse failure' );
 
 my $collector = _run("$perl -I'$lib' '$dashboard' collector run example.collector");
 like($collector, qr/example collector output/, 'collector run works');
