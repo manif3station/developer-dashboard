@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: RAW-NAV-TT-BYPASS
+
+**Date:** 2026-04-07 18:35:00 UTC
+**Area:** shared nav rendering, raw Template Toolkit fragment support, and browser route parity
+**Symptom:** `nav/*.tt` files written as raw TT/HTML fragments disappeared from the shared nav strip and did not render on `/app/nav/<name>.tt` unless they were wrapped as full bookmark documents
+**Why It Was Dangerous:** It silently dropped useful navigation links from real pages, made the documented `nav/*.tt` surface more restrictive than users expected, and left browser-visible breakage behind a passing test set that only covered bookmark-style nav files
+**Root Cause:** The nav renderer and saved-page loader always tried to parse `nav/*.tt` as bookmark instruction documents, so raw TT fragment files failed parsing and were skipped entirely
+**How Ellen Solved It:** Reproduced the problem with `index`, `footer`, and a raw `nav/here.tt` file, added renderer and route regression coverage for that exact case, verified the fix in Chromium against `/app/index`, and taught `PageStore` to wrap only TT/HTML-looking `nav/*.tt` files as raw nav pages while still rejecting junk
+**How To Detect Earlier Next Time:** Test both bookmark-style `BOOKMARK: nav/foo.tt` files and raw `nav/foo.tt` TT fragments through `_nav_items_html`, `/app/index`, `/app/nav/foo.tt`, and a real browser DOM capture before claiming nav TT support is healthy
+**Prevention Rule:** `nav/*.tt` support must cover both saved bookmark documents and raw TT/HTML fragment files, but invalid non-fragment junk under `nav/` must still be ignored explicitly
+**Verification:** `prove -lv t/03-web-app.t t/08-web-update-coverage.t`, Chromium DOM capture against `/app/index`
+**Related Files:** `lib/Developer/Dashboard/PageStore.pm`, `lib/Developer/Dashboard/Web/App.pm`, `t/03-web-app.t`, `t/08-web-update-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`
+
+---
+
 ## CODE: CLI-TT-RENDER-BYPASS
 
 **Date:** 2026-04-07 18:05:00 UTC

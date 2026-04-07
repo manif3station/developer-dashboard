@@ -236,6 +236,14 @@ my $nav_missing_file = File::Spec->catfile( $paths->dashboards_root, 'nav', 'bro
 open my $nav_missing_fh, '>', $nav_missing_file or die $!;
 print {$nav_missing_fh} "not a bookmark\n";
 close $nav_missing_fh;
+my $nav_raw_tt_file = File::Spec->catfile( $paths->dashboards_root, 'nav', 'here.tt' );
+open my $nav_raw_tt_fh, '>', $nav_raw_tt_file or die $!;
+print {$nav_raw_tt_fh} <<'TT';
+[% index = '/app/index' %]
+[% foo = '/app/foobar' %]
+<a href=[% index %]>[% index %]</a>
+TT
+close $nav_raw_tt_fh;
 
 my $nav_render = $app->_nav_items_html(
     page            => $page,
@@ -244,6 +252,7 @@ my $nav_render = $app->_nav_items_html(
 like( $nav_render, qr/dashboard-nav-items/, 'shared nav renderer emits a nav container when valid nav tt files exist' );
 like( $nav_render, qr/nav-form/, 'shared nav renderer includes HTML content from nav tt bookmarks' );
 like( $nav_render, qr/nav-form-body/, 'shared nav renderer includes HTML body fragments from nav tt bookmarks' );
+like( $nav_render, qr{<li data-nav-id="nav/here\.tt">\s*<a href=/app/index>/app/index</a>\s*</li>}s, 'shared nav renderer executes raw nav tt fragment files through Template Toolkit' );
 unlike( $nav_render, qr/broken\.tt/, 'shared nav renderer skips invalid nav tt bookmark files' );
 unlike( $nav_render, qr/empty\.tt/, 'shared nav renderer skips nav tt bookmarks that render an empty fragment' );
 

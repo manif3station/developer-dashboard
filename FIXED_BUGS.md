@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 57: Raw Nav TT Bypass)
+
+- Fixed shared `nav/*.tt` support so raw Template Toolkit fragment files such as `nav/here.tt` now render in the shared nav strip and through `/app/nav/<name>.tt` instead of being ignored unless they were wrapped as full bookmark documents.
+- Fixed raw-nav validation drift by accepting only `nav/*.tt` files that actually look like TT or HTML fragments, so junk files such as `nav/broken.tt` stay out of the rendered nav instead of leaking plain text into the page chrome.
+- Added web-route, nav-renderer, and real browser regression coverage for the raw-nav fragment path.
+
 ## 2026-04-07 (Phase 56: CLI TT Render Bypass)
 
 - Fixed `dashboard page render` so saved bookmark pages now pass through `Developer::Dashboard::PageRuntime->prepare_page` before HTML rendering.

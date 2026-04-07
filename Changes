@@ -1,5 +1,14 @@
 Revision history for Developer Dashboard
 
+1.93  2026-04-07
+    - fixed shared `nav/*.tt` rendering so raw Template Toolkit fragment files
+      such as `nav/here.tt` now render in the shared nav strip and through
+      `/app/nav/<name>.tt` instead of being ignored unless they were wrapped as
+      full bookmark documents
+    - kept invalid junk files out of the nav strip by only accepting raw
+      `nav/*.tt` files that actually look like TT or HTML fragments, and added
+      route plus browser-backed regression coverage for that path
+
 1.92  2026-04-07
     - fixed `dashboard page render` so saved bookmark pages now run through
       the same `PageRuntime->prepare_page` path as the browser, which restores

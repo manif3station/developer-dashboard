@@ -136,6 +136,7 @@ The web tests also cover the access model:
 - malformed bookmark icon bytes from older files are repaired into stable fallback glyphs on both `/app/<id>` and `/app/<id>/edit`, so browser verification should check for visible fallback icons instead of `�`
 - nested saved bookmark ids such as `nav/foo.tt` through `/app/...`, `/app/.../edit`, and `/app/.../source`
 - shared `nav/*.tt` bookmark rendering between top chrome and the main page body in sorted filename order
+- raw `nav/*.tt` TT/HTML fragment rendering between top chrome and the main page body, plus direct `/app/nav/<name>.tt` and `/source` coverage for those raw fragment files
 - Template Toolkit conditional rendering for shared nav fragments and saved pages using `env.current_page` and `env.runtime_context.current_page`
 - `/apps -> /app/index` compatibility
 - top chrome rendering on edit and saved render pages

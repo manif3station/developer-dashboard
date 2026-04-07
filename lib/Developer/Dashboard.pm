@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.92';
+our $VERSION = '1.93';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.92
+1.93
 
 =head1 INTRODUCTION
 
@@ -191,10 +191,17 @@ C</app/nav/foo.tt/source>
 =back
 
 The bookmark editor can save those nested ids directly, for example
-C<BOOKMARK: nav/foo.tt>. On a page like C</app/index>, the direct C<nav/*.tt>
-files are loaded in sorted filename order, rendered through the normal page
-runtime, and inserted above the page body. Non-C<.tt> files and subdirectories
-under C<nav/> are ignored by that shared-nav renderer.
+C<BOOKMARK: nav/foo.tt>. Raw TT/HTML fragment files under C<nav/> also work
+without bookmark wrappers, for example:
+
+  [% index = '/app/index' %]
+  <a href=[% index %]>[% index %]</a>
+
+On a page like C</app/index>, the direct C<nav/*.tt> files are loaded in
+sorted filename order, rendered through the normal page runtime, and inserted
+above the page body. Non-C<.tt> files, subdirectories under C<nav/>, and junk
+files that do not look like TT or HTML fragments are ignored by that shared
+nav renderer.
 
 Under C<DD-OOP-LAYERS>, the shared nav renderer now scans every inherited
 F<dashboards/nav/> layer from F<~/.developer-dashboard> down to the current

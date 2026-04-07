@@ -360,10 +360,19 @@ And with route access such as:
 - `/app/nav/foo.tt/source`
 
 The bookmark editor can save those nested ids directly, for example
-`BOOKMARK: nav/foo.tt`. On a page like `/app/index`, the direct `nav/*.tt`
-files are loaded in sorted filename order, rendered through the normal page
-runtime, and inserted above the page body. Non-`.tt` files and subdirectories
-under `nav/` are ignored by that shared-nav renderer.
+`BOOKMARK: nav/foo.tt`. Raw TT/HTML fragment files under `nav/` also work
+without bookmark wrappers, for example:
+
+```tt
+[% index = '/app/index' %]
+<a href=[% index %]>[% index %]</a>
+```
+
+On a page like `/app/index`, the direct `nav/*.tt` files are loaded in sorted
+filename order, rendered through the normal page runtime, and inserted above
+the page body. Non-`.tt` files, subdirectories under `nav/`, and junk files
+that do not look like TT or HTML fragments are ignored by that shared-nav
+renderer.
 
 Under `DD-OOP-LAYERS`, the shared nav renderer now scans every inherited
 `dashboards/nav/` layer from `~/.developer-dashboard` down to the current

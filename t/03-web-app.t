@@ -831,6 +831,23 @@ my ($code1d_nav_source, $type1d_nav_source, $body1d_nav_source) = @{ $app->handl
 is($code1d_nav_source, 200, 'nested nav bookmark source route ok');
 like($type1d_nav_source, qr/text\/plain/, 'nested nav bookmark source route returns plain text');
 like($body1d_nav_source, qr/^BOOKMARK:\s+nav\/foo.tt$/m, 'nested nav bookmark source route preserves nested bookmark id');
+open my $raw_nav_fh, '>', File::Spec->catfile( $paths->dashboards_root, 'nav', 'here.tt' ) or die $!;
+print {$raw_nav_fh} <<'TT';
+[% index = '/app/index' %]
+[% foo = '/app/foobar' %]
+<a href=[% index %]>[% index %]</a>
+TT
+close $raw_nav_fh;
+my ($code1d_raw_nav_page, undef, $body1d_raw_nav_page) = @{ $app->handle(path => '/app/nav/here.tt', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($code1d_raw_nav_page, 200, 'legacy /app route loads raw nav tt fragment ids');
+like($body1d_raw_nav_page, qr{<a href=/app/index>/app/index</a>}s, 'legacy /app nested nav route renders raw nav tt fragment files through Template Toolkit');
+my ($code1d_raw_nav_source, $type1d_raw_nav_source, $body1d_raw_nav_source) = @{ $app->handle(path => '/app/nav/here.tt/source', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($code1d_raw_nav_source, 200, 'raw nav tt source route ok');
+like($type1d_raw_nav_source, qr/text\/plain/, 'raw nav tt source route returns plain text');
+like($body1d_raw_nav_source, qr/\[% index = '\/app\/index' %\]/, 'raw nav tt source route preserves the original raw nav tt source');
+my ($code1d_saved_with_raw_nav, undef, $body1d_saved_with_raw_nav) = @{ $app->handle(path => '/app/index', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($code1d_saved_with_raw_nav, 200, 'legacy /app/index route still responds after adding a raw nav tt fragment');
+like($body1d_saved_with_raw_nav, qr{<li data-nav-id="nav/here\.tt">\s*<a href=/app/index>/app/index</a>\s*</li>}s, 'saved page render includes raw nav tt fragment files in the shared nav output');
 
 my ($code1d_tt, undef, $body1d_tt) = @{ $app->handle(
     path        => '/',

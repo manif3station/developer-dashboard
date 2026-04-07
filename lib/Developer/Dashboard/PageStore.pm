@@ -3,7 +3,7 @@ package Developer::Dashboard::PageStore;
 use strict;
 use warnings;
 
-our $VERSION = '1.92';
+our $VERSION = '1.93';
 use utf8;
 
 use Encode qw(decode FB_CROAK FB_DEFAULT);
@@ -65,7 +65,7 @@ sub load_saved_page {
     my ( $self, $id ) = @_;
     my $file = $self->_existing_page_file($id);
     die "Page '$id' not found" if !$file;
-    my $page = $self->_load_page_file($file);
+    my $page = $self->_load_page_file( $file, id => $id );
     $page->{id} ||= $id;
     $page->{meta}{source_kind} = 'saved';
     $page->{meta}{raw_instruction} = $self->_read_saved_instruction($file);
@@ -148,7 +148,7 @@ sub list_saved_pages {
         for my $entry ( $self->_saved_page_entries_for_root($root) ) {
             my $id = $entry->{id};
             next if !defined $id || $id eq '';
-            my $ok = eval { $self->_load_page_file( $entry->{file} ); 1 };
+            my $ok = eval { $self->_load_page_file( $entry->{file}, id => $id ); 1 };
             next if !$ok;
             $ids{$id} = 1;
         }
@@ -228,13 +228,53 @@ sub _existing_page_file {
     return;
 }
 
-# _load_page_file($file)
-# Loads and parses one bookmark file from disk.
-# Input: bookmark file path string.
+# _load_page_file($file, %args)
+# Loads and parses one bookmark file from disk, with raw nav/*.tt fragment fallback.
+# Input: bookmark file path string plus optional saved-page id.
 # Output: Developer::Dashboard::PageDocument object.
 sub _load_page_file {
-    my ( $self, $file ) = @_;
-    return Developer::Dashboard::PageDocument->from_instruction( $self->_read_saved_instruction($file) );
+    my ( $self, $file, %args ) = @_;
+    my $instruction = $self->_read_saved_instruction($file);
+    my $page = eval { Developer::Dashboard::PageDocument->from_instruction($instruction) };
+    return $page if $page;
+
+    my $id = $args{id} || '';
+    if ( $id =~ m{\Anav/.+\.tt\z} && $self->_looks_like_raw_nav_fragment($instruction) ) {
+        return $self->_raw_nav_fragment_page(
+            id          => $id,
+            instruction => $instruction,
+        );
+    }
+
+    die( $@ || "Unable to load bookmark file $file" );
+}
+
+# _raw_nav_fragment_page(%args)
+# Wraps a raw nav/*.tt Template Toolkit fragment file as a renderable page document.
+# Input: saved nav id and raw instruction text string.
+# Output: Developer::Dashboard::PageDocument object.
+sub _raw_nav_fragment_page {
+    my ( $self, %args ) = @_;
+    my $id = $args{id} || die 'Missing raw nav fragment id';
+    my $instruction = defined $args{instruction} ? $args{instruction} : '';
+    return Developer::Dashboard::PageDocument->new(
+        id     => $id,
+        title  => basename($id),
+        layout => { body => $instruction },
+        meta   => { source_format => 'raw-nav-tt' },
+    );
+}
+
+# _looks_like_raw_nav_fragment($instruction)
+# Decides whether one nav/*.tt file is a real raw TT/HTML fragment instead of junk text.
+# Input: raw saved file text string.
+# Output: boolean true when the file looks like raw TT/HTML nav content.
+sub _looks_like_raw_nav_fragment {
+    my ( $self, $instruction ) = @_;
+    return 0 if !defined $instruction || $instruction eq '';
+    return 1 if $instruction =~ /\[%/;
+    return 1 if $instruction =~ /<\s*[A-Za-z!\/][^>]*>/;
+    return 0;
 }
 
 # _read_saved_instruction($file)
