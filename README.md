@@ -791,6 +791,12 @@ bracketed working directory, an optional jobs suffix, and a trailing
 seeded `TICKET_REF` into the current tmux session, `dashboard ps1` also reads
 it from tmux when the shell environment does not already export it.
 
+The path helpers also treat path identity canonically where the filesystem can
+surface aliases. On macOS, `dashboard path project-root` may report the same
+repo through `/private/var/...` even when the shell entered it through
+`/var/...`, and the test/install contract now treats those as the same real
+path instead of failing on a raw-string mismatch.
+
 Generate shell bootstrap:
 
 ```bash

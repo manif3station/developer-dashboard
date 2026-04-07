@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: PATH-ROOT-ALIAS-ASSERTION-DRIFT
+
+**Date:** 2026-04-07 17:20:00 UTC
+**Area:** packaged test portability, CLI path reporting, and macOS temp-path aliases
+**Symptom:** `cpanm Developer-Dashboard-1.89.tar.gz` failed on macOS because `t/21-refactor-coverage.t` expected `dashboard path project-root` to echo `/var/...`, while `cwd()` and git-root discovery reported the same repo through `/private/var/...`
+**Why It Was Dangerous:** It made the shipped tarball fail its own tests on macOS even though the runtime command resolved the right project root, which turns a good runtime into a broken install experience
+**Root Cause:** The packaged CLI path test compared raw path strings instead of comparing path identity, so macOS filesystem aliases were treated as different repos
+**How Ellen Solved It:** Reproduced the install-time failure, changed the `t/21-refactor-coverage.t` assertion to compare canonical path identity, and documented that `dashboard path project-root` may return the canonical filesystem spelling on macOS
+**How To Detect Earlier Next Time:** Run the path-helper tests from a packaged tarball on macOS or compare fixture paths through `abs_path` whenever `cwd()` or git-root discovery can canonicalize temp directories
+**Prevention Rule:** Tests for filesystem location commands must compare path identity when the platform can expose multiple spellings for the same directory
+**Verification:** `prove -lv t/21-refactor-coverage.t`, `prove -lr t`, `dzil build`, built-dist `prove -lr t/15-release-metadata.t t/30-dashboard-loader.t`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `t/21-refactor-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`, `dist.ini`, `t/15-release-metadata.t`
+
+---
+
 ## CODE: CANONICAL-PATH-LAYER-DRIFT
 
 **Date:** 2026-04-07 16:30:00 UTC

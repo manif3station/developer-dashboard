@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.89';
+our $VERSION = '1.90';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.89
+1.90
 
 =head1 INTRODUCTION
 
@@ -1254,6 +1254,10 @@ The default web bind is C<0.0.0.0:7890>. Trust is still decided from the request
 C<DD-OOP-LAYERS> comparisons normalize canonical path identities, so symlinked
 aliases such as macOS C</var/...> versus C</private/var/...> do not break
 layer discovery, deepest-layer writes, or layered bookmark/nav lookup.
+The CLI path helpers follow the same portability rule: commands such as
+C<dashboard path project-root> may surface the canonical filesystem path, and
+the supported contract treats macOS aliases such as C</var/...> and
+C</private/var/...> as the same project root instead of different repos.
 
 =head2 Runtime Lifecycle
 

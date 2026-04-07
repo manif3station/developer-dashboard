@@ -1,5 +1,14 @@
 Revision history for Developer Dashboard
 
+1.90  2026-04-07
+    - fixed the packaged `t/21-refactor-coverage.t` `dashboard path
+      project-root` assertion so it now compares path identity instead of raw
+      strings, keeping macOS `/var/...` versus `/private/var/...` aliases from
+      breaking `cpanm` installs even though the command resolved the right repo
+    - added explicit testing/docs coverage for the path-helper portability
+      contract so packaged installs now treat canonical filesystem aliases as
+      the same project root
+
 1.89  2026-04-07
     - fixed DD-OOP-LAYERS path discovery on symlink-heavy platforms such as
       macOS by comparing canonical path identities instead of raw path strings,

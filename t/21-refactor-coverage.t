@@ -3,7 +3,7 @@ use warnings;
 use utf8;
 
 use Capture::Tiny qw(capture);
-use Cwd qw(getcwd);
+use Cwd qw(abs_path getcwd);
 use Encode qw(decode_utf8);
 use File::Path qw(make_path);
 use File::Spec;
@@ -22,6 +22,18 @@ use Developer::Dashboard::Prompt;
 use Developer::Dashboard::Runtime::Result ();
 use Developer::Dashboard::SkillDispatcher;
 use Developer::Dashboard::SkillManager;
+
+sub _portable_path {
+    my ($path) = @_;
+    return undef if !defined $path;
+    my $resolved = eval { abs_path($path) };
+    return defined $resolved && $resolved ne '' ? $resolved : $path;
+}
+
+sub is_same_path {
+    my ( $got, $expected, $label ) = @_;
+    is( _portable_path($got), _portable_path($expected), $label );
+}
 
 local $ENV{HOME} = tempdir( CLEANUP => 1 );
 
@@ -225,7 +237,8 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
         );
     };
     is( $stderr, '', 'CLI::Paths project-root writes no stderr on success' );
-    is( $stdout, "$project_dir\n", 'CLI::Paths project-root reports the current git project root' );
+    chomp $stdout;
+    is_same_path( $stdout, $project_dir, 'CLI::Paths project-root reports the current git project root' );
 
     ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command(

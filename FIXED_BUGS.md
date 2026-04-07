@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 54: Path Root Alias Assertion Drift)
+
+- Fixed the packaged `t/21-refactor-coverage.t` `dashboard path project-root` assertion so it now compares path identity instead of raw strings.
+- Fixed macOS install-time failures where the same temp repo could appear as `/var/...` in the test fixture and `/private/var/...` from `cwd()`, even though the command resolved the correct project root.
+- Added explicit testing/documentation coverage for the CLI path portability contract so `cpanm` installs stay green on symlink-heavy platforms.
+
 ## 2026-04-07 (Phase 53: Canonical Path Layer Drift)
 
 - Fixed DD-OOP-LAYERS discovery on symlink-heavy platforms such as macOS by comparing canonical path identities instead of raw path strings.
