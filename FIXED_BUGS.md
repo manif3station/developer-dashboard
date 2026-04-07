@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 61: SQL Real Driver Coverage Gap)
+
+- Fixed `sql-dashboard` so passwordless profiles such as SQLite may keep the database user blank, with the blank user preserved in the portable `connection=dsn|user` id instead of being rejected as missing input.
+- Fixed shared SQLite route handling so a passwordless saved or reconstructed draft profile now auto-runs correctly without inventing a password requirement that does not exist for the DSN.
+- Added a 50-case real SQLite Playwright matrix plus optional docker-backed MySQL/PostgreSQL Playwright coverage, while keeping `DBD::SQLite`, `DBD::mysql`, and `DBD::Pg` out of shipped runtime prerequisites.
+
 ## 2026-04-07 (Phase 60: TT Error Source Leak)
 
 - Fixed bookmark `HTML:` render failures so Template Toolkit syntax errors now show a visible runtime error instead of leaking raw `[% ... %]` source into rendered page output.

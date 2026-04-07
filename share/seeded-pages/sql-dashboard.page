@@ -94,7 +94,7 @@ HTML: <style>
           <label>DSN
             <input id="sql-profile-dsn" type="text" placeholder="dbi:SQLite:dbname=/tmp/demo.db">
           </label>
-          <label>User
+          <label>User <small>(optional for SQLite and other passwordless connections)</small>
             <input id="sql-profile-user" type="text" placeholder="demo">
           </label>
           <label>Password
@@ -105,7 +105,7 @@ HTML: <style>
           </label>
         </div>
         <label class="sql-checkbox"><input id="sql-profile-save-password" type="checkbox"> Save password to the local runtime profile file</label>
-        <p class="sql-help">Profiles are stored under <code>.developer-dashboard/config/sql-dashboard/&lt;profile-name&gt;.json</code>. Shared URLs only carry the portable <code>connection</code> id built from DSN and user.</p>
+        <p class="sql-help">Profiles are stored under <code>.developer-dashboard/config/sql-dashboard/&lt;profile-name&gt;.json</code>. Shared URLs only carry the portable <code>connection</code> id built from DSN and user. SQLite and other passwordless/local DSNs can leave the user blank.</p>
       </div>
     </div>
   </section>
@@ -251,7 +251,7 @@ HTML: <style>
   function connectionIdFromParts(dsn, user) {
     dsn = String(dsn || '').trim();
     user = String(user || '').trim();
-    if (!dsn || !user) return '';
+    if (!dsn) return '';
     return dsn + '|' + user;
   }
 
@@ -262,7 +262,7 @@ HTML: <style>
     if (index < 1) return null;
     var dsn = connectionId.slice(0, index);
     var user = connectionId.slice(index + 1);
-    if (!dsn || !user) return null;
+    if (!dsn) return null;
     var driver = '';
     var match = dsn.match(/^dbi:([^:]+):/i);
     if (match && match[1]) driver = 'DBD::' + match[1];
@@ -319,6 +319,22 @@ HTML: <style>
 
   function currentFormConnectionId() {
     return connectionIdFromParts(byId('sql-profile-dsn').value, byId('sql-profile-user').value);
+  }
+
+  function profileNeedsLocalPassword(profile) {
+    profile = profile || {};
+    var dsn = String(profile.dsn || '').trim();
+    var user = String(profile.user || '').trim();
+    var password = String(profile.password || '');
+    var driver = String(profile.driver || '').trim();
+    if (!driver) {
+      var match = dsn.match(/^dbi:([^:]+):/i);
+      if (match && match[1]) driver = 'DBD::' + match[1];
+    }
+    if (driver === 'DBD::SQLite' && !user && password === '') {
+      return false;
+    }
+    return password === '';
   }
 
   function currentRoute() {
@@ -770,8 +786,8 @@ HTML: <style>
   function maybeAutoRunSharedRoute(route) {
     if (!route || !route.connection || !route.sql) return;
     var payload = profilePayloadFromForm();
-    if (!payload.password) {
-      banner('Shared SQL loaded. Add the local password for this connection profile before running it here.', false);
+    if (profileNeedsLocalPassword(payload)) {
+      banner('Shared SQL loaded. Add any required local credentials for this connection profile before running it here.', false);
       render({ replaceRoute: true });
       return;
     }
@@ -1129,7 +1145,7 @@ sub sql_dashboard_connection_id {
     my ( $dsn, $user ) = @_;
     $dsn  = sql_dashboard_trim($dsn);
     $user = sql_dashboard_trim($user);
-    return '' if $dsn eq '' || $user eq '';
+    return '' if $dsn eq '';
     return $dsn . '|' . $user;
 }
 
@@ -1140,8 +1156,9 @@ sub sql_dashboard_connection_id {
 sub sql_dashboard_parse_connection_id {
     my ($connection_id) = @_;
     $connection_id = sql_dashboard_trim($connection_id);
-    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|([^|]+)\z/;
+    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|(.*)\z/;
     my ( $dsn, $user ) = ( $1, $2 );
+    return undef if $dsn eq '';
     my $driver = '';
     if ( $dsn =~ /\Adbi:([^:]+):/i ) {
         $driver = 'DBD::' . $1;
@@ -1259,7 +1276,6 @@ sub sql_dashboard_decode_profile_payload {
     die "Missing profile name\n" if $profile->{name} eq '';
     die "Missing driver module\n" if $profile->{driver} eq '';
     die "Missing DSN\n" if $profile->{dsn} eq '';
-    die "Missing database user\n" if $profile->{user} eq '';
     if ( $profile->{attrs_json} ne '' ) {
         my $attrs = json_decode( $profile->{attrs_json} );
         die "DBI attrs_json must decode to a JSON object\n" if ref($attrs) ne 'HASH';
@@ -1493,7 +1509,7 @@ sub sql_dashboard_connection_id {
     my ( $dsn, $user ) = @_;
     $dsn  = sql_dashboard_trim($dsn);
     $user = sql_dashboard_trim($user);
-    return '' if $dsn eq '' || $user eq '';
+    return '' if $dsn eq '';
     return $dsn . '|' . $user;
 }
 
@@ -1504,8 +1520,9 @@ sub sql_dashboard_connection_id {
 sub sql_dashboard_parse_connection_id {
     my ($connection_id) = @_;
     $connection_id = sql_dashboard_trim($connection_id);
-    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|([^|]+)\z/;
+    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|(.*)\z/;
     my ( $dsn, $user ) = ( $1, $2 );
+    return undef if $dsn eq '';
     my $driver = '';
     if ( $dsn =~ /\Adbi:([^:]+):/i ) {
         $driver = 'DBD::' . $1;
@@ -1623,7 +1640,6 @@ sub sql_dashboard_decode_profile_payload {
     die "Missing profile name\n" if $profile->{name} eq '';
     die "Missing driver module\n" if $profile->{driver} eq '';
     die "Missing DSN\n" if $profile->{dsn} eq '';
-    die "Missing database user\n" if $profile->{user} eq '';
     if ( $profile->{attrs_json} ne '' ) {
         my $attrs = json_decode( $profile->{attrs_json} );
         die "DBI attrs_json must decode to a JSON object\n" if ref($attrs) ne 'HASH';
@@ -1858,7 +1874,7 @@ sub sql_dashboard_connection_id {
     my ( $dsn, $user ) = @_;
     $dsn  = sql_dashboard_trim($dsn);
     $user = sql_dashboard_trim($user);
-    return '' if $dsn eq '' || $user eq '';
+    return '' if $dsn eq '';
     return $dsn . '|' . $user;
 }
 
@@ -1869,8 +1885,9 @@ sub sql_dashboard_connection_id {
 sub sql_dashboard_parse_connection_id {
     my ($connection_id) = @_;
     $connection_id = sql_dashboard_trim($connection_id);
-    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|([^|]+)\z/;
+    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|(.*)\z/;
     my ( $dsn, $user ) = ( $1, $2 );
+    return undef if $dsn eq '';
     my $driver = '';
     if ( $dsn =~ /\Adbi:([^:]+):/i ) {
         $driver = 'DBD::' . $1;
@@ -1988,7 +2005,6 @@ sub sql_dashboard_decode_profile_payload {
     die "Missing profile name\n" if $profile->{name} eq '';
     die "Missing driver module\n" if $profile->{driver} eq '';
     die "Missing DSN\n" if $profile->{dsn} eq '';
-    die "Missing database user\n" if $profile->{user} eq '';
     if ( $profile->{attrs_json} ne '' ) {
         my $attrs = json_decode( $profile->{attrs_json} );
         die "DBI attrs_json must decode to a JSON object\n" if ref($attrs) ne 'HASH';
@@ -2216,7 +2232,7 @@ sub sql_dashboard_connection_id {
     my ( $dsn, $user ) = @_;
     $dsn  = sql_dashboard_trim($dsn);
     $user = sql_dashboard_trim($user);
-    return '' if $dsn eq '' || $user eq '';
+    return '' if $dsn eq '';
     return $dsn . '|' . $user;
 }
 
@@ -2227,8 +2243,9 @@ sub sql_dashboard_connection_id {
 sub sql_dashboard_parse_connection_id {
     my ($connection_id) = @_;
     $connection_id = sql_dashboard_trim($connection_id);
-    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|([^|]+)\z/;
+    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|(.*)\z/;
     my ( $dsn, $user ) = ( $1, $2 );
+    return undef if $dsn eq '';
     my $driver = '';
     if ( $dsn =~ /\Adbi:([^:]+):/i ) {
         $driver = 'DBD::' . $1;
@@ -2346,7 +2363,6 @@ sub sql_dashboard_decode_profile_payload {
     die "Missing profile name\n" if $profile->{name} eq '';
     die "Missing driver module\n" if $profile->{driver} eq '';
     die "Missing DSN\n" if $profile->{dsn} eq '';
-    die "Missing database user\n" if $profile->{user} eq '';
     if ( $profile->{attrs_json} ne '' ) {
         my $attrs = json_decode( $profile->{attrs_json} );
         die "DBI attrs_json must decode to a JSON object\n" if ref($attrs) ne 'HASH';
@@ -2581,7 +2597,7 @@ sub sql_dashboard_connection_id {
     my ( $dsn, $user ) = @_;
     $dsn  = sql_dashboard_trim($dsn);
     $user = sql_dashboard_trim($user);
-    return '' if $dsn eq '' || $user eq '';
+    return '' if $dsn eq '';
     return $dsn . '|' . $user;
 }
 
@@ -2592,8 +2608,9 @@ sub sql_dashboard_connection_id {
 sub sql_dashboard_parse_connection_id {
     my ($connection_id) = @_;
     $connection_id = sql_dashboard_trim($connection_id);
-    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|([^|]+)\z/;
+    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|(.*)\z/;
     my ( $dsn, $user ) = ( $1, $2 );
+    return undef if $dsn eq '';
     my $driver = '';
     if ( $dsn =~ /\Adbi:([^:]+):/i ) {
         $driver = 'DBD::' . $1;
@@ -2711,7 +2728,6 @@ sub sql_dashboard_decode_profile_payload {
     die "Missing profile name\n" if $profile->{name} eq '';
     die "Missing driver module\n" if $profile->{driver} eq '';
     die "Missing DSN\n" if $profile->{dsn} eq '';
-    die "Missing database user\n" if $profile->{user} eq '';
     if ( $profile->{attrs_json} ne '' ) {
         my $attrs = json_decode( $profile->{attrs_json} );
         die "DBI attrs_json must decode to a JSON object\n" if ref($attrs) ne 'HASH';
@@ -2939,7 +2955,7 @@ sub sql_dashboard_connection_id {
     my ( $dsn, $user ) = @_;
     $dsn  = sql_dashboard_trim($dsn);
     $user = sql_dashboard_trim($user);
-    return '' if $dsn eq '' || $user eq '';
+    return '' if $dsn eq '';
     return $dsn . '|' . $user;
 }
 
@@ -2950,8 +2966,9 @@ sub sql_dashboard_connection_id {
 sub sql_dashboard_parse_connection_id {
     my ($connection_id) = @_;
     $connection_id = sql_dashboard_trim($connection_id);
-    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|([^|]+)\z/;
+    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|(.*)\z/;
     my ( $dsn, $user ) = ( $1, $2 );
+    return undef if $dsn eq '';
     my $driver = '';
     if ( $dsn =~ /\Adbi:([^:]+):/i ) {
         $driver = 'DBD::' . $1;
@@ -3069,7 +3086,6 @@ sub sql_dashboard_decode_profile_payload {
     die "Missing profile name\n" if $profile->{name} eq '';
     die "Missing driver module\n" if $profile->{driver} eq '';
     die "Missing DSN\n" if $profile->{dsn} eq '';
-    die "Missing database user\n" if $profile->{user} eq '';
     if ( $profile->{attrs_json} ne '' ) {
         my $attrs = json_decode( $profile->{attrs_json} );
         die "DBI attrs_json must decode to a JSON object\n" if ref($attrs) ne 'HASH';
@@ -3284,7 +3300,6 @@ sub sql_dashboard_resolve_settings {
     $resolved{attrs_json} = sql_dashboard_trim( $resolved{attrs_json} );
     $resolved{connection_id} = sql_dashboard_connection_id( $resolved{dsn}, $resolved{user} );
     die "Missing DSN\n" if $resolved{dsn} eq '';
-    die "Missing database user\n" if $resolved{user} eq '';
     return \%resolved;
 }
 
@@ -3529,8 +3544,9 @@ sub sql_dashboard_connection_id {
 sub sql_dashboard_parse_connection_id {
     my ($connection_id) = @_;
     $connection_id = sql_dashboard_trim($connection_id);
-    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|([^|]+)\z/;
+    return undef if $connection_id eq '' || $connection_id !~ /\A(.+)\|(.*)\z/;
     my ( $dsn, $user ) = ( $1, $2 );
+    return undef if $dsn eq '';
     my $driver = '';
     if ( $dsn =~ /\Adbi:([^:]+):/i ) {
         $driver = 'DBD::' . $1;
@@ -3648,7 +3664,6 @@ sub sql_dashboard_decode_profile_payload {
     die "Missing profile name\n" if $profile->{name} eq '';
     die "Missing driver module\n" if $profile->{driver} eq '';
     die "Missing DSN\n" if $profile->{dsn} eq '';
-    die "Missing database user\n" if $profile->{user} eq '';
     if ( $profile->{attrs_json} ne '' ) {
         my $attrs = json_decode( $profile->{attrs_json} );
         die "DBI attrs_json must decode to a JSON object\n" if ref($attrs) ne 'HASH';
@@ -3863,7 +3878,6 @@ sub sql_dashboard_resolve_settings {
     $resolved{attrs_json} = sql_dashboard_trim( $resolved{attrs_json} );
     $resolved{connection_id} = sql_dashboard_connection_id( $resolved{dsn}, $resolved{user} );
     die "Missing DSN\n" if $resolved{dsn} eq '';
-    die "Missing database user\n" if $resolved{user} eq '';
     return \%resolved;
 }
 

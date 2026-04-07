@@ -1,5 +1,20 @@
 Revision history for Developer Dashboard
 
+1.97  2026-04-07
+    - fixed the `sql-dashboard` connection-id and shared-route model for
+      passwordless profiles such as SQLite, so a blank user now saves,
+      reloads, and auto-runs correctly instead of being rejected as missing
+      credentials
+    - added a 50-case real SQLite Playwright matrix in
+      `t/31-sql-dashboard-sqlite-playwright.t` covering profile UX, merged
+      workspace layout, saved SQL collection flow, schema browsing, portable
+      shared URLs, passwordless draft restoration, invalid SQL handling, and
+      file-permission checks against a live SQLite database
+    - added optional docker-backed MySQL and PostgreSQL browser coverage in
+      `t/32-sql-dashboard-rdbms-playwright.t`, while keeping `DBD::SQLite`,
+      `DBD::mysql`, and `DBD::Pg` out of shipped runtime prerequisites so
+      users still install only the DBI drivers they actually need
+
 1.96  2026-04-07
     - fixed bookmark `HTML:` and shared `nav/*.tt` Template Toolkit syntax
       failures so render mode now shows a visible runtime error instead of

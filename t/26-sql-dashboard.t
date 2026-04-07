@@ -214,6 +214,53 @@ is(
 is( _mode_octal($sql_profile_root), '0700', 'sql-dashboard bootstrap repairs an insecure profile root back to owner-only mode' );
 is( _mode_octal($saved_profile_path), '0600', 'sql-dashboard bootstrap repairs an insecure saved profile file back to owner-only mode' );
 
+my $save_sqlite_profile_payload = json_encode(
+    {
+        name          => 'SQLite Local',
+        driver        => 'DBD::SQLite',
+        dsn           => 'dbi:SQLite:dbname=/tmp/sql-dashboard-test.db',
+        user          => '',
+        password      => '',
+        save_password => 0,
+        attrs_json    => '{"RaiseError":1,"PrintError":0,"AutoCommit":1}',
+    }
+);
+my ( $sqlite_profile_save_code, $sqlite_profile_save_type, $sqlite_profile_save_body_ref ) = @{ $app->handle(
+    path        => '/ajax/sql-dashboard-profiles-save',
+    query       => 'type=json',
+    method      => 'POST',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+    body        => 'profile=' . uri_escape($save_sqlite_profile_payload),
+) };
+is( $sqlite_profile_save_code, 200, 'sql-dashboard profile save accepts a passwordless SQLite profile without a database user' );
+like( $sqlite_profile_save_type, qr/application\/json/, 'passwordless SQLite profile save still returns json content' );
+my $sqlite_profile_save_payload = json_decode( drain_stream_body($sqlite_profile_save_body_ref) );
+ok( $sqlite_profile_save_payload->{ok}, 'passwordless SQLite profile save reports success' );
+is(
+    $sqlite_profile_save_payload->{profile}{connection_id},
+    'dbi:SQLite:dbname=/tmp/sql-dashboard-test.db|',
+    'passwordless SQLite profile save still returns a portable connection id with the blank user preserved',
+);
+
+my ( $bootstrap_after_sqlite_code, $bootstrap_after_sqlite_type, $bootstrap_after_sqlite_body_ref ) = @{ $app->handle(
+    path        => '/ajax/sql-dashboard-profiles-bootstrap',
+    query       => 'type=json',
+    method      => 'GET',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is( $bootstrap_after_sqlite_code, 200, 'sql-dashboard bootstrap reloads after saving a passwordless SQLite profile' );
+like( $bootstrap_after_sqlite_type, qr/application\/json/, 'sql-dashboard bootstrap still returns json after saving a passwordless SQLite profile' );
+my $bootstrap_after_sqlite_payload = json_decode( drain_stream_body($bootstrap_after_sqlite_body_ref) );
+my ($sqlite_profile) = grep { ( $_->{name} || '' ) eq 'SQLite Local' } @{ $bootstrap_after_sqlite_payload->{profiles} || [] };
+ok( $sqlite_profile, 'sql-dashboard bootstrap reloads the passwordless SQLite profile from disk' );
+is(
+    $sqlite_profile->{connection_id},
+    'dbi:SQLite:dbname=/tmp/sql-dashboard-test.db|',
+    'sql-dashboard bootstrap preserves the blank-user portable connection id for a passwordless SQLite profile',
+);
+
 my $save_collection_payload = json_encode(
     {
         name  => 'Shared Queries',
@@ -384,8 +431,8 @@ my $bootstrap_after_profile_delete_payload = json_decode( drain_stream_body($boo
 ok( $bootstrap_after_profile_delete_payload->{ok}, 'sql-dashboard bootstrap reports success after deleting a profile' );
 is_deeply(
     [ map { $_->{name} } @{ $bootstrap_after_profile_delete_payload->{profiles} || [] } ],
-    [],
-    'sql-dashboard bootstrap shows that the deleted profile is gone',
+    ['SQLite Local'],
+    'sql-dashboard bootstrap shows that the deleted profile is gone while unrelated profiles remain available',
 );
 is_deeply(
     [ map { $_->{name} } @{ $bootstrap_after_profile_delete_payload->{collections} || [] } ],

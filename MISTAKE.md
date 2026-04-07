@@ -4,6 +4,36 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: SQL-REAL-DRIVER-COVERAGE-GAP
+
+**Date:** 2026-04-07 23:30:00 UTC
+**Area:** sql-dashboard browser coverage, SQLite portability, and real-driver verification
+**Symptom:** SQL dashboard behavior was mostly being validated through fake `DBI` coverage, which left important live-browser gaps around blank-user SQLite profiles, shared-route behavior, invalid attrs handling, and real server-backed driver workflows
+**Why It Was Dangerous:** It let the SQL workspace look covered while real user behavior could still fail in the browser with an actual database, especially for SQLite and passwordless DSNs that do not fit the older username-required assumption
+**Root Cause:** I stopped at unit coverage plus a fake-driver Playwright path and did not add a sufficiently deep real-database matrix before claiming the SQL dashboard UX was solid
+**How Ellen Solved It:** Fixed passwordless SQLite profile parsing and shared-route handling, added a 50-case real SQLite Playwright matrix, added optional docker-backed MySQL/PostgreSQL Playwright coverage, and kept all DBI drivers out of shipped runtime prerequisites so live-driver coverage stays opt-in instead of bloating the release
+**How To Detect Earlier Next Time:** Before calling SQL dashboard work done, run the real SQLite browser matrix and, when the drivers are available locally, run the docker-backed MySQL/PostgreSQL browser matrix too
+**Prevention Rule:** SQL dashboard UX is not considered covered by fake drivers alone; browser changes must be checked against a real SQLite database, and server-backed driver changes must also be checked through the optional docker-backed MySQL/PostgreSQL browser matrix when their drivers are installed
+**Verification:** `PERL5LIB=/tmp/dd-sql-lib-KVo4VG/lib/perl5:/tmp/dd-sql-lib-KVo4VG/lib/perl5/x86_64-linux-gnu-thread-multi prove -lv t/31-sql-dashboard-sqlite-playwright.t`, `PERL5LIB=/tmp/dd-sql-lib-KVo4VG/lib/perl5:/tmp/dd-sql-lib-KVo4VG/lib/perl5/x86_64-linux-gnu-thread-multi prove -lv t/32-sql-dashboard-rdbms-playwright.t`
+**Related Files:** `share/seeded-pages/sql-dashboard.page`, `t/26-sql-dashboard.t`, `t/27-sql-dashboard-playwright.t`, `t/31-sql-dashboard-sqlite-playwright.t`, `t/32-sql-dashboard-rdbms-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/integration-test-plan.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
+## CODE: MF-PUSH-PATH-DRIFT
+
+**Date:** 2026-04-07 22:00:00 UTC
+**Area:** release push workflow, repo-specific authentication, and operator discipline
+**Symptom:** After finishing a verified release locally, I tried raw `git push origin ...` and raw `GIT_SSH_COMMAND=... git push ...` paths first, reported SSH/publickey failure, and only then got reminded that this repo already has a dedicated authenticated helper at `~/bin/git-push-mf`
+**Why It Was Dangerous:** It wasted time at the last step, created false “push blocked” noise, and relied on memory instead of the repo’s actual documented push path for `github.mf`
+**Root Cause:** I treated push as a generic git/SSH task instead of following the repo-specific authenticated helper workflow that already exists for this remote
+**How Ellen Solved It:** Read `~/bin/git-push-mf`, confirmed it bootstraps `SSH_ASKPASS` from `MF_PASS`, used that helper to push `master` and the release tags successfully, and strengthened the override rules so raw `git push origin ...` is no longer the default path for this repo
+**How To Detect Earlier Next Time:** Before saying a push is blocked, check `AGENTS.override.md` for repo-specific push rules and verify whether a helper such as `git-push-mf` exists under `~/bin`
+**Prevention Rule:** For `git@github.mf:manif3station/developer-dashboard.git`, always try `~/bin/git-push-mf` first; do not treat raw `git push origin ...` as the primary release push path
+**Verification:** `git-push-mf origin master`, `git-push-mf origin -f v1.96 TT-ERROR-SOURCE-LEAK`
+**Related Files:** `AGENTS.override.md`, `MISTAKE.md`, `~/bin/git-push-mf`
+
+---
+
 ## CODE: TT-ERROR-SOURCE-LEAK
 
 **Date:** 2026-04-07 21:40:00 UTC

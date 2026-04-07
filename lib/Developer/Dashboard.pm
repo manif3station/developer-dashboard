@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.96';
+our $VERSION = '1.97';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.96
+1.97
 
 =head1 INTRODUCTION
 
@@ -1444,6 +1444,26 @@ programmable SQL through a fake runtime-local C<DBI> stack under
 F<.developer-dashboard/local/lib/perl5>, verifies the shareable URL state,
 and checks the schema table-tab browser.
 
+For deep real SQLite browser coverage, run:
+
+  PERL5LIB=/tmp/sql-lib/lib/perl5:/tmp/sql-lib/lib/perl5/x86_64-linux-gnu-thread-multi \
+  prove -lv t/31-sql-dashboard-sqlite-playwright.t
+
+That browser matrix runs 50 real SQLite cases against the visible SQL
+workspace, including blank-user profile save and reload, merged workspace
+layout, saved-SQL collection flow, schema browsing, invalid SQL and attrs
+errors, shared-URL restoration, and file-permission checks.
+
+For optional docker-backed MySQL and PostgreSQL browser coverage, run:
+
+  PERL5LIB=/tmp/sql-lib/lib/perl5:/tmp/sql-lib/lib/perl5/x86_64-linux-gnu-thread-multi \
+  prove -lv t/32-sql-dashboard-rdbms-playwright.t
+
+That browser file covers real MySQL and PostgreSQL services through Docker.
+It intentionally skips unless C<DBI> plus the relevant C<DBD::mysql> or
+C<DBD::Pg> driver is already installed in the active Perl environment. Those
+drivers are not shipped as base runtime prerequisites.
+
 For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
 host:
 
@@ -1580,7 +1600,10 @@ against different connections. Share URLs only carry the DSN-plus-user
 connection id without a password; if another machine already has a matching
 saved profile with a saved password, the bookmark reruns the shared SQL
 there, otherwise it opens a draft connection profile built from that
-connection id so the other user can add the local password and run it. The
+connection id so the other user can add any required local credentials and
+run it. Passwordless profiles such as SQLite may keep the user blank, and a
+matching blank-user shared route auto-runs without inventing a password
+warning when the DSN does not need one. The
 profile editor now renders the driver field as a dropdown of installed
 C<DBD::*> modules and rewrites only the C<dbi:E<lt>DriverE<gt>:> DSN prefix
 when you switch drivers. The main browser flow now merges collections and

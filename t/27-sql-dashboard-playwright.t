@@ -491,8 +491,8 @@ async function main() {
   if (sharedDraft.password !== '') {
     throw new Error('shared URL draft profile should not carry a password');
   }
-  if (!String(sharedDraft.banner || '').includes('Add the local password')) {
-    throw new Error('shared URL draft profile did not explain that a local password is still required: ' + JSON.stringify(sharedDraft));
+  if (!String(sharedDraft.banner || '').includes('Add any required local credentials')) {
+    throw new Error('shared URL draft profile did not explain that local credentials may still be required: ' + JSON.stringify(sharedDraft));
   }
 
   await browser.close();
