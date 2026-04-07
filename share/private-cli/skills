@@ -26,7 +26,7 @@ skills - private built-in command wrapper for Developer Dashboard
 
 =head1 DESCRIPTION
 
-This private helper is staged under F<~/.developer-dashboard/cli/> so the
+This private helper is staged under F<~/.developer-dashboard/cli/dd/> so the
 public C<dashboard> entrypoint can stay a thin switchboard.
 
 =for comment FULL-POD-DOC START
@@ -38,7 +38,7 @@ Open this file when you need the implementation, regression coverage, or runtime
 
 =head1 WHY IT EXISTS
 
-It exists so C<bin/dashboard> can stay thin under the LAZY-THIN-CMD rule while still providing built-in commands through staged helper scripts under C<~/.developer-dashboard/cli/>.
+It exists so C<bin/dashboard> can stay thin under the LAZY-THIN-CMD rule while still providing built-in commands through staged helper scripts under C<~/.developer-dashboard/cli/dd/>.
 
 =head1 WHEN TO USE
 
@@ -46,17 +46,17 @@ Use this file when you need to understand how a built-in C<dashboard> subcommand
 
 =head1 HOW TO USE
 
-Users normally reach this helper through C<dashboard skills>. For debugging, inspect the staged copy under C<~/.developer-dashboard/cli/skills> after helper staging.
+Users normally reach this helper through C<dashboard skills>. For debugging, inspect the staged copy under C<~/.developer-dashboard/cli/dd/skills> after helper staging.
 
 =head1 WHAT USES IT
 
-It is used by C<bin/dashboard> after helper staging has placed the home-runtime wrapper at C<~/.developer-dashboard/cli/skills>.
+It is used by C<bin/dashboard> after helper staging has placed the home-runtime wrapper at C<~/.developer-dashboard/cli/dd/skills>.
 
 =head1 EXAMPLES
 
   dashboard skills
 
-That is the user-facing route. After helper staging you can also inspect the home-runtime wrapper under C<~/.developer-dashboard/cli/skills>.
+That is the user-facing route. After helper staging you can also inspect the home-runtime wrapper under C<~/.developer-dashboard/cli/dd/skills>.
 
 =for comment FULL-POD-DOC END
 

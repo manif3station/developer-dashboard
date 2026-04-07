@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '1.97';
+our $VERSION = '1.98';
 
 use File::Spec;
 use Cwd qw(cwd);
@@ -66,6 +66,18 @@ sub save_global_defaults {
     my $current = $self->load_global;
     my $merged = $self->_merge_hashes( $defaults, $current );
     return $self->save_global($merged);
+}
+
+# ensure_global_file()
+# Ensures the writable config.json exists, seeding '{}' only when the file is
+# missing and leaving any existing file untouched.
+# Input: none.
+# Output: writable configuration file path string.
+sub ensure_global_file {
+    my ($self) = @_;
+    my $file = $self->_global_config_file;
+    return $file if -e $file;
+    return $self->save_global( {} );
 }
 
 # load_repo()

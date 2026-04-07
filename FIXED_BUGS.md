@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 2026-04-08 (Phase 62: Home DD CLI Namespace Drift)
+
+- Fixed `dashboard init` and `dashboard config init` so a missing `config/config.json` is created as `{}` and an existing config file is left untouched instead of being repopulated with a seeded example collector.
+- Fixed dashboard-managed helper staging so built-in commands now live under `~/.developer-dashboard/cli/dd/`, while the user command space remains `~/.developer-dashboard/cli/` and child layers do not receive built-in `dd/` seeds.
+- Added deep SQLite plus live Docker-backed MySQL/PostgreSQL Playwright coverage for the SQL dashboard without shipping `DBD::SQLite`, `DBD::mysql`, or `DBD::Pg` as base runtime prerequisites.
+- Fixed the api-dashboard Playwright request click helper so covered runs no longer fail when the request list rerenders slowly enough for the original locator to detach before the click lands.
+
 ## 2026-04-07 (Phase 61: SQL Real Driver Coverage Gap)
 
 - Fixed `sql-dashboard` so passwordless profiles such as SQLite may keep the database user blank, with the blank user preserved in the portable `connection=dsn|user` id instead of being rejected as missing input.

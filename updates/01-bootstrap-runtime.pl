@@ -24,19 +24,8 @@ my $pages = Developer::Dashboard::PageStore->new( paths => $paths );
 my $migrated = $pages->migrate_legacy_json_pages;
 print "Migrated " . scalar(@{$migrated}) . " legacy JSON bookmark(s)\n" if @{$migrated};
 
-my $global = $config->load_global;
-if ( !exists $global->{collectors} || ref( $global->{collectors} ) ne 'ARRAY' ) {
-    $global->{collectors} = [
-        {
-            name     => 'example.collector',
-            command  => "printf 'example collector output\\n'",
-            cwd      => 'home',
-            interval => 60,
-        },
-    ];
-    $config->save_global($global);
-    print "Wrote default global config\n";
-}
+my $config_file = $config->ensure_global_file;
+print "Ensured global config $config_file\n";
 
 my @pages = $pages->list_saved_pages;
 for my $seed (

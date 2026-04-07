@@ -1,5 +1,22 @@
 Revision history for Developer Dashboard
 
+1.98  2026-04-08
+    - fixed `dashboard init` and `dashboard config init` so a missing
+      `config/config.json` is created as `{}` while an existing config file is
+      left untouched instead of being repopulated with a seeded example
+      collector
+    - moved dashboard-managed built-in helper staging into the dedicated home
+      namespace `~/.developer-dashboard/cli/dd/`, which keeps user commands in
+      `~/.developer-dashboard/cli/` separate from dashboard-owned helpers and
+      prevents child project layers from receiving built-in `dd/` helper seeds
+    - proved the SQL dashboard browser workflow against live Docker-backed
+      MySQL and PostgreSQL fixtures in addition to the deep SQLite matrix, and
+      kept `DBD::SQLite`, `DBD::mysql`, and `DBD::Pg` as develop-only
+      recommendations instead of shipped runtime prerequisites
+    - hardened the api-dashboard Playwright request-node click helper so the
+      covered suite stays green even when browser timing slows down enough for
+      the request tree to rerender between locator resolution and click
+
 1.97  2026-04-07
     - fixed the `sql-dashboard` connection-id and shared-route model for
       passwordless profiles such as SQLite, so a blank user now saves,

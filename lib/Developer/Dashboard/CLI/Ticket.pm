@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Ticket;
 use strict;
 use warnings;
 
-our $VERSION = '1.97';
+our $VERSION = '1.98';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -180,7 +180,7 @@ Developer::Dashboard::CLI::Ticket - private tmux ticket helper for Developer Das
 =head1 DESCRIPTION
 
 Provides the shared implementation behind the private C<ticket> helper staged
-under F<~/.developer-dashboard/cli/> so C<dashboard ticket> can stay part of
+under F<~/.developer-dashboard/cli/dd/> so C<dashboard ticket> can stay part of
 the dashboard toolchain without installing a public top-level executable.
 
 =for comment FULL-POD-DOC START

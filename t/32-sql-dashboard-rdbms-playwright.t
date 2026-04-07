@@ -41,7 +41,7 @@ subtest 'MySQL browser workflow' => sub {
         label            => 'MySQL',
         driver_module    => 'DBD::mysql',
         driver_name      => 'DBD::mysql',
-        image            => 'mysql:8.4',
+        image            => 'mysql:5.7',
         container_port   => 3306,
         database         => 'dashboard_test',
         username         => 'dashboard',
@@ -60,12 +60,12 @@ subtest 'MySQL browser workflow' => sub {
         },
         wait_for_ready   => sub {
             my (%args) = @_;
-            require DBI;
-            my $dsn = $args{dsn};
+            my $last_error     = '';
             for ( 1 .. 120 ) {
                 my $dbh = eval {
+                    require DBI;
                     DBI->connect(
-                        $dsn,
+                        $args{dsn},
                         $args{user},
                         $args{password},
                         {
@@ -76,9 +76,10 @@ subtest 'MySQL browser workflow' => sub {
                     );
                 };
                 return $dbh if $dbh;
+                $last_error = DBI->errstr // $@ // '';
                 sleep 1;
             }
-            die "Timed out waiting for MySQL to accept connections on $dsn\n";
+            die "Timed out waiting for MySQL to accept connections on $args{dsn}: $last_error\n";
         },
         seed_database    => sub {
             my (%args) = @_;
@@ -117,6 +118,7 @@ subtest 'PostgreSQL browser workflow' => sub {
         },
         wait_for_ready   => sub {
             my (%args) = @_;
+            my $last_error = '';
             require DBI;
             my $dsn = $args{dsn};
             for ( 1 .. 120 ) {
@@ -133,9 +135,10 @@ subtest 'PostgreSQL browser workflow' => sub {
                     );
                 };
                 return $dbh if $dbh;
+                $last_error = DBI->errstr // $@ // '';
                 sleep 1;
             }
-            die "Timed out waiting for PostgreSQL to accept connections on $dsn\n";
+            die "Timed out waiting for PostgreSQL to accept connections on $dsn: $last_error\n";
         },
         seed_database    => sub {
             my (%args) = @_;
@@ -202,6 +205,8 @@ sub _run_rdbms_matrix {
         );
 
         my $dbh = $args{wait_for_ready}->(
+            docker_bin     => $docker_bin,
+            container_name => $container_name,
             dsn      => $dsn,
             user     => $args{username},
             password => $args{password},
@@ -253,7 +258,7 @@ sub _run_rdbms_matrix {
           };
         ok( $payload->{ok}, "$args{label} sql-dashboard Playwright matrix reports success" )
           or diag _diagnostic_text($payload);
-        is( scalar @{ $payload->{cases} || [] }, 18, "$args{label} sql-dashboard Playwright matrix records 18 browser cases" );
+        is( scalar @{ $payload->{cases} || [] }, 19, "$args{label} sql-dashboard Playwright matrix records 19 browser cases" );
         for my $case ( @{ $payload->{cases} || [] } ) {
             ok( $case->{ok}, "$args{label}: $case->{name}" ) or diag _case_diagnostic($case);
         }
@@ -279,7 +284,8 @@ sub _run_rdbms_matrix {
             pid           => $dashboard_pid,
         ) if $dashboard_pid;
         _docker_rm_force( $docker_bin, $container_name );
-        die $error;
+        fail("$args{label} sql-dashboard Playwright matrix setup or execution failed");
+        return 0;
     };
 
     _stop_dashboard_server(
@@ -796,7 +802,9 @@ __END__
 
 Test file in the Developer Dashboard codebase. This file runs real Chromium
 Playwright coverage against docker-backed MySQL and PostgreSQL services so the
-SQL dashboard is verified beyond the SQLite workflow.
+SQL dashboard is verified beyond the SQLite workflow. The live fixtures use the
+official C<mysql:5.7> and C<postgres:16> images because that combination is
+compatible with the currently-supported host-side Perl driver stack.
 
 =head1 WHY IT EXISTS
 
@@ -823,7 +831,9 @@ The current Perl environment must already be able to load C<DBI> plus the
 relevant driver modules such as C<DBD::mysql> and C<DBD::Pg>. Docker, Chromium,
 Node, npx, and git must also be available locally. This test intentionally does
 not add those DB drivers to shipped runtime prerequisites, so install them
-separately when you want live RDBMS browser coverage.
+separately when you want live RDBMS browser coverage. On this host the MySQL
+fixture uses the official C<mysql:5.7> image because the available
+C<DBD::mysql> stack does not complete a non-SSL C<MySQL 8.4> auth handshake.
 
 =head1 WHAT USES IT
 

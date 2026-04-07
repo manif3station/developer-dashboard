@@ -4,6 +4,7 @@ use warnings;
 use Test::More;
 use File::Temp qw(tempdir);
 use Cwd qw(getcwd);
+use Developer::Dashboard::JSON qw(json_decode);
 
 use lib 'lib';
 
@@ -42,6 +43,7 @@ ok(ref($result) eq 'ARRAY', 'update returns array of step results');
 ok(@$result >= 3, 'all update steps executed');
 
 ok(-f $files->global_config, 'global config written');
+is_deeply( json_decode( $files->read('global_config') ), {}, 'update bootstrap creates an empty config.json instead of seeding example collectors' );
 ok(-f $paths->dashboards_root . '/api-dashboard', 'api-dashboard page written');
 ok(-f $paths->dashboards_root . '/sql-dashboard', 'sql-dashboard page written');
 ok(!-f $paths->dashboards_root . '/welcome', 'welcome page is no longer written');

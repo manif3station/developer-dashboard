@@ -28,20 +28,21 @@ my $lib = File::Spec->catdir( $repo, 'lib' );
 my $dashboard = File::Spec->catfile( $repo, 'bin', 'dashboard' );
 my $expected_version = _module_version( File::Spec->catfile( $lib, 'Developer', 'Dashboard.pm' ) );
 my $runtime_cli_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );
-my $runtime_jq = File::Spec->catfile( $runtime_cli_root, 'jq' );
-my $runtime_yq = File::Spec->catfile( $runtime_cli_root, 'yq' );
-my $runtime_tomq = File::Spec->catfile( $runtime_cli_root, 'tomq' );
-my $runtime_propq = File::Spec->catfile( $runtime_cli_root, 'propq' );
-my $runtime_iniq = File::Spec->catfile( $runtime_cli_root, 'iniq' );
-my $runtime_csvq = File::Spec->catfile( $runtime_cli_root, 'csvq' );
-my $runtime_xmlq = File::Spec->catfile( $runtime_cli_root, 'xmlq' );
-my $runtime_of = File::Spec->catfile( $runtime_cli_root, 'of' );
-my $runtime_open_file = File::Spec->catfile( $runtime_cli_root, 'open-file' );
-my $runtime_ticket = File::Spec->catfile( $runtime_cli_root, 'ticket' );
-my $runtime_path = File::Spec->catfile( $runtime_cli_root, 'path' );
-my $runtime_paths = File::Spec->catfile( $runtime_cli_root, 'paths' );
-my $runtime_ps1 = File::Spec->catfile( $runtime_cli_root, 'ps1' );
-my $runtime_dashboard_core = File::Spec->catfile( $runtime_cli_root, '_dashboard-core' );
+my $runtime_dd_cli_root = File::Spec->catdir( $runtime_cli_root, 'dd' );
+my $runtime_jq = File::Spec->catfile( $runtime_dd_cli_root, 'jq' );
+my $runtime_yq = File::Spec->catfile( $runtime_dd_cli_root, 'yq' );
+my $runtime_tomq = File::Spec->catfile( $runtime_dd_cli_root, 'tomq' );
+my $runtime_propq = File::Spec->catfile( $runtime_dd_cli_root, 'propq' );
+my $runtime_iniq = File::Spec->catfile( $runtime_dd_cli_root, 'iniq' );
+my $runtime_csvq = File::Spec->catfile( $runtime_dd_cli_root, 'csvq' );
+my $runtime_xmlq = File::Spec->catfile( $runtime_dd_cli_root, 'xmlq' );
+my $runtime_of = File::Spec->catfile( $runtime_dd_cli_root, 'of' );
+my $runtime_open_file = File::Spec->catfile( $runtime_dd_cli_root, 'open-file' );
+my $runtime_ticket = File::Spec->catfile( $runtime_dd_cli_root, 'ticket' );
+my $runtime_path = File::Spec->catfile( $runtime_dd_cli_root, 'path' );
+my $runtime_paths = File::Spec->catfile( $runtime_dd_cli_root, 'paths' );
+my $runtime_ps1 = File::Spec->catfile( $runtime_dd_cli_root, 'ps1' );
+my $runtime_dashboard_core = File::Spec->catfile( $runtime_dd_cli_root, '_dashboard-core' );
 my $runtime_api_dashboard = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'dashboards', 'api-dashboard' );
 my $runtime_sql_dashboard = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'dashboards', 'sql-dashboard' );
 
@@ -53,6 +54,12 @@ for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runti
 }
 ok( -f $runtime_dashboard_core, 'dashboard init seeds the private built-in core helper runtime' );
 ok( -x $runtime_dashboard_core, 'dashboard init marks the private built-in core helper runtime executable' );
+ok( !-e File::Spec->catfile( $runtime_cli_root, 'jq' ), 'dashboard init does not mix built-in helpers into the user CLI root' );
+my $global_config_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'config.json' );
+open my $bootstrapped_config_fh, '<:raw', $global_config_file or die "Unable to read $global_config_file: $!";
+my $bootstrapped_config_json = do { local $/; <$bootstrapped_config_fh> };
+close $bootstrapped_config_fh;
+is_deeply( json_decode($bootstrapped_config_json), {}, 'dashboard init creates a missing config.json as an empty object' );
 my $managed_jq_mtime_before = ( stat $runtime_jq )[9];
 my $managed_api_dashboard_mtime_before = ( stat $runtime_api_dashboard )[9];
 my $managed_sql_dashboard_mtime_before = ( stat $runtime_sql_dashboard )[9];
@@ -62,19 +69,13 @@ make_path( File::Spec->catdir( $home_only_init_project, '.git' ), $home_only_loc
 my $home_only_init = _run("cd '$home_only_init_project' && $perl -I'$lib' '$dashboard' init");
 like( $home_only_init, qr/"runtime_root"\s*:\s*"\Q$home_only_init_project\/.developer-dashboard\E"/, 'dashboard init still reports the local runtime root when run inside a project layer' );
 ok( !-e File::Spec->catfile( $home_only_local_cli, 'jq' ), 'dashboard init does not offload built-in helpers into the local project CLI layer' );
-ok( -f $runtime_jq, 'dashboard init keeps the built-in helper staged at the home runtime CLI root' );
-my $global_config_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'config.json' );
+ok( !-d File::Spec->catdir( $home_only_local_cli, 'dd' ), 'dashboard init does not create a dd helper namespace in child CLI layers' );
+ok( -f $runtime_jq, 'dashboard init keeps the built-in helper staged at the home runtime dd helper root' );
 make_path( File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'config' ) );
 open my $seeded_config_fh, '>:raw', $global_config_file or die "Unable to write $global_config_file: $!";
 my $seeded_config_json = json_encode(
     {
         collectors => [
-            {
-                name     => 'example.collector',
-                command  => "printf 'example collector output\\n'",
-                cwd      => 'home',
-                interval => 60,
-            },
             {
                 name      => 'vpn',
                 code      => 'return 0;',
@@ -120,6 +121,7 @@ is_deeply(
     local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
     my $preserve_cli_root = File::Spec->catdir( $preserve_home, '.developer-dashboard', 'cli' );
     make_path($preserve_cli_root);
+    my $preserve_dd_cli_root = File::Spec->catdir( $preserve_cli_root, 'dd' );
     my $user_owned_jq = File::Spec->catfile( $preserve_cli_root, 'jq' );
     open my $user_owned_jq_fh, '>', $user_owned_jq or die "Unable to write $user_owned_jq: $!";
     print {$user_owned_jq_fh} "#!/usr/bin/env perl\nprint qq(user-owned-jq\\n);\n";
@@ -135,9 +137,32 @@ is_deeply(
     open my $preserved_user_jq_fh, '<', $user_owned_jq or die "Unable to read $user_owned_jq: $!";
     my $preserved_user_jq = do { local $/; <$preserved_user_jq_fh> };
     close $preserved_user_jq_fh;
-    is( $preserved_user_jq, "#!/usr/bin/env perl\nprint qq(user-owned-jq\\n);\n", 'dashboard init preserves a pre-existing user-owned helper collision in ~/.developer-dashboard/cli' );
+    is( $preserved_user_jq, "#!/usr/bin/env perl\nprint qq(user-owned-jq\\n);\n", 'dashboard init preserves a pre-existing user CLI command in ~/.developer-dashboard/cli' );
     ok( -f $user_cli_note, 'dashboard init does not delete unrelated files from ~/.developer-dashboard/cli' );
-    is( _run("$perl -I'$lib' '$dashboard' jq"), "user-owned-jq\n", 'dashboard jq continues to run the preserved user-owned helper after dashboard init' );
+    ok( -f File::Spec->catfile( $preserve_dd_cli_root, 'jq' ), 'dashboard init stages the built-in jq helper into ~/.developer-dashboard/cli/dd' );
+    is( _run(qq{printf '{"foo":"bar"}' | $perl -I'$lib' '$dashboard' jq foo}), "bar\n", 'dashboard jq runs the built-in dd helper without mixing with the user CLI root' );
+}
+{
+    my $config_home = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = $config_home;
+    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
+    local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
+    local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+
+    my $config_init_file = _run("$perl -I'$lib' '$dashboard' config init");
+    chomp $config_init_file;
+    is( $config_init_file, File::Spec->catfile( $config_home, '.developer-dashboard', 'config', 'config.json' ), 'dashboard config init reports the writable home config path' );
+    open my $config_init_fh, '<:raw', $config_init_file or die "Unable to read $config_init_file: $!";
+    my $config_init_json = do { local $/; <$config_init_fh> };
+    close $config_init_fh;
+    is_deeply( json_decode($config_init_json), {}, 'dashboard config init creates an empty object when config.json is missing' );
+    my $config_mtime_before = ( stat $config_init_file )[9];
+
+    sleep 1.1;
+    my $config_reinit_file = _run("$perl -I'$lib' '$dashboard' config init");
+    chomp $config_reinit_file;
+    is( $config_reinit_file, $config_init_file, 'dashboard config init reports the same config path on rerun' );
+    is( ( stat $config_init_file )[9], $config_mtime_before, 'dashboard config init leaves an existing config.json untouched on rerun' );
 }
 
 my $pages = _run("$perl -I'$lib' '$dashboard' page list");
@@ -225,9 +250,6 @@ my $broken_tt_page_render = _run("$perl -I'$lib' '$dashboard' page render tt-cli
 like( $broken_tt_page_render, qr/runtime-error/, 'dashboard page render surfaces Template Toolkit syntax failures as runtime errors' );
 unlike( $broken_tt_page_render, qr/\[%\s*IF\s+stash\.foo\s*%\]/, 'dashboard page render does not leak raw TT syntax after a Template Toolkit parse failure' );
 
-my $collector = _run("$perl -I'$lib' '$dashboard' collector run example.collector");
-like($collector, qr/example collector output/, 'collector run works');
-
 my $auth_add = _run("$perl -I'$lib' '$dashboard' auth add-user helper helper-pass-123");
 like($auth_add, qr/"username"\s*:\s*"helper"/, 'auth add-user works');
 
@@ -313,7 +335,7 @@ like($ps1, qr/🎫:DD-123/, 'ps1 loads the ticket from the tmux session environm
 my $ps1_extended = _run("$perl -I'$lib' '$dashboard' ps1 --jobs 1 --mode extended --color");
 like($ps1_extended, qr/\e\[|\(1 jobs\)/, 'ps1 supports extended/color modes');
 
-my $collector_inspect = _run("$perl -I'$lib' '$dashboard' collector inspect example.collector");
+my $collector_inspect = _run("$perl -I'$lib' '$dashboard' collector inspect docker.collector");
 like($collector_inspect, qr/"job"|"status"/, 'collector inspect works');
 
 my ( $usage_stdout, $usage_stderr, $usage_exit ) = capture {

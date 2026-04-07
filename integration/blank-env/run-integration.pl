@@ -275,17 +275,16 @@ PL
 
     my $config_init = _run_shell( 'dashboard config init', 'dashboard config init' );
     _assert_match( $config_init->{stdout}, qr/config\.json/, 'dashboard config init writes config file' );
+    _assert_match(
+        _read_text( File::Spec->catfile( $configs, 'config.json' ) ),
+        qr/fake\.config\.collector/,
+        'dashboard config init leaves an existing config.json untouched',
+    );
     _write_text(
         File::Spec->catfile( $configs, 'config.json' ),
         <<'JSON'
 {
   "collectors": [
-    {
-      "name": "example.collector",
-      "command": "printf 'example collector output\n'",
-      "cwd": "home",
-      "interval": 60
-    },
     {
       "name": "fake.config.collector",
       "command": "printf 'fake config collector output\n'",
@@ -359,37 +358,34 @@ JSON
     my $collector_write = _run_shell( 'dashboard collector write-result', $project_cd . q{printf 'manual-output' | dashboard collector write-result manual.collector 0} );
     _assert( $collector_write->{exit_code} == 0, 'dashboard collector write-result accepts manual output' );
 
-    my $collector_run = _run_shell( 'dashboard collector run', $project_cd . 'dashboard collector run example.collector' );
-    _assert_match( $collector_run->{stdout}, qr/"exit_code"\s*:\s*0/, 'dashboard collector run succeeds for example collector' );
-
     my $fake_collector_run = _run_shell( 'dashboard collector run fake.config.collector', $project_cd . 'dashboard collector run fake.config.collector' );
     _assert_match( $fake_collector_run->{stdout}, qr/"exit_code"\s*:\s*0/, 'dashboard collector run succeeds for fake project config collector' );
 
     my $collector_list = _run_shell( 'dashboard collector list', $project_cd . 'dashboard collector list' );
-    _assert_match( $collector_list->{stdout}, qr/example\.collector|manual\.collector/, 'dashboard collector list shows stored collectors' );
+    _assert_match( $collector_list->{stdout}, qr/manual\.collector/, 'dashboard collector list shows stored collectors' );
     _assert_match( $collector_list->{stdout}, qr/fake\.config\.collector/, 'dashboard collector list shows fake project config collector' );
 
-    my $collector_job = _run_shell( 'dashboard collector job', $project_cd . 'dashboard collector job example.collector' );
+    my $collector_job = _run_shell( 'dashboard collector job', $project_cd . 'dashboard collector job fake.config.collector' );
     _assert_match( $collector_job->{stdout}, qr/"command"/, 'dashboard collector job returns job metadata' );
 
-    my $collector_status = _run_shell( 'dashboard collector status', $project_cd . 'dashboard collector status example.collector' );
+    my $collector_status = _run_shell( 'dashboard collector status', $project_cd . 'dashboard collector status fake.config.collector' );
     _assert_match( $collector_status->{stdout}, qr/"enabled"/, 'dashboard collector status returns status data' );
 
-    my $collector_output = _run_shell( 'dashboard collector output', $project_cd . 'dashboard collector output example.collector' );
-    _assert_match( $collector_output->{stdout}, qr/example collector output/, 'dashboard collector output returns prepared output' );
+    my $collector_output = _run_shell( 'dashboard collector output', $project_cd . 'dashboard collector output fake.config.collector' );
+    _assert_match( $collector_output->{stdout}, qr/fake config collector output/, 'dashboard collector output returns prepared output' );
 
-    my $collector_inspect = _run_shell( 'dashboard collector inspect', $project_cd . 'dashboard collector inspect example.collector' );
+    my $collector_inspect = _run_shell( 'dashboard collector inspect', $project_cd . 'dashboard collector inspect fake.config.collector' );
     _assert_match( $collector_inspect->{stdout}, qr/"job"|"status"|"output"/, 'dashboard collector inspect returns combined view' );
 
-    my $collector_start = _run_shell( 'dashboard collector start', $project_cd . 'dashboard collector start example.collector' );
+    my $collector_start = _run_shell( 'dashboard collector start', $project_cd . 'dashboard collector start fake.config.collector' );
     _assert_match( $collector_start->{stdout}, qr/\d+/, 'dashboard collector start returns a pid' );
 
     sleep 2;
 
-    my $collector_restart = _run_shell( 'dashboard collector restart', $project_cd . 'dashboard collector restart example.collector' );
+    my $collector_restart = _run_shell( 'dashboard collector restart', $project_cd . 'dashboard collector restart fake.config.collector' );
     _assert_match( $collector_restart->{stdout}, qr/\d+/, 'dashboard collector restart returns a pid' );
 
-    my $collector_stop = _run_shell( 'dashboard collector stop', $project_cd . 'dashboard collector stop example.collector' );
+    my $collector_stop = _run_shell( 'dashboard collector stop', $project_cd . 'dashboard collector stop fake.config.collector' );
     _assert_match( $collector_stop->{stdout}, qr/\d+/, 'dashboard collector stop returns the stopped pid' );
 
     my $collector_log = _run_shell( 'dashboard collector log', $project_cd . 'dashboard collector log' );

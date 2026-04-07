@@ -17,6 +17,8 @@ use Developer::Dashboard::CLI::Ticket ();
 use Developer::Dashboard::CLI::Paths ();
 use Developer::Dashboard::InternalCLI ();
 use Developer::Dashboard::JSON qw(json_decode);
+use Developer::Dashboard::Config;
+use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Prompt;
 use Developer::Dashboard::Runtime::Result ();
@@ -59,6 +61,32 @@ like(
     qr/Missing skill name/,
     'skill_root rejects an empty skill name',
 );
+{
+    my $config_home = tempdir( CLEANUP => 1 );
+    my $config_cwd  = tempdir( CLEANUP => 1 );
+    my $cwd         = getcwd();
+    chdir $config_cwd or die "Unable to chdir to $config_cwd: $!";
+
+    my $config_paths = Developer::Dashboard::PathRegistry->new( home => $config_home );
+    my $config_files = Developer::Dashboard::FileRegistry->new( paths => $config_paths );
+    my $config       = Developer::Dashboard::Config->new( files => $config_files, paths => $config_paths );
+    my $config_file  = $config_files->global_config;
+
+    ok( !-e $config_file, 'ensure_global_file starts from a missing config.json path in the direct unit coverage case' );
+    is_same_path( $config->ensure_global_file, $config_file, 'ensure_global_file returns the writable global config path when creating the file' );
+    ok( -f $config_file, 'ensure_global_file creates config.json when it is missing' );
+    is_deeply( json_decode( do { local $/; open my $fh, '<', $config_file or die $!; <$fh> } ), {}, 'ensure_global_file writes an empty JSON object when bootstrapping a missing config file' );
+
+    _write_file( $config_file, qq|{"collectors":[{"name":"keep.me"}]}\n| );
+    is_same_path( $config->ensure_global_file, $config_file, 'ensure_global_file still returns the config path when the file already exists' );
+    is_deeply(
+        json_decode( do { local $/; open my $fh, '<', $config_file or die $!; <$fh> } ),
+        { collectors => [ { name => 'keep.me' } ] },
+        'ensure_global_file leaves an existing config.json untouched',
+    );
+
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
+}
 
 is_deeply(
     Developer::Dashboard::InternalCLI::helper_aliases(),
@@ -131,7 +159,7 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
     elsif ( $helper eq 'ps1' ) {
         like(
             $content,
-            qr/\QThis private helper is staged under F<~\/.developer-dashboard\/cli\/>\E/,
+            qr/\QThis private helper is staged under F<~\/.developer-dashboard\/cli\/dd\/>\E/,
             'helper_content renders the shipped ps1 helper body',
         );
     }
@@ -148,7 +176,7 @@ my @helper_names = Developer::Dashboard::InternalCLI::helper_names();
 is( scalar(@$seeded_helpers), scalar(@helper_names), 'ensure_helpers writes every shipped helper once' );
 my $seeded_helpers_second = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
 is_deeply( $seeded_helpers_second, [], 'ensure_helpers skips rewriting staged helpers whose md5 already matches the shipped content' );
-ok( -f File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', '_dashboard-core' ), 'ensure_helpers also stages the shared _dashboard-core runtime' );
+ok( -f File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'dd', '_dashboard-core' ), 'ensure_helpers also stages the shared _dashboard-core runtime under the dd namespace' );
 ok( grep( $_ =~ m{/\Qof\E$}, @$seeded_helpers ), 'ensure_helpers writes the private of helper' );
 ok( grep( $_ =~ m{/\Qopen-file\E$}, @$seeded_helpers ), 'ensure_helpers writes the private open-file helper' );
 ok( grep( $_ =~ m{/\Qticket\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ticket helper' );
@@ -157,7 +185,7 @@ ok( grep( $_ =~ m{/\Qpaths\E$}, @$seeded_helpers ), 'ensure_helpers writes the p
 ok( grep( $_ =~ m{/\Qps1\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ps1 helper' );
 ok(
     Developer::Dashboard::SeedSync::file_matches_content_md5(
-        File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'jq' ),
+        File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'dd', 'jq' ),
         Developer::Dashboard::InternalCLI::_managed_helper_content('jq'),
     ),
     'SeedSync file_matches_content_md5 confirms the staged helper content matches the shipped helper body',
@@ -182,9 +210,12 @@ ok(
     my $preserved_jq = do { local $/; <$preserved_jq_fh> };
     close $preserved_jq_fh;
 
-    is( $preserved_jq, "#!/usr/bin/env perl\nprint qq(user-jq\\n);\n", 'ensure_helpers preserves a pre-existing user-owned helper file instead of overwriting it' );
+    is( $preserved_jq, "#!/usr/bin/env perl\nprint qq(user-jq\\n);\n", 'ensure_helpers preserves a pre-existing user CLI file instead of overwriting it' );
     ok( -f $user_note, 'ensure_helpers does not delete unrelated user files from the home runtime CLI root' );
-    ok( !grep( $_ =~ m{/\Qjq\E$}, @{$preserved_helpers} ), 'ensure_helpers reports colliding user-owned helper files as preserved rather than rewritten' );
+    ok(
+        grep( $_ eq File::Spec->catfile( $preserve_home, '.developer-dashboard', 'cli', 'dd', 'jq' ), @{$preserved_helpers} ),
+        'ensure_helpers stages the built-in jq helper under the dd namespace even when a user jq exists in the root CLI space',
+    );
 }
 {
     local *Developer::Dashboard::InternalCLI::helper_content = sub {
@@ -209,7 +240,7 @@ ok(
 {
     my $preserve_home = tempdir( CLEANUP => 1 );
     my $preserve_paths = Developer::Dashboard::PathRegistry->new( home => $preserve_home );
-    my $preserve_cli_root = File::Spec->catdir( $preserve_home, '.developer-dashboard', 'cli' );
+    my $preserve_cli_root = File::Spec->catdir( $preserve_home, '.developer-dashboard', 'cli', 'dd' );
     make_path($preserve_cli_root);
     my $managed_jq = File::Spec->catfile( $preserve_cli_root, 'jq' );
     my $managed_body = Developer::Dashboard::InternalCLI::_managed_helper_content('jq');
@@ -244,10 +275,21 @@ ok(
     ),
     '_is_dashboard_managed_helper accepts older pre-marker helper bodies via the legacy thin-command marker',
 );
+ok(
+    !Developer::Dashboard::InternalCLI::_is_dashboard_managed_helper( undef, 'jq' ),
+    '_is_dashboard_managed_helper rejects undefined helper content',
+);
+ok(
+    !Developer::Dashboard::InternalCLI::_is_dashboard_managed_helper(
+        "#!/usr/bin/env perl\nprint qq(user helper\\n);\n",
+        'jq',
+    ),
+    '_is_dashboard_managed_helper rejects unmarked user helper content',
+);
 {
     my $preserve_home = tempdir( CLEANUP => 1 );
     my $preserve_paths = Developer::Dashboard::PathRegistry->new( home => $preserve_home );
-    my $preserve_cli_root = File::Spec->catdir( $preserve_home, '.developer-dashboard', 'cli' );
+    my $preserve_cli_root = File::Spec->catdir( $preserve_home, '.developer-dashboard', 'cli', 'dd' );
     my $directory_target = File::Spec->catdir( $preserve_cli_root, 'jq' );
     make_path($directory_target);
     ok(
@@ -291,8 +333,8 @@ my $layered_paths = Developer::Dashboard::PathRegistry->new(
 );
 is(
     Developer::Dashboard::InternalCLI::helper_path( paths => $layered_paths, name => 'jq' ),
-    File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'jq' ),
-    'helper_path always stages built-in helpers under the home runtime CLI root',
+    File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'dd', 'jq' ),
+    'helper_path always stages built-in helpers under the home runtime dd helper root',
 );
 
 my $paths_output = capture {

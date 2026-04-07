@@ -16,3 +16,10 @@ requires 'LWP::UserAgent';
 requires 'Template';
 requires 'URI';
 requires 'URI::Escape';
+
+on 'develop' => sub {
+    recommends 'DBI';
+    recommends 'DBD::SQLite';
+    recommends 'DBD::mysql';
+    recommends 'DBD::Pg';
+};

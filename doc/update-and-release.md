@@ -96,7 +96,7 @@ perl -Ilib bin/dashboard indicator refresh-core
 Inspect collector state:
 
 ```bash
-perl -Ilib bin/dashboard collector inspect example.collector
+perl -Ilib bin/dashboard collector inspect healthy.collector
 ```
 
 Collector definitions may use either a shell `command` string or Perl `code`
@@ -195,7 +195,7 @@ Use `Developer::Dashboard::Folder` for runtime path helpers. It resolves the
 same root-style names exposed by `dashboard paths`, including runtime,
 bookmark, config, and configured alias names such as `docker`, without relying
 on unscoped CPAN-global module names.
-`dashboard init` now seeds `api-dashboard` and `sql-dashboard` as editable saved bookmarks when those ids are missing. Re-running init keeps existing user config intact, preserves user-owned files under `~/.developer-dashboard/cli/`, and skips rewriting dashboard-managed helper or starter files when the shipped content MD5 already matches.
+`dashboard init` now seeds `api-dashboard` and `sql-dashboard` as editable saved bookmarks when those ids are missing. Re-running init keeps existing user config intact, creates `config.json` as `{}` only when it is missing, keeps dashboard-managed helpers under `~/.developer-dashboard/cli/dd/`, preserves user-owned files under `~/.developer-dashboard/cli/`, and skips rewriting dashboard-managed helper or starter files when the shipped content MD5 already matches.
 `dashboard cpan <Module...>` now manages optional runtime Perl modules under `./.developer-dashboard/local` and appends matching requirements to `./.developer-dashboard/cpanfile`, with automatic `DBI` handling for `DBD::*` requests, while keeping the implementation in `bin/dashboard` and letting saved Ajax workers derive `local/lib/perl5` directly from the runtime root.
 
 ## Release To PAUSE
@@ -229,7 +229,7 @@ exports only `dashboard` into the global PATH. Generic helper names such as
 `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, and
 `ticket` must not appear as a repo-shipped top-level executable. If it is part
 of the dashboard toolchain, it must stay behind `dashboard ticket` and the
-private runtime helper staged under `~/.developer-dashboard/cli/ticket`.
+private runtime helper staged under `~/.developer-dashboard/cli/dd/ticket`.
 
 and uploads the resulting tarball to PAUSE using:
 

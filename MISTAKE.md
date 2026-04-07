@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: HOME-DD-CLI-NAMESPACE-DRIFT
+
+**Date:** 2026-04-08 00:30:00 UTC
+**Area:** init bootstrap defaults, built-in helper staging, user command safety, and SQL browser verification
+**Symptom:** `dashboard init` mixed dashboard-owned built-in helpers into the same `~/.developer-dashboard/cli/` namespace that users use for their own commands, child layers could pick up dashboard-managed helper staging pressure they were not supposed to receive, and missing config bootstrap still carried the older example-collector assumption instead of a clean `{}` file
+**Why It Was Dangerous:** It blurred the line between user commands and system-owned commands, made repeated init runs look destructive or surprising, and left the runtime contract unclear for both layered CLI lookup and fresh config bootstrapping
+**Root Cause:** Earlier helper extraction work preserved files non-destructively, but it still staged dashboard-managed helpers into the generic home CLI root and left tests/docs anchored to the older seeded-collector default instead of the stricter home-only `cli/dd/` contract
+**How Ellen Solved It:** Moved dashboard-managed built-in helper staging to `~/.developer-dashboard/cli/dd/`, kept the ordinary `~/.developer-dashboard/cli/` tree for user commands and hooks only, prevented child layers from receiving built-in `dd/` seeds, changed config bootstrap to create `{}` only when missing, and extended SQL dashboard browser coverage to real Docker-backed MySQL/PostgreSQL fixtures in addition to the SQLite matrix
+**How To Detect Earlier Next Time:** After changing init/bootstrap behavior, run `dashboard init` twice in a clean temp home, create a user-owned helper under `~/.developer-dashboard/cli/`, verify built-ins only appear under `~/.developer-dashboard/cli/dd/`, verify no child-layer `cli/dd/` appears, and confirm a missing `config/config.json` becomes `{}` while an existing file stays byte-for-byte intact
+**Prevention Rule:** Dashboard-managed built-ins and user commands must stay in separate namespaces: built-ins live only under `~/.developer-dashboard/cli/dd/`, user commands and hooks live under layered `cli/` roots, and init/bootstrap may create `config/config.json` as `{}` only when it is missing
+**Verification:** `prove -lv t/04-update-manager.t t/05-cli-smoke.t t/21-refactor-coverage.t`, `prove -lv t/31-sql-dashboard-sqlite-playwright.t t/32-sql-dashboard-rdbms-playwright.t`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `lib/Developer/Dashboard/Config.pm`, `lib/Developer/Dashboard/InternalCLI.pm`, `share/private-cli/_dashboard-core`, `updates/01-bootstrap-runtime.pl`, `t/04-update-manager.t`, `t/05-cli-smoke.t`, `t/21-refactor-coverage.t`, `t/31-sql-dashboard-sqlite-playwright.t`, `t/32-sql-dashboard-rdbms-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`, `doc/update-and-release.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: SQL-REAL-DRIVER-COVERAGE-GAP
 
 **Date:** 2026-04-07 23:30:00 UTC

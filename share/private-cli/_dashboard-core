@@ -507,18 +507,7 @@ elsif ( $cmd eq 'collector' ) {
 elsif ( $cmd eq 'config' ) {
     my $action = shift @ARGV || '';
     if ( $action eq 'init' ) {
-        my $file = $config->save_global_defaults(
-            {
-                collectors => [
-                    {
-                        name     => 'example.collector',
-                        command  => "printf 'example collector output\\n'",
-                        cwd      => 'home',
-                        interval => 60,
-                    },
-                ],
-            }
-        );
+        my $file = $config->ensure_global_file;
         print "$file\n";
         exit 0;
     }
@@ -555,18 +544,7 @@ elsif ( $cmd eq 'auth' ) {
 elsif ( $cmd eq 'init' ) {
     _migrate_saved_pages();
     my $migrated = [];
-    my $config_file = $config->save_global_defaults(
-        {
-            collectors => [
-                {
-                    name     => 'example.collector',
-                    command  => "printf 'example collector output\\n'",
-                    cwd      => 'home',
-                    interval => 60,
-                },
-            ],
-        }
-    );
+    my $config_file = $config->ensure_global_file;
 
     my @pages = $pages->list_saved_pages;
     _seed_init_page( $pages, \@pages, Developer::Dashboard::CLI::SeededPages::api_dashboard_page() );
@@ -1175,7 +1153,7 @@ _dashboard-core - internal staged built-in command runtime for Developer Dashboa
 
 This internal helper runs the heavier built-in Developer Dashboard commands
 after the public C<dashboard> entrypoint has already handled hook execution and
-switchboard dispatch. It is staged under F<~/.developer-dashboard/cli/> as
+switchboard dispatch. It is staged under F<~/.developer-dashboard/cli/dd/> as
 F<_dashboard-core> and is not meant to be called by users directly.
 
 __END__
@@ -1195,7 +1173,7 @@ Open this file when you need the implementation, regression coverage, or runtime
 
 =head1 WHY IT EXISTS
 
-It exists so C<bin/dashboard> can stay thin under the LAZY-THIN-CMD rule while still providing built-in commands through staged helper scripts under C<~/.developer-dashboard/cli/>.
+It exists so C<bin/dashboard> can stay thin under the LAZY-THIN-CMD rule while still providing built-in commands through staged helper scripts under C<~/.developer-dashboard/cli/dd/>.
 
 =head1 WHEN TO USE
 
@@ -1203,16 +1181,16 @@ Use this file when you need to understand how a built-in C<dashboard> subcommand
 
 =head1 HOW TO USE
 
-This script is not meant to be called directly by users. The staged private helper wrappers exec into it after C<dashboard init> or on-demand helper staging has populated C<~/.developer-dashboard/cli/>.
+This script is not meant to be called directly by users. The staged private helper wrappers exec into it after C<dashboard init> or on-demand helper staging has populated C<~/.developer-dashboard/cli/dd/>.
 
 =head1 WHAT USES IT
 
-It is used by the staged built-in helper wrappers under C<~/.developer-dashboard/cli/> after C<bin/dashboard> has extracted or refreshed them.
+It is used by the staged built-in helper wrappers under C<~/.developer-dashboard/cli/dd/> after C<bin/dashboard> has extracted or refreshed them.
 
 =head1 EXAMPLES
 
   dashboard init
-  ~/.developer-dashboard/cli/jq . foo.json
+  ~/.developer-dashboard/cli/dd/jq . foo.json
 
 The first command stages the private helpers. The second shows the staged helper path that eventually hands off into C<_dashboard-core>.
 

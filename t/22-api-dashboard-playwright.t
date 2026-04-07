@@ -581,8 +581,26 @@ async function clickCollection(page, name) {
   await page.getByRole('tab', { name }).click();
 }
 
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 async function clickRequest(page, name) {
-  await page.locator('button.api-node-button').filter({ hasText: name }).click();
+  const exactName = new RegExp(`^\\s*${escapeRegExp(name)}\\s*$`);
+  let lastError;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const locator = page.locator('button.api-node-button').filter({ hasText: exactName }).first();
+    await locator.waitFor({ state: 'visible' });
+    try {
+      await locator.scrollIntoViewIfNeeded();
+      await locator.click({ timeout: 10000 });
+      return;
+    } catch (error) {
+      lastError = error;
+      await sleep(200);
+    }
+  }
+  throw lastError || new Error(`Unable to click request node: ${name}`);
 }
 
 async function openShellTab(page, name) {
@@ -806,9 +824,10 @@ async function main() {
       const banner = document.querySelector('#api-banner');
       return banner && /Saved request|Updated request/.test(banner.textContent || '');
     });
-    await openShellTab(page, 'Collections');
-    await clickRequest(page, 'Playwright JSON');
     await waitForFile(process.env.SAVED_COLLECTION_FILE, true);
+    await openShellTab(page, 'Collections');
+    await clickCollection(page, 'Playwright Collection Renamed');
+    await clickRequest(page, 'Playwright JSON');
 
     await openShellTab(page, 'Workspace');
     await page.getByRole('button', { name: 'Send Request' }).click();
@@ -870,6 +889,7 @@ async function main() {
     await waitForCollection(page, 'Imported Collection', true);
     await waitForFile(process.env.IMPORTED_COLLECTION_FILE, true);
 
+    await clickCollection(page, 'Imported Collection');
     await clickRequest(page, 'Preview PNG');
     await openShellTab(page, 'Workspace');
     await page.getByRole('button', { name: 'Send Request' }).click();

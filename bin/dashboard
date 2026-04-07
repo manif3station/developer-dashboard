@@ -398,7 +398,7 @@ runs layered per-command hooks across C<DD-OOP-LAYERS>
 
 =item *
 
-stages dashboard-managed built-in helpers under F<~/.developer-dashboard/cli/>
+stages dashboard-managed built-in helpers under F<~/.developer-dashboard/cli/dd/>
 
 =item *
 

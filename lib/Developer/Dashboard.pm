@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.97';
+our $VERSION = '1.98';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.97
+1.98
 
 =head1 INTRODUCTION
 
@@ -55,10 +55,12 @@ site-specific checks later.
 
 Frequently used built-in commands such as C<jq>, C<yq>, C<tomq>, C<propq>,
 C<iniq>, C<csvq>, C<xmlq>, C<of>, C<open-file>, and C<ticket> are staged
-privately under F<~/.developer-dashboard/cli/> and dispatched by
-C<dashboard> without polluting the global PATH. Compatibility aliases C<pjq>,
-C<pyq>, C<ptomq>, and C<pjp> still normalize to the renamed commands when
-they are invoked through C<dashboard>.
+privately under F<~/.developer-dashboard/cli/dd/> and dispatched by
+C<dashboard> without polluting the global PATH. That keeps dashboard-owned
+built-ins separate from user commands and hooks under
+F<~/.developer-dashboard/cli/>. Compatibility aliases C<pjq>, C<pyq>,
+C<ptomq>, and C<pjp> still normalize to the renamed commands when they are
+invoked through C<dashboard>.
 
 It provides a small ecosystem for:
 
@@ -536,7 +538,7 @@ data-inspection toolkit that fits naturally into shell workflows.
 
 =item * Private CLI Helper Assets
 
-Private F<~/.developer-dashboard/cli/> helper files provide the built-in
+Private F<~/.developer-dashboard/cli/dd/> helper files provide the built-in
 command behaviour without installing generic command names into the global
 PATH. Query, open-file, ticket, path, and prompt commands keep dedicated
 helper bodies, while the remaining built-ins stage thin wrappers that hand off
@@ -544,11 +546,13 @@ to a shared private C<_dashboard-core> runtime.
 
 Only C<dashboard> is intended to be the public CPAN-facing command-line
 entrypoint. The real built-in command bodies live outside F<bin/dashboard>
-under F<share/private-cli/>, then stage into F<~/.developer-dashboard/cli/>
+under F<share/private-cli/>, then stage into F<~/.developer-dashboard/cli/dd/>
 on demand. Generic helper names such as C<ticket>, C<of>, C<open-file>,
 C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, C<xmlq>, C<path>, and
 C<paths> are intentionally kept out of the installed global PATH to avoid
-polluting the wider Perl and shell ecosystem.
+polluting the wider Perl and shell ecosystem while still keeping
+dashboard-owned commands separate from user commands under
+F<~/.developer-dashboard/cli/>.
 
 C<dashboard ticket> creates or reuses a tmux session for the requested ticket
 reference, seeds C<TICKET_REF> plus dashboard-friendly branch aliases into that
@@ -861,7 +865,7 @@ User CLI extensions can be tested from the repository too:
 
 Dashboard-managed built-in helpers are different from user commands. All
 built-in helper assets are always staged only under
-F<~/.developer-dashboard/cli/>. Dedicated helper bodies are used for
+F<~/.developer-dashboard/cli/dd/>. Dedicated helper bodies are used for
 C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, C<xmlq>, C<of>,
 C<open-file>, C<ticket>, C<path>, C<paths>, and C<ps1>, while the remaining
 built-in commands stage thin wrappers that delegate into the shared private
@@ -1053,13 +1057,16 @@ either a saved bookmark document or a saved ajax/url bookmark file.
 
 =head2 Working With Collectors
 
-Initialize example collector config:
+Ensure the home config file exists without seeding collectors:
 
   dashboard config init
 
-Run a collector once:
+If F<config/config.json> is missing, that command creates it as:
 
-  dashboard collector run example.collector
+  {}
+
+It does not inject an example collector, and if the file already exists it is
+left untouched.
 
 List collector status:
 
@@ -1459,8 +1466,9 @@ For optional docker-backed MySQL and PostgreSQL browser coverage, run:
   PERL5LIB=/tmp/sql-lib/lib/perl5:/tmp/sql-lib/lib/perl5/x86_64-linux-gnu-thread-multi \
   prove -lv t/32-sql-dashboard-rdbms-playwright.t
 
-That browser file covers real MySQL and PostgreSQL services through Docker.
-It intentionally skips unless C<DBI> plus the relevant C<DBD::mysql> or
+That browser file covers real MySQL and PostgreSQL services through Docker
+using official C<mysql:5.7> and C<postgres:16> fixtures on this host. It
+intentionally skips unless C<DBI> plus the relevant C<DBD::mysql> or
 C<DBD::Pg> driver is already installed in the active Perl environment. Those
 drivers are not shipped as base runtime prerequisites.
 
@@ -1501,9 +1509,10 @@ C<dashboard init> seeds two editable starter bookmarks when they are
 missing: C<api-dashboard> and C<sql-dashboard>.
 
 Re-running C<dashboard init> keeps an existing
-F<~/.developer-dashboard/config/config.json> intact. The command only fills
-in missing default collector config, refreshes missing private helper
-commands, and seeds starter bookmarks that are not already present.
+F<~/.developer-dashboard/config/config.json> intact. If the file is missing,
+init creates it as C<{}>. The command refreshes dashboard-managed helpers in
+F<~/.developer-dashboard/cli/dd/> and seeds starter bookmarks that are not
+already present.
 
 When C<dashboard init> refreshes a dashboard-managed helper or shipped
 starter file, it compares the existing content against the shipped content by
@@ -1516,12 +1525,11 @@ of leaking the raw C<[% ... %]> source into the browser or
 C<dashboard page render> output.
 
 Home helper staging is non-destructive too. C<dashboard init> may add or
-update dashboard-managed built-in helpers under
-F<~/.developer-dashboard/cli/>, but it must preserve any pre-existing
-user-owned files, directories, and unrelated notes in that same folder. If a
-user already owns F<~/.developer-dashboard/cli/jq> or any other colliding
-helper path, init must leave that file alone instead of overwriting or
-deleting it.
+update dashboard-managed built-in helpers only under
+F<~/.developer-dashboard/cli/dd/>. User commands and hook directories stay in
+F<~/.developer-dashboard/cli/> and in child-layer
+F<./.developer-dashboard/cli/> roots, and init must not overwrite or delete
+those user-space files while refreshing the home-only dd namespace.
 
 The public C<dashboard> entrypoint also stays thin for all built-in commands.
 It only stages and execs helper assets from F<share/private-cli/>: dedicated

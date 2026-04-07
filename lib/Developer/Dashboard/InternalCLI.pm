@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '1.97';
+our $VERSION = '1.98';
 
 use File::Basename qw(dirname);
 use File::Spec;
@@ -49,7 +49,8 @@ sub canonical_helper_name {
 }
 
 # helper_path(%args)
-# Resolves one private helper executable path under the home runtime CLI root.
+# Resolves one private helper executable path under the home runtime DD helper
+# namespace root.
 # Input: path registry object plus helper command name.
 # Output: helper file path string.
 sub helper_path {
@@ -77,7 +78,8 @@ sub helper_content {
 }
 
 # ensure_helpers(%args)
-# Seeds the built-in private helper executables into the home runtime CLI root.
+# Seeds the built-in private helper executables into the home runtime DD helper
+# namespace root.
 # Input: path registry object.
 # Output: array reference of written helper file paths.
 sub ensure_helpers {
@@ -85,6 +87,7 @@ sub ensure_helpers {
     my $paths = $args{paths} || die 'Missing paths registry';
 
     my @written;
+    $paths->ensure_dir( _helper_parent_root($paths) );
     $paths->ensure_dir( _helper_install_root($paths) );
     my $core_target = File::Spec->catfile( _helper_install_root($paths), '_dashboard-core' );
     if ( _stage_managed_helper( paths => $paths, name => '_dashboard-core', target => $core_target ) ) {
@@ -175,13 +178,24 @@ sub _is_dashboard_managed_helper {
     return 0;
 }
 
+# _helper_parent_root($paths)
+# Returns the home runtime user CLI root that contains the dashboard-managed dd
+# namespace.
+# Input: path registry object.
+# Output: directory path string.
+sub _helper_parent_root {
+    my ($paths) = @_;
+    return File::Spec->catdir( $paths->home_runtime_root, 'cli' );
+}
+
 # _helper_install_root($paths)
-# Returns the home runtime CLI root used for built-in helper staging.
+# Returns the home runtime DD helper namespace root used for built-in helper
+# staging.
 # Input: path registry object.
 # Output: directory path string.
 sub _helper_install_root {
     my ($paths) = @_;
-    return File::Spec->catdir( $paths->home_runtime_root, 'cli' );
+    return File::Spec->catdir( _helper_parent_root($paths), 'dd' );
 }
 
 # _helper_asset_path($name)
@@ -237,7 +251,7 @@ Developer::Dashboard::InternalCLI - private runtime helper executable management
 =head1 DESCRIPTION
 
 This module manages the built-in private helper executables that Developer
-Dashboard stages under F<~/.developer-dashboard/cli/> instead of exposing as
+Dashboard stages under F<~/.developer-dashboard/cli/dd/> instead of exposing as
 global system commands.
 
 =head1 FUNCTIONS

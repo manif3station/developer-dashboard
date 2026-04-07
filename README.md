@@ -23,9 +23,11 @@ layer in more site-specific checks later.
 
 Frequently used built-in helpers such as `jq`, `yq`, `tomq`, `propq`, `iniq`,
 `csvq`, `xmlq`, `of`, and `open-file` are staged privately under
-`~/.developer-dashboard/cli/` and dispatched by `dashboard` without polluting
-the global `PATH`. Compatibility aliases `pjq`, `pyq`, `ptomq`, and `pjp` still map
-to the renamed commands when they are invoked through `dashboard`.
+`~/.developer-dashboard/cli/dd/` and dispatched by `dashboard` without
+polluting the global `PATH`. That keeps dashboard-owned built-ins separate from
+user commands and hooks under `~/.developer-dashboard/cli/`. Compatibility
+aliases `pjq`, `pyq`, `ptomq`, and `pjp` still map to the renamed commands when
+they are invoked through `dashboard`.
 
 It provides a small ecosystem for:
 
@@ -210,10 +212,10 @@ first.
 - `dashboard iniq`, `dashboard csvq`, and `dashboard xmlq`
   Parse INI, CSV, and XML file input with dotted path extraction.
 
-- private `~/.developer-dashboard/cli/*` built-in helpers plus `~/.developer-dashboard/cli/_dashboard-core`
+- private `~/.developer-dashboard/cli/dd/*` built-in helpers plus `~/.developer-dashboard/cli/dd/_dashboard-core`
   Provide dashboard-managed helper assets without installing generic command names into the global PATH. Query/open-file/ticket/path/prompt helpers keep their own dedicated helper bodies, while the remaining built-in commands stage thin wrappers that hand off to the shared private `_dashboard-core` runtime.
 
-Only `dashboard` is intended to be the public CPAN-facing command-line entrypoint. The real built-in command bodies now live outside `bin/dashboard` under `share/private-cli/`, then stage into `~/.developer-dashboard/cli/` on demand. Generic helper names such as `ticket`, `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, `path`, and `paths` are intentionally kept out of the installed global PATH to avoid polluting the wider Perl and shell ecosystem.
+Only `dashboard` is intended to be the public CPAN-facing command-line entrypoint. The real built-in command bodies now live outside `bin/dashboard` under `share/private-cli/`, then stage into `~/.developer-dashboard/cli/dd/` on demand. Generic helper names such as `ticket`, `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, `path`, and `paths` are intentionally kept out of the installed global PATH to avoid polluting the wider Perl and shell ecosystem while still keeping dashboard-owned commands separate from user commands under `~/.developer-dashboard/cli/`.
 
 - `dashboard ticket`
   Creates or reuses a tmux session for the requested ticket reference, seeds `TICKET_REF` plus dashboard-friendly branch aliases into that session environment, and attaches to it through a dashboard-managed private helper instead of a public standalone binary.
@@ -339,9 +341,10 @@ single project-or-home split.
 
 Dashboard-managed built-in helper extraction is the one explicit exception:
 `dashboard init` and on-demand helper staging always write the built-in helper
-scripts only to `~/.developer-dashboard/cli/`. Layered lookup still applies to
-user commands and hook directories, but built-in helper offloading does not
-seed duplicate copies into child project layers.
+scripts only to `~/.developer-dashboard/cli/dd/`. Layered lookup still applies
+to user commands and hook directories under `./.developer-dashboard/cli/` plus
+`~/.developer-dashboard/cli/`, but built-in helper offloading does not seed
+duplicate copies into child project layers.
 
 ### Shared Nav Fragments
 
@@ -701,17 +704,20 @@ Page `TITLE:` values only populate the HTML `<title>` element. If a bookmark sho
 
 ### Working With Collectors
 
-Initialize example collector config:
+Ensure the home config file exists without seeding collectors:
 
 ```bash
 dashboard config init
 ```
 
-Run a collector once:
+If `config/config.json` is missing, that command creates it as:
 
 ```bash
-dashboard collector run example.collector
+{}
 ```
+
+It does not inject an example collector, and if the file already exists it is
+left untouched.
 
 List collector status:
 
@@ -924,9 +930,10 @@ exists, `dashboard update` runs that command after any sorted hook files from
 `api-dashboard` and `sql-dashboard`.
 
 Re-running `dashboard init` keeps an existing
-`~/.developer-dashboard/config/config.json` intact. The command only fills in
-missing default collector config, refreshes missing private helper commands,
-and seeds starter bookmarks that are not already present.
+`~/.developer-dashboard/config/config.json` intact. If the file is missing,
+init creates it as `{}`. The command refreshes dashboard-managed helpers in
+`~/.developer-dashboard/cli/dd/` and seeds starter bookmarks that are not
+already present.
 
 When `dashboard init` refreshes a dashboard-managed helper or shipped starter
 file, it compares the existing content against the shipped content by MD5
@@ -939,11 +946,10 @@ leaking the raw `[% ... %]` source into the browser or `dashboard page render`
 output.
 
 Home helper staging is non-destructive too. `dashboard init` may add or update
-dashboard-managed built-in helpers under `~/.developer-dashboard/cli/`, but it
-must preserve any pre-existing user-owned files, directories, and unrelated
-notes in that same folder. If a user already owns `~/.developer-dashboard/cli/jq`
-or any other colliding helper path, init must leave that file alone instead of
-overwriting or deleting it.
+dashboard-managed built-in helpers only under `~/.developer-dashboard/cli/dd/`.
+User commands and hook directories stay in `~/.developer-dashboard/cli/` and in
+child-layer `./.developer-dashboard/cli/` roots, and init must not overwrite or
+delete those user-space files while refreshing the home-only dd namespace.
 
 The public `dashboard` entrypoint also stays thin for all built-in commands.
 It only stages and execs helper assets from `share/private-cli/`: dedicated
@@ -1287,10 +1293,11 @@ PERL5LIB=/tmp/sql-lib/lib/perl5:/tmp/sql-lib/lib/perl5/x86_64-linux-gnu-thread-m
 prove -lv t/32-sql-dashboard-rdbms-playwright.t
 ```
 
-That browser file covers real MySQL and PostgreSQL services through Docker.
-It intentionally skips unless `DBI` plus the relevant `DBD::mysql` or
-`DBD::Pg` driver is already installed in the active Perl environment. Those
-drivers are not shipped as base runtime prerequisites.
+That browser file covers real MySQL and PostgreSQL services through Docker
+using official `mysql:5.7` and `postgres:16` fixtures on this host. It
+intentionally skips unless `DBI` plus the relevant `DBD::mysql` or `DBD::Pg`
+driver is already installed in the active Perl environment. Those drivers are
+not shipped as base runtime prerequisites.
 
 For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
 host:

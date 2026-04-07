@@ -28,7 +28,7 @@ ticket - private tmux ticket helper for Developer Dashboard
 
 =head1 DESCRIPTION
 
-This private helper is staged under F<~/.developer-dashboard/cli/> so the main
+This private helper is staged under F<~/.developer-dashboard/cli/dd/> so the main
 C<dashboard> command can keep ticket-session behaviour available without
 installing a generic executable into the user's global PATH.
 
@@ -41,7 +41,7 @@ Open this file when you need the implementation, regression coverage, or runtime
 
 =head1 WHY IT EXISTS
 
-It exists so C<bin/dashboard> can stay thin under the LAZY-THIN-CMD rule while still providing built-in commands through staged helper scripts under C<~/.developer-dashboard/cli/>.
+It exists so C<bin/dashboard> can stay thin under the LAZY-THIN-CMD rule while still providing built-in commands through staged helper scripts under C<~/.developer-dashboard/cli/dd/>.
 
 =head1 WHEN TO USE
 
@@ -49,17 +49,17 @@ Use this file when you need to understand how a built-in C<dashboard> subcommand
 
 =head1 HOW TO USE
 
-Users normally reach this helper through C<dashboard ticket>. For debugging, inspect the staged copy under C<~/.developer-dashboard/cli/ticket> after helper staging.
+Users normally reach this helper through C<dashboard ticket>. For debugging, inspect the staged copy under C<~/.developer-dashboard/cli/dd/ticket> after helper staging.
 
 =head1 WHAT USES IT
 
-It is used by C<bin/dashboard> after helper staging has placed the home-runtime wrapper at C<~/.developer-dashboard/cli/ticket>.
+It is used by C<bin/dashboard> after helper staging has placed the home-runtime wrapper at C<~/.developer-dashboard/cli/dd/ticket>.
 
 =head1 EXAMPLES
 
   dashboard ticket
 
-That is the user-facing route. After helper staging you can also inspect the home-runtime wrapper under C<~/.developer-dashboard/cli/ticket>.
+That is the user-facing route. After helper staging you can also inspect the home-runtime wrapper under C<~/.developer-dashboard/cli/dd/ticket>.
 
 =for comment FULL-POD-DOC END
 

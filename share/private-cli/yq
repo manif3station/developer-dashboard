@@ -39,7 +39,7 @@ Open this file when you need the implementation, regression coverage, or runtime
 
 =head1 WHY IT EXISTS
 
-It exists so C<bin/dashboard> can stay thin under the LAZY-THIN-CMD rule while still providing built-in commands through staged helper scripts under C<~/.developer-dashboard/cli/>.
+It exists so C<bin/dashboard> can stay thin under the LAZY-THIN-CMD rule while still providing built-in commands through staged helper scripts under C<~/.developer-dashboard/cli/dd/>.
 
 =head1 WHEN TO USE
 
@@ -47,17 +47,17 @@ Use this file when you need to understand how a built-in C<dashboard> subcommand
 
 =head1 HOW TO USE
 
-Users normally reach this helper through C<dashboard yq>. For debugging, inspect the staged copy under C<~/.developer-dashboard/cli/yq> after helper staging.
+Users normally reach this helper through C<dashboard yq>. For debugging, inspect the staged copy under C<~/.developer-dashboard/cli/dd/yq> after helper staging.
 
 =head1 WHAT USES IT
 
-It is used by C<bin/dashboard> after helper staging has placed the home-runtime wrapper at C<~/.developer-dashboard/cli/yq>.
+It is used by C<bin/dashboard> after helper staging has placed the home-runtime wrapper at C<~/.developer-dashboard/cli/dd/yq>.
 
 =head1 EXAMPLES
 
   dashboard yq
 
-That is the user-facing route. After helper staging you can also inspect the home-runtime wrapper under C<~/.developer-dashboard/cli/yq>.
+That is the user-facing route. After helper staging you can also inspect the home-runtime wrapper under C<~/.developer-dashboard/cli/dd/yq>.
 
 =for comment FULL-POD-DOC END
 
