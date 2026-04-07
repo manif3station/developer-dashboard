@@ -99,6 +99,7 @@ The extension tests also cover:
 - CLI hook directories under `~/.developer-dashboard/cli/<command>` or `~/.developer-dashboard/cli/<command>.d` with sorted executable-only hook execution, live streamed hook progress, per-hook `RESULT` rewrites between hook runs, and `Runtime::Result` helper coverage
 - directory-backed custom commands through `~/.developer-dashboard/cli/<command>/run`
 - non-destructive home helper staging, including preserved user-owned helper collisions and unrelated files under `~/.developer-dashboard/cli/`
+- MD5-aware `dashboard init` helper and seed refreshes, including unchanged mtimes when a dashboard-managed helper or seeded starter page already matches the shipped content
 - project-local `./.developer-dashboard` precedence over the home fallback for bookmarks, config, CLI commands and hooks, auth users, sessions, and isolated docker service folders
 - seeded `dashboard init` starter pages for `api-dashboard` and `sql-dashboard`
 - browser-check the seeded `api-dashboard` bookmark in a fresh runtime and verify the Postman-style shell renders the collection tabs, request tabs, request-token form for `{{token}}` placeholders, the hide/show request-credentials panel with the supported auth presets, import/export controls, file-backed collections loaded from `config/api-dashboard`, and that the `config/api-dashboard` directory plus saved collection files are tightened to `0700` / `0600`

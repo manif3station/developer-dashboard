@@ -42,6 +42,8 @@ my $runtime_path = File::Spec->catfile( $runtime_cli_root, 'path' );
 my $runtime_paths = File::Spec->catfile( $runtime_cli_root, 'paths' );
 my $runtime_ps1 = File::Spec->catfile( $runtime_cli_root, 'ps1' );
 my $runtime_dashboard_core = File::Spec->catfile( $runtime_cli_root, '_dashboard-core' );
+my $runtime_api_dashboard = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'dashboards', 'api-dashboard' );
+my $runtime_sql_dashboard = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'dashboards', 'sql-dashboard' );
 
 my $init = _run("$perl -I'$lib' '$dashboard' init");
 like($init, qr/runtime_root/, 'dashboard init works');
@@ -51,6 +53,9 @@ for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runti
 }
 ok( -f $runtime_dashboard_core, 'dashboard init seeds the private built-in core helper runtime' );
 ok( -x $runtime_dashboard_core, 'dashboard init marks the private built-in core helper runtime executable' );
+my $managed_jq_mtime_before = ( stat $runtime_jq )[9];
+my $managed_api_dashboard_mtime_before = ( stat $runtime_api_dashboard )[9];
+my $managed_sql_dashboard_mtime_before = ( stat $runtime_sql_dashboard )[9];
 my $home_only_init_project = File::Spec->catdir( $ENV{HOME}, 'projects', 'home-only-init-project' );
 my $home_only_local_cli = File::Spec->catdir( $home_only_init_project, '.developer-dashboard', 'cli' );
 make_path( File::Spec->catdir( $home_only_init_project, '.git' ), $home_only_local_cli );
@@ -93,8 +98,12 @@ $seeded_config_json = encode( 'UTF-8', $seeded_config_json ) if utf8::is_utf8($s
 print {$seeded_config_fh} $seeded_config_json;
 close $seeded_config_fh;
 
+sleep 1.1;
 my $reinit = _run("$perl -I'$lib' '$dashboard' init");
 like($reinit, qr/config_file/, 'dashboard init can be re-run after a config already exists');
+is( ( stat $runtime_jq )[9], $managed_jq_mtime_before, 'dashboard init skips rewriting a dashboard-managed helper when its md5 already matches the shipped helper content' );
+is( ( stat $runtime_api_dashboard )[9], $managed_api_dashboard_mtime_before, 'dashboard init skips rewriting the api-dashboard seeded page when its md5 already matches the shipped seed content' );
+is( ( stat $runtime_sql_dashboard )[9], $managed_sql_dashboard_mtime_before, 'dashboard init skips rewriting the sql-dashboard seeded page when its md5 already matches the shipped seed content' );
 open my $preserved_config_fh, '<:raw', $global_config_file or die "Unable to read $global_config_file: $!";
 my $preserved_config_json = do { local $/; <$preserved_config_fh> };
 close $preserved_config_fh;

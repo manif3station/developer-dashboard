@@ -16,6 +16,7 @@ my $release_doc = _slurp( _repo_path( 'doc', 'update-and-release.md' ) );
 my $changes = _slurp( _repo_path('Changes') );
 my $dist = _slurp_optional( _repo_path('dist.ini') );
 my $meta = _slurp_optional( _repo_path('META.json') );
+my $cpanfile = _slurp( _repo_path('cpanfile') );
 my $makefile = _slurp( _repo_path('Makefile.PL') );
 my $agents_override = _slurp_optional( _repo_path('AGENTS.override.md') );
 my @doc_paths = (
@@ -50,18 +51,18 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.94', 'repo version bumped for the home CLI helper ownership preservation release' );
-like( $pm, qr/^1\.94$/m, 'main POD version matches the module version' );
+is( $version, '1.95', 'repo version bumped for the MD5-based init seed refresh release' );
+like( $pm, qr/^1\.95$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.94$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.95$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
     like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.94"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.95"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.94\s+2026-04-07$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.95\s+2026-04-07$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -103,6 +104,9 @@ like( $makefile, qr/["']LWP::UserAgent["']\s*=>\s*0/, 'Makefile.PL declares the 
 like( $makefile, qr/["']HTTP::Request["']\s*=>\s*0/, 'Makefile.PL declares the api-dashboard request object runtime prerequisite' );
 like( $makefile, qr/["']LWP::Protocol::https["']\s*=>\s*0/, 'Makefile.PL declares the api-dashboard HTTPS protocol runtime prerequisite' );
 like( $makefile, qr/["']URI["']\s*=>\s*0/, 'Makefile.PL declares the api-dashboard URI runtime prerequisite' );
+like( $makefile, qr/["']Digest::MD5["']\s*=>\s*0/, 'Makefile.PL declares the MD5 helper prerequisite for init seed comparisons' );
+like( $cpanfile, qr/requires ['"]Digest::MD5['"];/, 'cpanfile declares the MD5 helper prerequisite for init seed comparisons' );
+like( $dist, qr/^Digest::MD5 = 0$/m, 'dist.ini declares the MD5 helper prerequisite for dzil builds' ) if $dist ne '';
 for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket path paths ps1 encode decode indicator collector config auth init cpan page action docker serve stop restart shell doctor skills skill)) {
     ok( -f _repo_path( 'share', 'private-cli', $helper ), "share/private-cli/$helper is shipped as a private helper asset" );
 }
@@ -150,6 +154,7 @@ for my $doc ( $readme, $pm ) {
     like( $doc, qr/bin\/dashboard|dashboard entrypoint|C<dashboard> entrypoint/, 'docs describe the dashboard cpan implementation as entrypoint-local' );
     like( $doc, qr/config\/config\.json.*intact|preserves an existing .*config\/config\.json/s, 'docs describe non-destructive dashboard init reruns' );
     like( $doc, qr/preserve(?:s|d)?\s+.*user-owned.*~\/\.developer-dashboard\/cli|~\/\.developer-dashboard\/cli.*user-owned.*preserve|non-destructive.*~\/\.developer-dashboard\/cli/s, 'docs describe non-destructive preservation of user-owned files under the home runtime CLI root' );
+    like( $doc, qr/MD5.*skip(?:s|ping)?.*rewrit|skip(?:s|ping)?.*MD5.*rewrit/s, 'docs describe MD5-based skipping for unchanged managed init files' );
     like( $doc, qr/share\/seeded-pages/, 'docs describe shipped seeded bookmark assets outside the main command script' );
     like( $doc, qr/distribution share dir|distribution share directory|cpanm install.*source checkout/s, 'docs describe installed seeded bookmark asset lookup through the dist share directory' );
     like( $doc, qr/stays thin for all built-in commands|thin for all built-in commands.*_dashboard-core|_dashboard-core.*share\/private-cli/s, 'docs describe the thin lazy loader path for all built-in commands' );

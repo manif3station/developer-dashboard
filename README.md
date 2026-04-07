@@ -928,6 +928,11 @@ Re-running `dashboard init` keeps an existing
 missing default collector config, refreshes missing private helper commands,
 and seeds starter bookmarks that are not already present.
 
+When `dashboard init` refreshes a dashboard-managed helper or shipped starter
+file, it compares the existing content against the shipped content by MD5
+inside Perl first. If the content already matches, init skips the copy
+instead of rewriting the file unnecessarily.
+
 Home helper staging is non-destructive too. `dashboard init` may add or update
 dashboard-managed built-in helpers under `~/.developer-dashboard/cli/`, but it
 must preserve any pre-existing user-owned files, directories, and unrelated

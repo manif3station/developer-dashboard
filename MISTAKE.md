@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: INIT-MD5-REWRITE-DRIFT
+
+**Date:** 2026-04-07 21:20:00 UTC
+**Area:** `dashboard init`, helper staging, seeded bookmark refresh, and file-write discipline
+**Symptom:** `dashboard init` preserved user-owned collisions, but it still rewrote dashboard-managed helper files and seeded starter pages even when the existing file already matched the shipped content byte-for-byte
+**Why It Was Dangerous:** It touched files unnecessarily, made mtimes noisy, obscured whether init had actually changed anything, and left the copy contract depending on unconditional writes instead of explicit content identity checks
+**Root Cause:** I stopped at non-destructive preservation and did not add a reusable digest-based equality check before the managed helper and seed write paths
+**How Ellen Solved It:** Added `Developer::Dashboard::SeedSync` with Perl-native MD5 helpers, wired it into built-in helper staging and starter page bootstrap, declared `Digest::MD5` in the dependency metadata, and added CLI plus unit regressions that assert unchanged managed files keep the same mtime on rerun
+**How To Detect Earlier Next Time:** Seed a helper and starter page, capture their mtimes, rerun `dashboard init`, and verify both the helper and seeded page mtimes stay unchanged when the content has not changed
+**Prevention Rule:** Dashboard-managed helper and seed refresh paths must compare content in Perl before writing and skip the write entirely when the MD5 digest already matches
+**Verification:** `prove -lv t/05-cli-smoke.t t/21-refactor-coverage.t`, `prove -lr t`
+**Related Files:** `lib/Developer/Dashboard/SeedSync.pm`, `lib/Developer/Dashboard/InternalCLI.pm`, `share/private-cli/_dashboard-core`, `updates/01-bootstrap-runtime.pl`, `t/05-cli-smoke.t`, `t/21-refactor-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: HOME-CLI-HELPER-OWNERSHIP-DRIFT
 
 **Date:** 2026-04-07 20:35:00 UTC

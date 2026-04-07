@@ -23,6 +23,7 @@ use Developer::Dashboard::Platform qw(
 );
 use Developer::Dashboard::CLI::SeededPages ();
 use Developer::Dashboard::InternalCLI ();
+use Developer::Dashboard::SeedSync ();
 
 my $dashboard_lib = File::Spec->catdir( $Bin, '..', 'lib' );
 if ( -d $dashboard_lib ) {
@@ -981,7 +982,13 @@ else {
 sub _seed_init_page {
     my ( $pages, $known_ids, $page ) = @_;
     my $id = $page->as_hash->{id} || return 1;
-    return 1 if grep { $_ eq $id } @{ $known_ids || [] };
+    if ( grep { $_ eq $id } @{ $known_ids || [] } ) {
+        my $current = eval { $pages->read_saved_entry($id) };
+        return 1
+          if defined $current
+          && Developer::Dashboard::SeedSync::same_content_md5( $current, $page->canonical_instruction );
+        return 1;
+    }
     $pages->save_page($page);
     push @{ $known_ids || [] }, $id;
     return 1;

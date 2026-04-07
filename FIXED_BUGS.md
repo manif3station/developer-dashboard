@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-07 (Phase 59: Init MD5 Rewrite Drift)
+
+- Fixed `dashboard init` so dashboard-managed helper files under `~/.developer-dashboard/cli/` are compared by MD5 in Perl and skipped when the shipped content is unchanged, instead of being needlessly rewritten.
+- Fixed runtime bootstrap seeding so shipped starter bookmark files such as `api-dashboard` and `sql-dashboard` also skip rewrite when the existing saved file already matches the shipped content digest.
+- Added the reusable `Developer::Dashboard::SeedSync` module plus focused CLI and unit coverage to keep the MD5-based skip contract explicit and portable without relying on shell md5 commands.
+
 ## 2026-04-07 (Phase 58: Home CLI Helper Ownership Drift)
 
 - Fixed `dashboard init` so it no longer overwrites a pre-existing user-owned helper file in `~/.developer-dashboard/cli/` when that path collides with a built-in helper name such as `jq`.

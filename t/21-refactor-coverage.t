@@ -20,6 +20,7 @@ use Developer::Dashboard::JSON qw(json_decode);
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Prompt;
 use Developer::Dashboard::Runtime::Result ();
+use Developer::Dashboard::SeedSync ();
 use Developer::Dashboard::SkillDispatcher;
 use Developer::Dashboard::SkillManager;
 
@@ -74,6 +75,19 @@ is( Developer::Dashboard::InternalCLI::canonical_helper_name('xmlq'), 'xmlq', 'c
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('ticket'), 'ticket', 'ticket helper name stays unchanged' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('paths'), 'paths', 'paths helper name stays unchanged' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('bogus'), '', 'unsupported helper names normalize to empty string' );
+is(
+    Developer::Dashboard::SeedSync::content_md5("abc\n"),
+    '0bee89b07a248e27c83fc3d5951213c1',
+    'SeedSync content_md5 returns the expected md5 for simple content',
+);
+ok(
+    Developer::Dashboard::SeedSync::same_content_md5("abc\n", "abc\n"),
+    'SeedSync same_content_md5 reports matching payloads as identical',
+);
+ok(
+    !Developer::Dashboard::SeedSync::same_content_md5("abc\n", "abcd\n"),
+    'SeedSync same_content_md5 reports different payloads as different',
+);
 like(
     _dies( sub { Developer::Dashboard::InternalCLI::helper_path( paths => $paths, name => 'bogus' ) } ),
     qr/Unsupported helper command/,
@@ -132,6 +146,8 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
 my $seeded_helpers = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
 my @helper_names = Developer::Dashboard::InternalCLI::helper_names();
 is( scalar(@$seeded_helpers), scalar(@helper_names), 'ensure_helpers writes every shipped helper once' );
+my $seeded_helpers_second = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
+is_deeply( $seeded_helpers_second, [], 'ensure_helpers skips rewriting staged helpers whose md5 already matches the shipped content' );
 ok( -f File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', '_dashboard-core' ), 'ensure_helpers also stages the shared _dashboard-core runtime' );
 ok( grep( $_ =~ m{/\Qof\E$}, @$seeded_helpers ), 'ensure_helpers writes the private of helper' );
 ok( grep( $_ =~ m{/\Qopen-file\E$}, @$seeded_helpers ), 'ensure_helpers writes the private open-file helper' );
@@ -139,6 +155,13 @@ ok( grep( $_ =~ m{/\Qticket\E$}, @$seeded_helpers ), 'ensure_helpers writes the 
 ok( grep( $_ =~ m{/\Qpath\E$}, @$seeded_helpers ), 'ensure_helpers writes the private path helper' );
 ok( grep( $_ =~ m{/\Qpaths\E$}, @$seeded_helpers ), 'ensure_helpers writes the private paths helper' );
 ok( grep( $_ =~ m{/\Qps1\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ps1 helper' );
+ok(
+    Developer::Dashboard::SeedSync::file_matches_content_md5(
+        File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'jq' ),
+        Developer::Dashboard::InternalCLI::_managed_helper_content('jq'),
+    ),
+    'SeedSync file_matches_content_md5 confirms the staged helper content matches the shipped helper body',
+);
 {
     my $preserve_home = tempdir( CLEANUP => 1 );
     my $preserve_paths = Developer::Dashboard::PathRegistry->new( home => $preserve_home );
@@ -195,12 +218,12 @@ ok( grep( $_ =~ m{/\Qps1\E$}, @$seeded_helpers ), 'ensure_helpers writes the pri
     close $managed_jq_fh;
 
     ok(
-        Developer::Dashboard::InternalCLI::_stage_managed_helper(
+        !Developer::Dashboard::InternalCLI::_stage_managed_helper(
             paths  => $preserve_paths,
             name   => 'jq',
             target => $managed_jq,
         ),
-        '_stage_managed_helper treats an already-managed matching helper file as refreshable',
+        '_stage_managed_helper skips rewriting an already-managed helper file whose md5 already matches',
     );
     open my $managed_verify_fh, '<', $managed_jq or die "Unable to read $managed_jq: $!";
     my $managed_verify = do { local $/; <$managed_verify_fh> };

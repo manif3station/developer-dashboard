@@ -3,6 +3,7 @@ requires 'YAML::XS';
 requires 'TOML::Tiny';
 requires 'Capture::Tiny';
 requires 'Getopt::Long';
+requires 'Digest::MD5';
 requires 'Digest::SHA';
 requires 'MIME::Base64';
 requires 'IO::Compress::Gzip';

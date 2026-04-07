@@ -3,12 +3,12 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '1.94';
+our $VERSION = '1.95';
 
 use File::Basename qw(dirname);
-use File::Copy qw(copy);
 use File::Spec;
 use File::ShareDir qw(dist_dir);
+use Developer::Dashboard::SeedSync ();
 
 # helper_names()
 # Returns the built-in private helper command names that dashboard manages.
@@ -106,7 +106,7 @@ sub ensure_helpers {
 # absent or already owned by the dashboard runtime.
 # Input: path registry, helper name, and target path.
 # Output: boolean true when the helper was written or updated, false when a
-# user-owned existing target was preserved.
+# user-owned existing target was preserved or when the file already matched.
 sub _stage_managed_helper {
     my (%args) = @_;
     my $target = $args{target} || die 'Missing helper target';
@@ -119,7 +119,7 @@ sub _stage_managed_helper {
         my $existing = do { local $/; <$existing_fh> };
         close $existing_fh or die "Unable to close $target: $!";
         return 0 if !_is_dashboard_managed_helper( $existing, $name );
-        return 1 if $existing eq $content;
+        return 0 if Developer::Dashboard::SeedSync::same_content_md5( $existing, $content );
     }
 
     open my $fh, '>:raw', $target or die "Unable to write $target: $!";

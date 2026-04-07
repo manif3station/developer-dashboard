@@ -29,6 +29,7 @@ WriteMakefile(
         'YAML::XS'              => 0,
         'TOML::Tiny'            => 0,
         'Capture::Tiny'         => 0,
+        'Digest::MD5'           => 0,
         'Digest::SHA'           => 0,
         'MIME::Base64'          => 0,
         'IO::Compress::Gzip'    => 0,

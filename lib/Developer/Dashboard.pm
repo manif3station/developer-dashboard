@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.94';
+our $VERSION = '1.95';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.94
+1.95
 
 =head1 INTRODUCTION
 
@@ -1484,6 +1484,11 @@ Re-running C<dashboard init> keeps an existing
 F<~/.developer-dashboard/config/config.json> intact. The command only fills
 in missing default collector config, refreshes missing private helper
 commands, and seeds starter bookmarks that are not already present.
+
+When C<dashboard init> refreshes a dashboard-managed helper or shipped
+starter file, it compares the existing content against the shipped content by
+MD5 inside Perl first. If the content already matches, init skips the copy
+instead of rewriting the file unnecessarily.
 
 Home helper staging is non-destructive too. C<dashboard init> may add or
 update dashboard-managed built-in helpers under

@@ -1,5 +1,15 @@
 Revision history for Developer Dashboard
 
+1.95  2026-04-07
+    - made `dashboard init` compare dashboard-managed helper files and shipped
+      starter bookmark files by MD5 inside Perl before writing, so unchanged
+      managed files are skipped instead of being rewritten
+    - added the reusable `Developer::Dashboard::SeedSync` helper and wired it
+      into built-in helper staging plus runtime bootstrap seeding
+    - declared the new `Digest::MD5` dependency in the runtime and release
+      metadata, and expanded CLI plus unit coverage around the non-rewrite
+      path for matching managed files
+
 1.94  2026-04-07
     - fixed `dashboard init` helper staging so it no longer overwrites a
       user-owned colliding file under `~/.developer-dashboard/cli/` when that
