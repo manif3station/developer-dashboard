@@ -7,6 +7,7 @@ use Encode qw(encode);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
+use Socket qw(AF_INET6 inet_pton pack_sockaddr_in6);
 use Test::More;
 
 use lib 'lib';
@@ -896,6 +897,25 @@ is( $global_alias_config->web_workers, 3, 'web_workers reads the saved worker co
 dies_like( sub { $global_alias_config->save_global_web_workers(0) }, qr/positive integer/, 'save_global_web_workers rejects zero workers' );
 dies_like( sub { $global_alias_config->save_global_web_workers('abc') }, qr/positive integer/, 'save_global_web_workers rejects non-numeric worker counts' );
 is_deeply(
+    $global_alias_config->web_settings->{ssl_subject_alt_names},
+    [],
+    'web_settings defaults the HTTPS SAN alias list to an empty array reference',
+);
+is_deeply(
+    $global_alias_config->save_global_web_settings(
+        ssl_subject_alt_names => [ ' dashboard.local ', '192.168.88.5', '', '::1' ],
+    ),
+    {
+        ssl_subject_alt_names => [ 'dashboard.local', '192.168.88.5', '::1' ],
+    },
+    'save_global_web_settings persists the normalized HTTPS SAN alias list',
+);
+is_deeply(
+    $global_alias_config->web_settings->{ssl_subject_alt_names},
+    [ 'dashboard.local', '192.168.88.5', '::1' ],
+    'web_settings reads the configured HTTPS SAN alias list back from config',
+);
+is_deeply(
     $global_alias_config->save_global_path_alias( 'foo', File::Spec->catdir( $home, 'foo-path-updated' ) ),
     { name => 'foo', path => File::Spec->catdir( $home, 'foo-path-updated' ) },
     'save_global_path_alias updates existing aliases idempotently',
@@ -1701,6 +1721,37 @@ chdir $original_cwd or die $!;
     ok( $sessions->get('fallback-session'), 'session store falls back to the home runtime session root when a local record is missing' );
     my $created_session = $sessions->create( username => 'localhelper', role => 'helper' );
     ok( -f File::Spec->catfile( $local_repo, '.developer-dashboard', 'state', 'sessions', $created_session->{session_id} . '.json' ), 'session store writes new sessions to the project-local runtime when available' );
+    is( $auth->trust_tier( remote_addr => '127.0.0.1', host => '127.0.0.1:7890' ), 'admin', 'auth trusts exact loopback host headers as admin traffic' );
+    is( $auth->trust_tier( remote_addr => '::1', host => '[::1]:7890' ), 'admin', 'auth trusts exact IPv6 loopback host headers as admin traffic' );
+    is( $auth->trust_tier( remote_addr => '127.0.0.1', host => 'localhost:7890' ), 'admin', 'auth trusts localhost hostnames that resolve only to loopback' );
+    {
+        no warnings qw(redefine once);
+        local *Developer::Dashboard::Auth::getaddrinfo = sub {
+            return (
+                0,
+                {
+                    family => AF_INET6,
+                    addr   => pack_sockaddr_in6( 7890, inet_pton( AF_INET6, '::1' ) ),
+                },
+            );
+        };
+        is(
+            $auth->trust_tier( remote_addr => '::1', host => 'v6-loopback.local:7890' ),
+            'admin',
+            'auth trusts hostnames that resolve only to IPv6 loopback addresses',
+        );
+    }
+    is( $auth->trust_tier( remote_addr => '127.0.0.1', host => 'dashboard-ssl-alias.local:7890' ), 'helper', 'auth keeps non-loopback-resolving alias hosts in helper mode by default' );
+    is(
+        $auth->trust_tier(
+            remote_addr          => '127.0.0.1',
+            host                 => 'dashboard-ssl-alias.local:7890',
+            extra_loopback_hosts => ['dashboard-ssl-alias.local'],
+        ),
+        'admin',
+        'auth trusts configured loopback alias hostnames for local-admin traffic',
+    );
+    is( $auth->_canonical_ip('Dashboard-Helper.EXAMPLE'), 'dashboard-helper.example', 'auth canonical_ip lowercases non-IP host values' );
     $auth->remove_user('fallback');
     ok( !defined $auth->get_user('fallback'), 'auth remove_user removes matching records from all runtime roots' );
     $sessions->delete('fallback-session');

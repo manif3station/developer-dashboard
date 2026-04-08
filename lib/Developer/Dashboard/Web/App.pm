@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '2.00';
+our $VERSION = '2.01';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -91,8 +91,13 @@ sub authorize_request {
     my ( $self, %args ) = @_;
     my $headers = $args{headers} || {};
     my $tier = $self->{auth}->trust_tier(
-        remote_addr => $args{remote_addr},
-        host        => $headers->{host},
+        remote_addr          => $args{remote_addr},
+        host                 => $headers->{host},
+        extra_loopback_hosts => (
+            $self->{config}
+            ? ( $self->{config}->web_settings->{ssl_subject_alt_names} || [] )
+            : []
+        ),
     );
     my $session;
 

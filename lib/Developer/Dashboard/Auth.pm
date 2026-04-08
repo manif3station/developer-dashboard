@@ -3,12 +3,13 @@ package Developer::Dashboard::Auth;
 use strict;
 use warnings;
 
-our $VERSION = '2.00';
+our $VERSION = '2.01';
 
 use Fcntl qw(:mode);
 use Digest::SHA qw(sha256_hex);
 use File::Spec;
 use POSIX qw(strftime);
+use Socket qw(AF_INET AF_INET6 SOCK_STREAM getaddrinfo inet_ntoa inet_ntop unpack_sockaddr_in unpack_sockaddr_in6);
 
 use Developer::Dashboard::JSON qw(json_encode json_decode);
 
@@ -28,13 +29,18 @@ sub new {
 
 # trust_tier(%args)
 # Classifies a request as trusted admin or helper tier.
-# Input: remote_addr and host values from the current request.
+# Input: remote_addr and host values from the current request, plus optional
+# extra_loopback_hosts array reference for configured local-only alias hosts.
 # Output: tier string, currently 'admin' or 'helper'.
 sub trust_tier {
     my ( $self, %args ) = @_;
-    my $remote_addr = defined $args{remote_addr} ? $args{remote_addr} : '';
+    my $remote_addr = $self->_canonical_ip( $args{remote_addr} );
     my $host = $self->_canonical_host( $args{host} );
-    return 'admin' if $remote_addr eq '127.0.0.1' && ( !defined $host || $host eq '' || $host eq '127.0.0.1' );
+    return 'admin' if $self->_request_is_loopback_admin(
+        remote_addr          => $remote_addr,
+        host                 => $host,
+        extra_loopback_hosts => $args{extra_loopback_hosts},
+    );
     return 'helper';
 }
 
@@ -213,8 +219,110 @@ sub _user_file_candidates {
 sub _canonical_host {
     my ( $self, $host ) = @_;
     return if !defined $host;
-    $host =~ s/:\d+$//;
+    $host =~ s/^\s+//;
+    $host =~ s/\s+$//;
+    return if $host eq '';
+    if ( $host =~ /^\[([0-9A-Fa-f:.]+)\](?::\d+)?$/ ) {
+        $host = $1;
+    }
+    elsif ( $host =~ /^([^:]+):\d+$/ ) {
+        $host = $1;
+    }
     return lc $host;
+}
+
+# _request_is_loopback_admin(%args)
+# Reports whether one request should be treated as trusted local-admin traffic.
+# Input: canonical remote_addr IP string and canonical host string.
+# Output: boolean true when the request comes from loopback and the host is blank, loopback, or resolves only to loopback addresses.
+sub _request_is_loopback_admin {
+    my ( $self, %args ) = @_;
+    my $remote_addr = $args{remote_addr} || '';
+    my $host = $args{host};
+    my @extra_loopback_hosts = map { $self->_canonical_host($_) }
+      grep { defined $_ && $_ ne '' }
+      @{ ref( $args{extra_loopback_hosts} ) eq 'ARRAY' ? $args{extra_loopback_hosts} : [] };
+    return 0 if !$self->_ip_is_loopback($remote_addr);
+    return 1 if !defined $host || $host eq '';
+    return 1 if $self->_ip_is_loopback($host);
+    return 1 if grep { defined $_ && $_ ne '' && $_ eq $host } @extra_loopback_hosts;
+    return $self->_host_resolves_only_to_loopback($host);
+}
+
+# _host_resolves_only_to_loopback($host)
+# Resolves one hostname and checks whether every resolved address is loopback-safe.
+# Input: canonical host string.
+# Output: boolean true when all resolved IPs are loopback addresses.
+sub _host_resolves_only_to_loopback {
+    my ( $self, $host ) = @_;
+    return 0 if !defined $host || $host eq '';
+    my @ips = $self->_resolve_host_ips($host);
+    return 0 if !@ips;
+    return !grep { !$self->_ip_is_loopback($_) } @ips;
+}
+
+# _resolve_host_ips($host)
+# Resolves one hostname into canonical IPv4/IPv6 literal strings.
+# Input: canonical host string.
+# Output: list of canonical IP strings, possibly empty when resolution fails.
+sub _resolve_host_ips {
+    my ( $self, $host ) = @_;
+    return () if !defined $host || $host eq '';
+    my ( $err, @results ) = getaddrinfo( $host, undef, { socktype => SOCK_STREAM } );
+    return () if $err;
+    my @ips;
+    my %seen;
+    for my $result (@results) {
+        next if ref($result) ne 'HASH';
+        my $family = $result->{family};
+        my $addr = $result->{addr};
+        my $ip;
+        if ( defined $family && $family == AF_INET ) {
+            my ( undef, $packed_addr ) = unpack_sockaddr_in($addr);
+            $ip = inet_ntoa($packed_addr);
+        }
+        elsif ( defined $family && $family == AF_INET6 ) {
+            my ( undef, $packed_addr ) = unpack_sockaddr_in6($addr);
+            $ip = inet_ntop( AF_INET6, $packed_addr );
+        }
+        $ip = $self->_canonical_ip($ip);
+        next if !defined $ip || $ip eq '';
+        next if $seen{$ip}++;
+        push @ips, $ip;
+    }
+    return @ips;
+}
+
+# _canonical_ip($value)
+# Normalizes one IPv4/IPv6 literal into a comparable canonical string.
+# Input: raw IP string.
+# Output: canonical IP string or the original value when it is not an IP literal.
+sub _canonical_ip {
+    my ( $self, $value ) = @_;
+    return '' if !defined $value;
+    $value =~ s/^\s+//;
+    $value =~ s/\s+$//;
+    return '' if $value eq '';
+    if ( $value =~ /\A(?:\d{1,3}\.){3}\d{1,3}\z/ ) {
+        return $value;
+    }
+    if ( $value =~ /:/ ) {
+        my $packed = Socket::inet_pton( AF_INET6, $value );
+        return defined $packed ? lc( inet_ntop( AF_INET6, $packed ) ) : lc $value;
+    }
+    return lc $value;
+}
+
+# _ip_is_loopback($ip)
+# Reports whether one canonical IP literal is loopback-only.
+# Input: canonical IPv4/IPv6 literal string.
+# Output: boolean true for 127.0.0.0/8 or ::1.
+sub _ip_is_loopback {
+    my ( $self, $ip ) = @_;
+    return 0 if !defined $ip || $ip eq '';
+    return 1 if $ip =~ /\A127(?:\.\d{1,3}){3}\z/;
+    return 1 if $ip eq '::1' || $ip eq '0:0:0:0:0:0:0:1';
+    return 0;
 }
 
 # _password_hash($username, $password, $salt)
@@ -251,8 +359,10 @@ Developer::Dashboard::Auth - local auth and trust-tier handling
 =head1 DESCRIPTION
 
 This module implements the local-first trust model for Developer Dashboard.
-Exact loopback requests are treated as trusted admin access, while other
-requests authenticate through file-backed helper user records.
+Loopback requests using loopback-local hosts such as C<127.0.0.1>,
+C<localhost>, or configured local alias names can be treated as trusted admin
+access, while other requests authenticate through file-backed helper user
+records.
 
 =head1 METHODS
 

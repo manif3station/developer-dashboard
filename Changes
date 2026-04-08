@@ -1,5 +1,17 @@
 Revision history for Developer Dashboard
 
+2.01  2026-04-08
+    - extended `dashboard serve --ssl` certificate generation so the local
+      self-signed cert now also covers the concrete non-wildcard bind host and
+      any configured `web.ssl_subject_alt_names`, including direct IPv4, IPv6,
+      and local alias-domain access
+    - fixed local alias-host access so loopback requests through `localhost`
+      or configured local aliases no longer fall into helper-only `401`
+      handling when they still arrive from loopback
+    - added focused SAN-alias coverage in `t/17-web-server-ssl.t`,
+      loopback-alias trust coverage in `t/07-core-units.t`, and a real
+      Chromium alias-host regression in `t/33-web-server-ssl-browser.t`
+
 2.00  2026-04-08
     - fixed `dashboard serve --ssl` certificate generation so the local
       self-signed cert now carries browser-correct SAN coverage for

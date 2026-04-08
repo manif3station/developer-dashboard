@@ -111,6 +111,7 @@ my $sessions = Developer::Dashboard::SessionStore->new( paths => $paths );
 my $runtime = Developer::Dashboard::RuntimeManager->new(
     app_builder => sub {
         my (%args) = @_;
+        my $web_settings = $config->web_settings;
         my $web_auth = Developer::Dashboard::Auth->new( files => $files, paths => $paths );
         my $web_pages = Developer::Dashboard::PageStore->new( paths => $paths );
         my $web_sessions = Developer::Dashboard::SessionStore->new( paths => $paths );
@@ -130,6 +131,7 @@ my $runtime = Developer::Dashboard::RuntimeManager->new(
             port    => $args{port},
             workers => $args{workers},
             ssl     => $args{ssl},
+            ssl_subject_alt_names => $web_settings->{ssl_subject_alt_names},
         );
     },
     config => $config,

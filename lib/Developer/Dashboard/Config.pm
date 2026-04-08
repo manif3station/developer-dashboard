@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '2.00';
+our $VERSION = '2.01';
 
 use File::Spec;
 use Cwd qw(cwd);
@@ -245,27 +245,28 @@ sub save_global_web_workers {
 }
 
 # web_settings()
-# Returns the current web service settings (host, port, workers, ssl).
+# Returns the current web service settings (host, port, workers, ssl, and optional SSL SAN aliases).
 # Loads from global config with sensible defaults if not configured.
 # Input: none.
-# Output: hash reference with host, port, workers, ssl keys.
+# Output: hash reference with host, port, workers, ssl, and ssl_subject_alt_names keys.
 sub web_settings {
     my ($self) = @_;
     my $cfg = $self->merged;
     my $web = $cfg->{web} || {};
 
     return {
-        host    => $web->{host} || '0.0.0.0',
-        port    => defined $web->{port} && $web->{port} =~ /^\d+$/ ? $web->{port} + 0 : 7890,
-        workers => defined $web->{workers} && $web->{workers} =~ /^\d+$/ && $web->{workers} > 0 ? $web->{workers} + 0 : 1,
-        ssl     => $web->{ssl} ? 1 : 0,
+        host                  => $web->{host} || '0.0.0.0',
+        port                  => defined $web->{port} && $web->{port} =~ /^\d+$/ ? $web->{port} + 0 : 7890,
+        workers               => defined $web->{workers} && $web->{workers} =~ /^\d+$/ && $web->{workers} > 0 ? $web->{workers} + 0 : 1,
+        ssl                   => $web->{ssl} ? 1 : 0,
+        ssl_subject_alt_names => $self->_normalize_ssl_subject_alt_names( $web->{ssl_subject_alt_names} ),
     };
 }
 
 # save_global_web_settings(%args)
-# Persists web service settings (host, port, workers, ssl) in the writable runtime config.
+# Persists web service settings (host, port, workers, ssl, and optional SSL SAN aliases) in the writable runtime config.
 # Only saves settings that are explicitly provided, leaving others untouched.
-# Input: named arguments (host, port, workers, ssl) - any or all can be omitted.
+# Input: named arguments (host, port, workers, ssl, ssl_subject_alt_names) - any or all can be omitted.
 # Output: hash reference containing the saved settings.
 sub save_global_web_settings {
     my ( $self, %args ) = @_;
@@ -293,6 +294,10 @@ sub save_global_web_settings {
         $result->{ssl} = $args{ssl} ? 1 : 0;
     }
 
+    if ( exists $args{ssl_subject_alt_names} ) {
+        $result->{ssl_subject_alt_names} = $self->_normalize_ssl_subject_alt_names( $args{ssl_subject_alt_names} );
+    }
+
     # Load current config and update with new values
     my $cfg = $self->load_global;
     $cfg->{web} = {} if ref( $cfg->{web} ) ne 'HASH';
@@ -304,6 +309,25 @@ sub save_global_web_settings {
     $self->save_global($cfg);
 
     return $result;
+}
+
+# _normalize_ssl_subject_alt_names($names)
+# Normalizes one configured SSL SAN list into simple trimmed strings.
+# Input: array reference of names/IPs or any other value.
+# Output: normalized array reference with blank entries removed.
+sub _normalize_ssl_subject_alt_names {
+    my ( $self, $names ) = @_;
+    return [] if ref($names) ne 'ARRAY';
+    my @normalized;
+    for my $name ( @{$names} ) {
+        next if !defined $name;
+        next if ref($name);
+        $name =~ s/^\s+//;
+        $name =~ s/\s+$//;
+        next if $name eq '';
+        push @normalized, $name;
+    }
+    return \@normalized;
 }
 
 # save_global_path_alias($name, $path)
@@ -459,8 +483,10 @@ Dashboard.
 Load and expose configuration domains used by the runtime.
 
 The web_settings() and save_global_web_settings() methods manage web service settings
-including host, port, workers, and ssl flag. These settings persist across restart,
-so dashboard restart inherits the previous serve session configuration.
+including host, port, workers, ssl flag, and optional C<ssl_subject_alt_names>
+entries used to extend the generated HTTPS certificate. These settings persist
+across restart, so dashboard restart inherits the previous serve session
+configuration.
 
 =for comment FULL-POD-DOC START
 

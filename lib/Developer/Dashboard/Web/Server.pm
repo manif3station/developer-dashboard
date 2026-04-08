@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '2.00';
+our $VERSION = '2.01';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -31,19 +31,26 @@ sub new {
     my $port    = defined $args{port} ? $args{port} : 7890;
     my $workers = defined $args{workers} ? $args{workers} : 1;
     my $ssl     = defined $args{ssl} ? $args{ssl} ? 1 : 0 : 0;
+    my $ssl_subject_alt_names = ref( $args{ssl_subject_alt_names} ) eq 'ARRAY'
+      ? [ @{ $args{ssl_subject_alt_names} } ]
+      : [];
     die 'Missing worker count' if !defined $workers || $workers eq '';
     die 'Worker count must be a positive integer' if $workers !~ /^\d+$/ || $workers < 1;
 
     if ($ssl) {
-        generate_self_signed_cert();
+        generate_self_signed_cert(
+            host  => $host,
+            hosts => $ssl_subject_alt_names,
+        );
     }
 
     return bless {
-        app     => $app,
-        host    => $host,
-        port    => $port,
-        workers => $workers + 0,
-        ssl     => $ssl,
+        app                   => $app,
+        host                  => $host,
+        port                  => $port,
+        workers               => $workers + 0,
+        ssl                   => $ssl,
+        ssl_subject_alt_names => $ssl_subject_alt_names,
     }, $class;
 }
 
@@ -530,22 +537,35 @@ sub _https_redirect_location {
     return 'https://' . $host . $path . ( $query ne '' ? '?' . $query : '' );
 }
 
-# generate_self_signed_cert()
+# generate_self_signed_cert(%args)
 # Generates or reuses a self-signed certificate for HTTPS.
 # Creates ~/.developer-dashboard/certs/ if it does not exist.
 # Reuses existing certificates when they already match the expected browser-safe
-# localhost/loopback profile and regenerates older legacy certificates when
-# they do not.
-# Input: none.
+# localhost/loopback profile plus any requested extra SAN names/IPs, and
+# regenerates older legacy certificates when they do not.
+# Input: optional bind host string and optional hosts array reference.
 # Output: path to certificate file, or dies on error.
 sub generate_self_signed_cert {
+    my (%args) = @_;
     my $home = $ENV{HOME} || die 'Missing HOME environment variable';
     my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
     my $cert_dir = File::Spec->catdir( $paths->home_runtime_path, 'certs' );
     my $cert_file = File::Spec->catfile($cert_dir, 'server.crt');
     my $key_file  = File::Spec->catfile($cert_dir, 'server.key');
+    my @expected_subject_alt_names = _ssl_expected_subject_alt_names(
+        host  => $args{host},
+        hosts => $args{hosts},
+    );
 
-    if ( -f $cert_file && -f $key_file && _ssl_cert_has_expected_profile($cert_file) ) {
+    if (
+        -f $cert_file
+        && -f $key_file
+        && _ssl_cert_has_expected_profile(
+            $cert_file,
+            hosts => \@expected_subject_alt_names,
+        )
+      )
+    {
         $paths->secure_dir_permissions($cert_dir);
         $paths->secure_file_permissions($cert_file);
         $paths->secure_file_permissions($key_file);
@@ -557,7 +577,7 @@ sub generate_self_signed_cert {
     unlink $key_file  if -f $key_file;
 
     my ( $config_fh, $config_file ) = tempfile( 'dd-openssl-XXXXXX', SUFFIX => '.cnf', DIR => $cert_dir );
-    my $config_text = <<'OPENSSL_CONFIG';
+    my $config_text_head = <<'OPENSSL_CONFIG';
 [ req ]
 default_bits = 2048
 prompt = no
@@ -579,10 +599,20 @@ keyUsage = critical,digitalSignature,keyEncipherment
 extendedKeyUsage = serverAuth
 
 [ alt_names ]
-DNS.1 = localhost
-IP.1 = 127.0.0.1
-IP.2 = ::1
 OPENSSL_CONFIG
+    my $alt_names_text = '';
+    my $dns_index = 0;
+    my $ip_index  = 0;
+    for my $subject_alt_name (@expected_subject_alt_names) {
+        if ( _ssl_subject_alt_name_is_ip($subject_alt_name) ) {
+            $ip_index++;
+            $alt_names_text .= sprintf "IP.%d = %s\n", $ip_index, $subject_alt_name;
+            next;
+        }
+        $dns_index++;
+        $alt_names_text .= sprintf "DNS.%d = %s\n", $dns_index, $subject_alt_name;
+    }
+    my $config_text = $config_text_head . $alt_names_text;
     print {$config_fh} $config_text or die "Unable to write OpenSSL config $config_file: $!";
     close $config_fh or die "Unable to close OpenSSL config $config_file: $!";
 
@@ -601,13 +631,81 @@ OPENSSL_CONFIG
     die "Failed to generate SSL certificate: $stderr" if $exit != 0;
     die "Certificate file not created" if !-f $cert_file;
     die "Key file not created" if !-f $key_file;
-    die "Generated certificate is missing the required localhost/loopback server profile"
-      if !_ssl_cert_has_expected_profile($cert_file);
+    die "Generated certificate is missing the required dashboard HTTPS server profile"
+      if !_ssl_cert_has_expected_profile(
+        $cert_file,
+        hosts => \@expected_subject_alt_names,
+      );
     $paths->secure_dir_permissions($cert_dir);
     $paths->secure_file_permissions($cert_file);
     $paths->secure_file_permissions($key_file);
 
     return $cert_file;
+}
+
+# _ssl_expected_subject_alt_names(%args)
+# Builds the complete SAN list that one dashboard HTTPS certificate must cover.
+# Input: optional bind host string plus optional array reference of extra names/IPs.
+# Output: ordered list of normalized SAN entries including localhost and loopback defaults.
+sub _ssl_expected_subject_alt_names {
+    my (%args) = @_;
+    my @requested = ( 'localhost', '127.0.0.1', '::1' );
+    push @requested, $args{host} if defined $args{host};
+    push @requested, @{ $args{hosts} || [] } if ref( $args{hosts} ) eq 'ARRAY';
+
+    my @normalized;
+    my %seen;
+    for my $name (@requested) {
+        my $normalized = _normalize_ssl_subject_alt_name($name);
+        next if !defined $normalized || $normalized eq '';
+        next if _ssl_subject_alt_name_is_wildcard($normalized);
+        my $seen_key = lc $normalized;
+        next if $seen{$seen_key}++;
+        push @normalized, $normalized;
+    }
+
+    return @normalized;
+}
+
+# _normalize_ssl_subject_alt_name($name)
+# Normalizes one requested SAN entry by trimming whitespace and removing optional port syntax.
+# Input: hostname or IP string, optionally bracketed or with a port suffix.
+# Output: normalized SAN string or empty string when unusable.
+sub _normalize_ssl_subject_alt_name {
+    my ($name) = @_;
+    return '' if !defined $name;
+    $name =~ s/^\s+//;
+    $name =~ s/\s+$//;
+    return '' if $name eq '';
+    $name =~ s/^\[(.+)\](?::\d+)?$/$1/;
+    $name =~ s/^([^:]+):\d+$/$1/ if $name =~ /^[^:]+:\d+$/;
+    return lc $name;
+}
+
+# _ssl_subject_alt_name_is_wildcard($name)
+# Reports whether one requested SAN name is a wildcard bind placeholder that should not be embedded.
+# Input: normalized SAN string.
+# Output: boolean true when the value is a wildcard listen address.
+sub _ssl_subject_alt_name_is_wildcard {
+    my ($name) = @_;
+    return 1 if !defined $name || $name eq '';
+    return 1 if $name eq '*';
+    return 1 if $name eq '0.0.0.0';
+    return 1 if $name eq '::';
+    return 1 if $name eq '0:0:0:0:0:0:0:0';
+    return 0;
+}
+
+# _ssl_subject_alt_name_is_ip($name)
+# Classifies one SAN entry as an IP literal or a DNS hostname.
+# Input: normalized SAN string.
+# Output: boolean true for IPv4 or IPv6 literal values.
+sub _ssl_subject_alt_name_is_ip {
+    my ($name) = @_;
+    return 0 if !defined $name || $name eq '';
+    return 1 if $name =~ /\A(?:\d{1,3}\.){3}\d{1,3}\z/;
+    return 1 if $name =~ /:/;
+    return 0;
 }
 
 # _ssl_cert_has_expected_profile($cert_file)
@@ -617,22 +715,40 @@ OPENSSL_CONFIG
 # Output: boolean true when the certificate already contains the required SAN,
 # key-usage, extended-key-usage, and non-CA extensions.
 sub _ssl_cert_has_expected_profile {
-    my ($cert_file) = @_;
+    my ( $cert_file, %args ) = @_;
     return 0 if !defined $cert_file || $cert_file eq '' || !-f $cert_file;
+    my @expected_subject_alt_names = _ssl_expected_subject_alt_names(
+        hosts => $args{hosts},
+    );
     my ( $stdout, $stderr, $exit ) = capture {
         system( 'openssl', 'x509', '-in', $cert_file, '-noout', '-text' );
     };
     die "Failed to inspect SSL certificate $cert_file: $stderr$stdout" if $exit != 0;
-    return 0 if $stdout !~ /Subject Alternative Name:\s+DNS:localhost, IP Address:127\.0\.0\.1, IP Address:0:0:0:0:0:0:0:1/s;
     return 0 if $stdout !~ /Basic Constraints:\s+critical\s+CA:FALSE/s;
     return 0 if $stdout !~ /Extended Key Usage:\s+TLS Web Server Authentication/s;
     return 0 if $stdout !~ /Key Usage:\s+critical\s+Digital Signature, Key Encipherment/s;
+    for my $subject_alt_name (@expected_subject_alt_names) {
+        my @verify_cmd = ( 'openssl', 'verify', '-CAfile', $cert_file );
+        if ( _ssl_subject_alt_name_is_ip($subject_alt_name) ) {
+            push @verify_cmd, '-verify_ip', $subject_alt_name;
+        }
+        else {
+            push @verify_cmd, '-verify_hostname', $subject_alt_name;
+        }
+        push @verify_cmd, $cert_file;
+        my ( $verify_stdout, $verify_stderr, $verify_exit ) = capture {
+            system(@verify_cmd);
+        };
+        return 0 if $verify_exit != 0;
+        return 0 if $verify_stdout !~ /\:\s+OK\s*\z/ && $verify_stderr !~ /\:\s+OK\s*\z/;
+    }
     return 1;
 }
 
 # get_ssl_cert_paths()
 # Returns the paths to the self-signed certificate and key files.
-# Input: none.
+# Input: none. The current certificate profile is whatever generate_self_signed_cert()
+# most recently prepared for the active dashboard runtime.
 # Output: list of (cert_path, key_path) or dies if files do not exist.
 sub get_ssl_cert_paths {
     my $home = $ENV{HOME} || die 'Missing HOME environment variable';
@@ -670,7 +786,7 @@ and runs it under Starman through Plack::Runner.
 
 Construct and run the local PSGI web server with optional SSL/HTTPS support.
 
-When C<ssl => 1> is passed to new(), generates or refreshes self-signed certificates in C<~/.developer-dashboard/certs/> with SAN coverage for C<localhost>, C<127.0.0.1>, and C<::1>, runs an internal HTTPS Starman backend, exposes a public frontend on the requested port, redirects plain HTTP requests on that public port to the equivalent C<https://...> URL, and proxies real HTTPS traffic through to the internal backend. The listening_url() method returns https:// when SSL is enabled.
+When C<ssl => 1> is passed to new(), generates or refreshes self-signed certificates in C<~/.developer-dashboard/certs/> with SAN coverage for C<localhost>, C<127.0.0.1>, C<::1>, the concrete non-wildcard bind host, and any configured extra aliases/IPs, runs an internal HTTPS Starman backend, exposes a public frontend on the requested port, redirects plain HTTP requests on that public port to the equivalent C<https://...> URL, and proxies real HTTPS traffic through to the internal backend. The listening_url() method returns https:// when SSL is enabled.
 
 =head1 SSL SUPPORT
 
@@ -682,7 +798,7 @@ Pass C<ssl => 1> to the new() constructor to enable HTTPS:
   );
   $server->run;
 
-Self-signed certificates are generated automatically in C<~/.developer-dashboard/certs/> and reused on subsequent runs when they already match the expected browser-safe localhost/loopback profile. Older legacy dashboard certs without the required SAN and server-auth extensions are regenerated automatically.
+Self-signed certificates are generated automatically in C<~/.developer-dashboard/certs/> and reused on subsequent runs when they already match the expected browser-safe localhost/loopback profile plus any configured SAN aliases or IP literals. Older legacy dashboard certs without the required SAN and server-auth extensions are regenerated automatically.
 
 =for comment FULL-POD-DOC START
 

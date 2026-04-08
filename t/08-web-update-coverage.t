@@ -595,15 +595,16 @@ PAGE
 }
 
 is( $auth->trust_tier( remote_addr => '127.0.0.1', host => '127.0.0.1:7890' ), 'admin', 'exact loopback with numeric host is admin' );
-is( $auth->trust_tier( remote_addr => '127.0.0.1', host => 'localhost:7890' ), 'helper', 'localhost is not trusted as admin' );
+is( $auth->trust_tier( remote_addr => '127.0.0.1', host => 'localhost:7890' ), 'admin', 'localhost is trusted as admin when it resolves only to loopback' );
 is( $auth->trust_tier( remote_addr => '10.0.0.8', host => '127.0.0.1:7890' ), 'helper', 'non-loopback client is helper' );
 my @initial_users = $auth->list_users;
 is( scalar @initial_users, 0, 'auth store starts empty' );
 ok( !$auth->verify_user( username => 'helper', password => 'nope' ), 'missing user does not verify' );
 like( $auth->login_page( message => '<unsafe>' ), qr/&lt;unsafe&gt;/, 'login page escapes message content' );
+my $helper_host = 'dashboard-helper.example:7890';
 
-my ( $login_required_code, undef, $login_required_body ) = @{ $app->handle( path => '/', query => '', remote_addr => '127.0.0.1', headers => { host => 'localhost:7890' } ) };
-is( $login_required_code, 401, 'localhost requests are unauthorized when no helper user exists' );
+my ( $login_required_code, undef, $login_required_body ) = @{ $app->handle( path => '/', query => '', remote_addr => '127.0.0.1', headers => { host => $helper_host } ) };
+is( $login_required_code, 401, 'non-loopback helper-host requests are unauthorized when no helper user exists' );
 is( $login_required_body, '', 'outsider requests return an empty body before helper users exist' );
 unlike( $login_required_body, qr/<form method="post" action="\/login">/, 'outsider requests without helper users do not receive a login form' );
 
@@ -611,7 +612,7 @@ my ( $saved_login_required_code, undef, $saved_login_required_body ) = @{ $app->
     path        => '/app/index',
     query       => 'from=helper',
     remote_addr => '127.0.0.1',
-    headers     => { host => 'localhost:7890' },
+    headers     => { host => $helper_host },
 ) };
 is( $saved_login_required_code, 401, 'outsider access to a saved page is unauthorized when no helper user exists' );
 is( $saved_login_required_body, '', 'forbidden outsider access to a saved page stays silent before helper users exist' );
@@ -622,7 +623,7 @@ my ( $disabled_login_code, undef, $disabled_login_body ) = @{ $app->handle(
     method      => 'POST',
     body        => form_body( username => 'helper', password => 'helper-pass-123' ),
     remote_addr => '127.0.0.1',
-    headers     => { host => 'localhost:7890' },
+    headers     => { host => $helper_host },
 ) };
 is( $disabled_login_code, 401, 'login submission is unauthorized when no helper user exists' );
 is( $disabled_login_body, '', 'login submission stays silent before helper users exist' );
@@ -637,15 +638,15 @@ my @listed_users = $auth->list_users;
 is( scalar @listed_users, 2, 'created helper users are listed' );
 is_deeply( [ map { $_->{username} } @listed_users ], [ 'alpha', 'helper' ], 'listed users are sorted by username' );
 
-my ( $enabled_login_required_code, undef, $enabled_login_required_body ) = @{ $app->handle( path => '/', query => '', remote_addr => '127.0.0.1', headers => { host => 'localhost:7890' } ) };
-is( $enabled_login_required_code, 401, 'localhost requests require login once a helper user exists' );
+my ( $enabled_login_required_code, undef, $enabled_login_required_body ) = @{ $app->handle( path => '/', query => '', remote_addr => '127.0.0.1', headers => { host => $helper_host } ) };
+is( $enabled_login_required_code, 401, 'non-loopback helper-host requests require login once a helper user exists' );
 like( $enabled_login_required_body, qr/Helper access requires login/, 'outsider requests receive the login page after helper users exist' );
 
 my ( $enabled_saved_login_required_code, undef, $enabled_saved_login_required_body ) = @{ $app->handle(
     path        => '/app/index',
     query       => 'from=helper',
     remote_addr => '127.0.0.1',
-    headers     => { host => 'localhost:7890' },
+    headers     => { host => $helper_host },
 ) };
 is( $enabled_saved_login_required_code, 401, 'saved outsider access requires login once a helper user exists' );
 like( $enabled_saved_login_required_body, qr{<input[^>]*name="redirect_to"[^>]*value="/app/index\?from=helper"}, 'login page keeps the originally requested path and query for post-login redirect once helper users exist' );
@@ -655,7 +656,7 @@ my ( $bad_login_code, undef, $bad_login_body ) = @{ $app->handle(
     method      => 'POST',
     body        => form_body( username => 'helper', password => 'wrong' ),
     remote_addr => '127.0.0.1',
-    headers     => { host => 'localhost:7890' },
+    headers     => { host => $helper_host },
 ) };
 is( $bad_login_code, 401, 'bad login is rejected' );
 like( $bad_login_body, qr/Invalid username or password/, 'bad login renders error message' );
@@ -665,7 +666,7 @@ my ( $login_code, undef, undef, $login_headers ) = @{ $app->handle(
     method      => 'POST',
     body        => form_body( username => 'helper', password => 'helper-pass-123' ),
     remote_addr => '127.0.0.1',
-    headers     => { host => 'localhost:7890' },
+    headers     => { host => $helper_host },
 ) };
 is( $login_code, 302, 'valid helper login redirects' );
 is( $login_headers->{Location}, '/', 'valid helper login redirects to home' );
@@ -680,7 +681,7 @@ my ( $saved_login_code, undef, undef, $saved_login_headers ) = @{ $app->handle(
         redirect_to => '/app/index?from=helper',
     ),
     remote_addr => '127.0.0.1',
-    headers     => { host => 'localhost:7890' },
+    headers     => { host => $helper_host },
 ) };
 is( $saved_login_code, 302, 'valid helper login for a saved page redirects' );
 is( $saved_login_headers->{Location}, '/app/index?from=helper', 'valid helper login returns to the originally requested saved page' );
@@ -695,7 +696,7 @@ my ( $helper_code, undef, $helper_body ) = @{ $app->handle(
     query       => '',
     remote_addr => '127.0.0.1',
     headers     => {
-        host   => 'localhost:7890',
+        host   => $helper_host,
         cookie => $login_headers->{'Set-Cookie'},
     },
 ) };
@@ -707,7 +708,7 @@ my ( $logout_code, undef, undef, $logout_headers ) = @{ $app->handle(
     method      => 'GET',
     remote_addr => '127.0.0.1',
     headers     => {
-        host   => 'localhost:7890',
+        host   => $helper_host,
         cookie => $login_headers->{'Set-Cookie'},
     },
 ) };

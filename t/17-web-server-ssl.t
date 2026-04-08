@@ -37,6 +37,26 @@ sub _openssl_cert_text {
     return $stdout;
 }
 
+sub _openssl_verify_certificate_name {
+    my ( $cert_file, $name ) = @_;
+    my @cmd = ( 'openssl', 'verify', '-CAfile', $cert_file );
+    if ( defined $name && $name =~ /\A(?:\d{1,3}\.){3}\d{1,3}\z/ || ( defined $name && $name =~ /:/ ) ) {
+        push @cmd, '-verify_ip', $name;
+    }
+    else {
+        push @cmd, '-verify_hostname', $name;
+    }
+    push @cmd, $cert_file;
+    my ( $stdout, $stderr, $exit ) = capture {
+        system(@cmd);
+    };
+    return {
+        stdout => $stdout,
+        stderr => $stderr,
+        exit   => $exit,
+    };
+}
+
 sub _mode_octal {
     my ($path) = @_;
     my @stat = stat($path);
@@ -192,6 +212,46 @@ sub _mode_octal {
     like( $rotated_info, qr/Basic Constraints:\s+critical\s+CA:FALSE/s, 'legacy fixture is regenerated as a leaf certificate' );
 }
 
+# Test 3B: Extra configured hostnames and IPs are covered by the cert SAN list
+{
+    my $temp_home = tempdir(CLEANUP => 1);
+    local $ENV{HOME} = $temp_home;
+
+    my @extra_hosts = ( 'dashboard-alias.local', '192.168.88.5', 'fd00::55', 'dashboard-alias.local' );
+    my $cert_file = Developer::Dashboard::Web::Server::generate_self_signed_cert(
+        hosts => \@extra_hosts,
+    );
+
+    my $cert_info = _openssl_cert_text($cert_file);
+    like( $cert_info, qr/DNS:dashboard-alias\.local/s, 'generated certificate includes configured alias hostname SAN entries' );
+    like( $cert_info, qr/IP Address:192\.168\.88\.5/s, 'generated certificate includes configured IPv4 SAN entries' );
+    like( $cert_info, qr/IP Address:FD00:0:0:0:0:0:0:55|IP Address:fd00:0:0:0:0:0:0:55/s, 'generated certificate includes configured IPv6 SAN entries' );
+
+    for my $name ( 'localhost', '127.0.0.1', '::1', 'dashboard-alias.local', '192.168.88.5', 'fd00::55' ) {
+        my $verify = _openssl_verify_certificate_name( $cert_file, $name );
+        is( $verify->{exit}, 0, "openssl verifies the generated certificate for $name" );
+    }
+}
+
+# Test 3C: Certificate is regenerated when the expected SAN list changes
+{
+    my $temp_home = tempdir(CLEANUP => 1);
+    local $ENV{HOME} = $temp_home;
+
+    my $cert_file = Developer::Dashboard::Web::Server::generate_self_signed_cert();
+    my $mtime_before = (stat($cert_file))[9];
+    sleep 1;
+
+    Developer::Dashboard::Web::Server::generate_self_signed_cert(
+        hosts => ['dashboard-alias.local'],
+    );
+    my $mtime_after = (stat($cert_file))[9];
+
+    ok( $mtime_after > $mtime_before, 'certificate file is regenerated when new SAN names are required' );
+    my $verify = _openssl_verify_certificate_name( $cert_file, 'dashboard-alias.local' );
+    is( $verify->{exit}, 0, 'regenerated certificate verifies for the newly requested alias hostname' );
+}
+
 # Test 4: Server accepts ssl parameter
 {
     my $temp_home = tempdir(CLEANUP => 1);
@@ -220,6 +280,34 @@ sub _mode_octal {
     );
     ok($server_https, 'server created with ssl => 1');
     is($server_https->{ssl}, 1, 'ssl flag stored as 1');
+
+    my $server_non_array_sans = Developer::Dashboard::Web::Server->new(
+        app                   => $mock_app,
+        host                  => '127.0.0.1',
+        port                  => 17892,
+        workers               => 1,
+        ssl                   => 0,
+        ssl_subject_alt_names => 'dashboard-alias.local',
+    );
+    is_deeply(
+        $server_non_array_sans->{ssl_subject_alt_names},
+        [],
+        'server ignores non-array ssl_subject_alt_names constructor input',
+    );
+
+    my $server_array_sans = Developer::Dashboard::Web::Server->new(
+        app                   => $mock_app,
+        host                  => '127.0.0.1',
+        port                  => 17893,
+        workers               => 1,
+        ssl                   => 0,
+        ssl_subject_alt_names => [ 'dashboard-alias.local', '192.168.88.5' ],
+    );
+    is_deeply(
+        $server_array_sans->{ssl_subject_alt_names},
+        [ 'dashboard-alias.local', '192.168.88.5' ],
+        'server keeps arrayref ssl_subject_alt_names constructor input',
+    );
 }
 
 # Test 5: Listening URL shows https:// when SSL enabled

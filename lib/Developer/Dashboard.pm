@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.00';
+our $VERSION = '2.01';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.00
+2.01
 
 =head1 INTRODUCTION
 
@@ -269,10 +269,26 @@ certificate under F<~/.developer-dashboard/certs/>, then open:
 When SSL mode is on, plain HTTP requests on that same host and port are
 redirected to the equivalent C<https://...> URL before the dashboard route
 runs. The generated certificate now carries browser-correct SAN coverage for
-C<localhost>, C<127.0.0.1>, and C<::1>, and older dashboard certs are
-rotated forward automatically when they are missing that profile. Browsers
-still show the normal self-signed certificate warning until you trust the
-generated certificate locally.
+C<localhost>, C<127.0.0.1>, and C<::1>, automatically includes the concrete
+C<--host HOST> bind target when that host is not a wildcard listen address, and
+also includes any extra names or IPs listed under
+C<web.ssl_subject_alt_names> in F<config/config.json>. Older dashboard certs are
+rotated forward automatically when they no longer match that expected profile.
+Browsers still show the normal self-signed certificate warning until you trust
+the generated certificate locally.
+
+For example, if you want the same dashboard cert to work for one local
+C</etc/hosts> alias and one LAN IP, keep the runtime config like this:
+
+  {
+    "web": {
+      "ssl_subject_alt_names": [
+        "dashboard.local",
+        "192.168.1.20",
+        "fd00::20"
+      ]
+    }
+  }
 
 The access model is deliberate:
 
@@ -280,13 +296,18 @@ The access model is deliberate:
 
 =item *
 
-exact numeric loopback admin access on C<127.0.0.1> does not require a
-password
+numeric loopback and loopback-only hostnames such as C<localhost> do not
+require a password when the request still originates from loopback
 
 =item *
 
-helper access is for everyone else, including C<localhost>, other hosts, and
-other machines on the network
+configured loopback aliases listed under C<web.ssl_subject_alt_names> are also
+treated as local-admin when they still arrive from loopback
+
+=item *
+
+helper access is for everyone else, including non-loopback IPs and other
+machines on the network
 
 =item *
 
@@ -1221,11 +1242,15 @@ The browser security model follows the original local-first trust concept:
 
 =item *
 
-requests from exact C<127.0.0.1> with a numeric C<Host> of C<127.0.0.1> are treated as local admin
+requests from loopback with a loopback host, such as C<127.0.0.1>, C<::1>, or C<localhost>, are treated as local admin
 
 =item *
 
-requests from other IPs or from hostnames such as C<localhost> are treated as helper access
+requests from loopback with a hostname listed under C<web.ssl_subject_alt_names> are also treated as local admin
+
+=item *
+
+requests from non-loopback IPs are treated as helper access
 
 =item *
 
@@ -1249,7 +1274,7 @@ helper passwords must be at least 8 characters long
 
 =back
 
-This keeps the fast path for exact loopback access while making non-canonical or remote access explicit.
+This keeps the fast path for loopback-local access while making non-loopback or shared access explicit.
 
 The editor and rendered pages also include a shared top chrome with share and
 source links on the left and the original status-plus-alias indicator strip on
@@ -1304,11 +1329,12 @@ C<dashboard serve --foreground> keeps the web service attached to the terminal
 =item *
 
 C<dashboard serve --ssl> enables HTTPS in Starman with the generated local
-certificate and key, keeps that certificate on a browser-correct
-localhost/loopback server profile, regenerates older dashboard certs
-when they are stale, redirects non-HTTPS requests to the matching C<https://...>
-URL, and reuses the saved SSL setting on later C<dashboard restart> runs
-unless you override it
+certificate and key, keeps that certificate on a browser-correct SAN profile
+covering localhost, loopback IPs, the concrete non-wildcard bind host, and any
+configured C<web.ssl_subject_alt_names>, regenerates older dashboard certs when
+they are stale, redirects non-HTTPS requests to the matching C<https://...>
+URL, and reuses the saved SSL setting on later C<dashboard restart> runs unless
+you override it
 
 =item *
 
@@ -1763,16 +1789,20 @@ What remains intentionally lightweight is breadth, not architecture:
 
 No. The current distribution includes a minimal HTTP layer implemented with core Perl-oriented modules.
 
-=head2 Why does localhost still require login?
+=head2 Why does a custom hostname sometimes require login?
 
-This is intentional. The trust rule is exact and conservative: only numeric loopback on C<127.0.0.1> receives local-admin treatment.
+Only loopback-origin requests with a loopback hostname such as C<127.0.0.1>,
+C<::1>, or C<localhost> receive automatic local-admin treatment. A custom alias
+hostname also works as local admin when you list it under
+C<web.ssl_subject_alt_names> and the request still arrives from loopback.
 
-=head2 Why does localhost sometimes get 401 without a login page?
+=head2 Why does a non-loopback host still get 401 without a login page?
 
 Until at least one helper user exists, outsider access is disabled entirely.
-That includes C<localhost>, forwarded hostnames, and non-loopback IPs. Add a
-helper user first, then outsider requests will receive the login page instead
-of the disabled-access response.
+That includes non-loopback IPs, forwarded hostnames, and any hostname that is
+not loopback-local for the current request. Add a helper user first, then
+outsider requests will receive the login page instead of the disabled-access
+response.
 
 =head2 Why is the runtime file-backed?
 

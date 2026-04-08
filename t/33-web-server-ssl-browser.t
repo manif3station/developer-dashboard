@@ -10,6 +10,10 @@ use IO::Socket::INET;
 use Test::More;
 use Time::HiRes qw(sleep);
 
+use lib 'lib';
+
+use Developer::Dashboard::JSON qw(json_encode);
+
 my $repo_root     = abs_path('.');
 my $repo_lib      = File::Spec->catdir( $repo_root, 'lib' );
 my $dashboard_bin = File::Spec->catfile( $repo_root, 'bin', 'dashboard' );
@@ -23,6 +27,7 @@ my $project_root = tempdir( 'dd-ssl-browser-project-XXXXXX', CLEANUP => 1, TMPDI
 my $dashboard_port = _reserve_port();
 my $dashboard_pid;
 my $dashboard_log = File::Spec->catfile( $project_root, 'dashboard-serve-ssl.log' );
+my $alias_host = 'dashboard-ssl-alias.local';
 
 eval {
     _run_command(
@@ -30,6 +35,14 @@ eval {
         cwd     => $project_root,
         env     => { HOME => $home_root },
         label   => 'dashboard init for SSL browser smoke',
+    );
+    _write_global_config(
+        home_root => $home_root,
+        config    => {
+            web => {
+                ssl_subject_alt_names => [$alias_host],
+            },
+        },
     );
 
     $dashboard_pid = _start_dashboard_server(
@@ -55,6 +68,21 @@ eval {
     like( $privacy->{stdout}, qr{<title>Privacy error</title>}, 'real browser reaches the HTTPS privacy interstitial instead of a reset connection' );
     like( $privacy->{stdout}, qr{Your connection is not private|Privacy error}, 'privacy interstitial explains the untrusted local certificate to the user' );
 
+    my $alias_privacy = _run_command(
+        command => [
+            $chromium_bin,
+            '--headless',
+            '--disable-gpu',
+            "--host-resolver-rules=MAP $alias_host 127.0.0.1",
+            '--dump-dom',
+            "https://$alias_host:$dashboard_port/",
+        ],
+        label => 'Chromium alias-host privacy interstitial check',
+    );
+    like( $alias_privacy->{stdout}, qr{<title>Privacy error</title>}, 'browser reaches the privacy interstitial when the dashboard is opened through one configured alias hostname' );
+    like( $alias_privacy->{stdout}, qr{ERR_CERT_AUTHORITY_INVALID}, 'alias-host browser warning is a trust failure rather than a hostname-mismatch failure' );
+    unlike( $alias_privacy->{stdout}, qr{ERR_CERT_COMMON_NAME_INVALID}, 'alias-host browser warning is not a certificate-name mismatch' );
+
     my $trusted = _run_command(
         command => [
             $chromium_bin,
@@ -68,6 +96,21 @@ eval {
     );
     like( $trusted->{stdout}, qr{<title>Developer Dashboard</title>}, 'real browser reaches the dashboard page once certificate trust is bypassed locally' );
     like( $trusted->{stdout}, qr{id="share-url"}, 'real browser renders the dashboard HTML over HTTPS after the certificate warning is accepted' );
+
+    my $alias_trusted = _run_command(
+        command => [
+            $chromium_bin,
+            '--headless',
+            '--disable-gpu',
+            "--host-resolver-rules=MAP $alias_host 127.0.0.1",
+            '--ignore-certificate-errors',
+            '--dump-dom',
+            "https://$alias_host:$dashboard_port/",
+        ],
+        label => 'Chromium trusted alias-host SSL dashboard check',
+    );
+    like( $alias_trusted->{stdout}, qr{<title>Developer Dashboard</title>}, 'real browser reaches the dashboard page through one configured alias hostname once local trust is bypassed' );
+    like( $alias_trusted->{stdout}, qr{id="share-url"}, 'real browser renders the dashboard HTML through the configured alias hostname after the certificate warning is accepted' );
 
     1;
 } or do {
@@ -220,6 +263,21 @@ sub _read_text {
     my $text = do { local $/; <$fh> };
     close $fh or die "Unable to close $path: $!";
     return $text;
+}
+
+# _write_global_config(%args)
+# Purpose: replace the temporary runtime config.json with one explicit fixture payload.
+# Input: hash containing home_root and config keys.
+# Output: absolute written config path string.
+sub _write_global_config {
+    my (%args) = @_;
+    my $config_dir = File::Spec->catdir( $args{home_root}, '.developer-dashboard', 'config' );
+    make_path($config_dir);
+    my $config_file = File::Spec->catfile( $config_dir, 'config.json' );
+    open my $fh, '>:raw', $config_file or die "Unable to write $config_file: $!";
+    print {$fh} json_encode( $args{config} || {} );
+    close $fh or die "Unable to close $config_file: $!";
+    return $config_file;
 }
 
 __END__
