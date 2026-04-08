@@ -1,0 +1,10 @@
+{
+   "collectors" : [
+      {
+         "command" : "printf 'example collector output\\n'",
+         "cwd" : "home",
+         "interval" : 60,
+         "name" : "example.collector"
+      }
+   ]
+}

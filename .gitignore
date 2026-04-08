@@ -1,0 +1,17 @@
+blib/
+_build/
+.build/
+Build
+Build.bat
+MYMETA.json
+MYMETA.yml
+Makefile
+MANIFEST
+pm_to_blib
+Developer-Dashboard-*.tar.gz
+Developer-Dashboard-*/
+.developer-dashboard/
+cover_db/
+.perl5/
+Developer-Dashboard-0*
+*.md
