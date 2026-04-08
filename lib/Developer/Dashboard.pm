@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.02';
+our $VERSION = '2.03';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.02
+2.03
 
 =head1 INTRODUCTION
 
@@ -485,6 +485,54 @@ exists, when to use it, how to use it, what uses it, and at least one
 concrete example. Contributors should be able to open any module, script,
 helper, or test and understand its role without reverse-engineering the tree
 first.
+
+=head2 Scorecard Gate
+
+C<SCORECARD-GATEKEEPER> is also a repo contract. Before saying work is done,
+before a release, and before a push that is meant to close a task, run the
+live GitHub Scorecard check through the authenticated interactive-shell path:
+
+  bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"
+
+Treat the result as a real gate:
+
+=over 4
+
+=item *
+
+record every failing or unknown check
+
+=item *
+
+turn those checks into an explicit task list
+
+=item *
+
+fix repository-side causes with TDD and verification
+
+=item *
+
+apply GitHub-side settings changes when the check depends on remote state
+
+=item *
+
+push the fixes
+
+=item *
+
+rerun Scorecard
+
+=item *
+
+repeat until every actionable check reaches C<10 / 10>
+
+=back
+
+Do not claim the repository is complete while Scorecard still shows a
+repository-fixable failure. If one check cannot become C<10 / 10> because of
+repo age, contributor makeup, badge-program state, missing admin permission,
+or other platform constraints, document that blocker with evidence instead of
+pretending the gate passed.
 
 =head2 Main Concepts
 

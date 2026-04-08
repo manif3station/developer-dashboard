@@ -1,0 +1,46 @@
+name: Package GHCR
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Prepare OCI Dockerfile
+        run: |
+          cat <<'EOF' > scorecard-ghcr.Dockerfile
+          FROM scratch
+          LABEL org.opencontainers.image.title="Developer Dashboard"
+          LABEL org.opencontainers.image.description="Repository snapshot packaged for GitHub Container Registry"
+          LABEL org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY}"
+          COPY . /developer-dashboard
+          EOF
+
+      - name: Login to GHCR
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish OCI package
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: ./scorecard-ghcr.Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/developer-dashboard:${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
+

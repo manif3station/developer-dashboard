@@ -1,0 +1,15 @@
+This software is copyright (c) 2026 by Developer Dashboard Contributors.
+
+This is free software; you can redistribute it and/or modify it under
+the same terms as the Perl 5 programming language system itself.
+
+Terms of the Perl programming language system itself
+
+a) the GNU General Public License as published by the Free Software Foundation;
+   either version 1, or (at your option) any later version, or
+b) the Artistic License.
+
+For the complete license texts, see the standard Perl 5 documentation for
+`perlgpl` and `perlartistic`, or the generated distribution `LICENSE` file
+produced by the release build.
+

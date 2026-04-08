@@ -1,0 +1,96 @@
+name: GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      PERL_MM_USE_DEFAULT: 1
+      NONINTERACTIVE_TESTING: 1
+      PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Setup Perl
+        uses: shogo82148/actions-setup-perl@8a3e458e34220c3cd62497d8c297eae315b88a72
+        with:
+          perl-version: '5.38'
+
+      - name: Install release dependencies
+        run: |
+          cpanm --installdeps --notest .
+          cpanm --notest Devel::Cover
+          cpanm --notest Capture::Tiny
+          cpanm --notest Sub::Install Data::OptList Params::Util
+          cpanm --notest Sub::Exporter Sub::Exporter::Util
+          cpanm --notest Module::Runtime Try::Tiny Module::Implementation
+          cpanm --notest Dist::CheckConflicts Package::Stash::XS Package::Stash Class::Load
+          cpanm --notest Getopt::Long Getopt::Long::Descriptive
+          cpanm --notest IO::TieCombine String::RewritePrefix Module::Pluggable::Object
+          cpanm --notest App::Cmd
+          cpanm --notest Dist::Zilla
+          cpanm --notest Dist::Zilla::Plugin::ManifestSkip
+          cpanm --notest Dist::Zilla::Plugin::MetaProvides::Package
+          cpanm --notest Dist::Zilla::Plugin::PkgVersion
+
+      - name: Build distribution tarball
+        run: dzil build
+
+      - name: Capture release metadata
+        id: meta
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "artifact=.build/Developer-Dashboard-${version}.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "provenance=.build/Developer-Dashboard-${version}.intoto.jsonl" >> "$GITHUB_OUTPUT"
+
+      - name: Generate provenance sidecar
+        run: |
+          artifact="${{ steps.meta.outputs.artifact }}"
+          provenance="${{ steps.meta.outputs.provenance }}"
+          sha256="$(sha256sum "$artifact" | awk '{print $1}')"
+          perl -MJSON::XS -e '
+            my ($artifact, $sha, $version) = @ARGV;
+            my $json = JSON::XS->new->canonical(1);
+            my $payload = {
+              _type          => "https://in-toto.io/Statement/v1",
+              predicateType  => "https://slsa.dev/provenance/v1",
+              subject        => [
+                {
+                  name   => "Developer-Dashboard-$version.tar.gz",
+                  digest => { sha256 => $sha },
+                },
+              ],
+              predicate => {
+                buildDefinition => {
+                  buildType           => "https://github.com/manif3station/developer-dashboard/.github/workflows/github-release.yml",
+                  externalParameters  => {
+                    repository => $ENV{GITHUB_REPOSITORY},
+                    ref        => $ENV{GITHUB_REF},
+                  },
+                },
+                runDetails => {
+                  builder => { id => "https://github.com/$ENV{GITHUB_REPOSITORY}/actions/runs/$ENV{GITHUB_RUN_ID}" },
+                },
+              },
+            };
+            print $json->encode($payload), qq(\n);
+          ' "$artifact" "$sha256" "${{ steps.meta.outputs.version }}" > "$provenance"
+
+      - name: Publish GitHub release assets
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe
+        with:
+          files: |
+            .build/Developer-Dashboard-${{ steps.meta.outputs.version }}.tar.gz
+            .build/Developer-Dashboard-${{ steps.meta.outputs.version }}.intoto.jsonl
+

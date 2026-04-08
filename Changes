@@ -1,5 +1,18 @@
 Revision history for Developer Dashboard
 
+2.03  2026-04-08
+    - treated `SCORECARD-GATEKEEPER` as a real delivery rule by adding a
+      tracked root `LICENSE`, tracking the published `SECURITY.md`, adding the
+      explicit `SCORECARD_ACTIONS.md` task checklist, and documenting the live
+      interactive-shell Scorecard gate in the public docs and release guide
+    - hardened the GitHub workflow layer with explicit least-privilege
+      `permissions:` blocks, full-SHA action pinning, removal of the
+      `curl https://cpanmin.us | perl` bootstrap path, and new Dependabot,
+      CodeQL, fuzzing, packaging, and GitHub-release automation workflows
+    - added a real `fast-check` property suite plus Perl wrapper coverage so
+      the repository carries a detectable fuzzing signal backed by runnable
+      tests instead of workflow-only decoration
+
 2.02  2026-04-08
     - fixed packaged `t/09-runtime-manager.t` isolation so ambient live
       dashboard-shaped processes on the host can no longer hijack the

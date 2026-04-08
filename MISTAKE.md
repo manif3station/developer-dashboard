@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: SCORECARD-GATEKEEPER-DRIFT
+
+**Date:** 2026-04-08 14:30:00 UTC
+**Area:** repository policy files, GitHub workflows, and release-complete claims
+**Symptom:** I kept calling work done while the live Scorecard report still had obvious repository-side failures such as missing tracked policy files, broad workflow permissions, unpinned GitHub Actions, and no detectable update/SAST/fuzzing/packaging/release guardrails
+**Why It Was Dangerous:** It let repo hygiene drift outside the normal TDD/release loop and created a false sense that "tests passed" was enough even when the public GitHub supply-chain posture was still weak
+**Root Cause:** I treated Scorecard as an informational report instead of a delivery gate and I did not convert each failing check into a tracked todo list with evidence, fixes, and repeat verification
+**How Ellen Solved It:** Documented `SCORECARD-GATEKEEPER` as a hard rule, added a live checklist in `SCORECARD_ACTIONS.md`, added `t/34-scorecard-guardrails.t`, tracked the root `LICENSE` and `SECURITY.md`, and added pinned least-privilege GitHub workflows for Dependabot, CodeQL, fuzzing, packaging, and GitHub releases
+**How To Detect Earlier Next Time:** Run `bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"` before claiming completion, then compare every non-`10 / 10` result against the repo tree and GitHub settings before writing the close-out
+**Prevention Rule:** Scorecard is a gate, not a report. Repository-side failures must be fixed with TDD and pushed before calling work complete; remaining non-`10 / 10` checks must carry written blocker evidence instead of hand-waving
+**Verification:** `prove -lv t/34-scorecard-guardrails.t`, `prove -lv t/35-js-fast-check.t`, `bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"`
+**Related Files:** `SCORECARD_ACTIONS.md`, `t/34-scorecard-guardrails.t`, `t/35-js-fast-check.t`, `t/fuzz/scorecard-fast-check.mjs`, `.github/dependabot.yml`, `.github/workflows/test.yml`, `.github/workflows/release-cpan.yml`, `.github/workflows/codeql.yml`, `.github/workflows/package-ghcr.yml`, `.github/workflows/github-release.yml`, `.github/workflows/fuzz-js.yml`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/update-and-release.md`, `doc/security.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: RUNTIME-MANAGER-AMBIENT-PROCESS-DRIFT
 
 **Date:** 2026-04-08 20:05:00 UTC

@@ -6,6 +6,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: read
+
 jobs:
   release:
     runs-on: ubuntu-latest
@@ -13,18 +16,17 @@ jobs:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       PAUSE_USER: ${{ secrets.PAUSE_USER }}
       PAUSE_PASS: ${{ secrets.PAUSE_PASS }}
+      PERL_MM_USE_DEFAULT: 1
+      NONINTERACTIVE_TESTING: 1
+      PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
       - name: Setup Perl
-        uses: shogo82148/actions-setup-perl@v1
+        uses: shogo82148/actions-setup-perl@8a3e458e34220c3cd62497d8c297eae315b88a72
         with:
           perl-version: '5.38'
-
-      - name: Install cpanm
-        run: |
-          curl -L https://cpanmin.us | perl - --sudo App::cpanminus
 
       - name: Install release dependencies
         run: |

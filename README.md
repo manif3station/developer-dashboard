@@ -199,6 +199,32 @@ concrete example. Contributors should be able to open any module, script,
 helper, or test and understand its role without reverse-engineering the tree
 first.
 
+### Scorecard Gate
+
+`SCORECARD-GATEKEEPER` is also a repo contract. Before saying work is done,
+before a release, and before a push that is meant to close a task, run the
+live GitHub Scorecard check through the authenticated interactive-shell path:
+
+```bash
+bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"
+```
+
+Treat the result as a real gate:
+
+1. record every failing or unknown check
+2. turn those checks into an explicit task list
+3. fix repository-side causes with TDD and verification
+4. apply GitHub-side settings changes when the check depends on remote state
+5. push the fixes
+6. rerun Scorecard
+7. repeat until every actionable check reaches `10 / 10`
+
+Do not claim the repository is complete while Scorecard still shows a
+repository-fixable failure. If one check cannot become `10 / 10` because of
+repo age, contributor makeup, badge-program state, missing admin permission,
+or other platform constraints, document that blocker with evidence instead of
+pretending the gate passed.
+
 ### Main Concepts
 
 - `Developer::Dashboard::PathRegistry`
