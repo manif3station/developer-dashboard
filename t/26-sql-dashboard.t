@@ -117,6 +117,12 @@ like( $render_body, qr/id="sql-workspace-nav"/, 'sql-dashboard render exposes th
 like( $render_body, qr/id="sql-active-sql-name"/, 'sql-dashboard render exposes the active saved SQL name badge' );
 like( $render_body, qr/id="sql-editor-actions"/, 'sql-dashboard render exposes one understated action row beneath the editor' );
 like( $render_body, qr/id="sql-editor-note"/, 'sql-dashboard render exposes the editor status note beside the understated action row' );
+like( $render_body, qr/id="sql-profile-driver-help"/, 'sql-dashboard render exposes driver-specific connection guidance' );
+like( $render_body, qr/dbi:SQLite:dbname=\/tmp\/demo\.db/, 'sql-dashboard render carries the SQLite DSN example' );
+like( $render_body, qr/dbi:mysql:database=app;host=127\.0\.0\.1;port=3306/, 'sql-dashboard render carries the MySQL DSN example' );
+like( $render_body, qr/dbi:Pg:dbname=app;host=127\.0\.0\.1;port=5432/, 'sql-dashboard render carries the PostgreSQL DSN example' );
+like( $render_body, qr/dbi:ODBC:Driver=FreeTDS;Server=127\.0\.0\.1;Port=1433;TDS_Version=7\.4;Database=master;Encrypt=optional;TrustServerCertificate=yes/, 'sql-dashboard render carries the SQL Server DSN example' );
+like( $render_body, qr/dbi:Oracle:host=127\.0\.0\.1;port=1521;service_name=XEPDB1/, 'sql-dashboard render carries the Oracle DSN example' );
 like( $render_body, qr/data-sql-collection-item-delete/, 'sql-dashboard render exposes inline delete affordances for saved SQL entries' );
 like( $render_body, qr/autoResizeSqlEditor/, 'sql-dashboard render auto-resizes the main SQL editor' );
 like( $render_body, qr/URLSearchParams/, 'sql-dashboard render reads workspace state from the URL' );
@@ -523,7 +529,12 @@ sub prepare {
 
 sub table_info {
     return bless {
-        mode => 'tables',
+        mode  => 'tables',
+        NAME  => [ 'TABLE_NAME' ],
+        _rows => [
+            { TABLE_NAME => 'USERS' },
+            { TABLE_NAME => 'ORDERS' },
+        ],
     }, 'DBI::st';
 }
 
@@ -532,6 +543,11 @@ sub column_info {
     return bless {
         mode       => 'columns',
         table_name => $table_name,
+        NAME       => [ 'COLUMN_NAME', 'DATA_TYPE', 'DATA_LENGTH' ],
+        _rows      => [
+            { COLUMN_NAME => 'ID',   DATA_TYPE => 'NUMBER',   DATA_LENGTH => 22 },
+            { COLUMN_NAME => 'NAME', DATA_TYPE => 'VARCHAR2', DATA_LENGTH => 255 },
+        ],
     }, 'DBI::st';
 }
 

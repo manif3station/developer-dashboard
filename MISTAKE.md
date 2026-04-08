@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: ENTERPRISE-SQL-DRIVER-PROOF-GAP
+
+**Date:** 2026-04-08 16:30:00 UTC
+**Area:** sql-dashboard live driver verification, enterprise database support, and profile UX
+**Symptom:** SQL dashboard had live browser proof for SQLite, MySQL, and PostgreSQL, but MSSQL and Oracle were still being treated as implied support instead of directly exercised browser paths, and the driver picker still left users with a weak bare-prefix DSN starting point
+**Why It Was Dangerous:** It left two major database families unproven, let a real `DBD::ODBC` schema-browser bug survive into the browser flow, and made new-profile UX weaker exactly where driver-specific connection syntax is the least obvious
+**Root Cause:** I stopped at generic `DBI` support plus earlier driver coverage and did not finish the host-side user-space client setup, live Docker fixtures, and browser verification needed to prove MSSQL and Oracle end to end
+**How Ellen Solved It:** Built the optional native client stacks in user space without apt, installed `DBD::ODBC` and `DBD::Oracle` into `~/perl5`, added Docker-backed Playwright coverage for MSSQL and Oracle in `t/32-sql-dashboard-rdbms-playwright.t`, removed the extra `execute()` calls from the SQL dashboard schema metadata path for `DBD::ODBC`, improved the profile form with driver-specific DSN guidance and seeded templates, and wrote `SQL_DASHBOARD_SUPPORTS_DB.md` as the living support checklist
+**How To Detect Earlier Next Time:** Before claiming SQL dashboard database support, prove each named database family with a real browser run against a real database service, not only by inspecting the generic `DBI` path or running fake-driver tests
+**Prevention Rule:** Database-family support claims for SQL dashboard must stay evidence-based: SQLite, MySQL, PostgreSQL, MSSQL, and Oracle each need a real browser path, and driver-specific UX should expose a usable DSN example instead of a bare driver prefix
+**Verification:** `prove -lv t/26-sql-dashboard.t`, `prove -lv t/31-sql-dashboard-sqlite-playwright.t`, `ORACLE_HOME=/tmp/oracle-image-opt/product/21c/dbhomeXE LD_LIBRARY_PATH=/home/mv/opt/libaio/lib:/tmp/oracle-image-opt/product/21c/dbhomeXE/lib:/home/mv/opt/unixodbc/lib:/home/mv/opt/freetds/lib PERL5LIB=/home/mv/perl5/lib/perl5:/home/mv/perl5/lib/perl5/x86_64-linux-gnu-thread-multi prove -lv t/32-sql-dashboard-rdbms-playwright.t`
+**Related Files:** `share/seeded-pages/sql-dashboard.page`, `t/26-sql-dashboard.t`, `t/31-sql-dashboard-sqlite-playwright.t`, `t/32-sql-dashboard-rdbms-playwright.t`, `SQL_DASHBOARD_SUPPORTS_DB.md`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`, `doc/integration-test-plan.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: HOME-DD-CLI-NAMESPACE-DRIFT
 
 **Date:** 2026-04-08 00:30:00 UTC

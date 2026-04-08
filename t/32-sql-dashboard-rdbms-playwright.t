@@ -2,6 +2,7 @@ use strict;
 use warnings FATAL => 'all';
 
 use Capture::Tiny qw(capture);
+use Config ();
 use Cwd qw(abs_path getcwd);
 use File::Path qw(make_path);
 use File::Spec;
@@ -16,6 +17,8 @@ my $repo_root      = abs_path('.');
 my $repo_lib       = File::Spec->catdir( $repo_root, 'lib' );
 my $dashboard_bin  = File::Spec->catfile( $repo_root, 'bin', 'dashboard' );
 my $host_home_root = $ENV{HOME} || '';
+
+_prepare_optional_rdbms_env();
 
 my $node_bin     = _find_command('node');
 my $npx_bin      = _find_command('npx');
@@ -48,6 +51,8 @@ subtest 'MySQL browser workflow' => sub {
         password         => 'dashboardpass',
         expected_row     => 'Alice',
         expected_tables  => [ 'users', 'orders' ],
+        template_dsn     => 'dbi:mysql:database=app;host=127.0.0.1;port=3306',
+        guide_fragment   => 'dbi:mysql:database=app;host=127.0.0.1;port=3306',
         docker_args      => [
             '-e', 'MYSQL_ROOT_PASSWORD=rootpass',
             '-e', 'MYSQL_DATABASE=dashboard_test',
@@ -107,6 +112,8 @@ subtest 'PostgreSQL browser workflow' => sub {
         password         => 'dashboardpass',
         expected_row     => 'Alice',
         expected_tables  => [ 'users', 'orders' ],
+        template_dsn     => 'dbi:Pg:dbname=app;host=127.0.0.1;port=5432',
+        guide_fragment   => 'dbi:Pg:dbname=app;host=127.0.0.1;port=5432',
         docker_args      => [
             '-e', 'POSTGRES_DB=dashboard_test',
             '-e', 'POSTGRES_USER=dashboard',
@@ -154,7 +161,211 @@ subtest 'PostgreSQL browser workflow' => sub {
     );
 };
 
+subtest 'MSSQL browser workflow' => sub {
+    _run_rdbms_matrix(
+        label            => 'MSSQL',
+        driver_module    => 'DBD::ODBC',
+        driver_name      => 'DBD::ODBC',
+        image            => 'mcr.microsoft.com/mssql/server:2022-latest',
+        container_port   => 1433,
+        database         => 'tempdb',
+        username         => 'sa',
+        password         => 'DashboardPassw0rd!',
+        expected_row     => 'Alice',
+        expected_tables  => [ 'orders', 'users' ],
+        template_dsn     => 'dbi:ODBC:Driver=FreeTDS;Server=127.0.0.1;Port=1433;TDS_Version=7.4;Database=master;Encrypt=optional;TrustServerCertificate=yes',
+        guide_fragment   => 'Driver=FreeTDS',
+        docker_args      => [
+            '-e', 'ACCEPT_EULA=Y',
+            '-e', 'MSSQL_PID=Developer',
+            '-e', 'MSSQL_SA_PASSWORD=DashboardPassw0rd!',
+        ],
+        dsn_builder      => sub {
+            my ($port) = @_;
+            return "dbi:ODBC:Driver=/home/mv/opt/freetds/lib/libtdsodbc.so;Server=127.0.0.1;Port=$port;TDS_Version=7.4;Database=tempdb;Encrypt=optional;TrustServerCertificate=yes";
+        },
+        wait_for_ready   => sub {
+            my (%args) = @_;
+            my $last_error = '';
+            require DBI;
+            for ( 1 .. 180 ) {
+                my $dbh = eval {
+                    DBI->connect(
+                        $args{dsn},
+                        $args{user},
+                        $args{password},
+                        {
+                            RaiseError => 1,
+                            PrintError => 0,
+                            AutoCommit => 1,
+                        }
+                    );
+                };
+                return $dbh if $dbh;
+                $last_error = $DBI::errstr // $@ // '';
+                sleep 1;
+            }
+            die "Timed out waiting for MSSQL to accept connections on $args{dsn}: $last_error\n";
+        },
+        seed_database    => sub {
+            my (%args) = @_;
+            my $dbh = $args{dbh};
+            $dbh->do(q{if object_id('orders', 'U') is not null drop table orders});
+            $dbh->do(q{if object_id('users', 'U') is not null drop table users});
+            $dbh->do('create table users (id int primary key, name nvarchar(128), status nvarchar(32), note nvarchar(max))');
+            $dbh->do('create table orders (id int primary key, user_id int, total decimal(10,2), status nvarchar(32))');
+            $dbh->do(q{insert into users (id, name, status, note) values (1, 'Alice', 'active', 'alpha')});
+            $dbh->do(q{insert into users (id, name, status, note) values (2, 'Bob', 'review', 'beta')});
+            $dbh->do(q{insert into orders (id, user_id, total, status) values (1, 1, 10.50, 'new')});
+            $dbh->do(q{insert into orders (id, user_id, total, status) values (2, 2, 25.00, 'pending')});
+            return 1;
+        },
+    );
+};
+
+subtest 'Oracle browser workflow' => sub {
+    _run_rdbms_matrix(
+        label            => 'Oracle',
+        driver_module    => 'DBD::Oracle',
+        driver_name      => 'DBD::Oracle',
+        image            => 'gvenzl/oracle-xe:21-slim-faststart',
+        container_port   => 1521,
+        database         => 'XEPDB1',
+        username         => 'dashboard',
+        password         => 'dashboardpass',
+        expected_row     => 'Alice',
+        expected_tables  => [ 'ORDERS', 'USERS' ],
+        template_dsn     => 'dbi:Oracle:host=127.0.0.1;port=1521;service_name=XEPDB1',
+        guide_fragment   => 'service_name=XEPDB1',
+        docker_args      => [
+            '-e', 'ORACLE_PASSWORD=DashboardPassw0rd!',
+            '-e', 'APP_USER=dashboard',
+            '-e', 'APP_USER_PASSWORD=dashboardpass',
+        ],
+        dsn_builder      => sub {
+            my ($port) = @_;
+            return "dbi:Oracle:host=127.0.0.1;port=$port;service_name=XEPDB1";
+        },
+        wait_for_ready   => sub {
+            my (%args) = @_;
+            my $last_error = '';
+            require DBI;
+            for ( 1 .. 180 ) {
+                my $dbh = eval {
+                    DBI->connect(
+                        $args{dsn},
+                        $args{user},
+                        $args{password},
+                        {
+                            RaiseError => 1,
+                            PrintError => 0,
+                            AutoCommit => 1,
+                        }
+                    );
+                };
+                return $dbh if $dbh;
+                $last_error = $DBI::errstr // $@ // '';
+                sleep 1;
+            }
+            die "Timed out waiting for Oracle to accept connections on $args{dsn}: $last_error\n";
+        },
+        seed_database    => sub {
+            my (%args) = @_;
+            my $dbh = $args{dbh};
+            $dbh->do(q{
+                begin
+                    execute immediate 'drop table orders';
+                exception
+                    when others then
+                        if sqlcode != -942 then raise; end if;
+                end;
+            });
+            $dbh->do(q{
+                begin
+                    execute immediate 'drop table users';
+                exception
+                    when others then
+                        if sqlcode != -942 then raise; end if;
+                end;
+            });
+            $dbh->do('create table users (id number primary key, name varchar2(128), status varchar2(32), note varchar2(4000))');
+            $dbh->do('create table orders (id number primary key, user_id number, total number(10,2), status varchar2(32))');
+            $dbh->do(q{insert into users (id, name, status, note) values (1, 'Alice', 'active', 'alpha')});
+            $dbh->do(q{insert into users (id, name, status, note) values (2, 'Bob', 'review', 'beta')});
+            $dbh->do(q{insert into orders (id, user_id, total, status) values (1, 1, 10.5, 'new')});
+            $dbh->do(q{insert into orders (id, user_id, total, status) values (2, 2, 25.0, 'pending')});
+            return 1;
+        },
+    );
+};
+
 done_testing;
+
+# _prepare_optional_rdbms_env()
+# Purpose: expose user-space Perl DB drivers and native client libraries before optional live RDBMS tests probe them.
+# Input: none.
+# Output: true after @INC and process environment are updated best-effort.
+sub _prepare_optional_rdbms_env {
+    my $home = $ENV{HOME} || '';
+    return 1 if $home eq '';
+
+    my @inc_candidates = grep { -d $_ }
+      File::Spec->catdir( $home, 'perl5', 'lib', 'perl5' ),
+      File::Spec->catdir( $home, 'perl5', 'lib', 'perl5', $Config::Config{archname} );
+    if (@inc_candidates) {
+        my %seen = map { $_ => 1 } @INC;
+        unshift @INC, grep { !$seen{$_}++ } reverse @inc_candidates;
+        my %env_seen;
+        $ENV{PERL5LIB} = join(
+            ':',
+            grep { defined $_ && $_ ne '' && !$env_seen{$_}++ }
+              @inc_candidates,
+              split( /:/, ( $ENV{PERL5LIB} || '' ) ),
+        );
+    }
+
+    my @path_entries = grep { -d $_ }
+      File::Spec->catdir( $home, 'perl5', 'bin' ),
+      File::Spec->catdir( $home, 'opt', 'unixodbc', 'bin' );
+    if (@path_entries) {
+        my %seen;
+        $ENV{PATH} = join(
+            ':',
+            grep { defined $_ && $_ ne '' && !$seen{$_}++ }
+              @path_entries,
+              split( /:/, ( $ENV{PATH} || '' ) ),
+        );
+    }
+
+    my $oracle_home = '';
+    for my $candidate (
+        File::Spec->catdir( $home, 'opt', 'oracle-client', 'product', '21c', 'dbhomeXE' ),
+        '/tmp/oracle-image-opt/product/21c/dbhomeXE'
+      )
+    {
+        next if !-d $candidate;
+        $oracle_home = $candidate;
+        last;
+    }
+    $ENV{ORACLE_HOME} = $oracle_home if $oracle_home ne '';
+
+    my @ld_entries = grep { -d $_ }
+      File::Spec->catdir( $home, 'opt', 'unixodbc', 'lib' ),
+      File::Spec->catdir( $home, 'opt', 'freetds', 'lib' ),
+      File::Spec->catdir( $home, 'opt', 'libaio', 'lib' ),
+      ( $oracle_home ne '' ? File::Spec->catdir( $oracle_home, 'lib' ) : () );
+    if (@ld_entries) {
+        my %seen;
+        $ENV{LD_LIBRARY_PATH} = join(
+            ':',
+            grep { defined $_ && $_ ne '' && !$seen{$_}++ }
+              @ld_entries,
+              split( /:/, ( $ENV{LD_LIBRARY_PATH} || '' ) ),
+        );
+    }
+
+    return 1;
+}
 
 # _run_rdbms_matrix(%args)
 # Purpose: run one full docker-backed sql-dashboard Playwright flow for one server-backed DB driver.
@@ -243,6 +454,8 @@ sub _run_rdbms_matrix {
                 DB_EXPECTED_ROW   => $args{expected_row},
                 DB_EXPECT_TABLE_A => $args{expected_tables}[0],
                 DB_EXPECT_TABLE_B => $args{expected_tables}[1],
+                DB_TEMPLATE_DSN   => $args{template_dsn} || '',
+                DB_GUIDE_FRAGMENT => $args{guide_fragment} || '',
             },
             label => "$args{label} Playwright sql-dashboard matrix",
         );
@@ -258,7 +471,7 @@ sub _run_rdbms_matrix {
           };
         ok( $payload->{ok}, "$args{label} sql-dashboard Playwright matrix reports success" )
           or diag _diagnostic_text($payload);
-        is( scalar @{ $payload->{cases} || [] }, 19, "$args{label} sql-dashboard Playwright matrix records 19 browser cases" );
+        is( scalar @{ $payload->{cases} || [] }, 20, "$args{label} sql-dashboard Playwright matrix records 20 browser cases" );
         for my $case ( @{ $payload->{cases} || [] } ) {
             ok( $case->{ok}, "$args{label}: $case->{name}" ) or diag _case_diagnostic($case);
         }
@@ -336,6 +549,13 @@ async function main() {
     if (!condition) throw new Error(detail);
   }
 
+  async function waitForBootstrapReady() {
+    await page.waitForFunction(() => {
+      const select = document.getElementById('sql-profile-driver');
+      return !!(select && select.options && select.options.length > 1);
+    });
+  }
+
   page.on('console', (message) => {
     consoleMessages.push(message.type() + ': ' + message.text());
   });
@@ -343,7 +563,9 @@ async function main() {
     pageErrors.push(String(error && error.stack || error));
   });
 
-  await page.goto(process.env.DASHBOARD_URL, { waitUntil: 'networkidle' });
+  await page.goto(process.env.DASHBOARD_URL, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#sql-profile-driver');
+  await waitForBootstrapReady();
 
   await check('main tabs visible', async () => {
     const tabs = await page.locator('[data-sql-main-tab]').allTextContents();
@@ -355,6 +577,17 @@ async function main() {
     const options = await page.locator('#sql-profile-driver option').allTextContents();
     ensure(options.some((value) => String(value || '').includes(process.env.DB_DRIVER)),
       'driver dropdown did not expose requested driver: ' + JSON.stringify({ driver: process.env.DB_DRIVER, options }));
+  });
+
+  await check('driver guidance shows the expected DSN example', async () => {
+    await page.locator('#sql-profile-dsn').fill('');
+    await page.locator('#sql-profile-driver').selectOption(process.env.DB_DRIVER);
+    const dsn = await page.locator('#sql-profile-dsn').inputValue();
+    ensure(dsn === process.env.DB_TEMPLATE_DSN,
+      'blank driver selection should seed the driver-specific DSN example: ' + JSON.stringify({ driver: process.env.DB_DRIVER, dsn, expected: process.env.DB_TEMPLATE_DSN }));
+    const help = await page.locator('#sql-profile-driver-help').textContent();
+    ensure(String(help || '').includes(process.env.DB_GUIDE_FRAGMENT || process.env.DB_TEMPLATE_DSN),
+      'driver guidance should mention the driver-specific DSN details: ' + JSON.stringify({ driver: process.env.DB_DRIVER, help, expected: process.env.DB_GUIDE_FRAGMENT || process.env.DB_TEMPLATE_DSN }));
   });
 
   await page.locator('#sql-profile-name').fill(process.env.DB_PROFILE);
@@ -482,7 +715,9 @@ async function main() {
   const deletePayload = await deleteResponse.json();
   ensure(deletePayload && deletePayload.ok, 'profile delete failed: ' + JSON.stringify(deletePayload || {}));
 
-  await page.goto(savedRouteUrl, { waitUntil: 'networkidle' });
+  await page.goto(savedRouteUrl, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#sql-profile-driver');
+  await waitForBootstrapReady();
   await page.waitForTimeout(400);
 
   await check('shared URL reload restores draft dsn and user', async () => {
@@ -796,30 +1031,33 @@ __END__
 
 =head1 NAME
 
-32-sql-dashboard-rdbms-playwright.t - docker-backed MySQL and PostgreSQL browser coverage for the sql-dashboard bookmark
+32-sql-dashboard-rdbms-playwright.t - docker-backed MySQL, PostgreSQL, MSSQL, and Oracle browser coverage for the sql-dashboard bookmark
 
 =head1 PURPOSE
 
 Test file in the Developer Dashboard codebase. This file runs real Chromium
-Playwright coverage against docker-backed MySQL and PostgreSQL services so the
-SQL dashboard is verified beyond the SQLite workflow. The live fixtures use the
-official C<mysql:5.7> and C<postgres:16> images because that combination is
-compatible with the currently-supported host-side Perl driver stack.
+Playwright coverage against docker-backed MySQL, PostgreSQL, MSSQL, and Oracle
+services so the SQL dashboard is verified beyond the SQLite workflow. The live
+fixtures use the official C<mysql:5.7>, C<postgres:16>,
+C<mcr.microsoft.com/mssql/server:2022-latest>, and
+C<gvenzl/oracle-xe:21-slim-faststart> images because that combination matches
+the host-side Perl driver stacks verified for this repository.
 
 =head1 WHY IT EXISTS
 
 It exists to prove that the SQL dashboard browser UX still works against
-server-backed drivers, not only SQLite. The file covers profile setup, shareable
-workspace routes, query execution, schema browsing, collection persistence, and
-the expected "local credentials required" UX after a shared route outlives the
-saved local password-bearing profile.
+server-backed drivers, not only SQLite. The file covers profile setup,
+driver-specific DSN guidance, shareable workspace routes, query execution,
+schema browsing, collection persistence, and the expected "local credentials
+required" UX after a shared route outlives the saved local password-bearing
+profile.
 
 =head1 WHEN TO USE
 
 Use this file when you change the SQL dashboard connection profile flow, saved
 workspace route model, server-backed DBI execution, schema browser behavior, or
 saved SQL workspace UX. Run it before release when you need confidence that the
-browser flow works with MySQL and PostgreSQL, not just SQLite.
+browser flow works with MySQL, PostgreSQL, MSSQL, and Oracle, not just SQLite.
 
 =head1 HOW TO USE
 
@@ -828,18 +1066,22 @@ Run it directly with:
   prove -lv t/32-sql-dashboard-rdbms-playwright.t
 
 The current Perl environment must already be able to load C<DBI> plus the
-relevant driver modules such as C<DBD::mysql> and C<DBD::Pg>. Docker, Chromium,
-Node, npx, and git must also be available locally. This test intentionally does
-not add those DB drivers to shipped runtime prerequisites, so install them
-separately when you want live RDBMS browser coverage. On this host the MySQL
-fixture uses the official C<mysql:5.7> image because the available
-C<DBD::mysql> stack does not complete a non-SSL C<MySQL 8.4> auth handshake.
+relevant driver modules such as C<DBD::mysql>, C<DBD::Pg>, C<DBD::ODBC>, and
+C<DBD::Oracle>. Docker, Chromium, Node, npx, and git must also be available
+locally. This test intentionally does not add those DB drivers to shipped
+runtime prerequisites, so install them separately when you want live RDBMS
+browser coverage. On this host the MySQL fixture uses the official
+C<mysql:5.7> image because the available C<DBD::mysql> stack does not complete
+a non-SSL C<MySQL 8.4> auth handshake, MSSQL uses C<DBD::ODBC> with a
+user-space C<unixODBC> + C<FreeTDS> stack, and Oracle uses C<DBD::Oracle> with
+a user-space Oracle home plus C<libaio>.
 
 =head1 WHAT USES IT
 
 It is used by developers during TDD, by maintainers doing SQL dashboard UX and
 cross-database verification, and by release verification when the maintainer
-wants real docker-backed browser coverage for MySQL and PostgreSQL.
+wants real docker-backed browser coverage for MySQL, PostgreSQL, MSSQL, and
+Oracle.
 
 =head1 EXAMPLES
 
@@ -848,8 +1090,14 @@ wants real docker-backed browser coverage for MySQL and PostgreSQL.
   PERL5LIB=/tmp/sql-lib/lib/perl5:/tmp/sql-lib/lib/perl5/x86_64-linux-gnu-thread-multi \
   prove -lv t/32-sql-dashboard-rdbms-playwright.t
 
+  LD_LIBRARY_PATH="$HOME/opt/unixodbc/lib:$HOME/opt/freetds/lib:$HOME/opt/libaio/lib:$HOME/opt/oracle-client/product/21c/dbhomeXE/lib" \
+  ORACLE_HOME="$HOME/opt/oracle-client/product/21c/dbhomeXE" \
+  PERL5LIB="$HOME/perl5/lib/perl5:$HOME/perl5/lib/perl5/x86_64-linux-gnu-thread-multi" \
+  prove -lv t/32-sql-dashboard-rdbms-playwright.t
+
 Use the first command when the active Perl already has the DBI drivers. Use the
-second when you have staged C<DBD::mysql> and C<DBD::Pg> into a separate
-local::lib for live browser verification.
+second when you have staged the server-backed DBD modules into a separate
+local::lib for live browser verification. Use the third when you also need the
+user-space ODBC and Oracle client libraries on the loader path.
 
 =cut

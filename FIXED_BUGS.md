@@ -1,5 +1,13 @@
 # Fixed Bugs
 
+## 2026-04-08 (Phase 63: Enterprise SQL Driver Proof Gap)
+
+- Fixed SQL dashboard live-driver coverage so the browser workflow is now proven against MSSQL through `DBD::ODBC` and Oracle through `DBD::Oracle`, in addition to the existing SQLite, MySQL, and PostgreSQL paths.
+- Fixed SQL dashboard schema browsing for `DBD::ODBC` by removing the extra `execute()` call on `table_info()` and `column_info()` statement handles, which was tripping MSSQL with `SQL-HY010` during the browser schema flow.
+- Fixed blank SQL profile UX so the driver selector now shows concrete DSN guidance and seeds usable DSN templates for SQLite, MySQL, PostgreSQL, MSSQL/ODBC, and Oracle instead of leaving users at a bare `dbi:Driver:` prefix.
+- Added `SQL_DASHBOARD_SUPPORTS_DB.md` as the living checklist and support report for SQL dashboard database coverage, driver requirements, and browser-verification status.
+- Fixed packaged-tree integration metadata checks so tarball installs in blank environments no longer fail on markdown docs that are intentionally excluded from the dist, while the source-tree tests still enforce those docs.
+
 ## 2026-04-08 (Phase 62: Home DD CLI Namespace Drift)
 
 - Fixed `dashboard init` and `dashboard config init` so a missing `config/config.json` is created as `{}` and an existing config file is left untouched instead of being repopulated with a seeded example collector.

@@ -105,6 +105,7 @@ HTML: <style>
           </label>
         </div>
         <label class="sql-checkbox"><input id="sql-profile-save-password" type="checkbox"> Save password to the local runtime profile file</label>
+        <p id="sql-profile-driver-help" class="sql-help">Pick an installed driver to see a matching DSN example and runtime notes.</p>
         <p class="sql-help">Profiles are stored under <code>.developer-dashboard/config/sql-dashboard/&lt;profile-name&gt;.json</code>. Shared URLs only carry the portable <code>connection</code> id built from DSN and user. SQLite and other passwordless/local DSNs can leave the user blank.</p>
       </div>
     </div>
@@ -409,6 +410,52 @@ HTML: <style>
     if (selected) select.value = selected;
   }
 
+  function driverGuidance(driver) {
+    driver = String(driver || '').trim();
+    if (driver === 'DBD::SQLite') {
+      return {
+        template: 'dbi:SQLite:dbname=/tmp/demo.db',
+        help: 'SQLite keeps everything in one local file and can leave the user and password blank.'
+      };
+    }
+    if (driver === 'DBD::mysql') {
+      return {
+        template: 'dbi:mysql:database=app;host=127.0.0.1;port=3306',
+        help: 'MySQL usually needs a database name, host, port, user, and a locally-stored password.'
+      };
+    }
+    if (driver === 'DBD::Pg') {
+      return {
+        template: 'dbi:Pg:dbname=app;host=127.0.0.1;port=5432',
+        help: 'PostgreSQL usually needs dbname, host, port, user, and a locally-stored password.'
+      };
+    }
+    if (driver === 'DBD::ODBC') {
+      return {
+        template: 'dbi:ODBC:Driver=FreeTDS;Server=127.0.0.1;Port=1433;TDS_Version=7.4;Database=master;Encrypt=optional;TrustServerCertificate=yes',
+        help: 'SQL Server commonly uses DBD::ODBC with an ODBC driver such as FreeTDS or Microsoft ODBC Driver 18.'
+      };
+    }
+    if (driver === 'DBD::Oracle') {
+      return {
+        template: 'dbi:Oracle:host=127.0.0.1;port=1521;service_name=XEPDB1',
+        help: 'Oracle commonly uses service_name with DBD::Oracle and requires a local Oracle client home.'
+      };
+    }
+    var shortName = driverShortName(driver);
+    return {
+      template: shortName ? ('dbi:' + shortName + ':') : 'dbi:Driver:...',
+      help: shortName ? ('Adjust the DSN fields required by ' + shortName + ' before saving the profile.') : 'Install a DBD::* driver first, then pick it to see a matching DSN example.'
+    };
+  }
+
+  function renderProfileGuidance(selectedDriver) {
+    var guidance = driverGuidance(selectedDriver || byId('sql-profile-driver').value || '');
+    var dsnField = byId('sql-profile-dsn');
+    dsnField.setAttribute('placeholder', guidance.template);
+    byId('sql-profile-driver-help').innerHTML = 'Example DSN: <code>' + escapeHtml(guidance.template) + '</code>. ' + escapeHtml(guidance.help);
+  }
+
   function loadProfileIntoForm(profile) {
     profile = profile || {};
     renderDriverOptions(profile.driver || '');
@@ -418,6 +465,7 @@ HTML: <style>
     byId('sql-profile-password').value = profile.password || '';
     byId('sql-profile-save-password').checked = profile.save_password ? true : false;
     byId('sql-profile-attrs').value = profile.attrs_json || '{"RaiseError":1,"PrintError":0,"AutoCommit":1}';
+    renderProfileGuidance(profile.driver || '');
   }
 
   function loadCollectionIntoForm(collection, item) {
@@ -500,10 +548,11 @@ HTML: <style>
     var driver = byId('sql-profile-driver').value.trim();
     if (!driver) return;
     var shortName = driverShortName(driver);
+    var guidance = driverGuidance(driver);
     var dsnField = byId('sql-profile-dsn');
     var dsn = dsnField.value.trim();
-    if (!dsn) {
-      dsnField.value = 'dbi:' + shortName + ':';
+    if (!dsn || dsn === ('dbi:' + shortName + ':')) {
+      dsnField.value = guidance.template;
       return;
     }
     if (/^dbi:[^:]+:/i.test(dsn)) {
@@ -1066,6 +1115,7 @@ HTML: <style>
 
   byId('sql-profile-driver').addEventListener('change', function () {
     updateDsnDriverPrefix();
+    renderProfileGuidance(this.value);
     syncRoute(true);
   });
 
@@ -1109,6 +1159,7 @@ HTML: <style>
     save_password: 0
   });
   renderDriverOptions('');
+  renderProfileGuidance('');
   bootstrapProfiles();
 }());
 </script>
@@ -3999,7 +4050,6 @@ eval {
     my $resolved = sql_dashboard_resolve_settings($settings);
     my $dbh = sql_dashboard_connect($resolved);
     my $table_sth = $dbh->table_info( undef, undef, '%', 'TABLE' );
-    $table_sth->execute() if $table_sth->can('execute');
     my @tables;
     while ( my $row = $table_sth->fetchrow_hashref ) {
         next if !defined $row->{TABLE_NAME} || $row->{TABLE_NAME} eq '';
@@ -4007,13 +4057,13 @@ eval {
             TABLE_NAME => $row->{TABLE_NAME},
         };
     }
+    $table_sth->finish if $table_sth && $table_sth->can('finish');
     @tables = sort { $a->{TABLE_NAME} cmp $b->{TABLE_NAME} } @tables;
     my $selected_table = sql_dashboard_trim( $settings->{table_name} );
     $selected_table = $tables[0]{TABLE_NAME} if $selected_table eq '' && @tables;
     my @columns;
     if ( $selected_table ne '' ) {
         my $column_sth = $dbh->column_info( undef, undef, $selected_table, '%' );
-        $column_sth->execute() if $column_sth->can('execute');
         while ( my $row = $column_sth->fetchrow_hashref ) {
             push @columns, {
                 TABLE_NAME  => $selected_table,
@@ -4022,6 +4072,7 @@ eval {
                 DATA_LENGTH => $row->{DATA_LENGTH},
             };
         }
+        $column_sth->finish if $column_sth && $column_sth->can('finish');
     }
     $dbh->disconnect if $dbh && $dbh->can('disconnect');
     $payload = {

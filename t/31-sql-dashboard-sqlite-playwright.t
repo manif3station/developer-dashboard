@@ -97,7 +97,7 @@ eval {
       };
     ok( $payload->{ok}, 'sqlite sql-dashboard Playwright matrix reports success' )
       or diag _diagnostic_text($payload);
-    is( scalar @{ $payload->{cases} || [] }, 50, 'sqlite sql-dashboard Playwright matrix records 50 UX and limit cases' );
+    is( scalar @{ $payload->{cases} || [] }, 51, 'sqlite sql-dashboard Playwright matrix records 51 UX and limit cases' );
     for my $case ( @{ $payload->{cases} || [] } ) {
         ok( $case->{ok}, $case->{name} ) or diag _case_diagnostic($case);
     }
@@ -218,11 +218,17 @@ async function main() {
   });
 
   await page.locator('#sql-profile-driver').selectOption('DBD::SQLite');
-  await check('SQLite driver seeds blank DSN prefix', async () => {
+  await check('SQLite driver seeds a full example DSN', async () => {
     await page.locator('#sql-profile-dsn').fill('');
     await page.locator('#sql-profile-driver').selectOption('DBD::SQLite');
     const dsn = await page.locator('#sql-profile-dsn').inputValue();
-    ensure(dsn === 'dbi:SQLite:', 'expected blank DSN to seed the SQLite prefix: ' + JSON.stringify({ dsn }));
+    ensure(dsn === 'dbi:SQLite:dbname=/tmp/demo.db', 'expected blank DSN to seed the SQLite example: ' + JSON.stringify({ dsn }));
+  });
+
+  await check('SQLite driver guidance explains the local-file DSN shape', async () => {
+    const help = await page.locator('#sql-profile-driver-help').textContent();
+    ensure(String(help || '').includes('dbi:SQLite:dbname=/tmp/demo.db'),
+      'SQLite driver guidance should include the example DSN: ' + JSON.stringify({ help }));
   });
 
   await check('SQLite driver rewrites only DSN prefix', async () => {

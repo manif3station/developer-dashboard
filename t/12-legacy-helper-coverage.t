@@ -37,6 +37,16 @@ make_path($auto_projects);
 use Developer::Dashboard::Folder;
 use Developer::Dashboard::Zipper qw(zip unzip _cmdx _cmdp __cmdx acmdx Ajax);
 
+sub form_body {
+    my (@pairs) = @_;
+    my @encoded;
+    while (@pairs) {
+        my ( $name, $value ) = splice @pairs, 0, 2;
+        push @encoded, uri_escape($name) . '=' . uri_escape( defined $value ? $value : '' );
+    }
+    return join '&', @encoded;
+}
+
 is( Developer::Dashboard::Folder->dd, File::Spec->catdir( $home, '.developer-dashboard' ), 'Folder dd lazily bootstraps the runtime root before configure' );
 is( Developer::Dashboard::Folder->runtime_root, File::Spec->catdir( $home, '.developer-dashboard' ), 'Folder runtime_root lazily bootstraps through AUTOLOAD before configure' );
 {
@@ -718,7 +728,7 @@ ok( $login_user->{username}, 'helper user can be created for login flow coverage
 my ( $login_code, undef, undef, $login_headers ) = @{ $app->handle(
     path        => '/login',
     method      => 'POST',
-    body        => 'username=helperx&password=helper-pass-123',
+    body        => form_body( username => 'helperx', password => 'helper-pass-123' ),
     remote_addr => '10.0.0.2',
     headers     => { host => 'localhost:7890' },
 ) };

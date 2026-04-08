@@ -1,5 +1,24 @@
 Revision history for Developer Dashboard
 
+1.99  2026-04-08
+    - extended the seeded `sql-dashboard` browser workflow to live Docker-backed
+      MSSQL and Oracle fixtures in addition to the existing SQLite, MySQL, and
+      PostgreSQL coverage, while keeping `DBD::ODBC` and `DBD::Oracle` as
+      develop-only recommendations instead of shipping them in the base runtime
+    - fixed SQL dashboard schema browsing for `DBD::ODBC` by stopping the extra
+      `execute()` call on `table_info()` and `column_info()` statement handles,
+      which removes the MSSQL `SQL-HY010` function-sequence failure from the
+      browser workflow
+    - improved the SQL dashboard profile UX with driver-specific guidance and
+      seeded DSN templates for SQLite, MySQL, PostgreSQL, MSSQL/ODBC, and
+      Oracle, so blank profiles start from a usable connection example instead
+      of an unhelpful bare driver prefix
+    - added `SQL_DASHBOARD_SUPPORTS_DB.md` as the living support checklist and
+      verification report for the SQL workspace
+    - fixed packaged-tree release/integration tests so built tarballs no longer
+      fail on markdown docs that `dist.ini` intentionally excludes from the
+      distribution, while the source-tree suite still enforces those docs
+
 1.98  2026-04-08
     - fixed `dashboard init` and `dashboard config init` so a missing
       `config/config.json` is created as `{}` while an existing config file is

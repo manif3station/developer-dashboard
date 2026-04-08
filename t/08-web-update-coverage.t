@@ -52,6 +52,16 @@ sub decode_body_text {
     return decode( 'UTF-8', $body, FB_CROAK );
 }
 
+sub form_body {
+    my (@pairs) = @_;
+    my @encoded;
+    while (@pairs) {
+        my ( $name, $value ) = splice @pairs, 0, 2;
+        push @encoded, uri_escape($name) . '=' . uri_escape( defined $value ? $value : '' );
+    }
+    return join '&', @encoded;
+}
+
 my $home = tempdir(CLEANUP => 1);
 local $ENV{HOME} = $home;
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
@@ -610,7 +620,7 @@ unlike( $saved_login_required_body, qr{<input[^>]*name="redirect_to"}, 'forbidde
 my ( $disabled_login_code, undef, $disabled_login_body ) = @{ $app->handle(
     path        => '/login',
     method      => 'POST',
-    body        => 'username=helper&password=helper-pass-123',
+    body        => form_body( username => 'helper', password => 'helper-pass-123' ),
     remote_addr => '127.0.0.1',
     headers     => { host => 'localhost:7890' },
 ) };
@@ -643,7 +653,7 @@ like( $enabled_saved_login_required_body, qr{<input[^>]*name="redirect_to"[^>]*v
 my ( $bad_login_code, undef, $bad_login_body ) = @{ $app->handle(
     path        => '/login',
     method      => 'POST',
-    body        => 'username=helper&password=wrong',
+    body        => form_body( username => 'helper', password => 'wrong' ),
     remote_addr => '127.0.0.1',
     headers     => { host => 'localhost:7890' },
 ) };
@@ -653,7 +663,7 @@ like( $bad_login_body, qr/Invalid username or password/, 'bad login renders erro
 my ( $login_code, undef, undef, $login_headers ) = @{ $app->handle(
     path        => '/login',
     method      => 'POST',
-    body        => 'username=helper&password=helper-pass-123',
+    body        => form_body( username => 'helper', password => 'helper-pass-123' ),
     remote_addr => '127.0.0.1',
     headers     => { host => 'localhost:7890' },
 ) };
@@ -664,7 +674,11 @@ like( $login_headers->{'Set-Cookie'}, qr/^dashboard_session=/, 'valid helper log
 my ( $saved_login_code, undef, undef, $saved_login_headers ) = @{ $app->handle(
     path        => '/login',
     method      => 'POST',
-    body        => 'username=helper&password=helper-pass-123&redirect_to=%2Fapp%2Findex%3Ffrom%3Dhelper',
+    body        => form_body(
+        username    => 'helper',
+        password    => 'helper-pass-123',
+        redirect_to => '/app/index?from=helper',
+    ),
     remote_addr => '127.0.0.1',
     headers     => { host => 'localhost:7890' },
 ) };

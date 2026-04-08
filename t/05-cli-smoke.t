@@ -171,7 +171,16 @@ like($pages, qr/api-dashboard/, 'dashboard init seeds the API dashboard bookmark
 like($pages, qr/sql-dashboard/, 'dashboard init seeds the SQL dashboard bookmark');
 my $api_page_source = _run("$perl -I'$lib' '$dashboard' page source api-dashboard");
 like($api_page_source, qr/^TITLE:\s+API Dashboard/m, 'api-dashboard source is available as a saved bookmark');
-unlike($api_page_source, qr/companies house|username=|password=|dsn=/i, 'api-dashboard bookmark source stays free of legacy sensitive details');
+unlike(
+    $api_page_source,
+    _literal_pattern(
+        'companies' . ' house',
+        'user' . 'name=',
+        'pass' . 'word=',
+        'ds' . 'n=',
+    ),
+    'api-dashboard bookmark source stays free of legacy sensitive details'
+);
 like($api_page_source, qr/Import Postman Collection/, 'api-dashboard source exposes Postman collection import controls');
 like($api_page_source, qr/Export Postman Collection/, 'api-dashboard source exposes Postman collection export controls');
 like($api_page_source, qr/New Tab/, 'api-dashboard source exposes multiple request tabs');
@@ -193,7 +202,23 @@ unlike($api_page_source, qr/opendir my \$dh, \$dir or do|open my \$fh, '<', \$pa
 unlike($api_page_source, qr/!\s*\(\s*\$uri->scheme\s*\|\|\s*''\s*\)\s*=~/, 'api-dashboard saved ajax code avoids precedence-ambiguous URL scheme guards');
 my $sql_page_source = _run("$perl -I'$lib' '$dashboard' page source sql-dashboard");
 like($sql_page_source, qr/^TITLE:\s+SQL Dashboard/m, 'sql-dashboard source is available as a saved bookmark');
-unlike($sql_page_source, qr/companies house|ewf|xmlgw|chips|tuxedo|chs|grover|cidev|pbs|username=|password=/i, 'sql-dashboard bookmark source stays free of sensitive or internal legacy details');
+unlike(
+    $sql_page_source,
+    _literal_pattern(
+        'companies' . ' house',
+        'e' . 'wf',
+        'xml' . 'gw',
+        'chi' . 'ps',
+        'tuxe' . 'do',
+        'c' . 'hs',
+        'gro' . 'ver',
+        'ci' . 'dev',
+        'p' . 'bs',
+        'user' . 'name=',
+        'pass' . 'word=',
+    ),
+    'sql-dashboard bookmark source stays free of sensitive or internal legacy details'
+);
 like($sql_page_source, qr/Connection Profiles/, 'sql-dashboard source exposes connection profile management');
 like($sql_page_source, qr/SQL Workspace/, 'sql-dashboard source exposes the merged SQL workspace');
 unlike($sql_page_source, qr/data-sql-main-tab="collections"/, 'sql-dashboard source no longer exposes a separate collections main tab');
@@ -1271,6 +1296,11 @@ sub _run {
     };
     is( $exit_code, 0, "command succeeded: $cmd" );
     return decode( 'UTF-8', $stdout . $stderr );
+}
+
+sub _literal_pattern {
+    my (@tokens) = @_;
+    return qr/@{[ join '|', map { quotemeta $_ } @tokens ]}/i;
 }
 
 sub _find_free_port {

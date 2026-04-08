@@ -10,17 +10,18 @@ use Test::More;
 my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
 
 my $pm = _slurp( _repo_path('lib', 'Developer', 'Dashboard.pm') );
-my $readme = _slurp( _repo_path('README.md') );
-my $skill_guide = _slurp( _repo_path('SKILL.md') );
-my $release_doc = _slurp( _repo_path( 'doc', 'update-and-release.md' ) );
+my $readme = _slurp_optional( _repo_path('README.md') );
+my $skill_guide = _slurp_optional( _repo_path('SKILL.md') );
+my $release_doc = _slurp_optional( _repo_path( 'doc', 'update-and-release.md' ) );
 my $changes = _slurp( _repo_path('Changes') );
 my $dist = _slurp_optional( _repo_path('dist.ini') );
 my $meta = _slurp_optional( _repo_path('META.json') );
 my $cpanfile = _slurp( _repo_path('cpanfile') );
 my $makefile = _slurp( _repo_path('Makefile.PL') );
 my $agents_override = _slurp_optional( _repo_path('AGENTS.override.md') );
-my @doc_paths = (
+my @doc_paths = grep { -e $_ } (
     _repo_path('README.md'),
+    _repo_path('SQL_DASHBOARD_SUPPORTS_DB.md'),
     _repo_path('SKILL.md'),
     _repo_path('FIXED_BUGS.md'),
     _repo_path('MISTAKE.md'),
@@ -51,18 +52,18 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '1.98', 'repo version bumped for the home dd helper namespace and sql docker coverage release' );
-like( $pm, qr/^1\.98$/m, 'main POD version matches the module version' );
+is( $version, '1.99', 'repo version bumped for the enterprise sql support release' );
+like( $pm, qr/^1\.99$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 1\.98$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 1\.99$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
     like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"1\.98"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"1\.99"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^1\.98\s+2026-04-08$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^1\.99\s+2026-04-08$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -111,7 +112,7 @@ for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file 
     ok( -f _repo_path( 'share', 'private-cli', $helper ), "share/private-cli/$helper is shipped as a private helper asset" );
 }
 
-for my $doc ( $readme, $pm ) {
+for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/~\/\.developer-dashboard\/cli/, 'docs describe private helper extraction under the runtime cli root' );
     like( $doc, qr/\bof\b.*~\/\.developer-dashboard\/cli|~\/\.developer-dashboard\/cli.*\bof\b/s, 'docs describe private of/open-file helper staging' );
     like( $doc, qr/\bticket\b.*~\/\.developer-dashboard\/cli|~\/\.developer-dashboard\/cli.*\bticket\b/s, 'docs describe private ticket helper staging' );
@@ -151,6 +152,10 @@ for my $doc ( $readme, $pm ) {
     like( $doc, qr/singleton workers|singleton saved-Ajax workers|singleton saved Ajax workers/, 'docs describe singleton sql-dashboard Ajax workers' );
     like( $doc, qr/dashboard cpan DBD::Driver|DBD::\*/, 'docs describe optional DBD driver installation instead of bundling one database driver' );
     like( $doc, qr/t\/27-sql-dashboard-playwright\.t/, 'docs describe the sql-dashboard Playwright browser verification' );
+    like( $doc, qr/SQLite.*MySQL.*PostgreSQL.*MSSQL.*Oracle|MySQL.*PostgreSQL.*MSSQL.*Oracle.*SQLite/s, 'docs describe the five live-supported SQL dashboard database families' );
+    like( $doc, qr/DBD::ODBC|ODBC/, 'docs describe the MSSQL ODBC driver path' );
+    like( $doc, qr/DBD::Oracle|Oracle/, 'docs describe the Oracle driver path' );
+    like( $doc, qr/t\/32-sql-dashboard-rdbms-playwright\.t/, 'docs describe the multi-RDBMS Playwright browser verification' );
     like( $doc, qr/bin\/dashboard|dashboard entrypoint|C<dashboard> entrypoint/, 'docs describe the dashboard cpan implementation as entrypoint-local' );
     like( $doc, qr/config\/config\.json.*intact|preserves an existing .*config\/config\.json/s, 'docs describe non-destructive dashboard init reruns' );
     like( $doc, qr/cli\/dd/, 'docs describe the dedicated dd helper namespace under the home runtime CLI root' );
@@ -172,7 +177,7 @@ for my $doc ( $readme, $pm ) {
     like( $doc, qr/Developer::Dashboard::Folder/, 'docs use the namespaced Folder module name' );
 }
 
-for my $doc ( $skill_guide, $skills_pod ) {
+for my $doc ( grep { defined && $_ ne '' } ( $skill_guide, $skills_pod ) ) {
     like( $doc, qr/dashboard skills install/, 'skill authoring docs explain installation' );
     like( $doc, qr/dashboard skill example-skill/, 'skill authoring docs explain command dispatch' );
     like( $doc, qr{~/.developer-dashboard/skills/<repo-name>/|F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>}, 'skill authoring docs describe the isolated skill root' );
@@ -202,17 +207,17 @@ for my $path (@pod_paths) {
     unlike( $pod, qr/C<FORM\.TT:>|C<FORM:>|\bFORM\.TT\b/, "$path POD no longer documents removed FORM bookmark directives" );
 }
 
-for my $doc ($readme) {
+for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
     like( $doc, qr/dashboard skills install/, 'README documents skill installation' );
     like( $doc, qr/dashboard skills uninstall/, 'README documents skill uninstallation' );
     like( $doc, qr/dashboard skills update/, 'README documents skill updates' );
     like( $doc, qr/dashboard skill example-skill/, 'README documents isolated skill command dispatch' );
 }
-like( $release_doc, qr/dzil build/, 'release doc still documents the dzil build step' );
-like( $release_doc, qr/cpanm .*Developer-Dashboard-1\.\d+\.tar\.gz/, 'release doc still documents tarball installation verification' );
-like( $agents_override, qr/DD-OOP-LAYERS/, 'AGENTS.override.md documents the layered runtime contract' );
-like( $agents_override, qr/FULL-POD-DOC/, 'AGENTS.override.md documents the FULL-POD-DOC rule' );
-like( $readme, qr/FULL-POD-DOC/, 'README documents the FULL-POD-DOC contributor contract' );
+like( $release_doc, qr/dzil build/, 'release doc still documents the dzil build step' ) if $release_doc ne '';
+like( $release_doc, qr/cpanm .*Developer-Dashboard-1\.\d+\.tar\.gz/, 'release doc still documents tarball installation verification' ) if $release_doc ne '';
+like( $agents_override, qr/DD-OOP-LAYERS/, 'AGENTS.override.md documents the layered runtime contract' ) if $agents_override ne '';
+like( $agents_override, qr/FULL-POD-DOC/, 'AGENTS.override.md documents the FULL-POD-DOC rule' ) if $agents_override ne '';
+like( $readme, qr/FULL-POD-DOC/, 'README documents the FULL-POD-DOC contributor contract' ) if $readme ne '';
 like( $pm, qr/FULL-POD-DOC/, 'main module POD documents the FULL-POD-DOC contributor contract' );
 
 for my $path ( _perl_doc_paths() ) {

@@ -422,7 +422,7 @@ async function main() {
   if (!schemaPayload || !schemaPayload.ok) {
     throw new Error('schema browse request failed: ' + JSON.stringify(schemaPayload || {}));
   }
-  await page.waitForTimeout(500);
+  await page.waitForFunction(() => !!document.querySelector('[data-sql-table-tab="USERS"]'));
   const tableTabsText = await page.evaluate(() => {
     return Array.from(document.querySelectorAll('[data-sql-table-tab]')).map((node) => node.textContent || '');
   });
@@ -441,8 +441,12 @@ async function main() {
     throw new Error('schema route did not update the browser URL');
   }
 
-  await page.goto(schemaUrl, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(500);
+  await page.goto(schemaUrl, { waitUntil: 'domcontentloaded' });
+  await page.waitForSelector('#sql-editor');
+  await page.waitForFunction(() => {
+    const active = document.getElementById('sql-active-sql-name');
+    return !!(active && String(active.textContent || '').includes('Orders Query'));
+  });
   const restoredState = await page.evaluate(() => {
     const sql = document.getElementById('sql-editor');
     const badge = document.getElementById('sql-active-profile');
@@ -552,7 +556,12 @@ sub prepare {
 
 sub table_info {
     return bless {
-        mode => 'tables',
+        mode  => 'tables',
+        NAME  => [ 'TABLE_NAME' ],
+        _rows => [
+            { TABLE_NAME => 'USERS' },
+            { TABLE_NAME => 'ORDERS' },
+        ],
     }, 'DBI::st';
 }
 
@@ -561,6 +570,11 @@ sub column_info {
     return bless {
         mode       => 'columns',
         table_name => $table_name,
+        NAME       => [ 'COLUMN_NAME', 'DATA_TYPE', 'DATA_LENGTH' ],
+        _rows      => [
+            { COLUMN_NAME => 'ID',   DATA_TYPE => 'NUMBER',   DATA_LENGTH => 22 },
+            { COLUMN_NAME => 'NAME', DATA_TYPE => 'VARCHAR2', DATA_LENGTH => 255 },
+        ],
     }, 'DBI::st';
 }
 

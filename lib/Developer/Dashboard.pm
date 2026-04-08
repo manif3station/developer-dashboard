@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '1.98';
+our $VERSION = '1.99';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-1.98
+1.99
 
 =head1 INTRODUCTION
 
@@ -1456,21 +1456,27 @@ For deep real SQLite browser coverage, run:
   PERL5LIB=/tmp/sql-lib/lib/perl5:/tmp/sql-lib/lib/perl5/x86_64-linux-gnu-thread-multi \
   prove -lv t/31-sql-dashboard-sqlite-playwright.t
 
-That browser matrix runs 50 real SQLite cases against the visible SQL
+That browser matrix runs 51 real SQLite cases against the visible SQL
 workspace, including blank-user profile save and reload, merged workspace
 layout, saved-SQL collection flow, schema browsing, invalid SQL and attrs
 errors, shared-URL restoration, and file-permission checks.
 
-For optional docker-backed MySQL and PostgreSQL browser coverage, run:
+For optional docker-backed MySQL, PostgreSQL, MSSQL, and Oracle browser
+coverage, run:
 
   PERL5LIB=/tmp/sql-lib/lib/perl5:/tmp/sql-lib/lib/perl5/x86_64-linux-gnu-thread-multi \
   prove -lv t/32-sql-dashboard-rdbms-playwright.t
 
-That browser file covers real MySQL and PostgreSQL services through Docker
-using official C<mysql:5.7> and C<postgres:16> fixtures on this host. It
-intentionally skips unless C<DBI> plus the relevant C<DBD::mysql> or
-C<DBD::Pg> driver is already installed in the active Perl environment. Those
-drivers are not shipped as base runtime prerequisites.
+That browser file covers real MySQL, PostgreSQL, MSSQL, and Oracle services
+through Docker using official C<mysql:5.7>, C<postgres:16>,
+C<mcr.microsoft.com/mssql/server:2022-latest>, and
+C<gvenzl/oracle-xe:21-slim-faststart> fixtures on this host. It intentionally
+skips unless C<DBI> plus the relevant C<DBD::mysql>, C<DBD::Pg>,
+C<DBD::ODBC>, or C<DBD::Oracle> driver is already installed in the active
+Perl environment. For MSSQL and Oracle on this host, the test also expects
+the user-space native client libraries to be exposed through C<PERL5LIB>,
+C<LD_LIBRARY_PATH>, and, for Oracle, C<ORACLE_HOME>. Those drivers are not
+shipped as base runtime prerequisites.
 
 For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
 host:
@@ -1611,31 +1617,38 @@ there, otherwise it opens a draft connection profile built from that
 connection id so the other user can add any required local credentials and
 run it. Passwordless profiles such as SQLite may keep the user blank, and a
 matching blank-user shared route auto-runs without inventing a password
-warning when the DSN does not need one. The
-profile editor now renders the driver field as a dropdown of installed
-C<DBD::*> modules and rewrites only the C<dbi:E<lt>DriverE<gt>:> DSN prefix
-when you switch drivers. The main browser flow now merges collections and
-editing into one C<SQL Workspace> tab with a phpMyAdmin-style master-detail
-layout: collection tabs stay in the left navigation rail, the saved SQL list
-for the active collection appears directly below that heading, the right
-pane keeps the editor plus results together, and the active saved SQL name
-stays visible while you work. Saving a different SQL name into the same
-collection adds a second saved SQL entry instead of overwriting the selected
-one. The workspace editor now keeps the SQL textarea as the primary focus
-with content-based auto-resize, uses one quiet action row under the editor
-instead of a loud toolbar, removes the redundant in-workspace schema button
-in favour of the top C<Schema Explorer> tab, and moves saved-SQL deletion to
-a compact inline C<[X]> control beside each saved query so the list stays
-visually tied to its collection. The bookmark still renders profile tabs and
-schema tabs, executes SQL through generic C<DBI>, and uses DBI metadata
-calls such as C<table_info> and C<column_info> for the schema browser. It
-preserves programmable statement blocks through C<SQLS_SEP> and
-C<INSTRUCTION_SEP>, including C<STASH>, C<ROW>, C<BEFORE>, and C<AFTER>
-hooks, so result rows can still be transformed locally before rendering. Its
-saved Ajax endpoints run through singleton workers. No C<DBD::*> driver
-ships in the base tarball by default; install the one you need with
-C<dashboard cpan DBD::Driver>, and the bookmark will return explicit install
-guidance when a selected driver is missing.
+warning when the DSN does not need one. The profile editor now renders the
+driver field as a dropdown of installed C<DBD::*> modules, shows
+driver-specific connection guidance beside that dropdown, seeds a usable DSN
+template for SQLite, MySQL, PostgreSQL, MSSQL/ODBC, and Oracle when the DSN
+is blank, and rewrites only the C<dbi:E<lt>DriverE<gt>:> DSN prefix when you
+switch drivers. The main browser flow now merges collections and editing into
+one C<SQL Workspace> tab with a phpMyAdmin-style master-detail layout:
+collection tabs stay in the left navigation rail, the saved SQL list for the
+active collection appears directly below that heading, the right pane keeps
+the editor plus results together, and the active saved SQL name stays
+visible while you work. Saving a different SQL name into the same collection
+adds a second saved SQL entry instead of overwriting the selected one. The
+workspace editor now keeps the SQL textarea as the primary focus with
+content-based auto-resize, uses one quiet action row under the editor instead
+of a loud toolbar, removes the redundant in-workspace schema button in favour
+of the top C<Schema Explorer> tab, and moves saved-SQL deletion to a compact
+inline C<[X]> control beside each saved query so the list stays visually
+tied to its collection. The bookmark still renders profile tabs and schema
+tabs, executes SQL through generic C<DBI>, and uses DBI metadata calls such
+as C<table_info> and C<column_info> for the schema browser. The core browser
+workflow is now live verified against SQLite, MySQL, PostgreSQL, MSSQL via
+C<DBD::ODBC>, and Oracle via C<DBD::Oracle>. It preserves programmable
+statement blocks through C<SQLS_SEP> and C<INSTRUCTION_SEP>, including
+C<STASH>, C<ROW>, C<BEFORE>, and C<AFTER> hooks, so result rows can still be
+transformed locally before rendering into derived HTML, links, or button-like
+actions. Its saved Ajax endpoints run through singleton workers. No
+C<DBD::*> driver ships in the base tarball by default; install only the one
+you need with C<dashboard cpan DBD::Driver> or user-space
+C<cpanm -L ~/perl5 DBD::Driver>, and the bookmark will return explicit
+install guidance when a selected driver is missing. For a living support
+checklist, verification matrix, and per-database notes, see
+F<SQL_DASHBOARD_SUPPORTS_DB.md>.
 
 =head2 Skills System
 
