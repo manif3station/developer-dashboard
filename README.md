@@ -225,6 +225,15 @@ repo age, contributor makeup, badge-program state, missing admin permission,
 or other platform constraints, document that blocker with evidence instead of
 pretending the gate passed.
 
+Additional enforcement under `SCORECARD-GATEKEEPER`:
+
+- do not use top-level GitHub Actions `write` permissions; keep top-level permissions read-only or `none`
+- move required `write` permissions down to the specific job that needs them
+- keep GitHub Actions pinned by full commit SHA
+- keep container base images pinned by digest
+- keep a detectable fuzzing marker in the repo; this tree now uses both `fast-check` and `.clusterfuzzlite/Dockerfile`
+- keep GitHub release provenance real, not theoretical; a release is not Scorecard-complete until GitHub has a published release asset set that includes the tarball and a matching `.intoto.jsonl` provenance file
+
 ### Main Concepts
 
 - `Developer::Dashboard::PathRegistry`

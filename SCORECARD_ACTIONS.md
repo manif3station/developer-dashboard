@@ -21,7 +21,7 @@ bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"
 
 ## Live Baseline
 
-Observed on `2026-04-08`:
+Initial live result observed on `2026-04-08`:
 
 - aggregate `2.8 / 10`
 - `Binary-Artifacts` `10 / 10`
@@ -46,6 +46,18 @@ Remaining non-`10 / 10` checks at that point:
 - `Signed-Releases` `?`
 - `Token-Permissions` `0 / 10`
 
+Current repo-side remediation work after the first push:
+
+- `Dependency-Update-Tool` improved to `10 / 10`
+- `Packaging` improved to `10 / 10`
+- `SAST` improved to `10 / 10`
+- `Security-Policy` improved to `10 / 10`
+- `License` improved to `9 / 10`
+- `Pinned-Dependencies` improved to `8 / 10`
+- `Token-Permissions` stayed at `0 / 10` until top-level workflow writes were removed
+- `Fuzzing` stayed at `0 / 10` until a Scorecard-supported fuzzing marker was added
+- `Signed-Releases` stayed inconclusive until a real GitHub release with provenance assets exists
+
 ## Task Breakdown
 
 ### Repository-side fixes
@@ -59,8 +71,7 @@ Remaining non-`10 / 10` checks at that point:
 - [ ] pin every GitHub Action by full commit SHA
 - [ ] remove weak workflow bootstrap patterns where practical
 - [ ] add a packaging workflow Scorecard can detect
-- [ ] add release automation that publishes GitHub release assets
-- [ ] add signed/provenance release assets that Scorecard can detect
+- [ ] publish a real GitHub release with attached tarball and `.intoto.jsonl` provenance
 - [ ] add tests that lock these guardrails in place
 
 ### GitHub-side fixes that need API access or settings changes

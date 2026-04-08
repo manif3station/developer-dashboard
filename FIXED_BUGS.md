@@ -1,11 +1,12 @@
 # Fixed Bugs
 
-## 2026-04-08 (Phase 67: Scorecard Gatekeeper Drift)
+## 2026-04-08 (Phase 68: Scorecard Gatekeeper Drift)
 
 - Fixed repository policy drift by making `SCORECARD-GATEKEEPER` explicit in the public docs, release guide, and contributor override rules instead of treating Scorecard as a best-effort check.
-- Fixed the repo-side Scorecard gaps by adding a tracked root `LICENSE`, tracking the published `SECURITY.md`, adding `.github/dependabot.yml`, and adding pinned least-privilege workflows for CodeQL, GHCR packaging, GitHub release assets, and `fast-check` fuzzing.
+- Fixed the repo-side Scorecard gaps by adding a tracked root `LICENSE`, tracking the published `SECURITY.md`, adding `.github/dependabot.yml`, and adding pinned least-privilege workflows for CodeQL, GHCR packaging, and `fast-check` fuzzing.
 - Fixed the weak workflow bootstrap path by removing the `curl https://cpanmin.us | perl` install pattern from the GitHub Actions workflows and relying on the Perl setup action plus `cpanm` directly.
 - Added `t/34-scorecard-guardrails.t`, `t/35-js-fast-check.t`, `t/fuzz/scorecard-fast-check.mjs`, and `SCORECARD_ACTIONS.md` so Scorecard policy drift is now backed by executable tests and a living remediation checklist.
+- Fixed remaining repo-detected supply-chain drift by banning top-level workflow `write` permissions, moving the required writes to job scope, pinning the blank-env Docker base image by digest, and adding `.clusterfuzzlite/Dockerfile` so Scorecard sees a supported fuzzing integration in this mostly-Perl repository.
 
 ## 2026-04-08 (Phase 66: Runtime Manager Ambient Process Drift)
 

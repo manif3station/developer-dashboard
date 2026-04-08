@@ -27,6 +27,15 @@ repository-fixable failure. If one check cannot become `10 / 10` because of
 history, platform policy, or contributor makeup, document that blocker with
 evidence instead of pretending the gate passed.
 
+Hard implementation rules under this gate:
+
+- do not keep GitHub Actions `write` permissions at the workflow top level
+- move required `write` permissions down to the job that actually needs them
+- keep action refs pinned by full SHA
+- keep Docker `FROM` lines pinned by digest when Scorecard scans them
+- keep a detectable fuzzing signal in the repo; this tree uses `fast-check` plus `.clusterfuzzlite/Dockerfile`
+- keep `Signed-Releases` backed by a real GitHub release that contains the release tarball and a matching `.intoto.jsonl` provenance asset
+
 ## Local Update
 
 Run:
@@ -254,6 +263,16 @@ cpanm /tmp/Developer-Dashboard-1.46.tar.gz -v
 The release gather rules must also exclude local coverage output such as
 `cover_db`, so a covered test run before `dzil build` does not leak
 Devel::Cover artifacts into the public tarball.
+
+Scorecard now also expects a real GitHub release asset set, not just a local
+tag. After the release tarball is built and verified, publish a GitHub release
+for the matching `vX.XX` tag and attach:
+
+- `Developer-Dashboard-X.XX.tar.gz`
+- `Developer-Dashboard-X.XX.intoto.jsonl`
+
+The `.intoto.jsonl` filename matters because Scorecard detects provenance by
+release asset suffix.
 
 The installed executable audit should also confirm that the built tarball
 exports only `dashboard` into the global PATH. Generic helper names such as

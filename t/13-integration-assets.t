@@ -113,7 +113,7 @@ like( $host, qr/LOCAL_DZIL.*build/s, 'host launcher builds the tarball on the ho
 like( $host, qr/DASHBOARD_TARBALL/, 'host launcher exports the tarball path for docker compose' );
 like( $host, qr/run --rm blank-env/, 'host launcher runs the blank-environment integration service' );
 unlike( $host, qr/run --build --rm blank-env/, 'host launcher does not rebuild the integration image when using the prebuilt container path' );
-like( $host, qr/dd-int-test:latest/, 'host launcher POD documents the prebuilt dd-int-test image path' );
+like( $host, qr/integration\/blank-env\/Dockerfile/, 'host launcher POD documents the pinned blank-environment Dockerfile path' );
 
 open my $windows_smoke_fh, '<', 'integration/windows/run-strawberry-smoke.ps1' or die $!;
 my $windows_smoke = do { local $/; <$windows_smoke_fh> };

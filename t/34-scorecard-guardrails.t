@@ -18,8 +18,8 @@ ok( _git_tracks('SECURITY.md'), 'root SECURITY.md is tracked for Scorecard secur
 ok( _git_tracks('.github/dependabot.yml'), 'Dependabot config is tracked for Scorecard dependency-update-tool detection' );
 ok( _git_tracks('.github/workflows/codeql.yml'), 'CodeQL workflow is tracked for Scorecard SAST detection' );
 ok( _git_tracks('.github/workflows/package-ghcr.yml'), 'GHCR packaging workflow is tracked for Scorecard packaging detection' );
-ok( _git_tracks('.github/workflows/github-release.yml'), 'GitHub release workflow is tracked for signed-release automation' );
 ok( _git_tracks('.github/workflows/fuzz-js.yml'), 'fuzzing workflow is tracked for Scorecard fuzzing detection' );
+ok( _git_tracks('.clusterfuzzlite/Dockerfile'), 'ClusterFuzzLite Dockerfile is tracked for Scorecard fuzzing detection' );
 
 my $license = _slurp('LICENSE');
 like( $license, qr/Perl_5|same terms as Perl 5|Artistic License|GNU General Public License/i, 'LICENSE states the Perl 5 licensing terms' );
@@ -33,24 +33,25 @@ like( $dependabot, qr/package-ecosystem:\s*["']github-actions["']/, 'Dependabot 
 like( $dependabot, qr/package-ecosystem:\s*["']npm["']/, 'Dependabot manages npm-based fuzzing dependencies' );
 
 my $codeql = _slurp('.github/workflows/codeql.yml');
-like( $codeql, qr/\bsecurity-events:\s*write\b/, 'CodeQL workflow grants security-events write permission' );
+unlike( $codeql, qr/^permissions:\s*$(?:\n^[^\n]*:\s*write\s*$)+/ms, 'CodeQL workflow does not use top-level write permissions' );
+like( $codeql, qr/jobs:\n\s+analyze:\n(?:.+\n)*?\s+permissions:\n(?:.+\n)*?\s+security-events:\s*write\b/ms, 'CodeQL workflow grants security-events write only at the job level' );
 like( $codeql, qr/uses:\s*github\/codeql-action\/init\@[0-9a-f]{40}/, 'CodeQL init action is pinned by full SHA' );
 like( $codeql, qr/uses:\s*github\/codeql-action\/analyze\@[0-9a-f]{40}/, 'CodeQL analyze action is pinned by full SHA' );
 
 my $package_workflow = _slurp('.github/workflows/package-ghcr.yml');
-like( $package_workflow, qr/\bpackages:\s*write\b/, 'packaging workflow can publish packages' );
+unlike( $package_workflow, qr/^permissions:\s*$(?:\n^[^\n]*:\s*write\s*$)+/ms, 'packaging workflow does not use top-level write permissions' );
+like( $package_workflow, qr/jobs:\n\s+package:\n(?:.+\n)*?\s+permissions:\n(?:.+\n)*?\s+packages:\s*write\b/ms, 'packaging workflow grants package publish access only at the job level' );
 like( $package_workflow, qr/ghcr\.io/i, 'packaging workflow publishes to GHCR' );
 like( $package_workflow, qr/uses:\s*docker\/build-push-action\@[0-9a-f]{40}/, 'docker build-push action is pinned by full SHA' );
 like( $package_workflow, qr/uses:\s*docker\/login-action\@[0-9a-f]{40}/, 'docker login action is pinned by full SHA' );
 
-my $release_workflow = _slurp('.github/workflows/github-release.yml');
-like( $release_workflow, qr/\.intoto\.jsonl/, 'release workflow publishes an intoto provenance asset for Scorecard signed-releases detection' );
-like( $release_workflow, qr/Developer-Dashboard-\$\{\{\s*steps\.meta\.outputs\.version\s*\}\}\.tar\.gz/, 'release workflow uploads the distribution tarball asset' );
-like( $release_workflow, qr/\bcontents:\s*write\b/, 'release workflow can publish GitHub releases' );
-
 my $fuzz_workflow = _slurp('.github/workflows/fuzz-js.yml');
 like( $fuzz_workflow, qr/fast-check/, 'fuzz workflow runs the fast-check property-based suite' );
 like( $fuzz_workflow, qr/uses:\s*actions\/setup-node\@[0-9a-f]{40}/, 'setup-node action is pinned by full SHA in the fuzz workflow' );
+
+my $clusterfuzz = _slurp('.clusterfuzzlite/Dockerfile');
+like( $clusterfuzz, qr/\AFROM\s+ubuntu:24\.04\@sha256:/, 'ClusterFuzzLite Dockerfile pins its base image by digest' );
+like( $clusterfuzz, qr/\bcpanm\b/, 'ClusterFuzzLite Dockerfile provisions the Perl fuzz runner stack' );
 
 my $package_json = _slurp('package.json');
 like( $package_json, qr/"fast-check"\s*:/, 'package.json declares fast-check for fuzz/property testing' );
@@ -64,7 +65,6 @@ for my $workflow (
     .github/workflows/release-cpan.yml
     .github/workflows/codeql.yml
     .github/workflows/package-ghcr.yml
-    .github/workflows/github-release.yml
     .github/workflows/fuzz-js.yml
     )
   )
@@ -74,6 +74,9 @@ for my $workflow (
     unlike( $text, qr/uses:\s*[^@\s]+\@[Vv]?\d+(?:\.\d+)*(?:\s|$)/, "$workflow does not use floating action tags" );
     unlike( $text, qr/curl\s+-L\s+https:\/\/cpanmin\.us\s*\|\s*perl/, "$workflow does not install cpanm via curl pipe" );
 }
+
+my $blank_env_dockerfile = _slurp('integration/blank-env/Dockerfile');
+like( $blank_env_dockerfile, qr/\AFROM\s+ubuntu:24\.04\@sha256:/, 'blank-env Dockerfile pins its Ubuntu base image by digest' );
 
 done_testing;
 

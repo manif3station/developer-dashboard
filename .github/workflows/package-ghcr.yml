@@ -10,11 +10,13 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 jobs:
   package:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
@@ -43,4 +45,3 @@ jobs:
           file: ./scorecard-ghcr.Dockerfile
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/developer-dashboard:${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
-

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.03';
+our $VERSION = '2.04';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.03
+2.04
 
 =head1 INTRODUCTION
 
@@ -533,6 +533,40 @@ repository-fixable failure. If one check cannot become C<10 / 10> because of
 repo age, contributor makeup, badge-program state, missing admin permission,
 or other platform constraints, document that blocker with evidence instead of
 pretending the gate passed.
+
+Additional enforcement under C<SCORECARD-GATEKEEPER>:
+
+=over 4
+
+=item *
+
+do not use top-level GitHub Actions C<write> permissions; keep top-level
+permissions read-only or C<none>
+
+=item *
+
+move required C<write> permissions down to the specific job that needs them
+
+=item *
+
+keep GitHub Actions pinned by full commit SHA
+
+=item *
+
+keep container base images pinned by digest
+
+=item *
+
+keep a detectable fuzzing marker in the repo; this tree now uses both
+C<fast-check> and F<.clusterfuzzlite/Dockerfile>
+
+=item *
+
+keep GitHub release provenance real, not theoretical; a release is not
+Scorecard-complete until GitHub has a published release asset set that
+includes the tarball and a matching F<.intoto.jsonl> provenance file
+
+=back
 
 =head2 Main Concepts
 

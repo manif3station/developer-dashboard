@@ -1,6 +1,6 @@
 Revision history for Developer Dashboard
 
-2.03  2026-04-08
+2.04  2026-04-08
     - treated `SCORECARD-GATEKEEPER` as a real delivery rule by adding a
       tracked root `LICENSE`, tracking the published `SECURITY.md`, adding the
       explicit `SCORECARD_ACTIONS.md` task checklist, and documenting the live
@@ -8,10 +8,14 @@ Revision history for Developer Dashboard
     - hardened the GitHub workflow layer with explicit least-privilege
       `permissions:` blocks, full-SHA action pinning, removal of the
       `curl https://cpanmin.us | perl` bootstrap path, and new Dependabot,
-      CodeQL, fuzzing, packaging, and GitHub-release automation workflows
+      CodeQL, fuzzing, and packaging workflows
     - added a real `fast-check` property suite plus Perl wrapper coverage so
       the repository carries a detectable fuzzing signal backed by runnable
       tests instead of workflow-only decoration
+    - moved required workflow `write` permissions down to job scope, pinned the
+      blank-environment Docker base image by digest, added a tracked
+      `.clusterfuzzlite/Dockerfile`, and normalized the tracked root `LICENSE`
+      content to a Scorecard-recognized Perl 5 dual-license text
 
 2.02  2026-04-08
     - fixed packaged `t/09-runtime-manager.t` isolation so ambient live

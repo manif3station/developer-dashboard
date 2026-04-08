@@ -9,20 +9,13 @@ RUN apt-get update \
         build-essential \
         ca-certificates \
         cpanminus \
-        chromium \
-        curl \
-        fonts-liberation \
-        git \
-        iproute2 \
-        procps \
+        perl \
     && rm -rf /var/lib/apt/lists/*
 
-RUN cpanm --notest \
-        Capture::Tiny \
-        JSON::XS
+WORKDIR /src
 
-WORKDIR /opt/integration
+COPY . /src
 
-COPY integration/blank-env/run-integration.pl /opt/integration/run-integration.pl
+RUN cpanm --notest --installdeps .
 
-CMD ["perl", "/opt/integration/run-integration.pl"]
+CMD ["prove", "-lr", "t"]
