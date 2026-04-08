@@ -1,5 +1,19 @@
 Revision history for Developer Dashboard
 
+2.02  2026-04-08
+    - fixed packaged `t/09-runtime-manager.t` isolation so ambient live
+      dashboard-shaped processes on the host can no longer hijack the
+      `running_web` fallback assertion when the test is explicitly proving the
+      recorded pid path without managed-process discovery
+    - added an explicit `_find_web_processes` stub to that runtime-manager
+      regression, keeping source-tree, tarball, and PAUSE install runs stable
+      even on hosts that already have unrelated dashboard runtimes active
+    - fixed `t/22-api-dashboard-playwright.t` reload drift by waiting for the
+      persisted collection JSON to contain the saved request before the later
+      export/import/reload path, and by scoping request clicks to the active
+      visible collection panel so browser coverage no longer races against
+      collection-tree rerenders under full-suite load
+
 2.01  2026-04-08
     - extended `dashboard serve --ssl` certificate generation so the local
       self-signed cert now also covers the concrete non-wildcard bind host and

@@ -1165,6 +1165,7 @@ TCP6
     $files->write( 'web_pid', "$$\n" );
     $manager->_write_web_state( { pid => $$, host => '127.0.0.1', port => 7920, status => 'running' } );
     local *Developer::Dashboard::RuntimeManager::_is_managed_web = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_find_web_processes = sub { return () };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
     my $state = $manager->running_web;
     is( $state->{pid}, $$, 'running_web trusts the recorded running pid even when listener discovery cannot identify the managed process shape' );

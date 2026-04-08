@@ -567,6 +567,18 @@ async function waitForFile(path, shouldExist) {
   throw new Error(`Timed out waiting for file state ${shouldExist ? 'present' : 'absent'}: ${path}`);
 }
 
+async function waitForFileText(path, expectedText) {
+  const deadline = Date.now() + 10000;
+  while (Date.now() < deadline) {
+    if (fs.existsSync(path)) {
+      const text = fs.readFileSync(path, 'utf8');
+      if (text.includes(expectedText)) return;
+    }
+    await sleep(100);
+  }
+  throw new Error(`Timed out waiting for file text ${JSON.stringify(expectedText)} in ${path}`);
+}
+
 async function waitForCollection(page, name, shouldExist) {
   await page.waitForFunction(
     ({ collectionName, shouldExist: shouldHaveCollection }) => {
@@ -578,7 +590,13 @@ async function waitForCollection(page, name, shouldExist) {
 }
 
 async function clickCollection(page, name) {
-  await page.getByRole('tab', { name }).click();
+  await page.getByRole('tab', { name, exact: true }).click();
+  await page.waitForFunction((collectionName) => {
+    const panel = document.querySelector('#api-collection-panel');
+    return panel
+      && panel.getAttribute('data-api-collection-panel') === collectionName
+      && panel.offsetParent !== null;
+  }, name);
 }
 
 function escapeRegExp(text) {
@@ -589,7 +607,7 @@ async function clickRequest(page, name) {
   const exactName = new RegExp(`^\\s*${escapeRegExp(name)}\\s*$`);
   let lastError;
   for (let attempt = 0; attempt < 5; attempt += 1) {
-    const locator = page.locator('button.api-node-button').filter({ hasText: exactName }).first();
+    const locator = page.locator('#api-collection-panel button.api-node-button:visible').filter({ hasText: exactName }).first();
     await locator.waitFor({ state: 'visible' });
     try {
       await locator.scrollIntoViewIfNeeded();
@@ -825,6 +843,7 @@ async function main() {
       return banner && /Saved request|Updated request/.test(banner.textContent || '');
     });
     await waitForFile(process.env.SAVED_COLLECTION_FILE, true);
+    await waitForFileText(process.env.SAVED_COLLECTION_FILE, 'Playwright JSON');
     await openShellTab(page, 'Collections');
     await clickCollection(page, 'Playwright Collection Renamed');
     await clickRequest(page, 'Playwright JSON');

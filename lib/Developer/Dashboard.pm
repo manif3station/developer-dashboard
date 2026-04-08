@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.01';
+our $VERSION = '2.02';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.01
+2.02
 
 =head1 INTRODUCTION
 
@@ -1419,6 +1419,10 @@ breaking TAP from daemon-style child processes.
 The runtime-manager coverage cases also use bounded child reaping for stubborn
 process shutdown scenarios, so C<Devel::Cover> runs do not stall indefinitely
 after the escalation path has already been exercised.
+The packaged C<t/09-runtime-manager.t> fallback assertions also stub ambient
+managed-web discovery explicitly, so tarball and PAUSE installs do not get
+contaminated by unrelated live dashboard-shaped processes already running on
+the host.
 Tests that depend on a missing or empty environment variable now establish that
 state explicitly inside the test file, rather than assuming the parent shell
 or install harness starts clean.
@@ -1457,6 +1461,11 @@ For oversized C<api-dashboard> imports that need to stay browser-verified
 above the saved-Ajax inline payload threshold, run:
 
   prove -lv t/25-api-dashboard-large-import-playwright.t
+
+The main C<t/22-api-dashboard-playwright.t> browser flow now also waits for
+the saved collection JSON itself to contain the newly created request before
+it drives the later export/import/reload path, so that coverage proves real
+disk-backed collection persistence instead of only optimistic browser state.
 
 That Playwright test imports a deliberately large Postman collection through
 the visible browser file input and verifies that the browser still reports a
