@@ -79,6 +79,16 @@ like(
         [$match_two],
         'locate_dirs_under narrows to one nested directory when only one path matches every keyword',
     );
+    is_deeply(
+        [ $paths->locate_dirs_under( $search_root, 'team', 'alpha$' ) ],
+        [$match_one],
+        'locate_dirs_under treats each keyword as a regex so alpha$ matches team-alpha but not team-alpha-red',
+    );
+    like(
+        _dies( sub { $paths->locate_dirs_under( $search_root, 'broken(' ) } ),
+        qr/Invalid regex 'broken\('/,
+        'locate_dirs_under reports invalid regex keywords explicitly',
+    );
 }
 {
     my $config_home = tempdir( CLEANUP => 1 );
@@ -708,6 +718,38 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
             matches => [],
         },
         'CLI::Paths cdr searches beneath the current directory when the first argument is not a saved alias and one path matches every keyword',
+    );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => [ 'cdr', 'named-home-target', 'team-alpha$' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths cdr writes no stderr for regex alias-root narrowing' );
+    is_deeply(
+        json_decode($stdout),
+        {
+            target  => $named_match_one,
+            matches => [],
+        },
+        'CLI::Paths cdr treats alias-root narrowing terms as regexes',
+    );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => [ 'cdr', 'docs-alpha$' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths cdr writes no stderr for regex current-directory narrowing' );
+    is_deeply(
+        json_decode($stdout),
+        {
+            target  => $cwd_match_one,
+            matches => [],
+        },
+        'CLI::Paths cdr treats non-alias search terms as regexes beneath the current directory',
     );
 
     ( $stdout, $stderr ) = capture {

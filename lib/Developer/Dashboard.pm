@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.12';
+our $VERSION = '2.13';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.12
+2.13
 
 =head1 INTRODUCTION
 
@@ -867,11 +867,11 @@ Perl module names such as C<My::Module>
 
 =item *
 
-Java class names such as C<com.example.App>
+Java class names such as C<com.example.App> or C<javax.jws.WebService>
 
 =item *
 
-recursive pattern searches inside a resolved directory alias or path
+recursive regex searches inside a resolved directory alias or path
 
 =back
 
@@ -881,8 +881,20 @@ C<--editor>, C<VISUAL>, C<EDITOR>, or C<vim> as the final fallback, and
 multiple matches render a numbered prompt. At that prompt you can press Enter
 to open all matches with C<vim -p>, type one number to open one file, type comma-separated
 numbers such as C<1,3>, or use a range such as C<2-5>. Scoped searches also
-rank exact helper/script names before broader substring matches, so
-C<dashboard of . jq> lists C<jq> and C<jq.js> ahead of C<jquery.js>.
+rank exact helper/script names before broader regex hits, so
+C<dashboard of . jq> lists C<jq> and C<jq.js> ahead of C<jquery.js>. Every
+scoped search token is treated as a case-insensitive regex, so
+C<dashboard of . 'Ok\.js$'> matches C<ok.js> but not C<ok.json>.
+
+Java class lookup first checks live F<.java> files under the current project,
+workspace roots, and C<@INC>-adjacent source trees. If no live source file
+exists, it also searches local source archives such as F<-sources.jar>,
+F<-src.jar>, F<src.zip>, F<war>, and F<jar> files under the current roots,
+F<~/.m2/repository>, Gradle caches, and C<JAVA_HOME>. When a local archive
+still does not provide the requested class, the helper can fetch a matching
+Maven source jar, cache it under
+F<~/.developer-dashboard/cache/open-file/>, and then open the extracted Java
+source.
 
 =head2 Data Query Commands
 
@@ -1042,18 +1054,23 @@ or one top-level project name. If the first argument resolves as a saved alias
 and there are no later arguments, C<cdr alias> still goes straight there. If
 the first argument resolves as a saved alias and more arguments remain,
 C<cdr> enters the alias root, then searches every directory under that root
-with AND-matched keywords taken from the remaining arguments. One match means
-C<cd> into that directory; multiple matches mean print the full list and stay
-at the alias root. If the first argument is not a saved alias, C<cdr> treats
-every argument as an AND-matched keyword search beneath the current directory.
-One match means C<cd> there; multiple matches mean print the list and leave
-the current directory unchanged. C<which_dir> follows the same selection logic
-but only prints the chosen target or match list instead of changing directory.
+with AND-matched regex keywords taken from the remaining arguments. One match
+means C<cd> into that directory; multiple matches mean print the full list and
+stay at the alias root. If the first argument is not a saved alias, C<cdr>
+treats every argument as an AND-matched regex search beneath the current
+directory. One match means C<cd> there; multiple matches mean print the list
+and leave the current directory unchanged. C<which_dir> follows the same
+selection logic but only prints the chosen target or match list instead of
+changing directory.
+
+Both C<cdr> and C<which_dir> therefore use regex narrowing arguments, not
+quoted substring tokens.
 
 Examples:
 
   cdr foobar
   cdr foobar alpha foo bar
+  cdr foobar 'alpha-foo$'
   cdr alpha red
   which_dir foobar alpha
 
@@ -1078,6 +1095,8 @@ Resolve or open files from the CLI:
 
   dashboard of --print My::Module
   dashboard open-file --print com.example.App
+  dashboard open-file --print javax.jws.WebService
+  dashboard of --print . 'Ok\.js$'
   dashboard open-file --print path/to/file.txt
   dashboard open-file --print bookmarks api-dashboard
 

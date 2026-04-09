@@ -2,6 +2,7 @@ use strict;
 use warnings;
 use utf8;
 
+use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 use Capture::Tiny qw(capture);
 use Cwd qw(getcwd);
 use Developer::Dashboard::CLI::SeededPages ();
@@ -574,12 +575,16 @@ my $cdr_foobar_multi = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr foobar a
 like( $cdr_foobar_multi, qr/^\Q$alias_multi_one\E$/m, 'cdr prints the first alias-root search match when multiple subdirectories satisfy the keywords' );
 like( $cdr_foobar_multi, qr/^\Q$alias_multi_two\E$/m, 'cdr prints the second alias-root search match when multiple subdirectories satisfy the keywords' );
 like( $cdr_foobar_multi, qr/\Q$custom_path_root\E\n\z/, 'cdr stays at the resolved alias root when alias-root keyword search finds multiple directories' );
+my $cdr_foobar_regex = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr foobar alpha-foo\$; pwd'");
+is( $cdr_foobar_regex, $alias_multi_one . "\n", 'cdr treats alias-root narrowing terms as regexes' );
 my $cdr_keywords_unique = _run("bash -lc '. \"$shell_bootstrap_file\"; cd \"$cwd_search_root\"; cdr alpha red; pwd'");
 is( $cdr_keywords_unique, $cwd_search_unique . "\n", 'cdr treats non-alias arguments as current-directory search keywords and enters a unique match' );
 my $cdr_keywords_multi = _run("bash -lc '. \"$shell_bootstrap_file\"; cd \"$cwd_search_root\"; cdr team alpha; pwd'");
 like( $cdr_keywords_multi, qr/^\Q$cwd_search_multi_one\E$/m, 'cdr prints one current-directory search match when multiple directories satisfy non-alias keywords' );
 like( $cdr_keywords_multi, qr/^\Q$cwd_search_multi_two\E$/m, 'cdr prints the other current-directory search match when multiple directories satisfy non-alias keywords' );
 like( $cdr_keywords_multi, qr/\Q$cwd_search_root\E\n\z/, 'cdr leaves the shell in place when non-alias keyword search has multiple matches' );
+my $cdr_keywords_regex = _run("bash -lc '. \"$shell_bootstrap_file\"; cd \"$cwd_search_root\"; cdr team-alpha\$; pwd'");
+is( $cdr_keywords_regex, $cwd_search_multi_one . "\n", 'cdr treats non-alias search terms as regexes beneath the current directory' );
 like( $shell_bootstrap, qr/ps1 --jobs \\j --mode compact/, 'dashboard shell bash bootstrap keeps bash job-count prompt rendering' );
 
 my $zsh_bootstrap = _run("$perl -I'$lib' '$dashboard' shell zsh");
@@ -722,6 +727,14 @@ my $jq_scope_script = File::Spec->catfile( $jq_scope_js_root, 'jq.js' );
 open my $jq_scope_script_fh, '>', $jq_scope_script or die "Unable to write $jq_scope_script: $!";
 print {$jq_scope_script_fh} "window.jq = true;\n";
 close $jq_scope_script_fh;
+my $jq_scope_ok_js = File::Spec->catfile( $jq_scope_js_root, 'ok.js' );
+open my $jq_scope_ok_js_fh, '>', $jq_scope_ok_js or die "Unable to write $jq_scope_ok_js: $!";
+print {$jq_scope_ok_js_fh} "window.ok = true;\n";
+close $jq_scope_ok_js_fh;
+my $jq_scope_ok_json = File::Spec->catfile( $jq_scope_js_root, 'ok.json' );
+open my $jq_scope_ok_json_fh, '>', $jq_scope_ok_json or die "Unable to write $jq_scope_ok_json: $!";
+print {$jq_scope_ok_json_fh} "{\"ok\":true}\n";
+close $jq_scope_ok_json_fh;
 my $jq_scope_jquery = File::Spec->catfile( $jq_scope_js_root, 'jquery.js' );
 open my $jq_scope_jquery_fh, '>', $jq_scope_jquery or die "Unable to write $jq_scope_jquery: $!";
 print {$jq_scope_jquery_fh} "window.jquery = true;\n";
@@ -734,6 +747,8 @@ open $fake_editor_log_fh, '<', $fake_editor_log or die "Unable to read $fake_edi
 $fake_editor_args = do { local $/; <$fake_editor_log_fh> };
 close $fake_editor_log_fh;
 is($fake_editor_args, "./cli/jq ./public/js/jq.js\n", 'dashboard of . jq opens the selected jq helper and jq.js before jquery.js');
+my $ok_regex_scope = _run("cd '$jq_scope_root' && $perl -I'$repo/lib' '$repo/bin/dashboard' of --print . 'Ok\\.js\$'");
+is( $ok_regex_scope, "./public/js/ok.js\n", 'dashboard of . treats scope keywords as regexes, so Ok\\.js$ matches ok.js but not ok.json' );
 
 my $of_print = _run("$perl -I'$lib' '$dashboard' of --print '$open_root' alpha");
 like($of_print, qr/\Q$open_target\E/, 'dashboard of is shorthand for open-file');
@@ -771,6 +786,22 @@ like($java_class, qr/\Q$java_target\E/, 'dashboard open-file resolves Java class
 
 my $runtime_java_class = _run("cd '$open_root' && $perl -I'$repo/lib' '$runtime_open_file' --print com.example.App");
 like($runtime_java_class, qr/\Q$java_target\E/, 'private runtime open-file helper resolves Java class names');
+my $m2_sources_dir = File::Spec->catdir( $ENV{HOME}, '.m2', 'repository', 'com', 'example', 'archive-demo', '1.0.0' );
+make_path($m2_sources_dir);
+my $m2_sources_jar = File::Spec->catfile( $m2_sources_dir, 'archive-demo-1.0.0-sources.jar' );
+_write_zip_entries(
+    $m2_sources_jar,
+    {
+        'com/example/Archived.java' => "package com.example;\npublic class Archived {}\n",
+    },
+);
+my $java_archive_source = _run("cd '$open_root' && $perl -I'$repo/lib' '$repo/bin/dashboard' open-file --print com.example.Archived");
+my ($java_archive_path) = $java_archive_source =~ /([^\n]+)\n?\z/;
+ok( defined $java_archive_path && -f $java_archive_path, 'dashboard open-file resolves Java classes from local source jars when the project tree has no matching .java file' );
+open my $java_archive_fh, '<', $java_archive_path or die "Unable to read $java_archive_path: $!";
+my $java_archive_text = do { local $/; <$java_archive_fh> };
+close $java_archive_fh;
+like( $java_archive_text, qr/public class Archived/, 'dashboard open-file preserves the extracted Java source content from source jars' );
 
 my $fake_ticket_bin = File::Spec->catdir( $ENV{HOME}, 'fake-ticket-bin' );
 make_path($fake_ticket_bin);
@@ -1409,6 +1440,17 @@ like( $fake_cpanm_args, qr/\bDBI\b/, 'dashboard cpan installs DBI automatically 
 like( $fake_cpanm_args, qr/\bDBD::Mock\b/, 'dashboard cpan installs the requested DBD driver' );
 
 done_testing;
+
+sub _write_zip_entries {
+    my ( $archive, $entries ) = @_;
+    my $zip = Archive::Zip->new();
+    for my $name ( sort keys %{$entries || {}} ) {
+        $zip->addString( $entries->{$name}, $name );
+    }
+    my $status = $zip->writeToFileNamed($archive);
+    die "Unable to write $archive\n" if $status != AZ_OK;
+    return 1;
+}
 
 sub _run {
     my ($cmd) = @_;

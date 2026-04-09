@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: OPEN-FILE-REGEX-JAVA-SOURCE-DRIFT
+
+**Date:** 2026-04-09 15:50:00 UTC
+**Area:** CLI navigation helpers, regex search semantics, and Java source lookup
+**Symptom:** `dashboard of . 'Ok\.js$'` behaved like a quoted substring search instead of a regex search, `cdr` keyword narrowing still treated later arguments as literal tokens, and Java class lookup stopped at live `.java` files instead of searching source archives or Maven source jars
+**Why It Was Dangerous:** It made the CLI feel inaccurate, returned broader files than the user asked for, and failed mixed-language workflows where the only available Java source lived in cached jars, wars, or external source archives
+**Root Cause:** I copied the earlier fuzzy-substring approach too literally, leaving `\Q...\E` matching in both `open-file` scope search and `PathRegistry::locate_dirs_under`, and I kept Java class lookup limited to filesystem trees even though the requested source often lives in archives outside the checkout
+**How Ellen Solved It:** Added TDD in `t/05-cli-smoke.t`, `t/15-cli-module-coverage.t`, and `t/21-refactor-coverage.t`; changed scoped `open-file` and `cdr` search tokens into compiled case-insensitive regexes with explicit invalid-regex errors; added Java source extraction from local source archives plus cached Maven source-jar download support; and documented the new behavior in README, POD, and testing notes
+**How To Detect Earlier Next Time:** Reproduce the exact operator queries instead of generic happy paths, including `dashboard of . 'Ok\.js$'`, regex-narrowed `cdr`, and a Java class whose source exists only in a source jar or `src.zip`
+**Prevention Rule:** If a CLI contract says “pattern” or the old tool used `m//`, preserve true regex semantics instead of silently downgrading to quoted substring matching, and mixed-language source lookup must check source archives before claiming the class cannot be opened
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/15-cli-module-coverage.t`, `prove -lv t/21-refactor-coverage.t`, `prove -lr t`
+**Related Files:** `lib/Developer/Dashboard/CLI/OpenFile.pm`, `lib/Developer/Dashboard/PathRegistry.pm`, `t/05-cli-smoke.t`, `t/15-cli-module-coverage.t`, `t/21-refactor-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: CDR-KEYWORD-ROOT-DRIFT
 
 **Date:** 2026-04-09 13:40:00 UTC

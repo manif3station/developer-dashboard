@@ -31,6 +31,7 @@ WriteMakefile(
         'Capture::Tiny'         => 0,
         'Digest::MD5'           => 0,
         'Digest::SHA'           => 0,
+        'Archive::Zip'          => 0,
         'MIME::Base64'          => 0,
         'IO::Compress::Gzip'    => 0,
         'IO::Uncompress::Gunzip'=> 0,

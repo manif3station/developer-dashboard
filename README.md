@@ -463,8 +463,8 @@ These commands support:
 - direct file paths
 - `file:line` references
 - Perl module names such as `My::Module`
-- Java class names such as `com.example.App`
-- recursive pattern searches inside a resolved directory alias or path
+- Java class names such as `com.example.App` or `javax.jws.WebService`
+- recursive regex searches inside a resolved directory alias or path
 
 Without `--print`, `dashboard of` and `dashboard open-file` now behave like the
 older picker workflow again: one unique match opens directly in `--editor`,
@@ -472,9 +472,20 @@ older picker workflow again: one unique match opens directly in `--editor`,
 a numbered prompt. At that prompt you can press Enter to open all matches with
 `vim -p`, type
 one number to open one file, type comma-separated numbers such as `1,3`, or use
-a range such as `2-5`. Scoped searches also rank exact helper/script names
-before broader substring matches, so `dashboard of . jq` lists `jq` and
-`jq.js` ahead of `jquery.js`.
+a range such as `2-5`. Scoped searches treat every later token as a
+case-insensitive regex, so `dashboard of . 'Ok\.js$'` matches `ok.js` but not
+`ok.json`. Scoped searches also rank exact helper/script names before broader
+regex hits, so `dashboard of . jq` lists `jq` and `jq.js` ahead of
+`jquery.js`.
+
+Java class lookup first checks live `.java` files under the current project,
+workspace roots, and `@INC`-adjacent source trees. If no live source file
+exists, it also searches local source archives such as `-sources.jar`,
+`-src.jar`, `src.zip`, `war`, and `jar` files under the current roots,
+`~/.m2/repository`, Gradle caches, and `JAVA_HOME`. When a local archive still
+does not provide the requested class, the helper can fetch a matching Maven
+source jar, cache it under `~/.developer-dashboard/cache/open-file/`, and then
+open the extracted Java source.
 
 ### Data Query Commands
 
@@ -532,6 +543,8 @@ perl -Ilib bin/dashboard auth add-user <username> <password>
 perl -Ilib bin/dashboard version
 perl -Ilib bin/dashboard of --print My::Module
 perl -Ilib bin/dashboard open-file --print com.example.App
+perl -Ilib bin/dashboard open-file --print javax.jws.WebService
+perl -Ilib bin/dashboard of --print . 'Ok\.js$'
 printf '{"alpha":{"beta":2}}' | perl -Ilib bin/dashboard jq alpha.beta
 printf 'alpha:\n  beta: 3\n' | perl -Ilib bin/dashboard yq alpha.beta
 mkdir -p ~/.developer-dashboard/cli/update
@@ -616,13 +629,16 @@ dashboard path del foobar
 
 Custom path aliases are stored in the effective dashboard config root so shell helpers such as `cdr foobar` and `which_dir foobar` keep working across sessions. When a project-local `./.developer-dashboard` tree exists, alias writes go there first; otherwise they go to the home runtime. When a saved alias points inside your home directory, the stored config uses `$HOME/...` instead of a hard-coded absolute home path so a shared fallback runtime remains portable across different developer accounts. Re-adding an existing alias updates it without error, and deleting a missing alias is also safe.
 
-`cdr` now follows a two-stage path flow instead of only jumping to one alias or one top-level project name. If the first argument resolves as a saved alias and there are no later arguments, `cdr alias` still goes straight there. If the first argument resolves as a saved alias and more arguments remain, `cdr` enters the alias root, then searches every directory under that root with AND-matched keywords taken from the remaining arguments. One match means `cd` into that directory; multiple matches mean print the full list and stay at the alias root. If the first argument is not a saved alias, `cdr` treats every argument as an AND-matched keyword search beneath the current directory. One match means `cd` there; multiple matches mean print the list and leave the current directory unchanged. `which_dir` follows the same selection logic but only prints the chosen target or match list instead of changing directory.
+`cdr` now follows a two-stage path flow instead of only jumping to one alias or one top-level project name. If the first argument resolves as a saved alias and there are no later arguments, `cdr alias` still goes straight there. If the first argument resolves as a saved alias and more arguments remain, `cdr` enters the alias root, then searches every directory under that root with AND-matched regex keywords taken from the remaining arguments. One match means `cd` into that directory; multiple matches mean print the full list and stay at the alias root. If the first argument is not a saved alias, `cdr` treats every argument as an AND-matched regex search beneath the current directory. One match means `cd` there; multiple matches mean print the list and leave the current directory unchanged. `which_dir` follows the same selection logic but only prints the chosen target or match list instead of changing directory.
+
+Both `cdr` and `which_dir` therefore treat the narrowing arguments as regexes, not quoted substring tokens.
 
 Examples:
 
 ```bash
 cdr foobar
 cdr foobar alpha foo bar
+cdr foobar 'alpha-foo$'
 cdr alpha red
 which_dir foobar alpha
 ```

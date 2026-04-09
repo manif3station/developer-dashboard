@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '2.12';
+our $VERSION = '2.13';
 
 use Cwd qw(abs_path cwd);
 use File::Basename qw(dirname);
@@ -593,7 +593,7 @@ sub locate_dirs_under {
     my ( $self, $root, @terms ) = @_;
     return () if !defined $root || $root eq '' || !-d $root;
 
-    my @wanted = grep { defined && $_ ne '' } @terms;
+    my @wanted = map { $self->_compile_search_regex($_) } grep { defined && $_ ne '' } @terms;
     my $root_id = $self->_path_identity($root);
     my %seen;
     my @found;
@@ -613,7 +613,7 @@ sub locate_dirs_under {
                 $relative = $relative eq '.' ? '.' : './' . $relative;
 
                 for my $term (@wanted) {
-                    return if $relative !~ /\Q$term\E/i;
+                    return if $relative !~ $term;
                 }
 
                 push @found, $path_id;
@@ -623,6 +623,18 @@ sub locate_dirs_under {
     );
 
     return sort @found;
+}
+
+# _compile_search_regex($pattern)
+# Compiles one path-search token into the regex object used by recursive directory lookups.
+# Input: one search token string.
+# Output: compiled regex object, or dies when the token is not a valid regex.
+sub _compile_search_regex {
+    my ( $self, $pattern ) = @_;
+    return if !defined $pattern || $pattern eq '';
+    my $regex = eval { qr/$pattern/i };
+    die "Invalid regex '$pattern': $@\n" if !$regex;
+    return $regex;
 }
 
 # collector_dir($name)

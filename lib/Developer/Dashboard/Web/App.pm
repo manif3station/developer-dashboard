@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '2.12';
+our $VERSION = '2.13';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);

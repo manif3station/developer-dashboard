@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-09 (Phase 77: Open File Regex And Java Source Drift)
+
+- Fixed `dashboard of` / `dashboard open-file` so scoped search tokens are now real case-insensitive regexes instead of quoted substring matches, which means patterns such as `Ok\.js$` match `ok.js` without drifting into `ok.json`.
+- Fixed Java class lookup so it can now resolve source from local `-sources.jar`, `-src.jar`, `src.zip`, `jar`, and `war` archives, and can mirror a matching Maven source jar into the dashboard cache when no live `.java` file exists locally.
+- Fixed `cdr` and `which_dir` narrowing so later arguments are treated as regexes instead of quoted substring tokens beneath either the alias root or the current directory, with explicit invalid-regex failures instead of silent empty results.
+
 ## 2026-04-09 (Phase 76: CDR Keyword Root Drift)
 
 - Fixed `cdr` so a saved first argument now stays the alias root for follow-up keyword narrowing instead of being discarded and replaced by the old top-level workspace/project search.

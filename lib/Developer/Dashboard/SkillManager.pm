@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '2.12';
+our $VERSION = '2.13';
 
 use Cwd qw(realpath);
 use File::Path qw(make_path remove_tree);
