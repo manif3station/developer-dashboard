@@ -5,7 +5,6 @@ use warnings;
 use utf8;
 
 use Config ();
-use Capture::Tiny qw(capture);
 use Cwd qw(abs_path);
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
@@ -13,7 +12,6 @@ use File::Spec;
 use IO::Handle ();
 use IO::Select ();
 use IPC::Open3 qw(open3);
-use JSON::XS ();
 use Pod::Usage qw(pod2usage);
 use Symbol qw(gensym);
 
@@ -26,6 +24,7 @@ use Developer::Dashboard::Platform qw(
   resolve_runnable_file
 );
 use Developer::Dashboard::InternalCLI ();
+use Developer::Dashboard::Runtime::Result ();
 
 my $dashboard_lib = File::Spec->catdir( $Bin, '..', 'lib' );
 if ( -d $dashboard_lib ) {
@@ -81,7 +80,7 @@ pod2usage(
 # Output: true value after hook execution completes.
 sub _prime_command_result_env {
     my ( $cmd, @argv ) = @_;
-    delete $ENV{RESULT};
+    Developer::Dashboard::Runtime::Result::clear_current();
     $ENV{DEVELOPER_DASHBOARD_COMMAND} = $cmd if defined $cmd && $cmd ne '';
     return 1 if !defined $cmd || $cmd eq '';
 
@@ -108,12 +107,12 @@ sub _prime_command_result_env {
                 stderr => $hook_result->{stderr},
             };
             $results{$result_key}{exit_code} = $hook_result->{exit_code} if defined $hook_result->{exit_code};
-            $ENV{RESULT} = JSON::XS->new->canonical->encode( \%results );
+            Developer::Dashboard::Runtime::Result::set_current( \%results );
         }
         closedir $dh;
     }
 
-    delete $ENV{RESULT} if !%results;
+    Developer::Dashboard::Runtime::Result::clear_current() if !%results;
     return 1;
 }
 

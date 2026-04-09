@@ -565,7 +565,10 @@ those directories are run in sorted filename order within each layer, with the
 layers themselves running top-down from home to the deepest current layer,
 non-executable files are skipped, and each hook now streams its own `stdout`
 and `stderr` live to the terminal while still accumulating those channels into
-`RESULT` as JSON. Built-in
+`RESULT` as JSON. If that JSON grows too large for a safe `exec()` environment,
+`dashboard` spills it into `RESULT_FILE` and `Developer::Dashboard::Runtime::Result`
+reads the same logical payload from there so later hooks and the final command
+still see the same result set without tripping `Argument list too long`. Built-in
 commands such as `dashboard jq` use the same hook directory. A directory-backed
 custom command can provide its real executable as
 `~/.developer-dashboard/cli/<command>/run`, and that runner receives the final
@@ -997,7 +1000,10 @@ Starter bookmark refresh is also non-destructive. If a saved `api-dashboard`
 or `sql-dashboard` page still matches the last dashboard-managed shipped copy,
 `dashboard init` refreshes it to the current shipped seed. If the saved page
 has diverged from the recorded managed digest, init treats it as a user edit
-and leaves it alone.
+and leaves it alone. The refresh bridge also recognizes known older
+dashboard-managed `sql-dashboard` digests from runtimes that predate the seed
+manifest, so one stale shipped copy on an upgraded machine is refreshed
+instead of looking stuck on older browser UI.
 
 When `dashboard init` refreshes a dashboard-managed helper or shipped starter
 file, it compares the existing content against the shipped content by MD5

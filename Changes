@@ -1,5 +1,16 @@
 Revision history for Developer Dashboard
 
+2.11  2026-04-09
+    - fixed oversized hook `RESULT` payload handling so `dashboard` now spills
+      large hook output into a file-backed `RESULT_FILE` channel before later
+      `exec()` calls would fail with `Argument list too long`, while
+      `Developer::Dashboard::Runtime::Result` still exposes the same logical
+      hook data to later hooks and the final command
+    - fixed starter-page upgrade bridging so `dashboard init` now recognizes
+      older dashboard-managed `sql-dashboard` digests from pre-manifest
+      runtimes and refreshes those stale shipped copies instead of leaving an
+      upgraded machine stuck on older SQL Dashboard browser UI
+
 2.10  2026-04-09
     - fixed `.github/workflows/fuzz-js.yml` so the JS property/fuzz job now
       installs the Perl runtime prerequisites before it shells into

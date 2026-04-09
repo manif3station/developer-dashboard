@@ -1027,6 +1027,60 @@ my $update_result_data = json_decode($update_json);
 is( $update_result_data->{'01-cpan'}{stdout}, 'Test', 'dashboard update custom command receives stdout from executable update hook files' );
 like( $update_result_data->{'01-cpan'}{stderr}, qr/warned/, 'dashboard update custom command receives stderr from executable update hook files' );
 ok( !exists $update_result_data->{'data.file'}, 'dashboard update custom command skips non-executable files in the update hook folder' );
+
+my $huge_command = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'huge-result' );
+open my $huge_command_fh, '>', $huge_command or die "Unable to write $huge_command: $!";
+print {$huge_command_fh} <<'PL';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Developer::Dashboard::Runtime::Result ();
+my $result = Developer::Dashboard::Runtime::Result::current();
+my $entry = $result->{'01-big'} || {};
+print "stdout=", length( $entry->{stdout} // '' ), "\n";
+print "stderr=", length( $entry->{stderr} // '' ), "\n";
+print "result_file=", ( ( $ENV{RESULT_FILE} || '' ) ne '' ? 1 : 0 ), "\n";
+PL
+close $huge_command_fh;
+chmod 0755, $huge_command or die "Unable to chmod $huge_command: $!";
+
+my $huge_hook_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'huge-result.d' );
+make_path($huge_hook_root);
+my $huge_hook = File::Spec->catfile( $huge_hook_root, '01-big' );
+open my $huge_hook_fh, '>', $huge_hook or die "Unable to write $huge_hook: $!";
+print {$huge_hook_fh} <<'PL';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+print 'S' x 32;
+print STDERR 'E' x 1800000;
+PL
+close $huge_hook_fh;
+chmod 0755, $huge_hook or die "Unable to chmod $huge_hook: $!";
+my $huge_probe = File::Spec->catfile( $huge_hook_root, '02-probe' );
+open my $huge_probe_fh, '>', $huge_probe or die "Unable to write $huge_probe: $!";
+print {$huge_probe_fh} <<'PL';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Developer::Dashboard::Runtime::Result ();
+my $entry = Developer::Dashboard::Runtime::Result::entry('01-big') || {};
+print 'probe-stderr=', length( $entry->{stderr} // '' ), "\n";
+PL
+close $huge_probe_fh;
+chmod 0755, $huge_probe or die "Unable to chmod $huge_probe: $!";
+
+my ( $huge_stdout, $huge_stderr, $huge_exit ) = capture {
+    system 'sh', '-c', "$perl -I'$lib' '$dashboard' huge-result";
+    return $? >> 8;
+};
+is( $huge_exit, 0, 'dashboard custom commands still succeed when RESULT grows beyond the inline exec-safe environment size' );
+like( $huge_stdout, qr/probe-stderr=1800000\n/s, 'later hook files can still read oversized RESULT state through the fallback channel' );
+like( $huge_stdout, qr/stdout=32\n/s, 'final command still receives the oversized hook stdout length through Runtime::Result' );
+like( $huge_stdout, qr/stderr=1800000\n/s, 'final command still receives the oversized hook stderr length through Runtime::Result' );
+like( $huge_stdout, qr/result_file=1\n/s, 'final command sees the explicit RESULT_FILE fallback when hook output would otherwise overflow exec' );
+unlike( $huge_stderr, qr/Argument list too long/, 'oversized RESULT fallback avoids kernel exec failures from large hook payloads' );
+
 is( _run("$perl -I'$lib' '$dashboard' version"), "$expected_version\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' tomq alpha.beta});

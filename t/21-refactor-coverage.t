@@ -127,12 +127,31 @@ is(
     isa_ok( $api_dashboard_page, 'Developer::Dashboard::PageDocument', 'page_for_id loads one shipped seeded page document' );
     is( $api_dashboard_page->as_hash->{id}, 'api-dashboard', 'page_for_id returns the seeded page requested by id' );
 }
+{
+    my $sql_dashboard_page = Developer::Dashboard::CLI::SeededPages::sql_dashboard_page();
+    isa_ok( $sql_dashboard_page, 'Developer::Dashboard::PageDocument', 'sql_dashboard_page loads the shipped SQL dashboard bookmark definition' );
+    is( $sql_dashboard_page->as_hash->{id}, 'sql-dashboard', 'sql_dashboard_page returns the shipped SQL dashboard bookmark id' );
+}
 ok(
     Developer::Dashboard::CLI::SeededPages::is_known_managed_page_md5(
         id  => 'sql-dashboard',
         md5 => '7d9101e0e2585c159e575f0dbd49b3ef',
     ),
     'SeededPages recognizes the pre-refresh shipped sql-dashboard digest as dashboard-managed for upgrade bridging',
+);
+ok(
+    Developer::Dashboard::CLI::SeededPages::is_known_managed_page_md5(
+        id  => 'sql-dashboard',
+        md5 => 'f62a03c9ff7d25cdce65ce569cf2e07b',
+    ),
+    'SeededPages recognizes the older home-runtime sql-dashboard splitter digest as dashboard-managed for upgrade bridging',
+);
+ok(
+    Developer::Dashboard::CLI::SeededPages::is_known_managed_page_md5(
+        id  => 'sql-dashboard',
+        md5 => '10a14e5749f374a78429654b6c49b5f0',
+    ),
+    'SeededPages recognizes the older hov1 sql-dashboard splitter digest as dashboard-managed for upgrade bridging',
 );
 ok(
     !Developer::Dashboard::CLI::SeededPages::is_known_managed_page_md5(
@@ -168,7 +187,126 @@ ok(
     );
 }
 {
+    my $create_home = tempdir( CLEANUP => 1 );
+    my $cwd         = getcwd();
+    chdir $create_home or die "Unable to chdir to $create_home: $!";
+    my $create_paths = Developer::Dashboard::PathRegistry->new( home => $create_home );
+    my $create_seeded_page = Developer::Dashboard::CLI::SeededPages::sql_dashboard_page();
+    my $create_store = bless {
+        saved => [],
+    }, 'Local::SeededPageStore';
+
+    no warnings qw(redefine once);
+    local *Local::SeededPageStore::read_saved_entry = sub {
+        my ( $self, $id ) = @_;
+        die "Page '$id' not found\n";
+    };
+    local *Local::SeededPageStore::save_page = sub {
+        my ( $self, $page ) = @_;
+        push @{ $self->{saved} }, $page;
+        return $page;
+    };
+
+    is(
+        Developer::Dashboard::CLI::SeededPages::ensure_seeded_page(
+            pages => $create_store,
+            paths => $create_paths,
+            page  => $create_seeded_page,
+        ),
+        'created',
+        'ensure_seeded_page creates a missing shipped seeded page when no saved copy exists yet',
+    );
+    is( scalar @{ $create_store->{saved} }, 1, 'ensure_seeded_page saves a newly created seeded page exactly once' );
+    ok(
+        -f Developer::Dashboard::CLI::SeededPages::seed_manifest_path( paths => $create_paths ),
+        'ensure_seeded_page records the seed manifest after creating a missing shipped seeded page',
+    );
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
+}
+{
+    my $current_home = tempdir( CLEANUP => 1 );
+    my $cwd          = getcwd();
+    chdir $current_home or die "Unable to chdir to $current_home: $!";
+    my $current_paths = Developer::Dashboard::PathRegistry->new( home => $current_home );
+    my $current_page  = Developer::Dashboard::CLI::SeededPages::sql_dashboard_page();
+    my $current_store = bless {
+        current => $current_page->canonical_instruction,
+        saved   => [],
+    }, 'Local::SeededPageStore';
+
+    no warnings qw(redefine once);
+    local *Local::SeededPageStore::read_saved_entry = sub {
+        my ( $self, $id ) = @_;
+        return $self->{current};
+    };
+    local *Local::SeededPageStore::save_page = sub {
+        my ( $self, $page ) = @_;
+        push @{ $self->{saved} }, $page;
+        return $page;
+    };
+
+    is(
+        Developer::Dashboard::CLI::SeededPages::ensure_seeded_page(
+            pages => $current_store,
+            paths => $current_paths,
+            page  => $current_page,
+        ),
+        'current',
+        'ensure_seeded_page records the manifest and returns current when the saved page already matches the shipped seed',
+    );
+    is_deeply( $current_store->{saved}, [], 'ensure_seeded_page does not rewrite an already-current shipped seeded page' );
+    ok(
+        -f Developer::Dashboard::CLI::SeededPages::seed_manifest_path( paths => $current_paths ),
+        'ensure_seeded_page records the seed manifest when the saved page already matches the shipped seed',
+    );
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
+}
+{
+    my $legacy_home = tempdir( CLEANUP => 1 );
+    my $legacy_paths = Developer::Dashboard::PathRegistry->new( home => $legacy_home );
+    my $legacy_seeded_page_hash = Developer::Dashboard::CLI::SeededPages::page_for_id('sql-dashboard')->as_hash;
+    my $legacy_current = "legacy-managed-sql-dashboard\n";
+    my $legacy_saved = bless {
+        current => $legacy_current,
+        saved   => [],
+    }, 'Local::SeededPageStore';
+    my $original_content_md5 = \&Developer::Dashboard::SeedSync::content_md5;
+
+    no warnings qw(redefine once);
+    local *Local::SeededPageStore::read_saved_entry = sub {
+        my ( $self, $id ) = @_;
+        return $self->{current};
+    };
+    local *Local::SeededPageStore::save_page = sub {
+        my ( $self, $page ) = @_;
+        push @{ $self->{saved} }, $page;
+        return $page;
+    };
+    local *Developer::Dashboard::SeedSync::content_md5 = sub {
+        my ($content) = @_;
+        return '10a14e5749f374a78429654b6c49b5f0' if defined $content && $content eq $legacy_current;
+        return $original_content_md5->($content);
+    };
+
+    is(
+        Developer::Dashboard::CLI::SeededPages::ensure_seeded_page(
+            pages => $legacy_saved,
+            paths => $legacy_paths,
+            page  => $legacy_seeded_page_hash,
+        ),
+        'updated',
+        'ensure_seeded_page refreshes a stale managed sql-dashboard copy even when the older runtime never wrote a seed manifest',
+    );
+    is( scalar @{ $legacy_saved->{saved} }, 1, 'ensure_seeded_page rewrites the stale managed sql-dashboard copy once' );
+    ok(
+        -f Developer::Dashboard::CLI::SeededPages::seed_manifest_path( paths => $legacy_paths ),
+        'ensure_seeded_page backfills the seed manifest after refreshing a recognized legacy managed sql-dashboard copy',
+    );
+}
+{
     my $preserve_home = tempdir( CLEANUP => 1 );
+    my $cwd           = getcwd();
+    chdir $preserve_home or die "Unable to chdir to $preserve_home: $!";
     my $preserve_paths = Developer::Dashboard::PathRegistry->new( home => $preserve_home );
     my $seeded_page_hash = Developer::Dashboard::CLI::SeededPages::page_for_id('api-dashboard')->as_hash;
     my $saved_instruction = <<'BOOKMARK';
@@ -208,6 +346,7 @@ BOOKMARK
         !-f Developer::Dashboard::CLI::SeededPages::seed_manifest_path( paths => $preserve_paths ),
         'ensure_seeded_page does not create or update the seed manifest when it preserves a diverged page',
     );
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
 }
 like(
     _dies( sub { Developer::Dashboard::InternalCLI::helper_path( paths => $paths, name => 'bogus' ) } ),
@@ -841,6 +980,7 @@ is_deeply(
 
 local $ENV{RESULT} = '';
 is_deeply( Developer::Dashboard::Runtime::Result::current(), {}, 'Runtime::Result current returns an empty hash for empty RESULT' );
+local $ENV{RESULT_FILE} = '';
 is( Developer::Dashboard::Runtime::Result::has(''), 0, 'Runtime::Result has rejects empty names' );
 is( Developer::Dashboard::Runtime::Result::entry(''), undef, 'Runtime::Result entry rejects empty names' );
 is( Developer::Dashboard::Runtime::Result::stdout('missing'), '', 'Runtime::Result stdout returns empty string for missing names' );
@@ -849,6 +989,60 @@ is( Developer::Dashboard::Runtime::Result::exit_code('missing'), undef, 'Runtime
 is( Developer::Dashboard::Runtime::Result::last_name(), undef, 'Runtime::Result last_name returns undef when RESULT is empty' );
 is( Developer::Dashboard::Runtime::Result::last_entry(), undef, 'Runtime::Result last_entry returns undef when RESULT is empty' );
 is( Developer::Dashboard::Runtime::Result::report(), '', 'Runtime::Result report returns an empty string for empty RESULT' );
+is( Developer::Dashboard::Runtime::Result::clear_current(), '', 'Runtime::Result clear_current clears inline or file-backed RESULT state' );
+{
+    local $ENV{RESULT};
+    local $ENV{RESULT_FILE};
+    is(
+        Developer::Dashboard::Runtime::Result::set_current(
+            { '01-inline' => { stdout => "ok\n", stderr => '', exit_code => 0 } },
+            max_inline_bytes => 4096,
+        ),
+        'inline',
+        'Runtime::Result keeps small payloads inline in RESULT',
+    );
+    like( $ENV{RESULT}, qr/01-inline/, 'Runtime::Result writes inline RESULT JSON for small payloads' );
+    ok( !defined $ENV{RESULT_FILE}, 'Runtime::Result leaves RESULT_FILE unset for small payloads' );
+}
+{
+    local $ENV{RESULT};
+    local $ENV{RESULT_FILE};
+    my $mode = Developer::Dashboard::Runtime::Result::set_current(
+        { '01-file' => { stdout => ( 'x' x 2048 ), stderr => '', exit_code => 0 } },
+        max_inline_bytes => 32,
+    );
+    is( $mode, 'file', 'Runtime::Result spills oversized payloads into RESULT_FILE before exec would overflow' );
+    is( $ENV{RESULT}, undef, 'Runtime::Result clears inline RESULT when file-backed overflow fallback is active' );
+    ok( defined $ENV{RESULT_FILE} && $ENV{RESULT_FILE} ne '', 'Runtime::Result exposes the inherited RESULT_FILE path for oversized payloads' );
+    is_deeply(
+        Developer::Dashboard::Runtime::Result::current(),
+        { '01-file' => { stdout => ( 'x' x 2048 ), stderr => '', exit_code => 0 } },
+        'Runtime::Result current reads the full file-backed payload through RESULT_FILE',
+    );
+    is(
+        Developer::Dashboard::Runtime::Result::clear_current(),
+        '',
+        'Runtime::Result clear_current also closes an active file-backed RESULT handle',
+    );
+    is( $ENV{RESULT} || '', '', 'Runtime::Result clear_current leaves RESULT empty after closing a file-backed payload' );
+    is( $ENV{RESULT_FILE} || '', '', 'Runtime::Result clear_current leaves RESULT_FILE empty after closing a file-backed payload' );
+}
+{
+    local $ENV{DEVELOPER_DASHBOARD_RESULT_INLINE_MAX} = '123';
+    is(
+        Developer::Dashboard::Runtime::Result::_max_inline_bytes(),
+        123,
+        'Runtime::Result honors the environment override for the inline RESULT byte limit',
+    );
+}
+{
+    local $ENV{DEVELOPER_DASHBOARD_RESULT_INLINE_MAX};
+    is(
+        Developer::Dashboard::Runtime::Result::_max_inline_bytes(),
+        65536,
+        'Runtime::Result falls back to the default inline RESULT byte limit when no override is present',
+    );
+}
 {
     local $0 = '';
     local $ENV{DEVELOPER_DASHBOARD_COMMAND} = 'env-command';

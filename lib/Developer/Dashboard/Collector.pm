@@ -3,7 +3,7 @@ package Developer::Dashboard::Collector;
 use strict;
 use warnings;
 
-our $VERSION = '2.10';
+our $VERSION = '2.11';
 
 use File::Spec;
 use POSIX qw(strftime);

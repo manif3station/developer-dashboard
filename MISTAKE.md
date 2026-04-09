@@ -4,6 +4,36 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: RESULT-ENV-E2BIG-DRIFT
+
+**Date:** 2026-04-09 10:35:00 UTC
+**Area:** layered CLI hook execution, command dispatch, and large hook-output transport
+**Symptom:** `dashboard` commands with large accumulated hook stdout/stderr died before the real command ran, with `Can't exec "/usr/bin/perl": Argument list too long` and `Unable to exec ...: Argument list too long`
+**Why It Was Dangerous:** It broke real user commands in proportion to hook verbosity, turned diagnostic hook output into a hard runtime failure, and made the final command impossible to start even though the hook pipeline itself had succeeded
+**Root Cause:** I kept serializing the whole hook result set back into `ENV{RESULT}` after every hook, so later `exec()` calls inherited a growing environment blob until the kernel arg/env limit rejected the process launch
+**How Ellen Solved It:** Added TDD in `t/05-cli-smoke.t` and `t/21-refactor-coverage.t`, then taught `Developer::Dashboard::Runtime::Result` plus `bin/dashboard` to keep small payloads inline in `RESULT` but spill oversized payloads into a file-backed `RESULT_FILE` channel that later hooks and the final command can still read through `Runtime::Result`
+**How To Detect Earlier Next Time:** Create one hook that emits megabytes on stderr, add a later hook plus final command that read the earlier hook entry through `Runtime::Result`, and verify the command still runs without `Argument list too long`
+**Prevention Rule:** Hook-result transport must stay logically stable without assuming the whole payload fits inside the process environment. If `RESULT` can grow with user-visible hook output, the runtime needs an overflow-safe transport path and direct tests for it
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/21-refactor-coverage.t`, `prove -lr t`
+**Related Files:** `bin/dashboard`, `lib/Developer/Dashboard/Runtime/Result.pm`, `t/05-cli-smoke.t`, `t/21-refactor-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
+## CODE: HISTORICAL-SQL-SEED-MD5-DRIFT
+
+**Date:** 2026-04-09 10:40:00 UTC
+**Area:** seeded starter-page refresh, runtime upgrades, and SQL Dashboard browser parity
+**Symptom:** A machine could report the latest installed dashboard version but still show the older SQL Dashboard browser layout because `~/.developer-dashboard/dashboards/sql-dashboard` was one stale dashboard-managed saved copy that `dashboard init` refused to refresh
+**Why It Was Dangerous:** It made the live browser look like the new SQL Dashboard work had not landed at all, encouraged debugging the shipped seed instead of the real runtime copy, and left upgraded users stuck on older starter-page behavior until they manually removed the saved file
+**Root Cause:** The managed-seed bridge only recognized the newer manifest-tracked digest plus one earlier historical digest, so another older dashboard-managed `sql-dashboard` copy from a pre-manifest runtime was preserved as if it were a user edit
+**How Ellen Solved It:** Reproduced the stale runtime state, recorded the missing historical dashboard-managed digest under `Developer::Dashboard::CLI::SeededPages`, and added coverage proving `dashboard init` refreshes that known old managed copy while still preserving genuinely diverged user edits
+**How To Detect Earlier Next Time:** When a machine claims the latest version but the SQL Dashboard browser still looks old, check `dashboard page source sql-dashboard`, compare the saved file digest, and confirm whether the saved page is a known dashboard-managed historical copy or a real user edit
+**Prevention Rule:** Seed-refresh bridging must cover every shipped dashboard-managed starter-page digest that can still exist on upgraded machines. If one old managed copy is observed in the wild, capture its digest under TDD instead of assuming the manifest-only path is enough
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/21-refactor-coverage.t`, `prove -lr t`
+**Related Files:** `lib/Developer/Dashboard/CLI/SeededPages.pm`, `t/05-cli-smoke.t`, `t/21-refactor-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: JS-FUZZ-PERL-PREREQ-DRIFT
 
 **Date:** 2026-04-09 08:25:00 UTC

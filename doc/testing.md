@@ -100,10 +100,11 @@ The extension tests also cover:
 - `dashboard doctor` audits of the current home runtime plus older `$HOME/bookmarks`, `$HOME/config`, `$HOME/cli`, and `$HOME/checkers` trees, including `--fix` permission repair and `cli/doctor.d` hook result capture
 - encoded action payload execution
 - CLI hook directories under `~/.developer-dashboard/cli/<command>` or `~/.developer-dashboard/cli/<command>.d` with sorted executable-only hook execution, live streamed hook progress, per-hook `RESULT` rewrites between hook runs, and `Runtime::Result` helper coverage
+- oversized hook `RESULT` payloads spilling into `RESULT_FILE` before `exec()` would hit the kernel arg/env limit, while later hooks and final commands still read the same logical result set through `Runtime::Result`
 - directory-backed custom commands through `~/.developer-dashboard/cli/<command>/run`
 - non-destructive home helper staging, with dashboard-managed helpers isolated under `~/.developer-dashboard/cli/dd/` and user commands plus hooks preserved under `~/.developer-dashboard/cli/`
 - MD5-aware `dashboard init` helper and seed refreshes, including unchanged mtimes when a dashboard-managed helper or seeded starter page already matches the shipped content
-- stale managed `api-dashboard` / `sql-dashboard` saved copies refreshing to the current shipped seed when they still match the recorded managed digest, while diverged user-edited saved pages stay untouched
+- stale managed `api-dashboard` / `sql-dashboard` saved copies refreshing to the current shipped seed when they still match the recorded managed digest, including known historical `sql-dashboard` digests from pre-manifest runtimes, while diverged user-edited saved pages stay untouched
 - empty-object `config.json` bootstrapping when `dashboard init` or `dashboard config init` finds no existing config file, without seeding an example collector
 - project-local `./.developer-dashboard` precedence over the home fallback for bookmarks, config, CLI commands and hooks, auth users, sessions, and isolated docker service folders
 - seeded `dashboard init` starter pages for `api-dashboard` and `sql-dashboard`

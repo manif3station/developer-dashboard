@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.10';
+our $VERSION = '2.11';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.10
+2.11
 
 =head1 INTRODUCTION
 
@@ -827,7 +827,11 @@ in those directories are run in sorted filename order within each layer, with
 the layers themselves running top-down from home to the deepest current layer,
 non-executable files are skipped, and each hook now streams its own
 C<stdout> and C<stderr> live to the terminal while still accumulating those
-channels into C<RESULT> as JSON. Built-in commands such as C<dashboard jq>
+channels into C<RESULT> as JSON. If that JSON grows too large for a safe
+C<exec()> environment, C<dashboard> spills it into C<RESULT_FILE> and
+C<Developer::Dashboard::Runtime::Result> reads the same logical payload from
+there so later hooks and the final command still see the same result set
+without tripping C<Argument list too long>. Built-in commands such as C<dashboard jq>
 use the same hook directory. A
 directory-backed custom command can provide its real executable as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>, and that runner receives
@@ -1652,7 +1656,10 @@ Starter bookmark refresh is non-destructive too. If a saved
 C<api-dashboard> or C<sql-dashboard> page still matches the last recorded
 dashboard-managed shipped copy, C<dashboard init> refreshes it to the
 current shipped seed. If the saved page has diverged from that managed
-digest, init treats it as a user edit and leaves it alone.
+digest, init treats it as a user edit and leaves it alone. The refresh bridge
+also recognizes known older dashboard-managed C<sql-dashboard> digests from
+runtimes that predate the seed manifest, so one stale shipped copy on an
+upgraded machine is refreshed instead of looking stuck on older browser UI.
 
 When C<dashboard init> refreshes a dashboard-managed helper or shipped
 starter file, it compares the existing content against the shipped content by

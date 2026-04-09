@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-09 (Phase 75: Hook Result Exec Overflow And Historical Seed Refresh Drift)
+
+- Fixed `dashboard` command dispatch so oversized accumulated hook `RESULT` payloads no longer blow up `exec()` with `Argument list too long`; the runtime now keeps small payloads inline in `RESULT` and spills larger payloads into a file-backed `RESULT_FILE` channel that `Developer::Dashboard::Runtime::Result` reads transparently.
+- Expanded CLI smoke and unit coverage so later hooks plus the final command still see the same logical hook stdout/stderr data through `Runtime::Result` after the overflow fallback engages.
+- Fixed `dashboard init` upgrade bridging so older dashboard-managed `sql-dashboard` saved copies from pre-manifest runtimes are recognized as refreshable managed seeds instead of being mistaken for user edits and left on stale browser UI.
+
 ## 2026-04-09 (Phase 74: JS Fuzz Perl Prereq Drift)
 
 - Fixed `.github/workflows/fuzz-js.yml` so the JS property/fuzz job now boots the Perl toolchain before it invokes `dashboard encode` and `dashboard decode`.

@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::SeededPages;
 use strict;
 use warnings;
 
-our $VERSION = '2.10';
+our $VERSION = '2.11';
 
 use File::Basename qw(dirname);
 use File::Spec;
@@ -19,7 +19,11 @@ my %ID_TO_ASSET = (
     'sql-dashboard' => 'sql-dashboard.page',
 );
 my %LEGACY_MANAGED_PAGE_MD5 = (
-    'sql-dashboard' => [ '7d9101e0e2585c159e575f0dbd49b3ef' ],
+    'sql-dashboard' => [
+        '7d9101e0e2585c159e575f0dbd49b3ef',
+        'f62a03c9ff7d25cdce65ce569cf2e07b',
+        '10a14e5749f374a78429654b6c49b5f0',
+    ],
 );
 
 # api_dashboard_page()
