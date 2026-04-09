@@ -545,8 +545,19 @@ is( $foobar_resolved, $custom_path_root . "\n", 'dashboard path resolve supports
 my $path_list = _run("$perl -I'$lib' '$dashboard' path list");
 like( $path_list, qr/"foobar"\s*:\s*"\Q$custom_path_root\E"/, 'dashboard path list includes user-defined aliases' );
 
+my $alias_multi_one = File::Spec->catdir( $custom_path_root, 'alpha-foo' );
+my $alias_multi_two = File::Spec->catdir( $custom_path_root, 'alpha-foo-two' );
+my $alias_unique = File::Spec->catdir( $custom_path_root, 'nested', 'alpha-foo-bar' );
+make_path( $alias_multi_one, $alias_multi_two, $alias_unique );
+
+my $cwd_search_root = File::Spec->catdir( $ENV{HOME}, 'cdr-search-root' );
+my $cwd_search_multi_one = File::Spec->catdir( $cwd_search_root, 'team-alpha' );
+my $cwd_search_multi_two = File::Spec->catdir( $cwd_search_root, 'nested', 'team-alpha-ops' );
+my $cwd_search_unique = File::Spec->catdir( $cwd_search_root, 'nested', 'team-alpha-red' );
+make_path( $cwd_search_multi_one, $cwd_search_multi_two, $cwd_search_unique );
+
 my $shell_bootstrap = _run("$perl -I'$lib' '$dashboard' shell bash");
-like( $shell_bootstrap, qr/path resolve \"\$1\"/, 'dashboard shell bootstrap resolves named path aliases before project search' );
+like( $shell_bootstrap, qr/path cdr/, 'dashboard shell bootstrap delegates cdr target selection through the Perl path helper' );
 my $shell_bootstrap_file = File::Spec->catfile( $ENV{HOME}, 'dashboard-shell.sh' );
 open my $shell_bootstrap_fh, '>', $shell_bootstrap_file or die "Unable to write $shell_bootstrap_file: $!";
 print {$shell_bootstrap_fh} $shell_bootstrap;
@@ -557,15 +568,27 @@ my $cdr_bookmarks = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr bookmarks_r
 is( $cdr_bookmarks, $bookmarks_root, 'cdr navigates to bookmarks_root through the shell helper' );
 my $cdr_foobar = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr foobar; pwd'");
 is( $cdr_foobar, $custom_path_root . "\n", 'cdr navigates to a user-defined alias through the shell helper' );
+my $cdr_foobar_unique = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr foobar alpha foo bar; pwd'");
+is( $cdr_foobar_unique, $alias_unique . "\n", 'cdr narrows a resolved alias with AND-matched keywords and enters the only matching subdirectory' );
+my $cdr_foobar_multi = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr foobar alpha foo; pwd'");
+like( $cdr_foobar_multi, qr/^\Q$alias_multi_one\E$/m, 'cdr prints the first alias-root search match when multiple subdirectories satisfy the keywords' );
+like( $cdr_foobar_multi, qr/^\Q$alias_multi_two\E$/m, 'cdr prints the second alias-root search match when multiple subdirectories satisfy the keywords' );
+like( $cdr_foobar_multi, qr/\Q$custom_path_root\E\n\z/, 'cdr stays at the resolved alias root when alias-root keyword search finds multiple directories' );
+my $cdr_keywords_unique = _run("bash -lc '. \"$shell_bootstrap_file\"; cd \"$cwd_search_root\"; cdr alpha red; pwd'");
+is( $cdr_keywords_unique, $cwd_search_unique . "\n", 'cdr treats non-alias arguments as current-directory search keywords and enters a unique match' );
+my $cdr_keywords_multi = _run("bash -lc '. \"$shell_bootstrap_file\"; cd \"$cwd_search_root\"; cdr team alpha; pwd'");
+like( $cdr_keywords_multi, qr/^\Q$cwd_search_multi_one\E$/m, 'cdr prints one current-directory search match when multiple directories satisfy non-alias keywords' );
+like( $cdr_keywords_multi, qr/^\Q$cwd_search_multi_two\E$/m, 'cdr prints the other current-directory search match when multiple directories satisfy non-alias keywords' );
+like( $cdr_keywords_multi, qr/\Q$cwd_search_root\E\n\z/, 'cdr leaves the shell in place when non-alias keyword search has multiple matches' );
 like( $shell_bootstrap, qr/ps1 --jobs \\j --mode compact/, 'dashboard shell bash bootstrap keeps bash job-count prompt rendering' );
 
 my $zsh_bootstrap = _run("$perl -I'$lib' '$dashboard' shell zsh");
 like( $zsh_bootstrap, qr/add-zsh-hook precmd _dd_update_prompt/, 'dashboard shell zsh bootstrap refreshes the prompt through a precmd hook' );
 like( $zsh_bootstrap, qr/ps1 --jobs \$\{#jobstates\} --mode compact/, 'dashboard shell zsh bootstrap uses zsh job counts for prompt rendering' );
-like( $zsh_bootstrap, qr/path resolve \"\$1\"/, 'dashboard shell zsh bootstrap keeps the path helper functions' );
+like( $zsh_bootstrap, qr/path cdr/, 'dashboard shell zsh bootstrap keeps the cdr path helper functions' );
 
 my $sh_bootstrap = _run("$perl -I'$lib' '$dashboard' shell sh");
-like( $sh_bootstrap, qr/path resolve \"\$1\"/, 'dashboard shell sh bootstrap keeps the path helper functions' );
+like( $sh_bootstrap, qr/path cdr/, 'dashboard shell sh bootstrap keeps the cdr path helper functions' );
 like( $sh_bootstrap, qr/ps1 --mode compact/, 'dashboard shell sh bootstrap renders the prompt through dashboard ps1' );
 unlike( $sh_bootstrap, qr/\\j/, 'dashboard shell sh bootstrap does not rely on bash-specific job expansion' );
 my $sh_bootstrap_file = File::Spec->catfile( $ENV{HOME}, 'dashboard-shell-posix.sh' );
@@ -576,6 +599,8 @@ my $sh_which_dir_bookmarks = _run("sh -lc '. \"$sh_bootstrap_file\"; which_dir b
 is( $sh_which_dir_bookmarks, $bookmarks_root, 'which_dir resolves bookmarks_root through the POSIX shell helper' );
 my $sh_cdr_bookmarks = _run("sh -lc '. \"$sh_bootstrap_file\"; cdr bookmarks_root; pwd'");
 is( $sh_cdr_bookmarks, $bookmarks_root, 'cdr navigates to bookmarks_root through the POSIX shell helper' );
+my $sh_cdr_foobar_unique = _run("sh -lc '. \"$sh_bootstrap_file\"; cdr foobar alpha foo bar; pwd'");
+is( $sh_cdr_foobar_unique, $alias_unique . "\n", 'cdr narrows aliases through the POSIX shell helper as well' );
 
 my $ps_bootstrap = _run("$perl -I'$lib' '$dashboard' shell ps");
 like( $ps_bootstrap, qr/function prompt \{/, 'dashboard shell ps bootstrap uses the PowerShell prompt function instead of a PS1 variable' );

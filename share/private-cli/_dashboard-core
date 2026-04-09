@@ -1029,32 +1029,31 @@ sub _shell_navigation_bootstrap {
 function Get-DashboardTarget {
   param([string[]]$DashboardArgs)
   if (-not $DashboardArgs -or $DashboardArgs.Count -eq 0) {
-    return $null
+    return [pscustomobject]@{ target = $null; matches = @() }
   }
-  $target = (__DASHBOARD_CMD__ path resolve $DashboardArgs[0] 2>$null | Select-Object -First 1)
-  if (-not $target) {
-    $json = __DASHBOARD_CMD__ path locate @DashboardArgs
-    if ($LASTEXITCODE -eq 0 -and $json) {
-      $parsed = $json | ConvertFrom-Json
-      if ($parsed -is [System.Array]) {
-        $target = $parsed[0]
-      }
-      elseif ($parsed) {
-        $target = $parsed
-      }
-    }
+  $json = __DASHBOARD_CMD__ path cdr @DashboardArgs
+  if ($LASTEXITCODE -ne 0 -or -not $json) {
+    return [pscustomobject]@{ target = $null; matches = @() }
   }
-  if ($target) {
-    return [string]$target
+  $parsed = $json | ConvertFrom-Json
+  $matches = @()
+  if ($parsed.matches) {
+    $matches = @($parsed.matches)
   }
-  return $null
+  return [pscustomobject]@{
+    target = if ($parsed.target) { [string]$parsed.target } else { $null }
+    matches = $matches
+  }
 }
 
 function cdr {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]]$DashboardArgs)
-  $target = Get-DashboardTarget -DashboardArgs $DashboardArgs
-  if ($target) {
-    Set-Location $target
+  $selection = Get-DashboardTarget -DashboardArgs $DashboardArgs
+  if ($selection.matches.Count -gt 0) {
+    $selection.matches
+  }
+  if ($selection.target) {
+    Set-Location $selection.target
   }
 }
 
@@ -1062,23 +1061,24 @@ Set-Alias dd_cdr cdr
 
 function which_dir {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]]$DashboardArgs)
-  if (-not $DashboardArgs -or $DashboardArgs.Count -eq 0) {
+  $selection = Get-DashboardTarget -DashboardArgs $DashboardArgs
+  if ($selection.matches.Count -gt 0) {
+    $selection.matches
     return
   }
-  $resolved = (__DASHBOARD_CMD__ path resolve $DashboardArgs[0] 2>$null | Select-Object -First 1)
-  if ($resolved) {
-    $resolved
-    return
+  if ($selection.target) {
+    $selection.target
   }
-  __DASHBOARD_CMD__ path locate @DashboardArgs
 }
 POWERSHELL
     }
     return <<'SH';
 cdr() {
-  target="$(__DASHBOARD_CMD__ path resolve "$1" 2>/dev/null || true)"
-  if [ -z "$target" ]; then
-    target="$(__DASHBOARD_CMD__ path locate "$@" | perl -MJSON::XS -0777 -ne 'my $a=JSON::XS->new->decode($_); print $a->[0] // q{}')"
+  payload="$(__DASHBOARD_CMD__ path cdr "$@")"
+  matches="$(printf '%s' "$payload" | perl -MJSON::XS -0777 -ne 'my $h=JSON::XS->new->decode($_); print join qq(\n), @{ $h->{matches} || [] }')"
+  target="$(printf '%s' "$payload" | perl -MJSON::XS -0777 -ne 'my $h=JSON::XS->new->decode($_); print $h->{target} // q{}')"
+  if [ -n "$matches" ]; then
+    printf '%s\n' "$matches"
   fi
   if [ -n "$target" ]; then
     cd "$target"
@@ -1090,7 +1090,16 @@ dd_cdr() {
 }
 
 which_dir() {
-  __DASHBOARD_CMD__ path resolve "$1" 2>/dev/null || __DASHBOARD_CMD__ path locate "$@"
+  payload="$(__DASHBOARD_CMD__ path cdr "$@")"
+  matches="$(printf '%s' "$payload" | perl -MJSON::XS -0777 -ne 'my $h=JSON::XS->new->decode($_); print join qq(\n), @{ $h->{matches} || [] }')"
+  target="$(printf '%s' "$payload" | perl -MJSON::XS -0777 -ne 'my $h=JSON::XS->new->decode($_); print $h->{target} // q{}')"
+  if [ -n "$matches" ]; then
+    printf '%s\n' "$matches"
+    return
+  fi
+  if [ -n "$target" ]; then
+    printf '%s\n' "$target"
+  fi
 }
 SH
 }
@@ -1154,7 +1163,10 @@ _dashboard-core - internal staged built-in command runtime for Developer Dashboa
 This internal helper runs the heavier built-in Developer Dashboard commands
 after the public C<dashboard> entrypoint has already handled hook execution and
 switchboard dispatch. It is staged under F<~/.developer-dashboard/cli/dd/> as
-F<_dashboard-core> and is not meant to be called by users directly.
+F<_dashboard-core> and is not meant to be called by users directly. It also
+generates the shared shell bootstrap snippets that expose C<cdr>,
+C<dd_cdr>, C<which_dir>, and prompt wiring across bash, zsh, POSIX sh, and
+PowerShell.
 
 __END__
 

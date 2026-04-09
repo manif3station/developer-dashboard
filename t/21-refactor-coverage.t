@@ -63,6 +63,24 @@ like(
     'skill_root rejects an empty skill name',
 );
 {
+    my $search_root = File::Spec->catdir( $ENV{HOME}, 'locate-dirs-under-root' );
+    my $match_one   = File::Spec->catdir( $search_root, 'team-alpha' );
+    my $match_two   = File::Spec->catdir( $search_root, 'nested', 'team-alpha-red' );
+    my $no_match    = File::Spec->catdir( $search_root, 'nested', 'team-blue' );
+    make_path( $match_one, $match_two, $no_match );
+
+    is_deeply(
+        [ $paths->locate_dirs_under( $search_root, 'team', 'alpha' ) ],
+        [ sort ( $match_one, $match_two ) ],
+        'locate_dirs_under returns every directory beneath the search root whose path matches all keywords',
+    );
+    is_deeply(
+        [ $paths->locate_dirs_under( $search_root, 'alpha', 'red' ) ],
+        [$match_two],
+        'locate_dirs_under narrows to one nested directory when only one path matches every keyword',
+    );
+}
+{
     my $config_home = tempdir( CLEANUP => 1 );
     my $config_cwd  = tempdir( CLEANUP => 1 );
     my $cwd         = getcwd();
@@ -582,11 +600,15 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     my $src_project   = File::Spec->catdir( $src_root,      'locate-sample-app' );
     my $work_project  = File::Spec->catdir( $work_root,     'other-sample-app' );
     my $named_dir     = File::Spec->catdir( $ENV{HOME},     'named-target' );
+    my $named_match_one = File::Spec->catdir( $named_dir, 'team-alpha' );
+    my $named_match_two = File::Spec->catdir( $named_dir, 'nested', 'team-alpha-red' );
+    my $cwd_match_one = File::Spec->catdir( $project_dir, 'docs-alpha' );
+    my $cwd_match_two = File::Spec->catdir( $project_dir, 'nested', 'docs-alpha-red' );
 
     make_path( File::Spec->catdir( $project_dir, '.git' ) );
     make_path($src_project);
     make_path($work_project);
-    make_path($named_dir);
+    make_path( $named_dir, $named_match_one, $named_match_two, $cwd_match_one, $cwd_match_two );
     chdir $project_dir or die "Unable to chdir to $project_dir: $!";
 
     my ( $stdout, $stderr ) = capture {
@@ -613,6 +635,54 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command(
             command => 'path',
+            args    => [ 'cdr', 'named-home-target' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths cdr writes no stderr for alias-only resolution' );
+    is_deeply(
+        json_decode($stdout),
+        {
+            target  => $named_dir,
+            matches => [],
+        },
+        'CLI::Paths cdr returns the resolved alias root when no search keywords follow it',
+    );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => [ 'cdr', 'named-home-target', 'alpha', 'red' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths cdr writes no stderr for alias-root keyword narrowing' );
+    is_deeply(
+        json_decode($stdout),
+        {
+            target  => $named_match_two,
+            matches => [],
+        },
+        'CLI::Paths cdr returns the unique alias-root directory that matches every keyword',
+    );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => [ 'cdr', 'named-home-target', 'alpha' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths cdr writes no stderr when alias-root keyword search has multiple matches' );
+    is_deeply(
+        json_decode($stdout),
+        {
+            target  => $named_dir,
+            matches => [ sort ( $named_match_one, $named_match_two ) ],
+        },
+        'CLI::Paths cdr keeps the alias root as the target and returns the match list when alias-root keyword search finds multiple directories',
+    );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
             args    => [ 'locate', 'sample' ],
         );
     };
@@ -622,6 +692,38 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
         [ sort @{$located} ],
         [ sort ( $src_project, $work_project ) ],
         'CLI::Paths locate returns matching workspace and project roots',
+    );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => [ 'cdr', 'alpha', 'red' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths cdr writes no stderr for current-directory keyword search' );
+    is_deeply(
+        json_decode($stdout),
+        {
+            target  => $cwd_match_two,
+            matches => [],
+        },
+        'CLI::Paths cdr searches beneath the current directory when the first argument is not a saved alias and one path matches every keyword',
+    );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => [ 'cdr', 'alpha' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths cdr writes no stderr when current-directory keyword search has multiple matches' );
+    is_deeply(
+        json_decode($stdout),
+        {
+            target  => '',
+            matches => [ sort ( $cwd_match_one, $cwd_match_two ) ],
+        },
+        'CLI::Paths cdr returns only the match list when current-directory keyword search finds multiple directories',
     );
 
     ( $stdout, $stderr ) = capture {
@@ -659,7 +761,7 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
 
     like(
         _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => ['bogus'] ) } ),
-        qr/Usage: dashboard path <resolve\|locate\|add\|del\|project-root\|list> \.\.\./,
+        qr/Usage: dashboard path <resolve\|locate\|cdr\|add\|del\|project-root\|list> \.\.\./,
         'CLI::Paths rejects unsupported path subcommands with a usage error',
     );
 

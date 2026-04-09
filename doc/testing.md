@@ -95,6 +95,7 @@ The runtime-manager tests also cover:
 The extension tests also cover:
 
 - config-backed path alias registration
+- shell helper `cdr` and `which_dir` flows where the first argument may be a saved alias, remaining arguments narrow the alias root with AND-matched directory keywords, and non-alias arguments search beneath the current directory instead
 - provider page resolution
 - trusted versus transient action execution policy
 - `dashboard doctor` audits of the current home runtime plus older `$HOME/bookmarks`, `$HOME/config`, `$HOME/cli`, and `$HOME/checkers` trees, including `--fix` permission repair and `cli/doctor.d` hook result capture

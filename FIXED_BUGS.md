@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-09 (Phase 76: CDR Keyword Root Drift)
+
+- Fixed `cdr` so a saved first argument now stays the alias root for follow-up keyword narrowing instead of being discarded and replaced by the old top-level workspace/project search.
+- Fixed the non-alias `cdr` path so all arguments are now treated as AND-matched directory keywords beneath the current directory, with one match changing directory and multiple matches printed instead of choosing one silently.
+- Kept the shell bootstrap thin by moving the target-selection logic into `dashboard path cdr`, and expanded unit plus shell smoke coverage for alias-only, alias-plus-keyword, and pure-keyword search flows.
+
 ## 2026-04-09 (Phase 75: Hook Result Exec Overflow And Historical Seed Refresh Drift)
 
 - Fixed `dashboard` command dispatch so oversized accumulated hook `RESULT` payloads no longer blow up `exec()` with `Argument list too long`; the runtime now keeps small payloads inline in `RESULT` and spills larger payloads into a file-backed `RESULT_FILE` channel that `Developer::Dashboard::Runtime::Result` reads transparently.

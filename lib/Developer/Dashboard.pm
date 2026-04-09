@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.11';
+our $VERSION = '2.12';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.11
+2.12
 
 =head1 INTRODUCTION
 
@@ -1037,6 +1037,26 @@ instead of a hard-coded absolute home path so a shared fallback runtime
 remains portable across different developer accounts. Re-adding an existing
 alias updates it without error, and deleting a missing alias is also safe.
 
+C<cdr> now follows a two-stage path flow instead of only jumping to one alias
+or one top-level project name. If the first argument resolves as a saved alias
+and there are no later arguments, C<cdr alias> still goes straight there. If
+the first argument resolves as a saved alias and more arguments remain,
+C<cdr> enters the alias root, then searches every directory under that root
+with AND-matched keywords taken from the remaining arguments. One match means
+C<cd> into that directory; multiple matches mean print the full list and stay
+at the alias root. If the first argument is not a saved alias, C<cdr> treats
+every argument as an AND-matched keyword search beneath the current directory.
+One match means C<cd> there; multiple matches mean print the list and leave
+the current directory unchanged. C<which_dir> follows the same selection logic
+but only prints the chosen target or match list instead of changing directory.
+
+Examples:
+
+  cdr foobar
+  cdr foobar alpha foo bar
+  cdr alpha red
+  which_dir foobar alpha
+
 Use C<Developer::Dashboard::Folder> for runtime path helpers. It resolves the
 same runtime, bookmark, config, and configured alias names exposed by
 C<dashboard paths>, including names such as C<docker>, without relying on
@@ -1297,11 +1317,16 @@ Generate shell bootstrap:
   dashboard shell ps
 
 The generated shell helper keeps the same bookmark-aware C<cdr>, C<dd_cdr>,
-and C<which_dir> functions across all supported shells. Bash still uses C<\j>
-for job counts, zsh refreshes C<PS1> through a C<precmd> hook with
-C<${#jobstates}>, POSIX C<sh> falls back to a prompt command that does not
-depend on bash-only prompt escapes, and PowerShell installs a C<prompt>
-function instead of using the POSIX C<PS1> variable.
+and C<which_dir> functions across all supported shells. C<cdr> first tries a
+saved alias, then falls back to an AND-matched directory search beneath the
+alias root or the current directory depending on whether that first argument
+was a known alias. One match changes directory, multiple matches print the
+list, and C<which_dir> prints the same selected target or match list without
+changing directory. Bash still uses C<\j> for job counts, zsh refreshes
+C<PS1> through a C<precmd> hook with C<${#jobstates}>, POSIX C<sh> falls back
+to a prompt command that does not depend on bash-only prompt escapes, and
+PowerShell installs a C<prompt> function instead of using the POSIX C<PS1>
+variable.
 
 On Windows, C<dashboard shell> auto-selects PowerShell by default, and
 interpreter-backed runtime entrypoints such as collector C<command> strings,

@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '2.11';
+our $VERSION = '2.12';
 
 use Cwd qw(abs_path cwd);
 use File::Basename qw(dirname);
@@ -584,6 +584,47 @@ sub locate_projects {
     return @found;
 }
 
+# locate_dirs_under($root, @terms)
+# Recursively finds directories beneath one root whose relative path matches
+# every supplied keyword.
+# Input: search root directory path string plus zero or more keyword strings.
+# Output: sorted list of matched directory path strings.
+sub locate_dirs_under {
+    my ( $self, $root, @terms ) = @_;
+    return () if !defined $root || $root eq '' || !-d $root;
+
+    my @wanted = grep { defined && $_ ne '' } @terms;
+    my $root_id = $self->_path_identity($root);
+    my %seen;
+    my @found;
+
+    File::Find::find(
+        {
+            no_chdir => 1,
+            wanted   => sub {
+                my $path = $File::Find::name;
+                return if !-d $path;
+                my $path_id = $self->_path_identity($path);
+                return if $path_id eq '' || $seen{$path_id}++;
+
+                my $relative = $path_id eq $root_id ? '.' : File::Spec->abs2rel( $path_id, $root_id );
+                $relative = '.' if !defined $relative || $relative eq '';
+                $relative =~ s{\\}{/}g;
+                $relative = $relative eq '.' ? '.' : './' . $relative;
+
+                for my $term (@wanted) {
+                    return if $relative !~ /\Q$term\E/i;
+                }
+
+                push @found, $path_id;
+            },
+        },
+        $root,
+    );
+
+    return sort @found;
+}
+
 # collector_dir($name)
 # Returns the runtime directory for a named collector.
 # Input: collector name string.
@@ -793,7 +834,7 @@ dashboard runtime, shell helpers, and background services.
 
 Construct the path registry.
 
-=head2 resolve_dir, resolve_any, locate_projects, current_project_root, project_root_for
+=head2 resolve_dir, resolve_any, locate_projects, locate_dirs_under, current_project_root, project_root_for
 
 Resolve and discover project-related directories.
 

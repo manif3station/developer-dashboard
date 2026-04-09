@@ -1,5 +1,18 @@
 Revision history for Developer Dashboard
 
+2.12  2026-04-09
+    - fixed `cdr` so it now treats a saved first argument as the alias root,
+      then narrows beneath that root with AND-matched keywords from the
+      remaining arguments instead of falling straight back to top-level
+      project-name search
+    - fixed the non-alias `cdr` path so all arguments are now treated as
+      AND-matched directory keywords beneath the current directory, with one
+      match changing directory and multiple matches printed instead of picking
+      one silently
+    - kept the shell bootstrap thin by moving the target-selection logic into
+      `dashboard path cdr`, then expanded unit and shell smoke coverage for
+      alias-only, alias-plus-keywords, and pure-keyword search flows
+
 2.11  2026-04-09
     - fixed oversized hook `RESULT` payload handling so `dashboard` now spills
       large hook output into a file-backed `RESULT_FILE` channel before later

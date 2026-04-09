@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: CDR-KEYWORD-ROOT-DRIFT
+
+**Date:** 2026-04-09 13:40:00 UTC
+**Area:** shell navigation helpers, path alias resolution, and thin-command CLI delegation
+**Symptom:** `cdr alias extra words` ignored the resolved alias root after the first hop and fell back to the older top-level project locator, while `cdr words...` without an alias only searched configured workspace roots instead of the current directory tree
+**Why It Was Dangerous:** It made the shell helper feel random, broke the new alias-root narrowing workflow users expected, and silently searched the wrong place when multiple similarly named directories existed
+**Root Cause:** I left the real selection logic inside the shell bootstrap and only composed `path resolve "$1"` with `path locate "$@"`, which never modeled the required alias-root search semantics at all
+**How Ellen Solved It:** Added TDD in `t/05-cli-smoke.t` and `t/21-refactor-coverage.t`, introduced `Developer::Dashboard::PathRegistry::locate_dirs_under`, moved shell target selection into `dashboard path cdr`, and had every shell bootstrap consume that single Perl-owned payload instead of improvising path rules in shell
+**How To Detect Earlier Next Time:** In an isolated runtime, create one saved alias plus nested directories beneath it and under the current directory, then verify `cdr alias words`, `cdr words`, and the multi-match cases before assuming one `path resolve` plus one `path locate` composition is good enough
+**Prevention Rule:** Shell navigation helpers must not embed their own fuzzy-search contract. If `cdr` or `which_dir` needs nontrivial path selection, keep the logic in one Perl helper with direct unit coverage and let the shell wrapper only print or `cd`
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/21-refactor-coverage.t`, `prove -lr t`
+**Related Files:** `lib/Developer/Dashboard/CLI/Paths.pm`, `lib/Developer/Dashboard/PathRegistry.pm`, `share/private-cli/_dashboard-core`, `t/05-cli-smoke.t`, `t/21-refactor-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: RESULT-ENV-E2BIG-DRIFT
 
 **Date:** 2026-04-09 10:35:00 UTC

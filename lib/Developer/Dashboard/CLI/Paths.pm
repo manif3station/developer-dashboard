@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Paths;
 use strict;
 use warnings;
 
-our $VERSION = '2.11';
+our $VERSION = '2.12';
 
 use Cwd qw(cwd);
 use Developer::Dashboard::Config;
@@ -53,6 +53,11 @@ sub run_paths_command {
         print json_encode( [ $paths->locate_projects(@argv) ] );
         return 1;
     }
+    if ( $action eq 'cdr' ) {
+        $load_configured_path_aliases->();
+        print json_encode( _cdr_payload( paths => $paths, args => \@argv ) );
+        return 1;
+    }
     if ( $action eq 'add' ) {
         my $name = shift @argv || die "Usage: dashboard path add <name> <path>\n";
         my $path = shift @argv || die "Usage: dashboard path add <name> <path>\n";
@@ -80,7 +85,7 @@ sub run_paths_command {
         return 1;
     }
 
-    die "Usage: dashboard path <resolve|locate|add|del|project-root|list> ...\n";
+    die "Usage: dashboard path <resolve|locate|cdr|add|del|project-root|list> ...\n";
 }
 
 # _build_paths()
@@ -96,6 +101,40 @@ sub _build_paths {
         workspace_roots => \@roots,
         project_roots   => \@roots,
     );
+}
+
+# _cdr_payload(%args)
+# Resolves the shell helper target for cdr/which_dir without pushing fuzzy
+# search logic into shell code.
+# Input: hash containing a path registry under "paths" and an argv array
+# reference under "args".
+# Output: hash reference with "target" and "matches" keys.
+sub _cdr_payload {
+    my (%args) = @_;
+    my $paths = $args{paths} || die "Missing paths registry\n";
+    my $argv  = $args{args}  || [];
+    die "cdr args must be an array reference\n" if ref($argv) ne 'ARRAY';
+
+    my @terms = @{$argv};
+    return { target => '', matches => [] } if !@terms;
+
+    my $first = $terms[0];
+    my $alias_target = eval { $paths->resolve_dir($first) };
+    if ( defined $alias_target && $alias_target ne '' ) {
+        shift @terms;
+        return { target => $alias_target, matches => [] } if !@terms;
+        my @matches = $paths->locate_dirs_under( $alias_target, @terms );
+        return {
+            target  => @matches == 1 ? $matches[0] : $alias_target,
+            matches => @matches == 1 ? [] : \@matches,
+        };
+    }
+
+    my @matches = $paths->locate_dirs_under( cwd(), @terms );
+    return {
+        target  => @matches == 1 ? $matches[0] : '',
+        matches => @matches == 1 ? [] : \@matches,
+    };
 }
 
 # _paths_payload($paths)
@@ -164,7 +203,9 @@ Developer::Dashboard::CLI::Paths - lightweight path and paths helper dispatch
 
 Implements the lightweight C<dashboard path> and C<dashboard paths> commands so
 the public entrypoint can hand off path-related work to an extracted helper
-script under F<~/.developer-dashboard/cli/>.
+script under F<~/.developer-dashboard/cli/>. That includes the shared
+target-selection logic used by shell helpers such as C<cdr> and
+C<which_dir>.
 
 =head1 FUNCTIONS
 

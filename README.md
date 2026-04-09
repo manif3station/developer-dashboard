@@ -616,6 +616,17 @@ dashboard path del foobar
 
 Custom path aliases are stored in the effective dashboard config root so shell helpers such as `cdr foobar` and `which_dir foobar` keep working across sessions. When a project-local `./.developer-dashboard` tree exists, alias writes go there first; otherwise they go to the home runtime. When a saved alias points inside your home directory, the stored config uses `$HOME/...` instead of a hard-coded absolute home path so a shared fallback runtime remains portable across different developer accounts. Re-adding an existing alias updates it without error, and deleting a missing alias is also safe.
 
+`cdr` now follows a two-stage path flow instead of only jumping to one alias or one top-level project name. If the first argument resolves as a saved alias and there are no later arguments, `cdr alias` still goes straight there. If the first argument resolves as a saved alias and more arguments remain, `cdr` enters the alias root, then searches every directory under that root with AND-matched keywords taken from the remaining arguments. One match means `cd` into that directory; multiple matches mean print the full list and stay at the alias root. If the first argument is not a saved alias, `cdr` treats every argument as an AND-matched keyword search beneath the current directory. One match means `cd` there; multiple matches mean print the list and leave the current directory unchanged. `which_dir` follows the same selection logic but only prints the chosen target or match list instead of changing directory.
+
+Examples:
+
+```bash
+cdr foobar
+cdr foobar alpha foo bar
+cdr alpha red
+which_dir foobar alpha
+```
+
 Use `Developer::Dashboard::Folder` for runtime path helpers. It resolves the
 same runtime, bookmark, config, and configured alias names exposed by
 `dashboard paths`, including names such as `docker`, without relying on
@@ -886,11 +897,15 @@ dashboard shell ps
 ```
 
 The generated shell helper keeps the same bookmark-aware `cdr`, `dd_cdr`, and
-`which_dir` functions across all supported shells. Bash still uses `\j` for
-job counts, zsh refreshes `PS1` through a `precmd` hook with `${#jobstates}`,
-POSIX `sh` falls back to a prompt command that does not depend on bash-only
-prompt escapes, and PowerShell installs a `prompt` function instead of using
-the POSIX `PS1` variable.
+`which_dir` functions across all supported shells. `cdr` first tries a saved
+alias, then falls back to an AND-matched directory search beneath the alias
+root or the current directory depending on whether that first argument was a
+known alias. One match changes directory, multiple matches print the list, and
+`which_dir` prints the same selected target or match list without changing
+directory. Bash still uses `\j` for job counts, zsh refreshes `PS1` through a
+`precmd` hook with `${#jobstates}`, POSIX `sh` falls back to a prompt command
+that does not depend on bash-only prompt escapes, and PowerShell installs a
+`prompt` function instead of using the POSIX `PS1` variable.
 
 On Windows, `dashboard shell` auto-selects PowerShell by default, and
 interpreter-backed runtime entrypoints such as collector `command` strings,
