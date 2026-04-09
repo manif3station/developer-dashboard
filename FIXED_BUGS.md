@@ -1,5 +1,10 @@
 # Fixed Bugs
 
+## 2026-04-09 (Phase 79: Workflow Coverage Gate Spacing Drift)
+
+- Fixed the GitHub workflow coverage gate so `test.yml`, `release-cpan.yml`, and `release-github.yml` no longer fail after a real `100.0 / 100.0 / 100.0` `Devel::Cover` run just because the runner printed a different amount of spacing on the `Total` line.
+- Expanded `t/34-scorecard-guardrails.t` so workflow coverage checks now fail under TDD if they drift back to a brittle fixed-spacing `grep -F` match instead of a regex match on the semantic `Total` summary line.
+
 ## 2026-04-09 (Phase 78: Release CPAN And Mac Shell Portability Drift)
 
 - Fixed the GitHub `Release To CPAN` workflow so the hosted Ubuntu release runner no longer fails on one stale PowerShell expectation, untracked integration assets, inherited broken OpenSSL config, or Chromium sandbox defaults during the packaged-tree smoke path.

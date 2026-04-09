@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: WORKFLOW-COVERAGE-GATE-SPACING-DRIFT
+
+**Date:** 2026-04-09 21:45:00 UTC
+**Area:** GitHub Actions coverage verification
+**Symptom:** The `Release To CPAN` workflow reran the full `Devel::Cover` suite successfully and then still failed in the coverage step because the workflow could not find the `Total` line it expected
+**Why It Was Dangerous:** It made real `100%` coverage look broken, blocked releases after the expensive full covered run, and left CI sensitive to cosmetic output padding from `Devel::Cover` or runner upgrades
+**Root Cause:** I matched the `Total` coverage line with one hard-coded fixed-width `grep -F` string instead of checking the semantic values on that line
+**How Ellen Solved It:** Reproduced the exact workflow command, confirmed that `Devel::Cover` still printed `Total ... 100.0  100.0  100.0` with different spacing, changed `test.yml`, `release-cpan.yml`, and `release-github.yml` to use a regex match, and expanded `t/34-scorecard-guardrails.t` so workflow coverage gates now fail if they drift back to one brittle spacing layout
+**How To Detect Earlier Next Time:** Run the exact workflow shell block locally and inspect the `Total` line from `cover -report text -select_re '^lib/' -coverage statement -coverage subroutine` instead of assuming the spacing stayed stable
+**Prevention Rule:** Coverage gates must match the `Devel::Cover` `Total` line semantically by regex, not by one exact run of spaces
+**Verification:** `prove -lv t/34-scorecard-guardrails.t`
+**Related Files:** `.github/workflows/test.yml`, `.github/workflows/release-cpan.yml`, `.github/workflows/release-github.yml`, `t/34-scorecard-guardrails.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/update-and-release.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: RELEASE-CPAN-AND-MAC-SHELL-PORTABILITY-DRIFT
 
 **Date:** 2026-04-09 17:25:00 UTC

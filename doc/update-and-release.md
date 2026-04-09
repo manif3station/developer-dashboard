@@ -35,6 +35,7 @@ Hard implementation rules under this gate:
 - keep Docker `FROM` lines pinned by digest when Scorecard scans them
 - keep a detectable fuzzing signal in the repo; this tree uses `fast-check` plus `.clusterfuzzlite/Dockerfile`, and any workflow that drives `dashboard encode` / `dashboard decode` must install the Perl runtime first
 - keep `Signed-Releases` backed by a real GitHub release that contains the release tarball and its detached signature asset
+- keep workflow coverage gates matching the `Devel::Cover` `Total` summary line by regex instead of fixed-width spacing, because host upgrades can change padding without changing the real `100.0 / 100.0 / 100.0` outcome
 
 ## Local Update
 

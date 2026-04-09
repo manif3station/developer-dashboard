@@ -94,9 +94,30 @@ like( $release_cpan_workflow, qr/Developer-Dashboard-\*\.tar\.gz/, 'PAUSE releas
 unlike( $release_cpan_workflow, qr/\.build\/\*\.tar\.gz/, 'PAUSE release workflow no longer looks for tarballs under a nonexistent .build directory' );
 like(
     $release_cpan_workflow,
-    qr/grep -F "Total\s+100\.0\s+100\.0\s+100\.0"/,
-    'PAUSE release workflow enforces the same 100% lib coverage gate as the main CI workflow',
+    qr/grep -E '\^Total\[\[:space:\]\]\+100\\\.0\[\[:space:\]\]\+100\\\.0\[\[:space:\]\]\+100\\\.0\$'/,
+    'PAUSE release workflow enforces the same 100% lib coverage gate as the main CI workflow without depending on fixed column spacing',
 );
+
+for my $coverage_workflow (
+    qw(
+    .github/workflows/test.yml
+    .github/workflows/release-cpan.yml
+    .github/workflows/release-github.yml
+    )
+  )
+{
+    my $text = _slurp($coverage_workflow);
+    like(
+        $text,
+        qr/grep -E '\^Total\[\[:space:\]\]\+100\\\.0\[\[:space:\]\]\+100\\\.0\[\[:space:\]\]\+100\\\.0\$'/,
+        "$coverage_workflow matches the Total coverage line by regex instead of a brittle fixed-width string",
+    );
+    unlike(
+        $text,
+        qr/grep -F "Total\s{10,}100\.0\s+100\.0\s+100\.0"/,
+        "$coverage_workflow no longer hard-codes one Devel::Cover spacing layout",
+    );
+}
 
 my $blank_env_dockerfile = _slurp('integration/blank-env/Dockerfile');
 like( $blank_env_dockerfile, qr/\AFROM\s+ubuntu:24\.04\@sha256:/, 'blank-env Dockerfile pins its Ubuntu base image by digest' );

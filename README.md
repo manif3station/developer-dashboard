@@ -1331,6 +1331,10 @@ cover -report text -select_re '^lib/' -coverage statement -coverage subroutine
 ```
 
 The repository target is 100% statement and subroutine coverage for `lib/`.
+GitHub workflow coverage gates must match the `Devel::Cover` `Total` summary
+line by regex rather than one fixed-width spacing layout, because runner or
+module upgrades can change column padding without changing the real
+`100.0 / 100.0 / 100.0` result.
 
 The coverage-closure suite includes managed collector loop start/stop paths
 under `Devel::Cover`, including wrapped fork coverage in

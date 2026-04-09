@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.14';
+our $VERSION = '2.15';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.14
+2.15
 
 =head1 INTRODUCTION
 
@@ -1553,6 +1553,10 @@ Measure library coverage with Devel::Cover:
   cover -report text -select_re '^lib/' -coverage statement -coverage subroutine
 
 The repository target is 100% statement and subroutine coverage for C<lib/>.
+GitHub workflow coverage gates must match the C<Devel::Cover> C<Total> summary
+line by regex rather than one fixed-width spacing layout, because runner or
+module upgrades can change column padding without changing the real
+C<100.0 / 100.0 / 100.0> result.
 
 The coverage-closure suite includes managed collector loop start/stop paths
 under C<Devel::Cover>, including wrapped fork coverage in

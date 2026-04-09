@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+2.15  2026-04-09
+    - fixed the GitHub coverage gate in `test.yml`, `release-cpan.yml`, and
+      `release-github.yml` so those workflows now match the `Devel::Cover`
+      `Total` line by regex instead of one brittle fixed-width spacing layout
+
 2.14  2026-04-09
     - fixed the GitHub `Release To CPAN` workflow so the packaged-tree smoke
       path now survives hosted-runner differences instead of failing on the

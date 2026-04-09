@@ -61,7 +61,7 @@ jobs:
           HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
           report="$(cover -report text -select_re '^lib/' -coverage statement -coverage subroutine)"
           printf '%s\n' "$report"
-          printf '%s\n' "$report" | grep -F "Total                                       100.0  100.0  100.0"
+          printf '%s\n' "$report" | grep -E '^Total[[:space:]]+100\.0[[:space:]]+100\.0[[:space:]]+100\.0$'
 
       - name: Build distribution tarball
         run: |
