@@ -1,5 +1,10 @@
 Revision history for Developer Dashboard
 
+2.16  2026-04-09
+    - fixed macOS shell-smoke portability in `t/05-cli-smoke.t` so `cdr` and
+      `which_dir` assertions now compare canonical path identity instead of
+      failing on equivalent `/var/...` versus `/private/var/...` aliases
+
 2.15  2026-04-09
     - fixed the GitHub coverage gate in `test.yml`, `release-cpan.yml`, and
       `release-github.yml` so those workflows now match the `Devel::Cover`

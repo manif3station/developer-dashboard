@@ -919,7 +919,9 @@ alias, then falls back to an AND-matched directory search beneath the alias
 root or the current directory depending on whether that first argument was a
 known alias. One match changes directory, multiple matches print the list, and
 `which_dir` prints the same selected target or match list without changing
-directory. Bash still uses `\j` for job counts, zsh refreshes `PS1` through a
+directory. The shell-smoke regression coverage also compares those printed
+paths by canonical identity, so macOS `/var/...` and `/private/var/...`
+aliases do not fail equivalent `pwd` / `which_dir` checks. Bash still uses `\j` for job counts, zsh refreshes `PS1` through a
 `precmd` hook with `${#jobstates}`, POSIX `sh` falls back to a prompt command
 that does not depend on bash-only prompt escapes, and PowerShell installs a
 `prompt` function instead of using the POSIX `PS1` variable.

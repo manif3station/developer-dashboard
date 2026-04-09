@@ -1,5 +1,9 @@
 # Fixed Bugs
 
+## 2026-04-09 (Phase 80: Mac Shell Path Alias Drift)
+
+- Fixed `t/05-cli-smoke.t` so the shell-helper `cdr` and `which_dir` assertions now compare canonical path identity instead of raw strings, which keeps macOS source-tree runs green when the same temp tree appears as `/var/...` in the shell and `/private/var/...` from `pwd`.
+
 ## 2026-04-09 (Phase 79: Workflow Coverage Gate Spacing Drift)
 
 - Fixed the GitHub workflow coverage gate so `test.yml`, `release-cpan.yml`, and `release-github.yml` no longer fail after a real `100.0 / 100.0 / 100.0` `Devel::Cover` run just because the runner printed a different amount of spacing on the `Total` line.

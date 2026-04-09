@@ -77,6 +77,9 @@ The shell bootstrap regression coverage also checks that the POSIX `cdr` and
 interpreter that generated the shell fragment, which prevents macOS
 `JSON::XS` ABI mismatches when `/usr/bin/perl` and `~/perl5` belong to
 different Perl builds.
+Those shell-helper regression assertions also normalize printed path identity,
+so macOS `/var/...` versus `/private/var/...` aliases do not fail otherwise
+equivalent `pwd` or `which_dir` output checks.
 
 Command execution paths are exercised through `Capture::Tiny` `capture` wrappers that return exit codes from the capture block itself rather than reading `$?` afterward.
 

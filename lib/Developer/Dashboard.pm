@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.15';
+our $VERSION = '2.16';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.15
+2.16
 
 =head1 INTRODUCTION
 
@@ -1342,6 +1342,10 @@ alias root or the current directory depending on whether that first argument
 was a known alias. One match changes directory, multiple matches print the
 list, and C<which_dir> prints the same selected target or match list without
 changing directory. Bash still uses C<\j> for job counts, zsh refreshes
+The shell-smoke regression coverage also compares those printed paths by
+canonical identity, so macOS C</var/...> and C</private/var/...> aliases do
+not fail equivalent C<pwd> / C<which_dir> checks. Bash still uses C<\j> for
+job counts, zsh refreshes
 C<PS1> through a C<precmd> hook with C<${#jobstates}>, POSIX C<sh> falls back
 to a prompt command that does not depend on bash-only prompt escapes, and
 PowerShell installs a C<prompt> function instead of using the POSIX C<PS1>

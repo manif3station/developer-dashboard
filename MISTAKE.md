@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: MAC-SHELL-PATH-ALIAS-DRIFT
+
+**Date:** 2026-04-09 23:10:00 UTC
+**Area:** macOS shell-helper regression coverage
+**Symptom:** `t/05-cli-smoke.t` failed on macOS for `cdr` and `which_dir` even though the selected directory was correct, because the shell printed one temp path through `/var/...` while canonical lookups reported `/private/var/...`
+**Why It Was Dangerous:** It made a correct shell-helper implementation look broken on macOS and left the source-tree smoke suite less portable than the lower-level path registry tests
+**Root Cause:** I had already normalized canonical path identity in `t/21-refactor-coverage.t`, but the higher-level shell-helper assertions in `t/05-cli-smoke.t` still compared raw strings
+**How Ellen Solved It:** Added path-output normalization helpers to `t/05-cli-smoke.t` and switched the `cdr` / `which_dir` shell assertions to compare canonical identities while preserving the actual shell behavior under test
+**How To Detect Earlier Next Time:** Run `t/05-cli-smoke.t` on macOS whenever shell-helper coverage changes and look for `/var/...` versus `/private/var/...` drift in `pwd`-driven assertions
+**Prevention Rule:** Any macOS-facing path assertion that consumes shell output must compare canonical path identity instead of raw strings
+**Verification:** `prove -lv t/05-cli-smoke.t`
+**Related Files:** `t/05-cli-smoke.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: WORKFLOW-COVERAGE-GATE-SPACING-DRIFT
 
 **Date:** 2026-04-09 21:45:00 UTC
