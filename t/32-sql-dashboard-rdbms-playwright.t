@@ -471,7 +471,7 @@ sub _run_rdbms_matrix {
           };
         ok( $payload->{ok}, "$args{label} sql-dashboard Playwright matrix reports success" )
           or diag _diagnostic_text($payload);
-        is( scalar @{ $payload->{cases} || [] }, 20, "$args{label} sql-dashboard Playwright matrix records 20 browser cases" );
+        is( scalar @{ $payload->{cases} || [] }, 22, "$args{label} sql-dashboard Playwright matrix records 22 browser cases" );
         for my $case ( @{ $payload->{cases} || [] } ) {
             ok( $case->{ok}, "$args{label}: $case->{name}" ) or diag _case_diagnostic($case);
         }
@@ -602,7 +602,7 @@ async function main() {
 
   await check('profile save succeeds', async () => {
     const response = await Promise.all([
-      page.waitForResponse((value) => value.url().includes('/ajax/sql-dashboard-profiles-save') && value.status() === 200),
+      page.waitForResponse((value) => value.request().method() === 'POST' && value.url().includes('/ajax/sql-dashboard-profiles-save') && value.status() === 200),
       page.locator('#sql-profile-save').click()
     ]).then((values) => values[0]);
     const payload = await response.json();
@@ -628,6 +628,19 @@ async function main() {
   await page.locator('[data-sql-main-tab="workspace"]').click();
   await page.locator('#sql-editor').fill('select id, name from users order by id');
 
+  await check('workspace subtabs default to Run SQL', async () => {
+    const layout = await page.evaluate(() => {
+      const tabs = Array.from(document.querySelectorAll('[data-sql-workspace-tab]')).map((node) => node.textContent || '');
+      const active = document.querySelector('[data-sql-workspace-tab].is-active');
+      return {
+        tabs,
+        active: active ? active.textContent : ''
+      };
+    });
+    ensure(layout.tabs.includes('Collection') && layout.tabs.includes('Run SQL') && String(layout.active || '').includes('Run SQL'),
+      'workspace should expose Collection and Run SQL subtabs with Run SQL active by default: ' + JSON.stringify(layout));
+  });
+
   await check('workspace route includes portable connection id', async () => {
     const url = page.url();
     ensure(url.includes('connection='), 'workspace URL should include a connection parameter: ' + url);
@@ -640,11 +653,20 @@ async function main() {
     ensure(!url.includes('password'), 'workspace URL should not leak passwords: ' + url);
   });
 
+  await page.locator('[data-sql-workspace-tab="collections"]').click();
   await page.locator('#sql-collection-name').fill(process.env.DB_COLLECTION);
+  const collectionCreateResponse = await Promise.all([
+    page.waitForResponse((value) => value.request().method() === 'POST' && value.url().includes('/ajax/sql-dashboard-collections-save') && value.status() === 200),
+    page.locator('#sql-collection-save').click()
+  ]).then((values) => values[0]);
+  const collectionCreatePayload = await collectionCreateResponse.json();
+  ensure(collectionCreatePayload && collectionCreatePayload.ok, 'collection create failed: ' + JSON.stringify(collectionCreatePayload || {}));
+
+  await page.locator('[data-sql-workspace-tab="run"]').click();
   await page.locator('#sql-collection-item-name').fill('Users Query');
   await check('collection save succeeds', async () => {
     const response = await Promise.all([
-      page.waitForResponse((value) => value.url().includes('/ajax/sql-dashboard-collections-save') && value.status() === 200),
+      page.waitForResponse((value) => value.request().method() === 'POST' && value.url().includes('/ajax/sql-dashboard-collections-save') && value.status() === 200),
       page.locator('#sql-collection-item-save').click()
     ]).then((values) => values[0]);
     const payload = await response.json();
@@ -667,7 +689,7 @@ async function main() {
 
   await check('select query executes successfully', async () => {
     const response = await Promise.all([
-      page.waitForResponse((value) => value.url().includes('/ajax/sql-dashboard-execute') && value.status() === 200),
+      page.waitForResponse((value) => value.request().method() === 'POST' && value.url().includes('/ajax/sql-dashboard-execute') && value.status() === 200),
       page.locator('#sql-run').click()
     ]).then((values) => values[0]);
     const payload = await response.json();
@@ -688,7 +710,7 @@ async function main() {
   });
 
   const schemaResponse = await Promise.all([
-    page.waitForResponse((value) => value.url().includes('/ajax/sql-dashboard-schema-browse') && value.status() === 200),
+    page.waitForResponse((value) => value.request().method() === 'POST' && value.url().includes('/ajax/sql-dashboard-schema-browse') && value.status() === 200),
     page.locator('[data-sql-main-tab="schema"]').click()
   ]).then((values) => values[0]);
   const schemaPayload = await schemaResponse.json();
@@ -696,20 +718,29 @@ async function main() {
   await page.waitForTimeout(400);
 
   await check('schema browse loads first table', async () => {
-    const tabs = await page.locator('[data-sql-table-tab]').allTextContents();
+    const tabs = await page.locator('[data-sql-table-name]').allTextContents();
     ensure(tabs.includes(process.env.DB_EXPECT_TABLE_A),
       'schema tabs should include the first expected table: ' + JSON.stringify(tabs));
   });
 
   await check('schema browse loads second table', async () => {
-    const tabs = await page.locator('[data-sql-table-tab]').allTextContents();
+    const tabs = await page.locator('[data-sql-table-name]').allTextContents();
     ensure(tabs.includes(process.env.DB_EXPECT_TABLE_B),
       'schema tabs should include the second expected table: ' + JSON.stringify(tabs));
   });
 
+  await check('schema table filter narrows the table list live', async () => {
+    await page.locator('#sql-table-filter').fill(process.env.DB_EXPECT_TABLE_B.slice(0, 3));
+    await page.waitForTimeout(200);
+    const tabs = await page.locator('[data-sql-table-name]').allTextContents();
+    ensure(tabs.some((value) => String(value || '') === process.env.DB_EXPECT_TABLE_B),
+      'schema filter should keep the matching table visible: ' + JSON.stringify(tabs));
+    await page.locator('#sql-table-filter').fill('');
+  });
+
   await page.locator('[data-sql-main-tab="profiles"]').click();
   const deleteResponse = await Promise.all([
-    page.waitForResponse((value) => value.url().includes('/ajax/sql-dashboard-profiles-delete') && value.status() === 200),
+    page.waitForResponse((value) => value.request().method() === 'POST' && value.url().includes('/ajax/sql-dashboard-profiles-delete') && value.status() === 200),
     page.locator('#sql-profile-delete').click()
   ]).then((values) => values[0]);
   const deletePayload = await deleteResponse.json();

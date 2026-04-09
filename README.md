@@ -993,6 +993,12 @@ init creates it as `{}`. The command refreshes dashboard-managed helpers in
 `~/.developer-dashboard/cli/dd/` and seeds starter bookmarks that are not
 already present.
 
+Starter bookmark refresh is also non-destructive. If a saved `api-dashboard`
+or `sql-dashboard` page still matches the last dashboard-managed shipped copy,
+`dashboard init` refreshes it to the current shipped seed. If the saved page
+has diverged from the recorded managed digest, init treats it as a user edit
+and leaves it alone.
+
 When `dashboard init` refreshes a dashboard-managed helper or shipped starter
 file, it compares the existing content against the shipped content by MD5
 inside Perl first. If the content already matches, init skips the copy
@@ -1093,26 +1099,40 @@ that dropdown, seeds a usable DSN template for SQLite, MySQL, PostgreSQL,
 MSSQL/ODBC, and Oracle when the DSN is blank, and rewrites only the
 `dbi:<Driver>:` DSN prefix when you switch drivers. The main browser flow
 now merges collections and editing into one `SQL Workspace` tab with a
-phpMyAdmin-style master-detail layout: collection tabs stay in the left
-navigation rail, the saved SQL list for the active collection appears
-directly below that heading, the right pane keeps the editor plus results
-together, and the active saved SQL name stays visible while you work. Saving
-a different SQL name into the same collection adds a second saved SQL entry
-instead of overwriting the selected one. The workspace editor now keeps the
-SQL textarea as the primary focus with content-based auto-resize, uses one
-quiet action row under the editor instead of a loud toolbar, removes the
-redundant in-workspace schema button in favour of the top `Schema Explorer`
-tab, and moves saved-SQL deletion to a compact inline `[X]` control beside
-each saved query so the list stays visually tied to its collection. The
-bookmark still renders profile tabs and schema tabs, executes SQL through
-generic `DBI`, and uses DBI metadata calls such as `table_info` and
-`column_info` for the schema browser. The core browser workflow is now live
-verified against SQLite, MySQL, PostgreSQL, MSSQL via `DBD::ODBC`, and
-Oracle via `DBD::Oracle`. It preserves programmable statement blocks through
-`SQLS_SEP` and `INSTRUCTION_SEP`, including `STASH`, `ROW`, `BEFORE`, and
-`AFTER` hooks, so result rows can still be transformed locally before
-rendering into derived HTML, links, or button-like actions. Its saved Ajax
-endpoints run through singleton workers. No `DBD::*` driver ships in the base
+phpMyAdmin-style master-detail layout with two inner workspace tabs:
+`Collection` and `Run SQL`. The `Collection` view keeps collection tabs and
+the saved SQL list together in the left navigation rail, while `Run SQL`
+keeps the editor plus results together on the right and leaves that runner
+view active by default because it is the main operator path. The active
+saved SQL name stays visible while you work, and saving a different SQL name
+into the same collection adds a second saved SQL entry instead of
+overwriting the selected one. The workspace editor now keeps the SQL
+textarea as the primary focus with content-based auto-resize, uses one quiet
+action row under the editor instead of a loud toolbar, removes the redundant
+in-workspace schema button in favour of the top `Schema Explorer` tab, and
+moves saved-SQL deletion to a compact inline `[X]` control beside each saved
+query so the list stays visually tied to its collection. The bookmark still
+renders profile tabs and schema tabs, executes SQL through generic `DBI`,
+and uses DBI metadata calls such as `table_info` and `column_info` for the
+schema browser. Schema Explorer now also gives the table list a live filter
+box, renders human type labels and positive length labels from the DBI
+metadata instead of leaking raw numeric type codes, lets the user copy a
+table name directly, and adds a `View Data` action that jumps back to `Run
+SQL` with a ready `select * from <table>` query for the selected table. The
+core browser workflow is now live verified against SQLite, MySQL,
+PostgreSQL, MSSQL via `DBD::ODBC`, and Oracle via `DBD::Oracle`. Schema
+browse keeps reading `table_info` / `column_info` rows directly and must not
+call `execute()` on those metadata handles, because ODBC drivers such as
+MSSQL can fail with `SQL-HY010` on that misuse. Saved dashboard pages
+override shipped seeded pages, so an
+older `~/.developer-dashboard/dashboards/sql-dashboard` copy can still
+shadow a newer shipped fix after upgrade; when SQL Dashboard behavior looks
+stale, use `dashboard page source sql-dashboard` to confirm which page
+source is live before debugging the browser route. It preserves programmable
+statement blocks through `SQLS_SEP` and `INSTRUCTION_SEP`, including
+`STASH`, `ROW`, `BEFORE`, and `AFTER` hooks, so result rows can still be
+transformed locally before rendering into derived HTML, links, or button-like
+actions. Its saved Ajax endpoints run through singleton workers. No `DBD::*` driver ships in the base
 tarball by default; install only the one you need with `dashboard cpan
 DBD::Driver` or user-space `cpanm -L ~/perl5 DBD::Driver`, and the bookmark
 will return explicit install guidance when a selected driver is missing. For
@@ -1259,6 +1279,7 @@ export PERL5LIB="$PWD/.perl5/lib/perl5${PERL5LIB:+:$PERL5LIB}"
 export PATH="$PWD/.perl5/bin:$PATH"
 cover -delete
 HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
+PERL5OPT=-MDevel::Cover prove -lr t
 cover -report text -select_re '^lib/' -coverage statement -coverage subroutine
 ```
 
@@ -1268,6 +1289,9 @@ The coverage-closure suite includes managed collector loop start/stop paths
 under `Devel::Cover`, including wrapped fork coverage in
 `t/14-coverage-closure-extra.t`, so the covered run stays green without
 breaking TAP from daemon-style child processes.
+The `t/07-core-units.t` collector loop guard treats both
+`HARNESS_PERL_SWITCHES` and `PERL5OPT` as valid `Devel::Cover` signals,
+because this machine uses both launch styles during verification.
 The runtime-manager coverage cases also use bounded child reaping for stubborn
 process shutdown scenarios, so `Devel::Cover` runs do not stall indefinitely
 after the escalation path has already been exercised.

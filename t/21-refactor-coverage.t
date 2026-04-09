@@ -12,6 +12,7 @@ use Test::More;
 
 use lib 'lib';
 
+use Developer::Dashboard::CLI::SeededPages ();
 use Developer::Dashboard::CLI::Query ();
 use Developer::Dashboard::CLI::Ticket ();
 use Developer::Dashboard::CLI::Paths ();
@@ -116,6 +117,98 @@ ok(
     !Developer::Dashboard::SeedSync::same_content_md5("abc\n", "abcd\n"),
     'SeedSync same_content_md5 reports different payloads as different',
 );
+is(
+    Developer::Dashboard::CLI::SeededPages::seed_manifest_path( paths => $paths ),
+    File::Spec->catfile( $paths->config_root, 'seeded-pages.json' ),
+    'SeededPages stores the managed seed manifest under the active runtime config root',
+);
+{
+    my $api_dashboard_page = Developer::Dashboard::CLI::SeededPages::page_for_id('api-dashboard');
+    isa_ok( $api_dashboard_page, 'Developer::Dashboard::PageDocument', 'page_for_id loads one shipped seeded page document' );
+    is( $api_dashboard_page->as_hash->{id}, 'api-dashboard', 'page_for_id returns the seeded page requested by id' );
+}
+ok(
+    Developer::Dashboard::CLI::SeededPages::is_known_managed_page_md5(
+        id  => 'sql-dashboard',
+        md5 => '7d9101e0e2585c159e575f0dbd49b3ef',
+    ),
+    'SeededPages recognizes the pre-refresh shipped sql-dashboard digest as dashboard-managed for upgrade bridging',
+);
+ok(
+    !Developer::Dashboard::CLI::SeededPages::is_known_managed_page_md5(
+        id  => 'sql-dashboard',
+        md5 => 'ffffffffffffffffffffffffffffffff',
+    ),
+    'SeededPages rejects unknown sql-dashboard digests from automatic refresh',
+);
+{
+    my $shared_root = tempdir( CLEANUP => 1 );
+    my $shared_seeded_pages_root = File::Spec->catdir( $shared_root, 'seeded-pages' );
+    make_path($shared_seeded_pages_root);
+    my $shared_seeded_page = File::Spec->catfile( $shared_seeded_pages_root, 'api-dashboard.page' );
+    _write_file(
+        $shared_seeded_page,
+        Developer::Dashboard::CLI::SeededPages::api_dashboard_page()->canonical_instruction,
+    );
+
+    local *Developer::Dashboard::CLI::SeededPages::_repo_seeded_pages_root = sub {
+        return File::Spec->catdir( $shared_root, 'missing-repo-seeded-pages' );
+    };
+    local *Developer::Dashboard::CLI::SeededPages::dist_dir = sub { return $shared_root };
+
+    is(
+        Developer::Dashboard::CLI::SeededPages::_shared_seeded_pages_root(),
+        $shared_seeded_pages_root,
+        'SeededPages resolves the installed shared seeded-pages root through File::ShareDir',
+    );
+    is(
+        Developer::Dashboard::CLI::SeededPages::_seeded_page_asset_path('api-dashboard.page'),
+        $shared_seeded_page,
+        'SeededPages falls back to the installed shared seeded-page asset path when the repo asset is unavailable',
+    );
+}
+{
+    my $preserve_home = tempdir( CLEANUP => 1 );
+    my $preserve_paths = Developer::Dashboard::PathRegistry->new( home => $preserve_home );
+    my $seeded_page_hash = Developer::Dashboard::CLI::SeededPages::page_for_id('api-dashboard')->as_hash;
+    my $saved_instruction = <<'BOOKMARK';
+TITLE: api-dashboard
+:--------------------------------------------------------------------------------:
+BOOKMARK: api-dashboard
+:--------------------------------------------------------------------------------:
+HTML: <div>user-edited seeded page</div>
+BOOKMARK
+    my $page_store = bless {
+        current => $saved_instruction,
+        saved   => [],
+    }, 'Local::SeededPageStore';
+
+    no warnings qw(redefine once);
+    local *Local::SeededPageStore::read_saved_entry = sub {
+        my ( $self, $id ) = @_;
+        return $self->{current};
+    };
+    local *Local::SeededPageStore::save_page = sub {
+        my ( $self, $page ) = @_;
+        push @{ $self->{saved} }, $page;
+        return $page;
+    };
+
+    is(
+        Developer::Dashboard::CLI::SeededPages::ensure_seeded_page(
+            pages => $page_store,
+            paths => $preserve_paths,
+            page  => $seeded_page_hash,
+        ),
+        'preserved',
+        'ensure_seeded_page preserves a diverged saved seed when it no longer matches any dashboard-managed digest',
+    );
+    is_deeply( $page_store->{saved}, [], 'ensure_seeded_page does not rewrite a preserved user-edited seeded page' );
+    ok(
+        !-f Developer::Dashboard::CLI::SeededPages::seed_manifest_path( paths => $preserve_paths ),
+        'ensure_seeded_page does not create or update the seed manifest when it preserves a diverged page',
+    );
+}
 like(
     _dies( sub { Developer::Dashboard::InternalCLI::helper_path( paths => $paths, name => 'bogus' ) } ),
     qr/Unsupported helper command/,

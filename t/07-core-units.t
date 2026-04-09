@@ -1819,7 +1819,10 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
     indicators => $collector_indicators,
     paths      => $paths,
 );
-my $under_cover = ( $ENV{HARNESS_PERL_SWITCHES} || '' ) =~ /Devel::Cover/ ? 1 : 0;
+my $under_cover = (
+    ( $ENV{HARNESS_PERL_SWITCHES} || '' ) =~ /Devel::Cover/
+      || ( $ENV{PERL5OPT} || '' ) =~ /Devel::Cover/
+) ? 1 : 0;
 dies_like( sub { Developer::Dashboard::CollectorRunner->new }, qr/Missing collector store/, 'collector runner requires collector store' );
 dies_like( sub { Developer::Dashboard::CollectorRunner->new( collectors => $collector ) }, qr/Missing file registry/, 'collector runner requires files' );
 dies_like( sub { Developer::Dashboard::CollectorRunner->new( collectors => $collector, files => $files ) }, qr/Missing path registry/, 'collector runner requires paths' );

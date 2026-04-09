@@ -956,20 +956,18 @@ else {
 }
 
 # _seed_init_page($pages, $known_ids, $page)
-# Saves one seeded page when it does not already exist in the effective bookmark roots.
+# Saves or refreshes one seeded page when the existing target is still the last
+# known dashboard-managed copy, while preserving diverged user-edited pages.
 # Input: page store, array reference of known ids, and page document object.
 # Output: true when the page already existed or was written.
 sub _seed_init_page {
     my ( $pages, $known_ids, $page ) = @_;
     my $id = $page->as_hash->{id} || return 1;
-    if ( grep { $_ eq $id } @{ $known_ids || [] } ) {
-        my $current = eval { $pages->read_saved_entry($id) };
-        return 1
-          if defined $current
-          && Developer::Dashboard::SeedSync::same_content_md5( $current, $page->canonical_instruction );
-        return 1;
-    }
-    $pages->save_page($page);
+    Developer::Dashboard::CLI::SeededPages::ensure_seeded_page(
+        page  => $page,
+        pages => $pages,
+        paths => $paths,
+    );
     push @{ $known_ids || [] }, $id;
     return 1;
 }

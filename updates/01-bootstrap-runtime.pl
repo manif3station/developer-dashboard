@@ -12,8 +12,6 @@ use Developer::Dashboard::CLI::SeededPages;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PageStore;
 use Developer::Dashboard::PathRegistry;
-use Developer::Dashboard::SeedSync;
-
 my $paths = Developer::Dashboard::PathRegistry->new(
     workspace_roots => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
     project_roots   => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
@@ -34,16 +32,13 @@ for my $seed (
   )
 {
     my ( $id, $page ) = @{$seed};
-    if ( grep { $_ eq $id } @pages ) {
-        my $current = eval { $pages->read_saved_entry($id) };
-        next
-          if defined $current
-          && Developer::Dashboard::SeedSync::same_content_md5( $current, $page->canonical_instruction );
-        next;
-    }
-    $pages->save_page($page);
-    push @pages, $id;
-    print "Created $id page\n";
+    my $status = Developer::Dashboard::CLI::SeededPages::ensure_seeded_page(
+        page  => $page,
+        pages => $pages,
+        paths => $paths,
+    );
+    push @pages, $id if !grep { $_ eq $id } @pages;
+    print ucfirst($status) . " $id page\n" if $status eq 'created' || $status eq 'updated';
 }
 
 print "Runtime bootstrap complete\n";

@@ -52,18 +52,18 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '2.04', 'repo version bumped for the Scorecard gatekeeper hardening release' );
-like( $pm, qr/^2\.04$/m, 'main POD version matches the module version' );
+is( $version, '2.08', 'repo version bumped for the covered-run guard release' );
+like( $pm, qr/^2\.08$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 2\.04$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 2\.08$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
     like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"2\.04"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"2\.08"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^2\.04\s+2026-04-08$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^2\.08\s+2026-04-09$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -147,8 +147,12 @@ for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/config\/sql-dashboard\/collections/, 'docs describe the runtime config/sql-dashboard collection storage path' );
     like( $doc, qr/portable `connection` id|portable C<connection> id|dsn\|user/, 'docs describe the portable sql-dashboard connection id model' );
     like( $doc, qr/table_info|column_info/, 'docs describe generic DBI schema metadata browsing for sql-dashboard' );
+    like( $doc, qr/Collection.*Run SQL|Run SQL.*Collection/s, 'docs describe the sql-dashboard inner workspace tabs' );
     like( $doc, qr/auto-resiz|auto resiz|large auto-resizing editor/, 'docs describe the sql-dashboard large auto-resizing editor' );
-    like( $doc, qr/inline `\[X\]`|inline C<\[X\]>|inline \[X\]/, 'docs describe inline saved-SQL deletion' );
+    like( $doc, qr/inline\s+(?:`\[X\]`|C<\[X\]>|\[X\])/, 'docs describe inline saved-SQL deletion' );
+    like( $doc, qr/live filter|table list a live filter|schema table filter/i, 'docs describe schema table filtering' );
+    like( $doc, qr/View Data|copy a table name|copy a table/i, 'docs describe schema copy and view-data actions' );
+    like( $doc, qr/human type labels|positive length labels|raw numeric type codes/i, 'docs describe normalized schema type and length labels' );
     like( $doc, qr/SQLS_SEP.*INSTRUCTION_SEP|INSTRUCTION_SEP.*SQLS_SEP/s, 'docs describe programmable sql-dashboard statement separators' );
     like( $doc, qr/singleton workers|singleton saved-Ajax workers|singleton saved Ajax workers/, 'docs describe singleton sql-dashboard Ajax workers' );
     like( $doc, qr/dashboard cpan DBD::Driver|DBD::\*/, 'docs describe optional DBD driver installation instead of bundling one database driver' );

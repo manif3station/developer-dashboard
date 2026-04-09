@@ -1,5 +1,29 @@
 # Fixed Bugs
 
+## 2026-04-09 (Phase 72: Covered Loop Guard Drift)
+
+- Fixed `t/07-core-units.t` so covered runs detect both `HARNESS_PERL_SWITCHES=-MDevel::Cover` and `PERL5OPT=-MDevel::Cover` before entering the collector-loop fork branch.
+- Stopped `Devel::Cover` runs from dropping into the live loop path that dies with `stop loop` after the assertions have already passed, which previously broke TAP completion and blocked the 100% coverage gate.
+
+## 2026-04-08 (Phase 71: Seeded SQL Dashboard Refresh Drift)
+
+- Fixed `dashboard init` and runtime bootstrap so a stale dashboard-managed saved `sql-dashboard` copy now refreshes to the current shipped seed instead of leaving an older browser UI in place after upgrade.
+- Added a recorded seeded-page md5 manifest plus a historical bridge digest for the older shipped `sql-dashboard` copy, so upgrades can refresh known dashboard-managed starter pages while still preserving diverged user-edited saved pages.
+- Expanded CLI, update-manager, unit, and Playwright browser coverage so stale managed starter pages are refreshed before the browser serves them.
+
+## 2026-04-08 (Phase 70: SQL Workspace Focus And Schema Explorer Drift)
+
+- Fixed the SQL Dashboard workspace split by moving the left-side collection rail behind inner `Collection` and `Run SQL` tabs under the main `SQL Workspace` tab, so the runner/result pane stays the default focus instead of losing width to the collection manager all the time.
+- Fixed the schema column-type display by deriving human type labels and positive length labels from DBI metadata, preventing raw numeric type codes and negative lengths from leaking into the browser for drivers such as MSSQL/ODBC and Oracle-style metadata.
+- Fixed the schema-table usability gap by adding a live filter box, explicit table-name copy actions, and a `View Data` action that jumps back to `Run SQL` with a ready `select * from <table>` query.
+- Expanded the fake-driver, real SQLite, and Docker-backed RDBMS Playwright coverage so the new workspace tabs plus schema filter/copy/view-data flow stay browser-verified.
+
+## 2026-04-08 (Phase 69: SQL Dashboard Override Shadow Drift)
+
+- Fixed the SQL Dashboard schema regression guard by making `t/26-sql-dashboard.t` fail if the schema browser ever calls `execute()` on `table_info()` or `column_info()` metadata handles again, matching the `SQL-HY010` ODBC failure mode seen on the stale `hov1` runtime.
+- Documented that a saved `~/.developer-dashboard/dashboards/sql-dashboard` page overrides the shipped seeded page, so upgraded machines can keep old SQL Dashboard bugs until that saved override is updated or removed.
+- Documented `dashboard page source sql-dashboard` as the first diagnostic step when SQL Dashboard browser behaviour looks older than the current repo copy.
+
 ## 2026-04-08 (Phase 68: Scorecard Gatekeeper Drift)
 
 - Fixed repository policy drift by making `SCORECARD-GATEKEEPER` explicit in the public docs, release guide, and contributor override rules instead of treating Scorecard as a best-effort check.

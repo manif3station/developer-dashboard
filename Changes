@@ -1,5 +1,52 @@
 Revision history for Developer Dashboard
 
+2.08  2026-04-09
+    - fixed `t/07-core-units.t` covered-run detection so collector loop
+      coverage guards now recognize both `HARNESS_PERL_SWITCHES=-MDevel::Cover`
+      and `PERL5OPT=-MDevel::Cover`, preventing the live loop branch from
+      tearing down TAP after the assertions have already passed
+
+2.07  2026-04-09
+    - fixed `dashboard init` and runtime bootstrap so stale dashboard-managed
+      `api-dashboard` / `sql-dashboard` saved copies now refresh to the
+      current shipped seed instead of leaving older shipped browser UI behind,
+      while user-edited saved pages that diverge from the recorded managed
+      digest are preserved
+    - added a runtime seeded-page md5 manifest plus a bridge digest for the
+      older shipped `sql-dashboard` copy, so upgrades can refresh known
+      dashboard-managed starter pages without flattening real user edits
+    - expanded `t/04-update-manager.t`, `t/05-cli-smoke.t`,
+      `t/21-refactor-coverage.t`, and
+      `t/27-sql-dashboard-playwright.t` to cover the stale managed
+      starter-page refresh path through update, init, unit, and browser
+      flows
+
+2.06  2026-04-08
+    - rebuilt the seeded `sql-dashboard` workspace so the `SQL Workspace`
+      view now exposes inner `Collection` and `Run SQL` tabs, keeping the SQL
+      runner and result pane dominant while the collection rail stays one
+      click away instead of permanently consuming horizontal space
+    - improved `Schema Explorer` usability by adding a live table filter,
+      explicit copy/view-data actions for each table, and human type/length
+      labels derived from DBI metadata instead of leaking raw numeric type
+      codes and negative lengths into the browser
+    - expanded `t/26-sql-dashboard.t`,
+      `t/27-sql-dashboard-playwright.t`,
+      `t/31-sql-dashboard-sqlite-playwright.t`, and
+      `t/32-sql-dashboard-rdbms-playwright.t` to cover the new workspace
+      tabs, schema filter/copy/view-data flow, normalized metadata labels,
+      and the updated browser case counts
+
+2.05  2026-04-08
+    - tightened `t/26-sql-dashboard.t` so the schema-browser regression now
+      fails if `table_info` or `column_info` metadata handles ever call
+      `execute()`, matching the MSSQL/ODBC `SQL-HY010` failure mode seen on a
+      stale upgraded runtime
+    - documented the SQL Dashboard runtime-override shadow path, including the
+      need to inspect `dashboard page source sql-dashboard` when an upgraded
+      machine still behaves like an older saved override under
+      `~/.developer-dashboard/dashboards/sql-dashboard`
+
 2.04  2026-04-08
     - treated `SCORECARD-GATEKEEPER` as a real delivery rule by adding a
       tracked root `LICENSE`, tracking the published `SECURITY.md`, adding the

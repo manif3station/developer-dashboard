@@ -4,6 +4,66 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: COVER-PERL5OPT-DRIFT
+
+**Date:** 2026-04-09 00:25:00 UTC
+**Area:** `Devel::Cover` verification, collector loop tests, and TAP completion
+**Symptom:** `PERL5OPT=-MDevel::Cover prove -lr t` let `t/07-core-units.t` pass every assertion, then still died with `stop loop` and `No plan found`
+**Why It Was Dangerous:** It made the coverage gate look green in normal runs while the real covered run was still broken, which violates the repo rule that coverage must actually pass instead of being assumed from a nearby non-cover run
+**Root Cause:** The covered-run guard in `t/07-core-units.t` only checked `HARNESS_PERL_SWITCHES`, so covered runs launched through `PERL5OPT` still entered the live collector-loop fork branch
+**How Ellen Solved It:** Extended the covered-run detection to treat both `HARNESS_PERL_SWITCHES` and `PERL5OPT` as valid `Devel::Cover` signals before the loop/fork tests choose their branch
+**How To Detect Earlier Next Time:** Run `PERL5OPT=-MDevel::Cover prove -lv t/07-core-units.t`; if every assertion passes but TAP still dies, the covered-run guard is not actually following the launcher used on this machine
+**Prevention Rule:** Covered-run guards must detect the real `Devel::Cover` injection path in use on the machine, not only one preferred harness variable
+**Verification:** `PERL5OPT=-MDevel::Cover prove -lv t/07-core-units.t`, `PERL5OPT=-MDevel::Cover prove -lr t`, `cover -report text -select_re '^lib/' -coverage statement -coverage subroutine`
+**Related Files:** `t/07-core-units.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
+## CODE: SEEDED-PAGE-REFRESH-DRIFT
+
+**Date:** 2026-04-08 23:40:00 UTC
+**Area:** `dashboard init`, runtime bootstrap, starter bookmark upgrades, and SQL Dashboard browser parity
+**Symptom:** The repo had the new `sql-dashboard` UI, but the browser still showed the old split workspace because `dashboard init` left an older dashboard-managed saved `sql-dashboard` copy in place under the runtime instead of refreshing it
+**Why It Was Dangerous:** It made the browser look broken even though the shipped seed was already fixed, encouraged debugging the wrong file, and let upgraded runtimes stay stuck on older starter-bookmark behaviour until someone manually removed the saved page
+**Root Cause:** The seed-copy path only skipped identical starter pages and preserved every other existing file, so it had no way to distinguish one stale dashboard-managed shipped copy from a real user-edited saved page
+**How Ellen Solved It:** Added a seeded-page md5 manifest under the active runtime config tree, refreshed starter pages only when the saved file still matched the last recorded dashboard-managed digest, added one historical bridge digest for the older shipped `sql-dashboard` copy, and expanded unit, CLI, update, and Playwright coverage for that exact stale-seed upgrade path
+**How To Detect Earlier Next Time:** Seed a stale managed `sql-dashboard` copy before `dashboard init`, then verify the saved page source and browser route both show the current workspace tabs and schema filter instead of the stale placeholder content
+**Prevention Rule:** Starter bookmark refresh logic must distinguish stale dashboard-managed shipped copies from real user edits. `dashboard init` and runtime bootstrap may refresh the former, but they must preserve diverged user-owned saved pages
+**Verification:** `prove -lv t/04-update-manager.t`, `prove -lv t/05-cli-smoke.t`, `prove -lv t/21-refactor-coverage.t`, `prove -lv t/27-sql-dashboard-playwright.t`
+**Related Files:** `lib/Developer/Dashboard/CLI/SeededPages.pm`, `share/private-cli/_dashboard-core`, `updates/01-bootstrap-runtime.pl`, `t/04-update-manager.t`, `t/05-cli-smoke.t`, `t/21-refactor-coverage.t`, `t/27-sql-dashboard-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
+## CODE: SQL-SCHEMA-UX-DRIFT
+
+**Date:** 2026-04-08 17:55:00 UTC
+**Area:** SQL Dashboard workspace focus, schema browsing, and browser-flow TDD
+**Symptom:** The SQL Dashboard still forced the collection rail to stay open beside the runner, the schema list had no live filter, table names were awkward to reuse, there was no direct view-data shortcut, and schema column metadata leaked raw numeric codes or nonsense lengths into the browser
+**Why It Was Dangerous:** It made the main SQL runner feel cramped, turned common schema tasks into manual copy-and-retype work, and exposed DBI metadata in a way that looked broken or hostile to operators
+**Root Cause:** I treated the first merged workspace as good enough, left the collection rail permanently visible instead of optimizing for the run/result path, and relied on raw DBI metadata fields without normalizing them for human browser use
+**How Ellen Solved It:** Added inner `Collection` and `Run SQL` workspace tabs, put schema-table filter/copy/view-data actions into the browser UI, normalized type and length labels in the schema payload, and expanded the fake-driver plus SQLite/RDBMS Playwright suites around those exact user flows
+**How To Detect Earlier Next Time:** In the browser, try the SQL runner on a narrow viewport, browse a schema with many tables, and click through one table as if you need to filter it, copy its name, and preview `select *`; if any of that feels slow or noisy, the UX is not done
+**Prevention Rule:** For SQL Dashboard browser work, optimize for the operator's main run/result path first, and do not expose raw DBI metadata fields in the UI without checking whether they read like real human type/length labels
+**Verification:** `prove -lv t/26-sql-dashboard.t`, `prove -lv t/27-sql-dashboard-playwright.t`, `prove -lv t/31-sql-dashboard-sqlite-playwright.t`, `prove -lv t/32-sql-dashboard-rdbms-playwright.t`
+**Related Files:** `share/seeded-pages/sql-dashboard.page`, `t/26-sql-dashboard.t`, `t/27-sql-dashboard-playwright.t`, `t/31-sql-dashboard-sqlite-playwright.t`, `t/32-sql-dashboard-rdbms-playwright.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/architecture.md`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
+## CODE: SQL-DASHBOARD-OVERRIDE-SHADOW-DRIFT
+
+**Date:** 2026-04-08 22:25:00 UTC
+**Area:** SQL Dashboard upgrades, runtime page resolution, and MSSQL schema browsing
+**Symptom:** I kept inspecting the shipped `share/seeded-pages/sql-dashboard.page` and assuming the runtime was fixed, while the live upgraded machine was still serving an older saved override from `~/.developer-dashboard/dashboards/sql-dashboard` that preserved the old broken metadata-handle flow
+**Why It Was Dangerous:** It hid the real source of the live browser behaviour, wasted time re-reading already-fixed source, and let one upgraded machine keep a known MSSQL/ODBC `SQL-HY010` schema failure after the seeded page had already been corrected in the repo
+**Root Cause:** I treated the shipped seeded page as the live truth instead of checking which page source the runtime was actually resolving, and the regression tests still allowed metadata handles to be mocked in a way that would not fail if `execute()` was reintroduced on `table_info()` or `column_info()`
+**How Ellen Solved It:** Fixed the live `hov1` override in place, then tightened `t/26-sql-dashboard.t` so metadata handles die if `execute()` is called on them, and documented `dashboard page source sql-dashboard` plus the saved-override shadow rule in the public docs
+**How To Detect Earlier Next Time:** On any upgraded runtime that still behaves like an older SQL Dashboard, run `dashboard page source sql-dashboard` before reading the shipped seeded page and confirm whether `~/.developer-dashboard/dashboards/sql-dashboard` is shadowing the current source
+**Prevention Rule:** For seeded page bugs, verify the live resolved page source first. Do not assume the shipped page is what the browser is executing, and keep schema metadata tests strict enough to fail on driver-specific misuse such as `execute()` on `table_info()` / `column_info()`
+**Verification:** `prove -lv t/26-sql-dashboard.t`, `dashboard page source sql-dashboard`
+**Related Files:** `t/26-sql-dashboard.t`, `share/seeded-pages/sql-dashboard.page`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/architecture.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: SCORECARD-GATEKEEPER-DRIFT
 
 **Date:** 2026-04-08 14:30:00 UTC

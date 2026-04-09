@@ -4,6 +4,7 @@ use utf8;
 
 use Capture::Tiny qw(capture);
 use Cwd qw(getcwd);
+use Developer::Dashboard::CLI::SeededPages ();
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Encode qw(decode encode);
 use File::Path qw(make_path);
@@ -45,6 +46,7 @@ my $runtime_ps1 = File::Spec->catfile( $runtime_dd_cli_root, 'ps1' );
 my $runtime_dashboard_core = File::Spec->catfile( $runtime_dd_cli_root, '_dashboard-core' );
 my $runtime_api_dashboard = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'dashboards', 'api-dashboard' );
 my $runtime_sql_dashboard = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'dashboards', 'sql-dashboard' );
+my $seed_manifest_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'seeded-pages.json' );
 
 my $init = _run("$perl -I'$lib' '$dashboard' init");
 like($init, qr/runtime_root/, 'dashboard init works');
@@ -105,6 +107,47 @@ like($reinit, qr/config_file/, 'dashboard init can be re-run after a config alre
 is( ( stat $runtime_jq )[9], $managed_jq_mtime_before, 'dashboard init skips rewriting a dashboard-managed helper when its md5 already matches the shipped helper content' );
 is( ( stat $runtime_api_dashboard )[9], $managed_api_dashboard_mtime_before, 'dashboard init skips rewriting the api-dashboard seeded page when its md5 already matches the shipped seed content' );
 is( ( stat $runtime_sql_dashboard )[9], $managed_sql_dashboard_mtime_before, 'dashboard init skips rewriting the sql-dashboard seeded page when its md5 already matches the shipped seed content' );
+{
+    my $stale_sql_dashboard = <<'BOOKMARK';
+TITLE: SQL Dashboard
+:--------------------------------------------------------------------------------:
+BOOKMARK: sql-dashboard
+:--------------------------------------------------------------------------------:
+HTML: <div id="stale-sql-dashboard">stale managed sql dashboard</div>
+BOOKMARK
+    open my $stale_sql_fh, '>:raw', $runtime_sql_dashboard or die "Unable to write $runtime_sql_dashboard: $!";
+    print {$stale_sql_fh} $stale_sql_dashboard;
+    close $stale_sql_fh or die "Unable to close $runtime_sql_dashboard: $!";
+    open my $seed_manifest_fh, '>:raw', $seed_manifest_file or die "Unable to write $seed_manifest_file: $!";
+    print {$seed_manifest_fh} json_encode(
+        {
+            'sql-dashboard' => {
+                asset => 'sql-dashboard.page',
+                md5   => Developer::Dashboard::SeedSync::content_md5($stale_sql_dashboard),
+            },
+        }
+    );
+    print {$seed_manifest_fh} "\n";
+    close $seed_manifest_fh or die "Unable to close $seed_manifest_file: $!";
+
+    my $refresh_seed_init = _run("$perl -I'$lib' '$dashboard' init");
+    like( $refresh_seed_init, qr/runtime_root/, 'dashboard init refreshes a stale dashboard-managed seeded sql-dashboard copy' );
+    my $refreshed_sql_dashboard = _run("$perl -I'$lib' '$dashboard' page source sql-dashboard");
+    unlike( $refreshed_sql_dashboard, qr/stale-managed-sql-dashboard|stale managed sql dashboard/, 'dashboard init removes the stale managed sql-dashboard body when refreshing the shipped seed' );
+    like( $refreshed_sql_dashboard, qr/data-sql-workspace-tab="run"/, 'dashboard init refreshes sql-dashboard to the shipped Run SQL workspace layout when the saved page is a stale managed copy' );
+    like( $refreshed_sql_dashboard, qr/id="sql-table-filter"/, 'dashboard init refreshes sql-dashboard to the shipped schema filter layout when the saved page is a stale managed copy' );
+
+    my $user_sql_dashboard = $refreshed_sql_dashboard;
+    $user_sql_dashboard =~ s/SQL Workspace/User SQL Workspace/;
+    open my $user_sql_fh, '>:raw', $runtime_sql_dashboard or die "Unable to write $runtime_sql_dashboard: $!";
+    print {$user_sql_fh} $user_sql_dashboard;
+    close $user_sql_fh or die "Unable to close $runtime_sql_dashboard: $!";
+
+    my $preserve_seed_init = _run("$perl -I'$lib' '$dashboard' init");
+    like( $preserve_seed_init, qr/runtime_root/, 'dashboard init can be re-run after a user-edited sql-dashboard saved page diverges from the managed digest' );
+    my $preserved_user_sql_dashboard = _run("$perl -I'$lib' '$dashboard' page source sql-dashboard");
+    like( $preserved_user_sql_dashboard, qr/User SQL Workspace/, 'dashboard init preserves a user-edited sql-dashboard saved page instead of overwriting it' );
+}
 open my $preserved_config_fh, '<:raw', $global_config_file or die "Unable to read $global_config_file: $!";
 my $preserved_config_json = do { local $/; <$preserved_config_fh> };
 close $preserved_config_fh;
