@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.08';
+our $VERSION = '2.10';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.08
+2.10
 
 =head1 INTRODUCTION
 
@@ -558,13 +558,15 @@ keep container base images pinned by digest
 =item *
 
 keep a detectable fuzzing marker in the repo; this tree now uses both
-C<fast-check> and F<.clusterfuzzlite/Dockerfile>
+C<fast-check> and F<.clusterfuzzlite/Dockerfile>, and the JS fuzz workflow
+must bootstrap the Perl runtime before it invokes C<dashboard encode> or
+C<dashboard decode>
 
 =item *
 
-keep GitHub release provenance real, not theoretical; a release is not
+keep GitHub release signing real, not theoretical; a release is not
 Scorecard-complete until GitHub has a published release asset set that
-includes the tarball and a matching F<.intoto.jsonl> provenance file
+includes the tarball and its matching detached signature asset
 
 =back
 

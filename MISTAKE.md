@@ -4,6 +4,36 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: JS-FUZZ-PERL-PREREQ-DRIFT
+
+**Date:** 2026-04-09 08:25:00 UTC
+**Area:** GitHub Actions fuzz workflow bootstrap, property testing, and mixed Node/Perl runtime assumptions
+**Symptom:** The GitHub `JS Fuzz` workflow started `npm run fuzz:scorecard`, but the first property case failed immediately because `dashboard encode` could not load `Capture::Tiny`
+**Why It Was Dangerous:** It made the workflow look like it was exercising the property suite while it was really failing before fuzzing the dashboard logic at all, and it left the repository one remote-only CI break away from a false green local tree
+**Root Cause:** I treated the fuzz workflow as a pure Node job even though the property runner shells into `bin/dashboard`, which depends on the normal Perl runtime prerequisites
+**How Ellen Solved It:** Added TDD in `t/34-scorecard-guardrails.t` for the fuzz workflow's Perl bootstrap contract, then updated `.github/workflows/fuzz-js.yml` to install Perl, set the normal noninteractive Perl env, and run `cpanm --installdeps --notest .` before `npm run fuzz:scorecard`
+**How To Detect Earlier Next Time:** Read the failing workflow log from the first property case. If the counterexample dies on `Can't locate ...pm`, the fuzz job is missing the non-JavaScript runtime it shells into
+**Prevention Rule:** Any workflow that drives `dashboard` commands is not a JS-only job. If `bin/dashboard` is on the execution path, bootstrap the Perl runtime first and lock that requirement under TDD
+**Verification:** `prove -lv t/34-scorecard-guardrails.t`, `prove -lv t/35-js-fast-check.t`, `prove -lr t`
+**Related Files:** `.github/workflows/fuzz-js.yml`, `t/34-scorecard-guardrails.t`, `t/35-js-fast-check.t`, `t/fuzz/scorecard-fast-check.mjs`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/update-and-release.md`, `SCORECARD_ACTIONS.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
+## CODE: GITHUB-RELEASE-WORKFLOW-DRIFT
+
+**Date:** 2026-04-09 01:20:00 UTC
+**Area:** GitHub Actions release automation, Scorecard signed-release visibility, and CI reliability
+**Symptom:** The repo had packaging and PAUSE workflows, but no GitHub release workflow at all, so `Signed-Releases` stayed empty. The PAUSE workflow also looked for tarballs under `.build/`, which `dzil build` in this repo does not create, and none of the workflows had explicit timeout or concurrency guards against hung jobs
+**Why It Was Dangerous:** It left one real release path broken before upload, left Scorecard with nothing to inspect for signed releases, and allowed expensive workflows to sit indefinitely if one step stalled
+**Root Cause:** I treated local tags, PAUSE uploads, and GHCR packaging as if they were enough for GitHub release hygiene, and I did not lock the workflow shape itself under TDD
+**How Ellen Solved It:** Added a tracked GitHub release workflow that rebuilds the dist, reruns tests and coverage, and uploads the tarball, checksum, and detached signature to the GitHub release for `v*` tags; fixed the PAUSE workflow artifact lookup to use the repo-root tarball; and added explicit `concurrency` plus `timeout-minutes` guards across the shipped workflows with `t/34-scorecard-guardrails.t` enforcing them
+**How To Detect Earlier Next Time:** Read the workflow files before trusting Scorecard output. If `Signed-Releases` is `?`, check whether a GitHub release workflow exists at all, whether it publishes release assets, and whether the release paths still match where `dzil build` actually writes the tarball
+**Prevention Rule:** GitHub release automation must be treated as a first-class release path. Every shipped workflow needs explicit timeouts and concurrency controls, and any release workflow must be proven against the actual dist artifact location used by this repo
+**Verification:** `prove -lv t/34-scorecard-guardrails.t`, `prove -lr t`, `dzil build`, `bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"`
+**Related Files:** `.github/workflows/test.yml`, `.github/workflows/release-cpan.yml`, `.github/workflows/release-github.yml`, `.github/workflows/package-ghcr.yml`, `.github/workflows/fuzz-js.yml`, `.github/workflows/codeql.yml`, `t/34-scorecard-guardrails.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/update-and-release.md`, `SCORECARD_ACTIONS.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: COVER-PERL5OPT-DRIFT
 
 **Date:** 2026-04-09 00:25:00 UTC

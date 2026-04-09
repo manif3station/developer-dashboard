@@ -1,5 +1,17 @@
 # Fixed Bugs
 
+## 2026-04-09 (Phase 74: JS Fuzz Perl Prereq Drift)
+
+- Fixed `.github/workflows/fuzz-js.yml` so the JS property/fuzz job now boots the Perl toolchain before it invokes `dashboard encode` and `dashboard decode`.
+- Fixed the GitHub-hosted failure where the very first fuzz counterexample died on `Can't locate Capture/Tiny.pm` instead of exercising the property, because the workflow only installed Node dependencies and never ran `cpanm --installdeps --notest .`.
+- Expanded `t/34-scorecard-guardrails.t` so the fuzz workflow now hard-fails under TDD if it ever drops the Perl setup step or the repo Perl dependency install step again.
+
+## 2026-04-09 (Phase 73: GitHub Release Workflow Drift)
+
+- Fixed the GitHub workflow gap that left `Signed-Releases` with nothing to inspect by adding `.github/workflows/release-github.yml`, which rebuilds the distribution, reruns tests and coverage, and publishes a GitHub release asset set with the tarball, checksum, and detached signature.
+- Fixed `.github/workflows/release-cpan.yml` so tagged releases no longer fail while locating the built tarball; it now picks up `Developer-Dashboard-*.tar.gz` from the repo root instead of a nonexistent `.build/` directory.
+- Fixed the workflow hang risk by adding explicit `concurrency` groups and `timeout-minutes` guards to the shipped GitHub workflows, and locked those requirements into `t/34-scorecard-guardrails.t`.
+
 ## 2026-04-09 (Phase 72: Covered Loop Guard Drift)
 
 - Fixed `t/07-core-units.t` so covered runs detect both `HARNESS_PERL_SWITCHES=-MDevel::Cover` and `PERL5OPT=-MDevel::Cover` before entering the collector-loop fork branch.

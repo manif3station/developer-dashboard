@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::SeededPages;
 use strict;
 use warnings;
 
-our $VERSION = '2.08';
+our $VERSION = '2.10';
 
 use File::Basename qw(dirname);
 use File::Spec;

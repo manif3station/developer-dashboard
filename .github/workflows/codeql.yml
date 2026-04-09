@@ -12,9 +12,14 @@ permissions:
   actions: read
   contents: read
 
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       actions: read
       contents: read

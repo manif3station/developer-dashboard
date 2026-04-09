@@ -231,8 +231,8 @@ Additional enforcement under `SCORECARD-GATEKEEPER`:
 - move required `write` permissions down to the specific job that needs them
 - keep GitHub Actions pinned by full commit SHA
 - keep container base images pinned by digest
-- keep a detectable fuzzing marker in the repo; this tree now uses both `fast-check` and `.clusterfuzzlite/Dockerfile`
-- keep GitHub release provenance real, not theoretical; a release is not Scorecard-complete until GitHub has a published release asset set that includes the tarball and a matching `.intoto.jsonl` provenance file
+- keep a detectable fuzzing marker in the repo; this tree now uses both `fast-check` and `.clusterfuzzlite/Dockerfile`, and the JS fuzz workflow must bootstrap the Perl runtime before it invokes `dashboard encode` / `dashboard decode`
+- keep GitHub release signing real, not theoretical; a release is not Scorecard-complete until GitHub has a published release asset set that includes the tarball and its matching detached signature asset
 
 ### Main Concepts
 

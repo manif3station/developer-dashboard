@@ -1,5 +1,29 @@
 Revision history for Developer Dashboard
 
+2.10  2026-04-09
+    - fixed `.github/workflows/fuzz-js.yml` so the JS property/fuzz job now
+      installs the Perl runtime prerequisites before it shells into
+      `dashboard encode` / `dashboard decode`, preventing the workflow from
+      dying on `Capture::Tiny` before the first fuzz case actually runs
+    - expanded `t/34-scorecard-guardrails.t` so the workflow contract now
+      fails fast if the JS fuzz path ever drops the Perl setup or
+      `cpanm --installdeps --notest .` bootstrap again
+
+2.09  2026-04-09
+    - fixed the GitHub release automation gap by adding a tracked
+      `.github/workflows/release-github.yml` workflow that builds the dist,
+      retests it, and publishes a GitHub release asset set with the tarball,
+      checksum, and detached signature instead of leaving `Signed-Releases`
+      with nothing to inspect
+    - fixed the broken PAUSE workflow artifact lookup by teaching
+      `.github/workflows/release-cpan.yml` to find the `dzil build` tarball
+      from the repo root instead of a nonexistent `.build/` directory, and
+      aligned its coverage gate with the main CI workflow
+    - hardened the GitHub workflows against hung jobs by adding explicit
+      `concurrency` groups and `timeout-minutes` values, and added
+      `t/34-scorecard-guardrails.t` coverage for the new release/signing
+      workflow and workflow timeout/concurrency requirements
+
 2.08  2026-04-09
     - fixed `t/07-core-units.t` covered-run detection so collector loop
       coverage guards now recognize both `HARNESS_PERL_SWITCHES=-MDevel::Cover`

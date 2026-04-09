@@ -19,6 +19,7 @@ ok( _git_tracks('.github/dependabot.yml'), 'Dependabot config is tracked for Sco
 ok( _git_tracks('.github/workflows/codeql.yml'), 'CodeQL workflow is tracked for Scorecard SAST detection' );
 ok( _git_tracks('.github/workflows/package-ghcr.yml'), 'GHCR packaging workflow is tracked for Scorecard packaging detection' );
 ok( _git_tracks('.github/workflows/fuzz-js.yml'), 'fuzzing workflow is tracked for Scorecard fuzzing detection' );
+ok( _git_tracks('.github/workflows/release-github.yml'), 'GitHub release workflow is tracked for Scorecard signed-release detection' );
 ok( _git_tracks('.clusterfuzzlite/Dockerfile'), 'ClusterFuzzLite Dockerfile is tracked for Scorecard fuzzing detection' );
 
 my $license = _slurp('LICENSE');
@@ -45,9 +46,19 @@ like( $package_workflow, qr/ghcr\.io/i, 'packaging workflow publishes to GHCR' )
 like( $package_workflow, qr/uses:\s*docker\/build-push-action\@[0-9a-f]{40}/, 'docker build-push action is pinned by full SHA' );
 like( $package_workflow, qr/uses:\s*docker\/login-action\@[0-9a-f]{40}/, 'docker login action is pinned by full SHA' );
 
+my $github_release_workflow = _slurp('.github/workflows/release-github.yml');
+unlike( $github_release_workflow, qr/^permissions:\s*$(?:\n^[^\n]*:\s*write\s*$)+/ms, 'GitHub release workflow does not use top-level write permissions' );
+like( $github_release_workflow, qr/jobs:\n\s+release:\n(?:.+\n)*?\s+permissions:\n(?:.+\n)*?\s+contents:\s*write\b/ms, 'GitHub release workflow grants release-publish access only at the job level' );
+like( $github_release_workflow, qr/gh\s+release\s+create\b/, 'GitHub release workflow creates GitHub releases' );
+like( $github_release_workflow, qr/gh\s+release\s+upload\b/, 'GitHub release workflow updates existing GitHub releases' );
+like( $github_release_workflow, qr/\.asc\b/, 'GitHub release workflow publishes a detached signature asset next to the release tarball' );
+like( $github_release_workflow, qr/Developer-Dashboard-\*\.tar\.gz/, 'GitHub release workflow locates built distribution tarballs from the repo root' );
+
 my $fuzz_workflow = _slurp('.github/workflows/fuzz-js.yml');
 like( $fuzz_workflow, qr/fast-check/, 'fuzz workflow runs the fast-check property-based suite' );
 like( $fuzz_workflow, qr/uses:\s*actions\/setup-node\@[0-9a-f]{40}/, 'setup-node action is pinned by full SHA in the fuzz workflow' );
+like( $fuzz_workflow, qr/uses:\s*shogo82148\/actions-setup-perl\@[0-9a-f]{40}/, 'fuzz workflow installs Perl before invoking dashboard commands' );
+like( $fuzz_workflow, qr/cpanm\s+--installdeps\s+--notest\s+\./, 'fuzz workflow installs the repo Perl runtime prerequisites' );
 
 my $clusterfuzz = _slurp('.clusterfuzzlite/Dockerfile');
 like( $clusterfuzz, qr/\AFROM\s+ubuntu:24\.04\@sha256:/, 'ClusterFuzzLite Dockerfile pins its base image by digest' );
@@ -66,14 +77,26 @@ for my $workflow (
     .github/workflows/codeql.yml
     .github/workflows/package-ghcr.yml
     .github/workflows/fuzz-js.yml
+    .github/workflows/release-github.yml
     )
   )
 {
     my $text = _slurp($workflow);
     like( $text, qr/^permissions:\s*$/m, "$workflow declares an explicit permissions block" );
+    like( $text, qr/^concurrency:\s*$/m, "$workflow declares an explicit concurrency block" );
+    like( $text, qr/^\s*timeout-minutes:\s*\d+\s*$/m, "$workflow sets an explicit timeout to avoid hung jobs" );
     unlike( $text, qr/uses:\s*[^@\s]+\@[Vv]?\d+(?:\.\d+)*(?:\s|$)/, "$workflow does not use floating action tags" );
     unlike( $text, qr/curl\s+-L\s+https:\/\/cpanmin\.us\s*\|\s*perl/, "$workflow does not install cpanm via curl pipe" );
 }
+
+my $release_cpan_workflow = _slurp('.github/workflows/release-cpan.yml');
+like( $release_cpan_workflow, qr/Developer-Dashboard-\*\.tar\.gz/, 'PAUSE release workflow locates dzil tarballs from the repo root instead of a nonexistent .build tree' );
+unlike( $release_cpan_workflow, qr/\.build\/\*\.tar\.gz/, 'PAUSE release workflow no longer looks for tarballs under a nonexistent .build directory' );
+like(
+    $release_cpan_workflow,
+    qr/grep -F "Total\s+100\.0\s+100\.0\s+100\.0"/,
+    'PAUSE release workflow enforces the same 100% lib coverage gate as the main CI workflow',
+);
 
 my $blank_env_dockerfile = _slurp('integration/blank-env/Dockerfile');
 like( $blank_env_dockerfile, qr/\AFROM\s+ubuntu:24\.04\@sha256:/, 'blank-env Dockerfile pins its Ubuntu base image by digest' );

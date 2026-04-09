@@ -56,7 +56,8 @@ Current repo-side remediation work after the first push:
 - `Pinned-Dependencies` improved to `8 / 10`
 - `Token-Permissions` stayed at `0 / 10` until top-level workflow writes were removed
 - `Fuzzing` stayed at `0 / 10` until a Scorecard-supported fuzzing marker was added
-- `Signed-Releases` stayed inconclusive until a real GitHub release with provenance assets exists
+- `Signed-Releases` stayed inconclusive until a real GitHub release exists with attached release assets that Scorecard can inspect
+- the JS fuzz workflow also needs the Perl runtime because it shells into `dashboard encode` / `dashboard decode`; without `cpanm --installdeps --notest .`, the first property case dies on `Capture::Tiny` before fuzzing actually starts
 
 ## Task Breakdown
 
@@ -71,7 +72,7 @@ Current repo-side remediation work after the first push:
 - [ ] pin every GitHub Action by full commit SHA
 - [ ] remove weak workflow bootstrap patterns where practical
 - [ ] add a packaging workflow Scorecard can detect
-- [ ] publish a real GitHub release with attached tarball and `.intoto.jsonl` provenance
+- [ ] publish a real GitHub release with attached tarball, checksum, and detached signature assets
 - [ ] add tests that lock these guardrails in place
 
 ### GitHub-side fixes that need API access or settings changes
@@ -80,7 +81,7 @@ Current repo-side remediation work after the first push:
 - [ ] ensure pull-request review is required before merge
 - [ ] create at least one PR-backed CI run that Scorecard can observe
 - [ ] create reviewed PR history that Scorecard can observe
-- [ ] create GitHub releases with attached artifacts and signatures/provenance
+- [ ] create GitHub releases with attached artifacts and signatures
 
 ### Checks that may remain externally blocked
 

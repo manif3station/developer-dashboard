@@ -33,8 +33,8 @@ Hard implementation rules under this gate:
 - move required `write` permissions down to the job that actually needs them
 - keep action refs pinned by full SHA
 - keep Docker `FROM` lines pinned by digest when Scorecard scans them
-- keep a detectable fuzzing signal in the repo; this tree uses `fast-check` plus `.clusterfuzzlite/Dockerfile`
-- keep `Signed-Releases` backed by a real GitHub release that contains the release tarball and a matching `.intoto.jsonl` provenance asset
+- keep a detectable fuzzing signal in the repo; this tree uses `fast-check` plus `.clusterfuzzlite/Dockerfile`, and any workflow that drives `dashboard encode` / `dashboard decode` must install the Perl runtime first
+- keep `Signed-Releases` backed by a real GitHub release that contains the release tarball and its detached signature asset
 
 ## Local Update
 
@@ -269,10 +269,25 @@ tag. After the release tarball is built and verified, publish a GitHub release
 for the matching `vX.XX` tag and attach:
 
 - `Developer-Dashboard-X.XX.tar.gz`
-- `Developer-Dashboard-X.XX.intoto.jsonl`
+- `Developer-Dashboard-X.XX.tar.gz.sha256`
+- `Developer-Dashboard-X.XX.tar.gz.asc`
 
-The `.intoto.jsonl` filename matters because Scorecard detects provenance by
-release asset suffix.
+The release asset names matter because Scorecard only evaluates what exists on
+the GitHub release page. A local tag or PAUSE upload alone is not enough for
+the `Signed-Releases` check to observe anything.
+
+The GitHub release automation now lives in:
+
+- `.github/workflows/release-github.yml`
+
+That workflow rebuilds and retests before publishing the release asset set,
+adds explicit `concurrency` and `timeout-minutes` guards so a hung job cannot
+sit forever, then creates or updates the GitHub release and uploads the
+tarball, checksum, and detached signature assets.
+
+The PAUSE workflow now locates the `dzil build` tarball from the repo root
+instead of looking under a nonexistent `.build/` directory, so tagged release
+automation no longer fails during artifact discovery.
 
 The installed executable audit should also confirm that the built tarball
 exports only `dashboard` into the global PATH. Generic helper names such as

@@ -9,9 +9,14 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-cpan-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       PAUSE_USER: ${{ secrets.PAUSE_USER }}
@@ -54,7 +59,9 @@ jobs:
         run: |
           cover -delete
           HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
-          cover -report text -select_re '^lib/' -coverage statement -coverage subroutine
+          report="$(cover -report text -select_re '^lib/' -coverage statement -coverage subroutine)"
+          printf '%s\n' "$report"
+          printf '%s\n' "$report" | grep -F "Total                                       100.0  100.0  100.0"
 
       - name: Build distribution tarball
         run: |
@@ -65,7 +72,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          artifact="$(ls -1t .build/*.tar.gz | head -n 1)"
+          artifact="$(ls -1t Developer-Dashboard-*.tar.gz | head -n 1)"
           if [ -z "${artifact}" ]; then
             echo "No distribution tarball was created" >&2
             exit 1

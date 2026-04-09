@@ -10,12 +10,26 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: fuzz-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   fast-check:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PERL_MM_USE_DEFAULT: 1
+      NONINTERACTIVE_TESTING: 1
+      PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
       - name: Checkout
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Setup Perl
+        uses: shogo82148/actions-setup-perl@8a3e458e34220c3cd62497d8c297eae315b88a72
+        with:
+          perl-version: '5.38'
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -23,9 +37,11 @@ jobs:
           node-version: '22'
           cache: npm
 
+      - name: Install Perl dependencies
+        run: cpanm --installdeps --notest .
+
       - name: Install JS test dependencies
         run: npm ci --ignore-scripts
 
       - name: Run fast-check property tests
         run: npm run fuzz:scorecard
-
