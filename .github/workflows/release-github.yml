@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
       - name: Setup Perl
-        uses: shogo82148/actions-setup-perl@8a3e458e34220c3cd62497d8c297eae315b88a72
+        uses: shogo82148/actions-setup-perl@5a2f3b681f2e2fa0db6cc52c7608d9916527aa58
         with:
           perl-version: '5.38'
 
