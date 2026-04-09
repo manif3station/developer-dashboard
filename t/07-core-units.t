@@ -605,11 +605,19 @@ is_deeply(
         close $fh;
         1;
     };
-    is_deeply(
-        [ command_argv_for_path('tool.ps1') ],
-        [ 'powershell', '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', 'tool.ps1' ],
-        'command_argv_for_path resolves PowerShell scripts on Windows',
-    );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Platform::command_in_path = sub {
+            my ($name) = @_;
+            return '/usr/bin/pwsh' if $name eq 'pwsh';
+            return undef;
+        };
+        is_deeply(
+            [ command_argv_for_path('tool.ps1') ],
+            [ '/usr/bin/pwsh', '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', 'tool.ps1' ],
+            'command_argv_for_path resolves PowerShell scripts on Windows through the preferred runnable PowerShell binary',
+        );
+    }
     ok( command_in_path('tool'), 'command_in_path resolves PATHEXT-backed PowerShell scripts on Windows' );
     ok( is_runnable_file('tool'), 'is_runnable_file resolves PATHEXT-backed PowerShell scripts on Windows' );
     {

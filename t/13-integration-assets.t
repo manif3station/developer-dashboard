@@ -1,10 +1,17 @@
 use strict;
 use warnings;
 
+use Capture::Tiny qw(capture);
 use Developer::Dashboard::JSON qw(json_decode);
 use Test::More;
 
 my $has_source_tree_docs = -f 'dist.ini';
+
+if ( $has_source_tree_docs && -d '.git' ) {
+    ok( _path_is_git_tracked('doc/integration-test-plan.md'), 'integration test plan document is tracked by git' );
+    ok( _path_is_git_tracked('doc/windows-testing.md'), 'Windows verification document is tracked by git' );
+    ok( _path_is_git_tracked('integration/browser/run-bookmark-browser-smoke.pl'), 'bookmark browser smoke script is tracked by git' );
+}
 
 ok( -f 'doc/integration-test-plan.md', 'integration test plan document exists' ) if $has_source_tree_docs;
 ok( -f 'integration/blank-env/Dockerfile', 'blank-environment Dockerfile exists' );
@@ -218,6 +225,15 @@ else {
 }
 
 done_testing;
+
+sub _path_is_git_tracked {
+    my ($path) = @_;
+    return 0 if !defined $path || $path eq '';
+    my ( $stdout, $stderr, $status ) = capture {
+        system( 'git', 'ls-files', '--error-unmatch', '--', $path );
+    };
+    return $status == 0 ? 1 : 0;
+}
 
 __END__
 

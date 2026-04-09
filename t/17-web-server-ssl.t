@@ -13,7 +13,7 @@ BEGIN {
 use Capture::Tiny qw(capture);
 use File::Path qw(make_path remove_tree);
 use File::Spec;
-use File::Temp qw(tempdir);
+use File::Temp qw(tempdir tempfile);
 use IO::Socket::INET;
 use IO::Socket::SSL ();
 use HTTP::Request::Common qw(GET);
@@ -62,6 +62,45 @@ sub _mode_octal {
     my @stat = stat($path);
     return undef if !@stat;
     return sprintf '%04o', $stat[2] & 07777;
+}
+
+sub _generate_legacy_cert_fixture {
+    my ( $cert_file, $key_file ) = @_;
+    my ( $config_fh, $config_file ) = tempfile( 'dd-legacy-openssl-XXXXXX', SUFFIX => '.cnf' );
+    print {$config_fh} <<'OPENSSL_CONFIG' or die "Unable to write legacy OpenSSL config $config_file: $!";
+[ req ]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = dn
+x509_extensions = legacy_req
+
+[ dn ]
+C = US
+ST = Local
+L = Local
+O = Developer Dashboard
+CN = localhost
+
+[ legacy_req ]
+basicConstraints = critical,CA:TRUE
+OPENSSL_CONFIG
+    close $config_fh or die "Unable to close legacy OpenSSL config $config_file: $!";
+
+    local $ENV{OPENSSL_CONF};
+    my @legacy_cmd = (
+        'openssl', 'req', '-new', '-x509', '-days', '365',
+        '-nodes',
+        '-config', $config_file,
+        '-out', $cert_file,
+        '-keyout', $key_file,
+    );
+    my ( $stdout, $stderr, $exit ) = capture {
+        system(@legacy_cmd);
+    };
+    unlink $config_file or die "Unable to remove legacy OpenSSL config $config_file: $!";
+    die "Unable to generate legacy cert fixture: $stderr$stdout" if $exit != 0;
+    return 1;
 }
 
 {
@@ -189,17 +228,7 @@ sub _mode_octal {
     my $key_file  = File::Spec->catfile( $cert_dir, 'server.key' );
     make_path($cert_dir);
 
-    my @legacy_cmd = (
-        'openssl', 'req', '-new', '-x509', '-days', '365',
-        '-nodes',
-        '-out', $cert_file,
-        '-keyout', $key_file,
-        '-subj', '/C=US/ST=Local/L=Local/O=Developer Dashboard/CN=localhost',
-    );
-    my ( $stdout, $stderr, $exit ) = capture {
-        system(@legacy_cmd);
-    };
-    die "Unable to generate legacy cert fixture: $stderr$stdout" if $exit != 0;
+    _generate_legacy_cert_fixture( $cert_file, $key_file );
 
     my $legacy_info = _openssl_cert_text($cert_file);
     unlike( $legacy_info, qr/Subject Alternative Name:/, 'legacy fixture intentionally lacks SAN coverage' );

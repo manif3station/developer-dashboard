@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: RELEASE-CPAN-AND-MAC-SHELL-PORTABILITY-DRIFT
+
+**Date:** 2026-04-09 17:25:00 UTC
+**Area:** GitHub Actions release automation, POSIX shell bootstrap portability, and macOS canonical-path handling
+**Symptom:** The `Release To CPAN` workflow still failed on GitHub-hosted runners even though the normal test workflow was green, while macOS shell-helper tests for `cdr` and `which_dir` exploded with a `JSON::XS` bundle mismatch and several path-regression tests failed because the same temp tree appeared as `/var/...` locally and `/private/var/...` from canonicalized lookups
+**Why It Was Dangerous:** It left the release path broken remotely after local work looked finished, made installed shell helpers depend on whichever `perl` happened to be first in `PATH`, and turned canonical macOS filesystem aliases into false failures in both source-tree and packaged verification
+**Root Cause:** I fixed the earlier release artifact lookup but I did not retest the whole release workflow against GitHub-hosted runner differences; the POSIX shell bootstrap still used a bare `perl -MJSON::XS` decode path instead of the current dashboard interpreter; and several path assertions still compared raw strings instead of canonical identity
+**How Ellen Solved It:** Added TDD in `t/05-cli-smoke.t`, `t/07-core-units.t`, `t/13-integration-assets.t`, `t/17-web-server-ssl.t`, `t/21-refactor-coverage.t`, and `t/33-web-server-ssl-browser.t`; changed the shell bootstrap to decode JSON with the same Perl interpreter that generated the fragment; normalized the macOS `/var/...` versus `/private/var/...` path assertions; tracked the missing integration docs/scripts in git; hardened the SSL fixture against broken hosted-runner `OPENSSL_CONF`; added Linux Chromium `--no-sandbox` handling; and extended `.github/workflows/release-cpan.yml` to smoke-test the built distribution after `dzil build`
+**How To Detect Earlier Next Time:** Reproduce one full release workflow locally and on GitHub after changing workflow logic, source-tree asset coverage, or shell bootstrap code; on macOS, run `t/05-cli-smoke.t` with the same mixed system-perl and `~/perl5` environment a user actually has instead of assuming one `perl` command resolves safely
+**Prevention Rule:** A green normal CI workflow is not enough for release automation changes. Retest the actual release workflow contract, keep shell bootstraps pinned to the generating interpreter when XS modules are involved, and treat canonical filesystem aliases as the same path in portable tests
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/07-core-units.t`, `prove -lv t/13-integration-assets.t`, `prove -lv t/17-web-server-ssl.t`, `prove -lv t/21-refactor-coverage.t`, `prove -lv t/33-web-server-ssl-browser.t`, `prove -lr t`
+**Related Files:** `.github/workflows/release-cpan.yml`, `share/private-cli/_dashboard-core`, `.gitignore`, `doc/integration-test-plan.md`, `doc/windows-testing.md`, `integration/browser/run-bookmark-browser-smoke.pl`, `t/05-cli-smoke.t`, `t/07-core-units.t`, `t/13-integration-assets.t`, `t/17-web-server-ssl.t`, `t/21-refactor-coverage.t`, `t/33-web-server-ssl-browser.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `doc/update-and-release.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: OPEN-FILE-REGEX-JAVA-SOURCE-DRIFT
 
 **Date:** 2026-04-09 15:50:00 UTC

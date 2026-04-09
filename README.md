@@ -898,10 +898,11 @@ seeded `TICKET_REF` into the current tmux session, `dashboard ps1` also reads
 it from tmux when the shell environment does not already export it.
 
 The path helpers also treat path identity canonically where the filesystem can
-surface aliases. On macOS, `dashboard path project-root` may report the same
-repo through `/private/var/...` even when the shell entered it through
-`/var/...`, and the test/install contract now treats those as the same real
-path instead of failing on a raw-string mismatch.
+surface aliases. On macOS, `dashboard path project-root`, `cdr`, and
+`which_dir` may report the same temp tree through `/private/var/...` even
+when the shell entered it through `/var/...`, and the test/install contract
+now treats those as the same real path instead of failing on a raw-string
+mismatch.
 
 Generate shell bootstrap:
 
@@ -922,6 +923,12 @@ directory. Bash still uses `\j` for job counts, zsh refreshes `PS1` through a
 `precmd` hook with `${#jobstates}`, POSIX `sh` falls back to a prompt command
 that does not depend on bash-only prompt escapes, and PowerShell installs a
 `prompt` function instead of using the POSIX `PS1` variable.
+
+For the POSIX shell bootstrap, the generated helper now decodes its JSON
+payloads through the same Perl interpreter that generated the shell fragment
+instead of a bare `perl -MJSON::XS ...` call. That keeps `cdr` and
+`which_dir` stable on macOS installs where `/usr/bin/perl` and a user-local
+`~/perl5` XS stack do not belong to the same Perl build.
 
 On Windows, `dashboard shell` auto-selects PowerShell by default, and
 interpreter-backed runtime entrypoints such as collector `command` strings,
@@ -978,6 +985,9 @@ The default web bind is `0.0.0.0:7890`. Trust is still decided from the request 
 `DD-OOP-LAYERS` comparisons normalize canonical path identities, so symlinked
 aliases such as macOS `/var/...` versus `/private/var/...` do not break layer
 discovery, deepest-layer writes, or layered bookmark/nav lookup.
+The same portability rule now also applies to the shell-helper and
+`locate_dirs_under` regression suites, so equivalent temp roots are compared
+by real path identity instead of raw string spelling.
 
 ### Runtime Lifecycle
 

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.13';
+our $VERSION = '2.14';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.13
+2.14
 
 =head1 INTRODUCTION
 
@@ -1347,6 +1347,12 @@ to a prompt command that does not depend on bash-only prompt escapes, and
 PowerShell installs a C<prompt> function instead of using the POSIX C<PS1>
 variable.
 
+For the POSIX shell bootstrap, the generated helper now decodes its JSON
+payloads through the same Perl interpreter that generated the shell fragment
+instead of a bare C<perl -MJSON::XS ...> call. That keeps C<cdr> and
+C<which_dir> stable on macOS installs where C</usr/bin/perl> and a user-local
+C<~/perl5> XS stack do not belong to the same Perl build.
+
 On Windows, C<dashboard shell> auto-selects PowerShell by default, and
 interpreter-backed runtime entrypoints such as collector C<command> strings,
 trusted command actions, saved Ajax files, custom CLI commands, hook files,
@@ -1437,6 +1443,9 @@ The CLI path helpers follow the same portability rule: commands such as
 C<dashboard path project-root> may surface the canonical filesystem path, and
 the supported contract treats macOS aliases such as C</var/...> and
 C</private/var/...> as the same project root instead of different repos.
+The same portability rule now also applies to the shell-helper and
+C<locate_dirs_under> regression suites, so equivalent temp roots are compared
+by real path identity instead of raw string spelling.
 
 =head2 Runtime Lifecycle
 

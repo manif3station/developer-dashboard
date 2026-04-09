@@ -67,6 +67,16 @@ jobs:
         run: |
           dzil build
 
+      - name: Verify built distribution smoke
+        run: |
+          dist_dir="$(ls -1dt Developer-Dashboard-* | head -n 1)"
+          if [ -z "${dist_dir}" ] || [ ! -d "${dist_dir}" ]; then
+            echo "No built distribution directory was created" >&2
+            exit 1
+          fi
+          cd "$dist_dir"
+          prove -lv t/13-integration-assets.t t/15-release-metadata.t t/30-dashboard-loader.t t/33-web-server-ssl-browser.t
+
       - name: Locate distribution artifact
         id: artifact
         shell: bash

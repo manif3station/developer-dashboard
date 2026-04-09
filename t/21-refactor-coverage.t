@@ -39,6 +39,18 @@ sub is_same_path {
     is( _portable_path($got), _portable_path($expected), $label );
 }
 
+sub _portable_paths {
+    return [ map { _portable_path($_) } @_ ];
+}
+
+sub _portable_cdr_payload {
+    my ($payload) = @_;
+    return {
+        target  => _portable_path( $payload->{target} ),
+        matches => _portable_paths( @{ $payload->{matches} || [] } ),
+    };
+}
+
 local $ENV{HOME} = tempdir( CLEANUP => 1 );
 
 my $paths = Developer::Dashboard::PathRegistry->new( home => $ENV{HOME} );
@@ -70,18 +82,18 @@ like(
     make_path( $match_one, $match_two, $no_match );
 
     is_deeply(
-        [ $paths->locate_dirs_under( $search_root, 'team', 'alpha' ) ],
-        [ sort ( $match_one, $match_two ) ],
+        _portable_paths( $paths->locate_dirs_under( $search_root, 'team', 'alpha' ) ),
+        _portable_paths( sort ( $match_one, $match_two ) ),
         'locate_dirs_under returns every directory beneath the search root whose path matches all keywords',
     );
     is_deeply(
-        [ $paths->locate_dirs_under( $search_root, 'alpha', 'red' ) ],
-        [$match_two],
+        _portable_paths( $paths->locate_dirs_under( $search_root, 'alpha', 'red' ) ),
+        _portable_paths($match_two),
         'locate_dirs_under narrows to one nested directory when only one path matches every keyword',
     );
     is_deeply(
-        [ $paths->locate_dirs_under( $search_root, 'team', 'alpha$' ) ],
-        [$match_one],
+        _portable_paths( $paths->locate_dirs_under( $search_root, 'team', 'alpha$' ) ),
+        _portable_paths($match_one),
         'locate_dirs_under treats each keyword as a regex so alpha$ matches team-alpha but not team-alpha-red',
     );
     like(
@@ -650,9 +662,9 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     };
     is( $stderr, '', 'CLI::Paths cdr writes no stderr for alias-only resolution' );
     is_deeply(
-        json_decode($stdout),
+        _portable_cdr_payload( json_decode($stdout) ),
         {
-            target  => $named_dir,
+            target  => _portable_path($named_dir),
             matches => [],
         },
         'CLI::Paths cdr returns the resolved alias root when no search keywords follow it',
@@ -666,9 +678,9 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     };
     is( $stderr, '', 'CLI::Paths cdr writes no stderr for alias-root keyword narrowing' );
     is_deeply(
-        json_decode($stdout),
+        _portable_cdr_payload( json_decode($stdout) ),
         {
-            target  => $named_match_two,
+            target  => _portable_path($named_match_two),
             matches => [],
         },
         'CLI::Paths cdr returns the unique alias-root directory that matches every keyword',
@@ -682,10 +694,10 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     };
     is( $stderr, '', 'CLI::Paths cdr writes no stderr when alias-root keyword search has multiple matches' );
     is_deeply(
-        json_decode($stdout),
+        _portable_cdr_payload( json_decode($stdout) ),
         {
-            target  => $named_dir,
-            matches => [ sort ( $named_match_one, $named_match_two ) ],
+            target  => _portable_path($named_dir),
+            matches => _portable_paths( sort ( $named_match_one, $named_match_two ) ),
         },
         'CLI::Paths cdr keeps the alias root as the target and returns the match list when alias-root keyword search finds multiple directories',
     );
@@ -712,9 +724,9 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     };
     is( $stderr, '', 'CLI::Paths cdr writes no stderr for current-directory keyword search' );
     is_deeply(
-        json_decode($stdout),
+        _portable_cdr_payload( json_decode($stdout) ),
         {
-            target  => $cwd_match_two,
+            target  => _portable_path($cwd_match_two),
             matches => [],
         },
         'CLI::Paths cdr searches beneath the current directory when the first argument is not a saved alias and one path matches every keyword',
@@ -728,9 +740,9 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     };
     is( $stderr, '', 'CLI::Paths cdr writes no stderr for regex alias-root narrowing' );
     is_deeply(
-        json_decode($stdout),
+        _portable_cdr_payload( json_decode($stdout) ),
         {
-            target  => $named_match_one,
+            target  => _portable_path($named_match_one),
             matches => [],
         },
         'CLI::Paths cdr treats alias-root narrowing terms as regexes',
@@ -744,9 +756,9 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     };
     is( $stderr, '', 'CLI::Paths cdr writes no stderr for regex current-directory narrowing' );
     is_deeply(
-        json_decode($stdout),
+        _portable_cdr_payload( json_decode($stdout) ),
         {
-            target  => $cwd_match_one,
+            target  => _portable_path($cwd_match_one),
             matches => [],
         },
         'CLI::Paths cdr treats non-alias search terms as regexes beneath the current directory',
@@ -760,10 +772,10 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     };
     is( $stderr, '', 'CLI::Paths cdr writes no stderr when current-directory keyword search has multiple matches' );
     is_deeply(
-        json_decode($stdout),
+        _portable_cdr_payload( json_decode($stdout) ),
         {
-            target  => '',
-            matches => [ sort ( $cwd_match_one, $cwd_match_two ) ],
+            target  => _portable_path($project_dir),
+            matches => _portable_paths( sort ( $cwd_match_one, $cwd_match_two ) ),
         },
         'CLI::Paths cdr returns only the match list when current-directory keyword search finds multiple directories',
     );

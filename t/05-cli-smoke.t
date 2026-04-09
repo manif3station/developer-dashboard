@@ -559,6 +559,8 @@ make_path( $cwd_search_multi_one, $cwd_search_multi_two, $cwd_search_unique );
 
 my $shell_bootstrap = _run("$perl -I'$lib' '$dashboard' shell bash");
 like( $shell_bootstrap, qr/path cdr/, 'dashboard shell bootstrap delegates cdr target selection through the Perl path helper' );
+unlike( $shell_bootstrap, qr/\bperl\s+-MJSON::XS\b/, 'dashboard shell bootstrap does not decode helper JSON through a bare perl command that can drift to an incompatible interpreter' );
+like( $shell_bootstrap, qr/\Q$perl\E.*-MJSON::XS/s, 'dashboard shell bootstrap decodes helper JSON through the same perl interpreter that generated the bootstrap' );
 my $shell_bootstrap_file = File::Spec->catfile( $ENV{HOME}, 'dashboard-shell.sh' );
 open my $shell_bootstrap_fh, '>', $shell_bootstrap_file or die "Unable to write $shell_bootstrap_file: $!";
 print {$shell_bootstrap_fh} $shell_bootstrap;
@@ -596,6 +598,8 @@ my $sh_bootstrap = _run("$perl -I'$lib' '$dashboard' shell sh");
 like( $sh_bootstrap, qr/path cdr/, 'dashboard shell sh bootstrap keeps the cdr path helper functions' );
 like( $sh_bootstrap, qr/ps1 --mode compact/, 'dashboard shell sh bootstrap renders the prompt through dashboard ps1' );
 unlike( $sh_bootstrap, qr/\\j/, 'dashboard shell sh bootstrap does not rely on bash-specific job expansion' );
+unlike( $sh_bootstrap, qr/\bperl\s+-MJSON::XS\b/, 'dashboard shell sh bootstrap does not decode helper JSON through a bare perl command either' );
+like( $sh_bootstrap, qr/\Q$perl\E.*-MJSON::XS/s, 'dashboard shell sh bootstrap decodes helper JSON through the same perl interpreter that generated the bootstrap' );
 my $sh_bootstrap_file = File::Spec->catfile( $ENV{HOME}, 'dashboard-shell-posix.sh' );
 open my $sh_bootstrap_fh, '>', $sh_bootstrap_file or die "Unable to write $sh_bootstrap_file: $!";
 print {$sh_bootstrap_fh} $sh_bootstrap;

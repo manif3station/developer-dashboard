@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-09 (Phase 78: Release CPAN And Mac Shell Portability Drift)
+
+- Fixed the GitHub `Release To CPAN` workflow so the hosted Ubuntu release runner no longer fails on one stale PowerShell expectation, untracked integration assets, inherited broken OpenSSL config, or Chromium sandbox defaults during the packaged-tree smoke path.
+- Fixed `dashboard shell` POSIX helper generation so `cdr` and `which_dir` decode JSON through the same Perl interpreter that generated the shell fragment instead of a bare `perl -MJSON::XS ...` call, which removes the macOS `JSON::XS` ABI mismatch against `/usr/bin/perl`.
+- Fixed macOS path-portability assertions so `/var/...` and `/private/var/...` aliases are treated as the same real temp tree across `locate_dirs_under`, `CLI::Paths cdr`, and the shell-helper smoke coverage.
+
 ## 2026-04-09 (Phase 77: Open File Regex And Java Source Drift)
 
 - Fixed `dashboard of` / `dashboard open-file` so scoped search tokens are now real case-insensitive regexes instead of quoted substring matches, which means patterns such as `Ok\.js$` match `ok.js` without drifting into `ok.json`.

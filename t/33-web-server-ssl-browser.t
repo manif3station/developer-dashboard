@@ -28,6 +28,11 @@ my $dashboard_port = _reserve_port();
 my $dashboard_pid;
 my $dashboard_log = File::Spec->catfile( $project_root, 'dashboard-serve-ssl.log' );
 my $alias_host = 'dashboard-ssl-alias.local';
+my @chromium_base_args = _chromium_base_args();
+my $linux_ci_compat = ( $^O ne 'linux' )
+  || scalar grep { $_ eq '--no-sandbox' } @chromium_base_args;
+
+ok( $linux_ci_compat, 'Chromium browser smoke includes the Linux CI sandbox compatibility flag when needed' );
 
 eval {
     _run_command(
@@ -58,8 +63,7 @@ eval {
     my $privacy = _run_command(
         command => [
             $chromium_bin,
-            '--headless',
-            '--disable-gpu',
+            @chromium_base_args,
             '--dump-dom',
             "https://127.0.0.1:$dashboard_port/",
         ],
@@ -71,8 +75,7 @@ eval {
     my $alias_privacy = _run_command(
         command => [
             $chromium_bin,
-            '--headless',
-            '--disable-gpu',
+            @chromium_base_args,
             "--host-resolver-rules=MAP $alias_host 127.0.0.1",
             '--dump-dom',
             "https://$alias_host:$dashboard_port/",
@@ -86,8 +89,7 @@ eval {
     my $trusted = _run_command(
         command => [
             $chromium_bin,
-            '--headless',
-            '--disable-gpu',
+            @chromium_base_args,
             '--ignore-certificate-errors',
             '--dump-dom',
             "https://127.0.0.1:$dashboard_port/",
@@ -100,8 +102,7 @@ eval {
     my $alias_trusted = _run_command(
         command => [
             $chromium_bin,
-            '--headless',
-            '--disable-gpu',
+            @chromium_base_args,
             "--host-resolver-rules=MAP $alias_host 127.0.0.1",
             '--ignore-certificate-errors',
             '--dump-dom',
@@ -151,6 +152,21 @@ sub _find_command {
         }
     }
     return undef;
+}
+
+# _chromium_base_args()
+# Purpose: return the Chromium flags shared by the SSL browser smoke checks.
+# Input: none.
+# Output: ordered list of Chromium CLI arguments.
+sub _chromium_base_args {
+    my @args = (
+        '--headless',
+        '--disable-gpu',
+    );
+    if ( $^O eq 'linux' ) {
+        push @args, '--no-sandbox', '--disable-dev-shm-usage';
+    }
+    return @args;
 }
 
 # _reserve_port()

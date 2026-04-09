@@ -1,5 +1,18 @@
 Revision history for Developer Dashboard
 
+2.14  2026-04-09
+    - fixed the GitHub `Release To CPAN` workflow so the packaged-tree smoke
+      path now survives hosted-runner differences instead of failing on the
+      PowerShell resolver expectation, missing tracked integration assets,
+      inherited broken `OPENSSL_CONF`, or Ubuntu Chromium sandbox defaults
+    - fixed `dashboard shell` POSIX helper JSON decoding so `cdr` and
+      `which_dir` now use the same Perl interpreter that generated the shell
+      fragment, which prevents macOS `JSON::XS` ABI mismatches from a bare
+      `/usr/bin/perl -MJSON::XS` path
+    - fixed macOS path-portability coverage so `/var/...` and
+      `/private/var/...` aliases are treated as the same real path across the
+      `cdr`, `which_dir`, and `locate_dirs_under` regression suites
+
 2.13  2026-04-09
     - fixed `dashboard of` and `dashboard open-file` so scoped search tokens
       are now real case-insensitive regexes instead of quoted substring

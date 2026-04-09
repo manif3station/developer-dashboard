@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '2.13';
+our $VERSION = '2.14';
 
 use Cwd qw(abs_path cwd);
 use File::Basename qw(dirname);

@@ -1012,8 +1012,18 @@ sub _shell_dashboard_command {
 sub _shell_bootstrap {
     my ($shell) = @_;
     my $dashboard_cmd = _shell_dashboard_command($shell);
+    my $dashboard_json_matches = _shell_json_extract_command(
+        $shell,
+        'my $h=JSON::XS->new->decode($_); print join qq(\n), @{ $h->{matches} || [] }',
+    );
+    my $dashboard_json_target = _shell_json_extract_command(
+        $shell,
+        'my $h=JSON::XS->new->decode($_); print $h->{target} // q{}',
+    );
     my $bootstrap = _shell_navigation_bootstrap($shell) . "\n" . _shell_prompt_bootstrap($shell);
     $bootstrap =~ s/__DASHBOARD_CMD__/$dashboard_cmd/g;
+    $bootstrap =~ s/__DASHBOARD_JSON_MATCHES__/$dashboard_json_matches/g;
+    $bootstrap =~ s/__DASHBOARD_JSON_TARGET__/$dashboard_json_target/g;
     return $bootstrap;
 }
 
@@ -1075,8 +1085,8 @@ POWERSHELL
     return <<'SH';
 cdr() {
   payload="$(__DASHBOARD_CMD__ path cdr "$@")"
-  matches="$(printf '%s' "$payload" | perl -MJSON::XS -0777 -ne 'my $h=JSON::XS->new->decode($_); print join qq(\n), @{ $h->{matches} || [] }')"
-  target="$(printf '%s' "$payload" | perl -MJSON::XS -0777 -ne 'my $h=JSON::XS->new->decode($_); print $h->{target} // q{}')"
+  matches="$(printf '%s' "$payload" | __DASHBOARD_JSON_MATCHES__)"
+  target="$(printf '%s' "$payload" | __DASHBOARD_JSON_TARGET__)"
   if [ -n "$matches" ]; then
     printf '%s\n' "$matches"
   fi
@@ -1091,8 +1101,8 @@ dd_cdr() {
 
 which_dir() {
   payload="$(__DASHBOARD_CMD__ path cdr "$@")"
-  matches="$(printf '%s' "$payload" | perl -MJSON::XS -0777 -ne 'my $h=JSON::XS->new->decode($_); print join qq(\n), @{ $h->{matches} || [] }')"
-  target="$(printf '%s' "$payload" | perl -MJSON::XS -0777 -ne 'my $h=JSON::XS->new->decode($_); print $h->{target} // q{}')"
+  matches="$(printf '%s' "$payload" | __DASHBOARD_JSON_MATCHES__)"
+  target="$(printf '%s' "$payload" | __DASHBOARD_JSON_TARGET__)"
   if [ -n "$matches" ]; then
     printf '%s\n' "$matches"
     return
@@ -1102,6 +1112,25 @@ which_dir() {
   fi
 }
 SH
+}
+
+# _shell_json_extract_command($shell, $perl_code)
+# Builds the shell-safe JSON decoding command used by generated shell helpers.
+# Input: normalized shell name plus one Perl one-liner body string.
+# Output: shell command string suitable for use on the right-hand side of a pipe.
+sub _shell_json_extract_command {
+    my ( $shell, $perl_code ) = @_;
+    my $repo_lib = $ENV{DEVELOPER_DASHBOARD_REPO_LIB} || File::Spec->rel2abs( File::Spec->catdir( $Bin, '..', 'lib' ) );
+    my @command = ($^X);
+    if ( -f File::Spec->catfile( $repo_lib, 'Developer', 'Dashboard.pm' ) ) {
+        push @command, '-I' . $repo_lib;
+    }
+    push @command, '-MJSON::XS', '-0777', '-ne', $perl_code;
+
+    if ( $shell eq 'powershell' || $shell eq 'pwsh' ) {
+        return join ' ', '&', map { shell_quote_for( $shell, $_ ) } @command;
+    }
+    return join ' ', map { shell_quote_for( $shell, $_ ) } @command;
 }
 
 # _shell_prompt_bootstrap($shell)

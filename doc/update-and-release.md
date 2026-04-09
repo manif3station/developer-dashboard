@@ -288,6 +288,8 @@ tarball, checksum, and detached signature assets.
 The PAUSE workflow now locates the `dzil build` tarball from the repo root
 instead of looking under a nonexistent `.build/` directory, so tagged release
 automation no longer fails during artifact discovery.
+It also reruns the built distribution smoke tests after `dzil build`, so the
+release job now proves the packaged tree rather than only the source checkout.
 
 The installed executable audit should also confirm that the built tarball
 exports only `dashboard` into the global PATH. Generic helper names such as
@@ -314,10 +316,18 @@ Runtime JSON handling is implemented with `JSON::XS`, including the shell bootst
 The Dist::Zilla runtime prerequisite list pins `JSON::XS` explicitly so PAUSE
 and other clean-install test environments always see that dependency in the
 built tarball metadata.
+The POSIX shell bootstrap now decodes helper JSON through the same Perl
+interpreter that generated the shell fragment, which avoids macOS
+`JSON::XS` bundle mismatches caused by mixing `/usr/bin/perl` with a
+user-local `~/perl5` XS install.
 The shipped test suite now also clears the runtime-root override environment
 variables used by local developer setups and normalizes temporary-path
 comparisons, so tarball install verification stays stable on both Linux and
 macOS hosts.
+The SSL/browser regression path now also uses an explicit local OpenSSL config
+fixture and Linux Chromium `--no-sandbox` smoke arguments, matching the
+current GitHub-hosted Ubuntu release runner instead of assuming the developer
+workstation environment.
 
 For Windows-targeted changes, verify the built tarball under a real Strawberry
 Perl environment before release:

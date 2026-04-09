@@ -68,6 +68,11 @@ Frontend editor changes should also be checked in a real browser route, not just
 JSON behavior is exercised through the shared `Developer::Dashboard::JSON` wrapper, which now uses `JSON::XS`.
 Release metadata checks also verify that built tarball runtime prerequisites
 explicitly include `JSON::XS`.
+The shell bootstrap regression coverage also checks that the POSIX `cdr` and
+`which_dir` helpers decode their JSON payloads through the same Perl
+interpreter that generated the shell fragment, which prevents macOS
+`JSON::XS` ABI mismatches when `/usr/bin/perl` and `~/perl5` belong to
+different Perl builds.
 
 Command execution paths are exercised through `Capture::Tiny` `capture` wrappers that return exit codes from the capture block itself rather than reading `$?` afterward.
 
@@ -86,6 +91,7 @@ The runtime-manager tests also cover:
 - `dashboard serve` collector startup and failure handling, including explicit startup errors and cleanup of already-started loops when a later collector fails
 - DD-OOP-LAYERS canonical-path normalization, including a symlinked-home versus canonical-cwd regression that matches macOS `/var/...` and `/private/var/...` alias behaviour
 - CLI `dashboard path project-root` assertions compare path identity instead of raw strings, so packaged installs stay green when macOS resolves the same temp repo through `/private/var/...`
+- shell-helper `cdr` and `which_dir` assertions also normalize those `/var/...` versus `/private/var/...` aliases, so source-tree and packaged macOS runs do not fail on equivalent canonical paths
 - `dashboard web: <host>:<port>` process-title detection
 - `pkill` fallback when pid files are stale or missing
 - `/proc` listener-pid fallback when minimal Linux containers do not provide `ss`
@@ -196,6 +202,7 @@ The integration flow also:
 - verifies the installed web app denies `/?token=...` browser execution by default while saved bookmark routes still render
 - uses headless Chromium to validate the editor, the saved fake-project bookmark page, and the helper login page
 - verifies that an installed long-running saved `/ajax/...` route starts streaming visible output within the expected first seconds instead of buffering until process exit
+- should be interpreted together with the tracked source-tree integration assets in `doc/integration-test-plan.md`, `doc/windows-testing.md`, and `integration/browser/run-bookmark-browser-smoke.pl`; source-tree tests now fail if those release/support assets are missing from git even when they still exist locally
 
 ## Windows Verification
 
