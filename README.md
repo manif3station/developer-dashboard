@@ -552,10 +552,16 @@ still see the same result set without tripping `Argument list too long`. Built-i
 commands such as `dashboard jq` use the same hook directory. A directory-backed
 custom command can provide its real executable as
 `~/.developer-dashboard/cli/<command>/run`, and that runner receives the final
-`RESULT` environment variable. After each hook finishes, `dashboard` rewrites
-`RESULT` before the next sorted hook starts, so later hook scripts can react to
-earlier hook output. Perl hook scripts can read that JSON through
-`Developer::Dashboard::Runtime::Result`. If a Perl-backed command wants a
+`RESULT` plus `LAST_RESULT` environment variables. After each hook finishes,
+`dashboard` rewrites `RESULT` before the next sorted hook starts and also
+rewrites `LAST_RESULT` to the structured result for the hook that just ran, so
+later hook scripts can inspect both the full ordered set and the immediate
+previous hook. `LAST_RESULT` carries `file`, `exit`, `STDOUT`, and `STDERR`.
+Perl hook scripts can read both payloads through
+`Developer::Dashboard::Runtime::Result`. A hook only stops the remaining
+`<command>.d` chain when its `stderr` contains the explicit marker `[[STOP]]`;
+a non-zero exit code by itself is still recorded in `RESULT` and `LAST_RESULT`
+but does not skip the later hook files. If a Perl-backed command wants a
 compact final summary after its hook files run, it can call
 `Developer::Dashboard::Runtime::Result->report()` to print a simple
 success/error report for each sorted hook file.
@@ -564,8 +570,10 @@ If you want `dashboard update`, provide it as a normal user command at
 `./.developer-dashboard/cli/update` or `./.developer-dashboard/cli/update/run`
 in any inherited layer, with the deepest matching layer winning the final
 command path. Its hook files can live under `update/` or `update.d/`, and the
-real command receives the final `RESULT` JSON through the environment after
-those hook files run.
+real command receives the final `RESULT` and `LAST_RESULT` payloads through the
+environment after those hook files run. If one of those hooks writes
+`[[STOP]]` to `stderr`, later hook files are skipped and control returns
+straight to the main `update` command.
 
 Use `dashboard version` to print the installed Developer Dashboard version.
 

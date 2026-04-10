@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-10 (Phase 83: Hook Stop And Last Result Drift)
+
+- Fixed custom CLI hook lifecycle control so a hook now stops the remaining `<command>.d` chain only when its `stderr` contains the explicit `[[STOP]]` marker, while plain non-zero exits are still recorded but no longer act like an implicit stop request.
+- Fixed hook-state chaining so later hooks and the final command now receive both the full `RESULT` payload and the immediate previous-hook payload through `LAST_RESULT`, with `Developer::Dashboard::Runtime::Result->last_result()` returning `{ file, exit, STDOUT, STDERR }`.
+- Expanded unit, shell smoke, and product-doc coverage so the hook stop marker plus previous-hook handoff are documented and regression-tested instead of living as an implicit behavior guess.
+
 ## 2026-04-10 (Phase 82: Top-Level Manual Drift)
 
 - Fixed `README.md` and `Developer::Dashboard.pm` so the top-level manual no longer embeds contributor-only `FULL-POD-DOC` and Scorecard process rules that distract from the actual product behavior.

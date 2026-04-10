@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.19';
+our $VERSION = '2.20';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.19
+2.20
 
 =head1 INTRODUCTION
 
@@ -768,12 +768,19 @@ without tripping C<Argument list too long>. Built-in commands such as C<dashboar
 use the same hook directory. A
 directory-backed custom command can provide its real executable as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>/run>, and that runner receives
-the final C<RESULT> environment variable. After each hook finishes, the updated
-C<RESULT> JSON is written back into the environment before the next sorted hook
-starts, so later hook scripts can react to earlier hook output.
+the final C<RESULT> plus C<LAST_RESULT> environment variables. After each hook
+finishes, the updated C<RESULT> JSON is written back into the environment
+before the next sorted hook starts, and C<LAST_RESULT> is rewritten to the
+structured result for the hook that just ran, so later hook scripts can react
+to earlier hook output and also inspect the immediate previous hook in a stable
+shape. C<LAST_RESULT> carries C<file>, C<exit>, C<STDOUT>, and C<STDERR>.
+Only an explicit C<[[STOP]]> marker in one hook's C<stderr> stops the
+remaining hook files for that command. A non-zero exit code alone is still
+recorded, but it does not skip later hooks.
 
-Perl hook code can use C<Runtime::Result> to decode C<RESULT> safely and read
-per-hook C<stdout>, C<stderr>, exit codes, or the last recorded hook entry.
+Perl hook code can use C<Runtime::Result> to decode C<RESULT> safely, read the
+immediate C<last_result>, and inspect per-hook C<stdout>, C<stderr>, exit
+codes, or the last recorded hook entry.
 If a Perl-backed command wants a compact final summary after its hook files
 run, it can also call C<Developer::Dashboard::Runtime::Result-E<gt>report()> to print a simple
 success/error report for each sorted hook file.
@@ -946,9 +953,12 @@ F<~/.developer-dashboard/cli/update> or
 F<~/.developer-dashboard/cli/update/run> in any inherited layer, with the
 deepest matching layer winning the final command path. Its hook files can live
 under F<update/> or F<update.d>, and the real command receives the final
-C<RESULT> JSON through the environment after those hook files run. Each later
-hook also sees the latest rewritten C<RESULT> from the earlier hook set, and
-Perl code can read that payload through C<Runtime::Result>.
+C<RESULT> and C<LAST_RESULT> payloads through the environment after those hook
+files run. Each later hook also sees the latest rewritten C<RESULT> from the
+earlier hook set, the immediate previous hook through C<LAST_RESULT>, and an
+explicit C<[[STOP]]> marker in one hook's C<stderr> skips the remaining hook
+files before control returns to the real update command. Perl code can read
+those payloads through C<Runtime::Result>.
 
 Use C<dashboard version> to print the installed Developer Dashboard version.
 

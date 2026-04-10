@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: HOOK-STOP-AND-LAST-RESULT-DRIFT
+
+**Date:** 2026-04-10 16:10:00 UTC
+**Area:** layered custom CLI hook lifecycle
+**Symptom:** Hooks could pass a growing shared `RESULT` payload forward, but there was no explicit way to stop the remaining `<command>.d` chain from one hook, and there was no stable immediate previous-hook payload for the next hook or the final command to inspect
+**Why It Was Dangerous:** It forced hook authors to infer stop behavior from exit codes or ad-hoc text parsing, made "stop here but still return to the main command" awkward to express, and left each hook without a direct previous-hook handoff even though that is a common pipeline need
+**Root Cause:** I only modeled the accumulated hook set in `RESULT` and overflow handling in `RESULT_FILE`, but I did not model the separate control signal and immediate previous-hook contract that a layered hook pipeline also needs
+**How Ellen Solved It:** Added TDD in `t/05-cli-smoke.t` and `t/21-refactor-coverage.t`, taught `Developer::Dashboard::Runtime::Result` to manage `LAST_RESULT`, `LAST_RESULT_FILE`, and `stop_requested`, updated `bin/dashboard` to rewrite `LAST_RESULT` after each hook and stop only on an explicit `[[STOP]]` stderr marker, and synced the product/testing docs with the new contract
+**How To Detect Earlier Next Time:** Create one hook chain where the middle hook needs the exact previous hook payload and wants to stop later hooks without aborting the main command, then verify both the skipped hook and the final command environment
+**Prevention Rule:** Layered hook pipelines need both data flow and control flow. Keep the accumulated hook set in `RESULT`, keep the immediate previous hook in `LAST_RESULT`, and treat stop requests as an explicit marker contract instead of overloading exit status
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/21-refactor-coverage.t`, `prove -lr t`
+**Related Files:** `bin/dashboard`, `lib/Developer/Dashboard/Runtime/Result.pm`, `t/05-cli-smoke.t`, `t/21-refactor-coverage.t`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: TOP-LEVEL-MANUAL-DRIFT
 
 **Date:** 2026-04-10 12:20:00 UTC

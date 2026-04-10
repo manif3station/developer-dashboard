@@ -1,5 +1,18 @@
 Revision history for Developer Dashboard
 
+2.20  2026-04-10
+    - added explicit command-hook stop semantics so a hook now stops the
+      remaining `<command>.d` chain only when its `stderr` contains the
+      marker `[[STOP]]`, while ordinary non-zero exits are still recorded but
+      do not skip later hooks
+    - added `LAST_RESULT` and `LAST_RESULT_FILE` support in
+      `Developer::Dashboard::Runtime::Result`, giving each later hook and the
+      final command one stable `{ file, exit, STDOUT, STDERR }` view of the
+      immediately previous hook
+    - expanded hook documentation, smoke coverage, and unit coverage so the
+      stop marker plus previous-hook handoff are part of the documented and
+      tested CLI hook lifecycle contract
+
 2.19  2026-04-10
     - removed the contributor-only `FULL-POD-DOC` and Scorecard gate prose
       from `README.md` and `Developer::Dashboard.pm` so the top-level manual

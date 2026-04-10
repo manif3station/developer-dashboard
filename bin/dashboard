@@ -81,6 +81,7 @@ pod2usage(
 sub _prime_command_result_env {
     my ( $cmd, @argv ) = @_;
     Developer::Dashboard::Runtime::Result::clear_current();
+    Developer::Dashboard::Runtime::Result::clear_last_result();
     $ENV{DEVELOPER_DASHBOARD_COMMAND} = $cmd if defined $cmd && $cmd ne '';
     return 1 if !defined $cmd || $cmd eq '';
 
@@ -108,11 +109,23 @@ sub _prime_command_result_env {
             };
             $results{$result_key}{exit_code} = $hook_result->{exit_code} if defined $hook_result->{exit_code};
             Developer::Dashboard::Runtime::Result::set_current( \%results );
+            Developer::Dashboard::Runtime::Result::set_last_result(
+                {
+                    file   => $path,
+                    exit   => $hook_result->{exit_code},
+                    STDOUT => $hook_result->{stdout},
+                    STDERR => $hook_result->{stderr},
+                }
+            );
+            return 1 if Developer::Dashboard::Runtime::Result::stop_requested( $hook_result->{stderr} );
         }
         closedir $dh;
     }
 
-    Developer::Dashboard::Runtime::Result::clear_current() if !%results;
+    if ( !%results ) {
+        Developer::Dashboard::Runtime::Result::clear_current();
+        Developer::Dashboard::Runtime::Result::clear_last_result();
+    }
     return 1;
 }
 
@@ -417,7 +430,11 @@ Perl modules loaded by those helpers.
 
 =head1 PURPOSE
 
-This is the one public executable users invoke. It bootstraps C<PERL5LIB> when running from a checkout, runs layered command hooks across C<DD-OOP-LAYERS>, stages dashboard-managed built-in helpers under F<~/.developer-dashboard/cli/dd/>, and then C<exec>s the final helper or custom command instead of owning the heavy implementation itself.
+This is the one public executable users invoke. It bootstraps C<PERL5LIB>
+when running from a checkout, runs layered command hooks across
+C<DD-OOP-LAYERS>, stages dashboard-managed built-in helpers under
+F<~/.developer-dashboard/cli/dd/>, and then C<exec>s the final helper or
+custom command instead of owning the heavy implementation itself.
 
 =head1 WHY IT EXISTS
 
@@ -429,7 +446,12 @@ Use this file when you are changing top-level command discovery, the order of co
 
 =head1 HOW TO USE
 
-Users run C<dashboard E<lt>subcommandE<gt>>. This script resolves whether that subcommand is a dashboard-managed helper or a user-layer command, primes the C<RESULT> hook state, and then hands off with C<exec>. If behavior belongs to a subsystem, move it into a module or private helper instead of expanding this file.
+Users run C<dashboard E<lt>subcommandE<gt>>. This script resolves whether that
+subcommand is a dashboard-managed helper or a user-layer command, primes the
+C<RESULT> and C<LAST_RESULT> hook state, honors the explicit C<[[STOP]]>
+stderr marker when one hook wants to stop the remaining hook chain, and then
+hands off with C<exec>. If behavior belongs to a subsystem, move it into a
+module or private helper instead of expanding this file.
 
 =head1 WHAT USES IT
 
@@ -456,6 +478,17 @@ Example 3:
 Run the public command through its server bootstrap path while keeping logs in the foreground.
 
 Example 4:
+
+  mkdir -p ~/.developer-dashboard/cli/update.d
+  printf '#!/bin/sh\necho first\n' > ~/.developer-dashboard/cli/update.d/00-first
+  printf '#!/bin/sh\necho stop >&2; echo "[[STOP]]" >&2\n' > ~/.developer-dashboard/cli/update.d/01-stop
+  chmod +x ~/.developer-dashboard/cli/update.d/00-first ~/.developer-dashboard/cli/update.d/01-stop
+  dashboard update
+
+Exercise the explicit stop-marker hook path, where one hook ends the remaining
+hook chain but control still returns to the main command.
+
+Example 5:
 
   prove -lv t/30-dashboard-loader.t
 

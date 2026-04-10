@@ -1166,6 +1166,93 @@ like( $huge_stdout, qr/stderr=1800000\n/s, 'final command still receives the ove
 like( $huge_stdout, qr/result_file=1\n/s, 'final command sees the explicit RESULT_FILE fallback when hook output would otherwise overflow exec' );
 unlike( $huge_stderr, qr/Argument list too long/, 'oversized RESULT fallback avoids kernel exec failures from large hook payloads' );
 
+my $stop_command = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'hook-stop-check' );
+open my $stop_command_fh, '>', $stop_command or die "Unable to write $stop_command: $!";
+print {$stop_command_fh} <<'PL';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+print "__DD_RESULT_BEGIN__\n", ( $ENV{RESULT} // '' ), "\n__DD_RESULT_END__\n";
+print "__DD_LAST_RESULT_BEGIN__\n", ( $ENV{LAST_RESULT} // '' ), "\n__DD_LAST_RESULT_END__\n";
+PL
+close $stop_command_fh;
+chmod 0755, $stop_command or die "Unable to chmod $stop_command: $!";
+
+my $stop_hook_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli', 'hook-stop-check.d' );
+make_path($stop_hook_root);
+my $stop_probe = File::Spec->catfile( $ENV{HOME}, 'hook-stop-last-result.json' );
+my $stop_sentinel = File::Spec->catfile( $ENV{HOME}, 'hook-stop-third-ran.txt' );
+my $stop_first = File::Spec->catfile( $stop_hook_root, '00-first.pl' );
+open my $stop_first_fh, '>', $stop_first or die "Unable to write $stop_first: $!";
+print {$stop_first_fh} <<'PL';
+#!/usr/bin/env perl
+print "ABC\n";
+PL
+close $stop_first_fh;
+chmod 0755, $stop_first or die "Unable to chmod $stop_first: $!";
+my $stop_second = File::Spec->catfile( $stop_hook_root, '01-stop.pl' );
+open my $stop_second_fh, '>', $stop_second or die "Unable to write $stop_second: $!";
+print {$stop_second_fh} <<"PL";
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use lib '$repo/lib';
+use JSON::XS qw(encode_json);
+use Developer::Dashboard::Runtime::Result ();
+my \$last = Developer::Dashboard::Runtime::Result->last_result() || {};
+open my \$fh, '>', '$stop_probe' or die \$!;
+print {\$fh} encode_json(\$last);
+close \$fh;
+print "stop-hook\n";
+warn "[[STOP]] stop requested by 01-stop.pl\\n";
+PL
+close $stop_second_fh;
+chmod 0755, $stop_second or die "Unable to chmod $stop_second: $!";
+my $stop_third = File::Spec->catfile( $stop_hook_root, '02-never.pl' );
+open my $stop_third_fh, '>', $stop_third or die "Unable to write $stop_third: $!";
+print {$stop_third_fh} <<"PL";
+#!/usr/bin/env perl
+use strict;
+use warnings;
+open my \$fh, '>', '$stop_sentinel' or die \$!;
+print {\$fh} "ran\\n";
+close \$fh;
+print "third-hook\\n";
+PL
+close $stop_third_fh;
+chmod 0755, $stop_third or die "Unable to chmod $stop_third: $!";
+
+my ( $stop_stdout, $stop_stderr, $stop_exit ) = capture {
+    system 'sh', '-c', "$perl -I'$lib' '$dashboard' hook-stop-check";
+    return $? >> 8;
+};
+is( $stop_exit, 0, 'dashboard returns to the main command after a hook emits the explicit stop marker' );
+like( $stop_stdout, qr/^ABC\n/s, 'dashboard still streams stdout from hooks that ran before the stop marker' );
+like( $stop_stdout, qr/stop-hook\n/s, 'dashboard still streams stdout from the hook that requested stop' );
+unlike( $stop_stdout, qr/third-hook\n/s, 'dashboard skips later hook scripts after a stop marker appears on stderr' );
+like( $stop_stderr, qr/\[\[STOP\]\] stop requested by 01-stop\.pl/, 'dashboard keeps the explicit stop marker visible on stderr' );
+ok( !-e $stop_sentinel, 'dashboard does not execute later hook files once the stop marker is seen' );
+open my $stop_probe_fh, '<', $stop_probe or die "Unable to read $stop_probe: $!";
+my $stop_previous = json_decode( do { local $/; <$stop_probe_fh> } );
+close $stop_probe_fh;
+like( $stop_previous->{file}, qr/\Qhook-stop-check.d\E.*\Q00-first.pl\E\z/, 'Runtime::Result last_result exposes the previous hook file path inside the next hook' );
+is( $stop_previous->{exit}, 0, 'Runtime::Result last_result exposes the previous hook exit code inside the next hook' );
+is( $stop_previous->{STDOUT}, "ABC\n", 'Runtime::Result last_result exposes the previous hook stdout inside the next hook' );
+is( $stop_previous->{STDERR}, '', 'Runtime::Result last_result exposes the previous hook stderr inside the next hook' );
+my ($stop_result_json) = $stop_stdout =~ /__DD_RESULT_BEGIN__\n([\s\S]*?)\n__DD_RESULT_END__/;
+ok( defined $stop_result_json && $stop_result_json ne '', 'main command receives RESULT after hook-stop execution' );
+my $stop_result_data = json_decode($stop_result_json);
+ok( exists $stop_result_data->{'00-first.pl'}, 'main command RESULT keeps the first hook entry' );
+ok( exists $stop_result_data->{'01-stop.pl'}, 'main command RESULT keeps the stopping hook entry' );
+ok( !exists $stop_result_data->{'02-never.pl'}, 'main command RESULT skips hooks after the explicit stop marker' );
+my ($stop_last_json) = $stop_stdout =~ /__DD_LAST_RESULT_BEGIN__\n([\s\S]*?)\n__DD_LAST_RESULT_END__/;
+ok( defined $stop_last_json && $stop_last_json ne '', 'main command receives LAST_RESULT after hook-stop execution' );
+my $stop_last_data = json_decode($stop_last_json);
+like( $stop_last_data->{file}, qr/\Qhook-stop-check.d\E.*\Q01-stop.pl\E\z/, 'main command LAST_RESULT points at the stopping hook file' );
+is( $stop_last_data->{exit}, 0, 'main command LAST_RESULT keeps the stopping hook exit code' );
+is( $stop_last_data->{STDOUT}, "stop-hook\n", 'main command LAST_RESULT keeps the stopping hook stdout' );
+like( $stop_last_data->{STDERR}, qr/\[\[STOP\]\] stop requested by 01-stop\.pl/, 'main command LAST_RESULT keeps the stopping hook stderr' );
+
 is( _run("$perl -I'$lib' '$dashboard' version"), "$expected_version\n", 'dashboard version prints the installed dashboard version' );
 
 my $toml_value = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$dashboard' tomq alpha.beta});

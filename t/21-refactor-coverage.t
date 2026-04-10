@@ -1137,6 +1137,8 @@ is_deeply(
 local $ENV{RESULT} = '';
 is_deeply( Developer::Dashboard::Runtime::Result::current(), {}, 'Runtime::Result current returns an empty hash for empty RESULT' );
 local $ENV{RESULT_FILE} = '';
+local $ENV{LAST_RESULT} = '';
+local $ENV{LAST_RESULT_FILE} = '';
 is( Developer::Dashboard::Runtime::Result::has(''), 0, 'Runtime::Result has rejects empty names' );
 is( Developer::Dashboard::Runtime::Result::entry(''), undef, 'Runtime::Result entry rejects empty names' );
 is( Developer::Dashboard::Runtime::Result::stdout('missing'), '', 'Runtime::Result stdout returns empty string for missing names' );
@@ -1144,8 +1146,17 @@ is( Developer::Dashboard::Runtime::Result::stderr('missing'), '', 'Runtime::Resu
 is( Developer::Dashboard::Runtime::Result::exit_code('missing'), undef, 'Runtime::Result exit_code returns undef for missing names' );
 is( Developer::Dashboard::Runtime::Result::last_name(), undef, 'Runtime::Result last_name returns undef when RESULT is empty' );
 is( Developer::Dashboard::Runtime::Result::last_entry(), undef, 'Runtime::Result last_entry returns undef when RESULT is empty' );
+is( Developer::Dashboard::Runtime::Result::last_result(), undef, 'Runtime::Result last_result returns undef when LAST_RESULT is empty' );
 is( Developer::Dashboard::Runtime::Result::report(), '', 'Runtime::Result report returns an empty string for empty RESULT' );
 is( Developer::Dashboard::Runtime::Result::clear_current(), '', 'Runtime::Result clear_current clears inline or file-backed RESULT state' );
+is( Developer::Dashboard::Runtime::Result::clear_last_result(), '', 'Runtime::Result clear_last_result clears inline or file-backed LAST_RESULT state' );
+is( Developer::Dashboard::Runtime::Result::_current_json(), '', 'Runtime::Result _current_json returns an empty string when RESULT is empty' );
+ok( !Developer::Dashboard::Runtime::Result::stop_requested('plain stderr'), 'Runtime::Result stop_requested ignores plain stderr without the marker' );
+ok( Developer::Dashboard::Runtime::Result::stop_requested("[[STOP]] requested\n"), 'Runtime::Result stop_requested detects the explicit stderr stop marker' );
+ok(
+    Developer::Dashboard::Runtime::Result::stop_requested( { STDERR => 'before [[STOP]] after' } ),
+    'Runtime::Result stop_requested accepts structured last-result hashes too',
+);
 {
     local $ENV{RESULT};
     local $ENV{RESULT_FILE};
@@ -1182,6 +1193,71 @@ is( Developer::Dashboard::Runtime::Result::clear_current(), '', 'Runtime::Result
     );
     is( $ENV{RESULT} || '', '', 'Runtime::Result clear_current leaves RESULT empty after closing a file-backed payload' );
     is( $ENV{RESULT_FILE} || '', '', 'Runtime::Result clear_current leaves RESULT_FILE empty after closing a file-backed payload' );
+}
+{
+    local $ENV{LAST_RESULT};
+    local $ENV{LAST_RESULT_FILE};
+    is(
+        Developer::Dashboard::Runtime::Result::set_last_result(
+            {
+                file   => 'cli/test.d/01-inline.pl',
+                exit   => 0,
+                STDOUT => "inline\n",
+                STDERR => '',
+            },
+            max_inline_bytes => 4096,
+        ),
+        'inline',
+        'Runtime::Result keeps small LAST_RESULT payloads inline',
+    );
+    like( $ENV{LAST_RESULT}, qr/01-inline\.pl/, 'Runtime::Result writes inline LAST_RESULT JSON for small payloads' );
+    ok( !defined $ENV{LAST_RESULT_FILE}, 'Runtime::Result leaves LAST_RESULT_FILE unset for small LAST_RESULT payloads' );
+    is_deeply(
+        Developer::Dashboard::Runtime::Result::last_result(),
+        {
+            file   => 'cli/test.d/01-inline.pl',
+            exit   => 0,
+            STDOUT => "inline\n",
+            STDERR => '',
+        },
+        'Runtime::Result last_result decodes inline LAST_RESULT JSON',
+    );
+}
+{
+    local $ENV{LAST_RESULT};
+    local $ENV{LAST_RESULT_FILE};
+    my $mode = Developer::Dashboard::Runtime::Result::set_last_result(
+        {
+            file   => 'cli/test.d/01-file.pl',
+            exit   => 2,
+            STDOUT => '',
+            STDERR => ( 'y' x 2048 ),
+        },
+        max_inline_bytes => 32,
+    );
+    is( $mode, 'file', 'Runtime::Result spills oversized LAST_RESULT payloads into LAST_RESULT_FILE' );
+    is( $ENV{LAST_RESULT}, undef, 'Runtime::Result clears inline LAST_RESULT when file-backed overflow fallback is active' );
+    ok(
+        defined $ENV{LAST_RESULT_FILE} && $ENV{LAST_RESULT_FILE} ne '',
+        'Runtime::Result exposes LAST_RESULT_FILE for oversized last-result payloads',
+    );
+    is_deeply(
+        Developer::Dashboard::Runtime::Result::last_result(),
+        {
+            file   => 'cli/test.d/01-file.pl',
+            exit   => 2,
+            STDOUT => '',
+            STDERR => ( 'y' x 2048 ),
+        },
+        'Runtime::Result last_result reads the full file-backed LAST_RESULT payload',
+    );
+    is(
+        Developer::Dashboard::Runtime::Result::clear_last_result(),
+        '',
+        'Runtime::Result clear_last_result closes an active file-backed LAST_RESULT handle',
+    );
+    is( $ENV{LAST_RESULT} || '', '', 'Runtime::Result clear_last_result leaves LAST_RESULT empty after cleanup' );
+    is( $ENV{LAST_RESULT_FILE} || '', '', 'Runtime::Result clear_last_result leaves LAST_RESULT_FILE empty after cleanup' );
 }
 {
     local $ENV{DEVELOPER_DASHBOARD_RESULT_INLINE_MAX} = '123';
