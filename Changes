@@ -1,5 +1,21 @@
 Revision history for Developer Dashboard
 
+2.17  2026-04-10
+    - replaced the repeated FULL-POD-DOC template text across shipped Perl
+      modules, scripts, and staged helpers with file-specific documentation
+      that now describes each command surface, runtime layer, compatibility
+      shim, or web subsystem in terms of its real behavior and handoffs
+    - expanded `t/15-release-metadata.t` so release verification now rejects
+      the earlier copy-paste FULL-POD-DOC boilerplate and treats file-specific
+      shipped POD as part of the release contract
+    - tightened the FULL-POD-DOC contract so shipped Perl docs must now cover
+      common-path examples plus meaningful edge or debugging examples instead
+      of stopping at one shallow happy-path sample
+    - synced the contributor-definition docs in `README.md` and
+      `Developer::Dashboard.pm` with a 10-common / 10-edge example bank so the
+      next repo-wide documentation sweep has concrete example patterns to copy
+      in spirit instead of reintroducing boilerplate
+
 2.16  2026-04-09
     - fixed macOS shell-smoke portability in `t/05-cli-smoke.t` so `cdr` and
       `which_dir` assertions now compare canonical path identity instead of

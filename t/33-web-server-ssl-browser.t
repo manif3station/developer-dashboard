@@ -313,42 +313,43 @@ once certificate trust is bypassed locally for the test browser process.
 
 =head1 PURPOSE
 
-Test file in the Developer Dashboard codebase. This file closes the gap between
-socket-level SSL checks and what a real browser actually sees when C<dashboard
-serve --ssl> is used.
+This test is the executable regression contract for HTTPS serving, certificates, and browser-facing SSL behavior. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
 
 =head1 WHY IT EXISTS
 
-It exists because transport-only SSL checks can miss browser-facing certificate
-problems. A self-signed HTTPS server can accept TLS sockets and still fail the
-actual user experience if Chromium only reaches an error page or a reset
-instead of the dashboard.
+It exists because HTTPS serving, certificates, and browser-facing SSL behavior has enough moving parts that a code-only review can miss real regressions. Keeping those expectations in a dedicated test file makes the TDD loop, coverage loop, and release gate concrete.
 
 =head1 WHEN TO USE
 
-Use this file when you change HTTPS certificate generation, browser-facing SSL
-behaviour, or the dashboard serve path and need to confirm the browser
-experience is still acceptable.
+Use this file when changing HTTPS serving, certificates, and browser-facing SSL behavior, when a focused CI failure points here, or when you want a faster regression loop than running the entire suite.
 
 =head1 HOW TO USE
 
-Run it directly with C<prove -lv t/33-web-server-ssl-browser.t>. The test
-requires a Chromium-class browser on PATH. It creates a temporary dashboard
-home, starts C<dashboard serve --ssl> in the foreground, then drives Chromium
-headless against the HTTPS listener.
+Run it directly with C<prove -lv t/33-web-server-ssl-browser.t> while iterating, then keep it green under C<prove -lr t> and the coverage runs before release. For browser-backed tests, make sure the external browser tooling they name is actually present instead of assuming the suite will fabricate it.
 
 =head1 WHAT USES IT
 
-It is used by developers during SSL/browser TDD, by the full C<prove -lr t>
-suite when Chromium is available, and by release verification when HTTPS
-behaviour changes.
+Developers during TDD, the full C<prove -lr t> suite, the coverage gates, and the release verification loop all rely on this file to keep this behavior from drifting.
 
 =head1 EXAMPLES
 
+Example 1:
+
   prove -lv t/33-web-server-ssl-browser.t
 
-Run that command while working on HTTPS browser behaviour, then keep it green
-under C<prove -lr t> before release.
+Run the focused regression test by itself while you are changing the behavior it owns.
+
+Example 2:
+
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/33-web-server-ssl-browser.t
+
+Exercise the same focused test while collecting coverage for the library code it reaches.
+
+Example 3:
+
+  prove -lr t
+
+Put the focused fix back through the whole repository suite before calling the work finished.
 
 =for comment FULL-POD-DOC END
 

@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::OpenFile;
 use strict;
 use warnings;
 
-our $VERSION = '2.16';
+our $VERSION = '2.17';
 
 use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 use Cwd qw(cwd);
@@ -690,30 +690,44 @@ C<dashboard open-file> command paths.
 
 =head1 PURPOSE
 
-Perl module in the Developer Dashboard codebase. This file implements the ranked open-file helper logic used by the dashboard open-file commands.
-Open this file when you need the implementation, regression coverage, or runtime entrypoint for that responsibility rather than guessing which part of the tree owns it.
+This module implements the search and resolution logic behind C<dashboard of> and C<dashboard open-file>. It can open direct paths, search within scopes, resolve Perl module names, resolve Java dotted class names through source trees and source archives, and rank file matches before opening or printing them.
 
 =head1 WHY IT EXISTS
 
-It exists to keep this responsibility in reusable Perl code instead of hiding it in the thin C<dashboard> switchboard, bookmark text, or duplicated helper scripts. That separation makes the runtime easier to test, safer to change, and easier for contributors to navigate.
+It exists because open-file behavior is much richer than a one-line shell wrapper. The dashboard needs one tested place that owns regex matching, module lookup, archive inspection, editor command selection, and the fallback rules between direct paths and scoped search.
 
 =head1 WHEN TO USE
 
-Use this file when you are changing the underlying runtime behaviour it owns, when you need to call its routines from another part of the project, or when a failing test points at this module as the real owner of the bug.
+Use this file when changing regex matching, how Java source is found, how Perl modules are mapped to files, how multiple matches are ranked, or how the helper chooses between printing and launching an editor.
 
 =head1 HOW TO USE
 
-Load C<Developer::Dashboard::CLI::OpenFile> from Perl code under C<lib/> or from a focused test, then use the public routines documented in the inline function comments and existing SYNOPSIS/METHODS sections. This file is not a standalone executable.
+Call C<run_open_file_command> with the raw argv array from the helper command,
+or use the lower-level lookup routines from tests. Direct file paths and
+C<file:line> targets are handled immediately. Scoped lookup mode treats the
+first non-option argument as the search root or saved alias and every remaining
+argument as a case-insensitive regex that must match the candidate path. A
+single hit opens or prints that file, while multiple hits are ranked and shown
+as a chooser or plain list. Perl module lookup maps C<Foo::Bar> to
+C<Foo/Bar.pm>; Java lookup maps dotted class names to C<.java> source files,
+source archives, or cached Maven source jars before the helper decides whether
+to print the path or exec the configured editor.
 
 =head1 WHAT USES IT
 
-This file is used by whichever runtime path owns this responsibility: the public C<dashboard> entrypoint, staged private helper scripts under C<share/private-cli/>, the web runtime, update flows, and the focused regression tests under C<t/>.
+It is used by the private C<of> and C<open-file> helper scripts, by shell
+users who want repo-local open-file behavior, and by the CLI coverage tests
+that exercise direct-path, regex, Perl-module, Java-source, ranking, and
+print-vs-editor flows.
 
 =head1 EXAMPLES
 
-  perl -Ilib -MDeveloper::Dashboard::CLI::OpenFile -e 'print qq{loaded\n}'
-
-That example is only a quick load check. For real usage, follow the public routines already described in the inline code comments and any existing SYNOPSIS section.
+  dashboard open-file path/to/file.txt
+  dashboard open-file lib 'OpenFile\.pm$'
+  dashboard of . "Ok\.js$"
+  dashboard open-file javax.jws.WebService
+  dashboard of Developer::Dashboard::CLI::Paths
+  dashboard open-file --print bookmarks api-dashboard
 
 =for comment FULL-POD-DOC END
 

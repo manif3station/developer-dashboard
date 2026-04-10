@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: FULL-POD-BOILERPLATE-DRIFT
+
+**Date:** 2026-04-10 08:35:00 UTC
+**Area:** shipped Perl documentation quality
+**Symptom:** The repo technically satisfied the `FULL-POD-DOC` rule, but many modules, entrypoints, and staged helpers all carried nearly identical POD blocks that only swapped a filename or command name, leaving contributors with very little file-specific guidance
+**Why It Was Dangerous:** It made the documentation look complete while still forcing readers to reverse-engineer the code to understand responsibility boundaries, helper handoffs, and subsystem ownership. That is worse than missing docs because it creates false confidence
+**Root Cause:** I enforced section presence before I enforced section quality, so the repo drifted into template compliance instead of real operational documentation
+**How Ellen Solved It:** Added TDD in `t/15-release-metadata.t` to reject the known repeated FULL-POD-DOC template phrases, rewrote the shipped POD blocks with file-specific descriptions tied to each runtime surface, and updated the contributor docs to state explicitly that FULL-POD-DOC must describe the file's actual behavior rather than a generic checklist and must show both common-path and edge/debugging examples, backed by a synced 10-common / 10-edge example bank in the repo definition docs
+**How To Detect Earlier Next Time:** Sample a few unrelated files whenever a documentation sweep lands and ask whether a new contributor could tell why that exact file exists without opening its implementation. If the answer is no, the docs are still boilerplate
+**Prevention Rule:** `FULL-POD-DOC` requires file-specific content, not just the right headings. If a block still fits a different file after changing only the filename, or if its examples only show one shallow happy-path call and hide edge behavior, it is not good enough
+**Verification:** `prove -lv t/15-release-metadata.t`, `prove -lr t`
+**Related Files:** `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `t/15-release-metadata.t`, `app.psgi`, `bin/dashboard`, `lib/Developer/Dashboard/*.pm`, `share/private-cli/*`
+
+---
+
 ## CODE: MAC-SHELL-PATH-ALIAS-DRIFT
 
 **Date:** 2026-04-09 23:10:00 UTC

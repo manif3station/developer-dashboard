@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::SeededPages;
 use strict;
 use warnings;
 
-our $VERSION = '2.16';
+our $VERSION = '2.17';
 
 use File::Basename qw(dirname);
 use File::Spec;
@@ -329,30 +329,50 @@ diverged user-edited saved pages stay untouched.
 
 =head1 PURPOSE
 
-Perl module in the Developer Dashboard codebase. This file loads shipped bookmark source files from the distribution share directory.
-Open this file when you need the implementation, regression coverage, or runtime entrypoint for that responsibility rather than guessing which part of the tree owns it.
+This module manages shipped starter pages such as C<project-home>, C<api-dashboard>, and C<sql-dashboard>. It decides whether a runtime should receive a seed, whether a dashboard-managed copy is still safe to refresh, and how bridged historical managed digests are recognized during upgrades.
 
 =head1 WHY IT EXISTS
 
-It exists to keep this responsibility in reusable Perl code instead of hiding it in the thin C<dashboard> switchboard, bookmark text, or duplicated helper scripts. That separation makes the runtime easier to test, safer to change, and easier for contributors to navigate.
+It exists because seeding starter pages is not just a copy operation. The runtime must preserve real user edits while still refreshing dashboard-managed pages when the shipped content changed or when an older managed digest needs to be upgraded in place.
 
 =head1 WHEN TO USE
 
-Use this file when you are changing the underlying runtime behaviour it owns, when you need to call its routines from another part of the project, or when a failing test points at this module as the real owner of the bug.
+Use this file when changing dashboard init seeding rules, starter-page refresh behavior, bridge digests for older releases, or the safe-update policy for managed seed copies in runtime dashboards.
 
 =head1 HOW TO USE
 
-Load C<Developer::Dashboard::CLI::SeededPages> from Perl code under C<lib/> or from a focused test, then use the public routines documented in the inline function comments and existing SYNOPSIS/METHODS sections. This file is not a standalone executable.
+Call the seeding and refresh routines from init/update flows with the active runtime paths and page store. Keep managed-seed detection here so the command layer does not guess about whether a page is user-owned or dashboard-managed.
 
 =head1 WHAT USES IT
 
-This file is used by whichever runtime path owns this responsibility: the public C<dashboard> entrypoint, staged private helper scripts under C<share/private-cli/>, the web runtime, update flows, and the focused regression tests under C<t/>.
+It is used by C<dashboard init>, runtime bootstrap/update scripts, seed-refresh regressions for stale managed copies, and the SQL/API dashboard starter-page tests.
 
 =head1 EXAMPLES
 
-  perl -Ilib -MDeveloper::Dashboard::CLI::SeededPages -e 'print qq{loaded\n}'
+Example 1:
 
-That example is only a quick load check. For real usage, follow the public routines already described in the inline code comments and any existing SYNOPSIS section.
+  perl -Ilib -MDeveloper::Dashboard::CLI::SeededPages -e 1
+
+Do a direct compile-and-load check against the module from a source checkout.
+
+Example 2:
+
+  prove -lv t/04-update-manager.t t/26-sql-dashboard.t
+
+Run the focused regression tests that most directly exercise this module's behavior.
+
+Example 3:
+
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
+
+Recheck the module under the repository coverage gate rather than relying on a load-only probe.
+
+Example 4:
+
+  prove -lr t
+
+Put any module-level change back through the entire repository suite before release.
+
 
 =for comment FULL-POD-DOC END
 

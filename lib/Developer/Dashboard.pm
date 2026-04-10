@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.16';
+our $VERSION = '2.17';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.16
+2.17
 
 =head1 INTRODUCTION
 
@@ -481,10 +481,143 @@ generic package names.
 
 C<FULL-POD-DOC> is a repo contract. Every repo-owned Perl file must end with
 POD under C<__END__> that explains what the file is, what it is for, why it
-exists, when to use it, how to use it, what uses it, and at least one
-concrete example. Contributors should be able to open any module, script,
-helper, or test and understand its role without reverse-engineering the tree
-first.
+exists, when to use it, how to use it, what uses it, and multiple concrete
+examples. That documentation must be specific to the file's real job:
+runtime managers should describe the lifecycle they own, query helpers should
+describe the formats they parse, web modules should describe the routes or
+server edges they handle, and thin staged helpers should document the exact
+handoff they perform. Boilerplate that only swaps the filename is not enough.
+C<FULL-POD-DOC> also means each Perl module and script must document the real
+inputs it accepts, the outputs or side effects it produces, where it sits in
+the command or runtime flow, and multiple concrete examples that match actual
+usage instead of filler text. Those examples must cover the common path and at
+least one meaningful edge or debugging path when the file owns one, such as
+file-vs-STDIN behavior, single-vs-multiple search matches, print-vs-exec
+behavior, or create-vs-attach runtime flow. One-line POD, placeholder prose,
+or a repeated template with a different filename still fails the contract.
+Contributors should be able to open any module, script, helper, or test and
+understand its role without reverse-engineering the tree first.
+
+=head3 Common Documentation Example Patterns
+
+Good C<FULL-POD-DOC> should usually include examples like these when the file
+owns that behavior:
+
+=over 4
+
+=item *
+
+C<dashboard of lib 'OpenFile\.pm$'>: show the normal scoped-regex search path
+where the user knows the root and expects one file to win.
+
+=item *
+
+C<dashboard open-file path/to/file.txt>: show the direct-path path where no
+search is needed and the helper should hand the file straight to the editor.
+
+=item *
+
+C<dashboard path resolve dashboards>: show a plain alias lookup so readers can
+see the simplest path-registry call.
+
+=item *
+
+C<dashboard path cdr work alpha red>: show the normal alias-root narrowing flow
+where all extra terms must match one target directory.
+
+=item *
+
+C<dashboard paths | dashboard jq bookmarks_root>: show how one lightweight
+helper feeds another during shell debugging.
+
+=item *
+
+C<printf '{"alpha":{"beta":2}}' | dashboard jq alpha.beta>: show the common
+scalar extraction path for structured JSON.
+
+=item *
+
+C<printf 'alpha:\n  beta: 3\n' | dashboard yq alpha.beta>: show that the same
+dotted-path contract carries across YAML input.
+
+=item *
+
+C<printf '[alpha]\nbeta = 4\n' | dashboard tomq alpha.beta>: show the TOML
+equivalent of the same query-helper workflow.
+
+=item *
+
+C<dashboard ticket DD-123>: show the explicit ticket/session path where the
+session name is provided by the user.
+
+=item *
+
+C<dashboard serve --ssl>: show the normal browser-serving path for the runtime
+manager and web-server layers.
+
+=back
+
+=head3 Edge Or Debugging Documentation Example Patterns
+
+Good C<FULL-POD-DOC> should also include examples like these when the file owns
+that edge:
+
+=over 4
+
+=item *
+
+C<dashboard of . 'Ok\.js$'>: explain that an exact suffix regex must match
+C<ok.js> without drifting into C<ok.json>.
+
+=item *
+
+C<dashboard open-file javax.jws.WebService>: explain the Java-source fallback
+path through source trees, jars, wars, or cached Maven source jars.
+
+=item *
+
+C<dashboard jq response.json '$d'>: explain the whole-document query path and
+the order-independent file/path argv contract.
+
+=item *
+
+C<dashboard propq '$d' app.properties>: explain that dotted property names stay
+intact and the root-document path should return the full parsed map.
+
+=item *
+
+C<dashboard csvq 1.1>: explain that CSV selection is row/column index based,
+not a fake header-name query language.
+
+=item *
+
+C<dashboard xmlq _raw>: explain that XML is currently a raw-payload helper and
+docs must not promise a deeper tree-query contract than the implementation
+owns.
+
+=item *
+
+C<dashboard path cdr alpha red>: explain the non-alias fallback path where all
+arguments become current-directory regexes.
+
+=item *
+
+C<dashboard path cdr work alpha>: explain the multiple-match path where the
+helper prints matches and stays at the alias root instead of silently choosing
+one.
+
+=item *
+
+C<TICKET_REF=DD-123 dashboard ticket>: explain the environment-fallback path
+and the create-vs-attach decision for tmux ticket sessions.
+
+=item *
+
+C<dashboard init>: explain the non-destructive seed-refresh edge where
+dashboard-managed starter pages refresh, but diverged user-owned pages stay
+untouched.
+
+=back
 
 =head2 Scorecard Gate
 
@@ -2021,30 +2154,50 @@ This library is free software; you can redistribute it and/or modify it under th
 
 =head1 PURPOSE
 
-Perl module in the Developer Dashboard codebase. This file holds the top-level module version and the main user-facing manual for the project.
-Open this file when you need the implementation, regression coverage, or runtime entrypoint for that responsibility rather than guessing which part of the tree owns it.
+This module is the distribution manual for Developer Dashboard. It explains the user-facing runtime model, command surface, bookmark system, layered configuration, browser workspace features, and release expectations, while also carrying the canonical version number for the distribution.
 
 =head1 WHY IT EXISTS
 
-It exists to keep this responsibility in reusable Perl code instead of hiding it in the thin C<dashboard> switchboard, bookmark text, or duplicated helper scripts. That separation makes the runtime easier to test, safer to change, and easier for contributors to navigate.
+It exists so the distribution ships one authoritative manual that survives a tarball install and matches the README in the source tree. That keeps CPAN users, local developers, and release verification looking at the same product-level documentation instead of a checkout-only guide.
 
 =head1 WHEN TO USE
 
-Use this file when you are changing the underlying runtime behaviour it owns, when you need to call its routines from another part of the project, or when a failing test points at this module as the real owner of the bug.
+Use this file when the visible behavior of the dashboard changes, when command semantics move, when seeded workspaces gain new capability, or when contributor rules in the shipped manual need to stay aligned with the README.
 
 =head1 HOW TO USE
 
-Load C<Developer::Dashboard> from Perl code under C<lib/> or from a focused test, then use the public routines documented in the inline function comments and existing SYNOPSIS/METHODS sections. This file is not a standalone executable.
+Edit this POD as a product manual, not as an implementation dump. Keep it synchronized with C<README.md>, keep the version line aligned with C<dist.ini>, and describe the runtime the way an installed user will experience it.
 
 =head1 WHAT USES IT
 
-This file is used by whichever runtime path owns this responsibility: the public C<dashboard> entrypoint, staged private helper scripts under C<share/private-cli/>, the web runtime, update flows, and the focused regression tests under C<t/>.
+It is used by C<perldoc Developer::Dashboard>, by release metadata tests, by CPAN consumers reading installed documentation, and by contributors checking that the shipped manual matches the source-tree README.
 
 =head1 EXAMPLES
 
-  perl -Ilib -MDeveloper::Dashboard -e 'print qq{loaded\n}'
+Example 1:
 
-That example is only a quick load check. For real usage, follow the public routines already described in the inline code comments and any existing SYNOPSIS section.
+  perl -Ilib -MDeveloper::Dashboard -e 1
+
+Do a direct compile-and-load check against the module from a source checkout.
+
+Example 2:
+
+  prove -lv t/00-load.t t/15-release-metadata.t
+
+Run the focused regression tests that most directly exercise this module's behavior.
+
+Example 3:
+
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
+
+Recheck the module under the repository coverage gate rather than relying on a load-only probe.
+
+Example 4:
+
+  prove -lr t
+
+Put any module-level change back through the entire repository suite before release.
+
 
 =for comment FULL-POD-DOC END
 

@@ -194,10 +194,54 @@ generic package names.
 
 `FULL-POD-DOC` is a repo contract. Every repo-owned Perl file must end with
 POD under `__END__` that explains what the file is, what it is for, why it
-exists, when to use it, how to use it, what uses it, and at least one
-concrete example. Contributors should be able to open any module, script,
-helper, or test and understand its role without reverse-engineering the tree
-first.
+exists, when to use it, how to use it, what uses it, and multiple concrete
+examples. That documentation must be specific to the file's real job:
+runtime managers should describe the lifecycle they own, query helpers should
+describe the formats they parse, web modules should describe the routes or
+server edges they handle, and thin staged helpers should document the exact
+handoff they perform. Boilerplate that only swaps the filename is not enough.
+`FULL-POD-DOC` also means each Perl module and script must document the real
+inputs it accepts, the outputs or side effects it produces, where it sits in
+the command or runtime flow, and multiple concrete examples that match actual
+usage instead of filler text. Those examples must cover the common path and at
+least one meaningful edge or debugging path when the file owns one, such as
+file-vs-STDIN behavior, single-vs-multiple search matches, print-vs-exec
+behavior, or create-vs-attach runtime flow. One-line POD, placeholder prose,
+or a repeated template with a different filename still fails the contract.
+Contributors should be able to open any module, script, helper, or test and
+understand its role without reverse-engineering the tree first.
+
+#### Common Documentation Example Patterns
+
+Good FULL-POD-DOC should usually include examples like these when the file owns
+that behavior:
+
+- `dashboard of lib 'OpenFile\.pm$'`: show the normal scoped-regex search path where the user knows the root and expects one file to win.
+- `dashboard open-file path/to/file.txt`: show the direct-path path where no search is needed and the helper should hand the file straight to the editor.
+- `dashboard path resolve dashboards`: show a plain alias lookup so readers can see the simplest path-registry call.
+- `dashboard path cdr work alpha red`: show the normal alias-root narrowing flow where all extra terms must match one target directory.
+- `dashboard paths | dashboard jq bookmarks_root`: show how one lightweight helper feeds another during shell debugging.
+- `printf '{"alpha":{"beta":2}}' | dashboard jq alpha.beta`: show the common scalar extraction path for structured JSON.
+- `printf 'alpha:\n  beta: 3\n' | dashboard yq alpha.beta`: show that the same dotted-path contract carries across YAML input.
+- `printf '[alpha]\nbeta = 4\n' | dashboard tomq alpha.beta`: show the TOML equivalent of the same query-helper workflow.
+- `dashboard ticket DD-123`: show the explicit ticket/session path where the session name is provided by the user.
+- `dashboard serve --ssl`: show the normal browser-serving path for the runtime manager and web-server layers.
+
+#### Edge Or Debugging Documentation Example Patterns
+
+Good FULL-POD-DOC should also include examples like these when the file owns
+that edge:
+
+- `dashboard of . 'Ok\.js$'`: explain that an exact suffix regex must match `ok.js` without drifting into `ok.json`.
+- `dashboard open-file javax.jws.WebService`: explain the Java-source fallback path through source trees, jars, wars, or cached Maven source jars.
+- `dashboard jq response.json '$d'`: explain the whole-document query path and the order-independent file/path argv contract.
+- `dashboard propq '$d' app.properties`: explain that dotted property names stay intact and the root-document path should return the full parsed map.
+- `dashboard csvq 1.1`: explain that CSV selection is row/column index based, not a fake header-name query language.
+- `dashboard xmlq _raw`: explain that XML is currently a raw-payload helper and docs must not promise a deeper tree-query contract than the implementation owns.
+- `dashboard path cdr alpha red`: explain the non-alias fallback path where all arguments become current-directory regexes.
+- `dashboard path cdr work alpha`: explain the multiple-match path where the helper prints matches and stays at the alias root instead of silently choosing one.
+- `TICKET_REF=DD-123 dashboard ticket`: explain the environment-fallback path and the create-vs-attach decision for tmux ticket sessions.
+- `dashboard init`: explain the non-destructive seed-refresh edge where dashboard-managed starter pages refresh, but diverged user-owned pages stay untouched.
 
 ### Scorecard Gate
 

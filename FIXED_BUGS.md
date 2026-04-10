@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 2026-04-10 (Phase 81: Full Pod Boilerplate Drift)
+
+- Fixed shipped FULL-POD-DOC quality drift by replacing the repeated copy-paste POD template across modules, entrypoints, and staged helpers with file-specific documentation that now describes each file's real responsibility, handoff, and usage examples.
+- Expanded `t/15-release-metadata.t` so release verification now fails if the old generic FULL-POD-DOC boilerplate reappears in shipped Perl assets.
+- Tightened the contributor contract so shipped Perl docs now have to show the common path plus a meaningful edge or debugging path in their examples, which prevents another drift back to shallow one-sample POD.
+- Added a synced 10-common / 10-edge example bank to `README.md` and `Developer::Dashboard.pm` so contributors have a concrete reference for what "detailed examples" means in this repo.
+
 ## 2026-04-09 (Phase 80: Mac Shell Path Alias Drift)
 
 - Fixed `t/05-cli-smoke.t` so the shell-helper `cdr` and `which_dir` assertions now compare canonical path identity instead of raw strings, which keeps macOS source-tree runs green when the same temp tree appears as `/var/...` in the shell and `/private/var/...` from `pwd`.

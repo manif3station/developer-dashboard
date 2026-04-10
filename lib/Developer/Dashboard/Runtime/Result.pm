@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '2.16';
+our $VERSION = '2.17';
 
 use Encode qw(encode);
 use File::Basename qw(basename dirname);
@@ -312,30 +312,50 @@ stored inline in C<RESULT> or spilled into C<RESULT_FILE>.
 
 =head1 PURPOSE
 
-Perl module in the Developer Dashboard codebase. This file reads and writes the RESULT payload shared between layered command hooks.
-Open this file when you need the implementation, regression coverage, or runtime entrypoint for that responsibility rather than guessing which part of the tree owns it.
+This module manages the structured C<RESULT> state passed between command hooks and their final command target. It serializes hook stdout, stderr, and exit codes, decodes that state for later hooks, and transparently spills oversized payloads into C<RESULT_FILE> when the environment would become too large.
 
 =head1 WHY IT EXISTS
 
-It exists to keep this responsibility in reusable Perl code instead of hiding it in the thin C<dashboard> switchboard, bookmark text, or duplicated helper scripts. That separation makes the runtime easier to test, safer to change, and easier for contributors to navigate.
+It exists because hook chaining needs a transport format that is explicit and portable. Encoding that state in one module keeps hook readers and writers synchronized and avoids argument-list failures when a long hook chain produces too much output for C<ENV{RESULT}> alone.
 
 =head1 WHEN TO USE
 
-Use this file when you are changing the underlying runtime behaviour it owns, when you need to call its routines from another part of the project, or when a failing test points at this module as the real owner of the bug.
+Use this file when changing hook result serialization, RESULT versus RESULT_FILE overflow rules, or the reporting helpers used by command-hook scripts.
 
 =head1 HOW TO USE
 
-Load C<Developer::Dashboard::Runtime::Result> from Perl code under C<lib/> or from a focused test, then use the public routines documented in the inline function comments and existing SYNOPSIS/METHODS sections. This file is not a standalone executable.
+Use C<set_current>, C<clear_current>, and the decode/report helpers rather than manipulating C<ENV{RESULT}> by hand. Hook scripts should read structured state through this module instead of parsing JSON blobs themselves.
 
 =head1 WHAT USES IT
 
-This file is used by whichever runtime path owns this responsibility: the public C<dashboard> entrypoint, staged private helper scripts under C<share/private-cli/>, the web runtime, update flows, and the focused regression tests under C<t/>.
+It is used by C<bin/dashboard> command-hook priming, update hooks, skill hook dispatch, and tests that cover RESULT overflow and chained hook behavior.
 
 =head1 EXAMPLES
 
-  perl -Ilib -MDeveloper::Dashboard::Runtime::Result -e 'print qq{loaded\n}'
+Example 1:
 
-That example is only a quick load check. For real usage, follow the public routines already described in the inline code comments and any existing SYNOPSIS section.
+  perl -Ilib -MDeveloper::Dashboard::Runtime::Result -e 1
+
+Do a direct compile-and-load check against the module from a source checkout.
+
+Example 2:
+
+  prove -lv t/21-refactor-coverage.t t/00-load.t
+
+Run the focused regression tests that most directly exercise this module's behavior.
+
+Example 3:
+
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
+
+Recheck the module under the repository coverage gate rather than relying on a load-only probe.
+
+Example 4:
+
+  prove -lr t
+
+Put any module-level change back through the entire repository suite before release.
+
 
 =for comment FULL-POD-DOC END
 

@@ -150,43 +150,48 @@ __END__
 
 t/34-scorecard-guardrails.t - enforce repository-side Scorecard guardrails
 
+=for comment FULL-POD-DOC START
+
 =head1 PURPOSE
 
-This test locks in the repository files and workflow structure that are meant
-to satisfy the repo-fixable OpenSSF Scorecard checks.
+This test is the executable regression contract for the repository-side Scorecard and workflow guardrails. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
 
 =head1 WHY IT EXISTS
 
-The repository now treats Scorecard as a delivery gate. This test keeps the
-basic guardrails from drifting: tracked policy files, update tooling, SAST,
-packaging/signing workflow presence, fuzzing signal, pinned action SHAs, and
-explicit workflow permissions.
+It exists because the repository-side Scorecard and workflow guardrails has enough moving parts that a code-only review can miss real regressions. Keeping those expectations in a dedicated test file makes the TDD loop, coverage loop, and release gate concrete.
 
 =head1 WHEN TO USE
 
-Run this test whenever repository metadata, GitHub workflows, packaging
-automation, or Scorecard-related policy files change.
+Use this file when changing the repository-side Scorecard and workflow guardrails, when a focused CI failure points here, or when you want a faster regression loop than running the entire suite.
 
 =head1 HOW TO USE
 
-Run it directly:
-
-  prove -lv t/34-scorecard-guardrails.t
-
-It also runs as part of the normal C<prove -lr t> suite.
+Run it directly with C<prove -lv t/34-scorecard-guardrails.t> while iterating, then keep it green under C<prove -lr t> and the coverage runs before release. 
 
 =head1 WHAT USES IT
 
-Release verification, local TDD while hardening Scorecard findings, and future
-contributors who need a fast failure when a Scorecard guardrail drifts.
+Developers during TDD, the full C<prove -lr t> suite, the coverage gates, and the release verification loop all rely on this file to keep this behavior from drifting.
 
 =head1 EXAMPLES
 
+Example 1:
+
   prove -lv t/34-scorecard-guardrails.t
+
+Run the focused regression test by itself while you are changing the behavior it owns.
+
+Example 2:
+
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/34-scorecard-guardrails.t
+
+Exercise the same focused test while collecting coverage for the library code it reaches.
+
+Example 3:
 
   prove -lr t
 
-The first command checks only the Scorecard guardrails. The second command
-includes those checks in the full repository test suite.
+Put the focused fix back through the whole repository suite before calling the work finished.
+
+=for comment FULL-POD-DOC END
 
 =cut

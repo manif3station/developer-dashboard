@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '2.16';
+our $VERSION = '2.17';
 
 use Cwd qw(abs_path cwd);
 use File::Basename qw(dirname);
@@ -854,30 +854,50 @@ Resolve and discover project-related directories.
 
 =head1 PURPOSE
 
-Perl module in the Developer Dashboard codebase. This file calculates the DD-OOP-LAYERS path chain and the runtime directories derived from it.
-Open this file when you need the implementation, regression coverage, or runtime entrypoint for that responsibility rather than guessing which part of the tree owns it.
+This module is the authoritative path model for the runtime. It discovers the layered runtime roots from home to the current project, resolves standard runtime directories, manages named path aliases, and performs project and directory searches such as the regex-based narrowing used by C<cdr>.
 
 =head1 WHY IT EXISTS
 
-It exists to keep this responsibility in reusable Perl code instead of hiding it in the thin C<dashboard> switchboard, bookmark text, or duplicated helper scripts. That separation makes the runtime easier to test, safer to change, and easier for contributors to navigate.
+It exists because C<DD-OOP-LAYERS> is a cross-runtime contract, not a convenience helper. One path registry has to own how home and project runtimes participate, which layer is writable, and how named paths and directory searches behave on top of that model.
 
 =head1 WHEN TO USE
 
-Use this file when you are changing the underlying runtime behaviour it owns, when you need to call its routines from another part of the project, or when a failing test points at this module as the real owner of the bug.
+Use this file when changing layered runtime discovery, the writable runtime root, named alias behavior, project lookup, or directory-search semantics used by shell navigation helpers.
 
 =head1 HOW TO USE
 
-Load C<Developer::Dashboard::PathRegistry> from Perl code under C<lib/> or from a focused test, then use the public routines documented in the inline function comments and existing SYNOPSIS/METHODS sections. This file is not a standalone executable.
+Construct it with the current home and cwd context, then ask it for runtime roots, named paths, or search results. Avoid rebuilding runtime path math elsewhere; other modules should consume this registry instead.
 
 =head1 WHAT USES IT
 
-This file is used by whichever runtime path owns this responsibility: the public C<dashboard> entrypoint, staged private helper scripts under C<share/private-cli/>, the web runtime, update flows, and the focused regression tests under C<t/>.
+It is used throughout the runtime by file, config, page, collector, prompt, shell-bootstrap, and CLI path logic, plus the tests that verify layered runtime behavior.
 
 =head1 EXAMPLES
 
-  perl -Ilib -MDeveloper::Dashboard::PathRegistry -e 'print qq{loaded\n}'
+Example 1:
 
-That example is only a quick load check. For real usage, follow the public routines already described in the inline code comments and any existing SYNOPSIS section.
+  perl -Ilib -MDeveloper::Dashboard::PathRegistry -e 1
+
+Do a direct compile-and-load check against the module from a source checkout.
+
+Example 2:
+
+  prove -lv t/07-core-units.t t/21-refactor-coverage.t
+
+Run the focused regression tests that most directly exercise this module's behavior.
+
+Example 3:
+
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
+
+Recheck the module under the repository coverage gate rather than relying on a load-only probe.
+
+Example 4:
+
+  prove -lr t
+
+Put any module-level change back through the entire repository suite before release.
+
 
 =for comment FULL-POD-DOC END
 

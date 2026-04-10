@@ -64,6 +64,11 @@ module upgrades can change column padding without changing the real
 `100.0 / 100.0 / 100.0` result.
 The `t/07-core-units.t` collector loop guard treats both `HARNESS_PERL_SWITCHES` and `PERL5OPT` as valid `Devel::Cover` signals, because this machine uses both launch styles during verification.
 The runtime-manager coverage cases also use bounded child reaping for stubborn process shutdown scenarios, so `Devel::Cover` runs do not stall indefinitely after the escalation path has already been exercised.
+The release-metadata checks also reject repeated FULL-POD-DOC template prose in shipped Perl assets, so contributors have to document the actual responsibility of each module or staged helper instead of pasting one generic block across the tree. The release gate also treats one-line or placeholder POD as a failure: shipped Perl docs must cover real inputs, outputs or side effects, command/runtime position, and multiple concrete examples.
+The contributor contract now also keeps a synced example bank in `README.md`
+and `Developer::Dashboard.pm`: at least ten common-path documentation examples
+and ten edge/debugging documentation examples with explanation, so future POD
+sweeps have a concrete quality bar instead of inventing new boilerplate.
 
 Branch and condition reports are still generated and should be used to drive new edge-case tests, especially when adding new runtime modules.
 
@@ -146,9 +151,11 @@ The repository also now enforces:
 - function-level purpose/input/output comments across the Perl codebase
 - POD trailers under `__END__` for modules, scripts, update scripts, and tests
 - `FULL-POD-DOC` sections in every repo-owned Perl file, covering purpose, why
-  the file exists, when to use it, how to use it, what uses it, and a concrete
-  example, with `t/15-release-metadata.t` acting as the release gate for that
-  documentation floor
+  the file exists, when to use it, how to use it, what uses it, and multiple
+  concrete examples that include the common path plus at least one meaningful
+  edge or debugging path when the file owns one, with
+  `t/15-release-metadata.t` acting as the release gate for that documentation
+  floor
 - explicit setup for env-sensitive tests, so checks that depend on blank
   variables such as `RESULT` clear or localize that state instead of assuming
   the parent shell or packaging harness starts empty

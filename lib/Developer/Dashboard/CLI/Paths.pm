@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Paths;
 use strict;
 use warnings;
 
-our $VERSION = '2.16';
+our $VERSION = '2.17';
 
 use Cwd qw(cwd);
 use Developer::Dashboard::Config;
@@ -217,30 +217,42 @@ Dispatch the path helper command.
 
 =head1 PURPOSE
 
-Perl module in the Developer Dashboard codebase. This file implements the reusable path-reporting logic behind the path and paths helpers.
-Open this file when you need the implementation, regression coverage, or runtime entrypoint for that responsibility rather than guessing which part of the tree owns it.
+This module is the command runtime behind C<dashboard paths> and C<dashboard path ...>. It prints the active runtime roots, resolves named aliases, persists alias add/delete operations, and computes the JSON payload used by shell helpers such as C<cdr> and C<which_dir>.
 
 =head1 WHY IT EXISTS
 
-It exists to keep this responsibility in reusable Perl code instead of hiding it in the thin C<dashboard> switchboard, bookmark text, or duplicated helper scripts. That separation makes the runtime easier to test, safer to change, and easier for contributors to navigate.
+It exists because path reporting and shell-navigation semantics should live in Perl, not in duplicated shell code. That keeps the layered runtime rules, alias loading, and regex-based directory narrowing consistent across bash, zsh, POSIX sh, and PowerShell.
 
 =head1 WHEN TO USE
 
-Use this file when you are changing the underlying runtime behaviour it owns, when you need to call its routines from another part of the project, or when a failing test points at this module as the real owner of the bug.
+Use this file when changing the output of C<dashboard paths>, the behavior of C<dashboard path resolve/add/del/list/project-root>, or the C<cdr> payload contract consumed by shell helpers.
 
 =head1 HOW TO USE
 
-Load C<Developer::Dashboard::CLI::Paths> from Perl code under C<lib/> or from a focused test, then use the public routines documented in the inline function comments and existing SYNOPSIS/METHODS sections. This file is not a standalone executable.
+Call C<run_paths_command> with the public command name and argv list. The
+module builds a lightweight path registry, loads configured aliases on demand,
+and returns either JSON payloads or newline-delimited path output depending on
+the selected subcommand. For C<dashboard path cdr>, the first argument is
+treated as a saved alias when one exists; otherwise it becomes the first search
+regex under the current directory. Any remaining narrowing terms are
+case-insensitive regexes and all of them must match a candidate path. A single
+match becomes the target directory; multiple matches are returned as a list
+while the target stays at the alias root or current directory.
 
 =head1 WHAT USES IT
 
-This file is used by whichever runtime path owns this responsibility: the public C<dashboard> entrypoint, staged private helper scripts under C<share/private-cli/>, the web runtime, update flows, and the focused regression tests under C<t/>.
+It is used by the staged path helpers, by the shell bootstrap generated from
+C<_dashboard-core>, and by tests that cover alias resolution, regex narrowing,
+current-directory fallback, layered runtime lookup, and platform-portable shell
+output.
 
 =head1 EXAMPLES
 
-  perl -Ilib -MDeveloper::Dashboard::CLI::Paths -e 'print qq{loaded\n}'
-
-That example is only a quick load check. For real usage, follow the public routines already described in the inline code comments and any existing SYNOPSIS section.
+  dashboard paths
+  dashboard path resolve bookmarks
+  dashboard path cdr project alpha ".*service"
+  dashboard path add work ~/projects/work
+  dashboard path list
 
 =for comment FULL-POD-DOC END
 

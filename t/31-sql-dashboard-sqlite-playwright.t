@@ -996,52 +996,48 @@ __END__
 
 31-sql-dashboard-sqlite-playwright.t - real SQLite Playwright matrix for the sql-dashboard bookmark
 
+=for comment FULL-POD-DOC START
+
 =head1 PURPOSE
 
-Test file in the Developer Dashboard codebase. This file drives the seeded
-C<sql-dashboard> bookmark through a real Chromium Playwright session against a
-real SQLite database instead of the older fake-DBI smoke path.
+This test is the executable regression contract for the sql-dashboard runtime and browser workflow. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
 
 =head1 WHY IT EXISTS
 
-It exists to prove that the SQL dashboard is actually usable with a real local
-SQLite workflow, including blank-user connection profiles, shareable
-workspace URLs, schema browsing, error surfacing, collection management, and
-other UX-sensitive browser interactions that a fake driver cannot validate.
+It exists because the sql-dashboard runtime and browser workflow has enough moving parts that a code-only review can miss real regressions. Keeping those expectations in a dedicated test file makes the TDD loop, coverage loop, and release gate concrete.
 
 =head1 WHEN TO USE
 
-Use this file when you are changing the SQL dashboard browser UX, connection
-profile model, SQL execution flow, schema browsing, shareable route state, or
-SQLite compatibility. Run it before release when you need confidence that the
-real browser path still works with an actual database.
+Use it when SQLite profile handling, SQL Workspace tabs, schema browsing, or browser-visible SQL execution changes.
 
 =head1 HOW TO USE
 
-Run it directly with:
-
-  prove -lv t/31-sql-dashboard-sqlite-playwright.t
-
-The current Perl environment must already be able to load C<DBI> and
-C<DBD::SQLite>. This test intentionally does not add those drivers to shipped
-runtime prerequisites, so install them separately for local verification when
-needed.
+Run it directly with C<prove -lv t/31-sql-dashboard-sqlite-playwright.t> while iterating, then keep it green under C<prove -lr t> and the coverage runs before release. For browser-backed tests, make sure the external browser tooling they name is actually present instead of assuming the suite will fabricate it. Make sure node, npx, git, Chromium, DBI, and DBD::SQLite are available; the test skips instead of faking success when that stack is missing.
 
 =head1 WHAT USES IT
 
-It is used by developers during TDD, by focused browser regression work on the
-SQL dashboard, and by release verification when the maintainer wants real
-SQLite browser coverage beyond the fake-driver smoke test.
+Developers during TDD, the full C<prove -lr t> suite, the coverage gates, and the release verification loop all rely on this file to keep this behavior from drifting.
 
 =head1 EXAMPLES
 
+Example 1:
+
   prove -lv t/31-sql-dashboard-sqlite-playwright.t
 
-  PERL5LIB=/tmp/sql-lib/lib/perl5:/tmp/sql-lib/lib/perl5/x86_64-linux-gnu-thread-multi \
-  prove -lv t/31-sql-dashboard-sqlite-playwright.t
+Run the focused regression test by itself while you are changing the behavior it owns.
 
-Use the first command when DBI and DBD::SQLite are already installed in the
-active Perl. Use the second when you have staged those drivers into a separate
-local::lib for browser verification.
+Example 2:
+
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/31-sql-dashboard-sqlite-playwright.t
+
+Exercise the same focused test while collecting coverage for the library code it reaches.
+
+Example 3:
+
+  prove -lr t
+
+Put the focused fix back through the whole repository suite before calling the work finished.
+
+=for comment FULL-POD-DOC END
 
 =cut
