@@ -456,7 +456,9 @@ open the extracted Java source.
 
 ### Data Query Commands
 
-These built-in commands parse structured text and optionally extract a dotted path:
+These built-in commands parse structured text and can then either extract a
+dotted path or evaluate a Perl expression against the decoded document through
+`$d`:
 
 - `dashboard jq [path] [file]` for JSON (also `pjq` for backward compatibility)
 - `dashboard yq [path] [file]` for YAML (also `pyq` for backward compatibility)
@@ -466,9 +468,23 @@ These built-in commands parse structured text and optionally extract a dotted pa
 - `dashboard csvq [path] [file]` for CSV files (new)
 - `dashboard xmlq [path] [file]` for XML files (new)
 
-If the selected value is a hash or array, the command prints canonical JSON. If the selected value is a scalar, it prints the scalar plus a trailing newline.
+If the selected value is a hash or array, the command prints canonical JSON. If
+the selected value is a scalar, it prints the scalar plus a trailing newline.
 
-The file path and query path are order-independent, and `$d` selects the whole parsed document. For example, `cat file.json | dashboard jq '$d'` and `dashboard jq file.json '$d'` return the same result. The same contract applies to `yq`, `tomq`, `propq`, `iniq`, `csvq`, and `xmlq` commands.
+The file path and query text are order-independent, and `$d` selects the whole
+parsed document. For example, `cat file.json | dashboard jq '$d'` and
+`dashboard jq file.json '$d'` return the same result. If the query text uses
+`$d` inside a Perl expression, the command evaluates that expression against the
+decoded document. For example, `echo '{"foo":[1],"bar":[2]}' | dashboard jq
+'sort keys %$d'` prints `["bar","foo"]`. The same contract applies to `yq`,
+`tomq`, `propq`, `iniq`, `csvq`, and `xmlq` commands.
+
+`xmlq` follows the same decoded-data model as the other query commands. XML
+elements decode into nested hashes and arrays, repeated sibling tags become
+arrays, attributes live under `_attributes`, and mixed text lives under `_text`.
+That means `printf '<root><value>demo</value></root>' | dashboard xmlq
+root.value` prints `demo`, while `dashboard xmlq feed.xml '$d'` prints the full
+decoded XML tree as canonical JSON.
 
 ## Manual
 

@@ -1033,8 +1033,8 @@ is_deeply(
 );
 is_deeply(
     [ Developer::Dashboard::CLI::Query::_split_query_args( 'alpha.beta', 'missing.file' ) ],
-    [ 'alpha.beta', '' ],
-    '_split_query_args leaves a non-file argument as the query path',
+    [ 'alpha.beta missing.file', '' ],
+    '_split_query_args rejoins multiple non-file arguments into one query path',
 );
 
 my $query_file = File::Spec->catfile( $ENV{HOME}, 'query.json' );
@@ -1130,8 +1130,8 @@ is_deeply(
 );
 is_deeply(
     Developer::Dashboard::CLI::Query::_parse_xml('<root/>'),
-    { _raw => '<root/>' },
-    '_parse_xml preserves the raw XML payload',
+    { root => '' },
+    '_parse_xml decodes XML into a traversable hash structure',
 );
 
 local $ENV{RESULT} = '';

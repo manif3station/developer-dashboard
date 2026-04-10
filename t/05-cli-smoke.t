@@ -880,6 +880,10 @@ my $json_root = _run("$perl -I'$lib' '$dashboard' jq '\$d' '$json_file'");
 is_deeply( json_decode($json_root), { alpha => { beta => 2 } }, 'jq accepts file then root query with order-independent args' );
 my $json_root_stdin = _run("cat '$json_file' | $perl -I'$lib' '$dashboard' jq '\$d'");
 is( $json_root_stdin, $json_root, 'jq returns the same whole-document result from stdin and file input' );
+my $json_keys = _run(qq{printf '{"foo":[1,2,3,4],"bar":[4,5,6]}' | $perl -I'$lib' '$dashboard' jq 'sort keys %\$d'});
+is_deeply( json_decode($json_keys), [ 'bar', 'foo' ], 'jq evaluates Perl expressions against decoded stdin data through $d' );
+my $json_keys_file = _run("$perl -I'$lib' '$dashboard' jq '$json_file' 'sort' 'keys' '%\$d'");
+is_deeply( json_decode($json_keys_file), ['alpha'], 'jq rejoins split expression argv pieces when the file path comes first' );
 my $json_direct = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$runtime_jq' alpha.beta});
 is( $json_direct, $json_value, 'private runtime jq matches dashboard jq output' );
 
@@ -893,6 +897,8 @@ my $yaml_root = _run("$perl -I'$lib' '$dashboard' yq '$yaml_file' '\$d'");
 is_deeply( json_decode($yaml_root), { alpha => { beta => '3' } }, 'yq accepts file then root query with order-independent args' );
 my $yaml_root_stdin = _run("cat '$yaml_file' | $perl -I'$lib' '$dashboard' yq '\$d'");
 is( $yaml_root_stdin, $yaml_root, 'yq returns the same whole-document result from stdin and file input' );
+my $yaml_keys = _run(qq{printf 'foo:\\n  - 1\\nbar:\\n  - 2\\n' | $perl -I'$lib' '$dashboard' yq 'sort keys %\$d'});
+is_deeply( json_decode($yaml_keys), [ 'bar', 'foo' ], 'yq evaluates Perl expressions against decoded YAML data through $d' );
 my $yaml_direct = _run(qq{printf 'alpha:\\n  beta: 3\\n' | $perl -I'$lib' '$runtime_yq' alpha.beta});
 is( $yaml_direct, $yaml_value, 'private runtime yq matches dashboard yq output' );
 
@@ -1265,6 +1271,8 @@ my $toml_root = _run("$perl -I'$lib' '$dashboard' tomq '\$d' '$toml_file'");
 is_deeply( json_decode($toml_root), { alpha => { beta => 4 } }, 'tomq accepts file then root query with order-independent args' );
 my $toml_root_stdin = _run("cat '$toml_file' | $perl -I'$lib' '$dashboard' tomq '\$d'");
 is( $toml_root_stdin, $toml_root, 'tomq returns the same whole-document result from stdin and file input' );
+my $toml_keys = _run(qq{printf '[foo]\\na = 1\\n[bar]\\nb = 2\\n' | $perl -I'$lib' '$dashboard' tomq 'sort keys %\$d'});
+is_deeply( json_decode($toml_keys), [ 'bar', 'foo' ], 'tomq evaluates Perl expressions against decoded TOML data through $d' );
 my $toml_direct = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$runtime_tomq' alpha.beta});
 is( $toml_direct, $toml_value, 'private runtime tomq matches dashboard tomq output' );
 
@@ -1278,22 +1286,50 @@ my $props_root = _run("$perl -I'$lib' '$dashboard' propq '$props_file' '\$d'");
 is_deeply( json_decode($props_root), { 'alpha.beta' => '5', name => 'demo' }, 'propq accepts file then root query with order-independent args' );
 my $props_root_stdin = _run("cat '$props_file' | $perl -I'$lib' '$dashboard' propq '\$d'");
 is( $props_root_stdin, $props_root, 'propq returns the same whole-document result from stdin and file input' );
+my $props_keys = _run(qq{printf 'foo=1\\nbar=2\\n' | $perl -I'$lib' '$dashboard' propq 'sort keys %\$d'});
+is_deeply( json_decode($props_keys), [ 'bar', 'foo' ], 'propq evaluates Perl expressions against decoded properties data through $d' );
 my $props_direct = _run(qq{printf 'alpha.beta=5\\nname = demo\\n' | $perl -I'$lib' '$runtime_propq' alpha.beta});
 is( $props_direct, $props_value, 'private runtime propq matches dashboard propq output' );
 
 my $ini_value = _run(qq{printf '[alpha]\\nbeta=6\\n' | $perl -I'$lib' '$dashboard' iniq alpha.beta});
 is( $ini_value, "6\n", 'iniq extracts scalar INI values' );
+my $ini_keys = _run(qq{printf '[foo]\\na=1\\n[bar]\\nb=2\\n' | $perl -I'$lib' '$dashboard' iniq 'sort keys %\$d'});
+is_deeply( json_decode($ini_keys), [ '_global', 'bar', 'foo' ], 'iniq evaluates Perl expressions against decoded INI data through $d' );
 my $ini_direct = _run(qq{printf '[alpha]\\nbeta=6\\n' | $perl -I'$lib' '$runtime_iniq' alpha.beta});
 is( $ini_direct, $ini_value, 'private runtime iniq matches dashboard iniq output' );
 
 my $csv_value = _run(qq{printf 'alpha,beta\\n7,8\\n' | $perl -I'$lib' '$dashboard' csvq 1.1});
 is( $csv_value, "8\n", 'csvq extracts scalar CSV values by row and column index' );
+my $csv_expression = _run(qq{printf 'alpha,beta\\n7,8\\n' | $perl -I'$lib' '$dashboard' csvq 'join q(-), map { \$d->[1][\$_] } 0 .. \$#{ \$d->[1] }'});
+is( $csv_expression, "7-8\n", 'csvq evaluates Perl expressions against decoded CSV row arrays through $d' );
 my $csv_direct = _run(qq{printf 'alpha,beta\\n7,8\\n' | $perl -I'$lib' '$runtime_csvq' 1.1});
 is( $csv_direct, $csv_value, 'private runtime csvq matches dashboard csvq output' );
 
-my $xml_value = _run(qq{printf '<root><value>demo</value></root>' | $perl -I'$lib' '$dashboard' xmlq _raw});
-is( $xml_value, "<root><value>demo</value></root>\n", 'xmlq can return the raw XML payload through the supported root key' );
-my $xml_direct = _run(qq{printf '<root><value>demo</value></root>' | $perl -I'$lib' '$runtime_xmlq' _raw});
+my $xml_file = File::Spec->catfile( $open_root, 'sample.xml' );
+open my $xml_fh, '>', $xml_file or die "Unable to write $xml_file: $!";
+print {$xml_fh} '<root><value>demo</value><item id="1">x</item><item id="2">y</item></root>';
+close $xml_fh;
+my $xml_value = _run(qq{printf '<root><value>demo</value><item id="1">x</item><item id="2">y</item></root>' | $perl -I'$lib' '$dashboard' xmlq root.value});
+is( $xml_value, "demo\n", 'xmlq extracts scalar XML values from the decoded XML tree' );
+my $xml_root = _run("$perl -I'$lib' '$dashboard' xmlq '\$d' '$xml_file'");
+is_deeply(
+    json_decode($xml_root),
+    {
+        root => {
+            value => 'demo',
+            item  => [
+                { _attributes => { id => '1' }, _text => 'x' },
+                { _attributes => { id => '2' }, _text => 'y' },
+            ],
+        },
+    },
+    'xmlq returns the decoded XML tree for the whole-document selector',
+);
+my $xml_root_stdin = _run("cat '$xml_file' | $perl -I'$lib' '$dashboard' xmlq '\$d'");
+is( $xml_root_stdin, $xml_root, 'xmlq returns the same decoded whole-document result from stdin and file input' );
+my $xml_expression = _run(qq{printf '<root><value>demo</value><item id="1">x</item><item id="2">y</item></root>' | $perl -I'$lib' '$dashboard' xmlq 'join q(,), map { \$_->{_attributes}{id} } \@{ \$d->{root}{item} }'});
+is( $xml_expression, "1,2\n", 'xmlq evaluates Perl expressions against decoded XML data through $d' );
+my $xml_direct = _run(qq{printf '<root><value>demo</value><item id="1">x</item><item id="2">y</item></root>' | $perl -I'$lib' '$runtime_xmlq' root.value});
 is( $xml_direct, $xml_value, 'private runtime xmlq matches dashboard xmlq output' );
 
 my $cli_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );

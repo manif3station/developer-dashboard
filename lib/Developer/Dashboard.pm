@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.20';
+our $VERSION = '2.21';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.20
+2.21
 
 =head1 INTRODUCTION
 
@@ -838,8 +838,9 @@ source.
 
 =head2 Data Query Commands
 
-These built-in commands parse structured text and optionally extract a dotted
-path:
+These built-in commands parse structured text and can then either extract a
+dotted path or evaluate a Perl expression against the decoded document through
+C<$d>:
 
 =over 4
 
@@ -865,10 +866,20 @@ If the selected value is a hash or array, the command prints canonical JSON.
 If the selected value is a scalar, it prints the scalar plus a trailing
 newline.
 
-The file path and query path are order-independent, and C<$d> selects the
+The file path and query text are order-independent, and C<$d> selects the
 whole parsed document. For example, C<cat file.json | dashboard jq '$d'> and
-C<dashboard jq file.json '$d'> return the same result. The same contract
-applies to C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, and C<xmlq>.
+C<dashboard jq file.json '$d'> return the same result. If the query text uses
+C<$d> inside a Perl expression, the command evaluates that expression against
+the decoded document. For example, C<echo '{"foo":[1],"bar":[2]}' | dashboard
+jq 'sort keys %$d'> prints C<["bar","foo"]>. The same contract applies to
+C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, and C<xmlq>.
+
+C<xmlq> follows the same decoded-data model as the other query commands. XML
+elements decode into nested hashes and arrays, repeated sibling tags become
+arrays, attributes live under C<_attributes>, and mixed text lives under
+C<_text>. That means C<printf '<root><value>demo</value></root>' | dashboard
+xmlq root.value> prints C<demo>, while C<dashboard xmlq feed.xml '$d'> prints
+the full decoded XML tree as canonical JSON.
 
 =head1 MANUAL
 

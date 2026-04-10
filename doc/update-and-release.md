@@ -75,6 +75,10 @@ Use `dashboard version` to print the installed Developer Dashboard version.
 The blank-container integration harness now installs the tarball first and then
 builds a fake-project `./.developer-dashboard` tree so the shipped test suite
 still starts from a clean runtime before exercising project-local overrides.
+When a code change introduces a new non-core runtime Perl module, declare it in
+`Makefile.PL`, `cpanfile`, and `dist.ini` in the same change. The release
+metadata guardrail now fails if those three files drift apart, so do not rely
+on one metadata source to imply the others.
 
 ## Local Usage
 

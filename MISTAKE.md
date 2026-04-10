@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: QUERY-EVAL-AND-XML-DECODE-DRIFT
+
+**Date:** 2026-04-10 17:55:00 UTC
+**Area:** shared `*q` query runtime and dependency metadata
+**Symptom:** `$d` only behaved like a whole-document shortcut instead of a real Perl-expression anchor, split query argv pieces could be misread as separate tokens instead of one expression, and `xmlq` still wrapped raw XML instead of exposing decoded data that the shared query contract could traverse
+**Why It Was Dangerous:** It made the query family inconsistent across formats, broke shell usage that looks natural for `jq` or `yq`-style inspection, and left XML as a special case that users had to treat differently from JSON, YAML, TOML, properties, INI, and CSV
+**Root Cause:** I had only modeled plain dotted-path traversal and a root-document `$d` shortcut, but I had not completed the obvious next step of evaluating true `$d` expressions against the decoded document. At the same time I left `xmlq` on an older raw-wrapper contract and failed to keep every non-core runtime dependency declared in all release metadata files
+**How Ellen Solved It:** Added TDD in `t/05-cli-smoke.t`, `t/15-cli-module-coverage.t`, and `t/21-refactor-coverage.t`, taught `Developer::Dashboard::CLI::Query` to rejoin split query argv pieces and evaluate `$d` expressions, replaced the raw XML wrapper with decoded XML hashes and arrays, added `XML::Parser` and `LWP::Protocol::https` to the missing release metadata declarations, and expanded `t/15-release-metadata.t` plus contributor docs so future non-core runtime dependencies must appear in `Makefile.PL`, `cpanfile`, and `dist.ini`
+**How To Detect Earlier Next Time:** Test the same query through STDIN, file-first argv order, and split argv tokens for every supported format, then check whether XML behaves like the other formats instead of requiring a special wrapper field
+**Prevention Rule:** When a shared runtime feature depends on a non-core Perl module or changes a cross-format CLI contract, update the code, the smoke tests, the unit tests, and all release metadata files together. If `Makefile.PL`, `cpanfile`, and `dist.ini` do not all reflect the same non-core runtime dependency set, the change is incomplete
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/15-cli-module-coverage.t`, `prove -lv t/21-refactor-coverage.t`, `prove -lv t/15-release-metadata.t`, `prove -lr t`
+**Related Files:** `lib/Developer/Dashboard/CLI/Query.pm`, `share/private-cli/jq`, `share/private-cli/yq`, `share/private-cli/tomq`, `share/private-cli/propq`, `share/private-cli/iniq`, `share/private-cli/csvq`, `share/private-cli/xmlq`, `t/05-cli-smoke.t`, `t/15-cli-module-coverage.t`, `t/21-refactor-coverage.t`, `t/15-release-metadata.t`, `cpanfile`, `dist.ini`, `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: HOOK-STOP-AND-LAST-RESULT-DRIFT
 
 **Date:** 2026-04-10 16:10:00 UTC

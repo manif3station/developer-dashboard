@@ -1,5 +1,11 @@
 # Fixed Bugs
 
+## 2026-04-10 (Phase 84: Query Eval And Xml Decode Drift)
+
+- Fixed the shared `*q` command family so split query arguments are rejoined and `$d` now works as a real Perl-expression entrypoint instead of only as a whole-document selector. That means commands such as `dashboard jq file.json sort keys %$d` and the same pattern through STDIN now evaluate against the decoded document instead of degrading into the wrong path lookup.
+- Fixed `xmlq` so it now decodes XML into traversable hashes and arrays with `_attributes` and `_text` fields instead of only returning a raw XML wrapper, bringing XML in line with the rest of the query helpers.
+- Fixed dependency metadata drift by declaring the non-core query runtime prerequisites consistently in `Makefile.PL`, `cpanfile`, and `dist.ini`, then adding release-metadata coverage so future runtime-module additions fail fast if one metadata file is forgotten.
+
 ## 2026-04-10 (Phase 83: Hook Stop And Last Result Drift)
 
 - Fixed custom CLI hook lifecycle control so a hook now stops the remaining `<command>.d` chain only when its `stderr` contains the explicit `[[STOP]]` marker, while plain non-zero exits are still recorded but no longer act like an implicit stop request.

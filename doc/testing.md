@@ -77,6 +77,11 @@ Frontend editor changes should also be checked in a real browser route, not just
 JSON behavior is exercised through the shared `Developer::Dashboard::JSON` wrapper, which now uses `JSON::XS`.
 Release metadata checks also verify that built tarball runtime prerequisites
 explicitly include `JSON::XS`.
+When a code change introduces a new runtime Perl module, declare it in all
+three release metadata sources in the same change: `Makefile.PL`, `cpanfile`,
+and `dist.ini`. The release metadata guardrail fails if a required non-core
+runtime module is missing from one of those files, so dependency drift is
+caught before `dzil build`, blank-environment installs, or CI releases.
 The shell bootstrap regression coverage also checks that the POSIX `cdr` and
 `which_dir` helpers decode their JSON payloads through the same Perl
 interpreter that generated the shell fragment, which prevents macOS

@@ -1,5 +1,19 @@
 Revision history for Developer Dashboard
 
+2.21  2026-04-10
+    - taught the shared `*q` query runtime to rejoin split query arguments and
+      evaluate real `$d`-based Perl expressions such as `sort keys %$d`
+      against decoded JSON, YAML, TOML, Java properties, INI, CSV, and XML
+      data, no matter whether the source came from STDIN or a file argument
+    - replaced the old raw-XML wrapper behavior in `xmlq` with decoded XML
+      hashes and arrays, including `_attributes` and `_text` fields that can
+      be traversed through dotted paths or `$d` expressions just like the
+      other query commands
+    - expanded release metadata guardrails so non-core runtime Perl
+      dependencies now have to be declared consistently in `Makefile.PL`,
+      `cpanfile`, and `dist.ini`, and documented that rule in contributor
+      testing guidance
+
 2.20  2026-04-10
     - added explicit command-hook stop semantics so a hook now stops the
       remaining `<command>.d` chain only when its `stderr` contains the
