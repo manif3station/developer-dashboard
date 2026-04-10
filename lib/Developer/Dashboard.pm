@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.24';
+our $VERSION = '2.25';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.24
+2.25
 
 =head1 INTRODUCTION
 
@@ -1290,17 +1290,16 @@ and update scripts now resolve C<.ps1>, C<.cmd>, C<.bat>, and C<.pl>
 runners without assuming C<sh> or C<bash>. That keeps Strawberry Perl installs
 usable without requiring a Unix shell just to load the dashboard runtime.
 
-The checked-in Windows verification assets follow the same layered approach:
-fast forced-Windows unit coverage in C<t/>, a real Strawberry Perl host smoke
-in F<integration/windows/run-strawberry-smoke.ps1>, and a host-side rerun
-helper in F<integration/windows/run-host-windows-smoke.sh> that delegates to
-F<integration/windows/run-qemu-windows-smoke.sh> for release-grade Windows
-compatibility claims. The supported baseline on Windows is PowerShell plus
-Strawberry Perl. Git Bash is optional. Scoop is optional. They are setup
-helpers, not runtime requirements for the installed C<dashboard> command. In
-the Dockur-backed path, the launcher stages the Strawberry Perl MSI from the
-Linux host into the OEM bundle and can keep multiple retained Windows guests
-alive on configurable host web/RDP ports while it reruns the same smoke.
+The repository-only Windows verification assets follow the same layered
+approach: fast forced-Windows unit coverage in C<t/>, a real Strawberry Perl
+host smoke in the source checkout, and a host-side rerun helper that delegates
+to the QEMU launcher for release-grade Windows compatibility claims. The
+supported baseline on Windows is PowerShell plus Strawberry Perl. Git Bash is
+optional. Scoop is optional. They are setup helpers, not runtime requirements
+for the installed C<dashboard> command. In the Dockur-backed path, the launcher
+stages the Strawberry Perl MSI from the Linux host into the OEM bundle and can
+keep multiple retained Windows guests alive on configurable host web/RDP ports
+while it reruns the same smoke.
 
 =head2 Browser Access Model
 
@@ -1506,7 +1505,8 @@ Tests that depend on a missing or empty environment variable now establish that
 state explicitly inside the test file, rather than assuming the parent shell
 or install harness starts clean.
 
-For fast saved-bookmark browser regressions, run the dedicated smoke script:
+From a source checkout, for fast saved-bookmark browser regressions, run the
+dedicated smoke script:
 
   integration/browser/run-bookmark-browser-smoke.pl
 
@@ -1597,13 +1597,13 @@ the user-space native client libraries to be exposed through C<PERL5LIB>,
 C<LD_LIBRARY_PATH>, and, for Oracle, C<ORACLE_HOME>. Those drivers are not
 shipped as base runtime prerequisites.
 
-For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
-host:
+From a source checkout, for Windows-targeted changes, also run the Strawberry
+Perl smoke on a Windows host:
 
   powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz
 
-Before calling a release Windows-compatible, also run the same smoke through
-the host-side Windows VM helper:
+Before calling a release Windows-compatible from the source checkout, also run
+the same smoke through the host-side Windows VM helper:
 
   WINDOWS_QEMU_ENV_FILE=.developer-dashboard/windows-qemu.env \
   integration/windows/run-host-windows-smoke.sh

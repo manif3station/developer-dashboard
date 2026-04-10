@@ -84,6 +84,12 @@ it conceptually instead of exposing the repository filename.
 Markdown files themselves are also checkout-only documentation and must not be
 released in the CPAN tarball. Keep the `dist.ini` Markdown exclusion in place,
 and treat any shipped `*.md` file as a release-gate failure.
+The same release boundary applies to repo-only verification and bootstrap
+folders: `integration/` and the top-level `updates/` checkout helpers are not
+installed runtime assets and must stay out of the release tarball. The shipped
+runtime contract for `dashboard update` is the user-provided layered command
+under `.developer-dashboard/cli/update` or `.developer-dashboard/cli/update.d`,
+not the repository's checkout-only `updates/` folder.
 Shipped library modules must also load correctly from an installed tarball.
 Do not use `FindBin` or source-tree-relative `use lib` bootstrapping inside
 repo-owned `.pm` files that are meant to run from the installed distribution.

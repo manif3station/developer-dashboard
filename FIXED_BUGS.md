@@ -1,5 +1,20 @@
 # Fixed Bugs
 
+## 2026-04-10 (Phase 88: Release Tarball Repo-Only Asset Drift)
+
+- Fixed release tarball content drift so the repo-only `integration/`
+  verification helpers no longer ship inside the CPAN/PAUSE distribution.
+  Those helpers remain source-tree verification assets and the release gate
+  now treats them as such.
+- Fixed the packaged update contract so the checkout-only top-level
+  `updates/` folder no longer ships in the release tarball. The installed
+  `dashboard update` path remains the documented user-provided layered
+  runtime command under `.developer-dashboard/cli/update` and
+  `.developer-dashboard/cli/update.d`.
+- Fixed the built-distribution regression tests so they no longer assume
+  source-only `integration/` and `updates/` folders must exist in the
+  packaged tree, while still checking those assets in the source checkout.
+
 ## 2026-04-10 (Phase 87: Skill Fleet And Global Nav Drift)
 
 - Fixed installed skill runtime integration so collectors declared inside a

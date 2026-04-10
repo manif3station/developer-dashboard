@@ -1,5 +1,17 @@
 Revision history for Developer Dashboard
 
+2.25  2026-04-10
+    - excluded the repo-only `integration/` verification helpers from the
+      release tarball so CPAN and PAUSE installs ship runtime assets instead
+      of internal release tooling
+    - excluded the checkout-only top-level `updates/` scripts from the
+      release tarball because the installed `dashboard update` contract is a
+      user-provided layered command under `.developer-dashboard/cli/update`
+      and `.developer-dashboard/cli/update.d`
+    - tightened the release-metadata gate, shipped docs, and built-dist tests
+      so repo-only verification/bootstrap folders are treated as source-tree
+      assets rather than required tarball content
+
 2.24  2026-04-10
     - loaded installed skill collectors declared in skill
       `config/config.json` into the same managed fleet used by the system

@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '2.24';
+our $VERSION = '2.25';
 
 use File::Spec;
 use JSON::XS qw(encode_json decode_json);

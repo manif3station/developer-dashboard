@@ -1398,7 +1398,8 @@ Tests that depend on a missing or empty environment variable now establish that
 state explicitly inside the test file, rather than assuming the parent shell
 or install harness starts clean.
 
-For fast saved-bookmark browser regressions, run the dedicated smoke script:
+From a source checkout, for fast saved-bookmark browser regressions, run the
+dedicated smoke script:
 
 ```bash
 integration/browser/run-bookmark-browser-smoke.pl
@@ -1505,15 +1506,15 @@ client libraries to be exposed through `PERL5LIB`, `LD_LIBRARY_PATH`, and, for
 Oracle, `ORACLE_HOME`. Those drivers are not shipped as base runtime
 prerequisites.
 
-For Windows-targeted changes, also run the Strawberry Perl smoke on a Windows
-host:
+From a source checkout, for Windows-targeted changes, also run the Strawberry
+Perl smoke on a Windows host:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz
 ```
 
-Before calling a release Windows-compatible, also run the same smoke through
-the host-side Windows VM helper:
+Before calling a release Windows-compatible from the source checkout, also run
+the same smoke through the host-side Windows VM helper:
 
 ```bash
 WINDOWS_QEMU_ENV_FILE=.developer-dashboard/windows-qemu.env \

@@ -3,7 +3,7 @@ package Developer::Dashboard::UpdateManager;
 use strict;
 use warnings;
 
-our $VERSION = '2.24';
+our $VERSION = '2.25';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -52,6 +52,8 @@ sub run {
 
     my @results;
     my $dir = $self->updates_dir;
+
+    return \@results if !-d $dir;
 
     opendir my $dh, $dir or die "Unable to open updates directory $dir: $!";
     for my $file ( sort readdir $dh ) {
