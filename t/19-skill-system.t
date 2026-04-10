@@ -13,6 +13,8 @@ use JSON::XS qw(decode_json);
 use Test::More;
 
 use lib 'lib';
+use Developer::Dashboard::Config;
+use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::SkillDispatcher;
 use Developer::Dashboard::SkillManager;
@@ -116,6 +118,49 @@ ok( exists $dispatch->{hooks}{'00-pre.pl'}, 'dispatch returns captured hook meta
 
 my $config = $dispatcher->get_skill_config('alpha-skill');
 is( $config->{skill_name}, 'alpha-skill', 'dispatcher reads isolated skill config' );
+
+my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
+my $fleet_config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
+$fleet_config->save_global(
+    {
+        collectors => [
+            {
+                name    => 'system.collector',
+                command => q{printf 'system'},
+                cwd     => 'home',
+            },
+        ],
+    }
+);
+_write_file(
+    File::Spec->catfile( $install->{path}, 'config', 'config.json' ),
+    <<'JSON',
+{
+  "skill_name": "alpha-skill",
+  "collectors": [
+    {
+      "name": "status",
+      "command": "printf 'alpha-status'",
+      "cwd": "home",
+      "interval": 15,
+      "indicator": {
+        "label": "Alpha Status",
+        "icon": "A"
+      }
+    }
+  ]
+}
+JSON
+    0644,
+);
+my $fleet_jobs = $fleet_config->collectors;
+is_deeply(
+    [ map { $_->{name} } @{$fleet_jobs} ],
+    [ 'system.collector', 'alpha-skill.status' ],
+    'config collector fleet includes installed skill collectors under repo-qualified names',
+);
+is( $fleet_jobs->[1]{skill_name}, 'alpha-skill', 'skill collectors carry their source skill name in fleet metadata' );
+is( $fleet_jobs->[1]{indicator}{label}, 'Alpha Status', 'skill collector indicator config survives fleet loading' );
 
 my ( $cli_install_stdout, $cli_install_stderr, $cli_install_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skills', 'list' );

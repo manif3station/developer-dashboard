@@ -1,5 +1,42 @@
 # Fixed Bugs
 
+## 2026-04-10 (Phase 87: Skill Fleet And Global Nav Drift)
+
+- Fixed installed skill runtime integration so collectors declared inside a
+  skill `config/config.json` now join the same managed fleet as the system
+  config, which means `dashboard serve`, `dashboard restart`, and
+  `dashboard stop` load and manage skill collectors together with the
+  dashboard-owned collectors.
+- Fixed skill collector naming so installed skill collectors are normalized to
+  repo-qualified names such as `example-skill.status`, keeping collector loop
+  names, process titles, and indicator state unambiguous across multiple
+  installed skills and the main runtime.
+- Fixed nav rendering so `dashboards/nav/*` from every installed skill now
+  appears not only on `/app/<repo-name>` routes but also in the shared nav
+  strip rendered above normal saved `/app/<page>` routes such as `/app/index`,
+  and documented that runtime contract in the README, main POD, shipped skill
+  reference, and integration test plan.
+- Fixed the top-level `Developer::Dashboard.pm` manual audit gap by replacing
+  the brittle `SEE ALSO` private-module links with stable self-links into the
+  main manual, correcting the browser-service FAQ framing, and extending the
+  release-metadata gate plus contributor testing guide so those regressions are
+  checked explicitly in future releases.
+- Completed the same `Developer::Dashboard.pm` audit across the rest of the
+  main manual by removing `L<Developer::Dashboard::...>` private-module POD
+  links from the product guide, then tightened the release-metadata gate so
+  the top-level manual must stay self-contained instead of depending on brittle
+  internal cross-links.
+- Fixed the missed `AGENTS.override.md` documentation boundary so shipped Perl
+  POD and the synced top-level product manuals no longer point readers at
+  repo-internal `.md` filenames such as the skill or SQL support guides.
+  Those guides are now referenced conceptually, and the release-metadata gate
+  rejects future `.md` filename references in shipped Perl POD and the synced
+  top-level manuals.
+- Fixed release tarball gather drift so local `node_modules/` dependency trees
+  and the private `test_by_michael/` scratch area no longer ship inside the
+  built distribution. The release-metadata gate now requires explicit exclude
+  rules for both paths so this cannot silently reappear at release time.
+
 ## 2026-04-10 (Phase 86: Skill Packaged Tree FindBin Drift)
 
 - Fixed installed and built-dist loading for the skill runtime release by

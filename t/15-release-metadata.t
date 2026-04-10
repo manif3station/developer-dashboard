@@ -52,18 +52,21 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '2.23', 'repo version bumped for the skill runtime layer, routing release, and packaged-tree fix' );
-like( $pm, qr/^2\.23$/m, 'main POD version matches the module version' );
+is( $version, '2.24', 'repo version bumped for the skill fleet and global nav release' );
+like( $pm, qr/^2\.24$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 2\.23$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 2\.24$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
     like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
+    like( $dist, qr/^exclude_match = \^node_modules\/$/m, 'dist.ini excludes node_modules so JavaScript dependency trees do not leak into release tarballs' );
+    like( $dist, qr/^exclude_match = \^test_by_michael\/$/m, 'dist.ini excludes test_by_michael so private scratch fixtures do not leak into release tarballs' );
+    like( $dist, qr/^exclude_match = \\.md\$$/m, 'dist.ini excludes Markdown files so repo-internal docs do not leak into release tarballs' );
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"2\.23"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"2\.24"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^2\.23\s+2026-04-10$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^2\.24\s+2026-04-10$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -204,7 +207,6 @@ for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/LAST_RESULT/, 'docs describe the immediate previous-hook LAST_RESULT payload' );
     like( $doc, qr/\[\[STOP\]\]/, 'docs describe the explicit stderr stop marker for hook chains' );
     unlike( $doc, qr/CPANManager/, 'docs do not describe a dedicated CPAN manager module for the sql-dashboard runtime driver flow' );
-    like( $doc, qr/SKILL\.md/, 'docs point readers at the skill authoring guide' );
     like( $doc, qr/Developer::Dashboard::SKILLS/, 'docs point readers at the shipped skill POD module' );
     unlike( $doc, qr/standalone `of` and `open-file`|standalone of and open-file/, 'docs no longer advertise public standalone of/open-file executables' );
     unlike( $doc, qr/standalone `ticket` executable|standalone ticket executable/, 'docs no longer advertise a public standalone ticket executable' );
@@ -262,12 +264,15 @@ like( $agents_override, qr/DD-OOP-LAYERS/, 'AGENTS.override.md documents the lay
 like( $agents_override, qr/FULL-POD-DOC/, 'AGENTS.override.md documents the FULL-POD-DOC rule' ) if $agents_override ne '';
 unlike( $readme, qr/FULL-POD-DOC/, 'README no longer embeds the contributor-only FULL-POD-DOC contract in the product manual' ) if $readme ne '';
 unlike( $pm, qr/FULL-POD-DOC/, 'main module POD no longer embeds the contributor-only FULL-POD-DOC contract' );
+unlike( $readme, qr/\b[A-Za-z0-9_\/.-]+\.md\b/, 'README does not point readers at repo-internal markdown filenames' ) if $readme ne '';
+unlike( $pm, qr/\b[A-Za-z0-9_\/.-]+\.md\b/, 'main module POD does not point readers at repo-internal markdown filenames' );
 unlike( $readme, qr/real\s+inputs.*outputs|outputs.*real\s+inputs/is, 'README no longer carries file-level FULL-POD-DOC contributor guidance' ) if $readme ne '';
 unlike( $pm, qr/real\s+inputs.*outputs|outputs.*real\s+inputs/is, 'main module POD no longer carries file-level FULL-POD-DOC contributor guidance' );
 unlike( $readme, qr/common\s+path.*edge|edge.*common\s+path/is, 'README no longer carries the contributor example-bank wording' ) if $readme ne '';
 unlike( $pm, qr/common\s+path.*edge|edge.*common\s+path/is, 'main module POD no longer carries the contributor example-bank wording' );
-like( $readme, qr/Dancer2.*Plack.*Starman|Plack.*Starman.*Dancer2/is, 'README FAQ describes the real web stack' ) if $readme ne '';
-like( $pm, qr/Dancer2.*Plack.*Starman|Plack.*Starman.*Dancer2/is, 'main module FAQ describes the real web stack' );
+like( $readme, qr/How is the browser UI served\?|browser UI runs as the dashboard web service.*dashboard serve/is, 'README explains the browser service entrypoint instead of framing it as a framework requirement' ) if $readme ne '';
+like( $pm, qr/How is the browser UI served\?|browser UI runs as the dashboard web service.*dashboard serve/is, 'main module explains the browser service entrypoint instead of framing it as a framework requirement' );
+unlike( $pm, qr/=head2 Does it require a web framework\?/m, 'main module no longer carries the misleading web framework FAQ heading' );
 unlike( $readme, qr/minimal HTTP layer implemented with core Perl-oriented modules/i, 'README no longer claims the web stack avoids a framework' ) if $readme ne '';
 unlike( $pm, qr/minimal HTTP layer implemented with core Perl-oriented modules/i, 'main module no longer claims the web stack avoids a framework' );
 like( $readme, qr/LWP::UserAgent.*api-dashboard|api-dashboard.*LWP::UserAgent|LWP::UserAgent.*open-file|open-file.*LWP::UserAgent/is, 'README describes active LWP::UserAgent usage' ) if $readme ne '';
@@ -275,10 +280,27 @@ like( $pm, qr/LWP::UserAgent.*api-dashboard|api-dashboard.*LWP::UserAgent|LWP::U
 unlike( $readme, qr/no outbound HTTP client in the core runtime/i, 'README no longer claims outbound HTTP is unused' ) if $readme ne '';
 unlike( $pm, qr/no outbound HTTP client in the core runtime/i, 'main module POD no longer claims outbound HTTP is unused' );
 
+my $main_see_also = _section_body( $pm, 'SEE ALSO' );
+like( $main_see_also, qr/L<\/Main Concepts>/, 'main module SEE ALSO links to the local Main Concepts section' );
+like( $main_see_also, qr/L<\/Working With Collectors>/, 'main module SEE ALSO links to the local collector guide section' );
+like( $main_see_also, qr/L<\/Runtime Lifecycle>/, 'main module SEE ALSO links to the local runtime lifecycle section' );
+like( $main_see_also, qr/L<\/Skills System>/, 'main module SEE ALSO links to the local skills guide section' );
+unlike(
+    $main_see_also,
+    qr/L<Developer::Dashboard::PathRegistry>|L<Developer::Dashboard::PageStore>|L<Developer::Dashboard::CollectorRunner>|L<Developer::Dashboard::Prompt>/,
+    'main module SEE ALSO avoids brittle private-module links that can degrade into broken rendered targets',
+);
+unlike(
+    $pm,
+    qr/L<Developer::Dashboard::[A-Za-z:]+>/,
+    'main module product manual avoids brittle private-module POD links and stays self-contained',
+);
+
 for my $path ( _perl_doc_paths() ) {
     my $content = _slurp($path);
     like( $content, qr/^__END__$/m, "$path keeps Perl POD after __END__" );
     like( $content, qr/^=head1 NAME$/m, "$path documents NAME" );
+    unlike( _extract_pod($content), qr/\b[A-Za-z0-9_\/.-]+\.md\b/, "$path POD does not point readers at repo-internal markdown filenames" );
     next if $path eq _repo_path( 'lib', 'Developer', 'Dashboard.pm' );
     like( $content, qr/^=head1 PURPOSE$/m, "$path documents PURPOSE" );
     like( $content, qr/^=head1 WHY IT EXISTS$/m, "$path documents WHY IT EXISTS" );

@@ -3,7 +3,7 @@ package Developer::Dashboard::SeedSync;
 use strict;
 use warnings;
 
-our $VERSION = '2.23';
+our $VERSION = '2.24';
 
 use Digest::MD5 qw(md5_hex);
 use Encode qw(encode_utf8);

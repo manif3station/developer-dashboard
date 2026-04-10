@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.23';
+our $VERSION = '2.24';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.23
+2.24
 
 =head1 INTRODUCTION
 
@@ -481,39 +481,39 @@ generic package names.
 
 =item * Path Registry
 
-L<Developer::Dashboard::PathRegistry> resolves the runtime roots that
+C<Developer::Dashboard::PathRegistry> resolves the runtime roots that
 everything else depends on, such as dashboards, config, collectors,
 indicators, CLI hooks, logs, and cache.
 
 =item * File Registry
 
-L<Developer::Dashboard::FileRegistry> resolves stable file locations on top of
+C<Developer::Dashboard::FileRegistry> resolves stable file locations on top of
 the path registry so the rest of the system can read and write well-known
 runtime files without duplicating path logic.
 
 =item * Page Model
 
-L<Developer::Dashboard::PageDocument> and L<Developer::Dashboard::PageStore>
+C<Developer::Dashboard::PageDocument> and C<Developer::Dashboard::PageStore>
 implement the saved and transient page model, including bookmark-style source
 documents, encoded transient pages, and persistent bookmark storage.
 
 =item * Page Resolver
 
-L<Developer::Dashboard::PageResolver> resolves saved pages and provider pages
+C<Developer::Dashboard::PageResolver> resolves saved pages and provider pages
 so browser pages and actions can come from both built-in and config-backed
 sources.
 
 =item * Actions
 
-L<Developer::Dashboard::ActionRunner> executes built-in actions and trusted
+C<Developer::Dashboard::ActionRunner> executes built-in actions and trusted
 local command actions with cwd, env, timeout, background support, and encoded
 action transport, letting pages act as operational dashboards instead of static
 documents.
 
 =item * Collectors
 
-L<Developer::Dashboard::Collector> and
-L<Developer::Dashboard::CollectorRunner> implement file-backed prepared-data
+C<Developer::Dashboard::Collector> and
+C<Developer::Dashboard::CollectorRunner> implement file-backed prepared-data
 jobs with managed loop metadata, timeout/env handling, interval and cron-style
 scheduling, process-title validation, duplicate prevention, and collector
 inspection data. This is the prepared-state layer that feeds indicators,
@@ -521,16 +521,16 @@ prompt status, and operational pages.
 
 =item * Indicators and Prompt
 
-L<Developer::Dashboard::IndicatorStore> and L<Developer::Dashboard::Prompt>
+C<Developer::Dashboard::IndicatorStore> and C<Developer::Dashboard::Prompt>
 expose cached state to shell prompts and dashboards, including compact versus
 extended prompt rendering, stale-state marking, generic built-in indicator
 refresh, and page-header status payloads for the web UI.
 
 =item * Web Layer
 
-L<Developer::Dashboard::Web::DancerApp>,
-L<Developer::Dashboard::Web::App>, and
-L<Developer::Dashboard::Web::Server> provide the browser interface on port
+C<Developer::Dashboard::Web::DancerApp>,
+C<Developer::Dashboard::Web::App>, and
+C<Developer::Dashboard::Web::Server> provide the browser interface on port
 C<7890>, with Dancer2 owning the HTTP route table while the web-app service
 handles page rendering, login/logout, helper sessions, and the
 exact-loopback admin trust model.
@@ -574,20 +574,20 @@ helper instead of a public standalone binary.
 
 =item * Runtime Manager
 
-L<Developer::Dashboard::RuntimeManager> manages the background web service and
+C<Developer::Dashboard::RuntimeManager> manages the background web service and
 collector lifecycle with process-title validation, C<pkill>-style fallback
 shutdown, and restart orchestration, tying the browser and prepared-state
 loops together as one runtime.
 
 =item * Update Manager
 
-L<Developer::Dashboard::UpdateManager> runs ordered update scripts and
+C<Developer::Dashboard::UpdateManager> runs ordered update scripts and
 restarts validated collector loops when needed, giving the runtime a
 controlled bootstrap and upgrade path.
 
 =item * Docker Compose Resolver
 
-L<Developer::Dashboard::DockerCompose> resolves project-aware compose files,
+C<Developer::Dashboard::DockerCompose> resolves project-aware compose files,
 explicit overlay layers, services, addons, modes, env injection, and the
 final C<docker compose> command so container workflows can live inside the
 same dashboard ecosystem instead of in separate wrapper scripts.
@@ -1789,9 +1789,9 @@ through singleton workers. No
 C<DBD::*> driver ships in the base tarball by default; install only the one
 you need with C<dashboard cpan DBD::Driver> or user-space
 C<cpanm -L ~/perl5 DBD::Driver>, and the bookmark will return explicit
-install guidance when a selected driver is missing. For a living support
-checklist, verification matrix, and per-database notes, see
-F<SQL_DASHBOARD_SUPPORTS_DB.md>.
+install guidance when a selected driver is missing. The repository also ships
+a dedicated SQL dashboard support guide with the verification matrix and
+per-database notes for that workspace.
 
 =head2 Skills System
 
@@ -1851,11 +1851,15 @@ Skill-shipped pages, including C<dashboards/index>
 
 =item B<dashboards/nav/>
 
-Skill nav fragments and bookmark pages loaded into C</app/E<lt>repo-nameE<gt>>
+Skill nav fragments and bookmark pages loaded into
+C</app/E<lt>repo-nameE<gt>> routes and into the shared nav strip rendered
+above normal saved C</app/E<lt>pageE<gt>> routes such as C</app/index>
 
 =item B<config/config.json>
 
-Skill-local JSON config, merged into runtime config under C<_E<lt>repo-nameE<gt>>
+Skill-local JSON config, merged into runtime config under
+C<_E<lt>repo-nameE<gt>>. Any declared C<collectors> join the managed fleet
+under repo-qualified names such as C<example-skill.status>
 
 =item B<config/docker/>
 
@@ -1911,6 +1915,33 @@ request
 
 =back
 
+Skill fleet integration:
+
+=over 4
+
+=item *
+
+collectors declared in a skill C<config/config.json> join the same managed
+fleet used by the system config
+
+=item *
+
+C<dashboard serve>, C<dashboard restart>, and C<dashboard stop> manage those
+skill collectors together with the system-owned collectors
+
+=item *
+
+skill collector names are normalized to
+C<E<lt>repo-nameE<gt>.E<lt>collector-nameE<gt>> so collector process titles,
+status rows, and indicator state stay unambiguous
+
+=item *
+
+indicator configuration attached to those skill collectors participates in the
+normal prompt and browser status flow
+
+=back
+
 Skill browser routes:
 
 =over 4
@@ -1925,7 +1956,9 @@ C</app/E<lt>repo-nameE<gt>/E<lt>pageE<gt>> renders C<dashboards/E<lt>pageE<gt>>
 
 =item *
 
-C<dashboards/nav/*> is loaded into those skill app routes
+C<dashboards/nav/*> is loaded into those skill app routes and into the shared
+nav strip above normal saved C</app/E<lt>pageE<gt>> routes such as
+C</app/index>, so every installed skill can contribute top-level nav at once
 
 =item *
 
@@ -1964,10 +1997,15 @@ C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> form. Skill hook files live
 under C<cli/E<lt>commandE<gt>.d/>, skill app pages render from
 C</app/E<lt>repo-nameE<gt>> and C</app/E<lt>repo-nameE<gt>/E<lt>idE<gt>>, and
 the older C</skill/E<lt>repo-nameE<gt>/bookmarks/E<lt>idE<gt>> route still
-resolves direct bookmark renders.
+resolves direct bookmark renders. If C<config/config.json> declares
+collectors, those collectors join the normal managed fleet under
+repo-qualified names such as C<example-skill.status>, which means
+C<dashboard serve>, C<dashboard restart>, and C<dashboard stop> treat them the
+same way they treat system-owned collectors.
 
-The full skill authoring reference lives in F<SKILL.md> and the shipped POD
-module C<Developer::Dashboard::SKILLS>. Those guides cover the isolated skill
+The repository also ships a dedicated skill authoring guide, and the installed
+reference is available through the POD module
+C<Developer::Dashboard::SKILLS>. Together they cover the isolated skill
 layout, environment variables such as C<DEVELOPER_DASHBOARD_SKILL_ROOT>,
 bookmark syntax like C<TITLE:>, C<BOOKMARK:>, C<HTML:>, and C<CODE1:>,
 bookmark browser helpers such as C<fetch_value()>, C<stream_value()>, and
@@ -1996,12 +2034,12 @@ What remains intentionally lightweight is breadth, not architecture:
 - provider pages and action handlers are implemented in a compact v1 form
 - bookmark-file pages are supported, with Template Toolkit rendering and one clean sandpit package per page run so C<CODE*> blocks can share state within a bookmark render without leaking runtime globals into later requests
 
-=head2 Does it require a web framework?
+=head2 How is the browser UI served?
 
-For the browser UI, yes. The web stack uses a Dancer2 route layer packaged as
-a PSGI app and served through Plack/Starman. In normal use you drive that
-through C<dashboard serve>; CLI-only commands do not need the web server to be
-running.
+The browser UI runs as the dashboard web service you start with
+C<dashboard serve>. Internally that service is a PSGI application served
+through the shipped web runtime, while CLI-only commands continue to work
+without keeping the browser service running.
 
 =head2 Why does a custom hostname sometimes require login?
 
@@ -2036,10 +2074,10 @@ mirror path behind C<dashboard of> and C<dashboard open-file>.
 
 =head1 SEE ALSO
 
-L<Developer::Dashboard::PathRegistry>,
-L<Developer::Dashboard::PageStore>,
-L<Developer::Dashboard::CollectorRunner>,
-L<Developer::Dashboard::Prompt>
+L</Main Concepts>,
+L</Working With Collectors>,
+L</Runtime Lifecycle>,
+L</Skills System>
 
 =head1 AUTHOR
 

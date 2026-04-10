@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '2.23';
+our $VERSION = '2.24';
 
 use File::Spec;
 use JSON::XS qw(encode_json decode_json);
@@ -239,6 +239,21 @@ sub skill_nav_pages {
         );
     }
     closedir $dh;
+    return \@pages;
+}
+
+# all_skill_nav_pages()
+# Loads nav bookmark pages from every installed skill in deterministic skill order.
+# Input: none.
+# Output: array ref of prepared page documents before runtime state is applied.
+sub all_skill_nav_pages {
+    my ($self) = @_;
+    my @pages;
+    for my $skill_root ( $self->{manager}{paths}->installed_skill_roots ) {
+        my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
+        next if !defined $skill_name || $skill_name eq '';
+        push @pages, @{ $self->skill_nav_pages($skill_name) || [] };
+    }
     return \@pages;
 }
 

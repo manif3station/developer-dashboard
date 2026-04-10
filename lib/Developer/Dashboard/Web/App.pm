@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '2.23';
+our $VERSION = '2.24';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -1509,6 +1509,7 @@ sub _nav_items_html {
     my $page = $args{page} || return '';
     my $page_id = $page->as_hash->{id} || '';
     return '' if $page_id =~ m{\Anav/};
+    return '' if ( $page->{meta}{skill_route_id} || '' ) =~ m{\Anav/};
 
     my $paths = $self->{pages}{paths} || return '';
     my @roots = $paths->can('dashboards_layers') ? $paths->dashboards_layers : $paths->dashboards_roots;
@@ -1555,30 +1556,28 @@ sub _nav_items_html {
         push @items, qq{<li data-nav-id="} . _escape_html($nav_id) . qq{">$fragment</li>};
     }
 
-    if ( ( $page->{meta}{source_kind} || '' ) eq 'skill' && $page->{meta}{skill_name} ) {
-        require Developer::Dashboard::SkillDispatcher;
-        my $dispatcher = Developer::Dashboard::SkillDispatcher->new();
-        for my $nav_page ( @{ $dispatcher->skill_nav_pages( $page->{meta}{skill_name} ) || [] } ) {
-            $nav_page = $self->{runtime}->prepare_page(
-                page            => $self->_page_with_runtime_state(
-                    $nav_page,
-                    query_params => $args{runtime_context}{params} || {},
-                    body_params  => {},
-                    path         => $self->_saved_page_url($page_id),
-                    remote_addr  => $self->{_current_request_context}{remote_addr},
-                    headers      => { host => $self->{_current_request_context}{host} || '' },
-                ),
-                source          => 'skill',
-                runtime_context => {
-                    %{ $args{runtime_context} || { params => {} } },
-                    current_page => $current_page,
-                },
-            );
-            my $nav_id = $nav_page->as_hash->{id} || '';
-            my $fragment = $self->_page_fragment_html($nav_page);
-            next if $fragment eq '';
-            push @items, qq{<li data-nav-id="} . _escape_html($nav_id) . qq{">$fragment</li>};
-        }
+    require Developer::Dashboard::SkillDispatcher;
+    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $paths );
+    for my $nav_page ( @{ $dispatcher->all_skill_nav_pages || [] } ) {
+        $nav_page = $self->{runtime}->prepare_page(
+            page            => $self->_page_with_runtime_state(
+                $nav_page,
+                query_params => $args{runtime_context}{params} || {},
+                body_params  => {},
+                path         => $self->_saved_page_url($page_id),
+                remote_addr  => $self->{_current_request_context}{remote_addr},
+                headers      => { host => $self->{_current_request_context}{host} || '' },
+            ),
+            source          => 'skill',
+            runtime_context => {
+                %{ $args{runtime_context} || { params => {} } },
+                current_page => $current_page,
+            },
+        );
+        my $nav_id = $nav_page->as_hash->{id} || '';
+        my $fragment = $self->_page_fragment_html($nav_page);
+        next if $fragment eq '';
+        push @items, qq{<li data-nav-id="} . _escape_html($nav_id) . qq{">$fragment</li>};
     }
 
     return '' if !@items;

@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '2.23';
+our $VERSION = '2.24';
 
 1;
 
@@ -32,9 +32,8 @@ Skill lifecycle:
 =head1 DESCRIPTION
 
 This module is documentation-first. It exists to ship a human-readable skill
-authoring reference with the distribution.
-
-For the long Markdown guide, see F<SKILL.md>.
+authoring reference with the distribution and to keep that installed reference
+available even when a machine no longer has the source checkout.
 
 Use a skill when you want a Git-backed package that can ship:
 
@@ -53,6 +52,11 @@ C<[[STOP]]> control
 
 browser pages rendered from C</app/E<lt>repo-nameE<gt>> and
 C</app/E<lt>repo-nameE<gt>/E<lt>idE<gt>>
+
+=item *
+
+collectors and indicator definitions in skill-local C<config/config.json>
+that join the managed fleet under repo-qualified names
 
 =item *
 
@@ -114,7 +118,10 @@ writes C<[[STOP]]> to C<stderr>.
 
 Skill-owned JSON config. Developer Dashboard guarantees the file exists, does
 not impose a rich schema, and merges it into the effective dashboard config
-under C<_E<lt>repo-nameE<gt>>.
+under C<_E<lt>repo-nameE<gt>>. If the skill declares C<collectors> there,
+those collectors join the normal managed fleet under names such as
+C<example-skill.status>, so serve, restart, stop, prompt rendering, and
+browser status treat them the same way they treat system-owned collectors.
 
 =item B<config/docker/>
 
@@ -131,6 +138,9 @@ C<dashboards/index> for C</app/E<lt>repo-nameE<gt>>.
 =item B<dashboards/nav/>
 
 Skill nav fragments and bookmark pages loaded into the skill app routes.
+They also join the shared nav strip rendered above normal saved
+C</app/E<lt>pageE<gt>> routes such as C</app/index>, so multiple installed
+skills can contribute top-level nav at once.
 
 =item B<state/>
 
@@ -326,6 +336,55 @@ edit/source surfaces
 
 =back
 
+=head1 SKILL COLLECTOR FLEET
+
+Skill collectors are declared inside the skill's C<config/config.json>:
+
+  {
+    "collectors": [
+      {
+        "name": "status",
+        "command": "printf 'ok'",
+        "cwd": "home",
+        "indicator": {
+          "label": "Example Skill",
+          "icon": "E"
+        }
+      }
+    ]
+  }
+
+When that skill is installed, the collector joins the same managed fleet used
+by the main dashboard config. The runtime qualifies the collector name with
+the repo name, so the effective collector becomes
+C<example-skill.status> instead of a bare C<status>. That qualified name is
+what the collector runner uses for loop metadata, process titles, and managed
+indicator rows.
+
+Operationally that means:
+
+=over 4
+
+=item *
+
+C<dashboard serve> starts skill collectors together with the system fleet
+
+=item *
+
+C<dashboard restart> restarts both the system collectors and the installed
+skill collectors
+
+=item *
+
+C<dashboard stop> stops the whole managed collector fleet, including skills
+
+=item *
+
+collector indicator config in the skill file feeds the same prompt and browser
+status surfaces as system-owned collectors
+
+=back
+
 =head1 BOOKMARK LANGUAGE
 
 Bookmark files use the original separator-line syntax with directives such as:
@@ -424,9 +483,11 @@ tested that path explicitly.
 =head1 NAV AND DASHBOARD-WIDE CLI
 
 Normal runtime bookmarks support shared C<nav/*.tt> fragments above non-nav
-saved pages. Skill pages now auto-load C<dashboards/nav/*> into
-C</app/E<lt>repo-nameE<gt>> and C</app/E<lt>repo-nameE<gt>/...> routes, and can
-still render files such as C<dashboards/nav/help.tt> directly through
+saved pages. Skill pages auto-load C<dashboards/nav/*> into
+C</app/E<lt>repo-nameE<gt>> and C</app/E<lt>repo-nameE<gt>/...> routes, and
+the same installed skill nav fragments are also rendered above normal saved
+C</app/E<lt>pageE<gt>> routes such as C</app/index>. Skills can still render
+files such as C<dashboards/nav/help.tt> directly through
 C</skill/E<lt>repo-nameE<gt>/bookmarks/nav/help.tt>.
 
 Dashboard-wide custom CLI hooks are separate from skill hooks. They live under
@@ -446,6 +507,12 @@ No. Use the parts your skill actually needs.
 Yes, through C<dashboards/> with C</app/...> routes and the older
 C</skill/.../bookmarks/...> route.
 
+=head2 Can a skill ship collectors or indicators?
+
+Yes. Declare them in the skill's C<config/config.json>. They join the managed
+fleet under repo-qualified names such as C<example-skill.status>, and their
+indicator config participates in the normal prompt and browser status flow.
+
 =head2 Can I use isolated Perl dependencies?
 
 Yes. Ship a C<cpanfile>. Dependencies install into C<local/>.
@@ -457,11 +524,12 @@ processes the skill C<cpanfile>.
 
 =head2 Where is the long-form guide?
 
-See F<SKILL.md>.
+The repository ships a separate skill authoring guide, while the installed
+distribution keeps this POD available through C<perldoc>.
 
 =head1 SEE ALSO
 
-F<SKILL.md>, L<Developer::Dashboard>, L<Developer::Dashboard::SkillManager>,
+L<Developer::Dashboard>, L<Developer::Dashboard::SkillManager>,
 L<Developer::Dashboard::SkillDispatcher>
 
 =for comment FULL-POD-DOC START
@@ -476,15 +544,15 @@ It exists because a source-tree-only markdown guide is not enough for tarball an
 
 =head1 WHEN TO USE
 
-Use this file when the skill feature gains new layout rules, command semantics, environment variables, or bookmark routing behavior, or when the shipped skill authoring manual needs to stay aligned with C<SKILL.md>.
+Use this file when the skill feature gains new layout rules, command semantics, environment variables, or bookmark routing behavior, or when the shipped skill authoring manual needs to stay aligned with the repository's separate skill authoring guide.
 
 =head1 HOW TO USE
 
-Treat it as installed reference documentation. Keep its content synchronized with the markdown skill guide and focus on explaining how skill authors should structure repos and commands rather than on internal implementation details.
+Treat it as installed reference documentation. Keep its content synchronized with the repository's separate skill authoring guide and focus on explaining how skill authors should structure repos and commands rather than on internal implementation details.
 
 =head1 WHAT USES IT
 
-It is used by C<perldoc Developer::Dashboard::SKILLS>, by release metadata checks that compare the shipped docs to the markdown guide, and by contributors authoring or reviewing dashboard skills.
+It is used by C<perldoc Developer::Dashboard::SKILLS>, by release metadata checks that compare the shipped docs to the repository skill authoring guide, and by contributors authoring or reviewing dashboard skills.
 
 =head1 EXAMPLES
 

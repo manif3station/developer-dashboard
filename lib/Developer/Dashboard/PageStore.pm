@@ -3,7 +3,7 @@ package Developer::Dashboard::PageStore;
 use strict;
 use warnings;
 
-our $VERSION = '2.23';
+our $VERSION = '2.24';
 use utf8;
 
 use Encode qw(decode FB_CROAK FB_DEFAULT);

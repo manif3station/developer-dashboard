@@ -1,5 +1,34 @@
 Revision history for Developer Dashboard
 
+2.24  2026-04-10
+    - loaded installed skill collectors declared in skill
+      `config/config.json` into the same managed fleet used by the system
+      config, so `dashboard serve`, `dashboard restart`, and
+      `dashboard stop` now manage skill-owned collectors too
+    - normalized installed skill collector names to
+      `<repo-name>.<collector-name>` so collector process titles, loop
+      metadata, and indicator rows stay unambiguous across multiple skills
+      and the main runtime
+    - loaded `dashboards/nav/*` from every installed skill into the shared
+      nav strip on normal `/app/<page>` routes such as `/app/index`, while
+      keeping those nav fragments available on the skill routes themselves
+    - updated the README, main POD, shipped skill reference, and integration
+      plan so the documented skill contract now covers fleet-loaded skill
+      collectors, repo-qualified collector names, and global installed-skill
+      nav rendering
+    - audited the shipped `Developer::Dashboard.pm` manual end to end,
+      replaced brittle top-level private-module POD links with self-contained
+      code references, replaced `SEE ALSO` module links with stable local
+      section links, and expanded the release-metadata guard so broken links
+      and the old web-framework FAQ wording do not drift back in
+    - removed repo-internal `.md` filename references from the synced
+      top-level product manuals and shipped Perl POD, then extended the
+      release-metadata guard so user-facing manuals do not point readers at
+      internal markdown filenames again
+    - excluded `node_modules/` and `test_by_michael/` from gathered release
+      tarballs and added a release-metadata guard so local dependency caches
+      and private scratch trees cannot leak into PAUSE artifacts
+
 2.23  2026-04-10
     - taught `dashboard skills install` and the installed skill runtime to
       keep Git-backed skill repos self-contained under

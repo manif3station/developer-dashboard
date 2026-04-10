@@ -1159,12 +1159,13 @@ source is live before debugging the browser route. It preserves programmable
 statement blocks through `SQLS_SEP` and `INSTRUCTION_SEP`, including
 `STASH`, `ROW`, `BEFORE`, and `AFTER` hooks, so result rows can still be
 transformed locally before rendering into derived HTML, links, or button-like
-actions. Its saved Ajax endpoints run through singleton workers. No `DBD::*` driver ships in the base
-tarball by default; install only the one you need with `dashboard cpan
-DBD::Driver` or user-space `cpanm -L ~/perl5 DBD::Driver`, and the bookmark
-will return explicit install guidance when a selected driver is missing. For
-a living support checklist, verification matrix, and per-database notes, see
-`SQL_DASHBOARD_SUPPORTS_DB.md`.
+actions. Its saved Ajax endpoints run through singleton workers. No `DBD::*`
+driver ships in the base tarball by default; install only the one you need
+with `dashboard cpan DBD::Driver` or user-space
+`cpanm -L ~/perl5 DBD::Driver`, and the bookmark will return explicit install
+guidance when a selected driver is missing. The repository also ships a
+dedicated SQL dashboard support guide with the verification matrix and
+per-database notes for that workspace.
 
 ### Skills System
 
@@ -1222,8 +1223,8 @@ Each installed skill lives under `~/.developer-dashboard/skills/<repo-name>/` wi
 - `cli/` - Skill commands (executable scripts, never installed to system PATH)
 - `cli/<cmd>.d/` - Hook files for commands (sorted pre-command hooks)
 - `dashboards/` - Skill-shipped pages, including `dashboards/index`
-- `dashboards/nav/` - Skill nav fragments and bookmark pages loaded into `/app/<repo-name>`
-- `config/config.json` - Skill-local JSON config, merged into runtime config under `_<repo-name>`
+- `dashboards/nav/` - Skill nav fragments and bookmark pages loaded into `/app/<repo-name>` routes and into the shared nav strip rendered above normal saved `/app/<page>` routes such as `/app/index`
+- `config/config.json` - Skill-local JSON config, merged into runtime config under `_<repo-name>`, with any declared `collectors` joining the managed fleet under repo-qualified names such as `example-skill.status`
 - `config/docker/` - Skill-local Docker Compose roots that participate in layered docker service lookup
 - `state/` - Persistent skill state and data
 - `logs/` - Skill output logs
@@ -1244,11 +1245,18 @@ Hook lifecycle details:
 - ordinary non-zero exit codes are recorded but do not act like an implicit
   stop request
 
+Skill fleet integration:
+
+- collectors declared in a skill `config/config.json` join the same managed fleet used by the system config
+- `dashboard serve`, `dashboard restart`, and `dashboard stop` now manage those skill collectors together with the system-owned collectors
+- skill collector names are normalized to `<repo-name>.<collector-name>` so collector process titles, status rows, and indicator state stay unambiguous
+- indicator configuration attached to those skill collectors participates in the normal prompt and browser status flow
+
 Skill browser routes:
 
 - `/app/<repo-name>` renders `dashboards/index`
 - `/app/<repo-name>/<page>` renders `dashboards/<page>`
-- `dashboards/nav/*` is loaded into those skill app routes
+- `dashboards/nav/*` is loaded into those skill app routes and into the shared nav strip above normal saved `/app/<page>` routes such as `/app/index`, so every installed skill can contribute top-level nav at once
 - the older `/skill/<repo-name>/bookmarks/<id>` route still works for direct
   bookmark rendering
 
@@ -1270,16 +1278,21 @@ commands are file-based commands run through either
 `dashboard <repo-name>.<command>` form. Skill hook files live under
 `cli/<command>.d/`, skill app pages render from `/app/<repo-name>` and
 `/app/<repo-name>/<id>`, and the older `/skill/<repo-name>/bookmarks/<id>`
-route still resolves direct bookmark renders.
+route still resolves direct bookmark renders. If `config/config.json` declares
+collectors, those collectors join the normal managed fleet under repo-qualified
+names such as `example-skill.status`, which means `dashboard serve`,
+`dashboard restart`, and `dashboard stop` treat them the same way they treat
+system-owned collectors.
 
-The full skill authoring reference lives in `SKILL.md` and the shipped POD
-module `Developer::Dashboard::SKILLS`. Those guides cover the isolated skill
-layout, environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`,
-bookmark syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, and `CODE1:`, bookmark
-browser helpers such as `fetch_value()`, `stream_value()`, and
-`stream_data()`, underscored config merge keys such as `_example-skill`,
-`aptfile`-then-`cpanfile` dependency install order, skill docker layering, and
-when to use dashboard-wide custom CLI hook folders such as
+The repository also ships a dedicated skill authoring guide, and the installed
+reference is available through the POD module
+`Developer::Dashboard::SKILLS`. Together they cover the isolated skill layout,
+environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`, bookmark
+syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, and `CODE1:`, bookmark browser
+helpers such as `fetch_value()`, `stream_value()`, and `stream_data()`,
+underscored config merge keys such as `_example-skill`, `aptfile`-then-`cpanfile`
+dependency install order, skill docker layering, and when to use
+dashboard-wide custom CLI hook folders such as
 `~/.developer-dashboard/cli/<command>.d` instead of a skill-local hook tree.
 
 ### Blank Environment Integration
@@ -1303,12 +1316,12 @@ What remains intentionally lightweight is breadth, not architecture:
 - provider pages and action handlers are implemented in a compact v1 form
 - bookmark-file pages are supported, with Template Toolkit rendering and one clean sandpit package per page run so `CODE*` blocks can share state within a bookmark render without leaking runtime globals into later requests
 
-### Does it require a web framework?
+### How is the browser UI served?
 
-For the browser UI, yes. The web stack uses a Dancer2 route layer packaged as
-a PSGI app and served through Plack/Starman. In normal use you drive that
-through `dashboard serve`; CLI-only commands do not need the web server to be
-running.
+The browser UI runs as the dashboard web service you start with
+`dashboard serve`. Internally that service is a PSGI application served
+through the shipped web runtime, while CLI-only commands continue to work
+without keeping the browser service running.
 
 ### Why does a custom hostname sometimes require login?
 

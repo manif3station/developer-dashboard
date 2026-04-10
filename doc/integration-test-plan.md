@@ -41,6 +41,19 @@ The integration run covers these command families:
 - ajax streaming: installed long-running `/ajax/<file>` route timing, early-chunk verification, refresh-safe singleton replacement, `fetch_value()` / `stream_value()` DOM helper coverage, and browser pagehide cleanup coverage in unit tests
 - windows verification assets: `integration/windows/run-strawberry-smoke.ps1` and `integration/windows/run-qemu-windows-smoke.sh`
 
+When a release changes the skills runtime, also run the focused host-side
+skill regressions outside the blank-container harness:
+
+- `prove -lv t/19-skill-system.t`
+- `prove -lv t/20-skill-web-routes.t`
+- `prove -lv t/09-runtime-manager.t`
+
+Those focused skill checks currently verify the installed-skill command and
+page dispatch rules, the merged skill config behavior, repo-qualified skill
+collectors joining the managed fleet used by `serve` / `restart` / `stop`,
+and shared nav rendering from every installed skill on both skill routes and
+normal `/app/<page>` routes such as `/app/index`.
+
 ## Environment
 
 The test container should be intentionally minimal:

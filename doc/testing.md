@@ -69,6 +69,21 @@ The contributor contract now lives here plus `AGENTS.override.md` and
 `agents.md`, not in the top-level product manual in `README.md` or
 `Developer::Dashboard.pm`. Those two files stay synced as user-facing product
 documentation instead of repeating repo-process rules.
+When editing `Developer::Dashboard.pm`, audit the whole shipped manual, not
+just the paragraph you touched. In particular, the FAQ wording must describe
+real product behavior rather than contributor-only framing, and the `SEE ALSO`
+section must use stable local section links instead of brittle private-module
+targets that can degrade into broken rendered links. The rest of the top-level
+manual should also stay self-contained: prefer plain code references such as
+`Developer::Dashboard::PathRegistry` over POD links to private modules, so the
+main product guide does not depend on MetaCPAN cross-linking to remain usable.
+The same boundary applies to repo-internal Markdown filenames: user-facing
+manuals and shipped Perl POD must not send readers to `*.md` files by name.
+If a product guide needs to refer to one of those internal documents, describe
+it conceptually instead of exposing the repository filename.
+Markdown files themselves are also checkout-only documentation and must not be
+released in the CPAN tarball. Keep the `dist.ini` Markdown exclusion in place,
+and treat any shipped `*.md` file as a release-gate failure.
 Shipped library modules must also load correctly from an installed tarball.
 Do not use `FindBin` or source-tree-relative `use lib` bootstrapping inside
 repo-owned `.pm` files that are meant to run from the installed distribution.
@@ -168,6 +183,13 @@ The repository also now enforces:
   edge or debugging path when the file owns one, with
   `t/15-release-metadata.t` acting as the release gate for that documentation
   floor
+- a full-manual audit whenever `Developer::Dashboard.pm` changes, including
+  FAQ wording, `SEE ALSO` target validation, and rejection of brittle
+  `L<Developer::Dashboard::...>` private-module links in
+  `t/15-release-metadata.t`
+- rejection of repo-internal `*.md` filename references in the synced
+  top-level product manuals and in shipped Perl POD, enforced through
+  `t/15-release-metadata.t`
 - explicit setup for env-sensitive tests, so checks that depend on blank
   variables such as `RESULT` clear or localize that state instead of assuming
   the parent shell or packaging harness starts empty
@@ -208,6 +230,10 @@ tarball mounted into it, installs the tarball with `cpanm`, and then
 exercises the installed `dashboard` command inside the clean Perl container.
 The release gather rules also exclude local `cover_db` output so a covered
 host run does not contaminate the tarball under test.
+The release gather rules must also exclude local scratch and dependency trees
+such as `node_modules/` and `test_by_michael/`. Those paths are source-tree
+implementation details, not distributable runtime assets, so release metadata
+must fail before build or release if they are gathered into the tarball.
 
 The shipped runtime-manager lifecycle checks now also fall back to `/proc`
 socket ownership scans when that prebuilt image does not include `ss`, and

@@ -10,6 +10,7 @@ use File::Temp qw(tempdir);
 use Test::More;
 
 use lib 'lib';
+use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::PageStore;
 use Developer::Dashboard::SkillManager;
@@ -23,10 +24,25 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
 my $repo = _create_skill_repo('route-skill');
 my $install = $manager->install( 'file://' . $repo );
 ok( !$install->{error}, 'route skill installs cleanly' ) or diag $install->{error};
+my $other_repo = _create_skill_repo( 'other-skill', nav_label => 'Other Skill Nav' );
+my $other_install = $manager->install( 'file://' . $other_repo );
+ok( !$other_install->{error}, 'second route skill installs cleanly' ) or diag $other_install->{error};
+
+my $store = Developer::Dashboard::PageStore->new( paths => $paths );
+$store->save_page(
+    Developer::Dashboard::PageDocument->from_instruction(<<'BOOKMARK')
+TITLE: Shared Index
+:--------------------------------------------------------------------------------:
+BOOKMARK: index
+:--------------------------------------------------------------------------------:
+HTML:
+Shared Index
+BOOKMARK
+);
 
 my $app = Developer::Dashboard::Web::App->new(
     auth     => bless( {}, 'Local::AuthStub' ),
-    pages    => Developer::Dashboard::PageStore->new( paths => $paths ),
+    pages    => $store,
     sessions => bless( {}, 'Local::SessionsStub' ),
     config   => {},
 );
@@ -48,6 +64,7 @@ my $index = $app->handle(
 is( $index->[0], 200, 'installed skill index route returns success' );
 like( $index->[2], qr/Skill Route Index/, 'installed skill index route renders the skill index bookmark' );
 like( $index->[2], qr/Skill Route Nav/, 'installed skill index route renders skill nav fragments' );
+like( $index->[2], qr/Other Skill Nav/, 'installed skill index route also renders nav fragments from other installed skills' );
 
 my $render = $app->handle(
     path        => '/app/route-skill/foo',
@@ -58,6 +75,18 @@ my $render = $app->handle(
 is( $render->[0], 200, 'installed skill page route returns success' );
 like( $render->[2], qr/Skill Route Foo/, 'skill page route renders the requested skill bookmark html' );
 like( $render->[2], qr/Skill Route Nav/, 'installed skill page route renders skill nav fragments' );
+like( $render->[2], qr/Other Skill Nav/, 'installed skill page route renders nav contributed by other installed skills too' );
+
+my $shared_index = $app->handle(
+    path        => '/app/index',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $shared_index->[0], 200, 'saved non-skill index route returns success' );
+like( $shared_index->[2], qr/Shared Index/, 'saved non-skill index route renders the shared saved page body' );
+like( $shared_index->[2], qr/Skill Route Nav/, 'saved non-skill index route renders nav from installed skills' );
+like( $shared_index->[2], qr/Other Skill Nav/, 'saved non-skill index route renders nav from every installed skill' );
 
 my $legacy_render = $app->handle(
     path        => '/skill/route-skill/bookmarks/foo',
@@ -79,7 +108,7 @@ is( $missing_bookmark->[0], 404, 'missing skill bookmark routes return 404' );
 done_testing();
 
 sub _create_skill_repo {
-    my ($name) = @_;
+    my ( $name, %args ) = @_;
     my $repo = File::Spec->catdir( $test_repos, $name );
     make_path($repo);
     my $cwd = getcwd();
@@ -119,9 +148,7 @@ BOOKMARK
     make_path( File::Spec->catdir( 'dashboards', 'nav' ) );
     _write_file(
         File::Spec->catfile( 'dashboards', 'nav', 'skill.tt' ),
-        <<'TT',
-<div>Skill Route Nav</div>
-TT
+        '<div>' . ( $args{nav_label} || 'Skill Route Nav' ) . "</div>\n",
         0644,
     );
     _run_or_die(qw(git add .));

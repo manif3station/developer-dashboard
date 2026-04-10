@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '2.23';
+our $VERSION = '2.24';
 
 use File::Spec;
 use Cwd qw(cwd);
@@ -184,6 +184,7 @@ sub collectors {
     if ( ref( $cfg->{collectors} ) eq 'ARRAY' ) {
         push @jobs, @{ $cfg->{collectors} };
     }
+    push @jobs, $self->_skill_collectors;
 
     if ( my $filter = $ENV{DEVELOPER_DASHBOARD_CHECKERS} ) {
         my %wanted = map { $_ => 1 } grep { defined && $_ ne '' } split /:/, $filter;
@@ -468,15 +469,64 @@ sub _global_config_files {
 # Output: ordered list of hash refs such as { _skill_name => { ... } }.
 sub _skill_config_fragments {
     my ($self) = @_;
-    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $self->{paths} );
     my @fragments;
-    for my $skill_root ( $self->{paths}->installed_skill_roots ) {
-        my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
-        next if !defined $skill_name || $skill_name eq '';
-        my $fragment = $dispatcher->config_fragment($skill_name);
+    for my $entry ( $self->_skill_config_entries ) {
+        my $fragment = $entry->{dispatcher}->config_fragment( $entry->{skill_name} );
         push @fragments, $fragment if ref($fragment) eq 'HASH' && %{$fragment};
     }
     return @fragments;
+}
+
+# _skill_config_entries()
+# Enumerates installed skill config payloads together with the skill name and dispatcher.
+# Input: none.
+# Output: ordered list of hash refs with skill_name, skill_root, config, and dispatcher.
+sub _skill_config_entries {
+    my ($self) = @_;
+    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $self->{paths} );
+    my @entries;
+    for my $skill_root ( $self->{paths}->installed_skill_roots ) {
+        my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
+        next if !defined $skill_name || $skill_name eq '';
+        my $config = $dispatcher->get_skill_config($skill_name);
+        next if ref($config) ne 'HASH' || !%{$config};
+        push @entries,
+          {
+            skill_name => $skill_name,
+            skill_root => $skill_root,
+            config     => $config,
+            dispatcher => $dispatcher,
+          };
+    }
+    return @entries;
+}
+
+# _skill_collectors()
+# Expands installed skill config collectors into the managed fleet using repo-qualified names.
+# Input: none.
+# Output: ordered list of collector job hash references.
+sub _skill_collectors {
+    my ($self) = @_;
+    my @jobs;
+    for my $entry ( $self->_skill_config_entries ) {
+        my $collectors = $entry->{config}{collectors};
+        next if ref($collectors) ne 'ARRAY';
+        for my $job ( @{$collectors} ) {
+            next if ref($job) ne 'HASH';
+            next if !defined $job->{name} || $job->{name} eq '';
+            my $qualified_name = $job->{name} =~ /^\Q$entry->{skill_name}\E\./
+              ? $job->{name}
+              : $entry->{skill_name} . '.' . $job->{name};
+            push @jobs,
+              {
+                %{$job},
+                name       => $qualified_name,
+                skill_name => $entry->{skill_name},
+                skill_root => $entry->{skill_root},
+              };
+        }
+    }
+    return @jobs;
 }
 
 1;

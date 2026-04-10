@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::OpenFile;
 use strict;
 use warnings;
 
-our $VERSION = '2.23';
+our $VERSION = '2.24';
 
 use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 use Cwd qw(cwd);
