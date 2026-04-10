@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Query;
 use strict;
 use warnings;
 
-our $VERSION = '2.17';
+our $VERSION = '2.19';
 
 use Exporter 'import';
 use FindBin qw($Bin);

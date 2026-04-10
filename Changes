@@ -1,5 +1,16 @@
 Revision history for Developer Dashboard
 
+2.19  2026-04-10
+    - removed the contributor-only `FULL-POD-DOC` and Scorecard gate prose
+      from `README.md` and `Developer::Dashboard.pm` so the top-level manual
+      is back to being a product guide instead of a repo-process checklist
+    - corrected the top-level FAQ to describe the real web stack as
+      Dancer2-on-PSGI through Plack/Starman and to describe active
+      `LWP::UserAgent` usage in `api-dashboard` and Java source lookup
+    - moved the contributor-contract clarification into contributor-facing docs
+      such as `doc/testing.md` and `agents.md`, while keeping the product
+      manual synced across `README.md` and `Developer::Dashboard.pm`
+
 2.17  2026-04-10
     - replaced the repeated FULL-POD-DOC template text across shipped Perl
       modules, scripts, and staged helpers with file-specific documentation

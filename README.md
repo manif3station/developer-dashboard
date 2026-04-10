@@ -188,95 +188,18 @@ Project-owned modules now live only under the `Developer::Dashboard::`
 namespace so the distribution does not pollute the CPAN ecosystem with
 generic package names.
 
-## Documentation
+## Contributor Guides
 
-### Contributor Documentation Contract
+Contributor-only process rules live outside the product manual. For release
+gates, documentation quality rules, and Scorecard handling, use:
 
-`FULL-POD-DOC` is a repo contract. Every repo-owned Perl file must end with
-POD under `__END__` that explains what the file is, what it is for, why it
-exists, when to use it, how to use it, what uses it, and multiple concrete
-examples. That documentation must be specific to the file's real job:
-runtime managers should describe the lifecycle they own, query helpers should
-describe the formats they parse, web modules should describe the routes or
-server edges they handle, and thin staged helpers should document the exact
-handoff they perform. Boilerplate that only swaps the filename is not enough.
-`FULL-POD-DOC` also means each Perl module and script must document the real
-inputs it accepts, the outputs or side effects it produces, where it sits in
-the command or runtime flow, and multiple concrete examples that match actual
-usage instead of filler text. Those examples must cover the common path and at
-least one meaningful edge or debugging path when the file owns one, such as
-file-vs-STDIN behavior, single-vs-multiple search matches, print-vs-exec
-behavior, or create-vs-attach runtime flow. One-line POD, placeholder prose,
-or a repeated template with a different filename still fails the contract.
-Contributors should be able to open any module, script, helper, or test and
-understand its role without reverse-engineering the tree first.
+- `doc/testing.md`
+- `doc/update-and-release.md`
+- `AGENTS.override.md`
+- `agents.md`
 
-#### Common Documentation Example Patterns
-
-Good FULL-POD-DOC should usually include examples like these when the file owns
-that behavior:
-
-- `dashboard of lib 'OpenFile\.pm$'`: show the normal scoped-regex search path where the user knows the root and expects one file to win.
-- `dashboard open-file path/to/file.txt`: show the direct-path path where no search is needed and the helper should hand the file straight to the editor.
-- `dashboard path resolve dashboards`: show a plain alias lookup so readers can see the simplest path-registry call.
-- `dashboard path cdr work alpha red`: show the normal alias-root narrowing flow where all extra terms must match one target directory.
-- `dashboard paths | dashboard jq bookmarks_root`: show how one lightweight helper feeds another during shell debugging.
-- `printf '{"alpha":{"beta":2}}' | dashboard jq alpha.beta`: show the common scalar extraction path for structured JSON.
-- `printf 'alpha:\n  beta: 3\n' | dashboard yq alpha.beta`: show that the same dotted-path contract carries across YAML input.
-- `printf '[alpha]\nbeta = 4\n' | dashboard tomq alpha.beta`: show the TOML equivalent of the same query-helper workflow.
-- `dashboard ticket DD-123`: show the explicit ticket/session path where the session name is provided by the user.
-- `dashboard serve --ssl`: show the normal browser-serving path for the runtime manager and web-server layers.
-
-#### Edge Or Debugging Documentation Example Patterns
-
-Good FULL-POD-DOC should also include examples like these when the file owns
-that edge:
-
-- `dashboard of . 'Ok\.js$'`: explain that an exact suffix regex must match `ok.js` without drifting into `ok.json`.
-- `dashboard open-file javax.jws.WebService`: explain the Java-source fallback path through source trees, jars, wars, or cached Maven source jars.
-- `dashboard jq response.json '$d'`: explain the whole-document query path and the order-independent file/path argv contract.
-- `dashboard propq '$d' app.properties`: explain that dotted property names stay intact and the root-document path should return the full parsed map.
-- `dashboard csvq 1.1`: explain that CSV selection is row/column index based, not a fake header-name query language.
-- `dashboard xmlq _raw`: explain that XML is currently a raw-payload helper and docs must not promise a deeper tree-query contract than the implementation owns.
-- `dashboard path cdr alpha red`: explain the non-alias fallback path where all arguments become current-directory regexes.
-- `dashboard path cdr work alpha`: explain the multiple-match path where the helper prints matches and stays at the alias root instead of silently choosing one.
-- `TICKET_REF=DD-123 dashboard ticket`: explain the environment-fallback path and the create-vs-attach decision for tmux ticket sessions.
-- `dashboard init`: explain the non-destructive seed-refresh edge where dashboard-managed starter pages refresh, but diverged user-owned pages stay untouched.
-
-### Scorecard Gate
-
-`SCORECARD-GATEKEEPER` is also a repo contract. Before saying work is done,
-before a release, and before a push that is meant to close a task, run the
-live GitHub Scorecard check through the authenticated interactive-shell path:
-
-```bash
-bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"
-```
-
-Treat the result as a real gate:
-
-1. record every failing or unknown check
-2. turn those checks into an explicit task list
-3. fix repository-side causes with TDD and verification
-4. apply GitHub-side settings changes when the check depends on remote state
-5. push the fixes
-6. rerun Scorecard
-7. repeat until every actionable check reaches `10 / 10`
-
-Do not claim the repository is complete while Scorecard still shows a
-repository-fixable failure. If one check cannot become `10 / 10` because of
-repo age, contributor makeup, badge-program state, missing admin permission,
-or other platform constraints, document that blocker with evidence instead of
-pretending the gate passed.
-
-Additional enforcement under `SCORECARD-GATEKEEPER`:
-
-- do not use top-level GitHub Actions `write` permissions; keep top-level permissions read-only or `none`
-- move required `write` permissions down to the specific job that needs them
-- keep GitHub Actions pinned by full commit SHA
-- keep container base images pinned by digest
-- keep a detectable fuzzing marker in the repo; this tree now uses both `fast-check` and `.clusterfuzzlite/Dockerfile`, and the JS fuzz workflow must bootstrap the Perl runtime before it invokes `dashboard encode` / `dashboard decode`
-- keep GitHub release signing real, not theoretical; a release is not Scorecard-complete until GitHub has a published release asset set that includes the tarball and its matching detached signature asset
+This README stays focused on what the dashboard does, how to run it, and how
+its browser, prompt, page, and CLI surfaces behave in practice.
 
 ### Main Concepts
 
@@ -1327,7 +1250,10 @@ What remains intentionally lightweight is breadth, not architecture:
 
 ### Does it require a web framework?
 
-No. The current distribution includes a minimal HTTP layer implemented with core Perl-oriented modules.
+For the browser UI, yes. The web stack uses a Dancer2 route layer packaged as
+a PSGI app and served through Plack/Starman. In normal use you drive that
+through `dashboard serve`; CLI-only commands do not need the web server to be
+running.
 
 ### Why does a custom hostname sometimes require login?
 
@@ -1354,7 +1280,11 @@ The project uses `JSON::XS` for JSON encoding and decoding, including shell help
 
 ### What does the project use for command capture and HTTP clients?
 
-The project uses `Capture::Tiny` for command-output capture via `capture`, with exit codes returned from the capture block rather than read separately. There is currently no outbound HTTP client in the core runtime, so `LWP::UserAgent` is not yet required by an active code path.
+The project uses `Capture::Tiny` for command-output capture via `capture`, with
+exit codes returned from the capture block rather than read separately. It
+uses `LWP::UserAgent` for real outbound HTTP in active runtime paths such as
+the saved `api-dashboard` request runner and the Java source lookup or mirror
+path behind `dashboard of` and `dashboard open-file`.
 
 ## Testing And Coverage
 

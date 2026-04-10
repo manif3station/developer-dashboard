@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.17';
+our $VERSION = '2.19';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.17
+2.19
 
 =head1 INTRODUCTION
 
@@ -475,233 +475,33 @@ Project-owned modules now live only under the C<Developer::Dashboard::>
 namespace so the distribution does not pollute the CPAN ecosystem with
 generic package names.
 
-=head1 DOCUMENTATION
+=head1 CONTRIBUTOR GUIDES
 
-=head2 Contributor Documentation Contract
-
-C<FULL-POD-DOC> is a repo contract. Every repo-owned Perl file must end with
-POD under C<__END__> that explains what the file is, what it is for, why it
-exists, when to use it, how to use it, what uses it, and multiple concrete
-examples. That documentation must be specific to the file's real job:
-runtime managers should describe the lifecycle they own, query helpers should
-describe the formats they parse, web modules should describe the routes or
-server edges they handle, and thin staged helpers should document the exact
-handoff they perform. Boilerplate that only swaps the filename is not enough.
-C<FULL-POD-DOC> also means each Perl module and script must document the real
-inputs it accepts, the outputs or side effects it produces, where it sits in
-the command or runtime flow, and multiple concrete examples that match actual
-usage instead of filler text. Those examples must cover the common path and at
-least one meaningful edge or debugging path when the file owns one, such as
-file-vs-STDIN behavior, single-vs-multiple search matches, print-vs-exec
-behavior, or create-vs-attach runtime flow. One-line POD, placeholder prose,
-or a repeated template with a different filename still fails the contract.
-Contributors should be able to open any module, script, helper, or test and
-understand its role without reverse-engineering the tree first.
-
-=head3 Common Documentation Example Patterns
-
-Good C<FULL-POD-DOC> should usually include examples like these when the file
-owns that behavior:
+Contributor-only process rules live outside this product manual. For release
+gates, documentation quality rules, and Scorecard handling, use:
 
 =over 4
 
 =item *
 
-C<dashboard of lib 'OpenFile\.pm$'>: show the normal scoped-regex search path
-where the user knows the root and expects one file to win.
+F<doc/testing.md>
 
 =item *
 
-C<dashboard open-file path/to/file.txt>: show the direct-path path where no
-search is needed and the helper should hand the file straight to the editor.
+F<doc/update-and-release.md>
 
 =item *
 
-C<dashboard path resolve dashboards>: show a plain alias lookup so readers can
-see the simplest path-registry call.
+F<AGENTS.override.md>
 
 =item *
 
-C<dashboard path cdr work alpha red>: show the normal alias-root narrowing flow
-where all extra terms must match one target directory.
-
-=item *
-
-C<dashboard paths | dashboard jq bookmarks_root>: show how one lightweight
-helper feeds another during shell debugging.
-
-=item *
-
-C<printf '{"alpha":{"beta":2}}' | dashboard jq alpha.beta>: show the common
-scalar extraction path for structured JSON.
-
-=item *
-
-C<printf 'alpha:\n  beta: 3\n' | dashboard yq alpha.beta>: show that the same
-dotted-path contract carries across YAML input.
-
-=item *
-
-C<printf '[alpha]\nbeta = 4\n' | dashboard tomq alpha.beta>: show the TOML
-equivalent of the same query-helper workflow.
-
-=item *
-
-C<dashboard ticket DD-123>: show the explicit ticket/session path where the
-session name is provided by the user.
-
-=item *
-
-C<dashboard serve --ssl>: show the normal browser-serving path for the runtime
-manager and web-server layers.
+F<agents.md>
 
 =back
 
-=head3 Edge Or Debugging Documentation Example Patterns
-
-Good C<FULL-POD-DOC> should also include examples like these when the file owns
-that edge:
-
-=over 4
-
-=item *
-
-C<dashboard of . 'Ok\.js$'>: explain that an exact suffix regex must match
-C<ok.js> without drifting into C<ok.json>.
-
-=item *
-
-C<dashboard open-file javax.jws.WebService>: explain the Java-source fallback
-path through source trees, jars, wars, or cached Maven source jars.
-
-=item *
-
-C<dashboard jq response.json '$d'>: explain the whole-document query path and
-the order-independent file/path argv contract.
-
-=item *
-
-C<dashboard propq '$d' app.properties>: explain that dotted property names stay
-intact and the root-document path should return the full parsed map.
-
-=item *
-
-C<dashboard csvq 1.1>: explain that CSV selection is row/column index based,
-not a fake header-name query language.
-
-=item *
-
-C<dashboard xmlq _raw>: explain that XML is currently a raw-payload helper and
-docs must not promise a deeper tree-query contract than the implementation
-owns.
-
-=item *
-
-C<dashboard path cdr alpha red>: explain the non-alias fallback path where all
-arguments become current-directory regexes.
-
-=item *
-
-C<dashboard path cdr work alpha>: explain the multiple-match path where the
-helper prints matches and stays at the alias root instead of silently choosing
-one.
-
-=item *
-
-C<TICKET_REF=DD-123 dashboard ticket>: explain the environment-fallback path
-and the create-vs-attach decision for tmux ticket sessions.
-
-=item *
-
-C<dashboard init>: explain the non-destructive seed-refresh edge where
-dashboard-managed starter pages refresh, but diverged user-owned pages stay
-untouched.
-
-=back
-
-=head2 Scorecard Gate
-
-C<SCORECARD-GATEKEEPER> is also a repo contract. Before saying work is done,
-before a release, and before a push that is meant to close a task, run the
-live GitHub Scorecard check through the authenticated interactive-shell path:
-
-  bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"
-
-Treat the result as a real gate:
-
-=over 4
-
-=item *
-
-record every failing or unknown check
-
-=item *
-
-turn those checks into an explicit task list
-
-=item *
-
-fix repository-side causes with TDD and verification
-
-=item *
-
-apply GitHub-side settings changes when the check depends on remote state
-
-=item *
-
-push the fixes
-
-=item *
-
-rerun Scorecard
-
-=item *
-
-repeat until every actionable check reaches C<10 / 10>
-
-=back
-
-Do not claim the repository is complete while Scorecard still shows a
-repository-fixable failure. If one check cannot become C<10 / 10> because of
-repo age, contributor makeup, badge-program state, missing admin permission,
-or other platform constraints, document that blocker with evidence instead of
-pretending the gate passed.
-
-Additional enforcement under C<SCORECARD-GATEKEEPER>:
-
-=over 4
-
-=item *
-
-do not use top-level GitHub Actions C<write> permissions; keep top-level
-permissions read-only or C<none>
-
-=item *
-
-move required C<write> permissions down to the specific job that needs them
-
-=item *
-
-keep GitHub Actions pinned by full commit SHA
-
-=item *
-
-keep container base images pinned by digest
-
-=item *
-
-keep a detectable fuzzing marker in the repo; this tree now uses both
-C<fast-check> and F<.clusterfuzzlite/Dockerfile>, and the JS fuzz workflow
-must bootstrap the Perl runtime before it invokes C<dashboard encode> or
-C<dashboard decode>
-
-=item *
-
-keep GitHub release signing real, not theoretical; a release is not
-Scorecard-complete until GitHub has a published release asset set that
-includes the tarball and its matching detached signature asset
-
-=back
+This manual stays focused on what the dashboard does, how to run it, and how
+its browser, prompt, page, and CLI surfaces behave in practice.
 
 =head2 Main Concepts
 
@@ -2106,7 +1906,10 @@ What remains intentionally lightweight is breadth, not architecture:
 
 =head2 Does it require a web framework?
 
-No. The current distribution includes a minimal HTTP layer implemented with core Perl-oriented modules.
+For the browser UI, yes. The web stack uses a Dancer2 route layer packaged as
+a PSGI app and served through Plack/Starman. In normal use you drive that
+through C<dashboard serve>; CLI-only commands do not need the web server to be
+running.
 
 =head2 Why does a custom hostname sometimes require login?
 
@@ -2133,7 +1936,11 @@ The project uses C<JSON::XS> for JSON encoding and decoding, including shell hel
 
 =head2 What does the project use for command capture and HTTP clients?
 
-The project uses C<Capture::Tiny> for command-output capture via C<capture>, with exit codes returned from the capture block rather than read separately. There is currently no outbound HTTP client in the core runtime, so C<LWP::UserAgent> is not yet required by an active code path.
+The project uses C<Capture::Tiny> for command-output capture via C<capture>,
+with exit codes returned from the capture block rather than read separately.
+It uses C<LWP::UserAgent> for real outbound HTTP in active runtime paths such
+as the saved C<api-dashboard> request runner and the Java source lookup or
+mirror path behind C<dashboard of> and C<dashboard open-file>.
 
 =head1 SEE ALSO
 
@@ -2150,7 +1957,7 @@ Developer Dashboard Contributors
 
 This library is free software; you can redistribute it and/or modify it under the same terms as Perl itself.
 
-=for comment FULL-POD-DOC START
+=for comment PRODUCT-MANUAL START
 
 =head1 PURPOSE
 
@@ -2199,6 +2006,6 @@ Example 4:
 Put any module-level change back through the entire repository suite before release.
 
 
-=for comment FULL-POD-DOC END
+=for comment PRODUCT-MANUAL END
 
 =cut

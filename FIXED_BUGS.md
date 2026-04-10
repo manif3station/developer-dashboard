@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 2026-04-10 (Phase 82: Top-Level Manual Drift)
+
+- Fixed `README.md` and `Developer::Dashboard.pm` so the top-level manual no longer embeds contributor-only `FULL-POD-DOC` and Scorecard process rules that distract from the actual product behavior.
+- Fixed the top-level FAQ so it now describes the real browser stack as Dancer2 on PSGI through Plack/Starman instead of incorrectly claiming the project does not require a web framework.
+- Fixed the top-level dependency FAQ so it now describes active `LWP::UserAgent` usage in the saved `api-dashboard` request runner and Java source lookup path instead of claiming outbound HTTP is unused.
+- Moved the contributor-contract clarification back into contributor-facing docs such as `doc/testing.md` and `agents.md`, keeping `README.md` and `Developer::Dashboard.pm` synced as product documentation.
+
 ## 2026-04-10 (Phase 81: Full Pod Boilerplate Drift)
 
 - Fixed shipped FULL-POD-DOC quality drift by replacing the repeated copy-paste POD template across modules, entrypoints, and staged helpers with file-specific documentation that now describes each file's real responsibility, handoff, and usage examples.
@@ -668,3 +675,9 @@
 - Fixed Docker Compose resolution by correcting the duplicate-file guard so discovered compose files and overlays survive into the final stack.
 - Fixed command-routing drift by removing the special built-in `dashboard update` branch, so `update` now behaves like any other user-provided top-level command while still receiving `RESULT` from its ordered hook files.
 - Fixed missing PAUSE test dependency metadata by pinning `JSON::XS` explicitly in the Dist::Zilla runtime prerequisites, so clean tarball installs always declare the JSON backend module.
+2026-04-10 (Phase 83: Top-Level Manual Release Alignment)
+- Problem: the top-level manual cleanup was left as an uncommitted local `2.18`
+  state, so there was no new release number, no fresh tarball identity, and no
+  release-aligned commit for the actual documentation correction.
+- Fix: bumped the release to `2.19`, rebuilt the dist, and aligned the
+  top-level manual cleanup with a fresh commit/push cycle.

@@ -52,18 +52,18 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '2.17', 'repo version bumped for the FULL-POD-DOC quality rewrite' );
-like( $pm, qr/^2\.17$/m, 'main POD version matches the module version' );
+is( $version, '2.19', 'repo version bumped for the top-level manual cleanup release' );
+like( $pm, qr/^2\.19$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 2\.17$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 2\.19$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
     like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"2\.17"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"2\.19"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^2\.17\s+2026-04-10$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^2\.19\s+2026-04-10$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -228,28 +228,20 @@ like( $release_doc, qr/dzil build/, 'release doc still documents the dzil build 
 like( $release_doc, qr/cpanm .*Developer-Dashboard-1\.\d+\.tar\.gz/, 'release doc still documents tarball installation verification' ) if $release_doc ne '';
 like( $agents_override, qr/DD-OOP-LAYERS/, 'AGENTS.override.md documents the layered runtime contract' ) if $agents_override ne '';
 like( $agents_override, qr/FULL-POD-DOC/, 'AGENTS.override.md documents the FULL-POD-DOC rule' ) if $agents_override ne '';
-like( $readme, qr/FULL-POD-DOC/, 'README documents the FULL-POD-DOC contributor contract' ) if $readme ne '';
-like( $pm, qr/FULL-POD-DOC/, 'main module POD documents the FULL-POD-DOC contributor contract' );
-like( $readme, qr/real\s+inputs.*outputs|outputs.*real\s+inputs/is, 'README defines FULL-POD-DOC as real input/output documentation, not boilerplate' ) if $readme ne '';
-like( $pm, qr/real\s+inputs.*outputs|outputs.*real\s+inputs/is, 'main module POD defines FULL-POD-DOC as real input/output documentation, not boilerplate' );
-like( $readme, qr/common\s+path.*edge|edge.*common\s+path/is, 'README defines FULL-POD-DOC examples as common-path plus edge-case coverage' ) if $readme ne '';
-like( $pm, qr/common\s+path.*edge|edge.*common\s+path/is, 'main module POD defines FULL-POD-DOC examples as common-path plus edge-case coverage' );
-
-if ( $readme ne '' ) {
-    my ($readme_common) = $readme =~ /#### Common Documentation Example Patterns\s*(.*?)(?:\n#### |\z)/s;
-    my ($readme_edge)   = $readme =~ /#### Edge Or Debugging Documentation Example Patterns\s*(.*?)(?:\n### |\z)/s;
-    my @readme_common_items = $readme_common =~ /^\-\s+`/mg;
-    my @readme_edge_items   = $readme_edge   =~ /^\-\s+`/mg;
-    cmp_ok( scalar(@readme_common_items), '>=', 10, 'README keeps at least ten common documentation example patterns' );
-    cmp_ok( scalar(@readme_edge_items),   '>=', 10, 'README keeps at least ten edge/debugging documentation example patterns' );
-}
-
-my ($pod_common) = $pm =~ /=head3 Common Documentation Example Patterns\s*(.*?)(?:\n=head[23] |\z)/s;
-my ($pod_edge)   = $pm =~ /=head3 Edge Or Debugging Documentation Example Patterns\s*(.*?)(?:\n=head2 |\z)/s;
-my @pod_common_items = $pod_common =~ /^=item \*/mg;
-my @pod_edge_items   = $pod_edge   =~ /^=item \*/mg;
-cmp_ok( scalar(@pod_common_items), '>=', 10, 'main POD keeps at least ten common documentation example patterns' );
-cmp_ok( scalar(@pod_edge_items),   '>=', 10, 'main POD keeps at least ten edge/debugging documentation example patterns' );
+unlike( $readme, qr/FULL-POD-DOC/, 'README no longer embeds the contributor-only FULL-POD-DOC contract in the product manual' ) if $readme ne '';
+unlike( $pm, qr/FULL-POD-DOC/, 'main module POD no longer embeds the contributor-only FULL-POD-DOC contract' );
+unlike( $readme, qr/real\s+inputs.*outputs|outputs.*real\s+inputs/is, 'README no longer carries file-level FULL-POD-DOC contributor guidance' ) if $readme ne '';
+unlike( $pm, qr/real\s+inputs.*outputs|outputs.*real\s+inputs/is, 'main module POD no longer carries file-level FULL-POD-DOC contributor guidance' );
+unlike( $readme, qr/common\s+path.*edge|edge.*common\s+path/is, 'README no longer carries the contributor example-bank wording' ) if $readme ne '';
+unlike( $pm, qr/common\s+path.*edge|edge.*common\s+path/is, 'main module POD no longer carries the contributor example-bank wording' );
+like( $readme, qr/Dancer2.*Plack.*Starman|Plack.*Starman.*Dancer2/is, 'README FAQ describes the real web stack' ) if $readme ne '';
+like( $pm, qr/Dancer2.*Plack.*Starman|Plack.*Starman.*Dancer2/is, 'main module FAQ describes the real web stack' );
+unlike( $readme, qr/minimal HTTP layer implemented with core Perl-oriented modules/i, 'README no longer claims the web stack avoids a framework' ) if $readme ne '';
+unlike( $pm, qr/minimal HTTP layer implemented with core Perl-oriented modules/i, 'main module no longer claims the web stack avoids a framework' );
+like( $readme, qr/LWP::UserAgent.*api-dashboard|api-dashboard.*LWP::UserAgent|LWP::UserAgent.*open-file|open-file.*LWP::UserAgent/is, 'README describes active LWP::UserAgent usage' ) if $readme ne '';
+like( $pm, qr/LWP::UserAgent.*api-dashboard|api-dashboard.*LWP::UserAgent|LWP::UserAgent.*open-file|open-file.*LWP::UserAgent/is, 'main module POD describes active LWP::UserAgent usage' );
+unlike( $readme, qr/no outbound HTTP client in the core runtime/i, 'README no longer claims outbound HTTP is unused' ) if $readme ne '';
+unlike( $pm, qr/no outbound HTTP client in the core runtime/i, 'main module POD no longer claims outbound HTTP is unused' );
 
 for my $path ( _perl_doc_paths() ) {
     my $content = _slurp($path);

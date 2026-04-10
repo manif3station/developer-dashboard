@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: TOP-LEVEL-MANUAL-DRIFT
+
+**Date:** 2026-04-10 12:20:00 UTC
+**Area:** top-level product documentation
+**Symptom:** `README.md` and `Developer::Dashboard.pm` had drifted into contributor-process documents, carrying `FULL-POD-DOC` and Scorecard rule text that did not help a user understand what the product does, and the FAQ still claimed the project did not require a web framework and did not actively use outbound HTTP
+**Why It Was Dangerous:** It made the main manual harder to use, buried real product behavior under repo-process rules, and gave false answers about the actual web stack and active dependencies
+**Root Cause:** I kept the top-level manual synced with contributor-definition material even after that material stopped belonging in the user-facing product guide
+**How Ellen Solved It:** Added TDD in `t/15-release-metadata.t` to stop requiring `FULL-POD-DOC` in the top-level manual, removed contributor-only process prose from `README.md` and `Developer::Dashboard.pm`, corrected the FAQ to describe Dancer2 on PSGI through Plack/Starman and active `LWP::UserAgent` usage, and moved the contributor-contract clarification into `doc/testing.md` and `agents.md`
+**How To Detect Earlier Next Time:** Ask whether a new user opening `README.md` or `perldoc Developer::Dashboard` would learn the product or the repo process first. If repo process wins, the top-level manual is drifting
+**Prevention Rule:** Keep `README.md` and `Developer::Dashboard.pm` synced as the product manual. Contributor-only release gates and file-documentation contracts belong in contributor docs, not in the top-level product guide
+**Verification:** `prove -lv t/15-release-metadata.t`, `prove -lr t`
+**Related Files:** `README.md`, `lib/Developer/Dashboard.pm`, `doc/testing.md`, `agents.md`, `t/15-release-metadata.t`
+
+---
+
 ## CODE: FULL-POD-BOILERPLATE-DRIFT
 
 **Date:** 2026-04-10 08:35:00 UTC
@@ -1253,3 +1268,9 @@ view FILENAME.md with view_range: [1, -1] or [LAST_SECTION_START, -1]
   - blank install: `integration/blank-env/run-host-integration.sh`
   - built dist kwalitee: `/home/mv/perl5/bin/kwalitee-metrics .`
 **Tags:** `packaging`, `tarball`, `cpanm`, `dist`, `metadata`, `source-vs-dist`
+## CODE: LOCAL-RELEASE-VERSION-DRIFT
+
+When a real repo change is complete locally but not yet committed, do not leave
+it parked on the previous release number. Bump a fresh `X.XX` version for the
+actual outgoing change, rebuild the tarball, and align the release metadata
+before commit/push so the source tree, tarball name, and git history all agree.

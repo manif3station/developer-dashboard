@@ -65,10 +65,10 @@ module upgrades can change column padding without changing the real
 The `t/07-core-units.t` collector loop guard treats both `HARNESS_PERL_SWITCHES` and `PERL5OPT` as valid `Devel::Cover` signals, because this machine uses both launch styles during verification.
 The runtime-manager coverage cases also use bounded child reaping for stubborn process shutdown scenarios, so `Devel::Cover` runs do not stall indefinitely after the escalation path has already been exercised.
 The release-metadata checks also reject repeated FULL-POD-DOC template prose in shipped Perl assets, so contributors have to document the actual responsibility of each module or staged helper instead of pasting one generic block across the tree. The release gate also treats one-line or placeholder POD as a failure: shipped Perl docs must cover real inputs, outputs or side effects, command/runtime position, and multiple concrete examples.
-The contributor contract now also keeps a synced example bank in `README.md`
-and `Developer::Dashboard.pm`: at least ten common-path documentation examples
-and ten edge/debugging documentation examples with explanation, so future POD
-sweeps have a concrete quality bar instead of inventing new boilerplate.
+The contributor contract now lives here plus `AGENTS.override.md` and
+`agents.md`, not in the top-level product manual in `README.md` or
+`Developer::Dashboard.pm`. Those two files stay synced as user-facing product
+documentation instead of repeating repo-process rules.
 
 Branch and condition reports are still generated and should be used to drive new edge-case tests, especially when adding new runtime modules.
 
