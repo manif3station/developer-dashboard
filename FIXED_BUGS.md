@@ -1,5 +1,24 @@
 # Fixed Bugs
 
+## 2026-04-10 (Phase 86: Skill Packaged Tree FindBin Drift)
+
+- Fixed installed and built-dist loading for the skill runtime release by
+  removing source-tree `FindBin` assumptions from shipped library modules.
+  The packaged tree now loads those modules from the installed Perl library
+  path instead of depending on the checkout path that happened to build the
+  tarball.
+- Added a regression guard so shipped library modules that are meant to load
+  from the installed distribution cannot quietly reintroduce `FindBin`-based
+  source-tree `use lib` behavior.
+- Rebuilt the skill-runtime release as a new version after that packaging fix
+  and reran the packaged-tree plus blank-environment verification flow.
+
+## 2026-04-10 (Phase 85: Skill Runtime Layer And Routing Drift)
+
+- Fixed the skills install/runtime contract so a Git-backed skill repo now stays self-contained under `~/.developer-dashboard/skills/<repo-name>/` instead of pretending its `cli/`, `dashboards/`, `config/`, `aptfile`, `cpanfile`, and Docker files are merged into the normal dashboard runtime folders.
+- Fixed skill command dispatch so installed commands can now be reached through both `dashboard skill <repo-name> <command>` and the short `dashboard <repo-name>.<command>` form, with the dispatcher still running sorted `cli/<command>.d/` hooks inside the isolated skill runtime.
+- Fixed skill browser and config integration so `/app/<repo-name>` resolves `dashboards/index`, `/app/<repo-name>/<id>` resolves named skill pages, `dashboards/nav/*` loads into those routes, installed skill config merges under underscored keys such as `_example-skill`, and skill `config/docker/...` plus `aptfile` / `cpanfile` lifecycle behavior are now documented and regression-tested.
+
 ## 2026-04-10 (Phase 84: Query Eval And Xml Decode Drift)
 
 - Fixed the shared `*q` command family so split query arguments are rejoined and `$d` now works as a real Perl-expression entrypoint instead of only as a whole-document selector. That means commands such as `dashboard jq file.json sort keys %$d` and the same pattern through STDIN now evaluate against the decoded document instead of degrading into the wrong path lookup.

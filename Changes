@@ -1,5 +1,24 @@
 Revision history for Developer Dashboard
 
+2.23  2026-04-10
+    - taught `dashboard skills install` and the installed skill runtime to
+      keep Git-backed skill repos self-contained under
+      `~/.developer-dashboard/skills/<repo-name>/` instead of assuming their
+      files are merged into the normal runtime trees
+    - added dotted skill command dispatch such as
+      `dashboard example-skill.somecmd`, app-style skill browser routes under
+      `/app/<repo-name>` and `/app/<repo-name>/<page>`, underscored merged
+      config keys such as `_example-skill`, and skill nav auto-loading from
+      `dashboards/nav/*`
+    - installed skill `aptfile` packages before `cpanfile` dependencies and
+      included skill `config/docker/...` roots in layered docker service
+      discovery between the home runtime docker config and deeper project
+      overrides
+    - fixed packaged-tree loading for installed skills and helper runtimes by
+      removing source-tree `FindBin` assumptions from shipped library modules,
+      then reran the packaged-tree and blank-environment gates against the new
+      release tarball
+
 2.21  2026-04-10
     - taught the shared `*q` query runtime to rejoin split query arguments and
       evaluate real `$d`-based Perl expressions such as `sort keys %$d`

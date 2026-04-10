@@ -79,6 +79,10 @@ When a code change introduces a new non-core runtime Perl module, declare it in
 `Makefile.PL`, `cpanfile`, and `dist.ini` in the same change. The release
 metadata guardrail now fails if those three files drift apart, so do not rely
 on one metadata source to imply the others.
+Do not leave source-tree bootstrap in shipped library modules. If a `.pm` file
+needs `FindBin` or a checkout-relative `use lib`, it is almost certainly in
+the wrong layer. Keep that logic in scripts or tests, then prove the built
+distribution from its unpacked tarball before release.
 
 ## Local Usage
 

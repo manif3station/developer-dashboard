@@ -681,6 +681,54 @@ exit 0
 SH
 close $fake_cpanm_fh;
 chmod 0755, $fake_cpanm or die "Unable to chmod $fake_cpanm: $!";
+my $skill_repo_root = File::Spec->catdir( $ENV{HOME}, 'skill-fixtures' );
+my $skill_repo = File::Spec->catdir( $skill_repo_root, 'demo-skill' );
+make_path( File::Spec->catdir( $skill_repo, 'cli', 'foo.d' ) );
+make_path( File::Spec->catdir( $skill_repo, 'config' ) );
+make_path( File::Spec->catdir( $skill_repo, 'dashboards', 'nav' ) );
+open my $skill_command_fh, '>', File::Spec->catfile( $skill_repo, 'cli', 'foo' ) or die "Unable to write skill command: $!";
+print {$skill_command_fh} "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nprint join('|', \@ARGV), qq{\\n};\n";
+close $skill_command_fh;
+chmod 0755, File::Spec->catfile( $skill_repo, 'cli', 'foo' ) or die "Unable to chmod skill command: $!";
+open my $skill_hook_fh, '>', File::Spec->catfile( $skill_repo, 'cli', 'foo.d', '00-pre.pl' ) or die "Unable to write skill hook: $!";
+print {$skill_hook_fh} "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nprint qq{skill-hook\\n};\n";
+close $skill_hook_fh;
+chmod 0755, File::Spec->catfile( $skill_repo, 'cli', 'foo.d', '00-pre.pl' ) or die "Unable to chmod skill hook: $!";
+open my $skill_config_fh, '>', File::Spec->catfile( $skill_repo, 'config', 'config.json' ) or die "Unable to write skill config: $!";
+print {$skill_config_fh} qq|{"skill_name":"demo-skill"}\n|;
+close $skill_config_fh;
+open my $skill_index_fh, '>', File::Spec->catfile( $skill_repo, 'dashboards', 'index' ) or die "Unable to write skill index: $!";
+print {$skill_index_fh} "TITLE: Demo Skill Index\n:--------------------------------------------------------------------------------:\nBOOKMARK: index\n:--------------------------------------------------------------------------------:\nHTML:\nDemo Skill Index\n";
+close $skill_index_fh;
+open my $skill_page_fh, '>', File::Spec->catfile( $skill_repo, 'dashboards', 'foo' ) or die "Unable to write skill page: $!";
+print {$skill_page_fh} "TITLE: Demo Skill Foo\n:--------------------------------------------------------------------------------:\nBOOKMARK: foo\n:--------------------------------------------------------------------------------:\nHTML:\nDemo Skill Foo\n";
+close $skill_page_fh;
+open my $skill_nav_fh, '>', File::Spec->catfile( $skill_repo, 'dashboards', 'nav', 'demo.tt' ) or die "Unable to write skill nav: $!";
+print {$skill_nav_fh} "<div>Demo Skill Nav</div>\n";
+close $skill_nav_fh;
+{
+    my $cwd_before_skill_repo = getcwd();
+    chdir $skill_repo or die "Unable to chdir to $skill_repo: $!";
+    my ( $stdout, $stderr, $exit ) = capture {
+        system 'git', 'init', '--quiet';
+        return $? >> 8 if $? != 0;
+        system 'git', 'config', 'user.email', 'test@example.com';
+        return $? >> 8 if $? != 0;
+        system 'git', 'config', 'user.name', 'Test';
+        return $? >> 8 if $? != 0;
+        system 'git', 'add', '.';
+        return $? >> 8 if $? != 0;
+        system 'git', 'commit', '-m', 'Initial demo skill';
+        return $? >> 8;
+    };
+    is( $exit, 0, 'skill fixture repository initializes cleanly for CLI smoke coverage' ) or diag $stderr;
+    chdir $cwd_before_skill_repo or die "Unable to chdir back to $cwd_before_skill_repo: $!";
+}
+my $skill_install = _run("PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' skills install 'file://$skill_repo'");
+like( $skill_install, qr/"repo_name"\s*:\s*"demo-skill"/, 'dashboard skills install clones the skill into the isolated skills root' );
+my $skill_dotted_dispatch = _run("$perl -I'$lib' '$dashboard' demo-skill.foo alpha beta");
+like( $skill_dotted_dispatch, qr/skill-hook/, 'dashboard <skill>.<command> runs skill-local hooks before the skill command body' );
+like( $skill_dotted_dispatch, qr/alpha\|beta/, 'dashboard <skill>.<command> forwards remaining args to the skill command body' );
 
 my $open_root = File::Spec->catdir( $ENV{HOME}, 'open-file-fixtures' );
 make_path($open_root);

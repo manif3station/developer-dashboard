@@ -3,13 +3,12 @@ package Developer::Dashboard::UpdateManager;
 use strict;
 use warnings;
 
-our $VERSION = '2.21';
+our $VERSION = '2.23';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
 use File::Basename qw(dirname);
 use File::Spec;
-use FindBin qw($Bin);
 
 use Developer::Dashboard::Platform qw(command_argv_for_path is_runnable_file);
 

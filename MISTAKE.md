@@ -4,6 +4,36 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: SKILL-RUNTIME-LAYER-AND-ROUTING-DRIFT
+
+**Date:** 2026-04-10 20:40:00 UTC
+**Area:** skill installation, dispatch, browser routing, and layered runtime integration
+**Symptom:** The skill system could clone repos and run the old explicit `dashboard skill ...` path, but it did not fully honor the intended runtime contract for dotted command dispatch, `/app/<skill>` browser routes, underscored config merging, `aptfile`-before-`cpanfile` bootstrap, or skill docker roots participating in layered service lookup
+**Why It Was Dangerous:** It left the skill feature half-integrated: installed skill repos existed on disk but users still had to guess which paths were live, browser routes behaved differently from the requested app-style contract, and release docs could teach an older model than the actual runtime
+**Root Cause:** I had implemented isolated install/update/uninstall mechanics first, but I had not completed the rest of the runtime handshake across the switchboard, web app, config merge, and docker lookup layers, and the docs were still describing the older `/skill/.../bookmarks/...`-first model
+**How Ellen Solved It:** Added TDD in `t/05-cli-smoke.t`, `t/10-extension-action-docker.t`, `t/19-skill-system.t`, `t/20-skill-web-routes.t`, `t/21-refactor-coverage.t`, and `t/15-release-metadata.t`; taught `bin/dashboard` to resolve `dashboard <skill>.<command>` through the staged skill helper; fixed `Developer::Dashboard::Web::App` and `Developer::Dashboard::SkillDispatcher` so `/app/<skill>` and `/app/<skill>/<page>` render isolated skill pages with skill nav; merged installed skill config under underscored keys through `Developer::Dashboard::Config`; ran `aptfile` before `cpanfile` in `Developer::Dashboard::SkillManager`; and added installed skill docker roots to `Developer::Dashboard::DockerCompose`
+**How To Detect Earlier Next Time:** Install a realistic fixture repo that ships `cli/`, `cli/<command>.d/`, `dashboards/index`, `dashboards/nav/*`, `config/config.json`, `config/docker/...`, `aptfile`, and `cpanfile`, then exercise the skill from the CLI, the browser, config lookup, and docker resolution instead of stopping after clone/list success
+**Prevention Rule:** A packaged feature is not complete when only its storage lifecycle works. For skills, the install path, dotted dispatch path, browser route path, config merge path, docker layering path, and dependency bootstrap order must all be tested and documented together
+**Verification:** `prove -lv t/05-cli-smoke.t`, `prove -lv t/10-extension-action-docker.t`, `prove -lv t/19-skill-system.t`, `prove -lv t/20-skill-web-routes.t`, `prove -lv t/21-refactor-coverage.t`, `prove -lv t/15-release-metadata.t`, `prove -lr t`
+**Related Files:** `bin/dashboard`, `lib/Developer/Dashboard/SkillManager.pm`, `lib/Developer/Dashboard/SkillDispatcher.pm`, `lib/Developer/Dashboard/Web/App.pm`, `lib/Developer/Dashboard/Config.pm`, `lib/Developer/Dashboard/DockerCompose.pm`, `lib/Developer/Dashboard/PathRegistry.pm`, `t/05-cli-smoke.t`, `t/10-extension-action-docker.t`, `t/19-skill-system.t`, `t/20-skill-web-routes.t`, `t/21-refactor-coverage.t`, `t/15-release-metadata.t`, `README.md`, `lib/Developer/Dashboard.pm`, `SKILL.md`, `lib/Developer/Dashboard/SKILLS.pm`, `doc/skills.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
+## CODE: SKILL-PACKAGED-TREE-FINDBIN-DRIFT
+
+**Date:** 2026-04-10 21:35:00 UTC
+**Area:** packaged-tree loading, installed runtime modules, and release verification
+**Symptom:** The source tree test suite was green for the skill-runtime release, but the built distribution failed because shipped library modules tried to pull source-tree-relative paths through `FindBin` at module load time
+**Why It Was Dangerous:** It made the release look finished in the checkout while the tarball still carried modules that would only work when loaded from the source tree, which is exactly the opposite of what a CPAN-style release must prove
+**Root Cause:** I let helper-oriented source-tree bootstrap code survive inside installed library modules instead of keeping that behavior in entrypoints and tests only
+**How Ellen Solved It:** Removed the `FindBin`-based source-tree `use lib` assumptions from the affected shipped modules, added a regression guard in `t/21-refactor-coverage.t`, rebuilt the dist as a new version, and reran the packaged-tree plus blank-environment verification gates
+**How To Detect Earlier Next Time:** Always run the built-distribution test suite, not just the source-tree suite. If a module fails only inside `Developer-Dashboard-X.XX/`, search the shipped libraries for `FindBin` and source-tree-relative `use lib`
+**Prevention Rule:** Installed library modules must load from the Perl installation layout, not from the checkout that built them. Keep `FindBin`-style source-tree bootstrapping out of shipped library modules and reserve it for entrypoints or tests that truly need source checkout context
+**Verification:** `prove -lv t/21-refactor-coverage.t`, `dzil build`, built-dist `prove -lr t`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `lib/Developer/Dashboard/CLI/OpenFile.pm`, `lib/Developer/Dashboard/CLI/Query.pm`, `lib/Developer/Dashboard/UpdateManager.pm`, `t/21-refactor-coverage.t`, `doc/testing.md`, `doc/update-and-release.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: QUERY-EVAL-AND-XML-DECODE-DRIFT
 
 **Date:** 2026-04-10 17:55:00 UTC

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.21';
+our $VERSION = '2.23';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.21
+2.23
 
 =head1 INTRODUCTION
 
@@ -474,34 +474,6 @@ Hook result environment variable decoding and access for command runners.
 Project-owned modules now live only under the C<Developer::Dashboard::>
 namespace so the distribution does not pollute the CPAN ecosystem with
 generic package names.
-
-=head1 CONTRIBUTOR GUIDES
-
-Contributor-only process rules live outside this product manual. For release
-gates, documentation quality rules, and Scorecard handling, use:
-
-=over 4
-
-=item *
-
-F<doc/testing.md>
-
-=item *
-
-F<doc/update-and-release.md>
-
-=item *
-
-F<AGENTS.override.md>
-
-=item *
-
-F<agents.md>
-
-=back
-
-This manual stays focused on what the dashboard does, how to run it, and how
-its browser, prompt, page, and CLI surfaces behave in practice.
 
 =head2 Main Concepts
 
@@ -1830,12 +1802,18 @@ Install a skill from a Git repository:
   dashboard skills install git@github.com:user/example-skill.git
   dashboard skills install https://github.com/user/example-skill.git
 
+The repository is cloned into its own isolated skill root under
+F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>. Developer Dashboard does
+not merge the skill's C<cli/>, C<dashboards/>, C<config/>, C<cpanfile>,
+C<aptfile>, or Docker files into the normal runtime folders.
+
 List installed skills:
 
   dashboard skills list
 
 Returns JSON output showing installed skills with metadata: skill name,
-path to installed skill directory, and configuration status.
+path to installed skill directory, and whether the skill ships config, CLI
+commands, C<aptfile>, and C<cpanfile>.
 
 Update a skill to the latest version:
 
@@ -1844,6 +1822,12 @@ Update a skill to the latest version:
 Execute a skill command:
 
   dashboard skill example-skill somecmd arg1 arg2
+  dashboard example-skill.somecmd arg1 arg2
+
+The dotted form is the short public route. If C<example-skill> is installed and
+ships C<cli/somecmd>, C<dashboard example-skill.somecmd> resolves the correct
+isolated skill root, runs sorted hooks from C<cli/somecmd.d/>, and then runs the
+main command.
 
 Uninstall a skill:
 
@@ -1859,15 +1843,23 @@ Skill commands (executable scripts, never installed to system PATH)
 
 =item B<cli/E<lt>cmdE<gt>.d/>
 
-Hook files for commands (pre/post hooks in sorted order)
+Hook files for commands (sorted pre-command hooks)
+
+=item B<dashboards/>
+
+Skill-shipped pages, including C<dashboards/index>
+
+=item B<dashboards/nav/>
+
+Skill nav fragments and bookmark pages loaded into C</app/E<lt>repo-nameE<gt>>
 
 =item B<config/config.json>
 
-Skill metadata and configuration
+Skill-local JSON config, merged into runtime config under C<_E<lt>repo-nameE<gt>>
 
 =item B<config/docker/>
 
-Skill-local Docker Compose files
+Skill-local Docker Compose roots that participate in layered docker service lookup
 
 =item B<state/>
 
@@ -1876,6 +1868,10 @@ Persistent skill state and data
 =item B<logs/>
 
 Skill output logs
+
+=item B<aptfile>
+
+Optional system packages installed before Perl dependencies
 
 =item B<cpanfile>
 
@@ -1887,24 +1883,99 @@ Skills are completely isolated from the main dashboard runtime and from other
 skills. Removing a skill is simple: C<dashboard skills uninstall E<lt>repo-nameE<gt>>
 cleanly removes only that skill's directory.
 
+Hook lifecycle details:
+
+=over 4
+
+=item *
+
+hooks run in sorted filename order from C<cli/E<lt>commandE<gt>.d/>
+
+=item *
+
+each hook result is appended to C<RESULT>
+
+=item *
+
+the immediately previous hook payload is exposed through C<LAST_RESULT>
+
+=item *
+
+later hooks are skipped only when a hook writes the explicit marker
+C<[[STOP]]> to C<stderr>
+
+=item *
+
+ordinary non-zero exit codes are recorded but do not act like an implicit stop
+request
+
+=back
+
+Skill browser routes:
+
+=over 4
+
+=item *
+
+C</app/E<lt>repo-nameE<gt>> renders C<dashboards/index>
+
+=item *
+
+C</app/E<lt>repo-nameE<gt>/E<lt>pageE<gt>> renders C<dashboards/E<lt>pageE<gt>>
+
+=item *
+
+C<dashboards/nav/*> is loaded into those skill app routes
+
+=item *
+
+the older C</skill/E<lt>repo-nameE<gt>/bookmarks/E<lt>idE<gt>> route still works for direct bookmark rendering
+
+=back
+
+Skill dependency and docker layering:
+
+=over 4
+
+=item *
+
+if an C<aptfile> exists, its package list is installed first
+
+=item *
+
+if a C<cpanfile> exists, its Perl dependencies are then installed into the
+skill-local C<local/> tree
+
+=item *
+
+skill C<config/docker/...> roots participate in docker service discovery after
+the home runtime docker config and before deeper project-layer overrides
+
+=back
+
 =head3 Skill Authoring
 
 To build a new skill, start with a Git repository that contains C<cli/>,
-C<config/config.json>, and optional C<dashboards/>, C<state/>, C<logs/>,
-C<local/>, and C<cpanfile> files under the skill root. Skill commands are
-file-based commands run through
-C<dashboard skill E<lt>repo-nameE<gt> E<lt>commandE<gt>>, skill hook files
-live under C<cli/E<lt>commandE<gt>.d/>, and skill bookmarks render from
-C</skill/E<lt>repo-nameE<gt>/bookmarks/E<lt>idE<gt>>.
+C<config/config.json>, and optional C<dashboards/>, C<dashboards/nav/>,
+C<state/>, C<logs/>, C<local/>, C<aptfile>, and C<cpanfile> files under the
+skill root. Skill commands are file-based commands run through either
+C<dashboard skill E<lt>repo-nameE<gt> E<lt>commandE<gt>> or the short
+C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> form. Skill hook files live
+under C<cli/E<lt>commandE<gt>.d/>, skill app pages render from
+C</app/E<lt>repo-nameE<gt>> and C</app/E<lt>repo-nameE<gt>/E<lt>idE<gt>>, and
+the older C</skill/E<lt>repo-nameE<gt>/bookmarks/E<lt>idE<gt>> route still
+resolves direct bookmark renders.
 
 The full skill authoring reference lives in F<SKILL.md> and the shipped POD
 module C<Developer::Dashboard::SKILLS>. Those guides cover the isolated skill
 layout, environment variables such as C<DEVELOPER_DASHBOARD_SKILL_ROOT>,
 bookmark syntax like C<TITLE:>, C<BOOKMARK:>, C<HTML:>, and C<CODE1:>,
 bookmark browser helpers such as C<fetch_value()>, C<stream_value()>, and
-C<stream_data()>, and when to use dashboard-wide custom CLI hook folders
-such as F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d> instead of a
-skill-local hook tree.
+C<stream_data()>, underscored config merge keys such as C<_example-skill>,
+C<aptfile>-then-C<cpanfile> dependency install order, skill docker layering,
+and when to use dashboard-wide custom CLI hook folders such as
+F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d> instead of a skill-local
+hook tree.
 
 =head1 FAQ
 
@@ -1977,56 +2048,5 @@ Developer Dashboard Contributors
 =head1 LICENSE
 
 This library is free software; you can redistribute it and/or modify it under the same terms as Perl itself.
-
-=for comment PRODUCT-MANUAL START
-
-=head1 PURPOSE
-
-This module is the distribution manual for Developer Dashboard. It explains the user-facing runtime model, command surface, bookmark system, layered configuration, browser workspace features, and release expectations, while also carrying the canonical version number for the distribution.
-
-=head1 WHY IT EXISTS
-
-It exists so the distribution ships one authoritative manual that survives a tarball install and matches the README in the source tree. That keeps CPAN users, local developers, and release verification looking at the same product-level documentation instead of a checkout-only guide.
-
-=head1 WHEN TO USE
-
-Use this file when the visible behavior of the dashboard changes, when command semantics move, when seeded workspaces gain new capability, or when contributor rules in the shipped manual need to stay aligned with the README.
-
-=head1 HOW TO USE
-
-Edit this POD as a product manual, not as an implementation dump. Keep it synchronized with C<README.md>, keep the version line aligned with C<dist.ini>, and describe the runtime the way an installed user will experience it.
-
-=head1 WHAT USES IT
-
-It is used by C<perldoc Developer::Dashboard>, by release metadata tests, by CPAN consumers reading installed documentation, and by contributors checking that the shipped manual matches the source-tree README.
-
-=head1 EXAMPLES
-
-Example 1:
-
-  perl -Ilib -MDeveloper::Dashboard -e 1
-
-Do a direct compile-and-load check against the module from a source checkout.
-
-Example 2:
-
-  prove -lv t/00-load.t t/15-release-metadata.t
-
-Run the focused regression tests that most directly exercise this module's behavior.
-
-Example 3:
-
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
-
-Recheck the module under the repository coverage gate rather than relying on a load-only probe.
-
-Example 4:
-
-  prove -lr t
-
-Put any module-level change back through the entire repository suite before release.
-
-
-=for comment PRODUCT-MANUAL END
 
 =cut

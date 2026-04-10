@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '2.21';
+our $VERSION = '2.23';
 
 use Cwd qw(realpath);
 use File::Path qw(make_path remove_tree);
@@ -212,13 +212,29 @@ sub _prepare_skill_layout {
 }
 
 # _install_skill_dependencies($skill_path)
-# Installs one skill's Perl dependencies into its isolated local library when a cpanfile exists.
+# Installs one skill's system and Perl dependencies in install order.
 # Input: absolute skill root directory path.
 # Output: result hash reference with success or error state.
 sub _install_skill_dependencies {
     my ( $self, $skill_path ) = @_;
+    my $aptfile = File::Spec->catfile( $skill_path, 'aptfile' );
     my $cpanfile = File::Spec->catfile( $skill_path, 'cpanfile' );
-    return { success => 1, skipped => 1 } if !-f $cpanfile;
+    return { success => 1, skipped => 1 } if !-f $aptfile && !-f $cpanfile;
+
+    my @apt_packages = $self->_skill_apt_packages($skill_path);
+    if (@apt_packages) {
+        my ( $stdout, $stderr, $exit ) = capture {
+            system( 'apt-get', 'install', '-y', @apt_packages );
+        };
+        return {
+            error => "Failed to install skill apt dependencies for $skill_path: $stderr",
+        } if $exit != 0;
+    }
+
+    return {
+        success => 1,
+        skipped => 1,
+    } if !-f $cpanfile;
 
     my $local_root = File::Spec->catdir( $skill_path, 'local' );
     make_path($local_root) if !-d $local_root;
@@ -236,6 +252,28 @@ sub _install_skill_dependencies {
         stdout  => $stdout,
         stderr  => $stderr,
     };
+}
+
+# _skill_apt_packages($skill_path)
+# Reads one skill aptfile into a trimmed package list, ignoring blank lines and comments.
+# Input: absolute skill root directory path.
+# Output: ordered list of apt package name strings.
+sub _skill_apt_packages {
+    my ( $self, $skill_path ) = @_;
+    my $aptfile = File::Spec->catfile( $skill_path, 'aptfile' );
+    return () if !-f $aptfile;
+    open my $fh, '<', $aptfile or die "Unable to read $aptfile: $!";
+    my @packages;
+    while ( my $line = <$fh> ) {
+        chomp $line;
+        $line =~ s/^\s+//;
+        $line =~ s/\s+$//;
+        next if $line eq '';
+        next if $line =~ /^#/;
+        push @packages, $line;
+    }
+    close $fh;
+    return @packages;
 }
 
 # _skill_metadata($repo_name, $skill_path)
@@ -270,6 +308,7 @@ sub _skill_metadata {
         name            => $repo_name,
         path            => $skill_path,
         cli_commands    => \@commands,
+        has_aptfile     => -f File::Spec->catfile( $skill_path, 'aptfile' ) ? 1 : 0,
         has_config      => -f File::Spec->catfile( $skill_path, 'config', 'config.json' ) ? 1 : 0,
         has_cpanfile    => -f File::Spec->catfile( $skill_path, 'cpanfile' ) ? 1 : 0,
         config_root     => File::Spec->catdir( $skill_path, 'config' ),

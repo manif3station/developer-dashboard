@@ -3,11 +3,9 @@ package Developer::Dashboard::CLI::Query;
 use strict;
 use warnings;
 
-our $VERSION = '2.21';
+our $VERSION = '2.23';
 
 use Exporter 'import';
-use FindBin qw($Bin);
-use lib "$Bin/../../lib";
 
 use TOML::Tiny ();
 use XML::Parser ();

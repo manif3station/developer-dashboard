@@ -188,19 +188,6 @@ Project-owned modules now live only under the `Developer::Dashboard::`
 namespace so the distribution does not pollute the CPAN ecosystem with
 generic package names.
 
-## Contributor Guides
-
-Contributor-only process rules live outside the product manual. For release
-gates, documentation quality rules, and Scorecard handling, use:
-
-- `doc/testing.md`
-- `doc/update-and-release.md`
-- `AGENTS.override.md`
-- `agents.md`
-
-This README stays focused on what the dashboard does, how to run it, and how
-its browser, prompt, page, and CLI surfaces behave in practice.
-
 ### Main Concepts
 
 - `Developer::Dashboard::PathRegistry`
@@ -1190,6 +1177,11 @@ dashboard skills install git@github.com:user/example-skill.git
 dashboard skills install https://github.com/user/example-skill.git
 ```
 
+The repository is cloned into its own isolated skill root under
+`~/.developer-dashboard/skills/<repo-name>/`. Developer Dashboard does not
+merge the skill's `cli/`, `dashboards/`, `config/`, `cpanfile`, `aptfile`, or
+Docker files into the normal runtime folders.
+
 **List installed skills:**
 
 ```bash
@@ -1199,7 +1191,7 @@ dashboard skills list
 Returns JSON output showing installed skills with metadata:
 - skill name (derived from repository name)
 - path to installed skill directory
-- whether skill has configuration, CLI commands, cpanfile
+- whether skill has configuration, CLI commands, `aptfile`, and `cpanfile`
 
 **Update a skill** to the latest version:
 
@@ -1211,7 +1203,13 @@ dashboard skills update example-skill
 
 ```bash
 dashboard skill example-skill somecmd arg1 arg2
+dashboard example-skill.somecmd arg1 arg2
 ```
+
+The dotted form is the short public route. If `example-skill` is installed and
+ships `cli/somecmd`, `dashboard example-skill.somecmd` resolves the correct
+isolated skill root, runs sorted hooks from `cli/somecmd.d/`, and then runs the
+main command.
 
 **Uninstall a skill:**
 
@@ -1222,34 +1220,67 @@ dashboard skills uninstall example-skill
 Each installed skill lives under `~/.developer-dashboard/skills/<repo-name>/` with:
 
 - `cli/` - Skill commands (executable scripts, never installed to system PATH)
-- `cli/<cmd>.d/` - Hook files for commands (pre/post hooks)
-- `config/config.json` - Skill metadata and configuration
-- `config/docker/` - Skill-local Docker Compose files
+- `cli/<cmd>.d/` - Hook files for commands (sorted pre-command hooks)
+- `dashboards/` - Skill-shipped pages, including `dashboards/index`
+- `dashboards/nav/` - Skill nav fragments and bookmark pages loaded into `/app/<repo-name>`
+- `config/config.json` - Skill-local JSON config, merged into runtime config under `_<repo-name>`
+- `config/docker/` - Skill-local Docker Compose roots that participate in layered docker service lookup
 - `state/` - Persistent skill state and data
 - `logs/` - Skill output logs
+- `aptfile` - Optional system packages installed before Perl dependencies
 - `cpanfile` - Skill Perl dependencies (optional)
 
 Skills are completely isolated from the main dashboard runtime and from other
 skills. Removing a skill is simple: `dashboard skills uninstall <repo-name>`
 cleanly removes only that skill's directory.
 
+Hook lifecycle details:
+
+- hooks run in sorted filename order from `cli/<command>.d/`
+- each hook result is appended to `RESULT`
+- the immediately previous hook payload is exposed through `LAST_RESULT`
+- later hooks are skipped only when a hook writes the explicit marker `[[STOP]]`
+  to `stderr`
+- ordinary non-zero exit codes are recorded but do not act like an implicit
+  stop request
+
+Skill browser routes:
+
+- `/app/<repo-name>` renders `dashboards/index`
+- `/app/<repo-name>/<page>` renders `dashboards/<page>`
+- `dashboards/nav/*` is loaded into those skill app routes
+- the older `/skill/<repo-name>/bookmarks/<id>` route still works for direct
+  bookmark rendering
+
+Skill dependency and docker layering:
+
+- if an `aptfile` exists, its package list is installed first
+- if a `cpanfile` exists, its Perl dependencies are then installed into the
+  skill-local `local/` tree
+- skill `config/docker/...` roots participate in docker service discovery after
+  the home runtime docker config and before deeper project-layer overrides
+
 ### Skill Authoring
 
 To build a new skill, start with a Git repository that contains `cli/`,
-`config/config.json`, and optional `dashboards/`, `state/`, `logs/`, `local/`,
-and `cpanfile` files under the skill root. Skill commands are file-based
-commands run through `dashboard skill <repo-name> <command>`, skill hook files
-live under `cli/<command>.d/`, and skill bookmarks render from
-`/skill/<repo-name>/bookmarks/<id>`.
+`config/config.json`, and optional `dashboards/`, `dashboards/nav/`, `state/`,
+`logs/`, `local/`, `aptfile`, and `cpanfile` files under the skill root. Skill
+commands are file-based commands run through either
+`dashboard skill <repo-name> <command>` or the short
+`dashboard <repo-name>.<command>` form. Skill hook files live under
+`cli/<command>.d/`, skill app pages render from `/app/<repo-name>` and
+`/app/<repo-name>/<id>`, and the older `/skill/<repo-name>/bookmarks/<id>`
+route still resolves direct bookmark renders.
 
 The full skill authoring reference lives in `SKILL.md` and the shipped POD
 module `Developer::Dashboard::SKILLS`. Those guides cover the isolated skill
 layout, environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`,
 bookmark syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, and `CODE1:`, bookmark
 browser helpers such as `fetch_value()`, `stream_value()`, and
-`stream_data()`, and when to use dashboard-wide custom CLI hook folders such
-as `~/.developer-dashboard/cli/<command>.d` instead of a skill-local hook
-tree.
+`stream_data()`, underscored config merge keys such as `_example-skill`,
+`aptfile`-then-`cpanfile` dependency install order, skill docker layering, and
+when to use dashboard-wide custom CLI hook folders such as
+`~/.developer-dashboard/cli/<command>.d` instead of a skill-local hook tree.
 
 ### Blank Environment Integration
 

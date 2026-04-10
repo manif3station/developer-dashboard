@@ -69,6 +69,11 @@ The contributor contract now lives here plus `AGENTS.override.md` and
 `agents.md`, not in the top-level product manual in `README.md` or
 `Developer::Dashboard.pm`. Those two files stay synced as user-facing product
 documentation instead of repeating repo-process rules.
+Shipped library modules must also load correctly from an installed tarball.
+Do not use `FindBin` or source-tree-relative `use lib` bootstrapping inside
+repo-owned `.pm` files that are meant to run from the installed distribution.
+Keep checkout-only bootstrap logic in entrypoints or tests, then prove the
+built distribution with the packaged-tree and blank-environment gates.
 
 Branch and condition reports are still generated and should be used to drive new edge-case tests, especially when adding new runtime modules.
 

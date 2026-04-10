@@ -19,6 +19,7 @@ use Developer::Dashboard::CLI::Paths ();
 use Developer::Dashboard::InternalCLI ();
 use Developer::Dashboard::JSON qw(json_decode);
 use Developer::Dashboard::Config;
+use Developer::Dashboard::DockerCompose;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Prompt;
@@ -101,6 +102,47 @@ like(
         qr/Invalid regex 'broken\('/,
         'locate_dirs_under reports invalid regex keywords explicitly',
     );
+}
+{
+    my $docker = Developer::Dashboard::DockerCompose->new(
+        config => bless( {}, 'Local::DockerConfigStub' ),
+        paths  => $paths,
+    );
+    is(
+        $docker->_home_docker_config_root,
+        File::Spec->catdir( $paths->home_runtime_root, 'config', 'docker' ),
+        'DockerCompose resolves the home docker config root beneath the home runtime',
+    );
+
+    my $compose_only_root = tempdir( CLEANUP => 1 );
+    my $compose_only_service_root = File::Spec->catdir( $compose_only_root, 'redis' );
+    make_path($compose_only_service_root);
+    my $compose_only_file = File::Spec->catfile( $compose_only_service_root, 'compose.yml' );
+    _write_file( $compose_only_file, "services: {}\n" );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::DockerCompose::_service_lookup_roots = sub {
+            return ($compose_only_root);
+        };
+        is_deeply(
+            [ $docker->_discover_service_files( service => 'redis', project_root => $compose_only_root ) ],
+            [$compose_only_file],
+            'DockerCompose falls back to compose.yml when a service folder has no development.compose.yml',
+        );
+    }
+
+    my $missing_service_root = tempdir( CLEANUP => 1 );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::DockerCompose::_service_lookup_roots = sub {
+            return ($missing_service_root);
+        };
+        is(
+            $docker->_service_folder_is_disabled( service => 'redis', project_root => $missing_service_root ),
+            0,
+            'DockerCompose leaves services enabled when lookup roots exist but the service folder itself is absent',
+        );
+    }
 }
 {
     my $config_home = tempdir( CLEANUP => 1 );
@@ -1311,12 +1353,25 @@ ok(
 my $test_repos = tempdir( CLEANUP => 1 );
 my $fake_bin = tempdir( CLEANUP => 1 );
 my $cpanm_log = File::Spec->catfile( $fake_bin, 'cpanm.log' );
+my $apt_log = File::Spec->catfile( $fake_bin, 'apt.log' );
 _write_file(
     File::Spec->catfile( $fake_bin, 'cpanm' ),
     <<"SH",
 #!/bin/sh
 printf '%s\\n' "\$*" >> "$cpanm_log"
 if [ "\$DD_TEST_CPANM_FAIL" = "1" ]; then
+  exit 1
+fi
+exit 0
+SH
+    0755,
+);
+_write_file(
+    File::Spec->catfile( $fake_bin, 'apt-get' ),
+    <<"SH",
+#!/bin/sh
+printf '%s\\n' "\$*" >> "$apt_log"
+if [ "\$DD_TEST_APT_FAIL" = "1" ]; then
   exit 1
 fi
 exit 0
@@ -1339,17 +1394,19 @@ is_deeply( $manager->uninstall(''), { error => 'Missing repo name' }, 'uninstall
 is_deeply( $manager->update('missing-skill'), { error => "Skill 'missing-skill' not found" }, 'update rejects unknown skills' );
 is_deeply( $manager->uninstall('missing-skill'), { error => "Skill 'missing-skill' not found" }, 'uninstall rejects unknown skills' );
 
-my $dep_repo = _create_skill_repo( $test_repos, 'dep-skill', with_cpanfile => 1 );
+my $dep_repo = _create_skill_repo( $test_repos, 'dep-skill', with_cpanfile => 1, with_aptfile => 1 );
 my $install = $manager->install( 'file://' . $dep_repo );
 ok( !$install->{error}, 'skill manager installs a skill with a cpanfile' ) or diag $install->{error};
 my $duplicate = $manager->install( 'file://' . $dep_repo );
 like( $duplicate->{error}, qr/already installed/, 'install rejects duplicate skill installs' );
 my $dep_install = $manager->_install_skill_dependencies( $manager->get_skill_path('dep-skill') );
 ok( !$dep_install->{error}, '_install_skill_dependencies succeeds for a skill with a cpanfile' ) or diag $dep_install->{error};
+ok( -f $apt_log, '_install_skill_dependencies records an apt-get invocation when the skill ships an aptfile' );
 ok( -f $cpanm_log, '_install_skill_dependencies records an isolated cpanm invocation when the skill ships a cpanfile' );
 my $metadata = $manager->list->[0];
 is( $metadata->{has_config}, 1, 'skill metadata records config presence' );
 is( $metadata->{has_cpanfile}, 1, 'skill metadata records cpanfile presence' );
+is( $metadata->{has_aptfile}, 1, 'skill metadata records aptfile presence' );
 is_deeply( $metadata->{docker_services}, ['postgres'], 'skill metadata records docker service folders' );
 is_deeply( $metadata->{cli_commands}, ['run-test'], 'skill metadata records cli commands only, not hook directories' );
 my $manual_skill_root = $skill_paths->skill_root('layout-skill');
@@ -1369,6 +1426,17 @@ ok( !$manager->install( 'file://' . $no_dep_repo )->{error}, 'skill manager inst
         $manager->_install_skill_dependencies($fail_repo)->{error},
         qr/Failed to install skill dependencies/,
         'install reports isolated dependency installation failures',
+    );
+}
+{
+    local $ENV{DD_TEST_APT_FAIL} = 1;
+    my $fail_repo = File::Spec->catdir( $test_repos, 'fail-apt-skill' );
+    make_path($fail_repo);
+    _write_file( File::Spec->catfile( $fail_repo, 'aptfile' ), "git\n" );
+    like(
+        $manager->_install_skill_dependencies($fail_repo)->{error},
+        qr/Failed to install skill apt dependencies/,
+        'install reports isolated apt dependency installation failures',
     );
 }
 {
@@ -1412,6 +1480,11 @@ ok( !$manager->install( 'file://' . $hookless_repo )->{error}, 'hookless skill i
 is_deeply( $dispatcher->execute_hooks( 'hookless-skill', 'run-test' ), { hooks => {}, result_state => {} }, 'execute_hooks returns an empty result when no hook directory exists' );
 is_deeply( $dispatcher->get_skill_config(''), {}, 'get_skill_config returns an empty hash for empty skill names' );
 is_deeply( $dispatcher->get_skill_config('missing-skill'), {}, 'get_skill_config returns an empty hash for missing skills' );
+is_deeply(
+    $dispatcher->get_skill_config('dep-skill'),
+    { skill_name => 'dep-skill' },
+    'get_skill_config returns the decoded skill-local config payload',
+);
 my $invalid_config_root = $manager->get_skill_path('hookless-skill');
 _write_file( File::Spec->catfile( $invalid_config_root, 'config', 'config.json' ), "{not json}\n" );
 is_deeply( $dispatcher->get_skill_config('hookless-skill'), {}, 'get_skill_config falls back to an empty hash for invalid JSON config' );
@@ -1419,13 +1492,44 @@ is( $dispatcher->get_skill_path(''), undef, 'get_skill_path returns undef for em
 is( $dispatcher->get_skill_path('dep-skill'), $manager->get_skill_path('dep-skill'), 'get_skill_path returns the installed skill path for valid skills' );
 is( $dispatcher->command_path( '', 'run-test' ), undef, 'command_path returns undef for missing skill names' );
 is( $dispatcher->command_path( 'dep-skill', '' ), undef, 'command_path returns undef for missing command names' );
+is( $dispatcher->command_path( 'missing-skill', 'run-test' ), undef, 'command_path returns undef for unknown skills' );
 is( $dispatcher->command_path( 'dep-skill', 'missing' ), undef, 'command_path returns undef for missing skill commands' );
-my $no_bookmark_repo = _create_skill_repo( $test_repos, 'no-bookmarks-skill', with_cpanfile => 0, with_bookmark => 0 );
+is_deeply(
+    $dispatcher->dispatch( 'dep-skill', 'missing' ),
+    { error => "Command 'missing' not found in skill 'dep-skill'" },
+    'dispatcher rejects missing commands inside installed skills',
+);
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::SkillDispatcher::execute_hooks = sub {
+        return { error => 'hook failure' };
+    };
+    is_deeply(
+        $dispatcher->dispatch( 'dep-skill', 'run-test' ),
+        { error => 'hook failure' },
+        'dispatcher returns hook execution errors before launching the main skill command',
+    );
+}
+my $no_bookmark_repo = _create_skill_repo( $test_repos, 'no-bookmarks-skill', with_cpanfile => 0, with_bookmark => 0, with_nav => 0 );
 ok( !$manager->install( 'file://' . $no_bookmark_repo )->{error}, 'skill without bookmarks installs cleanly' );
+my $no_nav_repo = _create_skill_repo( $test_repos, 'no-nav-skill', with_cpanfile => 0, with_nav => 0 );
+ok( !$manager->install( 'file://' . $no_nav_repo )->{error}, 'skill without nav installs cleanly' );
 is( $dispatcher->route_response( skill_name => 'missing-skill', route => 'bookmarks' )->[0], 404, 'route_response returns 404 for missing skills' );
-is( $dispatcher->route_response( skill_name => 'dep-skill', route => '' )->[0], 404, 'route_response returns 404 for empty routes' );
+is( $dispatcher->route_response( skill_name => 'dep-skill', route => '' )->[0], 200, 'route_response returns the skill index when the app route omits an explicit page id' );
 is( $dispatcher->route_response( skill_name => 'no-bookmarks-skill', route => 'bookmarks' )->[0], 404, 'route_response returns 404 when a skill has no bookmarks' );
+{
+    my $bookmark_index = $dispatcher->route_response( skill_name => 'dep-skill', route => 'bookmarks' );
+    is( $bookmark_index->[0], 200, 'route_response returns bookmark listings for the compatibility /bookmarks route' );
+    is_deeply(
+        json_decode( $bookmark_index->[2] ),
+        { skill => 'dep-skill', bookmarks => [ 'index', 'welcome' ] },
+        'route_response lists the skill bookmark files and excludes nav entries',
+    );
+}
 is( $dispatcher->route_response( skill_name => 'dep-skill', route => 'unknown' )->[0], 404, 'route_response rejects unsupported skill routes' );
+is_deeply( $dispatcher->skill_nav_pages(''), [], 'skill_nav_pages returns an empty list for empty skill names' );
+is_deeply( $dispatcher->skill_nav_pages('missing-skill'), [], 'skill_nav_pages returns an empty list for unknown skills' );
+is_deeply( $dispatcher->skill_nav_pages('no-nav-skill'), [], 'skill_nav_pages returns an empty list when a skill has no nav root' );
 {
     my $local_lib = File::Spec->catdir( $manager->get_skill_path('dep-skill'), 'local', 'lib', 'perl5' );
     make_path($local_lib);
@@ -1438,6 +1542,35 @@ is( $dispatcher->route_response( skill_name => 'dep-skill', route => 'unknown' )
     );
     like( $env{PERL5LIB}, qr/\Q$local_lib\E/, '_skill_env prepends the skill-local perl library when present' );
     like( $env{RESULT}, qr/alpha/, '_skill_env serializes RESULT state for skill hooks and commands' );
+}
+{
+    my $files = Developer::Dashboard::FileRegistry->new( paths => $skill_paths );
+    my $config = Developer::Dashboard::Config->new( files => $files, paths => $skill_paths );
+    is_deeply(
+        $config->merged->{'_dep-skill'},
+        { skill_name => 'dep-skill' },
+        'Config merges installed skill config into the effective runtime config under the underscored skill key',
+    );
+}
+{
+    for my $module_path (
+        qw(
+          lib/Developer/Dashboard/CLI/OpenFile.pm
+          lib/Developer/Dashboard/CLI/Query.pm
+          lib/Developer/Dashboard/UpdateManager.pm
+          )
+      )
+    {
+        open my $fh, '<', $module_path or die "Unable to read $module_path: $!";
+        local $/;
+        my $source = <$fh>;
+        close $fh;
+        unlike(
+            $source,
+            qr/\buse\s+FindBin\b/,
+            "$module_path avoids FindBin at module load time so built-dist loads do not depend on the caller script path",
+        );
+    }
 }
 
 done_testing();
@@ -1458,6 +1591,7 @@ sub _create_skill_repo {
     make_path('state');
     make_path('logs');
     make_path('dashboards') if !exists $args{with_bookmark} || $args{with_bookmark};
+    make_path( File::Spec->catdir( 'dashboards', 'nav' ) ) if !exists $args{with_nav} || $args{with_nav};
     if ( !exists $args{with_hook} || $args{with_hook} ) {
         make_path( File::Spec->catdir( 'cli', 'run-test.d' ) );
     }
@@ -1479,10 +1613,23 @@ sub _create_skill_repo {
     if ( !exists $args{with_cpanfile} || $args{with_cpanfile} ) {
         _write_file( 'cpanfile', "requires 'JSON::XS';\n" );
     }
+    if ( $args{with_aptfile} ) {
+        _write_file( 'aptfile', "git\ncurl\n" );
+    }
     if ( !exists $args{with_bookmark} || $args{with_bookmark} ) {
+        _write_file(
+            File::Spec->catfile( 'dashboards', 'index' ),
+            "TITLE: Index\n:--------------------------------------------------------------------------------:\nBOOKMARK: index\n:--------------------------------------------------------------------------------:\nHTML:\nIndex\n",
+        );
         _write_file(
             File::Spec->catfile( 'dashboards', 'welcome' ),
             "TITLE: Welcome\n:--------------------------------------------------------------------------------:\nBOOKMARK: welcome\n:--------------------------------------------------------------------------------:\nHTML:\nHello\n",
+        );
+    }
+    if ( !exists $args{with_nav} || $args{with_nav} ) {
+        _write_file(
+            File::Spec->catfile( 'dashboards', 'nav', 'skill.tt' ),
+            "<div>Skill Nav</div>\n",
         );
     }
 

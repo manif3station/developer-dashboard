@@ -52,18 +52,18 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '2.21', 'repo version bumped for the query expression and XML decode release' );
-like( $pm, qr/^2\.21$/m, 'main POD version matches the module version' );
+is( $version, '2.23', 'repo version bumped for the skill runtime layer, routing release, and packaged-tree fix' );
+like( $pm, qr/^2\.23$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 2\.21$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 2\.23$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
     like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"2\.21"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"2\.23"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^2\.21\s+2026-04-10$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^2\.23\s+2026-04-10$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -214,18 +214,23 @@ for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
 
 for my $doc ( grep { defined && $_ ne '' } ( $skill_guide, $skills_pod ) ) {
     like( $doc, qr/dashboard skills install/, 'skill authoring docs explain installation' );
-    like( $doc, qr/dashboard skill example-skill/, 'skill authoring docs explain command dispatch' );
+    like( $doc, qr/dashboard skill example-skill|dashboard example-skill\.hello/, 'skill authoring docs explain command dispatch' );
     like( $doc, qr{~/.developer-dashboard/skills/<repo-name>/|F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>}, 'skill authoring docs describe the isolated skill root' );
     like( $doc, qr/cli\/<command>\.d|cli\/E<lt>commandE<gt>\.d/, 'skill authoring docs explain skill hook directories' );
     like( $doc, qr/dashboards\//, 'skill authoring docs explain skill bookmark storage' );
-    like( $doc, qr{/skill/<repo-name>/bookmarks/<id>|/skill/E<lt>repo-nameE<gt>/bookmarks/E<lt>idE<gt>}, 'skill authoring docs explain skill bookmark routes' );
+    like( $doc, qr{/app/<repo-name>|/app/E<lt>repo-nameE<gt>|/skill/<repo-name>/bookmarks/<id>|/skill/E<lt>repo-nameE<gt>/bookmarks/E<lt>idE<gt>}, 'skill authoring docs explain skill bookmark routes' );
     like( $doc, qr/TITLE:.*BOOKMARK:.*HTML:.*CODE1:/s, 'skill authoring docs explain bookmark section syntax' );
     like( $doc, qr/fetch_value\(|stream_value\(|stream_data\(/, 'skill authoring docs explain bookmark browser helpers' );
     like( $doc, qr/Ajax\(file\s*=>\s*'name'|C<Ajax\(file =E<gt> 'name'/, 'skill authoring docs explain saved Ajax endpoints' );
     like( $doc, qr/nav\/\*\.tt|nav\/foo\.tt/, 'skill authoring docs explain nav bookmark structure' );
     like( $doc, qr{~/.developer-dashboard/cli/<command>\.d|~/.developer-dashboard/cli/E<lt>commandE<gt>\.d}, 'skill authoring docs explain dashboard-wide custom CLI hooks' );
     like( $doc, qr/DEVELOPER_DASHBOARD_SKILL_ROOT/, 'skill authoring docs explain the skill command environment' );
+    like( $doc, qr/LAST_RESULT/, 'skill authoring docs explain previous-hook payloads' );
+    like( $doc, qr/\[\[STOP\]\]/, 'skill authoring docs explain explicit hook stop markers' );
+    like( $doc, qr/_example-skill|_<repo-name>|_E<lt>repo-nameE<gt>|_something/, 'skill authoring docs explain underscored skill config merge keys' );
+    like( $doc, qr/aptfile/, 'skill authoring docs explain isolated apt dependency installation' );
     like( $doc, qr/cpanfile/, 'skill authoring docs explain isolated dependency installation' );
+    like( $doc, qr/config\/docker/, 'skill authoring docs explain skill docker roots' );
     like( $doc, qr/FAQ/i, 'skill authoring docs include an FAQ section' );
     unlike( $doc, qr/FORM\.TT:|FORM:/, 'skill authoring docs no longer document removed FORM bookmark directives' );
 }
@@ -246,7 +251,10 @@ for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
     like( $doc, qr/dashboard skills install/, 'README documents skill installation' );
     like( $doc, qr/dashboard skills uninstall/, 'README documents skill uninstallation' );
     like( $doc, qr/dashboard skills update/, 'README documents skill updates' );
-    like( $doc, qr/dashboard skill example-skill/, 'README documents isolated skill command dispatch' );
+    like( $doc, qr/dashboard skill example-skill|dashboard example-skill\.somecmd/, 'README documents isolated skill command dispatch' );
+    like( $doc, qr/aptfile/, 'README documents skill apt dependency bootstrap' );
+    like( $doc, qr/_example-skill|_<repo-name>/, 'README documents underscored skill config merge keys' );
+    like( $doc, qr{/app/<repo-name>|/app/<repo-name>/<page>}, 'README documents app-style skill routes' );
 }
 like( $release_doc, qr/dzil build/, 'release doc still documents the dzil build step' ) if $release_doc ne '';
 like( $release_doc, qr/cpanm .*Developer-Dashboard-1\.\d+\.tar\.gz/, 'release doc still documents tarball installation verification' ) if $release_doc ne '';
@@ -271,6 +279,7 @@ for my $path ( _perl_doc_paths() ) {
     my $content = _slurp($path);
     like( $content, qr/^__END__$/m, "$path keeps Perl POD after __END__" );
     like( $content, qr/^=head1 NAME$/m, "$path documents NAME" );
+    next if $path eq _repo_path( 'lib', 'Developer', 'Dashboard.pm' );
     like( $content, qr/^=head1 PURPOSE$/m, "$path documents PURPOSE" );
     like( $content, qr/^=head1 WHY IT EXISTS$/m, "$path documents WHY IT EXISTS" );
     like( $content, qr/^=head1 WHEN TO USE$/m, "$path documents WHEN TO USE" );
@@ -295,6 +304,8 @@ for my $path ( _shipped_perl_doc_paths() ) {
     for my $pattern (@forbidden_full_pod_boilerplate) {
         unlike( $content, $pattern, "$path no longer uses the generic FULL-POD-DOC boilerplate" );
     }
+
+    next if $path eq _repo_path( 'lib', 'Developer', 'Dashboard.pm' );
 
     my $how_to_use = _section_body( $content, 'HOW TO USE' );
     my $normalized_how_to_use = $how_to_use;

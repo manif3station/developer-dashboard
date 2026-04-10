@@ -66,6 +66,11 @@ if ( my $custom_path = _custom_command_path($cmd) ) {
     _exec_switchboard_command( $custom_path, @ARGV );
 }
 
+if ( my ( $skill_name, $skill_command ) = _skill_dotted_command_parts($cmd) ) {
+    my $helper_path = _builtin_helper_path('skill');
+    _exec_switchboard_command( $helper_path, $skill_name, $skill_command, @ARGV );
+}
+
 pod2usage(
     -exitval  => 1,
     -verbose  => 99,
@@ -239,6 +244,22 @@ sub _builtin_helper_path {
     );
     Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
     return Developer::Dashboard::InternalCLI::helper_path( paths => $paths, name => $helper );
+}
+
+# _skill_dotted_command_parts($cmd)
+# Resolves dashboard <skill>.<command> shorthand into one installed skill name and one skill-local command.
+# Input: top-level command token such as skill-name.run-test.
+# Output: skill name and command name strings, or an empty list when the token is not an installed skill shorthand.
+sub _skill_dotted_command_parts {
+    my ($cmd) = @_;
+    return if !defined $cmd || $cmd eq '' || $cmd !~ /\./;
+    my ( $skill_name, $skill_command ) = split /\./, $cmd, 2;
+    return if !defined $skill_name || $skill_name eq '';
+    return if !defined $skill_command || $skill_command eq '';
+    my $skills_root = File::Spec->catdir( $ENV{HOME} || '', '.developer-dashboard', 'skills' );
+    my $skill_root = File::Spec->catdir( $skills_root, $skill_name );
+    return if !-d $skill_root;
+    return ( $skill_name, $skill_command );
 }
 
 # _exec_switchboard_command($path, @argv)

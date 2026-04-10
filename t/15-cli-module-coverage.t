@@ -241,7 +241,7 @@ open my $duplicate_fh, '>', $duplicate_file or die "Unable to write $duplicate_f
 print {$duplicate_fh} "alpha second\n";
 close $duplicate_fh;
 
-my $scope_root = File::Spec->catdir( $project_root, 'scope-fixtures' );
+my $scope_root = File::Spec->catdir( $project_root, 'jq-parent', 'scope-fixtures' );
 my $scope_cli_root = File::Spec->catdir( $scope_root, 'cli' );
 my $scope_js_root  = File::Spec->catdir( $scope_root, 'public', 'js' );
 make_path( $scope_cli_root, $scope_js_root );
@@ -273,7 +273,7 @@ is( $scope_line, 0, 'scoped jq search keeps line number at zero' );
 is_deeply(
     \@scope_match,
     [ $scope_jq, $scope_jq_js, $scope_jquery ],
-    'scoped jq search ranks exact jq helper and jq.js ahead of jquery.js',
+    'scoped jq search ranks exact jq helper and jq.js ahead of jquery.js and ignores unrelated parent-path matches outside the chosen scope root',
 );
 my ( $scope_regex_line, @scope_regex_match ) = Developer::Dashboard::CLI::OpenFile::_resolve_open_file_matches(
     paths => $registry,

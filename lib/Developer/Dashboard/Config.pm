@@ -3,12 +3,13 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '2.21';
+our $VERSION = '2.23';
 
 use File::Spec;
 use Cwd qw(cwd);
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
+use Developer::Dashboard::SkillDispatcher;
 
 # new(%args)
 # Constructs a configuration loader bound to files and paths.
@@ -37,6 +38,9 @@ sub load_global {
         open my $fh, '<:raw', $file or die "Unable to read $file: $!";
         local $/;
         $merged = $self->_merge_hashes( $merged, json_decode(<$fh>) );
+    }
+    for my $fragment ( $self->_skill_config_fragments ) {
+        $merged = $self->_merge_hashes( $merged, $fragment );
     }
     return $merged;
 }
@@ -456,6 +460,23 @@ sub _global_config_file {
 sub _global_config_files {
     my ($self) = @_;
     return map { File::Spec->catfile( $_, 'config.json' ) } $self->{paths}->config_roots;
+}
+
+# _skill_config_fragments()
+# Loads installed skill config/config.json payloads as underscored runtime config fragments.
+# Input: none.
+# Output: ordered list of hash refs such as { _skill_name => { ... } }.
+sub _skill_config_fragments {
+    my ($self) = @_;
+    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $self->{paths} );
+    my @fragments;
+    for my $skill_root ( $self->{paths}->installed_skill_roots ) {
+        my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
+        next if !defined $skill_name || $skill_name eq '';
+        my $fragment = $dispatcher->config_fragment($skill_name);
+        push @fragments, $fragment if ref($fragment) eq 'HASH' && %{$fragment};
+    }
+    return @fragments;
 }
 
 1;
