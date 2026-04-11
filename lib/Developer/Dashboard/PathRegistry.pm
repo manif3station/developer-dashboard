@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '2.26';
+our $VERSION = '2.29';
 
 use Cwd qw(abs_path cwd);
 use File::Basename qw(dirname);
@@ -255,12 +255,21 @@ sub cli_layers {
 }
 
 # skills_root()
-# Returns the isolated root that contains installed dashboard skills.
+# Returns the writable skill root for the deepest participating DD-OOP-LAYER.
 # Input: none.
 # Output: directory path string.
 sub skills_root {
     my ($self) = @_;
-    return $self->_ensure_dir( File::Spec->catdir( $self->home_runtime_root, 'skills' ) );
+    return $self->_ensure_dir( File::Spec->catdir( $self->runtime_root, 'skills' ) );
+}
+
+# skills_roots()
+# Returns the installed skill roots in effective lookup order from deepest layer to home.
+# Input: none.
+# Output: ordered list of skill root directory path strings.
+sub skills_roots {
+    my ($self) = @_;
+    return map { File::Spec->catdir( $_, 'skills' ) } $self->runtime_roots;
 }
 
 # skill_root($name)
@@ -279,18 +288,27 @@ sub skill_root {
 # Output: ordered list of installed skill root directory path strings.
 sub installed_skill_roots {
     my ( $self, %args ) = @_;
-    my $skills_root = $self->skills_root;
-    return () if !-d $skills_root;
-    opendir my $dh, $skills_root or die "Unable to read $skills_root: $!";
-    my @roots = map { File::Spec->catdir( $skills_root, $_ ) }
-      sort
-      grep {
-             $_ ne '.'
-          && $_ ne '..'
-          && -d File::Spec->catdir( $skills_root, $_ )
-          && ( $args{include_disabled} || !-f File::Spec->catfile( $skills_root, $_, '.disabled' ) )
-      } readdir $dh;
-    closedir $dh;
+    my @roots;
+    my %seen_names;
+    for my $skills_root ( $self->skills_roots ) {
+        next if !-d $skills_root;
+        opendir my $dh, $skills_root or die "Unable to read $skills_root: $!";
+        for my $entry (
+            sort grep {
+                   $_ ne '.'
+                && $_ ne '..'
+                && -d File::Spec->catdir( $skills_root, $_ )
+            } readdir $dh
+          )
+        {
+            next if $seen_names{$entry}++;
+            my $skill_root = File::Spec->catdir( $skills_root, $entry );
+            my $disabled = -f File::Spec->catfile( $skill_root, '.disabled' ) ? 1 : 0;
+            next if !$args{include_disabled} && $disabled;
+            push @roots, $skill_root;
+        }
+        closedir $dh;
+    }
     return @roots;
 }
 
@@ -301,6 +319,22 @@ sub installed_skill_roots {
 sub installed_skill_docker_roots {
     my ( $self, %args ) = @_;
     return map { File::Spec->catdir( $_, 'config', 'docker' ) } $self->installed_skill_roots(%args);
+}
+
+# installed_skill_docker_roots_for_runtime($runtime_root)
+# Returns the effective installed skill docker roots that belong to one runtime layer.
+# Input: runtime root directory path and optional include_disabled flag.
+# Output: ordered list of skill docker configuration root directory path strings for that layer.
+sub installed_skill_docker_roots_for_runtime {
+    my ( $self, $runtime_root, %args ) = @_;
+    return () if !defined $runtime_root || $runtime_root eq '';
+    my $skills_root = File::Spec->catdir( $runtime_root, 'skills' );
+    my $prefix = $skills_root . '/';
+    return map { File::Spec->catdir( $_, 'config', 'docker' ) }
+      grep {
+            my $path = $_;
+            $path eq $skills_root || index( $path, $prefix ) == 0;
+      } $self->installed_skill_roots(%args);
 }
 
 # collectors_root()

@@ -1,5 +1,48 @@
 # Fixed Bugs
 
+## 2026-04-11 (Phase 92: Release README Kwalitee Drift)
+
+- Fixed the built-distribution kwalitee failure where the host-built tarball
+  no longer shipped any top-level readme after the Markdown exclusion rule
+  removed checkout-only docs from release artifacts.
+- Added a plain release `README` companion for the tarball so CPAN and
+  kwalitee consumers still receive a shipped readme without re-including the
+  checkout-only documentation set.
+- Updated the synced top-level manuals, testing guide, and release-metadata
+  guard so future release builds keep that readme requirement explicit.
+
+## 2026-04-11 (Phase 91: Skill Docker Coverage Drift)
+
+- Fixed the last uncovered `Developer::Dashboard::PathRegistry` helper by
+  adding direct regression coverage for
+  `installed_skill_docker_roots()`.
+- Fixed the release-gate drift where the full `Devel::Cover` run dropped to
+  `99.9 / 99.9 / 99.9` because the enabled-only and
+  `include_disabled => 1` skill docker-root paths were no longer exercised
+  explicitly.
+- Updated the synced testing docs and release metadata so the hard
+  `100.0 / 100.0 / 100.0` `lib/` coverage requirement still names the focused
+  skill regression that closes this path.
+
+## 2026-04-11 (Phase 90: Layered Skill Lookup Drift)
+
+- Fixed the skills runtime so `DD-OOP-LAYERS` now applies to skill roots as
+  well as pages, hooks, config, and state. Installing a skill now writes into
+  the deepest participating layer instead of always forcing the checkout into
+  the home runtime.
+- Fixed layered skill lookup drift by making same-named deeper skills shadow
+  higher-layer copies by repo name while still allowing home-only skills to be
+  inherited when no deeper override exists.
+- Fixed the public dotted command shortcut so `dashboard repo.cmd` now uses
+  the same layered skill resolution path as the library runtime instead of a
+  hardcoded `~/.developer-dashboard/skills` probe.
+- Fixed layered docker skill discovery so skill `config/docker/` roots now
+  participate from their owning runtime layer rather than only from the home
+  skill tree.
+- Updated the synced manuals and release-metadata guard so the supported skill
+  contract now documents layered installs, deepest-first lookup, and repo-name
+  shadowing.
+
 ## 2026-04-11 (Phase 89: Skill Activation And Inventory Drift)
 
 - Fixed the missing installed-skill activation controls by adding

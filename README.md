@@ -504,6 +504,9 @@ dzil build
 The release gather rules exclude local coverage output such as `cover_db`, so
 covered runs before `dzil build` do not leak Devel::Cover artifacts into the
 shipped tarball.
+The built distribution also ships a plain `README` companion so CPAN and
+kwalitee consumers still receive a top-level readme without re-including the
+checkout-only documentation set.
 
 Run the CLI directly from the repository:
 
@@ -1178,10 +1181,17 @@ dashboard skills install git@github.com:user/example-skill.git
 dashboard skills install https://github.com/user/example-skill.git
 ```
 
-The repository is cloned into its own isolated skill root under
-`~/.developer-dashboard/skills/<repo-name>/`. Developer Dashboard does not
-merge the skill's `cli/`, `dashboards/`, `config/`, `cpanfile`, `aptfile`, or
-Docker files into the normal runtime folders.
+The repository is cloned into its own isolated skill root under the deepest
+participating `DD-OOP-LAYERS` runtime. In a home-only session that is
+`~/.developer-dashboard/skills/<repo-name>/`. In a deeper project layer that
+already has its own `.developer-dashboard/`, the install target becomes
+`<that-layer>/.developer-dashboard/skills/<repo-name>/`. Developer Dashboard
+does not merge the skill's `cli/`, `dashboards/`, `config/`, `cpanfile`,
+`aptfile`, or Docker files into the normal runtime folders.
+
+Skill lookup also follows `DD-OOP-LAYERS`: the deepest matching repo name is
+the active skill, and a deeper skill shadows the same repo name from higher
+layers.
 
 **List installed skills:**
 
@@ -1228,8 +1238,8 @@ dashboard skills update example-skill
 dashboard skills disable example-skill
 ```
 
-Disabling keeps the checkout under `~/.developer-dashboard/skills/<repo-name>/`
-but removes it from normal runtime lookup. That means:
+Disabling keeps the checkout in its current layered skills root but removes it
+from normal runtime lookup. That means:
 - `dashboard skill <repo-name> <command>` and `dashboard <repo-name>.<command>` stop dispatching into that skill
 - `/app/<repo-name>` and `/app/<repo-name>/<page>` stop serving that skill's pages
 - skill collectors, docker roots, config, and shared nav stop joining the active runtime
@@ -1263,7 +1273,8 @@ main command.
 dashboard skills uninstall example-skill
 ```
 
-Each installed skill lives under `~/.developer-dashboard/skills/<repo-name>/` with:
+Each installed skill lives under
+`<participating-layer>/.developer-dashboard/skills/<repo-name>/` with:
 
 - `cli/` - Skill commands (executable scripts, never installed to system PATH)
 - `cli/<cmd>.d/` - Hook files for commands (sorted pre-command hooks)
@@ -1444,6 +1455,11 @@ because this machine uses both launch styles during verification.
 The runtime-manager coverage cases also use bounded child reaping for stubborn
 process shutdown scenarios, so `Devel::Cover` runs do not stall indefinitely
 after the escalation path has already been exercised.
+The focused skill regression in `t/19-skill-system.t` now also exercises
+`PathRegistry::installed_skill_docker_roots()` directly, including the
+default enabled-only view and the explicit `include_disabled => 1` path, so
+skill docker layering changes do not silently pull the `lib/` total below the
+required `100.0 / 100.0 / 100.0`.
 The packaged `t/09-runtime-manager.t` fallback assertions also stub ambient
 managed-web discovery explicitly, so tarball and PAUSE installs do not get
 contaminated by unrelated live dashboard-shaped processes already running on
@@ -1451,6 +1467,28 @@ the host.
 Tests that depend on a missing or empty environment variable now establish that
 state explicitly inside the test file, rather than assuming the parent shell
 or install harness starts clean.
+
+### Scorecard Timing
+
+Run local repository gates first, then commit and push, and only then rerun
+live Scorecard against the pushed repository state:
+
+```bash
+prove -lr t
+cover -delete
+HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
+dzil build
+git commit -m "Meaningful change summary"
+~/bin/git-push-mf origin master
+bash -ic "scorecard --repo=github.com/manif3station/developer-dashboard"
+```
+
+Do not treat Scorecard as a pre-commit local gate on this machine. Several
+checks are repository-hosted or history-based, so the meaningful enforcement
+loop is `fix -> test -> commit -> push -> rerun scorecard`. If a Scorecard
+check stays below `10 / 10`, record the exact blocker and whether it is
+repo-side, GitHub-side, or historically impossible to change from the working
+tree alone.
 
 From a source checkout, for fast saved-bookmark browser regressions, run the
 dedicated smoke script:

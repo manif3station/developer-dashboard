@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.26';
+our $VERSION = '2.29';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.26
+2.29
 
 =head1 INTRODUCTION
 
@@ -878,6 +878,9 @@ Build the distribution:
 The release gather rules exclude local coverage output such as F<cover_db>, so
 covered runs before C<dzil build> do not leak Devel::Cover artifacts into the
 shipped tarball.
+The built distribution also ships a plain F<README> companion so CPAN and
+kwalitee consumers still receive a top-level readme without re-including the
+checkout-only documentation set.
 
 Run the CLI directly from the repository:
 
@@ -1497,6 +1500,11 @@ because this machine uses both launch styles during verification.
 The runtime-manager coverage cases also use bounded child reaping for stubborn
 process shutdown scenarios, so C<Devel::Cover> runs do not stall indefinitely
 after the escalation path has already been exercised.
+The focused skill regression in C<t/19-skill-system.t> now also exercises
+C<PathRegistry::installed_skill_docker_roots()> directly, including the
+default enabled-only view and the explicit C<include_disabled =E<gt> 1> path,
+so skill docker layering changes do not silently pull the C<lib/> total below
+the required C<100.0 / 100.0 / 100.0>.
 The packaged C<t/09-runtime-manager.t> fallback assertions also stub ambient
 managed-web discovery explicitly, so tarball and PAUSE installs do not get
 contaminated by unrelated live dashboard-shaped processes already running on
@@ -1802,10 +1810,19 @@ Install a skill from a Git repository:
   dashboard skills install git@github.com:user/example-skill.git
   dashboard skills install https://github.com/user/example-skill.git
 
-The repository is cloned into its own isolated skill root under
-F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>. Developer Dashboard does
-not merge the skill's C<cli/>, C<dashboards/>, C<config/>, C<cpanfile>,
-C<aptfile>, or Docker files into the normal runtime folders.
+The repository is cloned into its own isolated skill root under the deepest
+participating C<DD-OOP-LAYERS> runtime. In a home-only session that is
+F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>. In a deeper project
+layer that already has its own F<.developer-dashboard/>, the install target
+becomes
+F<E<lt>that-layerE<gt>/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>.
+Developer Dashboard does not merge the skill's C<cli/>, C<dashboards/>,
+C<config/>, C<cpanfile>, C<aptfile>, or Docker files into the normal runtime
+folders.
+
+Skill lookup also follows C<DD-OOP-LAYERS>: the deepest matching repo name is
+the active skill, and a deeper skill shadows the same repo name from higher
+layers.
 
 List installed skills:
 
@@ -1884,9 +1901,8 @@ Disable a skill without uninstalling it:
 
   dashboard skills disable example-skill
 
-Disabling keeps the checkout under
-F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/> but removes it from
-normal runtime lookup. That means:
+Disabling keeps the checkout in its current layered skills root but removes it
+from normal runtime lookup. That means:
 
 =over 4
 
@@ -1936,7 +1952,9 @@ Uninstall a skill:
 
   dashboard skills uninstall example-skill
 
-Each installed skill lives under F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/> with:
+Each installed skill lives under
+F<E<lt>participating-layerE<gt>/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>
+with:
 
 =over 4
 

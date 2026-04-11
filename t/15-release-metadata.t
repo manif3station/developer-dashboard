@@ -11,6 +11,7 @@ my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
 
 my $pm = _slurp( _repo_path('lib', 'Developer', 'Dashboard.pm') );
 my $readme = _slurp_optional( _repo_path('README.md') );
+my $plain_readme = _slurp_optional( _repo_path('README') );
 my $skill_guide = _slurp_optional( _repo_path('SKILL.md') );
 my $release_doc = _slurp_optional( _repo_path( 'doc', 'update-and-release.md' ) );
 my $changes = _slurp( _repo_path('Changes') );
@@ -52,10 +53,10 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '2.26', 'repo version bumped for the release tarball trim of repo-only assets' );
-like( $pm, qr/^2\.26$/m, 'main POD version matches the module version' );
+is( $version, '2.29', 'repo version bumped for the release README kwalitee fix' );
+like( $pm, qr/^2\.29$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 2\.26$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 2\.29$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
     like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
     like( $dist, qr/^exclude_match = \^integration\/$/m, 'dist.ini excludes integration assets so repo-only verification helpers do not leak into release tarballs' );
@@ -66,9 +67,11 @@ if ( $dist ne '' ) {
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"2\.26"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"2\.29"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^2\.26\s+2026-04-11$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^2\.29\s+2026-04-11$/m, 'Changes top entry matches the bumped version' );
+ok( $plain_readme ne '', 'plain README is tracked for release kwalitee compatibility' );
+like( $plain_readme, qr/Developer Dashboard/, 'plain README identifies the distribution clearly' );
 
 for my $path (
     qw(
@@ -220,6 +223,8 @@ for my $doc ( grep { defined && $_ ne '' } ( $skill_guide, $skills_pod ) ) {
     like( $doc, qr/dashboard skills install/, 'skill authoring docs explain installation' );
     like( $doc, qr/dashboard skill example-skill|dashboard example-skill\.hello/, 'skill authoring docs explain command dispatch' );
     like( $doc, qr{~/.developer-dashboard/skills/<repo-name>/|F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>}, 'skill authoring docs describe the isolated skill root' );
+    like( $doc, qr/DD-OOP-LAYERS.*skill|skill.*DD-OOP-LAYERS/is, 'skill authoring docs describe layered skill lookup through DD-OOP-LAYERS' );
+    like( $doc, qr/deepest.*shadow|shadow.*deepest|deepest matching repo name/is, 'skill authoring docs describe deepest-layer skill shadowing' );
     like( $doc, qr/cli\/<command>\.d|cli\/E<lt>commandE<gt>\.d/, 'skill authoring docs explain skill hook directories' );
     like( $doc, qr/dashboards\//, 'skill authoring docs explain skill bookmark storage' );
     like( $doc, qr{/app/<repo-name>|/app/E<lt>repo-nameE<gt>|/skill/<repo-name>/bookmarks/<id>|/skill/E<lt>repo-nameE<gt>/bookmarks/E<lt>idE<gt>}, 'skill authoring docs explain skill bookmark routes' );
@@ -264,6 +269,11 @@ for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
     like( $doc, qr/_example-skill|_<repo-name>/, 'README documents underscored skill config merge keys' );
     like( $doc, qr{/app/<repo-name>|/app/<repo-name>/<page>}, 'README documents app-style skill routes' );
     like( $doc, qr/disabled skills.*re-enabled|re-enabled.*disabled skills/is, 'README documents disabled-skill runtime exclusion and restoration' );
+    like( $doc, qr/DD-OOP-LAYERS.*skills|skills.*DD-OOP-LAYERS/is, 'README documents layered skill lookup through DD-OOP-LAYERS' );
+    like( $doc, qr/deepest.*shadow|shadow.*deepest|deepest matching repo name/is, 'README documents deepest-layer skill shadowing' );
+    like( $doc, qr/fix -> test -> commit -> push -> rerun scorecard/, 'README documents the post-commit Scorecard enforcement loop explicitly' );
+    like( $doc, qr/git-push-mf|~\/bin\/git-push-mf/, 'README documents the authenticated push helper in the Scorecard timing flow' );
+    like( $doc, qr/Do not treat Scorecard as a pre-commit local gate/, 'README documents that live Scorecard runs happen after local gates and commit/push' );
 }
 like( $release_doc, qr/dzil build/, 'release doc still documents the dzil build step' ) if $release_doc ne '';
 like( $release_doc, qr/cpanm .*Developer-Dashboard-1\.\d+\.tar\.gz/, 'release doc still documents tarball installation verification' ) if $release_doc ne '';

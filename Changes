@@ -1,5 +1,23 @@
 Revision history for Developer Dashboard
 
+2.29  2026-04-11
+    - applied the DD-OOP-LAYERS contract to skills so install now writes into
+      the deepest participating layer while skill lookup inherits from deepest
+      layer back to home
+    - made same-named deeper skills shadow higher-layer copies by repo name
+      across command dispatch, dotted skill commands, config merge, collector
+      loading, nav discovery, and docker skill roots
+    - restored the hard `100%` `lib/` coverage gate by adding direct
+      regression coverage for `PathRegistry::installed_skill_docker_roots()`,
+      including the disabled-skill filtering path and the explicit
+      `include_disabled => 1` behavior
+    - restored the release kwalitee gate by shipping a plain `README` in the
+      built tarball while keeping checkout-only Markdown files excluded from
+      release artifacts
+    - updated the product docs and release metadata so the layered skill
+      contract is explicit instead of still documenting skills as home-only,
+      and so the built tarball now carries a top-level readme again
+
 2.26  2026-04-11
     - added `dashboard skills enable <repo-name>` and
       `dashboard skills disable <repo-name>` so installed skills can be
