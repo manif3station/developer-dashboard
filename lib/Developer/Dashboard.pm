@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.30';
+our $VERSION = '2.31';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.30
+2.31
 
 =head1 INTRODUCTION
 
@@ -2229,7 +2229,7 @@ Developer Dashboard Contributors
 
 This library is free software; you can redistribute it and/or modify it under
 the same terms as Perl itself. The repository root C<LICENSE> file carries a
-canonical Artistic License text for GitHub and Scorecard detection, and the
-alternative GPL text lives in C<LICENSE-GPL-1.0-or-later>.
+canonical GPL text for GitHub and Scorecard detection, and the alternative
+Artistic text lives in C<LICENSE-Artistic-1.0-Perl>.
 
 =cut

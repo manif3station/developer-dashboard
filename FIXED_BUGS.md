@@ -1,11 +1,11 @@
 # Fixed Bugs
 
-## 2026-04-11 (Phase 93: Scorecard License Recognition Drift)
+## 2026-04-11 (Phase 94: Scorecard License Recognition Drift)
 
 - Fixed the live Scorecard `License` check drift by replacing the root
-  `LICENSE` file with a canonical Artistic license text that GitHub can
+  `LICENSE` file with a canonical GPL text that GitHub can
   classify instead of an undecidable dual-license blob.
-- Added `LICENSE-GPL-1.0-or-later` so the alternative Perl 5 GPL option
+- Added `LICENSE-Artistic-1.0-Perl` so the alternative Perl 5 Artistic option
   remains explicit in the repository while the root license file stays
   machine-recognizable.
 - Expanded `t/34-scorecard-guardrails.t` so TDD now locks the new license

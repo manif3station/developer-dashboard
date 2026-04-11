@@ -1423,8 +1423,8 @@ path behind `dashboard of` and `dashboard open-file`.
 
 This library is free software; you can redistribute it and/or modify it under
 the same terms as Perl itself. The repository root `LICENSE` file carries a
-canonical Artistic License text for GitHub and Scorecard detection, and the
-alternative GPL text lives in `LICENSE-GPL-1.0-or-later`.
+canonical GPL text for GitHub and Scorecard detection, and the alternative
+Artistic text lives in `LICENSE-Artistic-1.0-Perl`.
 
 ## Testing And Coverage
 
@@ -1497,8 +1497,8 @@ check stays below `10 / 10`, record the exact blocker and whether it is
 repo-side, GitHub-side, or historically impossible to change from the working
 tree alone.
 The license side of that gate expects the repository root `LICENSE` to stay a
-single canonical Artistic text that GitHub can classify, while the alternative
-Perl GPL option remains available in `LICENSE-GPL-1.0-or-later`.
+single canonical GPL text that GitHub can classify, while the alternative
+Perl Artistic option remains available in `LICENSE-Artistic-1.0-Perl`.
 
 From a source checkout, for fast saved-bookmark browser regressions, run the
 dedicated smoke script:
