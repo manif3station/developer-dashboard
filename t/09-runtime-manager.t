@@ -561,6 +561,17 @@ JSON
         [ 'alpha.collector', 'beta.collector', 'fleet-skill.health' ],
         'start_collectors includes installed skill collectors in the managed fleet under repo-qualified names',
     );
+
+    open my $disabled_skill_fh, '>', File::Spec->catfile( $home, '.developer-dashboard', 'skills', 'fleet-skill', '.disabled' ) or die $!;
+    close $disabled_skill_fh;
+    @{ $skill_runner->{started} } = ();
+    my @disabled_skill_started = $skill_manager->start_collectors;
+    is_deeply(
+        [ map { $_->{name} } @disabled_skill_started ],
+        [ 'alpha.collector', 'beta.collector' ],
+        'start_collectors skips collectors contributed by disabled skills',
+    );
+    unlink File::Spec->catfile( $home, '.developer-dashboard', 'skills', 'fleet-skill', '.disabled' ) or die $!;
 }
 
 {

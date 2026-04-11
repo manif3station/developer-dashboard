@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '2.25';
+our $VERSION = '2.26';
 
 use Cwd qw(abs_path cwd);
 use File::Basename qw(dirname);
@@ -278,7 +278,7 @@ sub skill_root {
 # Input: none.
 # Output: ordered list of installed skill root directory path strings.
 sub installed_skill_roots {
-    my ($self) = @_;
+    my ( $self, %args ) = @_;
     my $skills_root = $self->skills_root;
     return () if !-d $skills_root;
     opendir my $dh, $skills_root or die "Unable to read $skills_root: $!";
@@ -288,6 +288,7 @@ sub installed_skill_roots {
              $_ ne '.'
           && $_ ne '..'
           && -d File::Spec->catdir( $skills_root, $_ )
+          && ( $args{include_disabled} || !-f File::Spec->catfile( $skills_root, $_, '.disabled' ) )
       } readdir $dh;
     closedir $dh;
     return @roots;
@@ -298,8 +299,8 @@ sub installed_skill_roots {
 # Input: none.
 # Output: ordered list of skill docker configuration root directory path strings.
 sub installed_skill_docker_roots {
-    my ($self) = @_;
-    return map { File::Spec->catdir( $_, 'config', 'docker' ) } $self->installed_skill_roots;
+    my ( $self, %args ) = @_;
+    return map { File::Spec->catdir( $_, 'config', 'docker' ) } $self->installed_skill_roots(%args);
 }
 
 # collectors_root()

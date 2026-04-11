@@ -259,6 +259,7 @@ sub _skill_dotted_command_parts {
     my $skills_root = File::Spec->catdir( $ENV{HOME} || '', '.developer-dashboard', 'skills' );
     my $skill_root = File::Spec->catdir( $skills_root, $skill_name );
     return if !-d $skill_root;
+    return if -f File::Spec->catfile( $skill_root, '.disabled' );
     return ( $skill_name, $skill_command );
 }
 
@@ -386,9 +387,12 @@ dashboard - thin command switchboard for Developer Dashboard
   dashboard collector stop <name>
   dashboard collector restart <name>
   dashboard skills install <git-url>
+  dashboard skills enable <repo-name>
+  dashboard skills disable <repo-name>
   dashboard skills uninstall <repo-name>
   dashboard skills update <repo-name>
   dashboard skills list
+  dashboard skills usage <repo-name> [-o json|table]
   dashboard skill <repo-name> <command> [args...]
   dashboard config init
   dashboard config show

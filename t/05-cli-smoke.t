@@ -441,6 +441,9 @@ my $help = _run("$perl -I'$lib' '$dashboard' help");
 like($help, qr/Description:/, 'dashboard help renders the fuller POD help');
 like($help, qr/dashboard serve \[logs \[-f\] \[-n N\]\|workers <N>\]/, 'dashboard help documents serve logs tail/follow flags and serve workers commands');
 like($help, qr/dashboard ticket \[ticket-ref\]/, 'dashboard help documents the built-in ticket subcommand');
+like($help, qr/dashboard skills enable <repo-name>/, 'dashboard help documents skill enable');
+like($help, qr/dashboard skills disable <repo-name>/, 'dashboard help documents skill disable');
+like($help, qr/dashboard skills usage <repo-name> \[-o json\|table\]/, 'dashboard help documents skill usage inspection');
 
 my $serve_workers_port = _find_free_port();
 my $serve_workers = _run("$perl -I'$lib' '$dashboard' serve workers 3 --port $serve_workers_port");

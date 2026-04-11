@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '2.25';
+our $VERSION = '2.26';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -1729,9 +1729,15 @@ sub _skill_app_fallback_response {
     return if !$skill_name;
 
     require Developer::Dashboard::SkillDispatcher;
+    require Developer::Dashboard::SkillManager;
     my $dispatcher = Developer::Dashboard::SkillDispatcher->new();
-    if ( !$dispatcher->get_skill_path($skill_name) ) {
+    my $manager = Developer::Dashboard::SkillManager->new();
+    my $installed_skill = $manager->get_skill_path( $skill_name, include_disabled => 1 );
+    if ( !$installed_skill ) {
         return @rest ? [ 404, 'text/plain; charset=utf-8', "Not found\n" ] : undef;
+    }
+    if ( !$dispatcher->get_skill_path($skill_name) ) {
+        return [ 404, 'text/plain; charset=utf-8', "Not found\n" ];
     }
 
     return $dispatcher->route_response(

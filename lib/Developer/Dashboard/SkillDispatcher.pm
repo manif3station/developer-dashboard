@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '2.25';
+our $VERSION = '2.26';
 
 use File::Spec;
 use JSON::XS qw(encode_json decode_json);
@@ -33,8 +33,9 @@ sub dispatch {
     return { error => 'Missing skill name' } if !$skill_name;
     return { error => 'Missing command name' } if !$command;
 
-    my $skill_path = $self->{manager}->get_skill_path($skill_name);
+    my $skill_path = $self->{manager}->get_skill_path( $skill_name, include_disabled => 1 );
     return { error => "Skill '$skill_name' not found" } if !$skill_path;
+    return { error => "Skill '$skill_name' is disabled" } if !$self->{manager}->is_enabled($skill_name);
 
     my $cmd_path = $self->command_path( $skill_name, $command );
     return { error => "Command '$command' not found in skill '$skill_name'" } if !$cmd_path;
@@ -71,8 +72,9 @@ sub dispatch {
 sub execute_hooks {
     my ( $self, $skill_name, $command, @args ) = @_;
     return { hooks => {}, result_state => {} } if !$skill_name || !$command;
-    my $skill_path = $self->{manager}->get_skill_path($skill_name);
+    my $skill_path = $self->{manager}->get_skill_path( $skill_name, include_disabled => 1 );
     return { hooks => {}, result_state => {} } if !$skill_path;
+    return { hooks => {}, result_state => {} } if !$self->{manager}->is_enabled($skill_name);
 
     my $hooks_dir = File::Spec->catdir( $skill_path, 'cli', "$command.d" );
     return { hooks => {}, result_state => {} } if !-d $hooks_dir;

@@ -88,6 +88,27 @@ like( $shared_index->[2], qr/Shared Index/, 'saved non-skill index route renders
 like( $shared_index->[2], qr/Skill Route Nav/, 'saved non-skill index route renders nav from installed skills' );
 like( $shared_index->[2], qr/Other Skill Nav/, 'saved non-skill index route renders nav from every installed skill' );
 
+my $disable = $manager->disable('other-skill');
+ok( !$disable->{error}, 'other-skill disables cleanly for route coverage' ) or diag $disable->{error};
+
+my $disabled_shared_index = $app->handle(
+    path        => '/app/index',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $disabled_shared_index->[0], 200, 'shared index still renders after disabling one skill' );
+like( $disabled_shared_index->[2], qr/Skill Route Nav/, 'shared index keeps nav from enabled skills after a disable' );
+unlike( $disabled_shared_index->[2], qr/Other Skill Nav/, 'shared index drops nav from disabled skills' );
+
+my $disabled_skill = $app->handle(
+    path        => '/app/other-skill',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $disabled_skill->[0], 404, 'disabled skill routes are no longer served' );
+
 my $legacy_render = $app->handle(
     path        => '/skill/route-skill/bookmarks/foo',
     method      => 'GET',

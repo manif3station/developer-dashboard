@@ -1,5 +1,28 @@
 # Fixed Bugs
 
+## 2026-04-11 (Phase 89: Skill Activation And Inventory Drift)
+
+- Fixed the missing installed-skill activation controls by adding
+  `dashboard skills enable <repo-name>` and
+  `dashboard skills disable <repo-name>`. Skills can now be parked locally
+  without uninstalling their isolated checkout and later restored with an
+  explicit enable step.
+- Fixed skills inventory drift by expanding `dashboard skills list` to report
+  enabled state, CLI/page/docker/collector/indicator counts, and JSON booleans
+  for config and dependency files, with an optional terminal table view for
+  quick inspection.
+- Fixed the missing per-skill inspection command by adding
+  `dashboard skills usage <repo-name>`, which returns detailed command hook,
+  page/nav, docker, config, and collector metadata even when the target skill
+  is disabled.
+- Fixed disabled-skill runtime leakage so disabled skills no longer
+  participate in dotted command dispatch, dedicated `/app/<repo>` routes,
+  shared nav rendering, collector fleet loading, config merge, or docker root
+  discovery until they are explicitly re-enabled.
+- Updated the synced top-level manuals, integration plan, and release-metadata
+  guard so the supported skill activation and inventory lifecycle is described
+  and regression-checked instead of drifting behind the code.
+
 ## 2026-04-10 (Phase 88: Release Tarball Repo-Only Asset Drift)
 
 - Fixed release tarball content drift so the repo-only `integration/`

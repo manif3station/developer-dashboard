@@ -1397,6 +1397,7 @@ is_deeply( $manager->uninstall('missing-skill'), { error => "Skill 'missing-skil
 my $dep_repo = _create_skill_repo( $test_repos, 'dep-skill', with_cpanfile => 1, with_aptfile => 1 );
 my $install = $manager->install( 'file://' . $dep_repo );
 ok( !$install->{error}, 'skill manager installs a skill with a cpanfile' ) or diag $install->{error};
+my $dep_skill_root = $manager->get_skill_path('dep-skill');
 my $duplicate = $manager->install( 'file://' . $dep_repo );
 like( $duplicate->{error}, qr/already installed/, 'install rejects duplicate skill installs' );
 my $dep_install = $manager->_install_skill_dependencies( $manager->get_skill_path('dep-skill') );
@@ -1404,11 +1405,27 @@ ok( !$dep_install->{error}, '_install_skill_dependencies succeeds for a skill wi
 ok( -f $apt_log, '_install_skill_dependencies records an apt-get invocation when the skill ships an aptfile' );
 ok( -f $cpanm_log, '_install_skill_dependencies records an isolated cpanm invocation when the skill ships a cpanfile' );
 my $metadata = $manager->list->[0];
+ok( $metadata->{enabled}, 'skill metadata records enabled state for active skills' );
 is( $metadata->{has_config}, 1, 'skill metadata records config presence' );
 is( $metadata->{has_cpanfile}, 1, 'skill metadata records cpanfile presence' );
 is( $metadata->{has_aptfile}, 1, 'skill metadata records aptfile presence' );
 is_deeply( $metadata->{docker_services}, ['postgres'], 'skill metadata records docker service folders' );
 is_deeply( $metadata->{cli_commands}, ['run-test'], 'skill metadata records cli commands only, not hook directories' );
+is( $metadata->{pages_count}, 2, 'skill metadata records non-nav page counts' );
+is( $metadata->{docker_services_count}, 1, 'skill metadata records docker service counts' );
+is_deeply( $manager->enable(''), { error => 'Missing repo name' }, 'enable rejects an empty repo name' );
+is_deeply( $manager->disable(''), { error => 'Missing repo name' }, 'disable rejects an empty repo name' );
+is_deeply( $manager->usage(''), { error => 'Missing repo name' }, 'usage rejects an empty repo name' );
+is_deeply( $manager->enable('missing-skill'), { error => "Skill 'missing-skill' not found" }, 'enable rejects unknown skills' );
+is_deeply( $manager->disable('missing-skill'), { error => "Skill 'missing-skill' not found" }, 'disable rejects unknown skills' );
+is_deeply( $manager->usage('missing-skill'), { error => "Skill 'missing-skill' not found" }, 'usage rejects unknown skills' );
+my $usage = $manager->usage('dep-skill');
+ok( !$usage->{error}, 'usage succeeds for an installed skill' ) or diag $usage->{error};
+ok( $usage->{enabled}, 'usage reports enabled state for active skills' );
+ok( scalar( grep { $_->{name} eq 'run-test' && $_->{has_hooks} } @{ $usage->{cli} } ), 'usage reports command hook metadata' );
+ok( scalar( grep { $_ eq 'index' } @{ $usage->{pages}{entries} } ), 'usage reports dashboard pages' );
+ok( scalar( grep { $_ eq 'nav/skill.tt' } @{ $usage->{pages}{nav_entries} } ), 'usage reports nav pages separately' );
+ok( scalar( grep { $_->{name} eq 'postgres' } @{ $usage->{docker}{services} } ), 'usage reports docker services' );
 my $manual_skill_root = $skill_paths->skill_root('layout-skill');
 make_path($manual_skill_root);
 ok( $manager->_prepare_skill_layout($manual_skill_root), '_prepare_skill_layout succeeds for a partially populated skill root' );
@@ -1475,6 +1492,24 @@ is_deeply(
 is_deeply( $dispatcher->execute_hooks( '', 'run-test' ), { hooks => {}, result_state => {} }, 'execute_hooks returns an empty result for missing skill names' );
 is_deeply( $dispatcher->execute_hooks( 'dep-skill', '' ), { hooks => {}, result_state => {} }, 'execute_hooks returns an empty result for missing command names' );
 is_deeply( $dispatcher->execute_hooks( 'missing-skill', 'run-test' ), { hooks => {}, result_state => {} }, 'execute_hooks returns an empty result for missing skills' );
+ok( !$manager->disable('dep-skill')->{error}, 'disable succeeds for an installed skill' );
+ok( !$manager->is_enabled('dep-skill'), 'is_enabled reports false once a skill is disabled' );
+my @enabled_skill_roots = $skill_paths->installed_skill_roots;
+my @all_skill_roots = $skill_paths->installed_skill_roots( include_disabled => 1 );
+ok( !grep( { $_ eq $dep_skill_root } @enabled_skill_roots ), 'installed_skill_roots excludes disabled skills by default' );
+ok( grep( { $_ eq $dep_skill_root } @all_skill_roots ), 'installed_skill_roots can still enumerate disabled skills when requested' );
+is( $manager->get_skill_path('dep-skill'), undef, 'get_skill_path hides disabled skills from normal runtime lookup' );
+ok( $manager->get_skill_path( 'dep-skill', include_disabled => 1 ), 'get_skill_path can still resolve disabled skills when explicitly requested' );
+is_deeply(
+    $dispatcher->dispatch( 'dep-skill', 'run-test' ),
+    { error => "Skill 'dep-skill' is disabled" },
+    'dispatcher rejects disabled skills explicitly',
+);
+is_deeply( $dispatcher->execute_hooks( 'dep-skill', 'run-test' ), { hooks => {}, result_state => {} }, 'execute_hooks returns an empty result for disabled skills' );
+is_deeply( $dispatcher->get_skill_config('dep-skill'), {}, 'get_skill_config hides disabled skill config from runtime callers' );
+ok( !$manager->usage('dep-skill')->{enabled}, 'usage still works for disabled skills and reports them as disabled' );
+ok( !$manager->enable('dep-skill')->{error}, 'enable restores a disabled skill' );
+ok( $manager->is_enabled('dep-skill'), 'is_enabled reports true after re-enabling a skill' );
 my $hookless_repo = _create_skill_repo( $test_repos, 'hookless-skill', with_hook => 0, with_cpanfile => 0 );
 ok( !$manager->install( 'file://' . $hookless_repo )->{error}, 'hookless skill installs cleanly' );
 is_deeply( $dispatcher->execute_hooks( 'hookless-skill', 'run-test' ), { hooks => {}, result_state => {} }, 'execute_hooks returns an empty result when no hook directory exists' );

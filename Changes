@@ -1,5 +1,24 @@
 Revision history for Developer Dashboard
 
+2.26  2026-04-11
+    - added `dashboard skills enable <repo-name>` and
+      `dashboard skills disable <repo-name>` so installed skills can be
+      toggled without uninstalling their isolated runtime trees
+    - expanded `dashboard skills list` to report enabled state plus CLI,
+      page, docker, collector, and indicator counts in JSON, with optional
+      `-o table` output for terminal inspection
+    - added `dashboard skills usage <repo-name>` with default JSON output and
+      optional `-o table` rendering, including CLI hook metadata, page/nav
+      inventory, docker service files, merged config key, and collector
+      indicator details even for disabled skills
+    - removed disabled skills from normal runtime lookup so dotted command
+      dispatch, browser routes, collector loading, config merge, docker root
+      discovery, and shared nav rendering stop using them until they are
+      explicitly re-enabled
+    - updated the README, main POD, integration plan, and release-metadata
+      gate so the supported skill inventory and activation lifecycle stays
+      documented and regression-checked
+
 2.25  2026-04-10
     - excluded the repo-only `integration/` verification helpers from the
       release tarball so CPAN and PAUSE installs ship runtime assets instead

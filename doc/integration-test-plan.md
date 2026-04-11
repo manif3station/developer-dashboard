@@ -51,8 +51,11 @@ skill regressions outside the blank-container harness:
 Those focused skill checks currently verify the installed-skill command and
 page dispatch rules, the merged skill config behavior, repo-qualified skill
 collectors joining the managed fleet used by `serve` / `restart` / `stop`,
-and shared nav rendering from every installed skill on both skill routes and
-normal `/app/<page>` routes such as `/app/index`.
+shared nav rendering from every installed skill on both skill routes and
+normal `/app/<page>` routes such as `/app/index`, the `dashboard skills list`
+and `dashboard skills usage <repo>` inventory payloads, and the enable/disable
+runtime boundary where disabled skills stay installed but stop contributing
+commands, routes, collectors, and docker roots until they are re-enabled.
 
 ## Environment
 

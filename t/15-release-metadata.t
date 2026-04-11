@@ -52,10 +52,10 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '2.25', 'repo version bumped for the release tarball trim of repo-only assets' );
-like( $pm, qr/^2\.25$/m, 'main POD version matches the module version' );
+is( $version, '2.26', 'repo version bumped for the release tarball trim of repo-only assets' );
+like( $pm, qr/^2\.26$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 2\.25$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = 2\.26$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
     like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
     like( $dist, qr/^exclude_match = \^integration\/$/m, 'dist.ini excludes integration assets so repo-only verification helpers do not leak into release tarballs' );
@@ -66,9 +66,9 @@ if ( $dist ne '' ) {
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
 }
 else {
-    like( $meta, qr/"version"\s*:\s*"2\.25"/, 'META.json version matches the module version in the built distribution' );
+    like( $meta, qr/"version"\s*:\s*"2\.26"/, 'META.json version matches the module version in the built distribution' );
 }
-like( $changes, qr/^2\.25\s+2026-04-10$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^2\.26\s+2026-04-11$/m, 'Changes top entry matches the bumped version' );
 
 for my $path (
     qw(
@@ -255,10 +255,15 @@ for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
     like( $doc, qr/dashboard skills install/, 'README documents skill installation' );
     like( $doc, qr/dashboard skills uninstall/, 'README documents skill uninstallation' );
     like( $doc, qr/dashboard skills update/, 'README documents skill updates' );
+    like( $doc, qr/dashboard skills enable/, 'README documents skill enablement' );
+    like( $doc, qr/dashboard skills disable/, 'README documents skill disablement' );
+    like( $doc, qr/dashboard skills usage/, 'README documents skill usage inspection' );
+    like( $doc, qr/dashboard skills list -o table|dashboard skills usage example-skill -o table/, 'README documents table output for skill inspection' );
     like( $doc, qr/dashboard skill example-skill|dashboard example-skill\.somecmd/, 'README documents isolated skill command dispatch' );
     like( $doc, qr/aptfile/, 'README documents skill apt dependency bootstrap' );
     like( $doc, qr/_example-skill|_<repo-name>/, 'README documents underscored skill config merge keys' );
     like( $doc, qr{/app/<repo-name>|/app/<repo-name>/<page>}, 'README documents app-style skill routes' );
+    like( $doc, qr/disabled skills.*re-enabled|re-enabled.*disabled skills/is, 'README documents disabled-skill runtime exclusion and restoration' );
 }
 like( $release_doc, qr/dzil build/, 'release doc still documents the dzil build step' ) if $release_doc ne '';
 like( $release_doc, qr/cpanm .*Developer-Dashboard-1\.\d+\.tar\.gz/, 'release doc still documents tarball installation verification' ) if $release_doc ne '';

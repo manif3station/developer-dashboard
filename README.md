@@ -1187,18 +1187,63 @@ Docker files into the normal runtime folders.
 
 ```bash
 dashboard skills list
+dashboard skills list -o table
 ```
 
-Returns JSON output showing installed skills with metadata:
-- skill name (derived from repository name)
-- path to installed skill directory
-- whether skill has configuration, CLI commands, `aptfile`, and `cpanfile`
+The default output is JSON. It returns a `skills` array where each item reports:
+- repo name
+- installed path
+- `enabled` as a JSON boolean
+- CLI command, page, docker service, collector, and indicator counts
+- JSON booleans for `has_config`, `has_aptfile`, and `has_cpanfile`
+
+Use `-o table` for a terminal view with the columns `Repo`, `Enabled`, `CLI`,
+`Pages`, `Docker`, `Collectors`, and `Indicators`. The `Enabled` column uses
+green and red tick markers so disabled skills stand out immediately.
+
+**Inspect one installed skill:**
+
+```bash
+dashboard skills usage example-skill
+dashboard skills usage example-skill -o table
+```
+
+The default output is JSON. It returns the installed skill state even when the
+skill is disabled, including:
+- CLI commands plus whether each command has hooks and how many
+- bookmark pages and `dashboards/nav/*` entries
+- docker service folders and the files inside each one
+- the merged config key such as `_example-skill`
+- declared collectors, their repo-qualified names, and indicator metadata
 
 **Update a skill** to the latest version:
 
 ```bash
 dashboard skills update example-skill
 ```
+
+**Disable a skill** without uninstalling it:
+
+```bash
+dashboard skills disable example-skill
+```
+
+Disabling keeps the checkout under `~/.developer-dashboard/skills/<repo-name>/`
+but removes it from normal runtime lookup. That means:
+- `dashboard skill <repo-name> <command>` and `dashboard <repo-name>.<command>` stop dispatching into that skill
+- `/app/<repo-name>` and `/app/<repo-name>/<page>` stop serving that skill's pages
+- skill collectors, docker roots, config, and shared nav stop joining the active runtime
+- `dashboard skills list` and `dashboard skills usage <repo-name>` still report the installed skill so it can be inspected and re-enabled later
+
+**Enable a previously disabled skill:**
+
+```bash
+dashboard skills enable example-skill
+```
+
+Enabling removes the local disabled marker and restores the skill to command
+dispatch, browser routes, collector loading, docker lookup, config merge, and
+shared nav rendering.
 
 **Execute a skill command:**
 
@@ -1251,6 +1296,7 @@ Skill fleet integration:
 - `dashboard serve`, `dashboard restart`, and `dashboard stop` now manage those skill collectors together with the system-owned collectors
 - skill collector names are normalized to `<repo-name>.<collector-name>` so collector process titles, status rows, and indicator state stay unambiguous
 - indicator configuration attached to those skill collectors participates in the normal prompt and browser status flow
+- disabled skills are excluded from that fleet until they are re-enabled
 
 Skill browser routes:
 
@@ -1259,6 +1305,7 @@ Skill browser routes:
 - `dashboards/nav/*` is loaded into those skill app routes and into the shared nav strip above normal saved `/app/<page>` routes such as `/app/index`, so every installed skill can contribute top-level nav at once
 - the older `/skill/<repo-name>/bookmarks/<id>` route still works for direct
   bookmark rendering
+- disabled skills drop out of both the dedicated skill routes and the shared nav strip until they are re-enabled
 
 Skill dependency and docker layering:
 
@@ -1267,6 +1314,7 @@ Skill dependency and docker layering:
   skill-local `local/` tree
 - skill `config/docker/...` roots participate in docker service discovery after
   the home runtime docker config and before deeper project-layer overrides
+- disabled skills are skipped by docker root discovery until they are re-enabled
 
 ### Skill Authoring
 
@@ -1294,6 +1342,12 @@ underscored config merge keys such as `_example-skill`, `aptfile`-then-`cpanfile
 dependency install order, skill docker layering, and when to use
 dashboard-wide custom CLI hook folders such as
 `~/.developer-dashboard/cli/<command>.d` instead of a skill-local hook tree.
+
+For operators rather than authors, `dashboard skills list`,
+`dashboard skills usage <repo-name>`, `dashboard skills disable <repo-name>`,
+and `dashboard skills enable <repo-name>` are the supported controls for
+inventorying and toggling installed skills without deleting their isolated
+runtime trees.
 
 ### Blank Environment Integration
 
