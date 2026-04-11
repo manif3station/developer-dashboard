@@ -89,7 +89,10 @@ The integration run creates:
 
 1. Build the distribution tarball on the host with `dzil build`.
 2. Start the blank container with only that host-built tarball mounted into it.
-3. Install the mounted tarball with `cpanm`.
+3. Copy the mounted tarball to a versioned local path inside the container and
+   install that staged tarball with `cpanm`. The staged filename must keep the
+   concrete `Developer-Dashboard-X.XX.tar.gz` version so `cpanm` cannot drift
+   into a CPAN lookup because the bind-mounted filename is generic.
 4. Create the fake-project `./.developer-dashboard` tree only after that install step succeeds so the tarball's own tests still run against a clean runtime.
 5. Extract the same tarball inside the container for the rest of the installed-command checks.
 6. Verify the installed CLI responds to `dashboard help`.

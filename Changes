@@ -1,5 +1,20 @@
 Revision history for Developer Dashboard
 
+2.33  2026-04-11
+    - removed the singular `dashboard skill <repo-name> <command>` public
+      command so installed skill execution now stays on the dotted
+      `dashboard <repo-name>.<command>` route
+    - rerouted dotted skill execution through the remaining private
+      `skills` helper and removed the retired private `skill` helper asset
+      from the staged/runtime release surface
+    - taught helper staging to remove the old managed `skill` helper from the
+      home runtime and updated the synced manuals, skill authoring guide, and
+      release metadata to document the dotted-only command contract
+    - fixed the blank-environment tarball install path by staging the mounted
+      release artifact to a versioned local tarball name before `cpanm`, so
+      the integration harness always installs the host-built dist instead of
+      drifting to a CPAN lookup when the bind-mounted filename is generic
+
 2.31  2026-04-11
     - applied the DD-OOP-LAYERS contract to skills so install now writes into
       the deepest participating layer while skill lookup inherits from deepest

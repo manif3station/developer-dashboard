@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.31';
+our $VERSION = '2.33';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.31
+2.33
 
 =head1 INTRODUCTION
 
@@ -1908,7 +1908,6 @@ from normal runtime lookup. That means:
 
 =item *
 
-C<dashboard skill E<lt>repo-nameE<gt> E<lt>commandE<gt>> and
 C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> stop dispatching into that
 skill
 
@@ -1940,10 +1939,9 @@ shared nav rendering.
 
 Execute a skill command:
 
-  dashboard skill example-skill somecmd arg1 arg2
   dashboard example-skill.somecmd arg1 arg2
 
-The dotted form is the short public route. If C<example-skill> is installed and
+The dotted form is the public route. If C<example-skill> is installed and
 ships C<cli/somecmd>, C<dashboard example-skill.somecmd> resolves the correct
 isolated skill root, runs sorted hooks from C<cli/somecmd.d/>, and then runs the
 main command.
@@ -2126,8 +2124,7 @@ re-enabled
 To build a new skill, start with a Git repository that contains C<cli/>,
 C<config/config.json>, and optional C<dashboards/>, C<dashboards/nav/>,
 C<state/>, C<logs/>, C<local/>, C<aptfile>, and C<cpanfile> files under the
-skill root. Skill commands are file-based commands run through either
-C<dashboard skill E<lt>repo-nameE<gt> E<lt>commandE<gt>> or the short
+skill root. Skill commands are file-based commands run through the dotted
 C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> form. Skill hook files live
 under C<cli/E<lt>commandE<gt>.d/>, skill app pages render from
 C</app/E<lt>repo-nameE<gt>> and C</app/E<lt>repo-nameE<gt>/E<lt>idE<gt>>, and

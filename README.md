@@ -1240,7 +1240,7 @@ dashboard skills disable example-skill
 
 Disabling keeps the checkout in its current layered skills root but removes it
 from normal runtime lookup. That means:
-- `dashboard skill <repo-name> <command>` and `dashboard <repo-name>.<command>` stop dispatching into that skill
+- `dashboard <repo-name>.<command>` stops dispatching into that skill
 - `/app/<repo-name>` and `/app/<repo-name>/<page>` stop serving that skill's pages
 - skill collectors, docker roots, config, and shared nav stop joining the active runtime
 - `dashboard skills list` and `dashboard skills usage <repo-name>` still report the installed skill so it can be inspected and re-enabled later
@@ -1258,11 +1258,10 @@ shared nav rendering.
 **Execute a skill command:**
 
 ```bash
-dashboard skill example-skill somecmd arg1 arg2
 dashboard example-skill.somecmd arg1 arg2
 ```
 
-The dotted form is the short public route. If `example-skill` is installed and
+The dotted form is the public route. If `example-skill` is installed and
 ships `cli/somecmd`, `dashboard example-skill.somecmd` resolves the correct
 isolated skill root, runs sorted hooks from `cli/somecmd.d/`, and then runs the
 main command.
@@ -1332,8 +1331,7 @@ Skill dependency and docker layering:
 To build a new skill, start with a Git repository that contains `cli/`,
 `config/config.json`, and optional `dashboards/`, `dashboards/nav/`, `state/`,
 `logs/`, `local/`, `aptfile`, and `cpanfile` files under the skill root. Skill
-commands are file-based commands run through either
-`dashboard skill <repo-name> <command>` or the short
+commands are file-based commands run through the dotted
 `dashboard <repo-name>.<command>` form. Skill hook files live under
 `cli/<command>.d/`, skill app pages render from `/app/<repo-name>` and
 `/app/<repo-name>/<id>`, and the older `/skill/<repo-name>/bookmarks/<id>`

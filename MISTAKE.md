@@ -4,6 +4,21 @@ MISTAKE.md is ELLEN's dictionary of past mistakes. Every major mistake gets a co
 
 ---
 
+## CODE: CPANM-GENERIC-TARBALL-DRIFT
+
+**Date:** 2026-04-11 21:30:00 UTC
+**Area:** blank-environment integration harness and packaged tarball installation
+**Symptom:** The blank-environment gate extracted the freshly built `Developer-Dashboard-2.32.tar.gz`, but the `cpanm` install step silently built and installed an older `Developer-Dashboard-1.04` distribution instead
+**Why It Was Dangerous:** It made the blank-container gate look like it was validating the current release while actually exercising an older CPAN dist, which could hide real packaging regressions and create false confidence about release readiness
+**Root Cause:** The bind-mounted artifact path inside the container was the generic `/artifacts/Developer-Dashboard.tar.gz`. `cpanm` did not stay on that mounted file path; it resolved through its normal dist lookup path and materialized a different `DD.tgz` from CPAN because the install target basename did not carry the concrete release version
+**How Ellen Solved It:** Proved the mounted artifact itself was correct by inspecting the tarball inside the container, compared it with the `DD.tgz` that `cpanm` actually unpacked, then changed `integration/blank-env/run-integration.pl` to copy the mounted tarball to `/tmp/Developer-Dashboard-$expected_version.tar.gz` before invoking `cpanm`, and added a regression guard in `t/13-integration-assets.t`
+**How To Detect Earlier Next Time:** When a blank-env `cpanm` install behaves strangely, inspect the mounted tarball inside the container, compare its checksum and extracted root with `/root/.cpanm/work/*/DD.tgz`, and verify the `cpanm` command line includes a versioned local tarball path
+**Prevention Rule:** Any blank-environment or Windows-style tarball install that relies on `cpanm` must stage the host-built artifact to a concrete versioned local filename before install. Do not hand a generic bind-mounted filename directly to `cpanm`
+**Verification:** `prove -lv t/13-integration-assets.t`, `integration/blank-env/run-host-integration.sh`
+**Related Files:** `integration/blank-env/run-integration.pl`, `t/13-integration-assets.t`, `doc/integration-test-plan.md`, `Changes`, `FIXED_BUGS.md`
+
+---
+
 ## CODE: SKILL-RUNTIME-LAYER-AND-ROUTING-DRIFT
 
 **Date:** 2026-04-10 20:40:00 UTC

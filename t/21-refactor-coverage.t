@@ -499,6 +499,7 @@ ok( grep( $_ =~ m{/\Qticket\E$}, @$seeded_helpers ), 'ensure_helpers writes the 
 ok( grep( $_ =~ m{/\Qpath\E$}, @$seeded_helpers ), 'ensure_helpers writes the private path helper' );
 ok( grep( $_ =~ m{/\Qpaths\E$}, @$seeded_helpers ), 'ensure_helpers writes the private paths helper' );
 ok( grep( $_ =~ m{/\Qps1\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ps1 helper' );
+ok( !grep( $_ =~ m{/\Qskill\E$}, @$seeded_helpers ), 'ensure_helpers no longer stages the removed singular skill helper' );
 ok(
     Developer::Dashboard::SeedSync::file_matches_content_md5(
         File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'dd', 'jq' ),
@@ -576,6 +577,32 @@ ok(
     my $managed_verify = do { local $/; <$managed_verify_fh> };
     close $managed_verify_fh;
     is( $managed_verify, $managed_body, '_stage_managed_helper leaves an already-managed matching helper unchanged on disk' );
+}
+{
+    my $cleanup_home = tempdir( CLEANUP => 1 );
+    my $cleanup_paths = Developer::Dashboard::PathRegistry->new( home => $cleanup_home );
+    my $cleanup_cli_root = File::Spec->catdir( $cleanup_home, '.developer-dashboard', 'cli', 'dd' );
+    make_path($cleanup_cli_root);
+    my $legacy_skill = File::Spec->catfile( $cleanup_cli_root, 'skill' );
+    open my $legacy_skill_fh, '>', $legacy_skill or die "Unable to write $legacy_skill: $!";
+    print {$legacy_skill_fh} Developer::Dashboard::InternalCLI::_managed_helper_content('jq');
+    close $legacy_skill_fh;
+    open my $legacy_read_fh, '<', $legacy_skill or die "Unable to read $legacy_skill: $!";
+    my $legacy_body = do { local $/; <$legacy_read_fh> };
+    close $legacy_read_fh;
+    $legacy_body =~ s/developer-dashboard-managed-helper: jq/developer-dashboard-managed-helper: skill/;
+    open my $legacy_write_fh, '>', $legacy_skill or die "Unable to rewrite $legacy_skill: $!";
+    print {$legacy_write_fh} $legacy_body;
+    close $legacy_write_fh;
+
+    ok(
+        Developer::Dashboard::InternalCLI::_remove_retired_managed_helper(
+            paths => $cleanup_paths,
+            name  => 'skill',
+        ),
+        '_remove_retired_managed_helper removes a dashboard-managed legacy skill helper',
+    );
+    ok( !-e $legacy_skill, '_remove_retired_managed_helper deletes the retired managed helper from disk' );
 }
 ok(
     Developer::Dashboard::InternalCLI::_is_dashboard_managed_helper(

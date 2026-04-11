@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '2.31';
+our $VERSION = '2.33';
 
 1;
 
@@ -25,7 +25,6 @@ Skill lifecycle:
   dashboard skills install git@github.com:user/example-skill.git
   dashboard skills update example-skill
   dashboard skills list
-  dashboard skill example-skill hello arg1 arg2
   dashboard example-skill.hello arg1 arg2
   dashboard skills uninstall example-skill
 
@@ -83,7 +82,6 @@ Install it:
 
 Run its command:
 
-  dashboard skill example-skill hello
   dashboard example-skill.hello
 
 Open its bookmark:
@@ -107,8 +105,7 @@ The prepared layout is:
 =item B<cli/>
 
 Executable skill commands. These are run through
-C<dashboard skill E<lt>repo-nameE<gt> E<lt>commandE<gt>> or the short
-C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> form and are not installed
+C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> and are not installed
 into the system PATH.
 
 =item B<cli/E<lt>commandE<gt>.d/>

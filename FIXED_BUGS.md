@@ -1,5 +1,30 @@
 # Fixed Bugs
 
+## 2026-04-11 (Phase 96: Blank-Env Cpanm Generic Tarball Drift)
+
+- Fixed the blank-environment install path so the integration harness now
+  stages the mounted tarball to a versioned local `/tmp/Developer-Dashboard-X.XX.tar.gz`
+  path before invoking `cpanm`.
+- Fixed the release-gate drift where `cpanm` could treat the generic mounted
+  `/artifacts/Developer-Dashboard.tar.gz` filename like a lookup target and
+  install an older CPAN release instead of the just-built host artifact.
+- Added TDD coverage in `t/13-integration-assets.t` and updated the blank-env
+  runner POD and integration plan so the versioned staging rule remains
+  explicit.
+
+## 2026-04-11 (Phase 95: Singular Skill Command Surface Drift)
+
+- Removed the singular `dashboard skill <repo-name> <command>` public command
+  so installed skill execution now uses the dotted
+  `dashboard <repo-name>.<command>` route consistently.
+- Rerouted dotted skill execution through the remaining staged `skills`
+  helper and dropped the retired private `share/private-cli/skill` asset from
+  the release surface.
+- Taught helper staging to remove the old dashboard-managed
+  `~/.developer-dashboard/cli/dd/skill` helper on refresh and updated the
+  synced manuals, shipped skill guide, and release metadata to keep the
+  dotted-only command contract explicit.
+
 ## 2026-04-11 (Phase 94: Scorecard License Recognition Drift)
 
 - Fixed the live Scorecard `License` check drift by replacing the root

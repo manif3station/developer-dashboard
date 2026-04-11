@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 use File::Basename qw(dirname);
+use File::Copy qw(copy);
 use File::Path qw(make_path remove_tree);
 use File::Spec;
 use IO::Select;
@@ -50,6 +51,8 @@ sub main {
     _assert( defined $source_root && -d $source_root, 'extracted tarball produced one source root' );
     my $expected_version = _distribution_version($source_root);
     _assert( defined $expected_version && $expected_version ne '', 'extracted tarball exposes a distribution version' );
+    my $install_tarball = _versioned_install_tarball_path($expected_version);
+    _copy_file( $tarball, $install_tarball );
 
     _write_text(
         File::Spec->catfile( $compose, 'compose.yaml' ),
@@ -168,7 +171,7 @@ BOOKMARK
 
     _run_shell( 'init fake project git repo', 'git init ' . _shell_quote($project) );
 
-    my $install = _run_shell( 'cpanm install host-built tarball', 'cpanm ' . _shell_quote($tarball) );
+    my $install = _run_shell( 'cpanm install host-built tarball', 'cpanm ' . _shell_quote($install_tarball) );
     _assert( $install->{exit_code} == 0, 'cpanm installed host-built distribution tarball' );
 
     my $bare = _run_shell( 'dashboard bare usage', 'dashboard', allow_fail => 1 );
@@ -775,6 +778,32 @@ sub _distribution_version {
     return;
 }
 
+# _versioned_install_tarball_path($expected_version)
+# Builds a local tarball path whose basename includes the release version for cpanm.
+# Input: extracted distribution version string.
+# Output: container-local tarball path string.
+sub _versioned_install_tarball_path {
+    my ($expected_version) = @_;
+    die "Missing expected version for cpanm install tarball path\n"
+      if !defined $expected_version || $expected_version eq '';
+    return File::Spec->catfile( '/tmp', "Developer-Dashboard-$expected_version.tar.gz" );
+}
+
+# _copy_file($source, $destination)
+# Copies one file to another path, creating parent directories when needed.
+# Input: source file path string and destination file path string.
+# Output: destination path string after a successful copy.
+sub _copy_file {
+    my ( $source, $destination ) = @_;
+    die "Missing source file path for copy\n" if !defined $source || $source eq '';
+    die "Missing destination file path for copy\n" if !defined $destination || $destination eq '';
+    my $dir = dirname($destination);
+    make_path($dir) if defined $dir && $dir ne '' && !-d $dir;
+    copy( $source, $destination )
+      or die "Unable to copy $source to $destination: $!";
+    return $destination;
+}
+
 # _decode_json_tail($text)
 # Decodes the trailing JSON object or array embedded at the end of command output.
 # Input: output text string.
@@ -885,9 +914,10 @@ run-integration.pl - blank-environment Docker integration runner for a host-buil
 =head1 DESCRIPTION
 
 This script expects a host-built C<Developer-Dashboard> tarball to be mounted
-into the container. It installs that tarball with C<cpanm>, extracts it to a
-temporary source tree for update-script execution, and then exercises the
-installed C<dashboard> CLI and web runtime against a fake project.
+into the container. It extracts that tarball to a temporary source tree,
+stages a versioned local tarball copy for C<cpanm> so the install stays on the
+host-built artifact rather than drifting to a CPAN lookup, and then exercises
+the installed C<dashboard> CLI and web runtime against a fake project.
 
 =head1 FUNCTIONS
 

@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '2.31';
+our $VERSION = '2.33';
 
 use File::Spec;
 use JSON::XS qw(encode_json decode_json);
@@ -409,7 +409,7 @@ Construct it with a skill manager, call C<dispatch> for one command invocation, 
 
 =head1 WHAT USES IT
 
-It is used by the C<dashboard skill> command, by the skill bookmark web routes, by skill installation flows that later need execution, and by skill-system and web-route regression tests.
+It is used by dotted C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> dispatch routed through the C<skills> helper, by the skill bookmark web routes, by skill installation flows that later need execution, and by skill-system and web-route regression tests.
 
 =head1 EXAMPLES
 
