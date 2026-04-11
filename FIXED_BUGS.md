@@ -1,5 +1,16 @@
 # Fixed Bugs
 
+## 2026-04-11 (Phase 93: Scorecard License Recognition Drift)
+
+- Fixed the live Scorecard `License` check drift by replacing the root
+  `LICENSE` file with a canonical Artistic license text that GitHub can
+  classify instead of an undecidable dual-license blob.
+- Added `LICENSE-GPL-1.0-or-later` so the alternative Perl 5 GPL option
+  remains explicit in the repository while the root license file stays
+  machine-recognizable.
+- Expanded `t/34-scorecard-guardrails.t` so TDD now locks the new license
+  layout in place before the post-push Scorecard gate runs again.
+
 ## 2026-04-11 (Phase 92: Release README Kwalitee Drift)
 
 - Fixed the built-distribution kwalitee failure where the host-built tarball

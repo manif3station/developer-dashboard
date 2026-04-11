@@ -1,6 +1,6 @@
 Revision history for Developer Dashboard
 
-2.29  2026-04-11
+2.30  2026-04-11
     - applied the DD-OOP-LAYERS contract to skills so install now writes into
       the deepest participating layer while skill lookup inherits from deepest
       layer back to home
@@ -17,6 +17,9 @@ Revision history for Developer Dashboard
     - updated the product docs and release metadata so the layered skill
       contract is explicit instead of still documenting skills as home-only,
       and so the built tarball now carries a top-level readme again
+    - fixed live Scorecard license detection by replacing the composite root
+      `LICENSE` blob with a canonical Artistic text and shipping the
+      alternative GPL text separately in `LICENSE-GPL-1.0-or-later`
 
 2.26  2026-04-11
     - added `dashboard skills enable <repo-name>` and

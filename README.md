@@ -1419,6 +1419,13 @@ uses `LWP::UserAgent` for real outbound HTTP in active runtime paths such as
 the saved `api-dashboard` request runner and the Java source lookup or mirror
 path behind `dashboard of` and `dashboard open-file`.
 
+## License
+
+This library is free software; you can redistribute it and/or modify it under
+the same terms as Perl itself. The repository root `LICENSE` file carries a
+canonical Artistic License text for GitHub and Scorecard detection, and the
+alternative GPL text lives in `LICENSE-GPL-1.0-or-later`.
+
 ## Testing And Coverage
 
 Run the test suite:
@@ -1489,6 +1496,9 @@ loop is `fix -> test -> commit -> push -> rerun scorecard`. If a Scorecard
 check stays below `10 / 10`, record the exact blocker and whether it is
 repo-side, GitHub-side, or historically impossible to change from the working
 tree alone.
+The license side of that gate expects the repository root `LICENSE` to stay a
+single canonical Artistic text that GitHub can classify, while the alternative
+Perl GPL option remains available in `LICENSE-GPL-1.0-or-later`.
 
 From a source checkout, for fast saved-bookmark browser regressions, run the
 dedicated smoke script:

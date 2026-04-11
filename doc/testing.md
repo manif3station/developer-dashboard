@@ -88,6 +88,9 @@ and treat any shipped `*.md` file as a release-gate failure.
 The built distribution should still ship a plain top-level `README`, so CPAN
 and kwalitee consumers receive a readme without reopening the checkout-only
 documentation set.
+The repository root `LICENSE` should also stay a single canonical Artistic
+license text that GitHub can classify, while the alternative Perl GPL option
+remains available in `LICENSE-GPL-1.0-or-later`.
 The same release boundary applies to repo-only verification and bootstrap
 folders: `integration/` and the top-level `updates/` checkout helpers are not
 installed runtime assets and must stay out of the release tarball. The shipped
