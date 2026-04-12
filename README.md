@@ -1189,9 +1189,16 @@ already has its own `.developer-dashboard/`, the install target becomes
 does not merge the skill's `cli/`, `dashboards/`, `config/`, `cpanfile`,
 `aptfile`, or Docker files into the normal runtime folders.
 
-Skill lookup also follows `DD-OOP-LAYERS`: the deepest matching repo name is
-the active skill, and a deeper skill shadows the same repo name from higher
-layers.
+Skill lookup also follows `DD-OOP-LAYERS`, but a same-named deeper skill is
+now layered instead of flattening the whole repo. The home
+`~/.developer-dashboard/skills/<repo-name>/` checkout is the base layer, and
+any deeper `.developer-dashboard/skills/<repo-name>/` checkout becomes an
+inherited layer for that same skill. Runtime lookup walks those participating
+skill layers for `cli/<command>`, `cli/<command>.d`, `dashboards/*`,
+`dashboards/nav/*`, `config/config.json`, and `local/lib/perl5`. If a child
+layer omits a file, folder, or config key, lookup falls back to the base
+layer. If multiple layers provide the same file or config key, the deepest
+layer still wins that override.
 
 **List installed skills:**
 
@@ -1263,6 +1270,9 @@ dashboard example-skill.somecmd arg1 arg2
 
 The dotted form is the public route. If `example-skill` is installed and
 ships `cli/somecmd`, `dashboard example-skill.somecmd` resolves the correct
+layered skill command. If the active child layer for that same repo omits
+`cli/somecmd`, the command falls back to the nearest inherited skill layer
+that still provides it.
 isolated skill root, runs sorted hooks from `cli/somecmd.d/`, and then runs the
 main command.
 

@@ -1,5 +1,18 @@
 # Fixed Bugs
 
+## 2026-04-12 (Phase 97: Same-Repo Skill Layer Fallback Drift)
+
+- Fixed same-repo `DD-OOP-LAYERS` skill fallback so a deeper
+  `skills/<repo-name>/` checkout no longer shadows the whole inherited skill
+  repo when it only overrides part of it.
+- Fixed layered skill runtime lookup so missing child-layer `cli/<command>`
+  files, missing bookmark files, missing `dashboards/nav/` folders, and
+  missing skill config keys now fall back to the base skill layer while
+  keeping deepest overrides for matching files and keys.
+- Expanded the focused skill regressions plus synced manuals so dotted skill
+  command dispatch, skill bookmark routes, nav discovery, and merged skill
+  config keep that same-repo layered fallback contract explicit.
+
 ## 2026-04-11 (Phase 96: Blank-Env Cpanm Generic Tarball Drift)
 
 - Fixed the blank-environment install path so the integration harness now

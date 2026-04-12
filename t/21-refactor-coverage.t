@@ -1502,6 +1502,14 @@ ok( !$manager->install( 'file://' . $shared_layer_repo )->{error}, 'shared layer
         'skills_roots resolves layered skill roots in deepest-first lookup order',
     );
     ok( !$layered_manager->install( 'file://' . $shared_layer_repo )->{error}, 'layered manager installs the shared skill into the project layer without clashing with the home copy' );
+    is_deeply(
+        [ $layered_paths->skill_roots_for('shared-layer-skill') ],
+        [
+            File::Spec->catdir( $layered_project_root, '.developer-dashboard', 'skills', 'shared-layer-skill' ),
+            File::Spec->catdir( $ENV{HOME}, 'skills-home', '.developer-dashboard', 'skills', 'shared-layer-skill' ),
+        ],
+        'skill_roots_for resolves one layered skill in deepest-first lookup order',
+    );
     is(
         $layered_manager->get_skill_path('shared-layer-skill'),
         File::Spec->catdir( $layered_project_root, '.developer-dashboard', 'skills', 'shared-layer-skill' ),
@@ -1614,6 +1622,27 @@ _write_file( File::Spec->catfile( $invalid_config_root, 'config', 'config.json' 
 is_deeply( $dispatcher->get_skill_config('hookless-skill'), {}, 'get_skill_config falls back to an empty hash for invalid JSON config' );
 is( $dispatcher->get_skill_path(''), undef, 'get_skill_path returns undef for empty skill names' );
 is( $dispatcher->get_skill_path('dep-skill'), $manager->get_skill_path('dep-skill'), 'get_skill_path returns the installed skill path for valid skills' );
+{
+    my $fallback_dispatcher = bless {
+        manager => bless(
+            {
+                paths => bless( {}, 'Local::NoSkillLayerPaths' ),
+            },
+            'Local::FallbackSkillManager'
+        ),
+    }, 'Developer::Dashboard::SkillDispatcher';
+    no warnings qw(redefine once);
+    local *Local::FallbackSkillManager::get_skill_path = sub {
+        my ( $self, $skill_name ) = @_;
+        return '' if !$skill_name;
+        return '/tmp/fallback-skill-root';
+    };
+    is_deeply(
+        [ $fallback_dispatcher->_skill_layers('fallback-skill') ],
+        ['/tmp/fallback-skill-root'],
+        '_skill_layers falls back to manager get_skill_path when the path registry does not expose layered helpers',
+    );
+}
 is( $dispatcher->command_path( '', 'run-test' ), undef, 'command_path returns undef for missing skill names' );
 is( $dispatcher->command_path( 'dep-skill', '' ), undef, 'command_path returns undef for missing command names' );
 is( $dispatcher->command_path( 'missing-skill', 'run-test' ), undef, 'command_path returns undef for unknown skills' );
@@ -1661,12 +1690,53 @@ is_deeply( $dispatcher->skill_nav_pages('no-nav-skill'), [], 'skill_nav_pages re
     my %env = $dispatcher->_skill_env(
         skill_name   => 'dep-skill',
         skill_path   => $manager->get_skill_path('dep-skill'),
+        skill_layers => [ $manager->get_skill_path('dep-skill') ],
         command      => 'run-test',
         result_state => { alpha => { stdout => "ok\n" } },
     );
     like( $env{PERL5LIB}, qr/\Q$local_lib\E/, '_skill_env prepends the skill-local perl library when present' );
     like( $env{RESULT}, qr/alpha/, '_skill_env serializes RESULT state for skill hooks and commands' );
 }
+is(
+    $dispatcher->_hook_result_key('/tmp/skill/cli/run-test.d/00-pre.pl'),
+    'run-test.d/00-pre.pl',
+    '_hook_result_key namespaces duplicate hook basenames by their hook directory',
+);
+is_deeply(
+    $dispatcher->_merge_named_hash_array(
+        [ { name => 'alpha', interval => 10 } ],
+        [ { name => 'alpha', interval => 20 }, { name => 'beta', interval => 30 } ],
+        'name',
+    ),
+    [
+        { name => 'alpha', interval => 20 },
+        { name => 'beta',  interval => 30 },
+    ],
+    '_merge_named_hash_array replaces matching logical entries while preserving new ones',
+);
+is_deeply(
+    $dispatcher->_merge_skill_hashes(
+        {
+            collectors => [ { name => 'alpha', interval => 10 } ],
+            providers  => [ { id => 'main', title => 'Home' } ],
+        },
+        {
+            collectors => [ { name => 'alpha', interval => 20 }, { name => 'beta', interval => 30 } ],
+            providers  => [ { id => 'main', title => 'Leaf' }, { id => 'extra', title => 'Extra' } ],
+        },
+    ),
+    {
+        collectors => [
+            { name => 'alpha', interval => 20 },
+            { name => 'beta',  interval => 30 },
+        ],
+        providers => [
+            { id => 'main',  title => 'Leaf' },
+            { id => 'extra', title => 'Extra' },
+        ],
+    },
+    '_merge_skill_hashes merges collector and provider arrays by logical identity for layered skill config',
+);
 {
     my $files = Developer::Dashboard::FileRegistry->new( paths => $skill_paths );
     my $config = Developer::Dashboard::Config->new( files => $files, paths => $skill_paths );

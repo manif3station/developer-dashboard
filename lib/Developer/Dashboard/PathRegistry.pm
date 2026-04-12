@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '2.33';
+our $VERSION = '2.34';
 
 use Cwd qw(abs_path cwd);
 use File::Basename qw(dirname);
@@ -280,6 +280,42 @@ sub skill_root {
     my ( $self, $name ) = @_;
     die 'Missing skill name' if !defined $name || $name eq '';
     return $self->_ensure_dir( File::Spec->catdir( $self->skills_root, $name ) );
+}
+
+# skill_layers($name)
+# Returns the installed roots for one skill in inheritance order from home to
+# the deepest participating layer. A disabled deepest layer masks the whole
+# skill from normal runtime lookup.
+# Input: skill repository name string and optional include_disabled flag.
+# Output: ordered list of skill root directory path strings from home to leaf.
+sub skill_layers {
+    my ( $self, $name, %args ) = @_;
+    return () if !defined $name || $name eq '';
+
+    my @matches;
+    my $saw_effective = 0;
+    for my $skills_root ( $self->skills_roots ) {
+        my $skill_root = File::Spec->catdir( $skills_root, $name );
+        next if !-d $skill_root;
+        my $disabled = -f File::Spec->catfile( $skill_root, '.disabled' ) ? 1 : 0;
+        if ( !$saw_effective++ ) {
+            return () if !$args{include_disabled} && $disabled;
+        }
+        next if !$args{include_disabled} && $disabled;
+        push @matches, $skill_root;
+    }
+
+    return reverse @matches;
+}
+
+# skill_roots_for($name)
+# Returns the installed roots for one skill in lookup order from the deepest
+# participating layer back to home.
+# Input: skill repository name string and optional include_disabled flag.
+# Output: ordered list of skill root directory path strings from leaf to home.
+sub skill_roots_for {
+    my ( $self, $name, %args ) = @_;
+    return reverse $self->skill_layers( $name, %args );
 }
 
 # installed_skill_roots()

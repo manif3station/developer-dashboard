@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.33';
+our $VERSION = '2.34';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.33
+2.34
 
 =head1 INTRODUCTION
 
@@ -1820,9 +1820,18 @@ Developer Dashboard does not merge the skill's C<cli/>, C<dashboards/>,
 C<config/>, C<cpanfile>, C<aptfile>, or Docker files into the normal runtime
 folders.
 
-Skill lookup also follows C<DD-OOP-LAYERS>: the deepest matching repo name is
-the active skill, and a deeper skill shadows the same repo name from higher
-layers.
+Skill lookup also follows C<DD-OOP-LAYERS>, but a same-named deeper skill is
+now layered instead of flattening the whole repo. The home
+F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/> checkout is the base
+layer, and any deeper
+F<.developer-dashboard/skills/E<lt>repo-nameE<gt>/> checkout becomes an
+inherited layer for that same skill. Runtime lookup walks those
+participating skill layers for C<cli/E<lt>commandE<gt>>,
+C<cli/E<lt>commandE<gt>.d>, C<dashboards/*>, C<dashboards/nav/*>,
+C<config/config.json>, and C<local/lib/perl5>. If a child layer omits a file,
+folder, or config key, lookup falls back to the base layer. If multiple
+layers provide the same file or config key, the deepest layer still wins that
+override.
 
 List installed skills:
 
@@ -1943,6 +1952,9 @@ Execute a skill command:
 
 The dotted form is the public route. If C<example-skill> is installed and
 ships C<cli/somecmd>, C<dashboard example-skill.somecmd> resolves the correct
+layered skill command. If the active child layer for that same repo omits
+C<cli/somecmd>, the command falls back to the nearest inherited skill layer
+that still provides it.
 isolated skill root, runs sorted hooks from C<cli/somecmd.d/>, and then runs the
 main command.
 

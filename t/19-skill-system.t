@@ -6,7 +6,7 @@ use utf8;
 
 use Capture::Tiny qw(capture);
 use Cwd qw(getcwd);
-use File::Path qw(make_path);
+use File::Path qw(make_path remove_tree);
 use File::Spec;
 use File::Temp qw(tempdir);
 use JSON::XS qw(decode_json);
@@ -301,6 +301,25 @@ use strict;
 use warnings;
 print "home-layer\n";
 PL
+    config_body => <<'JSON',
+{
+  "skill_name": "shared-skill",
+  "base_only": "home",
+  "nested": {
+    "base": "home",
+    "shared": "home"
+  }
+}
+JSON
+    bookmark_body => <<'BOOKMARK',
+TITLE: Shared Skill Welcome
+:--------------------------------------------------------------------------------:
+BOOKMARK: welcome
+:--------------------------------------------------------------------------------:
+HTML:
+Home layer welcome
+BOOKMARK
+    nav_body => "<div>Home layer nav</div>\n",
 );
 my $layered_home_only_repo = _create_skill_repo(
     'home-only-skill',
@@ -351,20 +370,68 @@ PL
         File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'skills', 'home-only-skill' ),
         'layered skill lookup still inherits home-only skills',
     );
+    my $layered_skill_root = $layered_manager->get_skill_path('shared-skill');
+    unlink File::Spec->catfile( $layered_skill_root, 'cli', 'run-test' )
+      or die "Unable to remove layered skill command fixture: $!";
+    unlink File::Spec->catfile( $layered_skill_root, 'dashboards', 'welcome' )
+      or die "Unable to remove layered skill bookmark fixture: $!";
+    remove_tree( File::Spec->catdir( $layered_skill_root, 'dashboards', 'nav' ) );
+    _write_file(
+        File::Spec->catfile( $layered_skill_root, 'config', 'config.json' ),
+        <<'JSON',
+{
+  "skill_name": "shared-skill",
+  "nested": {
+    "leaf": "project",
+    "shared": "project"
+  }
+}
+JSON
+        0644,
+    );
+    is_deeply(
+        $layered_dispatcher->get_skill_config('shared-skill'),
+        {
+            skill_name => 'shared-skill',
+            base_only  => 'home',
+            nested     => {
+                base   => 'home',
+                leaf   => 'project',
+                shared => 'project',
+            },
+        },
+        'skill config merges inherited skill config keys and falls back to the base layer for missing keys',
+    );
     my $layered_dispatch = $layered_dispatcher->dispatch( 'shared-skill', 'run-test' );
-    like( $layered_dispatch->{stdout}, qr/project-layer/, 'dispatcher runs the deepest layered skill implementation' );
+    like( $layered_dispatch->{stdout}, qr/home-layer/, 'dispatcher falls back to the inherited base-layer skill command when the child-layer command file is missing' );
     my $layered_home_dispatch = $layered_dispatcher->dispatch( 'home-only-skill', 'run-test' );
     like( $layered_home_dispatch->{stdout}, qr/home-only/, 'dispatcher can still reach inherited home-layer skills beneath a project layer' );
     my ( $layered_dotted_stdout, $layered_dotted_stderr, $layered_dotted_exit ) = capture {
         system( $^X, '-I', 'lib', $repo_bin, 'shared-skill.run-test' );
     };
     is( $layered_dotted_exit >> 8, 0, 'dashboard <skill>.<command> resolves layered project-local skills' );
-    like( $layered_dotted_stdout, qr/project-layer/, 'dashboard <skill>.<command> dispatch prefers the deepest layered skill' );
+    like( $layered_dotted_stdout, qr/home-layer/, 'dashboard <skill>.<command> falls back to the inherited base-layer skill command when the child-layer command file is missing' );
     my ( $layered_inherited_stdout, $layered_inherited_stderr, $layered_inherited_exit ) = capture {
         system( $^X, '-I', 'lib', $repo_bin, 'home-only-skill.run-test' );
     };
     is( $layered_inherited_exit >> 8, 0, 'dashboard <skill>.<command> resolves inherited home-layer skills from deeper layers' );
     like( $layered_inherited_stdout, qr/home-only/, 'dashboard <skill>.<command> keeps inherited home-layer skills available' );
+    my $layered_bookmark_list = $layered_dispatcher->route_response( skill_name => 'shared-skill', route => 'bookmarks' );
+    is( $layered_bookmark_list->[0], 200, 'skill bookmark listings fall back to inherited base-layer files when the child layer does not provide them' );
+    is_deeply(
+        decode_json( $layered_bookmark_list->[2] ),
+        {
+            skill     => 'shared-skill',
+            bookmarks => ['welcome'],
+        },
+        'skill bookmark listings include inherited base-layer bookmark files when the child layer is missing them',
+    );
+    my $layered_bookmark = $layered_dispatcher->route_response( skill_name => 'shared-skill', route => 'bookmarks/welcome' );
+    is( $layered_bookmark->[0], 200, 'skill bookmark routes fall back to inherited base-layer files when the child-layer bookmark file is missing' );
+    like( $layered_bookmark->[2], qr/Home layer welcome/, 'skill bookmark routes render the inherited base-layer bookmark content' );
+    my $layered_nav_pages = $layered_dispatcher->skill_nav_pages('shared-skill');
+    is( scalar @{$layered_nav_pages}, 1, 'skill nav discovery falls back to the inherited base-layer nav folder when the child layer is missing it' );
+    like( $layered_nav_pages->[0]{layout}{body}, qr/Home layer nav/, 'skill nav discovery returns the inherited base-layer nav content' );
 
     chdir $cwd or die "Unable to chdir back to $cwd: $!";
 }
@@ -420,7 +487,7 @@ sub _create_skill_repo {
     if ( defined $args{hook_body} ) {
         _write_file( File::Spec->catfile( 'cli', 'run-test.d', '00-pre.pl' ), $args{hook_body}, 0755 );
     }
-    _write_file( File::Spec->catfile( 'config', 'config.json' ), qq|{"skill_name":"$name"}\n|, 0644 );
+    _write_file( File::Spec->catfile( 'config', 'config.json' ), $args{config_body} || qq|{"skill_name":"$name"}\n|, 0644 );
     _write_file( File::Spec->catfile( 'config', 'docker', 'postgres', 'compose.yml' ), "services: {}\n", 0644 );
     _write_file( 'cpanfile', "requires 'JSON::XS';\n", 0644 );
     if ( defined $args{aptfile_body} ) {
@@ -428,6 +495,10 @@ sub _create_skill_repo {
     }
     if ( defined $args{bookmark_body} ) {
         _write_file( File::Spec->catfile( 'dashboards', 'welcome' ), $args{bookmark_body}, 0644 );
+    }
+    if ( defined $args{nav_body} ) {
+        make_path( File::Spec->catdir( 'dashboards', 'nav' ) );
+        _write_file( File::Spec->catfile( 'dashboards', 'nav', 'skill.tt' ), $args{nav_body}, 0644 );
     }
 
     _run_or_die(qw(git add .));

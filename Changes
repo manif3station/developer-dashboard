@@ -1,5 +1,18 @@
 Revision history for Developer Dashboard
 
+2.34  2026-04-12
+    - fixed same-repo DD-OOP-LAYERS skill fallback so a deeper
+      `skills/<repo-name>/` layer no longer shadows the whole inherited skill
+      repo when it only overrides part of it
+    - layered skill command dispatch, bookmark lookup, nav discovery, skill
+      hook execution, skill config merge, and skill-local `local/lib/perl5`
+      exposure so missing child-layer files, folders, or config keys now fall
+      back to the base skill layer while deepest overrides still win
+    - added TDD coverage for same-repo layered skill fallback across dotted
+      command dispatch, bookmark routes, nav discovery, and merged skill
+      config, then updated the synced manuals and verification docs to keep
+      that contract explicit
+
 2.33  2026-04-11
     - removed the singular `dashboard skill <repo-name> <command>` public
       command so installed skill execution now stays on the dotted

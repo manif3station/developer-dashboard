@@ -56,6 +56,9 @@ normal `/app/<page>` routes such as `/app/index`, the `dashboard skills list`
 and `dashboard skills usage <repo>` inventory payloads, and the enable/disable
 runtime boundary where disabled skills stay installed but stop contributing
 commands, routes, collectors, and docker roots until they are re-enabled.
+They also verify same-repo `DD-OOP-LAYERS` fallback inside one skill checkout,
+including command-file fallback, bookmark-file fallback, nav-folder fallback,
+and inherited skill config-key fallback from the base skill layer.
 
 ## Environment
 
