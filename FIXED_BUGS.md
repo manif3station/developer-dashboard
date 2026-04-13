@@ -1,5 +1,17 @@
 # Fixed Bugs
 
+## 2026-04-13 (Phase 98: Tarball Kwalitee Drift Guard)
+
+- Added an explicit tarball-level kwalitee gate so release verification now
+  checks the built `Developer-Dashboard-X.XX.tar.gz` with
+  `Module::CPANTS::Analyse` and requires every indicator to pass.
+- Fixed the release workflow so tagged PAUSE automation installs the CPANTS
+  analyzer and reruns that focused tarball kwalitee gate immediately after
+  `dzil build`.
+- Documented that source-tree kwalitee probes are not the authoritative check
+  for this repository and that CPANTS drift must be verified against the built
+  tarball instead.
+
 ## 2026-04-12 (Phase 97: Same-Repo Skill Layer Fallback Drift)
 
 - Fixed same-repo `DD-OOP-LAYERS` skill fallback so a deeper

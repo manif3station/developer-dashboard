@@ -1479,6 +1479,16 @@ The packaged `t/09-runtime-manager.t` fallback assertions also stub ambient
 managed-web discovery explicitly, so tarball and PAUSE installs do not get
 contaminated by unrelated live dashboard-shaped processes already running on
 the host.
+Release kwalitee is also a hard tarball-level gate. After `dzil build`, run:
+
+```bash
+prove -lv t/36-release-kwalitee.t
+```
+
+That gate analyzes the built `Developer-Dashboard-X.XX.tar.gz` with
+`Module::CPANTS::Analyse` and fails unless every reported kwalitee indicator
+passes. Do not trust source-tree kwalitee probes for this repository; use the
+built tarball because that is the artifact PAUSE and CPANTS actually inspect.
 Tests that depend on a missing or empty environment variable now establish that
 state explicitly inside the test file, rather than assuming the parent shell
 or install harness starts clean.

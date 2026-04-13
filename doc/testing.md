@@ -70,6 +70,11 @@ That same focused skill regression now also locks the same-repo
 fallback for missing `cli/<command>` files, missing bookmark files, missing
 `dashboards/nav/` folders, and missing skill config keys.
 The release-metadata checks also reject repeated FULL-POD-DOC template prose in shipped Perl assets, so contributors have to document the actual responsibility of each module or staged helper instead of pasting one generic block across the tree. The release gate also treats one-line or placeholder POD as a failure: shipped Perl docs must cover real inputs, outputs or side effects, command/runtime position, and multiple concrete examples.
+The tarball release gate now also includes `t/36-release-kwalitee.t`, which
+reads the built `Developer-Dashboard-X.XX.tar.gz` through
+`Module::CPANTS::Analyse` and fails unless every kwalitee indicator passes.
+Use that tarball-focused check for CPANTS drift; the source tree itself is not
+the right surface for this analyzer.
 The contributor contract now lives here plus `AGENTS.override.md` and
 `agents.md`, not in the top-level product manual in `README.md` or
 `Developer::Dashboard.pm`. Those two files stay synced as user-facing product

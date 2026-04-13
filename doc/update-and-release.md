@@ -265,6 +265,7 @@ Before publishing to PAUSE, remove older build directories and tarballs first so
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz
 dzil build
+prove -lv t/36-release-kwalitee.t
 tar -tzf Developer-Dashboard-1.46.tar.gz | grep run-host-integration.sh
 cpanm /tmp/Developer-Dashboard-1.46.tar.gz -v
 ```
@@ -272,6 +273,10 @@ cpanm /tmp/Developer-Dashboard-1.46.tar.gz -v
 The release gather rules must also exclude local coverage output such as
 `cover_db`, so a covered test run before `dzil build` does not leak
 Devel::Cover artifacts into the public tarball.
+Treat `t/36-release-kwalitee.t` as the explicit 100 percent kwalitee gate for
+the tarball that will ship. It analyzes the built release archive through
+`Module::CPANTS::Analyse`, and it is the correct local check when a CPANTS
+page claims something lower than full marks.
 
 Scorecard now also expects a real GitHub release asset set, not just a local
 tag. After the release tarball is built and verified, publish a GitHub release

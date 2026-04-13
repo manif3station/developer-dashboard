@@ -49,6 +49,7 @@ jobs:
           cpanm --notest Dist::Zilla::Plugin::ManifestSkip
           cpanm --notest Dist::Zilla::Plugin::MetaProvides::Package
           cpanm --notest Dist::Zilla::Plugin::PkgVersion
+          cpanm --notest Module::CPANTS::Analyse
           cpanm --notest CPAN::Uploader
 
       - name: Run tests
@@ -66,6 +67,10 @@ jobs:
       - name: Build distribution tarball
         run: |
           dzil build
+
+      - name: Verify tarball kwalitee
+        run: |
+          prove -lv t/36-release-kwalitee.t
 
       - name: Verify built distribution smoke
         run: |
