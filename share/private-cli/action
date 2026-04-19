@@ -1,0 +1,83 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use File::Basename qw(basename);
+use File::Spec;
+use FindBin qw($Bin);
+
+my $command = basename($0);
+my $core = File::Spec->catfile( $Bin, '_dashboard-core' );
+exec { $^X } $^X, $core, $command, @ARGV;
+die "Unable to exec $core for $command: $!";
+
+__END__
+
+=pod
+
+=head1 NAME
+
+action - private built-in command wrapper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard action ...
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/dd/> so the
+public C<dashboard> entrypoint can stay a thin switchboard.
+
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+This staged helper exposes the page-action command surface, especially C<dashboard action run>. It keeps the public command available after helper staging while leaving page-action execution policy inside the action runtime.
+
+=head1 WHY IT EXISTS
+
+It exists because page actions are a built-in dashboard capability, but their CLI wrapper should remain a small staged entrypoint instead of expanding the public switchboard.
+
+=head1 WHEN TO USE
+
+Use this file when changing CLI argument handling for page actions or when fixing how the built-in action command re-enters the private runtime.
+
+=head1 HOW TO USE
+
+Users run C<dashboard action run E<lt>page_idE<gt> E<lt>action_idE<gt>>. The staged helper forwards that request into the private command runtime, which loads the action runner and executes the requested saved page action.
+
+=head1 WHAT USES IT
+
+It is used by the public C<dashboard action ...> command family, by saved action debugging from the CLI, and by tests that verify staged helper dispatch for action commands.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  dashboard action run sample refresh-data
+
+Run the public built-in command path that stages or re-enters this helper.
+
+Example 2:
+
+  ~/.developer-dashboard/cli/dd/action --help
+
+Inspect the staged helper directly after C<dashboard init> or helper extraction has populated the home runtime.
+
+Example 3:
+
+  prove -lv t/05-cli-smoke.t t/30-dashboard-loader.t
+
+Rerun the focused staged-helper and thin-loader tests after changing helper dispatch behavior.
+
+Example 4:
+
+  prove -lr t
+
+Verify that the helper still behaves correctly inside the complete repository suite.
+
+
+=for comment FULL-POD-DOC END
+
+=cut

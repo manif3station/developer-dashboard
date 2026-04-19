@@ -1,0 +1,81 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use FindBin qw($Bin);
+use lib "$Bin/../lib";
+
+use Developer::Dashboard::CLI::Paths ();
+
+# main(@ARGV)
+# Runs the path helper for Developer Dashboard.
+# Input: command-line arguments from @ARGV.
+# Output: prints path alias or runtime path JSON data, then exits.
+Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => \@ARGV );
+
+__END__
+
+=pod
+
+=head1 NAME
+
+path - private path helper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard path <resolve|locate|add|del|project-root|list> ...
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/dd/> so the main
+C<dashboard> command can keep path registry operations available without
+loading the full runtime first.
+
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+This staged helper exposes the C<dashboard path ...> subcommand family:
+resolve, locate, cdr, add, del, project-root, and list. It is the public CLI
+front end for saved path aliases, layered runtime path discovery, and the
+payload generation used by shell navigation helpers.
+
+=head1 WHY IT EXISTS
+
+It exists because path alias and navigation commands are built-ins, but the
+actual lookup and regex narrowing rules need to live in Perl so bash, zsh,
+POSIX sh, and PowerShell all use the same behavior.
+
+=head1 WHEN TO USE
+
+Use this file when changing C<dashboard path> verbs, staged-helper argv
+handling, or the examples that describe alias resolution and C<cdr>-style
+regex narrowing.
+
+=head1 HOW TO USE
+
+Users run C<dashboard path E<lt>verbE<gt> ...>. The staged helper loads the
+path command runtime and prints either JSON or line-oriented output. For
+C<dashboard path cdr>, the first argument is treated as a saved alias when one
+exists; otherwise it becomes the first search regex under the current
+directory. Any remaining narrowing arguments are case-insensitive regexes and
+all of them must match a candidate directory path.
+
+=head1 WHAT USES IT
+
+It is used by the public path command family, by shell bootstraps that depend
+on C<dashboard path cdr>, and by path/cdr regression tests that verify alias
+lookup, current-directory fallback, and multiple-match behavior.
+
+=head1 EXAMPLES
+
+  dashboard path resolve dashboards
+  dashboard path add work ~/projects/work
+  dashboard path cdr work alpha red
+  dashboard path list
+  dashboard path project-root
+
+=for comment FULL-POD-DOC END
+
+=cut

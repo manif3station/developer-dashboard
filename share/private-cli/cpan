@@ -1,0 +1,83 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use File::Basename qw(basename);
+use File::Spec;
+use FindBin qw($Bin);
+
+my $command = basename($0);
+my $core = File::Spec->catfile( $Bin, '_dashboard-core' );
+exec { $^X } $^X, $core, $command, @ARGV;
+die "Unable to exec $core for $command: $!";
+
+__END__
+
+=pod
+
+=head1 NAME
+
+cpan - private built-in command wrapper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard cpan <Module...>
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/dd/> so the
+public C<dashboard> entrypoint can stay a thin switchboard.
+
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+This staged helper exposes C<dashboard cpan>, the runtime-local dependency installer. It lets a project or home runtime add optional Perl modules such as C<DBD::SQLite> or C<DBD::ODBC> without changing the base distribution dependencies.
+
+=head1 WHY IT EXISTS
+
+It exists because the dashboard intentionally does not bundle every optional database driver or feature dependency. The staged helper gives users a first-class way to extend their runtime locally while keeping the base install small.
+
+=head1 WHEN TO USE
+
+Use this file when changing the CLI contract for runtime-local dependency installation, driver convenience behavior such as C<DBD::*> handling, or the handoff into the dependency-management implementation.
+
+=head1 HOW TO USE
+
+Users run C<dashboard cpan E<lt>Module...E<gt>> from the runtime they want to extend. The staged helper forwards that request into the private runtime, which updates the runtime-local C<cpanfile> and installs into C<local/>.
+
+=head1 WHAT USES IT
+
+It is used by developers enabling optional SQL dashboard drivers and by tests and docs that verify runtime-local dependency installation instead of shipping those modules by default.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  dashboard cpan DBD::SQLite
+
+Run the public built-in command path that stages or re-enters this helper.
+
+Example 2:
+
+  ~/.developer-dashboard/cli/dd/cpan --help
+
+Inspect the staged helper directly after C<dashboard init> or helper extraction has populated the home runtime.
+
+Example 3:
+
+  prove -lv t/05-cli-smoke.t t/30-dashboard-loader.t
+
+Rerun the focused staged-helper and thin-loader tests after changing helper dispatch behavior.
+
+Example 4:
+
+  prove -lr t
+
+Verify that the helper still behaves correctly inside the complete repository suite.
+
+
+=for comment FULL-POD-DOC END
+
+=cut

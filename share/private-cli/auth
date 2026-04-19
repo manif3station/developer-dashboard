@@ -1,0 +1,83 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use File::Basename qw(basename);
+use File::Spec;
+use FindBin qw($Bin);
+
+my $command = basename($0);
+my $core = File::Spec->catfile( $Bin, '_dashboard-core' );
+exec { $^X } $^X, $core, $command, @ARGV;
+die "Unable to exec $core for $command: $!";
+
+__END__
+
+=pod
+
+=head1 NAME
+
+auth - private built-in command wrapper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard auth ...
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/dd/> so the
+public C<dashboard> entrypoint can stay a thin switchboard.
+
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+This staged helper exposes helper-user administration commands such as C<dashboard auth add-user>, C<list-users>, and C<remove-user>. It gives the CLI a focused auth-management entrypoint without putting user-management code in C<bin/dashboard>.
+
+=head1 WHY IT EXISTS
+
+It exists because helper login management is part of the product surface, but the public switchboard should only dispatch to a staged helper, not own password and user-storage behavior itself.
+
+=head1 WHEN TO USE
+
+Use this file when changing the CLI auth command surface or when fixing how helper-user administration is handed off to the auth runtime.
+
+=head1 HOW TO USE
+
+Users run C<dashboard auth ...>. The staged helper forwards the subcommand and arguments into the private built-in runtime, which loads the auth module and updates the runtime user store.
+
+=head1 WHAT USES IT
+
+It is used by administrators creating or removing helper users, by integration smoke that verifies helper login setup, and by auth command coverage tests.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  dashboard auth helper login
+
+Run the public built-in command path that stages or re-enters this helper.
+
+Example 2:
+
+  ~/.developer-dashboard/cli/dd/auth --help
+
+Inspect the staged helper directly after C<dashboard init> or helper extraction has populated the home runtime.
+
+Example 3:
+
+  prove -lv t/05-cli-smoke.t t/30-dashboard-loader.t
+
+Rerun the focused staged-helper and thin-loader tests after changing helper dispatch behavior.
+
+Example 4:
+
+  prove -lr t
+
+Verify that the helper still behaves correctly inside the complete repository suite.
+
+
+=for comment FULL-POD-DOC END
+
+=cut

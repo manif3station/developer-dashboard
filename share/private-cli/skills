@@ -1,0 +1,99 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use File::Basename qw(basename);
+use File::Spec;
+use FindBin qw($Bin);
+
+my $command = basename($0);
+my $core = File::Spec->catfile( $Bin, '_dashboard-core' );
+exec { $^X } $^X, $core, $command, @ARGV;
+die "Unable to exec $core for $command: $!";
+
+__END__
+
+=pod
+
+=head1 NAME
+
+skills - private built-in command wrapper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard skills ...
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/dd/> so the
+public C<dashboard> entrypoint can stay a thin switchboard.
+
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+This staged helper exposes C<dashboard skills>, the command family that installs, updates, lists, enables, disables, and uninstalls skills while also serving as the private handoff target for dotted skill command execution.
+
+=head1 WHY IT EXISTS
+
+It exists because skill lifecycle management is a built-in feature, but the wrapper should stage a command and leave Git/layout logic to the skill manager and skill command dispatch to the dedicated runtime module.
+
+=head1 WHEN TO USE
+
+Use this file when changing the C<dashboard skills> CLI verbs or the dotted-command handoff into the skill runtime.
+
+=head1 HOW TO USE
+
+Users run C<dashboard skills install>, C<update>, C<enable>, C<disable>, C<list>, C<usage>, or C<uninstall>. The staged helper forwards those lifecycle requests into the private runtime, which loads the skill manager and performs the requested action. Install accepts either a Git URL or a direct local checked-out skill directory. The public dotted form C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> also lands here through an internal action so installed skill commands keep one private helper surface.
+
+=head1 WHAT USES IT
+
+It is used by developers managing installed skills, by dotted skill command dispatch, by skill lifecycle tests, and by documentation that explains the isolated skill runtime.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  dashboard skills install git@github.com:user/example-skill.git
+  dashboard skills install /absolute/path/to/example-skill
+
+Install or reinstall one isolated skill into its runtime root from either Git
+or a qualified local checkout. Direct local installs use C<rsync> when it is
+available and the built-in Perl tree-copy fallback when it is not.
+
+Example 2:
+
+  dashboard skills list
+
+Inspect installed skill metadata. The default output is a readable table, and
+C<-o json> returns structured output.
+
+Example 3:
+
+  dashboard example-skill.hello
+
+Run an installed skill command through the public dotted route, which the switchboard forwards into this staged helper.
+
+Example 4:
+
+  ~/.developer-dashboard/cli/dd/skills --help
+
+Inspect the staged helper directly after C<dashboard init> or helper extraction has populated the home runtime.
+
+Example 5:
+
+  prove -lv t/05-cli-smoke.t t/19-skill-system.t
+
+Rerun the focused staged-helper and thin-loader tests after changing helper dispatch behavior.
+
+Example 6:
+
+  prove -lr t
+
+Verify that the helper still behaves correctly inside the complete repository suite.
+
+
+=for comment FULL-POD-DOC END
+
+=cut

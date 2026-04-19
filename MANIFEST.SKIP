@@ -1,0 +1,13 @@
+\b[O][L][D]_CODE\b
+^\.github/
+^cover_db/
+^ELLEN\.md$
+^examples/
+^\.developer-dashboard/
+~$
+\.swp$
+\.swo$
+^blib/
+^Makefile$
+^pm_to_blib$
+^MYMETA\.

@@ -1,0 +1,98 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use File::Basename qw(basename);
+use File::Spec;
+use FindBin qw($Bin);
+
+my $command = basename($0);
+my $core = File::Spec->catfile( $Bin, '_dashboard-core' );
+exec { $^X } $^X, $core, $command, @ARGV;
+die "Unable to exec $core for $command: $!";
+
+__END__
+
+=pod
+
+=head1 NAME
+
+serve - private built-in command wrapper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard serve ...
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/dd/> so the
+public C<dashboard> entrypoint can stay a thin switchboard.
+
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+This staged helper exposes C<dashboard serve>, the command that starts the dashboard web server in background or foreground mode and can also print or follow logs and worker information, including the persisted browser-only C<--no-editor>/C<--no-endit> and C<--no-indicators>/C<--no-indicator> modes.
+
+=head1 WHY IT EXISTS
+
+It exists because serving the dashboard is a built-in runtime operation, but the CLI wrapper should remain staged and thin while the runtime and web server modules own process and transport behavior.
+
+=head1 WHEN TO USE
+
+Use this file when changing serve CLI flags, foreground/background behavior, or the handoff into the runtime manager and web server stack.
+
+=head1 HOW TO USE
+
+Users run C<dashboard serve> or one of its log/worker submodes. The staged helper forwards the request into the private runtime, which launches or inspects the managed web process and persists serve settings such as the read-only C<--no-editor>/C<--no-endit> browser mode and the top-right-chrome C<--no-indicators>/C<--no-indicator> browser mode.
+
+=head1 WHAT USES IT
+
+It is used by local dashboard startup, by integration smoke runs, and by runtime manager tests that verify background serving and log inspection.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  dashboard serve --foreground
+
+Run the public built-in command path that stages or re-enters this helper.
+
+Example 2:
+
+  dashboard serve --no-editor
+
+Start the dashboard in read-only browser mode so bookmark edit and source
+routes stay blocked.
+
+Example 3:
+
+  dashboard serve --no-indicators
+
+Start the dashboard with the top-right browser context and indicator strip
+removed while leaving the left-side page chrome and terminal prompt behavior
+unchanged.
+
+Example 4:
+
+  ~/.developer-dashboard/cli/dd/serve --help
+
+Inspect the staged helper directly after C<dashboard init> or helper extraction has populated the home runtime.
+
+Example 5:
+
+  prove -lv t/05-cli-smoke.t t/30-dashboard-loader.t
+
+Rerun the focused staged-helper and thin-loader tests after changing helper dispatch behavior.
+
+Example 6:
+
+  prove -lr t
+
+Verify that the helper still behaves correctly inside the complete repository suite.
+
+
+=for comment FULL-POD-DOC END
+
+=cut

@@ -1,0 +1,107 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use File::Basename qw(basename);
+use File::Spec;
+use FindBin qw($Bin);
+
+my $command = basename($0);
+my $core = File::Spec->catfile( $Bin, '_dashboard-core' );
+exec { $^X } $^X, $core, $command, @ARGV;
+die "Unable to exec $core for $command: $!";
+
+__END__
+
+=pod
+
+=head1 NAME
+
+docker - private built-in command wrapper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard docker ...
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/dd/> so the
+public C<dashboard> entrypoint can stay a thin switchboard.
+
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+This staged helper exposes C<dashboard docker compose>, C<dashboard docker list>,
+and the isolated service toggle commands C<dashboard docker enable> and
+C<dashboard docker disable>. It is the command surface for dashboard-specific
+Compose discovery, addon/mode handling, dry-run output, service-state
+reporting, and local C<disabled.yml> marker management.
+
+=head1 WHY IT EXISTS
+
+It exists because the docker helper is a built-in dashboard feature, but the command wrapper should stay staged and thin while the compose resolver owns the hard rules.
+
+=head1 WHEN TO USE
+
+Use this file when changing docker helper CLI arguments or the handoff into the compose resolver.
+
+=head1 HOW TO USE
+
+Users run C<dashboard docker compose ...>, C<dashboard docker list>, C<dashboard
+docker enable E<lt>serviceE<gt>>, or C<dashboard docker disable
+E<lt>serviceE<gt>>. The staged helper forwards the request into the private
+runtime, which either resolves and C<exec>s the final Docker command, reports
+the effective enabled or disabled state of isolated services, or creates or
+removes the deepest-layer C<disabled.yml> marker for one isolated service.
+
+=head1 WHAT USES IT
+
+It is used by developers who keep compose stacks under dashboard config roots, by docker command tests, and by docs around isolated service folders.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  dashboard docker compose ps
+
+Run the public built-in command path that stages or re-enters this helper.
+
+Example 2:
+
+  dashboard docker list --disabled
+
+Show only isolated service folders that are currently disabled by the effective
+layered marker state.
+
+Example 3:
+
+  dashboard docker disable green
+  dashboard docker enable green
+
+Toggle one isolated service without manually creating or deleting the
+F<disabled.yml> marker file.
+
+Example 4:
+
+  ~/.developer-dashboard/cli/dd/docker --help
+
+Inspect the staged helper directly after C<dashboard init> or helper extraction has populated the home runtime.
+
+Example 5:
+
+  prove -lv t/05-cli-smoke.t t/30-dashboard-loader.t
+
+Rerun the focused staged-helper and thin-loader tests after changing helper dispatch behavior.
+
+Example 6:
+
+  prove -lr t
+
+Verify that the helper still behaves correctly inside the complete repository suite.
+
+
+=for comment FULL-POD-DOC END
+
+=cut

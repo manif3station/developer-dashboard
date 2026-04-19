@@ -1,0 +1,105 @@
+name: Release To CPAN
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-cpan-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      PAUSE_USER: ${{ secrets.PAUSE_USER }}
+      PAUSE_PASS: ${{ secrets.PAUSE_PASS }}
+      PERL_MM_USE_DEFAULT: 1
+      NONINTERACTIVE_TESTING: 1
+      PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Setup Perl
+        uses: shogo82148/actions-setup-perl@8a3e458e34220c3cd62497d8c297eae315b88a72
+        with:
+          perl-version: '5.38'
+
+      - name: Install release dependencies
+        run: |
+          cpanm --installdeps --notest .
+          cpanm --notest Devel::Cover
+          cpanm --notest Capture::Tiny
+          cpanm --notest Sub::Install Data::OptList Params::Util
+          cpanm --notest Sub::Exporter Sub::Exporter::Util
+          cpanm --notest Module::Runtime Try::Tiny Module::Implementation
+          cpanm --notest Dist::CheckConflicts Package::Stash::XS Package::Stash Class::Load
+          cpanm --notest Getopt::Long Getopt::Long::Descriptive
+          cpanm --notest IO::TieCombine String::RewritePrefix Module::Pluggable::Object
+          cpanm --notest App::Cmd
+          cpanm --notest Dist::Zilla
+          cpanm --notest Dist::Zilla::Plugin::ManifestSkip
+          cpanm --notest Dist::Zilla::Plugin::MetaProvides::Package
+          cpanm --notest Dist::Zilla::Plugin::PkgVersion
+          cpanm --notest Module::CPANTS::Analyse
+          cpanm --notest CPAN::Uploader
+
+      - name: Run tests
+        run: |
+          prove -lr t
+
+      - name: Verify coverage
+        run: |
+          cover -delete
+          HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
+          report="$(cover -report text -select_re '^lib/' -coverage statement -coverage subroutine)"
+          printf '%s\n' "$report"
+          printf '%s\n' "$report" | grep -E '^Total[[:space:]]+100\.0[[:space:]]+100\.0[[:space:]]+100\.0$'
+
+      - name: Build distribution tarball
+        run: |
+          dzil build
+
+      - name: Verify tarball kwalitee
+        run: |
+          prove -lv t/36-release-kwalitee.t
+
+      - name: Verify built distribution smoke
+        run: |
+          dist_dir="$(ls -1dt Developer-Dashboard-* | head -n 1)"
+          if [ -z "${dist_dir}" ] || [ ! -d "${dist_dir}" ]; then
+            echo "No built distribution directory was created" >&2
+            exit 1
+          fi
+          cd "$dist_dir"
+          prove -lv t/13-integration-assets.t t/15-release-metadata.t t/30-dashboard-loader.t t/33-web-server-ssl-browser.t
+
+      - name: Locate distribution artifact
+        id: artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          artifact="$(ls -1t Developer-Dashboard-*.tar.gz | head -n 1)"
+          if [ -z "${artifact}" ]; then
+            echo "No distribution tarball was created" >&2
+            exit 1
+          fi
+          echo "artifact=${artifact}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to PAUSE
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${PAUSE_USER:-}" ] || [ -z "${PAUSE_PASS:-}" ]; then
+            echo "PAUSE_USER and PAUSE_PASS secrets are required" >&2
+            exit 1
+          fi
+          cpan-upload -u "$PAUSE_USER" -p "$PAUSE_PASS" "${{ steps.artifact.outputs.artifact }}"

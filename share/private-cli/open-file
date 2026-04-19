@@ -1,0 +1,84 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use FindBin qw($Bin);
+use lib "$Bin/../lib";
+
+use Developer::Dashboard::CLI::OpenFile qw(run_open_file_command);
+
+# main(@ARGV)
+# Runs the open-file helper for Developer Dashboard.
+# Input: command-line arguments from @ARGV and optional STDIN.
+# Output: prints matching paths or execs the configured editor, then exits.
+run_open_file_command( args => \@ARGV );
+
+__END__
+
+=pod
+
+=head1 NAME
+
+open-file - private open-file helper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard open-file [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/dd/> so the main
+C<dashboard> command can keep file-opening behaviour available without
+installing a generic executable into the user's global PATH.
+
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+This staged helper exposes C<dashboard open-file>, the long-form file lookup
+command. It is the user-facing wrapper for direct file opens, scoped regex
+search, Perl module lookup, Java dotted class lookup, and the final
+print-vs-editor action chosen by the shared open-file runtime.
+
+=head1 WHY IT EXISTS
+
+It exists because open-file behavior is richer than a one-line shell alias.
+The helper keeps the public command discoverable while leaving ranking,
+archive lookup, and editor-exec behavior in one tested Perl module.
+
+=head1 WHEN TO USE
+
+Use this file when changing the public C<dashboard open-file> argv contract,
+the staged-helper handoff, or the examples contributors use to understand the
+full-featured open-file behavior.
+
+=head1 HOW TO USE
+
+Users run C<dashboard open-file [--print] [--line N] [--editor CMD]
+E<lt>file|scopeE<gt> [pattern ...]>. Direct paths and C<file:line> values are
+opened immediately. Scoped mode treats the first positional argument as the
+root and every remaining positional argument as a case-insensitive regex that
+must match. A single result opens or prints that file; multiple results are
+listed. Perl module names are converted to path lookups under C<@INC>, while
+Java class names are resolved through source trees, source jars, and cached
+Maven source downloads.
+
+=head1 WHAT USES IT
+
+It is used by developers jumping to source files from the shell, by open-file
+regression tests, and by docs that explain direct paths, scoped regex lookup,
+Perl modules, Java classes, and print-vs-editor behavior.
+
+=head1 EXAMPLES
+
+  dashboard open-file lib 'OpenFile\.pm$'
+  dashboard open-file path/to/file.txt
+  dashboard open-file . "Ok\.js$"
+  dashboard open-file Developer::Dashboard::CLI::Paths
+  dashboard open-file javax.jws.WebService
+  dashboard open-file --print bookmarks api-dashboard
+
+=for comment FULL-POD-DOC END
+
+=cut

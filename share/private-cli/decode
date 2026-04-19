@@ -1,0 +1,83 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use File::Basename qw(basename);
+use File::Spec;
+use FindBin qw($Bin);
+
+my $command = basename($0);
+my $core = File::Spec->catfile( $Bin, '_dashboard-core' );
+exec { $^X } $^X, $core, $command, @ARGV;
+die "Unable to exec $core for $command: $!";
+
+__END__
+
+=pod
+
+=head1 NAME
+
+decode - private built-in command wrapper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard decode
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/dd/> so the
+public C<dashboard> entrypoint can stay a thin switchboard.
+
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+This staged helper exposes C<dashboard decode>, the token-to-text half of the dashboard codec pair. It lets users inspect the payload behind a transient bookmark or action token from the CLI.
+
+=head1 WHY IT EXISTS
+
+It exists because token debugging and manual inspection are useful, but the public switchboard should dispatch to a staged helper instead of owning the codec implementation itself.
+
+=head1 WHEN TO USE
+
+Use this file when changing the CLI contract for token decoding or when fixing how decode requests are handed off to the codec module.
+
+=head1 HOW TO USE
+
+Users pipe or pass a token into C<dashboard decode>. The staged helper forwards the request to the private runtime, which decodes the base64+gzip payload and prints the recovered text.
+
+=head1 WHAT USES IT
+
+It is used by developers debugging transient bookmark URLs, by docs that demonstrate the codec round-trip, and by command coverage for the encode/decode pair.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  dashboard decode eyJwYWdlIjoiL2FwcC90ZXN0In0
+
+Run the public built-in command path that stages or re-enters this helper.
+
+Example 2:
+
+  ~/.developer-dashboard/cli/dd/decode --help
+
+Inspect the staged helper directly after C<dashboard init> or helper extraction has populated the home runtime.
+
+Example 3:
+
+  prove -lv t/05-cli-smoke.t t/30-dashboard-loader.t
+
+Rerun the focused staged-helper and thin-loader tests after changing helper dispatch behavior.
+
+Example 4:
+
+  prove -lr t
+
+Verify that the helper still behaves correctly inside the complete repository suite.
+
+
+=for comment FULL-POD-DOC END
+
+=cut

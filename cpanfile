@@ -1,0 +1,34 @@
+requires 'JSON::XS';
+requires 'YAML::XS';
+requires 'TOML::Tiny';
+requires 'Capture::Tiny';
+requires 'Getopt::Long';
+requires 'Digest::MD5';
+requires 'Digest::SHA';
+requires 'Archive::Zip';
+requires 'MIME::Base64';
+requires 'IO::Compress::Gzip';
+requires 'IO::Uncompress::Gunzip';
+requires 'Dancer2';
+requires 'Plack';
+requires 'Starman';
+requires 'HTTP::Request';
+requires 'LWP::Protocol::https';
+requires 'LWP::UserAgent';
+requires 'Template';
+requires 'URI';
+requires 'URI::Escape';
+requires 'XML::Parser';
+
+on 'develop' => sub {
+    recommends 'DBI';
+    recommends 'DBD::SQLite';
+    recommends 'DBD::mysql';
+    recommends 'DBD::Pg';
+    recommends 'DBD::ODBC';
+    recommends 'DBD::Oracle';
+};
+
+on 'test' => sub {
+    requires 'Test::Pod';
+};

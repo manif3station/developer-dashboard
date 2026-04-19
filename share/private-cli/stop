@@ -1,0 +1,83 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use File::Basename qw(basename);
+use File::Spec;
+use FindBin qw($Bin);
+
+my $command = basename($0);
+my $core = File::Spec->catfile( $Bin, '_dashboard-core' );
+exec { $^X } $^X, $core, $command, @ARGV;
+die "Unable to exec $core for $command: $!";
+
+__END__
+
+=pod
+
+=head1 NAME
+
+stop - private built-in command wrapper for Developer Dashboard
+
+=head1 SYNOPSIS
+
+  dashboard stop
+
+=head1 DESCRIPTION
+
+This private helper is staged under F<~/.developer-dashboard/cli/dd/> so the
+public C<dashboard> entrypoint can stay a thin switchboard.
+
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+This staged helper exposes C<dashboard stop>, which stops the managed web listener and coordinated collectors for the current runtime.
+
+=head1 WHY IT EXISTS
+
+It exists because runtime shutdown is a built-in operational command, but the public switchboard should dispatch to a helper while the runtime manager owns pid validation and stop ordering.
+
+=head1 WHEN TO USE
+
+Use this file when changing stop CLI behavior or the handoff into the runtime lifecycle manager.
+
+=head1 HOW TO USE
+
+Users run C<dashboard stop>. The staged helper forwards the request into the private runtime, which stops the web process and the collectors associated with the active runtime.
+
+=head1 WHAT USES IT
+
+It is used by operators shutting down the local dashboard, by integration smoke that verifies the runtime really stops listening, and by runtime manager tests.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  dashboard stop
+
+Run the public built-in command path that stages or re-enters this helper.
+
+Example 2:
+
+  ~/.developer-dashboard/cli/dd/stop --help
+
+Inspect the staged helper directly after C<dashboard init> or helper extraction has populated the home runtime.
+
+Example 3:
+
+  prove -lv t/05-cli-smoke.t t/30-dashboard-loader.t
+
+Rerun the focused staged-helper and thin-loader tests after changing helper dispatch behavior.
+
+Example 4:
+
+  prove -lr t
+
+Verify that the helper still behaves correctly inside the complete repository suite.
+
+
+=for comment FULL-POD-DOC END
+
+=cut
