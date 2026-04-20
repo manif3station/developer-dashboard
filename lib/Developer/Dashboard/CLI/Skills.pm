@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Skills;
 use strict;
 use warnings;
 
-our $VERSION = '2.72';
+our $VERSION = '2.73';
 
 use Getopt::Long qw(GetOptionsFromArray);
 use Developer::Dashboard::JSON qw(json_encode);

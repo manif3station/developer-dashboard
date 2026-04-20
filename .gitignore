@@ -16,6 +16,7 @@ cover_db/
 Developer-Dashboard-0*
 *.md
 !doc/integration-test-plan.md
+!doc/testing.md
 !doc/windows-testing.md
 !integration/browser/
 !integration/browser/run-bookmark-browser-smoke.pl

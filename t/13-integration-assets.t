@@ -10,11 +10,13 @@ my $has_integration_assets = -d 'integration';
 
 if ( $has_source_tree_docs && -d '.git' ) {
     ok( _path_is_git_tracked('doc/integration-test-plan.md'), 'integration test plan document is tracked by git' );
+    ok( _path_is_git_tracked('doc/testing.md'), 'testing workflow document is tracked by git' );
     ok( _path_is_git_tracked('doc/windows-testing.md'), 'Windows verification document is tracked by git' );
     ok( _path_is_git_tracked('integration/browser/run-bookmark-browser-smoke.pl'), 'bookmark browser smoke script is tracked by git' );
 }
 
 ok( -f 'doc/integration-test-plan.md', 'integration test plan document exists' ) if $has_source_tree_docs;
+ok( -f 'doc/testing.md', 'testing workflow document exists' ) if $has_source_tree_docs;
 ok( -f 'integration/blank-env/Dockerfile', 'blank-environment Dockerfile exists' ) if $has_integration_assets;
 ok( -f 'integration/blank-env/docker-compose.yml', 'blank-environment docker compose file exists' ) if $has_integration_assets;
 ok( -f 'integration/blank-env/run-integration.pl', 'blank-environment integration runner exists' ) if $has_integration_assets;

@@ -1,3 +1,9 @@
+2.73  2026-04-20
+    - fixed the CI-only integration-assets failure by tracking `doc/testing.md`
+      in git, unignoring it in `.gitignore`, and teaching the integration
+      asset gate to assert the testing workflow document is both present and
+      tracked before it is read
+
 2.72  2026-04-20
     - normalized Windows `cmd.exe` launcher argv so `.cmd` and `.bat`
       execution keeps returning `cmd.exe` even on WSL hosts that surface the
