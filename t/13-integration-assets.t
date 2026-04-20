@@ -215,7 +215,10 @@ if ($has_integration_assets) {
     unlike( $windows_host, qr/Developer-Dashboard-1\.\d+\.tar\.gz/, 'Windows host rerun helper POD avoids hard-coded release tarball versions' );
 }
 else {
-    ok( !-d 'integration', 'release tarball excludes source-only integration assets' );
+    ok( -d 'integration', 'release tarball keeps integration assets for shipped install-time verification' );
+    ok( -f 'doc/integration-test-plan.md', 'release tarball keeps the integration test plan document for shipped verification guidance' );
+    ok( -f 'doc/testing.md', 'release tarball keeps the general testing workflow document for shipped verification guidance' );
+    ok( -f 'doc/windows-testing.md', 'release tarball keeps the Windows testing guide for shipped verification guidance' );
 }
 
 if ( -f 'dist.ini' ) {

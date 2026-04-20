@@ -1,5 +1,23 @@
 # Fixed Bugs
 
+## 2026-04-20 (Phase 131: Skill Dependency Policy Unification)
+
+- Fixed the skill dependency policy drift so installed skills now process
+  `ddfile`, `aptfile`, `brewfile`, `cpanfile`, and `cpanfile.local` in a
+  documented stable order instead of only supporting the older
+  `aptfile`-then-`cpanfile` flow.
+- Fixed shared-versus-local Perl dependency handling for skills so `cpanfile`
+  now installs into the home-level `~/perl5` tree across root, child, skill,
+  and nested skill layers, while `cpanfile.local` installs into that skill's
+  own `./perl5` tree.
+- Fixed skill runtime library exposure so dispatched skill commands now inherit
+  both the shared `~/perl5/lib/perl5` stack and any participating skill-local
+  `perl5/lib/perl5` trees from layered skill roots.
+- Fixed dependency metadata visibility and guardrails so skill inventory now
+  reports `has_ddfile`, `has_brewfile`, and `has_cpanfile_local`, and the
+  dependency installer skips already-installed or in-flight `ddfile`
+  dependencies instead of looping back into itself.
+
 ## 2026-04-20 (Phase 129: Which Edit Reentry)
 
 - Fixed the command-inspection usability gap where `dashboard which` could only
@@ -14,6 +32,19 @@
   so the new editing flow is documented alongside the existing `COMMAND` and
   `HOOK` inspection output.
 
+## 2026-04-20 (Phase 130: Release Tarball Integration Asset Packaging)
+
+- Fixed the release packaging drift where `dist.ini` still excluded
+  `integration/` and every Markdown file, so the built tarball dropped the
+  testing guides and integration helpers that install-time tarball tests read.
+- Added a tarball-content regression to the release metadata gate so the built
+  `Developer-Dashboard-X.XX.tar.gz` must now contain the shipped
+  `doc/integration-test-plan.md`, `doc/testing.md`, `doc/windows-testing.md`,
+  and the key `integration/` helper scripts.
+- Synced the integration-assets gate and release guide so installed
+  distributions now expect those verification assets to stay present instead
+  of treating them as checkout-only files.
+
 ## 2026-04-20 (Phase 128: Tracked Testing Workflow Documentation)
 
 - Fixed a CI-only `t/13-integration-assets.t` failure where `doc/testing.md`
@@ -22,6 +53,17 @@
 - Unignored `doc/testing.md`, kept the document in the repository, and
   hardened the integration-assets gate so it now asserts that the testing
   workflow document both exists and is tracked before reading it.
+
+## 2026-04-20 (Phase 128: cdr Completion And Unreadable Tree Safety)
+
+- Fixed `cdr` path discovery so unreadable subdirectories are skipped
+  explicitly instead of aborting the whole search with `opendir(...)` errors
+  when one protected tree appears under the search root.
+- Added `dashboard path complete-cdr` and wired the generated bash, zsh, and
+  PowerShell shell bootstraps so `cdr`, `dd_cdr`, and `which_dir` now expose
+  live tab completion for saved aliases and matching directory basenames.
+- Expanded path-helper and shell-smoke regression coverage to pin the
+  unreadable-directory safety path and the generated `cdr` completion contract.
 
 ## 2026-04-20 (Phase 127: WSL cmd.exe And Portable d2 Bootstrap)
 

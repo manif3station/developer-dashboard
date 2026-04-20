@@ -758,7 +758,7 @@ dashboard which --edit jq
 
 Custom path aliases are stored in the effective dashboard config root so shell helpers such as `cdr foobar` and `which_dir foobar` keep working across sessions. When a project-local `./.developer-dashboard` tree exists, alias writes go there first; otherwise they go to the home runtime. Under `DD-OOP-LAYERS`, that write stays local to the deepest participating layer: adding one child-layer alias does not copy inherited parent `config.json` domains into the child file. The child layer keeps only its own new delta and still inherits the rest from home and parent layers at read time. When a saved alias points inside your home directory, the stored config uses `$HOME/...` instead of a hard-coded absolute home path so a shared fallback runtime remains portable across different developer accounts. Re-adding an existing alias updates it without error, and deleting a missing alias is also safe.
 
-`cdr` now follows a two-stage path flow instead of only jumping to one alias or one top-level project name. If the first argument resolves as a saved alias and there are no later arguments, `cdr alias` still goes straight there. If the first argument resolves as a saved alias and more arguments remain, `cdr` enters the alias root, then searches every directory under that root with AND-matched regex keywords taken from the remaining arguments. One match means `cd` into that directory; multiple matches mean print the full list and stay at the alias root. If the first argument is not a saved alias, `cdr` treats every argument as an AND-matched regex search beneath the current directory. One match means `cd` there; multiple matches mean print the list and leave the current directory unchanged. `which_dir` follows the same selection logic but only prints the chosen target or match list instead of changing directory.
+`cdr` now follows a two-stage path flow instead of only jumping to one alias or one top-level project name. If the first argument resolves as a saved alias and there are no later arguments, `cdr alias` still goes straight there. If the first argument resolves as a saved alias and more arguments remain, `cdr` enters the alias root, then searches every directory under that root with AND-matched regex keywords taken from the remaining arguments. One match means `cd` into that directory; multiple matches mean print the full list and stay at the alias root. If the first argument is not a saved alias, `cdr` treats every argument as an AND-matched regex search beneath the current directory. One match means `cd` there; multiple matches mean print the list and leave the current directory unchanged. `which_dir` follows the same selection logic but only prints the chosen target or match list instead of changing directory. Unreadable subdirectories are skipped explicitly during that search so one protected tree does not abort the whole lookup.
 
 Both `cdr` and `which_dir` therefore treat the narrowing arguments as regexes, not quoted substring tokens.
 
@@ -1176,6 +1176,11 @@ and `d2`. Bash registers `_dashboard_complete`, zsh registers
 for both command names. Completion candidates come from the live runtime
 instead of a hardcoded shell list, so built-in commands, layered custom CLI
 commands, and installed dotted skill commands all show up in suggestions.
+The generated bootstrap also wires `cdr`, `dd_cdr`, and `which_dir`
+completion. The first argument suggests saved aliases plus matching directory
+names beneath the current directory, and later arguments suggest matching
+directory basenames beneath the resolved alias root or current directory
+without crashing when one subtree is not readable.
 
 For the POSIX shell bootstrap, the generated helper now decodes its JSON
 payloads through the same Perl interpreter that generated the shell fragment
@@ -1476,8 +1481,8 @@ session that is `~/.developer-dashboard/skills/<repo-name>/`. In a deeper
 project layer that already has its own `.developer-dashboard/`, the install
 target becomes `<that-layer>/.developer-dashboard/skills/<repo-name>/`.
 Developer Dashboard does not merge the skill's `cli/`, `dashboards/`,
-`config/`, `cpanfile`, `aptfile`, or Docker files into the normal runtime
-folders.
+`config/`, `ddfile`, `aptfile`, `brewfile`, `cpanfile`, `cpanfile.local`, or
+Docker files into the normal runtime folders.
 
 Skill lookup also follows `DD-OOP-LAYERS`, but a same-named deeper skill is
 now layered instead of flattening the whole repo. The home
@@ -1485,7 +1490,7 @@ now layered instead of flattening the whole repo. The home
 any deeper `.developer-dashboard/skills/<repo-name>/` checkout becomes an
 inherited layer for that same skill. Runtime lookup walks those participating
 skill layers for `cli/<command>`, `cli/<command>.d`, `dashboards/*`,
-`dashboards/nav/*`, `config/config.json`, and `local/lib/perl5`. If a child
+`dashboards/nav/*`, `config/config.json`, and `perl5/lib/perl5`. If a child
 layer omits a file, folder, or config key, lookup falls back to the base
 layer. If multiple layers provide the same file or config key, the deepest
 layer still wins that override.
@@ -1508,7 +1513,8 @@ where each item reports:
 - installed path
 - `enabled` as a JSON boolean
 - CLI command, page, docker service, collector, and indicator counts
-- JSON booleans for `has_config`, `has_aptfile`, and `has_cpanfile`
+- JSON booleans for `has_config`, `has_ddfile`, `has_aptfile`, `has_brewfile`,
+  `has_cpanfile`, and `has_cpanfile_local`
 
 **Inspect one installed skill:**
 
@@ -1603,8 +1609,11 @@ Each installed skill lives under
 - `config/docker/` - Skill-local Docker Compose roots that participate in layered docker service lookup
 - `state/` - Persistent skill state and data
 - `logs/` - Skill output logs
-- `aptfile` - Optional system packages installed before Perl dependencies
-- `cpanfile` - Skill Perl dependencies (optional)
+- `ddfile` - Optional dependent skill list installed before package managers run
+- `aptfile` - Optional Debian-family system packages installed through `sudo apt-get install -y`
+- `brewfile` - Optional macOS Homebrew packages installed through `brew install`
+- `cpanfile` - Optional shared Perl dependencies installed into `~/perl5`
+- `cpanfile.local` - Optional skill-local Perl dependencies installed into `<skill-root>/perl5`
 
 Skills are completely isolated from the main dashboard runtime and from other
 skills. Removing a skill is simple: `dashboard skills uninstall <repo-name>`
@@ -1643,9 +1652,16 @@ Skill browser routes:
 
 Skill dependency and docker layering:
 
-- if an `aptfile` exists, its package list is installed first
-- if a `cpanfile` exists, its Perl dependencies are then installed into the
-  skill-local `local/` tree
+- if a `ddfile` exists, each listed dependency is installed first through
+  `dashboard skills install <dependency>` while already-installed or in-flight
+  skills are skipped to avoid loops
+- if an `aptfile` exists on a Debian-family host, its package list is printed
+  before the sudo prompt and then installed through `sudo apt-get install -y`
+- if a `brewfile` exists on macOS, its package list is printed and then
+  installed through `brew install`
+- if a `cpanfile` exists, its Perl dependencies are installed into `~/perl5`
+- if a `cpanfile.local` exists, its Perl dependencies are installed into the
+  skill-local `perl5/` tree
 - skill `config/docker/...` roots participate in docker service discovery after
   the home runtime docker config and before deeper project-layer overrides
 - disabled skills are skipped by docker root discovery until they are re-enabled
@@ -1654,7 +1670,8 @@ Skill dependency and docker layering:
 
 To build a new skill, start with a Git repository that contains `cli/`,
 `config/config.json`, and optional `dashboards/`, `dashboards/nav/`, `state/`,
-`logs/`, `local/`, `aptfile`, and `cpanfile` files under the skill root. Skill
+`logs/`, `ddfile`, `aptfile`, `brewfile`, `cpanfile`, and `cpanfile.local`
+files under the skill root. Skill
 commands are file-based commands run through the dotted
 `dashboard <repo-name>.<command>` form. Skill hook files live under
 `cli/<command>.d/`, skill app pages render from `/app/<repo-name>` and
@@ -1671,8 +1688,10 @@ reference is available through the POD module
 environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`, bookmark
 syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, and `CODE1:`, bookmark browser
 helpers such as `fetch_value()`, `stream_value()`, and `stream_data()`,
-underscored config merge keys such as `_example-skill`, `aptfile`-then-`cpanfile`
-dependency install order, skill docker layering, and when to use
+underscored config merge keys such as `_example-skill`, the
+`ddfile -> aptfile -> brewfile -> cpanfile -> cpanfile.local` dependency
+install order, the shared `~/perl5` versus skill-local `perl5/` split, skill
+docker layering, and when to use
 dashboard-wide custom CLI hook folders such as
 `~/.developer-dashboard/cli/<command>.d` instead of a skill-local hook tree.
 

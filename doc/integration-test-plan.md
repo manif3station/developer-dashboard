@@ -144,6 +144,7 @@ The integration run creates:
 - the installed `dashboard` binary works without `perl -Ilib`
 - the fake project's `./.developer-dashboard` tree becomes the active local runtime root with the home tree as fallback
 - layered root-to-leaf `.env` and `.env.pl` files override in order, and skill-local env files load only for skill execution paths
+- skill dependency installs follow `ddfile -> aptfile -> brewfile -> cpanfile -> cpanfile.local`, with shared skill Perl dependencies landing in `~/perl5` and skill-local Perl dependencies landing in each skill's `./perl5`
 - a broken config Perl collector reports an error without stopping other configured collectors
 - a healthy config collector still reports `ok` and stays green in `dashboard indicator list`, `dashboard ps1`, and `/system/status`, without being clobbered back to `missing` by concurrent config-sync refreshes
 - `dashboard collector log` prints aggregated collector transcripts, `dashboard collector log <name>` prints the named collector transcript, and configured collectors that have not run yet report an explicit no-log message instead of blank output
@@ -168,6 +169,19 @@ The integration run creates:
 - `dashboard restart` only reports success after the replacement runtime still
   has a live managed pid and an accepting listener on the requested port,
   instead of trusting an acknowledged pid that dies before the listener is up
+
+## macOS Brewfile Verification
+
+Use a real macOS host or a disposable macOS guest when you need end-to-end
+`brewfile` verification. One practical route is the `dockur/macos` project:
+https://github.com/dockur/macos
+
+The upstream README documents a compose flow using `dockurr/macos`,
+`/dev/kvm`, `/dev/net/tun`, `NET_ADMIN`, and the web installer on port `8006`.
+Once the guest is installed and reachable, copy the built tarball in, install
+Developer Dashboard with `cpanm`, create a skill that ships a `brewfile`, and
+confirm `dashboard skills install <skill>` prints the requested Homebrew
+packages before running `brew install ...`.
 
 ## Out Of Scope
 

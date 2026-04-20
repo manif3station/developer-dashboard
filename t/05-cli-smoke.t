@@ -1082,6 +1082,7 @@ unlike( $shell_bootstrap, qr/\bperl\s+-MJSON::XS\b/, 'dashboard shell bootstrap 
 like( $shell_bootstrap, qr/\Q$perl\E.*-MJSON::XS/s, 'dashboard shell bootstrap decodes helper JSON through the same perl interpreter that generated the bootstrap' );
 like( $shell_bootstrap, qr/\bd2\(\)\s*\{/, 'dashboard shell bash bootstrap exposes the d2 shortcut helper' );
 like( $shell_bootstrap, qr/complete -F _dashboard_complete dashboard d2/, 'dashboard shell bash bootstrap wires tab completion for dashboard and d2' );
+like( $shell_bootstrap, qr/complete -F _dashboard_complete_cdr cdr dd_cdr which_dir/, 'dashboard shell bash bootstrap wires cdr-family tab completion' );
 like( $shell_bootstrap, qr/d2\(\)\s*\{\s*'\Q$dashboard\E'\s+"\$@"/s, 'dashboard shell bash bootstrap dispatches d2 through the dashboard entrypoint directly' );
 unlike( $shell_bootstrap, qr/d2\(\)\s*\{\s*'\Q$perl\E'\s+/s, 'dashboard shell bash bootstrap does not hardcode the current perl binary for d2' );
 my $shell_bootstrap_file = File::Spec->catfile( $ENV{HOME}, 'dashboard-shell.sh' );
@@ -1096,6 +1097,9 @@ like( $bash_completion, qr/^doctor$/m, 'dashboard shell bash completion suggests
 my $bash_completion_alias = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(d2 do); COMP_CWORD=1; _dashboard_complete; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
 like( $bash_completion_alias, qr/^docker$/m, 'dashboard shell bash completion also works through the d2 alias' );
 like( $bash_completion_alias, qr/^doctor$/m, 'dashboard shell bash completion keeps the same candidates for d2' );
+my $bash_cdr_completion = _run("bash -lc '. \"$shell_bootstrap_file\"; COMP_WORDS=(cdr foobar alpha); COMP_CWORD=2; _dashboard_complete_cdr; printf \"%s\\n\" \"\${COMPREPLY[@]}\"'");
+like( $bash_cdr_completion, qr/^alpha-foo$/m, 'dashboard shell bash cdr completion suggests alias-root narrowing candidates' );
+like( $bash_cdr_completion, qr/^alpha-foo-bar$/m, 'dashboard shell bash cdr completion includes other matching alias-root candidates' );
 my $which_dir_bookmarks = _run("bash -lc '. \"$shell_bootstrap_file\"; which_dir bookmarks_root'");
 is_same_path_output( $which_dir_bookmarks, $bookmarks_root, 'which_dir resolves bookmarks_root through the shell helper' );
 my $cdr_bookmarks = _run("bash -lc '. \"$shell_bootstrap_file\"; cdr bookmarks_root; pwd'");
@@ -1128,6 +1132,7 @@ like( $zsh_bootstrap, qr/ps1 --jobs \$\{#jobstates\} --mode compact/, 'dashboard
 like( $zsh_bootstrap, qr/path cdr/, 'dashboard shell zsh bootstrap keeps the cdr path helper functions' );
 like( $zsh_bootstrap, qr/\bd2\(\)\s*\{/, 'dashboard shell zsh bootstrap exposes the d2 shortcut helper' );
 like( $zsh_bootstrap, qr/compdef _dashboard_complete_zsh dashboard d2/, 'dashboard shell zsh bootstrap wires tab completion for dashboard and d2' );
+like( $zsh_bootstrap, qr/compdef _dashboard_complete_cdr_zsh cdr dd_cdr which_dir/, 'dashboard shell zsh bootstrap wires cdr-family tab completion' );
 like( $zsh_bootstrap, qr/d2\(\)\s*\{\s*'\Q$dashboard\E'\s+"\$@"/s, 'dashboard shell zsh bootstrap dispatches d2 through the dashboard entrypoint directly' );
 unlike( $zsh_bootstrap, qr/d2\(\)\s*\{\s*'\Q$perl\E'\s+/s, 'dashboard shell zsh bootstrap does not hardcode the current perl binary for d2' );
 
@@ -1162,6 +1167,7 @@ like( $ps_bootstrap, qr/function Invoke-DashboardShortcut \{/, 'dashboard shell 
 like( $ps_bootstrap, qr/Set-Alias d2 Invoke-DashboardShortcut/, 'dashboard shell ps bootstrap exposes the d2 shortcut alias' );
 like( $ps_bootstrap, qr/Register-ArgumentCompleter/, 'dashboard shell ps bootstrap wires argument completion for dashboard and d2' );
 like( $ps_bootstrap, qr/CommandName 'dashboard', 'd2'/, 'dashboard shell ps bootstrap registers completion for both dashboard and d2' );
+like( $ps_bootstrap, qr/CommandName 'cdr', 'dd_cdr', 'which_dir'/, 'dashboard shell ps bootstrap also registers cdr-family completion' );
 my $path_del = _run("$perl -I'$lib' '$dashboard' path del foobar");
 like( $path_del, qr/"name"\s*:\s*"foobar"/, 'dashboard path del reports the removed alias' );
 like( $path_del, qr/"removed"\s*:\s*1/, 'dashboard path del removes existing aliases' );
