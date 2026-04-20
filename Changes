@@ -1,3 +1,16 @@
+2.72  2026-04-20
+    - normalized Windows `cmd.exe` launcher argv so `.cmd` and `.bat`
+      execution keeps returning `cmd.exe` even on WSL hosts that surface the
+      command processor through `/mnt/c/.../cmd.exe`, and added a focused
+      regression for that mixed-runtime path
+    - changed the generated POSIX shell bootstrap so `d2` now re-enters the
+      `dashboard` script directly instead of hardcoding the Perl interpreter
+      path that generated the bootstrap, which keeps the shortcut working
+      across machines where the active shell and the original bootstrap Perl
+      do not share the same install location
+    - synced the shell-bootstrap docs and added focused smoke coverage for the
+      direct-entrypoint `d2` helper contract across bash, zsh, and POSIX sh
+
 2.71  2026-04-20
     - taught the public `dashboard` switchboard to report unknown top-level
       commands explicitly and suggest the closest built-in, layered custom, or

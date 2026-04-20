@@ -1178,7 +1178,10 @@ For the POSIX shell bootstrap, the generated helper now decodes its JSON
 payloads through the same Perl interpreter that generated the shell fragment
 instead of a bare `perl -MJSON::XS ...` call. That keeps `cdr` and
 `which_dir` stable on macOS installs where `/usr/bin/perl` and a user-local
-`~/perl5` XS stack do not belong to the same Perl build.
+`~/perl5` XS stack do not belong to the same Perl build. The generated `d2`
+shortcut re-enters the `dashboard` script directly instead of hardcoding the
+current Perl binary path, so the shortcut still works when the bootstrap is
+loaded by a shell whose preferred Perl lives somewhere else.
 
 On Windows, `dashboard shell` auto-selects PowerShell by default, and
 interpreter-backed runtime entrypoints such as collector `command` strings,

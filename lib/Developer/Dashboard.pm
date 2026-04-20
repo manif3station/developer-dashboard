@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.71';
+our $VERSION = '2.72';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.71
+2.72
 
 =head1 INTRODUCTION
 
@@ -1599,7 +1599,10 @@ For the POSIX shell bootstrap, the generated helper now decodes its JSON
 payloads through the same Perl interpreter that generated the shell fragment
 instead of a bare C<perl -MJSON::XS ...> call. That keeps C<cdr> and
 C<which_dir> stable on macOS installs where C</usr/bin/perl> and a user-local
-C<~/perl5> XS stack do not belong to the same Perl build.
+C<~/perl5> XS stack do not belong to the same Perl build. The generated
+C<d2> shortcut re-enters the C<dashboard> script directly instead of
+hardcoding the current Perl binary path, so the shortcut still works when the
+bootstrap is loaded by a shell whose preferred Perl lives somewhere else.
 
 On Windows, C<dashboard shell> auto-selects PowerShell by default, and
 interpreter-backed runtime entrypoints such as collector C<command> strings,

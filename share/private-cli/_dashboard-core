@@ -1064,9 +1064,9 @@ sub _seed_init_page {
 sub _shell_dashboard_command {
     my ($shell) = @_;
     my $script = $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} || File::Spec->rel2abs($0);
-    my $repo_lib = $ENV{DEVELOPER_DASHBOARD_REPO_LIB} || File::Spec->rel2abs( File::Spec->catdir( $Bin, '..', 'lib' ) );
-    if ( -f File::Spec->catfile( $repo_lib, 'Developer', 'Dashboard.pm' ) ) {
-        if ( $shell eq 'powershell' || $shell eq 'pwsh' ) {
+    if ( $shell eq 'powershell' || $shell eq 'pwsh' ) {
+        my $repo_lib = $ENV{DEVELOPER_DASHBOARD_REPO_LIB} || File::Spec->rel2abs( File::Spec->catdir( $Bin, '..', 'lib' ) );
+        if ( -f File::Spec->catfile( $repo_lib, 'Developer', 'Dashboard.pm' ) ) {
             return join ' ',
               shell_quote_for( $shell, $^X ),
               shell_quote_for( $shell, '-I' . $repo_lib ),
@@ -1074,17 +1074,9 @@ sub _shell_dashboard_command {
         }
         return join ' ',
           shell_quote_for( $shell, $^X ),
-          '-I' . shell_quote_for( $shell, $repo_lib ),
           shell_quote_for( $shell, $script );
     }
-    if ( $shell eq 'powershell' || $shell eq 'pwsh' ) {
-        return join ' ',
-          shell_quote_for( $shell, $^X ),
-          shell_quote_for( $shell, $script );
-    }
-    return join ' ',
-      shell_quote_for( $shell, $^X ),
-      shell_quote_for( $shell, $script );
+    return shell_quote_for( $shell, $script );
 }
 
 # _shell_bootstrap($shell)

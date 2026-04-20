@@ -3,7 +3,7 @@ package Developer::Dashboard::Platform;
 use strict;
 use warnings;
 
-our $VERSION = '2.71';
+our $VERSION = '2.72';
 
 use Exporter 'import';
 use File::Basename qw(basename dirname);
@@ -267,7 +267,9 @@ sub _powershell_binary {
 # Input: none.
 # Output: executable path or command name string.
 sub _cmd_binary {
-    return $ENV{ComSpec} || command_in_path('cmd') || 'cmd.exe';
+    my $candidate = $ENV{ComSpec} || command_in_path('cmd') || 'cmd.exe';
+    return 'cmd.exe' if lc( basename($candidate) ) eq 'cmd.exe';
+    return $candidate;
 }
 
 # _posix_shell_binary($preferred)

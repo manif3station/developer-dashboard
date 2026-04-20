@@ -928,6 +928,34 @@ SH
         'command_argv_for_path resolves .bat scripts on Windows',
     );
     {
+        no warnings 'redefine';
+        local $ENV{ComSpec} = '/mnt/c/WINDOWS/system32/cmd.exe';
+        local *Developer::Dashboard::Platform::command_in_path = sub {
+            my ($name) = @_;
+            return '/mnt/c/WINDOWS/system32/cmd.exe' if $name eq 'cmd';
+            return undef;
+        };
+        is_deeply(
+            [ command_argv_for_path('runner.bat') ],
+            [ 'cmd.exe', '/d', '/c', 'runner.bat' ],
+            'command_argv_for_path normalizes WSL-style absolute cmd.exe paths back to cmd.exe',
+        );
+    }
+    {
+        no warnings 'redefine';
+        local $ENV{ComSpec} = 'C:/tools/custom-command-processor.exe';
+        local *Developer::Dashboard::Platform::command_in_path = sub {
+            my ($name) = @_;
+            return 'C:/tools/custom-command-processor.exe' if $name eq 'cmd';
+            return undef;
+        };
+        is_deeply(
+            [ command_argv_for_path('runner.bat') ],
+            [ 'C:/tools/custom-command-processor.exe', '/d', '/c', 'runner.bat' ],
+            'command_argv_for_path preserves non-cmd.exe Windows command processors without normalization',
+        );
+    }
+    {
         open my $fh, '>', 'runner.sh' or die $!;
         print {$fh} "#!/bin/sh\necho sh-ok\n";
         close $fh;
