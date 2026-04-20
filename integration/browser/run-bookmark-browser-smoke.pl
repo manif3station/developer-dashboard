@@ -295,7 +295,7 @@ sub _run_browser_dom {
 # Output: absolute browser executable path string.
 sub _browser_binary {
     return $BROWSER_BINARY if defined $BROWSER_BINARY;
-    for my $candidate ( qw(chromium chromium-browser google-chrome google-chrome-stable) ) {
+    for my $candidate ( qw(google-chrome-stable google-chrome chromium-browser chromium) ) {
         my ( $stdout, $stderr, $exit ) = capture {
             system 'sh', '-lc', "command -v $candidate";
             return $? >> 8;
@@ -304,6 +304,7 @@ sub _browser_binary {
         my $path = $stdout;
         $path =~ s/\s+\z//;
         next if $path eq '';
+        next if $path eq '/snap/bin/chromium';
         $BROWSER_BINARY = $path;
         return $BROWSER_BINARY;
     }

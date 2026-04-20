@@ -583,6 +583,13 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
             'helper_content renders the shipped which helper body',
         );
     }
+    elsif ( $helper eq 'complete' ) {
+        like(
+            $content,
+            qr/\Qdashboard complete <index> <word0> <word1> ...\E/,
+            'helper_content renders the shipped complete helper body',
+        );
+    }
     else {
         like(
             $content,
@@ -1815,11 +1822,11 @@ ok( !$manager->install( 'file://' . $no_dep_repo )->{error}, 'skill manager inst
 my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $skill_paths );
 is_deeply( $dispatcher->dispatch( '', 'run-test' ), { error => 'Missing skill name' }, 'dispatcher rejects missing skill names' );
 is_deeply( $dispatcher->dispatch( 'dep-skill', '' ), { error => 'Missing command name' }, 'dispatcher rejects missing command names' );
-is_deeply(
-    $dispatcher->dispatch( 'missing-skill', 'run-test' ),
-    { error => "Skill 'missing-skill' not found" },
-    'dispatcher rejects missing skills',
-);
+{
+    my $missing_skill = $dispatcher->dispatch( 'missing-skill', 'run-test' );
+    like( $missing_skill->{error}, qr/\ASkill 'missing-skill' not found\./, 'dispatcher rejects missing skills' );
+    like( $missing_skill->{error}, qr/\n\nDid you mean:\n/, 'missing-skill dispatch guidance includes suggestion heading' );
+}
 is_deeply( $dispatcher->execute_hooks( '', 'run-test' ), { hooks => {}, result_state => {} }, 'execute_hooks returns an empty result for missing skill names' );
 is_deeply( $dispatcher->execute_hooks( 'dep-skill', '' ), { hooks => {}, result_state => {} }, 'execute_hooks returns an empty result for missing command names' );
 is_deeply( $dispatcher->execute_hooks( 'missing-skill', 'run-test' ), { hooks => {}, result_state => {} }, 'execute_hooks returns an empty result for missing skills' );
@@ -1833,7 +1840,9 @@ is( $manager->get_skill_path('dep-skill'), undef, 'get_skill_path hides disabled
 ok( $manager->get_skill_path( 'dep-skill', include_disabled => 1 ), 'get_skill_path can still resolve disabled skills when explicitly requested' );
 is_deeply(
     $dispatcher->dispatch( 'dep-skill', 'run-test' ),
-    { error => "Skill 'dep-skill' is disabled" },
+    {
+        error => "Skill 'dep-skill' is disabled.\n\nEnable it with:\n  dashboard skills enable dep-skill\n",
+    },
     'dispatcher rejects disabled skills explicitly',
 );
 is_deeply( $dispatcher->execute_hooks( 'dep-skill', 'run-test' ), { hooks => {}, result_state => {} }, 'execute_hooks returns an empty result for disabled skills' );
@@ -1929,11 +1938,11 @@ is_deeply(
     [],
     'command_hook_paths returns an empty list when a nested skill command has no hook directory',
 );
-is_deeply(
-    $dispatcher->dispatch( 'dep-skill', 'missing' ),
-    { error => "Command 'missing' not found in skill 'dep-skill'" },
-    'dispatcher rejects missing commands inside installed skills',
-);
+{
+    my $missing_command = $dispatcher->dispatch( 'dep-skill', 'missing' );
+    like( $missing_command->{error}, qr/\ACommand 'missing' not found in skill 'dep-skill'\./, 'dispatcher rejects missing commands inside installed skills' );
+    like( $missing_command->{error}, qr/\n\nDid you mean:\n/, 'missing skill command guidance includes suggestion heading' );
+}
 {
     no warnings 'redefine';
     local *Developer::Dashboard::SkillDispatcher::execute_hooks = sub {

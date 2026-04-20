@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.68';
+our $VERSION = '2.71';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.68
+2.71
 
 =head1 INTRODUCTION
 
@@ -752,6 +752,12 @@ If F<cli/hi.go> is executable, C<dashboard hi> runs it through C<go run>.
 If F<cli/foo.java> is executable, C<dashboard foo> compiles it with C<javac>
 into an isolated temp directory and then runs the declared main class with
 C<java>.
+
+If a user mistypes a command, dashboard now prints an explicit unknown-command
+error together with the closest matching public command before the usual usage
+summary. The same guidance also applies to dotted skill commands, so
+C<dashboard alpha-skill.run-tset> suggests the nearest installed dotted skill
+command instead of only dumping generic help.
 
 C<DD-OOP-LAYERS> is now the runtime contract for the whole local ecosystem.
 Starting at F<~/.developer-dashboard> and walking down through every parent
@@ -1561,6 +1567,7 @@ Generate shell bootstrap:
   dashboard shell ps
 
 The generated shell helper keeps the same bookmark-aware C<cdr>, C<dd_cdr>,
+C<d2>,
 and C<which_dir> functions across all supported shells. C<cdr> first tries a
 saved alias, then falls back to an AND-matched directory search beneath the
 alias root or the current directory depending on whether that first argument
@@ -1575,6 +1582,18 @@ C<PS1> through a C<precmd> hook with C<${#jobstates}>, POSIX C<sh> falls back
 to a prompt command that does not depend on bash-only prompt escapes, and
 PowerShell installs a C<prompt> function instead of using the POSIX C<PS1>
 variable.
+
+C<d2> is the short shell shortcut for C<dashboard>, so after loading the
+bootstrap you can run C<d2 version>, C<d2 doctor>, or
+C<d2 docker compose ps> without typing the full command name each time.
+
+The same generated bootstrap also wires live tab completion for C<dashboard>
+and C<d2>. Bash registers C<_dashboard_complete>, zsh registers
+C<_dashboard_complete_zsh>, and PowerShell registers
+C<Register-ArgumentCompleter> for both command names. Completion candidates
+come from the live runtime instead of a hardcoded shell list, so built-in
+commands, layered custom CLI commands, and installed dotted skill commands
+all show up in suggestions.
 
 For the POSIX shell bootstrap, the generated helper now decodes its JSON
 payloads through the same Perl interpreter that generated the shell fragment

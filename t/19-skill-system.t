@@ -476,7 +476,11 @@ is_deeply(
     ],
     'installed_skill_docker_roots can include disabled skill docker roots when requested',
 );
-is( $dispatcher->dispatch( 'alpha-skill', 'run-test', 'disabled' )->{error}, "Skill 'alpha-skill' is disabled", 'disabled skills no longer dispatch commands' );
+like(
+    $dispatcher->dispatch( 'alpha-skill', 'run-test', 'disabled' )->{error},
+    qr/^Skill 'alpha-skill' is disabled\./,
+    'disabled skills no longer dispatch commands',
+);
 is_deeply(
     [ map { $_->{name} } @{ $fleet_config->collectors } ],
     [ 'housekeeper', 'system.collector' ],
@@ -677,6 +681,12 @@ my ( $dotted_skill_stdout, $dotted_skill_stderr, $dotted_skill_exit ) = capture 
 };
 is( $dotted_skill_exit >> 8, 0, 'dashboard <skill>.<command> dispatch exits cleanly' );
 like( $dotted_skill_stdout, qr/updated:cli-dot/, 'dashboard <skill>.<command> routes into the installed skill command' );
+my ( $dotted_skill_typo_stdout, $dotted_skill_typo_stderr, $dotted_skill_typo_exit ) = capture {
+    system( $^X, '-I', 'lib', $repo_bin, 'alpha-skill.run-tset', 'cli-dot' );
+};
+is( $dotted_skill_typo_exit >> 8, 1, 'dashboard <skill>.<command> exits non-zero for an unknown dotted skill command' );
+like( $dotted_skill_typo_stdout . $dotted_skill_typo_stderr, qr/Command 'run-tset' not found in skill 'alpha-skill'/, 'dashboard reports the missing dotted skill command explicitly' );
+like( $dotted_skill_typo_stdout . $dotted_skill_typo_stderr, qr/Did you mean:\s+dashboard alpha-skill\.run-test/s, 'dashboard suggests the closest installed dotted skill command when the command tail is mistyped' );
 my ( $skill_which_stdout, $skill_which_stderr, $skill_which_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'which', 'alpha-skill.run-test' );
 };

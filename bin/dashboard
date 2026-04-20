@@ -25,6 +25,7 @@ use Developer::Dashboard::Platform qw(
 );
 use Developer::Dashboard::EnvAudit ();
 use Developer::Dashboard::EnvLoader ();
+use Developer::Dashboard::CLI::Suggest ();
 use Developer::Dashboard::InternalCLI ();
 use Developer::Dashboard::Runtime::Result ();
 
@@ -72,6 +73,10 @@ if ( my $custom_path = _custom_command_path($cmd) ) {
 if ( my ( $skill_name, $skill_command ) = _skill_dotted_command_parts($cmd) ) {
     my $helper_path = _builtin_helper_path('skills');
     _exec_switchboard_command( $helper_path, '_exec', $skill_name, $skill_command, @ARGV );
+}
+
+if ( $cmd ne '' ) {
+    print STDERR Developer::Dashboard::CLI::Suggest->new()->unknown_command_message($cmd);
 }
 
 pod2usage(
@@ -286,7 +291,7 @@ sub _skill_dotted_command_parts {
         project_roots   => [],
     );
     my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
-    return if !$manager->get_skill_path($skill_name);
+    return if !$manager->get_skill_path( $skill_name, include_disabled => 1 );
     return ( $skill_name, $skill_command );
 }
 

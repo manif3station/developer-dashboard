@@ -677,6 +677,12 @@ If `cli/foo.java` is executable, `dashboard foo` compiles it with `javac`
 into an isolated temp directory and then runs the declared main class with
 `java`.
 
+If a user mistypes a command, dashboard now prints an explicit unknown-command
+error together with the closest matching public command before the usual usage
+summary. The same guidance also applies to dotted skill commands, so
+`dashboard alpha-skill.run-tset` suggests the nearest installed dotted skill
+command instead of only dumping generic help.
+
 Per-command hook files can live under either
 `./.developer-dashboard/cli/<command>/` or
 `./.developer-dashboard/cli/<command>.d/` in every inherited layer from
@@ -1144,7 +1150,7 @@ dashboard shell sh
 dashboard shell ps
 ```
 
-The generated shell helper keeps the same bookmark-aware `cdr`, `dd_cdr`, and
+The generated shell helper keeps the same bookmark-aware `cdr`, `dd_cdr`, `d2`, and
 `which_dir` functions across all supported shells. `cdr` first tries a saved
 alias, then falls back to an AND-matched directory search beneath the alias
 root or the current directory depending on whether that first argument was a
@@ -1156,6 +1162,17 @@ aliases do not fail equivalent `pwd` / `which_dir` checks. Bash still uses `\j` 
 `precmd` hook with `${#jobstates}`, POSIX `sh` falls back to a prompt command
 that does not depend on bash-only prompt escapes, and PowerShell installs a
 `prompt` function instead of using the POSIX `PS1` variable.
+
+`d2` is the short shell shortcut for `dashboard`, so after loading the
+bootstrap you can run `d2 version`, `d2 doctor`, or `d2 docker compose ps`
+without typing the full command name each time.
+
+The same generated bootstrap also wires live tab completion for `dashboard`
+and `d2`. Bash registers `_dashboard_complete`, zsh registers
+`_dashboard_complete_zsh`, and PowerShell registers `Register-ArgumentCompleter`
+for both command names. Completion candidates come from the live runtime
+instead of a hardcoded shell list, so built-in commands, layered custom CLI
+commands, and installed dotted skill commands all show up in suggestions.
 
 For the POSIX shell bootstrap, the generated helper now decodes its JSON
 payloads through the same Perl interpreter that generated the shell fragment

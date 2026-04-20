@@ -36,10 +36,12 @@ my @doc_paths = grep { -e $_ } (
     _repo_path('SOFTWARE_SPEC.md'),
     _repo_path('TEST_PLAN.md'),
     _repo_path( 'doc', 'architecture.md' ),
+    _repo_path( 'doc', 'command-suggestions.md' ),
     _repo_path( 'doc', 'docker-service-toggle.md' ),
     _repo_path( 'doc', 'housekeeper-rotation.md' ),
     _repo_path( 'doc', 'layered-env-loading.md' ),
     _repo_path( 'doc', 'path-inventory-api.md' ),
+    _repo_path( 'doc', 'shell-bootstrap.md' ),
     _repo_path( 'doc', 'integration-test-plan.md' ),
     _repo_path( 'doc', 'which-command.md' ),
     _repo_path( 'doc', 'security.md' ),
@@ -65,10 +67,10 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '2.68', 'repo version bumped for the temp state root recreation fix' );
-like( $pm, qr/^2\.68$/m, 'main POD version matches the module version' );
+is( $version, '2.71', 'repo version bumped for the command guidance and shell completion work' );
+like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
-    like( $dist, qr/^version = 2\.68$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^version = \Q$version\E$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^skip = \^Module::CPANTS::Analyse\$$/m, 'dist.ini skips release-only Module::CPANTS::Analyse from generated install-time prereqs' );
     like( $dist, qr/^skip = \^Module::CPANTS::Kwalitee\$$/m, 'dist.ini skips release-only Module::CPANTS::Kwalitee from generated install-time prereqs' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
@@ -81,9 +83,9 @@ if ( $dist ne '' ) {
         like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
 }
 else {
-        like( $meta, qr/"version"\s*:\s*"2\.68"/, 'META.json version matches the module version in the built distribution' );
+        like( $meta, qr/"version"\s*:\s*"\Q$version\E"/, 'META.json version matches the module version in the built distribution' );
     }
-like( $changes, qr/^2\.68\s+2026-04-19$/m, 'Changes top entry matches the bumped version' );
+like( $changes, qr/^\Q$version\E\s+\d{4}-\d{2}-\d{2}$/m, 'Changes top entry matches the bumped version' );
 ok( $plain_readme ne '', 'plain README is tracked for release kwalitee compatibility' );
 like( $plain_readme, qr/Developer Dashboard/, 'plain README identifies the distribution clearly' );
 ok( $security_pod ne '', 'SECURITY.pod is tracked so the release tarball ships a security policy document' );

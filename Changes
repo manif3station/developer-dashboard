@@ -1,11 +1,21 @@
-2.68  2026-04-19
-    - fixed the hashed temp-state metadata writer so it recreates a missing
-      runtime state root before rewriting `runtime.json`, which keeps
-      `dashboard restart` and collector startup working after `/tmp` cleanup
-      or reboot removes the shared state tree
-    - added a focused path-registry regression that deletes the hashed temp
-      state root and proves metadata rewrite recreates the directory instead of
-      dying with `No such file or directory`
+2.71  2026-04-20
+    - taught the public `dashboard` switchboard to report unknown top-level
+      commands explicitly and suggest the closest built-in, layered custom, or
+      other public command before printing the usual usage summary
+    - taught dotted skill dispatch to suggest the closest installed skill
+      command, including nested `skills/<repo>/skills/<repo>/...` trees,
+      instead of failing with only a bare not-found error
+    - added the generated shell-bootstrap `d2` shortcut so bash, zsh, POSIX
+      sh, and PowerShell sessions can forward `d2 ...` directly into
+      `dashboard ...` after evaluating `dashboard shell ...`
+    - added live shell completion for `dashboard` and `d2`, with bash, zsh,
+      and PowerShell bootstraps delegating into `dashboard complete` so
+      built-ins, layered custom commands, and installed dotted skill commands
+      stay in sync with the active runtime
+    - documented the generated shell bootstrap helpers in the README, the main
+      manual, and a dedicated shell-bootstrap doc page, and added focused
+      smoke coverage for the new shortcut, typo guidance, and completion
+      wiring across POSIX shells plus the PowerShell alias/completer setup
 
 2.67  2026-04-19
     - tightened runtime restart validation so `dashboard restart` and the

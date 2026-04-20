@@ -719,7 +719,7 @@ sub _browser_command {
 sub _browser_binary {
     return $BROWSER_BINARY if defined $BROWSER_BINARY && $BROWSER_BINARY ne '';
 
-    for my $candidate ( qw(chromium chromium-browser google-chrome google-chrome-stable) ) {
+    for my $candidate ( qw(google-chrome-stable google-chrome chromium-browser chromium) ) {
         my $probe = _run_shell(
             "probe browser $candidate",
             "command -v $candidate",
@@ -727,6 +727,7 @@ sub _browser_binary {
         );
         my $path = _trim( $probe->{stdout} );
         if ( $probe->{exit_code} == 0 && $path ne '' ) {
+            next if $path eq '/snap/bin/chromium';
             $BROWSER_BINARY = $path;
             return $BROWSER_BINARY;
         }

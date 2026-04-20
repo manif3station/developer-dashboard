@@ -3,12 +3,13 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '2.68';
+our $VERSION = '2.71';
 
 use File::Spec;
 use JSON::XS qw(encode_json decode_json);
 use Capture::Tiny qw(capture);
 use File::Basename qw(dirname basename);
+use Developer::Dashboard::CLI::Suggest;
 use Developer::Dashboard::EnvLoader;
 use Developer::Dashboard::Runtime::Result;
 use Developer::Dashboard::SkillManager;
@@ -36,13 +37,17 @@ sub dispatch {
     return { error => 'Missing command name' } if !$command;
 
     my $skill_path = $self->{manager}->get_skill_path( $skill_name, include_disabled => 1 );
-    return { error => "Skill '$skill_name' not found" } if !$skill_path;
-    return { error => "Skill '$skill_name' is disabled" } if !$self->{manager}->is_enabled($skill_name);
+    my $suggest = Developer::Dashboard::CLI::Suggest->new(
+        paths   => $self->{manager}{paths},
+        manager => $self->{manager},
+    );
+    return { error => $suggest->unknown_skill_command_message( $skill_name, $command ) } if !$skill_path;
+    return { error => $suggest->unknown_skill_command_message( $skill_name, $command ) } if !$self->{manager}->is_enabled($skill_name);
 
     my $command_spec = $self->_command_spec( $skill_name, $command );
     my $cmd_path = $command_spec ? $command_spec->{cmd_path} : undef;
     my $command_skill_path = $command_spec ? $command_spec->{skill_path} : undef;
-    return { error => "Command '$command' not found in skill '$skill_name'" } if !$cmd_path;
+    return { error => $suggest->unknown_skill_command_message( $skill_name, $command ) } if !$cmd_path;
 
     my $hook_result = $self->execute_hooks( $skill_name, $command, @args );
     return $hook_result if $hook_result->{error};
