@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.73';
+our $VERSION = '2.74';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.73
+2.74
 
 =head1 INTRODUCTION
 
@@ -1152,6 +1152,7 @@ Inspect resolved paths:
   dashboard which jq
   dashboard which layered-tool
   dashboard which nest.level1.level2.here
+  dashboard which --edit jq
 
 Custom path aliases are stored in the effective dashboard config root so shell
 helpers such as C<cdr foobar> and C<which_dir foobar> keep working across
@@ -1219,7 +1220,9 @@ C<HOOK /full/path> line for each participating hook in runtime execution
 order. That works for built-in helpers such as C<jq>, layered custom commands
 such as C<layered-tool>, single-level skill commands such as
 C<example-skill.somecmd>, and multi-level nested skill commands such as
-C<nest.level1.level2.here>.
+C<nest.level1.level2.here>. If you add C<--edit>, C<dashboard which> skips the
+inspection output and re-enters C<dashboard open-file> with the resolved
+command file path so the normal editor-selection behavior is reused.
 
 Render shell bootstrap for bash, zsh, POSIX sh, or PowerShell:
 

@@ -693,6 +693,31 @@ my ( $skill_which_stdout, $skill_which_stderr, $skill_which_exit ) = capture {
 is( $skill_which_exit >> 8, 0, 'dashboard which <skill>.<command> exits cleanly' );
 like( $skill_which_stdout, qr/^COMMAND \Q@{[ File::Spec->catfile( $install->{path}, 'cli', 'run-test' ) ]}\E$/m, 'dashboard which <skill>.<command> reports the resolved skill command path' );
 like( $skill_which_stdout, qr/^HOOK \Q@{[ File::Spec->catfile( $install->{path}, 'cli', 'run-test.d', '00-pre.pl' ) ]}\E$/m, 'dashboard which <skill>.<command> reports the participating skill hook file' );
+my $skill_editor_log = File::Spec->catfile( $ENV{HOME}, 'skill-which-editor.log' );
+my $skill_editor = File::Spec->catfile( $ENV{HOME}, 'skill-which-editor' );
+_write_file(
+    $skill_editor,
+    <<"SH",
+#!/bin/sh
+printf '%s\\n' "\$@" > '$skill_editor_log'
+SH
+    0755,
+);
+my ( $skill_which_edit_stdout, $skill_which_edit_stderr, $skill_which_edit_exit ) = capture {
+    local $ENV{EDITOR} = $skill_editor;
+    system( $^X, '-I', 'lib', $repo_bin, 'which', '--edit', 'alpha-skill.run-test' );
+};
+is( $skill_which_edit_exit >> 8, 0, 'dashboard which --edit <skill>.<command> exits cleanly' );
+is( $skill_which_edit_stdout, '', 'dashboard which --edit <skill>.<command> does not print inspection output before opening the file' );
+is( $skill_which_edit_stderr, '', 'dashboard which --edit <skill>.<command> keeps stderr clean' );
+open my $skill_editor_log_fh, '<', $skill_editor_log or die "Unable to read $skill_editor_log: $!";
+my $skill_editor_args = do { local $/; <$skill_editor_log_fh> };
+close $skill_editor_log_fh;
+is(
+    $skill_editor_args,
+    File::Spec->catfile( $install->{path}, 'cli', 'run-test' ) . "\n",
+    'dashboard which --edit <skill>.<command> opens the resolved skill command path through dashboard open-file',
+);
 
 make_path( File::Spec->catdir( $install->{path}, 'skills', 'foo', 'cli' ) );
 _write_file(
@@ -715,6 +740,21 @@ my ( $nested_which_stdout, $nested_which_stderr, $nested_which_exit ) = capture 
 };
 is( $nested_which_exit >> 8, 0, 'dashboard which <skill>.<nested-skill>.<command> exits cleanly' );
 like( $nested_which_stdout, qr/^COMMAND \Q@{[ File::Spec->catfile( $install->{path}, 'skills', 'foo', 'cli', 'foo' ) ]}\E$/m, 'dashboard which resolves nested skill commands to the deepest nested cli file' );
+my ( $nested_which_edit_stdout, $nested_which_edit_stderr, $nested_which_edit_exit ) = capture {
+    local $ENV{EDITOR} = $skill_editor;
+    system( $^X, '-I', 'lib', $repo_bin, 'which', '--edit', 'alpha-skill.foo.foo' );
+};
+is( $nested_which_edit_exit >> 8, 0, 'dashboard which --edit <skill>.<nested-skill>.<command> exits cleanly' );
+is( $nested_which_edit_stdout, '', 'dashboard which --edit nested skill command does not print inspection output before opening the file' );
+is( $nested_which_edit_stderr, '', 'dashboard which --edit nested skill command keeps stderr clean' );
+open my $nested_editor_log_fh, '<', $skill_editor_log or die "Unable to read $skill_editor_log after nested which --edit: $!";
+my $nested_editor_args = do { local $/; <$nested_editor_log_fh> };
+close $nested_editor_log_fh;
+is(
+    $nested_editor_args,
+    File::Spec->catfile( $install->{path}, 'skills', 'foo', 'cli', 'foo' ) . "\n",
+    'dashboard which --edit nested skill command opens the deepest resolved nested skill path through dashboard open-file',
+);
 
 my ( $uninstall_stdout, $uninstall_stderr, $uninstall_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skills', 'uninstall', 'alpha-skill' );

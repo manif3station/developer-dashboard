@@ -753,6 +753,7 @@ dashboard path del foobar
 dashboard which jq
 dashboard which layered-tool
 dashboard which nest.level1.level2.here
+dashboard which --edit jq
 ```
 
 Custom path aliases are stored in the effective dashboard config root so shell helpers such as `cdr foobar` and `which_dir foobar` keep working across sessions. When a project-local `./.developer-dashboard` tree exists, alias writes go there first; otherwise they go to the home runtime. Under `DD-OOP-LAYERS`, that write stays local to the deepest participating layer: adding one child-layer alias does not copy inherited parent `config.json` domains into the child file. The child layer keeps only its own new delta and still inherits the rest from home and parent layers at read time. When a saved alias points inside your home directory, the stored config uses `$HOME/...` instead of a hard-coded absolute home path so a shared fallback runtime remains portable across different developer accounts. Re-adding an existing alias updates it without error, and deleting a missing alias is also safe.
@@ -797,7 +798,9 @@ file and then one `HOOK /full/path` line for each participating hook in
 runtime execution order. That works for built-in helpers such as `jq`, layered
 custom commands such as `layered-tool`, single-level skill commands such as
 `example-skill.somecmd`, and multi-level nested skill commands such as
-`nest.level1.level2.here`.
+`nest.level1.level2.here`. If you add `--edit`, `dashboard which` skips the
+inspection output and re-enters `dashboard open-file` with the resolved command
+file path so the normal editor-selection behavior is reused.
 
 Render shell bootstrap for bash, zsh, POSIX sh, or PowerShell:
 

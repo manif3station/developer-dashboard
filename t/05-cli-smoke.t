@@ -451,7 +451,7 @@ like($help, qr/dashboard docker list \[--enabled\|--disabled\]/, 'dashboard help
 like($help, qr/dashboard skills enable <repo-name>/, 'dashboard help documents skill enable');
 like($help, qr/dashboard skills disable <repo-name>/, 'dashboard help documents skill disable');
 like($help, qr/dashboard skills usage <repo-name> \[-o json\|table\]/, 'dashboard help documents skill usage inspection');
-like($help, qr/dashboard which <cmd>/, 'dashboard help documents the built-in which command');
+like($help, qr/dashboard which \[--edit\] <cmd>/, 'dashboard help documents the built-in which command and --edit mode');
 unlike($help, qr/dashboard skill <repo-name> <command>/, 'dashboard help no longer documents the removed singular skill dispatcher');
 my ( $invalid_cmd_stdout, $invalid_cmd_stderr, $invalid_cmd_exit ) = capture {
     system $perl, '-I' . $lib, $dashboard, 'dcoekr';
@@ -1563,6 +1563,27 @@ my $jq_which = _run("$perl -I'$lib' '$dashboard' which jq");
 like( $jq_which, qr/^COMMAND \Q$runtime_jq\E$/m, 'dashboard which jq reports the staged built-in helper path' );
 like( $jq_which, qr/^HOOK \Q$jq_hook_one\E$/m, 'dashboard which jq lists the first participating hook file' );
 like( $jq_which, qr/^HOOK \Q$jq_hook_two\E$/m, 'dashboard which jq lists the later participating hook file' );
+my $which_editor_log = File::Spec->catfile( $ENV{HOME}, 'which-editor.log' );
+my $which_editor = File::Spec->catfile( $ENV{HOME}, 'fake-editor' );
+open my $which_editor_fh, '>', $which_editor or die "Unable to write $which_editor: $!";
+print {$which_editor_fh} <<"SH";
+#!/bin/sh
+printf '%s\\n' "\$@" > '$which_editor_log'
+SH
+close $which_editor_fh;
+chmod 0755, $which_editor or die "Unable to chmod $which_editor: $!";
+my ( $jq_which_edit_stdout, $jq_which_edit_stderr, $jq_which_edit_exit ) = capture {
+    local $ENV{EDITOR} = $which_editor;
+    system $perl, '-I' . $lib, $dashboard, 'which', '--edit', 'jq';
+    return $? >> 8;
+};
+is( $jq_which_edit_exit, 0, 'dashboard which --edit jq exits cleanly' );
+is( $jq_which_edit_stdout, '', 'dashboard which --edit jq does not print inspection output before opening the file' );
+is( $jq_which_edit_stderr, '', 'dashboard which --edit jq keeps stderr clean' );
+open my $which_editor_log_fh, '<', $which_editor_log or die "Unable to read $which_editor_log: $!";
+my $which_editor_args = do { local $/; <$which_editor_log_fh> };
+close $which_editor_log_fh;
+is_same_path_output( $which_editor_args, "$runtime_jq\n", 'dashboard which --edit jq opens the resolved helper path through dashboard open-file' );
 open my $jq_hook_result_fh, '<', $jq_hook_result or die "Unable to read $jq_hook_result: $!";
 is( do { local $/; <$jq_hook_result_fh> }, "hook-one\n", 'later built-in command hooks can read the accumulated RESULT JSON from earlier hook output' );
 close $jq_hook_result_fh;

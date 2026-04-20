@@ -1,3 +1,13 @@
+2.74  2026-04-20
+    - taught `dashboard which` to accept `--edit` for built-in helpers,
+      layered custom commands, single-level skill commands, and nested skill
+      commands, re-entering `dashboard open-file` with the resolved command
+      file path instead of only printing the inspection output
+    - documented the new `dashboard which --edit` behavior across the README,
+      the main manual, the private which helper POD, the public dashboard
+      synopsis, and the dedicated which-command guide, with focused regression
+      coverage for built-in and skill command editing paths
+
 2.73  2026-04-20
     - fixed the CI-only integration-assets failure by tracking `doc/testing.md`
       in git, unignoring it in `.gitignore`, and teaching the integration

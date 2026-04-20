@@ -1,5 +1,19 @@
 # Fixed Bugs
 
+## 2026-04-20 (Phase 129: Which Edit Reentry)
+
+- Fixed the command-inspection usability gap where `dashboard which` could only
+  print the resolved command path and hook chain even when the user already
+  knew they wanted to open the resolved file for editing.
+- Added `dashboard which --edit` so built-in helpers, layered custom commands,
+  single-level skill commands, and nested skill commands now re-enter the
+  public `dashboard open-file` path with the resolved command file instead of
+  duplicating editor-launch logic inside `which`.
+- Synced the README, the main manual, the private `which` helper POD, the
+  public `dashboard` synopsis, and the dedicated `doc/which-command.md` guide
+  so the new editing flow is documented alongside the existing `COMMAND` and
+  `HOOK` inspection output.
+
 ## 2026-04-20 (Phase 128: Tracked Testing Workflow Documentation)
 
 - Fixed a CI-only `t/13-integration-assets.t` failure where `doc/testing.md`
