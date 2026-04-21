@@ -1,5 +1,28 @@
 # Fixed Bugs
 
+## 2026-04-21 (Phase 134: Skill-Local ddfile.local And package.json Dependency Policy)
+
+- Fixed skill-local `ddfile.local` handling so dependent skills now install
+  into the same DD-OOP-LAYER skills root that owns the current installed
+  skill, instead of drifting to whatever directory happened to launch the
+  install.
+- Added skill `package.json` dependency support so Node dependencies now
+  install into the dashboard home directory through
+  `npm install --prefix "$HOME" <skill-root>`.
+- Extended the regression coverage and shipped docs so the automatic per-skill
+  dependency order is locked to
+  `ddfile -> ddfile.local -> aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local`.
+
+## 2026-04-21 (Phase 133: ddfile Base-Layer Target Fix)
+
+- Fixed the manifest-install target drift so `dashboard skills install
+  --ddfile` now installs plain `ddfile` entries into the base
+  `~/.developer-dashboard/skills/` layer even when the command is launched
+  from a deeper child `.developer-dashboard/` directory.
+- Kept `ddfile.local` scoped to the current directory's nested `skills/`
+  tree and added explicit regression coverage proving that the home-layer
+  `ddfile` target and the local `ddfile.local` target stay separate.
+
 ## 2026-04-21 (Phase 132: Explicit ddfile Skill Installs And Coverage-Stable Runtime Guards)
 
 - Fixed the explicit skill-install operator gap so `dashboard skills install`

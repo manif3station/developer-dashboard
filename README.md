@@ -1485,14 +1485,15 @@ target becomes `<that-layer>/.developer-dashboard/skills/<repo-name>/`.
 the special `--ddfile` flag; calling it with no source and no `--ddfile`
 returns a usage error instead of guessing.
 Developer Dashboard does not merge the skill's `cli/`, `dashboards/`,
-`config/`, `ddfile`, `aptfile`, `brewfile`, `cpanfile`, `cpanfile.local`, or
-Docker files into the normal runtime folders.
+`config/`, `ddfile`, `ddfile.local`, `aptfile`, `brewfile`, `package.json`,
+`cpanfile`, `cpanfile.local`, or Docker files into the normal runtime
+folders.
 
 `dashboard skills install --ddfile` reads dependency manifests from the
 current directory instead of taking one explicit skill source. If `ddfile`
-exists there, each listed source installs into the active layered skills root
-such as `~/.developer-dashboard/skills/<repo-name>/` or the deepest
-participating child `.developer-dashboard/skills/<repo-name>/`. If
+exists there, each listed source installs into the base home-layer skills root
+at `~/.developer-dashboard/skills/<repo-name>/` even when the command is run
+inside a deeper child `.developer-dashboard/` layer. If
 `ddfile.local` exists there, each listed source installs into the current
 directory's nested `skills/<repo-name>/` tree instead. When both manifests are
 present, the command processes `ddfile` first and `ddfile.local` second.
@@ -1626,8 +1627,10 @@ Each installed skill lives under
 - `state/` - Persistent skill state and data
 - `logs/` - Skill output logs
 - `ddfile` - Optional dependent skill list installed before package managers run
+- `ddfile.local` - Optional local dependent skill list installed after `ddfile` into the same skills root as the current skill install target
 - `aptfile` - Optional Debian-family system packages installed through `sudo apt-get install -y`
 - `brewfile` - Optional macOS Homebrew packages installed through `brew install`
+- `package.json` - Optional Node dependencies installed into `$HOME` through `npm install --prefix "$HOME" <skill-root>`
 - `cpanfile` - Optional shared Perl dependencies installed into `~/perl5`
 - `cpanfile.local` - Optional skill-local Perl dependencies installed into `<skill-root>/perl5`
 
@@ -1671,9 +1674,14 @@ Skill dependency and docker layering:
 - if a `ddfile` exists, each listed dependency is installed first through
   `dashboard skills install <dependency>` while already-installed or in-flight
   skills are skipped to avoid loops
+- if a `ddfile.local` exists under an installed skill, each listed dependency
+  is then installed through `dashboard skills install <dependency>` into the
+  same skills root that owns the current installed skill, so child-layer skill
+  installs stay in that child layer and home-layer installs stay in the home
+  layer
 - if an operator runs `dashboard skills install --ddfile` inside a directory
   that contains `ddfile`, every listed source is reinstalled or refreshed into
-  the active layered skills root
+  the base `~/.developer-dashboard/skills/` root
 - if that same directory also contains `ddfile.local`, every listed source is
   then reinstalled or refreshed into the current directory's nested
   `skills/<repo-name>/` tree after the global `ddfile` pass completes
@@ -1681,6 +1689,8 @@ Skill dependency and docker layering:
   before the sudo prompt and then installed through `sudo apt-get install -y`
 - if a `brewfile` exists on macOS, its package list is printed and then
   installed through `brew install`
+- if a `package.json` exists, its Node dependencies are installed into `$HOME`
+  through `npm install --prefix "$HOME" <skill-root>`
 - if a `cpanfile` exists, its Perl dependencies are installed into `~/perl5`
 - if a `cpanfile.local` exists, its Perl dependencies are installed into the
   skill-local `perl5/` tree
@@ -1692,8 +1702,8 @@ Skill dependency and docker layering:
 
 To build a new skill, start with a Git repository that contains `cli/`,
 `config/config.json`, and optional `dashboards/`, `dashboards/nav/`, `state/`,
-`logs/`, `ddfile`, `ddfile.local`, `aptfile`, `brewfile`, `cpanfile`, and
-`cpanfile.local` files under the skill root. Skill
+`logs/`, `ddfile`, `ddfile.local`, `aptfile`, `brewfile`, `package.json`,
+`cpanfile`, and `cpanfile.local` files under the skill root. Skill
 commands are file-based commands run through the dotted
 `dashboard <repo-name>.<command>` form. Skill hook files live under
 `cli/<command>.d/`, skill app pages render from `/app/<repo-name>` and
@@ -1711,12 +1721,13 @@ environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`, bookmark
 syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, and `CODE1:`, bookmark browser
 helpers such as `fetch_value()`, `stream_value()`, and `stream_data()`,
 underscored config merge keys such as `_example-skill`, the
-`ddfile -> ddfile.local -> aptfile -> brewfile -> cpanfile -> cpanfile.local`
-operator install controls versus the automatic
-`ddfile -> aptfile -> brewfile -> cpanfile -> cpanfile.local` dependency
-install order, the shared `~/perl5` versus skill-local `perl5/` split, the
-current-directory `skills/` target used by `ddfile.local`, skill docker
-layering, and when to use
+`ddfile -> ddfile.local -> aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local`
+automatic dependency install order, the explicit
+`dashboard skills install --ddfile` operator order of
+`ddfile -> ddfile.local`, the shared `~/perl5` versus skill-local `perl5/`
+split, the `$HOME` Node install target used by `package.json`, the
+same-install-level dependency target used by skill-local `ddfile.local`,
+skill docker layering, and when to use
 dashboard-wide custom CLI hook folders such as
 `~/.developer-dashboard/cli/<command>.d` instead of a skill-local hook tree.
 

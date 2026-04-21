@@ -1396,7 +1396,7 @@ close $manifest_local_ddfile_fh;
     chdir $manifest_install_root or die "Unable to chdir to $manifest_install_root: $!";
     my $manifest_install = _run("$perl -I'$lib' '$dashboard' skills install --ddfile");
     like( $manifest_install, qr/"success"\s*:\s*1/, 'dashboard skills install --ddfile succeeds when manifest files are present' );
-    ok( -d File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'skills', 'manifest-global-skill-fixture' ), 'dashboard skills install --ddfile installs ddfile entries into the active DD-OOP-LAYER skills root' );
+    ok( -d File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'skills', 'manifest-global-skill-fixture' ), 'dashboard skills install --ddfile installs ddfile entries into the home DD-OOP-LAYER skills root' );
     ok( -d File::Spec->catdir( $manifest_install_root, 'skills', 'manifest-local-skill-fixture' ), 'dashboard skills install --ddfile installs ddfile.local entries into the current skill-local skills root' );
     chdir $cwd_before_manifest_install_root or die "Unable to chdir back to $cwd_before_manifest_install_root: $!";
 }

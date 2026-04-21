@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '2.77';
+our $VERSION = '2.79';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -63,7 +63,7 @@ sub install_from_ddfiles {
     my $global_result = $self->_install_manifest_file(
         $ddfile,
         manifest_name => 'ddfile',
-        skills_root   => $self->{paths}->skills_root,
+        skills_root   => File::Spec->catdir( $self->{paths}->home_runtime_root, 'skills' ),
         operations    => \@operations,
     );
     return $global_result if $global_result->{error};
@@ -478,10 +478,12 @@ sub _prepare_skill_layout {
 sub _install_skill_dependencies {
     my ( $self, $skill_path ) = @_;
     my @steps = (
-        [ ddfile         => sub { $self->_install_skill_ddfile($skill_path) } ],
-        [ aptfile        => sub { $self->_install_skill_aptfile($skill_path) } ],
-        [ brewfile       => sub { $self->_install_skill_brewfile($skill_path) } ],
-        [ cpanfile       => sub { $self->_install_skill_cpanfile($skill_path) } ],
+        [ ddfile           => sub { $self->_install_skill_ddfile($skill_path) } ],
+        [ 'ddfile.local'   => sub { $self->_install_skill_ddfile_local($skill_path) } ],
+        [ aptfile          => sub { $self->_install_skill_aptfile($skill_path) } ],
+        [ brewfile         => sub { $self->_install_skill_brewfile($skill_path) } ],
+        [ 'package.json'   => sub { $self->_install_skill_package_json($skill_path) } ],
+        [ cpanfile         => sub { $self->_install_skill_cpanfile($skill_path) } ],
         [ 'cpanfile.local' => sub { $self->_install_skill_cpanfile_local($skill_path) } ],
     );
     my @stdout;
@@ -502,6 +504,17 @@ sub _install_skill_dependencies {
         stdout  => join( '', @stdout ),
         stderr  => join( '', @stderr ),
     };
+}
+
+# _skill_install_root($skill_path)
+# Returns the owning skills root directory for one installed skill.
+# Input: absolute installed skill root directory path.
+# Output: absolute parent skills root directory path.
+sub _skill_install_root {
+    my ( $self, $skill_path ) = @_;
+    my ( undef, $dir ) = File::Spec->splitpath($skill_path);
+    $dir =~ s{[\\/]\z}{};
+    return $dir;
 }
 
 # _skill_apt_packages($skill_path)
@@ -602,10 +615,31 @@ sub _ensure_perl_root {
 # Output: result hash reference with success or error state.
 sub _install_skill_ddfile {
     my ( $self, $skill_path ) = @_;
-    my $ddfile = File::Spec->catfile( $skill_path, 'ddfile' );
-    my @skills = $self->_dependency_file_lines($ddfile);
+    return $self->_install_skill_dependency_manifest( $skill_path, 'ddfile' );
+}
+
+# _install_skill_ddfile_local($skill_path)
+# Installs dependent skills listed in ddfile.local into the same skills root as
+# the current installed skill.
+# Input: absolute skill root directory path.
+# Output: result hash reference with success or error state.
+sub _install_skill_ddfile_local {
+    my ( $self, $skill_path ) = @_;
+    return $self->_install_skill_dependency_manifest( $skill_path, 'ddfile.local' );
+}
+
+# _install_skill_dependency_manifest($skill_path, $manifest_name)
+# Installs dependent skills listed in one manifest while keeping every
+# dependency at the current installed skill level.
+# Input: absolute skill root directory path and manifest filename.
+# Output: result hash reference with success or error state.
+sub _install_skill_dependency_manifest {
+    my ( $self, $skill_path, $manifest_name ) = @_;
+    my $manifest = File::Spec->catfile( $skill_path, $manifest_name );
+    my @skills = $self->_dependency_file_lines($manifest);
     return { success => 1, skipped => 1 } if !@skills;
 
+    my $skills_root = $self->_skill_install_root($skill_path);
     my %seen = map { $_ => 1 } grep { defined && $_ ne '' } split /:/, ( $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} || '' );
     my $repo_name = basename($skill_path);
     $seen{$repo_name} = 1 if defined $repo_name && $repo_name ne '';
@@ -618,12 +652,26 @@ sub _install_skill_ddfile {
         my $install_stack = join ':', grep { defined && $_ ne '' } sort keys %{{ %seen, $dependency => 1 }};
         my ( $step_stdout, $step_stderr, $exit ) = do {
             local $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} = $install_stack;
-            capture {
-                system( 'dashboard', 'skills', 'install', $dependency );
+            local $ENV{DEVELOPER_DASHBOARD_DEPENDENCY_MANIFEST} = $manifest_name;
+            my $cwd = Cwd::getcwd();
+            my ( $stdout, $stderr, $status );
+            eval {
+                chdir $skills_root or die "Unable to chdir to $skills_root for $manifest_name dependency install: $!";
+                ( $stdout, $stderr, $status ) = capture {
+                    system( 'dashboard', 'skills', 'install', $dependency );
+                };
+                chdir $cwd or die "Unable to chdir back to $cwd after $manifest_name dependency install: $!";
+                1;
             };
+            my $eval_error = $@;
+            if ($eval_error) {
+                chdir $cwd if Cwd::getcwd() ne $cwd;
+                die $eval_error;
+            }
+            ( $stdout, $stderr, $status );
         };
         return {
-            error => "Failed to install dependent skills for $skill_path: $step_stderr",
+            error => "Failed to install dependent skills for $skill_path via $manifest_name: $step_stderr",
         } if $exit != 0;
         push @stdout, $step_stdout if defined $step_stdout && $step_stdout ne '';
         push @stderr, $step_stderr if defined $step_stderr && $step_stderr ne '';
@@ -634,6 +682,28 @@ sub _install_skill_ddfile {
         success => 1,
         stdout  => join( '', @stdout ),
         stderr  => join( '', @stderr ),
+    };
+}
+
+# _install_skill_package_json($skill_path)
+# Installs Node dependencies declared by package.json into the home directory.
+# Input: absolute skill root directory path.
+# Output: result hash reference with success or error state.
+sub _install_skill_package_json {
+    my ( $self, $skill_path ) = @_;
+    my $package_json = File::Spec->catfile( $skill_path, 'package.json' );
+    return { success => 1, skipped => 1 } if !-f $package_json;
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'npm', 'install', '--prefix', $self->{paths}->home, $skill_path );
+    };
+    return {
+        error => "Failed to install skill Node dependencies for $skill_path: $stderr",
+    } if $exit != 0;
+
+    return {
+        success => 1,
+        stdout  => $stdout,
+        stderr  => $stderr,
     };
 }
 
@@ -1094,8 +1164,8 @@ Example 5:
   dashboard skills install --ddfile
 
 Drive an explicit manifest install from the current directory, where F<ddfile>
-targets the active layered skills root and F<ddfile.local> targets the current
-directory's nested C<skills/> tree.
+targets the base home-layer F<~/.developer-dashboard/skills/> root and
+F<ddfile.local> targets the current directory's nested C<skills/> tree.
 
 
 =for comment FULL-POD-DOC END

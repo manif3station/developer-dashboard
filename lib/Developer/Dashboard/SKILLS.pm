@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '2.77';
+our $VERSION = '2.79';
 
 1;
 
@@ -96,9 +96,10 @@ Run an operator manifest install from the current directory:
 
   dashboard skills install --ddfile
 
-If F<ddfile> exists there, each listed source installs into the active
-layered skills root such as
-F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>. If F<ddfile.local>
+If F<ddfile> exists there, each listed source installs into the base
+home-layer skills root at
+F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/> even when the command is
+run from a deeper child F<.developer-dashboard/> layer. If F<ddfile.local>
 exists there, each listed source installs into the current directory's nested
 F<skills/E<lt>repo-nameE<gt>/> tree instead. When both manifests are present,
 F<ddfile> runs first and F<ddfile.local> runs second. Repeated
@@ -188,9 +189,8 @@ Optional dependent skill list installed before package managers run.
 
 =item B<ddfile.local>
 
-Optional operator manifest for installing listed skills into the current
-directory's nested C<skills/> tree when an operator runs
-C<dashboard skills install --ddfile>.
+Optional local dependent skill list installed after C<ddfile> into the same
+skills root as the current skill install target.
 
 =item B<aptfile>
 
@@ -202,6 +202,11 @@ C<sudo apt-get install -y>.
 
 Optional macOS Homebrew package declaration. When present, Developer Dashboard
 prints the requested package list and installs it through C<brew install>.
+
+=item B<package.json>
+
+Optional Node dependency declaration. When present, Developer Dashboard runs
+C<npm install --prefix "$HOME" E<lt>skill-rootE<gt>>.
 
 =item B<cpanfile>
 
@@ -580,13 +585,13 @@ a C<cpanfile.local> when that skill also needs a skill-local C<./perl5> tree.
 
 =head2 Can a skill install system packages first?
 
-Yes. Ship a C<ddfile> for dependent skills, a C<ddfile.local> for explicit
-local nested-skill installs driven by C<dashboard skills install --ddfile>, an
-C<aptfile> for Debian-family packages, or a C<brewfile> for macOS packages.
-The operator-driven manifest order is
-C<ddfile -> ddfile.local -> aptfile -> brewfile -> cpanfile -> cpanfile.local>,
-while the automatic per-skill dependency order stays
-C<ddfile -> aptfile -> brewfile -> cpanfile -> cpanfile.local>.
+Yes. Ship a C<ddfile> for dependent skills, a C<ddfile.local> for dependent
+skills that must stay at the current install level, an C<aptfile> for
+Debian-family packages, a C<brewfile> for macOS packages, or a
+C<package.json> for Node dependencies that should land under C<$HOME>. The
+explicit operator manifest order for C<dashboard skills install --ddfile> is
+C<ddfile -> ddfile.local>, while the automatic per-skill dependency order is
+C<ddfile -> ddfile.local -> aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local>.
 
 =head2 Where is the long-form guide?
 

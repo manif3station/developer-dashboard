@@ -31,6 +31,7 @@ my $fake_bin = tempdir( CLEANUP => 1 );
 my $cpanm_log = File::Spec->catfile( $fake_bin, 'cpanm.log' );
 my $apt_log = File::Spec->catfile( $fake_bin, 'apt.log' );
 my $brew_log = File::Spec->catfile( $fake_bin, 'brew.log' );
+my $npm_log = File::Spec->catfile( $fake_bin, 'npm.log' );
 my $sudo_log = File::Spec->catfile( $fake_bin, 'sudo.log' );
 my $dashboard_log = File::Spec->catfile( $fake_bin, 'dashboard.log' );
 my $dependency_log = File::Spec->catfile( $fake_bin, 'dependency-install.log' );
@@ -55,6 +56,16 @@ SH
     0755,
 );
 _write_file(
+    File::Spec->catfile( $fake_bin, 'npm' ),
+    <<"SH",
+#!/bin/sh
+printf '%s\\n' "\$*" >> "$npm_log"
+printf 'NPM:%s\\n' "\$*" >> "$dependency_log"
+exit 0
+SH
+    0755,
+);
+_write_file(
     File::Spec->catfile( $fake_bin, 'sudo' ),
     <<"SH",
 #!/bin/sh
@@ -68,7 +79,12 @@ _write_file(
     <<"SH",
 #!/bin/sh
 printf '%s\\n' "\$*" >> "$dashboard_log"
-printf 'DDFILE:%s\\n' "\$*" >> "$dependency_log"
+manifest="\${DEVELOPER_DASHBOARD_DEPENDENCY_MANIFEST:-ddfile}"
+if [ "\$manifest" = "ddfile.local" ]; then
+  printf 'DDFILE_LOCAL:%s\\n' "\$*" >> "$dependency_log"
+else
+  printf 'DDFILE:%s\\n' "\$*" >> "$dependency_log"
+fi
 exit 0
 SH
     0755,
@@ -111,8 +127,10 @@ use warnings;
 print "hook-alpha\n";
 PL
     ddfile_body => "dep-alpha\n",
+    ddfile_local_body => "dep-beta\n",
     aptfile_body => "git\ncurl\n",
     brewfile_body => "jq\n",
+    package_json_body => qq|{"name":"alpha-skill-node","version":"1.0.0","dependencies":{"left-pad":"1.3.0"}}\n|,
     cpanfile_local_body => "requires 'YAML::XS';\n",
     bookmark_body => <<'BOOKMARK',
 TITLE: Skill Bookmark
@@ -149,19 +167,24 @@ open my $dependency_log_fh, '<', $dependency_log or die "Unable to read $depende
 my @dependency_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dependency_log_fh>;
 close $dependency_log_fh;
 is_deeply(
-    [ map { (/^(DDFILE|APT|BREW|CPANM):/)[0] } @dependency_steps ],
-    [ 'DDFILE', 'APT', 'CPANM', 'CPANM' ],
-    'skill install processes ddfile, aptfile, cpanfile, and cpanfile.local in policy order on Debian-like hosts while leaving brewfile inactive',
+    [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|CPANM):/)[0] } @dependency_steps ],
+    [ 'DDFILE', 'DDFILE_LOCAL', 'APT', 'NPM', 'CPANM', 'CPANM' ],
+    'skill install processes ddfile, ddfile.local, aptfile, package.json, cpanfile, and cpanfile.local in policy order on Debian-like hosts while leaving brewfile inactive',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
 close $cpanm_log_fh;
 like( $cpanm_steps[0], qr/^-L \Q$ENV{HOME}\/perl5\E --cpanfile \Q$install->{path}\/cpanfile\E --installdeps \Q$install->{path}\E$/, 'cpanfile installs shared Perl dependencies into HOME perl5' );
 is( $cpanm_steps[1], "-L $install->{path}/perl5 --cpanfile $install->{path}/cpanfile.local --installdeps $install->{path}", 'cpanfile.local installs local Perl dependencies into the skill perl5 root' );
+open my $npm_log_fh, '<', $npm_log or die "Unable to read $npm_log: $!";
+my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npm_log_fh>;
+close $npm_log_fh;
+is( $npm_steps[0], "install --prefix $ENV{HOME} $install->{path}", 'package.json installs Node dependencies into HOME' );
 open my $dashboard_log_fh, '<', $dashboard_log or die "Unable to read $dashboard_log: $!";
 my @dashboard_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dashboard_log_fh>;
 close $dashboard_log_fh;
 is( $dashboard_steps[0], 'skills install dep-alpha', 'ddfile installs dependent skills through dashboard skills install' );
+is( $dashboard_steps[1], 'skills install dep-beta', 'ddfile.local installs dependent skills through dashboard skills install at the current skill level' );
 
 my $listed = $manager->list();
 is( scalar(@$listed), 1, 'list returns the installed skill only once' );
@@ -850,11 +873,17 @@ sub _create_skill_repo {
     if ( defined $args{ddfile_body} ) {
         _write_file( 'ddfile', $args{ddfile_body}, 0644 );
     }
+    if ( defined $args{ddfile_local_body} ) {
+        _write_file( 'ddfile.local', $args{ddfile_local_body}, 0644 );
+    }
     if ( defined $args{aptfile_body} ) {
         _write_file( 'aptfile', $args{aptfile_body}, 0644 );
     }
     if ( defined $args{brewfile_body} ) {
         _write_file( 'brewfile', $args{brewfile_body}, 0644 );
+    }
+    if ( defined $args{package_json_body} ) {
+        _write_file( 'package.json', $args{package_json_body}, 0644 );
     }
     if ( defined $args{cpanfile_local_body} ) {
         _write_file( 'cpanfile.local', $args{cpanfile_local_body}, 0644 );

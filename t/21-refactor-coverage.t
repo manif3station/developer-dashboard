@@ -1552,6 +1552,7 @@ my $fake_bin = tempdir( CLEANUP => 1 );
 my $cpanm_log = File::Spec->catfile( $fake_bin, 'cpanm.log' );
 my $apt_log = File::Spec->catfile( $fake_bin, 'apt.log' );
 my $brew_log = File::Spec->catfile( $fake_bin, 'brew.log' );
+my $npm_log = File::Spec->catfile( $fake_bin, 'npm.log' );
 my $sudo_log = File::Spec->catfile( $fake_bin, 'sudo.log' );
 my $dashboard_log = File::Spec->catfile( $fake_bin, 'dashboard.log' );
 my $dependency_log = File::Spec->catfile( $fake_bin, 'dependency-install.log' );
@@ -1582,6 +1583,19 @@ SH
     0755,
 );
 _write_file(
+    File::Spec->catfile( $fake_bin, 'npm' ),
+    <<"SH",
+#!/bin/sh
+printf '%s\\n' "\$*" >> "$npm_log"
+printf 'NPM:%s\\n' "\$*" >> "$dependency_log"
+if [ "\$DD_TEST_NPM_FAIL" = "1" ]; then
+  exit 1
+fi
+exit 0
+SH
+    0755,
+);
+_write_file(
     File::Spec->catfile( $fake_bin, 'sudo' ),
     <<"SH",
 #!/bin/sh
@@ -1595,7 +1609,12 @@ _write_file(
     <<"SH",
 #!/bin/sh
 printf '%s\\n' "\$*" >> "$dashboard_log"
-printf 'DDFILE:%s\\n' "\$*" >> "$dependency_log"
+manifest="\${DEVELOPER_DASHBOARD_DEPENDENCY_MANIFEST:-ddfile}"
+if [ "\$manifest" = "ddfile.local" ]; then
+  printf 'DDFILE_LOCAL:%s\\n' "\$*" >> "$dependency_log"
+else
+  printf 'DDFILE:%s\\n' "\$*" >> "$dependency_log"
+fi
 if [ "\$DD_TEST_DDFILE_FAIL" = "1" ]; then
   exit 1
 fi
@@ -1733,6 +1752,8 @@ my $dep_repo = _create_skill_repo(
     with_cpanfile => 1,
     with_aptfile => 1,
     with_ddfile  => 1,
+    with_ddfile_local => 1,
+    with_package_json => 1,
     with_cpanfile_local => 1,
 );
 my $install = $manager->install( 'file://' . $dep_repo );
@@ -1769,15 +1790,19 @@ open my $dependency_log_fh, '<', $dependency_log or die "Unable to read $depende
 my @dependency_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dependency_log_fh>;
 close $dependency_log_fh;
 is_deeply(
-    [ map { (/^(DDFILE|APT|BREW|CPANM):/)[0] } @dependency_steps[-4 .. -1] ],
-    [ 'DDFILE', 'APT', 'CPANM', 'CPANM' ],
-    '_install_skill_dependencies follows the documented ddfile -> aptfile -> cpanfile -> cpanfile.local order on Debian-like hosts while leaving brewfile inactive',
+    [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|CPANM):/)[0] } @dependency_steps[-6 .. -1] ],
+    [ 'DDFILE', 'DDFILE_LOCAL', 'APT', 'NPM', 'CPANM', 'CPANM' ],
+    '_install_skill_dependencies follows the documented ddfile -> ddfile.local -> aptfile -> package.json -> cpanfile -> cpanfile.local order on Debian-like hosts while leaving brewfile inactive',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
 close $cpanm_log_fh;
 like( $cpanm_steps[-2], qr/^-L \Q$ENV{HOME}\/skills-home\/perl5\E --cpanfile .*\/cpanfile --installdeps /, '_install_skill_dependencies installs cpanfile dependencies into HOME perl5' );
 like( $cpanm_steps[-1], qr/^-L .*\/perl5 --cpanfile .*\/cpanfile\.local --installdeps /, '_install_skill_dependencies installs cpanfile.local dependencies into the skill-local perl5 root' );
+open my $npm_log_fh, '<', $npm_log or die "Unable to read $npm_log: $!";
+my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npm_log_fh>;
+close $npm_log_fh;
+like( $npm_steps[-1], qr/^install --prefix \Q$ENV{HOME}\/skills-home\E .*\/dep-skill$/, '_install_skill_dependencies installs package.json dependencies into the home directory' );
 my $metadata = $manager->list->[0];
 ok( $metadata->{enabled}, 'skill metadata records enabled state for active skills' );
 is( $metadata->{has_config}, 1, 'skill metadata records config presence' );
@@ -1931,6 +1956,17 @@ ok( !$manager->install( 'file://' . $no_dep_repo )->{error}, 'skill manager inst
     );
 }
 {
+    local $ENV{DD_TEST_NPM_FAIL} = 1;
+    my $fail_repo = File::Spec->catdir( $test_repos, 'fail-npm-skill' );
+    make_path($fail_repo);
+    _write_file( File::Spec->catfile( $fail_repo, 'package.json' ), qq|{"name":"fail-npm","version":"1.0.0"}\n| );
+    like(
+        $manager->_install_skill_dependencies($fail_repo)->{error},
+        qr/Failed to install skill Node dependencies/,
+        'install reports package.json dependency installation failures',
+    );
+}
+{
     my $installed_dep = File::Spec->catdir( $skill_paths->skills_root, 'shared-skill' );
     make_path($installed_dep);
     my $skip_repo = File::Spec->catdir( $test_repos, 'skip-dd-skill' );
@@ -1984,6 +2020,40 @@ SH
     _write_file( File::Spec->catfile( $fake_bin, 'dashboard' ), $original_dashboard_script, 0755 );
 }
 {
+    my $bad_root_repo = File::Spec->catdir( $test_repos, 'bad-root-dd-skill' );
+    make_path($bad_root_repo);
+    _write_file( File::Spec->catfile( $bad_root_repo, 'ddfile' ), "fresh-skill\n" );
+
+    no warnings 'redefine';
+    local *Developer::Dashboard::SkillManager::_skill_install_root = sub { '/definitely/missing-skill-root' };
+
+    my $error = eval { $manager->_install_skill_ddfile($bad_root_repo); 1 } ? '' : $@;
+    like(
+        $error,
+        qr/Unable to chdir to \/definitely\/missing-skill-root for ddfile dependency install/,
+        '_install_skill_ddfile surfaces skill-root chdir failures explicitly',
+    );
+}
+{
+    my $local_repo = File::Spec->catdir( $test_repos, 'stacked-dd-local-skill' );
+    my $skills_root = File::Spec->catdir( $test_repos, 'stacked-dd-local-root', 'skills' );
+    make_path($skills_root);
+    make_path($local_repo);
+    _write_file( File::Spec->catfile( $local_repo, 'ddfile.local' ), "fresh-local-skill\n" );
+
+    unlink $dashboard_log;
+    my $cwd = getcwd();
+    chdir $skills_root or die "Unable to chdir to $skills_root: $!";
+    my $local_install = $manager->_install_skill_ddfile_local($local_repo);
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
+    ok( !$local_install->{error}, '_install_skill_ddfile_local installs dependencies at the current skills root level' ) or diag $local_install->{error};
+
+    open my $local_dashboard_log_fh, '<', $dashboard_log or die "Unable to read $dashboard_log after ddfile.local install: $!";
+    my @local_dashboard_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$local_dashboard_log_fh>;
+    close $local_dashboard_log_fh;
+    is_deeply( \@local_dashboard_steps, ['skills install fresh-local-skill'], '_install_skill_ddfile_local invokes dashboard install for local-only dependencies' );
+}
+{
     my $manifest_root = File::Spec->catdir( $test_repos, 'manifest-ddfile-root' );
     my $global_repo = _create_skill_repo( $test_repos, 'manifest-global-skill', with_cpanfile => 0 );
     my $local_repo  = _create_skill_repo( $test_repos, 'manifest-local-skill',  with_cpanfile => 0 );
@@ -1995,8 +2065,12 @@ SH
     ok( !$manifest_install->{error}, 'install_from_ddfiles installs both ddfile and ddfile.local manifests successfully' )
       or diag $manifest_install->{error};
     ok(
-        -d File::Spec->catdir( $skill_paths->skills_root, 'manifest-global-skill' ),
-        'install_from_ddfiles writes ddfile dependencies into the active DD-OOP-LAYER skills root',
+        -d File::Spec->catdir( $ENV{HOME}, 'skills-home', '.developer-dashboard', 'skills', 'manifest-global-skill' ),
+        'install_from_ddfiles writes ddfile dependencies into the home DD-OOP-LAYER skills root',
+    );
+    ok(
+        !-d File::Spec->catdir( $manifest_root, '.developer-dashboard', 'skills', 'manifest-global-skill' ),
+        'install_from_ddfiles does not write ddfile dependencies into a child DD-OOP-LAYER skills root under the current directory',
     );
     ok(
         -d File::Spec->catdir( $manifest_root, 'skills', 'manifest-local-skill' ),
@@ -2009,7 +2083,7 @@ SH
                 manifest  => 'ddfile',
                 source    => "file://$global_repo",
                 repo_name => 'manifest-global-skill',
-                path      => File::Spec->catdir( $skill_paths->skills_root, 'manifest-global-skill' ),
+                path      => File::Spec->catdir( $ENV{HOME}, 'skills-home', '.developer-dashboard', 'skills', 'manifest-global-skill' ),
             },
             {
                 manifest  => 'ddfile.local',
@@ -2030,7 +2104,7 @@ SH
     my $first_manifest_install = $manager->install_from_ddfiles($manifest_root);
     ok( !$first_manifest_install->{error}, 'install_from_ddfiles installs a manifest-listed skill the first time' )
       or diag $first_manifest_install->{error};
-    my $global_skill_root = File::Spec->catdir( $skill_paths->skills_root, 'manifest-reinstall-skill' );
+    my $global_skill_root = File::Spec->catdir( $ENV{HOME}, 'skills-home', '.developer-dashboard', 'skills', 'manifest-reinstall-skill' );
     _write_file( File::Spec->catfile( $global_repo, 'cli', 'run-test' ), "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nprint qq{manifest-refresh\\n};\n", 0755 );
     {
         my $cwd = getcwd();
@@ -2385,8 +2459,14 @@ sub _create_skill_repo {
     if ( $args{with_ddfile} ) {
         _write_file( 'ddfile', "shared-skill\n" );
     }
+    if ( $args{with_ddfile_local} ) {
+        _write_file( 'ddfile.local', "shared-local-skill\n" );
+    }
     if ( $args{with_brewfile} ) {
         _write_file( 'brewfile', "jq\n" );
+    }
+    if ( $args{with_package_json} ) {
+        _write_file( 'package.json', qq|{"name":"$name-node","version":"1.0.0"}\n| );
     }
     if ( $args{with_cpanfile_local} ) {
         _write_file( 'cpanfile.local', "requires 'YAML::XS';\n" );

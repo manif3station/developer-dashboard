@@ -144,7 +144,7 @@ The integration run creates:
 - the installed `dashboard` binary works without `perl -Ilib`
 - the fake project's `./.developer-dashboard` tree becomes the active local runtime root with the home tree as fallback
 - layered root-to-leaf `.env` and `.env.pl` files override in order, and skill-local env files load only for skill execution paths
-- skill dependency installs follow `ddfile -> aptfile -> brewfile -> cpanfile -> cpanfile.local`, with shared skill Perl dependencies landing in `~/perl5` and skill-local Perl dependencies landing in each skill's `./perl5`
+- skill dependency installs follow `ddfile -> ddfile.local -> aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local`, with `ddfile.local` dependencies staying at the current skill install level, Node dependencies landing in `$HOME`, shared skill Perl dependencies landing in `~/perl5`, and skill-local Perl dependencies landing in each skill's `./perl5`
 - explicit `dashboard skills install --ddfile` runs process `ddfile` first into the active layered skills root and then `ddfile.local` into the current directory's nested `./skills/` tree
 - a broken config Perl collector reports an error without stopping other configured collectors
 - a healthy config collector still reports `ok` and stays green in `dashboard indicator list`, `dashboard ps1`, and `/system/status`, without being clobbered back to `missing` by concurrent config-sync refreshes

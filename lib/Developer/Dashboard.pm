@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.77';
+our $VERSION = '2.79';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.77
+2.79
 
 =head1 INTRODUCTION
 
@@ -2194,15 +2194,15 @@ Plain C<dashboard skills install> now requires either one explicit source
 argument or the special C<--ddfile> flag; calling it with no source and no
 C<--ddfile> returns a usage error instead of guessing.
 Developer Dashboard does not merge the skill's C<cli/>, C<dashboards/>,
-C<config/>, C<ddfile>, C<aptfile>, C<brewfile>, C<cpanfile>,
-C<cpanfile.local>, or Docker files into the normal runtime folders.
+C<config/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<brewfile>,
+C<package.json>, C<cpanfile>, C<cpanfile.local>, or Docker files into the
+normal runtime folders.
 
 C<dashboard skills install --ddfile> reads dependency manifests from the
 current directory instead of taking one explicit skill source. If F<ddfile>
-exists there, each listed source installs into the active layered skills root
-such as F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/> or the deepest
-participating child
-F<.developer-dashboard/skills/E<lt>repo-nameE<gt>/>. If F<ddfile.local>
+exists there, each listed source installs into the base home-layer skills root
+at F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/> even when the command
+is run inside a deeper child F<.developer-dashboard/> layer. If F<ddfile.local>
 exists there, each listed source installs into the current directory's nested
 F<skills/E<lt>repo-nameE<gt>/> tree instead. When both manifests are present,
 the command processes F<ddfile> first and F<ddfile.local> second. Repeated
@@ -2416,6 +2416,11 @@ Skill output logs
 
 Optional dependent skill list installed before package managers run
 
+=item B<ddfile.local>
+
+Optional local dependent skill list installed after C<ddfile> into the same
+skills root as the current skill install target
+
 =item B<aptfile>
 
 Optional Debian-family system packages installed through
@@ -2424,6 +2429,11 @@ C<sudo apt-get install -y>
 =item B<brewfile>
 
 Optional macOS Homebrew packages installed through C<brew install>
+
+=item B<package.json>
+
+Optional Node dependencies installed into C<$HOME> through
+C<npm install --prefix "$HOME" E<lt>skill-rootE<gt>>
 
 =item B<cpanfile>
 
@@ -2554,9 +2564,17 @@ in-flight skills are skipped to avoid loops
 
 =item *
 
+if a C<ddfile.local> exists under an installed skill, each listed dependency
+is then installed through C<dashboard skills install E<lt>dependencyE<gt>>
+into the same skills root that owns the current installed skill, so
+child-layer skill installs stay in that child layer and home-layer installs
+stay in the home layer
+
+=item *
+
 if an operator runs C<dashboard skills install --ddfile> inside a directory
 that contains F<ddfile>, every listed source is reinstalled or refreshed into
-the active layered skills root
+the base F<~/.developer-dashboard/skills/> root
 
 =item *
 
@@ -2574,6 +2592,11 @@ C<sudo apt-get install -y>
 
 if a C<brewfile> exists on macOS, its package list is printed and then
 installed through C<brew install>
+
+=item *
+
+if a C<package.json> exists, its Node dependencies are installed into C<$HOME>
+through C<npm install --prefix "$HOME" E<lt>skill-rootE<gt>>
 
 =item *
 
@@ -2601,7 +2624,8 @@ re-enabled
 To build a new skill, start with a Git repository that contains C<cli/>,
 C<config/config.json>, and optional C<dashboards/>, C<dashboards/nav/>,
 C<state/>, C<logs/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<brewfile>,
-C<cpanfile>, and C<cpanfile.local> files under the skill root. Skill commands are file-based
+C<package.json>, C<cpanfile>, and C<cpanfile.local> files under the skill
+root. Skill commands are file-based
 commands run through the dotted
 C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> form. Skill hook files live
 under C<cli/E<lt>commandE<gt>.d/>, skill app pages render from
@@ -2620,12 +2644,13 @@ layout, environment variables such as C<DEVELOPER_DASHBOARD_SKILL_ROOT>,
 bookmark syntax like C<TITLE:>, C<BOOKMARK:>, C<HTML:>, and C<CODE1:>,
 bookmark browser helpers such as C<fetch_value()>, C<stream_value()>, and
 C<stream_data()>, underscored config merge keys such as C<_example-skill>,
-C<ddfile -> ddfile.local -> aptfile -> brewfile -> cpanfile -> cpanfile.local>
-operator install controls versus the automatic
-C<ddfile -> aptfile -> brewfile -> cpanfile -> cpanfile.local> dependency
-install order, the shared C<~/perl5> versus skill-local C<perl5/> split, the
-current-directory C<skills/> target used by F<ddfile.local>, skill docker
-layering, and when to use dashboard-wide custom CLI hook folders such as
+C<ddfile -> ddfile.local -> aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local>
+automatic dependency install order, the explicit
+C<dashboard skills install --ddfile> operator order of
+C<ddfile -> ddfile.local>, the shared C<~/perl5> versus skill-local
+C<perl5/> split, the C<$HOME> Node install target used by C<package.json>,
+the same-install-level dependency target used by skill-local F<ddfile.local>,
+skill docker layering, and when to use dashboard-wide custom CLI hook folders such as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d> instead of a skill-local
 hook tree.
 
