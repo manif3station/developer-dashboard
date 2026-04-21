@@ -2413,8 +2413,6 @@ is_deeply(
     }
 }
 
-done_testing();
-
 sub _create_skill_repo {
     my ( $root, $name, %args ) = @_;
     my $repo = File::Spec->catdir( $root, $name );
@@ -2517,6 +2515,36 @@ sub _dies {
     my $error = eval { $code->(); 1 } ? '' : $@;
     return $error;
 }
+
+{
+    require Developer::Dashboard::CLI::Progress;
+    my $output = '';
+    open my $fh, '>', \$output or die "Unable to open scalar handle for progress output: $!";
+    my $progress = Developer::Dashboard::CLI::Progress->new(
+        title   => 'dashboard restart progress',
+        tasks   => [
+            { id => 'stop_web',  label => 'Stop dashboard web service' },
+            { id => 'start_web', label => 'Start dashboard web service' },
+        ],
+        stream  => $fh,
+        dynamic => 1,
+    );
+    like( $output, qr/dashboard restart progress/, 'CLI::Progress renders the board title immediately' );
+    like( $output, qr/\[ \] Stop dashboard web service/, 'CLI::Progress renders pending tasks with an empty checkbox marker' );
+    like( $output, qr/\[ \] Start dashboard web service/, 'CLI::Progress renders later pending tasks before work begins' );
+    $progress->callback->( { task_id => 'stop_web', status => 'running' } );
+    like( $output, qr/\e\[1A\e\[2K/, 'CLI::Progress redraws previous lines in dynamic mode' );
+    like( $output, qr/-> Stop dashboard web service/, 'CLI::Progress marks the running task with the right-arrow marker' );
+    $progress->update( { task_id => 'stop_web', status => 'done' } );
+    like( $output, qr/\[x\] Stop dashboard web service/, 'CLI::Progress marks completed tasks with the done marker' );
+    $progress->update( { task_id => 'start_web', status => 'failed' } );
+    like( $output, qr/\[!\] Start dashboard web service/, 'CLI::Progress marks failed tasks with the failure marker' );
+    ok( $progress->update( { task_id => 'missing-task', status => 'done' } ), 'CLI::Progress ignores unknown task ids without failing' );
+    ok( $progress->update(), 'CLI::Progress ignores missing events without failing' );
+    ok( $progress->finish, 'CLI::Progress finish succeeds after dynamic redraws' );
+}
+
+done_testing();
 
 __END__
 

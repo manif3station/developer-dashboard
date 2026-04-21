@@ -1,5 +1,17 @@
 # Fixed Bugs
 
+## 2026-04-21 (Phase 135: Visible Restart And Stop Progress Board)
+
+- Fixed the blank-wait lifecycle UX so interactive `dashboard stop` and
+  `dashboard restart` runs now print the full ordered task board on
+  `stderr` before work starts instead of leaving the terminal silent during
+  managed shutdown and startup waits.
+- Added live task-state updates for the interactive lifecycle board so the
+  active step is marked with `->` and completed steps are marked with `[x]`
+  while the runtime moves through web and collector stop or start work.
+- Kept the final lifecycle JSON payload on `stdout`, so existing scripted
+  callers still receive the same machine-readable stop or restart result.
+
 ## 2026-04-21 (Phase 134: Skill-Local ddfile.local And package.json Dependency Policy)
 
 - Fixed skill-local `ddfile.local` handling so dependent skills now install

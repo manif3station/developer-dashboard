@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.79';
+our $VERSION = '2.80';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.79
+2.80
 
 =head1 INTRODUCTION
 
@@ -1264,9 +1264,17 @@ Stop the local app and collector loops:
 
   dashboard stop
 
+Interactive terminal runs now print a task board on C<stderr> first, then
+mark each stop step as it finishes so the command does not appear hung while
+the runtime waits for managed shutdown.
+
 Restart the local app and configured collector loops:
 
   dashboard restart
+
+Interactive terminal runs now print the full restart task board on C<stderr>,
+mark the active step with C<->, mark completed steps with C<[x]>, and keep
+the final JSON result on C<stdout>.
 
 Create a helper login user:
 
@@ -1770,11 +1778,20 @@ override the worker count for one run
 
 =item *
 
-C<dashboard stop> stops both the web service and managed collector loops
+C<dashboard stop> stops both the web service and managed collector loops and,
+on an interactive terminal, prints the full stop task board on C<stderr>
+before work starts so each shutdown step becomes visible instead of silent
+waiting
 
 =item *
 
-C<dashboard restart> stops both, starts configured collector loops again, then starts the web service, and only reports success after the replacement collector loops and web runtime both survive a short managed stability window, with the web side still holding a live managed pid and an accepting listener on the requested port
+C<dashboard restart> stops both, starts configured collector loops again, then
+starts the web service, and only reports success after the replacement
+collector loops and web runtime both survive a short managed stability window,
+with the web side still holding a live managed pid and an accepting listener
+on the requested port; on an interactive terminal it also prints the full
+restart task board on C<stderr>, marks the active step with C<->, and marks
+completed steps with C<[x]> while leaving the final JSON result on C<stdout>
 
 =item *
 

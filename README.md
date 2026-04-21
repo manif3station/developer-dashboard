@@ -851,11 +851,15 @@ Stop the local app and collector loops:
 dashboard stop
 ```
 
+Interactive terminal runs now print a task board on `stderr` first, then mark each stop step as it finishes so the command does not appear hung while the runtime waits for managed shutdown.
+
 Restart the local app and configured collector loops:
 
 ```bash
 dashboard restart
 ```
+
+Interactive terminal runs now print the full restart task board on `stderr`, mark the active step with `->`, mark completed steps with `[x]`, and keep the final JSON result on `stdout`.
 
 Create a helper login user:
 
@@ -1261,8 +1265,8 @@ by real path identity instead of raw string spelling.
 - `dashboard serve --no-indicators` and `dashboard serve --no-indicator` keep normal page rendering and left-side page chrome intact while clearing the whole top-right browser-only chrome area, including the status strip, username, host or IP link, and live date-time line, and persisting that flag for later `dashboard restart` runs until `dashboard serve --indicators` turns it back off
 - `dashboard serve logs` prints the combined Dancer2 and Starman runtime log captured in the dashboard log file, `dashboard serve logs -n 100` starts from the last 100 lines, and `dashboard serve logs -f` follows appended output live
 - `dashboard serve workers N` saves the default Starman worker count and starts the web service immediately when it is currently stopped; `--host HOST` and `--port PORT` can steer that auto-start path, and `dashboard serve --workers N` or `dashboard restart --workers N` can still override it for one run
-- `dashboard stop` stops both the web service and managed collector loops
-- `dashboard restart` stops both, starts configured collector loops again, then starts the web service, and only reports success after the replacement collector loops and web runtime both survive a short managed stability window, with the web side still holding a live managed pid and an accepting listener on the requested port
+- `dashboard stop` stops both the web service and managed collector loops and, on an interactive terminal, prints the full stop task board on `stderr` before work starts so each shutdown step becomes visible instead of silent waiting
+- `dashboard restart` stops both, starts configured collector loops again, then starts the web service, and only reports success after the replacement collector loops and web runtime both survive a short managed stability window, with the web side still holding a live managed pid and an accepting listener on the requested port; on an interactive terminal it also prints the full restart task board on `stderr`, marks the active step with `->`, and marks completed steps with `[x]` while leaving the final JSON result on `stdout`
 - web shutdown and duplicate detection do not trust pid files alone; they validate managed processes by environment marker or process title and use a `pkill`-style scan fallback when needed
 
 ### Environment Customization

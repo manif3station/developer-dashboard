@@ -1058,6 +1058,93 @@ END {
 }
 
 {
+    $runner->{loops} = [
+        { name => 'running.alpha', pid => 2101 },
+        { name => 'running.beta',  pid => 2102 },
+    ];
+    is_deeply(
+        $manager->stop_progress_tasks,
+        [
+            { id => 'stop_web', label => 'Stop dashboard web service' },
+            { id => 'stop_collector:running.alpha', label => 'Stop collector running.alpha' },
+            { id => 'stop_collector:running.beta',  label => 'Stop collector running.beta' },
+        ],
+        'stop_progress_tasks lists the web stop plus each running collector stop task',
+    );
+    is_deeply(
+        $manager->restart_progress_tasks,
+        [
+            { id => 'stop_web', label => 'Stop dashboard web service' },
+            { id => 'stop_collector:running.alpha', label => 'Stop collector running.alpha' },
+            { id => 'stop_collector:running.beta',  label => 'Stop collector running.beta' },
+            { id => 'start_collector:housekeeper',       label => 'Start collector housekeeper' },
+            { id => 'start_collector:alpha.collector',   label => 'Start collector alpha.collector' },
+            { id => 'start_collector:beta.collector',    label => 'Start collector beta.collector' },
+            { id => 'start_collector:fleet-skill.health', label => 'Start collector fleet-skill.health' },
+            { id => 'start_web', label => 'Start dashboard web service' },
+        ],
+        'restart_progress_tasks includes stop tasks, restart collector tasks, and the final web start task',
+    );
+}
+
+{
+    my @events;
+    $runner->{loops} = [
+        { name => 'running.alpha', pid => 3101 },
+        { name => 'running.beta',  pid => 3102 },
+    ];
+    $manager->stop_collectors(
+        progress => sub {
+            my ($event) = @_;
+            push @events, [ @{$event}{qw(task_id status label)} ];
+        }
+    );
+    is_deeply(
+        \@events,
+        [
+            [ 'stop_collector:running.alpha', 'running', 'Stop collector running.alpha' ],
+            [ 'stop_collector:running.alpha', 'done',    'Stop collector running.alpha' ],
+            [ 'stop_collector:running.beta',  'running', 'Stop collector running.beta' ],
+            [ 'stop_collector:running.beta',  'done',    'Stop collector running.beta' ],
+        ],
+        'stop_collectors emits progress events while stopping each running collector',
+    );
+}
+
+{
+    my @events;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_collector_runtime_ready = sub { return 1 };
+    $runner->{started} = [];
+    $runner->{loops}   = [];
+    my @started = $manager->start_collectors(
+        progress => sub {
+            my ($event) = @_;
+            push @events, [ @{$event}{qw(task_id status label)} ];
+        }
+    );
+    is_deeply(
+        \@events,
+        [
+            [ 'start_collector:housekeeper',       'running', 'Start collector housekeeper' ],
+            [ 'start_collector:housekeeper',       'done',    'Start collector housekeeper' ],
+            [ 'start_collector:alpha.collector',   'running', 'Start collector alpha.collector' ],
+            [ 'start_collector:alpha.collector',   'done',    'Start collector alpha.collector' ],
+            [ 'start_collector:beta.collector',    'running', 'Start collector beta.collector' ],
+            [ 'start_collector:beta.collector',    'done',    'Start collector beta.collector' ],
+            [ 'start_collector:fleet-skill.health', 'running', 'Start collector fleet-skill.health' ],
+            [ 'start_collector:fleet-skill.health', 'done',    'Start collector fleet-skill.health' ],
+        ],
+        'start_collectors emits progress events while starting each configured non-manual collector',
+    );
+    is_deeply(
+        [ map { $_->{name} } @started ],
+        [ 'housekeeper', 'alpha.collector', 'beta.collector', 'fleet-skill.health' ],
+        'start_collectors still returns the started collector metadata while progress is enabled',
+    );
+}
+
+{
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
         return ( "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nLISTEN 0 1024 127.0.0.1:7906 0.0.0.0:* users:((\"starman worker \",pid=123,fd=4),(\"starman master \",pid=456,fd=4))\n", '', 0 );

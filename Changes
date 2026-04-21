@@ -1,3 +1,14 @@
+2.80  2026-04-21
+    - added visible task-board progress output for interactive
+      `dashboard stop` and `dashboard restart` runs, including the full task
+      list before work begins plus live `->` and `[x]` status updates on
+      `stderr` while the managed runtime waits through shutdown and startup
+      stability windows
+    - kept the machine-readable lifecycle result on `stdout`, so scripts can
+      still consume the final stop or restart JSON payload unchanged
+    - added runtime-manager, CLI smoke, and coverage-closure regressions for
+      the new lifecycle progress behavior
+
 2.79  2026-04-21
     - fixed skill-local `ddfile.local` dependencies so they now install into
       the same DD-OOP-LAYER skills root that owns the current installed skill

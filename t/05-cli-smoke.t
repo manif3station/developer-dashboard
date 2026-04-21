@@ -2253,6 +2253,29 @@ my ( undef, $plain_stop_stderr, $plain_stop_exit ) = capture {
 is( $plain_stop_exit, 0, 'dashboard stop succeeds after the plain-repo restart check' );
 unlike( $plain_stop_stderr, qr/\S/, 'dashboard stop keeps stderr clean after the plain-repo restart check' );
 
+my $progress_restart_port = _find_free_port();
+my ( $progress_restart_stdout, $progress_restart_stderr, $progress_restart_exit ) = capture {
+    local $ENV{DEVELOPER_DASHBOARD_PROGRESS} = 1;
+    local $ENV{PERL5OPT} if _coverage_requested();
+    local $ENV{HARNESS_PERL_SWITCHES} if _coverage_requested();
+    system 'sh', '-c', "cd '$plain_repo' && $perl -I'$repo/lib' '$repo/bin/dashboard' restart --host 127.0.0.1 --port $progress_restart_port";
+    return $? >> 8;
+};
+is( $progress_restart_exit, 0, 'dashboard restart still succeeds when forced terminal progress output is enabled' );
+like( $progress_restart_stderr, qr/dashboard restart progress/, 'dashboard restart progress output prints the task-board title when enabled' );
+like( $progress_restart_stderr, qr/\[ \] Stop dashboard web service/, 'dashboard restart progress output prints the full task list before work begins' );
+like( $progress_restart_stderr, qr/-> Start dashboard web service|\[x\] Start dashboard web service/, 'dashboard restart progress output updates the web start task while work runs' );
+my ( $progress_stop_stdout, $progress_stop_stderr, $progress_stop_exit ) = capture {
+    local $ENV{DEVELOPER_DASHBOARD_PROGRESS} = 1;
+    local $ENV{PERL5OPT} if _coverage_requested();
+    local $ENV{HARNESS_PERL_SWITCHES} if _coverage_requested();
+    system $perl, '-I' . $lib, $dashboard, 'stop';
+    return $? >> 8;
+};
+is( $progress_stop_exit, 0, 'dashboard stop still succeeds when forced terminal progress output is enabled' );
+like( $progress_stop_stderr, qr/dashboard stop progress/, 'dashboard stop progress output prints the task-board title when enabled' );
+like( $progress_stop_stderr, qr/\[x\] Stop dashboard web service/, 'dashboard stop progress output marks the web shutdown task complete' );
+
 my $project_root = File::Spec->catdir( $ENV{HOME}, 'projects', 'local-cli-project' );
 make_path( File::Spec->catdir( $project_root, '.git' ) );
 my $project_cli_root = File::Spec->catdir( $project_root, '.developer-dashboard', 'cli' );
