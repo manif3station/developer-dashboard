@@ -3,7 +3,7 @@ package Developer::Dashboard::DockerCompose;
 use strict;
 use warnings;
 
-our $VERSION = '2.76';
+our $VERSION = '2.77';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);

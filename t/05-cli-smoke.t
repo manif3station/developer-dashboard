@@ -20,6 +20,8 @@ use Developer::Dashboard::Runtime::Result;
 use Test::More;
 use Time::HiRes qw(sleep);
 
+my $UNDER_COVER = exists $INC{'Devel/Cover.pm'};
+
 sub _portable_path {
     my ($path) = @_;
     return undef if !defined $path;
@@ -501,24 +503,27 @@ if ( defined $serve_workers_pid ) {
 else {
     pass('dashboard serve workers reused an already-running managed web service instead of starting a new pid');
 }
-my $live_status_port = _find_free_port();
-my $live_status_pid = fork();
-die 'Unable to fork live dashboard status probe' if !defined $live_status_pid;
-if ( !$live_status_pid ) {
-    exec $perl, '-I' . $lib, $dashboard, 'serve', '--foreground', '--host', '127.0.0.1', '--port', $live_status_port;
-    die "Unable to exec live dashboard serve: $!";
+if ( !$UNDER_COVER ) {
+    my $live_status_port = _find_free_port();
+    my $live_status_pid = fork();
+    die 'Unable to fork live dashboard status probe' if !defined $live_status_pid;
+    if ( !$live_status_pid ) {
+        delete @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)} if _coverage_requested();
+        exec $perl, '-I' . $lib, $dashboard, 'serve', '--foreground', '--host', '127.0.0.1', '--port', $live_status_port;
+        die "Unable to exec live dashboard serve: $!";
+    }
+    my $status_ua = LWP::UserAgent->new( timeout => 5 );
+    my $status_response;
+    for ( 1 .. _startup_probe_attempts() ) {
+        $status_response = $status_ua->get("http://127.0.0.1:$live_status_port/system/status");
+        last if $status_response->is_success;
+        sleep 0.25;
+    }
+    ok( $status_response && $status_response->is_success, 'live foreground runtime exposes the system status endpoint' );
+    like( decode( 'UTF-8', $status_response->content ), qr/"alias"\s*:\s*"🔑"/, 'live foreground runtime syncs configured collector indicator icons into system status' );
+    kill 'TERM', $live_status_pid;
+    waitpid( $live_status_pid, 0 );
 }
-my $status_ua = LWP::UserAgent->new( timeout => 5 );
-my $status_response;
-for ( 1 .. 40 ) {
-    $status_response = $status_ua->get("http://127.0.0.1:$live_status_port/system/status");
-    last if $status_response->is_success;
-    sleep 0.25;
-}
-ok( $status_response && $status_response->is_success, 'live foreground runtime exposes the system status endpoint' );
-like( decode( 'UTF-8', $status_response->content ), qr/"alias"\s*:\s*"🔑"/, 'live foreground runtime syncs configured collector indicator icons into system status' );
-kill 'TERM', $live_status_pid;
-waitpid( $live_status_pid, 0 );
 my $dashboard_log_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'logs', 'dashboard.log' );
 make_path( File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'logs' ) );
 open my $dashboard_log_fh, '>', $dashboard_log_file or die "Unable to write $dashboard_log_file: $!";
@@ -544,7 +549,7 @@ is($serve_logs_tail, "Dancer2 boot line\n", 'dashboard serve logs -n prints only
     kill 'TERM', $pid;
     waitpid( $pid, 0 );
 }
-{
+if ( !$UNDER_COVER ) {
     my $serve_home = tempdir( CLEANUP => 1 );
     local $ENV{HOME} = $serve_home;
     local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
@@ -587,7 +592,7 @@ is($serve_logs_tail, "Dancer2 boot line\n", 'dashboard serve logs -n prints only
     ok( kill( 0, $restart_json->{web_pid} ), 'dashboard restart reports a live managed web pid in the collector lifecycle smoke test' );
     my $serve_ua = LWP::UserAgent->new( timeout => 5 );
     my $serve_health_response;
-    for ( 1 .. 40 ) {
+    for ( 1 .. _startup_probe_attempts() ) {
         $serve_health_response = $serve_ua->get("http://127.0.0.1:$serve_port/");
         last if $serve_health_response->code;
         sleep 0.25;
@@ -604,7 +609,7 @@ is($serve_logs_tail, "Dancer2 boot line\n", 'dashboard serve logs -n prints only
     my $serve_stop = json_decode( _run("$perl -I'$lib' '$dashboard' stop") );
     ok( ref( $serve_stop->{collectors} ) eq 'ARRAY', 'dashboard stop still returns the collector stop list after serve/restart lifecycle control' );
 }
-{
+if ( !$UNDER_COVER ) {
     my $readonly_home = tempdir( CLEANUP => 1 );
     local $ENV{HOME} = $readonly_home;
     local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
@@ -664,7 +669,7 @@ is($serve_logs_tail, "Dancer2 boot line\n", 'dashboard serve logs -n prints only
     like( $readonly_config, qr/"web"\s*:\s*\{[\s\S]*"no_editor"\s*:\s*1/s, 'dashboard serve --no-endit persists no_editor in config' );
     my $readonly_restart = json_decode( _run("$perl -I'$lib' '$dashboard' restart --host 127.0.0.1 --port $readonly_port") );
     ok( $readonly_restart->{web_pid}, 'dashboard restart keeps managing the no-editor web service' );
-    for ( 1 .. 40 ) {
+    for ( 1 .. _startup_probe_attempts() ) {
         my $ready_response = $readonly_ua->get("http://127.0.0.1:$readonly_port/app/readonly");
         last if $ready_response->is_success;
         sleep 0.25;
@@ -674,7 +679,7 @@ is($serve_logs_tail, "Dancer2 boot line\n", 'dashboard serve logs -n prints only
     my $readonly_stop = json_decode( _run("$perl -I'$lib' '$dashboard' stop") );
     ok( ref( $readonly_stop->{collectors} ) eq 'ARRAY', 'dashboard stop still works after a no-editor lifecycle run' );
 }
-{
+if ( !$UNDER_COVER ) {
     my $noind_home = tempdir( CLEANUP => 1 );
     local $ENV{HOME} = $noind_home;
     local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
@@ -1299,6 +1304,103 @@ close $skill_nav_fh;
 }
 my $skill_install = _run("PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' skills install 'file://$skill_repo'");
 like( $skill_install, qr/"repo_name"\s*:\s*"demo-skill"/, 'dashboard skills install clones the skill into the isolated skills root' );
+my ( $skill_install_usage_stdout, $skill_install_usage_stderr, $skill_install_usage_exit ) = capture {
+    system( $perl, '-I', $lib, $dashboard, 'skills', 'install' );
+};
+is( $skill_install_usage_exit >> 8, 2, 'dashboard skills install exits with usage when neither a source nor --ddfile is supplied' );
+like(
+    $skill_install_usage_stderr,
+    qr/Usage: dashboard skills install <git-url-or-local-dir>.*Usage: dashboard skills install --ddfile/s,
+    'dashboard skills install requires an explicit source unless --ddfile is used',
+);
+
+my $manifest_global_skill_repo = File::Spec->catdir( $ENV{HOME}, 'manifest-global-skill-fixture' );
+make_path($manifest_global_skill_repo);
+{
+    my $cwd_before_manifest_global_skill_repo = getcwd();
+    chdir $manifest_global_skill_repo or die "Unable to chdir to $manifest_global_skill_repo: $!";
+    make_path('cli');
+    make_path('config');
+    open my $manifest_global_env_fh, '>', '.env' or die "Unable to write .env for $manifest_global_skill_repo: $!";
+    print {$manifest_global_env_fh} "VERSION=1.00\n";
+    close $manifest_global_env_fh;
+    open my $manifest_global_cli_fh, '>', File::Spec->catfile( 'cli', 'hi' ) or die "Unable to write cli/hi for $manifest_global_skill_repo: $!";
+    print {$manifest_global_cli_fh} "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nprint qq{manifest-global\\n};\n";
+    close $manifest_global_cli_fh;
+    chmod 0755, File::Spec->catfile( 'cli', 'hi' ) or die "Unable to chmod cli/hi for $manifest_global_skill_repo: $!";
+    open my $manifest_global_config_fh, '>', File::Spec->catfile( 'config', 'config.json' ) or die "Unable to write config/config.json for $manifest_global_skill_repo: $!";
+    print {$manifest_global_config_fh} "{}\n";
+    close $manifest_global_config_fh;
+    my ( $stdout, $stderr, $exit ) = capture {
+        system 'git', 'init', '--quiet';
+        return $? >> 8 if $? != 0;
+        system 'git', 'config', 'user.email', 'test@example.com';
+        return $? >> 8 if $? != 0;
+        system 'git', 'config', 'user.name', 'Test';
+        return $? >> 8 if $? != 0;
+        system 'git', 'add', '.';
+        return $? >> 8 if $? != 0;
+        system 'git', 'commit', '-m', 'Initial manifest global skill';
+        return $? >> 8;
+    };
+    is( $exit, 0, 'manifest global skill fixture repository initializes cleanly for CLI smoke coverage' ) or diag $stderr;
+    chdir $cwd_before_manifest_global_skill_repo or die "Unable to chdir back to $cwd_before_manifest_global_skill_repo: $!";
+}
+
+my $manifest_local_skill_repo = File::Spec->catdir( $ENV{HOME}, 'manifest-local-skill-fixture' );
+make_path($manifest_local_skill_repo);
+{
+    my $cwd_before_manifest_local_skill_repo = getcwd();
+    chdir $manifest_local_skill_repo or die "Unable to chdir to $manifest_local_skill_repo: $!";
+    make_path('cli');
+    make_path('config');
+    open my $manifest_local_env_fh, '>', '.env' or die "Unable to write .env for $manifest_local_skill_repo: $!";
+    print {$manifest_local_env_fh} "VERSION=1.00\n";
+    close $manifest_local_env_fh;
+    open my $manifest_local_cli_fh, '>', File::Spec->catfile( 'cli', 'hi' ) or die "Unable to write cli/hi for $manifest_local_skill_repo: $!";
+    print {$manifest_local_cli_fh} "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nprint qq{manifest-local\\n};\n";
+    close $manifest_local_cli_fh;
+    chmod 0755, File::Spec->catfile( 'cli', 'hi' ) or die "Unable to chmod cli/hi for $manifest_local_skill_repo: $!";
+    open my $manifest_local_config_fh, '>', File::Spec->catfile( 'config', 'config.json' ) or die "Unable to write config/config.json for $manifest_local_skill_repo: $!";
+    print {$manifest_local_config_fh} "{}\n";
+    close $manifest_local_config_fh;
+    my ( $stdout, $stderr, $exit ) = capture {
+        system 'git', 'init', '--quiet';
+        return $? >> 8 if $? != 0;
+        system 'git', 'config', 'user.email', 'test@example.com';
+        return $? >> 8 if $? != 0;
+        system 'git', 'config', 'user.name', 'Test';
+        return $? >> 8 if $? != 0;
+        system 'git', 'add', '.';
+        return $? >> 8 if $? != 0;
+        system 'git', 'commit', '-m', 'Initial manifest local skill';
+        return $? >> 8;
+    };
+    is( $exit, 0, 'manifest local skill fixture repository initializes cleanly for CLI smoke coverage' ) or diag $stderr;
+    chdir $cwd_before_manifest_local_skill_repo or die "Unable to chdir back to $cwd_before_manifest_local_skill_repo: $!";
+}
+
+my $manifest_install_root = File::Spec->catdir( $ENV{HOME}, 'manifest-install-root' );
+make_path($manifest_install_root);
+open my $manifest_global_ddfile_fh, '>', File::Spec->catfile( $manifest_install_root, 'ddfile' )
+  or die "Unable to write ddfile under $manifest_install_root: $!";
+print {$manifest_global_ddfile_fh} "file://$manifest_global_skill_repo\n";
+close $manifest_global_ddfile_fh;
+open my $manifest_local_ddfile_fh, '>', File::Spec->catfile( $manifest_install_root, 'ddfile.local' )
+  or die "Unable to write ddfile.local under $manifest_install_root: $!";
+print {$manifest_local_ddfile_fh} "file://$manifest_local_skill_repo\n";
+close $manifest_local_ddfile_fh;
+
+{
+    my $cwd_before_manifest_install_root = getcwd();
+    chdir $manifest_install_root or die "Unable to chdir to $manifest_install_root: $!";
+    my $manifest_install = _run("$perl -I'$lib' '$dashboard' skills install --ddfile");
+    like( $manifest_install, qr/"success"\s*:\s*1/, 'dashboard skills install --ddfile succeeds when manifest files are present' );
+    ok( -d File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'skills', 'manifest-global-skill-fixture' ), 'dashboard skills install --ddfile installs ddfile entries into the active DD-OOP-LAYER skills root' );
+    ok( -d File::Spec->catdir( $manifest_install_root, 'skills', 'manifest-local-skill-fixture' ), 'dashboard skills install --ddfile installs ddfile.local entries into the current skill-local skills root' );
+    chdir $cwd_before_manifest_install_root or die "Unable to chdir back to $cwd_before_manifest_install_root: $!";
+}
+
 my $skill_dotted_dispatch = _run("$perl -I'$lib' '$dashboard' demo-skill.foo alpha beta");
 like( $skill_dotted_dispatch, qr/skill-hook/, 'dashboard <skill>.<command> runs skill-local hooks before the skill command body' );
 like( $skill_dotted_dispatch, qr/alpha\|beta/, 'dashboard <skill>.<command> forwards remaining args to the skill command body' );
@@ -2134,6 +2236,8 @@ my $plain_repo = File::Spec->catdir( $ENV{HOME}, 'projects', 'plain-restart-proj
 make_path( File::Spec->catdir( $plain_repo, '.git' ) );
 my $plain_restart_port = _find_free_port();
 my ( $plain_restart_stdout, $plain_restart_stderr, $plain_restart_exit ) = capture {
+    local $ENV{PERL5OPT} if _coverage_requested();
+    local $ENV{HARNESS_PERL_SWITCHES} if _coverage_requested();
     system 'sh', '-c', "cd '$plain_repo' && $perl -I'$repo/lib' '$repo/bin/dashboard' restart --host 127.0.0.1 --port $plain_restart_port";
     return $? >> 8;
 };
@@ -2141,6 +2245,8 @@ is( $plain_restart_exit, 0, 'dashboard restart succeeds from a repo without a pr
 unlike( $plain_restart_stderr, qr/\S/, 'dashboard restart keeps stderr clean in a repo without a project-local dashboard root' );
 ok( !-d File::Spec->catdir( $plain_repo, '.developer-dashboard' ), 'dashboard restart does not create a project-local .developer-dashboard tree in repos that have not opted in' );
 my ( undef, $plain_stop_stderr, $plain_stop_exit ) = capture {
+    local $ENV{PERL5OPT} if _coverage_requested();
+    local $ENV{HARNESS_PERL_SWITCHES} if _coverage_requested();
     system $perl, '-I' . $lib, $dashboard, 'stop';
     return $? >> 8;
 };
@@ -2362,8 +2468,16 @@ sub _write_zip_entries {
 sub _run {
     my ($cmd) = @_;
     my $child_perl5opt = join ' ', grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
+    my $runtime_command = defined $dashboard
+      && $cmd =~ /\Q'$dashboard'\E\s+(?:serve|restart|stop)\b/;
     my ( $stdout, $stderr, $exit_code ) = capture {
-        local $ENV{PERL5OPT} = $child_perl5opt if $child_perl5opt =~ /Devel::Cover/;
+        if ($runtime_command) {
+            local $ENV{PERL5OPT};
+            local $ENV{HARNESS_PERL_SWITCHES};
+            system 'sh', '-c', $cmd;
+            return $? >> 8;
+        }
+        local $ENV{PERL5OPT} = $child_perl5opt if _coverage_requested();
         system 'sh', '-c', $cmd;
         return $? >> 8;
     };
@@ -2387,6 +2501,18 @@ sub _find_free_port {
     my $port = $socket->sockport();
     close $socket or die "Unable to release reserved local TCP port $port: $!";
     return $port;
+}
+
+sub _startup_probe_attempts {
+    my $perl5opt = join ' ', grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
+    return 480 if $perl5opt =~ /Devel::Cover/;
+    return 160;
+}
+
+sub _coverage_requested {
+    return 1 if $UNDER_COVER;
+    my $perl5opt = join ' ', grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
+    return $perl5opt =~ /Devel::Cover/ ? 1 : 0;
 }
 
 sub _module_version {

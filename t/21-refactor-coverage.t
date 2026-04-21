@@ -1984,6 +1984,83 @@ SH
     _write_file( File::Spec->catfile( $fake_bin, 'dashboard' ), $original_dashboard_script, 0755 );
 }
 {
+    my $manifest_root = File::Spec->catdir( $test_repos, 'manifest-ddfile-root' );
+    my $global_repo = _create_skill_repo( $test_repos, 'manifest-global-skill', with_cpanfile => 0 );
+    my $local_repo  = _create_skill_repo( $test_repos, 'manifest-local-skill',  with_cpanfile => 0 );
+    make_path($manifest_root);
+    _write_file( File::Spec->catfile( $manifest_root, 'ddfile' ), "file://$global_repo\n" );
+    _write_file( File::Spec->catfile( $manifest_root, 'ddfile.local' ), "file://$local_repo\n" );
+
+    my $manifest_install = $manager->install_from_ddfiles($manifest_root);
+    ok( !$manifest_install->{error}, 'install_from_ddfiles installs both ddfile and ddfile.local manifests successfully' )
+      or diag $manifest_install->{error};
+    ok(
+        -d File::Spec->catdir( $skill_paths->skills_root, 'manifest-global-skill' ),
+        'install_from_ddfiles writes ddfile dependencies into the active DD-OOP-LAYER skills root',
+    );
+    ok(
+        -d File::Spec->catdir( $manifest_root, 'skills', 'manifest-local-skill' ),
+        'install_from_ddfiles writes ddfile.local dependencies into the current skill-local skills root',
+    );
+    is_deeply(
+        $manifest_install->{operations},
+        [
+            {
+                manifest  => 'ddfile',
+                source    => "file://$global_repo",
+                repo_name => 'manifest-global-skill',
+                path      => File::Spec->catdir( $skill_paths->skills_root, 'manifest-global-skill' ),
+            },
+            {
+                manifest  => 'ddfile.local',
+                source    => "file://$local_repo",
+                repo_name => 'manifest-local-skill',
+                path      => File::Spec->catdir( $manifest_root, 'skills', 'manifest-local-skill' ),
+            },
+        ],
+        'install_from_ddfiles processes ddfile before ddfile.local',
+    );
+}
+{
+    my $manifest_root = File::Spec->catdir( $test_repos, 'manifest-reinstall-root' );
+    my $global_repo = _create_skill_repo( $test_repos, 'manifest-reinstall-skill', with_cpanfile => 0 );
+    make_path($manifest_root);
+    _write_file( File::Spec->catfile( $manifest_root, 'ddfile' ), "file://$global_repo\n" );
+
+    my $first_manifest_install = $manager->install_from_ddfiles($manifest_root);
+    ok( !$first_manifest_install->{error}, 'install_from_ddfiles installs a manifest-listed skill the first time' )
+      or diag $first_manifest_install->{error};
+    my $global_skill_root = File::Spec->catdir( $skill_paths->skills_root, 'manifest-reinstall-skill' );
+    _write_file( File::Spec->catfile( $global_repo, 'cli', 'run-test' ), "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nprint qq{manifest-refresh\\n};\n", 0755 );
+    {
+        my $cwd = getcwd();
+        chdir $global_repo or die "Unable to chdir to $global_repo: $!";
+        _run_or_die(qw(git add .));
+        _run_or_die( 'git', 'commit', '-m', 'Refresh manifest reinstall skill' );
+        chdir $cwd or die "Unable to chdir back to $cwd: $!";
+    }
+
+    my $second_manifest_install = $manager->install_from_ddfiles($manifest_root);
+    ok( !$second_manifest_install->{error}, 'install_from_ddfiles reinstalls already-installed manifest skills as updates' )
+      or diag $second_manifest_install->{error};
+    my $manifest_dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $skill_paths );
+    like(
+        $manifest_dispatcher->dispatch( 'manifest-reinstall-skill', 'run-test' )->{stdout},
+        qr/manifest-refresh/,
+        'manifest-driven install refreshes the installed skill content on repeat runs',
+    );
+    ok( -d $global_skill_root, 'manifest reinstall keeps the target skill installed after refresh' );
+}
+{
+    my $missing_manifest_root = File::Spec->catdir( $test_repos, 'missing-manifest-root' );
+    make_path($missing_manifest_root);
+    is_deeply(
+        $manager->install_from_ddfiles($missing_manifest_root),
+        { error => "No ddfile or ddfile.local found under $missing_manifest_root" },
+        'install_from_ddfiles rejects roots with no ddfile manifests',
+    );
+}
+{
     my $broken_repo = _create_skill_repo( $test_repos, 'broken-update-skill', with_cpanfile => 0 );
     ok( !$manager->install( 'file://' . $broken_repo )->{error}, 'broken-update-skill installs cleanly' );
     my $installed_root = $manager->get_skill_path('broken-update-skill');

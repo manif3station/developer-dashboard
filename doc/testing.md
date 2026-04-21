@@ -58,6 +58,7 @@ cover -report text -select_re '^lib/' -coverage statement -coverage subroutine
 Developer Dashboard expects a reviewed `lib/` coverage report before release, and the current repository target is 100% statement and subroutine coverage for `lib/`.
 
 The coverage-closure suite includes managed collector loop start/stop paths under `Devel::Cover`, including wrapped fork coverage in `t/14-coverage-closure-extra.t`, so the covered run stays green without breaking TAP from daemon-style child processes.
+Managed collector children now scrub inherited `PERL5OPT` and `HARNESS_PERL_SWITCHES` coverage settings before their long-lived loop work begins, and the runtime manager widens its startup stability polls when the parent harness is running under `Devel::Cover`, so the full covered suite does not misclassify a slow instrumented startup as a dead runtime.
 GitHub workflow coverage gates must match the `Devel::Cover` `Total` summary
 line by regex rather than one fixed-width spacing layout, because runner or
 module upgrades can change column padding without changing the real

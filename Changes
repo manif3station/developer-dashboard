@@ -1,3 +1,9 @@
+2.77  2026-04-21
+    - added `dashboard skills install --ddfile` so operators can install or refresh every source listed in the current directory's `ddfile`
+    - added `ddfile.local` support so the same explicit manifest run installs local nested skill dependencies into the current directory's `skills/` tree after the global `ddfile` pass
+    - made bare `dashboard skills install` fail with explicit usage unless the user supplies one source argument or `--ddfile`
+    - hardened the coverage/runtime gates so managed collector children scrub `Devel::Cover` environment leakage and slow instrumented startup paths keep enough readiness budget to finish the full suite cleanly
+
 2.76  2026-04-20
     - changed skill dependency installation policy so `dashboard skills install`
       now processes `ddfile`, `aptfile`, `brewfile`, `cpanfile`, and

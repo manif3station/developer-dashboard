@@ -52,6 +52,7 @@ sub wait_for_child_exit {
     package Local::RuntimeRunner;
     sub new { bless { loops => [], started => [], stopped => [] }, shift }
     sub running_loops { @{ $_[0]{loops} } }
+    sub loop_state { return $_[0]{loop_state} }
     sub start_loop {
         my ( $self, $job ) = @_;
         die $self->{fail}{ $job->{name} } if ref( $self->{fail} ) eq 'HASH' && exists $self->{fail}{ $job->{name} };
@@ -1410,6 +1411,75 @@ END {
         !$manager->_collector_runtime_ready( 'alpha.collector', 7001 ),
         '_collector_runtime_ready fails when a managed collector loop disappears during the startup stability window',
     );
+}
+
+{
+    my $polls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { return 0 };
+    local *Local::RuntimeRunner::running_loops = sub {
+        $polls++;
+        return ();
+    };
+    local *Local::RuntimeRunner::loop_state = sub {
+        return {
+            pid    => $$,
+            name   => 'alpha.collector',
+            status => 'starting',
+        };
+    };
+    ok(
+        $manager->_collector_runtime_ready( 'alpha.collector', $$ ),
+        '_collector_runtime_ready falls back to the persisted loop state while the managed process title is not observable yet',
+    );
+    is( $polls, 0, '_collector_runtime_ready trusts the persisted loop-state fallback without consulting running_loops when the pid is already proven alive' );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { return 0 };
+    local *Local::RuntimeRunner::running_loops = sub {
+        die "running_loops should not be consulted while the persisted loop-state fallback already proves the pid is alive\n";
+    };
+    local *Local::RuntimeRunner::loop_state = sub {
+        return {
+            pid    => $$,
+            name   => 'alpha.collector',
+            status => 'starting',
+        };
+    };
+    ok(
+        $manager->_collector_runtime_ready( 'alpha.collector', $$ ),
+        '_collector_runtime_ready trusts the persisted loop-state fallback before the destructive running_loops cleanup path can run',
+    );
+}
+
+{
+    local $ENV{DEVELOPER_DASHBOARD_RUNTIME_STABILITY_POLLS};
+    local $ENV{PERL5OPT};
+    local $ENV{HARNESS_PERL_SWITCHES};
+    is( $manager->_runtime_stability_polls, 100, '_runtime_stability_polls keeps the default poll count when no override or instrumentation is active' );
+}
+
+{
+    local $ENV{DEVELOPER_DASHBOARD_RUNTIME_STABILITY_POLLS} = 12;
+    local $ENV{PERL5OPT};
+    local $ENV{HARNESS_PERL_SWITCHES};
+    is( $manager->_runtime_stability_polls, 12, '_runtime_stability_polls accepts an explicit environment override' );
+}
+
+{
+    local $ENV{DEVELOPER_DASHBOARD_RUNTIME_STABILITY_POLLS} = 'broken';
+    local $ENV{PERL5OPT};
+    local $ENV{HARNESS_PERL_SWITCHES};
+    is( $manager->_runtime_stability_polls, 100, '_runtime_stability_polls ignores invalid environment overrides' );
+}
+
+{
+    local $ENV{DEVELOPER_DASHBOARD_RUNTIME_STABILITY_POLLS};
+    local $ENV{PERL5OPT};
+    local $ENV{HARNESS_PERL_SWITCHES} = '-MDevel::Cover';
+    is( $manager->_runtime_stability_polls, 300, '_runtime_stability_polls widens the startup grace window when coverage instrumentation is active' );
 }
 
 {

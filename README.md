@@ -1467,6 +1467,7 @@ skill repository:
 dashboard skills install git@github.com:user/example-skill.git
 dashboard skills install https://github.com/user/example-skill.git
 dashboard skills install /absolute/path/to/example-skill
+dashboard skills install --ddfile
 ```
 
 Git sources are cloned. Direct local checked-out directories are synced in
@@ -1480,9 +1481,24 @@ root under the deepest participating `DD-OOP-LAYERS` runtime. In a home-only
 session that is `~/.developer-dashboard/skills/<repo-name>/`. In a deeper
 project layer that already has its own `.developer-dashboard/`, the install
 target becomes `<that-layer>/.developer-dashboard/skills/<repo-name>/`.
+`dashboard skills install` now requires either one explicit source argument or
+the special `--ddfile` flag; calling it with no source and no `--ddfile`
+returns a usage error instead of guessing.
 Developer Dashboard does not merge the skill's `cli/`, `dashboards/`,
 `config/`, `ddfile`, `aptfile`, `brewfile`, `cpanfile`, `cpanfile.local`, or
 Docker files into the normal runtime folders.
+
+`dashboard skills install --ddfile` reads dependency manifests from the
+current directory instead of taking one explicit skill source. If `ddfile`
+exists there, each listed source installs into the active layered skills root
+such as `~/.developer-dashboard/skills/<repo-name>/` or the deepest
+participating child `.developer-dashboard/skills/<repo-name>/`. If
+`ddfile.local` exists there, each listed source installs into the current
+directory's nested `skills/<repo-name>/` tree instead. When both manifests are
+present, the command processes `ddfile` first and `ddfile.local` second.
+Repeated `dashboard skills install --ddfile` runs also act as reinstall and
+refresh for already-installed targets, just like repeated explicit
+`dashboard skills install <source>` runs.
 
 Skill lookup also follows `DD-OOP-LAYERS`, but a same-named deeper skill is
 now layered instead of flattening the whole repo. The home
@@ -1655,6 +1671,12 @@ Skill dependency and docker layering:
 - if a `ddfile` exists, each listed dependency is installed first through
   `dashboard skills install <dependency>` while already-installed or in-flight
   skills are skipped to avoid loops
+- if an operator runs `dashboard skills install --ddfile` inside a directory
+  that contains `ddfile`, every listed source is reinstalled or refreshed into
+  the active layered skills root
+- if that same directory also contains `ddfile.local`, every listed source is
+  then reinstalled or refreshed into the current directory's nested
+  `skills/<repo-name>/` tree after the global `ddfile` pass completes
 - if an `aptfile` exists on a Debian-family host, its package list is printed
   before the sudo prompt and then installed through `sudo apt-get install -y`
 - if a `brewfile` exists on macOS, its package list is printed and then
@@ -1670,8 +1692,8 @@ Skill dependency and docker layering:
 
 To build a new skill, start with a Git repository that contains `cli/`,
 `config/config.json`, and optional `dashboards/`, `dashboards/nav/`, `state/`,
-`logs/`, `ddfile`, `aptfile`, `brewfile`, `cpanfile`, and `cpanfile.local`
-files under the skill root. Skill
+`logs/`, `ddfile`, `ddfile.local`, `aptfile`, `brewfile`, `cpanfile`, and
+`cpanfile.local` files under the skill root. Skill
 commands are file-based commands run through the dotted
 `dashboard <repo-name>.<command>` form. Skill hook files live under
 `cli/<command>.d/`, skill app pages render from `/app/<repo-name>` and
@@ -1689,9 +1711,12 @@ environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`, bookmark
 syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, and `CODE1:`, bookmark browser
 helpers such as `fetch_value()`, `stream_value()`, and `stream_data()`,
 underscored config merge keys such as `_example-skill`, the
+`ddfile -> ddfile.local -> aptfile -> brewfile -> cpanfile -> cpanfile.local`
+operator install controls versus the automatic
 `ddfile -> aptfile -> brewfile -> cpanfile -> cpanfile.local` dependency
-install order, the shared `~/perl5` versus skill-local `perl5/` split, skill
-docker layering, and when to use
+install order, the shared `~/perl5` versus skill-local `perl5/` split, the
+current-directory `skills/` target used by `ddfile.local`, skill docker
+layering, and when to use
 dashboard-wide custom CLI hook folders such as
 `~/.developer-dashboard/cli/<command>.d` instead of a skill-local hook tree.
 

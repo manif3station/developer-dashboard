@@ -1,5 +1,18 @@
 # Fixed Bugs
 
+## 2026-04-21 (Phase 132: Explicit ddfile Skill Installs And Coverage-Stable Runtime Guards)
+
+- Fixed the explicit skill-install operator gap so `dashboard skills install`
+  now requires either one concrete source argument or `--ddfile`, instead of
+  accepting a bare install invocation with no source to act on.
+- Added `dashboard skills install --ddfile` so operators can install or refresh
+  every source listed in the current working directory's `ddfile`, then apply
+  `ddfile.local` into that directory's nested `skills/` tree in a second pass.
+- Fixed the cover-only managed runtime instability where collector loop
+  children inherited `PERL5OPT` and `HARNESS_PERL_SWITCHES=-MDevel::Cover`,
+  causing slow or daemonized startup paths to be misclassified as dead during
+  the full 100% coverage gate.
+
 ## 2026-04-20 (Phase 131: Skill Dependency Policy Unification)
 
 - Fixed the skill dependency policy drift so installed skills now process
@@ -1306,6 +1319,10 @@
 
 - Fixed stale documentation examples that still showed the pre-simplification `dashboard auth add-user <user> <pass> <role>` shape instead of the current two-argument form.
 - Fixed coverage blind spots in action trust fallbacks, page resolver saved-page listing, cron scheduling branches, prompt context rendering, and docker compose execution paths so `lib/` is back to 100% statement and subroutine coverage.
+- Fixed the skills-install manifest gap so bare `dashboard skills install` now fails with explicit usage unless the operator supplies one source or `--ddfile`.
+- Fixed explicit manifest installs so `dashboard skills install --ddfile` now processes `ddfile` first into the active layered skills root and `ddfile.local` second into the current directory's nested `skills/` tree.
+- Fixed manifest refresh behavior so repeated `dashboard skills install --ddfile` runs reinstall existing targets instead of silently skipping them.
+
 - Fixed local repository hygiene by ignoring the `.perl5/` toolchain directory used for local Devel::Cover installs.
 
 - Fixed page-model drift by replacing JSON-first saved and transient page storage with canonical instruction documents as required by the spec.

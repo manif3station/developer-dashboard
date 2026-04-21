@@ -3,9 +3,10 @@ package Developer::Dashboard::CLI::Skills;
 use strict;
 use warnings;
 
-our $VERSION = '2.76';
+our $VERSION = '2.77';
 
 use Getopt::Long qw(GetOptionsFromArray);
+use Cwd qw(getcwd);
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::SkillManager;
@@ -27,8 +28,13 @@ sub run_skills_command {
     my $manager = Developer::Dashboard::SkillManager->new( paths => _build_paths() );
 
     if ( $action eq 'install' ) {
-        my $source = shift @argv || die "Usage: dashboard skills install <git-url-or-local-dir>\n";
-        my $result = $manager->install($source);
+        my $use_ddfile = 0;
+        GetOptionsFromArray( \@argv, 'ddfile' => \$use_ddfile );
+        die "Usage: dashboard skills install <git-url-or-local-dir>\nUsage: dashboard skills install --ddfile\n"
+          if ( $use_ddfile && @argv ) || ( !$use_ddfile && !@argv );
+        my $result = $use_ddfile
+          ? $manager->install_from_ddfiles( getcwd() )
+          : $manager->install( shift @argv );
         print json_encode($result);
         return $result->{error} ? 1 : 0;
     }
@@ -309,6 +315,8 @@ It is used by the staged C<skills> private helper, by dotted skill command dispa
 
   dashboard skills list
   dashboard skills list -o table
+  dashboard skills install /absolute/path/to/example-skill
+  dashboard skills install --ddfile
   dashboard skills usage example-skill
   dashboard skills usage example-skill -o table
   dashboard skills disable example-skill

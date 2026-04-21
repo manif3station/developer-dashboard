@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '2.76';
+our $VERSION = '2.77';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -949,8 +949,16 @@ sub _collector_runtime_ready {
     return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
     my $ready = 0;
     for ( 1 .. $self->_runtime_stability_polls ) {
-        my ($running) = grep { $_->{name} eq $name && ( $_->{pid} || 0 ) == $pid } $self->{runner}->running_loops;
-        if ($running) {
+        my $state = $self->{runner}->can('loop_state') ? $self->{runner}->loop_state($name) : undef;
+        my $state_ready = $state
+          && ( $state->{pid} || 0 ) == $pid
+          && ( $state->{name} || $name ) eq $name
+          && ( $state->{status} || '' ) =~ /^(?:starting|running|error)$/
+          && kill( 0, $pid );
+        my ($running) = $state_ready
+          ? ()
+          : grep { $_->{name} eq $name && ( $_->{pid} || 0 ) == $pid } $self->{runner}->running_loops;
+        if ( $state_ready || $running ) {
             $ready = 1;
         }
         elsif ($ready) {
@@ -967,7 +975,13 @@ sub _collector_runtime_ready {
 # Input: none.
 # Output: positive integer poll count.
 sub _runtime_stability_polls {
-    return 5;
+    my $override = $ENV{DEVELOPER_DASHBOARD_RUNTIME_STABILITY_POLLS};
+    return $override if defined $override && $override =~ /^\d+$/ && $override > 0;
+
+    my $perl5opt = join ' ', grep { defined && $_ ne '' } @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)};
+    return 300 if $perl5opt =~ /Devel::Cover/;
+
+    return 100;
 }
 
 # _runtime_poll_interval()

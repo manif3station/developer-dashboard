@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '2.76';
+our $VERSION = '2.77';
 
 1;
 
@@ -24,6 +24,7 @@ Skill lifecycle:
 
   dashboard skills install git@github.com:user/example-skill.git
   dashboard skills install /absolute/path/to/example-skill
+  dashboard skills install --ddfile
   dashboard skills update example-skill
   dashboard skills list
   dashboard example-skill.hello arg1 arg2
@@ -87,7 +88,22 @@ Install it:
 Repeated C<dashboard skills install ...> calls reinstall or refresh the
 isolated installed copy instead of failing on an existing repo name, using
 C<rsync> when it is available for direct local checkouts and a built-in Perl
-tree-copy fallback when it is not.
+tree-copy fallback when it is not. Plain C<dashboard skills install> requires
+either one explicit source argument or C<--ddfile>; calling it without either
+returns a usage error.
+
+Run an operator manifest install from the current directory:
+
+  dashboard skills install --ddfile
+
+If F<ddfile> exists there, each listed source installs into the active
+layered skills root such as
+F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>. If F<ddfile.local>
+exists there, each listed source installs into the current directory's nested
+F<skills/E<lt>repo-nameE<gt>/> tree instead. When both manifests are present,
+F<ddfile> runs first and F<ddfile.local> runs second. Repeated
+C<dashboard skills install --ddfile> runs also act as reinstall and refresh
+for existing targets.
 
 Run its command:
 
@@ -169,6 +185,12 @@ Persistent skill-owned logs.
 =item B<ddfile>
 
 Optional dependent skill list installed before package managers run.
+
+=item B<ddfile.local>
+
+Optional operator manifest for installing listed skills into the current
+directory's nested C<skills/> tree when an operator runs
+C<dashboard skills install --ddfile>.
 
 =item B<aptfile>
 
@@ -558,8 +580,12 @@ a C<cpanfile.local> when that skill also needs a skill-local C<./perl5> tree.
 
 =head2 Can a skill install system packages first?
 
-Yes. Ship a C<ddfile> for dependent skills, an C<aptfile> for Debian-family
-packages, or a C<brewfile> for macOS packages. The install order is
+Yes. Ship a C<ddfile> for dependent skills, a C<ddfile.local> for explicit
+local nested-skill installs driven by C<dashboard skills install --ddfile>, an
+C<aptfile> for Debian-family packages, or a C<brewfile> for macOS packages.
+The operator-driven manifest order is
+C<ddfile -> ddfile.local -> aptfile -> brewfile -> cpanfile -> cpanfile.local>,
+while the automatic per-skill dependency order stays
 C<ddfile -> aptfile -> brewfile -> cpanfile -> cpanfile.local>.
 
 =head2 Where is the long-form guide?

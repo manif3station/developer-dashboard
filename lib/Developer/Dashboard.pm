@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.76';
+our $VERSION = '2.77';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.76
+2.77
 
 =head1 INTRODUCTION
 
@@ -2175,6 +2175,7 @@ repository:
   dashboard skills install git@github.com:user/example-skill.git
   dashboard skills install https://github.com/user/example-skill.git
   dashboard skills install /absolute/path/to/example-skill
+  dashboard skills install --ddfile
 
 Git sources are cloned. Direct local checked-out directories are synced in
 place instead of recloned, using C<rsync> when it is available and the
@@ -2189,9 +2190,25 @@ F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>. In a deeper project
 layer that already has its own F<.developer-dashboard/>, the install target
 becomes
 F<E<lt>that-layerE<gt>/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>.
+Plain C<dashboard skills install> now requires either one explicit source
+argument or the special C<--ddfile> flag; calling it with no source and no
+C<--ddfile> returns a usage error instead of guessing.
 Developer Dashboard does not merge the skill's C<cli/>, C<dashboards/>,
 C<config/>, C<ddfile>, C<aptfile>, C<brewfile>, C<cpanfile>,
 C<cpanfile.local>, or Docker files into the normal runtime folders.
+
+C<dashboard skills install --ddfile> reads dependency manifests from the
+current directory instead of taking one explicit skill source. If F<ddfile>
+exists there, each listed source installs into the active layered skills root
+such as F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/> or the deepest
+participating child
+F<.developer-dashboard/skills/E<lt>repo-nameE<gt>/>. If F<ddfile.local>
+exists there, each listed source installs into the current directory's nested
+F<skills/E<lt>repo-nameE<gt>/> tree instead. When both manifests are present,
+the command processes F<ddfile> first and F<ddfile.local> second. Repeated
+C<dashboard skills install --ddfile> runs also act as reinstall and refresh
+for already-installed targets, just like repeated explicit
+C<dashboard skills install E<lt>sourceE<gt>> runs.
 
 Skill lookup also follows C<DD-OOP-LAYERS>, but a same-named deeper skill is
 now layered instead of flattening the whole repo. The home
@@ -2537,6 +2554,18 @@ in-flight skills are skipped to avoid loops
 
 =item *
 
+if an operator runs C<dashboard skills install --ddfile> inside a directory
+that contains F<ddfile>, every listed source is reinstalled or refreshed into
+the active layered skills root
+
+=item *
+
+if that same directory also contains F<ddfile.local>, every listed source is
+then reinstalled or refreshed into the current directory's nested
+F<skills/E<lt>repo-nameE<gt>/> tree after the global F<ddfile> pass completes
+
+=item *
+
 if an C<aptfile> exists on a Debian-family host, its package list is printed
 before the sudo prompt and then installed through
 C<sudo apt-get install -y>
@@ -2571,8 +2600,8 @@ re-enabled
 
 To build a new skill, start with a Git repository that contains C<cli/>,
 C<config/config.json>, and optional C<dashboards/>, C<dashboards/nav/>,
-C<state/>, C<logs/>, C<ddfile>, C<aptfile>, C<brewfile>, C<cpanfile>, and
-C<cpanfile.local> files under the skill root. Skill commands are file-based
+C<state/>, C<logs/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<brewfile>,
+C<cpanfile>, and C<cpanfile.local> files under the skill root. Skill commands are file-based
 commands run through the dotted
 C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> form. Skill hook files live
 under C<cli/E<lt>commandE<gt>.d/>, skill app pages render from
@@ -2591,9 +2620,12 @@ layout, environment variables such as C<DEVELOPER_DASHBOARD_SKILL_ROOT>,
 bookmark syntax like C<TITLE:>, C<BOOKMARK:>, C<HTML:>, and C<CODE1:>,
 bookmark browser helpers such as C<fetch_value()>, C<stream_value()>, and
 C<stream_data()>, underscored config merge keys such as C<_example-skill>,
+C<ddfile -> ddfile.local -> aptfile -> brewfile -> cpanfile -> cpanfile.local>
+operator install controls versus the automatic
 C<ddfile -> aptfile -> brewfile -> cpanfile -> cpanfile.local> dependency
-install order, the shared C<~/perl5> versus skill-local C<perl5/> split, skill
-docker layering, and when to use dashboard-wide custom CLI hook folders such as
+install order, the shared C<~/perl5> versus skill-local C<perl5/> split, the
+current-directory C<skills/> target used by F<ddfile.local>, skill docker
+layering, and when to use dashboard-wide custom CLI hook folders such as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d> instead of a skill-local
 hook tree.
 

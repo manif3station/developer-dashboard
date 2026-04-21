@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '2.76';
+our $VERSION = '2.77';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -41,46 +41,46 @@ sub new {
 sub install {
     my ( $self, $source ) = @_;
     return { error => 'Missing skill source' } if !$source;
+    return $self->_install_to_skills_root( $source, $self->{paths}->skills_root );
+}
 
-    my $local_source = $self->_local_checked_out_source($source);
-    return $local_source if ref($local_source) eq 'HASH';
-    my $repo_name = $local_source ? basename($local_source) : _extract_repo_name($source);
-    return { error => "Unable to extract repo name from $source" } if !$repo_name;
+# install_from_ddfiles($base_dir)
+# Installs or reinstalls every skill source listed in ddfile and ddfile.local
+# under one directory, processing ddfile first and ddfile.local second.
+# Input: absolute or relative directory path that may contain ddfile manifests.
+# Output: hash ref describing the completed manifest-driven install operations.
+sub install_from_ddfiles {
+    my ( $self, $base_dir ) = @_;
+    $base_dir ||= '.';
+    my $root = realpath($base_dir) || $base_dir;
+    my $ddfile = File::Spec->catfile( $root, 'ddfile' );
+    my $ddfile_local = File::Spec->catfile( $root, 'ddfile.local' );
+    return { error => "No ddfile or ddfile.local found under $root" }
+      if !-f $ddfile && !-f $ddfile_local;
 
-    my $skills_root = $self->{paths}->skills_root;
-    my $skill_path = File::Spec->catdir( $skills_root, $repo_name );
+    my @operations;
 
-    $self->{paths}->ensure_dir($skills_root);
-    my $remove = $self->_remove_existing_skill_path($skill_path);
-    return $remove if $remove->{error};
+    my $global_result = $self->_install_manifest_file(
+        $ddfile,
+        manifest_name => 'ddfile',
+        skills_root   => $self->{paths}->skills_root,
+        operations    => \@operations,
+    );
+    return $global_result if $global_result->{error};
 
-    if ($local_source) {
-        my $sync = $self->_sync_local_skill_source( $local_source, $skill_path );
-        if ( $sync->{error} ) {
-            remove_tree($skill_path) if -d $skill_path;
-            return $sync;
-        }
-    }
-    else {
-        my ( $stdout, $stderr, $exit ) = capture {
-            system( 'git', 'clone', $source, $skill_path );
-        };
-        if ( $exit != 0 ) {
-            remove_tree($skill_path) if -d $skill_path;
-            return { error => "Failed to clone $source: $stderr" };
-        }
-    }
-
-    $self->_prepare_skill_layout($skill_path);
-    my $dependency = $self->_install_skill_dependencies($skill_path);
-    return $dependency if $dependency->{error};
+    my $local_result = $self->_install_manifest_file(
+        $ddfile_local,
+        manifest_name => 'ddfile.local',
+        skills_root   => File::Spec->catdir( $root, 'skills' ),
+        operations    => \@operations,
+    );
+    return $local_result if $local_result->{error};
 
     return {
-        success   => 1,
-        repo_name => $repo_name,
-        path      => $skill_path,
-        message   => "Skill '$repo_name' installed successfully",
-        metadata  => $self->_skill_metadata( $repo_name, $skill_path ),
+        success    => 1,
+        base_dir   => $root,
+        operations => \@operations,
+        message    => 'Installed skills from ddfile manifests successfully',
     };
 }
 
@@ -393,6 +393,56 @@ sub _remove_existing_skill_path {
     return { success => 1 };
 }
 
+# _install_to_skills_root($source, $skills_root)
+# Installs one skill source into a specific skills root so manifest-driven
+# installs can target either the active DD-OOP-LAYER or a nested local skills tree.
+# Input: install source string and absolute target skills root directory path.
+# Output: success hash ref including repo name, install path, and metadata, or an error hash.
+sub _install_to_skills_root {
+    my ( $self, $source, $skills_root ) = @_;
+    return { error => 'Missing skill source' } if !$source;
+    return { error => 'Missing skills root' } if !$skills_root;
+
+    my $local_source = $self->_local_checked_out_source($source);
+    return $local_source if ref($local_source) eq 'HASH';
+    my $repo_name = $local_source ? basename($local_source) : _extract_repo_name($source);
+    return { error => "Unable to extract repo name from $source" } if !$repo_name;
+
+    $self->{paths}->ensure_dir($skills_root);
+    my $skill_path = File::Spec->catdir( $skills_root, $repo_name );
+    my $remove = $self->_remove_existing_skill_path($skill_path);
+    return $remove if $remove->{error};
+
+    if ($local_source) {
+        my $sync = $self->_sync_local_skill_source( $local_source, $skill_path );
+        if ( $sync->{error} ) {
+            remove_tree($skill_path) if -d $skill_path;
+            return $sync;
+        }
+    }
+    else {
+        my ( $stdout, $stderr, $exit ) = capture {
+            system( 'git', 'clone', $source, $skill_path );
+        };
+        if ( $exit != 0 ) {
+            remove_tree($skill_path) if -d $skill_path;
+            return { error => "Failed to clone $source: $stderr" };
+        }
+    }
+
+    $self->_prepare_skill_layout($skill_path);
+    my $dependency = $self->_install_skill_dependencies($skill_path);
+    return $dependency if $dependency->{error};
+
+    return {
+        success   => 1,
+        repo_name => $repo_name,
+        path      => $skill_path,
+        message   => "Skill '$repo_name' installed successfully",
+        metadata  => $self->_skill_metadata( $repo_name, $skill_path ),
+    };
+}
+
 # _prepare_skill_layout($skill_path)
 # Ensures the isolated skill directory tree exists under one skill root.
 # Input: absolute skill root directory path.
@@ -585,6 +635,34 @@ sub _install_skill_ddfile {
         stdout  => join( '', @stdout ),
         stderr  => join( '', @stderr ),
     };
+}
+
+# _install_manifest_file($manifest_path, %args)
+# Installs every source listed in one explicit ddfile-style manifest into the
+# requested skills root without skipping already-installed targets.
+# Input: manifest file path plus manifest_name, skills_root, and operations array reference.
+# Output: success hash ref when the manifest is absent or completes, or an error hash.
+sub _install_manifest_file {
+    my ( $self, $manifest_path, %args ) = @_;
+    return { success => 1, skipped => 1 } if !defined $manifest_path || !-f $manifest_path;
+    my $manifest_name = $args{manifest_name} || basename($manifest_path);
+    my $skills_root = $args{skills_root} || return { error => "Missing skills root for $manifest_name" };
+    my $operations = $args{operations};
+    my @sources = $self->_dependency_file_lines($manifest_path);
+    return { success => 1, skipped => 1 } if !@sources;
+
+    for my $source (@sources) {
+        my $result = $self->_install_to_skills_root( $source, $skills_root );
+        return $result if $result->{error};
+        push @{$operations}, {
+            manifest  => $manifest_name,
+            source    => $source,
+            repo_name => $result->{repo_name},
+            path      => $result->{path},
+        } if ref($operations) eq 'ARRAY';
+    }
+
+    return { success => 1 };
 }
 
 # _install_skill_aptfile($skill_path)
@@ -1010,6 +1088,14 @@ Example 4:
   prove -lr t
 
 Put any module-level change back through the entire repository suite before release.
+
+Example 5:
+
+  dashboard skills install --ddfile
+
+Drive an explicit manifest install from the current directory, where F<ddfile>
+targets the active layered skills root and F<ddfile.local> targets the current
+directory's nested C<skills/> tree.
 
 
 =for comment FULL-POD-DOC END
