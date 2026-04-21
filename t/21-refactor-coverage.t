@@ -1945,6 +1945,45 @@ ok( !$manager->install( 'file://' . $no_dep_repo )->{error}, 'skill manager inst
     is_deeply( \@dashboard_steps, ['skills install fresh-skill'], '_install_skill_dependencies skips installed skills and only installs missing ddfile dependencies' );
 }
 {
+    my $stacked_repo = File::Spec->catdir( $test_repos, 'stacked-dd-skill' );
+    make_path($stacked_repo);
+    _write_file( File::Spec->catfile( $stacked_repo, 'ddfile' ), "stacked-skill\nfresh-skill\n" );
+
+    open my $dashboard_script_fh, '<', File::Spec->catfile( $fake_bin, 'dashboard' ) or die "Unable to read fake dashboard script: $!";
+    my $original_dashboard_script = do { local $/; <$dashboard_script_fh> };
+    close $dashboard_script_fh;
+
+    _write_file(
+        File::Spec->catfile( $fake_bin, 'dashboard' ),
+        <<"SH",
+#!/bin/sh
+printf '%s\\n' "\$*" >> "$dashboard_log"
+printf 'DDFILE:%s\\n' "\$*" >> "$dependency_log"
+printf 'installed:%s\\n' "\$3"
+printf 'warning:%s\\n' "\$3" >&2
+if [ "\$DD_TEST_DDFILE_FAIL" = "1" ]; then
+  exit 1
+fi
+exit 0
+SH
+        0755,
+    );
+
+    unlink $dashboard_log;
+    local $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} = 'stacked-skill';
+    my $stacked_install = $manager->_install_skill_ddfile($stacked_repo);
+    ok( !$stacked_install->{error}, '_install_skill_ddfile skips dependencies already present in the install stack' ) or diag $stacked_install->{error};
+    is( $stacked_install->{stdout}, "installed:fresh-skill\n", '_install_skill_ddfile returns captured stdout when a dependent install emits output' );
+    is( $stacked_install->{stderr}, "warning:fresh-skill\n", '_install_skill_ddfile returns captured stderr when a dependent install emits warnings' );
+
+    open my $stacked_dashboard_log_fh, '<', $dashboard_log or die "Unable to read $dashboard_log after stacked ddfile install: $!";
+    my @stacked_dashboard_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$stacked_dashboard_log_fh>;
+    close $stacked_dashboard_log_fh;
+    is_deeply( \@stacked_dashboard_steps, ['skills install fresh-skill'], '_install_skill_ddfile only invokes dashboard install for dependencies missing from the current install stack' );
+
+    _write_file( File::Spec->catfile( $fake_bin, 'dashboard' ), $original_dashboard_script, 0755 );
+}
+{
     my $broken_repo = _create_skill_repo( $test_repos, 'broken-update-skill', with_cpanfile => 0 );
     ok( !$manager->install( 'file://' . $broken_repo )->{error}, 'broken-update-skill installs cleanly' );
     my $installed_root = $manager->get_skill_path('broken-update-skill');
