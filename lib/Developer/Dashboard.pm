@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.88';
+our $VERSION = '2.90';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.88
+2.90
 
 =head1 INTRODUCTION
 
@@ -1053,7 +1053,9 @@ the repo-root F<brewfile> on macOS and runs C<brew install> for the listed
 packages, verifies that C<node>, C<npm>, and C<npx> are available from those
 bootstrap packages before finishing the install, or falls back to the embedded
 copies of those package lists when the script is streamed without the checkout
-files, bootstraps user-space Perl
+files, installs Debian-family Node tooling in a conflict-aware order by
+bringing in C<nodejs> first and only attempting the distro C<npm> package if
+C<npm> and C<npx> are still missing, bootstraps user-space Perl
 tooling under F<~/perl5> with
 C<cpanm --local-lib-contained "$HOME/perl5" local::lib App::cpanminus>,
 appends exactly one C<local::lib> bootstrap line to F<~/.bashrc>,
@@ -1062,7 +1064,9 @@ Homebrew Perl on macOS when C<brew --prefix perl> exposes a brewed
 interpreter, bootstraps a user-space C<perlbrew> Perl on Debian-family hosts
 when the system Perl is older than the required C<5.38>, installs
 C<App::perlbrew> into F<~/perl5/bin> first if the package manager did not
-already put C<perlbrew> on C<PATH>, installs Developer Dashboard into the user
+already put C<perlbrew> on C<PATH>, uses
+C<perlbrew --notest install perl-5.38.5> so blank-machine bootstrap does not
+stall in upstream Perl core test failures, installs Developer Dashboard into the user
 account with C<cpanm --notest Developer::Dashboard>,
 and then runs C<dashboard init> so the runtime exists immediately after
 installation.

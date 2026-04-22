@@ -1,4 +1,4 @@
-2.88  2026-04-22
+2.90  2026-04-22
     - changed automatic skill dependency order so `aptfile`, `brewfile`,
       `package.json`, `cpanfile`, and `cpanfile.local` run first, while the
       dependent-skill manifests `ddfile` and `ddfile.local` are deferred until
@@ -20,6 +20,14 @@
     - fixed the Debian-family old-Perl bootstrap path so `install.sh` installs
       `App::perlbrew` into `~/perl5/bin` when `perlbrew` is still missing
       after package bootstrapping
+    - fixed Debian-family streamed bootstrap installs on mixed apt sources
+      such as WSL + NodeSource by installing `nodejs` first and only
+      attempting the distro `npm` package when `npm` and `npx` are still
+      missing afterwards
+    - fixed the Debian-family old-Perl rescue path in `install.sh` so blank
+      Ubuntu and WSL-style bootstrap uses `perlbrew --notest install
+      perl-5.38.5` instead of failing in upstream Perl core tests before the
+      dashboard install even begins
 
 2.87  2026-04-22
     - fixed generated bash completion bootstrap hangs on macOS by replacing

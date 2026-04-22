@@ -58,6 +58,12 @@ require_command() {
     command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
 }
 
+node_toolchain_ready() {
+    node --version >/dev/null 2>&1 &&
+        npm --version >/dev/null 2>&1 &&
+        npx --version >/dev/null 2>&1
+}
+
 trim() {
     printf '%s' "$1" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
 }
@@ -176,15 +182,71 @@ append_once() {
 
 install_apt_packages() {
     prefix=$(package_runner_prefix)
-    packages=$(manifest_packages "$APTFILE" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+    manifest_lines=$(manifest_packages "$APTFILE")
+    packages=$(printf '%s\n' "$manifest_lines" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
     [ -n "$packages" ] || return 0
-    say "Installing Debian-family packages from $APTFILE: $packages"
+    non_node_packages=$(printf '%s\n' "$manifest_lines" | grep -vx 'nodejs' | grep -vx 'npm' || true)
+    non_node_list=$(printf '%s\n' "$non_node_packages" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+    node_packages=$(printf '%s\n' "$manifest_lines" | grep -E '^(nodejs|npm)$' || true)
+
     if [ -n "$prefix" ]; then
         $prefix apt-get update
-        $prefix apt-get install -y $packages
     else
         apt-get update
-        apt-get install -y $packages
+    fi
+
+    if [ -n "$non_node_list" ]; then
+        say "Installing Debian-family packages from $APTFILE: $non_node_list"
+        if [ -n "$prefix" ]; then
+            $prefix apt-get install -y $non_node_list
+        else
+            apt-get install -y $non_node_list
+        fi
+    fi
+
+    install_debian_node_packages "$prefix" "$node_packages"
+}
+
+install_debian_node_packages() {
+    prefix=$1
+    node_packages=$2
+    [ -n "$node_packages" ] || return 0
+
+    if node_toolchain_ready; then
+        say "Debian-family Node toolchain already available; skipping apt install for: $(printf '%s\n' "$node_packages" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+        return 0
+    fi
+
+    if printf '%s\n' "$node_packages" | grep -qx 'nodejs'; then
+        say "Installing Debian-family Node runtime from $APTFILE: nodejs"
+        if [ -n "$prefix" ]; then
+            $prefix apt-get install -y nodejs
+        else
+            apt-get install -y nodejs
+        fi
+    fi
+
+    if node_toolchain_ready; then
+        return 0
+    fi
+
+    if printf '%s\n' "$node_packages" | grep -qx 'npm'; then
+        say "Installing Debian-family npm package from $APTFILE: npm"
+        if [ -n "$prefix" ]; then
+            if ! $prefix apt-get install -y npm; then
+                if node_toolchain_ready; then
+                    return 0
+                fi
+                fail "Unable to install npm from Debian-family repositories. Third-party nodejs repositories can conflict with the distro npm package. Ensure node, npm, and npx are available on PATH, then rerun install.sh."
+            fi
+        else
+            if ! apt-get install -y npm; then
+                if node_toolchain_ready; then
+                    return 0
+                fi
+                fail "Unable to install npm from Debian-family repositories. Third-party nodejs repositories can conflict with the distro npm package. Ensure node, npm, and npx are available on PATH, then rerun install.sh."
+            fi
+        fi
     fi
 }
 
@@ -197,9 +259,7 @@ install_brew_packages() {
 }
 
 ensure_node_toolchain() {
-    require_command node
-    require_command npm
-    require_command npx
+    node_toolchain_ready || fail "Missing required Node toolchain: node, npm, and npx must all be available on PATH"
 }
 
 bootstrap_perlbrew_perl() {
@@ -220,7 +280,7 @@ bootstrap_perlbrew_perl() {
     mkdir -p "$PERLBREW_ROOT"
     perlbrew init
     if ! perlbrew list | grep -Fq "$PERLBREW_PERL"; then
-        perlbrew install "$PERLBREW_PERL"
+        perlbrew --notest install "$PERLBREW_PERL"
     fi
 
     PERL_BIN="$PERLBREW_ROOT/perls/$PERLBREW_PERL/bin/perl"

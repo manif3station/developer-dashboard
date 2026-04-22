@@ -29,7 +29,9 @@ ok( -f $brewfile, 'brewfile exists at the repo root' );
 
 my @apt_packages  = _manifest_lines($aptfile);
 my @brew_packages = _manifest_lines($brewfile);
-my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(@apt_packages);
+my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
+    packages => \@apt_packages,
+);
 
 {
     my $home = tempdir( CLEANUP => 1 );
@@ -91,6 +93,49 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(@apt_packages);
         scalar( () = $bashrc_again =~ /\Q$local_lib_line\E/g ),
         1,
         'install.sh does not duplicate the local::lib bootstrap line on repeat runs',
+    );
+}
+
+{
+    my $home = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log = File::Spec->catfile( $home, 'install.log' );
+    _seed_fake_install_commands(
+        fake_bin => $fake_bin,
+        log      => $log,
+    );
+
+    my $env_prefix = join ' ',
+      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+        { key => 'HOME',                      value => $home },
+        { key => 'PATH',                      value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'SHELL',                     value => '/bin/bash' },
+        { key => 'DD_INSTALL_OS_OVERRIDE',    value => 'ubuntu' },
+        { key => 'FAKE_NODEJS_PROVIDES_NPM',  value => '1' },
+        { key => 'FAKE_NPM_PACKAGE_CONFLICTS', value => '1' },
+      );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+    };
+    is( $exit >> 8, 0, 'install.sh skips the distro npm package when nodejs already provides npm and npx' )
+      or diag $stdout . $stderr;
+
+    my @log_lines = _log_lines($log);
+    is_deeply(
+        \@log_lines,
+        [
+            _expected_apt_bootstrap_steps(
+                packages             => \@apt_packages,
+                nodejs_provides_npm => 1,
+            ),
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
+            "cpanm --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
+            'cpanm --notest Developer::Dashboard',
+            'dashboard init',
+        ],
+        'install.sh avoids the conflicting Debian npm package when nodejs already ships the full Node toolchain',
     );
 }
 
@@ -235,7 +280,7 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(@apt_packages);
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
             'perlbrew init',
             'perlbrew list',
-            'perlbrew install perl-5.38.5',
+            'perlbrew --notest install perl-5.38.5',
             'perlbrew install-cpanm',
             "cpanm --local-lib-contained $home/perl5 local::lib App::cpanminus",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
@@ -257,17 +302,24 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(@apt_packages);
 done_testing;
 
 sub _expected_apt_bootstrap_steps {
-    my (@packages) = @_;
-    my $install_line = 'apt-get install -y ' . join( ' ', @packages );
+    my (%args) = @_;
+    my @packages = @{ $args{packages} || [] };
+    my @non_node_packages = grep { $_ ne 'nodejs' && $_ ne 'npm' } @packages;
+    my @install_lines;
+    push @install_lines, 'apt-get install -y ' . join( ' ', @non_node_packages )
+      if @non_node_packages;
+    push @install_lines, 'apt-get install -y nodejs'
+      if grep { $_ eq 'nodejs' } @packages;
+    push @install_lines, 'apt-get install -y npm'
+      if ( grep { $_ eq 'npm' } @packages ) && !$args{nodejs_provides_npm};
     return (
         'apt-get update',
-        $install_line,
+        @install_lines,
     ) if ( $> || 0 ) == 0;
     return (
         'sudo apt-get update',
         'apt-get update',
-        'sudo apt-get install -y ' . join( ' ', @packages ),
-        $install_line,
+        map( { ( "sudo $_", $_ ) } @install_lines ),
     );
 }
 
@@ -286,6 +338,7 @@ sub _seed_fake_install_commands {
     my (%args) = @_;
     my $fake_bin = $args{fake_bin};
     my $log      = $args{log};
+    my $node_marker = File::Spec->catfile( $fake_bin, 'node-toolchain.marker' );
     make_path($fake_bin);
 
     _write_executable(
@@ -301,6 +354,31 @@ SH
         <<"SH",
 #!/bin/sh
 printf '%s\\n' "apt-get \$*" >> "$log"
+append_marker() {
+tool=\$1
+grep -qx "\$tool" "$node_marker" 2>/dev/null || printf '%s\\n' "\$tool" >> "$node_marker"
+}
+if [ "\$1" = "install" ]; then
+case " \$* " in
+  *" nodejs "*)
+    append_marker node
+    if [ "\${FAKE_NODEJS_PROVIDES_NPM:-0}" = "1" ]; then
+      append_marker npm
+      append_marker npx
+    fi
+    ;;
+esac
+case " \$* " in
+  *" npm "*)
+    if [ "\${FAKE_NPM_PACKAGE_CONFLICTS:-0}" = "1" ]; then
+      printf '%s\\n' 'E: nodejs conflicts with npm' >&2
+      exit 1
+    fi
+    append_marker npm
+    append_marker npx
+    ;;
+esac
+fi
 exit 0
 SH
     );
@@ -309,6 +387,11 @@ SH
         <<"SH",
 #!/bin/sh
 printf '%s\\n' "brew \$*" >> "$log"
+if [ "\$1" = "install" ] && printf '%s ' "\$@" | grep -q ' node '; then
+grep -qx 'node' "$node_marker" 2>/dev/null || printf '%s\\n' 'node' >> "$node_marker"
+grep -qx 'npm' "$node_marker" 2>/dev/null || printf '%s\\n' 'npm' >> "$node_marker"
+grep -qx 'npx' "$node_marker" 2>/dev/null || printf '%s\\n' 'npx' >> "$node_marker"
+fi
 exit 0
 SH
     );
@@ -348,21 +431,24 @@ SH
         File::Spec->catfile( $fake_bin, 'node' ),
         <<"SH",
 #!/bin/sh
-exit 0
+grep -qx 'node' "$node_marker" 2>/dev/null || exit 1
+printf '%s\\n' 'v22.0.0'
 SH
     );
     _write_executable(
         File::Spec->catfile( $fake_bin, 'npm' ),
         <<"SH",
 #!/bin/sh
-exit 0
+grep -qx 'npm' "$node_marker" 2>/dev/null || exit 1
+printf '%s\\n' '10.0.0'
 SH
     );
     _write_executable(
         File::Spec->catfile( $fake_bin, 'npx' ),
         <<"SH",
 #!/bin/sh
-exit 0
+grep -qx 'npx' "$node_marker" 2>/dev/null || exit 1
+printf '%s\\n' '10.0.0'
 SH
     );
     _write_executable(
@@ -370,6 +456,9 @@ SH
         <<"SH",
 #!/bin/sh
 printf '%s\\n' "perlbrew \$*" >> "$log"
+if [ "\$1" = "--notest" ]; then
+shift
+fi
 case "\$1" in
 init)
 mkdir -p "\${PERLBREW_ROOT:-\$HOME/perl5/perlbrew}/perls"

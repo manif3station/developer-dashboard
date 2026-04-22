@@ -608,8 +608,11 @@ That installer reads the repo-root `aptfile` on Debian-family hosts and runs
 `apt-get update` plus `apt-get install -y` for the listed packages, reads the
 repo-root `brewfile` on macOS and runs `brew install` for the listed packages,
 or falls back to the embedded copies of those package lists when the script is
-streamed without the checkout files, verifies that `node`, `npm`, and `npx`
-are available from those bootstrap packages before finishing the install,
+streamed without the checkout files, installs Debian-family Node tooling in a
+conflict-aware order by bringing in `nodejs` first and only attempting the
+distro `npm` package if `npm` and `npx` are still missing, verifies that
+`node`, `npm`, and `npx` are available from those bootstrap packages before
+finishing the install,
 bootstraps user-space Perl tooling under `~/perl5` with
 `cpanm --local-lib-contained "$HOME/perl5" local::lib App::cpanminus`,
 appends exactly one `local::lib` bootstrap line to `~/.bashrc`, `~/.zshrc`, or
@@ -617,7 +620,9 @@ appends exactly one `local::lib` bootstrap line to `~/.bashrc`, `~/.zshrc`, or
 `brew --prefix perl` exposes a brewed interpreter, bootstraps a user-space
 `perlbrew` Perl on Debian-family hosts when the system Perl is older than the
 required `5.38`, installs `App::perlbrew` into `~/perl5/bin` first if the
-package manager did not already put `perlbrew` on `PATH`, installs Developer
+package manager did not already put `perlbrew` on `PATH`, uses
+`perlbrew --notest install perl-5.38.5` so blank-machine bootstrap does not
+stall in upstream Perl core test failures, installs Developer
 Dashboard into the user account with
 `cpanm --notest Developer::Dashboard`, and then runs `dashboard init` so the
 runtime exists immediately after installation.

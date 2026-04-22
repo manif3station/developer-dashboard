@@ -23,6 +23,15 @@
 - Fixed the Debian-family old-Perl bootstrap path so `install.sh` installs
   `App::perlbrew` into `~/perl5/bin` before trying to build a newer Perl when
   package bootstrapping still leaves `perlbrew` missing from `PATH`.
+- Fixed Debian-family streamed bootstrap installs on mixed apt repositories
+  such as WSL with NodeSource so `install.sh` no longer tries to install
+  conflicting `nodejs` and distro `npm` packages in one apt transaction; it
+  now installs `nodejs` first and only attempts the distro `npm` package if
+  `npm` and `npx` are still missing afterwards.
+- Fixed the Debian-family old-Perl rescue path so streamed blank-machine
+  installs now use `perlbrew --notest install perl-5.38.5`, avoiding upstream
+  Perl core test failures that could abort the bootstrap before Developer
+  Dashboard itself was installed.
 
 ## 2026-04-22 (Phase 140: macOS Bash Completion Bootstrap Compatibility)
 
