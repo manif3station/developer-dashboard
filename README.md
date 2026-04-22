@@ -613,8 +613,10 @@ conflict-aware order by bringing in `nodejs` first and only attempting the
 distro `npm` package if `npm` and `npx` are still missing, verifies that
 `node`, `npm`, and `npx` are available from those bootstrap packages before
 finishing the install, prints a visible install progress board before doing any
-system changes, and explains that any upcoming `sudo` prompt is asking for the
-user's operating-system account password only for package-manager work,
+system changes, prints that full checklist once and then only emits step
+transitions so the active pointer does not appear duplicated in interactive
+terminals, explains that any upcoming `sudo` prompt is asking for the user's
+operating-system account password only for package-manager work,
 bootstraps user-space Perl tooling under `~/perl5` with
 `cpanm --local-lib-contained "$HOME/perl5" local::lib App::cpanminus`,
 appends exactly one `local::lib` bootstrap line to `~/.bashrc`, `~/.zshrc`, or
@@ -624,7 +626,9 @@ appends exactly one `local::lib` bootstrap line to `~/.bashrc`, `~/.zshrc`, or
 required `5.38`, installs `App::perlbrew` into `~/perl5/bin` first if the
 package manager did not already put `perlbrew` on `PATH`, uses
 `perlbrew --notest install perl-5.38.5` so blank-machine bootstrap does not
-stall in upstream Perl core test failures, installs Developer
+stall in upstream Perl core test failures, updates the selected shell rc file
+itself with the needed `perlbrew` shell bootstrap lines instead of leaving a
+manual `~/.profile` editing step behind, installs Developer
 Dashboard into the user account with
 `cpanm --notest Developer::Dashboard`, and then runs `dashboard init` so the
 runtime exists immediately after installation.

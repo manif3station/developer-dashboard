@@ -63,6 +63,11 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
         qr/Developer Dashboard install progress/,
         'install.sh prints a visible progress board before running Debian-family bootstrap work',
     );
+    is(
+        scalar( () = $stdout =~ /Developer Dashboard install progress/g ),
+        1,
+        'install.sh prints the progress board header once and then emits step transitions without redrawing the whole board',
+    );
     if ( ( $> || 0 ) == 0 ) {
         unlike(
             $stdout,
@@ -290,6 +295,16 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
     };
     is( $exit >> 8, 0, 'install.sh bootstraps perlbrew when the system Perl is too old on Debian-family hosts' )
       or diag $stdout . $stderr;
+    unlike(
+        $stdout,
+        qr/Append the following piece of code to the end of your ~\/\.profile/s,
+        'install.sh suppresses raw perlbrew profile instructions and keeps shell setup guidance in its own output',
+    );
+    like(
+        $stdout,
+        qr/Updated \Q$home\/.bashrc\E so perlbrew and perl-5\.38\.5 load automatically in new shells\./,
+        'install.sh reports which rc file it updated for perlbrew bootstrap',
+    );
 
     my @log_lines = _log_lines($log);
     is_deeply(
@@ -311,6 +326,16 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
 
     my $bashrc = File::Spec->catfile( $home, '.bashrc' );
     my $bashrc_text = _slurp($bashrc);
+    like(
+        $bashrc_text,
+        qr/export PERLBREW_HOME="\Q$home\E\/perl5\/perlbrew"/,
+        'install.sh records PERLBREW_HOME in the active shell rc file',
+    );
+    like(
+        $bashrc_text,
+        qr/\. "\Q$home\E\/perl5\/perlbrew\/etc\/bashrc"/,
+        'install.sh records the perlbrew shell bootstrap snippet in the active shell rc file',
+    );
     like(
         $bashrc_text,
         qr/export PATH="\Q$home\E\/perl5\/perlbrew\/perls\/perl-5\.38\.5\/bin:\$PATH"/,
@@ -481,6 +506,19 @@ fi
 case "\$1" in
 init)
 mkdir -p "\${PERLBREW_ROOT:-\$HOME/perl5/perlbrew}/perls"
+mkdir -p "\${PERLBREW_ROOT:-\$HOME/perl5/perlbrew}/etc"
+cat > "\${PERLBREW_ROOT:-\$HOME/perl5/perlbrew}/etc/bashrc" <<'EOS'
+# fake perlbrew shell bootstrap
+EOS
+cat <<'EOS'
+perlbrew root (~/perl5/perlbrew) is initialized.
+
+Append the following piece of code to the end of your ~/.profile and start a
+new shell, perlbrew should be up and fully functional from there:
+
+    export PERLBREW_HOME=~/perl5/perlbrew
+    source ~/perl5/perlbrew/etc/bashrc
+EOS
 exit 0
 ;;
 list)

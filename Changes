@@ -1,3 +1,13 @@
+2.92  2026-04-22
+    - fixed `install.sh` progress rendering so the installer now prints the
+      full checklist once and then emits only step transitions, instead of
+      redrawing the entire board and making the active pointer look duplicated
+      in interactive terminals
+    - fixed the old-Perl Debian-family bootstrap UX so `install.sh` now
+      suppresses perlbrew's generic `~/.profile` advice, reports the selected
+      rc file itself, and appends the required perlbrew shell bootstrap lines
+      to that chosen rc file automatically
+
 2.91  2026-04-22
     - taught `install.sh` to print a visible colored progress board from the
       start of the bootstrap so operators can see the current stage, what is

@@ -218,10 +218,36 @@ progress_render() {
     done
 }
 
+progress_emit() {
+    step=$1
+    status=$(progress_status "$step")
+    note=$(progress_note "$step")
+    label=$(progress_label "$step")
+    case "$status" in
+        done)
+            prefix="${COLOR_GREEN}[OK]${COLOR_RESET}"
+            ;;
+        error)
+            prefix="${COLOR_RED}[X]${COLOR_RESET}"
+            ;;
+        active)
+            prefix="${COLOR_YELLOW}->${COLOR_RESET}"
+            ;;
+        *)
+            prefix='[ ]'
+            ;;
+    esac
+    if [ -n "$note" ]; then
+        say "$prefix $label ($note)"
+    else
+        say "$prefix $label"
+    fi
+}
+
 progress_start() {
     CURRENT_STEP=$1
     progress_set_state "$1" 'active' "${2-}"
-    progress_render
+    progress_emit "$1"
 }
 
 progress_done() {
@@ -229,7 +255,7 @@ progress_done() {
     if [ "$CURRENT_STEP" = "$1" ]; then
         CURRENT_STEP=''
     fi
-    progress_render
+    progress_emit "$1"
 }
 
 progress_fail() {
@@ -237,7 +263,7 @@ progress_fail() {
     if [ "$CURRENT_STEP" = "$1" ]; then
         CURRENT_STEP=''
     fi
-    progress_render
+    progress_emit "$1"
 }
 
 explain_sudo_requirements() {
@@ -372,6 +398,20 @@ append_once() {
     fi
 }
 
+run_logged_command() {
+    log_file=$(mktemp "${TMPDIR:-/tmp}/developer-dashboard-install.XXXXXX") ||
+        fail "Unable to allocate a temporary install log under ${TMPDIR:-/tmp}"
+
+    if "$@" >"$log_file" 2>&1; then
+        rm -f "$log_file"
+        return 0
+    fi
+
+    cat "$log_file" >&2
+    rm -f "$log_file"
+    return 1
+}
+
 install_apt_packages() {
     prefix=$(package_runner_prefix)
     manifest_lines=$(manifest_packages "$APTFILE")
@@ -471,23 +511,38 @@ bootstrap_perlbrew_perl() {
 
     say "System Perl is older than $MIN_PERL_VERSION; bootstrapping $PERLBREW_PERL with perlbrew under $PERLBREW_ROOT"
     mkdir -p "$PERLBREW_ROOT"
-    perlbrew init
-    if ! perlbrew list | grep -Fq "$PERLBREW_PERL"; then
-        perlbrew --notest install "$PERLBREW_PERL"
+    run_logged_command perlbrew init ||
+        fail "perlbrew init failed while preparing $PERLBREW_ROOT"
+    if perlbrew_list_output=$(perlbrew list 2>/dev/null); then
+        :
+    else
+        fail "perlbrew list failed while checking for $PERLBREW_PERL"
+    fi
+    if ! printf '%s\n' "$perlbrew_list_output" | grep -Fq "$PERLBREW_PERL"; then
+        say "Building $PERLBREW_PERL with perlbrew. This can take a while."
+        say "Progress log: $PERLBREW_ROOT/build.$PERLBREW_PERL.log"
+        run_logged_command perlbrew --notest install "$PERLBREW_PERL" ||
+            fail "perlbrew failed to build $PERLBREW_PERL under $PERLBREW_ROOT"
     fi
 
     PERL_BIN="$PERLBREW_ROOT/perls/$PERLBREW_PERL/bin/perl"
     [ -x "$PERL_BIN" ] || fail "perlbrew did not create $PERL_BIN"
     if [ ! -x "$PERLBREW_ROOT/bin/cpanm" ]; then
-        perlbrew install-cpanm
+        run_logged_command perlbrew install-cpanm ||
+            fail "perlbrew install-cpanm failed under $PERLBREW_ROOT"
     fi
     CPANM_SCRIPT="$PERLBREW_ROOT/bin/cpanm"
     [ -x "$CPANM_SCRIPT" ] || fail "perlbrew did not create $CPANM_SCRIPT"
 
+    PERLBREW_HOME_LINE=$(printf 'export PERLBREW_HOME="%s"' "$PERLBREW_HOME")
+    PERLBREW_SOURCE_LINE=$(printf '. "%s/etc/bashrc"' "$PERLBREW_ROOT")
     PERLBREW_PATH_LINE=$(printf 'export PATH="%s/perls/%s/bin:$PATH"' "$PERLBREW_ROOT" "$PERLBREW_PERL")
+    append_once "$RC_FILE" "$PERLBREW_HOME_LINE"
+    append_once "$RC_FILE" "$PERLBREW_SOURCE_LINE"
     append_once "$RC_FILE" "$PERLBREW_PATH_LINE"
     PATH="$PERLBREW_ROOT/bin:$PERLBREW_ROOT/perls/$PERLBREW_PERL/bin:$PATH"
     export PATH
+    say "Updated $RC_FILE so perlbrew and $PERLBREW_PERL load automatically in new shells."
 }
 
 resolve_perl() {

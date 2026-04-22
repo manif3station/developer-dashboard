@@ -1,5 +1,17 @@
 # Fixed Bugs
 
+## 2026-04-22 (Phase 144: install.sh Progress Redraw And perlbrew Shell Wiring)
+
+- Fixed the installer progress redraw so `install.sh` now prints the full
+  checklist once and then emits only the active and completed step transitions,
+  instead of redrawing the whole board and making interactive terminals look
+  like two steps were active at the same time.
+- Fixed the Debian-family old-Perl bootstrap messaging so `install.sh` no
+  longer leaks perlbrew's generic `~/.profile` instructions to the user.
+- Fixed the perlbrew shell bootstrap wiring so `install.sh` now updates the
+  chosen rc file itself with the required perlbrew shell lines and reports
+  which rc file it changed.
+
 ## 2026-04-22 (Phase 143: install.sh Password Prompt And Progress UX)
 
 - Fixed the blank-machine bootstrap UX so `install.sh` now prints a full

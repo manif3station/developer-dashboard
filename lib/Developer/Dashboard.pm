@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.91';
+our $VERSION = '2.92';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.91
+2.92
 
 =head1 INTRODUCTION
 
@@ -1056,9 +1056,11 @@ copies of those package lists when the script is streamed without the checkout
 files, installs Debian-family Node tooling in a conflict-aware order by
 bringing in C<nodejs> first and only attempting the distro C<npm> package if
 C<npm> and C<npx> are still missing, prints a visible install progress board
-before doing any system changes, explains that any upcoming C<sudo> prompt is
-asking for the user's operating-system account password only for package-manager
-work, bootstraps user-space Perl
+before doing any system changes, prints that full checklist once and then only
+emits step transitions so the active pointer does not appear duplicated in
+interactive terminals, explains that any upcoming C<sudo> prompt is asking for
+the user's operating-system account password only for package-manager work,
+bootstraps user-space Perl
 tooling under F<~/perl5> with
 C<cpanm --local-lib-contained "$HOME/perl5" local::lib App::cpanminus>,
 appends exactly one C<local::lib> bootstrap line to F<~/.bashrc>,
@@ -1069,7 +1071,9 @@ when the system Perl is older than the required C<5.38>, installs
 C<App::perlbrew> into F<~/perl5/bin> first if the package manager did not
 already put C<perlbrew> on C<PATH>, uses
 C<perlbrew --notest install perl-5.38.5> so blank-machine bootstrap does not
-stall in upstream Perl core test failures, installs Developer Dashboard into the user
+stall in upstream Perl core test failures, updates the selected shell rc file
+itself with the needed C<perlbrew> shell bootstrap lines instead of leaving a
+manual F<~/.profile> editing step behind, installs Developer Dashboard into the user
 account with C<cpanm --notest Developer::Dashboard>,
 and then runs C<dashboard init> so the runtime exists immediately after
 installation.
