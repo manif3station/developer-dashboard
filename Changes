@@ -1,3 +1,33 @@
+2.95  2026-04-22
+    - fixed `install.sh` post-install shell automation so acceptance runs now
+      execute `dashboard version`, `d2 version`, and
+      `dashboard skills install browser` through an interactive login shell,
+      matching the real activated-shell environment instead of missing `d2`
+
+2.94  2026-04-22
+    - fixed the streamed `install.sh` finish line so terminal-backed
+      `curl ... | sh` installs now re-enter an activated shell automatically
+      instead of stopping after a success message and leaving `dashboard` and
+      `d2` unavailable until the user guesses what to source
+    - added a post-install shell command path for acceptance testing so the
+      installer can prove `dashboard version`, `d2 version`, and
+      `dashboard skills install browser` through the same activated shell
+      environment that operators get after bootstrap
+
+2.93  2026-04-22
+    - fixed `install.sh` activation UX after piped `curl ... | sh` runs so the
+      installer now prints the exact rc file it updated, the exact source
+      command the caller must run in the current shell, and an explicit note
+      that a child `sh` process cannot update the parent shell's PATH by magic
+    - fixed post-install shell integration so `install.sh` now appends the
+      matching `dashboard shell bash`, `dashboard shell zsh`, or
+      `dashboard shell sh` eval line, bringing `d2`, prompt wiring, and shell
+      completion up automatically in the next shell
+    - fixed bash shell persistence for blank-machine bootstrap by bridging
+      `~/.profile` to `~/.bashrc`, which keeps future login shells loading the
+      dashboard bootstrap even when the machine did not already have startup
+      files in place
+
 2.92  2026-04-22
     - fixed `install.sh` progress rendering so the installer now prints the
       full checklist once and then emits only step transitions, instead of

@@ -199,6 +199,26 @@ my @dashboard_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dashboard
 close $dashboard_log_fh;
 is( $dashboard_steps[0], 'skills install dep-alpha', 'deferred ddfile installs dependent skills through dashboard skills install' );
 is( $dashboard_steps[1], 'skills install dep-beta', 'deferred ddfile.local installs dependent skills through dashboard skills install at the current skill level' );
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::SkillManager::_skill_package_runner_prefix = sub { return (); };
+    unlink $apt_log;
+    unlink $sudo_log;
+    my $root_apt = $manager->_install_skill_aptfile( $install->{path} );
+    ok( !$root_apt->{error}, '_install_skill_aptfile succeeds without sudo when package installs already run as root' )
+      or diag $root_apt->{error};
+    open my $root_apt_fh, '<', $apt_log or die "Unable to read $apt_log: $!";
+    my @root_apt_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$root_apt_fh>;
+    close $root_apt_fh;
+    is( $root_apt_steps[0], 'install -y git curl', '_install_skill_aptfile calls apt-get directly when no sudo prefix is required' );
+    my $sudo_text = '';
+    if ( -f $sudo_log ) {
+        open my $sudo_fh, '<', $sudo_log or die "Unable to read $sudo_log: $!";
+        $sudo_text = do { local $/; <$sudo_fh> };
+        close $sudo_fh;
+    }
+    ok( $sudo_text eq '', '_install_skill_aptfile does not invoke sudo when package installs already run as root' );
+}
 
 my $listed = $manager->list();
 is( scalar(@$listed), 1, 'list returns the installed skill only once' );

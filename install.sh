@@ -44,6 +44,11 @@ MIN_PERL_VERSION='5.038'
 PERL_BIN=''
 CPANM_SCRIPT=''
 RC_FILE=''
+ACTIVATION_FILE=''
+DASHBOARD_BIN=''
+AUTO_SHELL_MODE="${DD_INSTALL_AUTO_SHELL:-auto}"
+POST_INSTALL_SHELL_COMMANDS="${DD_INSTALL_SHELL_COMMANDS:-}"
+SHELL_BIN_OVERRIDE="${DD_INSTALL_SHELL_BIN:-}"
 CURRENT_STEP=''
 SUDO_EXPLAINED='0'
 PROGRESS_STEPS='detect_platform install_system_packages verify_node_toolchain bootstrap_local_lib install_dashboard_package initialize_dashboard'
@@ -384,6 +389,36 @@ choose_rc_file() {
     printf '%s\n' "$HOME/.profile"
 }
 
+choose_activation_file() {
+    shell_name=$(basename "${SHELL:-sh}")
+    case "$shell_name" in
+        bash)
+            printf '%s\n' "$HOME/.profile"
+            return 0
+            ;;
+        zsh)
+            printf '%s\n' "$HOME/.zshrc"
+            return 0
+            ;;
+    esac
+
+    printf '%s\n' "$HOME/.profile"
+}
+
+ensure_shell_activation_bridge() {
+    shell_name=$(basename "${SHELL:-sh}")
+    case "$shell_name" in
+        bash)
+            append_block_once \
+                "$HOME/.profile" \
+                'developer-dashboard-bashrc-bridge' \
+                'if [ -f "$HOME/.bashrc" ]; then
+    . "$HOME/.bashrc"
+fi'
+            ;;
+    esac
+}
+
 perl_meets_minimum() {
     perl_path=$1
     "$perl_path" -e "exit((\$] >= $MIN_PERL_VERSION) ? 0 : 1)" >/dev/null 2>&1
@@ -396,6 +431,22 @@ append_once() {
     if ! grep -Fqx "$line" "$file_path" 2>/dev/null; then
         printf '%s\n' "$line" >> "$file_path"
     fi
+}
+
+append_block_once() {
+    file_path=$1
+    marker=$2
+    block_text=$3
+
+    touch "$file_path"
+    if grep -Fq "$marker" "$file_path" 2>/dev/null; then
+        return 0
+    fi
+
+    printf '\n%s\n%s\n%s\n' \
+        "# $marker" \
+        "$block_text" \
+        "# /$marker" >> "$file_path"
 }
 
 run_logged_command() {
@@ -595,6 +646,100 @@ install_dashboard() {
     run_cpanm --notest "$CPAN_TARGET"
 }
 
+shell_bootstrap_target() {
+    shell_name=$(basename "${SHELL:-sh}")
+    case "$shell_name" in
+        bash)
+            printf '%s\n' 'bash'
+            return 0
+            ;;
+        zsh)
+            printf '%s\n' 'zsh'
+            return 0
+            ;;
+    esac
+
+    printf '%s\n' 'sh'
+}
+
+shell_command_runner() {
+    if [ -n "$SHELL_BIN_OVERRIDE" ]; then
+        printf '%s\n' "$SHELL_BIN_OVERRIDE"
+        return 0
+    fi
+
+    if [ -n "${SHELL:-}" ] && [ -x "${SHELL:-}" ]; then
+        printf '%s\n' "$SHELL"
+        return 0
+    fi
+
+    shell_name=$(basename "${SHELL:-sh}")
+    resolved_shell=$(command -v "$shell_name" 2>/dev/null || true)
+    if [ -n "$resolved_shell" ]; then
+        printf '%s\n' "$resolved_shell"
+        return 0
+    fi
+
+    printf '%s\n' '/bin/sh'
+}
+
+write_dashboard_shell_bootstrap() {
+    DASHBOARD_BIN="$INSTALL_ROOT/bin/dashboard"
+    if [ ! -x "$DASHBOARD_BIN" ]; then
+        DASHBOARD_BIN=$(command -v dashboard || true)
+    fi
+    [ -n "$DASHBOARD_BIN" ] || fail "Developer Dashboard was installed but the dashboard command could not be located"
+    [ -x "$DASHBOARD_BIN" ] || fail "Developer Dashboard was installed but $DASHBOARD_BIN is not executable"
+
+    SHELL_BOOTSTRAP_LINE=$(printf 'eval "$("%s" shell %s)"' "$DASHBOARD_BIN" "$(shell_bootstrap_target)")
+    append_once "$RC_FILE" "$SHELL_BOOTSTRAP_LINE"
+}
+
+run_post_install_shell_commands() {
+    [ -n "$POST_INSTALL_SHELL_COMMANDS" ] || return 1
+
+    shell_target=$(shell_bootstrap_target)
+    shell_runner=$(shell_command_runner)
+    say "Running post-install activation commands through $shell_target."
+
+    case "$shell_target" in
+        bash|zsh)
+            "$shell_runner" -ilc ". \"$ACTIVATION_FILE\" >/dev/null 2>&1 || . \"$RC_FILE\" >/dev/null 2>&1; $POST_INSTALL_SHELL_COMMANDS"
+            ;;
+        *)
+            ENV="$ACTIVATION_FILE" "$shell_runner" -c ". \"$ACTIVATION_FILE\" >/dev/null 2>&1 || . \"$RC_FILE\" >/dev/null 2>&1; $POST_INSTALL_SHELL_COMMANDS"
+            ;;
+    esac || fail "Activated shell commands failed after installation"
+
+    say "Post-install activation commands completed."
+    return 0
+}
+
+handoff_to_activated_shell() {
+    if [ "$AUTO_SHELL_MODE" = '0' ] || [ "$AUTO_SHELL_MODE" = 'false' ] || [ "$AUTO_SHELL_MODE" = 'no' ]; then
+        return 1
+    fi
+    [ -z "$POST_INSTALL_SHELL_COMMANDS" ] || return 1
+    if ! ( : </dev/tty >/dev/null 2>&1 ); then
+        return 1
+    fi
+
+    shell_target=$(shell_bootstrap_target)
+    shell_runner=$(shell_command_runner)
+    [ -x "$shell_runner" ] || return 1
+
+    say "Launching activated $shell_target shell now. Exit once to return to your previous shell."
+    exec </dev/tty >/dev/tty 2>&1 || return 1
+    case "$shell_target" in
+        bash|zsh)
+            exec "$shell_runner" -il
+            ;;
+        *)
+            ENV="$ACTIVATION_FILE" exec "$shell_runner" -i
+            ;;
+    esac
+}
+
 initialize_dashboard() {
     require_command dashboard
     dashboard init
@@ -605,6 +750,8 @@ main() {
     progress_start detect_platform
     PLATFORM=$(platform_name)
     RC_FILE=$(choose_rc_file)
+    ACTIVATION_FILE=$(choose_activation_file)
+    ensure_shell_activation_bridge
     progress_done detect_platform "$PLATFORM via $(basename "$RC_FILE")"
     progress_start install_system_packages "$PLATFORM"
     case "$PLATFORM" in
@@ -627,11 +774,27 @@ main() {
     progress_done bootstrap_local_lib "$(basename "$PERL_BIN") via $(basename "$RC_FILE")"
     progress_start install_dashboard_package
     install_dashboard
+    write_dashboard_shell_bootstrap
     progress_done install_dashboard_package "$CPAN_TARGET"
     progress_start initialize_dashboard
     initialize_dashboard
     progress_done initialize_dashboard "$HOME/.developer-dashboard"
     say "Developer Dashboard is installed and initialized."
+    say "Shell setup was written to: $RC_FILE"
+    if [ "$ACTIVATION_FILE" != "$RC_FILE" ]; then
+        say "Shell activation entry point: $ACTIVATION_FILE"
+    fi
+    if run_post_install_shell_commands; then
+        return 0
+    fi
+    if handoff_to_activated_shell; then
+        return 0
+    fi
+    say "This installer ran in a child sh process, so your current shell has not loaded the new PATH yet."
+    say "Run this now in your current shell:"
+    say "  . \"$ACTIVATION_FILE\""
+    say "Then verify with:"
+    say "  dashboard version"
 }
 
 main "$@"

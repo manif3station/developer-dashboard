@@ -620,7 +620,8 @@ operating-system account password only for package-manager work,
 bootstraps user-space Perl tooling under `~/perl5` with
 `cpanm --local-lib-contained "$HOME/perl5" local::lib App::cpanminus`,
 appends exactly one `local::lib` bootstrap line to `~/.bashrc`, `~/.zshrc`, or
-`~/.profile` depending on the active shell, prefers Homebrew Perl on macOS when
+`~/.profile` depending on the active shell, keeps bash login shells wired by
+bridging `~/.profile` to `~/.bashrc`, prefers Homebrew Perl on macOS when
 `brew --prefix perl` exposes a brewed interpreter, bootstraps a user-space
 `perlbrew` Perl on Debian-family hosts when the system Perl is older than the
 required `5.38`, installs `App::perlbrew` into `~/perl5/bin` first if the
@@ -628,8 +629,15 @@ package manager did not already put `perlbrew` on `PATH`, uses
 `perlbrew --notest install perl-5.38.5` so blank-machine bootstrap does not
 stall in upstream Perl core test failures, updates the selected shell rc file
 itself with the needed `perlbrew` shell bootstrap lines instead of leaving a
-manual `~/.profile` editing step behind, installs Developer
-Dashboard into the user account with
+manual `~/.profile` editing step behind, appends the matching
+`eval "$(".../dashboard" shell bash|zsh|sh)"` bootstrap so `d2`, prompt
+integration, and completion come up automatically in future shells, re-enters
+an activated shell automatically at the end of a terminal-backed streamed
+install so `dashboard`, `d2`, prompt integration, and completion are live
+immediately instead of leaving the user at a dead prompt, falls back to
+printing the exact shell file it updated plus the exact `. "<rc-file>"`
+command the user should run only when the installer cannot safely take over a
+terminal, installs Developer Dashboard into the user account with
 `cpanm --notest Developer::Dashboard`, and then runs `dashboard init` so the
 runtime exists immediately after installation.
 

@@ -1,5 +1,36 @@
 # Fixed Bugs
 
+## 2026-04-22 (Phase 147: install.sh Interactive Command Handoff)
+
+- Fixed the installer post-activation command path so acceptance runs now use
+  an interactive login shell, matching the real `dashboard shell bash` /
+  `dashboard shell zsh` environment closely enough for `d2` to exist during
+  automated checks.
+
+## 2026-04-22 (Phase 146: install.sh Activated Shell Finish Line)
+
+- Fixed the streamed installer finish line so terminal-backed `curl ... | sh`
+  installs now re-enter an activated shell automatically instead of printing a
+  success message and leaving `dashboard` and `d2` unavailable until the user
+  guesses which startup file to source.
+- Fixed the acceptance gap around shell activation by adding a post-install
+  shell-command path that proves `dashboard version`, `d2 version`, and
+  `dashboard skills install browser` through the activated shell environment.
+
+## 2026-04-22 (Phase 145: install.sh Shell Activation Clarity)
+
+- Fixed the piped installer handoff so `install.sh` now tells the user exactly
+  which rc file it updated and exactly which `. "<rc-file>"` command to run in
+  the current shell after `curl ... | sh`, instead of claiming success and
+  leaving the command unavailable with no recovery path.
+- Fixed post-install shell integration so `install.sh` now appends the
+  matching `dashboard shell bash`, `dashboard shell zsh`, or `dashboard shell
+  sh` eval line, making `d2`, prompt wiring, and shell completion appear in
+  the next shell automatically.
+- Fixed bash shell persistence on blank machines by bridging `~/.profile` to
+  `~/.bashrc`, which keeps future login shells loading the dashboard bootstrap
+  even when no startup files existed before the install.
+
 ## 2026-04-22 (Phase 144: install.sh Progress Redraw And perlbrew Shell Wiring)
 
 - Fixed the installer progress redraw so `install.sh` now prints the full

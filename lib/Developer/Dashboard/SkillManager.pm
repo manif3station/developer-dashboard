@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '2.92';
+our $VERSION = '2.95';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -980,9 +980,10 @@ sub _install_skill_aptfile {
     return { success => 1, skipped => 1 } if !@apt_packages || !$self->_is_debian_like;
 
     my $aptfile = File::Spec->catfile( $skill_path, 'aptfile' );
+    my @runner_prefix = $self->_skill_package_runner_prefix;
     my ( $stdout, $stderr, $exit ) = capture {
         print "Installing apt packages for ", basename($skill_path), " from $aptfile: ", join( ' ', @apt_packages ), "\n";
-        system( 'sudo', 'apt-get', 'install', '-y', @apt_packages );
+        system( @runner_prefix, 'apt-get', 'install', '-y', @apt_packages );
     };
     return {
         error => "Failed to install skill apt dependencies for $skill_path: $stderr",
@@ -993,6 +994,16 @@ sub _install_skill_aptfile {
         stdout  => $stdout,
         stderr  => $stderr,
     };
+}
+
+# _skill_package_runner_prefix()
+# Returns the command prefix used for privileged package-manager installs.
+# Input: none.
+# Output: list containing 'sudo' for non-root users, or an empty list for root.
+sub _skill_package_runner_prefix {
+    my ($self) = @_;
+    return () if ( $> || 0 ) == 0;
+    return ('sudo');
 }
 
 # _install_skill_brewfile($skill_path)

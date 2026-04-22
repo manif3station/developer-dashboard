@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.92';
+our $VERSION = '2.95';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.92
+2.95
 
 =head1 INTRODUCTION
 
@@ -1064,7 +1064,8 @@ bootstraps user-space Perl
 tooling under F<~/perl5> with
 C<cpanm --local-lib-contained "$HOME/perl5" local::lib App::cpanminus>,
 appends exactly one C<local::lib> bootstrap line to F<~/.bashrc>,
-F<~/.zshrc>, or F<~/.profile> depending on the active shell, prefers
+F<~/.zshrc>, or F<~/.profile> depending on the active shell, keeps bash
+login shells wired by bridging F<~/.profile> to F<~/.bashrc>, prefers
 Homebrew Perl on macOS when C<brew --prefix perl> exposes a brewed
 interpreter, bootstraps a user-space C<perlbrew> Perl on Debian-family hosts
 when the system Perl is older than the required C<5.38>, installs
@@ -1073,8 +1074,16 @@ already put C<perlbrew> on C<PATH>, uses
 C<perlbrew --notest install perl-5.38.5> so blank-machine bootstrap does not
 stall in upstream Perl core test failures, updates the selected shell rc file
 itself with the needed C<perlbrew> shell bootstrap lines instead of leaving a
-manual F<~/.profile> editing step behind, installs Developer Dashboard into the user
-account with C<cpanm --notest Developer::Dashboard>,
+manual F<~/.profile> editing step behind, appends the matching
+C<eval "$(".../dashboard" shell bash|zsh|sh)"> bootstrap so C<d2>, prompt
+integration, and completion come up automatically in future shells, re-enters
+an activated shell automatically at the end of a terminal-backed streamed
+install so C<dashboard>, C<d2>, prompt integration, and completion are live
+immediately instead of leaving the user at a dead prompt, falls back to
+printing the exact shell file it updated plus the exact C<. "<rc-file>">
+command the user should run only when the installer cannot safely take over a
+terminal, installs Developer Dashboard into the user account with
+C<cpanm --notest Developer::Dashboard>,
 and then runs C<dashboard init> so the runtime exists immediately after
 installation.
 

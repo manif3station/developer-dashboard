@@ -98,13 +98,51 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
     );
 
     my $bashrc = File::Spec->catfile( $home, '.bashrc' );
+    my $profile = File::Spec->catfile( $home, '.profile' );
     ok( -f $bashrc, 'install.sh creates or updates ~/.bashrc for bash users' );
+    ok( -f $profile, 'install.sh creates ~/.profile as the activation entry point for bash users' );
     my $bashrc_text = _slurp($bashrc);
+    my $profile_text = _slurp($profile);
     my $local_lib_line = qq{eval "\$("$fake_perl" -I "$home/perl5/lib/perl5" -Mlocal::lib)"};
     like(
         $bashrc_text,
         qr/\Q$local_lib_line\E/,
         'install.sh wires the local::lib bootstrap through the resolved Perl interpreter on PATH',
+    );
+    like(
+        $bashrc_text,
+        qr/eval "\$\(\"[^\"]*\/dashboard" shell bash\)"/,
+        'install.sh appends the Developer Dashboard bash shell bootstrap to ~/.bashrc',
+    );
+    like(
+        $profile_text,
+        qr/if \[ -f "\$HOME\/\.bashrc" \]; then\s+\. "\$HOME\/\.bashrc"\s+fi/s,
+        'install.sh bridges ~/.profile to ~/.bashrc for future bash shells',
+    );
+    like(
+        $stdout,
+        qr/Shell setup was written to: \Q$bashrc\E/s,
+        'install.sh reports the exact rc file it updated',
+    );
+    like(
+        $stdout,
+        qr/Shell activation entry point: \Q$profile\E/s,
+        'install.sh reports the shell entry point to source after a piped install',
+    );
+    like(
+        $stdout,
+        qr/This installer ran in a child sh process, so your current shell has not loaded the new PATH yet\./s,
+        'install.sh explains why the parent shell cannot see dashboard immediately after a piped run',
+    );
+    like(
+        $stdout,
+        qr/Run this now in your current shell:\s+\. "\Q$profile\E"/s,
+        'install.sh prints the exact source command for the caller shell',
+    );
+    like(
+        $stdout,
+        qr/Then verify with:\s+dashboard version/s,
+        'install.sh tells the user how to verify the command is available after activation',
     );
 
     my ( $again_out, $again_err, $again_exit ) = capture {
@@ -117,6 +155,59 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
         scalar( () = $bashrc_again =~ /\Q$local_lib_line\E/g ),
         1,
         'install.sh does not duplicate the local::lib bootstrap line on repeat runs',
+    );
+}
+
+{
+    my $home = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log = File::Spec->catfile( $home, 'install.log' );
+    _seed_fake_install_commands(
+        fake_bin => $fake_bin,
+        log      => $log,
+    );
+
+    my $shell_runner = File::Spec->catfile( $fake_bin, 'shell-runner' );
+    _write_executable(
+        $shell_runner,
+        <<"SH",
+#!/bin/sh
+printf '%s\\n' "shell-runner \$*" >> "$log"
+exit 0
+SH
+    );
+
+    my $env_prefix = join ' ',
+      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+        { key => 'HOME',                     value => $home },
+        { key => 'PATH',                     value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'SHELL',                    value => '/bin/bash' },
+        { key => 'DD_INSTALL_OS_OVERRIDE',   value => 'ubuntu' },
+        { key => 'DD_INSTALL_SHELL_COMMANDS', value => 'dashboard version; d2 version; dashboard skills install browser' },
+        { key => 'DD_INSTALL_SHELL_BIN',     value => $shell_runner },
+      );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+    };
+    is( $exit >> 8, 0, 'install.sh can run post-install commands through the activated shell environment' )
+      or diag $stdout . $stderr;
+
+    my @log_lines = _log_lines($log);
+    like(
+        join( "\n", @log_lines ),
+        qr/shell-runner -ilc \. "\Q$home\/.profile\E" .*dashboard version; d2 version; dashboard skills install browser/s,
+        'install.sh dispatches post-install commands through the activated bash shell entry point',
+    );
+    like(
+        $stdout,
+        qr/Running post-install activation commands through bash\./,
+        'install.sh explains that it is executing the post-install shell commands',
+    );
+    like(
+        $stdout,
+        qr/Post-install activation commands completed\./,
+        'install.sh confirms that the post-install shell commands completed',
     );
 }
 
@@ -203,6 +294,11 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
 
     my $zshrc = File::Spec->catfile( $home, '.zshrc' );
     ok( -f $zshrc, 'install.sh creates or updates ~/.zshrc for zsh users' );
+    like(
+        _slurp($zshrc),
+        qr/eval "\$\(\"[^\"]*\/dashboard" shell zsh\)"/,
+        'install.sh appends the Developer Dashboard zsh shell bootstrap to ~/.zshrc',
+    );
 }
 
 {
@@ -228,7 +324,13 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
     is( $exit >> 8, 0, 'install.sh succeeds with POSIX sh users' )
       or diag $stdout . $stderr;
 
-    ok( -f File::Spec->catfile( $home, '.profile' ), 'install.sh falls back to ~/.profile for generic POSIX sh users' );
+    my $profile = File::Spec->catfile( $home, '.profile' );
+    ok( -f $profile, 'install.sh falls back to ~/.profile for generic POSIX sh users' );
+    like(
+        _slurp($profile),
+        qr/eval "\$\(\"[^\"]*\/dashboard" shell sh\)"/,
+        'install.sh appends the Developer Dashboard POSIX shell bootstrap to ~/.profile',
+    );
 }
 
 {
@@ -269,6 +371,11 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
             'dashboard init',
         ],
         'streamed install.sh falls back to the embedded Debian-family manifest content',
+    );
+    like(
+        $stdout,
+        qr/Run this now in your current shell:\s+\. "\Q$home\/.profile\E"/s,
+        'streamed install.sh prints an activation command that targets the shell entry point',
     );
 }
 
@@ -325,7 +432,9 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
     );
 
     my $bashrc = File::Spec->catfile( $home, '.bashrc' );
+    my $profile = File::Spec->catfile( $home, '.profile' );
     my $bashrc_text = _slurp($bashrc);
+    my $profile_text = _slurp($profile);
     like(
         $bashrc_text,
         qr/export PERLBREW_HOME="\Q$home\E\/perl5\/perlbrew"/,
@@ -340,6 +449,16 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
         $bashrc_text,
         qr/export PATH="\Q$home\E\/perl5\/perlbrew\/perls\/perl-5\.38\.5\/bin:\$PATH"/,
         'install.sh records the perlbrew Perl path in the active shell rc file',
+    );
+    like(
+        $bashrc_text,
+        qr/eval "\$\(\"[^\"]*\/dashboard" shell bash\)"/,
+        'install.sh appends the Developer Dashboard bash shell bootstrap after the perlbrew rescue path',
+    );
+    like(
+        $profile_text,
+        qr/if \[ -f "\$HOME\/\.bashrc" \]; then\s+\. "\$HOME\/\.bashrc"\s+fi/s,
+        'install.sh keeps the bash login shell entry point wired to ~/.bashrc when perlbrew is needed',
     );
 }
 
