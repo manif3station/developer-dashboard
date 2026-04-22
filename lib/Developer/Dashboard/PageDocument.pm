@@ -3,7 +3,7 @@ package Developer::Dashboard::PageDocument;
 use strict;
 use warnings;
 
-our $VERSION = '2.98';
+our $VERSION = '3.00';
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 

@@ -590,7 +590,7 @@ decoded XML tree as canonical JSON.
 
 ### Installation
 
-Bootstrap a blank Debian, Ubuntu, or macOS machine from a checkout with:
+Bootstrap a blank Alpine, Debian, Ubuntu, or macOS machine from a checkout with:
 
 ```bash
 ./install.sh
@@ -625,13 +625,16 @@ appends exactly one `local::lib` bootstrap line to `~/.bashrc`, `~/.zshrc`, or
 `~/.profile` depending on the active shell, keeps bash login shells wired by
 bridging `~/.profile` to `~/.bashrc`, prefers Homebrew Perl on macOS when
 `brew --prefix perl` exposes a brewed interpreter, bootstraps a user-space
-`perlbrew` Perl on Debian-family hosts when the system Perl is older than the
-required `5.38`, installs `App::perlbrew` into `~/perl5/bin` first if the
-package manager did not already put `perlbrew` on `PATH`, uses
+`perlbrew` Perl on Debian-family or Alpine hosts when the system Perl is older
+than the required `5.38`, installs `App::perlbrew` into `~/perl5/bin` first if
+the package manager did not already put `perlbrew` on `PATH`, keeps that local
+`perlbrew` and `patchperl` toolchain pinned to the private `~/perl5/lib/perl5`
+include path while the rescue build runs, uses
 `perlbrew --notest install perl-5.38.5` so blank-machine bootstrap does not
 stall in upstream Perl core test failures, updates the selected shell rc file
-itself with the needed `perlbrew` shell bootstrap lines instead of leaving a
-manual `~/.profile` editing step behind, appends the matching
+itself with the needed `PERLBREW_HOME` and rescue-Perl `PATH` lines instead of
+leaving a manual `~/.profile` editing step behind or sourcing perlbrew's
+bash-only startup file under generic `sh`, appends the matching
 `eval "$(".../dashboard" shell bash|zsh|sh)"` bootstrap so `d2`, prompt
 integration, and completion come up automatically in future shells, re-enters
 an activated shell automatically at the end of a terminal-backed streamed

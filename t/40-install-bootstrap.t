@@ -287,6 +287,59 @@ SH
         log      => $log,
     );
 
+    my $shell_runner = File::Spec->catfile( $fake_bin, 'shell-runner' );
+    _write_executable(
+        $shell_runner,
+        <<"SH",
+#!/bin/sh
+printf '%s\\n' "shell-runner \$*" >> "$log"
+exit 0
+SH
+    );
+
+    my $env_prefix = join ' ',
+      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+        { key => 'HOME',                      value => $home },
+        { key => 'PATH',                      value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'SHELL',                     value => '/bin/sh' },
+        { key => 'DD_INSTALL_OS_OVERRIDE',    value => 'alpine' },
+        { key => 'DD_INSTALL_SHELL_COMMANDS', value => 'dashboard version; d2 version' },
+        { key => 'DD_INSTALL_SHELL_BIN',      value => $shell_runner },
+      );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+    };
+    is( $exit >> 8, 0, 'install.sh can run post-install commands through the activated sh environment' )
+      or diag $stdout . $stderr;
+
+    my @log_lines = _log_lines($log);
+    like(
+        join( "\n", @log_lines ),
+        qr/shell-runner -ic \. "\Q$home\/.profile\E" .*dashboard version; d2 version/s,
+        'install.sh dispatches post-install commands through the activated sh shell entry point',
+    );
+    like(
+        $stdout,
+        qr/Running post-install activation commands through sh\./,
+        'install.sh explains that it is executing the post-install shell commands for sh users',
+    );
+    like(
+        $stdout,
+        qr/Post-install activation commands completed\./,
+        'install.sh confirms that the sh post-install shell commands completed',
+    );
+}
+
+{
+    my $home = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log = File::Spec->catfile( $home, 'install.log' );
+    _seed_fake_install_commands(
+        fake_bin => $fake_bin,
+        log      => $log,
+    );
+
     my $env_prefix = join ' ',
       map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
         { key => 'HOME',                      value => $home },
@@ -476,7 +529,7 @@ SH
     );
     like(
         $stdout,
-        qr/Updated \Q$home\/.bashrc\E so perlbrew and perl-5\.38\.5 load automatically in new shells\./,
+        qr/Updated \Q$home\/.bashrc\E so perlbrew metadata and perl-5\.38\.5 load automatically in new shells\./,
         'install.sh reports which rc file it updated for perlbrew bootstrap',
     );
 
@@ -486,6 +539,7 @@ SH
         [
             @expected_apt_bootstrap_steps,
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
+            'perl -MConfig -e print $Config{archname}',
             'perlbrew init',
             'perlbrew list',
             'perlbrew --notest install perl-5.38.5',
@@ -509,11 +563,6 @@ SH
     );
     like(
         $bashrc_text,
-        qr/\. "\Q$home\E\/perl5\/perlbrew\/etc\/bashrc"/,
-        'install.sh records the perlbrew shell bootstrap snippet in the active shell rc file',
-    );
-    like(
-        $bashrc_text,
         qr/export PATH="\Q$home\E\/perl5\/perlbrew\/perls\/perl-5\.38\.5\/bin:\$PATH"/,
         'install.sh records the perlbrew Perl path in the active shell rc file',
     );
@@ -526,6 +575,72 @@ SH
         $profile_text,
         qr/if \[ -f "\$HOME\/\.bashrc" \]; then\s+\. "\$HOME\/\.bashrc"\s+fi/s,
         'install.sh keeps the bash login shell entry point wired to ~/.bashrc when perlbrew is needed',
+    );
+}
+
+{
+    my $home = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log = File::Spec->catfile( $home, 'install.log' );
+    _seed_fake_install_commands(
+        fake_bin                        => $fake_bin,
+        log                             => $log,
+        fake_perlbrew_on_path           => 0,
+        fake_cpanm_installs_local_perlbrew => 1,
+    );
+
+    my $env_prefix = join ' ',
+      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+        { key => 'HOME',                   value => $home },
+        { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'SHELL',                  value => '/bin/sh' },
+        { key => 'DD_INSTALL_OS_OVERRIDE', value => 'alpine' },
+        { key => 'FAKE_PERL_MEETS_MIN',    value => '0' },
+      );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+    };
+    is( $exit >> 8, 0, 'install.sh can invoke a locally bootstrapped perlbrew on Alpine without losing @INC' )
+      or diag $stdout . $stderr;
+    unlike(
+        $stdout . $stderr,
+        qr/Can't locate App\/perlbrew\.pm/,
+        'install.sh no longer loses the local App::perlbrew install when bootstrapping Perl on Alpine',
+    );
+
+    my @log_lines = _log_lines($log);
+    is_deeply(
+        \@log_lines,
+        [
+            _expected_apk_bootstrap_steps( packages => \@apk_packages ),
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
+            'perl -MConfig -e print $Config{archname}',
+            "cpanm --notest --local-lib-contained $home/perl5 App::perlbrew",
+            'perlbrew init',
+            'perlbrew list',
+            'perlbrew --notest install perl-5.38.5',
+            'patchperl apply perl-5.38.5',
+            'perlbrew install-cpanm',
+            "cpanm --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
+            'cpanm --notest Developer::Dashboard',
+            'dashboard init',
+        ],
+        'install.sh activates the local App::perlbrew install before invoking perlbrew on Alpine',
+    );
+
+    my $profile = File::Spec->catfile( $home, '.profile' );
+    my $profile_text = _slurp($profile);
+    like(
+        $profile_text,
+        qr/eval "\$\(\"[^\"]*\/dashboard" shell sh\)"/,
+        'install.sh keeps the shell bootstrap in the active Alpine profile after the perlbrew rescue path',
+    );
+    unlike(
+        $profile_text,
+        qr/\. "\Q$home\E\/perl5\/perlbrew\/etc\/bashrc"/,
+        'install.sh keeps the Alpine sh profile free of the perlbrew bashrc snippet',
     );
 }
 
@@ -580,6 +695,8 @@ sub _seed_fake_install_commands {
     my $fake_bin = $args{fake_bin};
     my $log      = $args{log};
     my $node_marker = File::Spec->catfile( $fake_bin, 'node-toolchain.marker' );
+    my $fake_perlbrew_on_path = exists $args{fake_perlbrew_on_path} ? $args{fake_perlbrew_on_path} : 1;
+    my $fake_cpanm_installs_local_perlbrew = $args{fake_cpanm_installs_local_perlbrew} ? 1 : 0;
     make_path($fake_bin);
 
     _write_executable(
@@ -666,6 +783,89 @@ SH
         <<"SH",
 #!/bin/sh
 printf '%s\\n' "cpanm \$*" >> "$log"
+if [ "$fake_cpanm_installs_local_perlbrew" = "1" ] && printf '%s ' "\$*" | grep -q ' App::perlbrew'; then
+mkdir -p "\$HOME/perl5/bin" "\$HOME/perl5/lib/perl5/App"
+cat > "\$HOME/perl5/bin/perlbrew" <<'EOS'
+#!/bin/sh
+printf '%s\\n' "perlbrew \$*" >> "__LOG__"
+case ":\${PERL5LIB:-}:" in
+  *:"__HOME__/perl5/lib/perl5":* ) ;;
+  *)
+    printf '%s\\n' "Can't locate App/perlbrew.pm in \@INC" >&2
+    exit 2
+    ;;
+esac
+if [ "\$1" = "--notest" ]; then
+shift
+fi
+case "\$1" in
+init)
+mkdir -p "\${PERLBREW_ROOT:-\$HOME/perl5/perlbrew}/perls"
+mkdir -p "\${PERLBREW_ROOT:-\$HOME/perl5/perlbrew}/etc"
+cat > "\${PERLBREW_ROOT:-\$HOME/perl5/perlbrew}/etc/bashrc" <<'INNER'
+# fake perlbrew shell bootstrap
+INNER
+exit 0
+;;
+list)
+exit 0
+;;
+install)
+root="\${PERLBREW_ROOT:-\$HOME/perl5/perlbrew}"
+PERL5LIB='' "\$HOME/perl5/bin/patchperl" apply "\$2" || exit \$?
+mkdir -p "\$root/perls/\$2/bin"
+cat > "\$root/perls/\$2/bin/perl" <<'INNER'
+#!/bin/sh
+printf '%s\\n' "perl \$*" >> "__LOG__"
+printf 'export PATH="__HOME__/perl5/bin:\$PATH"; export PERL5LIB="__HOME__/perl5/lib/perl5\${PERL5LIB:+:\$PERL5LIB}"\\n'
+exit 0
+INNER
+perl_path="\$root/perls/\$2/bin/perl"
+sed -i "s|__LOG__|$log|g; s|__HOME__|\$HOME|g" "\$perl_path"
+chmod 0755 "\$perl_path"
+exit 0
+;;
+install-cpanm)
+root="\${PERLBREW_ROOT:-\$HOME/perl5/perlbrew}"
+mkdir -p "\$root/bin"
+cat > "\$root/bin/cpanm" <<'INNER'
+#!/bin/sh
+printf '%s\\n' "cpanm \$*" >> "__LOG__"
+exit 0
+INNER
+sed -i "s|__LOG__|$log|g" "\$root/bin/cpanm"
+chmod 0755 "\$root/bin/cpanm"
+exit 0
+;;
+esac
+exit 0
+EOS
+sed -i "s|__LOG__|$log|g; s|__HOME__|\$HOME|g" "\$HOME/perl5/bin/perlbrew"
+chmod 0755 "\$HOME/perl5/bin/perlbrew"
+cat > "\$HOME/perl5/bin/patchperl" <<'EOS'
+#!/bin/sh
+printf '%s\\n' "patchperl \$*" >> "__LOG__"
+case ":\${PERL5LIB:-}:" in
+  *:"__HOME__/perl5/lib/perl5":* ) ;;
+  *)
+    printf '%s\\n' "Can't locate Devel/PatchPerl.pm in \@INC" >&2
+    exit 2
+    ;;
+esac
+exit 0
+EOS
+sed -i "s|__LOG__|$log|g; s|__HOME__|\$HOME|g" "\$HOME/perl5/bin/patchperl"
+chmod 0755 "\$HOME/perl5/bin/patchperl"
+cat > "\$HOME/perl5/lib/perl5/App/perlbrew.pm" <<'EOS'
+package App::perlbrew;
+1;
+EOS
+mkdir -p "\$HOME/perl5/lib/perl5/Devel"
+cat > "\$HOME/perl5/lib/perl5/Devel/PatchPerl.pm" <<'EOS'
+package Devel::PatchPerl;
+1;
+EOS
+fi
 exit 0
 SH
     );
@@ -717,9 +917,10 @@ grep -qx 'npx' "$node_marker" 2>/dev/null || exit 1
 printf '%s\\n' '10.0.0'
 SH
     );
-    _write_executable(
-        File::Spec->catfile( $fake_bin, 'perlbrew' ),
-        <<"SH",
+    if ($fake_perlbrew_on_path) {
+        _write_executable(
+            File::Spec->catfile( $fake_bin, 'perlbrew' ),
+            <<"SH",
 #!/bin/sh
 printf '%s\\n' "perlbrew \$*" >> "$log"
 if [ "\$1" = "--notest" ]; then
@@ -775,7 +976,8 @@ exit 0
 esac
 exit 0
 SH
-    );
+        );
+    }
 }
 
 sub _log_lines {

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.98';
+our $VERSION = '3.00';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.98
+3.00
 
 =head1 INTRODUCTION
 
@@ -1037,7 +1037,7 @@ the full decoded XML tree as canonical JSON.
 
 =head2 Installation
 
-Bootstrap a blank Debian, Ubuntu, or macOS machine from a checkout with:
+Bootstrap a blank Alpine, Debian, Ubuntu, or macOS machine from a checkout with:
 
   ./install.sh
 
@@ -1074,11 +1074,14 @@ Homebrew Perl on macOS when C<brew --prefix perl> exposes a brewed
 interpreter, bootstraps a user-space C<perlbrew> Perl on Debian-family or
 Alpine hosts when the system Perl is older than the required C<5.38>, installs
 C<App::perlbrew> into F<~/perl5/bin> first if the package manager did not
-already put C<perlbrew> on C<PATH>, uses
+already put C<perlbrew> on C<PATH>, keeps that local C<perlbrew> and
+C<patchperl> toolchain pinned to the private F<~/perl5/lib/perl5> include path
+while the rescue build runs, uses
 C<perlbrew --notest install perl-5.38.5> so blank-machine bootstrap does not
 stall in upstream Perl core test failures, updates the selected shell rc file
-itself with the needed C<perlbrew> shell bootstrap lines instead of leaving a
-manual F<~/.profile> editing step behind, appends the matching
+itself with the needed C<PERLBREW_HOME> and rescue-Perl C<PATH> lines instead
+of leaving a manual F<~/.profile> editing step behind or sourcing perlbrew's
+bash-only startup file under generic C<sh>, appends the matching
 C<eval "$(".../dashboard" shell bash|zsh|sh)"> bootstrap so C<d2>, prompt
 integration, and completion come up automatically in future shells, re-enters
 an activated shell automatically at the end of a terminal-backed streamed

@@ -1,4 +1,12 @@
-2.98  2026-04-22
+3.00  2026-04-22
+    - fixed streamed Alpine `curl ... | sh` activation after an old-system
+      Perl rescue build by keeping the generated shell rc file POSIX-safe
+      instead of sourcing perlbrew's bash-only `etc/bashrc` snippet under
+      `/bin/sh`
+    - fixed streamed Alpine `curl ... | sh` installs on older system Perl
+      releases by keeping the locally bootstrapped `App::perlbrew` and
+      `Devel::PatchPerl` tools on the private `@INC` path while the installer
+      rescues itself with a user-space `perlbrew` Perl
     - added skill-side `apkfile` handling so Alpine hosts can install skill
       system packages through `apk add --no-cache`, expose `has_apkfile`
       through skill metadata, and keep the documented dependency order aligned

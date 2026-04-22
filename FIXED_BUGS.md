@@ -1,5 +1,24 @@
 # Fixed Bugs
 
+## 2026-04-22 (Phase 152: Alpine sh Activation After perlbrew Rescue)
+
+- Fixed the streamed Alpine finish line after an old-system-Perl rescue build
+  so the generated `~/.profile` no longer sources perlbrew's bash-only
+  `~/perl5/perlbrew/etc/bashrc` file under `/bin/sh`.
+- Fixed Alpine post-install activation so the installer now keeps the shell
+  rc file POSIX-safe, persists the rescue Perl path directly, and can still
+  run `dashboard version` and `d2 version` through the activated `sh` path.
+
+## 2026-04-22 (Phase 151: Alpine perlbrew Rescue Path)
+
+- Fixed streamed Alpine installs on older system Perl releases so the
+  user-space `App::perlbrew` bootstrap no longer dies with `Can't locate
+  App/perlbrew.pm` or `Can't locate Devel/PatchPerl.pm` before the installer
+  can build the rescue `perl-5.38.5` runtime under `~/perl5/perlbrew`.
+- Fixed the old-Perl Alpine rescue path by wrapping the locally bootstrapped
+  `perlbrew` and `patchperl` commands with the private `~/perl5/lib/perl5`
+  include path that their staged Perl modules require during the bootstrap.
+
 ## 2026-04-22 (Phase 150: Alpine Skill apkfile Support)
 
 - Fixed Alpine skill dependency installs by teaching `dashboard skills install`
@@ -67,9 +86,9 @@
   like two steps were active at the same time.
 - Fixed the Debian-family old-Perl bootstrap messaging so `install.sh` no
   longer leaks perlbrew's generic `~/.profile` instructions to the user.
-- Fixed the perlbrew shell bootstrap wiring so `install.sh` now updates the
-  chosen rc file itself with the required perlbrew shell lines and reports
-  which rc file it changed.
+- Fixed the perlbrew rescue-shell wiring so `install.sh` now updates the
+  chosen rc file itself with the required perlbrew environment lines and
+  reports which rc file it changed.
 
 ## 2026-04-22 (Phase 143: install.sh Password Prompt And Progress UX)
 

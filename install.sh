@@ -56,6 +56,8 @@ CPAN_TARGET="${DD_INSTALL_CPAN_TARGET:-Developer::Dashboard}"
 OS_OVERRIDE="${DD_INSTALL_OS_OVERRIDE:-}"
 PERLBREW_ROOT="${PERLBREW_ROOT:-$INSTALL_ROOT/perlbrew}"
 PERLBREW_HOME="${PERLBREW_HOME:-$PERLBREW_ROOT}"
+SYSTEM_PERL_BIN=''
+SYSTEM_PERL_ARCHNAME=''
 PERLBREW_PERL="${DD_INSTALL_PERLBREW_PERL:-perl-5.38.5}"
 MIN_PERL_VERSION='5.038'
 PERL_BIN=''
@@ -590,16 +592,42 @@ ensure_node_toolchain() {
     node_toolchain_ready || fail "Missing required Node toolchain: node, npm, and npx must all be available on PATH"
 }
 
+wrap_bootstrap_perl_tool() {
+    tool_path=$1
+    [ -x "$tool_path" ] || return 0
+
+    real_tool_path="$tool_path.bootstrap-real"
+    if [ ! -f "$real_tool_path" ]; then
+        mv "$tool_path" "$real_tool_path" ||
+            fail "Unable to prepare bootstrap wrapper for $tool_path"
+    fi
+
+    cat > "$tool_path" <<EOF
+#!/bin/sh
+PERL5LIB="$INSTALL_ROOT/lib/perl5${SYSTEM_PERL_ARCHNAME:+:$INSTALL_ROOT/lib/perl5/$SYSTEM_PERL_ARCHNAME}\${PERL5LIB:+:\$PERL5LIB}"
+export PERL5LIB
+exec "$real_tool_path" "\$@"
+EOF
+    chmod 0755 "$tool_path" ||
+        fail "Unable to chmod bootstrap wrapper $tool_path"
+}
+
 bootstrap_perlbrew_perl() {
     export PERLBREW_ROOT
     export PERLBREW_HOME
+    SYSTEM_PERL_BIN=$(command -v perl)
+    SYSTEM_PERL_ARCHNAME=$("$SYSTEM_PERL_BIN" -MConfig -e 'print $Config{archname}')
 
     if ! command -v perlbrew >/dev/null 2>&1; then
         require_command cpanm
         say "perlbrew is not on PATH; installing App::perlbrew into $INSTALL_ROOT"
         run_cpanm --notest --local-lib-contained "$INSTALL_ROOT" App::perlbrew
+        wrap_bootstrap_perl_tool "$INSTALL_ROOT/bin/perlbrew"
+        wrap_bootstrap_perl_tool "$INSTALL_ROOT/bin/patchperl"
         PATH="$INSTALL_ROOT/bin:$PATH"
+        PERL5LIB="$INSTALL_ROOT/lib/perl5${SYSTEM_PERL_ARCHNAME:+:$INSTALL_ROOT/lib/perl5/$SYSTEM_PERL_ARCHNAME}${PERL5LIB:+:$PERL5LIB}"
         export PATH
+        export PERL5LIB
     fi
 
     require_command perlbrew
@@ -630,14 +658,12 @@ bootstrap_perlbrew_perl() {
     [ -x "$CPANM_SCRIPT" ] || fail "perlbrew did not create $CPANM_SCRIPT"
 
     PERLBREW_HOME_LINE=$(printf 'export PERLBREW_HOME="%s"' "$PERLBREW_HOME")
-    PERLBREW_SOURCE_LINE=$(printf '. "%s/etc/bashrc"' "$PERLBREW_ROOT")
     PERLBREW_PATH_LINE=$(printf 'export PATH="%s/perls/%s/bin:$PATH"' "$PERLBREW_ROOT" "$PERLBREW_PERL")
     append_once "$RC_FILE" "$PERLBREW_HOME_LINE"
-    append_once "$RC_FILE" "$PERLBREW_SOURCE_LINE"
     append_once "$RC_FILE" "$PERLBREW_PATH_LINE"
     PATH="$PERLBREW_ROOT/bin:$PERLBREW_ROOT/perls/$PERLBREW_PERL/bin:$PATH"
     export PATH
-    say "Updated $RC_FILE so perlbrew and $PERLBREW_PERL load automatically in new shells."
+    say "Updated $RC_FILE so perlbrew metadata and $PERLBREW_PERL load automatically in new shells."
 }
 
 resolve_perl() {
@@ -751,7 +777,7 @@ run_post_install_shell_commands() {
             "$shell_runner" -ilc ". \"$ACTIVATION_FILE\" >/dev/null 2>&1 || . \"$RC_FILE\" >/dev/null 2>&1; $POST_INSTALL_SHELL_COMMANDS"
             ;;
         *)
-            ENV="$ACTIVATION_FILE" "$shell_runner" -c ". \"$ACTIVATION_FILE\" >/dev/null 2>&1 || . \"$RC_FILE\" >/dev/null 2>&1; $POST_INSTALL_SHELL_COMMANDS"
+            ENV="$ACTIVATION_FILE" "$shell_runner" -ic ". \"$ACTIVATION_FILE\" >/dev/null 2>&1 || . \"$RC_FILE\" >/dev/null 2>&1; $POST_INSTALL_SHELL_COMMANDS"
             ;;
     esac || fail "Activated shell commands failed after installation"
 
