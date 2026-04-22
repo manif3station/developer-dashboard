@@ -31,6 +31,7 @@ my $fake_bin = tempdir( CLEANUP => 1 );
 my $cpanm_log = File::Spec->catfile( $fake_bin, 'cpanm.log' );
 my $apt_log = File::Spec->catfile( $fake_bin, 'apt.log' );
 my $apk_log = File::Spec->catfile( $fake_bin, 'apk.log' );
+my $dnf_log = File::Spec->catfile( $fake_bin, 'dnf.log' );
 my $brew_log = File::Spec->catfile( $fake_bin, 'brew.log' );
 my $npx_log = File::Spec->catfile( $fake_bin, 'npx.log' );
 my $sudo_log = File::Spec->catfile( $fake_bin, 'sudo.log' );
@@ -138,6 +139,30 @@ exit 0
 SH
     0755,
 );
+_write_file(
+    File::Spec->catfile( $fake_bin, 'dnf' ),
+    <<"SH",
+#!/bin/sh
+printf '%s\\n' "\$*" >> "$dnf_log"
+printf 'DNF:%s\\n' "\$*" >> "$dependency_log"
+exit 0
+SH
+    0755,
+);
+_write_file(
+    File::Spec->catfile( $fake_bin, 'rpm' ),
+    <<'SH',
+#!/bin/sh
+if [ "$1" = "-q" ] && [ "$2" = "--quiet" ]; then
+  case ",${DD_TEST_DNF_INSTALLED:-}," in
+    *,"$3",*) exit 0 ;;
+  esac
+  exit 1
+fi
+exit 1
+SH
+    0755,
+);
 local $ENV{PATH} = join ':', $fake_bin, ( $ENV{PATH} || () );
 
 sub _portable_path {
@@ -169,6 +194,7 @@ PL
     ddfile_local_body => "dep-beta\n",
     aptfile_body => "git\ncurl\n",
     apkfile_body => "procps-dev\n",
+    dnfile_body => "git-core\njq\n",
     brewfile_body => "jq\n",
     package_json_body => qq|{"name":"alpha-skill-node","version":"0.01.0","dependencies":{"express":"^4.19.2","uuid":"^11.0.0"},"devDependencies":{"playwright":"^1.52.0"}}\n|,
     cpanfile_local_body => "requires 'YAML::XS';\n",
@@ -195,6 +221,7 @@ ok( -f File::Spec->catfile( $install->{path}, 'config', 'config.json' ), 'instal
 ok( -f File::Spec->catfile( $install->{path}, 'cpanfile' ), 'test skill includes cpanfile for dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'aptfile' ), 'test skill includes aptfile for dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'apkfile' ), 'test skill includes apkfile for dependency handling' );
+ok( -f File::Spec->catfile( $install->{path}, 'dnfile' ), 'test skill includes dnfile for dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'brewfile' ), 'test skill includes brewfile for dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'cpanfile.local' ), 'test skill includes cpanfile.local for local dependency handling' );
 ok( -f $apt_log, 'install runs apt-get for isolated skill apt dependencies when an aptfile is present' );
@@ -233,6 +260,31 @@ my @dashboard_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dashboard
 close $dashboard_log_fh;
 is( $dashboard_steps[0], 'skills install dep-alpha', 'deferred ddfile installs dependent skills through dashboard skills install' );
 is( $dashboard_steps[1], 'skills install dep-beta', 'deferred ddfile.local installs dependent skills through dashboard skills install at the current skill level' );
+{
+    local $ENV{DD_TEST_OS} = 'linux';
+    local $ENV{DD_TEST_FEDORA} = 1;
+    local $ENV{DD_TEST_DNF_INSTALLED} = 'git-core,jq';
+    unlink $dnf_log;
+    my $skip_dnf = $manager->_install_skill_dnfile( $install->{path} );
+    ok( !$skip_dnf->{error}, '_install_skill_dnfile succeeds when every Fedora package is already installed' )
+      or diag $skip_dnf->{error};
+    ok( $skip_dnf->{skipped}, '_install_skill_dnfile reports a skip when every Fedora package is already installed' );
+    is( $skip_dnf->{skip_reason}, 'all dnfile packages already installed', '_install_skill_dnfile returns an explicit skip reason for fully installed Fedora package manifests' );
+    ok( !-f $dnf_log, '_install_skill_dnfile does not invoke dnf when every Fedora package is already installed' );
+}
+{
+    local $ENV{DD_TEST_OS} = 'linux';
+    local $ENV{DD_TEST_FEDORA} = 1;
+    local $ENV{DD_TEST_DNF_INSTALLED} = 'git-core';
+    unlink $dnf_log;
+    my $root_dnf = $manager->_install_skill_dnfile( $install->{path} );
+    ok( !$root_dnf->{error}, '_install_skill_dnfile succeeds on Fedora hosts when a dnfile is present and packages are missing' )
+      or diag $root_dnf->{error};
+    open my $root_dnf_fh, '<', $dnf_log or die "Unable to read $dnf_log: $!";
+    my @root_dnf_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$root_dnf_fh>;
+    close $root_dnf_fh;
+    is( $root_dnf_steps[0], 'install -y jq', '_install_skill_dnfile calls dnf install -y with only the missing Fedora packages' );
+}
 {
     no warnings 'redefine';
     local *Developer::Dashboard::SkillManager::_skill_package_runner_prefix = sub { return (); };
@@ -302,6 +354,7 @@ is( $listed->[0]{docker_services_count}, 1, 'list reports the number of skill do
 is( $listed->[0]{has_ddfile}, 1, 'list reports ddfile presence for one installed skill' );
 is( $listed->[0]{has_aptfile}, 1, 'list reports aptfile presence for one installed skill' );
 is( $listed->[0]{has_apkfile}, 1, 'list reports apkfile presence for one installed skill' );
+is( $listed->[0]{has_dnfile}, 1, 'list reports dnfile presence for one installed skill' );
 is( $listed->[0]{has_brewfile}, 1, 'list reports brewfile presence for one installed skill' );
 is( $listed->[0]{has_cpanfile_local}, 1, 'list reports cpanfile.local presence for one installed skill' );
 ok(
@@ -985,6 +1038,9 @@ sub _create_skill_repo {
     }
     if ( defined $args{apkfile_body} ) {
         _write_file( 'apkfile', $args{apkfile_body}, 0644 );
+    }
+    if ( defined $args{dnfile_body} ) {
+        _write_file( 'dnfile', $args{dnfile_body}, 0644 );
     }
     if ( defined $args{brewfile_body} ) {
         _write_file( 'brewfile', $args{brewfile_body}, 0644 );

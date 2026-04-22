@@ -1,3 +1,26 @@
+3.04  2026-04-22
+    - fixed streamed `install.sh` shell handoff so non-interactive
+      `curl ... | sh` runs no longer probe `/dev/tty` and emit noisy
+      `No such device or address` errors before printing the shell
+      activation guidance
+    - kept the terminal handoff behaviour for real interactive shells while
+      making piped installer runs stay quiet and deterministic in blank
+      Ubuntu, Alpine, and Fedora acceptance gates
+
+3.03  2026-04-22
+    - fixed Alpine old-system-Perl bootstrap so `install.sh` now downloads the
+      `App::perlbrew` tarball with `curl` and installs it from the local file
+      instead of asking `cpanm` to resolve the package name over the network,
+      removing the noisy `IO::Socket::IP` warning from the streamed install path
+    - added Fedora support to `install.sh`, including a repo-root `dnfile`,
+      Fedora platform detection, `dnf install -y` bootstrap handling, and the
+      same user-space Perl and shell activation finish line already enforced on
+      Debian-family and Alpine hosts
+    - added skill-side `dnfile` handling so Fedora hosts can preflight each
+      listed package and only run `sudo dnf install -y` for the packages that
+      are still missing, while exposing `has_dnfile` through skill metadata and
+      keeping the documented dependency order aligned with the runtime contract
+
 3.01  2026-04-22
     - fixed skill `aptfile` and `apkfile` installs so Dashboard now checks
       each listed package first and only escalates to `sudo apt-get install`

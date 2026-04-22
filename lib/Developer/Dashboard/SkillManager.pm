@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.01';
+our $VERSION = '3.04';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -45,6 +45,7 @@ sub install_progress_tasks {
         { id => 'prepare_layout',       label => 'Prepare skill layout' },
         { id => 'install_aptfile',      label => 'Install aptfile dependencies' },
         { id => 'install_apkfile',      label => 'Install apkfile dependencies' },
+        { id => 'install_dnfile',       label => 'Install dnfile dependencies' },
         { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
         { id => 'install_package_json', label => 'Install package.json dependencies' },
         { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
@@ -572,6 +573,7 @@ sub _install_skill_dependencies {
     my @steps = (
         [ install_aptfile      => sub { $self->_install_skill_aptfile($skill_path) } ],
         [ install_apkfile      => sub { $self->_install_skill_apkfile($skill_path) } ],
+        [ install_dnfile       => sub { $self->_install_skill_dnfile($skill_path) } ],
         [ install_brewfile     => sub { $self->_install_skill_brewfile($skill_path) } ],
         [ install_package_json => sub { $self->_install_skill_package_json($skill_path) } ],
         [ install_cpanfile     => sub { $self->_install_skill_cpanfile($skill_path) } ],
@@ -630,6 +632,7 @@ sub _dependency_progress_label {
         install_ddfile_local   => 'ddfile.local',
         install_aptfile        => 'aptfile',
         install_apkfile        => 'apkfile',
+        install_dnfile         => 'dnfile',
         install_brewfile       => 'brewfile',
         install_package_json   => 'package.json',
         install_cpanfile       => 'cpanfile',
@@ -640,6 +643,7 @@ sub _dependency_progress_label {
         install_ddfile_local   => 'Install ddfile.local dependencies',
         install_aptfile        => 'Install aptfile dependencies',
         install_apkfile        => 'Install apkfile dependencies',
+        install_dnfile         => 'Install dnfile dependencies',
         install_brewfile       => 'Install brewfile dependencies',
         install_package_json   => 'Install package.json dependencies',
         install_cpanfile       => 'Install cpanfile dependencies',
@@ -770,6 +774,17 @@ sub _is_alpine {
     return -f '/etc/alpine-release' ? 1 : 0;
 }
 
+# _is_fedora()
+# Detects whether dnfile processing should run on the current host.
+# Input: none.
+# Output: boolean true when the host is Fedora Linux.
+sub _is_fedora {
+    my ($self) = @_;
+    return 1 if $ENV{DD_TEST_FEDORA};
+    return 0 if $self->_current_os ne 'linux';
+    return -f '/etc/fedora-release' ? 1 : 0;
+}
+
 # _apt_package_is_installed($package)
 # Checks whether one Debian-family package is already installed.
 # Input: package name string from one skill aptfile.
@@ -791,6 +806,18 @@ sub _apk_package_is_installed {
     my ( $self, $package ) = @_;
     my ( undef, undef, $exit ) = capture {
         system( 'apk', 'info', '-e', $package );
+    };
+    return $exit == 0 ? 1 : 0;
+}
+
+# _dnf_package_is_installed($package)
+# Checks whether one Fedora package is already installed.
+# Input: package name string from one skill dnfile.
+# Output: boolean true when the package is already installed.
+sub _dnf_package_is_installed {
+    my ( $self, $package ) = @_;
+    my ( undef, undef, $exit ) = capture {
+        system( 'rpm', '-q', '--quiet', $package );
     };
     return $exit == 0 ? 1 : 0;
 }
@@ -1098,6 +1125,42 @@ sub _install_skill_apkfile {
     };
 }
 
+# _install_skill_dnfile($skill_path)
+# Installs dnfile packages on Fedora hosts after printing the requested
+# package list.
+# Input: absolute skill root directory path.
+# Output: result hash reference with success or error state.
+sub _install_skill_dnfile {
+    my ( $self, $skill_path ) = @_;
+    my $dnfile = File::Spec->catfile( $skill_path, 'dnfile' );
+    my @packages = $self->_dependency_file_lines($dnfile);
+    return { success => 1, skipped => 1 } if !@packages || !$self->_is_fedora;
+    my @missing_packages = $self->_packages_missing(
+        sub { $self->_dnf_package_is_installed( $_[0] ) },
+        @packages
+    );
+    return {
+        success     => 1,
+        skipped     => 1,
+        skip_reason => 'all dnfile packages already installed',
+    } if !@missing_packages;
+
+    my @runner_prefix = $self->_skill_package_runner_prefix;
+    my ( $stdout, $stderr, $exit ) = capture {
+        print "Installing dnf packages for ", basename($skill_path), " from $dnfile: ", join( ' ', @missing_packages ), "\n";
+        system( @runner_prefix, 'dnf', 'install', '-y', @missing_packages );
+    };
+    return {
+        error => "Failed to install skill dnf dependencies for $skill_path: $stderr",
+    } if $exit != 0;
+
+    return {
+        success => 1,
+        stdout  => $stdout,
+        stderr  => $stderr,
+    };
+}
+
 # _skill_package_runner_prefix()
 # Returns the command prefix used for privileged package-manager installs.
 # Input: none.
@@ -1200,6 +1263,7 @@ sub _skill_metadata {
     my $has_ddfile = -f File::Spec->catfile( $skill_path, 'ddfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_aptfile = -f File::Spec->catfile( $skill_path, 'aptfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_apkfile = -f File::Spec->catfile( $skill_path, 'apkfile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_dnfile = -f File::Spec->catfile( $skill_path, 'dnfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_brewfile = -f File::Spec->catfile( $skill_path, 'brewfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_config = -f File::Spec->catfile( $skill_path, 'config', 'config.json' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_cpanfile = -f File::Spec->catfile( $skill_path, 'cpanfile' ) ? JSON::XS::true() : JSON::XS::false();
@@ -1221,6 +1285,7 @@ sub _skill_metadata {
     $metadata->{has_ddfile} = $has_ddfile;
     $metadata->{has_aptfile} = $has_aptfile;
     $metadata->{has_apkfile} = $has_apkfile;
+    $metadata->{has_dnfile} = $has_dnfile;
     $metadata->{has_brewfile} = $has_brewfile;
     $metadata->{has_config} = $has_config;
     $metadata->{has_cpanfile} = $has_cpanfile;
@@ -1249,6 +1314,7 @@ sub _skill_usage {
     my $has_config = -f File::Spec->catfile( $skill_path, 'config', 'config.json' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_aptfile = -f File::Spec->catfile( $skill_path, 'aptfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_apkfile = -f File::Spec->catfile( $skill_path, 'apkfile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_dnfile = -f File::Spec->catfile( $skill_path, 'dnfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_brewfile = -f File::Spec->catfile( $skill_path, 'brewfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_cpanfile = -f File::Spec->catfile( $skill_path, 'cpanfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_cpanfile_local = -f File::Spec->catfile( $skill_path, 'cpanfile.local' ) ? JSON::XS::true() : JSON::XS::false();
@@ -1266,6 +1332,7 @@ sub _skill_usage {
     $usage->{config}{has_config} = $has_config;
     $usage->{config}{has_aptfile} = $has_aptfile;
     $usage->{config}{has_apkfile} = $has_apkfile;
+    $usage->{config}{has_dnfile} = $has_dnfile;
     $usage->{config}{has_brewfile} = $has_brewfile;
     $usage->{config}{has_cpanfile} = $has_cpanfile;
     $usage->{config}{has_cpanfile_local} = $has_cpanfile_local;

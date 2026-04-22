@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.01';
+our $VERSION = '3.04';
 
 1;
 
@@ -18,8 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-
-3.01
+3.04
 
 =head1 INTRODUCTION
 
@@ -1037,7 +1036,7 @@ the full decoded XML tree as canonical JSON.
 
 =head2 Installation
 
-Bootstrap a blank Alpine, Debian, Ubuntu, or macOS machine from a checkout with:
+Bootstrap a blank Alpine, Debian, Ubuntu, Fedora, or macOS machine from a checkout with:
 
   ./install.sh
 
@@ -1047,12 +1046,14 @@ extracted tarball, but CPAN and C<cpanm> do not install it as a global
 command. When the installer is streamed through C<sh> without a checkout,
 such as C<curl ... | sh>, it falls back to embedded Debian-family,
 Alpine, and Homebrew package manifests instead of assuming repo-local
-F<aptfile>, F<apkfile>, and F<brewfile> files exist on disk.
+F<aptfile>, F<apkfile>, F<dnfile>, and F<brewfile> files exist on disk.
 
 That installer reads the repo-root F<aptfile> on Debian-family hosts and runs
 C<apt-get update> plus C<apt-get install -y> for the listed packages, reads
 the repo-root F<apkfile> on Alpine hosts and runs
 C<apk add --no-cache> for the listed packages, reads the repo-root
+F<dnfile> on Fedora hosts and runs C<dnf install -y> for the listed
+packages, reads the repo-root
 F<brewfile> on macOS and runs C<brew install> for the listed packages,
 verifies that C<node>, C<npm>, and C<npx> are available from those
 bootstrap packages before finishing the install, or falls back to the embedded
@@ -1071,12 +1072,14 @@ appends exactly one C<local::lib> bootstrap line to F<~/.bashrc>,
 F<~/.zshrc>, or F<~/.profile> depending on the active shell, keeps bash
 login shells wired by bridging F<~/.profile> to F<~/.bashrc>, prefers
 Homebrew Perl on macOS when C<brew --prefix perl> exposes a brewed
-interpreter, bootstraps a user-space C<perlbrew> Perl on Debian-family or
-Alpine hosts when the system Perl is older than the required C<5.38>, installs
-C<App::perlbrew> into F<~/perl5/bin> first if the package manager did not
+interpreter, bootstraps a user-space C<perlbrew> Perl on Debian-family,
+Alpine, or Fedora hosts when the system Perl is older than the required
+C<5.38>, installs C<App::perlbrew> into F<~/perl5/bin> first if the package manager did not
 already put C<perlbrew> on C<PATH>, keeps that local C<perlbrew> and
 C<patchperl> toolchain pinned to the private F<~/perl5/lib/perl5> include path
-while the rescue build runs, uses
+while the rescue build runs, fetches the C<App::perlbrew> tarball with
+C<curl> before the local install so Alpine does not emit the noisy
+C<IO::Socket::IP> warning during that bootstrap step, uses
 C<perlbrew --notest install perl-5.38.5> so blank-machine bootstrap does not
 stall in upstream Perl core test failures, updates the selected shell rc file
 itself with the needed C<PERLBREW_HOME> and rescue-Perl C<PATH> lines instead
@@ -1089,7 +1092,8 @@ install so C<dashboard>, C<d2>, prompt integration, and completion are live
 immediately instead of leaving the user at a dead prompt, falls back to
 printing the exact shell file it updated plus the exact C<. "<rc-file>">
 command the user should run only when the installer cannot safely take over a
-terminal, installs Developer Dashboard into the user account with
+terminal, never probes F</dev/tty> during a piped C<curl ... | sh> run so
+non-interactive installs stay quiet, installs Developer Dashboard into the user account with
 C<cpanm --notest Developer::Dashboard>,
 and then runs C<dashboard init> so the runtime exists immediately after
 installation.
@@ -2295,7 +2299,7 @@ Plain C<dashboard skills install> now requires either one explicit source
 argument or the special C<--ddfile> flag; calling it with no source and no
 C<--ddfile> returns a usage error instead of guessing.
 Developer Dashboard does not merge the skill's C<cli/>, C<dashboards/>,
-C<config/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<brewfile>,
+C<config/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>, C<dnfile>, C<brewfile>,
 C<package.json>, C<cpanfile>, C<cpanfile.local>, or Docker files into the
 normal runtime folders.
 
@@ -2369,7 +2373,7 @@ CLI command, page, docker service, collector, and indicator counts
 =item *
 
 JSON booleans for C<has_config>, C<has_ddfile>, C<has_aptfile>,
-C<has_apkfile>, C<has_brewfile>, C<has_cpanfile>, and C<has_cpanfile_local>
+C<has_apkfile>, C<has_dnfile>, C<has_brewfile>, C<has_cpanfile>, and C<has_cpanfile_local>
 
 =back
 
@@ -2526,7 +2530,7 @@ Skill output logs
 
 =item B<ddfile>
 
-Optional dependent skill list installed before package managers run
+Optional dependent skill list installed after package managers run
 
 =item B<ddfile.local>
 
@@ -2542,6 +2546,12 @@ keeps only the missing packages in the install request
 =item B<brewfile>
 
 Optional macOS Homebrew packages installed through C<brew install>
+
+=item B<dnfile>
+
+Optional Fedora system packages installed through
+C<sudo dnf install -y> after Dashboard checks each listed package and keeps
+only the missing packages in the install request
 
 =item B<package.json>
 
@@ -2673,7 +2683,8 @@ Skill dependency and docker layering:
 
 =item *
 
-if a C<ddfile> exists, each listed dependency is installed first through
+if a C<ddfile> exists, each listed dependency is installed after package and
+language dependency manifests through
 C<dashboard skills install E<lt>dependencyE<gt>> while already-installed or
 in-flight skills are skipped to avoid loops
 
@@ -2708,6 +2719,12 @@ through C<sudo apt-get install -y>
 if an C<apkfile> exists on an Alpine host, Dashboard checks each listed
 package first and only prints and installs the packages that are still missing
 through C<sudo apk add --no-cache>
+
+=item *
+
+if a C<dnfile> exists on a Fedora host, Dashboard checks each listed package
+first and only prints and installs the packages that are still missing through
+C<sudo dnf install -y>
 
 =item *
 
@@ -2748,6 +2765,7 @@ re-enabled
 To build a new skill, start with a Git repository that contains C<cli/>,
 C<config/config.json>, and optional C<dashboards/>, C<dashboards/nav/>,
 C<state/>, C<logs/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>,
+C<dnfile>,
 C<brewfile>, C<package.json>, C<cpanfile>, and C<cpanfile.local> files under the skill
 root. Skill commands are file-based
 commands run through the dotted
@@ -2768,7 +2786,7 @@ layout, environment variables such as C<DEVELOPER_DASHBOARD_SKILL_ROOT>,
 bookmark syntax like C<TITLE:>, C<BOOKMARK:>, C<HTML:>, and C<CODE1:>,
 bookmark browser helpers such as C<fetch_value()>, C<stream_value()>, and
 C<stream_data()>, underscored config merge keys such as C<_example-skill>,
-C<aptfile -> apkfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local>
+C<aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local>
 automatic dependency install order, the explicit
 C<dashboard skills install --ddfile> operator order of
 the deferred C<ddfile -> ddfile.local> pass, the shared C<~/perl5> versus skill-local

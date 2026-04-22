@@ -7,6 +7,7 @@ SCRIPT_DIR=$(
 )
 APTFILE="$SCRIPT_DIR/aptfile"
 APKFILE="$SCRIPT_DIR/apkfile"
+DNFILE="$SCRIPT_DIR/dnfile"
 BREWFILE="$SCRIPT_DIR/brewfile"
 APTFILE_DEFAULT_CONTENT='
 # Repo bootstrap packages for Debian-family hosts.
@@ -51,11 +52,30 @@ perl-dev
 pkgconf
 zlib-dev
 '
+DNFILE_DEFAULT_CONTENT='
+# Repo bootstrap packages for Fedora hosts.
+ca-certificates
+curl
+expat-devel
+gcc
+gcc-c++
+git
+make
+nodejs
+openssl-devel
+perl
+perl-App-cpanminus
+perl-devel
+pkgconf-pkg-config
+zlib-devel
+'
 INSTALL_ROOT="${HOME:?Missing HOME}/perl5"
 CPAN_TARGET="${DD_INSTALL_CPAN_TARGET:-Developer::Dashboard}"
 OS_OVERRIDE="${DD_INSTALL_OS_OVERRIDE:-}"
 PERLBREW_ROOT="${PERLBREW_ROOT:-$INSTALL_ROOT/perlbrew}"
 PERLBREW_HOME="${PERLBREW_HOME:-$PERLBREW_ROOT}"
+PERLBREW_APP_DIST_URL="${DD_INSTALL_PERLBREW_APP_DIST_URL:-https://cpan.metacpan.org/authors/id/G/GU/GUGOD/App-perlbrew-1.02.tar.gz}"
+PERLBREW_APP_DIST_BASENAME=$(basename "$PERLBREW_APP_DIST_URL")
 SYSTEM_PERL_BIN=''
 SYSTEM_PERL_ARCHNAME=''
 PERLBREW_PERL="${DD_INSTALL_PERLBREW_PERL:-perl-5.38.5}"
@@ -327,6 +347,12 @@ manifest_packages() {
                 -e '/^[[:space:]]*$/d'
             return 0
             ;;
+        dnfile)
+            printf '%s\n' "$DNFILE_DEFAULT_CONTENT" | sed \
+                -e 's/[[:space:]]*#.*$//' \
+                -e '/^[[:space:]]*$/d'
+            return 0
+            ;;
         brewfile)
             printf '%s\n' "$BREWFILE_DEFAULT_CONTENT" | sed \
                 -e 's/[[:space:]]*#.*$//' \
@@ -365,6 +391,10 @@ platform_name() {
                         printf '%s\n' 'alpine'
                         return 0
                         ;;
+                    *fedora*)
+                        printf '%s\n' 'fedora'
+                        return 0
+                        ;;
                     *ubuntu*|*debian*)
                         printf '%s\n' "${os_id:-linux}"
                         return 0
@@ -375,6 +405,10 @@ platform_name() {
                 printf '%s\n' 'alpine'
                 return 0
             }
+            [ -f /etc/fedora-release ] && {
+                printf '%s\n' 'fedora'
+                return 0
+            }
             [ -f /etc/debian_version ] && {
                 printf '%s\n' 'debian'
                 return 0
@@ -382,7 +416,7 @@ platform_name() {
             ;;
     esac
 
-    fail "Unsupported platform. Supported platforms are Alpine, Debian, Ubuntu, and macOS."
+    fail "Unsupported platform. Supported platforms are Alpine, Debian, Ubuntu, Fedora, and macOS."
 }
 
 package_runner_prefix() {
@@ -496,6 +530,16 @@ run_logged_command() {
     return 1
 }
 
+download_to_path() {
+    url=$1
+    destination=$2
+    require_command curl
+    mkdir -p "$(dirname "$destination")" ||
+        fail "Unable to create download directory for $destination"
+    run_logged_command curl -fsSL "$url" -o "$destination" ||
+        fail "Unable to download $url"
+}
+
 install_apt_packages() {
     prefix=$(package_runner_prefix)
     manifest_lines=$(manifest_packages "$APTFILE")
@@ -588,6 +632,19 @@ install_apk_packages() {
     fi
 }
 
+install_dnf_packages() {
+    prefix=$(package_runner_prefix)
+    packages=$(manifest_packages "$DNFILE" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+    [ -n "$packages" ] || return 0
+    say "Installing Fedora packages from $DNFILE: $packages"
+    if [ -n "$prefix" ]; then
+        explain_sudo_requirements
+        $prefix dnf install -y $packages
+    else
+        dnf install -y $packages
+    fi
+}
+
 ensure_node_toolchain() {
     node_toolchain_ready || fail "Missing required Node toolchain: node, npm, and npx must all be available on PATH"
 }
@@ -621,7 +678,9 @@ bootstrap_perlbrew_perl() {
     if ! command -v perlbrew >/dev/null 2>&1; then
         require_command cpanm
         say "perlbrew is not on PATH; installing App::perlbrew into $INSTALL_ROOT"
-        run_cpanm --notest --local-lib-contained "$INSTALL_ROOT" App::perlbrew
+        perlbrew_dist_path="$INSTALL_ROOT/bootstrap-cache/$PERLBREW_APP_DIST_BASENAME"
+        download_to_path "$PERLBREW_APP_DIST_URL" "$perlbrew_dist_path"
+        run_cpanm --notest --local-lib-contained "$INSTALL_ROOT" "$perlbrew_dist_path"
         wrap_bootstrap_perl_tool "$INSTALL_ROOT/bin/perlbrew"
         wrap_bootstrap_perl_tool "$INSTALL_ROOT/bin/patchperl"
         PATH="$INSTALL_ROOT/bin:$PATH"
@@ -683,7 +742,7 @@ resolve_perl() {
     fi
 
     case "$PLATFORM" in
-        alpine|debian|ubuntu)
+        alpine|debian|ubuntu|fedora)
             bootstrap_perlbrew_perl
             return 0
             ;;
@@ -790,7 +849,7 @@ handoff_to_activated_shell() {
         return 1
     fi
     [ -z "$POST_INSTALL_SHELL_COMMANDS" ] || return 1
-    if ! ( : </dev/tty >/dev/null 2>&1 ); then
+    if [ ! -t 0 ] || [ ! -t 1 ] || [ ! -t 2 ]; then
         return 1
     fi
 
@@ -799,7 +858,6 @@ handoff_to_activated_shell() {
     [ -x "$shell_runner" ] || return 1
 
     say "Launching activated $shell_target shell now. Exit once to return to your previous shell."
-    exec </dev/tty >/dev/tty 2>&1 || return 1
     case "$shell_target" in
         bash|zsh)
             exec "$shell_runner" -il
@@ -831,11 +889,14 @@ main() {
         alpine)
             install_apk_packages
             ;;
+        fedora)
+            install_dnf_packages
+            ;;
         darwin)
             install_brew_packages
             ;;
         *)
-            fail "Unsupported platform '$PLATFORM'. Supported platforms are Alpine, Debian, Ubuntu, and macOS."
+            fail "Unsupported platform '$PLATFORM'. Supported platforms are Alpine, Debian, Ubuntu, Fedora, and macOS."
             ;;
     esac
     progress_done install_system_packages "$PLATFORM complete"

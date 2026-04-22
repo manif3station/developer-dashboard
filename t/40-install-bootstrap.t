@@ -14,11 +14,15 @@ my $root = File::Spec->catdir( $RealBin, File::Spec->updir );
 my $install_sh = File::Spec->catfile( $root, 'install.sh' );
 my $aptfile    = File::Spec->catfile( $root, 'aptfile' );
 my $apkfile    = File::Spec->catfile( $root, 'apkfile' );
+my $dnfile     = File::Spec->catfile( $root, 'dnfile' );
 my $brewfile   = File::Spec->catfile( $root, 'brewfile' );
+my $perlbrew_app_dist_url = 'https://cpan.metacpan.org/authors/id/G/GU/GUGOD/App-perlbrew-1.02.tar.gz';
+my $perlbrew_app_dist_basename = 'App-perlbrew-1.02.tar.gz';
 
 ok( -f $install_sh, 'install.sh exists at the repo root' );
 ok( -f $aptfile, 'aptfile exists at the repo root' );
 ok( -f $apkfile, 'apkfile exists at the repo root' );
+ok( -f $dnfile, 'dnfile exists at the repo root' );
 ok( -f $brewfile, 'brewfile exists at the repo root' );
 
 {
@@ -31,6 +35,7 @@ ok( -f $brewfile, 'brewfile exists at the repo root' );
 
 my @apt_packages  = _manifest_lines($aptfile);
 my @apk_packages  = _manifest_lines($apkfile);
+my @dnf_packages  = _manifest_lines($dnfile);
 my @brew_packages = _manifest_lines($brewfile);
 my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
     packages => \@apt_packages,
@@ -38,6 +43,67 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
 my @expected_apk_bootstrap_steps = _expected_apk_bootstrap_steps(
     packages => \@apk_packages,
 );
+my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
+    packages => \@dnf_packages,
+);
+
+{
+    my $home = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log = File::Spec->catfile( $home, 'install.log' );
+    my $target = File::Spec->catfile( $home, 'Developer-Dashboard.tar.gz' );
+    my $fake_perl = File::Spec->catfile( $fake_bin, 'perl' );
+    _seed_fake_install_commands(
+        fake_bin => $fake_bin,
+        log      => $log,
+    );
+
+    my $env_prefix = join ' ',
+      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+        { key => 'HOME',                   value => $home },
+        { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'SHELL',                  value => '/bin/bash' },
+        { key => 'DD_INSTALL_OS_OVERRIDE', value => 'fedora' },
+        { key => 'DD_INSTALL_CPAN_TARGET', value => $target },
+      );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+    };
+    is( $exit >> 8, 0, 'install.sh succeeds on Fedora hosts with mocked system commands' )
+      or diag $stdout . $stderr;
+
+    my @log_lines = _log_lines($log);
+    is_deeply(
+        \@log_lines,
+        [
+            @expected_dnf_bootstrap_steps,
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
+            "cpanm --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
+            "cpanm --notest $target",
+            'dashboard init',
+        ],
+        'install.sh follows the Fedora bootstrap flow in manifest order',
+    );
+
+    my $bashrc = File::Spec->catfile( $home, '.bashrc' );
+    my $profile = File::Spec->catfile( $home, '.profile' );
+    ok( -f $bashrc, 'install.sh creates or updates ~/.bashrc for Fedora bash users' );
+    ok( -f $profile, 'install.sh creates ~/.profile as the activation entry point for Fedora bash users' );
+    my $bashrc_text = _slurp($bashrc);
+    my $local_lib_line = qq{eval "\$("$fake_perl" -I "$home/perl5/lib/perl5" -Mlocal::lib)"};
+    like(
+        $bashrc_text,
+        qr/\Q$local_lib_line\E/,
+        'install.sh wires the local::lib bootstrap into ~/.bashrc for Fedora bash users',
+    );
+    like(
+        $bashrc_text,
+        qr/eval "\$\(\"[^\"]*\/dashboard" shell bash\)"/,
+        'install.sh appends the Developer Dashboard bash shell bootstrap to ~/.bashrc on Fedora',
+    );
+}
 
 {
     my $home = tempdir( CLEANUP => 1 );
@@ -210,6 +276,11 @@ my @expected_apk_bootstrap_steps = _expected_apk_bootstrap_steps(
         $stdout,
         qr/Then verify with:\s+dashboard version/s,
         'install.sh tells the user how to verify the command is available after activation',
+    );
+    unlike(
+        $stdout . $stderr,
+        qr{/dev/tty: No such device or address},
+        'install.sh does not probe /dev/tty during piped installs',
     );
 
     my ( $again_out, $again_err, $again_exit ) = capture {
@@ -608,6 +679,11 @@ SH
         qr/Can't locate App\/perlbrew\.pm/,
         'install.sh no longer loses the local App::perlbrew install when bootstrapping Perl on Alpine',
     );
+    unlike(
+        $stdout . $stderr,
+        qr/Use of uninitialized value \$err in numeric eq \(==\) at .*IO\/Socket\/IP\.pm line 739\./,
+        'install.sh avoids the Alpine IO::Socket::IP warning while bootstrapping App::perlbrew',
+    );
 
     my @log_lines = _log_lines($log);
     is_deeply(
@@ -616,7 +692,8 @@ SH
             _expected_apk_bootstrap_steps( packages => \@apk_packages ),
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
             'perl -MConfig -e print $Config{archname}',
-            "cpanm --notest --local-lib-contained $home/perl5 App::perlbrew",
+            "curl -fsSL $perlbrew_app_dist_url -o $home/perl5/bootstrap-cache/$perlbrew_app_dist_basename",
+            "cpanm --notest --local-lib-contained $home/perl5 $home/perl5/bootstrap-cache/$perlbrew_app_dist_basename",
             'perlbrew init',
             'perlbrew list',
             'perlbrew --notest install perl-5.38.5',
@@ -672,6 +749,17 @@ sub _expected_apk_bootstrap_steps {
     my (%args) = @_;
     my @packages = @{ $args{packages} || [] };
     my $install_line = 'apk add --no-cache ' . join( ' ', @packages );
+    return ($install_line) if ( $> || 0 ) == 0;
+    return (
+        "sudo $install_line",
+        $install_line,
+    );
+}
+
+sub _expected_dnf_bootstrap_steps {
+    my (%args) = @_;
+    my @packages = @{ $args{packages} || [] };
+    my $install_line = 'dnf install -y ' . join( ' ', @packages );
     return ($install_line) if ( $> || 0 ) == 0;
     return (
         "sudo $install_line",
@@ -779,11 +867,24 @@ exit 0
 SH
     );
     _write_executable(
+        File::Spec->catfile( $fake_bin, 'dnf' ),
+        <<"SH",
+#!/bin/sh
+printf '%s\\n' "dnf \$*" >> "$log"
+if [ "\$1" = "install" ] && printf '%s ' "\$@" | grep -q ' nodejs '; then
+grep -qx 'node' "$node_marker" 2>/dev/null || printf '%s\\n' 'node' >> "$node_marker"
+grep -qx 'npm' "$node_marker" 2>/dev/null || printf '%s\\n' 'npm' >> "$node_marker"
+grep -qx 'npx' "$node_marker" 2>/dev/null || printf '%s\\n' 'npx' >> "$node_marker"
+fi
+exit 0
+SH
+    );
+    _write_executable(
         File::Spec->catfile( $fake_bin, 'cpanm' ),
         <<"SH",
 #!/bin/sh
 printf '%s\\n' "cpanm \$*" >> "$log"
-if [ "$fake_cpanm_installs_local_perlbrew" = "1" ] && printf '%s ' "\$*" | grep -q ' App::perlbrew'; then
+if [ "$fake_cpanm_installs_local_perlbrew" = "1" ] && printf '%s ' "\$*" | grep -Eq ' App::perlbrew|App-perlbrew-1\\.02\\.tar\\.gz'; then
 mkdir -p "\$HOME/perl5/bin" "\$HOME/perl5/lib/perl5/App"
 cat > "\$HOME/perl5/bin/perlbrew" <<'EOS'
 #!/bin/sh
@@ -866,6 +967,29 @@ package Devel::PatchPerl;
 1;
 EOS
 fi
+exit 0
+SH
+    );
+    _write_executable(
+        File::Spec->catfile( $fake_bin, 'curl' ),
+        <<"SH",
+#!/bin/sh
+printf '%s\\n' "curl \$*" >> "$log"
+output=''
+while [ \$# -gt 0 ]; do
+case "\$1" in
+  -o)
+    output=\$2
+    shift 2
+    ;;
+  *)
+    shift
+    ;;
+esac
+done
+[ -n "\$output" ] || exit 1
+mkdir -p "\$(dirname "\$output")"
+printf '%s\\n' 'fake perlbrew tarball' > "\$output"
 exit 0
 SH
     );

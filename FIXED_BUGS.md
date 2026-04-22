@@ -1,5 +1,40 @@
 # Fixed Bugs
 
+## 2026-04-22 (Phase 156: Quiet Streamed Installer Shell Handoff)
+
+- Fixed streamed `curl ... | sh` installs so `install.sh` no longer probes
+  `/dev/tty` while deciding whether it can re-enter an activated shell.
+- Fixed the noisy non-interactive finish line where blank Ubuntu, Alpine, and
+  Fedora gates used to print `/dev/tty: No such device or address` even
+  though the installation itself succeeded and only needed to tell the caller
+  which activation file to source.
+
+## 2026-04-22 (Phase 155: Fedora dnfile Bootstrap And Skill Support)
+
+- Fixed blank-machine Fedora bootstrap by adding first-class `install.sh`
+  support for Fedora platform detection, a repo-root `dnfile`, and
+  `dnf install -y` package bootstrap handling instead of failing as an
+  unsupported Linux variant.
+- Fixed Fedora skill installs by teaching `dashboard skills install` to honor
+  skill-local `dnfile` manifests, preflight each listed package through the
+  Fedora package database, skip the privileged install step when every package
+  is already present, and install only the missing package subset when work is
+  still required.
+- Fixed shipped metadata and docs so installed skill inventory now reports
+  `has_dnfile`, and the published automatic dependency order now matches the
+  runtime contract:
+  `aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local`.
+
+## 2026-04-22 (Phase 154: Alpine perlbrew Warning-Free Bootstrap)
+
+- Fixed the Alpine old-system-Perl installer rescue path so `install.sh` no
+  longer asks `cpanm` to resolve `App::perlbrew` over the network during the
+  bootstrap step that used to emit `Use of uninitialized value $err in numeric
+  eq (==) at ... IO/Socket/IP.pm line 739`.
+- Fixed the warning by downloading the `App::perlbrew` tarball with `curl`
+  first and then installing it from the local file, keeping the warnings-as-
+  errors contract intact instead of tolerating noisy bootstrap output.
+
 ## 2026-04-22 (Phase 153: Skill Package Manager Preflight Checks)
 
 - Fixed `dashboard skills install` so `aptfile` and `apkfile` manifests no

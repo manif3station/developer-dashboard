@@ -590,7 +590,7 @@ decoded XML tree as canonical JSON.
 
 ### Installation
 
-Bootstrap a blank Alpine, Debian, Ubuntu, or macOS machine from a checkout with:
+Bootstrap a blank Alpine, Debian, Ubuntu, Fedora, or macOS machine from a checkout with:
 
 ```bash
 ./install.sh
@@ -600,14 +600,15 @@ Bootstrap a blank Alpine, Debian, Ubuntu, or macOS machine from a checkout with:
 and release tarball so operators can run it explicitly from a checkout or
 extracted tarball, but CPAN and `cpanm` do not install it as a global command.
 When the installer is streamed through `sh` without a checkout, such as
-`curl ... | sh`, it falls back to embedded Debian-family, Alpine, and Homebrew
-package manifests instead of assuming repo-local `aptfile`, `apkfile`, and
-`brewfile` files exist on disk.
+`curl ... | sh`, it falls back to embedded Debian-family, Alpine, Fedora, and
+Homebrew package manifests instead of assuming repo-local `aptfile`, `apkfile`,
+`dnfile`, and `brewfile` files exist on disk.
 
 That installer reads the repo-root `aptfile` on Debian-family hosts and runs
 `apt-get update` plus `apt-get install -y` for the listed packages, reads the
 repo-root `apkfile` on Alpine hosts and runs `apk add --no-cache` for the
-listed packages, reads the
+listed packages, reads the repo-root `dnfile` on Fedora hosts and runs
+`dnf install -y` for the listed packages, reads the
 repo-root `brewfile` on macOS and runs `brew install` for the listed packages,
 or falls back to the embedded copies of those package lists when the script is
 streamed without the checkout files, installs Debian-family Node tooling in a
@@ -625,11 +626,13 @@ appends exactly one `local::lib` bootstrap line to `~/.bashrc`, `~/.zshrc`, or
 `~/.profile` depending on the active shell, keeps bash login shells wired by
 bridging `~/.profile` to `~/.bashrc`, prefers Homebrew Perl on macOS when
 `brew --prefix perl` exposes a brewed interpreter, bootstraps a user-space
-`perlbrew` Perl on Debian-family or Alpine hosts when the system Perl is older
-than the required `5.38`, installs `App::perlbrew` into `~/perl5/bin` first if
-the package manager did not already put `perlbrew` on `PATH`, keeps that local
+`perlbrew` Perl on Debian-family, Alpine, or Fedora hosts when the system Perl
+is older than the required `5.38`, installs `App::perlbrew` into `~/perl5/bin`
+first if the package manager did not already put `perlbrew` on `PATH`, keeps that local
 `perlbrew` and `patchperl` toolchain pinned to the private `~/perl5/lib/perl5`
-include path while the rescue build runs, uses
+include path while the rescue build runs, fetches the `App::perlbrew` tarball
+with `curl` before the local install so Alpine does not emit the noisy
+`IO::Socket::IP` warning during that bootstrap step, uses
 `perlbrew --notest install perl-5.38.5` so blank-machine bootstrap does not
 stall in upstream Perl core test failures, updates the selected shell rc file
 itself with the needed `PERLBREW_HOME` and rescue-Perl `PATH` lines instead of
@@ -642,14 +645,15 @@ install so `dashboard`, `d2`, prompt integration, and completion are live
 immediately instead of leaving the user at a dead prompt, falls back to
 printing the exact shell file it updated plus the exact `. "<rc-file>"`
 command the user should run only when the installer cannot safely take over a
-terminal, installs Developer Dashboard into the user account with
+terminal, never probes `/dev/tty` during a piped `curl ... | sh` run so
+non-interactive installs stay quiet, installs Developer Dashboard into the user account with
 `cpanm --notest Developer::Dashboard`, and then runs `dashboard init` so the
 runtime exists immediately after installation.
 
-Release verification is Linux-gated. Debian-family and Alpine bootstrap checks
-are required release gates. macOS bootstrap and `brewfile` checks are
-supported for manual validation and debugging, but they are not required
-release gates.
+Release verification is Linux-gated. Debian-family, Alpine, and Fedora
+bootstrap checks are required release gates. macOS bootstrap and `brewfile`
+checks are supported for manual validation and debugging, but they are not
+required release gates.
 
 Useful bootstrap examples:
 
@@ -1574,7 +1578,7 @@ target becomes `<that-layer>/.developer-dashboard/skills/<repo-name>/`.
 the special `--ddfile` flag; calling it with no source and no `--ddfile`
 returns a usage error instead of guessing.
 Developer Dashboard does not merge the skill's `cli/`, `dashboards/`,
-`config/`, `ddfile`, `ddfile.local`, `aptfile`, `brewfile`, `package.json`,
+`config/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`, `dnfile`, `brewfile`, `package.json`,
 `cpanfile`, `cpanfile.local`, or Docker files into the normal runtime
 folders.
 
@@ -1630,7 +1634,7 @@ where each item reports:
 - installed path
 - `enabled` as a JSON boolean
 - CLI command, page, docker service, collector, and indicator counts
-- JSON booleans for `has_config`, `has_ddfile`, `has_aptfile`, `has_apkfile`, `has_brewfile`,
+- JSON booleans for `has_config`, `has_ddfile`, `has_aptfile`, `has_apkfile`, `has_dnfile`, `has_brewfile`,
   `has_cpanfile`, and `has_cpanfile_local`
 
 **Inspect one installed skill:**
@@ -1726,10 +1730,11 @@ Each installed skill lives under
 - `config/docker/` - Skill-local Docker Compose roots that participate in layered docker service lookup
 - `state/` - Persistent skill state and data
 - `logs/` - Skill output logs
-- `ddfile` - Optional dependent skill list installed before package managers run
+- `ddfile` - Optional dependent skill list installed after package managers run
 - `ddfile.local` - Optional local dependent skill list installed after `ddfile` into the same skills root as the current skill install target
 - `aptfile` - Optional Debian-family system packages; Dashboard checks each package first and only runs `sudo apt-get install -y` for the missing packages
 - `apkfile` - Optional Alpine system packages; Dashboard checks each package first and only runs `sudo apk add --no-cache` for the missing packages
+- `dnfile` - Optional Fedora system packages; Dashboard checks each package first and only runs `sudo dnf install -y` for the missing packages
 - `brewfile` - Optional macOS Homebrew packages installed through `brew install`
 - `package.json` - Optional Node dependencies installed into `$HOME/node_modules` by running `npx --yes npm install <dependency-spec...>` inside a private dashboard staging workspace and then merging the resulting packages into `$HOME/node_modules`
 - `cpanfile` - Optional shared Perl dependencies installed into `~/perl5`
@@ -1772,7 +1777,8 @@ Skill browser routes:
 
 Skill dependency and docker layering:
 
-- if a `ddfile` exists, each listed dependency is installed first through
+- if a `ddfile` exists, each listed dependency is installed after package and
+  language dependency manifests through
   `dashboard skills install <dependency>` while already-installed or in-flight
   skills are skipped to avoid loops
 - if a `ddfile.local` exists under an installed skill, each listed dependency
@@ -1788,6 +1794,7 @@ Skill dependency and docker layering:
   `skills/<repo-name>/` tree after the global `ddfile` pass completes
 - if an `aptfile` exists on a Debian-family host, Dashboard checks each listed package first and only prints and installs the packages that are still missing through `sudo apt-get install -y`
 - if an `apkfile` exists on an Alpine host, Dashboard checks each listed package first and only prints and installs the packages that are still missing through `sudo apk add --no-cache`
+- if a `dnfile` exists on a Fedora host, Dashboard checks each listed package first and only prints and installs the packages that are still missing through `sudo dnf install -y`
 - if a `brewfile` exists on macOS, its package list is printed and then
   installed through `brew install`
 - if a `package.json` exists, its Node dependencies are installed into
@@ -1806,7 +1813,7 @@ Skill dependency and docker layering:
 
 To build a new skill, start with a Git repository that contains `cli/`,
 `config/config.json`, and optional `dashboards/`, `dashboards/nav/`, `state/`,
-`logs/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`, `brewfile`, `package.json`,
+`logs/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`, `dnfile`, `brewfile`, `package.json`,
 `cpanfile`, and `cpanfile.local` files under the skill root. Skill
 commands are file-based commands run through the dotted
 `dashboard <repo-name>.<command>` form. Skill hook files live under
@@ -1825,7 +1832,7 @@ environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`, bookmark
 syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, and `CODE1:`, bookmark browser
 helpers such as `fetch_value()`, `stream_value()`, and `stream_data()`,
 underscored config merge keys such as `_example-skill`, the
-`aptfile -> apkfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local`
+`aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local`
 automatic dependency install order, the explicit
 `dashboard skills install --ddfile` operator order of
 the deferred `ddfile -> ddfile.local` pass, the shared `~/perl5` versus skill-local `perl5/`

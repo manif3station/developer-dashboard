@@ -1692,6 +1692,7 @@ is_deeply(
         { id => 'prepare_layout',       label => 'Prepare skill layout' },
         { id => 'install_aptfile',      label => 'Install aptfile dependencies' },
         { id => 'install_apkfile',      label => 'Install apkfile dependencies' },
+        { id => 'install_dnfile',       label => 'Install dnfile dependencies' },
         { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
         { id => 'install_package_json', label => 'Install package.json dependencies' },
         { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
@@ -1950,7 +1951,7 @@ close $dependency_log_fh;
 is_deeply(
     [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|CPANM):/)[0] } @dependency_steps[-6 .. -1] ],
     [ 'APT', 'NPM', 'CPANM', 'CPANM', 'DDFILE', 'DDFILE_LOCAL' ],
-    '_install_skill_dependencies follows the documented aptfile -> apkfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local order on Debian-like hosts while leaving apkfile and brewfile inactive',
+    '_install_skill_dependencies follows the documented aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local order on Debian-like hosts while leaving apkfile, dnfile, and brewfile inactive',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;

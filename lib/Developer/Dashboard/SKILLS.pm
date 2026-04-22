@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '3.01';
+our $VERSION = '3.04';
 
 1;
 
@@ -185,7 +185,7 @@ Persistent skill-owned logs.
 
 =item B<ddfile>
 
-Optional dependent skill list installed before package managers run.
+Optional dependent skill list installed after package managers run.
 
 =item B<ddfile.local>
 
@@ -588,12 +588,13 @@ a C<cpanfile.local> when that skill also needs a skill-local C<./perl5> tree.
 
 Yes. Ship a C<ddfile> for dependent skills, a C<ddfile.local> for dependent
 skills that must stay at the current install level, an C<aptfile> for
-Debian-family packages, an C<apkfile> for Alpine packages, a C<brewfile> for
+Debian-family packages, an C<apkfile> for Alpine packages, a C<dnfile> for
+Fedora packages, a C<brewfile> for
 macOS packages, or a C<package.json> for Node dependencies that should land under
 C<$HOME/node_modules>. The
 explicit operator manifest order for C<dashboard skills install --ddfile> is
 the deferred C<ddfile -> ddfile.local> pass, while the automatic per-skill
-dependency order is C<aptfile -> apkfile -> brewfile -> package.json ->
+dependency order is C<aptfile -> apkfile -> dnfile -> brewfile -> package.json ->
 cpanfile -> cpanfile.local -> ddfile -> ddfile.local>.
 
 =head2 Where is the long-form guide?
