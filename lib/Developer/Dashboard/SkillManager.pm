@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '2.87';
+our $VERSION = '2.88';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -43,13 +43,13 @@ sub install_progress_tasks {
     return [
         { id => 'fetch_source',         label => 'Fetch skill source' },
         { id => 'prepare_layout',       label => 'Prepare skill layout' },
-        { id => 'install_ddfile',       label => 'Install ddfile dependencies' },
-        { id => 'install_ddfile_local', label => 'Install ddfile.local dependencies' },
         { id => 'install_aptfile',      label => 'Install aptfile dependencies' },
         { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
         { id => 'install_package_json', label => 'Install package.json dependencies' },
         { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
         { id => 'install_cpanfile_local', label => 'Install cpanfile.local dependencies' },
+        { id => 'install_ddfile',       label => 'Install ddfile dependencies' },
+        { id => 'install_ddfile_local', label => 'Install ddfile.local dependencies' },
     ];
 }
 
@@ -562,19 +562,20 @@ sub _prepare_skill_layout {
 }
 
 # _install_skill_dependencies($skill_path)
-# Installs one skill's system and Perl dependencies in install order.
+# Installs one skill's system and language dependencies in install order, with
+# ddfile manifests deferred until last.
 # Input: absolute skill root directory path.
 # Output: result hash reference with success or error state.
 sub _install_skill_dependencies {
     my ( $self, $skill_path ) = @_;
     my @steps = (
-        [ install_ddfile       => sub { $self->_install_skill_ddfile($skill_path) } ],
-        [ install_ddfile_local => sub { $self->_install_skill_ddfile_local($skill_path) } ],
         [ install_aptfile      => sub { $self->_install_skill_aptfile($skill_path) } ],
         [ install_brewfile     => sub { $self->_install_skill_brewfile($skill_path) } ],
         [ install_package_json => sub { $self->_install_skill_package_json($skill_path) } ],
         [ install_cpanfile     => sub { $self->_install_skill_cpanfile($skill_path) } ],
         [ install_cpanfile_local => sub { $self->_install_skill_cpanfile_local($skill_path) } ],
+        [ install_ddfile       => sub { $self->_install_skill_ddfile($skill_path) } ],
+        [ install_ddfile_local => sub { $self->_install_skill_ddfile_local($skill_path) } ],
     );
     my @stdout;
     my @stderr;
@@ -845,8 +846,8 @@ sub _install_skill_dependency_manifest {
 
 # _install_skill_package_json($skill_path)
 # Installs Node dependencies declared by package.json into the dashboard home
-# node_modules directory by running npm inside a private staging workspace and
-# then merging the resulting dependency tree into HOME/node_modules.
+# node_modules directory by running npx-wrapped npm inside a private staging
+# workspace and then merging the resulting dependency tree into HOME/node_modules.
 # Input: absolute skill root directory path.
 # Output: result hash reference with success or error state.
 sub _install_skill_package_json {
@@ -879,7 +880,7 @@ sub _install_skill_package_json {
     eval {
         chdir $workspace or die "Unable to chdir to $workspace for package.json dependency install: $!";
         ( $npm_stdout, $npm_stderr, $npm_exit ) = capture {
-            system( 'npm', 'install', @specs );
+            system( 'npx', '--yes', 'npm', 'install', @specs );
         };
         chdir $cwd or die "Unable to chdir back to $cwd after package.json dependency install: $!";
         1;

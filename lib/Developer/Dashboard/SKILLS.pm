@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '2.87';
+our $VERSION = '2.88';
 
 1;
 
@@ -592,8 +592,9 @@ Debian-family packages, a C<brewfile> for macOS packages, or a
 C<package.json> for Node dependencies that should land under
 C<$HOME/node_modules>. The
 explicit operator manifest order for C<dashboard skills install --ddfile> is
-C<ddfile -> ddfile.local>, while the automatic per-skill dependency order is
-C<ddfile -> ddfile.local -> aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local>.
+the deferred C<ddfile -> ddfile.local> pass, while the automatic per-skill
+dependency order is C<aptfile -> brewfile -> package.json -> cpanfile ->
+cpanfile.local -> ddfile -> ddfile.local>.
 
 =head2 Where is the long-form guide?
 

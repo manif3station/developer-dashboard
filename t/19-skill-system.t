@@ -31,7 +31,7 @@ my $fake_bin = tempdir( CLEANUP => 1 );
 my $cpanm_log = File::Spec->catfile( $fake_bin, 'cpanm.log' );
 my $apt_log = File::Spec->catfile( $fake_bin, 'apt.log' );
 my $brew_log = File::Spec->catfile( $fake_bin, 'brew.log' );
-my $npm_log = File::Spec->catfile( $fake_bin, 'npm.log' );
+my $npx_log = File::Spec->catfile( $fake_bin, 'npx.log' );
 my $sudo_log = File::Spec->catfile( $fake_bin, 'sudo.log' );
 my $dashboard_log = File::Spec->catfile( $fake_bin, 'dashboard.log' );
 my $dependency_log = File::Spec->catfile( $fake_bin, 'dependency-install.log' );
@@ -56,11 +56,13 @@ SH
     0755,
 );
 _write_file(
-    File::Spec->catfile( $fake_bin, 'npm' ),
+    File::Spec->catfile( $fake_bin, 'npx' ),
     <<"SH",
 #!/bin/sh
-printf '%s|cwd=%s\\n' "\$*" "\$PWD" >> "$npm_log"
+printf '%s|cwd=%s\\n' "\$*" "\$PWD" >> "$npx_log"
 printf 'NPM:%s\\n' "\$*" >> "$dependency_log"
+shift
+shift
 shift
 for spec in "\$@"; do
   name=\${spec%%@*}
@@ -173,21 +175,21 @@ my @dependency_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dependen
 close $dependency_log_fh;
 is_deeply(
     [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|CPANM):/)[0] } @dependency_steps ],
-    [ 'DDFILE', 'DDFILE_LOCAL', 'APT', 'NPM', 'CPANM', 'CPANM' ],
-    'skill install processes ddfile, ddfile.local, aptfile, package.json, cpanfile, and cpanfile.local in policy order on Debian-like hosts while leaving brewfile inactive',
+    [ 'APT', 'NPM', 'CPANM', 'CPANM', 'DDFILE', 'DDFILE_LOCAL' ],
+    'skill install processes aptfile, package.json, cpanfile, cpanfile.local, ddfile, and ddfile.local in policy order on Debian-like hosts while leaving brewfile inactive',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
 close $cpanm_log_fh;
 like( $cpanm_steps[0], qr/^-L \Q$ENV{HOME}\/perl5\E --cpanfile \Q$install->{path}\/cpanfile\E --installdeps \Q$install->{path}\E$/, 'cpanfile installs shared Perl dependencies into HOME perl5' );
 is( $cpanm_steps[1], "-L $install->{path}/perl5 --cpanfile $install->{path}/cpanfile.local --installdeps $install->{path}", 'cpanfile.local installs local Perl dependencies into the skill perl5 root' );
-open my $npm_log_fh, '<', $npm_log or die "Unable to read $npm_log: $!";
-my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npm_log_fh>;
-close $npm_log_fh;
+open my $npx_log_fh, '<', $npx_log or die "Unable to read $npx_log: $!";
+my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npx_log_fh>;
+close $npx_log_fh;
 like(
     $npm_steps[0],
-    qr/^install express\@\^4\.19\.2 uuid\@\^11\.0\.0 playwright\@\^1\.52\.0\|cwd=\Q$ENV{HOME}\E\/\.developer-dashboard\/cache\/node-package-installs\/npm-install-/,
-    'package.json installs declared Node dependencies from a private staging workspace instead of using bare HOME as the npm project root',
+    qr/^--yes npm install express\@\^4\.19\.2 uuid\@\^11\.0\.0 playwright\@\^1\.52\.0\|cwd=\Q$ENV{HOME}\E\/\.developer-dashboard\/cache\/node-package-installs\/npm-install-/,
+    'package.json installs declared Node dependencies through npx from a private staging workspace instead of using bare HOME as the npm project root',
 );
 ok( -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'express' ), 'package.json merges staged Node dependencies into HOME/node_modules' );
 ok( -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'uuid' ), 'package.json merges additional staged Node dependencies into HOME/node_modules' );
@@ -195,8 +197,8 @@ ok( -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'playwright' ), 'package.
 open my $dashboard_log_fh, '<', $dashboard_log or die "Unable to read $dashboard_log: $!";
 my @dashboard_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dashboard_log_fh>;
 close $dashboard_log_fh;
-is( $dashboard_steps[0], 'skills install dep-alpha', 'ddfile installs dependent skills through dashboard skills install' );
-is( $dashboard_steps[1], 'skills install dep-beta', 'ddfile.local installs dependent skills through dashboard skills install at the current skill level' );
+is( $dashboard_steps[0], 'skills install dep-alpha', 'deferred ddfile installs dependent skills through dashboard skills install' );
+is( $dashboard_steps[1], 'skills install dep-beta', 'deferred ddfile.local installs dependent skills through dashboard skills install at the current skill level' );
 
 my $listed = $manager->list();
 is( scalar(@$listed), 1, 'list returns the installed skill only once' );

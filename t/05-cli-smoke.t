@@ -1262,12 +1262,14 @@ exit 0
 SH
 close $fake_cpanm_fh;
 chmod 0755, $fake_cpanm or die "Unable to chmod $fake_cpanm: $!";
-my $fake_npm_log = File::Spec->catfile( $fake_bin, 'npm.log' );
-my $fake_npm = File::Spec->catfile( $fake_bin, 'npm' );
-open my $fake_npm_fh, '>', $fake_npm or die "Unable to write $fake_npm: $!";
-print {$fake_npm_fh} <<"SH";
+my $fake_npx_log = File::Spec->catfile( $fake_bin, 'npx.log' );
+my $fake_npx = File::Spec->catfile( $fake_bin, 'npx' );
+open my $fake_npx_fh, '>', $fake_npx or die "Unable to write $fake_npx: $!";
+print {$fake_npx_fh} <<"SH";
 #!/bin/sh
-printf '%s|cwd=%s\\n' "\$*" "\$PWD" >> '$fake_npm_log'
+printf '%s|cwd=%s\\n' "\$*" "\$PWD" >> '$fake_npx_log'
+shift
+shift
 shift
 for spec in "\$@"; do
   name=\${spec%%@*}
@@ -1275,8 +1277,8 @@ for spec in "\$@"; do
 done
 exit 0
 SH
-close $fake_npm_fh;
-chmod 0755, $fake_npm or die "Unable to chmod $fake_npm: $!";
+close $fake_npx_fh;
+chmod 0755, $fake_npx or die "Unable to chmod $fake_npx: $!";
 my $skill_repo_root = File::Spec->catdir( $ENV{HOME}, 'skill-fixtures' );
 my $skill_repo = File::Spec->catdir( $skill_repo_root, 'demo-skill' );
 make_path( File::Spec->catdir( $skill_repo, 'cli', 'foo.d' ) );
@@ -1336,19 +1338,19 @@ is( $skill_progress_exit >> 8, 0, 'dashboard skills install still succeeds when 
 like( $skill_progress_stdout, qr/"repo_name"\s*:\s*"demo-skill"/, 'dashboard skills install keeps the machine-readable install payload on stdout while progress is enabled' );
 like( $skill_progress_stderr, qr/dashboard skills install progress/, 'dashboard skills install progress output prints the task-board title when enabled' );
 like( $skill_progress_stderr, qr/\[ \] Fetch skill source/, 'dashboard skills install progress output prints the full task list before work begins' );
-like( $skill_progress_stderr, qr/\[OK\] Install package\.json dependencies from .*demo-skill.*package\.json/, 'dashboard skills install progress output shows that package.json was detected and handed to npm' );
+like( $skill_progress_stderr, qr/\[OK\] Install package\.json dependencies from .*demo-skill.*package\.json/, 'dashboard skills install progress output shows that package.json was detected and handed to npx-wrapped npm' );
 like( $skill_progress_stderr, qr/\[OK\] Install cpanfile dependencies/, 'dashboard skills install progress output marks dependency steps complete after work finishes' );
-open my $fake_npm_log_fh, '<', $fake_npm_log or die "Unable to read $fake_npm_log: $!";
-my @fake_npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$fake_npm_log_fh>;
-close $fake_npm_log_fh;
-ok( scalar @fake_npm_steps, 'dashboard skills install runs npm when the skill ships a package.json' );
+open my $fake_npx_log_fh, '<', $fake_npx_log or die "Unable to read $fake_npx_log: $!";
+my @fake_npx_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$fake_npx_log_fh>;
+close $fake_npx_log_fh;
+ok( scalar @fake_npx_steps, 'dashboard skills install runs npx when the skill ships a package.json' );
 my $portable_npm_stage_root = _portable_path(
     File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cache', 'node-package-installs' )
 );
 like(
-    $fake_npm_steps[0],
-    qr/^install left-pad\@1\.3\.0\|cwd=\Q$portable_npm_stage_root\E\/npm-install-/,
-    'dashboard skills install stages npm work under the dashboard runtime cache instead of using bare HOME as the npm project root',
+    $fake_npx_steps[0],
+    qr/^--yes npm install left-pad\@1\.3\.0\|cwd=\Q$portable_npm_stage_root\E\/npm-install-/,
+    'dashboard skills install stages npx-wrapped npm work under the dashboard runtime cache instead of using bare HOME as the npm project root',
 );
 ok(
     -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'left-pad' ),

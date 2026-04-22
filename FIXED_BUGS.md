@@ -1,5 +1,29 @@
 # Fixed Bugs
 
+## 2026-04-22 (Phase 141: Deferred ddfile Policy And npx-Aware Bootstrap Installs)
+
+- Fixed the skill dependency order drift so automatic skill installs now run
+  `aptfile`, `brewfile`, `package.json`, `cpanfile`, and `cpanfile.local`
+  before the dependent-skill manifests, with `ddfile` and then
+  `ddfile.local` deferred to the end of the install.
+- Fixed the interactive skills-install progress board so the visible task list
+  now matches that deferred runtime order instead of advertising `ddfile`
+  work before the earlier manifest types that actually run first.
+- Fixed skill `package.json` dependency installs so they now run through
+  `npx --yes npm install <dependency-spec...>` in the private staging
+  workspace before the staged packages are merged into `$HOME/node_modules`.
+- Fixed checkout bootstrap drift by adding Node tooling to the shipped
+  `aptfile` and `brewfile` manifests and by making `install.sh` fail
+  explicitly unless `node`, `npm`, and `npx` are present after the bootstrap
+  package install step.
+- Fixed streamed installer failures so `curl ... | sh` runs no longer abort
+  with missing `aptfile` or `brewfile` paths; `install.sh` now falls back to
+  embedded package manifest contents when the checkout files are not present
+  on disk.
+- Fixed the Debian-family old-Perl bootstrap path so `install.sh` installs
+  `App::perlbrew` into `~/perl5/bin` before trying to build a newer Perl when
+  package bootstrapping still leaves `perlbrew` missing from `PATH`.
+
 ## 2026-04-22 (Phase 140: macOS Bash Completion Bootstrap Compatibility)
 
 - Fixed generated bash completion helpers so C<_dashboard_complete> and

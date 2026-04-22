@@ -7,6 +7,33 @@ SCRIPT_DIR=$(
 )
 APTFILE="$SCRIPT_DIR/aptfile"
 BREWFILE="$SCRIPT_DIR/brewfile"
+APTFILE_DEFAULT_CONTENT='
+# Repo bootstrap packages for Debian-family hosts.
+build-essential
+ca-certificates
+cpanminus
+curl
+git
+libexpat1-dev
+libssl-dev
+npm
+nodejs
+perl
+perlbrew
+pkg-config
+zlib1g-dev
+'
+BREWFILE_DEFAULT_CONTENT='
+# Repo bootstrap packages for macOS hosts.
+cpanminus
+curl
+expat
+git
+node
+openssl@3
+perl
+pkgconf
+'
 INSTALL_ROOT="${HOME:?Missing HOME}/perl5"
 CPAN_TARGET="${DD_INSTALL_CPAN_TARGET:-Developer::Dashboard}"
 OS_OVERRIDE="${DD_INSTALL_OS_OVERRIDE:-}"
@@ -37,11 +64,30 @@ trim() {
 
 manifest_packages() {
     manifest_path=$1
-    [ -f "$manifest_path" ] || fail "Missing manifest: $manifest_path"
-    sed \
-        -e 's/[[:space:]]*#.*$//' \
-        -e '/^[[:space:]]*$/d' \
-        "$manifest_path"
+    if [ -f "$manifest_path" ]; then
+        sed \
+            -e 's/[[:space:]]*#.*$//' \
+            -e '/^[[:space:]]*$/d' \
+            "$manifest_path"
+        return 0
+    fi
+
+    case "$(basename "$manifest_path")" in
+        aptfile)
+            printf '%s\n' "$APTFILE_DEFAULT_CONTENT" | sed \
+                -e 's/[[:space:]]*#.*$//' \
+                -e '/^[[:space:]]*$/d'
+            return 0
+            ;;
+        brewfile)
+            printf '%s\n' "$BREWFILE_DEFAULT_CONTENT" | sed \
+                -e 's/[[:space:]]*#.*$//' \
+                -e '/^[[:space:]]*$/d'
+            return 0
+            ;;
+    esac
+
+    fail "Missing manifest: $manifest_path"
 }
 
 platform_name() {
@@ -150,11 +196,25 @@ install_brew_packages() {
     brew install $packages
 }
 
-bootstrap_perlbrew_perl() {
-    require_command perlbrew
+ensure_node_toolchain() {
+    require_command node
+    require_command npm
+    require_command npx
+}
 
+bootstrap_perlbrew_perl() {
     export PERLBREW_ROOT
     export PERLBREW_HOME
+
+    if ! command -v perlbrew >/dev/null 2>&1; then
+        require_command cpanm
+        say "perlbrew is not on PATH; installing App::perlbrew into $INSTALL_ROOT"
+        run_cpanm --local-lib-contained "$INSTALL_ROOT" App::perlbrew
+        PATH="$INSTALL_ROOT/bin:$PATH"
+        export PATH
+    fi
+
+    require_command perlbrew
 
     say "System Perl is older than $MIN_PERL_VERSION; bootstrapping $PERLBREW_PERL with perlbrew under $PERLBREW_ROOT"
     mkdir -p "$PERLBREW_ROOT"
@@ -243,6 +303,7 @@ main() {
             fail "Unsupported platform '$PLATFORM'. Supported platforms are Debian, Ubuntu, and macOS."
             ;;
     esac
+    ensure_node_toolchain
     bootstrap_local_lib
     install_dashboard
     say "Developer Dashboard is installed and initialized."

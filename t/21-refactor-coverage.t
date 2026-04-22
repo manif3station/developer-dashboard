@@ -1552,7 +1552,7 @@ my $fake_bin = tempdir( CLEANUP => 1 );
 my $cpanm_log = File::Spec->catfile( $fake_bin, 'cpanm.log' );
 my $apt_log = File::Spec->catfile( $fake_bin, 'apt.log' );
 my $brew_log = File::Spec->catfile( $fake_bin, 'brew.log' );
-my $npm_log = File::Spec->catfile( $fake_bin, 'npm.log' );
+my $npx_log = File::Spec->catfile( $fake_bin, 'npx.log' );
 my $sudo_log = File::Spec->catfile( $fake_bin, 'sudo.log' );
 my $dashboard_log = File::Spec->catfile( $fake_bin, 'dashboard.log' );
 my $dependency_log = File::Spec->catfile( $fake_bin, 'dependency-install.log' );
@@ -1583,10 +1583,10 @@ SH
     0755,
 );
 _write_file(
-    File::Spec->catfile( $fake_bin, 'npm' ),
+    File::Spec->catfile( $fake_bin, 'npx' ),
     <<"SH",
 #!/bin/sh
-printf '%s|cwd=%s\\n' "\$*" "\$PWD" >> "$npm_log"
+printf '%s|cwd=%s\\n' "\$*" "\$PWD" >> "$npx_log"
 printf 'NPM:%s\\n' "\$*" >> "$dependency_log"
 if [ "\$DD_TEST_NPM_FAIL" = "1" ]; then
   exit 1
@@ -1594,6 +1594,8 @@ fi
 if [ "\$DD_TEST_NPM_NO_MODULES" = "1" ]; then
   exit 0
 fi
+shift
+shift
 shift
 for spec in "\$@"; do
   name=\${spec%%@*}
@@ -1653,13 +1655,13 @@ is_deeply(
     [
         { id => 'fetch_source',         label => 'Fetch skill source' },
         { id => 'prepare_layout',       label => 'Prepare skill layout' },
-        { id => 'install_ddfile',       label => 'Install ddfile dependencies' },
-        { id => 'install_ddfile_local', label => 'Install ddfile.local dependencies' },
         { id => 'install_aptfile',      label => 'Install aptfile dependencies' },
         { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
         { id => 'install_package_json', label => 'Install package.json dependencies' },
         { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
         { id => 'install_cpanfile_local', label => 'Install cpanfile.local dependencies' },
+        { id => 'install_ddfile',       label => 'Install ddfile dependencies' },
+        { id => 'install_ddfile_local', label => 'Install ddfile.local dependencies' },
     ],
     'install_progress_tasks returns the documented dashboard skills install task sequence',
 );
@@ -1910,21 +1912,21 @@ my @dependency_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dependen
 close $dependency_log_fh;
 is_deeply(
     [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|CPANM):/)[0] } @dependency_steps[-6 .. -1] ],
-    [ 'DDFILE', 'DDFILE_LOCAL', 'APT', 'NPM', 'CPANM', 'CPANM' ],
-    '_install_skill_dependencies follows the documented ddfile -> ddfile.local -> aptfile -> package.json -> cpanfile -> cpanfile.local order on Debian-like hosts while leaving brewfile inactive',
+    [ 'APT', 'NPM', 'CPANM', 'CPANM', 'DDFILE', 'DDFILE_LOCAL' ],
+    '_install_skill_dependencies follows the documented aptfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local order on Debian-like hosts while leaving brewfile inactive',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
 close $cpanm_log_fh;
 like( $cpanm_steps[-2], qr/^-L \Q$ENV{HOME}\/skills-home\/perl5\E --cpanfile .*\/cpanfile --installdeps /, '_install_skill_dependencies installs cpanfile dependencies into HOME perl5' );
 like( $cpanm_steps[-1], qr/^-L .*\/perl5 --cpanfile .*\/cpanfile\.local --installdeps /, '_install_skill_dependencies installs cpanfile.local dependencies into the skill-local perl5 root' );
-open my $npm_log_fh, '<', $npm_log or die "Unable to read $npm_log: $!";
+open my $npm_log_fh, '<', $npx_log or die "Unable to read $npx_log: $!";
 my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npm_log_fh>;
 close $npm_log_fh;
 like(
     $npm_steps[-1],
-    qr/^install dep-skill-runtime\@\^1\.2\.3 dep-skill-dev\@\^4\.5\.6\|cwd=\Q$ENV{HOME}\E\/skills-home\/\.developer-dashboard\/cache\/node-package-installs\/npm-install-/,
-    '_install_skill_dependencies stages package.json work under the dashboard runtime cache instead of using bare HOME as the npm project root',
+    qr/^--yes npm install dep-skill-runtime\@\^1\.2\.3 dep-skill-dev\@\^4\.5\.6\|cwd=\Q$ENV{HOME}\E\/skills-home\/\.developer-dashboard\/cache\/node-package-installs\/npm-install-/,
+    '_install_skill_dependencies stages package.json work under the dashboard runtime cache through npx instead of using bare HOME as the npm project root',
 );
 ok( -d File::Spec->catdir( $ENV{HOME}, 'skills-home', 'node_modules', 'dep-skill-runtime' ), '_install_skill_dependencies merges staged Node dependencies into the manager HOME node_modules tree' );
 ok( -d File::Spec->catdir( $ENV{HOME}, 'skills-home', 'node_modules', 'dep-skill-dev' ), '_install_skill_dependencies merges staged dev Node dependencies into the manager HOME node_modules tree' );

@@ -166,6 +166,47 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(@apt_packages);
     my $home = tempdir( CLEANUP => 1 );
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
+    my $script_copy = _slurp($install_sh);
+    _seed_fake_install_commands(
+        fake_bin => $fake_bin,
+        log      => $log,
+    );
+
+    my $env_prefix = join ' ',
+      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+        { key => 'HOME',                   value => $home },
+        { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'SHELL',                  value => '/bin/bash' },
+        { key => 'DD_INSTALL_OS_OVERRIDE', value => 'ubuntu' },
+      );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        open my $pipe, '|-', 'sh', '-c', "$env_prefix sh -s" or die "Unable to start streamed installer: $!";
+        print {$pipe} $script_copy;
+        close $pipe or die "Streamed installer exited non-zero: $?";
+    };
+    is( $exit >> 8, 0, 'install.sh succeeds when streamed through sh stdin without repo manifests on disk' )
+      or diag $stdout . $stderr;
+
+    my @log_lines = _log_lines($log);
+    is_deeply(
+        \@log_lines,
+        [
+            @expected_apt_bootstrap_steps,
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
+            "cpanm --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
+            'cpanm --notest Developer::Dashboard',
+            'dashboard init',
+        ],
+        'streamed install.sh falls back to the embedded Debian-family manifest content',
+    );
+}
+
+{
+    my $home = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log = File::Spec->catfile( $home, 'install.log' );
     _seed_fake_install_commands(
         fake_bin => $fake_bin,
         log      => $log,
@@ -300,6 +341,27 @@ SH
         <<"SH",
 #!/bin/sh
 printf '%s\\n' "dashboard \$*" >> "$log"
+exit 0
+SH
+    );
+    _write_executable(
+        File::Spec->catfile( $fake_bin, 'node' ),
+        <<"SH",
+#!/bin/sh
+exit 0
+SH
+    );
+    _write_executable(
+        File::Spec->catfile( $fake_bin, 'npm' ),
+        <<"SH",
+#!/bin/sh
+exit 0
+SH
+    );
+    _write_executable(
+        File::Spec->catfile( $fake_bin, 'npx' ),
+        <<"SH",
+#!/bin/sh
 exit 0
 SH
     );

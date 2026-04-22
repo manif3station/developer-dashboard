@@ -599,17 +599,26 @@ Bootstrap a blank Debian, Ubuntu, or macOS machine from a checkout with:
 `install.sh` is a checkout-only bootstrap helper. It ships in the source tree
 and release tarball so operators can run it explicitly from a checkout or
 extracted tarball, but CPAN and `cpanm` do not install it as a global command.
+When the installer is streamed through `sh` without a checkout, such as
+`curl ... | sh`, it falls back to embedded Debian-family and Homebrew package
+manifests instead of assuming repo-local `aptfile` and `brewfile` files exist
+on disk.
 
 That installer reads the repo-root `aptfile` on Debian-family hosts and runs
 `apt-get update` plus `apt-get install -y` for the listed packages, reads the
 repo-root `brewfile` on macOS and runs `brew install` for the listed packages,
+or falls back to the embedded copies of those package lists when the script is
+streamed without the checkout files, verifies that `node`, `npm`, and `npx`
+are available from those bootstrap packages before finishing the install,
 bootstraps user-space Perl tooling under `~/perl5` with
 `cpanm --local-lib-contained "$HOME/perl5" local::lib App::cpanminus`,
 appends exactly one `local::lib` bootstrap line to `~/.bashrc`, `~/.zshrc`, or
 `~/.profile` depending on the active shell, prefers Homebrew Perl on macOS when
 `brew --prefix perl` exposes a brewed interpreter, bootstraps a user-space
 `perlbrew` Perl on Debian-family hosts when the system Perl is older than the
-required `5.38`, installs Developer Dashboard into the user account with
+required `5.38`, installs `App::perlbrew` into `~/perl5/bin` first if the
+package manager did not already put `perlbrew` on `PATH`, installs Developer
+Dashboard into the user account with
 `cpanm --notest Developer::Dashboard`, and then runs `dashboard init` so the
 runtime exists immediately after installation.
 
@@ -1694,7 +1703,7 @@ Each installed skill lives under
 - `ddfile.local` - Optional local dependent skill list installed after `ddfile` into the same skills root as the current skill install target
 - `aptfile` - Optional Debian-family system packages installed through `sudo apt-get install -y`
 - `brewfile` - Optional macOS Homebrew packages installed through `brew install`
-- `package.json` - Optional Node dependencies installed into `$HOME/node_modules` by running `npm install <dependency-spec...>` inside a private dashboard staging workspace and then merging the resulting packages into `$HOME/node_modules`
+- `package.json` - Optional Node dependencies installed into `$HOME/node_modules` by running `npx --yes npm install <dependency-spec...>` inside a private dashboard staging workspace and then merging the resulting packages into `$HOME/node_modules`
 - `cpanfile` - Optional shared Perl dependencies installed into `~/perl5`
 - `cpanfile.local` - Optional skill-local Perl dependencies installed into `<skill-root>/perl5`
 
@@ -1754,7 +1763,7 @@ Skill dependency and docker layering:
 - if a `brewfile` exists on macOS, its package list is printed and then
   installed through `brew install`
 - if a `package.json` exists, its Node dependencies are installed into
-  `$HOME/node_modules` by running `npm install <dependency-spec...>` inside a
+  `$HOME/node_modules` by running `npx --yes npm install <dependency-spec...>` inside a
   private dashboard staging workspace and then merging the resulting packages
   into `$HOME/node_modules`, so unrelated `$HOME/package.json` files do not
   break skill installs
@@ -1788,10 +1797,10 @@ environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`, bookmark
 syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, and `CODE1:`, bookmark browser
 helpers such as `fetch_value()`, `stream_value()`, and `stream_data()`,
 underscored config merge keys such as `_example-skill`, the
-`ddfile -> ddfile.local -> aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local`
+`aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local`
 automatic dependency install order, the explicit
 `dashboard skills install --ddfile` operator order of
-`ddfile -> ddfile.local`, the shared `~/perl5` versus skill-local `perl5/`
+the deferred `ddfile -> ddfile.local` pass, the shared `~/perl5` versus skill-local `perl5/`
 split, the `$HOME/node_modules` Node install target used by `package.json`, the
 same-install-level dependency target used by skill-local `ddfile.local`,
 skill docker layering, and when to use

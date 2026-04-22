@@ -1,3 +1,26 @@
+2.88  2026-04-22
+    - changed automatic skill dependency order so `aptfile`, `brewfile`,
+      `package.json`, `cpanfile`, and `cpanfile.local` run first, while the
+      dependent-skill manifests `ddfile` and `ddfile.local` are deferred until
+      the end of the install in that exact order
+    - aligned the interactive skills-install progress board with that deferred
+      dependency order so the visible task list now matches the real runtime
+      install sequence instead of showing `ddfile` work before the manifests
+      that now run earlier
+    - switched skill `package.json` installs to `npx --yes npm install
+      <dependency-spec...>` inside the private staging workspace before the
+      resulting packages are merged into `$HOME/node_modules`
+    - updated the checkout bootstrap manifests and `install.sh` so Debian,
+      Ubuntu, and macOS installs provision and verify `node`, `npm`, and `npx`
+      before the dashboard is installed, keeping the blank-container tarball
+      gate aligned with the new skill Node dependency contract
+    - fixed streamed `install.sh` runs such as `curl ... | sh` so they fall
+      back to embedded `aptfile` and `brewfile` contents instead of assuming
+      the checkout manifests are present on disk
+    - fixed the Debian-family old-Perl bootstrap path so `install.sh` installs
+      `App::perlbrew` into `~/perl5/bin` when `perlbrew` is still missing
+      after package bootstrapping
+
 2.87  2026-04-22
     - fixed generated bash completion bootstrap hangs on macOS by replacing
       process-substitution readers with command-substitution payload capture,

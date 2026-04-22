@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.87';
+our $VERSION = '2.88';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.87
+2.88
 
 =head1 INTRODUCTION
 
@@ -1042,19 +1042,28 @@ Bootstrap a blank Debian, Ubuntu, or macOS machine from a checkout with:
 F<install.sh> is a checkout-only bootstrap helper. It ships in the source tree
 and release tarball so operators can run it explicitly from a checkout or
 extracted tarball, but CPAN and C<cpanm> do not install it as a global
-command.
+command. When the installer is streamed through C<sh> without a checkout,
+such as C<curl ... | sh>, it falls back to embedded Debian-family and
+Homebrew package manifests instead of assuming repo-local F<aptfile> and
+F<brewfile> files exist on disk.
 
 That installer reads the repo-root F<aptfile> on Debian-family hosts and runs
 C<apt-get update> plus C<apt-get install -y> for the listed packages, reads
 the repo-root F<brewfile> on macOS and runs C<brew install> for the listed
-packages, bootstraps user-space Perl tooling under F<~/perl5> with
+packages, verifies that C<node>, C<npm>, and C<npx> are available from those
+bootstrap packages before finishing the install, or falls back to the embedded
+copies of those package lists when the script is streamed without the checkout
+files, bootstraps user-space Perl
+tooling under F<~/perl5> with
 C<cpanm --local-lib-contained "$HOME/perl5" local::lib App::cpanminus>,
 appends exactly one C<local::lib> bootstrap line to F<~/.bashrc>,
 F<~/.zshrc>, or F<~/.profile> depending on the active shell, prefers
 Homebrew Perl on macOS when C<brew --prefix perl> exposes a brewed
 interpreter, bootstraps a user-space C<perlbrew> Perl on Debian-family hosts
-when the system Perl is older than the required C<5.38>, installs Developer
-Dashboard into the user account with C<cpanm --notest Developer::Dashboard>,
+when the system Perl is older than the required C<5.38>, installs
+C<App::perlbrew> into F<~/perl5/bin> first if the package manager did not
+already put C<perlbrew> on C<PATH>, installs Developer Dashboard into the user
+account with C<cpanm --notest Developer::Dashboard>,
 and then runs C<dashboard init> so the runtime exists immediately after
 installation.
 
@@ -2506,7 +2515,7 @@ Optional macOS Homebrew packages installed through C<brew install>
 =item B<package.json>
 
 Optional Node dependencies installed into C<$HOME/node_modules> by running
-C<npm install E<lt>dependency-spec...E<gt>> inside a private dashboard staging
+C<npx --yes npm install E<lt>dependency-spec...E<gt>> inside a private dashboard staging
 workspace and then merging the resulting packages into
 C<$HOME/node_modules>
 
@@ -2671,7 +2680,7 @@ installed through C<brew install>
 =item *
 
 if a C<package.json> exists, its Node dependencies are installed into
-C<$HOME/node_modules> by running C<npm install E<lt>dependency-spec...E<gt>>
+C<$HOME/node_modules> by running C<npx --yes npm install E<lt>dependency-spec...E<gt>>
 inside a private dashboard staging workspace and then merging the resulting
 packages into C<$HOME/node_modules>, so unrelated C<$HOME/package.json> files
 do not break skill installs
@@ -2722,10 +2731,10 @@ layout, environment variables such as C<DEVELOPER_DASHBOARD_SKILL_ROOT>,
 bookmark syntax like C<TITLE:>, C<BOOKMARK:>, C<HTML:>, and C<CODE1:>,
 bookmark browser helpers such as C<fetch_value()>, C<stream_value()>, and
 C<stream_data()>, underscored config merge keys such as C<_example-skill>,
-C<ddfile -> ddfile.local -> aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local>
+C<aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local>
 automatic dependency install order, the explicit
 C<dashboard skills install --ddfile> operator order of
-C<ddfile -> ddfile.local>, the shared C<~/perl5> versus skill-local
+the deferred C<ddfile -> ddfile.local> pass, the shared C<~/perl5> versus skill-local
 C<perl5/> split, the C<$HOME/node_modules> Node install target used by
 C<package.json>,
 the same-install-level dependency target used by skill-local F<ddfile.local>,
