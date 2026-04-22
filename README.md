@@ -612,7 +612,9 @@ streamed without the checkout files, installs Debian-family Node tooling in a
 conflict-aware order by bringing in `nodejs` first and only attempting the
 distro `npm` package if `npm` and `npx` are still missing, verifies that
 `node`, `npm`, and `npx` are available from those bootstrap packages before
-finishing the install,
+finishing the install, prints a visible install progress board before doing any
+system changes, and explains that any upcoming `sudo` prompt is asking for the
+user's operating-system account password only for package-manager work,
 bootstraps user-space Perl tooling under `~/perl5` with
 `cpanm --local-lib-contained "$HOME/perl5" local::lib App::cpanminus`,
 appends exactly one `local::lib` bootstrap line to `~/.bashrc`, `~/.zshrc`, or

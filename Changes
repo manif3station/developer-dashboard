@@ -1,3 +1,15 @@
+2.91  2026-04-22
+    - taught `install.sh` to print a visible colored progress board from the
+      start of the bootstrap so operators can see the current stage, what is
+      already finished, and what is still pending during a streamed
+      `curl ... | sh` install
+    - taught `install.sh` to explain any upcoming `sudo` prompt before it
+      appears, making it explicit that the password request is for the user's
+      operating-system account and only for package-manager work
+    - kept the Debian-family NodeSource conflict handling and the
+      `perlbrew --notest install perl-5.38.5` old-Perl rescue path in place
+      while surfacing both through the installer progress output and docs
+
 2.90  2026-04-22
     - changed automatic skill dependency order so `aptfile`, `brewfile`,
       `package.json`, `cpanfile`, and `cpanfile.local` run first, while the

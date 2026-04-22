@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.90';
+our $VERSION = '2.91';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.90
+2.91
 
 =head1 INTRODUCTION
 
@@ -1055,7 +1055,10 @@ bootstrap packages before finishing the install, or falls back to the embedded
 copies of those package lists when the script is streamed without the checkout
 files, installs Debian-family Node tooling in a conflict-aware order by
 bringing in C<nodejs> first and only attempting the distro C<npm> package if
-C<npm> and C<npx> are still missing, bootstraps user-space Perl
+C<npm> and C<npx> are still missing, prints a visible install progress board
+before doing any system changes, explains that any upcoming C<sudo> prompt is
+asking for the user's operating-system account password only for package-manager
+work, bootstraps user-space Perl
 tooling under F<~/perl5> with
 C<cpanm --local-lib-contained "$HOME/perl5" local::lib App::cpanminus>,
 appends exactly one C<local::lib> bootstrap line to F<~/.bashrc>,

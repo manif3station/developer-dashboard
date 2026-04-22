@@ -1,5 +1,14 @@
 # Fixed Bugs
 
+## 2026-04-22 (Phase 143: install.sh Password Prompt And Progress UX)
+
+- Fixed the blank-machine bootstrap UX so `install.sh` now prints a full
+  progress board before changing the system, then updates that board through
+  package install, Perl bootstrap, dashboard install, and runtime init.
+- Fixed the confusing first `sudo` password prompt during `curl ... | sh`
+  installs by explaining beforehand that the prompt is for the user's
+  operating-system account password and only for package-manager work.
+
 ## 2026-04-22 (Phase 141: Deferred ddfile Policy And npx-Aware Bootstrap Installs)
 
 - Fixed the skill dependency order drift so automatic skill installs now run

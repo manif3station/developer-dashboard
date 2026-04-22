@@ -44,18 +44,210 @@ MIN_PERL_VERSION='5.038'
 PERL_BIN=''
 CPANM_SCRIPT=''
 RC_FILE=''
+CURRENT_STEP=''
+SUDO_EXPLAINED='0'
+PROGRESS_STEPS='detect_platform install_system_packages verify_node_toolchain bootstrap_local_lib install_dashboard_package initialize_dashboard'
+PROGRESS_STATUS_detect_platform='pending'
+PROGRESS_STATUS_install_system_packages='pending'
+PROGRESS_STATUS_verify_node_toolchain='pending'
+PROGRESS_STATUS_bootstrap_local_lib='pending'
+PROGRESS_STATUS_install_dashboard_package='pending'
+PROGRESS_STATUS_initialize_dashboard='pending'
+PROGRESS_NOTE_detect_platform=''
+PROGRESS_NOTE_install_system_packages=''
+PROGRESS_NOTE_verify_node_toolchain=''
+PROGRESS_NOTE_bootstrap_local_lib=''
+PROGRESS_NOTE_install_dashboard_package=''
+PROGRESS_NOTE_initialize_dashboard=''
+COLOR_RESET=''
+COLOR_GREEN=''
+COLOR_RED=''
+COLOR_YELLOW=''
+if [ -t 1 ] && [ "${NO_COLOR:-}" = "" ]; then
+    COLOR_RESET=$(printf '\033[0m')
+    COLOR_GREEN=$(printf '\033[32m')
+    COLOR_RED=$(printf '\033[31m')
+    COLOR_YELLOW=$(printf '\033[33m')
+fi
 
 say() {
     printf '%s\n' "$*"
 }
 
 fail() {
+    if [ -n "$CURRENT_STEP" ]; then
+        progress_fail "$CURRENT_STEP" "$*"
+    fi
     printf '%s\n' "$*" >&2
     exit 1
 }
 
 require_command() {
     command -v "$1" >/dev/null 2>&1 || fail "Missing required command: $1"
+}
+
+progress_label() {
+    case "$1" in
+        detect_platform)
+            printf '%s\n' 'Detect platform and shell profile'
+            ;;
+        install_system_packages)
+            printf '%s\n' 'Install system packages'
+            ;;
+        verify_node_toolchain)
+            printf '%s\n' 'Verify Node toolchain'
+            ;;
+        bootstrap_local_lib)
+            printf '%s\n' 'Bootstrap Perl user-space runtime'
+            ;;
+        install_dashboard_package)
+            printf '%s\n' 'Install Developer Dashboard'
+            ;;
+        initialize_dashboard)
+            printf '%s\n' 'Initialize dashboard runtime'
+            ;;
+        *)
+            printf '%s\n' "$1"
+            ;;
+    esac
+}
+
+progress_set_state() {
+    step=$1
+    status=$2
+    note=${3-}
+    case "$step" in
+        detect_platform)
+            PROGRESS_STATUS_detect_platform=$status
+            PROGRESS_NOTE_detect_platform=$note
+            ;;
+        install_system_packages)
+            PROGRESS_STATUS_install_system_packages=$status
+            PROGRESS_NOTE_install_system_packages=$note
+            ;;
+        verify_node_toolchain)
+            PROGRESS_STATUS_verify_node_toolchain=$status
+            PROGRESS_NOTE_verify_node_toolchain=$note
+            ;;
+        bootstrap_local_lib)
+            PROGRESS_STATUS_bootstrap_local_lib=$status
+            PROGRESS_NOTE_bootstrap_local_lib=$note
+            ;;
+        install_dashboard_package)
+            PROGRESS_STATUS_install_dashboard_package=$status
+            PROGRESS_NOTE_install_dashboard_package=$note
+            ;;
+        initialize_dashboard)
+            PROGRESS_STATUS_initialize_dashboard=$status
+            PROGRESS_NOTE_initialize_dashboard=$note
+            ;;
+    esac
+}
+
+progress_status() {
+    case "$1" in
+        detect_platform)
+            printf '%s\n' "$PROGRESS_STATUS_detect_platform"
+            ;;
+        install_system_packages)
+            printf '%s\n' "$PROGRESS_STATUS_install_system_packages"
+            ;;
+        verify_node_toolchain)
+            printf '%s\n' "$PROGRESS_STATUS_verify_node_toolchain"
+            ;;
+        bootstrap_local_lib)
+            printf '%s\n' "$PROGRESS_STATUS_bootstrap_local_lib"
+            ;;
+        install_dashboard_package)
+            printf '%s\n' "$PROGRESS_STATUS_install_dashboard_package"
+            ;;
+        initialize_dashboard)
+            printf '%s\n' "$PROGRESS_STATUS_initialize_dashboard"
+            ;;
+    esac
+}
+
+progress_note() {
+    case "$1" in
+        detect_platform)
+            printf '%s\n' "$PROGRESS_NOTE_detect_platform"
+            ;;
+        install_system_packages)
+            printf '%s\n' "$PROGRESS_NOTE_install_system_packages"
+            ;;
+        verify_node_toolchain)
+            printf '%s\n' "$PROGRESS_NOTE_verify_node_toolchain"
+            ;;
+        bootstrap_local_lib)
+            printf '%s\n' "$PROGRESS_NOTE_bootstrap_local_lib"
+            ;;
+        install_dashboard_package)
+            printf '%s\n' "$PROGRESS_NOTE_install_dashboard_package"
+            ;;
+        initialize_dashboard)
+            printf '%s\n' "$PROGRESS_NOTE_initialize_dashboard"
+            ;;
+    esac
+}
+
+progress_render() {
+    say "Developer Dashboard install progress"
+    for step in $PROGRESS_STEPS; do
+        status=$(progress_status "$step")
+        note=$(progress_note "$step")
+        label=$(progress_label "$step")
+        case "$status" in
+            done)
+                prefix="${COLOR_GREEN}[OK]${COLOR_RESET}"
+                ;;
+            error)
+                prefix="${COLOR_RED}[X]${COLOR_RESET}"
+                ;;
+            active)
+                prefix="${COLOR_YELLOW}->${COLOR_RESET}"
+                ;;
+            *)
+                prefix='[ ]'
+                ;;
+        esac
+        if [ -n "$note" ]; then
+            say "$prefix $label ($note)"
+        else
+            say "$prefix $label"
+        fi
+    done
+}
+
+progress_start() {
+    CURRENT_STEP=$1
+    progress_set_state "$1" 'active' "${2-}"
+    progress_render
+}
+
+progress_done() {
+    progress_set_state "$1" 'done' "${2-}"
+    if [ "$CURRENT_STEP" = "$1" ]; then
+        CURRENT_STEP=''
+    fi
+    progress_render
+}
+
+progress_fail() {
+    progress_set_state "$1" 'error' "${2-}"
+    if [ "$CURRENT_STEP" = "$1" ]; then
+        CURRENT_STEP=''
+    fi
+    progress_render
+}
+
+explain_sudo_requirements() {
+    if [ "$SUDO_EXPLAINED" = "1" ] || [ "$(id -u)" -eq 0 ]; then
+        return 0
+    fi
+    say "About to use sudo for system package installation."
+    say "sudo will ask for your operating-system account password, not a Developer Dashboard password."
+    say "This access is only for apt-get update/install so the listed bootstrap packages can be installed."
+    SUDO_EXPLAINED='1'
 }
 
 node_toolchain_ready() {
@@ -190,6 +382,7 @@ install_apt_packages() {
     node_packages=$(printf '%s\n' "$manifest_lines" | grep -E '^(nodejs|npm)$' || true)
 
     if [ -n "$prefix" ]; then
+        explain_sudo_requirements
         $prefix apt-get update
     else
         apt-get update
@@ -345,13 +538,20 @@ bootstrap_local_lib() {
 
 install_dashboard() {
     run_cpanm --notest "$CPAN_TARGET"
+}
+
+initialize_dashboard() {
     require_command dashboard
     dashboard init
 }
 
 main() {
+    progress_render
+    progress_start detect_platform
     PLATFORM=$(platform_name)
     RC_FILE=$(choose_rc_file)
+    progress_done detect_platform "$PLATFORM via $(basename "$RC_FILE")"
+    progress_start install_system_packages "$PLATFORM"
     case "$PLATFORM" in
         debian|ubuntu)
             install_apt_packages
@@ -363,9 +563,19 @@ main() {
             fail "Unsupported platform '$PLATFORM'. Supported platforms are Debian, Ubuntu, and macOS."
             ;;
     esac
+    progress_done install_system_packages "$PLATFORM complete"
+    progress_start verify_node_toolchain
     ensure_node_toolchain
+    progress_done verify_node_toolchain 'node, npm, and npx ready'
+    progress_start bootstrap_local_lib
     bootstrap_local_lib
+    progress_done bootstrap_local_lib "$(basename "$PERL_BIN") via $(basename "$RC_FILE")"
+    progress_start install_dashboard_package
     install_dashboard
+    progress_done install_dashboard_package "$CPAN_TARGET"
+    progress_start initialize_dashboard
+    initialize_dashboard
+    progress_done initialize_dashboard "$HOME/.developer-dashboard"
     say "Developer Dashboard is installed and initialized."
 }
 

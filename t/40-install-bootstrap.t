@@ -58,6 +58,25 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
     };
     is( $exit >> 8, 0, 'install.sh succeeds on Debian-family hosts with mocked system commands' )
       or diag $stdout . $stderr;
+    like(
+        $stdout,
+        qr/Developer Dashboard install progress/,
+        'install.sh prints a visible progress board before running Debian-family bootstrap work',
+    );
+    if ( ( $> || 0 ) == 0 ) {
+        unlike(
+            $stdout,
+            qr/sudo will ask for your operating-system account password, not a Developer Dashboard password/s,
+            'install.sh skips the sudo password explanation when it is already running as root',
+        );
+    }
+    else {
+        like(
+            $stdout,
+            qr/sudo will ask for your operating-system account password, not a Developer Dashboard password/s,
+            'install.sh explains the sudo password prompt before requesting system package access',
+        );
+    }
 
     my @log_lines = _log_lines($log);
     is_deeply(
