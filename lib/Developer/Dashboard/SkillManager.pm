@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.00';
+our $VERSION = '3.01';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -651,6 +651,8 @@ sub _dependency_progress_label {
     my $result = $args{result};
 
     if ( ref($result) eq 'HASH' && $result->{skipped} ) {
+        return "$label (skipped: $result->{skip_reason})"
+          if defined $result->{skip_reason} && $result->{skip_reason} ne '';
         return "$label (skipped: $file not present)";
     }
     return "$label from $path" if -f $path;
@@ -700,6 +702,20 @@ sub _skill_apt_packages {
     }
     close $fh;
     return @packages;
+}
+
+# _packages_missing($is_installed, @packages)
+# Filters one ordered package list down to packages that are not installed yet.
+# Input: code reference that receives one package name and returns an installed
+# boolean, followed by ordered package names.
+# Output: ordered list of package names that still need installation.
+sub _packages_missing {
+    my ( $self, $is_installed, @packages ) = @_;
+    my @missing;
+    for my $package (@packages) {
+        push @missing, $package if !$is_installed->($package);
+    }
+    return @missing;
 }
 
 # _dependency_file_lines($file)
@@ -752,6 +768,31 @@ sub _is_alpine {
     return 1 if $ENV{DD_TEST_ALPINE};
     return 0 if $self->_current_os ne 'linux';
     return -f '/etc/alpine-release' ? 1 : 0;
+}
+
+# _apt_package_is_installed($package)
+# Checks whether one Debian-family package is already installed.
+# Input: package name string from one skill aptfile.
+# Output: boolean true when the package is already installed.
+sub _apt_package_is_installed {
+    my ( $self, $package ) = @_;
+    my ( $stdout, undef, $exit ) = capture {
+        system( 'dpkg-query', '-W', '--showformat=${Status}', '--', $package );
+    };
+    return 0 if $exit != 0;
+    return $stdout =~ /install ok installed/ ? 1 : 0;
+}
+
+# _apk_package_is_installed($package)
+# Checks whether one Alpine package is already installed.
+# Input: package name string from one skill apkfile.
+# Output: boolean true when the package is already installed.
+sub _apk_package_is_installed {
+    my ( $self, $package ) = @_;
+    my ( undef, undef, $exit ) = capture {
+        system( 'apk', 'info', '-e', $package );
+    };
+    return $exit == 0 ? 1 : 0;
 }
 
 # _shared_perl_root()
@@ -994,12 +1035,21 @@ sub _install_skill_aptfile {
     my ( $self, $skill_path ) = @_;
     my @apt_packages = $self->_skill_apt_packages($skill_path);
     return { success => 1, skipped => 1 } if !@apt_packages || !$self->_is_debian_like;
+    my @missing_packages = $self->_packages_missing(
+        sub { $self->_apt_package_is_installed( $_[0] ) },
+        @apt_packages
+    );
+    return {
+        success     => 1,
+        skipped     => 1,
+        skip_reason => 'all aptfile packages already installed',
+    } if !@missing_packages;
 
     my $aptfile = File::Spec->catfile( $skill_path, 'aptfile' );
     my @runner_prefix = $self->_skill_package_runner_prefix;
     my ( $stdout, $stderr, $exit ) = capture {
-        print "Installing apt packages for ", basename($skill_path), " from $aptfile: ", join( ' ', @apt_packages ), "\n";
-        system( @runner_prefix, 'apt-get', 'install', '-y', @apt_packages );
+        print "Installing apt packages for ", basename($skill_path), " from $aptfile: ", join( ' ', @missing_packages ), "\n";
+        system( @runner_prefix, 'apt-get', 'install', '-y', @missing_packages );
     };
     return {
         error => "Failed to install skill apt dependencies for $skill_path: $stderr",
@@ -1022,11 +1072,20 @@ sub _install_skill_apkfile {
     my $apkfile = File::Spec->catfile( $skill_path, 'apkfile' );
     my @packages = $self->_dependency_file_lines($apkfile);
     return { success => 1, skipped => 1 } if !@packages || !$self->_is_alpine;
+    my @missing_packages = $self->_packages_missing(
+        sub { $self->_apk_package_is_installed( $_[0] ) },
+        @packages
+    );
+    return {
+        success     => 1,
+        skipped     => 1,
+        skip_reason => 'all apkfile packages already installed',
+    } if !@missing_packages;
 
     my @runner_prefix = $self->_skill_package_runner_prefix;
     my ( $stdout, $stderr, $exit ) = capture {
-        print "Installing apk packages for ", basename($skill_path), " from $apkfile: ", join( ' ', @packages ), "\n";
-        system( @runner_prefix, 'apk', 'add', '--no-cache', @packages );
+        print "Installing apk packages for ", basename($skill_path), " from $apkfile: ", join( ' ', @missing_packages ), "\n";
+        system( @runner_prefix, 'apk', 'add', '--no-cache', @missing_packages );
     };
     return {
         error => "Failed to install skill apk dependencies for $skill_path: $stderr",

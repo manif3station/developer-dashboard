@@ -1728,8 +1728,8 @@ Each installed skill lives under
 - `logs/` - Skill output logs
 - `ddfile` - Optional dependent skill list installed before package managers run
 - `ddfile.local` - Optional local dependent skill list installed after `ddfile` into the same skills root as the current skill install target
-- `aptfile` - Optional Debian-family system packages installed through `sudo apt-get install -y`
-- `apkfile` - Optional Alpine system packages installed through `sudo apk add --no-cache`
+- `aptfile` - Optional Debian-family system packages; Dashboard checks each package first and only runs `sudo apt-get install -y` for the missing packages
+- `apkfile` - Optional Alpine system packages; Dashboard checks each package first and only runs `sudo apk add --no-cache` for the missing packages
 - `brewfile` - Optional macOS Homebrew packages installed through `brew install`
 - `package.json` - Optional Node dependencies installed into `$HOME/node_modules` by running `npx --yes npm install <dependency-spec...>` inside a private dashboard staging workspace and then merging the resulting packages into `$HOME/node_modules`
 - `cpanfile` - Optional shared Perl dependencies installed into `~/perl5`
@@ -1786,10 +1786,8 @@ Skill dependency and docker layering:
 - if that same directory also contains `ddfile.local`, every listed source is
   then reinstalled or refreshed into the current directory's nested
   `skills/<repo-name>/` tree after the global `ddfile` pass completes
-- if an `aptfile` exists on a Debian-family host, its package list is printed
-  before the sudo prompt and then installed through `sudo apt-get install -y`
-- if an `apkfile` exists on an Alpine host, its package list is printed
-  before the sudo prompt and then installed through `sudo apk add --no-cache`
+- if an `aptfile` exists on a Debian-family host, Dashboard checks each listed package first and only prints and installs the packages that are still missing through `sudo apt-get install -y`
+- if an `apkfile` exists on an Alpine host, Dashboard checks each listed package first and only prints and installs the packages that are still missing through `sudo apk add --no-cache`
 - if a `brewfile` exists on macOS, its package list is printed and then
   installed through `brew install`
 - if a `package.json` exists, its Node dependencies are installed into

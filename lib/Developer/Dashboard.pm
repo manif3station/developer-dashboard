@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.00';
+our $VERSION = '3.01';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-3.00
+3.01
 
 =head1 INTRODUCTION
 
@@ -2536,7 +2536,8 @@ skills root as the current skill install target
 =item B<aptfile>
 
 Optional Debian-family system packages installed through
-C<sudo apt-get install -y>
+C<sudo apt-get install -y> after Dashboard checks each listed package and
+keeps only the missing packages in the install request
 
 =item B<brewfile>
 
@@ -2698,14 +2699,15 @@ F<skills/E<lt>repo-nameE<gt>/> tree after the global F<ddfile> pass completes
 
 =item *
 
-if an C<aptfile> exists on a Debian-family host, its package list is printed
-before the sudo prompt and then installed through
-C<sudo apt-get install -y>
+if an C<aptfile> exists on a Debian-family host, Dashboard checks each listed
+package first and only prints and installs the packages that are still missing
+through C<sudo apt-get install -y>
 
 =item *
 
-if an C<apkfile> exists on an Alpine host, its package list is printed before
-the sudo prompt and then installed through C<sudo apk add --no-cache>
+if an C<apkfile> exists on an Alpine host, Dashboard checks each listed
+package first and only prints and installs the packages that are still missing
+through C<sudo apk add --no-cache>
 
 =item *
 

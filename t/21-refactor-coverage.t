@@ -1647,9 +1647,30 @@ SH
     0755,
 );
 _write_file(
+    File::Spec->catfile( $fake_bin, 'dpkg-query' ),
+    <<'SH',
+#!/bin/sh
+eval "package=\${$#}"
+case ",${DD_TEST_APT_INSTALLED:-}," in
+  *,"$package",*)
+    printf '%s' 'install ok installed'
+    exit 0
+    ;;
+esac
+exit 1
+SH
+    0755,
+);
+_write_file(
     File::Spec->catfile( $fake_bin, 'apk' ),
     <<"SH",
 #!/bin/sh
+if [ "\$1" = "info" ] && [ "\$2" = "-e" ]; then
+  case ",\${DD_TEST_APK_INSTALLED:-}," in
+    *,"\$3",*) exit 0 ;;
+  esac
+  exit 1
+fi
 printf '%s\\n' "\$*" >> "$apk_log"
 printf 'APK:%s\\n' "\$*" >> "$dependency_log"
 if [ "\$DD_TEST_APK_FAIL" = "1" ]; then
@@ -1946,6 +1967,34 @@ like(
 );
 ok( -d File::Spec->catdir( $ENV{HOME}, 'skills-home', 'node_modules', 'dep-skill-runtime' ), '_install_skill_dependencies merges staged Node dependencies into the manager HOME node_modules tree' );
 ok( -d File::Spec->catdir( $ENV{HOME}, 'skills-home', 'node_modules', 'dep-skill-dev' ), '_install_skill_dependencies merges staged dev Node dependencies into the manager HOME node_modules tree' );
+{
+    local $ENV{DD_TEST_APT_INSTALLED} = 'git';
+    unlink $apt_log;
+    my $partial_apt = $manager->_install_skill_aptfile( $dep_skill_root );
+    ok( !$partial_apt->{error}, '_install_skill_aptfile succeeds when only some Debian packages are already installed' )
+      or diag $partial_apt->{error};
+    open my $partial_apt_fh, '<', $apt_log or die "Unable to read $apt_log: $!";
+    my @partial_apt_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$partial_apt_fh>;
+    close $partial_apt_fh;
+    is( $partial_apt_steps[-1], 'install -y curl', '_install_skill_aptfile only installs the Debian packages that are still missing' );
+}
+{
+    local $ENV{DD_TEST_APT_INSTALLED} = 'git,curl';
+    unlink $apt_log;
+    unlink $sudo_log;
+    my $skip_apt = $manager->_install_skill_aptfile( $dep_skill_root );
+    ok( !$skip_apt->{error}, '_install_skill_aptfile succeeds when every Debian package from aptfile is already installed' )
+      or diag $skip_apt->{error};
+    ok( $skip_apt->{skipped}, '_install_skill_aptfile reports a skip when every Debian package from aptfile is already installed' );
+    is( $skip_apt->{skip_reason}, 'all aptfile packages already installed', '_install_skill_aptfile returns the explicit Debian package skip reason' );
+    ok( !-f $apt_log, '_install_skill_aptfile does not run apt-get when every Debian package from aptfile is already installed' );
+    ok( !-f $sudo_log, '_install_skill_aptfile does not run sudo when every Debian package from aptfile is already installed' );
+    is(
+        $manager->_dependency_progress_label( 'install_aptfile', $dep_skill_root, result => $skip_apt ),
+        'Install aptfile dependencies (skipped: all aptfile packages already installed)',
+        '_dependency_progress_label reports the explicit Debian package skip reason',
+    );
+}
 my $browser_like_package_json = File::Spec->catfile( $ENV{HOME}, 'browser-like-package.json' );
 _write_file(
     $browser_like_package_json,
@@ -2153,6 +2202,33 @@ ok( !$manager->install( 'file://' . $no_dep_repo )->{error}, 'skill manager inst
     my $apk_install = $manager->_install_skill_dependencies($apk_repo);
     ok( !$apk_install->{error}, '_install_skill_dependencies succeeds for apkfile-driven installs on Alpine' ) or diag $apk_install->{error};
     ok( -f $apk_log, '_install_skill_dependencies records an apk invocation when the skill ships an apkfile on Alpine' );
+}
+{
+    local $ENV{DD_TEST_ALPINE} = 1;
+    local $ENV{DD_TEST_APK_INSTALLED} = 'procps-dev';
+    my $apk_repo = File::Spec->catdir( $test_repos, 'apk-skip-skill' );
+    make_path($apk_repo);
+    _write_file( File::Spec->catfile( $apk_repo, 'apkfile' ), "procps-dev\n" );
+    unlink $apk_log;
+    unlink $sudo_log;
+    my $skip_apk = $manager->_install_skill_dependencies($apk_repo);
+    ok( !$skip_apk->{error}, '_install_skill_dependencies succeeds for apkfile-driven installs on Alpine when every package is already installed' )
+      or diag $skip_apk->{error};
+    ok( !-f $apk_log, '_install_skill_dependencies skips apk add when every Alpine package is already installed' );
+    ok( !-f $sudo_log, '_install_skill_dependencies skips sudo when every Alpine package is already installed' );
+    is(
+        $manager->_dependency_progress_label(
+            'install_apkfile',
+            $apk_repo,
+            result => {
+                success     => 1,
+                skipped     => 1,
+                skip_reason => 'all apkfile packages already installed',
+            }
+        ),
+        'Install apkfile dependencies (skipped: all apkfile packages already installed)',
+        '_dependency_progress_label reports the explicit Alpine package skip reason',
+    );
 }
 {
     local $ENV{DD_TEST_APK_FAIL} = 1;

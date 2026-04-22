@@ -1,5 +1,17 @@
 # Fixed Bugs
 
+## 2026-04-22 (Phase 153: Skill Package Manager Preflight Checks)
+
+- Fixed `dashboard skills install` so `aptfile` and `apkfile` manifests no
+  longer trigger `sudo apt-get install` or `sudo apk add` blindly whenever the
+  manifest exists.
+- Fixed unnecessary root-password prompts by checking each listed Debian or
+  Alpine package first and skipping the package-manager step entirely when
+  every listed package is already installed.
+- Fixed partial package-manager installs so the runtime now only sends the
+  missing package subset to `apt-get install -y` or `apk add --no-cache`
+  instead of reinstalling already-present packages from the manifest.
+
 ## 2026-04-22 (Phase 152: Alpine sh Activation After perlbrew Rescue)
 
 - Fixed the streamed Alpine finish line after an old-system-Perl rescue build

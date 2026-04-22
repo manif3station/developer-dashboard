@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '3.00';
+our $VERSION = '3.01';
 
 1;
 
@@ -195,8 +195,8 @@ skills root as the current skill install target.
 =item B<aptfile>
 
 Optional Debian-family system package declaration. When present, Developer
-Dashboard prints the requested package list and installs it through
-C<sudo apt-get install -y>.
+Dashboard checks each listed package first, prints only the missing packages,
+and installs those through C<sudo apt-get install -y>.
 
 =item B<brewfile>
 

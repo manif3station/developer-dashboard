@@ -108,9 +108,30 @@ SH
     0755,
 );
 _write_file(
+    File::Spec->catfile( $fake_bin, 'dpkg-query' ),
+    <<'SH',
+#!/bin/sh
+eval "package=\${$#}"
+case ",${DD_TEST_APT_INSTALLED:-}," in
+  *,"$package",*)
+    printf '%s' 'install ok installed'
+    exit 0
+    ;;
+esac
+exit 1
+SH
+    0755,
+);
+_write_file(
     File::Spec->catfile( $fake_bin, 'apk' ),
     <<"SH",
 #!/bin/sh
+if [ "\$1" = "info" ] && [ "\$2" = "-e" ]; then
+  case ",\${DD_TEST_APK_INSTALLED:-}," in
+    *,"\$3",*) exit 0 ;;
+  esac
+  exit 1
+fi
 printf '%s\\n' "\$*" >> "$apk_log"
 printf 'APK:%s\\n' "\$*" >> "$dependency_log"
 exit 0
@@ -215,6 +236,7 @@ is( $dashboard_steps[1], 'skills install dep-beta', 'deferred ddfile.local insta
 {
     no warnings 'redefine';
     local *Developer::Dashboard::SkillManager::_skill_package_runner_prefix = sub { return (); };
+    local $ENV{DD_TEST_APT_INSTALLED} = 'git';
     unlink $apt_log;
     unlink $sudo_log;
     my $root_apt = $manager->_install_skill_aptfile( $install->{path} );
@@ -223,7 +245,7 @@ is( $dashboard_steps[1], 'skills install dep-beta', 'deferred ddfile.local insta
     open my $root_apt_fh, '<', $apt_log or die "Unable to read $apt_log: $!";
     my @root_apt_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$root_apt_fh>;
     close $root_apt_fh;
-    is( $root_apt_steps[0], 'install -y git curl', '_install_skill_aptfile calls apt-get directly when no sudo prefix is required' );
+    is( $root_apt_steps[0], 'install -y curl', '_install_skill_aptfile only installs Debian packages that are still missing' );
     my $sudo_text = '';
     if ( -f $sudo_log ) {
         open my $sudo_fh, '<', $sudo_log or die "Unable to read $sudo_log: $!";
@@ -233,15 +255,38 @@ is( $dashboard_steps[1], 'skills install dep-beta', 'deferred ddfile.local insta
     ok( $sudo_text eq '', '_install_skill_aptfile does not invoke sudo when package installs already run as root' );
 }
 {
+    local $ENV{DD_TEST_APT_INSTALLED} = 'git,curl';
+    unlink $apt_log;
+    unlink $sudo_log;
+    my $skip_apt = $manager->_install_skill_aptfile( $install->{path} );
+    ok( !$skip_apt->{error}, '_install_skill_aptfile succeeds when every Debian package is already installed' )
+      or diag $skip_apt->{error};
+    ok( $skip_apt->{skipped}, '_install_skill_aptfile reports a skip when every Debian package is already installed' );
+    is( $skip_apt->{skip_reason}, 'all aptfile packages already installed', '_install_skill_aptfile returns an explicit skip reason for fully installed Debian package manifests' );
+    ok( !-f $apt_log, '_install_skill_aptfile does not invoke apt-get when every Debian package is already installed' );
+    ok( !-f $sudo_log, '_install_skill_aptfile does not invoke sudo when every Debian package is already installed' );
+}
+{
     local $ENV{DD_TEST_ALPINE} = 1;
+    local $ENV{DD_TEST_APK_INSTALLED} = 'procps-dev';
     unlink $apk_log;
     my $root_apk = $manager->_install_skill_apkfile( $install->{path} );
     ok( !$root_apk->{error}, '_install_skill_apkfile succeeds on Alpine hosts when an apkfile is present' )
       or diag $root_apk->{error};
+    ok( $root_apk->{skipped}, '_install_skill_apkfile reports a skip when every Alpine package is already installed' );
+    is( $root_apk->{skip_reason}, 'all apkfile packages already installed', '_install_skill_apkfile returns an explicit skip reason for fully installed Alpine package manifests' );
+    ok( !-f $apk_log, '_install_skill_apkfile does not invoke apk add when every Alpine package is already installed' );
+}
+{
+    local $ENV{DD_TEST_ALPINE} = 1;
+    unlink $apk_log;
+    my $root_apk = $manager->_install_skill_apkfile( $install->{path} );
+    ok( !$root_apk->{error}, '_install_skill_apkfile succeeds on Alpine hosts when an apkfile is present and packages are missing' )
+      or diag $root_apk->{error};
     open my $root_apk_fh, '<', $apk_log or die "Unable to read $apk_log: $!";
     my @root_apk_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$root_apk_fh>;
     close $root_apk_fh;
-    is( $root_apk_steps[0], 'add --no-cache procps-dev', '_install_skill_apkfile calls apk add --no-cache with the skill apkfile packages' );
+    is( $root_apk_steps[0], 'add --no-cache procps-dev', '_install_skill_apkfile calls apk add --no-cache with only the missing Alpine packages' );
 }
 
 my $listed = $manager->list();

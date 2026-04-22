@@ -1,3 +1,12 @@
+3.01  2026-04-22
+    - fixed skill `aptfile` and `apkfile` installs so Dashboard now checks
+      each listed package first and only escalates to `sudo apt-get install`
+      or `sudo apk add` for packages that are still missing, avoiding
+      unnecessary password prompts when everything is already installed
+    - updated skill install progress and docs so skipped `aptfile` and
+      `apkfile` steps now report that all listed packages were already
+      installed instead of looking like a generic missing-manifest skip
+
 3.00  2026-04-22
     - fixed streamed Alpine `curl ... | sh` activation after an old-system
       Perl rescue build by keeping the generated shell rc file POSIX-safe
