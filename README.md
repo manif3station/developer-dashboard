@@ -246,7 +246,7 @@ generic package names.
 - private `~/.developer-dashboard/cli/dd/*` built-in helpers plus `~/.developer-dashboard/cli/dd/_dashboard-core`
   Provide dashboard-managed helper assets without installing generic command names into the global PATH. Query/open-file/ticket/path/prompt helpers keep their own dedicated helper bodies, while the remaining built-in commands stage thin wrappers that hand off to the shared private `_dashboard-core` runtime.
 
-Only `dashboard` is intended to be the public CPAN-facing command-line entrypoint. The real built-in command bodies now live outside `bin/dashboard` under `share/private-cli/`, then stage into `~/.developer-dashboard/cli/dd/` on demand. Generic helper names such as `ticket`, `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, `path`, and `paths` are intentionally kept out of the installed global PATH to avoid polluting the wider Perl and shell ecosystem while still keeping dashboard-owned commands separate from user commands under `~/.developer-dashboard/cli/`.
+Only `dashboard` is intended to be the public CPAN-facing command-line entrypoint. The real built-in command bodies now live outside `bin/dashboard` under `share/private-cli/`, then stage into `~/.developer-dashboard/cli/dd/` on demand. Generic helper names such as `ticket`, `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, `path`, and `paths` are intentionally kept out of the installed global PATH to avoid polluting the wider Perl and shell ecosystem while still keeping dashboard-owned commands separate from user commands under `~/.developer-dashboard/cli/`. While those staged helpers run, their process title is normalized to the public `developer-dashboard ...` form so `ps` output shows the user-facing command instead of the staged helper path.
 
 - `dashboard ticket`
   Creates or reuses a tmux session for the requested ticket reference, seeds `TICKET_REF` plus dashboard-friendly branch aliases into that session environment, and attaches to it through a dashboard-managed private helper instead of a public standalone binary.
@@ -600,12 +600,14 @@ Bootstrap a blank Debian, Ubuntu, or macOS machine from a checkout with:
 and release tarball so operators can run it explicitly from a checkout or
 extracted tarball, but CPAN and `cpanm` do not install it as a global command.
 When the installer is streamed through `sh` without a checkout, such as
-`curl ... | sh`, it falls back to embedded Debian-family and Homebrew package
-manifests instead of assuming repo-local `aptfile` and `brewfile` files exist
-on disk.
+`curl ... | sh`, it falls back to embedded Debian-family, Alpine, and Homebrew
+package manifests instead of assuming repo-local `aptfile`, `apkfile`, and
+`brewfile` files exist on disk.
 
 That installer reads the repo-root `aptfile` on Debian-family hosts and runs
 `apt-get update` plus `apt-get install -y` for the listed packages, reads the
+repo-root `apkfile` on Alpine hosts and runs `apk add --no-cache` for the
+listed packages, reads the
 repo-root `brewfile` on macOS and runs `brew install` for the listed packages,
 or falls back to the embedded copies of those package lists when the script is
 streamed without the checkout files, installs Debian-family Node tooling in a
@@ -618,7 +620,7 @@ transitions so the active pointer does not appear duplicated in interactive
 terminals, explains that any upcoming `sudo` prompt is asking for the user's
 operating-system account password only for package-manager work,
 bootstraps user-space Perl tooling under `~/perl5` with
-`cpanm --local-lib-contained "$HOME/perl5" local::lib App::cpanminus`,
+`cpanm --notest --local-lib-contained "$HOME/perl5" local::lib App::cpanminus`,
 appends exactly one `local::lib` bootstrap line to `~/.bashrc`, `~/.zshrc`, or
 `~/.profile` depending on the active shell, keeps bash login shells wired by
 bridging `~/.profile` to `~/.bashrc`, prefers Homebrew Perl on macOS when
@@ -641,7 +643,8 @@ terminal, installs Developer Dashboard into the user account with
 `cpanm --notest Developer::Dashboard`, and then runs `dashboard init` so the
 runtime exists immediately after installation.
 
-Release verification is Linux-gated. macOS bootstrap and `brewfile` checks are
+Release verification is Linux-gated. Debian-family and Alpine bootstrap checks
+are required release gates. macOS bootstrap and `brewfile` checks are
 supported for manual validation and debugging, but they are not required
 release gates.
 
@@ -656,7 +659,7 @@ DD_INSTALL_CPAN_TARGET=./Developer-Dashboard-X.XX.tar.gz ./install.sh
 Install from CPAN with:
 
 ```bash
-cpanm Developer::Dashboard
+cpanm --notest Developer::Dashboard
 ```
 
 Or install from a checkout with:
@@ -1408,7 +1411,9 @@ helper script bodies are embedded directly in the command script. Installed
 copies resolve the same
 seeded pages and helper assets from the distribution share directory, so
 `dashboard init` works after `cpanm` installs and not just from a source
-checkout.
+checkout. Those helper-backed built-ins also rewrite their live process title
+to `developer-dashboard ...`, so process listings stay aligned with the public
+command names instead of exposing the staged helper path.
 When `dashboard` re-execs a Perl-backed helper or hook, it also forces the
 same active dashboard `lib/` root into that child Perl process. That keeps
 thin switchboard handoff on the current checkout code instead of drifting onto
@@ -1521,7 +1526,7 @@ transformed locally before rendering into derived HTML, links, or button-like
 actions. Its saved Ajax endpoints run through singleton workers. No `DBD::*`
 driver ships in the base tarball by default; install only the one you need
 with `dashboard cpan DBD::Driver` or user-space
-`cpanm -L ~/perl5 DBD::Driver`, and the bookmark will return explicit install
+`cpanm --notest -L ~/perl5 DBD::Driver`, and the bookmark will return explicit install
 guidance when a selected driver is missing. The repository also ships a
 dedicated SQL dashboard support guide with the verification matrix and
 per-database notes for that workspace.
@@ -1622,7 +1627,7 @@ where each item reports:
 - installed path
 - `enabled` as a JSON boolean
 - CLI command, page, docker service, collector, and indicator counts
-- JSON booleans for `has_config`, `has_ddfile`, `has_aptfile`, `has_brewfile`,
+- JSON booleans for `has_config`, `has_ddfile`, `has_aptfile`, `has_apkfile`, `has_brewfile`,
   `has_cpanfile`, and `has_cpanfile_local`
 
 **Inspect one installed skill:**
@@ -1721,6 +1726,7 @@ Each installed skill lives under
 - `ddfile` - Optional dependent skill list installed before package managers run
 - `ddfile.local` - Optional local dependent skill list installed after `ddfile` into the same skills root as the current skill install target
 - `aptfile` - Optional Debian-family system packages installed through `sudo apt-get install -y`
+- `apkfile` - Optional Alpine system packages installed through `sudo apk add --no-cache`
 - `brewfile` - Optional macOS Homebrew packages installed through `brew install`
 - `package.json` - Optional Node dependencies installed into `$HOME/node_modules` by running `npx --yes npm install <dependency-spec...>` inside a private dashboard staging workspace and then merging the resulting packages into `$HOME/node_modules`
 - `cpanfile` - Optional shared Perl dependencies installed into `~/perl5`
@@ -1779,6 +1785,8 @@ Skill dependency and docker layering:
   `skills/<repo-name>/` tree after the global `ddfile` pass completes
 - if an `aptfile` exists on a Debian-family host, its package list is printed
   before the sudo prompt and then installed through `sudo apt-get install -y`
+- if an `apkfile` exists on an Alpine host, its package list is printed
+  before the sudo prompt and then installed through `sudo apk add --no-cache`
 - if a `brewfile` exists on macOS, its package list is printed and then
   installed through `brew install`
 - if a `package.json` exists, its Node dependencies are installed into
@@ -1797,7 +1805,7 @@ Skill dependency and docker layering:
 
 To build a new skill, start with a Git repository that contains `cli/`,
 `config/config.json`, and optional `dashboards/`, `dashboards/nav/`, `state/`,
-`logs/`, `ddfile`, `ddfile.local`, `aptfile`, `brewfile`, `package.json`,
+`logs/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`, `brewfile`, `package.json`,
 `cpanfile`, and `cpanfile.local` files under the skill root. Skill
 commands are file-based commands run through the dotted
 `dashboard <repo-name>.<command>` form. Skill hook files live under
@@ -1816,7 +1824,7 @@ environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`, bookmark
 syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, and `CODE1:`, bookmark browser
 helpers such as `fetch_value()`, `stream_value()`, and `stream_data()`,
 underscored config merge keys such as `_example-skill`, the
-`aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local`
+`aptfile -> apkfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local`
 automatic dependency install order, the explicit
 `dashboard skills install --ddfile` operator order of
 the deferred `ddfile -> ddfile.local` pass, the shared `~/perl5` versus skill-local `perl5/`
@@ -1909,7 +1917,7 @@ prove -lr t
 Measure library coverage with Devel::Cover:
 
 ```bash
-cpanm --local-lib-contained ./.perl5 Devel::Cover
+cpanm --notest --local-lib-contained ./.perl5 Devel::Cover
 export PERL5LIB="$PWD/.perl5/lib/perl5${PERL5LIB:+:$PERL5LIB}"
 export PATH="$PWD/.perl5/bin:$PATH"
 cover -delete

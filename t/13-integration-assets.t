@@ -19,6 +19,7 @@ ok( -f 'doc/integration-test-plan.md', 'integration test plan document exists' )
 ok( -f 'doc/testing.md', 'testing workflow document exists' ) if $has_source_tree_docs;
 ok( -f 'install.sh', 'repo bootstrap installer exists at the checkout root' ) if $has_source_tree_docs;
 ok( -f 'aptfile', 'repo bootstrap apt manifest exists at the checkout root' ) if $has_source_tree_docs;
+ok( -f 'apkfile', 'repo bootstrap apk manifest exists at the checkout root' ) if $has_source_tree_docs;
 ok( -f 'brewfile', 'repo bootstrap brew manifest exists at the checkout root' ) if $has_source_tree_docs;
 ok( -f 'integration/blank-env/Dockerfile', 'blank-environment Dockerfile exists' ) if $has_integration_assets;
 ok( -f 'integration/blank-env/docker-compose.yml', 'blank-environment docker compose file exists' ) if $has_integration_assets;
@@ -66,6 +67,7 @@ if ($has_source_tree_docs) {
     like( $install, qr/cpanm --notest/, 'bootstrap installer performs the dashboard install through cpanm --notest' );
     like( $install, qr/dashboard init/, 'bootstrap installer initializes the dashboard runtime after installation' );
     like( $install, qr/aptfile/, 'bootstrap installer reads the repo apt manifest' );
+    like( $install, qr/apkfile/, 'bootstrap installer reads the repo apk manifest' );
     like( $install, qr/brewfile/, 'bootstrap installer reads the repo brew manifest' );
 
     open my $windows_doc_fh, '<', 'doc/windows-testing.md' or die $!;

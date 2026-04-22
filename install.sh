@@ -6,6 +6,7 @@ SCRIPT_DIR=$(
     CDPATH= cd -- "$(dirname -- "$0")" && pwd
 )
 APTFILE="$SCRIPT_DIR/aptfile"
+APKFILE="$SCRIPT_DIR/apkfile"
 BREWFILE="$SCRIPT_DIR/brewfile"
 APTFILE_DEFAULT_CONTENT='
 # Repo bootstrap packages for Debian-family hosts.
@@ -33,6 +34,22 @@ node
 openssl@3
 perl
 pkgconf
+'
+APKFILE_DEFAULT_CONTENT='
+# Repo bootstrap packages for Alpine hosts.
+alpine-sdk
+ca-certificates
+curl
+expat-dev
+git
+nodejs
+npm
+openssl-dev
+perl
+perl-app-cpanminus
+perl-dev
+pkgconf
+zlib-dev
 '
 INSTALL_ROOT="${HOME:?Missing HOME}/perl5"
 CPAN_TARGET="${DD_INSTALL_CPAN_TARGET:-Developer::Dashboard}"
@@ -277,7 +294,7 @@ explain_sudo_requirements() {
     fi
     say "About to use sudo for system package installation."
     say "sudo will ask for your operating-system account password, not a Developer Dashboard password."
-    say "This access is only for apt-get update/install so the listed bootstrap packages can be installed."
+    say "This access is only for system package installation so the listed bootstrap packages can be installed."
     SUDO_EXPLAINED='1'
 }
 
@@ -314,6 +331,12 @@ manifest_packages() {
                 -e '/^[[:space:]]*$/d'
             return 0
             ;;
+        apkfile)
+            printf '%s\n' "$APKFILE_DEFAULT_CONTENT" | sed \
+                -e 's/[[:space:]]*#.*$//' \
+                -e '/^[[:space:]]*$/d'
+            return 0
+            ;;
     esac
 
     fail "Missing manifest: $manifest_path"
@@ -336,12 +359,20 @@ platform_name() {
                 os_id=$(sed -n 's/^ID=//p' /etc/os-release | tr -d '"' | head -n 1)
                 os_like=$(sed -n 's/^ID_LIKE=//p' /etc/os-release | tr -d '"' | head -n 1)
                 case "$os_id $os_like" in
+                    *alpine*)
+                        printf '%s\n' 'alpine'
+                        return 0
+                        ;;
                     *ubuntu*|*debian*)
                         printf '%s\n' "${os_id:-linux}"
                         return 0
                         ;;
                 esac
             fi
+            [ -f /etc/alpine-release ] && {
+                printf '%s\n' 'alpine'
+                return 0
+            }
             [ -f /etc/debian_version ] && {
                 printf '%s\n' 'debian'
                 return 0
@@ -349,7 +380,7 @@ platform_name() {
             ;;
     esac
 
-    fail "Unsupported platform. Supported platforms are Debian, Ubuntu, and macOS."
+    fail "Unsupported platform. Supported platforms are Alpine, Debian, Ubuntu, and macOS."
 }
 
 package_runner_prefix() {
@@ -542,6 +573,19 @@ install_brew_packages() {
     brew install $packages
 }
 
+install_apk_packages() {
+    prefix=$(package_runner_prefix)
+    packages=$(manifest_packages "$APKFILE" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+    [ -n "$packages" ] || return 0
+    say "Installing Alpine packages from $APKFILE: $packages"
+    if [ -n "$prefix" ]; then
+        explain_sudo_requirements
+        $prefix apk add --no-cache $packages
+    else
+        apk add --no-cache $packages
+    fi
+}
+
 ensure_node_toolchain() {
     node_toolchain_ready || fail "Missing required Node toolchain: node, npm, and npx must all be available on PATH"
 }
@@ -553,7 +597,7 @@ bootstrap_perlbrew_perl() {
     if ! command -v perlbrew >/dev/null 2>&1; then
         require_command cpanm
         say "perlbrew is not on PATH; installing App::perlbrew into $INSTALL_ROOT"
-        run_cpanm --local-lib-contained "$INSTALL_ROOT" App::perlbrew
+        run_cpanm --notest --local-lib-contained "$INSTALL_ROOT" App::perlbrew
         PATH="$INSTALL_ROOT/bin:$PATH"
         export PATH
     fi
@@ -613,7 +657,7 @@ resolve_perl() {
     fi
 
     case "$PLATFORM" in
-        debian|ubuntu)
+        alpine|debian|ubuntu)
             bootstrap_perlbrew_perl
             return 0
             ;;
@@ -633,7 +677,7 @@ bootstrap_local_lib() {
     resolve_perl
 
     mkdir -p "$INSTALL_ROOT"
-    run_cpanm --local-lib-contained "$INSTALL_ROOT" local::lib App::cpanminus
+    run_cpanm --notest --local-lib-contained "$INSTALL_ROOT" local::lib App::cpanminus
 
     LOCAL_LIB_LINE=$(printf 'eval "$("%s" -I "%s/lib/perl5" -Mlocal::lib)"' "$PERL_BIN" "$INSTALL_ROOT")
     append_once "$RC_FILE" "$LOCAL_LIB_LINE"
@@ -758,11 +802,14 @@ main() {
         debian|ubuntu)
             install_apt_packages
             ;;
+        alpine)
+            install_apk_packages
+            ;;
         darwin)
             install_brew_packages
             ;;
         *)
-            fail "Unsupported platform '$PLATFORM'. Supported platforms are Debian, Ubuntu, and macOS."
+            fail "Unsupported platform '$PLATFORM'. Supported platforms are Alpine, Debian, Ubuntu, and macOS."
             ;;
     esac
     progress_done install_system_packages "$PLATFORM complete"

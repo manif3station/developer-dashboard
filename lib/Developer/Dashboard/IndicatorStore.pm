@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '2.95';
+our $VERSION = '2.98';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);

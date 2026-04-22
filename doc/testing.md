@@ -46,7 +46,7 @@ DOM after incremental chunks land.
 Install Devel::Cover in a local Perl library and generate the coverage report:
 
 ```bash
-cpanm --local-lib-contained ./.perl5 Devel::Cover
+cpanm --notest --local-lib-contained ./.perl5 Devel::Cover
 export PERL5LIB="$PWD/.perl5/lib/perl5${PERL5LIB:+:$PERL5LIB}"
 export PATH="$PWD/.perl5/bin:$PATH"
 cover -delete

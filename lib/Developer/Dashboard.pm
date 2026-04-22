@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.95';
+our $VERSION = '2.98';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.95
+2.98
 
 =head1 INTRODUCTION
 
@@ -585,7 +585,9 @@ C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, C<xmlq>, C<path>, and
 C<paths> are intentionally kept out of the installed global PATH to avoid
 polluting the wider Perl and shell ecosystem while still keeping
 dashboard-owned commands separate from user commands under
-F<~/.developer-dashboard/cli/>.
+F<~/.developer-dashboard/cli/>. While those staged helpers run, their process
+title is normalized to the public C<developer-dashboard ...> form so C<ps>
+output shows the user-facing command instead of the staged helper path.
 
 C<dashboard ticket> creates or reuses a tmux session for the requested ticket
 reference, seeds C<TICKET_REF> plus dashboard-friendly branch aliases into that
@@ -1043,14 +1045,16 @@ F<install.sh> is a checkout-only bootstrap helper. It ships in the source tree
 and release tarball so operators can run it explicitly from a checkout or
 extracted tarball, but CPAN and C<cpanm> do not install it as a global
 command. When the installer is streamed through C<sh> without a checkout,
-such as C<curl ... | sh>, it falls back to embedded Debian-family and
-Homebrew package manifests instead of assuming repo-local F<aptfile> and
-F<brewfile> files exist on disk.
+such as C<curl ... | sh>, it falls back to embedded Debian-family,
+Alpine, and Homebrew package manifests instead of assuming repo-local
+F<aptfile>, F<apkfile>, and F<brewfile> files exist on disk.
 
 That installer reads the repo-root F<aptfile> on Debian-family hosts and runs
 C<apt-get update> plus C<apt-get install -y> for the listed packages, reads
-the repo-root F<brewfile> on macOS and runs C<brew install> for the listed
-packages, verifies that C<node>, C<npm>, and C<npx> are available from those
+the repo-root F<apkfile> on Alpine hosts and runs
+C<apk add --no-cache> for the listed packages, reads the repo-root
+F<brewfile> on macOS and runs C<brew install> for the listed packages,
+verifies that C<node>, C<npm>, and C<npx> are available from those
 bootstrap packages before finishing the install, or falls back to the embedded
 copies of those package lists when the script is streamed without the checkout
 files, installs Debian-family Node tooling in a conflict-aware order by
@@ -1062,13 +1066,13 @@ interactive terminals, explains that any upcoming C<sudo> prompt is asking for
 the user's operating-system account password only for package-manager work,
 bootstraps user-space Perl
 tooling under F<~/perl5> with
-C<cpanm --local-lib-contained "$HOME/perl5" local::lib App::cpanminus>,
+C<cpanm --notest --local-lib-contained "$HOME/perl5" local::lib App::cpanminus>,
 appends exactly one C<local::lib> bootstrap line to F<~/.bashrc>,
 F<~/.zshrc>, or F<~/.profile> depending on the active shell, keeps bash
 login shells wired by bridging F<~/.profile> to F<~/.bashrc>, prefers
 Homebrew Perl on macOS when C<brew --prefix perl> exposes a brewed
-interpreter, bootstraps a user-space C<perlbrew> Perl on Debian-family hosts
-when the system Perl is older than the required C<5.38>, installs
+interpreter, bootstraps a user-space C<perlbrew> Perl on Debian-family or
+Alpine hosts when the system Perl is older than the required C<5.38>, installs
 C<App::perlbrew> into F<~/perl5/bin> first if the package manager did not
 already put C<perlbrew> on C<PATH>, uses
 C<perlbrew --notest install perl-5.38.5> so blank-machine bootstrap does not
@@ -1095,7 +1099,7 @@ Useful bootstrap examples:
 
 Install from CPAN with:
 
-  cpanm Developer::Dashboard
+  cpanm --notest Developer::Dashboard
 
 Or install from a checkout with:
 
@@ -1901,7 +1905,7 @@ Run the test suite:
 
 Measure library coverage with Devel::Cover:
 
-  cpanm --local-lib-contained ./.perl5 Devel::Cover
+  cpanm --notest --local-lib-contained ./.perl5 Devel::Cover
   export PERL5LIB="$PWD/.perl5/lib/perl5${PERL5LIB:+:$PERL5LIB}"
   export PATH="$PWD/.perl5/bin:$PATH"
   cover -delete
@@ -2124,7 +2128,10 @@ F<share/private-cli/>, so neither bookmark bodies nor helper script bodies
 are embedded directly in the command script.
 Installed copies resolve the same seeded pages and helper assets from the
 distribution share directory, so C<dashboard init> works after a C<cpanm>
-install and not just from a source checkout.
+install and not just from a source checkout. Those helper-backed built-ins
+also rewrite their live process title to C<developer-dashboard ...>, so
+process listings stay aligned with the public command names instead of
+exposing the staged helper path.
 When C<dashboard> re-execs a Perl-backed helper or hook, it also forces the
 same active dashboard F<lib/> root into that child Perl process. That keeps
 thin switchboard handoff on the current checkout code instead of drifting onto
@@ -2240,7 +2247,7 @@ derived HTML, links, or button-like actions. Its saved Ajax endpoints run
 through singleton workers. No
 C<DBD::*> driver ships in the base tarball by default; install only the one
 you need with C<dashboard cpan DBD::Driver> or user-space
-C<cpanm -L ~/perl5 DBD::Driver>, and the bookmark will return explicit
+C<cpanm --notest -L ~/perl5 DBD::Driver>, and the bookmark will return explicit
 install guidance when a selected driver is missing. The repository also ships
 a dedicated SQL dashboard support guide with the verification matrix and
 per-database notes for that workspace.
@@ -2359,7 +2366,7 @@ CLI command, page, docker service, collector, and indicator counts
 =item *
 
 JSON booleans for C<has_config>, C<has_ddfile>, C<has_aptfile>,
-C<has_brewfile>, C<has_cpanfile>, and C<has_cpanfile_local>
+C<has_apkfile>, C<has_brewfile>, C<has_cpanfile>, and C<has_cpanfile_local>
 
 =back
 
@@ -2694,6 +2701,11 @@ C<sudo apt-get install -y>
 
 =item *
 
+if an C<apkfile> exists on an Alpine host, its package list is printed before
+the sudo prompt and then installed through C<sudo apk add --no-cache>
+
+=item *
+
 if a C<brewfile> exists on macOS, its package list is printed and then
 installed through C<brew install>
 
@@ -2730,8 +2742,8 @@ re-enabled
 
 To build a new skill, start with a Git repository that contains C<cli/>,
 C<config/config.json>, and optional C<dashboards/>, C<dashboards/nav/>,
-C<state/>, C<logs/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<brewfile>,
-C<package.json>, C<cpanfile>, and C<cpanfile.local> files under the skill
+C<state/>, C<logs/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>,
+C<brewfile>, C<package.json>, C<cpanfile>, and C<cpanfile.local> files under the skill
 root. Skill commands are file-based
 commands run through the dotted
 C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> form. Skill hook files live
@@ -2751,7 +2763,7 @@ layout, environment variables such as C<DEVELOPER_DASHBOARD_SKILL_ROOT>,
 bookmark syntax like C<TITLE:>, C<BOOKMARK:>, C<HTML:>, and C<CODE1:>,
 bookmark browser helpers such as C<fetch_value()>, C<stream_value()>, and
 C<stream_data()>, underscored config merge keys such as C<_example-skill>,
-C<aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local>
+C<aptfile -> apkfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local>
 automatic dependency install order, the explicit
 C<dashboard skills install --ddfile> operator order of
 the deferred C<ddfile -> ddfile.local> pass, the shared C<~/perl5> versus skill-local

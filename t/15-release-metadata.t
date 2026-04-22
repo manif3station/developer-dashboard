@@ -70,7 +70,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '2.95', 'repo version bumped for the install.sh interactive shell handoff fix' );
+is( $version, '2.98', 'repo version bumped for Alpine apkfile skill support, cpanm --notest, and helper process-title changes' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
     like( $dist, qr/^version = \Q$version\E$/m, 'dist.ini version matches the module version in the source tree' );
@@ -167,6 +167,7 @@ for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file 
 }
 ok( -f _repo_path('install.sh'), 'repo-root install.sh is tracked for bootstrap installs' );
 ok( -f _repo_path('aptfile'), 'repo-root aptfile is tracked for bootstrap installs' );
+ok( -f _repo_path('apkfile'), 'repo-root apkfile is tracked for bootstrap installs' );
 ok( -f _repo_path('brewfile'), 'repo-root brewfile is tracked for bootstrap installs' );
 
 my @release_tarballs = sort glob _repo_path('Developer-Dashboard-*.tar.gz');
@@ -180,6 +181,7 @@ if (@release_tarballs) {
     for my $required (
         "Developer-Dashboard-$version/install.sh",
         "Developer-Dashboard-$version/aptfile",
+        "Developer-Dashboard-$version/apkfile",
         "Developer-Dashboard-$version/brewfile",
         "Developer-Dashboard-$version/doc/integration-test-plan.md",
         "Developer-Dashboard-$version/doc/install-bootstrap.md",
@@ -346,7 +348,7 @@ for my $path (@pod_paths) {
 for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
     like( $doc, qr/install\.sh/, 'README documents the repo bootstrap installer' );
     like( $doc, qr/cpanm --notest Developer::Dashboard/, 'README documents the repo bootstrap installer cpanm contract' );
-    like( $doc, qr/aptfile.*brewfile|brewfile.*aptfile/is, 'README documents the repo bootstrap package manifests' );
+    like( $doc, qr/aptfile.*apkfile.*brewfile|aptfile.*brewfile.*apkfile|apkfile.*aptfile.*brewfile|apkfile.*brewfile.*aptfile|brewfile.*aptfile.*apkfile|brewfile.*apkfile.*aptfile/is, 'README documents the repo bootstrap package manifests' );
     like( $doc, qr/checkout-only.*install\.sh|install\.sh.*checkout-only/is, 'README documents install.sh as a checkout-only bootstrap script instead of an installed CPAN command' );
     like( $doc, qr/dashboard skills install/, 'README documents skill installation' );
     like( $doc, qr/dashboard skills install \/absolute\/path\/to\/example-skill/, 'README documents direct local skill installation' );
@@ -376,7 +378,7 @@ like( $release_doc, qr/exactly one unpacked\s+`Developer-Dashboard-X\.XX\/`\s+bu
 like( $release_doc, qr/cpanm .*Developer-Dashboard-1\.\d+\.tar\.gz/, 'release doc still documents tarball installation verification' ) if $release_doc ne '';
 like( $install_bootstrap_doc, qr/install\.sh/, 'bootstrap install doc names the repo installer entrypoint' ) if $install_bootstrap_doc ne '';
 like( $install_bootstrap_doc, qr/cpanm --notest Developer::Dashboard/, 'bootstrap install doc explains the user-space cpanm install contract' ) if $install_bootstrap_doc ne '';
-like( $install_bootstrap_doc, qr/aptfile.*brewfile|brewfile.*aptfile/is, 'bootstrap install doc explains both package manifests' ) if $install_bootstrap_doc ne '';
+like( $install_bootstrap_doc, qr/aptfile.*apkfile.*brewfile|aptfile.*brewfile.*apkfile|apkfile.*aptfile.*brewfile|apkfile.*brewfile.*aptfile|brewfile.*aptfile.*apkfile|brewfile.*apkfile.*aptfile/is, 'bootstrap install doc explains all bootstrap package manifests' ) if $install_bootstrap_doc ne '';
 like( $agents_override, qr/DD-OOP-LAYERS/, 'AGENTS.override.md documents the layered runtime contract' ) if $agents_override ne '';
 like( $agents_override, qr/FULL-POD-DOC/, 'AGENTS.override.md documents the FULL-POD-DOC rule' ) if $agents_override ne '';
 unlike( $readme, qr/FULL-POD-DOC/, 'README no longer embeds the contributor-only FULL-POD-DOC contract in the product manual' ) if $readme ne '';

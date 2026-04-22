@@ -1,8 +1,18 @@
-2.95  2026-04-22
-    - fixed `install.sh` post-install shell automation so acceptance runs now
-      execute `dashboard version`, `d2 version`, and
-      `dashboard skills install browser` through an interactive login shell,
-      matching the real activated-shell environment instead of missing `d2`
+2.98  2026-04-22
+    - added skill-side `apkfile` handling so Alpine hosts can install skill
+      system packages through `apk add --no-cache`, expose `has_apkfile`
+      through skill metadata, and keep the documented dependency order aligned
+      with the runtime implementation
+    - added Alpine Linux support to `install.sh`, including repo-root
+      `apkfile` handling, streamed `curl ... | sh` fallback package manifests,
+      and a blank Alpine acceptance gate alongside the existing Debian-family
+      finish-line checks
+    - changed the remaining dashboard-managed `cpanm` install paths to pass
+      `--notest`, including the bootstrap `local::lib` / `App::cpanminus`
+      setup and skill `cpanfile` / `cpanfile.local` dependency installs
+    - normalized the staged private helper process title to
+      `developer-dashboard ...` so `ps` output shows the public command name
+      instead of the `_dashboard-core` helper path while built-in commands run
 
 2.94  2026-04-22
     - fixed the streamed `install.sh` finish line so terminal-backed

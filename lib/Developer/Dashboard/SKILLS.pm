@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '2.95';
+our $VERSION = '2.98';
 
 1;
 
@@ -212,13 +212,13 @@ workspace and then merges the resulting packages into C<$HOME/node_modules>.
 =item B<cpanfile>
 
 Optional shared Perl dependency declaration. When present, Developer
-Dashboard runs C<cpanm -L ~/perl5 --cpanfile cpanfile --installdeps
+Dashboard runs C<cpanm --notest -L ~/perl5 --cpanfile cpanfile --installdeps
 E<lt>skill-rootE<gt>>.
 
 =item B<cpanfile.local>
 
 Optional skill-local Perl dependency declaration. When present, Developer
-Dashboard runs C<cpanm -L E<lt>skill-rootE<gt>/perl5 --cpanfile
+Dashboard runs C<cpanm --notest -L E<lt>skill-rootE<gt>/perl5 --cpanfile
 cpanfile.local --installdeps E<lt>skill-rootE<gt>>.
 
 =back
@@ -588,13 +588,13 @@ a C<cpanfile.local> when that skill also needs a skill-local C<./perl5> tree.
 
 Yes. Ship a C<ddfile> for dependent skills, a C<ddfile.local> for dependent
 skills that must stay at the current install level, an C<aptfile> for
-Debian-family packages, a C<brewfile> for macOS packages, or a
-C<package.json> for Node dependencies that should land under
+Debian-family packages, an C<apkfile> for Alpine packages, a C<brewfile> for
+macOS packages, or a C<package.json> for Node dependencies that should land under
 C<$HOME/node_modules>. The
 explicit operator manifest order for C<dashboard skills install --ddfile> is
 the deferred C<ddfile -> ddfile.local> pass, while the automatic per-skill
-dependency order is C<aptfile -> brewfile -> package.json -> cpanfile ->
-cpanfile.local -> ddfile -> ddfile.local>.
+dependency order is C<aptfile -> apkfile -> brewfile -> package.json ->
+cpanfile -> cpanfile.local -> ddfile -> ddfile.local>.
 
 =head2 Where is the long-form guide?
 

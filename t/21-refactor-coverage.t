@@ -1551,6 +1551,7 @@ chdir $test_cwd or die "Unable to chdir to $test_cwd: $!";
 my $fake_bin = tempdir( CLEANUP => 1 );
 my $cpanm_log = File::Spec->catfile( $fake_bin, 'cpanm.log' );
 my $apt_log = File::Spec->catfile( $fake_bin, 'apt.log' );
+my $apk_log = File::Spec->catfile( $fake_bin, 'apk.log' );
 my $brew_log = File::Spec->catfile( $fake_bin, 'brew.log' );
 my $npx_log = File::Spec->catfile( $fake_bin, 'npx.log' );
 my $sudo_log = File::Spec->catfile( $fake_bin, 'sudo.log' );
@@ -1645,6 +1646,19 @@ exit 0
 SH
     0755,
 );
+_write_file(
+    File::Spec->catfile( $fake_bin, 'apk' ),
+    <<"SH",
+#!/bin/sh
+printf '%s\\n' "\$*" >> "$apk_log"
+printf 'APK:%s\\n' "\$*" >> "$dependency_log"
+if [ "\$DD_TEST_APK_FAIL" = "1" ]; then
+  exit 1
+fi
+exit 0
+SH
+    0755,
+);
 local $ENV{PATH} = join ':', $fake_bin, ( $ENV{PATH} || () );
 
 my $skill_paths = Developer::Dashboard::PathRegistry->new( home => File::Spec->catdir( $ENV{HOME}, 'skills-home' ) );
@@ -1656,6 +1670,7 @@ is_deeply(
         { id => 'fetch_source',         label => 'Fetch skill source' },
         { id => 'prepare_layout',       label => 'Prepare skill layout' },
         { id => 'install_aptfile',      label => 'Install aptfile dependencies' },
+        { id => 'install_apkfile',      label => 'Install apkfile dependencies' },
         { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
         { id => 'install_package_json', label => 'Install package.json dependencies' },
         { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
@@ -1872,6 +1887,7 @@ my $dep_repo = _create_skill_repo(
     'dep-skill',
     with_cpanfile => 1,
     with_aptfile => 1,
+    with_apkfile => 1,
     with_ddfile  => 1,
     with_ddfile_local => 1,
     with_package_json => 1,
@@ -1913,13 +1929,13 @@ close $dependency_log_fh;
 is_deeply(
     [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|CPANM):/)[0] } @dependency_steps[-6 .. -1] ],
     [ 'APT', 'NPM', 'CPANM', 'CPANM', 'DDFILE', 'DDFILE_LOCAL' ],
-    '_install_skill_dependencies follows the documented aptfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local order on Debian-like hosts while leaving brewfile inactive',
+    '_install_skill_dependencies follows the documented aptfile -> apkfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local order on Debian-like hosts while leaving apkfile and brewfile inactive',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
 close $cpanm_log_fh;
-like( $cpanm_steps[-2], qr/^-L \Q$ENV{HOME}\/skills-home\/perl5\E --cpanfile .*\/cpanfile --installdeps /, '_install_skill_dependencies installs cpanfile dependencies into HOME perl5' );
-like( $cpanm_steps[-1], qr/^-L .*\/perl5 --cpanfile .*\/cpanfile\.local --installdeps /, '_install_skill_dependencies installs cpanfile.local dependencies into the skill-local perl5 root' );
+like( $cpanm_steps[-2], qr/^--notest -L \Q$ENV{HOME}\/skills-home\/perl5\E --cpanfile .*\/cpanfile --installdeps /, '_install_skill_dependencies installs cpanfile dependencies into HOME perl5 with cpanm --notest' );
+like( $cpanm_steps[-1], qr/^--notest -L .*\/perl5 --cpanfile .*\/cpanfile\.local --installdeps /, '_install_skill_dependencies installs cpanfile.local dependencies into the skill-local perl5 root with cpanm --notest' );
 open my $npm_log_fh, '<', $npx_log or die "Unable to read $npx_log: $!";
 my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npm_log_fh>;
 close $npm_log_fh;
@@ -1970,6 +1986,7 @@ is( $metadata->{has_config}, 1, 'skill metadata records config presence' );
 is( $metadata->{has_ddfile}, 1, 'skill metadata records ddfile presence' );
 is( $metadata->{has_cpanfile}, 1, 'skill metadata records cpanfile presence' );
 is( $metadata->{has_aptfile}, 1, 'skill metadata records aptfile presence' );
+is( $metadata->{has_apkfile}, 1, 'skill metadata records apkfile presence' );
 is( $metadata->{has_cpanfile_local}, 1, 'skill metadata records cpanfile.local presence' );
 is_deeply( $metadata->{docker_services}, ['postgres'], 'skill metadata records docker service folders' );
 is_deeply( $metadata->{cli_commands}, ['run-test'], 'skill metadata records cli commands only, not hook directories' );
@@ -2125,6 +2142,28 @@ ok( !$manager->install( 'file://' . $no_dep_repo )->{error}, 'skill manager inst
         $manager->_install_skill_dependencies($fail_repo)->{error},
         qr/Failed to install skill dependencies/,
         'install reports isolated dependency installation failures',
+    );
+}
+{
+    local $ENV{DD_TEST_ALPINE} = 1;
+    my $apk_repo = File::Spec->catdir( $test_repos, 'apk-skill' );
+    make_path($apk_repo);
+    _write_file( File::Spec->catfile( $apk_repo, 'apkfile' ), "procps-dev\n" );
+    unlink $apk_log;
+    my $apk_install = $manager->_install_skill_dependencies($apk_repo);
+    ok( !$apk_install->{error}, '_install_skill_dependencies succeeds for apkfile-driven installs on Alpine' ) or diag $apk_install->{error};
+    ok( -f $apk_log, '_install_skill_dependencies records an apk invocation when the skill ships an apkfile on Alpine' );
+}
+{
+    local $ENV{DD_TEST_APK_FAIL} = 1;
+    local $ENV{DD_TEST_ALPINE} = 1;
+    my $fail_repo = File::Spec->catdir( $test_repos, 'fail-apk-skill' );
+    make_path($fail_repo);
+    _write_file( File::Spec->catfile( $fail_repo, 'apkfile' ), "procps-dev\n" );
+    like(
+        $manager->_install_skill_dependencies($fail_repo)->{error},
+        qr/Failed to install skill apk dependencies/,
+        'install reports apk dependency installation failures',
     );
 }
 {
@@ -3151,6 +3190,9 @@ sub _create_skill_repo {
     }
     if ( $args{with_aptfile} ) {
         _write_file( 'aptfile', "git\ncurl\n" );
+    }
+    if ( $args{with_apkfile} ) {
+        _write_file( 'apkfile', "procps-dev\n" );
     }
     if ( $args{with_ddfile} ) {
         _write_file( 'ddfile', "shared-skill\n" );

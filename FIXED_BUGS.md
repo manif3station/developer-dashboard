@@ -1,5 +1,33 @@
 # Fixed Bugs
 
+## 2026-04-22 (Phase 150: Alpine Skill apkfile Support)
+
+- Fixed Alpine skill dependency installs by teaching `dashboard skills install`
+  to honor skill-local `apkfile` manifests through `apk add --no-cache`,
+  matching the existing `aptfile` and `brewfile` behaviour instead of leaving
+  Alpine skill installs to fail later during CPAN builds.
+- Fixed skill metadata and shipped docs so installed skill inventory now
+  reports `has_apkfile`, and the published dependency order now matches the
+  runtime contract:
+  `aptfile -> apkfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local`.
+
+## 2026-04-22 (Phase 149: Installer cpanm --notest And Helper Process Titles)
+
+- Fixed the remaining dashboard-managed `cpanm` install paths so the checkout
+  bootstrap and skill Perl dependency installs now pass `--notest`, keeping
+  the user-facing install flow fast and aligned with the current package policy.
+- Fixed staged built-in helper process titles so live `ps` output now shows
+  `developer-dashboard ...` instead of the ugly `_dashboard-core` helper path
+  while commands such as `dashboard skills install browser` are running.
+
+## 2026-04-22 (Phase 148: install.sh Alpine Bootstrap Support)
+
+- Added first-class Alpine Linux support to the checkout bootstrap installer so
+  blank-machine `curl ... | sh` runs can install the required system packages
+  through `apk add --no-cache`, keep the user-space Perl bootstrap contract,
+  and reach the same `dashboard version` / `d2 version` / `dashboard skills install browser`
+  finish line as the Debian-family gate.
+
 ## 2026-04-22 (Phase 147: install.sh Interactive Command Handoff)
 
 - Fixed the installer post-activation command path so acceptance runs now use

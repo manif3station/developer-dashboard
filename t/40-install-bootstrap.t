@@ -13,10 +13,12 @@ use Test::More;
 my $root = File::Spec->catdir( $RealBin, File::Spec->updir );
 my $install_sh = File::Spec->catfile( $root, 'install.sh' );
 my $aptfile    = File::Spec->catfile( $root, 'aptfile' );
+my $apkfile    = File::Spec->catfile( $root, 'apkfile' );
 my $brewfile   = File::Spec->catfile( $root, 'brewfile' );
 
 ok( -f $install_sh, 'install.sh exists at the repo root' );
 ok( -f $aptfile, 'aptfile exists at the repo root' );
+ok( -f $apkfile, 'apkfile exists at the repo root' );
 ok( -f $brewfile, 'brewfile exists at the repo root' );
 
 {
@@ -28,10 +30,75 @@ ok( -f $brewfile, 'brewfile exists at the repo root' );
 }
 
 my @apt_packages  = _manifest_lines($aptfile);
+my @apk_packages  = _manifest_lines($apkfile);
 my @brew_packages = _manifest_lines($brewfile);
 my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
     packages => \@apt_packages,
 );
+my @expected_apk_bootstrap_steps = _expected_apk_bootstrap_steps(
+    packages => \@apk_packages,
+);
+
+{
+    my $home = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log = File::Spec->catfile( $home, 'install.log' );
+    my $target = File::Spec->catfile( $home, 'Developer-Dashboard.tar.gz' );
+    my $fake_perl = File::Spec->catfile( $fake_bin, 'perl' );
+    _seed_fake_install_commands(
+        fake_bin => $fake_bin,
+        log      => $log,
+    );
+
+    my $env_prefix = join ' ',
+      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+        { key => 'HOME',                   value => $home },
+        { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'SHELL',                  value => '/bin/sh' },
+        { key => 'DD_INSTALL_OS_OVERRIDE', value => 'alpine' },
+        { key => 'DD_INSTALL_CPAN_TARGET', value => $target },
+      );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+    };
+    is( $exit >> 8, 0, 'install.sh succeeds on Alpine hosts with mocked system commands' )
+      or diag $stdout . $stderr;
+
+    my @log_lines = _log_lines($log);
+    is_deeply(
+        \@log_lines,
+        [
+            @expected_apk_bootstrap_steps,
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
+            "cpanm --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
+            "cpanm --notest $target",
+            'dashboard init',
+        ],
+        'install.sh follows the Alpine bootstrap flow in manifest order',
+    );
+
+    my $profile = File::Spec->catfile( $home, '.profile' );
+    ok( -f $profile, 'install.sh creates ~/.profile for Alpine sh users' );
+    my $profile_text = _slurp($profile);
+    my $local_lib_line = qq{eval "\$("$fake_perl" -I "$home/perl5/lib/perl5" -Mlocal::lib)"};
+    like(
+        $profile_text,
+        qr/\Q$local_lib_line\E/,
+        'install.sh wires the local::lib bootstrap into ~/.profile for Alpine sh users',
+    );
+    like(
+        $profile_text,
+        qr/eval "\$\(\"[^\"]*\/dashboard" shell sh\)"/,
+        'install.sh appends the Developer Dashboard sh shell bootstrap to ~/.profile on Alpine',
+    );
+    like(
+        $stdout,
+        qr/Shell setup was written to: \Q$profile\E/s,
+        'install.sh reports the Alpine rc file it updated',
+    );
+}
 
 {
     my $home = tempdir( CLEANUP => 1 );
@@ -89,7 +156,7 @@ my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
         [
             @expected_apt_bootstrap_steps,
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
-            "cpanm --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             "cpanm --notest $target",
             'dashboard init',
@@ -245,7 +312,7 @@ SH
                 nodejs_provides_npm => 1,
             ),
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
-            "cpanm --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --notest Developer::Dashboard',
             'dashboard init',
@@ -284,7 +351,7 @@ SH
             'brew install ' . join( ' ', @brew_packages ),
             'brew --prefix perl',
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
-            "cpanm --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --notest Developer::Dashboard',
             'dashboard init',
@@ -365,7 +432,7 @@ SH
         [
             @expected_apt_bootstrap_steps,
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
-            "cpanm --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --notest Developer::Dashboard',
             'dashboard init',
@@ -423,7 +490,7 @@ SH
             'perlbrew list',
             'perlbrew --notest install perl-5.38.5',
             'perlbrew install-cpanm',
-            "cpanm --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --notest Developer::Dashboard',
             'dashboard init',
@@ -483,6 +550,17 @@ sub _expected_apt_bootstrap_steps {
         'sudo apt-get update',
         'apt-get update',
         map( { ( "sudo $_", $_ ) } @install_lines ),
+    );
+}
+
+sub _expected_apk_bootstrap_steps {
+    my (%args) = @_;
+    my @packages = @{ $args{packages} || [] };
+    my $install_line = 'apk add --no-cache ' . join( ' ', @packages );
+    return ($install_line) if ( $> || 0 ) == 0;
+    return (
+        "sudo $install_line",
+        $install_line,
     );
 }
 
@@ -554,6 +632,31 @@ if [ "\$1" = "install" ] && printf '%s ' "\$@" | grep -q ' node '; then
 grep -qx 'node' "$node_marker" 2>/dev/null || printf '%s\\n' 'node' >> "$node_marker"
 grep -qx 'npm' "$node_marker" 2>/dev/null || printf '%s\\n' 'npm' >> "$node_marker"
 grep -qx 'npx' "$node_marker" 2>/dev/null || printf '%s\\n' 'npx' >> "$node_marker"
+fi
+exit 0
+SH
+    );
+    _write_executable(
+        File::Spec->catfile( $fake_bin, 'apk' ),
+        <<"SH",
+#!/bin/sh
+printf '%s\\n' "apk \$*" >> "$log"
+append_marker() {
+tool=\$1
+grep -qx "\$tool" "$node_marker" 2>/dev/null || printf '%s\\n' "\$tool" >> "$node_marker"
+}
+if [ "\$1" = "add" ]; then
+case " \$* " in
+  *" nodejs "*)
+    append_marker node
+    ;;
+esac
+case " \$* " in
+  *" npm "*)
+    append_marker npm
+    append_marker npx
+    ;;
+esac
 fi
 exit 0
 SH
@@ -708,8 +811,8 @@ t/40-install-bootstrap.t - regression coverage for the repo bootstrap installer
 =head1 PURPOSE
 
 This test locks the repo-root bootstrap installer contract so the plain
-F<install.sh> entrypoint, F<aptfile>, and F<brewfile> stay aligned while the
-project evolves.
+F<install.sh> entrypoint, F<aptfile>, F<apkfile>, and F<brewfile> stay aligned
+while the project evolves.
 
 =head1 WHAT IT CHECKS
 

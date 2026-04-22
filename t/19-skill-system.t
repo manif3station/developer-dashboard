@@ -30,6 +30,7 @@ my $test_repos = tempdir( CLEANUP => 1 );
 my $fake_bin = tempdir( CLEANUP => 1 );
 my $cpanm_log = File::Spec->catfile( $fake_bin, 'cpanm.log' );
 my $apt_log = File::Spec->catfile( $fake_bin, 'apt.log' );
+my $apk_log = File::Spec->catfile( $fake_bin, 'apk.log' );
 my $brew_log = File::Spec->catfile( $fake_bin, 'brew.log' );
 my $npx_log = File::Spec->catfile( $fake_bin, 'npx.log' );
 my $sudo_log = File::Spec->catfile( $fake_bin, 'sudo.log' );
@@ -106,6 +107,16 @@ exit 0
 SH
     0755,
 );
+_write_file(
+    File::Spec->catfile( $fake_bin, 'apk' ),
+    <<"SH",
+#!/bin/sh
+printf '%s\\n' "\$*" >> "$apk_log"
+printf 'APK:%s\\n' "\$*" >> "$dependency_log"
+exit 0
+SH
+    0755,
+);
 local $ENV{PATH} = join ':', $fake_bin, ( $ENV{PATH} || () );
 
 sub _portable_path {
@@ -136,6 +147,7 @@ PL
     ddfile_body => "dep-alpha\n",
     ddfile_local_body => "dep-beta\n",
     aptfile_body => "git\ncurl\n",
+    apkfile_body => "procps-dev\n",
     brewfile_body => "jq\n",
     package_json_body => qq|{"name":"alpha-skill-node","version":"0.01.0","dependencies":{"express":"^4.19.2","uuid":"^11.0.0"},"devDependencies":{"playwright":"^1.52.0"}}\n|,
     cpanfile_local_body => "requires 'YAML::XS';\n",
@@ -161,6 +173,7 @@ ok( -d File::Spec->catdir( $ENV{HOME}, 'perl5' ), 'install prepares the shared p
 ok( -f File::Spec->catfile( $install->{path}, 'config', 'config.json' ), 'install ensures isolated skill config exists' );
 ok( -f File::Spec->catfile( $install->{path}, 'cpanfile' ), 'test skill includes cpanfile for dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'aptfile' ), 'test skill includes aptfile for dependency handling' );
+ok( -f File::Spec->catfile( $install->{path}, 'apkfile' ), 'test skill includes apkfile for dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'brewfile' ), 'test skill includes brewfile for dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'cpanfile.local' ), 'test skill includes cpanfile.local for local dependency handling' );
 ok( -f $apt_log, 'install runs apt-get for isolated skill apt dependencies when an aptfile is present' );
@@ -176,13 +189,13 @@ close $dependency_log_fh;
 is_deeply(
     [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|CPANM):/)[0] } @dependency_steps ],
     [ 'APT', 'NPM', 'CPANM', 'CPANM', 'DDFILE', 'DDFILE_LOCAL' ],
-    'skill install processes aptfile, package.json, cpanfile, cpanfile.local, ddfile, and ddfile.local in policy order on Debian-like hosts while leaving brewfile inactive',
+    'skill install processes aptfile, package.json, cpanfile, cpanfile.local, ddfile, and ddfile.local in policy order on Debian-like hosts while leaving apkfile and brewfile inactive',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
 close $cpanm_log_fh;
-like( $cpanm_steps[0], qr/^-L \Q$ENV{HOME}\/perl5\E --cpanfile \Q$install->{path}\/cpanfile\E --installdeps \Q$install->{path}\E$/, 'cpanfile installs shared Perl dependencies into HOME perl5' );
-is( $cpanm_steps[1], "-L $install->{path}/perl5 --cpanfile $install->{path}/cpanfile.local --installdeps $install->{path}", 'cpanfile.local installs local Perl dependencies into the skill perl5 root' );
+like( $cpanm_steps[0], qr/^--notest -L \Q$ENV{HOME}\/perl5\E --cpanfile \Q$install->{path}\/cpanfile\E --installdeps \Q$install->{path}\E$/, 'cpanfile installs shared Perl dependencies into HOME perl5 with cpanm --notest' );
+is( $cpanm_steps[1], "--notest -L $install->{path}/perl5 --cpanfile $install->{path}/cpanfile.local --installdeps $install->{path}", 'cpanfile.local installs local Perl dependencies into the skill perl5 root with cpanm --notest' );
 open my $npx_log_fh, '<', $npx_log or die "Unable to read $npx_log: $!";
 my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npx_log_fh>;
 close $npx_log_fh;
@@ -219,6 +232,17 @@ is( $dashboard_steps[1], 'skills install dep-beta', 'deferred ddfile.local insta
     }
     ok( $sudo_text eq '', '_install_skill_aptfile does not invoke sudo when package installs already run as root' );
 }
+{
+    local $ENV{DD_TEST_ALPINE} = 1;
+    unlink $apk_log;
+    my $root_apk = $manager->_install_skill_apkfile( $install->{path} );
+    ok( !$root_apk->{error}, '_install_skill_apkfile succeeds on Alpine hosts when an apkfile is present' )
+      or diag $root_apk->{error};
+    open my $root_apk_fh, '<', $apk_log or die "Unable to read $apk_log: $!";
+    my @root_apk_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$root_apk_fh>;
+    close $root_apk_fh;
+    is( $root_apk_steps[0], 'add --no-cache procps-dev', '_install_skill_apkfile calls apk add --no-cache with the skill apkfile packages' );
+}
 
 my $listed = $manager->list();
 is( scalar(@$listed), 1, 'list returns the installed skill only once' );
@@ -232,6 +256,7 @@ is( $listed->[0]{pages_count}, 1, 'list reports the number of non-nav skill page
 is( $listed->[0]{docker_services_count}, 1, 'list reports the number of skill docker services' );
 is( $listed->[0]{has_ddfile}, 1, 'list reports ddfile presence for one installed skill' );
 is( $listed->[0]{has_aptfile}, 1, 'list reports aptfile presence for one installed skill' );
+is( $listed->[0]{has_apkfile}, 1, 'list reports apkfile presence for one installed skill' );
 is( $listed->[0]{has_brewfile}, 1, 'list reports brewfile presence for one installed skill' );
 is( $listed->[0]{has_cpanfile_local}, 1, 'list reports cpanfile.local presence for one installed skill' );
 ok(
@@ -912,6 +937,9 @@ sub _create_skill_repo {
     }
     if ( defined $args{aptfile_body} ) {
         _write_file( 'aptfile', $args{aptfile_body}, 0644 );
+    }
+    if ( defined $args{apkfile_body} ) {
+        _write_file( 'apkfile', $args{apkfile_body}, 0644 );
     }
     if ( defined $args{brewfile_body} ) {
         _write_file( 'brewfile', $args{brewfile_body}, 0644 );

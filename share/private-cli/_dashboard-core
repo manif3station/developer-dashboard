@@ -35,6 +35,7 @@ if ( -d $dashboard_lib ) {
 }
 
 my $cmd = shift @ARGV || die "Missing built-in dashboard command\n";
+$0 = join q{ }, 'developer-dashboard', $cmd, @ARGV;
 
 require Developer::Dashboard::Auth;
 require Developer::Dashboard::ActionRunner;
@@ -1498,7 +1499,9 @@ switchboard dispatch. It is staged under F<~/.developer-dashboard/cli/dd/> as
 F<_dashboard-core> and is not meant to be called by users directly. It also
 generates the shared shell bootstrap snippets that expose C<cdr>,
 C<dd_cdr>, C<d2>, C<which_dir>, prompt wiring, and tab-completion handlers
-across bash, zsh, POSIX sh, and PowerShell.
+across bash, zsh, POSIX sh, and PowerShell. While it is running, it rewrites
+its process title to the public-facing C<developer-dashboard ...> form so
+process listings do not leak the staged helper path.
 
 __END__
 
@@ -1512,7 +1515,7 @@ _dashboard-core - contains the shared private built-in command runtime that the 
 
 =head1 PURPOSE
 
-This private staged runtime owns the heavier built-in command implementations after C<bin/dashboard> has already done hook execution and helper dispatch. It is also where the generated shell bootstrap snippets come from, including C<cdr>, C<which_dir>, and prompt wiring across bash, zsh, POSIX sh, and PowerShell.
+This private staged runtime owns the heavier built-in command implementations after C<bin/dashboard> has already done hook execution and helper dispatch. It is also where the generated shell bootstrap snippets come from, including C<cdr>, C<which_dir>, and prompt wiring across bash, zsh, POSIX sh, and PowerShell. While it runs, it normalizes the live process title to C<developer-dashboard ...> so operators see the public command name in C<ps> output instead of the staged helper path under F<~/.developer-dashboard/cli/dd/>.
 
 =head1 WHY IT EXISTS
 
