@@ -19,6 +19,7 @@ The goal is to prove that a new environment can:
 - verify browser-facing editor and saved fake-project bookmark pages in a real headless browser
 - verify the environment-variable project override flow works end to end
 - verify layered `.env` and `.env.pl` loading from runtime roots and skill roots works end to end
+- verify dotted skill commands that prompt on standard input still behave interactively after hook execution
 
 ## Scope
 
@@ -144,7 +145,7 @@ The integration run creates:
 - the installed `dashboard` binary works without `perl -Ilib`
 - the fake project's `./.developer-dashboard` tree becomes the active local runtime root with the home tree as fallback
 - layered root-to-leaf `.env` and `.env.pl` files override in order, and skill-local env files load only for skill execution paths
-- skill dependency installs follow `ddfile -> ddfile.local -> aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local`, with `ddfile.local` dependencies staying at the current skill install level, Node dependencies landing in `$HOME`, shared skill Perl dependencies landing in `~/perl5`, and skill-local Perl dependencies landing in each skill's `./perl5`
+- skill dependency installs follow `ddfile -> ddfile.local -> aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local`, with `ddfile.local` dependencies staying at the current skill install level, Node dependencies being staged in a private dashboard workspace before landing in `$HOME/node_modules`, shared skill Perl dependencies landing in `~/perl5`, and skill-local Perl dependencies landing in each skill's `./perl5`
 - explicit `dashboard skills install --ddfile` runs process `ddfile` first into the active layered skills root and then `ddfile.local` into the current directory's nested `./skills/` tree
 - a broken config Perl collector reports an error without stopping other configured collectors
 - a healthy config collector still reports `ok` and stays green in `dashboard indicator list`, `dashboard ps1`, and `/system/status`, without being clobbered back to `missing` by concurrent config-sync refreshes
@@ -169,13 +170,17 @@ The integration run creates:
 - `dashboard restart` also succeeds when a listener pid survives the first stop
   sweep and must be discovered by a late port re-probe
 - `dashboard restart` only reports success after the replacement runtime still
-  has a live managed pid and an accepting listener on the requested port,
-  instead of trusting an acknowledged pid that dies before the listener is up
+  has a live managed pid and an accepting listener on the requested port, and
+  after that ready state survives a short confirmation window instead of
+  trusting an acknowledged pid that dies immediately afterwards
 
-## macOS Brewfile Verification
+## Optional macOS Brewfile Verification
 
-Use a real macOS host or a disposable macOS guest when you need end-to-end
-`brewfile` verification. One practical route is the `dockur/macos` project:
+End-to-end `brewfile` verification on macOS is optional manual coverage, not a
+required release gate. Use a real macOS host or a disposable macOS guest only
+when you need to investigate a Homebrew-specific regression.
+
+One practical route is the `dockur/macos` project:
 https://github.com/dockur/macos
 
 The upstream README documents a compose flow using `dockurr/macos`,

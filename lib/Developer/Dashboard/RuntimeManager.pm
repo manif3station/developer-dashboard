@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '2.80';
+our $VERSION = '2.87';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -1065,47 +1065,49 @@ sub _progress_emit {
 
 # _web_runtime_ready($pid, $port)
 # Confirms that one reported web pid is still the active managed web process
-# and that the configured listen port is actually bound.
+# and that the configured listen port is actually bound, then keeps checking
+# only long enough to catch an immediate post-ready crash.
 # Input: process id integer and configured TCP port integer.
-# Output: boolean true when the runtime stayed alive long enough to expose its listener.
+# Output: boolean true when the runtime exposed its listener and survived the
+# short confirmation window afterwards.
 sub _web_runtime_ready {
     my ( $self, $pid, $port ) = @_;
     return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
     return 0 if defined $port && $port ne '' && ( $port !~ /^\d+$/ || $port < 1 );
-    my $ready = 0;
+    my $ready_polls = 0;
     for ( 1 .. $self->_runtime_stability_polls ) {
         my $running = $self->running_web;
+        my $listening = 0;
         if ( $running && ( $running->{pid} || 0 ) == $pid ) {
             my $listener_port = $port || $running->{port} || 0;
             if ($listener_port) {
-                my $listening = scalar $self->_listener_pids_for_port($listener_port) ? 1 : 0;
+                $listening = scalar $self->_listener_pids_for_port($listener_port) ? 1 : 0;
                 $listening = 1 if !$listening && $self->_port_accepting_connections($listener_port);
-                if ($listening) {
-                    $ready = 1;
-                }
-                elsif ($ready) {
-                    return 0;
-                }
             }
         }
-        elsif ($ready) {
+        if ($listening) {
+            $ready_polls++;
+            return 1 if $ready_polls >= $self->_runtime_confirmation_polls;
+        }
+        elsif ($ready_polls) {
             return 0;
         }
         sleep $self->_runtime_poll_interval;
     }
-    return $ready;
+    return 0;
 }
 
 # _collector_runtime_ready($name, $pid)
 # Confirms that a newly started collector loop became visible and stayed alive
-# through the startup stability window.
+# long enough to catch an immediate post-ready crash.
 # Input: collector name string and process id integer.
-# Output: boolean true when the collector loop remained managed and running.
+# Output: boolean true when the collector loop became visible and survived the
+# short confirmation window afterwards.
 sub _collector_runtime_ready {
     my ( $self, $name, $pid ) = @_;
     return 0 if !defined $name || $name eq '';
     return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
-    my $ready = 0;
+    my $ready_polls = 0;
     for ( 1 .. $self->_runtime_stability_polls ) {
         my $state = $self->{runner}->can('loop_state') ? $self->{runner}->loop_state($name) : undef;
         my $state_ready = $state
@@ -1117,19 +1119,21 @@ sub _collector_runtime_ready {
           ? ()
           : grep { $_->{name} eq $name && ( $_->{pid} || 0 ) == $pid } $self->{runner}->running_loops;
         if ( $state_ready || $running ) {
-            $ready = 1;
+            $ready_polls++;
+            return 1 if $ready_polls >= $self->_runtime_confirmation_polls;
         }
-        elsif ($ready) {
+        elsif ($ready_polls) {
             return 0;
         }
         sleep $self->_runtime_poll_interval;
     }
-    return $ready;
+    return 0;
 }
 
 # _runtime_stability_polls()
 # Returns the number of readiness polls used to prove that a replacement
-# runtime survived startup instead of dying immediately afterwards.
+# runtime had enough time to become visible before it is declared dead on
+# arrival.
 # Input: none.
 # Output: positive integer poll count.
 sub _runtime_stability_polls {
@@ -1140,6 +1144,17 @@ sub _runtime_stability_polls {
     return 300 if $perl5opt =~ /Devel::Cover/;
 
     return 100;
+}
+
+# _runtime_confirmation_polls()
+# Returns the number of consecutive ready polls required after startup first
+# becomes visible before the runtime is declared stable.
+# Input: none.
+# Output: positive integer poll count.
+sub _runtime_confirmation_polls {
+    my $override = $ENV{DEVELOPER_DASHBOARD_RUNTIME_CONFIRMATION_POLLS};
+    return $override if defined $override && $override =~ /^\d+$/ && $override > 0;
+    return 3;
 }
 
 # _runtime_poll_interval()

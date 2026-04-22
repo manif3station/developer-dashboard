@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Complete;
 use strict;
 use warnings;
 
-our $VERSION = '2.80';
+our $VERSION = '2.87';
 
 use Developer::Dashboard::CLI::Suggest;
 

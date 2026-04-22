@@ -1090,6 +1090,9 @@ like( $shell_bootstrap, qr/complete -F _dashboard_complete dashboard d2/, 'dashb
 like( $shell_bootstrap, qr/complete -F _dashboard_complete_cdr cdr dd_cdr which_dir/, 'dashboard shell bash bootstrap wires cdr-family tab completion' );
 like( $shell_bootstrap, qr/d2\(\)\s*\{\s*'\Q$dashboard\E'\s+"\$@"/s, 'dashboard shell bash bootstrap dispatches d2 through the dashboard entrypoint directly' );
 unlike( $shell_bootstrap, qr/d2\(\)\s*\{\s*'\Q$perl\E'\s+/s, 'dashboard shell bash bootstrap does not hardcode the current perl binary for d2' );
+unlike( $shell_bootstrap, qr/done\s+<\s+</, 'dashboard shell bash bootstrap avoids process substitution in completion helpers for macOS compatibility' );
+like( $shell_bootstrap, qr/completion_output="\$\('\Q$dashboard\E' complete /, 'dashboard shell bash bootstrap captures dashboard completions through command substitution' );
+like( $shell_bootstrap, qr/completion_output="\$\('\Q$dashboard\E' path complete-cdr /, 'dashboard shell bash bootstrap captures cdr completions through command substitution' );
 my $shell_bootstrap_file = File::Spec->catfile( $ENV{HOME}, 'dashboard-shell.sh' );
 open my $shell_bootstrap_fh, '>', $shell_bootstrap_file or die "Unable to write $shell_bootstrap_file: $!";
 print {$shell_bootstrap_fh} $shell_bootstrap;
@@ -1259,13 +1262,28 @@ exit 0
 SH
 close $fake_cpanm_fh;
 chmod 0755, $fake_cpanm or die "Unable to chmod $fake_cpanm: $!";
+my $fake_npm_log = File::Spec->catfile( $fake_bin, 'npm.log' );
+my $fake_npm = File::Spec->catfile( $fake_bin, 'npm' );
+open my $fake_npm_fh, '>', $fake_npm or die "Unable to write $fake_npm: $!";
+print {$fake_npm_fh} <<"SH";
+#!/bin/sh
+printf '%s|cwd=%s\\n' "\$*" "\$PWD" >> '$fake_npm_log'
+shift
+for spec in "\$@"; do
+  name=\${spec%%@*}
+  mkdir -p "\$PWD/node_modules/\$name"
+done
+exit 0
+SH
+close $fake_npm_fh;
+chmod 0755, $fake_npm or die "Unable to chmod $fake_npm: $!";
 my $skill_repo_root = File::Spec->catdir( $ENV{HOME}, 'skill-fixtures' );
 my $skill_repo = File::Spec->catdir( $skill_repo_root, 'demo-skill' );
 make_path( File::Spec->catdir( $skill_repo, 'cli', 'foo.d' ) );
 make_path( File::Spec->catdir( $skill_repo, 'config' ) );
 make_path( File::Spec->catdir( $skill_repo, 'dashboards', 'nav' ) );
 open my $skill_command_fh, '>', File::Spec->catfile( $skill_repo, 'cli', 'foo' ) or die "Unable to write skill command: $!";
-print {$skill_command_fh} "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nprint join('|', \@ARGV), qq{\\n};\n";
+print {$skill_command_fh} "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nif (\@ARGV) {\n    print join('|', \@ARGV), qq{\\n};\n    exit 0;\n}\nprint qq{foo:};\nmy \$answer = <STDIN>;\ndefined \$answer or die qq{missing stdin\\n};\nprint qq{answer=\$answer};\n";
 close $skill_command_fh;
 chmod 0755, File::Spec->catfile( $skill_repo, 'cli', 'foo' ) or die "Unable to chmod skill command: $!";
 open my $skill_hook_fh, '>', File::Spec->catfile( $skill_repo, 'cli', 'foo.d', '00-pre.pl' ) or die "Unable to write skill hook: $!";
@@ -1275,6 +1293,12 @@ chmod 0755, File::Spec->catfile( $skill_repo, 'cli', 'foo.d', '00-pre.pl' ) or d
 open my $skill_config_fh, '>', File::Spec->catfile( $skill_repo, 'config', 'config.json' ) or die "Unable to write skill config: $!";
 print {$skill_config_fh} qq|{"skill_name":"demo-skill"}\n|;
 close $skill_config_fh;
+open my $skill_cpanfile_fh, '>', File::Spec->catfile( $skill_repo, 'cpanfile' ) or die "Unable to write skill cpanfile: $!";
+print {$skill_cpanfile_fh} "requires 'JSON::XS';\n";
+close $skill_cpanfile_fh;
+open my $skill_package_json_fh, '>', File::Spec->catfile( $skill_repo, 'package.json' ) or die "Unable to write skill package.json: $!";
+print {$skill_package_json_fh} qq|{"name":"demo-skill-node","version":"1.0.0","dependencies":{"left-pad":"1.3.0"}}\n|;
+close $skill_package_json_fh;
 open my $skill_index_fh, '>', File::Spec->catfile( $skill_repo, 'dashboards', 'index' ) or die "Unable to write skill index: $!";
 print {$skill_index_fh} "TITLE: Demo Skill Index\n:--------------------------------------------------------------------------------:\nBOOKMARK: index\n:--------------------------------------------------------------------------------:\nHTML:\nDemo Skill Index\n";
 close $skill_index_fh;
@@ -1304,6 +1328,32 @@ close $skill_nav_fh;
 }
 my $skill_install = _run("PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' skills install 'file://$skill_repo'");
 like( $skill_install, qr/"repo_name"\s*:\s*"demo-skill"/, 'dashboard skills install clones the skill into the isolated skills root' );
+my ( $skill_progress_stdout, $skill_progress_stderr, $skill_progress_exit ) = capture {
+    local $ENV{DEVELOPER_DASHBOARD_PROGRESS} = 1;
+    system 'sh', '-c', "PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' skills install 'file://$skill_repo'";
+};
+is( $skill_progress_exit >> 8, 0, 'dashboard skills install still succeeds when forced terminal progress output is enabled' );
+like( $skill_progress_stdout, qr/"repo_name"\s*:\s*"demo-skill"/, 'dashboard skills install keeps the machine-readable install payload on stdout while progress is enabled' );
+like( $skill_progress_stderr, qr/dashboard skills install progress/, 'dashboard skills install progress output prints the task-board title when enabled' );
+like( $skill_progress_stderr, qr/\[ \] Fetch skill source/, 'dashboard skills install progress output prints the full task list before work begins' );
+like( $skill_progress_stderr, qr/\[OK\] Install package\.json dependencies from .*demo-skill.*package\.json/, 'dashboard skills install progress output shows that package.json was detected and handed to npm' );
+like( $skill_progress_stderr, qr/\[OK\] Install cpanfile dependencies/, 'dashboard skills install progress output marks dependency steps complete after work finishes' );
+open my $fake_npm_log_fh, '<', $fake_npm_log or die "Unable to read $fake_npm_log: $!";
+my @fake_npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$fake_npm_log_fh>;
+close $fake_npm_log_fh;
+ok( scalar @fake_npm_steps, 'dashboard skills install runs npm when the skill ships a package.json' );
+my $portable_npm_stage_root = _portable_path(
+    File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cache', 'node-package-installs' )
+);
+like(
+    $fake_npm_steps[0],
+    qr/^install left-pad\@1\.3\.0\|cwd=\Q$portable_npm_stage_root\E\/npm-install-/,
+    'dashboard skills install stages npm work under the dashboard runtime cache instead of using bare HOME as the npm project root',
+);
+ok(
+    -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'left-pad' ),
+    'dashboard skills install merges staged Node dependencies into HOME/node_modules',
+);
 my ( $skill_install_usage_stdout, $skill_install_usage_stderr, $skill_install_usage_exit ) = capture {
     system( $perl, '-I', $lib, $dashboard, 'skills', 'install' );
 };
@@ -1404,6 +1454,36 @@ close $manifest_local_ddfile_fh;
 my $skill_dotted_dispatch = _run("$perl -I'$lib' '$dashboard' demo-skill.foo alpha beta");
 like( $skill_dotted_dispatch, qr/skill-hook/, 'dashboard <skill>.<command> runs skill-local hooks before the skill command body' );
 like( $skill_dotted_dispatch, qr/alpha\|beta/, 'dashboard <skill>.<command> forwards remaining args to the skill command body' );
+{
+    my $interactive_cli = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'ask' );
+    open my $interactive_cli_fh, '>', $interactive_cli or die "Unable to write $interactive_cli: $!";
+    print {$interactive_cli_fh} <<'PERL';
+#!/usr/bin/env perl
+use strict;
+use warnings;
+print "foo:";
+my $answer = <STDIN>;
+defined $answer or die "missing stdin\n";
+print "answer=$answer";
+PERL
+    close $interactive_cli_fh;
+    chmod 0755, $interactive_cli or die "Unable to chmod $interactive_cli: $!";
+
+    my $top_level_prompt = _run_interactive_command(
+        command => [ $perl, '-I', $lib, $dashboard, 'ask' ],
+        input   => "bar\n",
+    );
+    is( $top_level_prompt->{exit_code}, 0, 'dashboard top-level CLI command keeps stdin prompting interactive' );
+    like( $top_level_prompt->{stdout}, qr/\Afoo:answer=bar\r?\n\z/, 'dashboard top-level CLI command prints its prompt and receives stdin through dashboard dispatch' );
+
+    my $skill_prompt = _run_interactive_command(
+        command => [ $perl, '-I', $lib, $dashboard, 'demo-skill.foo' ],
+        input   => "bar\n",
+    );
+    is( $skill_prompt->{exit_code}, 0, 'dashboard dotted skill command keeps stdin prompting interactive' );
+    like( $skill_prompt->{stdout}, qr/skill-hook/, 'dashboard dotted skill command still runs hooks before interactive skill execution' );
+    like( $skill_prompt->{stdout}, qr/foo:answer=bar\r?\n/, 'dashboard dotted skill command prints its prompt and receives stdin through dashboard dispatch' );
+}
 
 my $open_root = File::Spec->catdir( $ENV{HOME}, 'open-file-fixtures' );
 make_path($open_root);
@@ -1727,7 +1807,8 @@ GO
 }
 
 SKIP: {
-    skip 'Java hook smoke requires javac and java in PATH', 4 if !_command_available('javac') || !_command_available('java');
+    skip 'Java hook smoke requires a usable javac and java runtime', 4
+      if !_command_usable('javac', '-version') || !_command_usable('java', '-version');
     my $jq_java_hook = File::Spec->catfile( $jq_hook_root, '03-java.java' );
     open my $jq_java_hook_fh, '>', $jq_java_hook or die "Unable to write $jq_java_hook: $!";
     print {$jq_java_hook_fh} <<'JAVA';
@@ -2181,8 +2262,8 @@ GO
     is( $go_stdout, "Hello, World!\n", 'dashboard direct Go custom command runs through go run' );
 }
 SKIP: {
-    skip 'javac and java are required for direct CLI source-command smoke test', 3
-      if !_command_available('javac') || !_command_available('java');
+    skip 'a usable javac and java runtime are required for direct CLI source-command smoke test', 3
+      if !_command_usable('javac', '-version') || !_command_usable('java', '-version');
     my $java_extension = File::Spec->catfile( $cli_root, 'foo.java' );
     open my $java_extension_fh, '>', $java_extension or die "Unable to write $java_extension: $!";
     print {$java_extension_fh} <<'JAVA';
@@ -2264,7 +2345,7 @@ my ( $progress_restart_stdout, $progress_restart_stderr, $progress_restart_exit 
 is( $progress_restart_exit, 0, 'dashboard restart still succeeds when forced terminal progress output is enabled' );
 like( $progress_restart_stderr, qr/dashboard restart progress/, 'dashboard restart progress output prints the task-board title when enabled' );
 like( $progress_restart_stderr, qr/\[ \] Stop dashboard web service/, 'dashboard restart progress output prints the full task list before work begins' );
-like( $progress_restart_stderr, qr/-> Start dashboard web service|\[x\] Start dashboard web service/, 'dashboard restart progress output updates the web start task while work runs' );
+like( $progress_restart_stderr, qr/-> Start dashboard web service|\[OK\] Start dashboard web service/, 'dashboard restart progress output updates the web start task while work runs' );
 my ( $progress_stop_stdout, $progress_stop_stderr, $progress_stop_exit ) = capture {
     local $ENV{DEVELOPER_DASHBOARD_PROGRESS} = 1;
     local $ENV{PERL5OPT} if _coverage_requested();
@@ -2274,7 +2355,7 @@ my ( $progress_stop_stdout, $progress_stop_stderr, $progress_stop_exit ) = captu
 };
 is( $progress_stop_exit, 0, 'dashboard stop still succeeds when forced terminal progress output is enabled' );
 like( $progress_stop_stderr, qr/dashboard stop progress/, 'dashboard stop progress output prints the task-board title when enabled' );
-like( $progress_stop_stderr, qr/\[x\] Stop dashboard web service/, 'dashboard stop progress output marks the web shutdown task complete' );
+like( $progress_stop_stderr, qr/\[OK\] Stop dashboard web service/, 'dashboard stop progress output marks the web shutdown task complete' );
 
 my $project_root = File::Spec->catdir( $ENV{HOME}, 'projects', 'local-cli-project' );
 make_path( File::Spec->catdir( $project_root, '.git' ) );
@@ -2508,6 +2589,26 @@ sub _run {
     return decode( 'UTF-8', $stdout . $stderr );
 }
 
+sub _run_interactive_command {
+    my (%args) = @_;
+    my $command = $args{command} || die "interactive command array required";
+    my $input = defined $args{input} ? $args{input} : '';
+    require IPC::Open3;
+    require Symbol;
+    my $stderr_fh = Symbol::gensym();
+    my $pid = IPC::Open3::open3( my $stdin_fh, my $stdout_fh, $stderr_fh, @{$command} );
+    print {$stdin_fh} $input;
+    close $stdin_fh;
+    my $stdout = do { local $/; <$stdout_fh> };
+    my $stderr = do { local $/; <$stderr_fh> };
+    waitpid( $pid, 0 );
+    return {
+        stdout    => decode( 'UTF-8', $stdout // '' ),
+        stderr    => decode( 'UTF-8', $stderr // '' ),
+        exit_code => $? >> 8,
+    };
+}
+
 sub _literal_pattern {
     my (@tokens) = @_;
     return qr/@{[ join '|', map { quotemeta $_ } @tokens ]}/i;
@@ -2552,6 +2653,16 @@ sub _command_available {
     my ($name) = @_;
     my ( undef, undef, $exit_code ) = capture {
         system 'sh', '-c', "command -v '$name' >/dev/null 2>&1";
+        return $? >> 8;
+    };
+    return $exit_code == 0 ? 1 : 0;
+}
+
+sub _command_usable {
+    my ( $name, @args ) = @_;
+    return 0 if !_command_available($name);
+    my ( undef, undef, $exit_code ) = capture {
+        system $name, @args;
         return $? >> 8;
     };
     return $exit_code == 0 ? 1 : 0;

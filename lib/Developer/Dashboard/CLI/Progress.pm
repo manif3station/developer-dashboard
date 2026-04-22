@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Progress;
 use strict;
 use warnings;
 
-our $VERSION = '2.80';
+our $VERSION = '2.87';
 
 # new(%args)
 # Constructs a terminal progress renderer for restart/stop lifecycle commands.
@@ -30,6 +30,7 @@ sub new {
         tasks    => \%task_lookup,
         stream   => $stream,
         dynamic  => $args{dynamic} ? 1 : 0,
+        color    => $args{color} ? 1 : 0,
         rendered => 0,
     }, $class;
     $self->render;
@@ -104,7 +105,7 @@ sub render_text {
     for my $id ( @{ $self->{order} } ) {
         my $task   = $self->{tasks}{$id} || next;
         my $prefix = $self->_status_prefix( $task->{status} );
-        push @lines, sprintf '%s %s', $prefix, $task->{label};
+        push @lines, sprintf '%s %s', $self->_colorize( $prefix, $task->{status} ), $task->{label};
     }
     return join( "\n", @lines ) . "\n";
 }
@@ -115,10 +116,23 @@ sub render_text {
 # Output: short ASCII marker string.
 sub _status_prefix {
     my ( $self, $status ) = @_;
-    return '[x]' if defined $status && $status eq 'done';
-    return '->'  if defined $status && $status eq 'running';
-    return '[!]' if defined $status && $status eq 'failed';
+    return '[OK]' if defined $status && $status eq 'done';
+    return '->'   if defined $status && $status eq 'running';
+    return '[X]'  if defined $status && $status eq 'failed';
     return '[ ]';
+}
+
+# _colorize($text, $status)
+# Wraps one marker with ANSI color escapes when terminal color output is enabled.
+# Input: marker text string and status string.
+# Output: plain or ANSI-colored marker string.
+sub _colorize {
+    my ( $self, $text, $status ) = @_;
+    return $text if !$self->{color};
+    return "\e[32m$text\e[0m" if defined $status && $status eq 'done';
+    return "\e[33m$text\e[0m" if defined $status && $status eq 'running';
+    return "\e[31m$text\e[0m" if defined $status && $status eq 'failed';
+    return $text;
 }
 
 1;
@@ -139,6 +153,7 @@ Developer::Dashboard::CLI::Progress - terminal task-board renderer for lifecycle
       ],
       stream  => \*STDERR,
       dynamic => 1,
+      color   => 1,
   );
   my $callback = $progress->callback;
   $callback->( { task_id => 'stop_web', status => 'running' } );
@@ -199,5 +214,13 @@ Example 2:
   DEVELOPER_DASHBOARD_PROGRESS=1 dashboard restart
 
 Force the restart helper to emit the task board even when stdout and stderr are being captured instead of attached to an interactive terminal.
+
+Example 3:
+
+  dashboard restart
+
+Render the interactive lifecycle board with yellow running markers, green
+C<[OK]> completion markers, and red C<[X]> failure markers when stderr is a
+real terminal.
 
 =cut

@@ -1,5 +1,66 @@
 # Fixed Bugs
 
+## 2026-04-22 (Phase 140: macOS Bash Completion Bootstrap Compatibility)
+
+- Fixed generated bash completion helpers so C<_dashboard_complete> and
+  C<_dashboard_complete_cdr> no longer rely on process substitution. They now
+  capture completion payloads first and then load C<COMPREPLY> from that saved
+  text, which keeps C<dashboard shell bash> responsive on macOS bash builds
+  and inside tarball C<cpanm> test runs where the old pipe lifetime could
+  leave C<t/05-cli-smoke.t> hanging.
+
+## 2026-04-21 (Phase 139: Restart Startup, Skill Install Shorthand, And Interactive Skill Prompting)
+
+- Fixed the restart startup stall so healthy collector loops and the web
+  runtime no longer wait through the full readiness poll budget after they are
+  already visible.
+- Changed the managed runtime readiness contract to wait until the collector
+  loop or listener is actually up, then require only a short consecutive
+  confirmation window before reporting success.
+- Kept the dead-on-arrival guardrails intact so the restart still fails
+  explicitly when a collector loop, web pid, or listener disappears during
+  that short confirmation window.
+- Fixed skill-install visibility for Node-based skills so the interactive
+  progress board now shows when F<package.json> was detected and handed to
+  C<npm>, instead of leaving large npm-heavy skills looking like they skipped
+  Node dependency work.
+- Fixed skill-install shorthand handling so operators can now install official
+  skills with one bare word such as C<browser>, install third-party GitHub
+  skills with C<owner/repo>, and still pass full remote URLs unchanged when
+  they need an explicit clone target.
+- Fixed interactive dotted skill dispatch so C<dashboard E<lt>skillE<gt>.E<lt>commandE<gt>>
+  now preserves prompt text and stdin reads from the real command after hooks
+  complete, instead of breaking Perl-style C<print "foo:"; my $answer = <STDIN>;>
+  workflows.
+
+## 2026-04-21 (Phase 137: Repo Bootstrap Installer And Package Manifests)
+
+- Added a repo-root `install.sh` bootstrap flow so a blank Debian, Ubuntu, or
+  macOS machine can install Developer Dashboard from one checkout command
+  instead of requiring the operator to reconstruct the package-manager and
+  local::lib steps by hand.
+- Added shipped `aptfile` and `brewfile` manifests so the checkout now carries
+  the package lists that `install.sh` consumes for Debian-family and macOS
+  bootstrap runs.
+- Fixed shell-bootstrap drift in the installer by appending exactly one
+  `local::lib` startup line to the active shell rc file, preferring Homebrew
+  Perl on macOS when available, and finishing the bootstrap with
+  `cpanm --notest Developer::Dashboard` plus `dashboard init`.
+- Fixed Debian-family bootstrap failures on older stable releases by adding
+  the native development and zlib packages required by `XML::Parser` and
+  `Net::SSLeay` to the shipped `aptfile`, and by teaching `install.sh` to
+  bootstrap a user-space `perlbrew` Perl `5.38.5` whenever the packaged
+  system Perl is older than the dashboard runtime requirement.
+
+## 2026-04-21 (Phase 136: Colored Lifecycle Progress Markers)
+
+- Fixed the interactive lifecycle task board so successful steps now render
+  as green `[OK]` markers instead of the ambiguous lowercase `[x]`.
+- Fixed running-step visibility by rendering the `->` marker in yellow on
+  real terminals.
+- Fixed failure-step visibility by keeping failures as red `[X]` markers
+  while leaving captured non-interactive output uncolored.
+
 ## 2026-04-21 (Phase 135: Visible Restart And Stop Progress Board)
 
 - Fixed the blank-wait lifecycle UX so interactive `dashboard stop` and
@@ -7,7 +68,7 @@
   `stderr` before work starts instead of leaving the terminal silent during
   managed shutdown and startup waits.
 - Added live task-state updates for the interactive lifecycle board so the
-  active step is marked with `->` and completed steps are marked with `[x]`
+  active step is marked with `->` and completed steps are marked with `[OK]`
   while the runtime moves through web and collector stop or start work.
 - Kept the final lifecycle JSON payload on `stdout`, so existing scripted
   callers still receive the same machine-readable stop or restart result.
@@ -19,8 +80,8 @@
   skill, instead of drifting to whatever directory happened to launch the
   install.
 - Added skill `package.json` dependency support so Node dependencies now
-  install into the dashboard home directory through
-  `npm install --prefix "$HOME" <skill-root>`.
+  install into `$HOME/node_modules` by running
+  `npm install <dependency-spec...>` from `$HOME`.
 - Extended the regression coverage and shipped docs so the automatic per-skill
   dependency order is locked to
   `ddfile -> ddfile.local -> aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local`.

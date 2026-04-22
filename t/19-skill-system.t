@@ -59,8 +59,13 @@ _write_file(
     File::Spec->catfile( $fake_bin, 'npm' ),
     <<"SH",
 #!/bin/sh
-printf '%s\\n' "\$*" >> "$npm_log"
+printf '%s|cwd=%s\\n' "\$*" "\$PWD" >> "$npm_log"
 printf 'NPM:%s\\n' "\$*" >> "$dependency_log"
+shift
+for spec in "\$@"; do
+  name=\${spec%%@*}
+  mkdir -p "\$PWD/node_modules/\$name"
+done
 exit 0
 SH
     0755,
@@ -130,7 +135,7 @@ PL
     ddfile_local_body => "dep-beta\n",
     aptfile_body => "git\ncurl\n",
     brewfile_body => "jq\n",
-    package_json_body => qq|{"name":"alpha-skill-node","version":"1.0.0","dependencies":{"left-pad":"1.3.0"}}\n|,
+    package_json_body => qq|{"name":"alpha-skill-node","version":"0.01.0","dependencies":{"express":"^4.19.2","uuid":"^11.0.0"},"devDependencies":{"playwright":"^1.52.0"}}\n|,
     cpanfile_local_body => "requires 'YAML::XS';\n",
     bookmark_body => <<'BOOKMARK',
 TITLE: Skill Bookmark
@@ -179,7 +184,14 @@ is( $cpanm_steps[1], "-L $install->{path}/perl5 --cpanfile $install->{path}/cpan
 open my $npm_log_fh, '<', $npm_log or die "Unable to read $npm_log: $!";
 my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npm_log_fh>;
 close $npm_log_fh;
-is( $npm_steps[0], "install --prefix $ENV{HOME} $install->{path}", 'package.json installs Node dependencies into HOME' );
+like(
+    $npm_steps[0],
+    qr/^install express\@\^4\.19\.2 uuid\@\^11\.0\.0 playwright\@\^1\.52\.0\|cwd=\Q$ENV{HOME}\E\/\.developer-dashboard\/cache\/node-package-installs\/npm-install-/,
+    'package.json installs declared Node dependencies from a private staging workspace instead of using bare HOME as the npm project root',
+);
+ok( -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'express' ), 'package.json merges staged Node dependencies into HOME/node_modules' );
+ok( -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'uuid' ), 'package.json merges additional staged Node dependencies into HOME/node_modules' );
+ok( -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'playwright' ), 'package.json merges staged Playwright dependencies into HOME/node_modules' );
 open my $dashboard_log_fh, '<', $dashboard_log or die "Unable to read $dashboard_log: $!";
 my @dashboard_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dashboard_log_fh>;
 close $dashboard_log_fh;

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '2.80';
+our $VERSION = '2.87';
 
 1;
 
@@ -19,7 +19,7 @@ Developer::Dashboard - a local home for development work
 
 =head1 VERSION
 
-2.80
+2.87
 
 =head1 INTRODUCTION
 
@@ -1035,6 +1035,35 @@ the full decoded XML tree as canonical JSON.
 
 =head2 Installation
 
+Bootstrap a blank Debian, Ubuntu, or macOS machine from a checkout with:
+
+  ./install.sh
+
+F<install.sh> is a checkout-only bootstrap helper. It ships in the source tree
+and release tarball so operators can run it explicitly from a checkout or
+extracted tarball, but CPAN and C<cpanm> do not install it as a global
+command.
+
+That installer reads the repo-root F<aptfile> on Debian-family hosts and runs
+C<apt-get update> plus C<apt-get install -y> for the listed packages, reads
+the repo-root F<brewfile> on macOS and runs C<brew install> for the listed
+packages, bootstraps user-space Perl tooling under F<~/perl5> with
+C<cpanm --local-lib-contained "$HOME/perl5" local::lib App::cpanminus>,
+appends exactly one C<local::lib> bootstrap line to F<~/.bashrc>,
+F<~/.zshrc>, or F<~/.profile> depending on the active shell, prefers
+Homebrew Perl on macOS when C<brew --prefix perl> exposes a brewed
+interpreter, bootstraps a user-space C<perlbrew> Perl on Debian-family hosts
+when the system Perl is older than the required C<5.38>, installs Developer
+Dashboard into the user account with C<cpanm --notest Developer::Dashboard>,
+and then runs C<dashboard init> so the runtime exists immediately after
+installation.
+
+Useful bootstrap examples:
+
+  ./install.sh
+  SHELL=/bin/zsh ./install.sh
+  DD_INSTALL_CPAN_TARGET=./Developer-Dashboard-X.XX.tar.gz ./install.sh
+
 Install from CPAN with:
 
   cpanm Developer::Dashboard
@@ -1273,8 +1302,9 @@ Restart the local app and configured collector loops:
   dashboard restart
 
 Interactive terminal runs now print the full restart task board on C<stderr>,
-mark the active step with C<->, mark completed steps with C<[x]>, and keep
-the final JSON result on C<stdout>.
+mark the active step with a yellow C<->, mark completed steps with a green
+C<[OK]>, mark failed steps with a red C<[X]>, and keep the final JSON result
+on C<stdout>.
 
 Create a helper login user:
 
@@ -1605,7 +1635,10 @@ C<_dashboard_complete_zsh>, and PowerShell registers
 C<Register-ArgumentCompleter> for both command names. Completion candidates
 come from the live runtime instead of a hardcoded shell list, so built-in
 commands, layered custom CLI commands, and installed dotted skill commands
-all show up in suggestions. The generated bootstrap also wires C<cdr>,
+all show up in suggestions. For bash, the generated helper captures
+completion payloads first instead of relying on process substitution, which
+keeps completion responsive on macOS and inside packaged install-test shells.
+The generated bootstrap also wires C<cdr>,
 C<dd_cdr>, and C<which_dir> completion. The first argument suggests saved
 aliases plus matching directory names beneath the current directory, and later
 arguments suggest matching directory basenames beneath the resolved alias root
@@ -1787,11 +1820,12 @@ waiting
 
 C<dashboard restart> stops both, starts configured collector loops again, then
 starts the web service, and only reports success after the replacement
-collector loops and web runtime both survive a short managed stability window,
-with the web side still holding a live managed pid and an accepting listener
-on the requested port; on an interactive terminal it also prints the full
-restart task board on C<stderr>, marks the active step with C<->, and marks
-completed steps with C<[x]> while leaving the final JSON result on C<stdout>
+collector loops and web runtime become visible and survive a short post-ready
+confirmation window, with the web side still holding a live managed pid and
+an accepting listener on the requested port; on an interactive terminal it
+also prints the full restart task board on C<stderr>, marks the active step
+with a yellow C<->, marks completed steps with a green C<[OK]>, marks failed
+steps with a red C<[X]>, and leaves the final JSON result on C<stdout>
 
 =item *
 
@@ -2189,10 +2223,21 @@ Extend dashboard with isolated skill packages:
 Install a skill from either a Git repository URL or a local checked-out skill
 repository:
 
+  dashboard skills install browser
+  dashboard skills install foo/bar
   dashboard skills install git@github.com:user/example-skill.git
   dashboard skills install https://github.com/user/example-skill.git
   dashboard skills install /absolute/path/to/example-skill
   dashboard skills install --ddfile
+
+Bare one-word skill names are expanded against the official
+C<https://github.com/manif3station/> GitHub base, so
+C<dashboard skills install browser> clones
+C<https://github.com/manif3station/browser>. Two-part C<owner/repo>
+shorthand is expanded against GitHub too, so
+C<dashboard skills install foo/bar> clones C<https://github.com/foo/bar>.
+Full URLs such as C<https://github.com/user/example-skill.git> and
+C<git@github.com:user/example-skill.git> are used exactly as supplied.
 
 Git sources are cloned. Direct local checked-out directories are synced in
 place instead of recloned, using C<rsync> when it is available and the
@@ -2226,6 +2271,17 @@ the command processes F<ddfile> first and F<ddfile.local> second. Repeated
 C<dashboard skills install --ddfile> runs also act as reinstall and refresh
 for already-installed targets, just like repeated explicit
 C<dashboard skills install E<lt>sourceE<gt>> runs.
+Interactive C<dashboard skills install> runs also print a task board on
+C<stderr>. When a skill ships dependency manifests such as F<package.json>,
+the matching task updates to show the detected file path so a long-running
+C<npm>, C<cpanm>, or package-manager step stays visible instead of looking
+blind.
+
+Installed dotted skill commands such as C<dashboard demo-skill.foo> now hand
+control to the real skill command after hook processing instead of wrapping
+the main command in an extra capture layer. That keeps interactive prompting
+behavior intact for commands that print a prompt and then read from standard
+input.
 
 Skill lookup also follows C<DD-OOP-LAYERS>, but a same-named deeper skill is
 now layered instead of flattening the whole repo. The home
@@ -2449,8 +2505,10 @@ Optional macOS Homebrew packages installed through C<brew install>
 
 =item B<package.json>
 
-Optional Node dependencies installed into C<$HOME> through
-C<npm install --prefix "$HOME" E<lt>skill-rootE<gt>>
+Optional Node dependencies installed into C<$HOME/node_modules> by running
+C<npm install E<lt>dependency-spec...E<gt>> inside a private dashboard staging
+workspace and then merging the resulting packages into
+C<$HOME/node_modules>
 
 =item B<cpanfile>
 
@@ -2612,8 +2670,11 @@ installed through C<brew install>
 
 =item *
 
-if a C<package.json> exists, its Node dependencies are installed into C<$HOME>
-through C<npm install --prefix "$HOME" E<lt>skill-rootE<gt>>
+if a C<package.json> exists, its Node dependencies are installed into
+C<$HOME/node_modules> by running C<npm install E<lt>dependency-spec...E<gt>>
+inside a private dashboard staging workspace and then merging the resulting
+packages into C<$HOME/node_modules>, so unrelated C<$HOME/package.json> files
+do not break skill installs
 
 =item *
 
@@ -2665,7 +2726,8 @@ C<ddfile -> ddfile.local -> aptfile -> brewfile -> package.json -> cpanfile -> c
 automatic dependency install order, the explicit
 C<dashboard skills install --ddfile> operator order of
 C<ddfile -> ddfile.local>, the shared C<~/perl5> versus skill-local
-C<perl5/> split, the C<$HOME> Node install target used by C<package.json>,
+C<perl5/> split, the C<$HOME/node_modules> Node install target used by
+C<package.json>,
 the same-install-level dependency target used by skill-local F<ddfile.local>,
 skill docker layering, and when to use dashboard-wide custom CLI hook folders such as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d> instead of a skill-local

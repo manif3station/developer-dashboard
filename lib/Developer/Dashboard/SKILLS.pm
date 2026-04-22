@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '2.80';
+our $VERSION = '2.87';
 
 1;
 
@@ -206,7 +206,8 @@ prints the requested package list and installs it through C<brew install>.
 =item B<package.json>
 
 Optional Node dependency declaration. When present, Developer Dashboard runs
-C<npm install --prefix "$HOME" E<lt>skill-rootE<gt>>.
+C<npm install E<lt>dependency-spec...E<gt>> inside a private dashboard staging
+workspace and then merges the resulting packages into C<$HOME/node_modules>.
 
 =item B<cpanfile>
 
@@ -588,7 +589,8 @@ a C<cpanfile.local> when that skill also needs a skill-local C<./perl5> tree.
 Yes. Ship a C<ddfile> for dependent skills, a C<ddfile.local> for dependent
 skills that must stay at the current install level, an C<aptfile> for
 Debian-family packages, a C<brewfile> for macOS packages, or a
-C<package.json> for Node dependencies that should land under C<$HOME>. The
+C<package.json> for Node dependencies that should land under
+C<$HOME/node_modules>. The
 explicit operator manifest order for C<dashboard skills install --ddfile> is
 C<ddfile -> ddfile.local>, while the automatic per-skill dependency order is
 C<ddfile -> ddfile.local -> aptfile -> brewfile -> package.json -> cpanfile -> cpanfile.local>.

@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '2.80';
+our $VERSION = '2.87';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -11,6 +11,7 @@ use File::Path qw(make_path remove_tree);
 use File::Spec;
 use File::Basename qw(basename);
 use File::Find qw(find);
+use File::Temp qw(tempdir);
 use Capture::Tiny qw(capture);
 use JSON::XS qw(decode_json encode_json);
 use Developer::Dashboard::PathRegistry;
@@ -29,14 +30,34 @@ sub new {
       );
 
     return bless {
-        paths => $paths,
+        paths    => $paths,
+        progress => $args{progress},
     }, $class;
+}
+
+# install_progress_tasks()
+# Returns the ordered task list shown for one dashboard skills install run.
+# Input: none.
+# Output: array reference of progress task hashes.
+sub install_progress_tasks {
+    return [
+        { id => 'fetch_source',         label => 'Fetch skill source' },
+        { id => 'prepare_layout',       label => 'Prepare skill layout' },
+        { id => 'install_ddfile',       label => 'Install ddfile dependencies' },
+        { id => 'install_ddfile_local', label => 'Install ddfile.local dependencies' },
+        { id => 'install_aptfile',      label => 'Install aptfile dependencies' },
+        { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
+        { id => 'install_package_json', label => 'Install package.json dependencies' },
+        { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
+        { id => 'install_cpanfile_local', label => 'Install cpanfile.local dependencies' },
+    ];
 }
 
 # install($source)
 # Installs or reinstalls a skill into the deepest participating DD-OOP-LAYERS
 # skills root.
-# Input: Git URL or direct local checked-out repository path.
+# Input: Git URL, shorthand GitHub skill name, owner/repo shorthand, or direct
+# local checked-out repository path.
 # Output: hash ref with success status and repo name.
 sub install {
     my ( $self, $source ) = @_;
@@ -275,6 +296,24 @@ sub _extract_repo_name {
     return;
 }
 
+# _normalize_install_source($source)
+# Expands shorthand remote skill names into full GitHub clone URLs while
+# leaving local paths and explicit remote URLs unchanged.
+# Input: install source string.
+# Output: normalized install source string.
+sub _normalize_install_source {
+    my ( $self, $source ) = @_;
+    return $source if !defined $source || $source eq '';
+    return $source if -d $source;
+    return $source if $source =~ m{\A[A-Za-z][A-Za-z0-9+.-]*://};
+    return $source if $source =~ /\Agit@/;
+    return "https://github.com/$source"
+      if $source =~ /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?\z/;
+    return "https://github.com/manif3station/$source"
+      if $source =~ /\A[A-Za-z0-9_.-]+\z/;
+    return $source;
+}
+
 # _sync_local_skill_source($source_path, $target_path)
 # Copies one validated local skill checkout into the isolated installed skill
 # root, using rsync when available and a Perl tree copy otherwise.
@@ -342,6 +381,26 @@ sub _copy_tree {
     return { success => 1 };
 }
 
+# _clone_skill_source($clone_source, $target_path)
+# Clones one remote skill checkout into the isolated installed skill root
+# using git clone and explicit captured stdout and stderr for error reporting.
+# Input: normalized remote clone source string and absolute target path.
+# Output: success hash ref or error hash ref.
+sub _clone_skill_source {
+    my ( $self, $clone_source, $target_path ) = @_;
+    return { error => 'Missing remote skill source' } if !$clone_source;
+    return { error => 'Missing remote skill target path' } if !$target_path;
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'git', 'clone', $clone_source, $target_path );
+    };
+    return { success => 1 } if $exit == 0;
+
+    my $message = $stderr || $stdout || 'git clone failed without output';
+    chomp $message;
+    return { error => "Failed to clone $clone_source: $message" };
+}
+
 # _local_checked_out_source($source)
 # Detects and validates one direct local checked-out skill repository path.
 # Input: install source string.
@@ -405,7 +464,8 @@ sub _install_to_skills_root {
 
     my $local_source = $self->_local_checked_out_source($source);
     return $local_source if ref($local_source) eq 'HASH';
-    my $repo_name = $local_source ? basename($local_source) : _extract_repo_name($source);
+    my $clone_source = $local_source ? $source : $self->_normalize_install_source($source);
+    my $repo_name = $local_source ? basename($local_source) : _extract_repo_name($clone_source);
     return { error => "Unable to extract repo name from $source" } if !$repo_name;
 
     $self->{paths}->ensure_dir($skills_root);
@@ -414,23 +474,53 @@ sub _install_to_skills_root {
     return $remove if $remove->{error};
 
     if ($local_source) {
+        $self->_progress_emit(
+            {
+                task_id => 'fetch_source',
+                status  => 'running',
+                label   => "Fetch skill source from $local_source",
+            }
+        );
         my $sync = $self->_sync_local_skill_source( $local_source, $skill_path );
         if ( $sync->{error} ) {
             remove_tree($skill_path) if -d $skill_path;
+            $self->_progress_emit( { task_id => 'fetch_source', status => 'failed' } );
             return $sync;
         }
+        $self->_progress_emit(
+            {
+                task_id => 'fetch_source',
+                status  => 'done',
+                label   => "Fetch skill source from $local_source",
+            }
+        );
     }
     else {
-        my ( $stdout, $stderr, $exit ) = capture {
-            system( 'git', 'clone', $source, $skill_path );
-        };
-        if ( $exit != 0 ) {
+        $self->_progress_emit(
+            {
+                task_id => 'fetch_source',
+                status  => 'running',
+                label   => "Fetch skill source from $clone_source",
+            }
+        );
+        my $clone = $self->_clone_skill_source( $clone_source, $skill_path );
+        if ( $clone->{error} ) {
             remove_tree($skill_path) if -d $skill_path;
-            return { error => "Failed to clone $source: $stderr" };
+            $self->_progress_emit( { task_id => 'fetch_source', status => 'failed' } );
+            return $clone;
         }
+        $self->_progress_emit(
+            {
+                task_id => 'fetch_source',
+                status  => 'done',
+                label   => "Fetch skill source from $clone_source",
+            }
+        );
     }
 
+    $self->_progress_emit( { task_id => 'prepare_layout', status => 'running' } );
     $self->_prepare_skill_layout($skill_path);
+    $self->_progress_emit( { task_id => 'prepare_layout', status => 'done' } );
     my $dependency = $self->_install_skill_dependencies($skill_path);
     return $dependency if $dependency->{error};
 
@@ -478,21 +568,39 @@ sub _prepare_skill_layout {
 sub _install_skill_dependencies {
     my ( $self, $skill_path ) = @_;
     my @steps = (
-        [ ddfile           => sub { $self->_install_skill_ddfile($skill_path) } ],
-        [ 'ddfile.local'   => sub { $self->_install_skill_ddfile_local($skill_path) } ],
-        [ aptfile          => sub { $self->_install_skill_aptfile($skill_path) } ],
-        [ brewfile         => sub { $self->_install_skill_brewfile($skill_path) } ],
-        [ 'package.json'   => sub { $self->_install_skill_package_json($skill_path) } ],
-        [ cpanfile         => sub { $self->_install_skill_cpanfile($skill_path) } ],
-        [ 'cpanfile.local' => sub { $self->_install_skill_cpanfile_local($skill_path) } ],
+        [ install_ddfile       => sub { $self->_install_skill_ddfile($skill_path) } ],
+        [ install_ddfile_local => sub { $self->_install_skill_ddfile_local($skill_path) } ],
+        [ install_aptfile      => sub { $self->_install_skill_aptfile($skill_path) } ],
+        [ install_brewfile     => sub { $self->_install_skill_brewfile($skill_path) } ],
+        [ install_package_json => sub { $self->_install_skill_package_json($skill_path) } ],
+        [ install_cpanfile     => sub { $self->_install_skill_cpanfile($skill_path) } ],
+        [ install_cpanfile_local => sub { $self->_install_skill_cpanfile_local($skill_path) } ],
     );
     my @stdout;
     my @stderr;
     my $ran = 0;
     for my $step (@steps) {
-        my ( $name, $runner ) = @{$step};
+        my ( $task_id, $runner ) = @{$step};
+        my $running_label = $self->_dependency_progress_label( $task_id, $skill_path );
+        $self->_progress_emit( { task_id => $task_id, status => 'running', label => $running_label } );
         my $result = $runner->();
-        return $result if $result->{error};
+        if ( $result->{error} ) {
+            $self->_progress_emit(
+                {
+                    task_id => $task_id,
+                    status  => 'failed',
+                    label   => $self->_dependency_progress_label( $task_id, $skill_path, result => $result ),
+                }
+            );
+            return $result;
+        }
+        $self->_progress_emit(
+            {
+                task_id => $task_id,
+                status  => 'done',
+                label   => $self->_dependency_progress_label( $task_id, $skill_path, result => $result ),
+            }
+        );
         $ran ||= !$result->{skipped};
         push @stdout, $result->{stdout} if defined $result->{stdout} && $result->{stdout} ne '';
         push @stderr, $result->{stderr} if defined $result->{stderr} && $result->{stderr} ne '';
@@ -504,6 +612,56 @@ sub _install_skill_dependencies {
         stdout  => join( '', @stdout ),
         stderr  => join( '', @stderr ),
     };
+}
+
+# _dependency_progress_label($task_id, $skill_path, %args)
+# Returns one operator-facing progress label for a dependency install task so
+# large skill installs show which manifest was detected or skipped.
+# Input: task id string, absolute skill root path, and optional result hash
+# reference.
+# Output: human-readable progress label string.
+sub _dependency_progress_label {
+    my ( $self, $task_id, $skill_path, %args ) = @_;
+    my %files = (
+        install_ddfile         => 'ddfile',
+        install_ddfile_local   => 'ddfile.local',
+        install_aptfile        => 'aptfile',
+        install_brewfile       => 'brewfile',
+        install_package_json   => 'package.json',
+        install_cpanfile       => 'cpanfile',
+        install_cpanfile_local => 'cpanfile.local',
+    );
+    my %labels = (
+        install_ddfile         => 'Install ddfile dependencies',
+        install_ddfile_local   => 'Install ddfile.local dependencies',
+        install_aptfile        => 'Install aptfile dependencies',
+        install_brewfile       => 'Install brewfile dependencies',
+        install_package_json   => 'Install package.json dependencies',
+        install_cpanfile       => 'Install cpanfile dependencies',
+        install_cpanfile_local => 'Install cpanfile.local dependencies',
+    );
+    my $label = $labels{$task_id} || $task_id;
+    my $file  = $files{$task_id} || return $label;
+    my $path  = File::Spec->catfile( $skill_path, $file );
+    my $result = $args{result};
+
+    if ( ref($result) eq 'HASH' && $result->{skipped} ) {
+        return "$label (skipped: $file not present)";
+    }
+    return "$label from $path" if -f $path;
+    return $label;
+}
+
+# _progress_emit($event)
+# Sends one skill-install progress event to the optional progress callback.
+# Input: event hash reference.
+# Output: true value.
+sub _progress_emit {
+    my ( $self, $event ) = @_;
+    my $progress = $self->{progress};
+    return 1 if !$progress || ref($progress) ne 'CODE';
+    $progress->($event);
+    return 1;
 }
 
 # _skill_install_root($skill_path)
@@ -686,25 +844,100 @@ sub _install_skill_dependency_manifest {
 }
 
 # _install_skill_package_json($skill_path)
-# Installs Node dependencies declared by package.json into the home directory.
+# Installs Node dependencies declared by package.json into the dashboard home
+# node_modules directory by running npm inside a private staging workspace and
+# then merging the resulting dependency tree into HOME/node_modules.
 # Input: absolute skill root directory path.
 # Output: result hash reference with success or error state.
 sub _install_skill_package_json {
     my ( $self, $skill_path ) = @_;
     my $package_json = File::Spec->catfile( $skill_path, 'package.json' );
     return { success => 1, skipped => 1 } if !-f $package_json;
-    my ( $stdout, $stderr, $exit ) = capture {
-        system( 'npm', 'install', '--prefix', $self->{paths}->home, $skill_path );
+    my @specs = $self->_package_json_dependency_specs($package_json);
+    return { success => 1, skipped => 1 } if !@specs;
+
+    die "Unable to chdir to " . $self->{paths}->home . " for package.json dependency install: No such file or directory\n"
+      if !-d $self->{paths}->home;
+    my $workspace_parent = File::Spec->catdir( $self->{paths}->home_runtime_root, 'cache', 'node-package-installs' );
+    my $target_root = File::Spec->catdir( $self->{paths}->home, 'node_modules' );
+    make_path($workspace_parent) if !-d $workspace_parent;
+    make_path($target_root) if !-d $target_root;
+    my $workspace = tempdir( 'npm-install-XXXXXX', DIR => $workspace_parent, CLEANUP => 1 );
+    my $workspace_package_json = File::Spec->catfile( $workspace, 'package.json' );
+    open my $workspace_fh, '>', $workspace_package_json or die "Unable to write $workspace_package_json: $!";
+    print {$workspace_fh} encode_json(
+        {
+            name    => 'developer-dashboard-skill-runtime',
+            version => '1.0.0',
+            private => JSON::XS::true(),
+        }
+    );
+    close $workspace_fh;
+
+    my $cwd = Cwd::getcwd();
+    my ( $npm_stdout, $npm_stderr, $npm_exit );
+    eval {
+        chdir $workspace or die "Unable to chdir to $workspace for package.json dependency install: $!";
+        ( $npm_stdout, $npm_stderr, $npm_exit ) = capture {
+            system( 'npm', 'install', @specs );
+        };
+        chdir $cwd or die "Unable to chdir back to $cwd after package.json dependency install: $!";
+        1;
+    } or do {
+        my $error = $@;
+        chdir $cwd if Cwd::getcwd() ne $cwd;
+        die $error;
     };
     return {
-        error => "Failed to install skill Node dependencies for $skill_path: $stderr",
-    } if $exit != 0;
+        error => "Failed to install skill Node dependencies for $skill_path: $npm_stderr",
+    } if $npm_exit != 0;
+
+    my $workspace_modules = File::Spec->catdir( $workspace, 'node_modules' );
+    my ( $copy_stdout, $copy_stderr, $copy_exit ) = ( '', '', 0 );
+    if ( -d $workspace_modules ) {
+        ( $copy_stdout, $copy_stderr, $copy_exit ) = capture {
+            system( 'cp', '-R', "$workspace_modules/.", $target_root );
+        };
+        return {
+            error => "Failed to merge skill Node dependencies into $target_root for $skill_path: $copy_stderr",
+        } if $copy_exit != 0;
+    }
 
     return {
         success => 1,
-        stdout  => $stdout,
-        stderr  => $stderr,
+        stdout  => $npm_stdout . $copy_stdout,
+        stderr  => $npm_stderr . $copy_stderr,
     };
+}
+
+# _package_json_dependency_specs($package_json)
+# Extracts one deterministic dependency install list from package.json without
+# asking npm to treat the skill checkout itself as an installable package.
+# Input: absolute package.json path.
+# Output: ordered list of npm install spec strings.
+sub _package_json_dependency_specs {
+    my ( $self, $package_json ) = @_;
+    return () if !defined $package_json || !-f $package_json;
+
+    open my $fh, '<', $package_json or die "Unable to read $package_json: $!";
+    local $/;
+    my $content = <$fh>;
+    close $fh;
+
+    my $decoded = eval { decode_json($content) };
+    die "Unable to parse $package_json: $@" if !$decoded || $@;
+
+    my @specs;
+    for my $section ( qw(dependencies devDependencies optionalDependencies peerDependencies) ) {
+        my $entries = $decoded->{$section};
+        next if ref($entries) ne 'HASH';
+        for my $name ( sort keys %{$entries} ) {
+            my $version = $entries->{$name};
+            push @specs, defined $version && $version ne '' ? "$name\@$version" : $name;
+        }
+    }
+
+    return @specs;
 }
 
 # _install_manifest_file($manifest_path, %args)
@@ -845,33 +1078,46 @@ sub _skill_metadata {
     my @docker_services = map { $_->{name} } @{ $self->_docker_service_details($skill_path) };
     my $pages = $self->_page_details($skill_path);
     my $collectors = $self->_collector_details( $repo_name, $skill_path );
-    my $indicators_count = scalar grep { $_->{has_indicator} } @{$collectors};
+    my $indicators_count = 0;
+    for my $collector ( @{$collectors} ) {
+        $indicators_count++ if $collector->{has_indicator};
+    }
+    my $enabled = $self->_skill_disabled($skill_path) ? JSON::XS::false() : JSON::XS::true();
+    my $has_ddfile = -f File::Spec->catfile( $skill_path, 'ddfile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_aptfile = -f File::Spec->catfile( $skill_path, 'aptfile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_brewfile = -f File::Spec->catfile( $skill_path, 'brewfile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_config = -f File::Spec->catfile( $skill_path, 'config', 'config.json' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_cpanfile = -f File::Spec->catfile( $skill_path, 'cpanfile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_cpanfile_local = -f File::Spec->catfile( $skill_path, 'cpanfile.local' ) ? JSON::XS::true() : JSON::XS::false();
+    my $pages_count = scalar @{ $pages->{entries} };
+    my $docker_services_count = scalar @docker_services;
+    my $collectors_count = scalar @{$collectors};
 
-    return {
-        name            => $repo_name,
-        path            => $skill_path,
-        cli_commands    => \@commands,
-        enabled         => $self->_skill_disabled($skill_path) ? JSON::XS::false() : JSON::XS::true(),
-        cli_commands_count => scalar(@commands),
-        pages_count        => scalar( @{ $pages->{entries} } ),
-        docker_services_count => scalar(@docker_services),
-        collectors_count   => scalar( @{$collectors} ),
-        indicators_count   => $indicators_count,
-        has_ddfile      => -f File::Spec->catfile( $skill_path, 'ddfile' ) ? JSON::XS::true() : JSON::XS::false(),
-        has_aptfile     => -f File::Spec->catfile( $skill_path, 'aptfile' ) ? JSON::XS::true() : JSON::XS::false(),
-        has_brewfile    => -f File::Spec->catfile( $skill_path, 'brewfile' ) ? JSON::XS::true() : JSON::XS::false(),
-        has_config      => -f File::Spec->catfile( $skill_path, 'config', 'config.json' ) ? JSON::XS::true() : JSON::XS::false(),
-        has_cpanfile    => -f File::Spec->catfile( $skill_path, 'cpanfile' ) ? JSON::XS::true() : JSON::XS::false(),
-        has_cpanfile_local => -f File::Spec->catfile( $skill_path, 'cpanfile.local' ) ? JSON::XS::true() : JSON::XS::false(),
-        config_root     => File::Spec->catdir( $skill_path, 'config' ),
-        docker_root     => $docker_root,
-        docker_services => \@docker_services,
-        state_root      => File::Spec->catdir( $skill_path, 'state' ),
-        logs_root       => File::Spec->catdir( $skill_path, 'logs' ),
-        cli_root        => $cli_root,
-        local_root      => $self->_skill_local_perl_root($skill_path),
-        shared_perl_root => $self->_shared_perl_root,
-    };
+    my $metadata = {};
+    $metadata->{name} = $repo_name;
+    $metadata->{path} = $skill_path;
+    $metadata->{cli_commands} = \@commands;
+    $metadata->{enabled} = $enabled;
+    $metadata->{cli_commands_count} = scalar(@commands);
+    $metadata->{pages_count} = $pages_count;
+    $metadata->{docker_services_count} = $docker_services_count;
+    $metadata->{collectors_count} = $collectors_count;
+    $metadata->{indicators_count} = $indicators_count;
+    $metadata->{has_ddfile} = $has_ddfile;
+    $metadata->{has_aptfile} = $has_aptfile;
+    $metadata->{has_brewfile} = $has_brewfile;
+    $metadata->{has_config} = $has_config;
+    $metadata->{has_cpanfile} = $has_cpanfile;
+    $metadata->{has_cpanfile_local} = $has_cpanfile_local;
+    $metadata->{config_root} = File::Spec->catdir( $skill_path, 'config' );
+    $metadata->{docker_root} = $docker_root;
+    $metadata->{docker_services} = \@docker_services;
+    $metadata->{state_root} = File::Spec->catdir( $skill_path, 'state' );
+    $metadata->{logs_root} = File::Spec->catdir( $skill_path, 'logs' );
+    $metadata->{cli_root} = $cli_root;
+    $metadata->{local_root} = $self->_skill_local_perl_root($skill_path);
+    $metadata->{shared_perl_root} = $self->_shared_perl_root;
+    return $metadata;
 }
 
 # _skill_usage($repo_name, $skill_path)
@@ -883,27 +1129,30 @@ sub _skill_usage {
     my $pages = $self->_page_details($skill_path);
     my $docker = $self->_docker_service_details($skill_path);
     my $collectors = $self->_collector_details( $repo_name, $skill_path );
-    return {
-        %{ $self->_skill_metadata( $repo_name, $skill_path ) },
-        cli => $self->_cli_command_details($skill_path),
-        pages => $pages,
-        docker => {
-            root     => File::Spec->catdir( $skill_path, 'config', 'docker' ),
-            services => $docker,
-        },
-        config => {
-            root        => File::Spec->catdir( $skill_path, 'config' ),
-            file        => File::Spec->catfile( $skill_path, 'config', 'config.json' ),
-            merged_key  => '_' . $repo_name,
-            has_ddfile  => -f File::Spec->catfile( $skill_path, 'ddfile' ) ? JSON::XS::true() : JSON::XS::false(),
-            has_config  => -f File::Spec->catfile( $skill_path, 'config', 'config.json' ) ? JSON::XS::true() : JSON::XS::false(),
-            has_aptfile => -f File::Spec->catfile( $skill_path, 'aptfile' ) ? JSON::XS::true() : JSON::XS::false(),
-            has_brewfile => -f File::Spec->catfile( $skill_path, 'brewfile' ) ? JSON::XS::true() : JSON::XS::false(),
-            has_cpanfile => -f File::Spec->catfile( $skill_path, 'cpanfile' ) ? JSON::XS::true() : JSON::XS::false(),
-            has_cpanfile_local => -f File::Spec->catfile( $skill_path, 'cpanfile.local' ) ? JSON::XS::true() : JSON::XS::false(),
-        },
-        collectors => $collectors,
-    };
+    my $has_ddfile = -f File::Spec->catfile( $skill_path, 'ddfile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_config = -f File::Spec->catfile( $skill_path, 'config', 'config.json' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_aptfile = -f File::Spec->catfile( $skill_path, 'aptfile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_brewfile = -f File::Spec->catfile( $skill_path, 'brewfile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_cpanfile = -f File::Spec->catfile( $skill_path, 'cpanfile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_cpanfile_local = -f File::Spec->catfile( $skill_path, 'cpanfile.local' ) ? JSON::XS::true() : JSON::XS::false();
+    my $usage = { %{ $self->_skill_metadata( $repo_name, $skill_path ) } };
+    $usage->{cli} = $self->_cli_command_details($skill_path);
+    $usage->{pages} = $pages;
+    $usage->{docker} = {};
+    $usage->{docker}{root} = File::Spec->catdir( $skill_path, 'config', 'docker' );
+    $usage->{docker}{services} = $docker;
+    $usage->{config} = {};
+    $usage->{config}{root} = File::Spec->catdir( $skill_path, 'config' );
+    $usage->{config}{file} = File::Spec->catfile( $skill_path, 'config', 'config.json' );
+    $usage->{config}{merged_key} = '_' . $repo_name;
+    $usage->{config}{has_ddfile} = $has_ddfile;
+    $usage->{config}{has_config} = $has_config;
+    $usage->{config}{has_aptfile} = $has_aptfile;
+    $usage->{config}{has_brewfile} = $has_brewfile;
+    $usage->{config}{has_cpanfile} = $has_cpanfile;
+    $usage->{config}{has_cpanfile_local} = $has_cpanfile_local;
+    $usage->{collectors} = $collectors;
+    return $usage;
 }
 
 # _cli_command_details($skill_path)
@@ -926,13 +1175,17 @@ sub _cli_command_details {
         {
             my $hooks_root = File::Spec->catdir( $cli_root, $entry . '.d' );
             my @hooks = $self->_sorted_files($hooks_root);
+            my @hook_paths;
+            for my $hook (@hooks) {
+                push @hook_paths, File::Spec->catfile( $hooks_root, $hook );
+            }
             push @commands, {
                 name       => $entry,
                 path       => File::Spec->catfile( $cli_root, $entry ),
                 hooks_root => $hooks_root,
                 has_hooks  => @hooks ? JSON::XS::true() : JSON::XS::false(),
                 hook_count => scalar(@hooks),
-                hooks      => [ map { File::Spec->catfile( $hooks_root, $_ ) } @hooks ],
+                hooks      => \@hook_paths,
             };
         }
         closedir($dh);
@@ -960,7 +1213,10 @@ sub _page_details {
     }
 
     my $nav_root = File::Spec->catdir( $dashboards_root, 'nav' );
-    my @nav_entries = map { 'nav/' . $_ } $self->_sorted_files($nav_root);
+    my @nav_entries;
+    for my $entry ( $self->_sorted_files($nav_root) ) {
+        push @nav_entries, 'nav/' . $entry;
+    }
     return {
         root        => $dashboards_root,
         entries     => \@entries,
@@ -986,10 +1242,14 @@ sub _docker_service_details {
           )
         {
             my $service_root = File::Spec->catdir( $docker_root, $entry );
+            my @service_files;
+            for my $file ( $self->_sorted_files($service_root) ) {
+                push @service_files, File::Spec->catfile( $service_root, $file );
+            }
             push @services, {
                 name  => $entry,
                 root  => $service_root,
-                files => [ map { File::Spec->catfile( $service_root, $_ ) } $self->_sorted_files($service_root) ],
+                files => \@service_files,
             };
         }
         closedir($dh);
@@ -1012,16 +1272,18 @@ sub _collector_details {
         next if !defined $job->{name} || $job->{name} eq '';
         my $qualified_name = $job->{name} =~ /^\Q$repo_name\E\./ ? $job->{name} : $repo_name . '.' . $job->{name};
         my $indicator = ref( $job->{indicator} ) eq 'HASH' ? $job->{indicator} : {};
-        push @items, {
+        my $has_indicator = %{$indicator} ? JSON::XS::true() : JSON::XS::false();
+        my %item = (
             name           => $job->{name},
             qualified_name => $qualified_name,
             command        => $job->{command},
             cwd            => $job->{cwd},
             schedule       => $job->{schedule},
             interval       => $job->{interval},
-            has_indicator  => %{$indicator} ? JSON::XS::true() : JSON::XS::false(),
+            has_indicator  => $has_indicator,
             indicator      => $indicator,
-        };
+        );
+        push @items, \%item;
     }
     return \@items;
 }

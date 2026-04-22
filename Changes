@@ -1,7 +1,56 @@
-2.80  2026-04-21
+2.87  2026-04-22
+    - fixed generated bash completion bootstrap hangs on macOS by replacing
+      process-substitution readers with command-substitution payload capture,
+      which keeps `dashboard shell bash` completion responsive inside the
+      tarball `cpanm` test path as well as interactive shells
+    - fixed slow `dashboard restart` startup paths so collector and web
+      readiness now return as soon as the managed runtime becomes visible and
+      then survives a short post-ready confirmation window, instead of making
+      every healthy startup wait through the full stability poll budget
+    - kept the dead-on-arrival protections in place for both collectors and
+      the web service, so startup still fails explicitly when a replacement
+      pid or listener appears briefly and then disappears during the short
+      confirmation window
+    - made `dashboard skills install` progress explicit for `package.json`
+      skills by showing the detected manifest path on the package.json task and
+      locking in CLI smoke coverage that npm is invoked when a skill ships a
+      package.json manifest
+    - added GitHub shorthand skill installs so bare names such as `browser`
+      resolve to `https://github.com/manif3station/browser`, two-part names
+      such as `foo/bar` resolve to `https://github.com/foo/bar`, and full URLs
+      still clone exactly as supplied
+    - fixed dotted skill command prompting so `dashboard <skill>.<command>`
+      now hands control to the real skill command after hook execution,
+      preserving interactive stdin prompts and immediate prompt text the same
+      way a direct script invocation does
+    - added runtime-manager regression coverage for the short confirmation
+      window contract plus explicit environment overrides for the new
+      confirmation-poll setting
+    - fixed skill `package.json` dependency installs so npm now installs the
+      declared dependency list from the dashboard home directory, landing in
+      `$HOME/node_modules`, instead of trying to install the skill package
+      itself, which broke skills such as `browser` whose manifest version is
+      not acceptable to npm package publication rules
+    - added direct layered `SkillDispatcher` coverage for route, page, nav,
+      bookmark, and config helper paths so the full coverage gate keeps those
+      late-file helpers measured reliably
+
+2.83  2026-04-21
+    - added a repo-root `install.sh` bootstrap path for blank Debian, Ubuntu,
+      and macOS machines, driven by shipped `aptfile` and `brewfile`
+      manifests, user-space `~/perl5` local::lib setup, `cpanm --notest
+      Developer::Dashboard`, and an automatic `dashboard init`
+    - extended the bootstrap installer so Debian-family hosts install the
+      native header and zlib toolchain required by `XML::Parser` and
+      `Net::SSLeay`, and automatically bootstrap `perlbrew` with
+      `perl-5.38.5` when the packaged system Perl is older than the dashboard
+      runtime requirement
+    - changed the interactive lifecycle task-board markers to render
+      successful steps as green `[OK]`, failed steps as red `[X]`, and the
+      active `->` marker in yellow on real terminals
     - added visible task-board progress output for interactive
       `dashboard stop` and `dashboard restart` runs, including the full task
-      list before work begins plus live `->` and `[x]` status updates on
+      list before work begins plus live `->` and `[OK]` status updates on
       `stderr` while the managed runtime waits through shutdown and startup
       stability windows
     - kept the machine-readable lifecycle result on `stdout`, so scripts can
