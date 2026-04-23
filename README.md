@@ -1551,7 +1551,9 @@ dashboard skills install foo/bar
 dashboard skills install git@github.com:user/example-skill.git
 dashboard skills install https://github.com/user/example-skill.git
 dashboard skills install /absolute/path/to/example-skill
+dashboard skills install browser foo/bar git@github.com:user/example-skill.git
 dashboard skills install --ddfile
+dashboard skill list
 ```
 
 Bare one-word skill names are expanded against the official
@@ -1562,6 +1564,15 @@ expanded against GitHub too, so `dashboard skills install foo/bar` clones
 `https://github.com/foo/bar`. Full URLs such as
 `https://github.com/user/example-skill.git` and
 `git@github.com:user/example-skill.git` are used exactly as supplied.
+Multiple explicit sources can be supplied to one install command. Developer
+Dashboard installs them in the order given, prints a progress rundown before
+work starts, and registers every source once. The default install summary is a
+terminal table with each skill's `.env` `VERSION` before and after the
+install. Use `-o json` when a script needs the raw result payload. `dashboard skill` is
+accepted as a singular alias for the `dashboard skills` management command
+family, so `dashboard skill list` and `dashboard skill install browser` are
+equivalent to the plural form. It does not replace dotted skill execution;
+installed skill commands still run as `dashboard <skill>.<command>`.
 
 Git sources are cloned. Direct local checked-out directories are synced in
 place instead of recloned, using `rsync` when it is available and the built-in
@@ -1574,10 +1585,18 @@ root under the deepest participating `DD-OOP-LAYERS` runtime. In a home-only
 session that is `~/.developer-dashboard/skills/<repo-name>/`. In a deeper
 project layer that already has its own `.developer-dashboard/`, the install
 target becomes `<that-layer>/.developer-dashboard/skills/<repo-name>/`.
-Each explicit `dashboard skills install <source>` also registers that exact
-source in `~/.developer-dashboard/ddfile` unless it is already listed there.
+Each explicit `dashboard skills install <source>`, including every source in a
+multi-source command, also registers that exact source in
+`~/.developer-dashboard/ddfile` unless it is already listed there.
+When `~/.developer-dashboard/.gitignore` already exists, the install also adds
+`skills/<repo-name>/` for each installed skill without duplicating existing
+entries, so users who keep the dashboard runtime in Git do not accidentally
+track cloned skill trees. The installer also honors an existing
+`~/.developer-dashboard/.gitiignore` spelling as a compatibility safety net.
 Calling bare `dashboard skills install` with no source reads that root
-`ddfile` and reinstalls every listed skill as an update batch. If the root
+`ddfile` and reinstalls every listed skill as an update batch, showing the
+same progress rundown and before/after version table. If no listed skill
+changes version, the summary explicitly says `No update.`. If the root
 `ddfile` does not exist yet or has no installable entries, the command returns
 an explicit error telling the user to install a skill first or pass a skill
 source.
@@ -1599,7 +1618,9 @@ refresh for already-installed targets, just like repeated explicit
 `dashboard skills install <source>` runs.
 
 Interactive `dashboard skills install` runs also print a task board on
-`stderr`. When a skill ships dependency manifests such as `package.json`, the
+`stderr`; multi-source and bare update-all installs show one task for every
+source before any clone or dependency step starts. When a single skill ships
+dependency manifests such as `package.json`, the
 matching task updates to show the detected file path so a long-running npm,
 cpanm, or package-manager step stays visible instead of looking blind.
 
@@ -1656,10 +1677,10 @@ skill is disabled, including:
 - the merged config key such as `_example-skill`
 - declared collectors, their repo-qualified names, and indicator metadata
 
-**Update a skill** to the latest version:
+**Update registered skills** to their latest versions:
 
 ```bash
-dashboard skills update example-skill
+dashboard skills install
 ```
 
 **Disable a skill** without uninstalling it:

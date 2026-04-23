@@ -269,10 +269,12 @@ is_deeply(
         pyq   => 'yq',
         ptomq => 'tomq',
         pjp   => 'propq',
+        skill => 'skills',
     },
     'internal CLI exposes the expected helper aliases',
 );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('pjq'), 'jq', 'legacy helper alias normalizes to jq' );
+is( Developer::Dashboard::InternalCLI::canonical_helper_name('skill'), 'skills', 'singular skill helper alias normalizes to skills' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('xmlq'), 'xmlq', 'current helper name stays unchanged' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('ticket'), 'ticket', 'ticket helper name stays unchanged' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('paths'), 'paths', 'paths helper name stays unchanged' );
@@ -2465,16 +2467,24 @@ SH
         $manifest_install->{operations},
         [
             {
-                manifest  => 'ddfile',
-                source    => "file://$global_repo",
-                repo_name => 'manifest-global-skill',
-                path      => File::Spec->catdir( $ENV{HOME}, 'skills-home', '.developer-dashboard', 'skills', 'manifest-global-skill' ),
+                manifest       => 'ddfile',
+                source         => "file://$global_repo",
+                repo_name      => 'manifest-global-skill',
+                path           => File::Spec->catdir( $ENV{HOME}, 'skills-home', '.developer-dashboard', 'skills', 'manifest-global-skill' ),
+                version_before => undef,
+                version_after  => undef,
+                status         => 'unknown',
+                changed        => 0,
             },
             {
-                manifest  => 'ddfile.local',
-                source    => "file://$local_repo",
-                repo_name => 'manifest-local-skill',
-                path      => File::Spec->catdir( $manifest_root, 'skills', 'manifest-local-skill' ),
+                manifest       => 'ddfile.local',
+                source         => "file://$local_repo",
+                repo_name      => 'manifest-local-skill',
+                path           => File::Spec->catdir( $manifest_root, 'skills', 'manifest-local-skill' ),
+                version_before => undef,
+                version_after  => undef,
+                status         => 'unknown',
+                changed        => 0,
             },
         ],
         'install_from_ddfiles processes ddfile before ddfile.local',
@@ -2526,19 +2536,27 @@ SH
     my $registry_repo = _create_skill_repo( $test_repos, 'registered-root-skill', with_cpanfile => 0 );
     my $registry_source = "file://$registry_repo";
     my $root_ddfile = File::Spec->catfile( $registry_paths->home_runtime_root, 'ddfile' );
+    my $home_gitignore = File::Spec->catfile( $registry_paths->home_runtime_root, '.gitignore' );
+    $registry_paths->ensure_dir( $registry_paths->home_runtime_root );
+    _write_file( $home_gitignore, "# dashboard runtime ignores\n" );
 
     my $first_registry_install = $registry_manager->install($registry_source);
     ok( !$first_registry_install->{error}, 'explicit skill install succeeds before registering the root ddfile source' )
       or diag $first_registry_install->{error};
     is( _read_file($root_ddfile), "$registry_source\n", 'explicit skill install appends the source to the home root ddfile' );
+    is( _read_file($home_gitignore), "# dashboard runtime ignores\nskills/registered-root-skill/\n", 'explicit skill install appends the installed skill path to an existing home .gitignore' );
     is( $first_registry_install->{registered_ddfile}, $root_ddfile, 'install result reports the root ddfile registry path' );
     ok( $first_registry_install->{registered_ddfile_entry}, 'install result reports a newly registered root ddfile entry' );
+    is( $first_registry_install->{registered_gitignore}, $home_gitignore, 'install result reports the home .gitignore registry path when present' );
+    ok( $first_registry_install->{registered_gitignore_entry}, 'install result reports a newly registered home .gitignore entry' );
 
     my $second_registry_install = $registry_manager->install($registry_source);
     ok( !$second_registry_install->{error}, 'repeat explicit skill install succeeds as an update' )
       or diag $second_registry_install->{error};
     is( _read_file($root_ddfile), "$registry_source\n", 'repeat explicit skill install does not duplicate the root ddfile source' );
+    is( _read_file($home_gitignore), "# dashboard runtime ignores\nskills/registered-root-skill/\n", 'repeat explicit skill install does not duplicate the home .gitignore skill entry' );
     ok( !$second_registry_install->{registered_ddfile_entry}, 'repeat install reports that the root ddfile entry already existed' );
+    ok( !$second_registry_install->{registered_gitignore_entry}, 'repeat install reports that the home .gitignore entry already existed' );
 
     my $internal_repo = _create_skill_repo( $test_repos, 'internal-dependency-skill', with_cpanfile => 0 );
     {
@@ -2548,6 +2566,7 @@ SH
           or diag $internal_install->{error};
     }
     is( _read_file($root_ddfile), "$registry_source\n", 'internal dependency install does not pollute the home root ddfile registry' );
+    like( _read_file($home_gitignore), qr/skills\/internal-dependency-skill\//, 'internal dependency install still keeps installed skill directories ignored when home .gitignore exists' );
 
     _write_file( File::Spec->catfile( $registry_repo, 'cli', 'run-test' ), "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nprint qq{registered-refresh\\n};\n", 0755 );
     {
@@ -2564,10 +2583,14 @@ SH
         $registered_update->{operations},
         [
             {
-                manifest  => 'ddfile',
-                source    => $registry_source,
-                repo_name => 'registered-root-skill',
-                path      => File::Spec->catdir( $registry_paths->home_runtime_root, 'skills', 'registered-root-skill' ),
+                manifest       => 'ddfile',
+                source         => $registry_source,
+                repo_name      => 'registered-root-skill',
+                path           => File::Spec->catdir( $registry_paths->home_runtime_root, 'skills', 'registered-root-skill' ),
+                version_before => undef,
+                version_after  => undef,
+                status         => 'unknown',
+                changed        => 0,
             },
         ],
         'install_registered_skills reports the manifest update operations from the home root ddfile',
@@ -2577,6 +2600,16 @@ SH
         $registry_dispatcher->dispatch( 'registered-root-skill', 'run-test' )->{stdout},
         qr/registered-refresh/,
         'install_registered_skills updates the installed skill content from the registered root ddfile source',
+    );
+    is_deeply(
+        [ $registry_manager->registered_skill_sources ],
+        [$registry_source],
+        'registered_skill_sources reads the home root ddfile in install order',
+    );
+    is_deeply(
+        Developer::Dashboard::SkillManager->install_progress_tasks_for_sources($registry_source),
+        [ { id => 'install_source_0', label => "Install/update $registry_source" } ],
+        'install_progress_tasks_for_sources builds one visible source-level progress task',
     );
 }
 {
@@ -2614,6 +2647,39 @@ SH
     );
 }
 {
+    my $multi_registry_home = tempdir( CLEANUP => 1 );
+    my $multi_registry_paths = Developer::Dashboard::PathRegistry->new( home => $multi_registry_home );
+    my $multi_registry_manager = Developer::Dashboard::SkillManager->new( paths => $multi_registry_paths );
+    my $first_multi_repo = _create_skill_repo( $test_repos, 'multi-root-one', with_cpanfile => 0 );
+    my $second_multi_repo = _create_skill_repo( $test_repos, 'multi-root-two', with_cpanfile => 0 );
+    my @multi_sources = ( "file://$first_multi_repo", "file://$second_multi_repo" );
+    my $multi_root_ddfile = File::Spec->catfile( $multi_registry_paths->home_runtime_root, 'ddfile' );
+    my $multi_home_gitignore = File::Spec->catfile( $multi_registry_paths->home_runtime_root, '.gitiignore' );
+    $multi_registry_paths->ensure_dir( $multi_registry_paths->home_runtime_root );
+    _write_file( $multi_home_gitignore, "# typo-compatible ignore file\n" );
+
+    my $multi_install = $multi_registry_manager->install_many(@multi_sources);
+    ok( !$multi_install->{error}, 'install_many installs multiple explicit skill sources in one call' )
+      or diag $multi_install->{error};
+    is_deeply( $multi_install->{sources}, \@multi_sources, 'install_many reports sources in command-line order' );
+    is_deeply(
+        [ map { $_->{repo_name} } @{ $multi_install->{results} } ],
+        [ 'multi-root-one', 'multi-root-two' ],
+        'install_many returns each individual install result',
+    );
+    is( _read_file($multi_root_ddfile), join( "\n", @multi_sources ) . "\n", 'install_many registers each source once in the home root ddfile' );
+    is(
+        _read_file($multi_home_gitignore),
+        "# typo-compatible ignore file\nskills/multi-root-one/\nskills/multi-root-two/\n",
+        'install_many registers each installed skill path once in an existing typo-compatible home .gitiignore',
+    );
+
+    my $repeat_multi_install = $multi_registry_manager->install_many(@multi_sources);
+    ok( !$repeat_multi_install->{error}, 'install_many can refresh multiple existing sources without errors' )
+      or diag $repeat_multi_install->{error};
+    is( _read_file($multi_root_ddfile), join( "\n", @multi_sources ) . "\n", 'install_many does not duplicate root ddfile entries on refresh' );
+}
+{
     my $cli_home = tempdir( CLEANUP => 1 );
     local $ENV{HOME} = $cli_home;
     my $cli_paths = Developer::Dashboard::PathRegistry->new( home => $cli_home );
@@ -2625,7 +2691,7 @@ SH
     my ( $cli_stdout, $cli_stderr, $cli_exit ) = capture {
         $cli_code = Developer::Dashboard::CLI::Skills::run_skills_command(
             command => 'skills',
-            args    => ['install'],
+            args    => [ 'install', '-o', 'json' ],
         );
     };
     is( $cli_exit, 0, 'bare dashboard skills install does not die when a root ddfile exists' );
@@ -2635,14 +2701,56 @@ SH
         json_decode($cli_stdout)->{operations},
         [
             {
-                manifest  => 'ddfile',
-                source    => "file://$cli_repo",
-                repo_name => 'cli-root-ddfile-skill',
-                path      => File::Spec->catdir( $cli_paths->home_runtime_root, 'skills', 'cli-root-ddfile-skill' ),
+                manifest       => 'ddfile',
+                source         => "file://$cli_repo",
+                repo_name      => 'cli-root-ddfile-skill',
+                path           => File::Spec->catdir( $cli_paths->home_runtime_root, 'skills', 'cli-root-ddfile-skill' ),
+                version_before => undef,
+                version_after  => undef,
+                status         => 'unknown',
+                changed        => 0,
             },
         ],
         'bare dashboard skills install updates every source from the home root ddfile',
     );
+}
+{
+    my $multi_cli_home = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = $multi_cli_home;
+    my $multi_cli_paths = Developer::Dashboard::PathRegistry->new( home => $multi_cli_home );
+    my $first_cli_repo = _create_skill_repo( $test_repos, 'cli-multi-root-one', with_cpanfile => 0 );
+    my $second_cli_repo = _create_skill_repo( $test_repos, 'cli-multi-root-two', with_cpanfile => 0 );
+    my @cli_sources = ( "file://$first_cli_repo", "file://$second_cli_repo" );
+
+    require Developer::Dashboard::CLI::Skills;
+    my $multi_cli_code;
+    my ( $multi_cli_stdout, $multi_cli_stderr, $multi_cli_exit ) = capture {
+        $multi_cli_code = Developer::Dashboard::CLI::Skills::run_skills_command(
+            command => 'skills',
+            args    => [ 'install', '-o', 'json', @cli_sources ],
+        );
+    };
+    is( $multi_cli_exit, 0, 'dashboard skills install with multiple sources does not die' );
+    is( $multi_cli_code, 0, 'dashboard skills install with multiple sources returns success' );
+    is( $multi_cli_stderr, '', 'dashboard skills install with multiple sources does not print usage errors' );
+    is_deeply( json_decode($multi_cli_stdout)->{sources}, \@cli_sources, 'dashboard skills install accepts multiple explicit sources in order' );
+    is(
+        _read_file( File::Spec->catfile( $multi_cli_paths->home_runtime_root, 'ddfile' ) ),
+        join( "\n", @cli_sources ) . "\n",
+        'dashboard skills install registers every explicit source from one multi-source command',
+    );
+
+    my $alias_cli_code;
+    my ( $alias_cli_stdout, $alias_cli_stderr, $alias_cli_exit ) = capture {
+        $alias_cli_code = Developer::Dashboard::CLI::Skills::run_skills_command(
+            command => 'skill',
+            args    => [ 'list', '-o', 'json' ],
+        );
+    };
+    is( $alias_cli_exit, 0, 'dashboard skill alias command runtime does not die' );
+    is( $alias_cli_code, 0, 'dashboard skill alias command runtime returns success' );
+    is( $alias_cli_stderr, '', 'dashboard skill alias command runtime does not emit errors' );
+    is( scalar @{ json_decode($alias_cli_stdout)->{skills} }, 2, 'dashboard skill alias reaches the skills management command family' );
 }
 {
     my $broken_repo = _create_skill_repo( $test_repos, 'broken-update-skill', with_cpanfile => 0 );

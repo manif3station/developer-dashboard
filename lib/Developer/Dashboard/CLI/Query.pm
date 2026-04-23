@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Query;
 use strict;
 use warnings;
 
-our $VERSION = '3.07';
+our $VERSION = '3.09';
 
 use Exporter 'import';
 

@@ -1,5 +1,34 @@
 # Fixed Bugs
 
+## 3.09 - Skill install update-all progress and table summaries
+
+- Fixed the operator blind spot where bare `dashboard skills install` could
+  replay many registered skills without a visible per-skill progress rundown.
+- `dashboard skills install` now defaults to a terminal table summary and
+  requires `-o json` for the raw payload, so interactive users see the skill
+  name, source, before version, after version, and update status by default.
+- Bare update-all installs now read each skill's `.env` `VERSION` before and
+  after reinstalling, state `No update.` when no registered skill changed, and
+  report updated version transitions when they occur.
+- The public `dashboard skills update` command is no longer advertised or
+  completed; bare `dashboard skills install` is the registered-skill update
+  path.
+
+## 3.08 - Multi-source skill installs and singular management alias
+
+- Fixed the operator friction where `dashboard skills install foo bar
+  https://example.invalid/skill.git git@example.invalid:user/skill.git
+  owner/repo` was rejected after the first source.
+- `dashboard skills install` now accepts multiple explicit sources, installs
+  them in command-line order, returns a batch payload, and registers every
+  source once in the home root `~/.developer-dashboard/ddfile`.
+- When the home runtime already has `.gitignore` or compatibility
+  `.gitiignore`, explicit installs now append `skills/<repo-name>/` without
+  duplicates so cloned skill trees stay out of runtime Git status.
+- `dashboard skill` now aliases the `dashboard skills` management command
+  family for users who omit the trailing `s`, while installed skill command
+  execution remains on the dotted `dashboard <skill>.<command>` form.
+
 ## 3.07 - Root ddfile skill registry updates
 
 - Fixed the skill update-all gap where explicit `dashboard skills install

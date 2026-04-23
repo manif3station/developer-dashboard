@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.07';
+our $VERSION = '3.09';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.07
+3.09
 
 =head1 INTRODUCTION
 
@@ -2278,7 +2278,9 @@ repository:
   dashboard skills install git@github.com:user/example-skill.git
   dashboard skills install https://github.com/user/example-skill.git
   dashboard skills install /absolute/path/to/example-skill
+  dashboard skills install browser foo/bar git@github.com:user/example-skill.git
   dashboard skills install --ddfile
+  dashboard skill list
 
 Bare one-word skill names are expanded against the official
 C<https://github.com/manif3station/> GitHub base, so
@@ -2288,6 +2290,16 @@ shorthand is expanded against GitHub too, so
 C<dashboard skills install foo/bar> clones C<https://github.com/foo/bar>.
 Full URLs such as C<https://github.com/user/example-skill.git> and
 C<git@github.com:user/example-skill.git> are used exactly as supplied.
+Multiple explicit sources can be supplied to one install command. Developer
+Dashboard installs them in the order given, returns a batch JSON payload with
+prints a progress rundown before work starts, and registers every source once.
+The default install summary is a terminal table with each skill's F<.env>
+C<VERSION> before and after the install. Use C<-o json> when a script needs the
+raw result payload. C<dashboard skill> is
+accepted as a singular alias for the C<dashboard skills> management command
+family, so C<dashboard skill list> and C<dashboard skill install browser> are
+equivalent to the plural form. It does not replace dotted skill execution;
+installed skill commands still run as C<dashboard E<lt>skillE<gt>.E<lt>commandE<gt>>.
 
 Git sources are cloned. Direct local checked-out directories are synced in
 place instead of recloned, using C<rsync> when it is available and the
@@ -2302,13 +2314,21 @@ F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>. In a deeper project
 layer that already has its own F<.developer-dashboard/>, the install target
 becomes
 F<E<lt>that-layerE<gt>/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>.
-Each explicit C<dashboard skills install E<lt>sourceE<gt>> also registers
-that exact source in F<~/.developer-dashboard/ddfile> unless it is already
-listed there. Calling bare C<dashboard skills install> with no source reads
-that root F<ddfile> and reinstalls every listed skill as an update batch. If
-the root F<ddfile> does not exist yet or has no installable entries, the
-command returns an explicit error telling the user to install a skill first
-or pass a skill source.
+Each explicit C<dashboard skills install E<lt>sourceE<gt>>, including every
+source in a multi-source command, also registers that exact source in
+F<~/.developer-dashboard/ddfile> unless it is already listed there. When
+F<~/.developer-dashboard/.gitignore> already exists, the install also adds
+C<skills/E<lt>repo-nameE<gt>/> for each installed skill without duplicating
+existing entries, so users who keep the dashboard runtime in Git do not
+accidentally track cloned skill trees. The installer also honors an existing
+F<~/.developer-dashboard/.gitiignore> spelling as a compatibility safety net.
+Calling bare C<dashboard skills install> with no source reads that root
+F<ddfile> and reinstalls every listed skill as an update batch, showing the
+same progress rundown and before/after version table. If no listed skill
+changes version, the summary explicitly says C<No update.>. If the root
+F<ddfile> does not exist yet or has no installable entries, the command returns
+an explicit error telling the user to install a skill first or pass a skill
+source.
 Developer Dashboard does not merge the skill's C<cli/>, C<dashboards/>,
 C<config/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>, C<dnfile>, C<brewfile>,
 C<package.json>, C<cpanfile>, C<cpanfile.local>, or Docker files into the
@@ -2326,10 +2346,11 @@ C<dashboard skills install --ddfile> runs also act as reinstall and refresh
 for already-installed targets, just like repeated explicit
 C<dashboard skills install E<lt>sourceE<gt>> runs.
 Interactive C<dashboard skills install> runs also print a task board on
-C<stderr>. When a skill ships dependency manifests such as F<package.json>,
-the matching task updates to show the detected file path so a long-running
-C<npm>, C<cpanm>, or package-manager step stays visible instead of looking
-blind.
+C<stderr>; multi-source and bare update-all installs show one task for every
+source before any clone or dependency step starts. When a single skill ships
+dependency manifests such as F<package.json>, the matching task updates to
+show the detected file path so a long-running C<npm>, C<cpanm>, or
+package-manager step stays visible instead of looking blind.
 
 Installed dotted skill commands such as C<dashboard demo-skill.foo> now hand
 control to the real skill command after hook processing instead of wrapping
@@ -2420,9 +2441,9 @@ declared collectors, their repo-qualified names, and indicator metadata
 
 =back
 
-Update a skill to the latest version:
+Update registered skills to their latest versions:
 
-  dashboard skills update example-skill
+  dashboard skills install
 
 Disable a skill without uninstalling it:
 

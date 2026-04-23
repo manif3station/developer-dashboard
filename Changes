@@ -1,3 +1,30 @@
+3.09  2026-04-23
+
+    - changed `dashboard skills install` to default to table output and require
+      `-o json` for raw machine-readable payloads
+    - changed bare `dashboard skills install` update-all runs to print a
+      source-level progress rundown before work starts and a final table with
+      each skill's `.env` `VERSION` before and after the install
+    - removed the public `dashboard skills update` verb from CLI completion and
+      documentation so registered updates go through bare `dashboard skills
+      install`
+    - added smoke, manager, completion, metadata, and integration-plan coverage
+      for table summaries, JSON opt-in, no-update reporting, and version
+      transitions
+
+3.08  2026-04-23
+
+    - changed `dashboard skills install` to accept multiple explicit skill
+      sources in one command and install them in the order supplied
+    - changed explicit skill installs to append `skills/<repo-name>/` to an
+      existing home runtime `.gitignore` or compatibility `.gitiignore` without
+      duplicating entries
+    - added `dashboard skill` as a singular alias for the `dashboard skills`
+      management command family without restoring the old singular skill
+      command dispatcher
+    - added manager, CLI, smoke, completion, and skill-system regression
+      coverage for multi-source installs and the singular alias
+
 3.07  2026-04-23
 
     - changed explicit `dashboard skills install <source>` runs to register
