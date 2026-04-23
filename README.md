@@ -621,7 +621,7 @@ transitions so the active pointer does not appear duplicated in interactive
 terminals, explains that any upcoming `sudo` prompt is asking for the user's
 operating-system account password only for package-manager work,
 bootstraps user-space Perl tooling under `~/perl5` with
-`cpanm --notest --local-lib-contained "$HOME/perl5" local::lib App::cpanminus`,
+`cpanm --no-wget --notest --local-lib-contained "$HOME/perl5" local::lib App::cpanminus`,
 appends exactly one `local::lib` bootstrap line to `~/.bashrc`, `~/.zshrc`, or
 `~/.profile` depending on the active shell, keeps bash login shells wired by
 bridging `~/.profile` to `~/.bashrc`, prefers Homebrew Perl on macOS when
@@ -647,7 +647,7 @@ printing the exact shell file it updated plus the exact `. "<rc-file>"`
 command the user should run only when the installer cannot safely take over a
 terminal, never probes `/dev/tty` during a piped `curl ... | sh` run so
 non-interactive installs stay quiet, installs Developer Dashboard into the user account with
-`cpanm --notest Developer::Dashboard`, and then runs `dashboard init` so the
+`cpanm --no-wget --notest Developer::Dashboard`, and then runs `dashboard init` so the
 runtime exists immediately after installation.
 
 Release verification is Linux-gated. Debian-family, Alpine, and Fedora
@@ -666,7 +666,7 @@ DD_INSTALL_CPAN_TARGET=./Developer-Dashboard-X.XX.tar.gz ./install.sh
 Install from CPAN with:
 
 ```bash
-cpanm --notest Developer::Dashboard
+cpanm --no-wget --notest Developer::Dashboard
 ```
 
 Or install from a checkout with:
@@ -1533,7 +1533,7 @@ transformed locally before rendering into derived HTML, links, or button-like
 actions. Its saved Ajax endpoints run through singleton workers. No `DBD::*`
 driver ships in the base tarball by default; install only the one you need
 with `dashboard cpan DBD::Driver` or user-space
-`cpanm --notest -L ~/perl5 DBD::Driver`, and the bookmark will return explicit install
+`cpanm --no-wget --notest -L ~/perl5 DBD::Driver`, and the bookmark will return explicit install
 guidance when a selected driver is missing. The repository also ships a
 dedicated SQL dashboard support guide with the verification matrix and
 per-database notes for that workspace.
@@ -1925,7 +1925,7 @@ prove -lr t
 Measure library coverage with Devel::Cover:
 
 ```bash
-cpanm --notest --local-lib-contained ./.perl5 Devel::Cover
+cpanm --no-wget --notest --local-lib-contained ./.perl5 Devel::Cover
 export PERL5LIB="$PWD/.perl5/lib/perl5${PERL5LIB:+:$PERL5LIB}"
 export PATH="$PWD/.perl5/bin:$PATH"
 cover -delete

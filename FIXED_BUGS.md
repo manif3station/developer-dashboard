@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 2026-04-23 (Phase 157: Alpine cpanm BusyBox wget Avoidance)
+
+- Fixed Alpine streamed installs after the `perlbrew` rescue path so
+  installer-owned `cpanm` calls pass `--no-wget` and avoid BusyBox `wget`,
+  whose unsupported `--retry-connrefused` option caused module resolution for
+  `local::lib` and `App::cpanminus` to fail.
+
 ## 2026-04-22 (Phase 156: Quiet Streamed Installer Shell Handoff)
 
 - Fixed streamed `curl ... | sh` installs so `install.sh` no longer probes
@@ -77,7 +84,7 @@
   runtime contract:
   `aptfile -> apkfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local`.
 
-## 2026-04-22 (Phase 149: Installer cpanm --notest And Helper Process Titles)
+## 2026-04-22 (Phase 149: Installer cpanm --no-wget --notest And Helper Process Titles)
 
 - Fixed the remaining dashboard-managed `cpanm` install paths so the checkout
   bootstrap and skill Perl dependency installs now pass `--notest`, keeping
@@ -224,7 +231,7 @@
 - Fixed shell-bootstrap drift in the installer by appending exactly one
   `local::lib` startup line to the active shell rc file, preferring Homebrew
   Perl on macOS when available, and finishing the bootstrap with
-  `cpanm --notest Developer::Dashboard` plus `dashboard init`.
+  `cpanm --no-wget --notest Developer::Dashboard` plus `dashboard init`.
 - Fixed Debian-family bootstrap failures on older stable releases by adding
   the native development and zlib packages required by `XML::Parser` and
   `Net::SSLeay` to the shipped `aptfile`, and by teaching `install.sh` to
@@ -1191,7 +1198,7 @@
 ## 2026-04-06 (Phase 43: Windows Perl Path Resolution And SSL Test Hardening)
 
 - Fixed the Windows Strawberry smoke path-resolution bug by allowing an empty `ResolvedPerl` value to reach the fallback resolver, then resolving real executable paths through PowerShell command metadata plus `where.exe` before deriving Strawberry runtime directories.
-- Fixed the rerunnable Dockur smoke drift by staging the Strawberry Perl MSI from the Linux host into the OEM bundle, supporting configurable retained host ports, and allowing the Windows guest smoke to use `cpanm --notest` for third-party dependency installs while still running the real dashboard runtime smoke afterward.
+- Fixed the rerunnable Dockur smoke drift by staging the Strawberry Perl MSI from the Linux host into the OEM bundle, supporting configurable retained host ports, and allowing the Windows guest smoke to use `cpanm --no-wget --notest` for third-party dependency installs while still running the real dashboard runtime smoke afterward.
 - Fixed the SSL live-server regression test so a failed `IO::Socket::SSL->new(...)` now reports the underlying SSL error and produces clean test failures instead of dereferencing an undefined socket handle and aborting the file.
 - Re-verified the normal Linux install path with the blank-environment host integration, which still installs `Developer-Dashboard-1.78` successfully and completes the end-to-end runtime smoke after the Windows-harness changes.
 
@@ -1466,7 +1473,7 @@
 - Fixed custom CLI directory support by allowing `~/.developer-dashboard/cli/<command>/run` to serve as the real executable for directory-backed custom commands after the hook files finish.
 - Fixed collector state recovery so a malformed persisted `status.json` for a collector such as `vpn` is treated as missing state and is overwritten on the next write instead of crashing collector startup during `dashboard restart`.
 - Fixed collector-failure regression coverage by adding a blank-environment and unit test scenario where one broken Perl startup collector stays red without stopping a second healthy collector or its green indicator state.
-- Fixed tarball-install validation drift by removing `cpanm --notest` from the blank-environment integration flow, so the shipped artifact is exercised with install-time tests enabled.
+- Fixed tarball-install validation drift by removing `cpanm --no-wget --notest` from the blank-environment integration flow, so the shipped artifact is exercised with install-time tests enabled.
 - Fixed older bookmark runtime output so `CODE1: { a => 1 }` now both merges `{ a => 1 }` into stash for Template Toolkit rendering and dumps the returned structure into the visible runtime output area.
 - Fixed older bookmark runtime order so `CODE*` blocks execute before Template Toolkit rendering, allowing returned hashes such as `{ a => 1 }` to feed `[% stash.a %]` in page HTML.
 - Fixed the `hide` helper so `hide print $a` keeps the printed stdout while suppressing the Perl return value instead of dropping the whole block output.

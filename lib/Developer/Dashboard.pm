@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.04';
+our $VERSION = '3.05';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.04
+3.05
 
 =head1 INTRODUCTION
 
@@ -1067,7 +1067,7 @@ interactive terminals, explains that any upcoming C<sudo> prompt is asking for
 the user's operating-system account password only for package-manager work,
 bootstraps user-space Perl
 tooling under F<~/perl5> with
-C<cpanm --notest --local-lib-contained "$HOME/perl5" local::lib App::cpanminus>,
+C<cpanm --no-wget --notest --local-lib-contained "$HOME/perl5" local::lib App::cpanminus>,
 appends exactly one C<local::lib> bootstrap line to F<~/.bashrc>,
 F<~/.zshrc>, or F<~/.profile> depending on the active shell, keeps bash
 login shells wired by bridging F<~/.profile> to F<~/.bashrc>, prefers
@@ -1094,7 +1094,7 @@ printing the exact shell file it updated plus the exact C<. "<rc-file>">
 command the user should run only when the installer cannot safely take over a
 terminal, never probes F</dev/tty> during a piped C<curl ... | sh> run so
 non-interactive installs stay quiet, installs Developer Dashboard into the user account with
-C<cpanm --notest Developer::Dashboard>,
+C<cpanm --no-wget --notest Developer::Dashboard>,
 and then runs C<dashboard init> so the runtime exists immediately after
 installation.
 
@@ -1106,7 +1106,7 @@ Useful bootstrap examples:
 
 Install from CPAN with:
 
-  cpanm --notest Developer::Dashboard
+  cpanm --no-wget --notest Developer::Dashboard
 
 Or install from a checkout with:
 
@@ -1912,7 +1912,7 @@ Run the test suite:
 
 Measure library coverage with Devel::Cover:
 
-  cpanm --notest --local-lib-contained ./.perl5 Devel::Cover
+  cpanm --no-wget --notest --local-lib-contained ./.perl5 Devel::Cover
   export PERL5LIB="$PWD/.perl5/lib/perl5${PERL5LIB:+:$PERL5LIB}"
   export PATH="$PWD/.perl5/bin:$PATH"
   cover -delete
@@ -2254,7 +2254,7 @@ derived HTML, links, or button-like actions. Its saved Ajax endpoints run
 through singleton workers. No
 C<DBD::*> driver ships in the base tarball by default; install only the one
 you need with C<dashboard cpan DBD::Driver> or user-space
-C<cpanm --notest -L ~/perl5 DBD::Driver>, and the bookmark will return explicit
+C<cpanm --no-wget --notest -L ~/perl5 DBD::Driver>, and the bookmark will return explicit
 install guidance when a selected driver is missing. The repository also ships
 a dedicated SQL dashboard support guide with the verification matrix and
 per-database notes for that workspace.
