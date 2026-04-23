@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Skills;
 use strict;
 use warnings;
 
-our $VERSION = '3.06';
+our $VERSION = '3.07';
 
 use Getopt::Long qw(GetOptionsFromArray);
 use Cwd qw(getcwd);
@@ -30,9 +30,9 @@ sub run_skills_command {
     if ( $action eq 'install' ) {
         my $use_ddfile = 0;
         GetOptionsFromArray( \@argv, 'ddfile' => \$use_ddfile );
-        return _usage_error("Usage: dashboard skills install <git-url-or-local-dir>\nUsage: dashboard skills install --ddfile\n")
-          if ( $use_ddfile && @argv ) || ( !$use_ddfile && !@argv );
-        my $progress = $use_ddfile ? undef : _skills_install_progress();
+        return _usage_error("Usage: dashboard skills install [<git-url-or-local-dir>]\nUsage: dashboard skills install --ddfile\n")
+          if ( $use_ddfile && @argv ) || ( !$use_ddfile && @argv > 1 );
+        my $progress = !$use_ddfile && @argv ? _skills_install_progress() : undef;
         my $manager = Developer::Dashboard::SkillManager->new(
             paths    => _build_paths(),
             progress => $progress ? $progress->callback : undef,
@@ -42,7 +42,9 @@ sub run_skills_command {
         eval {
             $result = $use_ddfile
               ? $manager->install_from_ddfiles( getcwd() )
-              : $manager->install( shift @argv );
+              : @argv
+                ? $manager->install( shift @argv )
+                : $manager->install_registered_skills;
             1;
         } or do {
             $error = $@ || "dashboard skills install failed\n";

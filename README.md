@@ -1574,9 +1574,13 @@ root under the deepest participating `DD-OOP-LAYERS` runtime. In a home-only
 session that is `~/.developer-dashboard/skills/<repo-name>/`. In a deeper
 project layer that already has its own `.developer-dashboard/`, the install
 target becomes `<that-layer>/.developer-dashboard/skills/<repo-name>/`.
-`dashboard skills install` now requires either one explicit source argument or
-the special `--ddfile` flag; calling it with no source and no `--ddfile`
-returns a usage error instead of guessing.
+Each explicit `dashboard skills install <source>` also registers that exact
+source in `~/.developer-dashboard/ddfile` unless it is already listed there.
+Calling bare `dashboard skills install` with no source reads that root
+`ddfile` and reinstalls every listed skill as an update batch. If the root
+`ddfile` does not exist yet or has no installable entries, the command returns
+an explicit error telling the user to install a skill first or pass a skill
+source.
 Developer Dashboard does not merge the skill's `cli/`, `dashboards/`,
 `config/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`, `dnfile`, `brewfile`, `package.json`,
 `cpanfile`, `cpanfile.local`, or Docker files into the normal runtime

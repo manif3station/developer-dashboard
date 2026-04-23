@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.06';
+our $VERSION = '3.07';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.06
+3.07
 
 =head1 INTRODUCTION
 
@@ -2302,9 +2302,13 @@ F<~/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>. In a deeper project
 layer that already has its own F<.developer-dashboard/>, the install target
 becomes
 F<E<lt>that-layerE<gt>/.developer-dashboard/skills/E<lt>repo-nameE<gt>/>.
-Plain C<dashboard skills install> now requires either one explicit source
-argument or the special C<--ddfile> flag; calling it with no source and no
-C<--ddfile> returns a usage error instead of guessing.
+Each explicit C<dashboard skills install E<lt>sourceE<gt>> also registers
+that exact source in F<~/.developer-dashboard/ddfile> unless it is already
+listed there. Calling bare C<dashboard skills install> with no source reads
+that root F<ddfile> and reinstalls every listed skill as an update batch. If
+the root F<ddfile> does not exist yet or has no installable entries, the
+command returns an explicit error telling the user to install a skill first
+or pass a skill source.
 Developer Dashboard does not merge the skill's C<cli/>, C<dashboards/>,
 C<config/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>, C<dnfile>, C<brewfile>,
 C<package.json>, C<cpanfile>, C<cpanfile.local>, or Docker files into the

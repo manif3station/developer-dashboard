@@ -1356,14 +1356,24 @@ ok(
     -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'left-pad' ),
     'dashboard skills install merges staged Node dependencies into HOME/node_modules',
 );
-my ( $skill_install_usage_stdout, $skill_install_usage_stderr, $skill_install_usage_exit ) = capture {
+my $home_root_ddfile = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'ddfile' );
+open my $home_root_ddfile_fh, '<', $home_root_ddfile or die "Unable to read $home_root_ddfile: $!";
+my @registered_skill_sources = grep { defined && $_ ne '' && $_ !~ /\A#/ } map { chomp; $_ } <$home_root_ddfile_fh>;
+close $home_root_ddfile_fh;
+is_deeply(
+    \@registered_skill_sources,
+    ["file://$skill_repo"],
+    'dashboard skills install records one non-duplicated source in the home root ddfile after repeated explicit installs',
+);
+my ( $skill_install_registered_stdout, $skill_install_registered_stderr, $skill_install_registered_exit ) = capture {
     system( $perl, '-I', $lib, $dashboard, 'skills', 'install' );
 };
-is( $skill_install_usage_exit >> 8, 2, 'dashboard skills install exits with usage when neither a source nor --ddfile is supplied' );
+is( $skill_install_registered_exit >> 8, 0, 'bare dashboard skills install exits successfully when the home root ddfile has registered sources' );
+is( $skill_install_registered_stderr, '', 'bare dashboard skills install does not print usage errors when replaying the home root ddfile' );
 like(
-    $skill_install_usage_stderr,
-    qr/Usage: dashboard skills install <git-url-or-local-dir>.*Usage: dashboard skills install --ddfile/s,
-    'dashboard skills install requires an explicit source unless --ddfile is used',
+    $skill_install_registered_stdout,
+    qr/"source"\s*:\s*"file:\/\/\Q$skill_repo\E"/,
+    'bare dashboard skills install replays the registered home root ddfile source',
 );
 
 my $manifest_global_skill_repo = File::Spec->catdir( $ENV{HOME}, 'manifest-global-skill-fixture' );

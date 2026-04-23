@@ -1,3 +1,14 @@
+3.07  2026-04-23
+
+    - changed explicit `dashboard skills install <source>` runs to register
+      the exact source in the home root `~/.developer-dashboard/ddfile`
+      without duplicating existing entries
+    - changed bare `dashboard skills install` into an update-all command that
+      consumes the home root `ddfile` and reinstalls every listed skill
+    - added focused manager and CLI regression coverage for root ddfile
+      registration, duplicate prevention, empty-registry errors, and bare
+      update-all installs
+
 3.06  2026-04-23
 
     - fixed dashboard stop/restart process control on Alpine/iSH-style Perl

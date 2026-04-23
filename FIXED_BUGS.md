@@ -1,5 +1,17 @@
 # Fixed Bugs
 
+## 3.07 - Root ddfile skill registry updates
+
+- Fixed the skill update-all gap where explicit `dashboard skills install
+  <source>` runs installed a skill but did not remember that source anywhere
+  for later bulk updates.
+- Explicit skill installs now append the exact source string to the home root
+  `~/.developer-dashboard/ddfile`, preserving existing entries and skipping
+  duplicates.
+- Bare `dashboard skills install` now reads the home root `ddfile` and
+  reinstalls every listed source as an update batch, while missing or empty
+  root registries return clear actionable errors.
+
 ## 3.06 - Portable restart signals on Alpine/iSH
 
 - Fixed `dashboard stop` and `dashboard restart` on Alpine/iSH-style Perl

@@ -2520,6 +2520,131 @@ SH
     );
 }
 {
+    my $registry_home = tempdir( CLEANUP => 1 );
+    my $registry_paths = Developer::Dashboard::PathRegistry->new( home => $registry_home );
+    my $registry_manager = Developer::Dashboard::SkillManager->new( paths => $registry_paths );
+    my $registry_repo = _create_skill_repo( $test_repos, 'registered-root-skill', with_cpanfile => 0 );
+    my $registry_source = "file://$registry_repo";
+    my $root_ddfile = File::Spec->catfile( $registry_paths->home_runtime_root, 'ddfile' );
+
+    my $first_registry_install = $registry_manager->install($registry_source);
+    ok( !$first_registry_install->{error}, 'explicit skill install succeeds before registering the root ddfile source' )
+      or diag $first_registry_install->{error};
+    is( _read_file($root_ddfile), "$registry_source\n", 'explicit skill install appends the source to the home root ddfile' );
+    is( $first_registry_install->{registered_ddfile}, $root_ddfile, 'install result reports the root ddfile registry path' );
+    ok( $first_registry_install->{registered_ddfile_entry}, 'install result reports a newly registered root ddfile entry' );
+
+    my $second_registry_install = $registry_manager->install($registry_source);
+    ok( !$second_registry_install->{error}, 'repeat explicit skill install succeeds as an update' )
+      or diag $second_registry_install->{error};
+    is( _read_file($root_ddfile), "$registry_source\n", 'repeat explicit skill install does not duplicate the root ddfile source' );
+    ok( !$second_registry_install->{registered_ddfile_entry}, 'repeat install reports that the root ddfile entry already existed' );
+
+    my $internal_repo = _create_skill_repo( $test_repos, 'internal-dependency-skill', with_cpanfile => 0 );
+    {
+        local $ENV{DEVELOPER_DASHBOARD_SKIP_SKILL_REGISTRY} = 1;
+        my $internal_install = $registry_manager->install("file://$internal_repo");
+        ok( !$internal_install->{error}, 'internal dependency install can skip root ddfile registration' )
+          or diag $internal_install->{error};
+    }
+    is( _read_file($root_ddfile), "$registry_source\n", 'internal dependency install does not pollute the home root ddfile registry' );
+
+    _write_file( File::Spec->catfile( $registry_repo, 'cli', 'run-test' ), "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nprint qq{registered-refresh\\n};\n", 0755 );
+    {
+        my $cwd = getcwd();
+        chdir $registry_repo or die "Unable to chdir to $registry_repo: $!";
+        _run_or_die(qw(git add .));
+        _run_or_die( 'git', 'commit', '-m', 'Refresh registered root skill' );
+        chdir $cwd or die "Unable to chdir back to $cwd: $!";
+    }
+    my $registered_update = $registry_manager->install_registered_skills;
+    ok( !$registered_update->{error}, 'install_registered_skills refreshes every source listed in the home root ddfile' )
+      or diag $registered_update->{error};
+    is_deeply(
+        $registered_update->{operations},
+        [
+            {
+                manifest  => 'ddfile',
+                source    => $registry_source,
+                repo_name => 'registered-root-skill',
+                path      => File::Spec->catdir( $registry_paths->home_runtime_root, 'skills', 'registered-root-skill' ),
+            },
+        ],
+        'install_registered_skills reports the manifest update operations from the home root ddfile',
+    );
+    my $registry_dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $registry_paths );
+    like(
+        $registry_dispatcher->dispatch( 'registered-root-skill', 'run-test' )->{stdout},
+        qr/registered-refresh/,
+        'install_registered_skills updates the installed skill content from the registered root ddfile source',
+    );
+}
+{
+    my $empty_registry_home = tempdir( CLEANUP => 1 );
+    my $empty_registry_paths = Developer::Dashboard::PathRegistry->new( home => $empty_registry_home );
+    my $empty_registry_manager = Developer::Dashboard::SkillManager->new( paths => $empty_registry_paths );
+    my $empty_ddfile = File::Spec->catfile( $empty_registry_paths->home_runtime_root, 'ddfile' );
+    is_deeply(
+        $empty_registry_manager->install_registered_skills,
+        { error => "No root ddfile found under " . $empty_registry_paths->home_runtime_root . '; install a skill first or pass a skill source' },
+        'install_registered_skills reports a clear error before any root ddfile exists',
+    );
+    _write_file( $empty_ddfile, "# empty registry\n\n" );
+    is_deeply(
+        $empty_registry_manager->install_registered_skills,
+        { error => "Root ddfile $empty_ddfile does not list any skills to install" },
+        'install_registered_skills reports a clear error when the root ddfile has no installable entries',
+    );
+}
+{
+    my $newline_registry_home = tempdir( CLEANUP => 1 );
+    my $newline_registry_paths = Developer::Dashboard::PathRegistry->new( home => $newline_registry_home );
+    my $newline_registry_manager = Developer::Dashboard::SkillManager->new( paths => $newline_registry_paths );
+    my $newline_repo = _create_skill_repo( $test_repos, 'newline-registry-skill', with_cpanfile => 0 );
+    my $newline_ddfile = File::Spec->catfile( $newline_registry_paths->home_runtime_root, 'ddfile' );
+    _write_file( $newline_ddfile, 'existing-skill-without-newline' );
+
+    my $newline_install = $newline_registry_manager->install("file://$newline_repo");
+    ok( !$newline_install->{error}, 'explicit install appends to an existing root ddfile without a trailing newline' )
+      or diag $newline_install->{error};
+    is(
+        _read_file($newline_ddfile),
+        "existing-skill-without-newline\nfile://$newline_repo\n",
+        'root ddfile registration repairs a missing trailing newline before appending a new source',
+    );
+}
+{
+    my $cli_home = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = $cli_home;
+    my $cli_paths = Developer::Dashboard::PathRegistry->new( home => $cli_home );
+    my $cli_repo = _create_skill_repo( $test_repos, 'cli-root-ddfile-skill', with_cpanfile => 0 );
+    _write_file( File::Spec->catfile( $cli_paths->home_runtime_root, 'ddfile' ), "file://$cli_repo\n" );
+
+    require Developer::Dashboard::CLI::Skills;
+    my $cli_code;
+    my ( $cli_stdout, $cli_stderr, $cli_exit ) = capture {
+        $cli_code = Developer::Dashboard::CLI::Skills::run_skills_command(
+            command => 'skills',
+            args    => ['install'],
+        );
+    };
+    is( $cli_exit, 0, 'bare dashboard skills install does not die when a root ddfile exists' );
+    is( $cli_code, 0, 'bare dashboard skills install returns success after consuming the root ddfile' );
+    is( $cli_stderr, '', 'bare dashboard skills install does not print usage errors when a root ddfile exists' );
+    is_deeply(
+        json_decode($cli_stdout)->{operations},
+        [
+            {
+                manifest  => 'ddfile',
+                source    => "file://$cli_repo",
+                repo_name => 'cli-root-ddfile-skill',
+                path      => File::Spec->catdir( $cli_paths->home_runtime_root, 'skills', 'cli-root-ddfile-skill' ),
+            },
+        ],
+        'bare dashboard skills install updates every source from the home root ddfile',
+    );
+}
+{
     my $broken_repo = _create_skill_repo( $test_repos, 'broken-update-skill', with_cpanfile => 0 );
     ok( !$manager->install( 'file://' . $broken_repo )->{error}, 'broken-update-skill installs cleanly' );
     my $installed_root = $manager->get_skill_path('broken-update-skill');
@@ -3328,6 +3453,19 @@ sub _write_file {
     close $fh;
     chmod( $mode || 0644, $path ) or die "Unable to chmod $path: $!";
     return 1;
+}
+
+# _read_file($path)
+# Reads a complete text file for focused fixture assertions.
+# Input: file path string.
+# Output: file content string.
+sub _read_file {
+    my ($path) = @_;
+    open my $fh, '<', $path or die "Unable to read $path: $!";
+    local $/;
+    my $content = <$fh>;
+    close $fh;
+    return $content;
 }
 
 sub _dies {

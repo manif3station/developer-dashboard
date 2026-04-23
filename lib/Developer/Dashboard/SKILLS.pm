@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '3.06';
+our $VERSION = '3.07';
 
 1;
 
@@ -88,9 +88,11 @@ Install it:
 Repeated C<dashboard skills install ...> calls reinstall or refresh the
 isolated installed copy instead of failing on an existing repo name, using
 C<rsync> when it is available for direct local checkouts and a built-in Perl
-tree-copy fallback when it is not. Plain C<dashboard skills install> requires
-either one explicit source argument or C<--ddfile>; calling it without either
-returns a usage error.
+tree-copy fallback when it is not. Each explicit install also appends the
+exact source to the home root F<~/.developer-dashboard/ddfile> unless the
+same non-comment entry already exists. Bare C<dashboard skills install> reads
+that root F<ddfile> and reinstalls every listed source, which gives operators
+one update command for all registered skills.
 
 Run an operator manifest install from the current directory:
 

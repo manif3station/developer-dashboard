@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.06';
+our $VERSION = '3.07';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -64,7 +64,14 @@ sub install_progress_tasks {
 sub install {
     my ( $self, $source ) = @_;
     return { error => 'Missing skill source' } if !$source;
-    return $self->_install_to_skills_root( $source, $self->{paths}->skills_root );
+    my $result = $self->_install_to_skills_root( $source, $self->{paths}->skills_root );
+    return $result if $result->{error};
+    return $result if $ENV{DEVELOPER_DASHBOARD_SKIP_SKILL_REGISTRY};
+    my $registration = $self->_register_root_ddfile_source($source);
+    return $registration if $registration->{error};
+    $result->{registered_ddfile} = $registration->{ddfile};
+    $result->{registered_ddfile_entry} = $registration->{registered};
+    return $result;
 }
 
 # install_from_ddfiles($base_dir)
@@ -104,6 +111,38 @@ sub install_from_ddfiles {
         base_dir   => $root,
         operations => \@operations,
         message    => 'Installed skills from ddfile manifests successfully',
+    };
+}
+
+# install_registered_skills()
+# Reinstalls or updates every skill source listed in the home runtime ddfile.
+# Input: none.
+# Output: hash ref describing completed root-ddfile update operations or an
+# error hash when the root registry is missing or empty.
+sub install_registered_skills {
+    my ($self) = @_;
+    my $home_root = $self->{paths}->home_runtime_root;
+    my $ddfile = File::Spec->catfile( $home_root, 'ddfile' );
+    return { error => "No root ddfile found under $home_root; install a skill first or pass a skill source" }
+      if !-f $ddfile;
+    return { error => "Root ddfile $ddfile does not list any skills to install" }
+      if !$self->_root_ddfile_has_sources($ddfile);
+
+    my @operations;
+    my $result = $self->_install_manifest_file(
+        $ddfile,
+        manifest_name => 'ddfile',
+        skills_root   => File::Spec->catdir( $home_root, 'skills' ),
+        operations    => \@operations,
+    );
+    return $result if $result->{error};
+
+    return {
+        success    => 1,
+        base_dir   => $home_root,
+        ddfile     => $ddfile,
+        operations => \@operations,
+        message    => 'Installed registered skills from the home root ddfile successfully',
     };
 }
 
@@ -314,6 +353,57 @@ sub _normalize_install_source {
     return "https://github.com/manif3station/$source"
       if $source =~ /\A[A-Za-z0-9_.-]+\z/;
     return $source;
+}
+
+# _root_ddfile_has_sources($ddfile)
+# Reports whether one root ddfile has at least one non-comment skill source.
+# Input: root ddfile path.
+# Output: boolean true when an installable source exists.
+sub _root_ddfile_has_sources {
+    my ( $self, $ddfile ) = @_;
+    return scalar $self->_dependency_file_lines($ddfile) ? 1 : 0;
+}
+
+# _register_root_ddfile_source($source)
+# Appends one explicit skill install source to the home root ddfile unless the
+# same non-comment source is already present.
+# Input: source string exactly as supplied to dashboard skills install.
+# Output: hash ref with ddfile path and boolean registered status, or an error hash.
+sub _register_root_ddfile_source {
+    my ( $self, $source ) = @_;
+    return { error => 'Missing skill source' } if !$source;
+
+    my $home_root = $self->{paths}->home_runtime_root;
+    $self->{paths}->ensure_dir($home_root);
+    my $ddfile = File::Spec->catfile( $home_root, 'ddfile' );
+    my $existing = '';
+    if ( -f $ddfile ) {
+        open my $read_fh, '<', $ddfile or return { error => "Unable to read root ddfile $ddfile: $!" };
+        local $/;
+        $existing = <$read_fh> // '';
+        close $read_fh;
+        for my $line ( split /\n/, $existing ) {
+            $line =~ s/^\s+|\s+$//g;
+            next if $line eq '' || $line =~ /\A#/;
+            return {
+                success    => 1,
+                ddfile     => $ddfile,
+                registered => 0,
+            } if $line eq $source;
+        }
+    }
+
+    open my $append_fh, '>>', $ddfile or return { error => "Unable to update root ddfile $ddfile: $!" };
+    print {$append_fh} "\n" if length($existing) && $existing !~ /\n\z/;
+    print {$append_fh} "$source\n";
+    close $append_fh;
+    $self->{paths}->secure_file_permissions($ddfile);
+
+    return {
+        success    => 1,
+        ddfile     => $ddfile,
+        registered => 1,
+    };
 }
 
 # _sync_local_skill_source($source_path, $target_path)
@@ -896,6 +986,7 @@ sub _install_skill_dependency_manifest {
         my ( $step_stdout, $step_stderr, $exit ) = do {
             local $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} = $install_stack;
             local $ENV{DEVELOPER_DASHBOARD_DEPENDENCY_MANIFEST} = $manifest_name;
+            local $ENV{DEVELOPER_DASHBOARD_SKIP_SKILL_REGISTRY} = 1;
             my $cwd = Cwd::getcwd();
             my ( $stdout, $stderr, $status );
             eval {
