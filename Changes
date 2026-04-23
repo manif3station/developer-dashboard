@@ -1,3 +1,14 @@
+3.06  2026-04-23
+
+    - fixed dashboard stop/restart process control on Alpine/iSH-style Perl
+      builds by sending numeric POSIX signals instead of relying on named
+      signal strings such as TERM and KILL
+    - extended the runtime manager regression suite to lock the portable signal
+      mapping and invalid-pid handling before shutdown code reaches Perl kill
+    - fixed the blank tarball install gate when Node is present by making the
+      source-tree fast-check wrapper skip packaged trees that do not ship the
+      checkout-only JavaScript manifests
+
 3.05  2026-04-23
     - fixed Alpine streamed installs after the old-system-Perl rescue path so
       installer-owned `cpanm` calls disable BusyBox `wget` with `--no-wget`

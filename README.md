@@ -252,7 +252,7 @@ Only `dashboard` is intended to be the public CPAN-facing command-line entrypoin
   Creates or reuses a tmux session for the requested ticket reference, seeds `TICKET_REF` plus dashboard-friendly branch aliases into that session environment, and attaches to it through a dashboard-managed private helper instead of a public standalone binary.
 
 - `Developer::Dashboard::RuntimeManager`
-  Manages the background web service and collector lifecycle with process-title validation, `pkill`-style fallback shutdown, and restart orchestration, tying the browser and prepared-state loops together as one runtime.
+  Manages the background web service and collector lifecycle with process-title validation, numeric POSIX shutdown signals for Alpine/iSH compatibility, `pkill`-style fallback shutdown, and restart orchestration, tying the browser and prepared-state loops together as one runtime.
 
 - `Developer::Dashboard::UpdateManager`
   Runs ordered update scripts and restarts validated collector loops when needed, giving the runtime a controlled bootstrap and upgrade path.
@@ -1342,7 +1342,7 @@ by real path identity instead of raw string spelling.
 - `dashboard serve logs` prints the combined Dancer2 and Starman runtime log captured in the dashboard log file, `dashboard serve logs -n 100` starts from the last 100 lines, and `dashboard serve logs -f` follows appended output live
 - `dashboard serve workers N` saves the default Starman worker count and starts the web service immediately when it is currently stopped; `--host HOST` and `--port PORT` can steer that auto-start path, and `dashboard serve --workers N` or `dashboard restart --workers N` can still override it for one run
 - `dashboard stop` stops both the web service and managed collector loops and, on an interactive terminal, prints the full stop task board on `stderr` before work starts so each shutdown step becomes visible instead of silent waiting
-- `dashboard restart` stops both, starts configured collector loops again, then starts the web service, and only reports success after the replacement collector loops and web runtime become visible and survive a short post-ready confirmation window, with the web side still holding a live managed pid and an accepting listener on the requested port; on an interactive terminal it also prints the full restart task board on `stderr`, marks the active step with a yellow `->`, marks completed steps with a green `[OK]`, marks failed steps with a red `[X]`, and leaves the final JSON result on `stdout`
+- `dashboard restart` stops both, starts configured collector loops again, then starts the web service, and only reports success after the replacement collector loops and web runtime become visible and survive a short post-ready confirmation window, with the web side still holding a live managed pid and an accepting listener on the requested port; on an interactive terminal it also prints the full restart task board on `stderr`, marks the active step with a yellow `->`, marks completed steps with a green `[OK]`, marks failed steps with a red `[X]`, and leaves the final JSON result on `stdout`. Stop and restart shutdown paths send numeric POSIX signals instead of named signal strings, so minimal Alpine/iSH Perl builds that reject `TERM` by name still terminate managed web and collector processes correctly.
 - web shutdown and duplicate detection do not trust pid files alone; they validate managed processes by environment marker or process title and use a `pkill`-style scan fallback when needed
 
 ### Environment Customization
@@ -1977,6 +1977,10 @@ prerequisites for blank-environment `cpanm` verification.
 Tests that depend on a missing or empty environment variable now establish that
 state explicitly inside the test file, rather than assuming the parent shell
 or install harness starts clean.
+The JavaScript fast-check wrapper is a source-tree fuzz gate: it runs when
+`node`, `npm`, `package.json`, and `package-lock.json` are all present, and it
+skips in packaged install-test trees that do not ship those checkout-only
+JavaScript manifests.
 
 ### Scorecard Timing
 

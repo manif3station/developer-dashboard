@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.05';
+our $VERSION = '3.06';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.05
+3.06
 
 =head1 INTRODUCTION
 
@@ -596,9 +596,10 @@ helper instead of a public standalone binary.
 =item * Runtime Manager
 
 C<Developer::Dashboard::RuntimeManager> manages the background web service and
-collector lifecycle with process-title validation, C<pkill>-style fallback
-shutdown, and restart orchestration, tying the browser and prepared-state
-loops together as one runtime.
+collector lifecycle with process-title validation, numeric POSIX shutdown
+signals for Alpine/iSH compatibility, C<pkill>-style fallback shutdown, and
+restart orchestration, tying the browser and prepared-state loops together as
+one runtime.
 
 =item * Update Manager
 
@@ -1344,7 +1345,9 @@ Restart the local app and configured collector loops:
 Interactive terminal runs now print the full restart task board on C<stderr>,
 mark the active step with a yellow C<->, mark completed steps with a green
 C<[OK]>, mark failed steps with a red C<[X]>, and keep the final JSON result
-on C<stdout>.
+on C<stdout>. Stop and restart shutdown paths send numeric POSIX signals
+instead of named signal strings, so minimal Alpine/iSH Perl builds that reject
+C<TERM> by name still terminate managed web and collector processes correctly.
 
 Create a helper login user:
 
@@ -1962,6 +1965,10 @@ verification.
 Tests that depend on a missing or empty environment variable now establish that
 state explicitly inside the test file, rather than assuming the parent shell
 or install harness starts clean.
+The JavaScript fast-check wrapper is a source-tree fuzz gate: it runs when
+C<node>, C<npm>, C<package.json>, and C<package-lock.json> are all present, and
+it skips in packaged install-test trees that do not ship those checkout-only
+JavaScript manifests.
 
 From a source checkout, for fast saved-bookmark browser regressions, run the
 dedicated smoke script:

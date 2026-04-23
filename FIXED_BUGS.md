@@ -1,5 +1,22 @@
 # Fixed Bugs
 
+## 3.06 - Portable restart signals on Alpine/iSH
+
+- Fixed `dashboard stop` and `dashboard restart` on Alpine/iSH-style Perl
+  builds that reject named signal strings in `kill`, causing failures such as
+  `Unrecognized signal name "TERM"` before the dashboard web service or
+  collectors could stop.
+- Runtime-owned shutdown paths now translate dashboard lifecycle signals to
+  numeric POSIX values before calling Perl `kill`, and the `pkill` fast path
+  uses `-15` instead of `-TERM` for the same portability reason.
+- Added focused RuntimeManager regression coverage for TERM/KILL numeric
+  mapping and invalid pid filtering so future lifecycle changes cannot
+  reintroduce named-signal-only shutdown behavior.
+- Fixed the blank tarball install gate on hosts with Node and npm installed by
+  making the source-tree fast-check wrapper skip packaged trees that do not
+  ship the checkout-only JavaScript manifests.
+
+
 ## 2026-04-23 (Phase 157: Alpine cpanm BusyBox wget Avoidance)
 
 - Fixed Alpine streamed installs after the `perlbrew` rescue path so

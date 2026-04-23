@@ -179,6 +179,9 @@ The integration run creates:
   has a live managed pid and an accepting listener on the requested port, and
   after that ready state survives a short confirmation window instead of
   trusting an acknowledged pid that dies immediately afterwards
+- runtime shutdown uses numeric POSIX signals for managed stop/restart paths so
+  Alpine/iSH Perl builds that reject named signal strings still stop web and
+  collector processes correctly
 
 ## Optional macOS Brewfile Verification
 
