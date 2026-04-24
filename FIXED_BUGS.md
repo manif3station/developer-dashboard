@@ -1,5 +1,17 @@
 # Fixed Bugs
 
+## 3.11 - Current-directory path alias shorthand
+
+- Fixed `dashboard path add .` so it now saves the current working directory
+  under its basename instead of rejecting `.` as an incomplete add request.
+- Fixed `dashboard path add <name> .` so `.` now means the current working
+  directory when used as the target path shorthand for an explicit alias.
+- Fixed `dashboard path del .` so it removes the basename-derived alias for the
+  current working directory before considering other aliases that happen to
+  point at the same path.
+- Added `dashboard path rm` as a public alias for `dashboard path del` so path
+  alias removal stays consistent with operators who expect `rm` spelling.
+
 ## 3.10 - File alias command family and public file wrapper
 
 - Fixed the gap where Developer Dashboard exposed a first-class path alias

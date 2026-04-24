@@ -1,3 +1,15 @@
+3.11  2026-04-24
+
+    - changed `dashboard path add .` to save the current working directory
+      under its basename instead of treating `.` as an invalid path token
+    - changed `dashboard path add <name> .` to use the current working
+      directory as the target path shorthand for explicit aliases
+    - changed `dashboard path del .` and `dashboard path rm .` to remove the
+      alias that points at the current working directory, and added `rm` as a
+      public alias for `del`
+    - added focused CLI smoke and refactor coverage for the current-directory
+      shorthand and the new `path rm` command spelling
+
 3.10  2026-04-24
 
     - added `dashboard file ...` and `dashboard files` as file-oriented twins

@@ -825,7 +825,9 @@ Inspect resolved paths:
 dashboard paths
 dashboard path resolve bookmarks_root
 dashboard path add foobar /tmp/foobar
+dashboard path add .
 dashboard path del foobar
+dashboard path rm foobar
 dashboard files
 dashboard file add notes ~/notes.txt
 dashboard file resolve notes
@@ -857,6 +859,12 @@ same runtime, bookmark, config, and configured alias names exposed by
 `dashboard paths`, and therefore backs the same folder-oriented flow that
 `cdr` and `which_dir` use, including names such as `docker`, without relying on
 unscoped CPAN-global module names.
+
+`dashboard path add .` saves the current working directory under its basename.
+`dashboard path add <name> .` uses the current working directory as the target
+for an explicit alias. `dashboard path del .` and `dashboard path rm .` remove
+the alias that points at the current working directory instead of treating `.`
+as a literal error token.
 
 Use `Developer::Dashboard::File` for runtime file helpers. It resolves the
 same built-in and config-backed file aliases exposed by `dashboard files` and

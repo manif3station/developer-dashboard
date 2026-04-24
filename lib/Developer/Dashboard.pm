@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.10';
+our $VERSION = '3.11';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.10
+3.11
 
 =head1 INTRODUCTION
 
@@ -1226,7 +1226,9 @@ Inspect resolved paths:
   dashboard paths
   dashboard path resolve bookmarks_root
   dashboard path add foobar /tmp/foobar
+  dashboard path add .
   dashboard path del foobar
+  dashboard path rm foobar
   dashboard files
   dashboard file add notes ~/notes.txt
   dashboard file resolve notes
@@ -1281,6 +1283,12 @@ same runtime, bookmark, config, and configured alias names exposed by
 C<dashboard paths>, and therefore backs the same folder-oriented flow that
 C<cdr> and C<which_dir> use, including names such as C<docker>, without relying on
 unscoped CPAN-global module names.
+
+C<dashboard path add .> saves the current working directory under its basename.
+C<dashboard path add E<lt>nameE<gt> .> uses the current working directory as the
+target for an explicit alias. C<dashboard path del .> and C<dashboard path rm .>
+remove the alias that points at the current working directory instead of
+treating C<.> as a literal error token.
 
 Use C<Developer::Dashboard::File> for runtime file helpers. It resolves the
 same built-in and config-backed file aliases exposed by C<dashboard files> and

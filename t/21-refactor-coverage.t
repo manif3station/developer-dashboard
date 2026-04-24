@@ -1052,6 +1052,30 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command(
             command => 'path',
+            args    => ['add', '.'],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths add . writes no stderr on success' );
+    my $added_dot_alias = json_decode($stdout);
+    is( $added_dot_alias->{name}, 'path-cmd-project', 'CLI::Paths add . derives the alias name from the current directory basename' );
+    is_same_path( $added_dot_alias->{path}, $project_dir, 'CLI::Paths add . stores the current directory as the target path' );
+    is_same_path( $added_dot_alias->{resolved}, $project_dir, 'CLI::Paths add . resolves back to the current directory' );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => [ 'add', 'here', '.' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths add NAME . writes no stderr on success' );
+    my $added_here_alias = json_decode($stdout);
+    is( $added_here_alias->{name}, 'here', 'CLI::Paths add NAME . preserves the explicit alias name' );
+    is_same_path( $added_here_alias->{path}, $project_dir, 'CLI::Paths add NAME . stores the current directory as the target path' );
+    is_same_path( $added_here_alias->{resolved}, $project_dir, 'CLI::Paths add NAME . resolves to the current directory target' );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
             args    => [ 'del', 'named-home-target' ],
         );
     };
@@ -1060,9 +1084,31 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     is( $deleted_alias->{name}, 'named-home-target', 'CLI::Paths del returns the deleted alias name' );
     is( $deleted_alias->{removed}, 1, 'CLI::Paths del reports successful removal' );
 
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => [ 'del', '.' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths del . writes no stderr on success' );
+    my $deleted_dot_alias = json_decode($stdout);
+    is( $deleted_dot_alias->{name}, 'path-cmd-project', 'CLI::Paths del . removes the basename-derived alias that points at the current directory' );
+    is( $deleted_dot_alias->{removed}, 1, 'CLI::Paths del . reports successful removal' );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command(
+            command => 'path',
+            args    => [ 'rm', 'here' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Paths rm writes no stderr on success' );
+    my $removed_here_alias = json_decode($stdout);
+    is( $removed_here_alias->{name}, 'here', 'CLI::Paths rm returns the removed alias name' );
+    is( $removed_here_alias->{removed}, 1, 'CLI::Paths rm aliases the delete behavior' );
+
     like(
         _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => ['bogus'] ) } ),
-        qr/Usage: dashboard path <resolve\|locate\|cdr\|complete-cdr\|add\|del\|project-root\|list> \.\.\./,
+        qr/Usage: dashboard path <resolve\|locate\|cdr\|complete-cdr\|add\|del\|rm\|project-root\|list> \.\.\./,
         'CLI::Paths rejects unsupported path subcommands with a usage error',
     );
 
