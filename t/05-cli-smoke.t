@@ -882,6 +882,9 @@ my $path_add_named_dot = _run("cd '$dot_current_path_root' && $perl -I'$lib' '$d
 like( $path_add_named_dot, qr/"name"\s*:\s*"right-here"/, 'dashboard path add NAME . keeps the explicit alias name' );
 like( $path_add_named_dot, qr/\Q$dot_current_path_root\E/, 'dashboard path add NAME . uses the current directory as the target path' );
 my $custom_file_target = File::Spec->catfile( $ENV{HOME}, 'custom-notes.txt' );
+open my $custom_file_target_fh, '>', $custom_file_target or die "Unable to write $custom_file_target: $!";
+print {$custom_file_target_fh} "notes\n";
+close $custom_file_target_fh;
 my $file_add = _run("$perl -I'$lib' '$dashboard' file add notes '$custom_file_target'");
 like( $file_add, qr/"name"\s*:\s*"notes"/, 'dashboard file add stores a custom file alias' );
 like( $file_add, qr/\Q$custom_file_target\E/, 'dashboard file add reports the stored target file' );
@@ -893,6 +896,8 @@ my $notes_resolved = _run("$perl -I'$lib' '$dashboard' file resolve notes");
 is( $notes_resolved, $custom_file_target . "\n", 'dashboard file resolve supports user-defined file aliases' );
 my $file_list = _run("$perl -I'$lib' '$dashboard' file list");
 like( $file_list, qr/"notes"\s*:\s*"\Q$custom_file_target\E"/, 'dashboard file list includes user-defined file aliases' );
+my $of_file_alias = _run("$perl -I'$lib' '$dashboard' of --print notes");
+is( $of_file_alias, $custom_file_target . "\n", 'dashboard of resolves configured file aliases directly' );
 {
     my $layered_path_home = tempdir( CLEANUP => 1 );
     local $ENV{HOME} = $layered_path_home;
@@ -1743,6 +1748,10 @@ my $jq_scope_ok_json = File::Spec->catfile( $jq_scope_js_root, 'ok.json' );
 open my $jq_scope_ok_json_fh, '>', $jq_scope_ok_json or die "Unable to write $jq_scope_ok_json: $!";
 print {$jq_scope_ok_json_fh} "{\"ok\":true}\n";
 close $jq_scope_ok_json_fh;
+my $jq_scope_exact = File::Spec->catfile( $jq_scope_root, '456.txt' );
+open my $jq_scope_exact_fh, '>', $jq_scope_exact or die "Unable to write $jq_scope_exact: $!";
+print {$jq_scope_exact_fh} "exact\n";
+close $jq_scope_exact_fh;
 my $jq_scope_jquery = File::Spec->catfile( $jq_scope_js_root, 'jquery.js' );
 open my $jq_scope_jquery_fh, '>', $jq_scope_jquery or die "Unable to write $jq_scope_jquery: $!";
 print {$jq_scope_jquery_fh} "window.jquery = true;\n";
@@ -1757,6 +1766,12 @@ close $fake_editor_log_fh;
 is($fake_editor_args, "./cli/jq ./public/js/jq.js\n", 'dashboard of . jq opens the selected jq helper and jq.js before jquery.js');
 my $ok_regex_scope = _run("cd '$jq_scope_root' && $perl -I'$repo/lib' '$repo/bin/dashboard' of --print . 'Ok\\.js\$'");
 is( $ok_regex_scope, "./public/js/ok.js\n", 'dashboard of . treats scope keywords as regexes, so Ok\\.js$ matches ok.js but not ok.json' );
+my $scoped_exact_file = _run("cd '$jq_scope_root' && $perl -I'$lib' '$dashboard' path add jq-scope . >/dev/null && $perl -I'$repo/lib' '$repo/bin/dashboard' of --print jq-scope 456.txt");
+is(
+    $scoped_exact_file,
+    $jq_scope_exact . "\n",
+    'dashboard of path aliases resolves exact relative file targets inside the aliased folder',
+);
 
 my $of_print = _run("$perl -I'$lib' '$dashboard' of --print '$open_root' alpha");
 like($of_print, qr/\Q$open_target\E/, 'dashboard of is shorthand for open-file');

@@ -21,6 +21,7 @@ use Developer::Dashboard::Config;
 use Developer::Dashboard::Doctor;
 use Developer::Dashboard::EnvAudit;
 use Developer::Dashboard::EnvLoader;
+use Developer::Dashboard::File;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::Housekeeper;
 use Developer::Dashboard::IndicatorStore;
@@ -1172,6 +1173,19 @@ my $saved_global = {
 };
 $config->save_global($saved_global);
 is_deeply( $config->load_global, $saved_global, 'save_global round-trips config content' );
+my $saved_numeric_file_alias = $config->save_global_file_alias( '123', $files->prompt_log );
+is( $saved_numeric_file_alias->{path}, $files->prompt_log, 'save_global_file_alias stores numeric file aliases' );
+my $numeric_file_alias_method = 123;
+is(
+    Developer::Dashboard::File->$numeric_file_alias_method,
+    $files->prompt_log,
+    'Developer::Dashboard::File resolves configured numeric aliases through dynamic method names',
+);
+is(
+    Developer::Dashboard::File->resolve('123'),
+    $files->prompt_log,
+    'Developer::Dashboard::File resolve returns configured numeric aliases explicitly',
+);
 my $saved_default_merge_path = $config->save_global_defaults(
     {
         default_mode => 'browse',
@@ -1210,6 +1224,9 @@ is_deeply(
                 title => 'Default Provider',
             },
         ],
+        file_aliases => {
+            123 => '$HOME/.developer-dashboard/logs/prompt.log',
+        },
     },
     'save_global_defaults preserves existing user settings while adding only missing defaults',
 );

@@ -1,3 +1,17 @@
+3.12  2026-04-24
+
+    - changed `dashboard of` and `dashboard open-file` to resolve configured
+      file aliases as direct file targets before module or regex lookup
+    - changed path-alias scoped open-file flows so `dashboard of <alias>
+      <relative-file>` opens an exact relative file inside the aliased folder
+      before falling back to regex search
+    - added explicit `Developer::Dashboard::File->resolve($name)` support and
+      coverage for dynamic numeric alias lookups through the public file
+      wrapper
+    - added focused smoke, unit, and open-file resolver coverage for direct
+      file aliases, path-alias scoped exact files, and Perl-side numeric alias
+      access
+
 3.11  2026-04-24
 
     - changed `dashboard path add .` to save the current working directory

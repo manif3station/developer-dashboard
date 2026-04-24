@@ -1,5 +1,18 @@
 # Fixed Bugs
 
+## 3.12 - Direct file-alias open-file lookup
+
+- Fixed `dashboard of` / `dashboard open-file` so configured file aliases now
+  resolve as direct file targets instead of falling through to module or regex
+  search behavior first.
+- Fixed path-alias scoped file lookup so `dashboard of <path-alias>
+  <relative-file>` opens one exact relative file inside the aliased folder
+  before the command falls back to regex search semantics.
+- Added `Developer::Dashboard::File->resolve($name)` as an explicit public
+  lookup method and verified that dynamic numeric alias access such as
+  `my $name = 123; Developer::Dashboard::File->$name()` resolves the same
+  configured file alias.
+
 ## 3.11 - Current-directory path alias shorthand
 
 - Fixed `dashboard path add .` so it now saves the current working directory

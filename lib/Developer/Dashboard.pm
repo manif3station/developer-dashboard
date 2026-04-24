@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.11';
+our $VERSION = '3.12';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.11
+3.12
 
 =head1 INTRODUCTION
 
@@ -1314,10 +1314,27 @@ File aliases follow the same effective-config write rules as path aliases.
 C<dashboard file add E<lt>nameE<gt> E<lt>pathE<gt>> writes to the deepest
 participating config layer, keeps C<$HOME/...> storage portable when the
 target lives under the current home directory, updates existing aliases
-idempotently, and lets C<dashboard file resolve E<lt>nameE<gt>> or
-C<Developer::Dashboard::File-E<gt>$name()> read that alias back later.
-C<dashboard files> prints the full built-in plus configured file inventory,
-while C<dashboard file list> prints only the named configured file aliases.
+idempotently, and lets C<dashboard file resolve E<lt>nameE<gt>>,
+C<dashboard of E<lt>nameE<gt>>, or
+C<Developer::Dashboard::File-E<gt>resolve($name)> read that alias back later.
+When the alias name is a valid Perl method token,
+C<Developer::Dashboard::File-E<gt>$name()> also works directly. When the alias
+is numeric such as C<123>, use a scalar method name like
+C<my $name = 123; Developer::Dashboard::File-E<gt>$name()> because bare
+C<-E<gt>123> is not valid Perl syntax. C<dashboard files> prints the full
+built-in plus configured file inventory, while C<dashboard file list> prints
+only the named configured file aliases.
+
+C<dashboard of> and C<dashboard open-file> now treat configured file aliases
+as direct file targets before they fall back to Perl-module, Java-class, or
+regex search behavior. If the first token resolves as a saved path alias and
+the remaining tokens join into one existing relative file path inside that
+aliased directory, C<dashboard of E<lt>path-aliasE<gt> E<lt>relative-fileE<gt>>
+opens that exact file instead of treating the remaining tokens as regex
+patterns. That means flows such as
+C<dashboard file add 123 /tmp/123.txt> followed by C<dashboard of 123>, or
+C<dashboard path add foobar .> followed by C<dashboard of foobar 456.txt>, now
+resolve the exact configured or scoped file target directly.
 
 The hashed C<state_root>, C<collectors_root>, C<indicators_root>, and
 C<sessions_root> paths live under the shared temp state tree, not inside the
@@ -1354,7 +1371,9 @@ Resolve or open files from the CLI:
   dashboard of --print My::Module
   dashboard open-file --print com.example.App
   dashboard open-file --print javax.jws.WebService
+  dashboard of --print notes
   dashboard of --print . 'Ok\.js$'
+  dashboard of --print foobar 456.txt
   dashboard open-file --print path/to/file.txt
   dashboard open-file --print bookmarks api-dashboard
 

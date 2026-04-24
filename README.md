@@ -890,10 +890,25 @@ File aliases follow the same effective-config write rules as path aliases.
 `dashboard file add <name> <path>` writes to the deepest participating config
 layer, keeps `$HOME/...` storage portable when the target lives under the
 current home directory, updates existing aliases idempotently, and lets
-`dashboard file resolve <name>` or `Developer::Dashboard::File->$name()` read
-that alias back later. `dashboard files` prints the full built-in plus
+`dashboard file resolve <name>`, `dashboard of <name>`, or
+`Developer::Dashboard::File->resolve($name)` read that alias back later.
+When the alias name is a valid Perl method token,
+`Developer::Dashboard::File->$name()` also works directly. When the alias is
+numeric such as `123`, use a scalar method name like
+`my $name = 123; Developer::Dashboard::File->$name()` because bare `->123`
+is not valid Perl syntax. `dashboard files` prints the full built-in plus
 configured file inventory, while `dashboard file list` prints only the named
 configured file aliases.
+
+`dashboard of` and `dashboard open-file` now treat configured file aliases as
+direct file targets before they fall back to Perl-module, Java-class, or regex
+search behavior. If the first token resolves as a saved path alias and the
+remaining tokens join into one existing relative file path inside that aliased
+directory, `dashboard of <path-alias> <relative-file>` opens that exact file
+instead of treating the remaining tokens as regex patterns. That means flows
+such as `dashboard file add 123 /tmp/123.txt` followed by `dashboard of 123`,
+or `dashboard path add foobar .` followed by `dashboard of foobar 456.txt`,
+now resolve the exact configured or scoped file target directly.
 
 The hashed `state_root`, `collectors_root`, `indicators_root`, and
 `sessions_root` paths live under the shared temp state tree, not inside the
@@ -933,6 +948,8 @@ Resolve or open files from the CLI:
 ```bash
 dashboard of --print My::Module
 dashboard open-file --print com.example.App
+dashboard of --print notes
+dashboard of --print foobar 456.txt
 dashboard open-file --print path/to/file.txt
 dashboard open-file --print bookmarks api-dashboard
 ```

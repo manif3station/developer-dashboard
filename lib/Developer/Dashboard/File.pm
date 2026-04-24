@@ -3,7 +3,7 @@ package Developer::Dashboard::File;
 use strict;
 use warnings;
 
-our $VERSION = '3.11';
+our $VERSION = '3.12';
 
 use File::Spec;
 use Scalar::Util qw(blessed);
@@ -75,6 +75,15 @@ sub read {
 sub cat {
     my ( $class, $file ) = @_;
     return $class->read($file);
+}
+
+# resolve($file)
+# Resolves a file path or configured alias without reading the file content.
+# Input: file path or alias string.
+# Output: resolved file path string or undef.
+sub resolve {
+    my ( $class, $file ) = @_;
+    return $class->_resolve_file($file);
 }
 
 # write($file, $content, $append)
@@ -212,12 +221,22 @@ Developer::Dashboard::File - older file compatibility wrapper
 
   Developer::Dashboard::File->configure(aliases => { output => '/tmp/output.txt' });
   my $file = Developer::Dashboard::File->output;
+  my $notes = Developer::Dashboard::File->resolve('notes');
+  my $name = 123;
+  my $numeric = Developer::Dashboard::File->$name();
   Developer::Dashboard::File->write(output => "ok\n");
 
 =head1 DESCRIPTION
 
 This module exposes a project-neutral compatibility layer for older bookmark
 code that expects a C<File> package.
+
+=head1 METHODS
+
+=head2 resolve
+
+Returns the resolved file path for one configured alias or literal path
+without reading file content.
 
 =head1 METHODS
 
