@@ -79,6 +79,7 @@ my $runner     = Developer::Dashboard::CollectorRunner->new(
     paths      => $paths,
 );
 my $config     = Developer::Dashboard::Config->new( files => $files, paths => $paths );
+$files->register_named_files( $config->file_aliases );
 my $pages      = Developer::Dashboard::PageStore->new( paths => $paths );
 my $page_runtime = Developer::Dashboard::PageRuntime->new(
     files   => $files,

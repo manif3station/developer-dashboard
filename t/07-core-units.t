@@ -1231,6 +1231,36 @@ is_deeply(
     { foo => File::Spec->catdir( $home, 'foo-path' ) },
     'path_aliases includes expanded global aliases when no repo override exists',
 );
+is_deeply(
+    $global_alias_config->save_global_file_alias( 'bashrc_copy', File::Spec->catfile( $home, '.bashrc.copy' ) ),
+    { name => 'bashrc_copy', path => File::Spec->catfile( $home, '.bashrc.copy' ) },
+    'save_global_file_alias stores a file alias using the same portable home-path normalization as path aliases',
+);
+is_deeply(
+    $global_alias_config->load_global->{file_aliases},
+    { bashrc_copy => '$HOME/.bashrc.copy' },
+    'save_global_file_alias persists file aliases in the writable config',
+);
+is_deeply(
+    $global_alias_config->load_global->{path_aliases},
+    { foo => '$HOME/foo-path' },
+    'save_global_file_alias leaves existing path aliases untouched in the writable config',
+);
+is_deeply(
+    $global_alias_config->global_file_aliases,
+    { bashrc_copy => File::Spec->catfile( $home, '.bashrc.copy' ) },
+    'global_file_aliases expands stored $HOME file aliases back into concrete local paths',
+);
+is_deeply(
+    $global_alias_config->file_aliases,
+    { bashrc_copy => File::Spec->catfile( $home, '.bashrc.copy' ) },
+    'file_aliases includes expanded global file aliases when no repo override exists',
+);
+is(
+    $files->resolve_file('bashrc_copy'),
+    File::Spec->catfile( $home, '.bashrc.copy' ),
+    'file registry resolves configured file aliases through Config-backed aliases',
+);
 is( $global_alias_config->web_workers, 1, 'web_workers defaults to one worker when unset' );
 is_deeply(
     $global_alias_config->save_global_web_workers(3),
@@ -1297,6 +1327,16 @@ is_deeply(
     $global_alias_config->remove_global_path_alias('foo'),
     { name => 'foo', removed => 0 },
     'remove_global_path_alias is idempotent for missing aliases',
+);
+is_deeply(
+    $global_alias_config->remove_global_file_alias('bashrc_copy'),
+    { name => 'bashrc_copy', removed => 1 },
+    'remove_global_file_alias removes existing file aliases',
+);
+is_deeply(
+    $global_alias_config->remove_global_file_alias('bashrc_copy'),
+    { name => 'bashrc_copy', removed => 0 },
+    'remove_global_file_alias is idempotent for missing aliases',
 );
 $config->save_global;
 is_deeply( $config->load_global, {}, 'save_global defaults to an empty hash when no config is provided' );

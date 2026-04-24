@@ -871,6 +871,18 @@ my $foobar_resolved = _run("$perl -I'$lib' '$dashboard' path resolve foobar");
 is( $foobar_resolved, $custom_path_root . "\n", 'dashboard path resolve supports user-defined aliases' );
 my $path_list = _run("$perl -I'$lib' '$dashboard' path list");
 like( $path_list, qr/"foobar"\s*:\s*"\Q$custom_path_root\E"/, 'dashboard path list includes user-defined aliases' );
+my $custom_file_target = File::Spec->catfile( $ENV{HOME}, 'custom-notes.txt' );
+my $file_add = _run("$perl -I'$lib' '$dashboard' file add notes '$custom_file_target'");
+like( $file_add, qr/"name"\s*:\s*"notes"/, 'dashboard file add stores a custom file alias' );
+like( $file_add, qr/\Q$custom_file_target\E/, 'dashboard file add reports the stored target file' );
+open my $global_file_config_fh, '<', $global_config_file or die "Unable to read $global_config_file: $!";
+my $global_file_config = do { local $/; <$global_file_config_fh> };
+close $global_file_config_fh;
+like( $global_file_config, qr/"notes"\s*:\s*"\$HOME\/custom-notes\.txt"/, 'dashboard file add stores home-relative file aliases using $HOME in global config' );
+my $notes_resolved = _run("$perl -I'$lib' '$dashboard' file resolve notes");
+is( $notes_resolved, $custom_file_target . "\n", 'dashboard file resolve supports user-defined file aliases' );
+my $file_list = _run("$perl -I'$lib' '$dashboard' file list");
+like( $file_list, qr/"notes"\s*:\s*"\Q$custom_file_target\E"/, 'dashboard file list includes user-defined file aliases' );
 {
     my $layered_path_home = tempdir( CLEANUP => 1 );
     local $ENV{HOME} = $layered_path_home;
@@ -1181,6 +1193,11 @@ like( $path_del, qr/"name"\s*:\s*"foobar"/, 'dashboard path del reports the remo
 like( $path_del, qr/"removed"\s*:\s*1/, 'dashboard path del removes existing aliases' );
 my $path_del_again = _run("$perl -I'$lib' '$dashboard' path del foobar");
 like( $path_del_again, qr/"removed"\s*:\s*0/, 'dashboard path del is idempotent for missing aliases' );
+my $file_del = _run("$perl -I'$lib' '$dashboard' file del notes");
+like( $file_del, qr/"name"\s*:\s*"notes"/, 'dashboard file del reports the removed alias' );
+like( $file_del, qr/"removed"\s*:\s*1/, 'dashboard file del removes existing aliases' );
+my $file_del_again = _run("$perl -I'$lib' '$dashboard' file del notes");
+like( $file_del_again, qr/"removed"\s*:\s*0/, 'dashboard file del is idempotent for missing aliases' );
 
 my $docker_green_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'config', 'docker', 'green' );
 make_path($docker_green_root);

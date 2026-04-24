@@ -1,5 +1,19 @@
 # Fixed Bugs
 
+## 3.10 - File alias command family and public file wrapper
+
+- Fixed the gap where Developer Dashboard exposed a first-class path alias
+  surface but had no matching built-in file alias command family.
+- Added `dashboard file ...` and `dashboard files` so named files can be
+  saved, resolved, listed, and deleted with the same config-backed rules used
+  by path aliases.
+- Added a real `Developer::Dashboard::File` public wrapper parallel to
+  `Developer::Dashboard::Folder`, including config-backed alias lookup through
+  `Developer::Dashboard::FileRegistry`.
+- Fixed stale in-process file alias visibility by separating explicit
+  registrations from config-backed file aliases so later saves are visible to
+  the same runtime immediately.
+
 ## 3.09 - Skill install update-all progress and table summaries
 
 - Fixed the operator blind spot where bare `dashboard skills install` could

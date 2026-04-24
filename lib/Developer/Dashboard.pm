@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.09';
+our $VERSION = '3.10';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.09
+3.10
 
 =head1 INTRODUCTION
 
@@ -53,7 +53,8 @@ F<~/.developer-dashboard/cli/doctor.d> so users can layer in more
 site-specific checks later.
 
 Frequently used built-in commands such as C<jq>, C<yq>, C<tomq>, C<propq>,
-C<iniq>, C<csvq>, C<xmlq>, C<of>, C<open-file>, and C<ticket> are staged
+C<iniq>, C<csvq>, C<xmlq>, C<of>, C<open-file>, C<file>, C<files>, and
+C<ticket> are staged
 privately under F<~/.developer-dashboard/cli/dd/> and dispatched by
 C<dashboard> without polluting the global PATH. That keeps dashboard-owned
 built-ins separate from user commands and hooks under
@@ -561,6 +562,12 @@ references, Perl module names, Java class names, and recursive file-pattern
 matches under a resolved scope so the dashboard can shorten navigation work
 across different stacks.
 
+=item * File Alias Commands
+
+C<dashboard file> and C<dashboard files> persist and inspect config-backed
+named file aliases, paralleling the existing path alias flow while targeting
+files instead of directories.
+
 =item * Data Query Commands
 
 C<dashboard jq>, C<dashboard yq>, C<dashboard tomq>, and C<dashboard propq>
@@ -572,16 +579,17 @@ data-inspection toolkit that fits naturally into shell workflows.
 
 Private F<~/.developer-dashboard/cli/dd/> helper files provide the built-in
 command behaviour without installing generic command names into the global
-PATH. Query, open-file, ticket, path, and prompt commands keep dedicated
-helper bodies, while the remaining built-ins stage thin wrappers that hand off
-to a shared private C<_dashboard-core> runtime.
+PATH. Query, open-file, ticket, path, file, and prompt commands keep
+dedicated helper bodies, while the remaining built-ins stage thin wrappers
+that hand off to a shared private C<_dashboard-core> runtime.
 
 Only C<dashboard> is intended to be the public CPAN-facing command-line
 entrypoint. The real built-in command bodies live outside F<bin/dashboard>
 under F<share/private-cli/>, then stage into F<~/.developer-dashboard/cli/dd/>
 on demand. Generic helper names such as C<ticket>, C<of>, C<open-file>,
-C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, C<xmlq>, C<path>, and
-C<paths> are intentionally kept out of the installed global PATH to avoid
+C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, C<xmlq>, C<path>,
+C<paths>, C<file>, and C<files> are intentionally kept out of the installed
+global PATH to avoid
 polluting the wider Perl and shell ecosystem while still keeping
 dashboard-owned commands separate from user commands under
 F<~/.developer-dashboard/cli/>. While those staged helpers run, their process
@@ -1219,6 +1227,10 @@ Inspect resolved paths:
   dashboard path resolve bookmarks_root
   dashboard path add foobar /tmp/foobar
   dashboard path del foobar
+  dashboard files
+  dashboard file add notes ~/notes.txt
+  dashboard file resolve notes
+  dashboard file del notes
   dashboard which jq
   dashboard which layered-tool
   dashboard which nest.level1.level2.here
@@ -1266,8 +1278,17 @@ Examples:
 
 Use C<Developer::Dashboard::Folder> for runtime path helpers. It resolves the
 same runtime, bookmark, config, and configured alias names exposed by
-C<dashboard paths>, including names such as C<docker>, without relying on
+C<dashboard paths>, and therefore backs the same folder-oriented flow that
+C<cdr> and C<which_dir> use, including names such as C<docker>, without relying on
 unscoped CPAN-global module names.
+
+Use C<Developer::Dashboard::File> for runtime file helpers. It resolves the
+same built-in and config-backed file aliases exposed by C<dashboard files> and
+C<dashboard file list>, supports direct reads and writes through one public
+wrapper, and keeps file alias behavior parallel with the folder/path contract.
+It is the file-side twin of the existing Folder contract in the same way that
+C<dashboard of> and C<dashboard open-file> are the file-side twins of
+C<cdr> and C<which_dir>.
 
 If you need the whole C<dashboard paths> payload in Perl, call
 C<Developer::Dashboard::Folder-E<gt>all> or
@@ -1276,6 +1297,19 @@ hash by hand. If you need a fresh path registry object from that public Folder
 inventory, call C<Developer::Dashboard::PathRegistry-E<gt>new_from_all_folders>.
 If you need a collector store from the same Folder-derived runtime roots, call
 C<Developer::Dashboard::Collector-E<gt>new_from_all_folders>.
+If you need the whole C<dashboard files> payload in Perl, call
+C<Developer::Dashboard::File-E<gt>all> or
+C<Developer::Dashboard::FileRegistry-E<gt>all_files> instead of rebuilding the
+hash by hand.
+
+File aliases follow the same effective-config write rules as path aliases.
+C<dashboard file add E<lt>nameE<gt> E<lt>pathE<gt>> writes to the deepest
+participating config layer, keeps C<$HOME/...> storage portable when the
+target lives under the current home directory, updates existing aliases
+idempotently, and lets C<dashboard file resolve E<lt>nameE<gt>> or
+C<Developer::Dashboard::File-E<gt>$name()> read that alias back later.
+C<dashboard files> prints the full built-in plus configured file inventory,
+while C<dashboard file list> prints only the named configured file aliases.
 
 The hashed C<state_root>, C<collectors_root>, C<indicators_root>, and
 C<sessions_root> paths live under the shared temp state tree, not inside the
@@ -2134,7 +2168,8 @@ The public C<dashboard> entrypoint also stays thin for all built-in commands.
 It only stages and execs helper assets from F<share/private-cli/>: dedicated
 helper bodies for C<dashboard jq>, C<dashboard yq>, C<dashboard of>,
 C<dashboard open-file>, C<dashboard ticket>, C<dashboard path>,
-C<dashboard paths>, and C<dashboard ps1>, plus thin wrappers for the
+C<dashboard paths>, C<dashboard file>, C<dashboard files>, and
+C<dashboard ps1>, plus thin wrappers for the
 remaining built-ins that hand off to the shared private
 C<_dashboard-core> runtime. The shipped starter bookmark source lives under
 F<share/seeded-pages/>, and the shipped helper scripts live under

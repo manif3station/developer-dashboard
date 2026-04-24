@@ -13,6 +13,7 @@ use Test::More;
 use lib 'lib';
 
 use Developer::Dashboard::CLI::SeededPages ();
+use Developer::Dashboard::CLI::Files ();
 use Developer::Dashboard::CLI::Query ();
 use Developer::Dashboard::CLI::Ticket ();
 use Developer::Dashboard::CLI::Paths ();
@@ -621,6 +622,13 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
             'helper_content renders the shipped complete helper body',
         );
     }
+    elsif ( $helper eq 'file' || $helper eq 'files' ) {
+        like(
+            $content,
+            qr/\Qrun_files_command( command => '$helper', args => \@ARGV );\E/,
+            "helper_content renders the shipped $helper file helper body",
+        );
+    }
     else {
         like(
             $content,
@@ -1056,6 +1064,67 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
         _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => ['bogus'] ) } ),
         qr/Usage: dashboard path <resolve\|locate\|cdr\|complete-cdr\|add\|del\|project-root\|list> \.\.\./,
         'CLI::Paths rejects unsupported path subcommands with a usage error',
+    );
+
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
+}
+{
+    my $cwd = getcwd();
+    my $home = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = $home;
+    my $project_dir = File::Spec->catdir( $home, 'project' );
+    make_path(
+        File::Spec->catdir( $home, '.developer-dashboard', 'config' ),
+        File::Spec->catdir( $project_dir, '.git' ),
+    );
+    chdir $project_dir or die "Unable to chdir to $project_dir: $!";
+
+    my ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Files::run_files_command(
+            command => 'file',
+            args    => [ 'add', 'notes', File::Spec->catfile( $home, 'notes.txt' ) ],
+        );
+    };
+    is( $stderr, '', 'CLI::Files add writes no stderr on success' );
+    my $added_file = json_decode($stdout);
+    is( $added_file->{name}, 'notes', 'CLI::Files add returns the saved alias name' );
+    is( $added_file->{path}, File::Spec->catfile( $home, 'notes.txt' ), 'CLI::Files add returns the resolved alias target file' );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Files::run_files_command(
+            command => 'file',
+            args    => [ 'resolve', 'notes' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Files resolve writes no stderr on success' );
+    chomp $stdout;
+    is_same_path( $stdout, File::Spec->catfile( $home, 'notes.txt' ), 'CLI::Files resolve prints the saved file alias target' );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Files::run_files_command(
+            command => 'file',
+            args    => ['list'],
+        );
+    };
+    is( $stderr, '', 'CLI::Files list writes no stderr on success' );
+    my $listed_files = json_decode($stdout);
+    is( $listed_files->{notes}, File::Spec->catfile( $home, 'notes.txt' ), 'CLI::Files list includes saved file aliases' );
+
+    ( $stdout, $stderr ) = capture {
+        Developer::Dashboard::CLI::Files::run_files_command(
+            command => 'file',
+            args    => [ 'del', 'notes' ],
+        );
+    };
+    is( $stderr, '', 'CLI::Files del writes no stderr on success' );
+    my $deleted_file = json_decode($stdout);
+    is( $deleted_file->{name}, 'notes', 'CLI::Files del returns the deleted alias name' );
+    is( $deleted_file->{removed}, 1, 'CLI::Files del reports successful removal' );
+
+    like(
+        _dies( sub { Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => ['bogus'] ) } ),
+        qr/Usage: dashboard file <resolve\|locate\|add\|del\|list> \.\.\./,
+        'CLI::Files rejects unsupported file subcommands with a usage error',
     );
 
     chdir $cwd or die "Unable to chdir back to $cwd: $!";

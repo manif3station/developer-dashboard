@@ -1,3 +1,15 @@
+3.10  2026-04-24
+
+    - added `dashboard file ...` and `dashboard files` as file-oriented twins
+      of the existing path alias commands
+    - added config-backed named file alias persistence, resolution, listing,
+      and Perl API coverage through `Developer::Dashboard::File` and
+      `Developer::Dashboard::FileRegistry`
+    - staged private `file` and `files` helpers under
+      `~/.developer-dashboard/cli/dd/` so the public entrypoint stays thin
+    - added smoke, unit, loader, and refactor coverage for file alias CLI
+      flows, config storage, helper staging, and public module behavior
+
 3.09  2026-04-23
 
     - changed `dashboard skills install` to default to table output and require
