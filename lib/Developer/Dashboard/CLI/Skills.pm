@@ -223,9 +223,17 @@ sub _skills_install_summary_table {
             $_->{status} || '-',
         ]
     } _install_result_rows($result);
+    my $error = ref($result) eq 'HASH' ? $result->{error} : undef;
     my $changed = grep { ( $_->[4] || '' ) eq 'installed' || ( $_->[4] || '' ) eq 'updated' } @rows;
-    my $text = $changed ? '' : "No update.\n";
-    $text .= _render_table( [ 'Skill', 'Source', 'Before', 'After', 'Status' ], \@rows );
+    my $text = '';
+    if ( defined $error && $error ne '' ) {
+        $text .= "Error: $error";
+        $text .= "\n" if $text !~ /\n\z/;
+    }
+    elsif ( !@rows || !$changed ) {
+        $text .= "No update.\n";
+    }
+    $text .= _render_table( [ 'Skill', 'Source', 'Before', 'After', 'Status' ], \@rows ) if @rows;
     return $text;
 }
 

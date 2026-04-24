@@ -1449,6 +1449,63 @@ like(
     qr/demo-skill-two-repo\s+file:\/\/\Q$second_skill_repo\E\s+1\.01\s+1\.01\s+no update/,
     'bare dashboard skills install table reports unchanged before and after .env versions',
 );
+my $fake_apt = File::Spec->catfile( $fake_bin, 'apt-get' );
+open my $fake_apt_fh, '>', $fake_apt or die "Unable to write $fake_apt: $!";
+print {$fake_apt_fh} <<"SH";
+#!/bin/sh
+printf 'apt exploded for %s\\n' "\$*" >&2
+exit 1
+SH
+close $fake_apt_fh;
+chmod 0755, $fake_apt or die "Unable to chmod $fake_apt: $!";
+my $fake_dpkg_query = File::Spec->catfile( $fake_bin, 'dpkg-query' );
+open my $fake_dpkg_query_fh, '>', $fake_dpkg_query or die "Unable to write $fake_dpkg_query: $!";
+print {$fake_dpkg_query_fh} <<"SH";
+#!/bin/sh
+exit 1
+SH
+close $fake_dpkg_query_fh;
+chmod 0755, $fake_dpkg_query or die "Unable to chmod $fake_dpkg_query: $!";
+my $failing_skill_repo = File::Spec->catdir( $skill_repo_root, 'failing-apt-skill' );
+make_path( File::Spec->catdir( $failing_skill_repo, 'config' ) );
+open my $failing_skill_env_fh, '>', File::Spec->catfile( $failing_skill_repo, '.env' ) or die "Unable to write failing skill .env: $!";
+print {$failing_skill_env_fh} "VERSION=1.00\n";
+close $failing_skill_env_fh;
+open my $failing_skill_config_fh, '>', File::Spec->catfile( $failing_skill_repo, 'config', 'config.json' )
+  or die "Unable to write failing skill config: $!";
+print {$failing_skill_config_fh} "{}\n";
+close $failing_skill_config_fh;
+open my $failing_skill_apt_fh, '>', File::Spec->catfile( $failing_skill_repo, 'aptfile' )
+  or die "Unable to write failing skill aptfile: $!";
+print {$failing_skill_apt_fh} "dd-smoke-fail-package\n";
+close $failing_skill_apt_fh;
+{
+    my $cwd_before_failing_skill_repo = getcwd();
+    chdir $failing_skill_repo or die "Unable to chdir to $failing_skill_repo: $!";
+    my ( $stdout, $stderr, $exit ) = capture {
+        system 'git', 'init', '--quiet';
+        return $? >> 8 if $? != 0;
+        system 'git', 'config', 'user.email', 'test@example.com';
+        return $? >> 8 if $? != 0;
+        system 'git', 'config', 'user.name', 'Test';
+        return $? >> 8 if $? != 0;
+        system 'git', 'add', '.';
+        return $? >> 8 if $? != 0;
+        system 'git', 'commit', '-m', 'Initial failing apt skill';
+        return $? >> 8;
+    };
+    is( $exit, 0, 'failing apt skill fixture repository initializes cleanly for install error reporting coverage' )
+      or diag $stdout . $stderr;
+    chdir $cwd_before_failing_skill_repo or die "Unable to chdir back to $cwd_before_failing_skill_repo: $!";
+}
+my ( $failed_skill_stdout, $failed_skill_stderr, $failed_skill_exit ) = capture {
+    local $ENV{DEVELOPER_DASHBOARD_PROGRESS} = 1;
+    system 'sh', '-c', "PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' skills install 'file://$failing_skill_repo'";
+};
+is( $failed_skill_exit >> 8, 1, 'dashboard skills install exits non-zero when aptfile installation fails' );
+like( $failed_skill_stderr, qr/\[X\] Install aptfile dependencies from .*failing-apt-skill.*aptfile \(error: Failed to install skill apt dependencies .*?\)/, 'dashboard skills install progress prints the failure reason directly on the failed aptfile row' );
+like( $failed_skill_stdout, qr/^Error: Failed to install skill apt dependencies /m, 'dashboard skills install table mode prints the install error instead of a no-update summary when installation fails' );
+unlike( $failed_skill_stdout, qr/No update\./, 'dashboard skills install does not claim no update when installation failed' );
 
 my $manifest_global_skill_repo = File::Spec->catdir( $ENV{HOME}, 'manifest-global-skill-fixture' );
 make_path($manifest_global_skill_repo);

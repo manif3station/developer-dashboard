@@ -1736,6 +1736,17 @@ is_deeply(
         'Install package.json dependencies (skipped: package.json not present)',
         '_dependency_progress_label makes skipped package.json work explicit in the progress board',
     );
+    is(
+        $manager->_dependency_progress_label(
+            'install_package_json',
+            $label_skill,
+            result => {
+                error => "Failed to install skill Node dependencies for $label_skill: npm blew up\nwith details",
+            },
+        ),
+        "Install package.json dependencies from $label_package_json (error: Failed to install skill Node dependencies for $label_skill: npm blew up with details)",
+        '_dependency_progress_label carries one compact failure reason into the visible progress board',
+    );
 }
 is( $manager->get_skill_path('missing'), undef, 'get_skill_path returns undef for missing skills' );
 is( $manager->_normalize_install_source('browser'), 'https://github.com/manif3station/browser', '_normalize_install_source expands bare skill names against the official GitHub base' );
