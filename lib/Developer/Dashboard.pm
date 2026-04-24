@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.12';
+our $VERSION = '3.13';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.12
+3.13
 
 =head1 INTRODUCTION
 
@@ -1360,6 +1360,10 @@ Render shell bootstrap for bash, zsh, POSIX sh, or PowerShell:
   dashboard shell zsh
   dashboard shell sh
   dashboard shell ps
+
+The generated zsh bootstrap now loads C<compinit> before any C<compdef>
+registration, so a fresh macOS zsh shell can evaluate it without raising
+C<command not found: compdef>.
 
 Audit runtime permissions:
 

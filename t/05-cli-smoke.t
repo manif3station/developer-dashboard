@@ -1166,6 +1166,9 @@ like( $zsh_bootstrap, qr/add-zsh-hook precmd _dd_update_prompt/, 'dashboard shel
 like( $zsh_bootstrap, qr/ps1 --jobs \$\{#jobstates\} --mode compact/, 'dashboard shell zsh bootstrap uses zsh job counts for prompt rendering' );
 like( $zsh_bootstrap, qr/path cdr/, 'dashboard shell zsh bootstrap keeps the cdr path helper functions' );
 like( $zsh_bootstrap, qr/\bd2\(\)\s*\{/, 'dashboard shell zsh bootstrap exposes the d2 shortcut helper' );
+like( $zsh_bootstrap, qr/autoload -Uz compinit/, 'dashboard shell zsh bootstrap loads compinit for fresh shells before completion setup' );
+like( $zsh_bootstrap, qr{whence compdef >/dev/null 2>&1}, 'dashboard shell zsh bootstrap checks whether compdef is already available' );
+like( $zsh_bootstrap, qr/\bcompinit\b/, 'dashboard shell zsh bootstrap initializes zsh completion when compdef is missing' );
 like( $zsh_bootstrap, qr/compdef _dashboard_complete_zsh dashboard d2/, 'dashboard shell zsh bootstrap wires tab completion for dashboard and d2' );
 like( $zsh_bootstrap, qr/compdef _dashboard_complete_cdr_zsh cdr dd_cdr which_dir/, 'dashboard shell zsh bootstrap wires cdr-family tab completion' );
 like( $zsh_bootstrap, qr/d2\(\)\s*\{\s*'\Q$dashboard\E'\s+"\$@"/s, 'dashboard shell zsh bootstrap dispatches d2 through the dashboard entrypoint directly' );

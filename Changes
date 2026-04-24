@@ -1,3 +1,11 @@
+3.13  2026-04-24
+
+    - fixed the generated `dashboard shell zsh` bootstrap so it initializes
+      `compinit` before any `compdef` registrations in fresh zsh shells
+    - tightened gate hygiene by removing stale extracted
+      `Developer-Dashboard-*` build trees instead of leaving them behind as
+      false-clean artifacts
+
 3.12  2026-04-24
 
     - changed `dashboard of` and `dashboard open-file` to resolve configured

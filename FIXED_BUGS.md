@@ -1,5 +1,14 @@
 # Fixed Bugs
 
+## 3.13 - Fresh zsh bootstrap completion and gate hygiene
+
+- Fixed the generated `dashboard shell zsh` bootstrap so it now loads
+  `compinit` before any `compdef` registration, preventing `command not found:
+  compdef` in fresh macOS zsh shells after `install.sh`.
+- Fixed the local gate hygiene flow so stale extracted `Developer-Dashboard-*`
+  build directories are removed during reruns instead of being left behind as
+  false-clean artifacts.
+
 ## 3.12 - Direct file-alias open-file lookup
 
 - Fixed `dashboard of` / `dashboard open-file` so configured file aliases now

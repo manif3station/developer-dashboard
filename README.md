@@ -936,6 +936,10 @@ dashboard shell sh
 dashboard shell ps
 ```
 
+The generated zsh bootstrap now loads `compinit` before any `compdef`
+registration, so a fresh macOS zsh shell can evaluate it without raising
+`command not found: compdef`.
+
 Audit runtime permissions:
 
 ```bash

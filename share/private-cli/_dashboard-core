@@ -1300,6 +1300,12 @@ which_dir() {
   fi
 }
 
+# Ensure compdef exists in fresh zsh shells before registering completions.
+autoload -Uz compinit
+if ! whence compdef >/dev/null 2>&1; then
+  compinit
+fi
+
 _dashboard_complete_zsh() {
   local -a completions
   completions=("${(@f)$(__DASHBOARD_CMD__ complete "$((CURRENT-1))" "${words[@]}")}")
