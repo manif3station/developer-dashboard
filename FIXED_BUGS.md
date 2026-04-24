@@ -1,5 +1,13 @@
 # Fixed Bugs
 
+## 3.14 - Preferred-shell install bootstrap targeting
+
+- Fixed `install.sh` so it now targets the preferred login shell rc file even
+  when the installer itself runs through plain `sh`, preventing zsh users from
+  inheriting the fallback `dashboard shell sh` bootstrap in `~/.profile`.
+- Added bootstrap regression coverage for the `sh` runner plus zsh user flow so
+  `curl ... | sh` installs keep writing the zsh bootstrap to `~/.zshrc`.
+
 ## 3.13 - Fresh zsh bootstrap completion and gate hygiene
 
 - Fixed the generated `dashboard shell zsh` bootstrap so it now loads

@@ -626,7 +626,8 @@ operating-system account password only for package-manager work,
 bootstraps user-space Perl tooling under `~/perl5` with
 `cpanm --no-wget --notest --local-lib-contained "$HOME/perl5" local::lib App::cpanminus`,
 appends exactly one `local::lib` bootstrap line to `~/.bashrc`, `~/.zshrc`, or
-`~/.profile` depending on the active shell, keeps bash login shells wired by
+`~/.profile` depending on the preferred login shell even when the installer is
+run through `sh`, keeps bash login shells wired by
 bridging `~/.profile` to `~/.bashrc`, prefers Homebrew Perl on macOS when
 `brew --prefix perl` exposes a brewed interpreter, bootstraps a user-space
 `perlbrew` Perl on Debian-family, Alpine, or Fedora hosts when the system Perl

@@ -1,3 +1,12 @@
+3.14  2026-04-24
+
+    - changed `install.sh` to choose `~/.bashrc`, `~/.zshrc`, or `~/.profile`
+      from the preferred login shell even when the installer itself is run
+      through plain `sh`
+    - added a regression gate so `curl ... | sh` style installs no longer leak
+      the fallback `dashboard shell sh` bootstrap into `~/.profile` for zsh
+      users
+
 3.13  2026-04-24
 
     - fixed the generated `dashboard shell zsh` bootstrap so it initializes

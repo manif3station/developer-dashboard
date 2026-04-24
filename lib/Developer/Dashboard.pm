@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.13';
+our $VERSION = '3.14';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.13
+3.14
 
 =head1 INTRODUCTION
 
@@ -1078,8 +1078,9 @@ bootstraps user-space Perl
 tooling under F<~/perl5> with
 C<cpanm --no-wget --notest --local-lib-contained "$HOME/perl5" local::lib App::cpanminus>,
 appends exactly one C<local::lib> bootstrap line to F<~/.bashrc>,
-F<~/.zshrc>, or F<~/.profile> depending on the active shell, keeps bash
-login shells wired by bridging F<~/.profile> to F<~/.bashrc>, prefers
+F<~/.zshrc>, or F<~/.profile> depending on the preferred login shell even
+when the installer is run through plain C<sh>, keeps bash login shells wired
+by bridging F<~/.profile> to F<~/.bashrc>, prefers
 Homebrew Perl on macOS when C<brew --prefix perl> exposes a brewed
 interpreter, bootstraps a user-space C<perlbrew> Perl on Debian-family,
 Alpine, or Fedora hosts when the system Perl is older than the required
