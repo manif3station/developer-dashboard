@@ -1,3 +1,16 @@
+3.15  2026-04-28
+
+    - added top-level `dashboard restart`, `dashboard stop`, `dashboard log`,
+      and `dashboard logs` scoped runtime control so operators can target the
+      web service, every collector, or one named collector and get a default
+      terminal summary table or `-o json`
+    - added tmux session completion for `dashboard ticket` plus collector-name
+      completion for the scoped runtime control commands
+    - added optional skill `Makefile` dependency handling after Perl
+      dependency manifests and before `ddfile`, including `make`, optional
+      `make test` or `make tests`, `make install`, optional `make clean`, and
+      `dashboard skills install --notest`
+
 3.14  2026-04-24
 
     - changed `install.sh` to choose `~/.bashrc`, `~/.zshrc`, or `~/.profile`

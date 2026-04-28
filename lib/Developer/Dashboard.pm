@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.14';
+our $VERSION = '3.15';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.14
+3.15
 
 =head1 INTRODUCTION
 
@@ -598,8 +598,9 @@ output shows the user-facing command instead of the staged helper path.
 
 C<dashboard ticket> creates or reuses a tmux session for the requested ticket
 reference, seeds C<TICKET_REF> plus dashboard-friendly branch aliases into that
-session environment, and attaches to it through a dashboard-managed private
-helper instead of a public standalone binary.
+session environment, attaches to it through a dashboard-managed private helper
+instead of a public standalone binary, and completes already-open tmux session
+names when shell completion is enabled.
 
 =item * Runtime Manager
 
@@ -1921,20 +1922,75 @@ override the worker count for one run
 =item *
 
 C<dashboard stop> stops both the web service and managed collector loops and,
-on an interactive terminal, prints the full stop task board on C<stderr>
-before work starts so each shutdown step becomes visible instead of silent
-waiting
+prints the final lifecycle summary as a terminal table by default or JSON with
+C<-o json>; on an interactive terminal it also prints the full stop task board
+on C<stderr> before work starts so each shutdown step becomes visible instead
+of silent waiting
+
+=item *
+
+C<dashboard stop web> only stops the managed web service
+
+=item *
+
+C<dashboard stop collector> only stops managed collector loops
+
+=item *
+
+C<dashboard stop collector E<lt>nameE<gt>> only stops the requested managed
+collector loop, and collector-name shell completion suggests registered
+collector names
 
 =item *
 
 C<dashboard restart> stops both, starts configured collector loops again, then
-starts the web service, and only reports success after the replacement
-collector loops and web runtime become visible and survive a short post-ready
-confirmation window, with the web side still holding a live managed pid and
-an accepting listener on the requested port; on an interactive terminal it
-also prints the full restart task board on C<stderr>, marks the active step
-with a yellow C<->, marks completed steps with a green C<[OK]>, marks failed
-steps with a red C<[X]>, and leaves the final JSON result on C<stdout>
+starts the web service, prints the final lifecycle summary as a terminal table
+by default or JSON with C<-o json>, and only reports success after the
+replacement collector loops and web runtime become visible and survive a short
+post-ready confirmation window, with the web side still holding a live managed
+pid and an accepting listener on the requested port
+
+=item *
+
+C<dashboard restart web> only restarts the managed web service
+
+=item *
+
+C<dashboard restart collector> only restarts managed collector loops
+
+=item *
+
+C<dashboard restart collector E<lt>nameE<gt>> only restarts the requested
+collector loop, including an on-demand manual collector by converting it into
+a managed interval loop, and collector-name shell completion suggests
+registered collector names
+
+=item *
+
+C<dashboard log> and C<dashboard logs> print the combined dashboard web log
+plus collector logs
+
+=item *
+
+C<dashboard log web> prints only the dashboard web log and still supports
+C<-n> and C<-f>
+
+=item *
+
+C<dashboard log collector> prints only collector logs
+
+=item *
+
+C<dashboard log collector E<lt>nameE<gt>> prints only the requested collector
+log, and collector-name shell completion suggests registered collector names
+
+=item *
+
+interactive restart and stop task boards mark the active step with a yellow
+C<->, mark completed steps with a green C<[OK]>, mark failed steps with a red
+C<[X]>, keep the final table or JSON summary on C<stdout>, and use numeric
+POSIX shutdown signals so minimal Alpine/iSH Perl builds that reject C<TERM>
+by name still terminate managed web and collector processes correctly
 
 =item *
 
@@ -2345,6 +2401,7 @@ repository:
   dashboard skills install git@github.com:user/example-skill.git
   dashboard skills install https://github.com/user/example-skill.git
   dashboard skills install /absolute/path/to/example-skill
+  dashboard skills install --notest browser
   dashboard skills install browser foo/bar git@github.com:user/example-skill.git
   dashboard skills install --ddfile
   dashboard skill list
@@ -2358,8 +2415,8 @@ C<dashboard skills install foo/bar> clones C<https://github.com/foo/bar>.
 Full URLs such as C<https://github.com/user/example-skill.git> and
 C<git@github.com:user/example-skill.git> are used exactly as supplied.
 Multiple explicit sources can be supplied to one install command. Developer
-Dashboard installs them in the order given, returns a batch JSON payload with
-prints a progress rundown before work starts, and registers every source once.
+Dashboard installs them in the order given, prints a progress rundown before
+work starts, and registers every source once.
 The default install summary is a terminal table with each skill's F<.env>
 C<VERSION> before and after the install. Use C<-o json> when a script needs the
 raw result payload. C<dashboard skill> is
@@ -2398,7 +2455,7 @@ an explicit error telling the user to install a skill first or pass a skill
 source.
 Developer Dashboard does not merge the skill's C<cli/>, C<dashboards/>,
 C<config/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>, C<dnfile>, C<brewfile>,
-C<package.json>, C<cpanfile>, C<cpanfile.local>, or Docker files into the
+C<Makefile>, C<package.json>, C<cpanfile>, C<cpanfile.local>, or Docker files into the
 normal runtime folders.
 
 C<dashboard skills install --ddfile> reads dependency manifests from the
@@ -2415,9 +2472,9 @@ C<dashboard skills install E<lt>sourceE<gt>> runs.
 Interactive C<dashboard skills install> runs also print a task board on
 C<stderr>; multi-source and bare update-all installs show one task for every
 source before any clone or dependency step starts. When a single skill ships
-dependency manifests such as F<package.json>, the matching task updates to
-show the detected file path so a long-running C<npm>, C<cpanm>, or
-package-manager step stays visible instead of looking blind.
+dependency manifests such as F<package.json> or F<Makefile>, the matching task
+updates to show the detected file path so a long-running C<npm>, C<make>,
+C<cpanm>, or package-manager step stays visible instead of looking blind.
 
 Installed dotted skill commands such as C<dashboard demo-skill.foo> now hand
 control to the real skill command after hook processing instead of wrapping
@@ -2472,7 +2529,8 @@ CLI command, page, docker service, collector, and indicator counts
 =item *
 
 JSON booleans for C<has_config>, C<has_ddfile>, C<has_aptfile>,
-C<has_apkfile>, C<has_dnfile>, C<has_brewfile>, C<has_cpanfile>, and C<has_cpanfile_local>
+C<has_apkfile>, C<has_dnfile>, C<has_brewfile>, C<has_cpanfile>,
+C<has_cpanfile_local>, and C<has_makefile>
 
 =back
 
@@ -2645,6 +2703,13 @@ keeps only the missing packages in the install request
 =item B<brewfile>
 
 Optional macOS Homebrew packages installed through C<brew install>
+
+=item B<Makefile>
+
+Optional skill install workflow run before C<ddfile>, using C<make>,
+C<make test> when a C<test> or C<tests> target exists unless
+C<dashboard skills install --notest> is used, C<make install>, and
+C<make clean> when a C<clean> target exists
 
 =item B<dnfile>
 
@@ -2832,6 +2897,14 @@ installed through C<brew install>
 
 =item *
 
+if a C<Makefile> exists, Dashboard runs it after the Perl dependency
+manifests and before any deferred C<ddfile> processing, using C<make>,
+C<make test> when a C<test> or C<tests> target exists unless
+C<dashboard skills install --notest> was requested, C<make install>, and
+C<make clean> when a C<clean> target exists
+
+=item *
+
 if a C<package.json> exists, its Node dependencies are installed into
 C<$HOME/node_modules> by running C<npx --yes npm install E<lt>dependency-spec...E<gt>>
 inside a private dashboard staging workspace and then merging the resulting
@@ -2865,7 +2938,7 @@ To build a new skill, start with a Git repository that contains C<cli/>,
 C<config/config.json>, and optional C<dashboards/>, C<dashboards/nav/>,
 C<state/>, C<logs/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>,
 C<dnfile>,
-C<brewfile>, C<package.json>, C<cpanfile>, and C<cpanfile.local> files under the skill
+C<brewfile>, C<Makefile>, C<package.json>, C<cpanfile>, and C<cpanfile.local> files under the skill
 root. Skill commands are file-based
 commands run through the dotted
 C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> form. Skill hook files live
@@ -2885,12 +2958,12 @@ layout, environment variables such as C<DEVELOPER_DASHBOARD_SKILL_ROOT>,
 bookmark syntax like C<TITLE:>, C<BOOKMARK:>, C<HTML:>, and C<CODE1:>,
 bookmark browser helpers such as C<fetch_value()>, C<stream_value()>, and
 C<stream_data()>, underscored config merge keys such as C<_example-skill>,
-C<aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local>
+C<aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> Makefile -> ddfile -> ddfile.local>
 automatic dependency install order, the explicit
 C<dashboard skills install --ddfile> operator order of
 the deferred C<ddfile -> ddfile.local> pass, the shared C<~/perl5> versus skill-local
 C<perl5/> split, the C<$HOME/node_modules> Node install target used by
-C<package.json>,
+C<package.json>, the optional C<Makefile> command chain and C<--notest> skip,
 the same-install-level dependency target used by skill-local F<ddfile.local>,
 skill docker layering, and when to use dashboard-wide custom CLI hook folders such as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d> instead of a skill-local

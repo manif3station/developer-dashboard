@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Ticket;
 use strict;
 use warnings;
 
-our $VERSION = '3.14';
+our $VERSION = '3.15';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -11,6 +11,7 @@ use Exporter 'import';
 
 our @EXPORT_OK = qw(
   build_ticket_plan
+  list_sessions
   resolve_ticket_request
   run_ticket_command
   session_exists
@@ -86,6 +87,26 @@ sub session_exists {
       $session,
       ( $result->{stderr} || '' ),
       ( $result->{stdout} || '' );
+}
+
+# list_sessions(%args)
+# Lists the current tmux session names for ticket completion and inspection.
+# Input: optional tmux runner coderef.
+# Output: ordered list of session name strings, or an empty list when tmux reports none.
+sub list_sessions {
+    my (%args) = @_;
+    my $tmux = $args{tmux} || \&tmux_command;
+    my $result = $tmux->(
+        args => [ 'list-sessions', '-F', '#S' ],
+    );
+
+    return () if $result->{exit_code} == 1;
+    die sprintf "Unable to list tmux ticket sessions: %s%s",
+      ( $result->{stderr} || '' ),
+      ( $result->{stdout} || '' )
+      if $result->{exit_code} != 0;
+
+    return grep { defined && $_ ne '' } split /\r?\n/, ( $result->{stdout} || '' );
 }
 
 # build_ticket_plan(%args)
@@ -228,6 +249,7 @@ create/attach error handling.
   dashboard ticket
   TICKET_REF=DD-123 dashboard ticket
   dashboard ticket feature-branch-42
+  perl -Ilib -MDeveloper::Dashboard::CLI::Ticket=list_sessions -e 'print join qq(\n), list_sessions()'
 
 =for comment FULL-POD-DOC END
 

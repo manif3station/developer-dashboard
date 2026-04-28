@@ -271,6 +271,7 @@ is_deeply(
         ptomq => 'tomq',
         pjp   => 'propq',
         skill => 'skills',
+        logs  => 'log',
     },
     'internal CLI exposes the expected helper aliases',
 );
@@ -566,7 +567,7 @@ like(
 );
 for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
     my $content = Developer::Dashboard::InternalCLI::helper_content($helper);
-    if ( $helper =~ /\A(?:encode|decode|indicator|collector|config|auth|init|cpan|page|action|docker|serve|stop|restart|shell|doctor|skills|skill)\z/ ) {
+    if ( $helper =~ /\A(?:encode|decode|indicator|collector|config|auth|init|cpan|page|action|docker|serve|stop|restart|log|shell|doctor|skills|skill)\z/ ) {
         like(
             $content,
             qr/\Q_dashboard-core\E/,
@@ -1260,6 +1261,41 @@ like(
     qr/Unable to inspect tmux session 'broken': bad\noops\n/,
     'session_exists surfaces unexpected tmux failures',
 );
+is_deeply(
+    [
+        Developer::Dashboard::CLI::Ticket::list_sessions(
+            tmux => sub {
+                return {
+                    exit_code => 0,
+                    stdout    => "DD-100\nDD-200\n",
+                    stderr    => '',
+                };
+            },
+        )
+    ],
+    [ qw(DD-100 DD-200) ],
+    'list_sessions returns one ordered tmux session name per line',
+);
+is_deeply(
+    [
+        Developer::Dashboard::CLI::Ticket::list_sessions(
+            tmux => sub { return { exit_code => 1, stdout => '', stderr => '' } },
+        )
+    ],
+    [],
+    'list_sessions returns an empty list when tmux reports no sessions are available',
+);
+like(
+    _dies(
+        sub {
+            Developer::Dashboard::CLI::Ticket::list_sessions(
+                tmux => sub { return { exit_code => 2, stdout => "oops\n", stderr => "bad\n" } },
+            );
+        }
+    ),
+    qr/Unable to list tmux ticket sessions: bad\noops\n/,
+    'list_sessions surfaces unexpected tmux list failures',
+);
 
 my $ticket_plan = Developer::Dashboard::CLI::Ticket::build_ticket_plan(
     args => ['DD-456'],
@@ -1670,6 +1706,7 @@ my $cpanm_log = File::Spec->catfile( $fake_bin, 'cpanm.log' );
 my $apt_log = File::Spec->catfile( $fake_bin, 'apt.log' );
 my $apk_log = File::Spec->catfile( $fake_bin, 'apk.log' );
 my $brew_log = File::Spec->catfile( $fake_bin, 'brew.log' );
+my $make_log = File::Spec->catfile( $fake_bin, 'make.log' );
 my $npx_log = File::Spec->catfile( $fake_bin, 'npx.log' );
 my $sudo_log = File::Spec->catfile( $fake_bin, 'sudo.log' );
 my $dashboard_log = File::Spec->catfile( $fake_bin, 'dashboard.log' );
@@ -1719,6 +1756,19 @@ for spec in "\$@"; do
   name=\${spec%%@*}
   mkdir -p "\$PWD/node_modules/\$name"
 done
+exit 0
+SH
+    0755,
+);
+_write_file(
+    File::Spec->catfile( $fake_bin, 'make' ),
+    <<"SH",
+#!/bin/sh
+printf '%s|cwd=%s\\n' "\$*" "\$PWD" >> "$make_log"
+printf 'MAKE:%s\\n' "\$*" >> "$dependency_log"
+if [ "\$DD_TEST_MAKE_FAIL" = "\${1:-default}" ]; then
+  exit 1
+fi
 exit 0
 SH
     0755,
@@ -1814,6 +1864,7 @@ is_deeply(
         { id => 'install_package_json', label => 'Install package.json dependencies' },
         { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
         { id => 'install_cpanfile_local', label => 'Install cpanfile.local dependencies' },
+        { id => 'install_makefile',     label => 'Install Makefile dependencies' },
         { id => 'install_ddfile',       label => 'Install ddfile dependencies' },
         { id => 'install_ddfile_local', label => 'Install ddfile.local dependencies' },
     ],
@@ -1835,8 +1886,10 @@ is_deeply(
 {
     my $label_skill = File::Spec->catdir( $ENV{HOME}, 'label-skill' );
     my $label_package_json = File::Spec->catfile( $label_skill, 'package.json' );
+    my $label_makefile = File::Spec->catfile( $label_skill, 'Makefile' );
     make_path($label_skill);
     _write_file( $label_package_json, qq|{"name":"label-skill","version":"1.0.0"}\n| );
+    _write_file( $label_makefile, "all:\n\t\@:\n" );
     is(
         $manager->_dependency_progress_label( 'install_package_json', $label_skill ),
         "Install package.json dependencies from $label_package_json",
@@ -1861,6 +1914,11 @@ is_deeply(
         ),
         "Install package.json dependencies from $label_package_json (error: Failed to install skill Node dependencies for $label_skill: npm blew up with details)",
         '_dependency_progress_label carries one compact failure reason into the visible progress board',
+    );
+    is(
+        $manager->_dependency_progress_label( 'install_makefile', $label_skill ),
+        "Install Makefile dependencies from $label_makefile",
+        '_dependency_progress_label surfaces the detected Makefile path while make work is in progress',
     );
 }
 is( $manager->get_skill_path('missing'), undef, 'get_skill_path returns undef for missing skills' );
@@ -2040,6 +2098,7 @@ my $dep_repo = _create_skill_repo(
     with_apkfile => 1,
     with_ddfile  => 1,
     with_ddfile_local => 1,
+    with_makefile => 1,
     with_package_json => 1,
     with_cpanfile_local => 1,
 );
@@ -2077,9 +2136,9 @@ open my $dependency_log_fh, '<', $dependency_log or die "Unable to read $depende
 my @dependency_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dependency_log_fh>;
 close $dependency_log_fh;
 is_deeply(
-    [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|CPANM):/)[0] } @dependency_steps[-6 .. -1] ],
-    [ 'APT', 'NPM', 'CPANM', 'CPANM', 'DDFILE', 'DDFILE_LOCAL' ],
-    '_install_skill_dependencies follows the documented aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local order on Debian-like hosts while leaving apkfile, dnfile, and brewfile inactive',
+    [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|CPANM|MAKE):/)[0] } @dependency_steps[-10 .. -1] ],
+    [ 'APT', 'NPM', 'CPANM', 'CPANM', 'MAKE', 'MAKE', 'MAKE', 'MAKE', 'DDFILE', 'DDFILE_LOCAL' ],
+    '_install_skill_dependencies follows the documented aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> Makefile -> ddfile -> ddfile.local order on Debian-like hosts while leaving apkfile, dnfile, and brewfile inactive',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
@@ -2094,6 +2153,41 @@ like(
     qr/^--yes npm install dep-skill-runtime\@\^1\.2\.3 dep-skill-dev\@\^4\.5\.6\|cwd=\Q$ENV{HOME}\E\/skills-home\/\.developer-dashboard\/cache\/node-package-installs\/npm-install-/,
     '_install_skill_dependencies stages package.json work under the dashboard runtime cache through npx instead of using bare HOME as the npm project root',
 );
+open my $make_log_fh, '<', $make_log or die "Unable to read $make_log: $!";
+my @make_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$make_log_fh>;
+close $make_log_fh;
+is_deeply(
+    [ @make_steps[ -4 .. -1 ] ],
+    [
+        "|cwd=$dep_skill_root",
+        "test|cwd=$dep_skill_root",
+        "install|cwd=$dep_skill_root",
+        "clean|cwd=$dep_skill_root",
+    ],
+    '_install_skill_dependencies runs the default Makefile command chain before ddfile processing',
+);
+{
+    unlink $make_log;
+    my $skip_test_manager = Developer::Dashboard::SkillManager->new(
+        paths      => $skill_paths,
+        skip_tests => 1,
+    );
+    my $skip_make = $skip_test_manager->_install_skill_makefile($dep_skill_root);
+    ok( !$skip_make->{error}, '_install_skill_makefile succeeds when --notest-style skips are requested' )
+      or diag $skip_make->{error};
+    open my $skip_make_fh, '<', $make_log or die "Unable to read $make_log after skip-test install: $!";
+    my @skip_make_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$skip_make_fh>;
+    close $skip_make_fh;
+    is_deeply(
+        \@skip_make_steps,
+        [
+            "|cwd=$dep_skill_root",
+            "install|cwd=$dep_skill_root",
+            "clean|cwd=$dep_skill_root",
+        ],
+        '_install_skill_makefile skips the test target when the manager is configured for --notest installs',
+    );
+}
 ok( -d File::Spec->catdir( $ENV{HOME}, 'skills-home', 'node_modules', 'dep-skill-runtime' ), '_install_skill_dependencies merges staged Node dependencies into the manager HOME node_modules tree' );
 ok( -d File::Spec->catdir( $ENV{HOME}, 'skills-home', 'node_modules', 'dep-skill-dev' ), '_install_skill_dependencies merges staged dev Node dependencies into the manager HOME node_modules tree' );
 {
@@ -2165,6 +2259,7 @@ is( $metadata->{has_ddfile}, 1, 'skill metadata records ddfile presence' );
 is( $metadata->{has_cpanfile}, 1, 'skill metadata records cpanfile presence' );
 is( $metadata->{has_aptfile}, 1, 'skill metadata records aptfile presence' );
 is( $metadata->{has_apkfile}, 1, 'skill metadata records apkfile presence' );
+is( $metadata->{has_makefile}, 1, 'skill metadata records Makefile presence' );
 is( $metadata->{has_cpanfile_local}, 1, 'skill metadata records cpanfile.local presence' );
 is_deeply( $metadata->{docker_services}, ['postgres'], 'skill metadata records docker service folders' );
 is_deeply( $metadata->{cli_commands}, ['run-test'], 'skill metadata records cli commands only, not hook directories' );
@@ -2180,6 +2275,7 @@ my $usage = $manager->usage('dep-skill');
 ok( !$usage->{error}, 'usage succeeds for an installed skill' ) or diag $usage->{error};
 ok( $usage->{enabled}, 'usage reports enabled state for active skills' );
 ok( scalar( grep { $_->{name} eq 'run-test' && $_->{has_hooks} } @{ $usage->{cli} } ), 'usage reports command hook metadata' );
+ok( $usage->{config}{has_makefile}, 'usage reports Makefile presence in the skill config metadata' );
 ok( scalar( grep { $_ eq 'index' } @{ $usage->{pages}{entries} } ), 'usage reports dashboard pages' );
 ok( scalar( grep { $_ eq 'nav/skill.tt' } @{ $usage->{pages}{nav_entries} } ), 'usage reports nav pages separately' );
 ok( scalar( grep { $_->{name} eq 'postgres' } @{ $usage->{docker}{services} } ), 'usage reports docker services' );
@@ -3635,6 +3731,12 @@ sub _create_skill_repo {
     }
     if ( $args{with_ddfile_local} ) {
         _write_file( 'ddfile.local', "shared-local-skill\n" );
+    }
+    if ( $args{with_makefile} ) {
+        _write_file(
+            'Makefile',
+            ".PHONY: all test install clean\nall:\n\t\@:\ntest:\n\t\@:\ninstall:\n\t\@:\nclean:\n\t\@:\n",
+        );
     }
     if ( $args{with_brewfile} ) {
         _write_file( 'brewfile', "jq\n" );

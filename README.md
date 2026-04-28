@@ -252,7 +252,7 @@ generic package names.
 Only `dashboard` is intended to be the public CPAN-facing command-line entrypoint. The real built-in command bodies now live outside `bin/dashboard` under `share/private-cli/`, then stage into `~/.developer-dashboard/cli/dd/` on demand. Generic helper names such as `ticket`, `of`, `open-file`, `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, `path`, `paths`, `file`, and `files` are intentionally kept out of the installed global PATH to avoid polluting the wider Perl and shell ecosystem while still keeping dashboard-owned commands separate from user commands under `~/.developer-dashboard/cli/`. While those staged helpers run, their process title is normalized to the public `developer-dashboard ...` form so `ps` output shows the user-facing command instead of the staged helper path.
 
 - `dashboard ticket`
-  Creates or reuses a tmux session for the requested ticket reference, seeds `TICKET_REF` plus dashboard-friendly branch aliases into that session environment, and attaches to it through a dashboard-managed private helper instead of a public standalone binary.
+  Creates or reuses a tmux session for the requested ticket reference, seeds `TICKET_REF` plus dashboard-friendly branch aliases into that session environment, attaches to it through a dashboard-managed private helper instead of a public standalone binary, and completes already-open tmux session names when shell completion is enabled.
 
 - `Developer::Dashboard::RuntimeManager`
   Manages the background web service and collector lifecycle with process-title validation, numeric POSIX shutdown signals for Alpine/iSH compatibility, `pkill`-style fallback shutdown, and restart orchestration, tying the browser and prepared-state loops together as one runtime.
@@ -1400,8 +1400,19 @@ by real path identity instead of raw string spelling.
 - `dashboard serve --no-indicators` and `dashboard serve --no-indicator` keep normal page rendering and left-side page chrome intact while clearing the whole top-right browser-only chrome area, including the status strip, username, host or IP link, and live date-time line, and persisting that flag for later `dashboard restart` runs until `dashboard serve --indicators` turns it back off
 - `dashboard serve logs` prints the combined Dancer2 and Starman runtime log captured in the dashboard log file, `dashboard serve logs -n 100` starts from the last 100 lines, and `dashboard serve logs -f` follows appended output live
 - `dashboard serve workers N` saves the default Starman worker count and starts the web service immediately when it is currently stopped; `--host HOST` and `--port PORT` can steer that auto-start path, and `dashboard serve --workers N` or `dashboard restart --workers N` can still override it for one run
-- `dashboard stop` stops both the web service and managed collector loops and, on an interactive terminal, prints the full stop task board on `stderr` before work starts so each shutdown step becomes visible instead of silent waiting
-- `dashboard restart` stops both, starts configured collector loops again, then starts the web service, and only reports success after the replacement collector loops and web runtime become visible and survive a short post-ready confirmation window, with the web side still holding a live managed pid and an accepting listener on the requested port; on an interactive terminal it also prints the full restart task board on `stderr`, marks the active step with a yellow `->`, marks completed steps with a green `[OK]`, marks failed steps with a red `[X]`, and leaves the final JSON result on `stdout`. Stop and restart shutdown paths send numeric POSIX signals instead of named signal strings, so minimal Alpine/iSH Perl builds that reject `TERM` by name still terminate managed web and collector processes correctly.
+- `dashboard stop` stops both the web service and managed collector loops, prints the final lifecycle summary as a terminal table by default or JSON with `-o json`, and on an interactive terminal prints the full stop task board on `stderr` before work starts so each shutdown step becomes visible instead of silent waiting
+- `dashboard stop web` only stops the managed web service
+- `dashboard stop collector` only stops managed collector loops
+- `dashboard stop collector <name>` only stops the requested managed collector loop, and collector-name shell completion suggests registered collector names
+- `dashboard restart` stops both, starts configured collector loops again, then starts the web service, prints the final lifecycle summary as a terminal table by default or JSON with `-o json`, and only reports success after the replacement collector loops and web runtime become visible and survive a short post-ready confirmation window, with the web side still holding a live managed pid and an accepting listener on the requested port
+- `dashboard restart web` only restarts the managed web service
+- `dashboard restart collector` only restarts managed collector loops
+- `dashboard restart collector <name>` only restarts the requested collector loop, including an on-demand manual collector by converting it into a managed interval loop, and collector-name shell completion suggests registered collector names
+- `dashboard log` and `dashboard logs` print the combined dashboard web log plus collector logs
+- `dashboard log web` prints only the dashboard web log and still supports `-n` and `-f`
+- `dashboard log collector` prints only collector logs
+- `dashboard log collector <name>` prints only the requested collector log, and collector-name shell completion suggests registered collector names
+- interactive restart and stop task boards mark the active step with a yellow `->`, mark completed steps with a green `[OK]`, mark failed steps with a red `[X]`, and keep the final table or JSON summary on `stdout`. Stop and restart shutdown paths send numeric POSIX signals instead of named signal strings, so minimal Alpine/iSH Perl builds that reject `TERM` by name still terminate managed web and collector processes correctly.
 - web shutdown and duplicate detection do not trust pid files alone; they validate managed processes by environment marker or process title and use a `pkill`-style scan fallback when needed
 
 ### Environment Customization
@@ -1610,6 +1621,7 @@ dashboard skills install foo/bar
 dashboard skills install git@github.com:user/example-skill.git
 dashboard skills install https://github.com/user/example-skill.git
 dashboard skills install /absolute/path/to/example-skill
+dashboard skills install --notest browser
 dashboard skills install browser foo/bar git@github.com:user/example-skill.git
 dashboard skills install --ddfile
 dashboard skill list
@@ -1660,7 +1672,7 @@ changes version, the summary explicitly says `No update.`. If the root
 an explicit error telling the user to install a skill first or pass a skill
 source.
 Developer Dashboard does not merge the skill's `cli/`, `dashboards/`,
-`config/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`, `dnfile`, `brewfile`, `package.json`,
+`config/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`, `dnfile`, `brewfile`, `Makefile`, `package.json`,
 `cpanfile`, `cpanfile.local`, or Docker files into the normal runtime
 folders.
 
@@ -1679,9 +1691,9 @@ refresh for already-installed targets, just like repeated explicit
 Interactive `dashboard skills install` runs also print a task board on
 `stderr`; multi-source and bare update-all installs show one task for every
 source before any clone or dependency step starts. When a single skill ships
-dependency manifests such as `package.json`, the
-matching task updates to show the detected file path so a long-running npm,
-cpanm, or package-manager step stays visible instead of looking blind.
+dependency manifests such as `package.json` or `Makefile`, the matching task
+updates to show the detected file path so a long-running npm, `make`, cpanm,
+or package-manager step stays visible instead of looking blind.
 
 Installed dotted skill commands such as `dashboard demo-skill.foo` now hand
 control to the real skill command after hook processing instead of wrapping
@@ -1719,7 +1731,7 @@ where each item reports:
 - `enabled` as a JSON boolean
 - CLI command, page, docker service, collector, and indicator counts
 - JSON booleans for `has_config`, `has_ddfile`, `has_aptfile`, `has_apkfile`, `has_dnfile`, `has_brewfile`,
-  `has_cpanfile`, and `has_cpanfile_local`
+  `has_cpanfile`, `has_cpanfile_local`, and `has_makefile`
 
 **Inspect one installed skill:**
 
@@ -1820,6 +1832,7 @@ Each installed skill lives under
 - `apkfile` - Optional Alpine system packages; Dashboard checks each package first and only runs `sudo apk add --no-cache` for the missing packages
 - `dnfile` - Optional Fedora system packages; Dashboard checks each package first and only runs `sudo dnf install -y` for the missing packages
 - `brewfile` - Optional macOS Homebrew packages installed through `brew install`
+- `Makefile` - Optional skill install workflow run before `ddfile`, using `make`, `make test` when a `test` or `tests` target exists unless `dashboard skills install --notest` is used, `make install`, and `make clean` when a `clean` target exists
 - `package.json` - Optional Node dependencies installed into `$HOME/node_modules` by running `npx --yes npm install <dependency-spec...>` inside a private dashboard staging workspace and then merging the resulting packages into `$HOME/node_modules`
 - `cpanfile` - Optional shared Perl dependencies installed into `~/perl5`
 - `cpanfile.local` - Optional skill-local Perl dependencies installed into `<skill-root>/perl5`
@@ -1881,6 +1894,11 @@ Skill dependency and docker layering:
 - if a `dnfile` exists on a Fedora host, Dashboard checks each listed package first and only prints and installs the packages that are still missing through `sudo dnf install -y`
 - if a `brewfile` exists on macOS, its package list is printed and then
   installed through `brew install`
+- if a `Makefile` exists, Dashboard runs it after the Perl dependency
+  manifests and before any deferred `ddfile` processing, using `make`,
+  `make test` when a `test` or `tests` target exists unless
+  `dashboard skills install --notest` was requested, `make install`, and
+  `make clean` when a `clean` target exists
 - if a `package.json` exists, its Node dependencies are installed into
   `$HOME/node_modules` by running `npx --yes npm install <dependency-spec...>` inside a
   private dashboard staging workspace and then merging the resulting packages
@@ -1897,7 +1915,7 @@ Skill dependency and docker layering:
 
 To build a new skill, start with a Git repository that contains `cli/`,
 `config/config.json`, and optional `dashboards/`, `dashboards/nav/`, `state/`,
-`logs/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`, `dnfile`, `brewfile`, `package.json`,
+`logs/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`, `dnfile`, `brewfile`, `Makefile`, `package.json`,
 `cpanfile`, and `cpanfile.local` files under the skill root. Skill
 commands are file-based commands run through the dotted
 `dashboard <repo-name>.<command>` form. Skill hook files live under
@@ -1916,11 +1934,12 @@ environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`, bookmark
 syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, and `CODE1:`, bookmark browser
 helpers such as `fetch_value()`, `stream_value()`, and `stream_data()`,
 underscored config merge keys such as `_example-skill`, the
-`aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> ddfile -> ddfile.local`
+`aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> Makefile -> ddfile -> ddfile.local`
 automatic dependency install order, the explicit
 `dashboard skills install --ddfile` operator order of
 the deferred `ddfile -> ddfile.local` pass, the shared `~/perl5` versus skill-local `perl5/`
 split, the `$HOME/node_modules` Node install target used by `package.json`, the
+optional `Makefile` command chain and `--notest` skip, the
 same-install-level dependency target used by skill-local `ddfile.local`,
 skill docker layering, and when to use
 dashboard-wide custom CLI hook folders such as

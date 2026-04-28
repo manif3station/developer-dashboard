@@ -57,6 +57,7 @@ sub wait_for_child_exit {
         my ( $self, $job ) = @_;
         die $self->{fail}{ $job->{name} } if ref( $self->{fail} ) eq 'HASH' && exists $self->{fail}{ $job->{name} };
         push @{ $self->{started} }, $job->{name};
+        push @{ $self->{started_jobs} }, { %{$job} };
         push @{ $self->{loops} }, { name => $job->{name}, pid => 1000 + @{ $self->{started} } };
         return 1000 + @{ $self->{started} };
     }
@@ -1091,6 +1092,44 @@ END {
         ],
         'restart_progress_tasks includes stop tasks, restart collector tasks, and the final web start task',
     );
+    is_deeply(
+        $manager->stop_progress_tasks( scope => 'web' ),
+        [
+            { id => 'stop_web', label => 'Stop dashboard web service' },
+        ],
+        'stop_progress_tasks can scope the board to the web service only',
+    );
+    is_deeply(
+        $manager->stop_progress_tasks( scope => 'collector' ),
+        [
+            { id => 'stop_collector:running.alpha', label => 'Stop collector running.alpha' },
+            { id => 'stop_collector:running.beta',  label => 'Stop collector running.beta' },
+        ],
+        'stop_progress_tasks can scope the board to all running collectors only',
+    );
+    is_deeply(
+        $manager->stop_progress_tasks( scope => 'collector', name => 'running.beta' ),
+        [
+            { id => 'stop_collector:running.beta',  label => 'Stop collector running.beta' },
+        ],
+        'stop_progress_tasks can scope the board to one named collector only',
+    );
+    is_deeply(
+        $manager->restart_progress_tasks( scope => 'web' ),
+        [
+            { id => 'stop_web', label => 'Stop dashboard web service' },
+            { id => 'start_web', label => 'Start dashboard web service' },
+        ],
+        'restart_progress_tasks can scope the board to the web service only',
+    );
+    is_deeply(
+        $manager->restart_progress_tasks( scope => 'collector', name => 'alpha.collector' ),
+        [
+            { id => 'stop_collector:alpha.collector', label => 'Stop collector alpha.collector' },
+            { id => 'start_collector:alpha.collector', label => 'Start collector alpha.collector' },
+        ],
+        'restart_progress_tasks can scope the board to one configured collector only',
+    );
 }
 
 {
@@ -1148,6 +1187,43 @@ END {
         [ 'housekeeper', 'alpha.collector', 'beta.collector', 'fleet-skill.health' ],
         'start_collectors still returns the started collector metadata while progress is enabled',
     );
+}
+
+{
+    my $manual_home = tempdir(CLEANUP => 1);
+    my $manual_paths = Developer::Dashboard::PathRegistry->new( home => $manual_home );
+    my $manual_files = Developer::Dashboard::FileRegistry->new( paths => $manual_paths );
+    my $manual_config = Developer::Dashboard::Config->new( files => $manual_files, paths => $manual_paths );
+    $manual_config->save_global(
+        {
+            collectors => [
+                {
+                    name    => 'manual.collector',
+                    command => 'true',
+                    cwd     => 'home',
+                },
+            ],
+        }
+    );
+    my $manual_runner = Local::RuntimeRunner->new;
+    my $manual_manager = Developer::Dashboard::RuntimeManager->new(
+        app_builder => sub { return Local::RuntimeServer->new( foreground_file => "$manual_home/manual.txt", host => '127.0.0.1', port => 7991 ) },
+        config      => $manual_config,
+        files       => $manual_files,
+        paths       => $manual_paths,
+        runner      => $manual_runner,
+    );
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_collector_runtime_ready = sub { return 1 };
+    my $started = $manual_manager->start_named_collector( name => 'manual.collector' );
+    is( $started->{pid}, 1001, 'start_named_collector returns the started loop pid for a manual collector' );
+    is( $manual_runner->{started_jobs}[0]{schedule}, 'interval', 'start_named_collector converts manual collectors into interval loops for on-demand starts' );
+    is( $manual_runner->{started_jobs}[0]{interval}, 30, 'start_named_collector applies the default interval for an on-demand manual collector loop' );
+    my $restarted = $manual_manager->restart_target( scope => 'collector', name => 'manual.collector' );
+    is( $restarted->{collectors}[0]{name}, 'manual.collector', 'restart_target reports the named manual collector in scoped collector mode' );
+    is( $restarted->{collectors}[0]{status}, 'restarted', 'restart_target marks the named manual collector as restarted' );
+    ok( grep { $_ eq 'manual.collector' } @{ $manual_runner->{stopped} }, 'restart_target stops an already running named manual collector before restarting it' );
+    is( $manual_runner->{started_jobs}[1]{schedule}, 'interval', 'restart_target also converts manual collectors into interval loops for restarts' );
 }
 
 {

@@ -8,6 +8,7 @@ use Cwd qw(abs_path getcwd);
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::CLI::SeededPages ();
 use Developer::Dashboard::EnvAudit;
+use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Developer::Dashboard::PathRegistry;
 use Encode qw(decode encode);
@@ -497,7 +498,7 @@ my $workers_config = do { local $/; <$workers_config_fh> };
 close $workers_config_fh;
 like( $workers_config, qr/"web"\s*:\s*\{\s*"workers"\s*:\s*3/s, 'dashboard serve workers stores the default worker count in config' );
 if ( defined $serve_workers_pid ) {
-    my $serve_workers_stop = _run("$perl -I'$lib' '$dashboard' stop");
+    my $serve_workers_stop = _run("$perl -I'$lib' '$dashboard' stop -o json");
     like( $serve_workers_stop, qr/"web_pid"\s*:\s*\d+/, 'dashboard stop stops the service started by serve workers' );
 }
 else {
@@ -587,7 +588,7 @@ if ( !$UNDER_COVER ) {
         sleep 0.25;
     }
     like( $first_stdout, qr/^\d+\.\d+\n$/, 'dashboard serve starts configured interval collectors so collector output begins changing without a separate restart' );
-    my $restart_json = json_decode( _run("$perl -I'$lib' '$dashboard' restart --host 127.0.0.1 --port $serve_port") );
+    my $restart_json = json_decode( _run("$perl -I'$lib' '$dashboard' restart -o json --host 127.0.0.1 --port $serve_port") );
     ok( $restart_json->{web_pid}, 'dashboard restart still returns a managed web pid in the collector lifecycle smoke test' );
     ok( kill( 0, $restart_json->{web_pid} ), 'dashboard restart reports a live managed web pid in the collector lifecycle smoke test' );
     my $serve_ua = LWP::UserAgent->new( timeout => 5 );
@@ -606,7 +607,7 @@ if ( !$UNDER_COVER ) {
         sleep 0.25;
     }
     unlike( $second_stdout, qr/^\Q$first_stdout\E$/, 'dashboard restart restarts collector loops and refreshes collector output after the serve-started run' );
-    my $serve_stop = json_decode( _run("$perl -I'$lib' '$dashboard' stop") );
+    my $serve_stop = json_decode( _run("$perl -I'$lib' '$dashboard' stop -o json") );
     ok( ref( $serve_stop->{collectors} ) eq 'ARRAY', 'dashboard stop still returns the collector stop list after serve/restart lifecycle control' );
 }
 if ( !$UNDER_COVER ) {
@@ -667,7 +668,7 @@ if ( !$UNDER_COVER ) {
     my $readonly_config = do { local $/; <$readonly_config_fh> };
     close $readonly_config_fh;
     like( $readonly_config, qr/"web"\s*:\s*\{[\s\S]*"no_editor"\s*:\s*1/s, 'dashboard serve --no-endit persists no_editor in config' );
-    my $readonly_restart = json_decode( _run("$perl -I'$lib' '$dashboard' restart --host 127.0.0.1 --port $readonly_port") );
+    my $readonly_restart = json_decode( _run("$perl -I'$lib' '$dashboard' restart -o json --host 127.0.0.1 --port $readonly_port") );
     ok( $readonly_restart->{web_pid}, 'dashboard restart keeps managing the no-editor web service' );
     for ( 1 .. _startup_probe_attempts() ) {
         my $ready_response = $readonly_ua->get("http://127.0.0.1:$readonly_port/app/readonly");
@@ -676,7 +677,7 @@ if ( !$UNDER_COVER ) {
     }
     my $source_response = $readonly_ua->get("http://127.0.0.1:$readonly_port/app/readonly/source");
     is( $source_response->code, 403, 'dashboard restart preserves the saved no-editor source block' );
-    my $readonly_stop = json_decode( _run("$perl -I'$lib' '$dashboard' stop") );
+    my $readonly_stop = json_decode( _run("$perl -I'$lib' '$dashboard' stop -o json") );
     ok( ref( $readonly_stop->{collectors} ) eq 'ARRAY', 'dashboard stop still works after a no-editor lifecycle run' );
 }
 if ( !$UNDER_COVER ) {
@@ -731,7 +732,7 @@ if ( !$UNDER_COVER ) {
     my $noind_config = do { local $/; <$noind_config_fh> };
     close $noind_config_fh;
     like( $noind_config, qr/"web"\s*:\s*\{[\s\S]*"no_indicators"\s*:\s*1/s, 'dashboard serve --no-indicator persists no_indicators in config' );
-    my $noind_restart = json_decode( _run("$perl -I'$lib' '$dashboard' restart --host 127.0.0.1 --port $noind_port") );
+    my $noind_restart = json_decode( _run("$perl -I'$lib' '$dashboard' restart -o json --host 127.0.0.1 --port $noind_port") );
     ok( $noind_restart->{web_pid}, 'dashboard restart keeps managing the no-indicators web service' );
     my $post_restart_render;
     for ( 1 .. 240 ) {
@@ -742,7 +743,7 @@ if ( !$UNDER_COVER ) {
     ok( $post_restart_render && $post_restart_render->is_success, 'no-indicators live server remains reachable after restart' );
     my $post_restart_body = decode( 'UTF-8', $post_restart_render->decoded_content );
     unlike( $post_restart_body, qr/id="status-on-top"/, 'dashboard restart preserves the no-indicators top-right strip removal' );
-    my $noind_stop = json_decode( _run("$perl -I'$lib' '$dashboard' stop") );
+    my $noind_stop = json_decode( _run("$perl -I'$lib' '$dashboard' stop -o json") );
     ok( ref( $noind_stop->{collectors} ) eq 'ARRAY', 'dashboard stop still works after a no-indicators lifecycle run' );
 }
 {
@@ -815,6 +816,25 @@ if ( !$UNDER_COVER ) {
     my $pending_log = _run("$perl -I'$lib' '$dashboard' collector log pending.collector");
     like( $pending_log, qr/No log entries are available yet for collector 'pending\.collector'/, 'dashboard collector log <name> is explicit when a configured collector has not run yet' );
 
+    my $collector_log_files = Developer::Dashboard::FileRegistry->new(
+        paths => Developer::Dashboard::PathRegistry->new( home => $collector_log_home )
+    );
+    $collector_log_files->write( 'dashboard_log', "web one\nweb two\n" );
+    my $top_level_web_log = _run("$perl -I'$lib' '$dashboard' log web");
+    is( $top_level_web_log, "web one\nweb two\n", 'dashboard log web prints only the dashboard web log' );
+
+    my $top_level_collector_logs = _run("$perl -I'$lib' '$dashboard' log collector");
+    like( $top_level_collector_logs, qr/cli\.collector/, 'dashboard log collector prints collector logs without needing the nested collector command' );
+    like( $top_level_collector_logs, qr/cli stdout/, 'dashboard log collector includes collector stdout content' );
+
+    my $named_top_level_collector_log = _run("$perl -I'$lib' '$dashboard' log collector cli.collector");
+    like( $named_top_level_collector_log, qr/cli\.collector/, 'dashboard log collector <name> resolves one named collector log stream' );
+    unlike( $named_top_level_collector_log, qr/pending\.collector/, 'dashboard log collector <name> limits output to the requested collector' );
+
+    my $everything_log = _run("$perl -I'$lib' '$dashboard' logs");
+    like( $everything_log, qr/web one/, 'dashboard logs includes the dashboard web log in the all-logs view' );
+    like( $everything_log, qr/cli\.collector/, 'dashboard logs includes collector logs in the all-logs view' );
+
     my $templated_run = json_decode( _run("$perl -I'$lib' '$dashboard' collector run templated.collector") );
     is( $templated_run->{exit_code}, 0, 'dashboard collector run keeps TT-icon collectors successful when stdout contains valid JSON' );
     my $templated_indicators = json_decode( _run("$perl -I'$lib' '$dashboard' indicator list") );
@@ -852,6 +872,31 @@ if ( !$UNDER_COVER ) {
         qr/Unknown collector 'missing\.collector'/,
         'dashboard collector log reports unknown collector names explicitly',
     );
+
+    my $collector_start_pid = _run("$perl -I'$lib' '$dashboard' collector start cli.collector");
+    like( $collector_start_pid, qr/\A\d+\n\z/, 'dashboard collector start still starts one named collector loop directly' );
+
+    my $top_level_stop_named_collector = _run("$perl -I'$lib' '$dashboard' stop collector cli.collector");
+    like( $top_level_stop_named_collector, qr/Component\s+Target\s+Status/, 'dashboard stop collector <name> prints a table summary by default' );
+    like( $top_level_stop_named_collector, qr/collector\s+cli\.collector\s+stopped/, 'dashboard stop collector <name> reports the named collector row' );
+
+    my $top_level_restart_named_collector = json_decode( _run("$perl -I'$lib' '$dashboard' restart collector cli.collector -o json") );
+    is( $top_level_restart_named_collector->{scope}, 'collector', 'dashboard restart collector <name> reports the collector scope in JSON mode' );
+    is( $top_level_restart_named_collector->{target}, 'cli.collector', 'dashboard restart collector <name> reports the requested collector target in JSON mode' );
+
+    my $top_level_stop_all_collectors = _run("$perl -I'$lib' '$dashboard' stop collector");
+    like( $top_level_stop_all_collectors, qr/Component\s+Target\s+Status/, 'dashboard stop collector without a name prints a table summary by default' );
+    like( $top_level_stop_all_collectors, qr/collector/, 'dashboard stop collector without a name reports collector rows' );
+
+    my $restart_web_port = _find_free_port();
+    my $top_level_restart_web = json_decode(
+        _run("$perl -I'$lib' '$dashboard' restart web -o json --host 127.0.0.1 --port $restart_web_port")
+    );
+    is( $top_level_restart_web->{scope}, 'web', 'dashboard restart web reports the web scope in JSON mode' );
+    ok( $top_level_restart_web->{web_pid}, 'dashboard restart web returns the managed web pid in JSON mode' );
+    my $top_level_stop_web = _run("$perl -I'$lib' '$dashboard' stop web");
+    like( $top_level_stop_web, qr/Component\s+Target\s+Status/, 'dashboard stop web prints a table summary by default' );
+    like( $top_level_stop_web, qr/web\s+dashboard\s+stopped/, 'dashboard stop web reports the web row in the summary table' );
 }
 
 my $bookmarks_root = _run("$perl -I'$lib' '$dashboard' path resolve bookmarks_root");
@@ -1320,6 +1365,16 @@ exit 0
 SH
 close $fake_npx_fh;
 chmod 0755, $fake_npx or die "Unable to chmod $fake_npx: $!";
+my $fake_make_log = File::Spec->catfile( $fake_bin, 'make.log' );
+my $fake_make = File::Spec->catfile( $fake_bin, 'make' );
+open my $fake_make_fh, '>', $fake_make or die "Unable to write $fake_make: $!";
+print {$fake_make_fh} <<"SH";
+#!/bin/sh
+printf '%s|cwd=%s\\n' "\$*" "\$PWD" >> '$fake_make_log'
+exit 0
+SH
+close $fake_make_fh;
+chmod 0755, $fake_make or die "Unable to chmod $fake_make: $!";
 my $skill_repo_root = File::Spec->catdir( $ENV{HOME}, 'skill-fixtures' );
 my $skill_repo = File::Spec->catdir( $skill_repo_root, 'demo-skill' );
 make_path( File::Spec->catdir( $skill_repo, 'cli', 'foo.d' ) );
@@ -1342,6 +1397,9 @@ close $skill_cpanfile_fh;
 open my $skill_package_json_fh, '>', File::Spec->catfile( $skill_repo, 'package.json' ) or die "Unable to write skill package.json: $!";
 print {$skill_package_json_fh} qq|{"name":"demo-skill-node","version":"1.0.0","dependencies":{"left-pad":"1.3.0"}}\n|;
 close $skill_package_json_fh;
+open my $skill_makefile_fh, '>', File::Spec->catfile( $skill_repo, 'Makefile' ) or die "Unable to write skill Makefile: $!";
+print {$skill_makefile_fh} ".PHONY: all test install clean\nall:\n\t\@:\ntest:\n\t\@:\ninstall:\n\t\@:\nclean:\n\t\@:\n";
+close $skill_makefile_fh;
 open my $skill_index_fh, '>', File::Spec->catfile( $skill_repo, 'dashboards', 'index' ) or die "Unable to write skill index: $!";
 print {$skill_index_fh} "TITLE: Demo Skill Index\n:--------------------------------------------------------------------------------:\nBOOKMARK: index\n:--------------------------------------------------------------------------------:\nHTML:\nDemo Skill Index\n";
 close $skill_index_fh;
@@ -1380,6 +1438,7 @@ like( $skill_progress_stdout, qr/"repo_name"\s*:\s*"demo-skill"/, 'dashboard ski
 like( $skill_progress_stderr, qr/dashboard skills install progress/, 'dashboard skills install progress output prints the task-board title when enabled' );
 like( $skill_progress_stderr, qr/\[ \] Fetch skill source/, 'dashboard skills install progress output prints the full task list before work begins' );
 like( $skill_progress_stderr, qr/\[OK\] Install package\.json dependencies from .*demo-skill.*package\.json/, 'dashboard skills install progress output shows that package.json was detected and handed to npx-wrapped npm' );
+like( $skill_progress_stderr, qr/\[OK\] Install Makefile dependencies from .*demo-skill.*Makefile/, 'dashboard skills install progress output shows that Makefile dependencies were processed before ddfile work' );
 like( $skill_progress_stderr, qr/\[OK\] Install cpanfile dependencies/, 'dashboard skills install progress output marks dependency steps complete after work finishes' );
 open my $fake_npx_log_fh, '<', $fake_npx_log or die "Unable to read $fake_npx_log: $!";
 my @fake_npx_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$fake_npx_log_fh>;
@@ -1396,6 +1455,34 @@ like(
 ok(
     -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'left-pad' ),
     'dashboard skills install merges staged Node dependencies into HOME/node_modules',
+);
+open my $fake_make_log_fh, '<', $fake_make_log or die "Unable to read $fake_make_log: $!";
+my @fake_make_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$fake_make_log_fh>;
+close $fake_make_log_fh;
+is_deeply(
+    [ @fake_make_steps[ -4 .. -1 ] ],
+    [
+        "|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
+        "test|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
+        "install|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
+        "clean|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
+    ],
+    'dashboard skills install runs the default Makefile command chain for skills that ship a Makefile',
+);
+unlink $fake_make_log;
+my $skill_install_notest = _run("PATH='$fake_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' skills install --notest -o json 'file://$skill_repo'");
+like( $skill_install_notest, qr/"repo_name"\s*:\s*"demo-skill"/, 'dashboard skills install --notest still installs the requested skill successfully' );
+open my $fake_make_notest_fh, '<', $fake_make_log or die "Unable to read $fake_make_log after --notest install: $!";
+my @fake_make_notest_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$fake_make_notest_fh>;
+close $fake_make_notest_fh;
+is_deeply(
+    [ @fake_make_notest_steps[ -3 .. -1 ] ],
+    [
+        "|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
+        "install|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
+        "clean|cwd=$ENV{HOME}/.developer-dashboard/skills/demo-skill",
+    ],
+    'dashboard skills install --notest skips the Makefile test target while still running make, make install, and make clean',
 );
 my $home_root_ddfile = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'ddfile' );
 open my $home_root_ddfile_fh, '<', $home_root_ddfile or die "Unable to read $home_root_ddfile: $!";
@@ -2518,8 +2605,10 @@ my ( $plain_restart_stdout, $plain_restart_stderr, $plain_restart_exit ) = captu
 };
 is( $plain_restart_exit, 0, 'dashboard restart succeeds from a repo without a project-local dashboard root' );
 unlike( $plain_restart_stderr, qr/\S/, 'dashboard restart keeps stderr clean in a repo without a project-local dashboard root' );
+like( $plain_restart_stdout, qr/Component\s+Target\s+Status/, 'dashboard restart prints a table summary by default' );
+like( $plain_restart_stdout, qr/\bweb\b/, 'dashboard restart table summary includes the web row' );
 ok( !-d File::Spec->catdir( $plain_repo, '.developer-dashboard' ), 'dashboard restart does not create a project-local .developer-dashboard tree in repos that have not opted in' );
-my ( undef, $plain_stop_stderr, $plain_stop_exit ) = capture {
+my ( $plain_stop_stdout, $plain_stop_stderr, $plain_stop_exit ) = capture {
     local $ENV{PERL5OPT} if _coverage_requested();
     local $ENV{HARNESS_PERL_SWITCHES} if _coverage_requested();
     system $perl, '-I' . $lib, $dashboard, 'stop';
@@ -2527,6 +2616,28 @@ my ( undef, $plain_stop_stderr, $plain_stop_exit ) = capture {
 };
 is( $plain_stop_exit, 0, 'dashboard stop succeeds after the plain-repo restart check' );
 unlike( $plain_stop_stderr, qr/\S/, 'dashboard stop keeps stderr clean after the plain-repo restart check' );
+like( $plain_stop_stdout, qr/Component\s+Target\s+Status/, 'dashboard stop prints a table summary by default' );
+like( $plain_stop_stdout, qr/\bweb\b/, 'dashboard stop table summary includes the web row' );
+
+my $json_restart_port = _find_free_port();
+my ( $json_restart_stdout, $json_restart_stderr, $json_restart_exit ) = capture {
+    local $ENV{PERL5OPT} if _coverage_requested();
+    local $ENV{HARNESS_PERL_SWITCHES} if _coverage_requested();
+    system 'sh', '-c', "cd '$plain_repo' && $perl -I'$repo/lib' '$repo/bin/dashboard' restart -o json --host 127.0.0.1 --port $json_restart_port";
+    return $? >> 8;
+};
+is( $json_restart_exit, 0, 'dashboard restart -o json succeeds from a repo without a project-local dashboard root' );
+unlike( $json_restart_stderr, qr/\S/, 'dashboard restart -o json keeps stderr clean in a repo without a project-local dashboard root' );
+like( $json_restart_stdout, qr/"web_pid"\s*:/, 'dashboard restart -o json prints the legacy machine-readable payload' );
+my ( $json_stop_stdout, $json_stop_stderr, $json_stop_exit ) = capture {
+    local $ENV{PERL5OPT} if _coverage_requested();
+    local $ENV{HARNESS_PERL_SWITCHES} if _coverage_requested();
+    system $perl, '-I' . $lib, $dashboard, 'stop', '-o', 'json';
+    return $? >> 8;
+};
+is( $json_stop_exit, 0, 'dashboard stop -o json succeeds after the json restart check' );
+unlike( $json_stop_stderr, qr/\S/, 'dashboard stop -o json keeps stderr clean after the json restart check' );
+like( $json_stop_stdout, qr/"collectors"\s*:/, 'dashboard stop -o json prints the legacy machine-readable payload' );
 
 my $progress_restart_port = _find_free_port();
 my ( $progress_restart_stdout, $progress_restart_stderr, $progress_restart_exit ) = capture {

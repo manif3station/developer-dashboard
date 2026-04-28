@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.14';
+our $VERSION = '3.15';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -30,8 +30,9 @@ sub new {
       );
 
     return bless {
-        paths    => $paths,
-        progress => $args{progress},
+        paths      => $paths,
+        progress   => $args{progress},
+        skip_tests => $args{skip_tests} ? 1 : 0,
     }, $class;
 }
 
@@ -50,6 +51,7 @@ sub install_progress_tasks {
         { id => 'install_package_json', label => 'Install package.json dependencies' },
         { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
         { id => 'install_cpanfile_local', label => 'Install cpanfile.local dependencies' },
+        { id => 'install_makefile',     label => 'Install Makefile dependencies' },
         { id => 'install_ddfile',       label => 'Install ddfile dependencies' },
         { id => 'install_ddfile_local', label => 'Install ddfile.local dependencies' },
     ];
@@ -838,6 +840,7 @@ sub _install_skill_dependencies {
         [ install_package_json => sub { $self->_install_skill_package_json($skill_path) } ],
         [ install_cpanfile     => sub { $self->_install_skill_cpanfile($skill_path) } ],
         [ install_cpanfile_local => sub { $self->_install_skill_cpanfile_local($skill_path) } ],
+        [ install_makefile     => sub { $self->_install_skill_makefile($skill_path) } ],
         [ install_ddfile       => sub { $self->_install_skill_ddfile($skill_path) } ],
         [ install_ddfile_local => sub { $self->_install_skill_ddfile_local($skill_path) } ],
     );
@@ -897,6 +900,7 @@ sub _dependency_progress_label {
         install_package_json   => 'package.json',
         install_cpanfile       => 'cpanfile',
         install_cpanfile_local => 'cpanfile.local',
+        install_makefile       => 'Makefile',
     );
     my %labels = (
         install_ddfile         => 'Install ddfile dependencies',
@@ -908,6 +912,7 @@ sub _dependency_progress_label {
         install_package_json   => 'Install package.json dependencies',
         install_cpanfile       => 'Install cpanfile dependencies',
         install_cpanfile_local => 'Install cpanfile.local dependencies',
+        install_makefile       => 'Install Makefile dependencies',
     );
     my $label = $labels{$task_id} || $task_id;
     my $file  = $files{$task_id} || return $label;
@@ -1549,6 +1554,82 @@ sub _install_skill_cpanfile_local {
     };
 }
 
+# _install_skill_makefile($skill_path)
+# Runs the optional skill Makefile command chain before ddfile processing.
+# Input: absolute skill root directory path.
+# Output: result hash reference with success or error state.
+sub _install_skill_makefile {
+    my ( $self, $skill_path ) = @_;
+    my $makefile = File::Spec->catfile( $skill_path, 'Makefile' );
+    return { success => 1, skipped => 1 } if !-f $makefile;
+
+    my %targets = map { $_ => 1 } $self->_makefile_targets($makefile);
+    my @commands = (
+        [],
+        ( $self->{skip_tests}
+            ? ()
+            : $targets{test}
+            ? ( ['test'] )
+            : $targets{tests}
+            ? ( ['tests'] )
+            : () ),
+        ['install'],
+        ( $targets{clean} ? ( ['clean'] ) : () ),
+    );
+
+    my $cwd = Cwd::getcwd();
+    my ( @stdout, @stderr );
+    chdir $skill_path or die "Unable to chdir to $skill_path for Makefile dependency install: $!";
+    my $result = eval {
+        for my $args (@commands) {
+            my ( $stdout, $stderr, $exit ) = capture {
+                system( 'make', @{$args} );
+            };
+            push @stdout, $stdout if defined $stdout && $stdout ne '';
+            push @stderr, $stderr if defined $stderr && $stderr ne '';
+            if ( $exit != 0 ) {
+                my $target = @{$args} ? join( ' ', @{$args} ) : 'default';
+                my $detail = $stderr ne '' ? $stderr : $stdout;
+                die "Failed to run skill Makefile target '$target' for $skill_path: $detail";
+            }
+        }
+        return {
+            success => 1,
+            stdout  => join( '', @stdout ),
+            stderr  => join( '', @stderr ),
+        };
+    };
+    my $error = $@;
+    chdir $cwd or die "Unable to chdir back to $cwd after Makefile dependency install: $!";
+    return { error => $error } if !$result;
+    return $result;
+}
+
+# _makefile_targets($makefile)
+# Extracts simple top-level target names from one skill Makefile.
+# Input: absolute Makefile path.
+# Output: list of target name strings.
+sub _makefile_targets {
+    my ( $self, $makefile ) = @_;
+    return () if !defined $makefile || !-f $makefile;
+    open my $fh, '<', $makefile or die "Unable to read $makefile: $!";
+    my %seen;
+    my @targets;
+    while ( my $line = <$fh> ) {
+        next if $line =~ /^\s/;
+        next if $line =~ /^\#/;
+        next if $line =~ /^\./;
+        next if $line !~ /^([^:=]+)\s*:(?![=])/;
+        for my $target ( split /\s+/, $1 ) {
+            next if !defined $target || $target eq '';
+            next if $seen{$target}++;
+            push @targets, $target;
+        }
+    }
+    close $fh or die "Unable to close $makefile: $!";
+    return @targets;
+}
+
 # _skill_metadata($repo_name, $skill_path)
 # Summarizes the isolated filesystem and command surface for one installed skill.
 # Input: repo name string and absolute skill root directory path.
@@ -1572,6 +1653,7 @@ sub _skill_metadata {
     my $has_apkfile = -f File::Spec->catfile( $skill_path, 'apkfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_dnfile = -f File::Spec->catfile( $skill_path, 'dnfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_brewfile = -f File::Spec->catfile( $skill_path, 'brewfile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_makefile = -f File::Spec->catfile( $skill_path, 'Makefile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_config = -f File::Spec->catfile( $skill_path, 'config', 'config.json' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_cpanfile = -f File::Spec->catfile( $skill_path, 'cpanfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_cpanfile_local = -f File::Spec->catfile( $skill_path, 'cpanfile.local' ) ? JSON::XS::true() : JSON::XS::false();
@@ -1594,6 +1676,7 @@ sub _skill_metadata {
     $metadata->{has_apkfile} = $has_apkfile;
     $metadata->{has_dnfile} = $has_dnfile;
     $metadata->{has_brewfile} = $has_brewfile;
+    $metadata->{has_makefile} = $has_makefile;
     $metadata->{has_config} = $has_config;
     $metadata->{has_cpanfile} = $has_cpanfile;
     $metadata->{has_cpanfile_local} = $has_cpanfile_local;
@@ -1623,6 +1706,7 @@ sub _skill_usage {
     my $has_apkfile = -f File::Spec->catfile( $skill_path, 'apkfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_dnfile = -f File::Spec->catfile( $skill_path, 'dnfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_brewfile = -f File::Spec->catfile( $skill_path, 'brewfile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_makefile = -f File::Spec->catfile( $skill_path, 'Makefile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_cpanfile = -f File::Spec->catfile( $skill_path, 'cpanfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_cpanfile_local = -f File::Spec->catfile( $skill_path, 'cpanfile.local' ) ? JSON::XS::true() : JSON::XS::false();
     my $usage = { %{ $self->_skill_metadata( $repo_name, $skill_path ) } };
@@ -1641,6 +1725,7 @@ sub _skill_usage {
     $usage->{config}{has_apkfile} = $has_apkfile;
     $usage->{config}{has_dnfile} = $has_dnfile;
     $usage->{config}{has_brewfile} = $has_brewfile;
+    $usage->{config}{has_makefile} = $has_makefile;
     $usage->{config}{has_cpanfile} = $has_cpanfile;
     $usage->{config}{has_cpanfile_local} = $has_cpanfile_local;
     $usage->{collectors} = $collectors;

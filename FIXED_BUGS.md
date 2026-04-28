@@ -1,5 +1,25 @@
 # Fixed Bugs
 
+## 3.15 - Scoped runtime control, ticket completion, and skill Makefile flows
+
+- Fixed the top-level runtime control gap where operators had to drop into
+  nested helper commands instead of using one public `dashboard restart`,
+  `dashboard stop`, `dashboard log`, or `dashboard logs` family.
+- Added scoped runtime control so `dashboard restart` and `dashboard stop` can
+  target the dashboard web service, every collector, or one named collector,
+  and now print a default terminal summary table with `-o json` available for
+  machine-readable output.
+- Added tmux session completion for `dashboard ticket` and collector-name
+  completion for `dashboard restart collector`, `dashboard stop collector`, and
+  `dashboard log collector` so interactive operators do not have to retype
+  live runtime names.
+- Fixed the skill dependency ceiling where complex skills had no first-class
+  build workflow between manifest installs and `ddfile` dependencies.
+- Added optional skill `Makefile` handling after `cpanfile.local` and before
+  `ddfile`, running `make`, optional `make test` or `make tests`, `make
+  install`, and optional `make clean`, with `dashboard skills install --notest`
+  skipping the test target when present.
+
 ## 3.14 - Preferred-shell install bootstrap targeting
 
 - Fixed `install.sh` so it now targets the preferred login shell rc file even

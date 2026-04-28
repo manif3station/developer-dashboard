@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.14';
+our $VERSION = '3.15';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -224,12 +224,18 @@ sub stop_web {
 sub start_collectors {
     my ( $self, %args ) = @_;
     my $progress = $args{progress};
+    my %wanted = map { $_ => 1 } @{ $args{names} || [] };
     my @started;
     for my $job ( @{ $self->{config}->collectors } ) {
         next if ref($job) ne 'HASH';
         my $schedule = $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' );
-        next if $schedule eq 'manual';
         my $name = $job->{name} || '(unnamed)';
+        if (%wanted) {
+            next if !$wanted{$name};
+        }
+        else {
+            next if $schedule eq 'manual';
+        }
         $self->_progress_emit(
             $progress,
             {
@@ -281,6 +287,64 @@ sub start_collectors {
         push @started, { name => $job->{name}, pid => $pid } if defined $pid;
     }
     return @started;
+}
+
+# start_named_collector(%args)
+# Starts one named collector loop, including on-demand manual collectors.
+# Input: collector name string and optional progress callback.
+# Output: hash reference with collector name and started pid.
+sub start_named_collector {
+    my ( $self, %args ) = @_;
+    my $name = $args{name} || die "Missing collector name\n";
+    my $job = $self->_collector_job_by_name($name);
+    my $loop_job = $self->_loop_job_for_named_start($job);
+    my $progress = $args{progress};
+    $self->_progress_emit(
+        $progress,
+        {
+            task_id => "start_collector:$name",
+            status  => 'running',
+            label   => "Start collector $name",
+        }
+    );
+    my $pid = eval { $self->{runner}->start_loop($loop_job) };
+    if ($@) {
+        my $error = $@;
+        chomp $error;
+        $self->_progress_emit(
+            $progress,
+            {
+                task_id => "start_collector:$name",
+                status  => 'failed',
+                label   => "Start collector $name",
+            }
+        );
+        die "Failed to start collector '$name': $error\n";
+    }
+    if ( defined $pid && !$self->_collector_runtime_ready( $name, $pid ) ) {
+        eval { $self->{runner}->stop_loop($name) };
+        $self->_progress_emit(
+            $progress,
+            {
+                task_id => "start_collector:$name",
+                status  => 'failed',
+                label   => "Start collector $name",
+            }
+        );
+        die "Failed to keep collector '$name' running after startup\n";
+    }
+    $self->_progress_emit(
+        $progress,
+        {
+            task_id => "start_collector:$name",
+            status  => 'done',
+            label   => "Start collector $name",
+        }
+    );
+    return {
+        name => $name,
+        pid  => $pid,
+    };
 }
 
 # serve_all(%args)
@@ -351,8 +415,15 @@ sub stop_collectors {
     my ( $self, %args ) = @_;
     my $progress = $args{progress};
     my @running = $self->{runner}->running_loops;
-    my @names = map { $_->{name} } @running;
-    for my $name (@names) {
+    my %wanted = map { $_ => 1 } @{ $args{names} || [] };
+    my @targets = grep {
+        my $name = $_->{name};
+        $name && ( !%wanted || $wanted{$name} );
+    } @running;
+    my @names = map { $_->{name} } @targets;
+    my @stopped;
+    for my $loop (@targets) {
+        my $name = $loop->{name};
         $self->_progress_emit(
             $progress,
             {
@@ -361,7 +432,20 @@ sub stop_collectors {
                 label   => "Stop collector $name",
             }
         );
-        eval { $self->{runner}->stop_loop($name) };
+        my $pid = eval { $self->{runner}->stop_loop($name) };
+        if ($@) {
+            my $error = $@;
+            chomp $error;
+            $self->_progress_emit(
+                $progress,
+                {
+                    task_id => "stop_collector:$name",
+                    status  => 'failed',
+                    label   => "Stop collector $name",
+                }
+            );
+            die "Failed to stop collector '$name': $error\n";
+        }
         $self->_progress_emit(
             $progress,
             {
@@ -370,6 +454,11 @@ sub stop_collectors {
                 label   => "Stop collector $name",
             }
         );
+        push @stopped, {
+            name   => $name,
+            pid    => $pid,
+            status => 'stopped',
+        };
     }
     $self->_pkill_perl('^dashboard collector:');
     for ( 1 .. 30 ) {
@@ -379,6 +468,7 @@ sub stop_collectors {
     for my $proc ( $self->_find_processes_by_prefix('dashboard collector:') ) {
         $self->_send_signal( 'KILL', $proc->{pid} );
     }
+    return @stopped if $args{structured};
     return @names;
 }
 
@@ -430,24 +520,211 @@ sub restart_all {
     };
 }
 
+# stop_target(%args)
+# Stops the requested runtime scope: all, web, all collectors, or one named collector.
+# Input: scope string, optional collector name, and optional progress callback.
+# Output: hash reference describing the stopped runtime entities.
+sub stop_target {
+    my ( $self, %args ) = @_;
+    my $scope = $args{scope} || 'all';
+    my %result = (
+        action     => 'stop',
+        scope      => $scope,
+        target     => defined $args{name} && $args{name} ne '' ? $args{name} : ( $scope eq 'collector' ? 'all' : 'dashboard' ),
+        collectors => [],
+    );
+
+    if ( $scope eq 'web' ) {
+        my $pid = $self->stop_web( progress => $args{progress} );
+        $result{web_pid} = $pid;
+        $result{web} = {
+            pid     => $pid,
+            status  => 'stopped',
+            details => 'dashboard web service',
+        };
+        return \%result;
+    }
+
+    if ( $scope eq 'collector' ) {
+        my @names = defined $args{name} && $args{name} ne '' ? ( $args{name} ) : ();
+        my @collectors = $self->stop_collectors(
+            progress   => $args{progress},
+            ( @names ? ( names => \@names ) : () ),
+            structured => 1,
+        );
+        $result{collectors} = \@collectors;
+        return \%result;
+    }
+
+    my $stopped = $self->stop_all( progress => $args{progress} );
+    $result{web_pid} = $stopped->{web_pid};
+    $result{web} = {
+        pid     => $stopped->{web_pid},
+        status  => 'stopped',
+        details => 'dashboard web service',
+    };
+    $result{collectors} = [
+        map {
+            {
+                name   => $_,
+                status => 'stopped',
+            }
+        } @{ $stopped->{collectors} || [] }
+    ];
+    return \%result;
+}
+
+# restart_target(%args)
+# Restarts the requested runtime scope: all, web, all collectors, or one named collector.
+# Input: scope string, optional collector name, host, port, workers, ssl, and optional progress callback.
+# Output: hash reference describing the restarted runtime entities.
+sub restart_target {
+    my ( $self, %args ) = @_;
+    my $scope = $args{scope} || 'all';
+    my $host = defined $args{host} ? $args{host} : '0.0.0.0';
+    my $port = defined $args{port} ? $args{port} : 7890;
+    my $workers = defined $args{workers} ? $args{workers} : 1;
+    my $ssl = $args{ssl} ? 1 : 0;
+
+    my %result = (
+        action     => 'restart',
+        scope      => $scope,
+        target     => defined $args{name} && $args{name} ne '' ? $args{name} : ( $scope eq 'collector' ? 'all' : 'dashboard' ),
+        collectors => [],
+    );
+
+    if ( $scope eq 'web' ) {
+        my $pid = $self->stop_web( progress => $args{progress} );
+        my $web_pid = $self->_restart_web_with_retry(
+            host     => $host,
+            port     => $port,
+            workers  => $workers,
+            ssl      => $ssl,
+            progress => $args{progress},
+        );
+        $result{stopped_web_pid} = $pid;
+        $result{web_pid} = $web_pid;
+        $result{web} = {
+            pid     => $web_pid,
+            status  => 'restarted',
+            details => "$host:$port workers=$workers ssl=$ssl",
+        };
+        return \%result;
+    }
+
+    if ( $scope eq 'collector' ) {
+        my @names = defined $args{name} && $args{name} ne '' ? ( $args{name} ) : ();
+        my @stopped = $self->stop_collectors(
+            progress   => $args{progress},
+            ( @names ? ( names => \@names ) : () ),
+            structured => 1,
+        );
+        my @started = @names
+          ? ( $self->start_named_collector( name => $names[0], progress => $args{progress} ) )
+          : $self->start_collectors(
+            progress => $args{progress},
+            ( @names ? ( names => \@names ) : () ),
+          );
+        my %stopped = map { $_->{name} => $_ } @stopped;
+        $result{collectors} = [
+            map {
+                {
+                    name   => $_->{name},
+                    pid    => $_->{pid},
+                    status => 'restarted',
+                    details => defined $stopped{ $_->{name} } ? 'stopped then started' : 'started',
+                }
+            } @started
+        ];
+        return \%result;
+    }
+
+    my $restarted = $self->restart_all(
+        host     => $host,
+        port     => $port,
+        workers  => $workers,
+        ssl      => $ssl,
+        progress => $args{progress},
+    );
+    $result{stopped} = $restarted->{stopped};
+    $result{web_pid} = $restarted->{web_pid};
+    $result{web} = {
+        pid     => $restarted->{web_pid},
+        status  => 'restarted',
+        details => "$host:$port workers=$workers ssl=$ssl",
+    };
+    $result{collectors} = [
+        map {
+            {
+                name   => $_->{name},
+                pid    => $_->{pid},
+                status => 'restarted',
+                details => 'stopped then started',
+            }
+        } @{ $restarted->{collectors} || [] }
+    ];
+    return \%result;
+}
+
+# _collector_job_by_name($name)
+# Finds one configured collector job by name.
+# Input: collector name string.
+# Output: collector job hash reference or dies when it is unknown.
+sub _collector_job_by_name {
+    my ( $self, $name ) = @_;
+    die "Missing collector name\n" if !defined $name || $name eq '';
+    for my $job ( @{ $self->{config}->collectors } ) {
+        next if ref($job) ne 'HASH';
+        next if ( $job->{name} || '' ) ne $name;
+        return $job;
+    }
+    die "Unknown collector '$name'\n";
+}
+
+# _loop_job_for_named_start($job)
+# Normalizes one collector job into a loopable schedule for explicit named starts.
+# Input: collector job hash reference.
+# Output: collector job hash reference ready for CollectorRunner::start_loop.
+sub _loop_job_for_named_start {
+    my ( $self, $job ) = @_;
+    my %loop_job = %{$job || {}};
+    my $schedule = $loop_job{schedule}
+      || ( $loop_job{cron} ? 'cron' : $loop_job{interval} ? 'interval' : 'manual' );
+    if ( $schedule eq 'manual' ) {
+        $loop_job{interval} = 30 if !defined $loop_job{interval} || $loop_job{interval} !~ /^\d+$/ || $loop_job{interval} < 1;
+        $loop_job{schedule} = 'interval';
+    }
+    return \%loop_job;
+}
+
 # stop_progress_tasks()
 # Builds the ordered task list shown for dashboard stop progress output.
 # Input: none.
 # Output: array reference of task hash references.
 sub stop_progress_tasks {
-    my ($self) = @_;
-    my @tasks = (
-        {
+    my ( $self, %args ) = @_;
+    my $scope = $args{scope} || 'all';
+    my $name  = $args{name};
+    my @tasks;
+    if ( $scope eq 'all' || $scope eq 'web' ) {
+        push @tasks,
+          {
             id    => 'stop_web',
             label => 'Stop dashboard web service',
-        }
-    );
-    push @tasks, map {
-        +{
-            id    => "stop_collector:$_->{name}",
-            label => "Stop collector $_->{name}",
-        }
-    } $self->{runner}->running_loops;
+          };
+    }
+    if ( $scope eq 'all' || $scope eq 'collector' ) {
+        my @loops = $self->{runner}->running_loops;
+        my @names = defined $name && $name ne ''
+          ? ($name)
+          : map { $_->{name} } @loops;
+        push @tasks, map {
+            +{
+                id    => "stop_collector:$_",
+                label => "Stop collector $_",
+            }
+        } @names;
+    }
     return \@tasks;
 }
 
@@ -456,24 +733,40 @@ sub stop_progress_tasks {
 # Input: none.
 # Output: array reference of task hash references.
 sub restart_progress_tasks {
-    my ($self) = @_;
+    my ( $self, %args ) = @_;
+    my $scope = $args{scope} || 'all';
+    my $name  = $args{name};
     my @tasks = @{ $self->stop_progress_tasks };
-    for my $job ( @{ $self->{config}->collectors } ) {
-        next if ref($job) ne 'HASH';
-        my $schedule = $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' );
-        next if $schedule eq 'manual';
-        my $name = $job->{name} || '(unnamed)';
+    @tasks = @{ $self->stop_progress_tasks(%args) };
+    if ( $scope eq 'all' || $scope eq 'collector' ) {
+        my @collector_names;
+        if ( defined $name && $name ne '' ) {
+            @collector_names = ($name);
+        }
+        else {
+            for my $job ( @{ $self->{config}->collectors } ) {
+                next if ref($job) ne 'HASH';
+                my $schedule = $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' );
+                next if $schedule eq 'manual';
+                my $collector_name = $job->{name} || '(unnamed)';
+                push @collector_names, $collector_name;
+            }
+        }
+        push @tasks,
+          map {
+            {
+                id    => "start_collector:$_",
+                label => "Start collector $_",
+            }
+          } @collector_names;
+    }
+    if ( $scope eq 'all' || $scope eq 'web' ) {
         push @tasks,
           {
-            id    => "start_collector:$name",
-            label => "Start collector $name",
+            id    => 'start_web',
+            label => 'Start dashboard web service',
           };
     }
-    push @tasks,
-      {
-        id    => 'start_web',
-        label => 'Start dashboard web service',
-      };
     return \@tasks;
 }
 

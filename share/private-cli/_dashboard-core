@@ -557,10 +557,8 @@ elsif ( $cmd eq 'collector' ) {
     }
     elsif ( $action eq 'start' ) {
         my $name = shift @ARGV || die "Usage: dashboard collector start <name>\n";
-        my $job = _find_collector_job($name);
-        die "Unknown collector '$name'\n" if !$job;
-        my $pid = $runner->start_loop($job);
-        print "$pid\n";
+        my $started = $runtime->start_named_collector( name => $name );
+        print $started->{pid} . "\n";
         exit 0;
     }
     elsif ( $action eq 'stop' ) {
@@ -571,11 +569,9 @@ elsif ( $cmd eq 'collector' ) {
     }
     elsif ( $action eq 'restart' ) {
         my $name = shift @ARGV || die "Usage: dashboard collector restart <name>\n";
-        my $job = _find_collector_job($name);
-        die "Unknown collector '$name'\n" if !$job;
-        $runner->stop_loop($name);
-        my $pid = $runner->start_loop($job);
-        print "$pid\n";
+        my $result = $runtime->restart_target( scope => 'collector', name => $name );
+        my $collector = $result->{collectors}[0] || {};
+        print $collector->{pid} . "\n" if defined $collector->{pid};
         exit 0;
     }
 }
@@ -975,45 +971,35 @@ elsif ( $cmd eq 'serve' ) {
     exit 0;
 }
 elsif ( $cmd eq 'stop' ) {
-    my $progress = _lifecycle_progress(
-        title => 'dashboard stop progress',
-        tasks => $runtime->stop_progress_tasks,
+    require Developer::Dashboard::CLI::RuntimeControl;
+    exit Developer::Dashboard::CLI::RuntimeControl::run_runtime_command(
+        command    => $cmd,
+        args       => \@ARGV,
+        runtime    => $runtime,
+        config     => $config,
+        collectors => $collectors,
     );
-    my $result = $runtime->stop_all(
-        progress => $progress ? $progress->callback : undef,
-    );
-    $progress->finish if $progress;
-    print json_encode($result);
-    exit 0;
 }
 elsif ( $cmd eq 'restart' ) {
     _load_configured_path_aliases();
-    my $settings = $config->web_settings;
-    my $host = $settings->{host};
-    my $port = $settings->{port};
-    my $workers = $settings->{workers};
-    my $ssl = $settings->{ssl};
-    GetOptionsFromArray(
-        \@ARGV,
-        'host=s'    => \$host,
-        'port=i'    => \$port,
-        'workers=i' => \$workers,
-        'ssl!'      => \$ssl,
+    require Developer::Dashboard::CLI::RuntimeControl;
+    exit Developer::Dashboard::CLI::RuntimeControl::run_runtime_command(
+        command    => $cmd,
+        args       => \@ARGV,
+        runtime    => $runtime,
+        config     => $config,
+        collectors => $collectors,
     );
-    my $progress = _lifecycle_progress(
-        title => 'dashboard restart progress',
-        tasks => $runtime->restart_progress_tasks,
+}
+elsif ( $cmd eq 'log' || $cmd eq 'logs' ) {
+    require Developer::Dashboard::CLI::RuntimeControl;
+    exit Developer::Dashboard::CLI::RuntimeControl::run_runtime_command(
+        command    => $cmd,
+        args       => \@ARGV,
+        runtime    => $runtime,
+        config     => $config,
+        collectors => $collectors,
     );
-    my $result = $runtime->restart_all(
-        host     => $host,
-        port     => $port,
-        workers  => $workers,
-        ssl      => $ssl,
-        progress => $progress ? $progress->callback : undef,
-    );
-    $progress->finish if $progress;
-    print json_encode($result);
-    exit 0;
 }
 elsif ( $cmd eq 'shell' ) {
     my $shell = normalize_shell_name( shift @ARGV || native_shell_name() );
