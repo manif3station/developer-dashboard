@@ -1,5 +1,15 @@
 # Fixed Bugs
 
+## 3.16 - Explicit per-change numeric coverage QA gate
+
+- Fixed the documentation gap where Developer Dashboard described 100%
+  `Devel::Cover` library coverage as the target but did not state clearly that
+  the numeric coverage report is a standing QA gate after the normal
+  `prove -lr t` test gate on every change, not only at release time.
+- Added release-metadata regression checks so the synced user manuals and the
+  testing guide must keep that post-test 100% statement and subroutine
+  coverage requirement visible.
+
 ## 3.15 - Scoped runtime control, ticket completion, and skill Makefile flows
 
 - Fixed the top-level runtime control gap where operators had to drop into

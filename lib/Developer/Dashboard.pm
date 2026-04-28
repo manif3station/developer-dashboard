@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.15';
+our $VERSION = '3.16';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.15
+3.16
 
 =head1 INTRODUCTION
 
@@ -2046,6 +2046,10 @@ Measure library coverage with Devel::Cover:
   cover -report text -select_re '^lib/' -coverage statement -coverage subroutine
 
 The repository target is 100% statement and subroutine coverage for C<lib/>.
+This is a standing QA gate for every change, not only releases. After the
+normal C<prove -lr t> test gate passes, run the numeric C<Devel::Cover> gate
+and do not treat the work as done until the C<cover> summary still reports
+100% statement and 100% subroutine coverage for C<lib/>.
 GitHub workflow coverage gates must match the C<Devel::Cover> C<Total> summary
 line by regex rather than one fixed-width spacing layout, because runner or
 module upgrades can change column padding without changing the real

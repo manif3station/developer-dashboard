@@ -3,7 +3,7 @@ package Developer::Dashboard::EnvLoader;
 use strict;
 use warnings;
 
-our $VERSION = '3.15';
+our $VERSION = '3.16';
 
 use Cwd qw(abs_path cwd);
 use File::Basename qw(dirname);

@@ -18,6 +18,7 @@ my $release_doc = _slurp_optional( _repo_path( 'doc', 'update-and-release.md' ) 
 my $housekeeper_rotation_doc = _slurp_optional( _repo_path( 'doc', 'housekeeper-rotation.md' ) );
 my $install_bootstrap_doc = _slurp_optional( _repo_path( 'doc', 'install-bootstrap.md' ) );
 my $layered_env_doc = _slurp_optional( _repo_path( 'doc', 'layered-env-loading.md' ) );
+my $testing_doc = _slurp_optional( _repo_path( 'doc', 'testing.md' ) );
 my $changes = _slurp( _repo_path('Changes') );
 my $dist = _slurp_optional( _repo_path('dist.ini') );
 my $meta = _slurp_optional( _repo_path('META.json') );
@@ -70,7 +71,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '3.15', 'repo version bumped for scoped runtime control and skill Makefile support' );
+is( $version, '3.16', 'repo version bumped for the explicit per-change numeric coverage QA gate rule' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
     like( $dist, qr/^version = \Q$version\E$/m, 'dist.ini version matches the module version in the source tree' );
@@ -379,6 +380,9 @@ for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
     like( $doc, qr/fix -> test -> commit -> push -> rerun scorecard/, 'README documents the post-commit Scorecard enforcement loop explicitly' );
     like( $doc, qr/git-push-mf|~\/bin\/git-push-mf/, 'README documents the authenticated push helper in the Scorecard timing flow' );
     like( $doc, qr/Do not treat Scorecard as a pre-commit local gate/, 'README documents that live Scorecard runs happen after local gates and commit/push' );
+    like( $doc, qr/after the\s+normal\s+`prove -lr t`\s+test gate|after the\s+normal\s+C<prove -lr t>\s+test gate/is, 'README documents the explicit post-test numeric coverage QA gate ordering' );
+    like( $doc, qr/every change, not only releases|not only releases.*every change|every change.*not only releases/is, 'README documents the per-change numeric coverage QA gate scope' );
+    like( $doc, qr/do not treat the work as done until .*100%\s+statement\s+and\s+100%\s+subroutine|100%\s+statement\s+and\s+100%\s+subroutine.*do not treat the work as done/is, 'README documents numeric 100 percent library coverage as a completion gate' );
 }
 like( $release_doc, qr/dzil build/, 'release doc still documents the dzil build step' ) if $release_doc ne '';
 like( $release_doc, qr/exactly one unpacked\s+`Developer-Dashboard-X\.XX\/`\s+build directory and exactly one matching\s+`Developer-Dashboard-X\.XX\.tar\.gz`\s+tarball/s, 'release doc describes the enforced single-build-dir and single-tarball invariant' ) if $release_doc ne '';
@@ -386,6 +390,9 @@ like( $release_doc, qr/cpanm .*Developer-Dashboard-1\.\d+\.tar\.gz/, 'release do
 like( $install_bootstrap_doc, qr/install\.sh/, 'bootstrap install doc names the repo installer entrypoint' ) if $install_bootstrap_doc ne '';
 like( $install_bootstrap_doc, qr/cpanm --no-wget --notest Developer::Dashboard/, 'bootstrap install doc explains the user-space cpanm install contract' ) if $install_bootstrap_doc ne '';
 like( $install_bootstrap_doc, qr/aptfile.*apkfile.*brewfile|aptfile.*brewfile.*apkfile|apkfile.*aptfile.*brewfile|apkfile.*brewfile.*aptfile|brewfile.*aptfile.*apkfile|brewfile.*apkfile.*aptfile/is, 'bootstrap install doc explains all bootstrap package manifests' ) if $install_bootstrap_doc ne '';
+like( $testing_doc, qr/after the\s+normal\s+`prove -lr t`\s+test gate/is, 'testing doc documents the explicit post-test numeric coverage QA gate ordering' ) if $testing_doc ne '';
+like( $testing_doc, qr/every change, not only releases|not only releases.*every change|every change.*not only releases/is, 'testing doc documents the per-change numeric coverage QA gate scope' ) if $testing_doc ne '';
+like( $testing_doc, qr/do not treat the work as done until .*100%\s+statement\s+and\s+100%\s+subroutine|100%\s+statement\s+and\s+100%\s+subroutine.*do not treat the work as done/is, 'testing doc documents numeric 100 percent library coverage as a completion gate' ) if $testing_doc ne '';
 like( $agents_override, qr/DD-OOP-LAYERS/, 'AGENTS.override.md documents the layered runtime contract' ) if $agents_override ne '';
 like( $agents_override, qr/FULL-POD-DOC/, 'AGENTS.override.md documents the FULL-POD-DOC rule' ) if $agents_override ne '';
 unlike( $readme, qr/FULL-POD-DOC/, 'README no longer embeds the contributor-only FULL-POD-DOC contract in the product manual' ) if $readme ne '';

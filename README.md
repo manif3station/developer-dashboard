@@ -2038,6 +2038,10 @@ cover -report text -select_re '^lib/' -coverage statement -coverage subroutine
 ```
 
 The repository target is 100% statement and subroutine coverage for `lib/`.
+This is a standing QA gate for every change, not only releases. After the
+normal `prove -lr t` test gate passes, run the numeric `Devel::Cover` gate and
+do not treat the work as done until the `cover` summary still reports 100%
+statement and 100% subroutine coverage for `lib/`.
 GitHub workflow coverage gates must match the `Devel::Cover` `Total` summary
 line by regex rather than one fixed-width spacing layout, because runner or
 module upgrades can change column padding without changing the real

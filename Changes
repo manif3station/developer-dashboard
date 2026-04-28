@@ -1,3 +1,12 @@
+3.16  2026-04-28
+
+    - documented the explicit numeric `Devel::Cover` QA gate as a standing
+      requirement after the normal `prove -lr t` test gate on every change,
+      not only releases
+    - tightened the release-metadata regression gate so the synced manuals and
+      testing guide must keep that per-change 100 percent library coverage
+      contract visible
+
 3.15  2026-04-28
 
     - added top-level `dashboard restart`, `dashboard stop`, `dashboard log`,

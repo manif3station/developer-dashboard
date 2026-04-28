@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.15';
+our $VERSION = '3.16';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -1588,7 +1588,10 @@ sub _install_skill_makefile {
             push @stdout, $stdout if defined $stdout && $stdout ne '';
             push @stderr, $stderr if defined $stderr && $stderr ne '';
             if ( $exit != 0 ) {
-                my $target = @{$args} ? join( ' ', @{$args} ) : 'default';
+                my $target = 'default';
+                if (@{$args}) {
+                    $target = join( ' ', @{$args} );
+                }
                 my $detail = $stderr ne '' ? $stderr : $stdout;
                 die "Failed to run skill Makefile target '$target' for $skill_path: $detail";
             }

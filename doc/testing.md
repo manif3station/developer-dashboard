@@ -56,6 +56,10 @@ cover -report text -select_re '^lib/' -coverage statement -coverage subroutine
 ```
 
 Developer Dashboard expects a reviewed `lib/` coverage report before release, and the current repository target is 100% statement and subroutine coverage for `lib/`.
+This is a standing QA gate for every change, not only releases. After the
+normal `prove -lr t` test gate passes, run the numeric `Devel::Cover` gate and
+do not treat the work as done until the `cover` summary still reports 100%
+statement and 100% subroutine coverage for `lib/`.
 
 The coverage-closure suite includes managed collector loop start/stop paths under `Devel::Cover`, including wrapped fork coverage in `t/14-coverage-closure-extra.t`, so the covered run stays green without breaking TAP from daemon-style child processes.
 Managed collector children now scrub inherited `PERL5OPT` and `HARNESS_PERL_SWITCHES` coverage settings before their long-lived loop work begins, and the runtime manager widens its startup stability polls when the parent harness is running under `Devel::Cover`, so the full covered suite does not misclassify a slow instrumented startup as a dead runtime.

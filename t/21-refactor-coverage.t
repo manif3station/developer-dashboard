@@ -2869,6 +2869,23 @@ SH
     );
 }
 {
+    my $newline_gitignore_home = tempdir( CLEANUP => 1 );
+    my $newline_gitignore_paths = Developer::Dashboard::PathRegistry->new( home => $newline_gitignore_home );
+    my $newline_gitignore_manager = Developer::Dashboard::SkillManager->new( paths => $newline_gitignore_paths );
+    my $newline_gitignore_repo = _create_skill_repo( $test_repos, 'newline-gitignore-skill', with_cpanfile => 0 );
+    my $newline_gitignore = File::Spec->catfile( $newline_gitignore_paths->home_runtime_root, '.gitignore' );
+    _write_file( $newline_gitignore, '# dashboard runtime ignores' );
+
+    my $newline_gitignore_install = $newline_gitignore_manager->install("file://$newline_gitignore_repo");
+    ok( !$newline_gitignore_install->{error}, 'explicit install appends to an existing home .gitignore without a trailing newline' )
+      or diag $newline_gitignore_install->{error};
+    is(
+        _read_file($newline_gitignore),
+        "# dashboard runtime ignores\nskills/newline-gitignore-skill/\n",
+        'home .gitignore registration repairs a missing trailing newline before appending a new skill entry',
+    );
+}
+{
     my $multi_registry_home = tempdir( CLEANUP => 1 );
     my $multi_registry_paths = Developer::Dashboard::PathRegistry->new( home => $multi_registry_home );
     my $multi_registry_manager = Developer::Dashboard::SkillManager->new( paths => $multi_registry_paths );
@@ -2900,6 +2917,33 @@ SH
     ok( !$repeat_multi_install->{error}, 'install_many can refresh multiple existing sources without errors' )
       or diag $repeat_multi_install->{error};
     is( _read_file($multi_root_ddfile), join( "\n", @multi_sources ) . "\n", 'install_many does not duplicate root ddfile entries on refresh' );
+}
+{
+    my $multi_fail_home = tempdir( CLEANUP => 1 );
+    my $multi_fail_paths = Developer::Dashboard::PathRegistry->new( home => $multi_fail_home );
+    my @multi_fail_events;
+    my $multi_fail_manager = Developer::Dashboard::SkillManager->new(
+        paths    => $multi_fail_paths,
+        progress => sub {
+            my ($event) = @_;
+            push @multi_fail_events, { %{$event} };
+        },
+    );
+    my $good_repo = _create_skill_repo( $test_repos, 'multi-fail-good', with_cpanfile => 0 );
+    my $bad_local_source = File::Spec->catdir( $test_repos, 'multi-fail-bad' );
+    make_path($bad_local_source);
+
+    my $multi_fail = $multi_fail_manager->install_many( "file://$good_repo", $bad_local_source );
+    ok( $multi_fail->{error}, 'install_many returns an explicit error when one later source fails' );
+    like(
+        $multi_fail->{error},
+        qr/^Failed to install skill source \Q$bad_local_source\E: Local skill source '\Q$bad_local_source\E' is missing a \.git directory/,
+        'install_many error text names the failing source and underlying cause',
+    );
+    is( scalar @{ $multi_fail->{results} || [] }, 2, 'install_many returns the completed per-source results before aborting' );
+    ok( @multi_fail_events >= 2, 'install_many emits visible progress events while processing multiple sources' );
+    is( $multi_fail_events[0]{status}, 'running', 'install_many marks the first source as running before work begins' );
+    is( $multi_fail_events[-1]{status}, 'failed', 'install_many marks the broken later source as failed before aborting' );
 }
 {
     my $cli_home = tempdir( CLEANUP => 1 );
@@ -3855,6 +3899,88 @@ sub _dies {
     like( $output, qr/\x1b\[32m\[OK\]\x1b\[0m Stop dashboard web service/, 'CLI::Progress colors the done marker green when color output is enabled' );
     $progress->update( { task_id => 'stop_web', status => 'failed' } );
     like( $output, qr/\x1b\[31m\[X\]\x1b\[0m Stop dashboard web service/, 'CLI::Progress colors the failed marker red when color output is enabled' );
+}
+{
+    my $versionless_skill_root = tempdir( CLEANUP => 1 );
+    _write_file( File::Spec->catfile( $versionless_skill_root, '.env' ), "# no version here\nNAME=demo\n" );
+    is(
+        $manager->_skill_env_version($versionless_skill_root),
+        undef,
+        '_skill_env_version returns undef when the .env file has no VERSION assignment',
+    );
+}
+{
+    my $label_root = tempdir( CLEANUP => 1 );
+    is(
+        $manager->_dependency_progress_label(
+            'install_aptfile',
+            $label_root,
+            result => { error => "apt exploded\nwith details" },
+        ),
+        'Install aptfile dependencies (error: apt exploded with details)',
+        '_dependency_progress_label still surfaces dependency errors when the manifest file is absent',
+    );
+}
+{
+    my $manifest_progress_home = tempdir( CLEANUP => 1 );
+    my $manifest_progress_paths = Developer::Dashboard::PathRegistry->new( home => $manifest_progress_home );
+    my @manifest_progress_events;
+    my $manifest_progress_manager = Developer::Dashboard::SkillManager->new(
+        paths    => $manifest_progress_paths,
+        progress => sub {
+            my ($event) = @_;
+            push @manifest_progress_events, { %{$event} };
+        },
+    );
+    my $manifest_dir = tempdir( CLEANUP => 1 );
+    my $broken_dependency = File::Spec->catdir( $manifest_dir, 'broken-dependency' );
+    make_path($broken_dependency);
+    my $manifest_path = File::Spec->catfile( $manifest_dir, 'ddfile' );
+    _write_file( $manifest_path, "$broken_dependency\n" );
+    my @operations;
+
+    my $manifest_failure = $manifest_progress_manager->_install_manifest_file(
+        $manifest_path,
+        manifest_name => 'ddfile',
+        skills_root   => File::Spec->catdir( $manifest_progress_paths->home_runtime_root, 'skills' ),
+        operations    => \@operations,
+        progress      => 1,
+    );
+    ok( $manifest_failure->{error}, '_install_manifest_file returns an explicit error when one manifest source fails' );
+    like(
+        $manifest_failure->{error},
+        qr/Local skill source '\Q$broken_dependency\E' is missing a \.git directory/,
+        '_install_manifest_file forwards the underlying manifest install failure',
+    );
+    is_deeply( \@operations, [], '_install_manifest_file records no completed operations when the first source fails' );
+    is_deeply(
+        [ map { $_->{status} } @manifest_progress_events ],
+        [ 'running', 'failed' ],
+        '_install_manifest_file emits running and failed progress events for a broken source',
+    );
+}
+{
+    my $default_fail_skill = _create_skill_repo( $test_repos, 'make-default-fail', with_cpanfile => 0 );
+    _write_file( File::Spec->catfile( $default_fail_skill, 'Makefile' ), "install:\n\t\@true\n" );
+    local $ENV{DD_TEST_MAKE_FAIL} = 'default';
+
+    my $default_make_failure = $manager->_install_skill_makefile($default_fail_skill);
+    ok( $default_make_failure->{error}, '_install_skill_makefile returns an explicit error when the default make target fails' );
+    like(
+        $default_make_failure->{error},
+        qr/^Failed to run skill Makefile target 'default' for \Q$default_fail_skill\E: /,
+        '_install_skill_makefile names the failing default target in its error message',
+    );
+}
+{
+    local $ENV{DD_TEST_MAKE_FAIL} = 'install';
+    my $install_target_make_failure = $manager->_install_skill_makefile($dep_skill_root);
+    ok( $install_target_make_failure->{error}, '_install_skill_makefile returns an explicit error when a named target fails' );
+    like(
+        $install_target_make_failure->{error},
+        qr/^Failed to run skill Makefile target 'install' for \Q$dep_skill_root\E: /,
+        '_install_skill_makefile names the failing non-default target in its error message',
+    );
 }
 
 done_testing();

@@ -1949,6 +1949,147 @@ ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title re
     $manager->_cleanup_web_files;
 }
 
+{
+    local $runner->{started} = [];
+    local $runner->{loops}   = [];
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_collector_runtime_ready = sub { return 1 };
+    my @started = $manager->start_collectors( names => ['beta.collector'] );
+    is_deeply(
+        [ map { $_->{name} } @started ],
+        ['beta.collector'],
+        'start_collectors can scope startup to one requested collector name',
+    );
+}
+
+{
+    my $manual_home = tempdir(CLEANUP => 1);
+    my $manual_paths = Developer::Dashboard::PathRegistry->new( home => $manual_home );
+    my $manual_files = Developer::Dashboard::FileRegistry->new( paths => $manual_paths );
+    my $manual_config = Developer::Dashboard::Config->new( files => $manual_files, paths => $manual_paths );
+    $manual_config->save_global(
+        {
+            collectors => [
+                {
+                    name    => 'broken.collector',
+                    command => 'true',
+                    cwd     => 'home',
+                },
+            ],
+        }
+    );
+    my $manual_runner = Local::RuntimeRunner->new;
+    my $manual_manager = Developer::Dashboard::RuntimeManager->new(
+        app_builder => sub { return Local::RuntimeServer->new( foreground_file => "$manual_home/broken.txt", host => '127.0.0.1', port => 7992 ) },
+        config      => $manual_config,
+        files       => $manual_files,
+        paths       => $manual_paths,
+        runner      => $manual_runner,
+    );
+    local $manual_runner->{fail} = { 'broken.collector' => "named start failed\n" };
+    my $error = eval { $manual_manager->start_named_collector( name => 'broken.collector' ); 1 } ? '' : $@;
+    like( $error, qr/Failed to start collector 'broken\.collector': named start failed/, 'start_named_collector surfaces loop startup failures explicitly' );
+
+    no warnings 'redefine';
+    local $manual_runner->{fail} = {};
+    local *Developer::Dashboard::RuntimeManager::_collector_runtime_ready = sub { return 0 };
+    $error = eval { $manual_manager->start_named_collector( name => 'broken.collector' ); 1 } ? '' : $@;
+    like( $error, qr/Failed to keep collector 'broken\.collector' running after startup/, 'start_named_collector fails explicitly when the named collector never becomes runtime-ready' );
+}
+
+{
+    local $runner->{loops} = [ { name => 'alpha.collector', pid => 4101 } ];
+    no warnings 'redefine';
+    local *Local::RuntimeRunner::stop_loop = sub {
+        my ( $self, $name ) = @_;
+        die "stop failed\n" if $name eq 'alpha.collector';
+        return 1;
+    };
+    my $error = eval { $manager->stop_collectors( structured => 1 ); 1 } ? '' : $@;
+    like( $error, qr/Failed to stop collector 'alpha\.collector': stop failed/, 'stop_collectors surfaces loop stop failures explicitly' );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::stop_web = sub {
+        my ( undef, %args ) = @_;
+        return 5101;
+    };
+    my $stopped_web = $manager->stop_target( scope => 'web' );
+    is( $stopped_web->{web_pid}, 5101, 'stop_target web scope reports the stopped web pid' );
+    is( $stopped_web->{web}{status}, 'stopped', 'stop_target web scope reports stopped status' );
+
+    local *Developer::Dashboard::RuntimeManager::stop_collectors = sub {
+        my ( undef, %args ) = @_;
+        return (
+            { name => 'alpha.collector', pid => 6101, status => 'stopped' },
+            { name => 'beta.collector',  pid => 6102, status => 'stopped' },
+        );
+    };
+    my $stopped_collectors = $manager->stop_target( scope => 'collector' );
+    is( scalar @{ $stopped_collectors->{collectors} }, 2, 'stop_target collector scope reports all stopped collectors' );
+    is( $stopped_collectors->{target}, 'all', 'stop_target collector scope defaults its target label to all' );
+
+    my $stopped_named = $manager->stop_target( scope => 'collector', name => 'beta.collector' );
+    is( $stopped_named->{target}, 'beta.collector', 'stop_target collector scope preserves the requested collector name in the target field' );
+
+    local *Developer::Dashboard::RuntimeManager::stop_all = sub {
+        return {
+            web_pid    => 7101,
+            collectors => [ 'alpha.collector', 'beta.collector' ],
+        };
+    };
+    my $stopped_all = $manager->stop_target;
+    is( $stopped_all->{web_pid}, 7101, 'stop_target all scope reports the stopped dashboard web pid' );
+    is_deeply(
+        $stopped_all->{collectors},
+        [
+            { name => 'alpha.collector', status => 'stopped' },
+            { name => 'beta.collector',  status => 'stopped' },
+        ],
+        'stop_target all scope expands stopped collector names into summary hashes',
+    );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::stop_web = sub { return 8101 };
+    local *Developer::Dashboard::RuntimeManager::_restart_web_with_retry = sub { return 8102 };
+    my $restarted_web = $manager->restart_target( scope => 'web', host => '127.0.0.1', port => 7993, workers => 2, ssl => 1 );
+    is( $restarted_web->{stopped_web_pid}, 8101, 'restart_target web scope reports the old web pid' );
+    is( $restarted_web->{web_pid}, 8102, 'restart_target web scope reports the restarted web pid' );
+    like( $restarted_web->{web}{details}, qr/127\.0\.0\.1:7993 workers=2 ssl=1/, 'restart_target web scope reports the restarted web details' );
+
+    local *Developer::Dashboard::RuntimeManager::stop_collectors = sub {
+        return (
+            { name => 'alpha.collector', pid => 9101, status => 'stopped' },
+        );
+    };
+    local *Developer::Dashboard::RuntimeManager::start_collectors = sub {
+        return (
+            { name => 'alpha.collector', pid => 9102 },
+        );
+    };
+    my $restarted_collectors = $manager->restart_target( scope => 'collector' );
+    is( $restarted_collectors->{collectors}[0]{details}, 'stopped then started', 'restart_target collector scope reports the restart transition details for full-collector restarts' );
+
+    local *Developer::Dashboard::RuntimeManager::restart_all = sub {
+        return {
+            stopped    => { web_pid => 10101, collectors => [ 'alpha.collector' ] },
+            collectors => [ { name => 'alpha.collector', pid => 10102 } ],
+            web_pid    => 10103,
+        };
+    };
+    my $restarted_all = $manager->restart_target;
+    is( $restarted_all->{stopped}{web_pid}, 10101, 'restart_target all scope reports the stop summary from restart_all' );
+    is( $restarted_all->{collectors}[0]{status}, 'restarted', 'restart_target all scope reports restarted collectors' );
+}
+
+{
+    my $error = eval { $manager->_collector_job_by_name('missing.collector'); 1 } ? '' : $@;
+    like( $error, qr/Unknown collector 'missing\.collector'/, '_collector_job_by_name rejects unknown collector names clearly' );
+}
+
 done_testing;
 
 __END__
