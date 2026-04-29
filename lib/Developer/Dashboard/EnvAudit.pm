@@ -3,7 +3,7 @@ package Developer::Dashboard::EnvAudit;
 use strict;
 use warnings;
 
-our $VERSION = '3.17';
+our $VERSION = '3.19';
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 

@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '3.17';
+our $VERSION = '3.19';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -2492,7 +2492,7 @@ Supports: JS, CSS, JSON, XML, HTML, SVG, PNG, JPEG, GIF, WebP, ICO, and others.
 
 =head1 PURPOSE
 
-This module is the main route backend for the browser application. It handles login and logout, saved and transient page render/source/edit routes, status endpoints, saved Ajax endpoints, API dashboard and SQL dashboard routes, and the auth checks that decide whether a request is local admin, helper user, or unauthorized outsider.
+This module is the main route backend for the browser application. It handles login and logout, saved and transient page render/source/edit routes, status endpoints, saved Ajax endpoints, and the auth checks that decide whether a request is local admin, helper user, or unauthorized outsider.
 
 =head1 WHY IT EXISTS
 

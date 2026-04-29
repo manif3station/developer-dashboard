@@ -300,143 +300,27 @@ is(
     'SeededPages stores the managed seed manifest under the active runtime config root',
 );
 {
-    my $api_dashboard_page = Developer::Dashboard::CLI::SeededPages::page_for_id('api-dashboard');
-    isa_ok( $api_dashboard_page, 'Developer::Dashboard::PageDocument', 'page_for_id loads one shipped seeded page document' );
-    is( $api_dashboard_page->as_hash->{id}, 'api-dashboard', 'page_for_id returns the seeded page requested by id' );
-}
-{
-    my $sql_dashboard_page = Developer::Dashboard::CLI::SeededPages::sql_dashboard_page();
-    isa_ok( $sql_dashboard_page, 'Developer::Dashboard::PageDocument', 'sql_dashboard_page loads the shipped SQL dashboard bookmark definition' );
-    is( $sql_dashboard_page->as_hash->{id}, 'sql-dashboard', 'sql_dashboard_page returns the shipped SQL dashboard bookmark id' );
-}
-ok(
-    Developer::Dashboard::CLI::SeededPages::is_known_managed_page_md5(
-        id  => 'sql-dashboard',
-        md5 => '7d9101e0e2585c159e575f0dbd49b3ef',
-    ),
-    'SeededPages recognizes the pre-refresh shipped sql-dashboard digest as dashboard-managed for upgrade bridging',
-);
-ok(
-    Developer::Dashboard::CLI::SeededPages::is_known_managed_page_md5(
-        id  => 'sql-dashboard',
-        md5 => 'f62a03c9ff7d25cdce65ce569cf2e07b',
-    ),
-    'SeededPages recognizes the older home-runtime sql-dashboard splitter digest as dashboard-managed for upgrade bridging',
-);
-ok(
-    Developer::Dashboard::CLI::SeededPages::is_known_managed_page_md5(
-        id  => 'sql-dashboard',
-        md5 => '10a14e5749f374a78429654b6c49b5f0',
-    ),
-    'SeededPages recognizes the older hov1 sql-dashboard splitter digest as dashboard-managed for upgrade bridging',
-);
-ok(
-    !Developer::Dashboard::CLI::SeededPages::is_known_managed_page_md5(
-        id  => 'sql-dashboard',
-        md5 => 'ffffffffffffffffffffffffffffffff',
-    ),
-    'SeededPages rejects unknown sql-dashboard digests from automatic refresh',
-);
-{
-    my $shared_root = tempdir( CLEANUP => 1 );
-    my $shared_seeded_pages_root = File::Spec->catdir( $shared_root, 'seeded-pages' );
-    make_path($shared_seeded_pages_root);
-    my $shared_seeded_page = File::Spec->catfile( $shared_seeded_pages_root, 'api-dashboard.page' );
-    _write_file(
-        $shared_seeded_page,
-        Developer::Dashboard::CLI::SeededPages::api_dashboard_page()->canonical_instruction,
-    );
-
-    local *Developer::Dashboard::CLI::SeededPages::_repo_seeded_pages_root = sub {
-        return File::Spec->catdir( $shared_root, 'missing-repo-seeded-pages' );
-    };
-    local *Developer::Dashboard::CLI::SeededPages::dist_dir = sub { return $shared_root };
-
-    is(
-        Developer::Dashboard::CLI::SeededPages::_shared_seeded_pages_root(),
-        $shared_seeded_pages_root,
-        'SeededPages resolves the installed shared seeded-pages root through File::ShareDir',
-    );
-    is(
-        Developer::Dashboard::CLI::SeededPages::_seeded_page_asset_path('api-dashboard.page'),
-        $shared_seeded_page,
-        'SeededPages falls back to the installed shared seeded-page asset path when the repo asset is unavailable',
+    like(
+        _dies( sub { Developer::Dashboard::CLI::SeededPages::page_for_id('missing-dashboard') } ),
+        qr/Unknown seeded page id 'missing-dashboard'/,
+        'page_for_id rejects unknown seeded page ids after dashboard extraction from core',
     );
 }
 {
-    my $create_home = tempdir( CLEANUP => 1 );
-    my $cwd         = getcwd();
-    chdir $create_home or die "Unable to chdir to $create_home: $!";
-    my $create_paths = Developer::Dashboard::PathRegistry->new( home => $create_home );
-    my $create_seeded_page = Developer::Dashboard::CLI::SeededPages::sql_dashboard_page();
-    my $create_store = bless {
-        saved => [],
-    }, 'Local::SeededPageStore';
-
-    no warnings qw(redefine once);
-    local *Local::SeededPageStore::read_saved_entry = sub {
-        my ( $self, $id ) = @_;
-        die "Page '$id' not found\n";
-    };
-    local *Local::SeededPageStore::save_page = sub {
-        my ( $self, $page ) = @_;
-        push @{ $self->{saved} }, $page;
-        return $page;
-    };
-
-    is(
-        Developer::Dashboard::CLI::SeededPages::ensure_seeded_page(
-            pages => $create_store,
-            paths => $create_paths,
-            page  => $create_seeded_page,
-        ),
-        'created',
-        'ensure_seeded_page creates a missing shipped seeded page when no saved copy exists yet',
-    );
-    is( scalar @{ $create_store->{saved} }, 1, 'ensure_seeded_page saves a newly created seeded page exactly once' );
     ok(
-        -f Developer::Dashboard::CLI::SeededPages::seed_manifest_path( paths => $create_paths ),
-        'ensure_seeded_page records the seed manifest after creating a missing shipped seeded page',
+        !Developer::Dashboard::CLI::SeededPages::is_known_managed_page_md5(
+            id  => 'missing-dashboard',
+            md5 => 'ffffffffffffffffffffffffffffffff',
+        ),
+        'SeededPages rejects unknown digests from automatic refresh after dashboard extraction',
     );
-    chdir $cwd or die "Unable to chdir back to $cwd: $!";
 }
 {
-    my $current_home = tempdir( CLEANUP => 1 );
-    my $cwd          = getcwd();
-    chdir $current_home or die "Unable to chdir to $current_home: $!";
-    my $current_paths = Developer::Dashboard::PathRegistry->new( home => $current_home );
-    my $current_page  = Developer::Dashboard::CLI::SeededPages::sql_dashboard_page();
-    my $current_store = bless {
-        current => $current_page->canonical_instruction,
-        saved   => [],
-    }, 'Local::SeededPageStore';
-
-    no warnings qw(redefine once);
-    local *Local::SeededPageStore::read_saved_entry = sub {
-        my ( $self, $id ) = @_;
-        return $self->{current};
-    };
-    local *Local::SeededPageStore::save_page = sub {
-        my ( $self, $page ) = @_;
-        push @{ $self->{saved} }, $page;
-        return $page;
-    };
-
-    is(
-        Developer::Dashboard::CLI::SeededPages::ensure_seeded_page(
-            pages => $current_store,
-            paths => $current_paths,
-            page  => $current_page,
-        ),
-        'current',
-        'ensure_seeded_page records the manifest and returns current when the saved page already matches the shipped seed',
+    is_deeply(
+        [ Developer::Dashboard::CLI::SeededPages::known_managed_page_md5s('seeded-demo') ],
+        [],
+        'SeededPages reports no shipped managed digests once optional browser workspaces are extracted from core',
     );
-    is_deeply( $current_store->{saved}, [], 'ensure_seeded_page does not rewrite an already-current shipped seeded page' );
-    ok(
-        -f Developer::Dashboard::CLI::SeededPages::seed_manifest_path( paths => $current_paths ),
-        'ensure_seeded_page records the seed manifest when the saved page already matches the shipped seed',
-    );
-    chdir $cwd or die "Unable to chdir back to $cwd: $!";
 }
 {
     my $manifest_home = tempdir( CLEANUP => 1 );
@@ -444,14 +328,14 @@ ok(
     my $manifest_path = Developer::Dashboard::CLI::SeededPages::seed_manifest_path( paths => $manifest_paths );
 
     open my $manifest_fh, '>:raw', $manifest_path or die "Unable to write $manifest_path: $!";
-    print {$manifest_fh} qq|{"sql-dashboard":{"asset":"sql-dashboard.page","md5":"abc123"}}\n|;
+    print {$manifest_fh} qq|{"removed-dashboard":{"asset":"removed-dashboard.page","md5":"abc123"}}\n|;
     close $manifest_fh or die "Unable to close $manifest_path: $!";
 
     is_deeply(
         Developer::Dashboard::CLI::SeededPages::_read_manifest( paths => $manifest_paths ),
         {
-            'sql-dashboard' => {
-                asset => 'sql-dashboard.page',
+            'removed-dashboard' => {
+                asset => 'removed-dashboard.page',
                 md5   => 'abc123',
             },
         },
@@ -467,93 +351,148 @@ ok(
         {},
         '_read_manifest treats a blank seeded-page manifest file as an empty hash',
     );
-}
-{
-    my $legacy_home = tempdir( CLEANUP => 1 );
-    my $legacy_paths = Developer::Dashboard::PathRegistry->new( home => $legacy_home );
-    my $legacy_seeded_page_hash = Developer::Dashboard::CLI::SeededPages::page_for_id('sql-dashboard')->as_hash;
-    my $legacy_current = "legacy-managed-sql-dashboard\n";
-    my $legacy_saved = bless {
-        current => $legacy_current,
-        saved   => [],
-    }, 'Local::SeededPageStore';
-    my $original_content_md5 = \&Developer::Dashboard::SeedSync::content_md5;
 
-    no warnings qw(redefine once);
-    local *Local::SeededPageStore::read_saved_entry = sub {
-        my ( $self, $id ) = @_;
-        return $self->{current};
-    };
-    local *Local::SeededPageStore::save_page = sub {
-        my ( $self, $page ) = @_;
-        push @{ $self->{saved} }, $page;
-        return $page;
-    };
-    local *Developer::Dashboard::SeedSync::content_md5 = sub {
-        my ($content) = @_;
-        return '10a14e5749f374a78429654b6c49b5f0' if defined $content && $content eq $legacy_current;
-        return $original_content_md5->($content);
-    };
+    like(
+        _dies( sub { Developer::Dashboard::CLI::SeededPages::_write_manifest( paths => $manifest_paths, manifest => undef ) } ),
+        qr/Missing seeded page manifest hash/,
+        '_write_manifest requires a manifest hash reference',
+    );
+
+    my $written = Developer::Dashboard::CLI::SeededPages::_write_manifest(
+        paths    => $manifest_paths,
+        manifest => { seeded_demo => { md5 => 'abc' } },
+    );
+    ok( -f $written, '_write_manifest persists a seeded-page manifest file' );
 
     is(
+        Developer::Dashboard::CLI::SeededPages::_record_manifest_md5(
+            paths => $manifest_paths,
+            id    => 'seeded-demo',
+            md5   => '0123456789abcdef0123456789abcdef',
+        ),
+        '0123456789abcdef0123456789abcdef',
+        '_record_manifest_md5 returns the newly recorded digest',
+    );
+    ok(
+        Developer::Dashboard::CLI::SeededPages::_manifest_md5_matches(
+            paths => $manifest_paths,
+            id    => 'seeded-demo',
+            md5   => '0123456789abcdef0123456789abcdef',
+        ),
+        '_manifest_md5_matches accepts a matching manifest digest',
+    );
+    ok(
+        !Developer::Dashboard::CLI::SeededPages::_manifest_md5_matches(
+            paths => $manifest_paths,
+            id    => 'seeded-demo',
+            md5   => 'ffffffffffffffffffffffffffffffff',
+        ),
+        '_manifest_md5_matches rejects a different manifest digest',
+    );
+}
+{
+    package Local::SeededPageStore;
+
+    sub new {
+        my ( $class, %args ) = @_;
+        return bless {
+            saved        => $args{saved},
+            missing      => $args{missing} || 0,
+            saved_pages  => [],
+        }, $class;
+    }
+
+    sub read_saved_entry {
+        my ( $self, $id ) = @_;
+        die "Page '$id' not found" if $self->{missing};
+        return $self->{saved};
+    }
+
+    sub save_page {
+        my ( $self, $page ) = @_;
+        push @{ $self->{saved_pages} }, $page;
+        $self->{saved}   = $page->canonical_instruction;
+        $self->{missing} = 0;
+        return 1;
+    }
+}
+{
+    my $manifest_home = tempdir( CLEANUP => 1 );
+    my $manifest_paths = Developer::Dashboard::PathRegistry->new( home => $manifest_home );
+    my $page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE');
+TITLE: Seeded Demo
+:--------------------------------------------------------------------------------:
+BOOKMARK: seeded-demo
+:--------------------------------------------------------------------------------:
+HTML: <div>seeded</div>
+PAGE
+    my $missing_store = Local::SeededPageStore->new( missing => 1 );
+    is(
         Developer::Dashboard::CLI::SeededPages::ensure_seeded_page(
-            pages => $legacy_saved,
-            paths => $legacy_paths,
-            page  => $legacy_seeded_page_hash,
+            page  => $page,
+            pages => $missing_store,
+            paths => $manifest_paths,
+        ),
+        'created',
+        'ensure_seeded_page creates a missing seeded page',
+    );
+
+    my $current_store = Local::SeededPageStore->new( saved => $page->canonical_instruction );
+    is(
+        Developer::Dashboard::CLI::SeededPages::ensure_seeded_page(
+            page  => $page,
+            pages => $current_store,
+            paths => $manifest_paths,
+        ),
+        'current',
+        'ensure_seeded_page reports current for an unchanged managed page',
+    );
+
+    my $stale_page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE');
+TITLE: Seeded Demo
+:--------------------------------------------------------------------------------:
+BOOKMARK: seeded-demo
+:--------------------------------------------------------------------------------:
+HTML: <div>stale</div>
+PAGE
+    my $stale_md5 = Developer::Dashboard::SeedSync::content_md5( $stale_page->canonical_instruction );
+    Developer::Dashboard::CLI::SeededPages::_write_manifest(
+        paths    => $manifest_paths,
+        manifest => {
+            'seeded-demo' => {
+                asset => 'seeded-demo',
+                md5   => $stale_md5,
+            },
+        },
+    );
+    my $stale_store = Local::SeededPageStore->new( saved => $stale_page->canonical_instruction );
+    is(
+        Developer::Dashboard::CLI::SeededPages::ensure_seeded_page(
+            page  => $page->as_hash,
+            pages => $stale_store,
+            paths => $manifest_paths,
         ),
         'updated',
-        'ensure_seeded_page refreshes a stale managed sql-dashboard copy even when the older runtime never wrote a seed manifest',
+        'ensure_seeded_page refreshes a manifest-matched managed page',
     );
-    is( scalar @{ $legacy_saved->{saved} }, 1, 'ensure_seeded_page rewrites the stale managed sql-dashboard copy once' );
-    ok(
-        -f Developer::Dashboard::CLI::SeededPages::seed_manifest_path( paths => $legacy_paths ),
-        'ensure_seeded_page backfills the seed manifest after refreshing a recognized legacy managed sql-dashboard copy',
-    );
-}
-{
-    my $preserve_home = tempdir( CLEANUP => 1 );
-    my $cwd           = getcwd();
-    chdir $preserve_home or die "Unable to chdir to $preserve_home: $!";
-    my $preserve_paths = Developer::Dashboard::PathRegistry->new( home => $preserve_home );
-    my $seeded_page_hash = Developer::Dashboard::CLI::SeededPages::page_for_id('api-dashboard')->as_hash;
-    my $saved_instruction = <<'BOOKMARK';
-TITLE: api-dashboard
-:--------------------------------------------------------------------------------:
-BOOKMARK: api-dashboard
-:--------------------------------------------------------------------------------:
-HTML: <div>user-edited seeded page</div>
-BOOKMARK
-    my $page_store = bless {
-        current => $saved_instruction,
-        saved   => [],
-    }, 'Local::SeededPageStore';
 
-    no warnings qw(redefine once);
-    local *Local::SeededPageStore::read_saved_entry = sub {
-        my ( $self, $id ) = @_;
-        return $self->{current};
-    };
-    local *Local::SeededPageStore::save_page = sub {
-        my ( $self, $page ) = @_;
-        push @{ $self->{saved} }, $page;
-        return $page;
-    };
-
+    my $edited_page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE');
+TITLE: Seeded Demo
+:--------------------------------------------------------------------------------:
+BOOKMARK: seeded-demo
+:--------------------------------------------------------------------------------:
+HTML: <div>edited</div>
+PAGE
+    my $edited_store = Local::SeededPageStore->new( saved => $edited_page->canonical_instruction );
     is(
         Developer::Dashboard::CLI::SeededPages::ensure_seeded_page(
-            pages => $page_store,
-            paths => $preserve_paths,
-            page  => $seeded_page_hash,
+            page  => $page,
+            pages => $edited_store,
+            paths => $manifest_paths,
         ),
         'preserved',
-        'ensure_seeded_page preserves a diverged saved seed when it no longer matches any dashboard-managed digest',
+        'ensure_seeded_page preserves a diverged user-edited page',
     );
-    is_deeply( $page_store->{saved}, [], 'ensure_seeded_page does not rewrite a preserved user-edited seeded page' );
-    ok(
-        !-f Developer::Dashboard::CLI::SeededPages::seed_manifest_path( paths => $preserve_paths ),
-        'ensure_seeded_page does not create or update the seed manifest when it preserves a diverged page',
-    );
-    chdir $cwd or die "Unable to chdir back to $cwd: $!";
 }
 like(
     _dies( sub { Developer::Dashboard::InternalCLI::helper_path( paths => $paths, name => 'bogus' ) } ),

@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '3.17';
+our $VERSION = '3.19';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
@@ -982,7 +982,7 @@ It exists because bookmark execution is the heart of the product. Rendering, cod
 
 =head1 WHEN TO USE
 
-Use this file when changing bookmark rendering, Template Toolkit exposure, code-block execution, Ajax helper generation, or the browser-side helper contracts used by pages such as C<api-dashboard> and C<sql-dashboard>.
+Use this file when changing bookmark rendering, Template Toolkit exposure, code-block execution, or Ajax helper generation.
 
 =head1 HOW TO USE
 

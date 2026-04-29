@@ -29,7 +29,6 @@ my $security_pod = _slurp_optional( _repo_path('SECURITY.pod') );
 my $contributing_pod = _slurp_optional( _repo_path('CONTRIBUTING.pod') );
 my @doc_paths = grep { -e $_ } (
     _repo_path('README.md'),
-    _repo_path('SQL_DASHBOARD_SUPPORTS_DB.md'),
     _repo_path('SKILL.md'),
     _repo_path('FIXED_BUGS.md'),
     _repo_path('MISTAKE.md'),
@@ -71,7 +70,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '3.17', 'repo version bumped for the explicit per-change numeric coverage QA gate rule' );
+is( $version, '3.19', 'repo version bumped for the optional browser workspace extraction from core' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 if ( $dist ne '' ) {
     like( $dist, qr/^version = \Q$version\E$/m, 'dist.ini version matches the module version in the source tree' );
@@ -211,43 +210,10 @@ for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/vim -p|C<vim -p>/, 'docs describe vim tab mode for blank-enter open-all' );
     like( $doc, qr/stream_data\(url, target, options, formatter\)|C<stream_data\(url, target, options, formatter\)>/, 'docs describe the bookmark stream_data helper' );
     like( $doc, qr/XMLHttpRequest/, 'docs describe incremental browser streaming through XMLHttpRequest' );
-    like( $doc, qr/Postman-style|Postman collection/, 'docs describe the Postman-style api-dashboard workspace' );
-    like( $doc, qr/import and export(?: of)? Postman collection v2\.1 JSON|import and export(?: of)? Postman collection v2\.1 JSON/i, 'docs describe Postman collection import/export support' );
-    like( $doc, qr/config\/api-dashboard/, 'docs describe the runtime config/api-dashboard collection storage path' );
-    like( $doc, qr/API_DASHBOARD_IMPORT_FIXTURE/, 'docs describe the generic api-dashboard import-fixture browser repro' );
-    like( $doc, qr/t\/25-api-dashboard-large-import-playwright\.t/, 'docs describe the oversized api-dashboard browser import regression' );
-    like( $doc, qr/Collections and Workspace.*top-level tabs|top-level tabs.*Collections and Workspace/s, 'docs describe the tabbed api-dashboard shell layout' );
-    like( $doc, qr/config\/sql-dashboard.*0700|0700.*config\/sql-dashboard/s, 'docs describe the owner-only sql-dashboard profile directory' );
-    like( $doc, qr/profile JSON file owner-only at `0600`|profile JSON file owner-only at C<0600>|saved profile files at `0600`|saved profile files at C<0600>/, 'docs describe owner-only sql-dashboard profile files' );
-    like( $doc, qr/current SQL .*browser URL instead of a saved SQL file|current SQL .*browser URL.*saved SQL file/s, 'docs describe current SQL as URL state instead of a saved SQL file' );
-    like( $doc, qr/stored collections as click-through tabs|collection tab strip|collection-to-collection tab strip/s, 'docs describe the tabbed api-dashboard collection browser' );
-    like( $doc, qr/Request Details, Response Body, and Response Headers.*inner workspace tabs|inner workspace tabs.*Request Details, Response Body, and Response Headers/s, 'docs describe the tabbed api-dashboard response layout' );
     like( $doc, qr/request-specific\s+token\s+form|carry(?:ing)?\s+those\s+token\s+values\s+across\s+matching\s+placeholders|(?:`\{\{token\}\}`|C<\{\{token\}\}>|\{\{token\}\})\s+placeholders/s, 'docs describe the request-token carry-over workflow' );
     like( $doc, qr/below\s+the\s+response\s+`pre`|below\s+the\s+response\s+C<pre>/s, 'docs describe the response tabs below the response pre box' );
-    like( $doc, qr/back\/forward navigation|browser URL/, 'docs describe browser navigation-aware api-dashboard state' );
-    like( $doc, qr/PDF,\s+image,\s+and\s+TIFF\s+responses|PDF,\s+image,\s+and\s+TIFF/is, 'docs describe api-dashboard media preview support' );
-    like( $doc, qr/empty `200` save\/delete responses|empty C<200> save\/delete responses|execve/s, 'docs describe the stricter api-dashboard save success handling and large-import transport guardrail' );
     like( $doc, qr/dashboard cpan(?: <Module\.\.\.>| E<lt>Module\.\.\.E<gt>)?|C<dashboard cpan E<lt>Module\.\.\.E<gt>>/, 'docs describe the runtime-local dashboard cpan command' );
     like( $doc, qr/ssl_subject_alt_names/, 'docs describe configured extra SSL SAN aliases and IPs' );
-    like( $doc, qr/sql-dashboard/, 'docs describe the seeded sql-dashboard workspace' );
-    like( $doc, qr/config\/sql-dashboard/, 'docs describe the runtime config/sql-dashboard profile storage path' );
-    like( $doc, qr/config\/sql-dashboard\/collections/, 'docs describe the runtime config/sql-dashboard collection storage path' );
-    like( $doc, qr/portable `connection` id|portable C<connection> id|dsn\|user/, 'docs describe the portable sql-dashboard connection id model' );
-    like( $doc, qr/table_info|column_info/, 'docs describe generic DBI schema metadata browsing for sql-dashboard' );
-    like( $doc, qr/Collection.*Run SQL|Run SQL.*Collection/s, 'docs describe the sql-dashboard inner workspace tabs' );
-    like( $doc, qr/auto-resiz|auto resiz|large auto-resizing editor/, 'docs describe the sql-dashboard large auto-resizing editor' );
-    like( $doc, qr/inline\s+(?:`\[X\]`|C<\[X\]>|\[X\])/, 'docs describe inline saved-SQL deletion' );
-    like( $doc, qr/live filter|table list a live filter|schema table filter/i, 'docs describe schema table filtering' );
-    like( $doc, qr/View Data|copy a table name|copy a table/i, 'docs describe schema copy and view-data actions' );
-    like( $doc, qr/human type labels|positive length labels|raw numeric type codes/i, 'docs describe normalized schema type and length labels' );
-    like( $doc, qr/SQLS_SEP.*INSTRUCTION_SEP|INSTRUCTION_SEP.*SQLS_SEP/s, 'docs describe programmable sql-dashboard statement separators' );
-    like( $doc, qr/singleton workers|singleton saved-Ajax workers|singleton saved Ajax workers/, 'docs describe singleton sql-dashboard Ajax workers' );
-    like( $doc, qr/dashboard cpan DBD::Driver|DBD::\*/, 'docs describe optional DBD driver installation instead of bundling one database driver' );
-    like( $doc, qr/t\/27-sql-dashboard-playwright\.t/, 'docs describe the sql-dashboard Playwright browser verification' );
-    like( $doc, qr/SQLite.*MySQL.*PostgreSQL.*MSSQL.*Oracle|MySQL.*PostgreSQL.*MSSQL.*Oracle.*SQLite/s, 'docs describe the five live-supported SQL dashboard database families' );
-    like( $doc, qr/DBD::ODBC|ODBC/, 'docs describe the MSSQL ODBC driver path' );
-    like( $doc, qr/DBD::Oracle|Oracle/, 'docs describe the Oracle driver path' );
-    like( $doc, qr/t\/32-sql-dashboard-rdbms-playwright\.t/, 'docs describe the multi-RDBMS Playwright browser verification' );
     like( $doc, qr/bin\/dashboard|dashboard entrypoint|C<dashboard> entrypoint/, 'docs describe the dashboard cpan implementation as entrypoint-local' );
     like( $doc, qr/config\/config\.json.*intact|preserves an existing .*config\/config\.json/s, 'docs describe non-destructive dashboard init reruns' );
     like( $doc, qr/cli\/dd/, 'docs describe the dedicated dd helper namespace under the home runtime CLI root' );
@@ -255,6 +221,7 @@ for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/preserve(?:s|d)?\s+.*user-owned.*~\/\.developer-dashboard\/cli|~\/\.developer-dashboard\/cli.*user-owned.*preserve|non-destructive.*~\/\.developer-dashboard\/cli/s, 'docs describe non-destructive preservation of user-owned files under the home runtime CLI root' );
     like( $doc, qr/MD5.*skip(?:s|ping)?.*rewrit|skip(?:s|ping)?.*MD5.*rewrit/s, 'docs describe MD5-based skipping for unchanged managed init files' );
     like( $doc, qr/indicator\.icon.*Template Toolkit|TT-backed collector icons|icon_template/s, 'docs describe TT-backed collector icon rendering and persistence' );
+    unlike( $doc, qr/(?:[A-Z_]+_IMPORT_FIXTURE|config\/[A-Za-z-]*dashboard)/, 'core docs and POD no longer mention extracted dashboard feature artifacts' );
     like( $doc, qr/cdr.*regex|regex.*cdr|which_dir.*regex/i, 'docs describe regex-based cdr and which_dir narrowing' );
     like( $doc, qr/sort keys %\$d|Perl expression.*\$d|\$d.*Perl expression/is, 'docs describe Perl-expression query support through $d' );
     like( $doc, qr/_attributes|_text|decoded XML tree|xmlq.*root\.value/is, 'docs describe decoded XML query output instead of a raw xml wrapper' );
@@ -272,7 +239,7 @@ for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/\.go.*go run|go run.*\.go/s, 'docs describe direct executable Go command and hook dispatch through go run' );
     like( $doc, qr/\.java.*javac.*java|javac.*\.java.*java/s, 'docs describe direct executable Java command and hook dispatch through javac and java' );
     like( $doc, qr/dashboard hi|dashboard foo/, 'docs include concrete custom-command examples for source-backed CLI dispatch' );
-    unlike( $doc, qr/CPANManager/, 'docs do not describe a dedicated CPAN manager module for the sql-dashboard runtime driver flow' );
+    unlike( $doc, qr/CPANManager/, 'docs do not describe a dedicated CPAN manager module for a removed browser workspace runtime driver flow' );
     like( $doc, qr/Developer::Dashboard::SKILLS/, 'docs point readers at the shipped skill POD module' );
     unlike( $doc, qr/standalone `of` and `open-file`|standalone of and open-file/, 'docs no longer advertise public standalone of/open-file executables' );
     unlike( $doc, qr/standalone `ticket` executable|standalone ticket executable/, 'docs no longer advertise a public standalone ticket executable' );
@@ -408,8 +375,8 @@ like( $pm, qr/How is the browser UI served\?|browser UI runs as the dashboard we
 unlike( $pm, qr/=head2 Does it require a web framework\?/m, 'main module no longer carries the misleading web framework FAQ heading' );
 unlike( $readme, qr/minimal HTTP layer implemented with core Perl-oriented modules/i, 'README no longer claims the web stack avoids a framework' ) if $readme ne '';
 unlike( $pm, qr/minimal HTTP layer implemented with core Perl-oriented modules/i, 'main module no longer claims the web stack avoids a framework' );
-like( $readme, qr/LWP::UserAgent.*api-dashboard|api-dashboard.*LWP::UserAgent|LWP::UserAgent.*open-file|open-file.*LWP::UserAgent/is, 'README describes active LWP::UserAgent usage' ) if $readme ne '';
-like( $pm, qr/LWP::UserAgent.*api-dashboard|api-dashboard.*LWP::UserAgent|LWP::UserAgent.*open-file|open-file.*LWP::UserAgent/is, 'main module POD describes active LWP::UserAgent usage' );
+like( $readme, qr/LWP::UserAgent.*open-file|open-file.*LWP::UserAgent/is, 'README describes active LWP::UserAgent usage' ) if $readme ne '';
+like( $pm, qr/LWP::UserAgent.*open-file|open-file.*LWP::UserAgent/is, 'main module POD describes active LWP::UserAgent usage' );
 unlike( $readme, qr/no outbound HTTP client in the core runtime/i, 'README no longer claims outbound HTTP is unused' ) if $readme ne '';
 unlike( $pm, qr/no outbound HTTP client in the core runtime/i, 'main module POD no longer claims outbound HTTP is unused' );
 

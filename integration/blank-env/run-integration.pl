@@ -188,8 +188,7 @@ BOOKMARK
     my $init_data = decode_json( $init->{stdout} );
     _assert_match( $init_data->{runtime_root} || '', qr/\.developer-dashboard/, 'dashboard init returns runtime root' );
     _assert( !grep { $_ eq 'welcome' } @{ $init_data->{pages} || [] }, 'dashboard init no longer seeds welcome page' );
-    _assert( grep { $_ eq 'api-dashboard' } @{ $init_data->{pages} || [] }, 'dashboard init seeds api-dashboard page' );
-    _assert( grep { $_ eq 'sql-dashboard' } @{ $init_data->{pages} || [] }, 'dashboard init seeds sql-dashboard page' );
+    _assert( !@{ $init_data->{pages} || [] }, 'dashboard init no longer seeds extracted starter dashboard pages from core' );
 
     make_path($update_root);
     _write_text(
@@ -492,7 +491,7 @@ JSON
 
     my $helper_page = _run_shell(
         'helper page after login',
-        'curl -fsS -b ' . _shell_quote($cookie) . ' http://' . $container_ip . ':7890/app/api-dashboard'
+        'curl -fsS -b ' . _shell_quote($cookie) . ' http://' . $container_ip . ':7890/'
     );
     _assert_match( $helper_page->{stdout}, qr/id="logout-url"/, 'helper page chrome renders logout link' );
 

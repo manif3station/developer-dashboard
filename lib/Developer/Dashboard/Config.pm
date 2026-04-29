@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '3.17';
+our $VERSION = '3.19';
 
 use File::Spec;
 use Cwd qw(cwd);
@@ -714,7 +714,7 @@ collector C<code> and C<cwd>.
 
 =head1 WHAT USES IT
 
-It is used by init flows, path alias commands, auth/session bootstrap, collector refresh, web server settings, api-dashboard/sql-dashboard config storage, and release/integration tests that verify runtime config behavior.
+It is used by init flows, path alias commands, auth/session bootstrap, collector refresh, web server settings, and release/integration tests that verify runtime config behavior.
 
 =head1 EXAMPLES
 

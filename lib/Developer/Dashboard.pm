@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.17';
+our $VERSION = '3.19';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.17
+3.19
 
 =head1 INTRODUCTION
 
@@ -719,6 +719,10 @@ script content from breaking the browser bootstrap. If a bookmark body
 contains HTML such as C</script>, the editor now escapes the inline JSON
 assignment used to reload the source text, so the browser keeps the full
 bookmark source inside the editor instead of spilling raw text below the page.
+Saved browser workspaces can also show a request-specific token form above the
+editor whenever the current request uses C<{{token}}> placeholders, carrying
+those token values across matching placeholders in the same workflow so later
+requests can reuse the operator-supplied values without manual copy-and-paste.
 Bookmark rendering now emits saved C<set_chain_value()> bindings after
 the bookmark body HTML, so pages that declare C<var endpoints = {}> and then
 call helpers from C<$(document).ready(...)> receive their saved C</ajax/...>
@@ -735,6 +739,10 @@ the request finishes. Those helpers support plain text, JSON, and HTML output
 modes, and the saved Ajax endpoint bindings now run after the page declares
 its endpoint root object, so C<$(document).ready(...)> callbacks can call
 helpers such as C<fetch_value(endpoints.foo, '#foo')> on first render.
+Saved browser workspaces that render response inspection panels should place
+their Response Body and Response Headers tabs below the response C<pre> box so
+the main response payload stays visible while the tabbed details remain
+reachable without jumping away from the current result.
 
 =head2 User CLI Extensions
 
@@ -1381,7 +1389,7 @@ Resolve or open files from the CLI:
   dashboard of --print . 'Ok\.js$'
   dashboard of --print foobar 456.txt
   dashboard open-file --print path/to/file.txt
-  dashboard open-file --print bookmarks api-dashboard
+  dashboard open-file --print bookmarks index
 
 Query structured files from the CLI:
 
@@ -2122,79 +2130,6 @@ and add explicit expectations:
   --expect-ajax-body 123 \
   --expect-dom-fragment '<span class="display">123</span>'
 
-For C<api-dashboard> import regressions against a real external Postman
-collection, run the generic Playwright repro with an explicit fixture path:
-
-  API_DASHBOARD_IMPORT_FIXTURE=/path/to/collection.postman_collection.json \
-  prove -lv t/23-api-dashboard-import-fixture-playwright.t
-
-That browser test injects the external fixture into the visible
-C<api-dashboard> import control and verifies that the collection appears in the
-Collections tab, opens from the tree, and persists to
-F<config/api-dashboard/E<lt>collection-nameE<gt>.json> without baking
-fixture-specific branding into the repository.
-
-For oversized C<api-dashboard> imports that need to stay browser-verified
-above the saved-Ajax inline payload threshold, run:
-
-  prove -lv t/25-api-dashboard-large-import-playwright.t
-
-The main C<t/22-api-dashboard-playwright.t> browser flow now also waits for
-the saved collection JSON itself to contain the newly created request before
-it drives the later export/import/reload path, so that coverage proves real
-disk-backed collection persistence instead of only optimistic browser state.
-
-That Playwright test imports a deliberately large Postman collection through
-the visible browser file input and verifies that the browser still reports a
-successful import instead of failing with an C<Argument list too long>
-transport error.
-
-For the tabbed C<api-dashboard> browser layout, run the dedicated Playwright
-coverage:
-
-  prove -lv t/24-api-dashboard-tabs-playwright.t
-
-That browser test verifies the top-level Collections and Workspace tabs, the
-collection-to-collection tab strip inside the Collections view, and the inner
-Request Details, Response Body, and Response Headers tabs below the response
-C<pre> box so the bookmark remains usable in constrained browser widths.
-
-For C<sql-dashboard> browser coverage, run:
-
-  prove -lv t/27-sql-dashboard-playwright.t
-
-That browser test creates a profile through the visible bookmark UI, runs
-programmable SQL through a fake runtime-local C<DBI> stack under
-F<.developer-dashboard/local/lib/perl5>, verifies the shareable URL state,
-and checks the schema table-tab browser.
-
-For deep real SQLite browser coverage, run:
-
-  PERL5LIB=/tmp/sql-lib/lib/perl5:/tmp/sql-lib/lib/perl5/x86_64-linux-gnu-thread-multi \
-  prove -lv t/31-sql-dashboard-sqlite-playwright.t
-
-That browser matrix runs 51 real SQLite cases against the visible SQL
-workspace, including blank-user profile save and reload, merged workspace
-layout, saved-SQL collection flow, schema browsing, invalid SQL and attrs
-errors, shared-URL restoration, and file-permission checks.
-
-For optional docker-backed MySQL, PostgreSQL, MSSQL, and Oracle browser
-coverage, run:
-
-  PERL5LIB=/tmp/sql-lib/lib/perl5:/tmp/sql-lib/lib/perl5/x86_64-linux-gnu-thread-multi \
-  prove -lv t/32-sql-dashboard-rdbms-playwright.t
-
-That browser file covers real MySQL, PostgreSQL, MSSQL, and Oracle services
-through Docker using official C<mysql:5.7>, C<postgres:16>,
-C<mcr.microsoft.com/mssql/server:2022-latest>, and
-C<gvenzl/oracle-xe:21-slim-faststart> fixtures on this host. It intentionally
-skips unless C<DBI> plus the relevant C<DBD::mysql>, C<DBD::Pg>,
-C<DBD::ODBC>, or C<DBD::Oracle> driver is already installed in the active
-Perl environment. For MSSQL and Oracle on this host, the test also expects
-the user-space native client libraries to be exposed through C<PERL5LIB>,
-C<LD_LIBRARY_PATH>, and, for Oracle, C<ORACLE_HOME>. Those drivers are not
-shipped as base runtime prerequisites.
-
 From a source checkout, for Windows-targeted changes, also run the Strawberry
 Perl smoke on a Windows host:
 
@@ -2228,23 +2163,10 @@ F<./.developer-dashboard/cli/update/run> exists in the current project it is
 used first; otherwise the home runtime fallback is used. C<dashboard update>
 runs that command after any sorted hook files from F<update/> or F<update.d>.
 
-C<dashboard init> seeds two editable starter bookmarks when they are
-missing: C<api-dashboard> and C<sql-dashboard>.
-
 Re-running C<dashboard init> keeps an existing
 F<~/.developer-dashboard/config/config.json> intact. If the file is missing,
 init creates it as C<{}>. The command refreshes dashboard-managed helpers in
-F<~/.developer-dashboard/cli/dd/> and seeds starter bookmarks that are not
-already present.
-
-Starter bookmark refresh is non-destructive too. If a saved
-C<api-dashboard> or C<sql-dashboard> page still matches the last recorded
-dashboard-managed shipped copy, C<dashboard init> refreshes it to the
-current shipped seed. If the saved page has diverged from that managed
-digest, init treats it as a user edit and leaves it alone. The refresh bridge
-also recognizes known older dashboard-managed C<sql-dashboard> digests from
-runtimes that predate the seed manifest, so one stale shipped copy on an
-upgraded machine is refreshed instead of looking stuck on older browser UI.
+F<~/.developer-dashboard/cli/dd/> and preserves user-owned saved pages.
 
 When C<dashboard init> refreshes a dashboard-managed helper or shipped
 starter file, it compares the existing content against the shipped content by
@@ -2286,118 +2208,15 @@ thin switchboard handoff on the current checkout code instead of drifting onto
 an older installed C<Developer::Dashboard> copy that may also be visible in
 C<PERL5LIB>.
 
-The seeded C<api-dashboard> bookmark now behaves like a local Postman-style
-workspace. It keeps multiple request tabs in browser-local state, supports
-import and export of Postman collection v2.1 JSON through the Collections
-tab, saves created, updated, and imported collections as Postman collection
-JSON under the runtime F<config/api-dashboard/E<lt>collection-nameE<gt>.json>
-path, reloads every stored collection when the bookmark opens, keeps the
-active collection, request, and tab reflected in the browser URL for
-direct-link and back/forward navigation, renders Collections and Workspace as
-top-level tabs for narrower browser layouts, renders stored collections as
-click-through tabs instead of one long vertical stack, shows a request-specific
-token form above the editor whenever the selected request uses
-C<{{token}}> placeholders, carries those token values across matching
-placeholders in other requests from the same collection, resolves those token
-values into the visible request URL, headers, and body fields, renders a
-hide/show C<Request Credentials> section in the workspace with
-Postman-compatible C<Basic>, C<API Token>, C<API Key>, C<OAuth2>,
-C<Apple Login>, C<Amazon Login>, C<Facebook Login>, and C<Microsoft Login>
-presets, hydrates imported Postman C<request.auth> data back into that
-credentials panel, exports saved request auth back into valid Postman JSON,
-and applies the configured auth to outgoing headers or query strings when the
-request is sent. The OAuth-style provider presets fill common authorize/token
-URLs, but the actual access token and client details remain values the user
-enters for that request. The bookmark also tightens project-local
-F<config/api-dashboard> to C<0700> and each saved collection JSON file there
-to C<0600>, because saved request auth can include secrets inside the Postman
-collection JSON. It renders Request Details, Response Body, and Response
-Headers as inner workspace tabs below the response C<pre> box, defaults
-Response Body back to the active tab after each send, previews JSON, text,
-PDF, image, and TIFF responses appropriately, and sends requests through its
-saved Ajax endpoint backed by C<LWP::UserAgent>. HTTPS endpoints also require
-the packaged C<LWP::Protocol::https> runtime prerequisite, so clean installs
-can test normal TLS APIs without browser CORS rules. Oversized collection
-saves now spill the saved Ajax request payload through temp files instead of
-overflowing C<execve> environment limits, and the bookmark rejects empty
-C<200> save/delete responses instead of claiming success when nothing was
-persisted.
-
 C<dashboard cpan E<lt>Module...E<gt>> installs optional Perl modules into the
 active runtime-local F<./.developer-dashboard/local> tree and appends matching
 C<requires 'Module';> lines to F<./.developer-dashboard/cpanfile>. The command
 stays implemented in the C<dashboard> entrypoint rather than introducing a
-separate SQL or CPAN manager product module, and saved Ajax workers infer the
+separate CPAN manager product module, and saved Ajax workers infer the
 same runtime-local C<local/lib/perl5> path directly from the active runtime
 root. When the requested modules include C<DBD::*>, the command also installs
 and records C<DBI> automatically so generic database driver requests work with
 a single command.
-
-The seeded C<sql-dashboard> bookmark is a file-backed SQL workspace built
-inside the bookmark runtime itself rather than as a separate product module.
-It stores connection profiles under
-F<config/sql-dashboard/E<lt>profile-nameE<gt>.json>, keeps that
-F<config/sql-dashboard> directory owner-only at C<0700>, writes each saved
-profile JSON file owner-only at C<0600>, stores saved SQL collections under
-F<config/sql-dashboard/collections/E<lt>collection-nameE<gt>.json> with the
-same owner-only C<0700> / C<0600> directory and file permissions, keeps the
-active top-level tab, portable C<connection> id, selected collection,
-selected saved SQL item, selected schema table, and current SQL in the
-browser URL instead of a saved SQL file, and treats SQL collections and
-connection profiles as separate concepts so the same saved SQL can run
-against different connections. Share URLs only carry the DSN-plus-user
-connection id without a password; if another machine already has a matching
-saved profile with a saved password, the bookmark reruns the shared SQL
-there, otherwise it opens a draft connection profile built from that
-connection id so the other user can add any required local credentials and
-run it. Passwordless profiles such as SQLite may keep the user blank, and a
-matching blank-user shared route auto-runs without inventing a password
-warning when the DSN does not need one. The profile editor now renders the
-driver field as a dropdown of installed C<DBD::*> modules, shows
-driver-specific connection guidance beside that dropdown, seeds a usable DSN
-template for SQLite, MySQL, PostgreSQL, MSSQL/ODBC, and Oracle when the DSN
-is blank, and rewrites only the C<dbi:E<lt>DriverE<gt>:> DSN prefix when you
-switch drivers. The main browser flow now merges collections and editing into
-one C<SQL Workspace> tab with a phpMyAdmin-style master-detail layout with
-two inner workspace tabs: C<Collection> and C<Run SQL>. The C<Collection>
-view keeps collection tabs and the saved SQL list together in the left
-navigation rail, while C<Run SQL> keeps the editor plus results together on
-the right and leaves that runner view active by default because it is the
-main operator path. The active saved SQL name stays visible while you work,
-and saving a different SQL name into the same collection adds a second saved
-SQL entry instead of overwriting the selected one. The workspace editor now
-keeps the SQL textarea as the primary focus with content-based auto-resize,
-uses one quiet action row under the editor instead of a loud toolbar,
-removes the redundant in-workspace schema button in favour of the top
-C<Schema Explorer> tab, and moves saved-SQL deletion to a compact inline
-C<[X]> control beside each saved query so the list stays visually tied to
-its collection. The bookmark still renders profile tabs and schema tabs,
-executes SQL through generic C<DBI>, and uses DBI metadata calls such as
-C<table_info> and C<column_info> for the schema browser. Schema Explorer now
-also gives the table list a live filter box, renders human type labels and
-positive length labels from the DBI metadata instead of leaking raw numeric
-type codes, lets the user copy a table name directly, and adds a C<View
-Data> action that jumps back to C<Run SQL> with a ready C<select * from
-E<lt>tableE<gt>> query for the selected table. The core browser workflow is
-now live verified against SQLite, MySQL, PostgreSQL, MSSQL via
-C<DBD::ODBC>, and Oracle via C<DBD::Oracle>. Schema browse keeps reading
-C<table_info> / C<column_info> rows directly and must not call C<execute()>
-on those metadata handles, because ODBC drivers such as MSSQL can fail with
-C<SQL-HY010> on that misuse. Saved dashboard pages override shipped seeded
-pages, so an older F<~/.developer-dashboard/dashboards/sql-dashboard> copy
-can still shadow a newer shipped fix after upgrade; when SQL Dashboard
-behaviour looks stale, use C<dashboard page source sql-dashboard> to confirm
-which page source is live before debugging the browser route. It preserves
-programmable statement blocks through C<SQLS_SEP> and
-C<INSTRUCTION_SEP>, including C<STASH>, C<ROW>, C<BEFORE>, and C<AFTER>
-hooks, so result rows can still be transformed locally before rendering into
-derived HTML, links, or button-like actions. Its saved Ajax endpoints run
-through singleton workers. No
-C<DBD::*> driver ships in the base tarball by default; install only the one
-you need with C<dashboard cpan DBD::Driver> or user-space
-C<cpanm --no-wget --notest -L ~/perl5 DBD::Driver>, and the bookmark will return explicit
-install guidance when a selected driver is missing. The repository also ships
-a dedicated SQL dashboard support guide with the verification matrix and
 per-database notes for that workspace.
 
 =head2 Skills System
@@ -2792,6 +2611,26 @@ request
 
 =back
 
+=head3 Additional Release Notes
+
+When F<~/.developer-dashboard/.gitignore> exists, skill installs add
+C<skills/<repo-name>/> entries without duplication so cloned skill trees stay
+out of the tracked runtime tree.
+
+Skill-shipped pages mount under app-style routes such as
+C</app/<repo-name>> and C</app/<repo-name>/<page>>.
+
+Under C<DD-OOP-LAYERS>, same-name skills shadow by the deepest matching repo
+name while missing files still fall back to the base skill layer.
+
+For repository delivery on this machine, follow the loop:
+
+  fix -> test -> commit -> push -> rerun scorecard
+
+Use C<~/bin/git-push-mf> for the authenticated push step.
+Do not treat Scorecard as a pre-commit local gate; run it only after the local
+gates, commit, and push are complete.
+
 Skill fleet integration:
 
 =over 4
@@ -3041,8 +2880,8 @@ The project uses C<JSON::XS> for JSON encoding and decoding, including shell hel
 The project uses C<Capture::Tiny> for command-output capture via C<capture>,
 with exit codes returned from the capture block rather than read separately.
 It uses C<LWP::UserAgent> for real outbound HTTP in active runtime paths such
-as the saved C<api-dashboard> request runner and the Java source lookup or
-mirror path behind C<dashboard of> and C<dashboard open-file>.
+as the Java source lookup or mirror path behind C<dashboard of> and
+C<dashboard open-file>.
 
 =head1 SEE ALSO
 

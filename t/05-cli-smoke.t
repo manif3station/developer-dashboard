@@ -22,6 +22,7 @@ use Test::More;
 use Time::HiRes qw(sleep);
 
 my $UNDER_COVER = exists $INC{'Devel/Cover.pm'};
+my $repo = getcwd();
 
 sub _portable_path {
     my ($path) = @_;
@@ -53,7 +54,6 @@ local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
 local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
 
 my $perl = $^X;
-my $repo = getcwd();
 chdir $ENV{HOME} or die "Unable to chdir to $ENV{HOME}: $!";
 my $lib = File::Spec->catdir( $repo, 'lib' );
 my $dashboard = File::Spec->catfile( $repo, 'bin', 'dashboard' );
@@ -74,9 +74,6 @@ my $runtime_path = File::Spec->catfile( $runtime_dd_cli_root, 'path' );
 my $runtime_paths = File::Spec->catfile( $runtime_dd_cli_root, 'paths' );
 my $runtime_ps1 = File::Spec->catfile( $runtime_dd_cli_root, 'ps1' );
 my $runtime_dashboard_core = File::Spec->catfile( $runtime_dd_cli_root, '_dashboard-core' );
-my $runtime_api_dashboard = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'dashboards', 'api-dashboard' );
-my $runtime_sql_dashboard = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'dashboards', 'sql-dashboard' );
-my $seed_manifest_file = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'seeded-pages.json' );
 
 my $init = _run("$perl -I'$lib' '$dashboard' init");
 like($init, qr/runtime_root/, 'dashboard init works');
@@ -93,8 +90,6 @@ my $bootstrapped_config_json = do { local $/; <$bootstrapped_config_fh> };
 close $bootstrapped_config_fh;
 is_deeply( json_decode($bootstrapped_config_json), {}, 'dashboard init creates a missing config.json as an empty object' );
 my $managed_jq_mtime_before = ( stat $runtime_jq )[9];
-my $managed_api_dashboard_mtime_before = ( stat $runtime_api_dashboard )[9];
-my $managed_sql_dashboard_mtime_before = ( stat $runtime_sql_dashboard )[9];
 my $home_only_init_project = File::Spec->catdir( $ENV{HOME}, 'projects', 'home-only-init-project' );
 my $home_only_local_cli = File::Spec->catdir( $home_only_init_project, '.developer-dashboard', 'cli' );
 make_path( File::Spec->catdir( $home_only_init_project, '.git' ), $home_only_local_cli );
@@ -135,49 +130,6 @@ sleep 1.1;
 my $reinit = _run("$perl -I'$lib' '$dashboard' init");
 like($reinit, qr/config_file/, 'dashboard init can be re-run after a config already exists');
 is( ( stat $runtime_jq )[9], $managed_jq_mtime_before, 'dashboard init skips rewriting a dashboard-managed helper when its md5 already matches the shipped helper content' );
-is( ( stat $runtime_api_dashboard )[9], $managed_api_dashboard_mtime_before, 'dashboard init skips rewriting the api-dashboard seeded page when its md5 already matches the shipped seed content' );
-is( ( stat $runtime_sql_dashboard )[9], $managed_sql_dashboard_mtime_before, 'dashboard init skips rewriting the sql-dashboard seeded page when its md5 already matches the shipped seed content' );
-{
-    my $stale_sql_dashboard = <<'BOOKMARK';
-TITLE: SQL Dashboard
-:--------------------------------------------------------------------------------:
-BOOKMARK: sql-dashboard
-:--------------------------------------------------------------------------------:
-HTML: <div id="stale-sql-dashboard">stale managed sql dashboard</div>
-BOOKMARK
-    open my $stale_sql_fh, '>:raw', $runtime_sql_dashboard or die "Unable to write $runtime_sql_dashboard: $!";
-    print {$stale_sql_fh} $stale_sql_dashboard;
-    close $stale_sql_fh or die "Unable to close $runtime_sql_dashboard: $!";
-    open my $seed_manifest_fh, '>:raw', $seed_manifest_file or die "Unable to write $seed_manifest_file: $!";
-    print {$seed_manifest_fh} json_encode(
-        {
-            'sql-dashboard' => {
-                asset => 'sql-dashboard.page',
-                md5   => Developer::Dashboard::SeedSync::content_md5($stale_sql_dashboard),
-            },
-        }
-    );
-    print {$seed_manifest_fh} "\n";
-    close $seed_manifest_fh or die "Unable to close $seed_manifest_file: $!";
-
-    my $refresh_seed_init = _run("$perl -I'$lib' '$dashboard' init");
-    like( $refresh_seed_init, qr/runtime_root/, 'dashboard init refreshes a stale dashboard-managed seeded sql-dashboard copy' );
-    my $refreshed_sql_dashboard = _run("$perl -I'$lib' '$dashboard' page source sql-dashboard");
-    unlike( $refreshed_sql_dashboard, qr/stale-managed-sql-dashboard|stale managed sql dashboard/, 'dashboard init removes the stale managed sql-dashboard body when refreshing the shipped seed' );
-    like( $refreshed_sql_dashboard, qr/data-sql-workspace-tab="run"/, 'dashboard init refreshes sql-dashboard to the shipped Run SQL workspace layout when the saved page is a stale managed copy' );
-    like( $refreshed_sql_dashboard, qr/id="sql-table-filter"/, 'dashboard init refreshes sql-dashboard to the shipped schema filter layout when the saved page is a stale managed copy' );
-
-    my $user_sql_dashboard = $refreshed_sql_dashboard;
-    $user_sql_dashboard =~ s/SQL Workspace/User SQL Workspace/;
-    open my $user_sql_fh, '>:raw', $runtime_sql_dashboard or die "Unable to write $runtime_sql_dashboard: $!";
-    print {$user_sql_fh} $user_sql_dashboard;
-    close $user_sql_fh or die "Unable to close $runtime_sql_dashboard: $!";
-
-    my $preserve_seed_init = _run("$perl -I'$lib' '$dashboard' init");
-    like( $preserve_seed_init, qr/runtime_root/, 'dashboard init can be re-run after a user-edited sql-dashboard saved page diverges from the managed digest' );
-    my $preserved_user_sql_dashboard = _run("$perl -I'$lib' '$dashboard' page source sql-dashboard");
-    like( $preserved_user_sql_dashboard, qr/User SQL Workspace/, 'dashboard init preserves a user-edited sql-dashboard saved page instead of overwriting it' );
-}
 open my $preserved_config_fh, '<:raw', $global_config_file or die "Unable to read $global_config_file: $!";
 my $preserved_config_json = do { local $/; <$preserved_config_fh> };
 close $preserved_config_fh;
@@ -239,83 +191,11 @@ is_deeply(
 }
 
 my $pages = _run("$perl -I'$lib' '$dashboard' page list");
-unlike($pages, qr/\bwelcome\b/, 'dashboard init no longer seeds a welcome page');
-like($pages, qr/api-dashboard/, 'dashboard init seeds the API dashboard bookmark');
-like($pages, qr/sql-dashboard/, 'dashboard init seeds the SQL dashboard bookmark');
-my $api_page_source = _run("$perl -I'$lib' '$dashboard' page source api-dashboard");
-like($api_page_source, qr/^TITLE:\s+API Dashboard/m, 'api-dashboard source is available as a saved bookmark');
-unlike(
-    $api_page_source,
-    _literal_pattern(
-        'companies' . ' house',
-        'user' . 'name=',
-        'pass' . 'word=',
-        'ds' . 'n=',
-    ),
-    'api-dashboard bookmark source stays free of legacy sensitive details'
+is_deeply(
+    json_decode($pages),
+    [ 'project-context', 'system-status' ],
+    'dashboard init seeds only the remaining core starter pages',
 );
-like($api_page_source, qr/Import Postman Collection/, 'api-dashboard source exposes Postman collection import controls');
-like($api_page_source, qr/Export Postman Collection/, 'api-dashboard source exposes Postman collection export controls');
-like($api_page_source, qr/New Tab/, 'api-dashboard source exposes multiple request tabs');
-like($api_page_source, qr/history\.pushState/, 'api-dashboard source keeps workspace location in browser history');
-like($api_page_source, qr/window\.addEventListener\('popstate'/, 'api-dashboard source restores state on browser back and forward navigation');
-like($api_page_source, qr/URLSearchParams/, 'api-dashboard source parses direct-link workspace state from the URL');
-like($api_page_source, qr/api-response-preview/, 'api-dashboard source exposes an in-browser preview area for media responses');
-like($api_page_source, qr/configs\.collections\.bootstrap/, 'api-dashboard source binds a bootstrap collection ajax endpoint');
-like($api_page_source, qr/configs\.collections\.save/, 'api-dashboard source binds a collection save ajax endpoint');
-like($api_page_source, qr/configs\.collections\.delete/, 'api-dashboard source binds a collection delete ajax endpoint');
-like($api_page_source, qr/configs\.send\.request/, 'api-dashboard source binds the saved request sender ajax endpoint');
-like($api_page_source, qr/schema\.getpostman\.com\/json\/collection\/v2\.1\.0\/collection\.json/, 'api-dashboard source exports Postman v2.1 collection schema');
-like($api_page_source, qr/config\/api-dashboard/, 'api-dashboard source targets the runtime config/api-dashboard storage path');
-like($api_page_source, qr/preview_media_type/, 'api-dashboard source carries preview metadata for browser-rendered media responses');
-like($api_page_source, qr/Request Token Values/, 'api-dashboard source exposes the request-specific token form');
-like($api_page_source, qr/data-api-token-input/, 'api-dashboard source tags per-token input fields for shared collection placeholder values');
-like($api_page_source, qr/api-collection-tab/, 'api-dashboard source exposes collection tabs instead of only stacked collection cards');
-unlike($api_page_source, qr/opendir my \$dh, \$dir or do|open my \$fh, '<', \$path or do|\}\s+or do\s+\{/, 'api-dashboard saved ajax code avoids Perl control-flow precedence warnings in generated handlers');
-unlike($api_page_source, qr/!\s*\(\s*\$uri->scheme\s*\|\|\s*''\s*\)\s*=~/, 'api-dashboard saved ajax code avoids precedence-ambiguous URL scheme guards');
-my $sql_page_source = _run("$perl -I'$lib' '$dashboard' page source sql-dashboard");
-like($sql_page_source, qr/^TITLE:\s+SQL Dashboard/m, 'sql-dashboard source is available as a saved bookmark');
-unlike(
-    $sql_page_source,
-    _literal_pattern(
-        'companies' . ' house',
-        'e' . 'wf',
-        'xml' . 'gw',
-        'chi' . 'ps',
-        'tuxe' . 'do',
-        'c' . 'hs',
-        'gro' . 'ver',
-        'ci' . 'dev',
-        'p' . 'bs',
-        'user' . 'name=',
-        'pass' . 'word=',
-    ),
-    'sql-dashboard bookmark source stays free of sensitive or internal legacy details'
-);
-like($sql_page_source, qr/Connection Profiles/, 'sql-dashboard source exposes connection profile management');
-like($sql_page_source, qr/SQL Workspace/, 'sql-dashboard source exposes the merged SQL workspace');
-unlike($sql_page_source, qr/data-sql-main-tab="collections"/, 'sql-dashboard source no longer exposes a separate collections main tab');
-like($sql_page_source, qr/sql-workspace-nav/, 'sql-dashboard source exposes the workspace navigation rail');
-like($sql_page_source, qr/sql-active-sql-name/, 'sql-dashboard source exposes the active saved SQL label');
-like($sql_page_source, qr/sql-editor-actions/, 'sql-dashboard source exposes the understated editor action row');
-like($sql_page_source, qr/sql-editor-note/, 'sql-dashboard source exposes the editor guidance note');
-like($sql_page_source, qr/sql-inline-delete/, 'sql-dashboard source exposes inline delete controls for saved SQL entries');
-unlike($sql_page_source, qr/sql-open-schema/, 'sql-dashboard source removes the redundant in-workspace schema button');
-like($sql_page_source, qr/autoResizeSqlEditor/, 'sql-dashboard source exposes content-based editor auto-resize');
-like($sql_page_source, qr/Schema Explorer/, 'sql-dashboard source exposes a schema explorer area');
-like($sql_page_source, qr/URLSearchParams/, 'sql-dashboard source parses shareable workspace state from the URL');
-like($sql_page_source, qr/history\.pushState/, 'sql-dashboard source keeps workspace state in browser history');
-like($sql_page_source, qr/configs\.profiles\.bootstrap/, 'sql-dashboard source binds a profile bootstrap ajax endpoint');
-like($sql_page_source, qr/configs\.profiles\.save/, 'sql-dashboard source binds a profile save ajax endpoint');
-like($sql_page_source, qr/configs\.profiles\.delete/, 'sql-dashboard source binds a profile delete ajax endpoint');
-like($sql_page_source, qr/configs\.sql\.execute/, 'sql-dashboard source binds a saved sql execution ajax endpoint');
-like($sql_page_source, qr/configs\.schema\.browse/, 'sql-dashboard source binds a schema browse ajax endpoint');
-like($sql_page_source, qr/config\/sql-dashboard/, 'sql-dashboard source targets the runtime config/sql-dashboard storage path');
-like($sql_page_source, qr/SQLS_SEP/, 'sql-dashboard source carries programmable multi-statement separators');
-like($sql_page_source, qr/INSTRUCTION_SEP/, 'sql-dashboard source carries programmable instruction separators');
-
-my $page_source = _run("$perl -I'$lib' '$dashboard' page source api-dashboard");
-like($page_source, qr/^BOOKMARK:\s+api-dashboard/m, 'page source prefers saved page ids over token decoding');
 
 my $tt_page_instruction = <<'BOOKMARK';
 TITLE: TT CLI Demo
