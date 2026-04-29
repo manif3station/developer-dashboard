@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.19';
+our $VERSION = '3.20';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -434,6 +434,24 @@ sub stop_collectors {
         my $name = $_->{name};
         $name && ( !%wanted || $wanted{$name} );
     } @running;
+    if (%wanted) {
+        my %present = map { $_->{name} => 1 } @targets;
+        for my $name ( sort keys %wanted ) {
+            next if $present{$name};
+            next if !$self->{runner}->can('loop_state');
+            my $state = eval { $self->{runner}->loop_state($name) };
+            next if !$state || ref($state) ne 'HASH';
+            my $pid = $state->{pid};
+            next if !defined $pid || $pid !~ /^\d+$/ || $pid < 1 || !kill 0, $pid;
+            next if ( $state->{name} || '' ) ne $name;
+            next if ( $state->{status} || '' ) !~ /^(?:starting|running|error)$/;
+            push @targets, {
+                name  => $name,
+                pid   => $pid,
+                state => $state,
+            };
+        }
+    }
     my @names = map { $_->{name} } @targets;
     my @stopped;
     for my $loop (@targets) {

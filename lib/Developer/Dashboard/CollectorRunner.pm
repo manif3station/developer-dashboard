@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '3.19';
+our $VERSION = '3.20';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -408,7 +408,7 @@ sub stop_loop {
     return if !-f $pidfile;
     my $pid = _slurp($pidfile);
     chomp $pid;
-    if ( $pid && $self->_is_managed_loop( $pid, $name ) ) {
+    if ( $pid && ( $self->_is_managed_loop( $pid, $name ) || $self->_state_confirms_managed_loop( $name, $pid ) ) ) {
         kill 15, $pid;
         for ( 1 .. 20 ) {
             last if !kill 0, $pid;
@@ -510,6 +510,24 @@ sub _is_managed_loop {
     my $title = $self->_read_process_title($pid);
     return 0 if !defined $title || $title eq '';
     return $title eq $self->_process_title($name) ? 1 : 0;
+}
+
+# _state_confirms_managed_loop($name, $pid)
+# Confirms a managed collector loop from persisted loop-state metadata when the
+# process marker or title is not observable yet.
+# Input: collector name string and process id integer.
+# Output: boolean managed flag.
+sub _state_confirms_managed_loop {
+    my ( $self, $name, $pid ) = @_;
+    return 0 if !defined $name || $name eq '';
+    return 0 if !$pid || !kill 0, $pid;
+    my $state = eval { $self->loop_state($name) };
+    return 0 if !$state || ref($state) ne 'HASH';
+    return 0 if ( $state->{pid} || 0 ) != $pid;
+    return 0 if ( $state->{name} || '' ) ne $name;
+    return 0 if ( $state->{process_name} || '' ) ne $self->_process_title($name);
+    return 0 if ( $state->{status} || '' ) !~ /^(?:starting|running|error)$/;
+    return 1;
 }
 
 # _read_process_env_marker($pid, $key)

@@ -7,7 +7,7 @@
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.19
+3.20
 
 =head1 INTRODUCTION
 
@@ -2268,10 +2268,11 @@ F<~/.developer-dashboard/.gitiignore> spelling as a compatibility safety net.
 Calling bare C<dashboard skills install> with no source reads that root
 F<ddfile> and reinstalls every listed skill as an update batch, showing the
 same progress rundown and before/after version table. If no listed skill
-changes version, the summary explicitly says C<No update.>. If the root
-F<ddfile> does not exist yet or has no installable entries, the command returns
-an explicit error telling the user to install a skill first or pass a skill
-source.
+changes version, the summary explicitly says C<No update.>. First-time installs
+from that root F<ddfile> still report C<installed> even when the skill ships no
+F<.env> C<VERSION> metadata. If the root F<ddfile> does not exist yet or has no
+installable entries, the command returns an explicit error telling the user to
+install a skill first or pass a skill source.
 Developer Dashboard does not merge the skill's C<cli/>, C<dashboards/>,
 C<config/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>, C<dnfile>, C<brewfile>,
 C<Makefile>, C<package.json>, C<cpanfile>, C<cpanfile.local>, or Docker files into the

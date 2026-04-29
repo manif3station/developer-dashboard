@@ -2653,16 +2653,19 @@ close $stale_pid;
         pass('start_loop writes loop metadata for new loops');
     }
     else {
-        no warnings 'redefine';
-        local *Developer::Dashboard::CollectorRunner::sleep = sub { die "stop loop\n" };
-        my $pid = $runner->start_loop(
-            {
-                name     => 'stale',
-                command  => q{printf 'stale'},
-                cwd      => 'home',
-                interval => 0.01,
-            }
-        );
+        my $pid;
+        {
+            no warnings 'redefine';
+            local *Developer::Dashboard::CollectorRunner::sleep = sub { die "stop loop\n" };
+            $pid = $runner->start_loop(
+                {
+                    name     => 'stale',
+                    command  => q{printf 'stale'},
+                    cwd      => 'home',
+                    interval => 0.01,
+                }
+            );
+        }
         ok( $pid, 'start_loop replaces stale pidfiles and starts a new loop' );
         sleep 1;
         ok( $runner->loop_state('stale')->{pid}, 'start_loop writes loop metadata for new loops' );
@@ -2679,16 +2682,19 @@ close $stale_pid;
         pass('stop_loop removes loop metadata after shutdown');
     }
     else {
-        no warnings 'redefine';
-        local *Developer::Dashboard::CollectorRunner::sleep = sub { die "stop loop\n" };
-        my $pid = $runner->start_loop(
-            {
-                name     => 'loop',
-                command  => q{printf 'loop'},
-                cwd      => 'home',
-                interval => 0.01,
-            }
-        );
+        my $pid;
+        {
+            no warnings 'redefine';
+            local *Developer::Dashboard::CollectorRunner::sleep = sub { die "stop loop\n" };
+            $pid = $runner->start_loop(
+                {
+                    name     => 'loop',
+                    command  => q{printf 'loop'},
+                    cwd      => 'home',
+                    interval => 0.01,
+                }
+            );
+        }
         ok( $pid, 'start_loop forks a collector loop when no live pid exists' );
         sleep 1;
         like( $runner->loop_state('loop')->{status}, qr/^(?:starting|running)$/, 'running loops publish managed lifecycle state metadata' );
@@ -2706,16 +2712,19 @@ close $stale_pid;
         pass('start_loop logs collector failures from the child loop');
     }
     else {
-        no warnings 'redefine';
-        local *Developer::Dashboard::CollectorRunner::sleep = sub { die "stop loop\n" };
-        my $pid = $runner->start_loop(
-            {
-                name     => 'broken-loop',
-                command  => q{printf broken},
-                cwd      => File::Spec->catdir( $home, 'missing-broken-loop' ),
-                interval => 0.01,
-            }
-        );
+        my $pid;
+        {
+            no warnings 'redefine';
+            local *Developer::Dashboard::CollectorRunner::sleep = sub { die "stop loop\n" };
+            $pid = $runner->start_loop(
+                {
+                    name     => 'broken-loop',
+                    command  => q{printf broken},
+                    cwd      => File::Spec->catdir( $home, 'missing-broken-loop' ),
+                    interval => 0.01,
+                }
+            );
+        }
         ok( $pid, 'start_loop also returns a pid for failing jobs' );
         sleep 1;
         like( $runner->loop_state('broken-loop')->{status}, qr/error|running/, 'failing loops keep state metadata for management' );
@@ -2817,6 +2826,44 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     is_deeply( [ map { $_->{name} } @running ], ['observed'], 'running_loops returns only validated managed collectors' );
     is( $running[0]{pid}, $$, 'running_loops includes matching pid values' );
     $runner->_cleanup_loop_files('observed');
+}
+
+{
+    my $child = fork();
+    die 'Unable to fork state-backed stop child' if !defined $child;
+    if ( !$child ) {
+        sleep 30;
+        exit 0;
+    }
+    my $pidfile = File::Spec->catfile( $paths->collectors_root, 'state-backed.pid' );
+    open my $state_pid, '>', $pidfile or die $!;
+    print {$state_pid} "$child\n";
+    close $state_pid;
+    $runner->_write_loop_state(
+        'state-backed',
+        {
+            pid          => $child,
+            name         => 'state-backed',
+            process_name => 'dashboard collector: state-backed',
+            status       => 'starting',
+        }
+    );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CollectorRunner::_read_process_env_marker = sub { return };
+        local *Developer::Dashboard::CollectorRunner::_read_process_title = sub { return '' };
+        ok(
+            $runner->_state_confirms_managed_loop( 'state-backed', $child ),
+            '_state_confirms_managed_loop trusts persisted loop state for a live collector when process markers are not observable yet',
+        );
+        is(
+            $runner->stop_loop('state-backed'),
+            $child,
+            'stop_loop terminates a managed collector from persisted loop state when process markers are not observable yet',
+        );
+    }
+    waitpid( $child, 0 );
+    $runner->_cleanup_loop_files('state-backed');
 }
 
 {

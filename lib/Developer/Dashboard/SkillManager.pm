@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.19';
+our $VERSION = '3.20';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -690,6 +690,7 @@ sub _install_to_skills_root {
 
     $self->{paths}->ensure_dir($skills_root);
     my $skill_path = File::Spec->catdir( $skills_root, $repo_name );
+    my $had_existing = -e $skill_path ? 1 : 0;
     my $version_before = $self->_skill_env_version($skill_path);
     my $remove = $self->_remove_existing_skill_path($skill_path);
     return $remove if $remove->{error};
@@ -745,7 +746,7 @@ sub _install_to_skills_root {
     my $dependency = $self->_install_skill_dependencies($skill_path);
     return $dependency if $dependency->{error};
     my $version_after = $self->_skill_env_version($skill_path);
-    my $install_status = $self->_install_version_status( $version_before, $version_after );
+    my $install_status = $self->_install_version_status( $version_before, $version_after, $had_existing );
 
     return {
         success        => 1,
@@ -785,13 +786,16 @@ sub _skill_env_version {
     return undef;
 }
 
-# _install_version_status($before, $after)
-# Classifies one install result from the before and after .env VERSION values.
-# Input: optional version strings.
+# _install_version_status($before, $after, $had_existing)
+# Classifies one install result from the before and after .env VERSION values
+# plus whether the skill existed before this run started.
+# Input: optional version strings and a boolean that reports whether an earlier
+# installed skill tree existed before reinstall or update work began.
 # Output: installed, updated, no update, or unknown.
 sub _install_version_status {
-    my ( $self, $before, $after ) = @_;
+    my ( $self, $before, $after, $had_existing ) = @_;
     return 'installed' if !defined $before && defined $after;
+    return 'installed' if !$had_existing;
     return 'updated'   if defined $before && defined $after && $before ne $after;
     return 'no update' if defined $before && defined $after && $before eq $after;
     return 'unknown';

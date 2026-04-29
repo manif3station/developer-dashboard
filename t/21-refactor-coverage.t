@@ -2634,8 +2634,8 @@ SH
                 path           => File::Spec->catdir( $ENV{HOME}, 'skills-home', '.developer-dashboard', 'skills', 'manifest-global-skill' ),
                 version_before => undef,
                 version_after  => undef,
-                status         => 'unknown',
-                changed        => 0,
+                status         => 'installed',
+                changed        => 1,
             },
             {
                 manifest       => 'ddfile.local',
@@ -2644,11 +2644,11 @@ SH
                 path           => File::Spec->catdir( $manifest_root, 'skills', 'manifest-local-skill' ),
                 version_before => undef,
                 version_after  => undef,
-                status         => 'unknown',
-                changed        => 0,
+                status         => 'installed',
+                changed        => 1,
             },
         ],
-        'install_from_ddfiles processes ddfile before ddfile.local',
+        'install_from_ddfiles treats first-time manifest installs without VERSION metadata as installed and still processes ddfile before ddfile.local',
     );
 }
 {
@@ -2754,7 +2754,7 @@ SH
                 changed        => 0,
             },
         ],
-        'install_registered_skills reports the manifest update operations from the home root ddfile',
+        'install_registered_skills keeps existing root-ddfile refreshes without VERSION metadata classified as unknown',
     );
     my $registry_dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $registry_paths );
     like(
@@ -2912,11 +2912,11 @@ SH
                 path           => File::Spec->catdir( $cli_paths->home_runtime_root, 'skills', 'cli-root-ddfile-skill' ),
                 version_before => undef,
                 version_after  => undef,
-                status         => 'unknown',
-                changed        => 0,
+                status         => 'installed',
+                changed        => 1,
             },
         ],
-        'bare dashboard skills install updates every source from the home root ddfile',
+        'bare dashboard skills install reports a first root-ddfile install without VERSION metadata as installed',
     );
 }
 {

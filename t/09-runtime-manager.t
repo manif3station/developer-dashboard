@@ -2109,6 +2109,38 @@ ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title re
 
 {
     no warnings 'redefine';
+    local *Local::RuntimeRunner::running_loops = sub { return () };
+    local *Local::RuntimeRunner::loop_state = sub {
+        my ( undef, $name ) = @_;
+        return if $name ne 'beta.collector';
+        return {
+            pid          => $$,
+            name         => 'beta.collector',
+            status       => 'starting',
+            process_name => 'dashboard collector: beta.collector',
+        };
+    };
+    local *Local::RuntimeRunner::stop_loop = sub {
+        my ( $self, $name ) = @_;
+        push @{ $self->{stopped} }, $name;
+        return $$;
+    };
+    my $state_backed_stop = $manager->stop_target( scope => 'collector', name => 'beta.collector' );
+    is_deeply(
+        $state_backed_stop->{collectors},
+        [
+            {
+                name   => 'beta.collector',
+                pid    => $$,
+                status => 'stopped',
+            },
+        ],
+        'stop_target collector scope reports one named collector from persisted loop state when the managed title is not observable yet',
+    );
+}
+
+{
+    no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::stop_web = sub { return 8101 };
     local *Developer::Dashboard::RuntimeManager::_restart_web_with_retry = sub { return 8102 };
     my $restarted_web = $manager->restart_target( scope => 'web', host => '127.0.0.1', port => 7993, workers => 2, ssl => 1 );

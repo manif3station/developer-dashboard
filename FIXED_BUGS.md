@@ -1,5 +1,18 @@
 # Fixed Bugs
 
+## 3.20 - Root ddfile first-install status reporting
+
+- Fixed `dashboard skills install` so sources listed only in the home root
+  `~/.developer-dashboard/ddfile` are reported as `installed` on their first
+  successful bare update-all run even when the skill does not ship `.env`
+  `VERSION` metadata.
+- Fixed the progress rundown and default summary table so first-time
+  root-`ddfile` installs no longer claim `unknown (- -> -)` after a
+  successful install.
+- Fixed `dashboard stop collector NAME` so the default table summary still
+  reports the named stopped collector when the managed loop is alive but its
+  process title has not become observable yet.
+
 ## 3.19 - Optional browser workspace extraction from core
 
 - Fixed the core/runtime boundary so the default Developer Dashboard

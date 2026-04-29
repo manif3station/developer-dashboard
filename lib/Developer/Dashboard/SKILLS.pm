@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '3.19';
+our $VERSION = '3.20';
 
 1;
 
@@ -99,7 +99,9 @@ already exists. Bare C<dashboard skills install> reads that root F<ddfile>
 and reinstalls every listed source, which gives operators one update command
 for all registered skills. Install prints a progress rundown before long work
 starts and defaults to a table summary with each skill's F<.env> C<VERSION>
-before and after the install; pass C<-o json> for the raw result payload.
+before and after the install; first-time installs from that root F<ddfile>
+still report C<installed> even when the skill ships no F<.env> C<VERSION>
+metadata. Pass C<-o json> for the raw result payload.
 C<dashboard skill> is only a singular alias for the
 skills management command family; installed commands still use the dotted
 C<dashboard E<lt>skillE<gt>.E<lt>commandE<gt>> form. If the home runtime
