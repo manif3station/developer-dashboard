@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 3.22 - README.md format regression
+
+- Fixed the shipped `README.md` so it is Markdown again instead of an accidental
+  POD copy.
+- Fixed the release metadata gate so it now fails if `README.md` starts with POD
+  markers such as `=pod` or `=head1`.
+
 ## 3.21 - Final extracted dashboard prune cleanup
 
 - Fixed the public `dashboard` POD examples so core no longer mentions the

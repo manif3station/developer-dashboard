@@ -3,7 +3,7 @@ package Developer::Dashboard::Folder;
 use strict;
 use warnings;
 
-our $VERSION = '3.21';
+our $VERSION = '3.22';
 
 use Cwd qw(cwd);
 use File::Basename qw(dirname);

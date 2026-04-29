@@ -1,3 +1,8 @@
+3.22  2026-04-29
+    - regenerated README.md as real Markdown instead of accidental POD content
+    - added a release-metadata guard so README.md cannot silently regress back
+      into POD format
+
 3.21  2026-04-29
     - removed the final stale API Dashboard POD example from the public
       dashboard entrypoint so the extracted API and SQL dashboards are now

@@ -71,8 +71,10 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '3.21', 'repo version bumped for the final extracted dashboard prune cleanup' );
+is( $version, '3.22', 'repo version bumped for the README markdown regression fix' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
+unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
+like( $readme, qr/\A#\s+/m, 'README.md begins with Markdown headings' ) if $readme ne '';
 is(
     _repo_search_without_self( join q{|}, 'api' . '[ -]?' . 'dashboard', 'sql' . '[ -]?' . 'dashboard' ),
     '',
