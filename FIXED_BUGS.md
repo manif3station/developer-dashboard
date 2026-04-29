@@ -1,5 +1,13 @@
 # Fixed Bugs
 
+## 3.21 - Final extracted dashboard prune cleanup
+
+- Fixed the public `dashboard` POD examples so core no longer mentions the
+  extracted API Dashboard by name.
+- Fixed the release-metadata gate so it now fails if core code, docs, POD,
+  tests, or shipped assets reintroduce `API Dashboard` or `SQL Dashboard`
+  names after extraction.
+
 ## 3.20 - Root ddfile first-install status reporting
 
 - Fixed `dashboard skills install` so sources listed only in the home root

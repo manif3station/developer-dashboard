@@ -5,6 +5,7 @@ use Cwd qw(abs_path);
 use File::Find qw(find);
 use File::Spec;
 use FindBin qw($RealBin);
+use Capture::Tiny qw(capture);
 use Test::More;
 use Archive::Tar;
 
@@ -70,8 +71,13 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '3.20', 'repo version bumped for the root ddfile first-install status reporting fix' );
+is( $version, '3.21', 'repo version bumped for the final extracted dashboard prune cleanup' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
+is(
+    _repo_search_without_self( join q{|}, 'api' . '[ -]?' . 'dashboard', 'sql' . '[ -]?' . 'dashboard' ),
+    '',
+    'core code, docs, POD, tests, and share assets no longer mention extracted API or SQL dashboards',
+);
 if ( $dist ne '' ) {
     like( $dist, qr/^version = \Q$version\E$/m, 'dist.ini version matches the module version in the source tree' );
     like( $dist, qr/^skip = \^Module::CPANTS::Analyse\$$/m, 'dist.ini skips release-only Module::CPANTS::Analyse from generated install-time prereqs' );
@@ -547,6 +553,56 @@ sub _section_body {
     }
 
     return '';
+}
+
+sub _repo_search_without_self {
+    my ($pattern) = @_;
+    my $self  = _repo_path( 't', '15-release-metadata.t' );
+    my $regex = qr/$pattern/i;
+    my @roots = (
+        _repo_path('bin'),
+        _repo_path('lib'),
+        _repo_path('doc'),
+        _repo_path('README.md'),
+        _repo_path('share'),
+        _repo_path('t'),
+    );
+    my @files;
+
+    for my $root (@roots) {
+        next if !-e $root;
+        if ( -f $root ) {
+            push @files, $root;
+            next;
+        }
+
+        find(
+            {
+                no_chdir => 1,
+                wanted   => sub {
+                    return if !-f $_;
+                    push @files, $File::Find::name;
+                },
+            },
+            $root,
+        );
+    }
+
+    my %seen;
+    my @matches;
+    FILE:
+    for my $path ( sort grep { !$seen{$_}++ } @files ) {
+        next if $path eq $self;
+        my $content = _slurp($path);
+        my @lines   = split /\n/, $content, -1;
+        for my $index ( 0 .. $#lines ) {
+            next if $lines[$index] !~ $regex;
+            push @matches, sprintf '%s:%d:%s', $path, $index + 1, $lines[$index];
+            next FILE;
+        }
+    }
+
+    return join "\n", @matches;
 }
 
 __END__

@@ -535,7 +535,7 @@ Exercise thin command dispatch through one lightweight built-in helper.
 
 Example 2:
 
-  dashboard page source api-dashboard
+  dashboard page source index
 
 Use the public entrypoint to reach a heavier staged helper without embedding that implementation here.
 
