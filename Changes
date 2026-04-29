@@ -1,3 +1,12 @@
+3.23  2026-04-29
+    - fixed the README source-of-truth process so the checked-in README.md is
+      regenerated from the canonical Developer::Dashboard POD instead of being
+      hand-edited independently
+    - added a checkout sync helper and release-metadata guard so README.md
+      must exactly match the generated Markdown output from the canonical POD
+    - fixed the JS fast-check wrapper so npm update-notifier chatter does not
+      break the stderr-clean fuzz gate on newer npm releases
+
 3.22  2026-04-29
     - regenerated README.md as real Markdown instead of accidental POD content
     - added a release-metadata guard so README.md cannot silently regress back

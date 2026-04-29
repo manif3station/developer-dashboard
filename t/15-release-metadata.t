@@ -20,6 +20,7 @@ my $housekeeper_rotation_doc = _slurp_optional( _repo_path( 'doc', 'housekeeper-
 my $install_bootstrap_doc = _slurp_optional( _repo_path( 'doc', 'install-bootstrap.md' ) );
 my $layered_env_doc = _slurp_optional( _repo_path( 'doc', 'layered-env-loading.md' ) );
 my $testing_doc = _slurp_optional( _repo_path( 'doc', 'testing.md' ) );
+my $readme_sync_script = _repo_path( 'script', 'sync-readme-from-pod' );
 my $changes = _slurp( _repo_path('Changes') );
 my $dist = _slurp_optional( _repo_path('dist.ini') );
 my $meta = _slurp_optional( _repo_path('META.json') );
@@ -71,10 +72,30 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '3.22', 'repo version bumped for the README markdown regression fix' );
+is( $version, '3.23', 'repo version bumped for the README sync guardrail fix' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
-like( $readme, qr/\A#\s+/m, 'README.md begins with Markdown headings' ) if $readme ne '';
+like( $readme, qr/\A(?:<!--.*?-->\n\n)?#\s+/s, 'README.md begins with Markdown headings' ) if $readme ne '';
+like(
+    $readme,
+    qr/\A<!-- Generated from lib\/Developer\/Dashboard\.pm POD by script\/sync-readme-from-pod\. Do not edit manually\. -->\n\n#/,
+    'README.md is generated from the canonical POD source',
+) if $readme ne '';
+ok( -f $readme_sync_script, 'checkout README sync script is tracked' );
+if ( $readme ne '' ) {
+    SKIP: {
+        skip 'pod2markdown is not available on PATH for the exact README sync assertion', 3
+          if !_command_on_path('pod2markdown');
+
+        my ( $generated_stdout, $generated_stderr, $generated_exit ) = capture {
+            system( $^X, $readme_sync_script, '--stdout' );
+            return $? >> 8;
+        };
+        is( $generated_exit, 0, 'README sync script can render the checkout manual to stdout' );
+        is( $generated_stderr, q{}, 'README sync script does not emit stderr while rendering the checkout manual' );
+        is( $readme, $generated_stdout, 'README.md exactly matches the generated output from the canonical POD source' );
+    }
+}
 is(
     _repo_search_without_self( join q{|}, 'api' . '[ -]?' . 'dashboard', 'sql' . '[ -]?' . 'dashboard' ),
     '',
@@ -178,28 +199,32 @@ ok( -f _repo_path('aptfile'), 'repo-root aptfile is tracked for bootstrap instal
 ok( -f _repo_path('apkfile'), 'repo-root apkfile is tracked for bootstrap installs' );
 ok( -f _repo_path('brewfile'), 'repo-root brewfile is tracked for bootstrap installs' );
 
-my @release_tarballs = sort glob _repo_path('Developer-Dashboard-*.tar.gz');
-if (@release_tarballs) {
+my @required_tarball_paths = (
+    "Developer-Dashboard-$version/install.sh",
+    "Developer-Dashboard-$version/aptfile",
+    "Developer-Dashboard-$version/apkfile",
+    "Developer-Dashboard-$version/brewfile",
+    "Developer-Dashboard-$version/doc/integration-test-plan.md",
+    "Developer-Dashboard-$version/doc/install-bootstrap.md",
+    "Developer-Dashboard-$version/doc/testing.md",
+    "Developer-Dashboard-$version/doc/windows-testing.md",
+    "Developer-Dashboard-$version/integration/blank-env/run-integration.pl",
+    "Developer-Dashboard-$version/integration/browser/run-bookmark-browser-smoke.pl",
+    "Developer-Dashboard-$version/integration/windows/run-qemu-windows-smoke.sh",
+    "Developer-Dashboard-$version/integration/windows/run-strawberry-smoke.ps1",
+);
+my $matching_tarball = _repo_path("Developer-Dashboard-$version.tar.gz");
+SKIP: {
+    skip "matching release tarball $matching_tarball has not been built yet", 3 + scalar @required_tarball_paths
+      if !-f $matching_tarball;
+
     my $tar = Archive::Tar->new;
-    ok( $tar->read( $release_tarballs[-1] ), 'latest release tarball can be read for content assertions' );
+    ok( $tar->read($matching_tarball), 'matching release tarball can be read for content assertions' );
     my @files = $tar->list_files;
-    ok( scalar @files > 0, 'latest release tarball lists packaged files' );
-    like( $files[0], qr{^Developer-Dashboard-\Q$version\E(?:/|\z)}, 'latest release tarball root matches the repo version' );
+    ok( scalar @files > 0, 'matching release tarball lists packaged files' );
+    like( $files[0], qr{^Developer-Dashboard-\Q$version\E(?:/|\z)}, 'matching release tarball root matches the repo version' );
     my %files = map { $_ => 1 } @files;
-    for my $required (
-        "Developer-Dashboard-$version/install.sh",
-        "Developer-Dashboard-$version/aptfile",
-        "Developer-Dashboard-$version/apkfile",
-        "Developer-Dashboard-$version/brewfile",
-        "Developer-Dashboard-$version/doc/integration-test-plan.md",
-        "Developer-Dashboard-$version/doc/install-bootstrap.md",
-        "Developer-Dashboard-$version/doc/testing.md",
-        "Developer-Dashboard-$version/doc/windows-testing.md",
-        "Developer-Dashboard-$version/integration/blank-env/run-integration.pl",
-        "Developer-Dashboard-$version/integration/browser/run-bookmark-browser-smoke.pl",
-        "Developer-Dashboard-$version/integration/windows/run-qemu-windows-smoke.sh",
-        "Developer-Dashboard-$version/integration/windows/run-strawberry-smoke.ps1",
-    ) {
+    for my $required (@required_tarball_paths) {
         ok( $files{$required}, "$required is packaged into the release tarball" );
     }
 }
@@ -605,6 +630,19 @@ sub _repo_search_without_self {
     }
 
     return join "\n", @matches;
+}
+
+sub _command_on_path {
+    my ($name) = @_;
+    return 0 if !defined $name || $name eq '';
+
+    for my $dir ( split /:/, $ENV{PATH} || q{} ) {
+        next if !defined $dir || $dir eq '';
+        my $candidate = File::Spec->catfile( $dir, $name );
+        return 1 if -x $candidate;
+    }
+
+    return 0;
 }
 
 __END__

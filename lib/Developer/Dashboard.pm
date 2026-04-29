@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.22';
+our $VERSION = '3.23';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.22
+3.23
 
 =head1 INTRODUCTION
 

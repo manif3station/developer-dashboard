@@ -142,6 +142,23 @@ Those shell-helper regression assertions also normalize printed path identity,
 so macOS `/var/...` versus `/private/var/...` aliases do not fail otherwise
 equivalent `pwd` or `which_dir` output checks.
 
+## README Sync
+
+The canonical product manual lives in the POD inside
+`lib/Developer/Dashboard.pm`.
+
+Do not hand-edit `README.md` as a second copy of the same manual. Regenerate
+it from the canonical POD with:
+
+```bash
+script/sync-readme-from-pod
+```
+
+The release metadata gate compares the tracked `README.md` to the generated
+output from that helper whenever `pod2markdown` is available on the checkout
+PATH. Treat any mismatch as a stop-and-fix release error instead of updating
+only one side of the manual.
+
 Command execution paths are exercised through `Capture::Tiny` `capture` wrappers that return exit codes from the capture block itself rather than reading `$?` afterward.
 
 ## Process Management Checks

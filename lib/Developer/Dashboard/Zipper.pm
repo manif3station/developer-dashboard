@@ -3,7 +3,7 @@ package Developer::Dashboard::Zipper;
 use strict;
 use warnings;
 
-our $VERSION = '3.22';
+our $VERSION = '3.23';
 
 use Exporter 'import';
 use File::Basename qw(dirname);

@@ -1,9 +1,11 @@
+<!-- Generated from lib/Developer/Dashboard.pm POD by script/sync-readme-from-pod. Do not edit manually. -->
+
 # NAME
 
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.22
+3.23
 
 # INTRODUCTION
 
