@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::DancerApp;
 use strict;
 use warnings;
 
-our $VERSION = '3.23';
+our $VERSION = '3.24';
 
 use Dancer2 appname => 'DeveloperDashboard';
 

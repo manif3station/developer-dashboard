@@ -3,7 +3,7 @@ package Developer::Dashboard::Zipper;
 use strict;
 use warnings;
 
-our $VERSION = '3.23';
+our $VERSION = '3.24';
 
 use Exporter 'import';
 use File::Basename qw(dirname);
@@ -73,7 +73,7 @@ sub Ajax {
     die "jvar is required" if !$args{jvar};
     my $type = $args{type} || 'text';
     my $context = ref($AJAX_CONTEXT) eq 'HASH' ? $AJAX_CONTEXT : {};
-    if ( ( $context->{source} || '' ) eq 'saved' && ( $context->{page_id} || '' ) ne '' ) {
+    if ( ( ( $context->{source} || '' ) eq 'saved' || ( $context->{source} || '' ) eq 'skill' ) && ( $context->{page_id} || '' ) ne '' ) {
         my $file = $args{file} || '';
         if ( $file eq '' && !( $context->{allow_transient_urls} || 0 ) ) {
             die "file is required for saved bookmark Ajax when transient URL tokens are disabled";
@@ -84,6 +84,7 @@ sub Ajax {
                 file         => $file,
                 page_id      => $context->{page_id},
                 runtime_root => $context->{runtime_root} || '',
+                skill_name   => $context->{skill_name} || '',
                 type         => $type,
                 code         => $args{code},
                 singleton    => $args{singleton},
@@ -92,6 +93,7 @@ sub Ajax {
               : _saved_ajax_url(
                 file      => $file,
                 page_id   => $context->{page_id},
+                skill_name => $context->{skill_name} || '',
                 type      => $type,
                 singleton => $args{singleton},
                 base_url  => $args{base_url} || '',
@@ -159,8 +161,12 @@ sub load_saved_ajax_code {
 # Output: hash reference with url string.
 sub _saved_ajax_url {
     my (%args) = @_;
-    my $query = sprintf '/ajax/%s?type=%s',
-      uri_escape( _validate_saved_ajax_file( $args{file} ) ),
+    my $file = _validate_saved_ajax_file( $args{file} );
+    my $path = ( $args{skill_name} || '' ) ne ''
+      ? sprintf '/ajax/%s/%s', _url_path_escape( $args{skill_name} ), _url_path_escape($file)
+      : sprintf '/ajax/%s', _url_path_escape($file);
+    my $query = sprintf '%s?type=%s',
+      $path,
       uri_escape( $args{type} || 'text' );
     if ( defined $args{singleton} && $args{singleton} ne '' ) {
         $query .= '&singleton=' . uri_escape( $args{singleton} );
@@ -168,6 +174,16 @@ sub _saved_ajax_url {
     return {
         url => ( $args{base_url} || '' ) . $query,
     };
+}
+
+# _url_path_escape($path)
+# Escapes one slash-delimited route fragment without collapsing path separators.
+# Input: relative path string.
+# Output: URL-safe path string with each segment escaped independently.
+sub _url_path_escape {
+    my ($path) = @_;
+    return '' if !defined $path || $path eq '';
+    return join '/', map { uri_escape($_) } split m{/+}, $path;
 }
 
 # _saved_ajax_url_and_store(%args)

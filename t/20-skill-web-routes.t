@@ -80,6 +80,154 @@ like( $render->[2], qr/Skill Route Foo/, 'skill page route renders the requested
 like( $render->[2], qr/Skill Route Nav/, 'installed skill page route renders skill nav fragments' );
 like( $render->[2], qr/Other Skill Nav/, 'installed skill page route renders nav contributed by other installed skills too' );
 
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::SkillDispatcher::resolve_route_segments = sub {
+        return {
+            skill_name     => 'route-skill',
+            route_segments => ['foo'],
+            skill_layers   => [],
+        };
+    };
+    my $broken_spec = $app->_skill_app_fallback_response( id => 'route-skill/foo' );
+    is( $broken_spec->[0], 404, 'skill route fallback returns 404 when a resolved spec has no concrete skill layers' );
+}
+
+my $ajax_page = $app->handle(
+    path        => '/app/route-skill/ajax-demo',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $ajax_page->[0], 200, 'skill ajax demo page route returns success' );
+like( $ajax_page->[2], qr{set_chain_value\(endpoints,'bar','/ajax/route-skill/bar\?type=text'\)}, 'skill page binds saved ajax helper to the skill-local ajax route' );
+
+my $skill_ajax = $app->handle(
+    path        => '/ajax/route-skill/bar',
+    query       => 'type=text',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $skill_ajax->[0], 200, 'skill-local ajax route returns success' );
+is( _drain_stream_body( $skill_ajax->[2] ), "skill ajax route\n", 'skill-local ajax route streams the skill handler output' );
+
+my $skill_js = $app->handle(
+    path        => '/js/route-skill/skill.js',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $skill_js->[0], 200, 'skill-local js route returns success' );
+is( $skill_js->[2], qq{console.log("route-skill js");\n}, 'skill-local js route serves the skill asset' );
+
+my $skill_css = $app->handle(
+    path        => '/css/route-skill/skill.css',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $skill_css->[0], 200, 'skill-local css route returns success' );
+is( $skill_css->[2], qq{body { color: #123456; }\n}, 'skill-local css route serves the skill asset' );
+
+my $skill_other = $app->handle(
+    path        => '/others/route-skill/info.txt',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $skill_other->[0], 200, 'skill-local others route returns success' );
+is( $skill_other->[2], "route-skill info\n", 'skill-local others route serves the skill asset' );
+
+my $nested_index = $app->handle(
+    path        => '/app/route-skill/def',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $nested_index->[0], 200, 'nested skill index route returns success' );
+like( $nested_index->[2], qr/Nested Skill Index/, 'nested skill index route renders the nested skill bookmark' );
+
+my $nested_page = $app->handle(
+    path        => '/app/route-skill/def/foo',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $nested_page->[0], 200, 'nested skill page route returns success' );
+like( $nested_page->[2], qr/Nested Skill Foo/, 'nested skill page route renders the nested skill bookmark' );
+
+my $nested_ajax_page = $app->handle(
+    path        => '/app/route-skill/def/ajax-demo',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $nested_ajax_page->[0], 200, 'nested skill ajax demo page route returns success' );
+like( $nested_ajax_page->[2], qr{set_chain_value\(endpoints,'nested','/ajax/route-skill/def/nested\?type=text'\)}, 'nested skill page binds saved ajax helper to the nested skill-local ajax route' );
+
+my $nested_ajax = $app->handle(
+    path        => '/ajax/route-skill/def/nested',
+    query       => 'type=text',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $nested_ajax->[0], 200, 'nested skill-local ajax route returns success' );
+is( _drain_stream_body( $nested_ajax->[2] ), "nested skill ajax route\n", 'nested skill-local ajax route streams the nested skill handler output' );
+
+my $nested_js = $app->handle(
+    path        => '/js/route-skill/def/ijk/lmn.js',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $nested_js->[0], 200, 'nested skill-local js route returns success' );
+is( $nested_js->[2], qq{console.log("nested js");\n}, 'nested skill-local js route serves the nested skill asset' );
+
+my $nested_css = $app->handle(
+    path        => '/css/route-skill/def/ijk/lmn.css',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $nested_css->[0], 200, 'nested skill-local css route returns success' );
+is( $nested_css->[2], qq{body { background: #abcdef; }\n}, 'nested skill-local css route serves the nested skill asset' );
+
+my $nested_other = $app->handle(
+    path        => '/others/route-skill/def/ijk/lmn.txt',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $nested_other->[0], 200, 'nested skill-local others route returns success' );
+is( $nested_other->[2], "nested other asset\n", 'nested skill-local others route serves the nested skill asset' );
+
+my $global_public_dir = File::Spec->catdir( $paths->dashboards_root, 'public', 'js', 'route-skill' );
+make_path($global_public_dir);
+_write_file( File::Spec->catfile( $global_public_dir, 'fallback.js' ), qq{console.log("global fallback");\n}, 0644 );
+my $global_prefixed_js = $app->handle(
+    path        => '/js/route-skill/fallback.js',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $global_prefixed_js->[0], 200, 'global nested js route still works when the first segment matches a skill name' );
+is( $global_prefixed_js->[2], qq{console.log("global fallback");\n}, 'global nested js route falls back to the non-skill asset path' );
+
+my $global_ajax_dir = File::Spec->catdir( $paths->runtime_root, 'dashboards', 'ajax', 'route-skill' );
+make_path($global_ajax_dir);
+_write_file( File::Spec->catfile( $global_ajax_dir, 'fallback' ), qq{print "global ajax fallback\\n";\n}, 0700 );
+my $global_prefixed_ajax = $app->handle(
+    path        => '/ajax/route-skill/fallback',
+    query       => 'type=text',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $global_prefixed_ajax->[0], 200, 'global nested ajax route still works when the first segment matches a skill name' );
+is( _drain_stream_body( $global_prefixed_ajax->[2] ), "global ajax fallback\n", 'global nested ajax route falls back to the non-skill saved ajax file' );
+
 my $shared_index = $app->handle(
     path        => '/app/index',
     method      => 'GET',
@@ -147,6 +295,10 @@ sub _create_skill_repo {
     make_path('cli');
     make_path('config');
     make_path('dashboards');
+    make_path( File::Spec->catdir( 'dashboards', 'ajax' ) );
+    make_path( File::Spec->catdir( 'dashboards', 'public', 'js' ) );
+    make_path( File::Spec->catdir( 'dashboards', 'public', 'css' ) );
+    make_path( File::Spec->catdir( 'dashboards', 'public', 'others' ) );
     _write_file( File::Spec->catfile( 'cli', 'noop' ), "#!/usr/bin/env perl\nprint qq{noop\\n};\n", 0755 );
     _write_file( File::Spec->catfile( 'config', 'config.json' ), qq|{"skill_name":"$name"}\n|, 0644 );
     _write_file(
@@ -173,6 +325,80 @@ Skill Route Foo
 BOOKMARK
         0644,
     );
+    _write_file(
+        File::Spec->catfile( 'dashboards', 'ajax-demo' ),
+        <<'BOOKMARK',
+TITLE: Skill Ajax Demo
+:--------------------------------------------------------------------------------:
+BOOKMARK: ajax-demo
+:--------------------------------------------------------------------------------:
+HTML:
+<div id="ajax-demo">Ajax Demo</div>
+<script>
+var endpoints = {};
+</script>
+:--------------------------------------------------------------------------------:
+CODE1: Ajax jvar => 'endpoints.bar', file => 'bar', code => q{
+print "skill ajax route\n";
+};
+BOOKMARK
+        0644,
+    );
+    _write_file( File::Spec->catfile( 'dashboards', 'ajax', 'bar' ), qq{print "skill ajax route\\n";\n}, 0700 );
+    _write_file( File::Spec->catfile( 'dashboards', 'public', 'js', 'skill.js' ), qq{console.log("$name js");\n}, 0644 );
+    _write_file( File::Spec->catfile( 'dashboards', 'public', 'css', 'skill.css' ), qq{body { color: #123456; }\n}, 0644 );
+    _write_file( File::Spec->catfile( 'dashboards', 'public', 'others', 'info.txt' ), "$name info\n", 0644 );
+    make_path( File::Spec->catdir( 'skills', 'def', 'dashboards', 'ajax' ) );
+    make_path( File::Spec->catdir( 'skills', 'def', 'dashboards', 'public', 'js', 'ijk' ) );
+    make_path( File::Spec->catdir( 'skills', 'def', 'dashboards', 'public', 'css', 'ijk' ) );
+    make_path( File::Spec->catdir( 'skills', 'def', 'dashboards', 'public', 'others', 'ijk' ) );
+    _write_file(
+        File::Spec->catfile( 'skills', 'def', 'dashboards', 'index' ),
+        <<'BOOKMARK',
+TITLE: Nested Skill Index
+:--------------------------------------------------------------------------------:
+BOOKMARK: index
+:--------------------------------------------------------------------------------:
+HTML:
+Nested Skill Index
+BOOKMARK
+        0644,
+    );
+    _write_file(
+        File::Spec->catfile( 'skills', 'def', 'dashboards', 'foo' ),
+        <<'BOOKMARK',
+TITLE: Nested Skill Foo
+:--------------------------------------------------------------------------------:
+BOOKMARK: foo
+:--------------------------------------------------------------------------------:
+HTML:
+Nested Skill Foo
+BOOKMARK
+        0644,
+    );
+    _write_file(
+        File::Spec->catfile( 'skills', 'def', 'dashboards', 'ajax-demo' ),
+        <<'BOOKMARK',
+TITLE: Nested Skill Ajax Demo
+:--------------------------------------------------------------------------------:
+BOOKMARK: ajax-demo
+:--------------------------------------------------------------------------------:
+HTML:
+<div id="nested-ajax-demo">Nested Ajax Demo</div>
+<script>
+var endpoints = {};
+</script>
+:--------------------------------------------------------------------------------:
+CODE1: Ajax jvar => 'endpoints.nested', file => 'nested', code => q{
+print "nested skill ajax route\n";
+};
+BOOKMARK
+        0644,
+    );
+    _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'ajax', 'nested' ), qq{print "nested skill ajax route\\n";\n}, 0700 );
+    _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'public', 'js', 'ijk', 'lmn.js' ), qq{console.log("nested js");\n}, 0644 );
+    _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'public', 'css', 'ijk', 'lmn.css' ), qq{body { background: #abcdef; }\n}, 0644 );
+    _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'public', 'others', 'ijk', 'lmn.txt' ), "nested other asset\n", 0644 );
     make_path( File::Spec->catdir( 'dashboards', 'nav' ) );
     _write_file(
         File::Spec->catfile( 'dashboards', 'nav', 'skill.tt' ),
@@ -198,6 +424,14 @@ sub _run_or_die {
     my (@command) = @_;
     system(@command) == 0 or die "Command failed: @command";
     return 1;
+}
+
+sub _drain_stream_body {
+    my ($body) = @_;
+    return $body if ref($body) ne 'HASH' || ref( $body->{stream} ) ne 'CODE';
+    my $output = '';
+    $body->{stream}->( sub { $output .= $_[0] if defined $_[0] } );
+    return $output;
 }
 
 package Local::AuthStub;

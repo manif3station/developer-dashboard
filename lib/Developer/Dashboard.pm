@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.23';
+our $VERSION = '3.24';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.23
+3.24
 
 =head1 INTRODUCTION
 
@@ -682,7 +682,10 @@ C<Ajax> helper calls inside saved bookmark C<CODE*> blocks should use
 an explicit C<file =E<gt> 'name.json'> argument. When a saved page supplies that
 name, the helper stores the Ajax Perl code under the saved dashboard ajax tree and emits a
 stable saved-bookmark endpoint such as
-C</ajax/name.json?type=text>. Those saved Ajax handlers
+C</ajax/name.json?type=text>. Skill pages use the same helper contract, but the
+generated saved endpoint is namespaced under the longest matching skill route,
+for example C</ajax/example-skill/name.json?type=text> or
+C</ajax/example-skill/sub-skill/name.json?type=text>. Those saved Ajax handlers
 run the stored file as a real process, defaulting to Perl unless the file
 starts with a shebang, and stream both C<stdout> and C<stderr> back to the
 browser as they happen. That keeps bookmark Ajax workflows usable even while
@@ -712,7 +715,21 @@ that expect a local jQuery-style helper still have C<$>, C<$(document).ready>,
 C<$.ajax>, jqXHR-style C<.done(...)> / C<.fail(...)> / C<.always(...)>
 chaining, the C<method> alias used by modern callers, and selector
 C<.text(...)> support even when no runtime file has been copied into
-C<dashboard/public/js> yet.
+C<dashboard/public/js> yet. Skills can ship the same classes of assets under
+their own dashboard tree: C<dashboards/ajax/*> resolves at
+C</ajax/E<lt>repo-nameE<gt>/...> or
+C</ajax/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/...>, and
+C<dashboards/public/js/*>, C<dashboards/public/css/*>, and
+C<dashboards/public/others/*> resolve at
+C</js/E<lt>repo-nameE<gt>/...>, C</css/E<lt>repo-nameE<gt>/...>, and
+C</others/E<lt>repo-nameE<gt>/...> with the same nested-skill extension,
+for example C</js/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/path/file.js>. If a
+request such as C</js/E<lt>repo-nameE<gt>/foo/bar.js> or
+C</js/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/foo/bar.js> does not exist in the
+skill-local public tree, the web layer falls back to the normal nested
+saved-bookmark asset path C<dashboards/public/js/...> or saved Ajax file path
+C<dashboards/ajax/...> instead of assuming the leading path segments must
+belong to a skill.
 
 Saved bookmark editor and view-source routes also protect literal inline
 script content from breaking the browser bootstrap. If a bookmark body
@@ -2674,6 +2691,29 @@ C</app/E<lt>repo-nameE<gt>> renders C<dashboards/index>
 =item *
 
 C</app/E<lt>repo-nameE<gt>/E<lt>pageE<gt>> renders C<dashboards/E<lt>pageE<gt>>
+
+=item *
+
+nested child skills under C<skills/E<lt>repo-nameE<gt>/> extend those same
+routes, so C</app/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>> renders that child
+skill's C<dashboards/index> and
+C</app/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/E<lt>pageE<gt>> renders that
+child skill's C<dashboards/E<lt>pageE<gt>>
+
+=item *
+
+skill-local ajax handlers under C<dashboards/ajax/*> resolve at
+C</ajax/E<lt>repo-nameE<gt>/...> and nested child skills extend that prefix as
+C</ajax/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/...>
+
+=item *
+
+skill-local static assets under C<dashboards/public/js/*>,
+C<dashboards/public/css/*>, and C<dashboards/public/others/*> resolve at
+C</js/E<lt>repo-nameE<gt>/...>, C</css/E<lt>repo-nameE<gt>/...>, and
+C</others/E<lt>repo-nameE<gt>/...>, with nested child skills extending those
+same prefixes under C</js/.../E<lt>sub-skillE<gt>/...>,
+C</css/.../E<lt>sub-skillE<gt>/...>, and C</others/.../E<lt>sub-skillE<gt>/...>
 
 =item *
 

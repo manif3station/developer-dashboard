@@ -1,3 +1,15 @@
+3.24  2026-04-29
+    - added skill-local web namespaces for `dashboards/ajax/*` and
+      `dashboards/public/{js,css,others}/*` so installed skills can serve
+      saved Ajax handlers and public assets without copying them into the
+      shared dashboard roots
+    - added longest-prefix route resolution so `/app`, `/ajax`, `/js`,
+      `/css`, and `/others` can distinguish skill prefixes from normal nested
+      global paths and can also resolve nested child skills under
+      `skills/<repo>/...`
+    - kept nested global saved-bookmark assets and saved Ajax files working
+      even when their leading path segments match an installed skill name
+
 3.23  2026-04-29
     - fixed the README source-of-truth process so the checked-in README.md is
       regenerated from the canonical Developer::Dashboard POD instead of being

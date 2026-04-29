@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '3.23';
+our $VERSION = '3.24';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -176,7 +176,7 @@ sub dispatch_request {
     return $self->legacy_ajax_response(%args) if $path eq '/ajax';
     return $self->ajax_singleton_stop_response(%args) if $path eq '/ajax/singleton/stop';
     if ( $path =~ m{^/ajax/(.+)$} ) {
-        return $self->legacy_ajax_file_response( ajax_file => uri_unescape($1), %args );
+        return $self->prefixed_ajax_file_response( ajax_path => uri_unescape($1), %args );
     }
     return $self->status_response(%args) if $path eq '/system/status';
     return $self->jquery_js_response(%args) if $path eq '/js/jquery.js' || $path eq '/js/jquery-4.0.0.min.js';
@@ -184,7 +184,7 @@ sub dispatch_request {
     return $self->tiff_js_response(%args) if $path eq '/tiff.min.js';
     return $self->loading_image_response(%args) if $path eq '/loading.webp';
     if ( $path =~ m{^/(js|css|others)/(.+)$} ) {
-        return $self->static_file_response( type => $1, file => uri_unescape($2), %args );
+        return $self->prefixed_static_file_response( type => $1, file => uri_unescape($2), %args );
     }
     if ( $path =~ m{^/app/(.+)/source$} ) {
         return $self->page_source_response( id => $1, %args );
@@ -426,6 +426,54 @@ sub legacy_ajax_file_response {
     );
 }
 
+# skill_ajax_file_response(%args)
+# Executes one `/ajax/<skill>/<file>` route against a layered skill-local ajax file.
+# Input: skill name, ajax file name, and normalized request metadata.
+# Output: response array reference.
+sub skill_ajax_file_response {
+    my ( $self, %args ) = @_;
+    my $skill_name = $args{skill_name} || '';
+    my $ajax_file  = $args{ajax_file}  || '';
+    return [ 400, 'text/plain; charset=utf-8', "Invalid skill name\n" ] if $skill_name eq '';
+    my %params = _parse_query( $args{query} || '' );
+    my %body_params = _parse_query( $args{body} || '' );
+    my $saved_ajax_path = $self->_skill_ajax_file_path( $skill_name, $ajax_file );
+    my %request_params = (
+        %params,
+        %body_params,
+        file => $saved_ajax_path ne '' ? $ajax_file : join( '/', $skill_name, $ajax_file ),
+    );
+    return _transient_url_forbidden_response() if !$self->_legacy_ajax_allowed( \%request_params );
+    return $self->_legacy_ajax_response(
+        params          => \%request_params,
+        saved_ajax_path => $saved_ajax_path,
+    );
+}
+
+# prefixed_ajax_file_response(%args)
+# Resolves one `/ajax/...` request by preferring the longest matching skill prefix
+# and falling back to the normal nested saved-ajax file path when no skill-local
+# handler exists.
+# Input: ajax_path plus normalized request metadata.
+# Output: response array reference.
+sub prefixed_ajax_file_response {
+    my ( $self, %args ) = @_;
+    my $ajax_path = $args{ajax_path} || '';
+    my @segments = grep { defined && $_ ne '' } split m{/+}, $ajax_path;
+    if ( my $spec = $self->_resolve_skill_route_spec(@segments) ) {
+        my $ajax_file = join '/', @{ $spec->{route_segments} || [] };
+        if ( $ajax_file ne '' ) {
+            my $saved_ajax_path = $self->_skill_ajax_file_path( $spec->{skill_name}, $ajax_file );
+            return $self->skill_ajax_file_response(
+                %args,
+                skill_name => $spec->{skill_name},
+                ajax_file  => $ajax_file,
+            ) if $saved_ajax_path ne '';
+        }
+    }
+    return $self->legacy_ajax_file_response( %args, ajax_file => $ajax_path );
+}
+
 # status_response(%args)
 # Executes the `/system/status` route.
 # Input: normalized request arguments.
@@ -660,6 +708,31 @@ sub static_file_response {
     return $self->_serve_static_file( $args{type}, $args{file} );
 }
 
+# prefixed_static_file_response(%args)
+# Resolves one `/js/...`, `/css/...`, or `/others/...` request by preferring the
+# longest matching skill prefix and falling back to the normal nested public
+# asset path when no skill-local asset exists.
+# Input: asset type, requested file path, and normalized request metadata.
+# Output: response array reference.
+sub prefixed_static_file_response {
+    my ( $self, %args ) = @_;
+    my $type = $args{type} || '';
+    my $file = $args{file} || '';
+    my @segments = grep { defined && $_ ne '' } split m{/+}, $file;
+    if ( my $spec = $self->_resolve_skill_route_spec(@segments) ) {
+        my $skill_file = join '/', @{ $spec->{route_segments} || [] };
+        if ( $skill_file ne '' ) {
+            my $resolved = $self->_skill_static_file_path( $spec->{skill_name}, $type, $skill_file );
+            return $self->skill_static_file_response(
+                %args,
+                skill_name => $spec->{skill_name},
+                file       => $skill_file,
+            ) if $resolved ne '';
+        }
+    }
+    return $self->static_file_response( %args, type => $type, file => $file );
+}
+
 # legacy_app_response(%args)
 # Executes the saved `/app/<id>` render route and follows saved URL forwards.
 # Input: saved app id plus normalized request query, body, headers, and remote address.
@@ -690,12 +763,27 @@ sub skill_route_response {
     return [ 400, 'text/plain; charset=utf-8', "Invalid skill route\n" ] if !$route;
     
     require Developer::Dashboard::SkillDispatcher;
-    my $dispatcher = Developer::Dashboard::SkillDispatcher->new();
+    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $self->{pages} ? $self->{pages}{paths} : undef );
     return $dispatcher->route_response(
         app        => $self,
         skill_name => $skill_name,
         route      => $route,
     );
+}
+
+# skill_static_file_response(%args)
+# Serves one `/js/<skill>/...`, `/css/<skill>/...`, or `/others/<skill>/...` request from layered skill dashboards/public assets.
+# Input: skill name, asset type, file path, and normalized request metadata.
+# Output: response array reference.
+sub skill_static_file_response {
+    my ( $self, %args ) = @_;
+    my $skill_name = $args{skill_name} || '';
+    my $type       = $args{type}       || '';
+    my $file       = $args{file}       || '';
+    return [ 400, 'text/plain; charset=utf-8', "Invalid skill name\n" ] if $skill_name eq '';
+    my $skill_file = $self->_skill_static_file_path( $skill_name, $type, $file );
+    return $self->_serve_static_file_at_path( $type, $file, $skill_file ) if $skill_file ne '';
+    return $self->_serve_static_file( $type, join( '/', $skill_name, $file ) );
 }
 
 # transient_action_response(%args)
@@ -1769,31 +1857,42 @@ sub _legacy_app_response {
 sub _skill_app_fallback_response {
     my ( $self, %args ) = @_;
     my $id = $args{id} || return;
-    my ( $skill_name, @rest ) = split m{/+}, $id;
-    return if !$skill_name;
+    my @segments = grep { defined && $_ ne '' } split m{/+}, $id;
+    return if !@segments;
 
     require Developer::Dashboard::SkillDispatcher;
     require Developer::Dashboard::SkillManager;
-    my $dispatcher = Developer::Dashboard::SkillDispatcher->new();
-    my $manager = Developer::Dashboard::SkillManager->new();
-    my $installed_skill = $manager->get_skill_path( $skill_name, include_disabled => 1 );
-    if ( !$installed_skill ) {
-        return @rest ? [ 404, 'text/plain; charset=utf-8', "Not found\n" ] : undef;
-    }
-    if ( !$dispatcher->get_skill_path($skill_name) ) {
+    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $self->{pages} ? $self->{pages}{paths} : undef );
+    my $manager = Developer::Dashboard::SkillManager->new( paths => $self->{pages} ? $self->{pages}{paths} : undef );
+    my $installed_skill = $manager->get_skill_path( $segments[0], include_disabled => 1 );
+    return $segments[1] ? [ 404, 'text/plain; charset=utf-8', "Not found\n" ] : undef if !$installed_skill;
+    my $spec = $dispatcher->resolve_route_segments( \@segments, include_disabled => 1 );
+    return $segments[1] ? [ 404, 'text/plain; charset=utf-8', "Not found\n" ] : undef if !$spec;
+    if ( !@{ $spec->{skill_layers} || [] } ) {
         return [ 404, 'text/plain; charset=utf-8', "Not found\n" ];
     }
 
     return $dispatcher->route_response(
         app          => $self,
-        skill_name   => $skill_name,
-        route        => join( '/', @rest ),
+        skill_name   => $spec->{skill_name},
+        route        => join( '/', @{ $spec->{route_segments} || [] } ),
         query_params => $args{query_params} || {},
         body_params  => $args{body_params}  || {},
         remote_addr  => $args{remote_addr},
         headers      => $args{headers} || {},
         path         => '/app/' . $id,
     );
+}
+
+# _resolve_skill_route_spec(@segments)
+# Resolves the longest installed skill-prefix for a slash-delimited route tail.
+# Input: one list of path segments.
+# Output: hash reference with skill_name, route_segments, and skill_layers, or undef.
+sub _resolve_skill_route_spec {
+    my ( $self, @segments ) = @_;
+    require Developer::Dashboard::SkillDispatcher;
+    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $self->{pages} ? $self->{pages}{paths} : undef );
+    return $dispatcher->resolve_route_segments( \@segments );
 }
 
 # _missing_named_page_response($id)
@@ -1855,6 +1954,10 @@ sub _legacy_ajax_response {
     if ( my $token = $params->{token} ) {
         $code = eval { decode_payload($token) };
         return [ 400, 'text/plain; charset=utf-8', "$@" ] if $@;
+    }
+    elsif ( ( $args{saved_ajax_path} || '' ) ne '' ) {
+        $saved_path = $args{saved_ajax_path};
+        return [ 404, 'text/plain; charset=utf-8', "Ajax handler not found\n" ] if !-f $saved_path;
     }
     elsif ( ( $params->{file} || '' ) ne '' ) {
         my $runtime_root = $self->{pages}{paths} ? $self->{pages}{paths}->runtime_root : '';
@@ -2329,12 +2432,20 @@ sub _expired_session_cookie {
 # Output: array reference of status code, content type, body.
 sub _serve_static_file {
     my ( $self, $type, $filename ) = @_;
+    return $self->_serve_static_file_from_roots( $type, $filename, $self->_static_file_roots($type) );
+}
+
+# _serve_static_file_from_roots($type, $filename, @roots)
+# Serves one static file from an explicit ordered list of public roots.
+# Input: asset type string, relative filename, and candidate directory roots.
+# Output: array reference of status code, content type, and body.
+sub _serve_static_file_from_roots {
+    my ( $self, $type, $filename, @public_roots ) = @_;
 
     # Prevent directory traversal attacks
     return [ 400, 'text/plain; charset=utf-8', "Bad Request\n" ]
         if $filename =~ /\.\./;
 
-    my @public_roots = $self->_static_file_roots($type);
     my $file_path = '';
     for my $public_dir (@public_roots) {
         my $candidate = File::Spec->catfile( $public_dir, $filename );
@@ -2347,15 +2458,31 @@ sub _serve_static_file {
     }
     return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ] if $file_path eq '';
 
-    # Determine content type
-    my $content_type = $self->_get_content_type( $type, $filename );
+    return $self->_serve_static_file_at_path( $type, $filename, $file_path );
+}
 
-    # Read and return file
-    open my $fh, '<', $file_path or return [ 500, 'text/plain; charset=utf-8', "Internal Server Error\n" ];
-    my $content = do { local $/; <$fh> };
-    close $fh;
+# _skill_ajax_file_path($skill_name, $ajax_file)
+# Resolves one layered skill-local dashboards/ajax file path through the skill dispatcher.
+# Input: skill name string and relative ajax file name.
+# Output: absolute file path string or empty string.
+sub _skill_ajax_file_path {
+    my ( $self, $skill_name, $ajax_file ) = @_;
+    return '' if !$skill_name || !$ajax_file;
+    require Developer::Dashboard::SkillDispatcher;
+    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $self->{pages} ? $self->{pages}{paths} : undef );
+    return $dispatcher->skill_ajax_file_path( $skill_name, $ajax_file ) || '';
+}
 
-    return [ 200, $content_type, $content ];
+# _skill_static_file_path($skill_name, $type, $file)
+# Resolves one layered skill-local dashboards/public asset path through the skill dispatcher.
+# Input: skill name string, asset type string, and relative file path.
+# Output: absolute file path string or empty string.
+sub _skill_static_file_path {
+    my ( $self, $skill_name, $type, $file ) = @_;
+    return '' if !$skill_name || !$type || !$file;
+    require Developer::Dashboard::SkillDispatcher;
+    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $self->{pages} ? $self->{pages}{paths} : undef );
+    return $dispatcher->skill_static_file_path( $skill_name, $type, $file ) || '';
 }
 
 # _static_file_roots($type)
@@ -2390,6 +2517,21 @@ sub _static_file_roots {
     );
     push @roots, $home_root if !$seen{$home_root}++;
     return @roots;
+}
+
+# _serve_static_file_at_path($type, $filename, $file_path)
+# Serves one already-resolved static file path after the caller has chosen the lookup source.
+# Input: asset type string, request filename string, and resolved file path string.
+# Output: array reference of status code, content type, and body.
+sub _serve_static_file_at_path {
+    my ( $self, $type, $filename, $file_path ) = @_;
+    return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
+      if !defined $file_path || $file_path eq '' || !-f $file_path || !-r $file_path;
+    my $content_type = $self->_get_content_type( $type, $filename );
+    open my $fh, '<', $file_path or return [ 500, 'text/plain; charset=utf-8', "Internal Server Error\n" ];
+    my $content = do { local $/; <$fh> };
+    close $fh;
+    return [ 200, $content_type, $content ];
 }
 
 # _get_content_type($type, $filename)

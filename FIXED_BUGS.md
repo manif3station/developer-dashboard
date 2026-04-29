@@ -1,5 +1,23 @@
 # Fixed Bugs
 
+## 3.24 - Skill-local route namespaces and nested skill asset routing
+
+- Fixed skill-local bookmark pages so `Ajax(file => ...)` inside
+  `~/.developer-dashboard/skills/<repo>/dashboards/...` now emits stable saved
+  endpoints under `/ajax/<repo>/...` instead of falling back to transient
+  tokenized `/ajax?token=...` URLs.
+- Fixed `/ajax`, `/js`, `/css`, and `/others` so they now prefer the longest
+  installed skill prefix, including nested child skills under
+  `skills/<repo>/...`, before treating the remaining path as the handler or
+  asset path.
+- Fixed the ambiguous route case where a normal nested saved-bookmark asset or
+  saved Ajax file starts with the same segment as an installed skill name, so
+  Developer Dashboard now falls back to the global nested file instead of
+  incorrectly returning `404`.
+- Fixed nested child skill URL generation so names like
+  `/ajax/<repo>/<sub-skill>/...` are emitted as real path segments instead of
+  URL-encoding the slash into a single `%2F` segment.
+
 ## 3.23 - README source-of-truth and sync guardrails
 
 - Fixed the release process so `README.md` is no longer treated as a second

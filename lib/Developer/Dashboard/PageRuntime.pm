@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '3.23';
+our $VERSION = '3.24';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
@@ -281,7 +281,23 @@ sub _run_single_block {
               && $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} =~ /\A(?:1|true|yes|on)\z/i
         ) ? 1 : 0,
         page_id      => $args{page} && ref( $args{page} ) ? ( $args{page}->as_hash->{id} || '' ) : '',
-        runtime_root => $self->{paths} ? $self->{paths}->runtime_root : '',
+        runtime_root => (
+              $args{source}
+           && $args{source} eq 'skill'
+           && $args{page}
+           && ref( $args{page} ) eq 'Developer::Dashboard::PageDocument'
+           && ref( $args{page}->as_hash->{meta} ) eq 'HASH'
+           && ( $args{page}->as_hash->{meta}{skill_path} || '' ) ne ''
+        )
+        ? ( $args{page}->as_hash->{meta}{skill_path} || '' )
+        : ( $self->{paths} ? $self->{paths}->runtime_root : '' ),
+        skill_name => (
+              $args{source}
+           && $args{source} eq 'skill'
+           && $args{page}
+           && ref( $args{page} ) eq 'Developer::Dashboard::PageDocument'
+           && ref( $args{page}->as_hash->{meta} ) eq 'HASH'
+        ) ? ( $args{page}->as_hash->{meta}{skill_name} || '' ) : '',
         source       => $args{source} || '',
     };
     my ( $stdout, $stderr, $exit_code ) = capture {

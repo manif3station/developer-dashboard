@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.23
+3.24
 
 # INTRODUCTION
 
@@ -492,7 +492,10 @@ default deny policy.
 an explicit `file => 'name.json'` argument. When a saved page supplies that
 name, the helper stores the Ajax Perl code under the saved dashboard ajax tree and emits a
 stable saved-bookmark endpoint such as
-`/ajax/name.json?type=text`. Those saved Ajax handlers
+`/ajax/name.json?type=text`. Skill pages use the same helper contract, but the
+generated saved endpoint is namespaced under the longest matching skill route,
+for example `/ajax/example-skill/name.json?type=text` or
+`/ajax/example-skill/sub-skill/name.json?type=text`. Those saved Ajax handlers
 run the stored file as a real process, defaulting to Perl unless the file
 starts with a shebang, and stream both `stdout` and `stderr` back to the
 browser as they happen. That keeps bookmark Ajax workflows usable even while
@@ -522,7 +525,21 @@ that expect a local jQuery-style helper still have `$`, `$(document).ready`,
 `$.ajax`, jqXHR-style `.done(...)` / `.fail(...)` / `.always(...)`
 chaining, the `method` alias used by modern callers, and selector
 `.text(...)` support even when no runtime file has been copied into
-`dashboard/public/js` yet.
+`dashboard/public/js` yet. Skills can ship the same classes of assets under
+their own dashboard tree: `dashboards/ajax/*` resolves at
+`/ajax/<repo-name>/...` or
+`/ajax/<repo-name>/<sub-skill>/...`, and
+`dashboards/public/js/*`, `dashboards/public/css/*`, and
+`dashboards/public/others/*` resolve at
+`/js/<repo-name>/...`, `/css/<repo-name>/...`, and
+`/others/<repo-name>/...` with the same nested-skill extension,
+for example `/js/<repo-name>/<sub-skill>/path/file.js`. If a
+request such as `/js/<repo-name>/foo/bar.js` or
+`/js/<repo-name>/<sub-skill>/foo/bar.js` does not exist in the
+skill-local public tree, the web layer falls back to the normal nested
+saved-bookmark asset path `dashboards/public/js/...` or saved Ajax file path
+`dashboards/ajax/...` instead of assuming the leading path segments must
+belong to a skill.
 
 Saved bookmark editor and view-source routes also protect literal inline
 script content from breaking the browser bootstrap. If a bookmark body
@@ -2190,6 +2207,20 @@ Skill browser routes:
 
 - `/app/<repo-name>` renders `dashboards/index`
 - `/app/<repo-name>/<page>` renders `dashboards/<page>`
+- nested child skills under `skills/<repo-name>/` extend those same
+routes, so `/app/<repo-name>/<sub-skill>` renders that child
+skill's `dashboards/index` and
+`/app/<repo-name>/<sub-skill>/<page>` renders that
+child skill's `dashboards/<page>`
+- skill-local ajax handlers under `dashboards/ajax/*` resolve at
+`/ajax/<repo-name>/...` and nested child skills extend that prefix as
+`/ajax/<repo-name>/<sub-skill>/...`
+- skill-local static assets under `dashboards/public/js/*`,
+`dashboards/public/css/*`, and `dashboards/public/others/*` resolve at
+`/js/<repo-name>/...`, `/css/<repo-name>/...`, and
+`/others/<repo-name>/...`, with nested child skills extending those
+same prefixes under `/js/.../<sub-skill>/...`,
+`/css/.../<sub-skill>/...`, and `/others/.../<sub-skill>/...`
 - `dashboards/nav/*` is loaded into those skill app routes and into the shared
 nav strip above normal saved `/app/<page>` routes such as
 `/app/index`, so every installed skill can contribute top-level nav at once

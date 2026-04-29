@@ -258,6 +258,30 @@ my ($code1d_saved_play, undef, $body1d_saved_play) = @{ $app->handle(
     headers     => { host => '127.0.0.1' },
 ) };
 is($code1d_saved_play, 200, 'transient render route responds for a named bookmark token');
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::App::_machine_ip = sub { return undef };
+    my $remote_page = Developer::Dashboard::PageDocument->new(
+        id     => 'context-remote',
+        title  => 'Context Remote',
+        layout => { body => 'body' },
+    );
+    $remote_page->{meta}{request_context} = {
+        remote_addr => '192.0.2.55',
+    };
+    my $remote_html = $app->_top_context_html($remote_page);
+    like( $remote_html, qr{href="http://192\.0\.2\.55"}, '_top_context_html falls back to remote_addr when machine and host values are absent' );
+
+    my $default_page = Developer::Dashboard::PageDocument->new(
+        id     => 'context-default',
+        title  => 'Context Default',
+        layout => { body => 'body' },
+    );
+    $default_page->{meta}{request_context} = {};
+    my $default_html = $app->_top_context_html($default_page);
+    like( $default_html, qr{href="http://127\.0\.0\.1"}, '_top_context_html falls back to loopback when no machine, host, or remote address is available' );
+}
 like($body1d_saved_play, qr/class="dashboard-nav-items"/, 'transient render for a named bookmark keeps the shared nav section');
 like($body1d_saved_play, qr{<li data-nav-id="nav/alpha\.tt">Home</li>}s, 'transient render for a named bookmark evaluates nav tt fragments against the saved page route');
 like($body1d_saved_play, qr/nav-current=\/app\/index nav-rt=\/app\/index/, 'transient render for a named bookmark exposes the saved page path to nav tt fragments');

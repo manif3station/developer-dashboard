@@ -6,10 +6,12 @@ use warnings;
 use Test::More;
 use File::Temp qw(tempdir);
 use File::Spec;
+use File::Path qw(make_path);
 use Cwd qw(cwd);
 use lib 'lib';
 use Developer::Dashboard::PageStore;
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::SkillManager;
 
 # Test the static files serving functionality
 BEGIN {
@@ -120,6 +122,24 @@ sub create_mock_app {
     is($response->[0], 404, 'Nonexistent file returns 404');
 }
 
+# Test: _static_file_roots falls back to /root when HOME and USERPROFILE are absent
+{
+    local $ENV{HOME};
+    local $ENV{USERPROFILE};
+    my $app = create_mock_app();
+    my @roots = $app->_static_file_roots('js');
+    is( $roots[-1], '/root/.developer-dashboard/dashboard/public/js', '_static_file_roots falls back to the default root dashboard public path when no home env exists' );
+}
+
+# Test: _static_file_roots uses USERPROFILE when HOME is absent
+{
+    local $ENV{HOME};
+    local $ENV{USERPROFILE} = '/tmp/dashboard-userprofile';
+    my $app = create_mock_app();
+    my @roots = $app->_static_file_roots('css');
+    is( $roots[-1], '/tmp/dashboard-userprofile/.developer-dashboard/dashboard/public/css', '_static_file_roots falls back to USERPROFILE before the default root path' );
+}
+
 # Test: built-in jquery shim route exists for bookmark compatibility
 {
     local $ENV{HOME} = tempdir(CLEANUP => 1);
@@ -186,7 +206,77 @@ sub create_mock_app {
     is($response->[2], 'console.log("bookmark-local");', 'dashboards public file content is served');
 }
 
+# Test: skill_static_file_response serves skill-local assets
+{
+    local $ENV{HOME} = tempdir(CLEANUP => 1);
+    my $paths = Developer::Dashboard::PathRegistry->new(home => $ENV{HOME});
+    my $store = Developer::Dashboard::PageStore->new(paths => $paths);
+    my $manager = Developer::Dashboard::SkillManager->new(paths => $paths);
+    my $repo_root = File::Spec->catdir( $ENV{HOME}, 'route-skill' );
+    my $skill_public = File::Spec->catdir( $repo_root, 'dashboards', 'public', 'js' );
+    make_path($skill_public);
+    _write_file( File::Spec->catfile( $repo_root, 'config', 'config.json' ), qq|{"skill_name":"route-skill"}\n| );
+    _write_file( File::Spec->catfile( $repo_root, 'dashboards', 'index' ), "TITLE: route-skill\n:--------------------------------------------------------------------------------:\nBOOKMARK: index\n:--------------------------------------------------------------------------------:\nHTML: route-skill\n" );
+    _write_file( File::Spec->catfile( $skill_public, 'skill.js' ), 'console.log("skill-static");' );
+    _init_git_repo($repo_root);
+    my $install = $manager->install( 'file://' . $repo_root );
+    ok( !$install->{error}, 'skill repo with public js installs cleanly for static file coverage' ) or diag $install->{error};
+
+    my $app = create_mock_app( pages => $store );
+    my $response = $app->skill_static_file_response( type => 'js', skill_name => 'route-skill', file => 'skill.js' );
+    is($response->[0], 200, 'skill-local static route returns 200');
+    is($response->[2], 'console.log("skill-static");', 'skill-local static route serves the skill asset');
+}
+
+# Test: skill_static_file_response falls back to a nested global asset path
+{
+    local $ENV{HOME} = tempdir(CLEANUP => 1);
+    my $paths = Developer::Dashboard::PathRegistry->new(home => $ENV{HOME});
+    my $store = Developer::Dashboard::PageStore->new(paths => $paths);
+    my $manager = Developer::Dashboard::SkillManager->new(paths => $paths);
+    my $repo_root = File::Spec->catdir( $ENV{HOME}, 'route-skill' );
+    my $skill_public = File::Spec->catdir( $repo_root, 'dashboards', 'public', 'js' );
+    my $global_public = File::Spec->catdir( $paths->dashboards_root, 'public', 'js', 'route-skill' );
+    make_path($skill_public);
+    make_path($global_public);
+    _write_file( File::Spec->catfile( $repo_root, 'config', 'config.json' ), qq|{"skill_name":"route-skill"}\n| );
+    _write_file( File::Spec->catfile( $repo_root, 'dashboards', 'index' ), "TITLE: route-skill\n:--------------------------------------------------------------------------------:\nBOOKMARK: index\n:--------------------------------------------------------------------------------:\nHTML: route-skill\n" );
+    _write_file( File::Spec->catfile( $global_public, 'fallback.js' ), 'console.log("global-fallback");' );
+    _init_git_repo($repo_root);
+    my $install = $manager->install( 'file://' . $repo_root );
+    ok( !$install->{error}, 'skill repo installs cleanly for nested global static fallback coverage' ) or diag $install->{error};
+
+    my $app = create_mock_app( pages => $store );
+    my $response = $app->skill_static_file_response( type => 'js', skill_name => 'route-skill', file => 'fallback.js' );
+    is($response->[0], 200, 'skill-prefixed static route falls back to the nested global asset path');
+    is($response->[2], 'console.log("global-fallback");', 'skill-prefixed static route serves the nested global asset when the skill does not provide it');
+}
+
 done_testing();
+
+sub _write_file {
+    my ( $path, $content ) = @_;
+    my $dir = $path;
+    $dir =~ s{/[^/]+\z}{};
+    make_path($dir) if $dir ne '' && !-d $dir;
+    open my $fh, '>', $path or die "Cannot create $path: $!";
+    print {$fh} $content;
+    close $fh;
+    return 1;
+}
+
+sub _init_git_repo {
+    my ($repo_root) = @_;
+    my $cwd = cwd();
+    chdir $repo_root or die "Unable to chdir to $repo_root: $!";
+    system(qw(git init --quiet)) == 0 or die 'git init failed';
+    system(qw(git config user.email test@example.com)) == 0 or die 'git config user.email failed';
+    system(qw(git config user.name Test)) == 0 or die 'git config user.name failed';
+    system(qw(git add .)) == 0 or die 'git add failed';
+    system(qw(git commit -m Initial --quiet)) == 0 or die 'git commit failed';
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
+    return 1;
+}
 
 __END__
 

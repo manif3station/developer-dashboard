@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '3.23';
+our $VERSION = '3.24';
 
 1;
 
@@ -53,6 +53,17 @@ C<[[STOP]]> control
 
 browser pages rendered from C</app/E<lt>repo-nameE<gt>> and
 C</app/E<lt>repo-nameE<gt>/E<lt>idE<gt>>
+
+=item *
+
+skill-local saved Ajax handlers rendered from
+C</ajax/E<lt>repo-nameE<gt>/...>
+
+=item *
+
+skill-local public assets rendered from
+C</js/E<lt>repo-nameE<gt>/...>, C</css/E<lt>repo-nameE<gt>/...>, and
+C</others/E<lt>repo-nameE<gt>/...>
 
 =item *
 
@@ -132,6 +143,8 @@ Open its bookmark:
 
   /app/example-skill
   /app/example-skill/welcome
+  /ajax/example-skill/status?type=text
+  /js/example-skill/app.js
 
 =head1 LAYOUT
 
@@ -185,6 +198,37 @@ layer instead of treating the home skill tree as the only skill-docker source.
 
 Bookmark instruction files shipped by the skill, including
 C<dashboards/index> for C</app/E<lt>repo-nameE<gt>>.
+
+Top-level skill routes are:
+
+=over 4
+
+=item *
+
+C</app/E<lt>repo-nameE<gt>> and C</app/E<lt>repo-nameE<gt>/E<lt>pageE<gt>>
+
+=item *
+
+C</ajax/E<lt>repo-nameE<gt>/E<lt>fileE<gt>>
+
+=item *
+
+C</js/E<lt>repo-nameE<gt>/E<lt>fileE<gt>>,
+C</css/E<lt>repo-nameE<gt>/E<lt>fileE<gt>>, and
+C</others/E<lt>repo-nameE<gt>/E<lt>fileE<gt>>
+
+=back
+
+Nested child skills under C<skills/E<lt>sub-skillE<gt>/> extend those same
+prefixes, for example
+C</app/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>>,
+C</ajax/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/E<lt>fileE<gt>>, and
+C</js/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/E<lt>fileE<gt>>.
+
+Developer Dashboard resolves the longest installed skill prefix first and, if
+the skill-local ajax or public asset file does not exist, falls back to the
+normal nested saved-bookmark file path instead of assuming the leading path
+segments must always belong to a skill.
 
 =item B<dashboards/nav/>
 

@@ -72,7 +72,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '3.23', 'repo version bumped for the README sync guardrail fix' );
+is( $version, '3.24', 'repo version bumped for skill-local route namespaces and nested skill asset routing' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
 like( $readme, qr/\A(?:<!--.*?-->\n\n)?#\s+/s, 'README.md begins with Markdown headings' ) if $readme ne '';
@@ -320,6 +320,7 @@ for my $doc ( grep { defined && $_ ne '' } ( $skill_guide, $skills_pod ) ) {
     like( $doc, qr/cli\/<command>\.d|cli\/E<lt>commandE<gt>\.d/, 'skill authoring docs explain skill hook directories' );
     like( $doc, qr/dashboards\//, 'skill authoring docs explain skill bookmark storage' );
     like( $doc, qr{/app/<repo-name>|/app/E<lt>repo-nameE<gt>|/skill/<repo-name>/bookmarks/<id>|/skill/E<lt>repo-nameE<gt>/bookmarks/E<lt>idE<gt>}, 'skill authoring docs explain skill bookmark routes' );
+    like( $doc, qr{/ajax/<repo-name>/|/ajax/E<lt>repo-nameE<gt>/|/js/<repo-name>/|/css/<repo-name>/|/others/<repo-name>/}, 'skill authoring docs explain skill-local ajax and public asset routes' );
     like( $doc, qr/TITLE:.*BOOKMARK:.*HTML:.*CODE1:/s, 'skill authoring docs explain bookmark section syntax' );
     like( $doc, qr/fetch_value\(|stream_value\(|stream_data\(/, 'skill authoring docs explain bookmark browser helpers' );
     like( $doc, qr/Ajax\(file\s*=>\s*'name'|C<Ajax\(file =E<gt> 'name'/, 'skill authoring docs explain saved Ajax endpoints' );
@@ -374,6 +375,7 @@ for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
     like( $doc, qr/aptfile/, 'README documents skill apt dependency bootstrap' );
     like( $doc, qr/_example-skill|_<repo-name>/, 'README documents underscored skill config merge keys' );
     like( $doc, qr{/app/<repo-name>|/app/<repo-name>/<page>}, 'README documents app-style skill routes' );
+    like( $doc, qr{/ajax/<repo-name>/|/js/<repo-name>/|/css/<repo-name>/|/others/<repo-name>/}, 'README documents skill-local ajax and public asset routes' );
     like( $doc, qr/disabled skills.*re-enabled|re-enabled.*disabled skills/is, 'README documents disabled-skill runtime exclusion and restoration' );
     like( $doc, qr/DD-OOP-LAYERS.*skills|skills.*DD-OOP-LAYERS/is, 'README documents layered skill lookup through DD-OOP-LAYERS' );
     like( $doc, qr/deepest.*shadow|shadow.*deepest|deepest matching repo name/is, 'README documents deepest-layer skill shadowing' );

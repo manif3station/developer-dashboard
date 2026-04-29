@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '3.23';
+our $VERSION = '3.24';
 
 use Config ();
 use IPC::Open3 qw(open3);
@@ -759,10 +759,32 @@ sub _skill_env {
 sub _skill_layers {
     my ( $self, $skill_name, %args ) = @_;
     return () if !$skill_name;
+    my @segments = grep { defined && $_ ne '' } split m{/+}, $skill_name;
+    return () if !@segments;
+    my $root_skill = shift @segments;
     my $paths = $self->{manager}{paths};
-    return $paths->skill_layers( $skill_name, %args ) if $paths->can('skill_layers');
-    my $skill_path = $self->{manager}->get_skill_path( $skill_name, %args ) or return ();
-    return ($skill_path);
+    my @layers = $paths->can('skill_layers')
+      ? $paths->skill_layers( $root_skill, %args )
+      : do {
+            my $skill_path = $self->{manager}->get_skill_path( $root_skill, %args ) or return ();
+            ($skill_path);
+        };
+    return @layers if !@segments;
+
+    for my $nested_skill (@segments) {
+        my @next_layers;
+        for my $skill_path (@layers) {
+            my $nested_path = $self->_nested_skill_path( $skill_path, [$nested_skill] );
+            next if !-d $nested_path;
+            my $disabled = -f File::Spec->catfile( $nested_path, '.disabled' ) ? 1 : 0;
+            next if !$args{include_disabled} && $disabled;
+            push @next_layers, $nested_path;
+        }
+        return () if !@next_layers;
+        @layers = @next_layers;
+    }
+
+    return @layers;
 }
 
 # _skill_lookup_roots($skill_name)
@@ -772,6 +794,28 @@ sub _skill_layers {
 sub _skill_lookup_roots {
     my ( $self, $skill_name, %args ) = @_;
     return reverse $self->_skill_layers( $skill_name, %args );
+}
+
+# resolve_route_segments($segments)
+# Resolves the longest installed skill-prefix from one slash-delimited route tail.
+# Input: array reference of path segments and optional include_disabled flag.
+# Output: hash reference containing skill_name, route_segments, and skill_layers, or undef.
+sub resolve_route_segments {
+    my ( $self, $segments, %args ) = @_;
+    my @segments = grep { defined && $_ ne '' } @{ $segments || [] };
+    return if !@segments;
+    my $best;
+    for my $prefix_length ( 1 .. scalar @segments ) {
+        my $candidate_skill = join '/', @segments[ 0 .. $prefix_length - 1 ];
+        my @skill_layers = $self->_skill_layers( $candidate_skill, %args );
+        next if !@skill_layers;
+        $best = {
+            skill_name    => $candidate_skill,
+            route_segments => [ @segments[ $prefix_length .. $#segments ] ],
+            skill_layers  => \@skill_layers,
+        };
+    }
+    return $best;
 }
 
 # _command_spec($skill_name, $command)
@@ -867,6 +911,34 @@ sub _page_location {
     for my $skill_path ( $self->_skill_lookup_roots($skill_name) ) {
         my $file = File::Spec->catfile( $skill_path, 'dashboards', split m{/+}, $route_id );
         return ( $file, $skill_path ) if -f $file;
+    }
+    return;
+}
+
+# skill_ajax_file_path($skill_name, $ajax_file)
+# Resolves one layered skill-local dashboards/ajax file in deepest-first order.
+# Input: skill repository name string and relative ajax file path.
+# Output: absolute file path string or undef when missing.
+sub skill_ajax_file_path {
+    my ( $self, $skill_name, $ajax_file ) = @_;
+    return if !$skill_name || !$ajax_file;
+    for my $skill_path ( $self->_skill_lookup_roots($skill_name) ) {
+        my $file = File::Spec->catfile( $skill_path, 'dashboards', 'ajax', split m{/+}, $ajax_file );
+        return $file if -f $file;
+    }
+    return;
+}
+
+# skill_static_file_path($skill_name, $type, $file)
+# Resolves one layered skill-local dashboards/public asset in deepest-first order.
+# Input: skill repository name string, static asset type, and relative file path.
+# Output: absolute file path string or undef when missing.
+sub skill_static_file_path {
+    my ( $self, $skill_name, $type, $file ) = @_;
+    return if !$skill_name || !$type || !$file;
+    for my $skill_path ( $self->_skill_lookup_roots($skill_name) ) {
+        my $candidate = File::Spec->catfile( $skill_path, 'dashboards', 'public', $type, split m{/+}, $file );
+        return $candidate if -f $candidate;
     }
     return;
 }
