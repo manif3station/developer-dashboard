@@ -1877,6 +1877,31 @@ TCP6
 }
 
 {
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::web_state = sub {
+        return {
+            pid    => 111_111,
+            host   => '127.0.0.1',
+            port   => 7917,
+            status => 'running',
+        };
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
+        my ( undef, $port ) = @_;
+        return $port == 7917 ? (333_333) : ();
+    };
+    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub {
+        my ( undef, $pid ) = @_;
+        return $pid == 333_333 ? 'starman master' : undef;
+    };
+    local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { die "_cleanup_web_files should not run while a saved listener still exists\n" };
+    my $running = $manager->running_web;
+    is( $running->{pid}, 333_333, 'running_web falls back to the saved listener pid when the real listener no longer keeps the dashboard wrapper title' );
+    is( $running->{port}, 7917, 'running_web keeps the persisted port when it resolves the live listener from saved state' );
+    is( $running->{process_name}, 'starman master', 'running_web records the actual listener process title when using saved-state listener fallback' );
+}
+
+{
     my $late_listener = fork();
     die "fork failed: $!" if !defined $late_listener;
     if ( !$late_listener ) {
@@ -1902,6 +1927,37 @@ TCP6
     is( $manager->stop_web, $late_listener, 'stop_web returns the recorded pid when it has to re-probe the bound port for late listeners' );
     waitpid( $late_listener, 0 );
     ok( !kill( 0, $late_listener ), 'stop_web kills late-discovered listener pids after an initial port-release timeout' );
+}
+
+{
+    my $listener = fork();
+    die "fork failed: $!" if !defined $listener;
+    if ( !$listener ) {
+        local $SIG{TERM} = sub { exit 0 };
+        while (1) { sleep 0.1 }
+    }
+    sleep 0.2;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::running_web = sub { return };
+    local *Developer::Dashboard::RuntimeManager::web_state = sub {
+        return {
+            pid    => 444_444,
+            host   => '127.0.0.1',
+            port   => 7919,
+            status => 'running',
+        };
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
+        my ( undef, $port ) = @_;
+        return $port == 7919 ? ($listener) : ();
+    };
+    local *Developer::Dashboard::RuntimeManager::_find_legacy_web_processes = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_pkill_perl = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_wait_for_port_release = sub { return 1 };
+    my $stopped = $manager->stop_web;
+    is( $stopped, $listener, 'stop_web falls back to the saved listener pid when no managed dashboard wrapper pid can be rediscovered' );
+    waitpid( $listener, 0 );
+    ok( !kill( 0, $listener ), 'stop_web terminates the saved listener pid resolved from persisted web state' );
 }
 
 {

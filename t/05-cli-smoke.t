@@ -609,6 +609,8 @@ if ( !$UNDER_COVER ) {
     unlike( $second_stdout, qr/^\Q$first_stdout\E$/, 'dashboard restart restarts collector loops and refreshes collector output after the serve-started run' );
     my $serve_stop = json_decode( _run("$perl -I'$lib' '$dashboard' stop -o json") );
     ok( ref( $serve_stop->{collectors} ) eq 'ARRAY', 'dashboard stop still returns the collector stop list after serve/restart lifecycle control' );
+    my $serve_stop_response = $serve_ua->get("http://127.0.0.1:$serve_port/");
+    ok( !$serve_stop_response->is_success, 'dashboard stop actually tears down the restarted collector lifecycle web listener' );
 }
 if ( !$UNDER_COVER ) {
     my $readonly_home = tempdir( CLEANUP => 1 );
@@ -1375,6 +1377,14 @@ exit 0
 SH
 close $fake_make_fh;
 chmod 0755, $fake_make or die "Unable to chmod $fake_make: $!";
+my $fake_sudo = File::Spec->catfile( $fake_bin, 'sudo' );
+open my $fake_sudo_fh, '>', $fake_sudo or die "Unable to write $fake_sudo: $!";
+print {$fake_sudo_fh} <<"SH";
+#!/bin/sh
+exec "\$@"
+SH
+close $fake_sudo_fh;
+chmod 0755, $fake_sudo or die "Unable to chmod $fake_sudo: $!";
 my $skill_repo_root = File::Spec->catdir( $ENV{HOME}, 'skill-fixtures' );
 my $skill_repo = File::Spec->catdir( $skill_repo_root, 'demo-skill' );
 make_path( File::Spec->catdir( $skill_repo, 'cli', 'foo.d' ) );

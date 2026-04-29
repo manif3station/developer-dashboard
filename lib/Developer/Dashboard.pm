@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.16';
+our $VERSION = '3.17';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.16
+3.17
 
 =head1 INTRODUCTION
 
@@ -1925,7 +1925,10 @@ C<dashboard stop> stops both the web service and managed collector loops and,
 prints the final lifecycle summary as a terminal table by default or JSON with
 C<-o json>; on an interactive terminal it also prints the full stop task board
 on C<stderr> before work starts so each shutdown step becomes visible instead
-of silent waiting
+of silent waiting. The shutdown path now also follows the saved managed
+listener port back to the real listener pid when the live web process has
+renamed itself into a C<starman master> shape, so minimal Docker runs still
+stop the actual serving process instead of leaving the listener behind.
 
 =item *
 
@@ -1948,7 +1951,11 @@ starts the web service, prints the final lifecycle summary as a terminal table
 by default or JSON with C<-o json>, and only reports success after the
 replacement collector loops and web runtime become visible and survive a short
 post-ready confirmation window, with the web side still holding a live managed
-pid and an accepting listener on the requested port
+pid and an accepting listener on the requested port. Restart now also reuses
+the saved listener port to recover the real serving pid when the web process
+has renamed itself into the underlying C<starman master> form, so container
+restarts still own and replace the active listener instead of losing control
+after startup
 
 =item *
 

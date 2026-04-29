@@ -163,6 +163,9 @@ The runtime-manager tests also cover:
 - `dashboard web: <host>:<port>` process-title detection
 - `pkill` fallback when pid files are stale or missing
 - `/proc` listener-pid fallback when minimal Linux containers do not provide `ss`
+- saved-port listener fallback for `starman master` listener pids during
+  `dashboard stop` and `dashboard restart`, so real serving pids remain under
+  runtime control even after the original wrapper title disappears
 - packaged fallback assertions that stub `_find_web_processes`, so ambient live dashboard processes on the host cannot contaminate the recorded-pid branch during source-tree, tarball, or PAUSE install runs
 - `dashboard stop` and `dashboard restart` lifecycle behavior
 

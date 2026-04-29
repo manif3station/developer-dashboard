@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.16';
+our $VERSION = '3.17';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -147,6 +147,18 @@ sub running_web {
         };
     }
 
+    if ( ( $state->{status} || '' ) eq 'running' ) {
+        my @listener_pids = $self->_listener_pids_from_state($state);
+        if (@listener_pids) {
+            return {
+                %$state,
+                pid          => $listener_pids[0],
+                process_name => $self->_read_process_title( $listener_pids[0] ) || ( $state->{process_name} || '' ),
+                status       => 'running',
+            };
+        }
+    }
+
     $self->_cleanup_web_files;
     return;
 }
@@ -167,11 +179,13 @@ sub stop_web {
         }
     );
     my $running = $self->running_web;
+    my $state = $running || $self->web_state || {};
     my $pid = $running ? $running->{pid} : undef;
-    my $port = $running ? $running->{port} : undef;
-    my @listener_pids = $running && $running->{port}
-      ? $self->_listener_pids_for_port( $running->{port} )
-      : ();
+    my $port = $state->{port};
+    my @listener_pids = $self->_listener_pids_from_state($state);
+    if ( !$pid && @listener_pids == 1 ) {
+        $pid = $listener_pids[0];
+    }
 
     $self->_send_signal( 'TERM', $pid ) if $pid;
     $self->_send_signal( 'TERM', @listener_pids );
@@ -1119,6 +1133,19 @@ sub _find_web_processes {
         push @seen, $proc;
     }
     return @seen;
+}
+
+# _listener_pids_from_state($state)
+# Resolves live listener process ids from persisted web state when the saved
+# wrapper pid is no longer the real listener process.
+# Input: persisted web state hash reference.
+# Output: list of live listener process ids bound to the saved port.
+sub _listener_pids_from_state {
+    my ( $self, $state ) = @_;
+    return () if ref($state) ne 'HASH';
+    my $port = $state->{port};
+    return () if !defined $port || $port eq '';
+    return $self->_listener_pids_for_port($port);
 }
 
 # _proc_owned_by_current_user($proc)

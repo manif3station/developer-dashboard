@@ -1,5 +1,14 @@
 # Fixed Bugs
 
+## 3.17 - Container restart and stop listener ownership
+
+- Fixed `dashboard stop` and `dashboard restart` so they can still find and
+  terminate the real serving pid after the managed web process renames itself
+  into the underlying `starman master` listener shape.
+- Fixed container lifecycle control so saved web-state listener ports are used
+  to recover the active listener pid, preventing Docker runs from leaving the
+  web listener behind or losing restart ownership after startup.
+
 ## 3.16 - Explicit per-change numeric coverage QA gate
 
 - Fixed the documentation gap where Developer Dashboard described 100%

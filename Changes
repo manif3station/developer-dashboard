@@ -1,3 +1,10 @@
+3.17  2026-04-29
+    - fixed dashboard stop and restart so they follow the saved managed
+      listener port back to the real serving pid when the live web process
+      renames itself into the underlying starman master listener shape
+    - fixed minimal Docker lifecycle control so container stop/restart runs no
+      longer lose ownership of the active listener after startup
+
 3.16  2026-04-28
 
     - documented the explicit numeric `Devel::Cover` QA gate as a standing

@@ -173,6 +173,9 @@ The integration run creates:
 - after a helper user exists, non-loopback access produces the helper login page
 - helper logout removes both the helper session and the helper account
 - `dashboard stop` leaves no active listener on port `7890`
+- `dashboard stop` and `dashboard restart` still control the real serving pid
+  when the web process has renamed itself into a `starman master` listener
+  shape, so container lifecycle checks stay attached to the active listener
 - interactive `dashboard stop` and `dashboard restart` runs print the full lifecycle task board on `stderr` before work begins, so managed shutdown and startup waits stay visible instead of looking hung
 - `dashboard stop` and `dashboard restart` default to a final terminal table summary, while `-o json` keeps the machine-readable payload
 - `dashboard stop web`, `dashboard stop collector`, `dashboard stop collector <name>`, `dashboard restart web`, `dashboard restart collector`, `dashboard restart collector <name>`, `dashboard log`, `dashboard logs`, `dashboard log web`, `dashboard log collector`, and `dashboard log collector <name>` all behave as documented, with collector-name completion feeding the scoped collector commands
