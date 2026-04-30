@@ -40,8 +40,8 @@ if ($has_source_tree_docs) {
     close $plan_fh;
     like( $plan, qr/dzil build/, 'integration plan covers host dzil build' );
     like( $plan, qr/cpanm/, 'integration plan covers cpanm install' );
-    like( $plan, qr/installation: `cpanm <tarball>`/, 'integration plan keeps the blank-environment tarball install on plain cpanm' );
-    like( $plan, qr/Windows guest currently installs the tarball with\s+`cpanm --notest`/s, 'integration plan documents the Windows-only cpanm --notest exception explicitly' );
+    like( $plan, qr/installation: `cpanm --notest <tarball>`/, 'integration plan keeps the blank-environment tarball install on cpanm --notest after the source-tree test gate' );
+    unlike( $plan, qr/Windows-only cpanm --notest exception|Windows guest currently installs the tarball with\s+`cpanm --notest`/s, 'integration plan no longer treats cpanm --notest as a Windows-only exception' );
     like( $plan, qr/dashboard serve/, 'integration plan covers installed web lifecycle' );
     like( $plan, qr/helper logout/i, 'integration plan covers helper logout cleanup' );
     like( $plan, qr/Chromium|browser/i, 'integration plan covers browser-backed verification' );
@@ -100,13 +100,13 @@ if ($has_integration_assets) {
     like( $runner, qr/tar -xzf/, 'integration runner extracts the tarball inside the container' );
     like( $runner, qr/_versioned_install_tarball_path/, 'integration runner derives a versioned cpanm install tarball path from the extracted distribution version' );
     like( $runner, qr/_copy_file\( \$tarball, \$install_tarball \)/, 'integration runner stages the mounted tarball into a versioned local copy before cpanm install' );
-    like( $runner, qr/cpanm install host-built tarball.*\$install_tarball/s, 'integration runner installs the versioned local tarball copy with cpanm' );
+    like( $runner, qr/cpanm install host-built tarball.*--notest.*\$install_tarball/s, 'integration runner installs the versioned local tarball copy with cpanm --notest' );
     unlike( $runner, qr/cpanm install host-built tarball.*\$tarball/s, 'integration runner does not hand the generic mounted tarball path directly to cpanm' );
     like( $runner, qr/dashboard update/, 'integration runner exercises dashboard update' );
     like( $runner, qr/Runtime::Result/, 'integration runner exercises Runtime::Result-aware hook chaining' );
     like( $runner, qr/dashboard docker compose --project .* --dry-run config/, 'integration runner exercises docker compose dry-run' );
     like( $runner, qr/dashboard auth add-user helper_login helper-login-pass-123/, 'integration runner exercises helper login path' );
-    unlike( $runner, qr/cpanm --notest/, 'integration runner installs the tarball without cpanm --notest' );
+    like( $runner, qr/cpanm --notest/, 'integration runner installs the tarball with cpanm --notest after the source-tree test gate' );
     like( $runner, qr/broken\.collector/, 'integration runner provisions a broken config collector regression case' );
     like( $runner, qr/healthy\.collector/, 'integration runner provisions a healthy config collector regression case' );
     like( $runner, qr/dashboard indicator list after restart/, 'integration runner checks indicator isolation after restart' );
@@ -118,7 +118,7 @@ if ($has_integration_assets) {
     like( $runner, qr/_distribution_version/, 'integration runner reads the expected installed version from the extracted tarball instead of hard-coding a release number' );
     like( $runner, qr/\.developer-dashboard/, 'integration runner provisions a fake-project local runtime tree' );
     like( $runner, qr/cpanm install host-built tarball.*dashboard init/s, 'integration runner builds the fake-project local runtime only after the tarball install step' );
-    like( $runner, qr/dashboard init no longer seeds extracted starter dashboard pages from core/, 'integration runner documents that extracted starter dashboards are no longer seeded by core dashboard init' );
+    like( $runner, qr/dashboard init reports only the fake-project bookmark files that the integration fixture created instead of seeding extracted core starter dashboards/, 'integration runner documents that dashboard init now reports the fixture bookmark files instead of seeding extracted starter dashboards from core' );
     like( $runner, qr/__END__/, 'integration runner carries POD trailer' );
 
     open my $docker_fh, '<', 'integration/blank-env/Dockerfile' or die $!;
@@ -140,6 +140,7 @@ if ($has_integration_assets) {
     like( $host, qr/rm -rf Developer-Dashboard-\* Developer-Dashboard-\*\.tar\.gz/, 'host launcher removes old release build directories and tarballs before building a new one' );
     like( $host, qr/LOCAL_DZIL.*build/s, 'host launcher builds the tarball on the host with Dist::Zilla' );
     like( $host, qr/DASHBOARD_TARBALL/, 'host launcher exports the tarball path for docker compose' );
+    like( $host, qr/prove -lv t\/44-smart-router-two-stage\.t/, 'host launcher runs the post-build smart-router two-stage guard before blank-environment integration' );
     like( $host, qr/run --rm blank-env/, 'host launcher runs the blank-environment integration service' );
     unlike( $host, qr/run --build --rm blank-env/, 'host launcher does not rebuild the integration image when using the prebuilt container path' );
     like( $host, qr/integration\/blank-env\/Dockerfile/, 'host launcher POD documents the pinned blank-environment Dockerfile path' );

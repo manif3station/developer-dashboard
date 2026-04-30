@@ -2140,6 +2140,83 @@ ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title re
 }
 
 {
+    is_deeply(
+        [ $manager->_collector_stop_fallback_names( { 'zeta.collector' => 1, 'alpha.collector' => 1 } ) ],
+        [ 'alpha.collector', 'zeta.collector' ],
+        '_collector_stop_fallback_names returns the explicit wanted names in sorted order',
+    );
+
+    my $collectors_root = $paths->collectors_root;
+    make_path($collectors_root);
+    my $gamma_pid = File::Spec->catfile( $collectors_root, 'gamma.collector.pid' );
+    my $beta_pid  = File::Spec->catfile( $collectors_root, 'beta.collector.pid' );
+    open my $gamma_fh, '>', $gamma_pid or die "Unable to write $gamma_pid: $!";
+    print {$gamma_fh} "$$\n";
+    close $gamma_fh or die "Unable to close $gamma_pid: $!";
+    open my $beta_fh, '>', $beta_pid or die "Unable to write $beta_pid: $!";
+    print {$beta_fh} "$$\n";
+    close $beta_fh or die "Unable to close $beta_pid: $!";
+
+    my @fallback_names = $manager->_collector_stop_fallback_names({});
+    ok( scalar( grep { $_ eq 'alpha.collector' } @fallback_names ), '_collector_stop_fallback_names keeps configured alpha.collector in the fallback set' );
+    is( scalar( grep { $_ eq 'beta.collector' } @fallback_names ), 1, '_collector_stop_fallback_names keeps one beta.collector entry when config and pidfiles both mention it' );
+    ok( scalar( grep { $_ eq 'gamma.collector' } @fallback_names ), '_collector_stop_fallback_names adds pidfile-only collector names to the fallback set' );
+
+    no warnings 'redefine';
+    local *Local::RuntimeRunner::running_loops = sub { return () };
+    local *Local::RuntimeRunner::loop_state = sub {
+        my ( undef, $name ) = @_;
+        return undef if $name eq 'gamma.collector';
+        return {
+            pid          => $$,
+            name         => 'alpha.collector',
+            status       => 'starting',
+            process_name => 'dashboard collector: alpha.collector',
+        } if $name eq 'alpha.collector';
+        return {
+            pid          => $$,
+            name         => 'wrong.collector',
+            status       => 'starting',
+            process_name => 'dashboard collector: wrong.collector',
+        } if $name eq 'beta.collector';
+        return undef;
+    };
+
+    is_deeply(
+        [ map { { name => $_->{name}, pid => $_->{pid} } } $manager->_collector_stop_targets( { 'gamma.collector' => 1 } ) ],
+        [
+            {
+                name => 'gamma.collector',
+                pid  => $$,
+            },
+        ],
+        '_collector_stop_targets accepts a pidfile-backed named collector target even when loop_state is unavailable',
+    );
+
+    is_deeply(
+        [ map { { name => $_->{name}, pid => $_->{pid} } } $manager->_collector_stop_targets( {} ) ],
+        [
+            {
+                name => 'alpha.collector',
+                pid  => $$,
+            },
+            {
+                name => 'beta.collector',
+                pid  => $$,
+            },
+            {
+                name => 'gamma.collector',
+                pid  => $$,
+            },
+        ],
+        '_collector_stop_targets folds configured live state and pidfile-backed fallback collectors into one sorted stop target list',
+    );
+
+    unlink $gamma_pid or die "Unable to remove $gamma_pid: $!";
+    unlink $beta_pid or die "Unable to remove $beta_pid: $!";
+}
+
+{
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::stop_web = sub { return 8101 };
     local *Developer::Dashboard::RuntimeManager::_restart_web_with_retry = sub { return 8102 };

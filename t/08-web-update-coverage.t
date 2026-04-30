@@ -27,6 +27,7 @@ use Developer::Dashboard::PageRuntime;
 use Developer::Dashboard::PageStore;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::SessionStore;
+use Developer::Dashboard::SkillManager;
 use Developer::Dashboard::UpdateManager;
 use Developer::Dashboard::Web::App;
 use Developer::Dashboard::Web::DancerApp;
@@ -68,6 +69,7 @@ local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
 local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
 chdir $home or die "Unable to chdir to $home: $!";
+my $test_repos = tempdir( CLEANUP => 1 );
 my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
 my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
 my $store = Developer::Dashboard::PageStore->new( paths => $paths );
@@ -88,6 +90,51 @@ my $app = Developer::Dashboard::Web::App->new(
     runtime  => $runtime,
     sessions => $sessions,
 );
+
+my $skill_manager = Developer::Dashboard::SkillManager->new( paths => $paths );
+my $dancer_skill_repo = _create_dancer_route_skill_repo('dancer-route-skill');
+my $dancer_skill_install = $skill_manager->install( 'file://' . $dancer_skill_repo );
+ok( !$dancer_skill_install->{error}, 'dancer route skill installs cleanly for PSGI route coverage' )
+  or diag $dancer_skill_install->{error};
+
+{
+    my $psgi_app = Developer::Dashboard::Web::DancerApp->build_psgi_app( app => $app );
+    test_psgi $psgi_app, sub {
+        my ($cb) = @_;
+        my $ajax = $cb->( GET 'http://127.0.0.1/ajax/dancer-route-skill/bar?type=text' );
+        is( $ajax->code, 200, 'Dancer ajax route serves top-level skill-local ajax handlers' );
+        is( decode_body_text( $ajax->content ), "dancer top-level ajax\n", 'Dancer ajax route streams the top-level skill-local ajax body' );
+
+        my $nested = $cb->( GET 'http://127.0.0.1/ajax/dancer-route-skill/def/nested?type=text' );
+        is( $nested->code, 200, 'Dancer ajax route serves nested skill-local ajax handlers' );
+        is( decode_body_text( $nested->content ), "dancer nested ajax\n", 'Dancer ajax route streams the nested skill-local ajax body' );
+
+        my $page = $cb->( GET 'http://127.0.0.1/app/dancer-route-skill' );
+        is( $page->code, 200, 'Dancer app route serves the top-level skill bookmark page' );
+        like( decode_body_text( $page->content ), qr/Dancer Skill Index/, 'Dancer app route renders the top-level skill bookmark body' );
+
+        my $nested_page = $cb->( GET 'http://127.0.0.1/app/dancer-route-skill/def' );
+        is( $nested_page->code, 200, 'Dancer app route serves the nested skill bookmark page' );
+        like( decode_body_text( $nested_page->content ), qr/Dancer Nested Index/, 'Dancer app route renders the nested skill bookmark body' );
+
+        my $js = $cb->( GET 'http://127.0.0.1/js/dancer-route-skill/skill.js' );
+        is( $js->code, 200, 'Dancer js route serves top-level skill-local assets' );
+        is( decode_body_text( $js->content ), qq{console.log("dancer top-level js");\n}, 'Dancer js route returns the top-level skill-local asset body' );
+
+        my $nested_js = $cb->( GET 'http://127.0.0.1/js/dancer-route-skill/def/ijk/lmn.js' );
+        is( $nested_js->code, 200, 'Dancer js route serves nested skill-local assets' );
+        is( decode_body_text( $nested_js->content ), qq{console.log("dancer nested js");\n}, 'Dancer js route returns the nested skill-local asset body' );
+
+        my $css = $cb->( GET 'http://127.0.0.1/css/dancer-route-skill/skill.css' );
+        is( $css->code, 200, 'Dancer css route serves top-level skill-local assets' );
+        is( decode_body_text( $css->content ), qq{body { color: #654321; }\n}, 'Dancer css route returns the top-level skill-local css body' );
+
+        my $other = $cb->( GET 'http://127.0.0.1/others/dancer-route-skill/info.txt' );
+        is( $other->code, 200, 'Dancer others route serves top-level skill-local assets' );
+        is( decode_body_text( $other->content ), "dancer top-level other\n", 'Dancer others route returns the top-level skill-local other asset body' );
+    };
+}
+
 dies_like( sub { Developer::Dashboard::Web::App->new( pages => $store, sessions => $sessions ) }, qr/Missing auth store/, 'web app requires auth store' );
 dies_like( sub { Developer::Dashboard::Web::App->new }, qr/Missing auth store/, 'web app requires auth before other dependencies' );
 dies_like( sub { Developer::Dashboard::Web::App->new( auth => $auth, sessions => $sessions ) }, qr/Missing page store/, 'web app requires page store' );
@@ -1138,6 +1185,93 @@ my $loop_updater = Developer::Dashboard::UpdateManager->new(
     runner => Local::RunnerWithLoops->new,
 );
 is_deeply( [ $loop_updater->_running_collectors ], [ 'alpha', 'beta' ], '_running_collectors delegates validation to collector runner state' );
+
+sub _create_dancer_route_skill_repo {
+    my ($name) = @_;
+    my $repo = File::Spec->catdir( $test_repos, $name );
+    make_path(
+        File::Spec->catdir( $repo, 'dashboards', 'ajax' ),
+        File::Spec->catdir( $repo, 'dashboards', 'public', 'js' ),
+        File::Spec->catdir( $repo, 'dashboards', 'public', 'css' ),
+        File::Spec->catdir( $repo, 'dashboards', 'public', 'others' ),
+        File::Spec->catdir( $repo, 'skills', 'def', 'dashboards', 'ajax' ),
+        File::Spec->catdir( $repo, 'skills', 'def', 'dashboards', 'public', 'js', 'ijk' ),
+    );
+
+    open my $meta, '>:raw', File::Spec->catfile( $repo, '.skill.json' )
+      or die "Unable to write skill metadata: $!";
+    print {$meta} qq|{"name":"$name","version":"0.01","commands":[]}\n|;
+    close $meta or die "Unable to close skill metadata: $!";
+
+    open my $top_ajax, '>:raw', File::Spec->catfile( $repo, 'dashboards', 'ajax', 'bar' )
+      or die "Unable to write top-level skill ajax file: $!";
+    print {$top_ajax} qq|print "dancer top-level ajax\\n";\n|;
+    close $top_ajax or die "Unable to close top-level skill ajax file: $!";
+    chmod 0700, File::Spec->catfile( $repo, 'dashboards', 'ajax', 'bar' )
+      or die "Unable to chmod top-level skill ajax file: $!";
+
+    open my $index, '>:raw', File::Spec->catfile( $repo, 'dashboards', 'index' )
+      or die "Unable to write top-level skill index bookmark: $!";
+    print {$index} <<'BOOKMARK';
+TITLE: Dancer Skill Index
+:--------------------------------------------------------------------------------:
+BOOKMARK: index
+:--------------------------------------------------------------------------------:
+HTML:
+Dancer Skill Index
+BOOKMARK
+    close $index or die "Unable to close top-level skill index bookmark: $!";
+
+    open my $js, '>:raw', File::Spec->catfile( $repo, 'dashboards', 'public', 'js', 'skill.js' )
+      or die "Unable to write top-level skill js asset: $!";
+    print {$js} qq{console.log("dancer top-level js");\n};
+    close $js or die "Unable to close top-level skill js asset: $!";
+
+    open my $css, '>:raw', File::Spec->catfile( $repo, 'dashboards', 'public', 'css', 'skill.css' )
+      or die "Unable to write top-level skill css asset: $!";
+    print {$css} qq{body { color: #654321; }\n};
+    close $css or die "Unable to close top-level skill css asset: $!";
+
+    open my $other, '>:raw', File::Spec->catfile( $repo, 'dashboards', 'public', 'others', 'info.txt' )
+      or die "Unable to write top-level skill other asset: $!";
+    print {$other} "dancer top-level other\n";
+    close $other or die "Unable to close top-level skill other asset: $!";
+
+    open my $nested_ajax, '>:raw', File::Spec->catfile( $repo, 'skills', 'def', 'dashboards', 'ajax', 'nested' )
+      or die "Unable to write nested skill ajax file: $!";
+    print {$nested_ajax} qq|print "dancer nested ajax\\n";\n|;
+    close $nested_ajax or die "Unable to close nested skill ajax file: $!";
+    chmod 0700, File::Spec->catfile( $repo, 'skills', 'def', 'dashboards', 'ajax', 'nested' )
+      or die "Unable to chmod nested skill ajax file: $!";
+
+    open my $nested_index, '>:raw', File::Spec->catfile( $repo, 'skills', 'def', 'dashboards', 'index' )
+      or die "Unable to write nested skill index bookmark: $!";
+    print {$nested_index} <<'BOOKMARK';
+TITLE: Dancer Nested Index
+:--------------------------------------------------------------------------------:
+BOOKMARK: index
+:--------------------------------------------------------------------------------:
+HTML:
+Dancer Nested Index
+BOOKMARK
+    close $nested_index or die "Unable to close nested skill index bookmark: $!";
+
+    open my $nested_js, '>:raw', File::Spec->catfile( $repo, 'skills', 'def', 'dashboards', 'public', 'js', 'ijk', 'lmn.js' )
+      or die "Unable to write nested skill js asset: $!";
+    print {$nested_js} qq{console.log("dancer nested js");\n};
+    close $nested_js or die "Unable to close nested skill js asset: $!";
+
+    my $cwd = getcwd();
+    chdir $repo or die "Unable to chdir to $repo: $!";
+    system( 'git', 'init', '-q' ) == 0 or die "Unable to git init $repo: $!";
+    system( 'git', 'config', 'user.email', 'test@example.invalid' ) == 0 or die "Unable to configure git user.email for $repo: $!";
+    system( 'git', 'config', 'user.name', 'Developer Dashboard Test' ) == 0 or die "Unable to configure git user.name for $repo: $!";
+    system( 'git', 'add', '.' ) == 0 or die "Unable to git add fixture repo contents: $!";
+    system( 'git', 'commit', '-qm', 'fixture' ) == 0 or die "Unable to commit fixture repo contents: $!";
+    chdir $cwd or die "Unable to chdir back to $cwd: $!";
+
+    return $repo;
+}
 
 done_testing;
 

@@ -890,6 +890,18 @@ is($code10, 200, 'helper route with session ok');
 like($body10, qr/id="logout-url"/, 'helper route renders logout link');
 like($body10, qr/class="user-name-and-icon".*helper_user/s, 'helper route shows helper username in the top chrome');
 
+my $index_file = $store->page_file('index');
+unlink $index_file if -f $index_file;
+my ($code10b, undef, $body10b) = @{ $app->handle(
+    path        => '/',
+    query       => '',
+    remote_addr => '10.0.0.2',
+    headers     => { host => '10.0.0.3:7890', cookie => $helper_cookie },
+) };
+is($code10b, 200, 'helper root route with session ok');
+like($body10b, qr/id="logout-url"/, 'helper root blank editor renders logout link');
+like($body10b, qr/class="user-name-and-icon".*helper_user/s, 'helper root blank editor shows helper username in the top chrome');
+
 my ($code11, undef, $body11, $headers11) = @{ $app->handle(
     path        => '/logout',
     query       => '',

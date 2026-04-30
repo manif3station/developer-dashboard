@@ -10,7 +10,7 @@ web application rather than as a checkout-local script.
 The goal is to prove that a new environment can:
 
 - build the CPAN distribution tarball on the host from the repo
-- install the built tarball with `cpanm`
+- install the built tarball with `cpanm --notest`
 - run the installed `dashboard` command successfully
 - initialize runtime state in a fake project
 - execute the major CLI surfaces through installed binaries against that fake project
@@ -26,7 +26,7 @@ The goal is to prove that a new environment can:
 The integration run covers these command families:
 
 - host packaging: `dzil build`
-- installation: `cpanm <tarball>`
+- installation: `cpanm --notest <tarball>`
 - bootstrap: `dashboard init`, user-provided `dashboard update`
 - help and prompt: `dashboard`, `dashboard help`, `dashboard ps1`, `dashboard shell bash`, `dashboard shell ps`
 - paths: `dashboard paths`, `dashboard path list`, `dashboard path resolve`, `dashboard path project-root`
@@ -74,6 +74,12 @@ The test container should be intentionally minimal:
 
 The repo checkout is not mounted into the container as the app under test.
 Only the host-built tarball is mounted into the blank container.
+The normal `prove -lr t` and explicit `Devel::Cover` gates are where the
+Developer Dashboard distribution tests run in full. The later blank-container
+tarball install is now an installation-verification gate, so it uses
+`cpanm --notest` to verify packaged dependency resolution and installed
+runtime behavior without rerunning the same distribution test suite a second
+time.
 
 ## Test Data
 
@@ -93,39 +99,40 @@ The integration run creates:
 ## Execution Flow
 
 1. Build the distribution tarball on the host with `dzil build`.
-2. Start the blank container with only that host-built tarball mounted into it.
-3. Copy the mounted tarball to a versioned local path inside the container and
-   install that staged tarball with `cpanm`. The staged filename must keep the
+2. Run `prove -lv t/44-smart-router-two-stage.t` against that freshly built tarball so the extracted-dashboard smart-router contract is verified at the post-build stage.
+3. Start the blank container with only that host-built tarball mounted into it.
+4. Copy the mounted tarball to a versioned local path inside the container and
+   install that staged tarball with `cpanm --notest`. The staged filename must keep the
    concrete `Developer-Dashboard-X.XX.tar.gz` version so `cpanm` cannot drift
    into a CPAN lookup because the bind-mounted filename is generic.
-4. Create the fake-project `./.developer-dashboard` tree only after that install step succeeds so the tarball's own tests still run against a clean runtime.
-5. Extract the same tarball inside the container for the rest of the installed-command checks.
-6. Verify the installed CLI responds to `dashboard help`.
-7. Verify bare `dashboard` returns usage output.
-8. Verify `dashboard version` reports the installed runtime version.
-9. Create a fake project root with a local `./.developer-dashboard` runtime tree.
-13. Exercise `dashboard cpan DBD::Driver` inside the fake project and confirm the requested driver plus `DBI` are installed into `./.developer-dashboard/local` and recorded in `./.developer-dashboard/cpanfile`.
-14. Seed a user-provided fake-project `./.developer-dashboard/cli/update` command plus `update.d` hooks in the clean container, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes, including later-hook reads through `Runtime::Result`.
-15. Exercise path, prompt, shell, encode/decode, and indicator commands.
-16. Exercise collector write/run/read/start/restart/stop flows, including fake-project config collector definitions, TT-backed collector indicator icons rendered from collector stdout JSON, `dashboard collector log`, `dashboard collector log <name>`, and housekeeper-driven collector log rotation from configured `rotation` or `rotations` rules.
-17. Restart the installed runtime with one intentionally broken Perl config collector and one healthy config collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state, even when prompt/browser status refreshes run during the restart window.
-18. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
-19. Exercise builtin action execution.
-20. Exercise docker compose dry-run resolution against a temporary project.
-21. Start the installed web service.
-22. Confirm exact-loopback access reaches the editor page in Chromium.
-23. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
-24. Confirm the browser inserts sorted rendered `nav/*.tt` bookmark fragments between the top chrome and the main page body.
-25. Confirm the browser top-right status strip shows configured collector icons, not collector names, that UTF-8 icons such as `🐳` and `💰` are visibly rendered, and that renamed collectors no longer leave stale managed indicators behind.
-26. Confirm an installed saved bookmark page can declare `var endpoints = {};`, then use `fetch_value()` and `stream_value()` from `$(document).ready(...)` against saved `/ajax/<file>` routes without inline-script ordering failures or browser console `ReferenceError`s.
-27. Confirm an installed long-running saved `/ajax/<file>` route starts streaming the first output chunks promptly instead of buffering until the worker exits.
-28. Confirm non-loopback self-access returns `401` with an empty body and without a login form before any helper user exists in the active runtime.
-29. Add a helper user for the outsider browser flow, then confirm non-loopback self-access reaches the helper login page in Chromium.
-30. Log in as a helper through the HTTP helper flow.
-31. Confirm helper page chrome shows `Logout`.
-32. Log out and confirm the helper account is removed.
-33. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
-34. Stop the runtime and confirm the web service is gone.
+5. Create the fake-project `./.developer-dashboard` tree only after that install step succeeds so the tarball's own tests still run against a clean runtime.
+6. Extract the same tarball inside the container for the rest of the installed-command checks.
+7. Verify the installed CLI responds to `dashboard help`.
+8. Verify bare `dashboard` returns usage output.
+9. Verify `dashboard version` reports the installed runtime version.
+10. Create a fake project root with a local `./.developer-dashboard` runtime tree.
+11. Exercise `dashboard cpan DBD::Driver` inside the fake project and confirm the requested driver plus `DBI` are installed into `./.developer-dashboard/local` and recorded in `./.developer-dashboard/cpanfile`.
+12. Seed a user-provided fake-project `./.developer-dashboard/cli/update` command plus `update.d` hooks in the clean container, run `dashboard update`, and confirm the normal top-level command-hook pipeline completes, including later-hook reads through `Runtime::Result`.
+13. Exercise path, prompt, shell, encode/decode, and indicator commands.
+14. Exercise collector write/run/read/start/restart/stop flows, including fake-project config collector definitions, TT-backed collector indicator icons rendered from collector stdout JSON, `dashboard collector log`, `dashboard collector log <name>`, and housekeeper-driven collector log rotation from configured `rotation` or `rotations` rules.
+15. Restart the installed runtime with one intentionally broken Perl config collector and one healthy config collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state, even when prompt/browser status refreshes run during the restart window.
+16. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
+17. Exercise builtin action execution.
+18. Exercise docker compose dry-run resolution against a temporary project.
+19. Start the installed web service.
+20. Confirm exact-loopback access reaches the editor page in Chromium.
+21. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
+22. Confirm the browser inserts sorted rendered `nav/*.tt` bookmark fragments between the top chrome and the main page body.
+23. Confirm the browser top-right status strip shows configured collector icons, not collector names, that UTF-8 icons such as `🐳` and `💰` are visibly rendered, and that renamed collectors no longer leave stale managed indicators behind.
+24. Confirm an installed saved bookmark page can declare `var endpoints = {};`, then use `fetch_value()` and `stream_value()` from `$(document).ready(...)` against saved `/ajax/<file>` routes without inline-script ordering failures or browser console `ReferenceError`s.
+25. Confirm an installed long-running saved `/ajax/<file>` route starts streaming the first output chunks promptly instead of buffering until the worker exits.
+26. Confirm non-loopback self-access returns `401` with an empty body and without a login form before any helper user exists in the active runtime.
+27. Add a helper user for the outsider browser flow, then confirm non-loopback self-access reaches the helper login page in Chromium.
+28. Log in as a helper through the HTTP helper flow.
+29. Confirm helper page chrome shows `Logout`.
+30. Log out and confirm the helper account is removed.
+31. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
+32. Stop the runtime and confirm the web service is gone.
 
 ## Expected Results
 
@@ -245,7 +252,7 @@ needed, and then delegates to `integration/windows/run-qemu-windows-smoke.sh`.
 The supported runtime baseline inside Windows is PowerShell plus Strawberry
 Perl. Git Bash is optional. Scoop is optional. They are setup helpers only.
 In the Dockur-backed path, the host launcher stages the Strawberry Perl MSI
-into the OEM bundle and the Windows guest currently installs the tarball with
+into the OEM bundle and the Windows guest installs the tarball with
 `cpanm --notest` before running the real dashboard smoke checks.
 
 Build the tarball on the host and run the integration harness with:

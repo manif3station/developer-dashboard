@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.24
+3.26
 
 # INTRODUCTION
 
@@ -967,8 +967,10 @@ those payloads through `Runtime::Result`.
 Use `dashboard version` to print the installed Developer Dashboard version.
 
 The blank-container integration harness applies fake-project dashboard override
-environment variables only after `cpanm` finishes installing the tarball so
-the shipped test suite still runs against a clean runtime.
+environment variables only after `cpanm --notest` finishes installing the
+tarball so the source-tree test and coverage gates stay responsible for full
+distribution test execution while the later blank-container path verifies
+packaged dependency resolution and installed runtime behavior.
 That same blank-container path now also verifies web stop/restart behavior in a
 minimal image where listener ownership may need to be discovered from `/proc`
 instead of `ss`, including a late listener re-probe before
@@ -2221,6 +2223,10 @@ child skill's `dashboards/<page>`
 `/others/<repo-name>/...`, with nested child skills extending those
 same prefixes under `/js/.../<sub-skill>/...`,
 `/css/.../<sub-skill>/...`, and `/others/.../<sub-skill>/...`
+- the installed web server uses the same smart longest-prefix dispatcher for
+those `/app`, `/ajax`, `/js`, `/css`, and `/others` routes, so installed
+skill-local pages, Ajax handlers, and public assets work through the shipped
+PSGI route layer without being copied into the shared dashboard roots
 - `dashboards/nav/*` is loaded into those skill app routes and into the shared
 nav strip above normal saved `/app/<page>` routes such as
 `/app/index`, so every installed skill can contribute top-level nav at once

@@ -1,3 +1,29 @@
+3.26  2026-04-30
+    - changed the blank-container tarball installation gate to use
+      `cpanm --notest` after the normal source-tree test and coverage gates
+      have already passed, so packaged dependency resolution and installed
+      runtime behavior stay verified without rerunning the full tarball test
+      suite
+    - updated the blank-environment integration runner, release docs, and
+      integration guardrails so the post-build `t/44-smart-router-two-stage.t`
+      check and the broader tarball integration flow both follow the same
+      `cpanm --notest` policy
+
+3.25  2026-04-29
+    - fixed the installed Dancer web stack so the public `/app`, `/ajax`,
+      `/js`, `/css`, and `/others` routes now reuse the backend smart route
+      dispatcher instead of bypassing skill-local namespace resolution
+    - added PSGI coverage that proves top-level and nested skill-local app,
+      ajax, js, css, and others routes all work through the real installed
+      web route layer
+    - added the post-build `t/44-smart-router-two-stage.t` guard and wired the
+      blank-environment host integration launcher to run it immediately after
+      `dzil build` so extracted-dashboard routing regressions are caught at the
+      tarball stage instead of only in source-tree tests
+    - fixed helper-login blank-editor rendering so a helper user who lands on
+      the root editor path still sees helper chrome, including the logout link
+      and helper username, during installed integration runs
+
 3.24  2026-04-29
     - added skill-local web namespaces for `dashboards/ajax/*` and
       `dashboards/public/{js,css,others}/*` so installed skills can serve

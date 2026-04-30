@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.24';
+our $VERSION = '3.26';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -428,30 +428,8 @@ sub serve_all {
 sub stop_collectors {
     my ( $self, %args ) = @_;
     my $progress = $args{progress};
-    my @running = $self->{runner}->running_loops;
     my %wanted = map { $_ => 1 } @{ $args{names} || [] };
-    my @targets = grep {
-        my $name = $_->{name};
-        $name && ( !%wanted || $wanted{$name} );
-    } @running;
-    if (%wanted) {
-        my %present = map { $_->{name} => 1 } @targets;
-        for my $name ( sort keys %wanted ) {
-            next if $present{$name};
-            next if !$self->{runner}->can('loop_state');
-            my $state = eval { $self->{runner}->loop_state($name) };
-            next if !$state || ref($state) ne 'HASH';
-            my $pid = $state->{pid};
-            next if !defined $pid || $pid !~ /^\d+$/ || $pid < 1 || !kill 0, $pid;
-            next if ( $state->{name} || '' ) ne $name;
-            next if ( $state->{status} || '' ) !~ /^(?:starting|running|error)$/;
-            push @targets, {
-                name  => $name,
-                pid   => $pid,
-                state => $state,
-            };
-        }
-    }
+    my @targets = $self->_collector_stop_targets( \%wanted );
     my @names = map { $_->{name} } @targets;
     my @stopped;
     for my $loop (@targets) {
@@ -501,6 +479,89 @@ sub stop_collectors {
         $self->_send_signal( 'KILL', $proc->{pid} );
     }
     return @stopped if $args{structured};
+    return @names;
+}
+
+# _collector_stop_targets($wanted)
+# Resolves the collector loops that a stop request should target, including
+# state-backed fallbacks when process-title discovery has not caught up yet.
+# Input: hash reference of wanted collector names, or an empty hash for "all".
+# Output: ordered list of collector loop hash references.
+sub _collector_stop_targets {
+    my ( $self, $wanted ) = @_;
+    $wanted ||= {};
+    my %wanted = %{$wanted};
+    my @running = $self->{runner}->running_loops;
+    my @targets = grep {
+        my $name = $_->{name};
+        $name && ( !%wanted || $wanted{$name} );
+    } @running;
+    my %present = map { $_->{name} => 1 } @targets;
+
+    for my $name ( $self->_collector_stop_fallback_names( \%wanted ) ) {
+        next if $present{$name}++;
+        next if !$self->{runner}->can('loop_state');
+        my $state = eval { $self->{runner}->loop_state($name) };
+        $state = {} if !$state || ref($state) ne 'HASH';
+        my $pidfile = File::Spec->catfile( $self->{paths}->collectors_root, "$name.pid" );
+        my $pid = $state->{pid};
+        if ( -f $pidfile ) {
+            open my $fh, '<', $pidfile or die "Unable to read $pidfile: $!";
+            my $pid_text = <$fh>;
+            close $fh or die "Unable to close $pidfile: $!";
+            chomp $pid_text if defined $pid_text;
+            $pid = $pid_text if defined $pid_text && $pid_text =~ /^\d+$/;
+            push @targets, {
+                name  => $name,
+                pid   => $pid,
+                state => $state,
+            };
+            next;
+        }
+        next if !defined $pid || $pid !~ /^\d+$/ || $pid < 1 || !kill 0, $pid;
+        next if ( $state->{name} || '' ) ne $name;
+        next if ( $state->{status} || '' ) !~ /^(?:starting|running|error)$/;
+        push @targets, {
+            name  => $name,
+            pid   => $pid,
+            state => $state,
+        };
+    }
+
+    @targets = sort { ( $a->{name} || '' ) cmp ( $b->{name} || '' ) } @targets;
+    return @targets;
+}
+
+# _collector_stop_fallback_names($wanted)
+# Enumerates collector names whose persisted loop state should be checked when
+# process-title discovery misses a live collector loop.
+# Input: hash reference of wanted collector names, or an empty hash for "all".
+# Output: ordered list of collector name strings.
+sub _collector_stop_fallback_names {
+    my ( $self, $wanted ) = @_;
+    $wanted ||= {};
+    return sort keys %{$wanted} if %{$wanted};
+    return () if !$self->{runner}->can('loop_state');
+
+    my %seen;
+    my @names;
+    for my $job ( @{ $self->{config}->collectors || [] } ) {
+        my $name = ref($job) eq 'HASH' ? ( $job->{name} || '' ) : '';
+        next if $name eq '' || $seen{$name}++;
+        push @names, $name;
+    }
+
+    my $collectors_root = eval { $self->{paths}->collectors_root };
+    if ( defined $collectors_root && $collectors_root ne '' && -d $collectors_root ) {
+        opendir( my $dh, $collectors_root ) or die "Unable to read $collectors_root: $!";
+        for my $entry ( sort grep { $_ ne '.' && $_ ne '..' && /\.pid\z/ } readdir($dh) ) {
+            my ($name) = $entry =~ /\A(.*)\.pid\z/;
+            next if !defined $name || $name eq '' || $seen{$name}++;
+            push @names, $name;
+        }
+        closedir($dh);
+    }
+
     return @names;
 }
 

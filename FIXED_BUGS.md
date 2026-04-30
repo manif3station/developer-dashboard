@@ -1,5 +1,43 @@
 # Fixed Bugs
 
+## 3.26 - Blank-container tarball install policy alignment
+
+- Fixed the blank-container tarball gate so it now installs the built release
+  tarball with `cpanm --notest` only after the normal source-tree `prove -lr t`
+  and explicit numeric `Devel::Cover` gates have already passed.
+- Fixed the integration plan, release workflow notes, and integration asset
+  guards so the repo no longer treats `cpanm --notest` as a Windows-only
+  exception for the packaged tarball install path.
+- Fixed the blank-environment integration runner so its packaged tarball
+  install step follows the same `cpanm --notest` policy as the documented
+  release flow.
+
+## 3.25 - Installed web route parity for skill-local namespaces
+
+- Fixed the installed Dancer web route layer so `/ajax/<repo>/...` and
+  nested child-skill Ajax paths no longer bypass the smart skill router and
+  incorrectly fall through to `Ajax handler not found`.
+- Fixed the installed Dancer web route layer so `/js/<repo>/...`,
+  `/css/<repo>/...`, and `/others/<repo>/...` now use the same longest-prefix
+  skill route resolution as the backend app instead of only checking the
+  global saved public roots.
+- Fixed the installed Dancer web route layer so `/app/<repo>/...` and nested
+  child-skill bookmark routes stay aligned with the backend smart skill route
+  fallback instead of dropping into the blank editor path for installed skill
+  pages.
+- Added live PSGI regressions for top-level and nested `/app`, `/ajax`,
+  `/js`, `/css`, and `/others` skill-local routes so future smart-router work
+  has to pass the installed route layer too, not just direct backend unit
+  dispatch.
+- Fixed the blank-editor helper-login path so the root editor now keeps the
+  helper request context and still renders helper chrome, including the logout
+  link and helper username, during installed blank-environment integration
+  runs.
+- Fixed the release process so the extracted-dashboard smart-router regression
+  now has an explicit post-build guardrail in `t/44-smart-router-two-stage.t`
+  and the host integration launcher runs it immediately after `dzil build`
+  before the larger blank-environment flow starts.
+
 ## 3.24 - Skill-local route namespaces and nested skill asset routing
 
 - Fixed skill-local bookmark pages so `Ajax(file => ...)` inside

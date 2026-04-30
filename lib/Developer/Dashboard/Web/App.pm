@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '3.24';
+our $VERSION = '3.26';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -950,6 +950,15 @@ sub _blank_editor_response {
         description => '',
         meta        => { source_kind => 'transient', source_format => 'legacy' },
     );
+    my $request_ctx = $self->{_current_request_context} || {};
+    $page->{meta}{request_context} = {
+        host        => $request_ctx->{host} || '',
+        path        => '/',
+        remote_addr => $request_ctx->{remote_addr} || '',
+        tier        => $request_ctx->{tier} || 'helper',
+        username    => $request_ctx->{username} || '',
+        role        => $request_ctx->{role} || '',
+    };
     return [ 200, 'text/html; charset=utf-8', $self->_edit_html($page) ];
 }
 

@@ -266,8 +266,16 @@ integration/blank-env/run-host-integration.sh
 
 This integration path builds the distribution tarball on the host with
 `dzil build`, runs the prebuilt `dd-int-test:latest` container with only that
-tarball mounted into it, installs the tarball with `cpanm`, and then
+tarball mounted into it, installs the tarball with `cpanm --notest`, and then
 exercises the installed `dashboard` command inside the clean Perl container.
+The host-side launcher now also runs `prove -lv t/44-smart-router-two-stage.t`
+immediately after `dzil build` and before the broader blank-environment
+container flow. Treat that smart-router two-stage guard as a managed
+post-build gate, not as an optional memory step.
+That blank-container tarball install now assumes the normal `prove -lr t`
+suite and explicit numeric `Devel::Cover` gate already passed in the source
+tree. Its purpose is packaged dependency resolution and installed-runtime
+verification, not rerunning the full tarball test suite a second time.
 The release gather rules also exclude local `cover_db` output so a covered
 host run does not contaminate the tarball under test.
 The release gather rules must also exclude local scratch and dependency trees
