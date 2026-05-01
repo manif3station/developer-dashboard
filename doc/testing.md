@@ -328,7 +328,10 @@ runtime smoke runs. When `WINDOWS_USE_INSTALL_BOOTSTRAP=1` is set, the
 in-guest smoke first runs the repo-root `install.ps1` through a streamed
 `Invoke-Expression` wrapper with `DD_INSTALL_CPAN_TARGET` pointed at the
 staged tarball, so the release gate matches the intended operator flow of
-`irm .../install.ps1 | iex`.
+`irm .../install.ps1 | iex`. That bootstrap path must also keep test-only
+dependencies such as `Plack::Test` and `Test::Pod` out of the packaged
+install prerequisite chain so blank Windows guests do not fail while pulling
+`Test::SharedFork`.
 The supported Windows runtime baseline is PowerShell plus Strawberry Perl.
 Git Bash is optional. Scoop is optional. They remain setup helpers, not
 runtime requirements for Developer Dashboard itself.

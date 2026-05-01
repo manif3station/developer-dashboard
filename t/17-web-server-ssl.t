@@ -18,15 +18,16 @@ use IO::Socket::INET;
 use IO::Socket::SSL ();
 use HTTP::Request::Common qw(GET);
 use LWP::UserAgent;
-use Plack::Test;
 use Socket qw(AF_UNIX PF_UNSPEC SOCK_STREAM);
 use Test::More;
 use Time::HiRes qw(sleep);
 
 use lib 'lib';
+use lib 't/lib';
 
 use Developer::Dashboard::Web::Server;
 use Developer::Dashboard::Web::DancerApp;
+use Local::PSGITest;
 
 sub _openssl_cert_text {
     my ($cert_file) = @_;
@@ -430,7 +431,7 @@ OPENSSL_CONFIG
     ok($psgi_app, 'PSGI app created');
     ok(ref($psgi_app) eq 'CODE', 'PSGI app is a code reference');
     
-    test_psgi $psgi_app, sub {
+    Local::PSGITest::test_psgi $psgi_app, sub {
         my ($cb) = @_;
         my $http_request = GET 'http://127.0.0.1:17891/?from=http';
         my $http_response = $cb->($http_request);

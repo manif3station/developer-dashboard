@@ -28,7 +28,3 @@ on 'develop' => sub {
     recommends 'DBD::ODBC';
     recommends 'DBD::Oracle';
 };
-
-on 'test' => sub {
-    requires 'Test::Pod';
-};

@@ -72,7 +72,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '3.30', 'repo version bumped for the streamed Windows install.ps1 bootstrap fix' );
+is( $version, '3.31', 'repo version bumped for the streamed Windows install.ps1 bootstrap fix' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
 like( $readme, qr/\A(?:<!--.*?-->\n\n)?#\s+/s, 'README.md begins with Markdown headings' ) if $readme ne '';
@@ -113,6 +113,7 @@ if ( $dist ne '' ) {
     unlike( $dist, qr/^exclude_match = \^integration\/$/m, 'dist.ini keeps integration assets in the release tarball so install-time integration tests can read them' );
     unlike( $dist, qr/^exclude_match = \\.md\$$/m, 'dist.ini keeps Markdown documentation in the release tarball so release tests can read the shipped docs' );
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
+    unlike( $dist, qr/^Test::Pod = 0$/m, 'dist.ini does not ship Test::Pod as a distribution test prerequisite' );
 }
 else {
         like( $meta, qr/"version"\s*:\s*"\Q$version\E"/, 'META.json version matches the module version in the built distribution' );
@@ -159,8 +160,10 @@ for my $module (
 
 unlike( $makefile, qr/bin\/pjq|bin\/pyq|bin\/ptomq|bin\/pjp|bin\/jq|bin\/yq|bin\/tomq|bin\/propq|bin\/iniq|bin\/csvq|bin\/xmlq|bin\/of|bin\/open-file/, 'Makefile.PL does not install generic helper commands into the global PATH' );
 unlike( $makefile, qr/install\.sh|install\.ps1/, 'Makefile.PL does not install checkout bootstrap scripts into the CPAN script namespace' );
+unlike( $makefile, qr/["']Test::Pod["']\s*=>\s*0/, 'Makefile.PL does not ship Test::Pod as a runtime prerequisite' );
 unlike( $makefile, qr/["']HTTP::Daemon["']\s*=>\s*0/, 'Makefile.PL no longer declares unused HTTP::Daemon metadata' );
 unlike( $makefile, qr/["']HTTP::Status["']\s*=>\s*0/, 'Makefile.PL no longer declares unused HTTP::Status metadata' );
+unlike( $cpanfile, qr/requires ['"]Test::Pod['"];/, 'cpanfile does not ship Test::Pod as an install-time prerequisite' );
 for my $module (
     qw(
     JSON::XS
@@ -217,7 +220,7 @@ my @required_tarball_paths = (
 );
 my $matching_tarball = _repo_path("Developer-Dashboard-$version.tar.gz");
 SKIP: {
-    skip "matching release tarball $matching_tarball has not been built yet", 3 + scalar @required_tarball_paths
+    skip "matching release tarball $matching_tarball has not been built yet", 6 + scalar @required_tarball_paths
       if !-f $matching_tarball;
 
     my $tar = Archive::Tar->new;
@@ -229,6 +232,11 @@ SKIP: {
     for my $required (@required_tarball_paths) {
         ok( $files{$required}, "$required is packaged into the release tarball" );
     }
+    my $meta_member = "Developer-Dashboard-$version/META.json";
+    ok( $files{$meta_member}, 'matching release tarball ships META.json for packaged prerequisite assertions' );
+    my $meta_content = $tar->get_content($meta_member);
+    unlike( $meta_content, qr/"Plack::Test"\s*:/, 'packaged metadata does not ship Plack::Test as an install prerequisite' );
+    unlike( $meta_content, qr/"Test::Pod"\s*:/, 'packaged metadata does not ship Test::Pod as an install prerequisite' );
 }
 
 for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {

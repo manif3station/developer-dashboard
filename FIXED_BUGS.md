@@ -1,5 +1,19 @@
 # Fixed Bugs
 
+## 3.31 - Windows install test-dependency leak
+
+- Fixed the packaged install metadata so end-user installs no longer pull
+  `Plack::Test` and `Test::Pod` through the `Developer::Dashboard` test
+  prerequisite path.
+- Fixed the streamed Windows bootstrap path so blank hosts no longer fail with
+  `Module 'Test::SharedFork' is not installed` while running
+  `irm .../install.ps1 | iex`.
+- Fixed the PSGI-facing repository tests by replacing the `Plack::Test`
+  dependency with a local harness under `t/lib`, keeping the shipped metadata
+  focused on real runtime requirements.
+- Fixed the Windows install bootstrap docs so the public examples use the
+  `install.ps1` entrypoint and describe the lighter packaged install path.
+
 ## 3.30 - Streamed PowerShell bootstrap native-output fix
 
 - Fixed the streamed Windows bootstrap so native `winget` command output is

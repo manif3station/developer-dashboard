@@ -1,3 +1,16 @@
+3.31  2026-05-01
+    - fixed the packaged install metadata so blank Windows hosts no longer
+      pull test-only dependencies such as `Plack::Test` and `Test::Pod`
+      during `cpanm --notest Developer::Dashboard`, which previously dragged
+      the `Test::SharedFork` chain into the streamed PowerShell bootstrap and
+      broke fresh installs
+    - replaced the repository PSGI test dependency on `Plack::Test` with a
+      local harness under `t/lib` so the release metadata can stay focused on
+      real runtime requirements while the web route coverage still stays
+      intact
+    - corrected the install bootstrap docs so the Windows examples use the
+      `install.ps1` entrypoint and describe the lighter packaged install path
+
 3.30  2026-05-01
     - fixed the streamed Windows bootstrap so native `winget` command output
       is written to the host terminal instead of leaking into typed helper

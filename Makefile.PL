@@ -44,7 +44,6 @@ WriteMakefile(
         'XML::Parser'           => 0,
         'Time::HiRes'           => 0,
         'POSIX'                 => 0,
-        'Test::Pod'             => 0,
     },
     LICENSE      => 'perl',
     META_MERGE   => {

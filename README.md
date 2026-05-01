@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.30
+3.31
 
 # INTRODUCTION
 
@@ -886,7 +886,10 @@ shell when possible, and then runs `dashboard init`. The Windows bootstrap
 does not try to self-install `App::cpanminus` while the downloaded
 `cpanm` bootstrap script is still running, which avoids the Windows file
 replacement failure that can break streamed `irm .../install.ps1 | iex`
-installs. The Windows bootstrap target stays literal: when
+installs. The shipped distribution metadata also keeps `Plack::Test` and
+`Test::Pod` out of the end-user install prerequisite path so blank Windows
+hosts do not have to pull the `Test::SharedFork` dependency chain during the
+bootstrap. The Windows bootstrap target stays literal: when
 `DD_INSTALL_CPAN_TARGET` is set, `install.ps1` passes that exact value
 through to `cpanm --notest` instead of trying to reinterpret it.
 

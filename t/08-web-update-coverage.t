@@ -11,11 +11,11 @@ use File::Temp qw(tempdir);
 use HTTP::Request::Common qw(GET POST);
 use HTTP::Response;
 use POSIX qw(:sys_wait_h);
-use Plack::Test;
 use Test::More;
 use URI::Escape qw(uri_escape);
 
 use lib 'lib';
+use lib 't/lib';
 
 use Developer::Dashboard::Auth;
 use Developer::Dashboard::Collector;
@@ -32,6 +32,7 @@ use Developer::Dashboard::UpdateManager;
 use Developer::Dashboard::Web::App;
 use Developer::Dashboard::Web::DancerApp;
 use Developer::Dashboard::Web::Server;
+use Local::PSGITest;
 
 sub dies_like {
     my ( $code, $pattern, $label ) = @_;
@@ -99,7 +100,7 @@ ok( !$dancer_skill_install->{error}, 'dancer route skill installs cleanly for PS
 
 {
     my $psgi_app = Developer::Dashboard::Web::DancerApp->build_psgi_app( app => $app );
-    test_psgi $psgi_app, sub {
+    Local::PSGITest::test_psgi $psgi_app, sub {
         my ($cb) = @_;
         my $ajax = $cb->( GET 'http://127.0.0.1/ajax/dancer-route-skill/bar?type=text' );
         is( $ajax->code, 200, 'Dancer ajax route serves top-level skill-local ajax handlers' );
@@ -781,7 +782,7 @@ is( $server->listening_url($daemon), 'http://127.0.0.1:' . $daemon->sockport . '
 
 {
     my $res;
-    test_psgi $server->psgi_app, sub {
+    Local::PSGITest::test_psgi $server->psgi_app, sub {
         my ($cb) = @_;
         $res = $cb->( GET 'http://127.0.0.1/app/sample/source' );
     };
@@ -810,7 +811,7 @@ my $header_app = bless {}, 'Local::HeaderApp';
 my $header_server = Developer::Dashboard::Web::Server->new( app => $header_app );
 {
     my $res;
-    test_psgi $header_server->psgi_app, sub {
+    Local::PSGITest::test_psgi $header_server->psgi_app, sub {
         my ($cb) = @_;
         $res = $cb->( POST 'http://127.0.0.1/login', [ username => 'helper', password => 'helper-pass-123' ] );
     };
@@ -839,7 +840,7 @@ my $streaming_app = bless {}, 'Local::StreamingApp';
 my $streaming_server = Developer::Dashboard::Web::Server->new( app => $streaming_app );
 {
     my $res;
-    test_psgi $streaming_server->psgi_app, sub {
+    Local::PSGITest::test_psgi $streaming_server->psgi_app, sub {
         my ($cb) = @_;
         $res = $cb->( GET 'http://127.0.0.1/ajax' );
     };
@@ -869,7 +870,7 @@ my $failing_stream_app = bless {}, 'Local::FailingStreamApp';
 my $failing_stream_server = Developer::Dashboard::Web::Server->new( app => $failing_stream_app );
 {
     my $res;
-    test_psgi $failing_stream_server->psgi_app, sub {
+    Local::PSGITest::test_psgi $failing_stream_server->psgi_app, sub {
         my ($cb) = @_;
         $res = $cb->( GET 'http://127.0.0.1/ajax' );
     };
@@ -925,7 +926,7 @@ my $failing_app = bless {}, 'Local::FailingApp';
 my $failing_server = Developer::Dashboard::Web::Server->new( app => $failing_app );
 {
     my $res;
-    test_psgi $failing_server->psgi_app, sub {
+    Local::PSGITest::test_psgi $failing_server->psgi_app, sub {
         my ($cb) = @_;
         $res = $cb->( GET 'http://127.0.0.1/' );
     };
@@ -943,7 +944,7 @@ my $missing_route_app = bless {}, 'Local::MissingRouteApp';
 my $missing_route_server = Developer::Dashboard::Web::Server->new( app => $missing_route_app );
 {
     my $res;
-    test_psgi $missing_route_server->psgi_app, sub {
+    Local::PSGITest::test_psgi $missing_route_server->psgi_app, sub {
         my ($cb) = @_;
         $res = $cb->( POST 'http://127.0.0.1/login', [ username => 'helper', password => 'helper-pass-123' ] );
     };
@@ -953,7 +954,7 @@ my $missing_route_server = Developer::Dashboard::Web::Server->new( app => $missi
 
 {
     my $res;
-    test_psgi $missing_route_server->psgi_app, sub {
+    Local::PSGITest::test_psgi $missing_route_server->psgi_app, sub {
         my ($cb) = @_;
         $res = $cb->( GET 'http://127.0.0.1/' );
     };
@@ -962,26 +963,7 @@ my $missing_route_server = Developer::Dashboard::Web::Server->new( app => $missi
 }
 
 {
-    my $res = HTTP::Response->from_psgi(
-        $server->psgi_app->(
-            {
-                REQUEST_METHOD    => 'GET',
-                PATH_INFO         => '/',
-                SCRIPT_NAME       => '',
-                SERVER_NAME       => '127.0.0.1',
-                SERVER_PORT       => 7890,
-                'psgi.version'    => [ 1, 1 ],
-                'psgi.url_scheme' => 'http',
-                'psgi.input'      => do { open my $fh, '<', \q{} or die $!; $fh },
-                'psgi.errors'     => *STDERR,
-                'psgi.multithread' => 0,
-                'psgi.multiprocess' => 0,
-                'psgi.run_once'     => 0,
-                'psgi.streaming'    => 1,
-                'psgi.nonblocking'  => 0,
-            }
-        )
-    );
+    my $res = Local::PSGITest::request( $server->psgi_app, GET 'http://127.0.0.1:7890/' );
     is( $res->code, 200, 'server treats missing URI queries as empty strings' );
 }
 
