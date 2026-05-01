@@ -202,7 +202,7 @@ function Invoke-NativeCommand {
 
     $display = if ($Arguments.Count -gt 0) { "$FilePath $($Arguments -join ' ')" } else { $FilePath }
     Write-Host $display -ForegroundColor DarkGray
-    & $FilePath @Arguments
+    & $FilePath @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) {
         throw "$Label failed with exit code $LASTEXITCODE"
     }

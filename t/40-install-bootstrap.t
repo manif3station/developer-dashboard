@@ -45,6 +45,7 @@ ok( -f $brewfile, 'brewfile exists at the repo root' );
     like( $install_ps_text, qr/--source',\s*'winget'/, 'install.ps1 pins Windows package installs to the winget source so a broken msstore source does not block bootstrap installs' );
     like( $install_ps_text, qr/source\s+reset|winget source reset/s, 'install.ps1 includes a winget source repair path for bootstrap failures' );
     like( $install_ps_text, qr/Format-ExitCode/, 'install.ps1 formats native Windows exit codes so winget failures show their HRESULT value' );
+    like( $install_ps_text, qr/2>&1 \| ForEach-Object \{ Write-Host \$\_ \}/, 'install.ps1 streams native command output to the host instead of leaking it into helper return values' );
     like( $install_ps_text, qr/Refresh-ProcessPathFromEnvironment/, 'install.ps1 refreshes the current PATH after winget installs new tools' );
     like( $install_ps_text, qr/App::cpanminus|cpanmin\.us/, 'install.ps1 bootstraps cpanm for Windows installs' );
     like( $install_ps_text, qr/cpanm.*--notest/s, 'install.ps1 installs Developer Dashboard with cpanm --notest on Windows' );

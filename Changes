@@ -1,3 +1,11 @@
+3.29  2026-05-01
+    - fixed the streamed Windows bootstrap so native `winget` command output
+      is written to the host terminal instead of leaking into typed helper
+      return values, which previously broke the Strawberry Perl path hand-off
+      during `irm .../install.ps1 | iex`
+    - updated the public PowerShell bootstrap examples to use the exact
+      `refs/heads/master/install.ps1` raw GitHub URL
+
 3.28  2026-05-01
     - renamed the Windows checkout bootstrap entrypoint from `install.ps` to
       `install.ps1` so the shipped filename matches normal PowerShell script

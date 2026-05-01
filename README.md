@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.28
+3.29
 
 # INTRODUCTION
 
@@ -810,7 +810,7 @@ Bootstrap a blank Alpine, Debian, Ubuntu, Fedora, or macOS machine from a checko
 Bootstrap a blank Windows PowerShell host from a checkout or the current shell with:
 
     powershell -ExecutionPolicy Bypass -File .\install.ps1
-    irm https://raw.githubusercontent.com/manif3station/developer-dashboard/master/install.ps1 | iex
+    irm https://raw.githubusercontent.com/manif3station/developer-dashboard/refs/heads/master/install.ps1 | iex
 
 `install.sh` and `install.ps1` are checkout-only bootstrap helpers. They ship
 in the source tree and release tarball so operators can run them explicitly
@@ -891,7 +891,7 @@ Useful bootstrap examples:
     SHELL=/bin/zsh ./install.sh
     DD_INSTALL_CPAN_TARGET=./Developer-Dashboard-X.XX.tar.gz ./install.sh
     powershell -ExecutionPolicy Bypass -File .\install.ps1
-    $env:DD_INSTALL_CPAN_TARGET = '.\Developer-Dashboard-X.XX.tar.gz'; irm https://raw.githubusercontent.com/manif3station/developer-dashboard/master/install.ps1 | iex
+    $env:DD_INSTALL_CPAN_TARGET = '.\Developer-Dashboard-X.XX.tar.gz'; irm https://raw.githubusercontent.com/manif3station/developer-dashboard/refs/heads/master/install.ps1 | iex
 
 Install from CPAN with:
 
