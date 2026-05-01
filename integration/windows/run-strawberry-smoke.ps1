@@ -390,7 +390,7 @@ function Copy-TarballToLocalTemp {
 
 # Purpose: run the checkout bootstrap installer inside the Windows smoke guest.
 # Input: a local tarball path plus an optional bootstrap script path.
-# Output: installs Developer Dashboard through install.ps or throws on failure.
+# Output: installs Developer Dashboard through install.ps1 or throws on failure.
 function Invoke-InstallBootstrap {
     param(
         [Parameter(Mandatory = $true)][string]$LocalTarball,
@@ -409,7 +409,7 @@ function Invoke-InstallBootstrap {
 Get-Content -Raw -LiteralPath `$env:DD_INSTALL_BOOTSTRAP_SCRIPT | Invoke-Expression
 "@ | Set-Content -Path $wrapperPath -Encoding UTF8
 
-        Invoke-LoggedCommand -Label "run install.ps bootstrap" -Command @(
+        Invoke-LoggedCommand -Label "run install.ps1 bootstrap" -Command @(
             "powershell.exe",
             "-NoLogo",
             "-NoProfile",
@@ -493,12 +493,12 @@ $LocalTarball = Copy-TarballToLocalTemp -SourceTarball $Tarball
 if ($UseInstallBootstrap) {
     if ($BootstrapScript -eq "") {
         $scriptRoot = Split-Path -Parent $PSCommandPath
-        $repoInstaller = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptRoot)) "install.ps"
+        $repoInstaller = Join-Path (Split-Path -Parent (Split-Path -Parent $scriptRoot)) "install.ps1"
         if (Test-Path $repoInstaller) {
             $BootstrapScript = $repoInstaller
         }
         else {
-            $tempInstaller = Join-Path ([System.IO.Path]::GetTempPath()) "install.ps"
+            $tempInstaller = Join-Path ([System.IO.Path]::GetTempPath()) "install.ps1"
             if (Test-Path $tempInstaller) {
                 $BootstrapScript = $tempInstaller
             }
@@ -670,7 +670,7 @@ run-strawberry-smoke.ps1 - verify the built tarball under Strawberry Perl and Po
 =head1 SYNOPSIS
 
   powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz
-  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz -UseInstallBootstrap -BootstrapScript C:\path\install.ps
+  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz -UseInstallBootstrap -BootstrapScript C:\path\install.ps1
 
 =head1 DESCRIPTION
 
@@ -682,7 +682,7 @@ C<Invoke-WebRequest>, and optionally dumps DOM through Edge or Chrome when a
 browser binary is present on the Windows host.
 
 When C<-UseInstallBootstrap> is set, the script runs the checkout
-F<install.ps> bootstrap first, points C<DD_INSTALL_CPAN_TARGET> at the local
+F<install.ps1> bootstrap first, points C<DD_INSTALL_CPAN_TARGET> at the local
 staged tarball, and executes that bootstrap through a streamed
 C<Invoke-Expression> wrapper so the full Windows bootstrap path is exercised
 before the same dashboard verification steps continue.

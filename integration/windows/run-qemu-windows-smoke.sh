@@ -156,7 +156,7 @@ prepare_dockur_oem_bundle() {
   mkdir -p "$storage_dir" "$shared_dir" "$oem_dir"
   cp "$TARBALL" "$shared_dir/"
   cp "$ROOT_DIR/integration/windows/run-strawberry-smoke.ps1" "$oem_dir/"
-  cp "$ROOT_DIR/install.ps" "$oem_dir/"
+  cp "$ROOT_DIR/install.ps1" "$oem_dir/"
 
   cat >"$install_bat" <<'EOF'
 @echo off
@@ -210,7 +210,7 @@ try {
     if ("$WINDOWS_USE_INSTALL_BOOTSTRAP" -eq "1") {
         \$smokeArgs += '-UseInstallBootstrap'
         \$smokeArgs += '-BootstrapScript'
-        \$smokeArgs += 'C:\\OEM\\install.ps'
+        \$smokeArgs += 'C:\\OEM\\install.ps1'
     }
     if ("$WINDOWS_SKIP_CPANM_TESTS" -eq "1") {
         \$smokeArgs += '-SkipCpanmTests'
@@ -275,7 +275,7 @@ run_prepared_qemu_smoke() {
   echo "==> copy tarball and Windows smoke script into guest"
   scp -i "$WINDOWS_SSH_KEY" -P "$WINDOWS_SSH_PORT" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     "$TARBALL" \
-    "$ROOT_DIR/install.ps" \
+    "$ROOT_DIR/install.ps1" \
     "$ROOT_DIR/integration/windows/run-strawberry-smoke.ps1" \
     "$WINDOWS_SSH_USER"@127.0.0.1:/C:/Temp/
 
@@ -284,7 +284,7 @@ run_prepared_qemu_smoke() {
   echo "==> run Strawberry Perl smoke inside guest"
   local guest_command="powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File C:/Temp/run-strawberry-smoke.ps1 -Tarball '$guest_tarball'"
   if [[ "$WINDOWS_USE_INSTALL_BOOTSTRAP" == "1" ]]; then
-    guest_command="$guest_command -UseInstallBootstrap -BootstrapScript C:/Temp/install.ps"
+    guest_command="$guest_command -UseInstallBootstrap -BootstrapScript C:/Temp/install.ps1"
   fi
   ssh -i "$WINDOWS_SSH_KEY" -p "$WINDOWS_SSH_PORT" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     "$WINDOWS_SSH_USER"@127.0.0.1 \
@@ -460,7 +460,7 @@ is the repeatable host-side provisioning route; the supported runtime baseline
 inside Windows remains PowerShell plus Strawberry Perl. Git Bash and Scoop are
 optional setup helpers, not runtime requirements for Developer Dashboard.
 Set C<WINDOWS_USE_INSTALL_BOOTSTRAP=1> to make the in-guest smoke run the
-repo-root F<install.ps> bootstrap against the staged tarball before the normal
+repo-root F<install.ps1> bootstrap against the staged tarball before the normal
 dashboard verification steps.
 
 =cut

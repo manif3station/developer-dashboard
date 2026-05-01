@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.27
+3.28
 
 # INTRODUCTION
 
@@ -809,10 +809,10 @@ Bootstrap a blank Alpine, Debian, Ubuntu, Fedora, or macOS machine from a checko
 
 Bootstrap a blank Windows PowerShell host from a checkout or the current shell with:
 
-    powershell -ExecutionPolicy Bypass -File .\install.ps
-    irm https://raw.githubusercontent.com/manif3station/developer-dashboard/master/install.ps | iex
+    powershell -ExecutionPolicy Bypass -File .\install.ps1
+    irm https://raw.githubusercontent.com/manif3station/developer-dashboard/master/install.ps1 | iex
 
-`install.sh` and `install.ps` are checkout-only bootstrap helpers. They ship
+`install.sh` and `install.ps1` are checkout-only bootstrap helpers. They ship
 in the source tree and release tarball so operators can run them explicitly
 from a checkout, extracted tarball, or streamed bootstrap, but CPAN and
 `cpanm` do not install them as global commands. When the Unix-like installer
@@ -872,14 +872,17 @@ non-interactive installs stay quiet, installs Developer Dashboard into the user 
 and then runs `dashboard init` so the runtime exists immediately after
 installation.
 
-On Windows PowerShell hosts, `install.ps` uses `winget` to install missing
-Git, Strawberry Perl, and Node.js LTS packages, downloads `cpanm` from
+On Windows PowerShell hosts, `install.ps1` uses `winget` to install missing
+Git, Strawberry Perl, and Node.js LTS packages, pins those installs to the
+community `winget` source so a broken `msstore` source does not block the
+bootstrap, resets and refreshes the source catalog once before retrying when a
+`winget` source failure still occurs, downloads `cpanm` from
 `https://cpanmin.us/`, installs Developer Dashboard with `cpanm --notest`,
 updates the current-user PowerShell profile with the private `~/perl5` PATH
 and Perl environment variables plus `dashboard shell ps`, activates that
 PowerShell bootstrap in the current shell when possible, and then runs
 `dashboard init`. The Windows bootstrap target stays literal: when
-`DD_INSTALL_CPAN_TARGET` is set, `install.ps` passes that exact value
+`DD_INSTALL_CPAN_TARGET` is set, `install.ps1` passes that exact value
 through to `cpanm --notest` instead of trying to reinterpret it.
 
 Useful bootstrap examples:
@@ -887,8 +890,8 @@ Useful bootstrap examples:
     ./install.sh
     SHELL=/bin/zsh ./install.sh
     DD_INSTALL_CPAN_TARGET=./Developer-Dashboard-X.XX.tar.gz ./install.sh
-    powershell -ExecutionPolicy Bypass -File .\install.ps
-    $env:DD_INSTALL_CPAN_TARGET = '.\Developer-Dashboard-X.XX.tar.gz'; irm https://raw.githubusercontent.com/manif3station/developer-dashboard/master/install.ps | iex
+    powershell -ExecutionPolicy Bypass -File .\install.ps1
+    $env:DD_INSTALL_CPAN_TARGET = '.\Developer-Dashboard-X.XX.tar.gz'; irm https://raw.githubusercontent.com/manif3station/developer-dashboard/master/install.ps1 | iex
 
 Install from CPAN with:
 
@@ -1794,7 +1797,7 @@ From a source checkout, for Windows-targeted changes, also run the Strawberry
 Perl smoke on a Windows host:
 
     powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz
-    powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz -UseInstallBootstrap -BootstrapScript C:\path\install.ps
+    powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz -UseInstallBootstrap -BootstrapScript C:\path\install.ps1
 
 Before calling a release Windows-compatible from the source checkout, also run
 the same smoke through the host-side Windows VM helper:
@@ -1813,9 +1816,9 @@ That same Windows guest smoke can install the tarball with `cpanm --notest`
 for third-party dependency setup while still running the full Developer
 Dashboard CLI, collector, Ajax, web, and browser smoke afterward. When the
 checkout bootstrap is part of the change, the Windows smoke also runs
-`install.ps` through a streamed `Invoke-Expression` wrapper with the staged
+`install.ps1` through a streamed `Invoke-Expression` wrapper with the staged
 tarball passed through the literal `DD_INSTALL_CPAN_TARGET` environment
-variable so the guest matches the operator flow of `irm .../install.ps | iex`.
+variable so the guest matches the operator flow of `irm .../install.ps1 | iex`.
 
 ## Updating Runtime State
 

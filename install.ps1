@@ -21,7 +21,7 @@ function Resolve-HomeDirectory {
         return $resolvedHome
     }
 
-    throw 'Unable to resolve the current user home directory for install.ps'
+    throw 'Unable to resolve the current user home directory for install.ps1'
 }
 
 function Resolve-CommandPath {
@@ -157,7 +157,7 @@ function Set-StepStatus {
 
     $step = $script:ProgressSteps | Where-Object { $_.Id -eq $Id } | Select-Object -First 1
     if (-not $step) {
-        throw "Unknown install.ps progress step id: $Id"
+        throw "Unknown install.ps1 progress step id: $Id"
     }
 
     $step.Status = $Status
@@ -208,6 +208,41 @@ function Invoke-NativeCommand {
     }
 }
 
+function Format-ExitCode {
+    # Purpose: render a native Windows exit code in both decimal and unsigned hexadecimal forms.
+    # Input: a signed integer exit code captured from $LASTEXITCODE.
+    # Output: returns a string like "-1978335138 (0x8A15005E)" for clearer diagnostics.
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ExitCode
+    )
+
+    $unsigned = [uint32]$ExitCode
+    return ('{0} (0x{1:X8})' -f $ExitCode, $unsigned)
+}
+
+function Repair-WingetSources {
+    # Purpose: repair the default winget sources after a bootstrap install fails because source metadata or certificates are broken.
+    # Input: a resolved winget executable path.
+    # Output: resets and refreshes the winget source catalog or throws if repair fails.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$WingetPath
+    )
+
+    Write-Host 'Repairing winget sources before retrying the Windows bootstrap install.' -ForegroundColor Yellow
+    Invoke-NativeCommand -Label 'winget source reset' -FilePath $WingetPath -Arguments @(
+        'source',
+        'reset',
+        '--force'
+    )
+    Invoke-NativeCommand -Label 'winget source update winget' -FilePath $WingetPath -Arguments @(
+        'source',
+        'update',
+        'winget'
+    )
+}
+
 function Ensure-WingetPackage {
     # Purpose: install a missing Windows package through winget without user prompts.
     # Input: the winget package id, a human label, and the command names that prove it is already present.
@@ -232,15 +267,38 @@ function Ensure-WingetPackage {
     }
 
     Write-Host "Installing missing Windows package via winget: $Label ($PackageId)"
-    Invoke-NativeCommand -Label "winget install $PackageId" -FilePath $winget -Arguments @(
+    $installArguments = @(
         'install',
         '--id', $PackageId,
         '--exact',
+        '--source', 'winget',
         '--silent',
         '--accept-package-agreements',
         '--accept-source-agreements',
         '--disable-interactivity'
     )
+    $installLabel = "winget install $PackageId"
+    $installFailed = $false
+    try {
+        Invoke-NativeCommand -Label $installLabel -FilePath $winget -Arguments $installArguments
+    }
+    catch {
+        $installFailed = $true
+        $firstExitCode = $LASTEXITCODE
+        Write-Host ("winget install failed for {0}: {1}" -f $PackageId, (Format-ExitCode -ExitCode $firstExitCode)) -ForegroundColor Yellow
+        Write-Host 'A broken msstore source or stale source metadata can block winget even for community packages. Resetting sources and retrying once.' -ForegroundColor Yellow
+        Repair-WingetSources -WingetPath $winget
+    }
+
+    if ($installFailed) {
+        try {
+            Invoke-NativeCommand -Label "$installLabel retry" -FilePath $winget -Arguments $installArguments
+        }
+        catch {
+            $retryExitCode = $LASTEXITCODE
+            throw "winget install $PackageId failed after a source reset retry with exit code $(Format-ExitCode -ExitCode $retryExitCode)"
+        }
+    }
 
     Refresh-ProcessPathFromEnvironment
     $resolved = Resolve-CommandPath -Names $CommandNames

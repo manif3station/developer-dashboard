@@ -18,7 +18,7 @@ if ( $has_source_tree_docs && -d '.git' ) {
 ok( -f 'doc/integration-test-plan.md', 'integration test plan document exists' ) if $has_source_tree_docs;
 ok( -f 'doc/testing.md', 'testing workflow document exists' ) if $has_source_tree_docs;
 ok( -f 'install.sh', 'repo bootstrap installer exists at the checkout root' ) if $has_source_tree_docs;
-ok( -f 'install.ps', 'repo Windows bootstrap installer exists at the checkout root' ) if $has_source_tree_docs;
+ok( -f 'install.ps1', 'repo Windows bootstrap installer exists at the checkout root' ) if $has_source_tree_docs;
 ok( -f 'aptfile', 'repo bootstrap apt manifest exists at the checkout root' ) if $has_source_tree_docs;
 ok( -f 'apkfile', 'repo bootstrap apk manifest exists at the checkout root' ) if $has_source_tree_docs;
 ok( -f 'brewfile', 'repo bootstrap brew manifest exists at the checkout root' ) if $has_source_tree_docs;
@@ -71,7 +71,7 @@ if ($has_source_tree_docs) {
     like( $install, qr/apkfile/, 'bootstrap installer reads the repo apk manifest' );
     like( $install, qr/brewfile/, 'bootstrap installer reads the repo brew manifest' );
 
-    open my $install_ps_fh, '<', 'install.ps' or die $!;
+    open my $install_ps_fh, '<', 'install.ps1' or die $!;
     my $install_ps = do { local $/; <$install_ps_fh> };
     close $install_ps_fh;
     like( $install_ps, qr/Set-StrictMode -Version Latest/, 'Windows bootstrap installer uses strict PowerShell mode' );
@@ -84,7 +84,7 @@ if ($has_source_tree_docs) {
     my $windows_doc = do { local $/; <$windows_doc_fh> };
     close $windows_doc_fh;
     like( $windows_doc, qr/Strawberry Perl/, 'Windows verification doc targets Strawberry Perl explicitly' );
-    like( $windows_doc, qr/install\.ps/, 'Windows verification doc references the repo-root install.ps bootstrap entrypoint' );
+    like( $windows_doc, qr/install\.ps/, 'Windows verification doc references the repo-root install.ps1 bootstrap entrypoint' );
     like( $windows_doc, qr/run-strawberry-smoke\.ps1/, 'Windows verification doc references the host-side Strawberry smoke script' );
     like( $windows_doc, qr/run-qemu-windows-smoke\.sh/, 'Windows verification doc references the QEMU smoke launcher' );
     like( $windows_doc, qr/run-host-windows-smoke\.sh/, 'Windows verification doc references the one-command host rerun helper' );
@@ -170,12 +170,12 @@ if ($has_integration_assets) {
     like( $windows_smoke, qr/--verbose/, 'Windows Strawberry smoke script installs the tarball with verbose cpanm output for debugging' );
     like( $windows_smoke, qr/Copy-TarballToLocalTemp/, 'Windows Strawberry smoke script stages the tarball to a local temp path before cpanm install' );
     like( $windows_smoke, qr/Copy-Item -Path \$SourceTarball -Destination \$destination -Force/, 'Windows Strawberry smoke script copies shared tarballs off the UNC path before install' );
-    like( $windows_smoke, qr/\[switch\]\$UseInstallBootstrap/, 'Windows Strawberry smoke script accepts a switch to exercise install.ps inside the guest' );
-    like( $windows_smoke, qr/\[string\]\$BootstrapScript = ""/, 'Windows Strawberry smoke script accepts an explicit install.ps path' );
+    like( $windows_smoke, qr/\[switch\]\$UseInstallBootstrap/, 'Windows Strawberry smoke script accepts a switch to exercise install.ps1 inside the guest' );
+    like( $windows_smoke, qr/\[string\]\$BootstrapScript = ""/, 'Windows Strawberry smoke script accepts an explicit install.ps1 path' );
     like( $windows_smoke, qr/Invoke-InstallBootstrap/, 'Windows Strawberry smoke script can run the Windows bootstrap installer' );
-    like( $windows_smoke, qr/DD_INSTALL_CPAN_TARGET/, 'Windows Strawberry smoke script passes the local tarball path into install.ps through DD_INSTALL_CPAN_TARGET' );
-    like( $windows_smoke, qr/DD_INSTALL_BOOTSTRAP_SCRIPT/, 'Windows Strawberry smoke script exposes the install.ps path through an environment variable for the streamed bootstrap wrapper' );
-    like( $windows_smoke, qr/Invoke-Expression/, 'Windows Strawberry smoke script exercises install.ps through Invoke-Expression to match the streamed bootstrap path' );
+    like( $windows_smoke, qr/DD_INSTALL_CPAN_TARGET/, 'Windows Strawberry smoke script passes the local tarball path into install.ps1 through DD_INSTALL_CPAN_TARGET' );
+    like( $windows_smoke, qr/DD_INSTALL_BOOTSTRAP_SCRIPT/, 'Windows Strawberry smoke script exposes the install.ps1 path through an environment variable for the streamed bootstrap wrapper' );
+    like( $windows_smoke, qr/Invoke-Expression/, 'Windows Strawberry smoke script exercises install.ps1 through Invoke-Expression to match the streamed bootstrap path' );
     like( $windows_smoke, qr/\[switch\]\$SkipCpanmTests/, 'Windows Strawberry smoke script accepts a switch to skip upstream cpanm dependency tests on Windows' );
     like( $windows_smoke, qr/--notest/, 'Windows Strawberry smoke script can install with cpanm --notest when Windows dependency tests are intentionally skipped' );
     like( $windows_smoke, qr/Get-CommandExecutablePath/, 'Windows Strawberry smoke script centralizes command-object to executable-path resolution' );
@@ -210,7 +210,7 @@ if ($has_integration_assets) {
     like( $qemu, qr/qemu-system-x86_64/, 'Windows QEMU launcher boots a Windows VM with qemu-system-x86_64' );
     like( $qemu, qr/scp|ssh/, 'Windows QEMU launcher copies the tarball and smoke script into the guest over SSH' );
     like( $qemu, qr/run-strawberry-smoke\.ps1/, 'Windows QEMU launcher runs the Strawberry smoke script inside the guest' );
-    like( $qemu, qr/cp \"\$ROOT_DIR\/install\.ps\"/, 'Windows QEMU launcher stages install.ps into the guest bundle' );
+    like( $qemu, qr/cp "\$ROOT_DIR\/install\.ps1"/, 'Windows QEMU launcher stages install.ps1 into the guest bundle' );
     like( $qemu, qr/'-StatusRoot', \\\$shared/, 'Windows QEMU launcher passes the shared status root into the Windows smoke script' );
     like( $qemu, qr/Dockur Windows container disappeared before reporting success/, 'Windows QEMU launcher fails fast when the Dockur container vanishes before reporting a result' );
     like( $qemu, qr/dockur-host\.log/, 'Windows QEMU launcher persists host-side Dockur failure diagnostics into the shared workdir' );
@@ -222,14 +222,14 @@ if ($has_integration_assets) {
     like( $qemu, qr/WINDOWS_DOCKUR_WEB_PORT/, 'Windows QEMU launcher supports an override for the Dockur web console port' );
     like( $qemu, qr/WINDOWS_DOCKUR_RDP_PORT/, 'Windows QEMU launcher supports an override for the Dockur RDP port' );
     like( $qemu, qr/WINDOWS_SKIP_CPANM_TESTS/, 'Windows QEMU launcher supports a Windows-specific cpanm test policy toggle' );
-    like( $qemu, qr/WINDOWS_USE_INSTALL_BOOTSTRAP/, 'Windows QEMU launcher supports exercising install.ps inside the Windows guest' );
+    like( $qemu, qr/WINDOWS_USE_INSTALL_BOOTSTRAP/, 'Windows QEMU launcher supports exercising install.ps1 inside the Windows guest' );
     like( $qemu, qr/reusing existing Dockur Windows container/, 'Windows QEMU launcher can reuse an existing Dockur container instead of always recreating it' );
     like( $qemu, qr/prepare_strawberry_installer/, 'Windows QEMU launcher stages the Strawberry Perl installer from the host ahead of guest bootstrap' );
     like( $qemu, qr/strawberry-perl-installer\.msi/, 'Windows QEMU launcher caches the Strawberry Perl MSI in the OEM folder' );
     like( $qemu, qr/LWP::UserAgent/, 'Windows QEMU launcher downloads the Strawberry Perl installer with LWP::UserAgent on the host' );
     like( $qemu, qr/locate-tarball/, 'Windows QEMU launcher bootstrap publishes the locate-tarball phase for long-running guest setup' );
     like( $qemu, qr/install-strawberry-perl/, 'Windows QEMU launcher bootstrap publishes the install-strawberry-perl phase for long-running guest setup' );
-    like( $qemu, qr/UseInstallBootstrap|BootstrapScript/, 'Windows QEMU launcher can pass install.ps into the in-guest smoke' );
+    like( $qemu, qr/UseInstallBootstrap|BootstrapScript/, 'Windows QEMU launcher can pass install.ps1 into the in-guest smoke' );
     like( $qemu, qr/\$smokeArgs = \@\(/, 'Windows QEMU launcher builds an explicit argument array for the in-guest PowerShell command' );
     unlike( $qemu, qr/\& "C:\\\\OEM\\\\run-strawberry-smoke\.ps1" \@\(.*UseInstallBootstrap/s, 'Windows QEMU launcher does not pass bootstrap parameters directly to the script through a positional array' );
     like( $qemu, qr/powershell\.exe/, 'Windows QEMU launcher bootstrap re-enters PowerShell explicitly for the in-guest smoke script' );

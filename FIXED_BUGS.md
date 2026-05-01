@@ -1,9 +1,23 @@
 # Fixed Bugs
 
+## 3.28 - Windows bootstrap filename and winget source repair
+
+- Fixed the public Windows checkout bootstrap entrypoint so the canonical file
+  is now `install.ps1` instead of the atypical `install.ps`, keeping the
+  streamed `irm ... | iex` operator flow aligned with normal PowerShell script
+  naming.
+- Fixed the Windows bootstrap `winget` path so Git, Strawberry Perl, and
+  Node.js installs are pinned to the community `winget` source instead of
+  implicitly touching every configured source.
+- Fixed the Windows bootstrap error handling so a broken `msstore` source now
+  triggers one `winget source reset --force` plus source refresh retry and, if
+  that still fails, the installer reports the failing HRESULT-style exit code
+  instead of only a raw negative integer.
+
 ## 3.27 - Windows checkout bootstrap installer
 
 - Fixed the checkout bootstrap story on Windows by adding a repo-root
-  `install.ps` entrypoint that can be run directly from PowerShell or streamed
+  `install.ps1` entrypoint that can be run directly from PowerShell or streamed
   through `irm ... | iex`.
 - Fixed the Windows bootstrap flow so it now provisions missing Git,
   Strawberry Perl, and Node.js LTS packages through `winget`, bootstraps

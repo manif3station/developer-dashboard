@@ -1,5 +1,14 @@
+3.28  2026-05-01
+    - renamed the Windows checkout bootstrap entrypoint from `install.ps` to
+      `install.ps1` so the shipped filename matches normal PowerShell script
+      expectations while keeping the streamed `irm ... | iex` flow explicit
+    - hardened the Windows bootstrap winget path so package installs are
+      pinned to the community `winget` source and the installer performs one
+      `winget source reset --force` plus source refresh retry before failing
+      with a clear HRESULT-style exit code
+
 3.27  2026-05-01
-    - added a repo-root `install.ps` bootstrap entrypoint for Windows
+    - added a repo-root `install.ps1` bootstrap entrypoint for Windows
       PowerShell hosts so blank-machine installs can bootstrap Git,
       Strawberry Perl, Node.js, user-space Perl tooling, and the dashboard
       runtime from a checkout or a streamed `irm ... | iex` flow

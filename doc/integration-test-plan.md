@@ -42,7 +42,7 @@ The integration run covers these command families:
 - browser checks: headless Chromium editor, saved fake-project bookmark page, outsider bootstrap DOM verification, and helper-login DOM verification after helper-user enablement
 - ajax streaming: installed long-running `/ajax/<file>` route timing, early-chunk verification, refresh-safe singleton replacement, `fetch_value()` / `stream_value()` DOM helper coverage, and browser pagehide cleanup coverage in unit tests
 - windows verification assets: `integration/windows/run-strawberry-smoke.ps1` and `integration/windows/run-qemu-windows-smoke.sh`
-- when the Windows checkout bootstrap changes, `integration/windows/run-strawberry-smoke.ps1` must be rerun with `-UseInstallBootstrap` so the guest exercises `install.ps` through the streamed `Invoke-Expression` path
+- when the Windows checkout bootstrap changes, `integration/windows/run-strawberry-smoke.ps1` must be rerun with `-UseInstallBootstrap` so the guest exercises `install.ps1` through the streamed `Invoke-Expression` path
 
 When a release changes the skills runtime, also run the focused host-side
 skill regressions outside the blank-container harness:
@@ -82,7 +82,7 @@ tarball install is now an installation-verification gate, so it uses
 runtime behavior without rerunning the same distribution test suite a second
 time. The Windows guest smoke follows the same rule for the tarball install
 step, and the optional bootstrap path passes the tarball through the literal
-`DD_INSTALL_CPAN_TARGET` environment variable so `install.ps` still lets
+`DD_INSTALL_CPAN_TARGET` environment variable so `install.ps1` still lets
 `cpanm --notest` decide how to resolve the exact target.
 
 ## Test Data
@@ -122,7 +122,7 @@ The integration run creates:
 15. Restart the installed runtime with one intentionally broken Perl config collector and one healthy config collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state, even when prompt/browser status refreshes run during the restart window.
 16. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
 17. Exercise builtin action execution.
-18. For Windows-targeted changes, run `integration/windows/run-strawberry-smoke.ps1 -UseInstallBootstrap -BootstrapScript <checkout install.ps>` so the guest validates the same streamed `Invoke-Expression` bootstrap shape that operators use with `irm .../install.ps | iex`.
+18. For Windows-targeted changes, run `integration/windows/run-strawberry-smoke.ps1 -UseInstallBootstrap -BootstrapScript <checkout install.ps1>` so the guest validates the same streamed `Invoke-Expression` bootstrap shape that operators use with `irm .../install.ps1 | iex`.
 18. Exercise docker compose dry-run resolution against a temporary project.
 19. Start the installed web service.
 20. Confirm exact-loopback access reaches the editor page in Chromium.

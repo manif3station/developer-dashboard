@@ -8,8 +8,8 @@ without relying on guesswork or POSIX-only assumptions.
 The supported baseline on Windows is PowerShell plus Strawberry Perl. Git Bash optional. Scoop optional. They are setup helpers, not runtime
 requirements for the installed `dashboard` command. The verification flow is
 layered so fast tests catch regressions before the slower VM gate runs.
-The checkout bootstrap entrypoint for that baseline is `install.ps`, and the
-streamed operator flow is `irm .../install.ps | iex`.
+The checkout bootstrap entrypoint for that baseline is `install.ps1`, and the
+streamed operator flow is `irm .../install.ps1 | iex`.
 
 ## Verification Layers
 
@@ -24,8 +24,8 @@ streamed operator flow is `irm .../install.ps | iex`.
 2. Real Strawberry Perl smoke on Windows
 
 - run `integration/windows/run-strawberry-smoke.ps1`
-- run `install.ps` from a checkout or streamed through `irm ... | iex` when the change targets the bootstrap path itself
-- when validating that bootstrap path inside the smoke guest, use `-UseInstallBootstrap`; the smoke sets `DD_INSTALL_CPAN_TARGET` to the staged tarball and executes `install.ps` through `Invoke-Expression`
+- run `install.ps1` from a checkout or streamed through `irm ... | iex` when the change targets the bootstrap path itself
+- when validating that bootstrap path inside the smoke guest, use `-UseInstallBootstrap`; the smoke sets `DD_INSTALL_CPAN_TARGET` to the staged tarball and executes `install.ps1` through `Invoke-Expression`
 - install the built tarball with `cpanm`
 - verify `dashboard shell ps` and `dashboard ps1`
 - verify one PowerShell-backed collector command
@@ -79,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smok
 Run the same smoke against the checkout bootstrap path with:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz -UseInstallBootstrap -BootstrapScript C:\path\install.ps
+powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz -UseInstallBootstrap -BootstrapScript C:\path\install.ps1
 ```
 
 Run the full-system Windows VM gate from a Linux host with:
@@ -98,7 +98,7 @@ Inside the Windows guest smoke, the tarball install currently uses
 `cpanm --notest` for third-party dependency setup. When `-UseInstallBootstrap`
 or `WINDOWS_USE_INSTALL_BOOTSTRAP=1` is enabled, the smoke passes that same
 tarball through the literal `DD_INSTALL_CPAN_TARGET` environment variable and
-executes `install.ps` through a streamed `Invoke-Expression` wrapper. The
+executes `install.ps1` through a streamed `Invoke-Expression` wrapper. The
 release-grade verification still comes from the Developer Dashboard smoke that
 runs after that install step: `dashboard shell ps`, `dashboard ps1`,
 collector, saved Ajax, web, and browser checks still execute in the guest.
