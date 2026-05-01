@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.29';
+our $VERSION = '3.30';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.29
+3.30
 
 =head1 INTRODUCTION
 
@@ -1145,11 +1145,16 @@ Git, Strawberry Perl, and Node.js LTS packages, pins those installs to the
 community C<winget> source so a broken C<msstore> source does not block the
 bootstrap, resets and refreshes the source catalog once before retrying when a
 C<winget> source failure still occurs, downloads C<cpanm> from
-C<https://cpanmin.us/>, installs Developer Dashboard with C<cpanm --notest>,
-updates the current-user PowerShell profile with the private F<~/perl5> PATH
-and Perl environment variables plus C<dashboard shell ps>, activates that
-PowerShell bootstrap in the current shell when possible, and then runs
-C<dashboard init>. The Windows bootstrap target stays literal: when
+C<https://cpanmin.us/>, bootstraps C<local::lib> into the private
+F<~/perl5> tree with that standalone script, installs Developer Dashboard
+with C<cpanm --notest>, updates the current-user PowerShell profile with the
+private F<~/perl5> PATH and Perl environment variables plus
+C<dashboard shell ps>, activates that PowerShell bootstrap in the current
+shell when possible, and then runs C<dashboard init>. The Windows bootstrap
+does not try to self-install C<App::cpanminus> while the downloaded
+C<cpanm> bootstrap script is still running, which avoids the Windows file
+replacement failure that can break streamed C<irm .../install.ps1 | iex>
+installs. The Windows bootstrap target stays literal: when
 C<DD_INSTALL_CPAN_TARGET> is set, F<install.ps1> passes that exact value
 through to C<cpanm --notest> instead of trying to reinterpret it.
 

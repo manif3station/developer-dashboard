@@ -453,12 +453,11 @@ if (-not (Test-Path $InstallRoot)) {
 }
 $cpanmScript = Download-CpanmScript -TargetInstallRoot $InstallRoot
 Set-LocalPerlEnvironment -TargetInstallRoot $InstallRoot
-Invoke-NativeCommand -Label 'cpanm local::lib App::cpanminus bootstrap' -FilePath $perlPath -Arguments @(
+Invoke-NativeCommand -Label 'cpanm local::lib bootstrap' -FilePath $perlPath -Arguments @(
     $cpanmScript,
     '--notest',
     '--local-lib-contained', $InstallRoot,
-    'local::lib',
-    'App::cpanminus'
+    'local::lib'
 )
 Set-LocalPerlEnvironment -TargetInstallRoot $InstallRoot
 

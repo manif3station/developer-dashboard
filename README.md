@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.29
+3.30
 
 # INTRODUCTION
 
@@ -877,11 +877,16 @@ Git, Strawberry Perl, and Node.js LTS packages, pins those installs to the
 community `winget` source so a broken `msstore` source does not block the
 bootstrap, resets and refreshes the source catalog once before retrying when a
 `winget` source failure still occurs, downloads `cpanm` from
-`https://cpanmin.us/`, installs Developer Dashboard with `cpanm --notest`,
-updates the current-user PowerShell profile with the private `~/perl5` PATH
-and Perl environment variables plus `dashboard shell ps`, activates that
-PowerShell bootstrap in the current shell when possible, and then runs
-`dashboard init`. The Windows bootstrap target stays literal: when
+`https://cpanmin.us/`, bootstraps `local::lib` into the private
+`~/perl5` tree with that standalone script, installs Developer Dashboard
+with `cpanm --notest`, updates the current-user PowerShell profile with the
+private `~/perl5` PATH and Perl environment variables plus
+`dashboard shell ps`, activates that PowerShell bootstrap in the current
+shell when possible, and then runs `dashboard init`. The Windows bootstrap
+does not try to self-install `App::cpanminus` while the downloaded
+`cpanm` bootstrap script is still running, which avoids the Windows file
+replacement failure that can break streamed `irm .../install.ps1 | iex`
+installs. The Windows bootstrap target stays literal: when
 `DD_INSTALL_CPAN_TARGET` is set, `install.ps1` passes that exact value
 through to `cpanm --notest` instead of trying to reinterpret it.
 

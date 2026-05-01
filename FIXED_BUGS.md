@@ -1,6 +1,6 @@
 # Fixed Bugs
 
-## 3.29 - Streamed PowerShell bootstrap native-output fix
+## 3.30 - Streamed PowerShell bootstrap native-output fix
 
 - Fixed the streamed Windows bootstrap so native `winget` command output is
   written to the host terminal instead of leaking into the PowerShell return
@@ -8,6 +8,10 @@
 - Fixed the `irm .../install.ps1 | iex` path so the Strawberry Perl package
   bootstrap now passes a single resolved Perl path string into the PATH setup
   step instead of contaminating that parameter with `winget` console output.
+- Fixed the Windows Perl bootstrap so `install.ps1` no longer tries to
+  self-install `App::cpanminus` while the downloaded `cpanm` bootstrap script
+  is still running, avoiding the Windows file-replacement failure that broke
+  the `local::lib` setup step on blank hosts.
 - Fixed the public bootstrap examples so the canonical streamed PowerShell
   command now uses the exact
   `https://raw.githubusercontent.com/manif3station/developer-dashboard/refs/heads/master/install.ps1`
