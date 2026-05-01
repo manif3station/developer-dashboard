@@ -1,6 +1,6 @@
 # Fixed Bugs
 
-## 3.31 - Windows install test-dependency leak
+## 3.32 - Track Windows install smoke follow-up
 
 - Fixed the packaged install metadata so end-user installs no longer pull
   `Plack::Test` and `Test::Pod` through the `Developer::Dashboard` test

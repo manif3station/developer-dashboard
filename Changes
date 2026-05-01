@@ -1,4 +1,4 @@
-3.31  2026-05-01
+3.32  2026-05-01
     - fixed the packaged install metadata so blank Windows hosts no longer
       pull test-only dependencies such as `Plack::Test` and `Test::Pod`
       during `cpanm --notest Developer::Dashboard`, which previously dragged
