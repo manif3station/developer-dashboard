@@ -12,6 +12,7 @@ use Test::More;
 
 my $root = File::Spec->catdir( $RealBin, File::Spec->updir );
 my $install_sh = File::Spec->catfile( $root, 'install.sh' );
+my $install_ps = File::Spec->catfile( $root, 'install.ps' );
 my $aptfile    = File::Spec->catfile( $root, 'aptfile' );
 my $apkfile    = File::Spec->catfile( $root, 'apkfile' );
 my $dnfile     = File::Spec->catfile( $root, 'dnfile' );
@@ -20,6 +21,7 @@ my $perlbrew_app_dist_url = 'https://cpan.metacpan.org/authors/id/G/GU/GUGOD/App
 my $perlbrew_app_dist_basename = 'App-perlbrew-1.02.tar.gz';
 
 ok( -f $install_sh, 'install.sh exists at the repo root' );
+ok( -f $install_ps, 'install.ps exists at the repo root' );
 ok( -f $aptfile, 'aptfile exists at the repo root' );
 ok( -f $apkfile, 'apkfile exists at the repo root' );
 ok( -f $dnfile, 'dnfile exists at the repo root' );
@@ -31,6 +33,20 @@ ok( -f $brewfile, 'brewfile exists at the repo root' );
     };
     is( $exit >> 8, 0, 'install.sh passes POSIX shell syntax validation' )
       or diag $stdout . $stderr;
+}
+
+{
+    my $install_ps_text = _slurp($install_ps);
+    like( $install_ps_text, qr/Set-StrictMode -Version Latest/, 'install.ps enables strict PowerShell mode' );
+    like( $install_ps_text, qr/\$ErrorActionPreference = 'Stop'/, 'install.ps treats PowerShell errors as fatal' );
+    like( $install_ps_text, qr/^\& \{/m, 'install.ps wraps its body in a script block so the streamed irm ... | iex path stays valid' );
+    like( $install_ps_text, qr/Developer Dashboard install progress/, 'install.ps prints the Windows progress board title' );
+    like( $install_ps_text, qr/winget/, 'install.ps uses winget to bootstrap missing Windows packages' );
+    like( $install_ps_text, qr/Refresh-ProcessPathFromEnvironment/, 'install.ps refreshes the current PATH after winget installs new tools' );
+    like( $install_ps_text, qr/App::cpanminus|cpanmin\.us/, 'install.ps bootstraps cpanm for Windows installs' );
+    like( $install_ps_text, qr/cpanm.*--notest/s, 'install.ps installs Developer Dashboard with cpanm --notest on Windows' );
+    like( $install_ps_text, qr/dashboard init/, 'install.ps initializes the dashboard runtime after the Windows install' );
+    like( $install_ps_text, qr/dashboard shell ps/, 'install.ps activates the PowerShell bootstrap after installation' );
 }
 
 my @apt_packages  = _manifest_lines($aptfile);

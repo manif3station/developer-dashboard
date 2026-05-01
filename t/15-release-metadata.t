@@ -72,7 +72,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '3.26', 'repo version bumped for the cpanm --notest blank-container tarball gate policy shift' );
+is( $version, '3.27', 'repo version bumped for the Windows install.ps bootstrap workflow' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
 like( $readme, qr/\A(?:<!--.*?-->\n\n)?#\s+/s, 'README.md begins with Markdown headings' ) if $readme ne '';
@@ -158,7 +158,7 @@ for my $module (
 }
 
 unlike( $makefile, qr/bin\/pjq|bin\/pyq|bin\/ptomq|bin\/pjp|bin\/jq|bin\/yq|bin\/tomq|bin\/propq|bin\/iniq|bin\/csvq|bin\/xmlq|bin\/of|bin\/open-file/, 'Makefile.PL does not install generic helper commands into the global PATH' );
-unlike( $makefile, qr/install\.sh/, 'Makefile.PL does not install install.sh into the CPAN script namespace' );
+unlike( $makefile, qr/install\.sh|install\.ps/, 'Makefile.PL does not install checkout bootstrap scripts into the CPAN script namespace' );
 unlike( $makefile, qr/["']HTTP::Daemon["']\s*=>\s*0/, 'Makefile.PL no longer declares unused HTTP::Daemon metadata' );
 unlike( $makefile, qr/["']HTTP::Status["']\s*=>\s*0/, 'Makefile.PL no longer declares unused HTTP::Status metadata' );
 for my $module (
@@ -195,12 +195,14 @@ for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file 
     ok( -f _repo_path( 'share', 'private-cli', $helper ), "share/private-cli/$helper is shipped as a private helper asset" );
 }
 ok( -f _repo_path('install.sh'), 'repo-root install.sh is tracked for bootstrap installs' );
+ok( -f _repo_path('install.ps'), 'repo-root install.ps is tracked for Windows bootstrap installs' );
 ok( -f _repo_path('aptfile'), 'repo-root aptfile is tracked for bootstrap installs' );
 ok( -f _repo_path('apkfile'), 'repo-root apkfile is tracked for bootstrap installs' );
 ok( -f _repo_path('brewfile'), 'repo-root brewfile is tracked for bootstrap installs' );
 
 my @required_tarball_paths = (
     "Developer-Dashboard-$version/install.sh",
+    "Developer-Dashboard-$version/install.ps",
     "Developer-Dashboard-$version/aptfile",
     "Developer-Dashboard-$version/apkfile",
     "Developer-Dashboard-$version/brewfile",
@@ -355,6 +357,8 @@ for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
     like( $doc, qr/cpanm --no-wget --notest Developer::Dashboard/, 'README documents the repo bootstrap installer cpanm contract' );
     like( $doc, qr/aptfile.*apkfile.*brewfile|aptfile.*brewfile.*apkfile|apkfile.*aptfile.*brewfile|apkfile.*brewfile.*aptfile|brewfile.*aptfile.*apkfile|brewfile.*apkfile.*aptfile/is, 'README documents the repo bootstrap package manifests' );
     like( $doc, qr/checkout-only.*install\.sh|install\.sh.*checkout-only/is, 'README documents install.sh as a checkout-only bootstrap script instead of an installed CPAN command' );
+    like( $doc, qr/checkout-only.*install\.ps|install\.ps.*checkout-only/is, 'README and POD document install.ps as a checkout-only bootstrap script instead of an installed CPAN command' );
+    like( $doc, qr/PowerShell.*install\.ps|install\.ps.*PowerShell/is, 'README and POD document install.ps as the Windows bootstrap entrypoint' );
     like( $doc, qr/dashboard skills install/, 'README documents skill installation' );
     like( $doc, qr/dashboard skills install browser foo\/bar git\@github\.com:user\/example-skill\.git/, 'README documents multi-source skill installation' );
     like( $doc, qr/dashboard skill list|`dashboard skill`/, 'README documents the singular skill management alias' );

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.26';
+our $VERSION = '3.27';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.26
+3.27
 
 =head1 INTRODUCTION
 
@@ -1075,13 +1075,19 @@ Bootstrap a blank Alpine, Debian, Ubuntu, Fedora, or macOS machine from a checko
 
   ./install.sh
 
-F<install.sh> is a checkout-only bootstrap helper. It ships in the source tree
-and release tarball so operators can run it explicitly from a checkout or
-extracted tarball, but CPAN and C<cpanm> do not install it as a global
-command. When the installer is streamed through C<sh> without a checkout,
-such as C<curl ... | sh>, it falls back to embedded Debian-family,
-Alpine, and Homebrew package manifests instead of assuming repo-local
-F<aptfile>, F<apkfile>, F<dnfile>, and F<brewfile> files exist on disk.
+Bootstrap a blank Windows PowerShell host from a checkout or the current shell with:
+
+  powershell -ExecutionPolicy Bypass -File .\install.ps
+  irm https://raw.githubusercontent.com/manif3station/developer-dashboard/master/install.ps | iex
+
+F<install.sh> and F<install.ps> are checkout-only bootstrap helpers. They ship
+in the source tree and release tarball so operators can run them explicitly
+from a checkout, extracted tarball, or streamed bootstrap, but CPAN and
+C<cpanm> do not install them as global commands. When the Unix-like installer
+is streamed through C<sh> without a checkout, such as C<curl ... | sh>, it
+falls back to embedded Debian-family, Alpine, and Homebrew package manifests
+instead of assuming repo-local F<aptfile>, F<apkfile>, F<dnfile>, and
+F<brewfile> files exist on disk.
 
 That installer reads the repo-root F<aptfile> on Debian-family hosts and runs
 C<apt-get update> plus C<apt-get install -y> for the listed packages, reads
@@ -1134,11 +1140,23 @@ C<cpanm --no-wget --notest Developer::Dashboard>,
 and then runs C<dashboard init> so the runtime exists immediately after
 installation.
 
+On Windows PowerShell hosts, F<install.ps> uses C<winget> to install missing
+Git, Strawberry Perl, and Node.js LTS packages, downloads C<cpanm> from
+C<https://cpanmin.us/>, installs Developer Dashboard with C<cpanm --notest>,
+updates the current-user PowerShell profile with the private F<~/perl5> PATH
+and Perl environment variables plus C<dashboard shell ps>, activates that
+PowerShell bootstrap in the current shell when possible, and then runs
+C<dashboard init>. The Windows bootstrap target stays literal: when
+C<DD_INSTALL_CPAN_TARGET> is set, F<install.ps> passes that exact value
+through to C<cpanm --notest> instead of trying to reinterpret it.
+
 Useful bootstrap examples:
 
   ./install.sh
   SHELL=/bin/zsh ./install.sh
   DD_INSTALL_CPAN_TARGET=./Developer-Dashboard-X.XX.tar.gz ./install.sh
+  powershell -ExecutionPolicy Bypass -File .\install.ps
+  $env:DD_INSTALL_CPAN_TARGET = '.\Developer-Dashboard-X.XX.tar.gz'; irm https://raw.githubusercontent.com/manif3station/developer-dashboard/master/install.ps | iex
 
 Install from CPAN with:
 
@@ -2153,6 +2171,7 @@ From a source checkout, for Windows-targeted changes, also run the Strawberry
 Perl smoke on a Windows host:
 
   powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz
+  powershell -ExecutionPolicy Bypass -File integration/windows/run-strawberry-smoke.ps1 -Tarball C:\path\Developer-Dashboard-*.tar.gz -UseInstallBootstrap -BootstrapScript C:\path\install.ps
 
 Before calling a release Windows-compatible from the source checkout, also run
 the same smoke through the host-side Windows VM helper:
@@ -2169,7 +2188,11 @@ helpers only. In the Dockur-backed path, the launcher can resolve the latest
 feed so the env file does not need a pinned installer URL for every rerun.
 That same Windows guest smoke can install the tarball with C<cpanm --notest>
 for third-party dependency setup while still running the full Developer
-Dashboard CLI, collector, Ajax, web, and browser smoke afterward.
+Dashboard CLI, collector, Ajax, web, and browser smoke afterward. When the
+checkout bootstrap is part of the change, the Windows smoke also runs
+F<install.ps> through a streamed C<Invoke-Expression> wrapper with the staged
+tarball passed through the literal C<DD_INSTALL_CPAN_TARGET> environment
+variable so the guest matches the operator flow of C<irm .../install.ps | iex>.
 
 =head2 Updating Runtime State
 

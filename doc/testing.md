@@ -314,6 +314,7 @@ For Windows-targeted changes, keep the verification layered:
 
 - run the fast forced-Windows unit coverage in `t/`
 - run the real Strawberry Perl smoke on a Windows host with `integration/windows/run-strawberry-smoke.ps1`
+- when the checkout bootstrap changes, rerun that same smoke with `-UseInstallBootstrap` so the guest executes `install.ps` through the streamed `Invoke-Expression` shape instead of only the file path
 - run the full-system QEMU guest smoke with `integration/windows/run-host-windows-smoke.sh` before making a release-grade Windows compatibility claim
 
 The Strawberry smoke verifies `dashboard shell ps`, `dashboard ps1`, one
@@ -323,7 +324,11 @@ browser is present in the Windows environment.
 In the Dockur-backed guest path, the launcher stages the Strawberry Perl MSI
 from the Linux host and the Windows tarball install currently uses
 `cpanm --notest` for third-party dependency setup before the real dashboard
-runtime smoke runs.
+runtime smoke runs. When `WINDOWS_USE_INSTALL_BOOTSTRAP=1` is set, the
+in-guest smoke first runs the repo-root `install.ps` through a streamed
+`Invoke-Expression` wrapper with `DD_INSTALL_CPAN_TARGET` pointed at the
+staged tarball, so the release gate matches the intended operator flow of
+`irm .../install.ps | iex`.
 The supported Windows runtime baseline is PowerShell plus Strawberry Perl.
 Git Bash is optional. Scoop is optional. They remain setup helpers, not
 runtime requirements for Developer Dashboard itself.

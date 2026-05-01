@@ -1,3 +1,12 @@
+3.27  2026-05-01
+    - added a repo-root `install.ps` bootstrap entrypoint for Windows
+      PowerShell hosts so blank-machine installs can bootstrap Git,
+      Strawberry Perl, Node.js, user-space Perl tooling, and the dashboard
+      runtime from a checkout or a streamed `irm ... | iex` flow
+    - updated the install bootstrap docs, release metadata guards, and
+      shipped tarball asset checks so the Windows bootstrap path is tracked
+      alongside the existing Unix-like `install.sh` flow
+
 3.26  2026-04-30
     - changed the blank-container tarball installation gate to use
       `cpanm --notest` after the normal source-tree test and coverage gates

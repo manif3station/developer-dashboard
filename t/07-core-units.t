@@ -2216,7 +2216,7 @@ chdir $original_cwd or die $!;
     open my $home_user, '>', File::Spec->catfile( $home_user_root, 'fallback.json' ) or die $!;
     print {$home_user} qq|{"username":"fallback","role":"helper","salt":"one","password_hash":"two","updated_at":"2026-01-01T00:00:00Z"}|;
     close $home_user;
-    my $home_state_root  = $paths->state_root;
+    my $home_state_root  = $paths->_state_root_for_layer( $paths->home_runtime_root );
     my $home_session_root = File::Spec->catdir( $home_state_root, 'sessions' );
     make_path($home_session_root);
     open my $home_session, '>', File::Spec->catfile( $home_session_root, 'fallback-session.json' ) or die $!;

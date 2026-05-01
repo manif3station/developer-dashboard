@@ -1,5 +1,18 @@
 # Fixed Bugs
 
+## 3.27 - Windows checkout bootstrap installer
+
+- Fixed the checkout bootstrap story on Windows by adding a repo-root
+  `install.ps` entrypoint that can be run directly from PowerShell or streamed
+  through `irm ... | iex`.
+- Fixed the Windows bootstrap flow so it now provisions missing Git,
+  Strawberry Perl, and Node.js LTS packages through `winget`, bootstraps
+  `cpanm`, installs Developer Dashboard with `cpanm --notest`, activates the
+  PowerShell shell bootstrap, and runs `dashboard init`.
+- Fixed the release metadata and integration asset guards so the Windows
+  bootstrap installer must stay documented, packaged in the tarball, and kept
+  out of the CPAN-installed script namespace.
+
 ## 3.26 - Blank-container tarball install policy alignment
 
 - Fixed the blank-container tarball gate so it now installs the built release
