@@ -1,9 +1,21 @@
-3.32  2026-05-01
+3.33  2026-05-01
     - fixed the packaged install metadata so blank Windows hosts no longer
       pull test-only dependencies such as `Plack::Test` and `Test::Pod`
       during `cpanm --notest Developer::Dashboard`, which previously dragged
       the `Test::SharedFork` chain into the streamed PowerShell bootstrap and
       broke fresh installs
+    - fixed the streamed Windows checkout bootstrap so it now installs from
+      the current GitHub checkout shape cleanly on Windows, including the
+      Windows-safe `Makefile.PL` version path and the self-healing private
+      helper staging path used by lightweight commands such as `dashboard
+      encode`
+    - fixed the PowerShell bootstrap so `install.ps1` now sets the CurrentUser
+      execution policy to `RemoteSigned` before writing the generated profile,
+      allowing new PowerShell sessions to load the `dashboard shell ps`
+      bootstrap instead of failing with `running scripts is disabled`
+    - fixed the generated PowerShell profile block so `PERL_MB_OPT` is now
+      written with format-string quoting instead of nested literal quotes that
+      broke new sessions with `Unexpected token '$ddInstallRoot""'`
     - replaced the repository PSGI test dependency on `Plack::Test` with a
       local harness under `t/lib` so the release metadata can stay focused on
       real runtime requirements while the web route coverage still stays

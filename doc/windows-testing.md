@@ -9,7 +9,10 @@ The supported baseline on Windows is PowerShell plus Strawberry Perl. Git Bash o
 requirements for the installed `dashboard` command. The verification flow is
 layered so fast tests catch regressions before the slower VM gate runs.
 The checkout bootstrap entrypoint for that baseline is `install.ps1`, and the
-streamed operator flow is `irm .../install.ps1 | iex`.
+streamed operator flow is `irm .../install.ps1 | iex`. That bootstrap is also
+responsible for setting the CurrentUser execution policy to `RemoteSigned`
+when the host is still at the default `Restricted` policy, otherwise the
+generated PowerShell profile cannot load in new sessions.
 
 ## Verification Layers
 
@@ -28,6 +31,8 @@ streamed operator flow is `irm .../install.ps1 | iex`.
 - when validating that bootstrap path inside the smoke guest, use `-UseInstallBootstrap`; the smoke sets `DD_INSTALL_CPAN_TARGET` to the staged tarball and executes `install.ps1` through `Invoke-Expression`
 - install the built tarball with `cpanm`
 - verify `dashboard shell ps` and `dashboard ps1`
+- verify a fresh PowerShell session can load the generated profile without a
+  `running scripts is disabled` execution-policy failure
 - verify one PowerShell-backed collector command
 - verify one saved Ajax PowerShell handler through `Invoke-WebRequest`
 - verify browser DOM rendering through Edge or Chrome when available
@@ -100,7 +105,9 @@ or `WINDOWS_USE_INSTALL_BOOTSTRAP=1` is enabled, the smoke passes that same
 tarball through the literal `DD_INSTALL_CPAN_TARGET` environment variable and
 executes `install.ps1` through a streamed `Invoke-Expression` wrapper. The
 release-grade verification still comes from the Developer Dashboard smoke that
-runs after that install step: `dashboard shell ps`, `dashboard ps1`,
+runs after that install step: the normal streamed operator path defaults to
+a fresh clone of the GitHub `master` checkout, while the smoke overrides that
+with the exact staged tarball under test; `dashboard shell ps`, `dashboard ps1`,
 collector, saved Ajax, web, and browser checks still execute in the guest.
 
 ## Release Rule

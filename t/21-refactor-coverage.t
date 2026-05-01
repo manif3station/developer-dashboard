@@ -669,6 +669,32 @@ ok(
     is( $managed_verify, $managed_body, '_stage_managed_helper leaves an already-managed matching helper unchanged on disk' );
 }
 {
+    my $repair_home = tempdir( CLEANUP => 1 );
+    my $repair_paths = Developer::Dashboard::PathRegistry->new( home => $repair_home );
+    my $repair_cli_root = File::Spec->catdir( $repair_home, '.developer-dashboard', 'cli', 'dd' );
+    make_path($repair_cli_root);
+    my $repair_target = File::Spec->catfile( $repair_cli_root, '_dashboard-core' );
+    open my $repair_target_fh, '>', $repair_target or die "Unable to write $repair_target: $!";
+    close $repair_target_fh;
+
+    ok(
+        Developer::Dashboard::InternalCLI::_stage_managed_helper(
+            paths  => $repair_paths,
+            name   => '_dashboard-core',
+            target => $repair_target,
+        ),
+        '_stage_managed_helper repairs a zero-byte managed helper target under the dd namespace',
+    );
+    open my $repair_verify_fh, '<', $repair_target or die "Unable to read $repair_target: $!";
+    my $repair_verify = do { local $/; <$repair_verify_fh> };
+    close $repair_verify_fh;
+    is(
+        $repair_verify,
+        Developer::Dashboard::InternalCLI::_managed_helper_content('_dashboard-core'),
+        '_stage_managed_helper rewrites the full managed helper body when the target was truncated to zero bytes',
+    );
+}
+{
     my $cleanup_home = tempdir( CLEANUP => 1 );
     my $cleanup_paths = Developer::Dashboard::PathRegistry->new( home => $cleanup_home );
     my $cleanup_cli_root = File::Spec->catdir( $cleanup_home, '.developer-dashboard', 'cli', 'dd' );

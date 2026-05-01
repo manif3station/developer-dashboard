@@ -2,7 +2,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$CpanTarget = if ([string]::IsNullOrWhiteSpace($env:DD_INSTALL_CPAN_TARGET)) { 'Developer::Dashboard' } else { $env:DD_INSTALL_CPAN_TARGET }
+$DefaultBootstrapRepository = 'https://github.com/manif3station/developer-dashboard.git'
+$CpanTarget = if ([string]::IsNullOrWhiteSpace($env:DD_INSTALL_CPAN_TARGET)) { '' } else { $env:DD_INSTALL_CPAN_TARGET }
 $InstallRoot = if ([string]::IsNullOrWhiteSpace($env:DD_INSTALL_ROOT)) { '' } else { $env:DD_INSTALL_ROOT }
 $ProfilePath = if ([string]::IsNullOrWhiteSpace($env:DD_INSTALL_PROFILE_PATH)) { '' } else { $env:DD_INSTALL_PROFILE_PATH }
 $PreferredShell = if ([string]::IsNullOrWhiteSpace($env:DD_INSTALL_PREFERRED_SHELL)) { 'powershell' } else { $env:DD_INSTALL_PREFERRED_SHELL }
@@ -202,7 +203,14 @@ function Invoke-NativeCommand {
 
     $display = if ($Arguments.Count -gt 0) { "$FilePath $($Arguments -join ' ')" } else { $FilePath }
     Write-Host $display -ForegroundColor DarkGray
-    & $FilePath @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $FilePath @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "$Label failed with exit code $LASTEXITCODE"
     }
@@ -309,6 +317,30 @@ function Ensure-WingetPackage {
     return $resolved
 }
 
+function Resolve-DefaultDashboardCheckout {
+    # Purpose: materialize the current GitHub master source into a local checkout for streamed Windows installs.
+    # Input: a writable temp directory plus the canonical Developer Dashboard Git repository URL.
+    # Output: returns the local checkout path that cpanm should install when no explicit target override is set.
+    $gitPath = Resolve-CommandPath -Names @('git.exe', 'git')
+    if ([string]::IsNullOrWhiteSpace($gitPath)) {
+        throw 'git is required before resolving the default Windows checkout bootstrap target'
+    }
+
+    $checkoutRoot = Join-Path ([IO.Path]::GetTempPath()) 'developer-dashboard-install'
+    if (Test-Path $checkoutRoot) {
+        Remove-Item -Recurse -Force $checkoutRoot
+    }
+
+    Invoke-NativeCommand -Label 'git clone Developer Dashboard checkout' -FilePath $gitPath -Arguments @(
+        'clone',
+        '--depth', '1',
+        '--branch', 'master',
+        $DefaultBootstrapRepository,
+        $checkoutRoot
+    )
+    return $checkoutRoot
+}
+
 function Add-StrawberryPaths {
     # Purpose: add the Strawberry Perl toolchain directories to the current PATH.
     # Input: a resolved Strawberry perl.exe path.
@@ -381,6 +413,19 @@ function Ensure-ProfileContains {
     }
 }
 
+function Ensure-CurrentUserPowerShellExecutionPolicy {
+    # Purpose: make sure the current user can load the generated PowerShell profile script in future sessions.
+    # Input: the current-user PowerShell execution policy state.
+    # Output: sets the CurrentUser execution policy to RemoteSigned when it is undefined or restricted.
+    $currentUserPolicy = Get-ExecutionPolicy -Scope CurrentUser
+    if ($currentUserPolicy -in @('RemoteSigned', 'Unrestricted', 'Bypass')) {
+        return $currentUserPolicy
+    }
+
+    Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+    return (Get-ExecutionPolicy -Scope CurrentUser)
+}
+
 function Download-CpanmScript {
     # Purpose: fetch the cpanminus bootstrap script into the user-space install root.
     # Input: the install root where the cpanm script should be written.
@@ -427,7 +472,7 @@ function Set-LocalPerlEnvironment {
     }
 
     $env:PERL_LOCAL_LIB_ROOT = $TargetInstallRoot
-    $env:PERL_MB_OPT = "--install_base `"$TargetInstallRoot`""
+    $env:PERL_MB_OPT = ('--install_base "{0}"' -f $TargetInstallRoot)
     $env:PERL_MM_OPT = "INSTALL_BASE=$TargetInstallRoot"
 }
 
@@ -435,7 +480,8 @@ Show-ProgressBoard
 
 Set-StepStatus -Id 'detect_profile' -Status 'running'
 Ensure-ParentDirectory -Path $ProfilePath
-Set-StepStatus -Id 'detect_profile' -Status 'ok' -Detail ("profile: {0}" -f $ProfilePath)
+$currentUserExecutionPolicy = Ensure-CurrentUserPowerShellExecutionPolicy
+Set-StepStatus -Id 'detect_profile' -Status 'ok' -Detail ("profile: {0}; policy: {1}" -f $ProfilePath, $currentUserExecutionPolicy)
 
 Set-StepStatus -Id 'install_bootstrap' -Status 'running'
 $null = Ensure-WingetPackage -PackageId 'Git.Git' -Label 'Git' -CommandNames @('git.exe', 'git')
@@ -480,7 +526,7 @@ if (Test-Path `$ddPerlLib) {
     }
 }
 `$env:PERL_LOCAL_LIB_ROOT = `$ddInstallRoot
-`$env:PERL_MB_OPT = "--install_base `"`$ddInstallRoot`""
+`$env:PERL_MB_OPT = ('--install_base "{0}"' -f `$ddInstallRoot)
 `$env:PERL_MM_OPT = "INSTALL_BASE=`$ddInstallRoot"
 if (Get-Command dashboard -ErrorAction SilentlyContinue) {
     Invoke-Expression (& dashboard shell ps)
@@ -498,11 +544,28 @@ if ([string]::IsNullOrWhiteSpace($dashboardCommand)) {
 }
 
 Set-StepStatus -Id 'install_dashboard' -Status 'running'
-Invoke-NativeCommand -Label 'cpanm Developer Dashboard install' -FilePath $perlPath -Arguments @(
-    $cpanmScript,
-    '--notest',
-    $CpanTarget
-)
+$effectiveCpanTarget = $CpanTarget
+if ([string]::IsNullOrWhiteSpace($effectiveCpanTarget)) {
+    $effectiveCpanTarget = Resolve-DefaultDashboardCheckout
+    Push-Location $effectiveCpanTarget
+    try {
+        Invoke-NativeCommand -Label 'cpanm Developer Dashboard install' -FilePath $perlPath -Arguments @(
+            $cpanmScript,
+            '--notest',
+            '.'
+        )
+    }
+    finally {
+        Pop-Location
+    }
+}
+else {
+    Invoke-NativeCommand -Label 'cpanm Developer Dashboard install' -FilePath $perlPath -Arguments @(
+        $cpanmScript,
+        '--notest',
+        $effectiveCpanTarget
+    )
+}
 $dashboardCommand = Resolve-CommandPath -Names @('dashboard.bat', 'dashboard', 'dashboard.cmd')
 if ([string]::IsNullOrWhiteSpace($dashboardCommand)) {
     $candidate = Join-Path $InstallRoot 'bin\dashboard.bat'
@@ -511,7 +574,7 @@ if ([string]::IsNullOrWhiteSpace($dashboardCommand)) {
     }
     $dashboardCommand = $candidate
 }
-Set-StepStatus -Id 'install_dashboard' -Status 'ok' -Detail ("target: {0}" -f $CpanTarget)
+Set-StepStatus -Id 'install_dashboard' -Status 'ok' -Detail ("target: {0}" -f $effectiveCpanTarget)
 
 Set-StepStatus -Id 'initialize_dashboard' -Status 'running'
 Invoke-Expression (& $dashboardCommand shell ps)

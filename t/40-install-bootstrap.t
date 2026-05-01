@@ -26,6 +26,7 @@ ok( -f $aptfile, 'aptfile exists at the repo root' );
 ok( -f $apkfile, 'apkfile exists at the repo root' );
 ok( -f $dnfile, 'dnfile exists at the repo root' );
 ok( -f $brewfile, 'brewfile exists at the repo root' );
+like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/VERSION_FROM\s*=>\s*'lib\/Developer\/Dashboard\.pm'/, 'Makefile.PL uses a filesystem path for VERSION_FROM so checkout installs work on Windows' );
 
 {
     my ( $stdout, $stderr, $exit ) = capture {
@@ -46,12 +47,23 @@ ok( -f $brewfile, 'brewfile exists at the repo root' );
     like( $install_ps_text, qr/source\s+reset|winget source reset/s, 'install.ps1 includes a winget source repair path for bootstrap failures' );
     like( $install_ps_text, qr/Format-ExitCode/, 'install.ps1 formats native Windows exit codes so winget failures show their HRESULT value' );
     like( $install_ps_text, qr/2>&1 \| ForEach-Object \{ Write-Host \$\_ \}/, 'install.ps1 streams native command output to the host instead of leaking it into helper return values' );
+    like( $install_ps_text, qr/\$previousErrorActionPreference\s*=\s*\$ErrorActionPreference/s, 'install.ps1 snapshots PowerShell error handling before streaming native command stderr' );
+    like( $install_ps_text, qr/\$ErrorActionPreference\s*=\s*'Continue'/s, 'install.ps1 downgrades native stderr records while streaming command output so git and winget progress do not abort the bootstrap' );
     like( $install_ps_text, qr/Refresh-ProcessPathFromEnvironment/, 'install.ps1 refreshes the current PATH after winget installs new tools' );
     like( $install_ps_text, qr/cpanmin\.us/, 'install.ps1 bootstraps cpanm for Windows installs from the standalone cpanmin.us script' );
     unlike( $install_ps_text, qr/'local::lib'\s*,\s*'App::cpanminus'/, 'install.ps1 no longer tries to self-install App::cpanminus while the downloaded cpanm script is still running on Windows' );
+    like( $install_ps_text, qr{https://github\.com/manif3station/developer-dashboard\.git}, 'install.ps1 knows the canonical GitHub repository for the streamed Windows bootstrap source' );
+    like( $install_ps_text, qr/git\s+clone/s, 'install.ps1 clones the current GitHub master source for the default streamed Windows install target' );
+    like( $install_ps_text, qr/Push-Location\s+\$effectiveCpanTarget/s, 'install.ps1 installs the default cloned Windows checkout from inside the local checkout directory' );
+    like( $install_ps_text, qr/--notest',\s*'\.'/s, 'install.ps1 runs cpanm against dot when installing the default cloned Windows checkout' );
+    unlike( $install_ps_text, qr/\$CpanTarget\s*=\s*if\s*\(\[string\]::IsNullOrWhiteSpace\(\$env:DD_INSTALL_CPAN_TARGET\)\)\s*\{\s*'Developer::Dashboard'\s*\}/, 'install.ps1 no longer defaults streamed Windows installs to the stale CPAN module name' );
     like( $install_ps_text, qr/cpanm.*--notest/s, 'install.ps1 installs Developer Dashboard with cpanm --notest on Windows' );
     like( $install_ps_text, qr/dashboard init/, 'install.ps1 initializes the dashboard runtime after the Windows install' );
     like( $install_ps_text, qr/dashboard shell ps/, 'install.ps1 activates the PowerShell bootstrap after installation' );
+    like( $install_ps_text, qr/Set-ExecutionPolicy\s+-Scope\s+CurrentUser\s+-ExecutionPolicy\s+RemoteSigned\s+-Force/s, 'install.ps1 enables a CurrentUser PowerShell execution policy that can load the generated profile in future sessions' );
+    like( $install_ps_text, qr/Get-ExecutionPolicy\s+-Scope\s+CurrentUser/s, 'install.ps1 inspects the current-user execution policy before changing it' );
+    like( $install_ps_text, qr/\$env:PERL_MB_OPT\s*=\s*\('--install_base "\{0\}"'\s*-f\s*\$TargetInstallRoot\)/s, 'install.ps1 builds the in-process PERL_MB_OPT assignment without nested PowerShell quote parsing bugs' );
+    like( $install_ps_text, qr/\`\$env:PERL_MB_OPT\s*=\s*\('--install_base "\{0\}"'\s*-f\s*\`\$ddInstallRoot\)/s, 'install.ps1 writes a profile-safe PERL_MB_OPT assignment for future PowerShell sessions' );
 }
 
 my @apt_packages  = _manifest_lines($aptfile);

@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '3.32';
+our $VERSION = '3.33';
 
 use File::Basename qw(dirname);
 use File::Spec;
@@ -126,6 +126,12 @@ sub _stage_managed_helper {
 
     if ( -e $target ) {
         return 0 if !-f $target;
+        if ( ( -s $target ) == 0 && _is_managed_helper_target( $args{paths}, $target ) ) {
+            open my $repair_fh, '>:raw', $target or die "Unable to write $target: $!";
+            print {$repair_fh} $content;
+            close $repair_fh or die "Unable to close $target: $!";
+            return 1;
+        }
         open my $existing_fh, '<:raw', $target or die "Unable to read $target: $!";
         my $existing = do { local $/; <$existing_fh> };
         close $existing_fh or die "Unable to close $target: $!";
@@ -225,6 +231,20 @@ sub _helper_parent_root {
 sub _helper_install_root {
     my ($paths) = @_;
     return File::Spec->catdir( _helper_parent_root($paths), 'dd' );
+}
+
+# _is_managed_helper_target($paths, $target)
+# Detects whether a helper target path lives under the dashboard-managed dd
+# helper namespace root.
+# Input: path registry object plus target path string.
+# Output: boolean true when the target belongs to the managed helper root.
+sub _is_managed_helper_target {
+    my ( $paths, $target ) = @_;
+    return 0 if !$paths || !defined $target || $target eq '';
+    my $root = File::Spec->rel2abs( _helper_install_root($paths) );
+    my $path = File::Spec->rel2abs($target);
+    return 1 if $path eq $root;
+    return index( $path, $root . '/' ) == 0;
 }
 
 # _helper_asset_path($name)

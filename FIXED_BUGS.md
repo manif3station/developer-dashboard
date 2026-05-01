@@ -1,6 +1,6 @@
 # Fixed Bugs
 
-## 3.32 - Track Windows install smoke follow-up
+## 3.33 - Fix streamed Windows install bootstrap path
 
 - Fixed the packaged install metadata so end-user installs no longer pull
   `Plack::Test` and `Test::Pod` through the `Developer::Dashboard` test
@@ -13,6 +13,21 @@
   focused on real runtime requirements.
 - Fixed the Windows install bootstrap docs so the public examples use the
   `install.ps1` entrypoint and describe the lighter packaged install path.
+- Fixed the streamed Windows checkout bootstrap so the default GitHub checkout
+  install now uses a Windows-safe `Makefile.PL` version path and no longer
+  fails during `cpanm --notest .` with
+  `Could not open 'lib/Developer::Dashboard.pm': Invalid argument`.
+- Fixed the managed helper staging path so a zero-byte
+  `~/.developer-dashboard/cli/dd/_dashboard-core` is repaired automatically
+  instead of being preserved as if it were a user helper, restoring thin CLI
+  commands such as `dashboard encode`.
+- Fixed the PowerShell bootstrap so `install.ps1` now sets the CurrentUser
+  execution policy to `RemoteSigned` before writing the generated profile,
+  allowing new PowerShell sessions to load the `dashboard shell ps`
+  bootstrap instead of failing with `running scripts is disabled`.
+- Fixed the generated PowerShell profile block so `PERL_MB_OPT` no longer uses
+  nested literal quotes that break new sessions with
+  `Unexpected token '$ddInstallRoot""'`.
 
 ## 3.30 - Streamed PowerShell bootstrap native-output fix
 

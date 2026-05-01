@@ -6,7 +6,7 @@ use File::Spec;
 
 WriteMakefile(
     NAME         => 'Developer::Dashboard',
-    VERSION_FROM => 'lib/Developer::Dashboard.pm',
+    VERSION_FROM => 'lib/Developer/Dashboard.pm',
     ABSTRACT     => 'Project-neutral local developer dashboard runtime',
     AUTHOR       => 'Developer Dashboard Contributors',
     EXE_FILES    => [

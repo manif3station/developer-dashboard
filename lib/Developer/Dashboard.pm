@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.32';
+our $VERSION = '3.33';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.32
+3.33
 
 =head1 INTRODUCTION
 
@@ -1147,7 +1147,9 @@ bootstrap, resets and refreshes the source catalog once before retrying when a
 C<winget> source failure still occurs, downloads C<cpanm> from
 C<https://cpanmin.us/>, bootstraps C<local::lib> into the private
 F<~/perl5> tree with that standalone script, installs Developer Dashboard
-with C<cpanm --notest>, updates the current-user PowerShell profile with the
+with C<cpanm --notest>, sets the CurrentUser PowerShell execution policy to
+C<RemoteSigned> when it is still too restrictive to load profile scripts,
+updates the current-user PowerShell profile with the
 private F<~/perl5> PATH and Perl environment variables plus
 C<dashboard shell ps>, activates that PowerShell bootstrap in the current
 shell when possible, and then runs C<dashboard init>. The Windows bootstrap
@@ -1159,7 +1161,11 @@ C<Test::Pod> out of the end-user install prerequisite path so blank Windows
 hosts do not have to pull the C<Test::SharedFork> dependency chain during the
 bootstrap. The Windows bootstrap target stays literal: when
 C<DD_INSTALL_CPAN_TARGET> is set, F<install.ps1> passes that exact value
-through to C<cpanm --notest> instead of trying to reinterpret it.
+through to C<cpanm --notest> instead of trying to reinterpret it. When that
+override is unset in the streamed C<irm .../install.ps1 | iex> path,
+F<install.ps1> clones the current GitHub C<master> checkout into a temporary
+local tree and installs that local checkout so the bootstrap installs the same
+snapshot that shipped the installer instead of an older CPAN release.
 
 Useful bootstrap examples:
 
@@ -2203,7 +2209,9 @@ Dashboard CLI, collector, Ajax, web, and browser smoke afterward. When the
 checkout bootstrap is part of the change, the Windows smoke also runs
 F<install.ps1> through a streamed C<Invoke-Expression> wrapper with the staged
 tarball passed through the literal C<DD_INSTALL_CPAN_TARGET> environment
-variable so the guest matches the operator flow of C<irm .../install.ps1 | iex>.
+variable so the guest matches the operator flow of C<irm .../install.ps1 | iex>
+while still overriding the default GitHub C<master> checkout clone with the
+exact staged tarball under test.
 
 =head2 Updating Runtime State
 

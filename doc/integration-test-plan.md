@@ -83,7 +83,10 @@ runtime behavior without rerunning the same distribution test suite a second
 time. The Windows guest smoke follows the same rule for the tarball install
 step, and the optional bootstrap path passes the tarball through the literal
 `DD_INSTALL_CPAN_TARGET` environment variable so `install.ps1` still lets
-`cpanm --notest` decide how to resolve the exact target.
+`cpanm --notest` resolve the exact target literally. Outside that override,
+the streamed Windows bootstrap defaults to cloning the GitHub `master`
+checkout into a temporary local tree instead of relying on a potentially stale
+CPAN release.
 
 ## Test Data
 
@@ -122,7 +125,7 @@ The integration run creates:
 15. Restart the installed runtime with one intentionally broken Perl config collector and one healthy config collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state, even when prompt/browser status refreshes run during the restart window.
 16. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
 17. Exercise builtin action execution.
-18. For Windows-targeted changes, run `integration/windows/run-strawberry-smoke.ps1 -UseInstallBootstrap -BootstrapScript <checkout install.ps1>` so the guest validates the same streamed `Invoke-Expression` bootstrap shape that operators use with `irm .../install.ps1 | iex`.
+18. For Windows-targeted changes, run `integration/windows/run-strawberry-smoke.ps1 -UseInstallBootstrap -BootstrapScript <checkout install.ps1>` so the guest validates the same streamed `Invoke-Expression` bootstrap shape that operators use with `irm .../install.ps1 | iex`, including successful `cpanm --notest .` checkout installation and a fresh PowerShell session that can load the generated profile without a `running scripts is disabled` failure.
 18. Exercise docker compose dry-run resolution against a temporary project.
 19. Start the installed web service.
 20. Confirm exact-loopback access reaches the editor page in Chromium.
