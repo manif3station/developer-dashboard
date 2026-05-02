@@ -426,6 +426,35 @@ Get-Content -Raw -LiteralPath `$env:DD_INSTALL_BOOTSTRAP_SCRIPT | Invoke-Express
     }
 }
 
+# Purpose: prove that a brand-new profile-loaded PowerShell session can resolve
+# the installed dashboard command after install.ps1 completes.
+# Input: none.
+# Output: returns nothing or throws when the fresh session cannot resolve
+# dashboard, print a version, and run dashboard logs successfully.
+function Assert-FreshPowerShellDashboardBootstrap {
+    $freshSessionScript = @'
+$ErrorActionPreference = "Stop"
+Write-Output "DASHBOARD_SOURCE_START"
+(Get-Command dashboard -ErrorAction Stop).Source
+Write-Output "DASHBOARD_VERSION_START"
+dashboard version
+Write-Output "DASHBOARD_LOGS_START"
+dashboard logs
+Write-Output "DASHBOARD_LOGS_END"
+'@
+
+    $freshSessionOutput = & powershell.exe -NoLogo -Command $freshSessionScript | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        throw "fresh profile-loaded PowerShell dashboard check failed with exit code $LASTEXITCODE"
+    }
+
+    Invoke-AssertContains -Text $freshSessionOutput -Fragment "DASHBOARD_SOURCE_START" -Label "fresh PowerShell dashboard bootstrap"
+    Invoke-AssertContains -Text $freshSessionOutput -Fragment "dashboard.bat" -Label "fresh PowerShell dashboard bootstrap"
+    Invoke-AssertContains -Text $freshSessionOutput -Fragment "DASHBOARD_VERSION_START" -Label "fresh PowerShell dashboard bootstrap"
+    Invoke-AssertContains -Text $freshSessionOutput -Fragment "DASHBOARD_LOGS_START" -Label "fresh PowerShell dashboard bootstrap"
+    Invoke-AssertContains -Text $freshSessionOutput -Fragment "DASHBOARD_LOGS_END" -Label "fresh PowerShell dashboard bootstrap"
+}
+
 # Purpose: write the current Windows smoke phase into the shared status root
 # when one is available.
 # Input: short phase string.
@@ -507,6 +536,8 @@ if ($UseInstallBootstrap) {
 
     Write-PhaseStatus -Phase "install-bootstrap"
     Invoke-InstallBootstrap -LocalTarball $LocalTarball -InstallerPath $BootstrapScript
+    Write-PhaseStatus -Phase "verify-fresh-powershell-bootstrap"
+    Assert-FreshPowerShellDashboardBootstrap
     $Perl = Get-PerlBin -Requested $PerlBin
     Set-StrawberryPath -ResolvedPerl $Perl
 }

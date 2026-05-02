@@ -784,6 +784,31 @@ like(
 }
 {
     my $install_root = tempdir( CLEANUP => 1 );
+    my $shared_private_cli_root = File::Spec->catdir( $install_root, 'private-cli' );
+    make_path($shared_private_cli_root);
+    my $shared_helper = File::Spec->catfile( $shared_private_cli_root, '_dashboard-core' );
+    open my $shared_fh, '>:raw', $shared_helper or die "Unable to write $shared_helper: $!";
+    print {$shared_fh} "#!/usr/bin/env perl\nprint qq(core\\n);\n";
+    close $shared_fh or die "Unable to close $shared_helper: $!";
+
+    local $ENV{HOME} = tempdir( CLEANUP => 1 );
+    local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { return File::Spec->catdir( $install_root, 'missing-private-cli' ) };
+    local *Developer::Dashboard::InternalCLI::dist_dir = sub { return $shared_private_cli_root };
+    local *Developer::Dashboard::InternalCLI::_module_install_lib_root = sub { return File::Spec->catdir( $install_root, 'missing-lib-root' ) };
+
+    is(
+        Developer::Dashboard::InternalCLI::_shared_private_cli_root(),
+        $shared_private_cli_root,
+        'internal CLI accepts a dist_dir result that already points at the private-cli root',
+    );
+    is(
+        Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core'),
+        $shared_helper,
+        'internal CLI resolves helper assets when File::ShareDir already returns the private-cli root itself',
+    );
+}
+{
+    my $install_root = tempdir( CLEANUP => 1 );
     local $ENV{HOME} = tempdir( CLEANUP => 1 );
     my $module_lib_root = File::Spec->catdir( $install_root, 'lib', 'perl5' );
     my $broken_dist_root = File::Spec->catdir(

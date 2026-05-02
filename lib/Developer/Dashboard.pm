@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.36';
+our $VERSION = '3.37';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.36
+3.37
 
 =head1 INTRODUCTION
 
@@ -1167,7 +1167,10 @@ through to C<cpanm --notest> instead of trying to reinterpret it. When that
 override is unset in the streamed C<irm .../install.ps1 | iex> path,
 F<install.ps1> clones the current GitHub C<master> checkout into a temporary
 local tree and installs that local checkout so the bootstrap installs the same
-snapshot that shipped the installer instead of an older CPAN release.
+snapshot that shipped the installer instead of an older CPAN release. The
+Windows smoke gate also proves that a brand-new profile-loaded PowerShell
+session can resolve C<dashboard>, print C<dashboard version>, and run
+C<dashboard logs> after that streamed bootstrap completes.
 
 Useful bootstrap examples:
 

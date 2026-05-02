@@ -176,6 +176,10 @@ if ($has_integration_assets) {
     like( $windows_smoke, qr/DD_INSTALL_CPAN_TARGET/, 'Windows Strawberry smoke script passes the local tarball path into install.ps1 through DD_INSTALL_CPAN_TARGET' );
     like( $windows_smoke, qr/DD_INSTALL_BOOTSTRAP_SCRIPT/, 'Windows Strawberry smoke script exposes the install.ps1 path through an environment variable for the streamed bootstrap wrapper' );
     like( $windows_smoke, qr/Invoke-Expression/, 'Windows Strawberry smoke script exercises install.ps1 through Invoke-Expression to match the streamed bootstrap path' );
+    like( $windows_smoke, qr/Assert-FreshPowerShellDashboardBootstrap/, 'Windows Strawberry smoke script verifies a fresh profile-loaded PowerShell session after install.ps1 completes' );
+    like( $windows_smoke, qr/powershell\.exe -NoLogo -Command \$freshSessionScript/, 'Windows Strawberry smoke script re-enters a normal profile-loaded PowerShell session instead of bypassing profiles during the fresh-session bootstrap check' );
+    like( $windows_smoke, qr/DASHBOARD_LOGS_START/, 'Windows Strawberry smoke script prints an explicit dashboard logs marker during the fresh PowerShell bootstrap proof' );
+    like( $windows_smoke, qr/Get-Command dashboard -ErrorAction Stop/, 'Windows Strawberry smoke script requires a fresh PowerShell session to resolve dashboard through normal command discovery' );
     like( $windows_smoke, qr/\[switch\]\$SkipCpanmTests/, 'Windows Strawberry smoke script accepts a switch to skip upstream cpanm dependency tests on Windows' );
     like( $windows_smoke, qr/--notest/, 'Windows Strawberry smoke script can install with cpanm --notest when Windows dependency tests are intentionally skipped' );
     like( $windows_smoke, qr/Get-CommandExecutablePath/, 'Windows Strawberry smoke script centralizes command-object to executable-path resolution' );

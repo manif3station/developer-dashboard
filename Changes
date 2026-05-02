@@ -1,3 +1,12 @@
+3.37  2026-05-02
+    - added an explicit InternalCLI coverage guard for installed layouts where
+      File::ShareDir already returns the private-cli root, keeping the numeric
+      Devel::Cover gate at 100 percent after the Windows bootstrap fixes
+    - added a Windows smoke guard that re-enters a fresh profile-loaded
+      PowerShell session after install.ps1 so the streamed bootstrap must
+      resolve `dashboard`, print `dashboard version`, and run
+      `dashboard logs`
+
 3.36  2026-05-02
     - fixed the generated PowerShell profile bootstrap so fresh Windows
       sessions no longer try to pass the multi-line `dashboard shell ps`

@@ -1,5 +1,17 @@
 # Fixed Bugs
 
+## 3.37 - Guard Windows fresh PowerShell bootstrap and InternalCLI installed roots
+
+- Fixed the release verification gap so the explicit coverage suite now proves
+  the `InternalCLI` branch where `File::ShareDir` already returns the
+  `private-cli` root itself.
+- Fixed the release hygiene loop so the numeric `Devel::Cover` gate remains at
+  `100.0 / 100.0 / 100.0` after the Windows bootstrap profile fixes.
+- Fixed the Windows smoke gap so the streamed `irm .../install.ps1 | iex`
+  verification now spawns a brand-new profile-loaded PowerShell session and
+  proves that `dashboard`, `dashboard version`, and `dashboard logs` all work
+  there without a manual PATH edit.
+
 ## 3.36 - Fix Windows self-contained PowerShell profile bootstrap
 
 - Fixed the generated PowerShell profile block so fresh Windows sessions no
