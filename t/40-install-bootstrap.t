@@ -68,9 +68,11 @@ like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/pure_install\s+::\
     like( $install_ps_text, qr/\[Regex\]::Escape\(\$endMarker\)/, 'install.ps1 escapes the managed end marker with the .NET regex API before replacing older profile blocks' );
     unlike( $install_ps_text, qr/\\Q\$beginMarker\\E|\\Q\$endMarker\\E/, 'install.ps1 avoids Perl-style \\Q...\\E regex quoting that PowerShell does not support in [Regex]::Replace' );
     like( $install_ps_text, qr/legacyManagedPattern/, 'install.ps1 strips legacy unmarked Developer Dashboard profile blocks from earlier Windows bootstrap failures' );
-    like( $install_ps_text, qr/Test-Path\s+\(Join-Path\s+\`\$ddPerlLib\s+'auto\\Developer\\Dashboard\\private-cli\\_dashboard-core'\)/s, 'install.ps1 only asks dashboard shell ps for profile bootstrap when the staged private helper is present' );
+    like( $install_ps_text, qr/Join-Path\s+\`\$HOME\s+'.developer-dashboard\\cli\\dd\\_dashboard-core'/s, 'install.ps1 only asks dashboard shell ps for profile bootstrap when the staged home helper runtime is present' );
     like( $install_ps_text, qr/\$ddShellBootstrap\s*=\s*&\s+dashboard\s+shell\s+ps/s, 'install.ps1 captures dashboard shell ps output before invoking it in the profile' );
     like( $install_ps_text, qr/if\s+\(-not\s+\[string\]::IsNullOrWhiteSpace\(\`\$ddShellBootstrap\)\)\s*\{\s*Invoke-Expression\s+\`\$ddShellBootstrap/s, 'install.ps1 skips Invoke-Expression when dashboard shell ps returns nothing' );
+    like( $install_ps_text, qr/Invoke-NativeCommand\s+-Label\s+'dashboard init'\s+-FilePath\s+\$dashboardCommand\s+-Arguments\s+\@\(\'init\'\).*?&\s+\$dashboardCommand\s+shell\s+ps/s, 'install.ps1 initializes the dashboard runtime before asking the installed dashboard command for its PowerShell bootstrap' );
+    unlike( $install_ps_text, qr/Invoke-Expression\s+\(&\s+\$dashboardCommand\s+shell\s+ps\)/, 'install.ps1 no longer invokes dashboard shell ps directly without checking for empty output' );
     unlike( $install_ps_text, qr/\$CpanTarget\s*=\s*if\s*\(\[string\]::IsNullOrWhiteSpace\(\$env:DD_INSTALL_CPAN_TARGET\)\)\s*\{\s*'Developer::Dashboard'\s*\}/, 'install.ps1 no longer defaults streamed Windows installs to the stale CPAN module name' );
     like( $install_ps_text, qr/cpanm.*--notest/s, 'install.ps1 installs Developer Dashboard with cpanm --notest on Windows' );
     like( $install_ps_text, qr/dashboard init/, 'install.ps1 initializes the dashboard runtime after the Windows install' );

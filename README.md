@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.33
+3.34
 
 # INTRODUCTION
 
@@ -883,8 +883,9 @@ with `cpanm --notest`, sets the CurrentUser PowerShell execution policy to
 `RemoteSigned` when it is still too restrictive to load profile scripts,
 updates the current-user PowerShell profile with the
 private `~/perl5` PATH and Perl environment variables plus
-`dashboard shell ps`, activates that PowerShell bootstrap in the current
-shell when possible, and then runs `dashboard init`. The Windows bootstrap
+`dashboard shell ps`, runs `dashboard init` first so the home helper runtime
+exists, and then activates that PowerShell bootstrap in the current shell when
+possible. The Windows bootstrap
 does not try to self-install `App::cpanminus` while the downloaded
 `cpanm` bootstrap script is still running, which avoids the Windows file
 replacement failure that can break streamed `irm .../install.ps1 | iex`

@@ -547,6 +547,7 @@ $profileBlock = @"
 `$ddInstallRootForward = `$ddInstallRoot -replace '\\', '/'
 `$ddPerlBin = Join-Path `$ddInstallRoot 'bin'
 `$ddPerlLib = Join-Path `$ddInstallRoot 'lib\perl5'
+`$ddHomeHelper = Join-Path `$HOME '.developer-dashboard\cli\dd\_dashboard-core'
 if (Test-Path `$ddPerlBin) {
     if (`$env:PATH -notlike "*`$ddPerlBin*") {
         `$env:PATH = "`$ddPerlBin;`$env:PATH"
@@ -561,7 +562,7 @@ if (`$ddPerlCommand -and (Test-Path `$ddPerlLib)) {
         }
     }
 }
-if ((Get-Command dashboard -ErrorAction SilentlyContinue) -and (Test-Path (Join-Path `$ddPerlLib 'auto\Developer\Dashboard\private-cli\_dashboard-core'))) {
+if ((Get-Command dashboard -ErrorAction SilentlyContinue) -and (Test-Path `$ddHomeHelper)) {
     `$ddShellBootstrap = & dashboard shell ps
     if (-not [string]::IsNullOrWhiteSpace(`$ddShellBootstrap)) {
         Invoke-Expression `$ddShellBootstrap
@@ -616,8 +617,11 @@ Ensure-ProfileContains -TargetProfile $ProfilePath -Block $profileBlock -Marker 
 Set-StepStatus -Id 'install_dashboard' -Status 'ok' -Detail ("target: {0}" -f $effectiveCpanTarget)
 
 Set-StepStatus -Id 'initialize_dashboard' -Status 'running'
-Invoke-Expression (& $dashboardCommand shell ps)
 Invoke-NativeCommand -Label 'dashboard init' -FilePath $dashboardCommand -Arguments @('init')
+$dashboardShellBootstrap = & $dashboardCommand shell ps
+if (-not [string]::IsNullOrWhiteSpace($dashboardShellBootstrap)) {
+    Invoke-Expression $dashboardShellBootstrap
+}
 if (-not [string]::IsNullOrWhiteSpace($ShellCommands)) {
     Write-Host 'Running post-install activation commands through PowerShell.'
     & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -Command ". '$ProfilePath'; $ShellCommands"

@@ -781,6 +781,47 @@ like(
         'internal CLI falls back to the installed shared helper asset path when the repo asset is unavailable',
     );
 }
+{
+    my $install_root = tempdir( CLEANUP => 1 );
+    my $module_lib_root = File::Spec->catdir( $install_root, 'lib', 'perl5' );
+    my $broken_dist_root = File::Spec->catdir(
+        $install_root,
+        'lib',
+        'perl5',
+        'MSWin32-x64-multi-thread',
+        'auto',
+        'Developer',
+        'Dashboard',
+    );
+    my $shared_private_cli_root = File::Spec->catdir(
+        $module_lib_root,
+        'auto',
+        'share',
+        'dist',
+        'Developer-Dashboard',
+        'private-cli',
+    );
+    make_path($shared_private_cli_root);
+    my $shared_helper = File::Spec->catfile( $shared_private_cli_root, '_dashboard-core' );
+    open my $shared_fh, '>:raw', $shared_helper or die "Unable to write $shared_helper: $!";
+    print {$shared_fh} "#!/usr/bin/env perl\nprint qq(core\\n);\n";
+    close $shared_fh or die "Unable to close $shared_helper: $!";
+
+    local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { return File::Spec->catdir( $install_root, 'missing-private-cli' ) };
+    local *Developer::Dashboard::InternalCLI::dist_dir = sub { return $broken_dist_root };
+    local *Developer::Dashboard::InternalCLI::_module_install_lib_root = sub { return $module_lib_root };
+
+    is(
+        Developer::Dashboard::InternalCLI::_shared_private_cli_root(),
+        $shared_private_cli_root,
+        'internal CLI falls back to the module-relative auto/share dist helper root when File::ShareDir points at an empty arch auto directory',
+    );
+    is(
+        Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core'),
+        $shared_helper,
+        'internal CLI finds _dashboard-core through the module-relative shared helper fallback when the default dist_dir root is wrong',
+    );
+}
 
 my $layer_project = File::Spec->catdir( $ENV{HOME}, 'projects', 'cli-helper-layer-project' );
 make_path( File::Spec->catdir( $layer_project, '.developer-dashboard', 'cli' ) );

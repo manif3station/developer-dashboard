@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Files;
 use strict;
 use warnings;
 
-our $VERSION = '3.33';
+our $VERSION = '3.34';
 
 use Cwd qw(cwd);
 use Developer::Dashboard::Config;

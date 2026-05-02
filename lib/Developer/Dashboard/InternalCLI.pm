@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '3.33';
+our $VERSION = '3.34';
 
 use File::Basename qw(dirname);
 use File::Spec;
@@ -279,7 +279,69 @@ sub _repo_private_cli_root {
 # Input: none.
 # Output: absolute helper asset directory path inside the installed dist share.
 sub _shared_private_cli_root {
-    return File::Spec->catdir( dist_dir('Developer-Dashboard'), 'private-cli' );
+    my @candidates = _shared_private_cli_root_candidates();
+    for my $candidate (@candidates) {
+        next if !defined $candidate || $candidate eq '';
+        return $candidate if -d $candidate;
+    }
+    return $candidates[0];
+}
+
+# _shared_private_cli_root_candidates()
+# Builds the ordered candidate list for installed private helper asset roots.
+# Input: none.
+# Output: list of absolute candidate directory paths.
+sub _shared_private_cli_root_candidates {
+    my @candidates;
+    my $dist_root = eval { dist_dir('Developer-Dashboard') };
+    if ( defined $dist_root && $dist_root ne '' ) {
+        push @candidates, File::Spec->catdir( $dist_root, 'private-cli' );
+        push @candidates, $dist_root if _looks_like_private_cli_root($dist_root);
+    }
+
+    my $module_root = _module_install_lib_root();
+    if ( defined $module_root && $module_root ne '' ) {
+        push @candidates, File::Spec->catdir(
+            $module_root,
+            'auto',
+            'share',
+            'dist',
+            'Developer-Dashboard',
+            'private-cli',
+        );
+    }
+
+    my %seen;
+    return grep { defined $_ && $_ ne '' && !$seen{$_}++ } @candidates;
+}
+
+# _module_install_lib_root()
+# Resolves the installed lib/perl5 root that contains the loaded InternalCLI
+# module.
+# Input: none.
+# Output: absolute module lib root path string.
+sub _module_install_lib_root {
+    my $module_path = $INC{'Developer/Dashboard/InternalCLI.pm'} || __FILE__;
+    return File::Spec->rel2abs(
+        File::Spec->catdir(
+            dirname($module_path),
+            File::Spec->updir,
+            File::Spec->updir,
+        )
+    );
+}
+
+# _looks_like_private_cli_root($path)
+# Detects whether a path already points at the private helper root instead of a
+# dist share parent directory.
+# Input: candidate directory path string.
+# Output: boolean true when the path already looks like the private-cli root.
+sub _looks_like_private_cli_root {
+    my ($path) = @_;
+    return 0 if !defined $path || $path eq '';
+    my @parts = File::Spec->splitdir($path);
+    return 1 if @parts && $parts[-1] eq 'private-cli';
+    return -f File::Spec->catfile( $path, '_dashboard-core' ) ? 1 : 0;
 }
 
 1;

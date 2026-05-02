@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.33';
+our $VERSION = '3.34';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.33
+3.34
 
 =head1 INTRODUCTION
 
@@ -1151,8 +1151,9 @@ with C<cpanm --notest>, sets the CurrentUser PowerShell execution policy to
 C<RemoteSigned> when it is still too restrictive to load profile scripts,
 updates the current-user PowerShell profile with the
 private F<~/perl5> PATH and Perl environment variables plus
-C<dashboard shell ps>, activates that PowerShell bootstrap in the current
-shell when possible, and then runs C<dashboard init>. The Windows bootstrap
+C<dashboard shell ps>, runs C<dashboard init> first so the home helper runtime
+exists, and then activates that PowerShell bootstrap in the current shell when
+possible. The Windows bootstrap
 does not try to self-install C<App::cpanminus> while the downloaded
 C<cpanm> bootstrap script is still running, which avoids the Windows file
 replacement failure that can break streamed C<irm .../install.ps1 | iex>

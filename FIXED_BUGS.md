@@ -1,5 +1,19 @@
 # Fixed Bugs
 
+## 3.34 - Fix Windows helper staging bootstrap lookup
+
+- Fixed the installed private helper asset lookup so Windows local::lib
+  installs no longer look for `_dashboard-core` under the wrong arch-auto
+  path when the shared dist asset root actually lives under
+  `auto/share/dist/Developer-Dashboard/private-cli`.
+- Fixed the streamed PowerShell bootstrap so `install.ps1` now runs
+  `dashboard init` before activating `dashboard shell ps` in the current
+  shell, ensuring the staged home helper runtime exists before the bootstrap
+  asks for PowerShell shell wiring.
+- Fixed the generated PowerShell profile guard so new sessions only ask
+  `dashboard shell ps` for bootstrap output after the staged home helper
+  runtime exists under `~/.developer-dashboard/cli/dd/_dashboard-core`.
+
 ## 3.33 - Fix streamed Windows install bootstrap path
 
 - Fixed the packaged install metadata so end-user installs no longer pull

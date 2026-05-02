@@ -1,3 +1,16 @@
+3.34  2026-05-02
+    - fixed the installed private helper asset lookup so Windows local::lib
+      installs no longer look for `_dashboard-core` under the wrong arch-auto
+      path when the shared dist asset root actually lives under
+      `auto/share/dist/Developer-Dashboard/private-cli`
+    - fixed the streamed PowerShell bootstrap so `install.ps1` now runs
+      `dashboard init` before activating `dashboard shell ps` in the current
+      shell, ensuring the staged home helper runtime exists before the
+      bootstrap asks for PowerShell shell wiring
+    - fixed the generated PowerShell profile guard so future sessions only ask
+      `dashboard shell ps` for bootstrap output after the staged home helper
+      runtime exists under `~/.developer-dashboard/cli/dd/_dashboard-core`
+
 3.33  2026-05-01
     - fixed the packaged install metadata so blank Windows hosts no longer
       pull test-only dependencies such as `Plack::Test` and `Test::Pod`
