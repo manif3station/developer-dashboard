@@ -584,7 +584,7 @@ if (`$ddPerlCommand -and (Test-Path `$ddPerlLib)) {
 }
 if ((Get-Command dashboard -ErrorAction SilentlyContinue) -and (Test-Path `$ddHomeHelper)) {
     `$ddShellBootstrap = & dashboard shell ps
-    `$ddShellBootstrapText = Join-ScriptText -Value `$ddShellBootstrap
+    `$ddShellBootstrapText = ((@(`$ddShellBootstrap | Where-Object { `$null -ne `$_ } | ForEach-Object { [string]`$_ })) -join [Environment]::NewLine)
     if (-not [string]::IsNullOrWhiteSpace(`$ddShellBootstrapText)) {
         Invoke-Expression `$ddShellBootstrapText
     }

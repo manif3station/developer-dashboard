@@ -33,6 +33,9 @@ generated PowerShell profile cannot load in new sessions.
 - verify `dashboard shell ps` and `dashboard ps1`
 - verify a fresh PowerShell session can load the generated profile without a
   `running scripts is disabled` execution-policy failure
+- verify that same fresh PowerShell session can resolve `dashboard` on `PATH`
+  and does not fail by sending a multi-line shell bootstrap array directly
+  into `Invoke-Expression`
 - verify one PowerShell-backed collector command
 - verify one saved Ajax PowerShell handler through `Invoke-WebRequest`
 - verify browser DOM rendering through Edge or Chrome when available

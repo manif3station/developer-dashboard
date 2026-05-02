@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.35
+3.36
 
 # INTRODUCTION
 
@@ -881,11 +881,12 @@ bootstrap, resets and refreshes the source catalog once before retrying when a
 `~/perl5` tree with that standalone script, installs Developer Dashboard
 with `cpanm --notest`, sets the CurrentUser PowerShell execution policy to
 `RemoteSigned` when it is still too restrictive to load profile scripts,
-updates the current-user PowerShell profile with the
-private `~/perl5` PATH and Perl environment variables plus
+updates the current-user PowerShell profile with a self-contained
+private `~/perl5` PATH and Perl environment block plus
 `dashboard shell ps`, runs `dashboard init` first so the home helper runtime
 exists, and then activates that PowerShell bootstrap in the current shell when
-possible. The Windows bootstrap
+possible. Future PowerShell sessions do not rely on installer-only helper
+functions while loading that generated profile block. The Windows bootstrap
 does not try to self-install `App::cpanminus` while the downloaded
 `cpanm` bootstrap script is still running, which avoids the Windows file
 replacement failure that can break streamed `irm .../install.ps1 | iex`

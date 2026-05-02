@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '3.35';
+our $VERSION = '3.36';
 
 use File::Basename qw(dirname);
 use File::Spec;

@@ -1,3 +1,11 @@
+3.36  2026-05-02
+    - fixed the generated PowerShell profile bootstrap so fresh Windows
+      sessions no longer try to pass the multi-line `dashboard shell ps`
+      output array straight into `Invoke-Expression`
+    - fixed the streamed Windows installer so `irm .../install.ps1 | iex`
+      now writes a self-contained profile block that can load `dashboard`,
+      `local::lib`, and the PowerShell prompt bootstrap in future sessions
+
 3.35  2026-05-02
     - fixed the installed private helper asset lookup on Windows so
       `dashboard init` no longer stops at an empty

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.35';
+our $VERSION = '3.36';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.35
+3.36
 
 =head1 INTRODUCTION
 
@@ -1149,11 +1149,12 @@ C<https://cpanmin.us/>, bootstraps C<local::lib> into the private
 F<~/perl5> tree with that standalone script, installs Developer Dashboard
 with C<cpanm --notest>, sets the CurrentUser PowerShell execution policy to
 C<RemoteSigned> when it is still too restrictive to load profile scripts,
-updates the current-user PowerShell profile with the
-private F<~/perl5> PATH and Perl environment variables plus
+updates the current-user PowerShell profile with a self-contained
+private F<~/perl5> PATH and Perl environment block plus
 C<dashboard shell ps>, runs C<dashboard init> first so the home helper runtime
 exists, and then activates that PowerShell bootstrap in the current shell when
-possible. The Windows bootstrap
+possible. Future PowerShell sessions do not rely on installer-only helper
+functions while loading that generated profile block. The Windows bootstrap
 does not try to self-install C<App::cpanminus> while the downloaded
 C<cpanm> bootstrap script is still running, which avoids the Windows file
 replacement failure that can break streamed C<irm .../install.ps1 | iex>

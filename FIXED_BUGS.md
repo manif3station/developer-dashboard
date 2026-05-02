@@ -1,5 +1,15 @@
 # Fixed Bugs
 
+## 3.36 - Fix Windows self-contained PowerShell profile bootstrap
+
+- Fixed the generated PowerShell profile block so fresh Windows sessions no
+  longer send the multi-line `dashboard shell ps` output array directly into
+  `Invoke-Expression`.
+- Fixed the streamed Windows bootstrap so `irm .../install.ps1 | iex` now
+  writes a self-contained profile block that restores `local::lib`, exposes
+  `dashboard` on `PATH`, and activates the prompt bootstrap in future
+  PowerShell sessions.
+
 ## 3.35 - Fix Windows shared helper root selection
 
 - Fixed the installed private helper asset lookup on Windows so
