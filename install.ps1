@@ -411,7 +411,9 @@ function Ensure-ProfileContains {
     $existing = Get-Content -Path $TargetProfile -Raw
     $beginMarker = "# >>> $Marker >>>"
     $endMarker = "# <<< $Marker <<<"
-    $managedPattern = "(?ms)\Q$beginMarker\E.*?\Q$endMarker\E\s*"
+    $beginMarkerPattern = [Regex]::Escape($beginMarker)
+    $endMarkerPattern = [Regex]::Escape($endMarker)
+    $managedPattern = "(?ms)$beginMarkerPattern.*?$endMarkerPattern\s*"
     $legacyManagedPattern = '(?ms)^# Developer Dashboard bootstrap\r?\n.*?(?=^\s*$|\z)'
     $sanitized = [Regex]::Replace($existing, $managedPattern, '')
     $sanitized = [Regex]::Replace($sanitized, $legacyManagedPattern, '')

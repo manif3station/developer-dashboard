@@ -64,6 +64,9 @@ like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/pure_install\s+::\
     like( $install_ps_text, qr/Ensure-ProfileContains\s+-TargetProfile\s+\$ProfilePath\s+-Block\s+\$profileBlock\s+-Marker\s+'Developer Dashboard bootstrap'/s, 'install.ps1 replaces the managed Developer Dashboard profile block instead of appending duplicate stale Windows bootstrap chunks' );
     like( $install_ps_text, qr/# >>> Developer Dashboard bootstrap >>>/, 'install.ps1 wraps the managed PowerShell profile block in a stable begin marker' );
     like( $install_ps_text, qr/# <<< Developer Dashboard bootstrap <<</, 'install.ps1 wraps the managed PowerShell profile block in a stable end marker' );
+    like( $install_ps_text, qr/\[Regex\]::Escape\(\$beginMarker\)/, 'install.ps1 escapes the managed begin marker with the .NET regex API before replacing older profile blocks' );
+    like( $install_ps_text, qr/\[Regex\]::Escape\(\$endMarker\)/, 'install.ps1 escapes the managed end marker with the .NET regex API before replacing older profile blocks' );
+    unlike( $install_ps_text, qr/\\Q\$beginMarker\\E|\\Q\$endMarker\\E/, 'install.ps1 avoids Perl-style \\Q...\\E regex quoting that PowerShell does not support in [Regex]::Replace' );
     like( $install_ps_text, qr/legacyManagedPattern/, 'install.ps1 strips legacy unmarked Developer Dashboard profile blocks from earlier Windows bootstrap failures' );
     like( $install_ps_text, qr/Test-Path\s+\(Join-Path\s+\`\$ddPerlLib\s+'auto\\Developer\\Dashboard\\private-cli\\_dashboard-core'\)/s, 'install.ps1 only asks dashboard shell ps for profile bootstrap when the staged private helper is present' );
     like( $install_ps_text, qr/\$ddShellBootstrap\s*=\s*&\s+dashboard\s+shell\s+ps/s, 'install.ps1 captures dashboard shell ps output before invoking it in the profile' );
