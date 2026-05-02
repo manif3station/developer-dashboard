@@ -27,6 +27,8 @@ ok( -f $apkfile, 'apkfile exists at the repo root' );
 ok( -f $dnfile, 'dnfile exists at the repo root' );
 ok( -f $brewfile, 'brewfile exists at the repo root' );
 like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/VERSION_FROM\s*=>\s*'lib\/Developer\/Dashboard\.pm'/, 'Makefile.PL uses a filesystem path for VERSION_FROM so checkout installs work on Windows' );
+like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/install\s+::\s*\n\t\$\(NOECHO\)\s+\$\(PERL\)\s+-e\s+"1;"/, 'Makefile.PL gives the Windows gmake install target an explicit no-op recipe so it does not synthesize install from install.sh' );
+like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/pure_install\s+::\s+install-private-cli-tools/, 'Makefile.PL runs the private helper staging hook from pure_install instead of a recipe-less install target' );
 
 {
     my ( $stdout, $stderr, $exit ) = capture {
@@ -55,15 +57,25 @@ like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/VERSION_FROM\s*=>\
     like( $install_ps_text, qr{https://github\.com/manif3station/developer-dashboard\.git}, 'install.ps1 knows the canonical GitHub repository for the streamed Windows bootstrap source' );
     like( $install_ps_text, qr/git\s+clone/s, 'install.ps1 clones the current GitHub master source for the default streamed Windows install target' );
     like( $install_ps_text, qr/Push-Location\s+\$effectiveCpanTarget/s, 'install.ps1 installs the default cloned Windows checkout from inside the local checkout directory' );
-    like( $install_ps_text, qr/--notest',\s*'\.'/s, 'install.ps1 runs cpanm against dot when installing the default cloned Windows checkout' );
+    like( $install_ps_text, qr/Sync-LocalLibEnvironmentFromPerl/, 'install.ps1 delegates local::lib environment setup to perl so Windows install paths stay canonical' );
+    like( $install_ps_text, qr/--notest',\s*'--local-lib-contained',\s*\$InstallRoot,\s*'\.'/s, 'install.ps1 runs cpanm against dot with an explicit local-lib target for the default cloned Windows checkout' );
+    like( $install_ps_text, qr/--notest',\s*'--local-lib-contained',\s*\$InstallRoot,\s*\$effectiveCpanTarget/s, 'install.ps1 runs cpanm against explicit Windows targets with the same local-lib target' );
+    like( $install_ps_text, qr/Sync-LocalLibEnvironmentFromPerl\s+-PerlPath\s+\$perlPath\s+-TargetInstallRoot\s+\$InstallRoot/s, 'install.ps1 reapplies the perl-reported local::lib environment after bootstrapping local::lib on Windows' );
+    like( $install_ps_text, qr/Ensure-ProfileContains\s+-TargetProfile\s+\$ProfilePath\s+-Block\s+\$profileBlock\s+-Marker\s+'Developer Dashboard bootstrap'/s, 'install.ps1 replaces the managed Developer Dashboard profile block instead of appending duplicate stale Windows bootstrap chunks' );
+    like( $install_ps_text, qr/# >>> Developer Dashboard bootstrap >>>/, 'install.ps1 wraps the managed PowerShell profile block in a stable begin marker' );
+    like( $install_ps_text, qr/# <<< Developer Dashboard bootstrap <<</, 'install.ps1 wraps the managed PowerShell profile block in a stable end marker' );
+    like( $install_ps_text, qr/legacyManagedPattern/, 'install.ps1 strips legacy unmarked Developer Dashboard profile blocks from earlier Windows bootstrap failures' );
+    like( $install_ps_text, qr/Test-Path\s+\(Join-Path\s+\`\$ddPerlLib\s+'auto\\Developer\\Dashboard\\private-cli\\_dashboard-core'\)/s, 'install.ps1 only asks dashboard shell ps for profile bootstrap when the staged private helper is present' );
+    like( $install_ps_text, qr/\$ddShellBootstrap\s*=\s*&\s+dashboard\s+shell\s+ps/s, 'install.ps1 captures dashboard shell ps output before invoking it in the profile' );
+    like( $install_ps_text, qr/if\s+\(-not\s+\[string\]::IsNullOrWhiteSpace\(\`\$ddShellBootstrap\)\)\s*\{\s*Invoke-Expression\s+\`\$ddShellBootstrap/s, 'install.ps1 skips Invoke-Expression when dashboard shell ps returns nothing' );
     unlike( $install_ps_text, qr/\$CpanTarget\s*=\s*if\s*\(\[string\]::IsNullOrWhiteSpace\(\$env:DD_INSTALL_CPAN_TARGET\)\)\s*\{\s*'Developer::Dashboard'\s*\}/, 'install.ps1 no longer defaults streamed Windows installs to the stale CPAN module name' );
     like( $install_ps_text, qr/cpanm.*--notest/s, 'install.ps1 installs Developer Dashboard with cpanm --notest on Windows' );
     like( $install_ps_text, qr/dashboard init/, 'install.ps1 initializes the dashboard runtime after the Windows install' );
     like( $install_ps_text, qr/dashboard shell ps/, 'install.ps1 activates the PowerShell bootstrap after installation' );
     like( $install_ps_text, qr/Set-ExecutionPolicy\s+-Scope\s+CurrentUser\s+-ExecutionPolicy\s+RemoteSigned\s+-Force/s, 'install.ps1 enables a CurrentUser PowerShell execution policy that can load the generated profile in future sessions' );
     like( $install_ps_text, qr/Get-ExecutionPolicy\s+-Scope\s+CurrentUser/s, 'install.ps1 inspects the current-user execution policy before changing it' );
-    like( $install_ps_text, qr/\$env:PERL_MB_OPT\s*=\s*\('--install_base "\{0\}"'\s*-f\s*\$TargetInstallRoot\)/s, 'install.ps1 builds the in-process PERL_MB_OPT assignment without nested PowerShell quote parsing bugs' );
-    like( $install_ps_text, qr/\`\$env:PERL_MB_OPT\s*=\s*\('--install_base "\{0\}"'\s*-f\s*\`\$ddInstallRoot\)/s, 'install.ps1 writes a profile-safe PERL_MB_OPT assignment for future PowerShell sessions' );
+    like( $install_ps_text, qr/-Mlocal::lib=\$normalizedInstallRoot/s, 'install.ps1 asks perl local::lib for canonical Windows environment values instead of composing INSTALL_BASE manually' );
+    like( $install_ps_text, qr/-Mlocal::lib=\`\$ddInstallRootForward/s, 'install.ps1 writes a profile block that refreshes local::lib from perl in future PowerShell sessions' );
 }
 
 my @apt_packages  = _manifest_lines($aptfile);

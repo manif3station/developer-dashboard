@@ -391,14 +391,16 @@ function Ensure-NodeToolchain {
 }
 
 function Ensure-ProfileContains {
-    # Purpose: append one bootstrap block to the PowerShell profile only when it is missing.
-    # Input: the profile path plus the literal block text that should exist in that profile.
-    # Output: creates the profile file when needed and appends the block once.
+    # Purpose: keep exactly one managed Developer Dashboard bootstrap block in the PowerShell profile.
+    # Input: the profile path, the literal block text, and a stable marker label that brackets the managed block.
+    # Output: creates the profile file when needed, replaces any older managed block, and appends the current block once.
     param(
         [Parameter(Mandatory = $true)]
         [string]$TargetProfile,
         [Parameter(Mandatory = $true)]
-        [string]$Block
+        [string]$Block,
+        [Parameter(Mandatory = $true)]
+        [string]$Marker
     )
 
     Ensure-ParentDirectory -Path $TargetProfile
@@ -407,10 +409,26 @@ function Ensure-ProfileContains {
     }
 
     $existing = Get-Content -Path $TargetProfile -Raw
-    if ($existing -notlike "*$Block*") {
-        $prefix = if ([string]::IsNullOrWhiteSpace($existing)) { '' } else { [Environment]::NewLine + [Environment]::NewLine }
-        Add-Content -Path $TargetProfile -Value ($prefix + $Block) -Encoding UTF8
+    $beginMarker = "# >>> $Marker >>>"
+    $endMarker = "# <<< $Marker <<<"
+    $managedPattern = "(?ms)\Q$beginMarker\E.*?\Q$endMarker\E\s*"
+    $legacyManagedPattern = '(?ms)^# Developer Dashboard bootstrap\r?\n.*?(?=^\s*$|\z)'
+    $sanitized = [Regex]::Replace($existing, $managedPattern, '')
+    $sanitized = [Regex]::Replace($sanitized, $legacyManagedPattern, '')
+    $sanitized = $sanitized.TrimEnd()
+
+    if ($sanitized -eq $Block) {
+        return
     }
+
+    $combined = if ([string]::IsNullOrWhiteSpace($sanitized)) {
+        $Block
+    }
+    else {
+        $sanitized + [Environment]::NewLine + [Environment]::NewLine + $Block
+    }
+
+    Set-Content -Path $TargetProfile -Value ($combined + [Environment]::NewLine) -Encoding UTF8
 }
 
 function Ensure-CurrentUserPowerShellExecutionPolicy {
@@ -446,34 +464,49 @@ function Download-CpanmScript {
     return $cpanmScript
 }
 
-function Set-LocalPerlEnvironment {
-    # Purpose: set the current PowerShell process environment for the user-space Perl install root.
-    # Input: the install root path where local::lib-style modules and scripts live.
-    # Output: updates PATH, PERL5LIB, PERL_LOCAL_LIB_ROOT, PERL_MB_OPT, and PERL_MM_OPT in-process.
+function Set-EnvironmentValue {
+    # Purpose: update a process environment variable in one place.
+    # Input: an environment variable name and the value it should carry for this PowerShell process.
+    # Output: writes the process-scoped environment value and returns nothing.
     param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+        [Parameter(Mandatory = $true)]
+        [string]$Value
+    )
+
+    Set-Item -Path ("Env:{0}" -f $Name) -Value $Value
+}
+
+function Sync-LocalLibEnvironmentFromPerl {
+    # Purpose: ask perl local::lib for the canonical Windows environment block instead of hand-assembling INSTALL_BASE values.
+    # Input: a resolved perl executable path plus the install root where local::lib should live.
+    # Output: refreshes PATH, PERL5LIB, PERL_LOCAL_LIB_ROOT, PERL_MB_OPT, and PERL_MM_OPT for the current PowerShell process.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PerlPath,
         [Parameter(Mandatory = $true)]
         [string]$TargetInstallRoot
     )
 
-    $binDir = Join-Path $TargetInstallRoot 'bin'
     $libDir = Join-Path $TargetInstallRoot 'lib\perl5'
-    $escapedBin = [Regex]::Escape($binDir)
-    $escapedLib = [Regex]::Escape($libDir)
-
-    if ($env:PATH -notmatch "(?i)(^|;)$escapedBin(;|$)") {
-        $env:PATH = "$binDir;$env:PATH"
+    $normalizedInstallRoot = $TargetInstallRoot -replace '\\', '/'
+$dumpCode = @'
+for my $key (qw(PATH PERL5LIB PERL_LOCAL_LIB_ROOT PERL_MB_OPT PERL_MM_OPT)) {
+    next unless exists $ENV{$key};
+    print $key, q(=), $ENV{$key}, chr(10);
+}
+'@
+    $lines = & $PerlPath "-I$libDir" "-Mlocal::lib=$normalizedInstallRoot" '-e' $dumpCode
+    if ($LASTEXITCODE -ne 0) {
+        throw "perl local::lib environment sync failed with exit code $LASTEXITCODE"
     }
 
-    if ([string]::IsNullOrWhiteSpace($env:PERL5LIB)) {
-        $env:PERL5LIB = $libDir
+    foreach ($line in $lines) {
+        if ($line -match '^([^=]+)=(.*)$') {
+            Set-EnvironmentValue -Name $matches[1] -Value $matches[2]
+        }
     }
-    elseif ($env:PERL5LIB -notmatch "(?i)(^|;)$escapedLib(;|$)") {
-        $env:PERL5LIB = "$libDir;$env:PERL5LIB"
-    }
-
-    $env:PERL_LOCAL_LIB_ROOT = $TargetInstallRoot
-    $env:PERL_MB_OPT = ('--install_base "{0}"' -f $TargetInstallRoot)
-    $env:PERL_MM_OPT = "INSTALL_BASE=$TargetInstallRoot"
 }
 
 Show-ProgressBoard
@@ -498,18 +531,18 @@ if (-not (Test-Path $InstallRoot)) {
     $null = New-Item -ItemType Directory -Path $InstallRoot -Force
 }
 $cpanmScript = Download-CpanmScript -TargetInstallRoot $InstallRoot
-Set-LocalPerlEnvironment -TargetInstallRoot $InstallRoot
 Invoke-NativeCommand -Label 'cpanm local::lib bootstrap' -FilePath $perlPath -Arguments @(
     $cpanmScript,
     '--notest',
     '--local-lib-contained', $InstallRoot,
     'local::lib'
 )
-Set-LocalPerlEnvironment -TargetInstallRoot $InstallRoot
+Sync-LocalLibEnvironmentFromPerl -PerlPath $perlPath -TargetInstallRoot $InstallRoot
 
 $profileBlock = @"
-# Developer Dashboard bootstrap
+# >>> Developer Dashboard bootstrap >>>
 `$ddInstallRoot = '$InstallRoot'
+`$ddInstallRootForward = `$ddInstallRoot -replace '\\', '/'
 `$ddPerlBin = Join-Path `$ddInstallRoot 'bin'
 `$ddPerlLib = Join-Path `$ddInstallRoot 'lib\perl5'
 if (Test-Path `$ddPerlBin) {
@@ -517,23 +550,24 @@ if (Test-Path `$ddPerlBin) {
         `$env:PATH = "`$ddPerlBin;`$env:PATH"
     }
 }
-if (Test-Path `$ddPerlLib) {
-    if ([string]::IsNullOrWhiteSpace(`$env:PERL5LIB)) {
-        `$env:PERL5LIB = `$ddPerlLib
-    }
-    elseif (`$env:PERL5LIB -notlike "*`$ddPerlLib*") {
-        `$env:PERL5LIB = "`$ddPerlLib;`$env:PERL5LIB"
+`$ddPerlCommand = Get-Command perl.exe -ErrorAction SilentlyContinue
+if (`$ddPerlCommand -and (Test-Path `$ddPerlLib)) {
+    `$ddLocalLibDump = & `$ddPerlCommand.Source "-I`$ddPerlLib" "-Mlocal::lib=`$ddInstallRootForward" '-e' 'for my `$key (qw(PATH PERL5LIB PERL_LOCAL_LIB_ROOT PERL_MB_OPT PERL_MM_OPT)) { next unless exists `$ENV{`$key}; print `$key, q(=), `$ENV{`$key}, chr(10); }'
+    foreach (`$ddLine in `$ddLocalLibDump) {
+        if (`$ddLine -match '^([^=]+)=(.*)$') {
+            Set-Item -Path ("Env:{0}" -f `$matches[1]) -Value `$matches[2]
+        }
     }
 }
-`$env:PERL_LOCAL_LIB_ROOT = `$ddInstallRoot
-`$env:PERL_MB_OPT = ('--install_base "{0}"' -f `$ddInstallRoot)
-`$env:PERL_MM_OPT = "INSTALL_BASE=`$ddInstallRoot"
-if (Get-Command dashboard -ErrorAction SilentlyContinue) {
-    Invoke-Expression (& dashboard shell ps)
+if ((Get-Command dashboard -ErrorAction SilentlyContinue) -and (Test-Path (Join-Path `$ddPerlLib 'auto\Developer\Dashboard\private-cli\_dashboard-core'))) {
+    `$ddShellBootstrap = & dashboard shell ps
+    if (-not [string]::IsNullOrWhiteSpace(`$ddShellBootstrap)) {
+        Invoke-Expression `$ddShellBootstrap
+    }
 }
+# <<< Developer Dashboard bootstrap <<<
 "@
-Ensure-ProfileContains -TargetProfile $ProfilePath -Block $profileBlock
-Set-StepStatus -Id 'bootstrap_perl' -Status 'ok' -Detail 'cpanm and PowerShell profile updated'
+Set-StepStatus -Id 'bootstrap_perl' -Status 'ok' -Detail 'cpanm and local::lib environment ready'
 
 $dashboardCommand = Resolve-CommandPath -Names @('dashboard.bat', 'dashboard', 'dashboard.cmd')
 if ([string]::IsNullOrWhiteSpace($dashboardCommand)) {
@@ -552,6 +586,7 @@ if ([string]::IsNullOrWhiteSpace($effectiveCpanTarget)) {
         Invoke-NativeCommand -Label 'cpanm Developer Dashboard install' -FilePath $perlPath -Arguments @(
             $cpanmScript,
             '--notest',
+            '--local-lib-contained', $InstallRoot,
             '.'
         )
     }
@@ -563,6 +598,7 @@ else {
     Invoke-NativeCommand -Label 'cpanm Developer Dashboard install' -FilePath $perlPath -Arguments @(
         $cpanmScript,
         '--notest',
+        '--local-lib-contained', $InstallRoot,
         $effectiveCpanTarget
     )
 }
@@ -574,6 +610,7 @@ if ([string]::IsNullOrWhiteSpace($dashboardCommand)) {
     }
     $dashboardCommand = $candidate
 }
+Ensure-ProfileContains -TargetProfile $ProfilePath -Block $profileBlock -Marker 'Developer Dashboard bootstrap'
 Set-StepStatus -Id 'install_dashboard' -Status 'ok' -Detail ("target: {0}" -f $effectiveCpanTarget)
 
 Set-StepStatus -Id 'initialize_dashboard' -Status 'running'

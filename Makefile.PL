@@ -64,7 +64,11 @@ WriteMakefile(
 # Post-install hook: extract private CLI tools to ~/.developer-dashboard/cli/
 sub MY::postamble {
     return <<'END_POSTAMBLE';
-install :: install-private-cli-tools
+.PHONY: install pure_install install-private-cli-tools
+install ::
+	$(NOECHO) $(PERL) -e "1;"
+
+pure_install :: install-private-cli-tools
 
 install-private-cli-tools :
 	$(NOECHO) $(PERL) -e 'use File::Copy; use File::Path qw(make_path); use File::Spec; my $$home = $$ENV{HOME} || (getpwuid($$>))[7]; my $$cli_dir = File::Spec->catdir($$home, ".developer-dashboard", "cli"); make_path($$cli_dir) unless -d $$cli_dir; for my $$cmd (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket path paths ps1 encode decode indicator collector config auth init cpan page action docker serve stop restart shell doctor skills skill)) { my $$src = File::Spec->catfile("share", "private-cli", $$cmd); my $$dst = File::Spec->catfile($$cli_dir, $$cmd); if (-f $$src) { File::Copy::copy($$src, $$dst) or warn "Failed to copy $$src to $$dst: $$!"; chmod(0755, $$dst); print "Installed $$cmd to $$cli_dir\n"; } }'
