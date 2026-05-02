@@ -10,6 +10,9 @@ use File::Temp qw(tempdir);
 use FindBin qw($RealBin);
 use Test::More;
 
+use lib File::Spec->catdir( $RealBin, File::Spec->updir, 'lib' );
+use Developer::Dashboard::InternalCLI ();
+
 my $root = File::Spec->catdir( $RealBin, File::Spec->updir );
 my $install_sh = File::Spec->catfile( $root, 'install.sh' );
 my $install_ps = File::Spec->catfile( $root, 'install.ps1' );
@@ -29,6 +32,22 @@ ok( -f $brewfile, 'brewfile exists at the repo root' );
 like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/VERSION_FROM\s*=>\s*'lib\/Developer\/Dashboard\.pm'/, 'Makefile.PL uses a filesystem path for VERSION_FROM so checkout installs work on Windows' );
 like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/install\s+::\s*\n\t\$\(NOECHO\)\s+\$\(PERL\)\s+-e\s+"1;"/, 'Makefile.PL gives the Windows gmake install target an explicit no-op recipe so it does not synthesize install from install.sh' );
 like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/pure_install\s+::\s+install-private-cli-tools/, 'Makefile.PL runs the private helper staging hook from pure_install instead of a recipe-less install target' );
+{
+    my $makefile_text = _slurp( File::Spec->catfile( $root, 'Makefile.PL' ) );
+    like(
+        $makefile_text,
+        qr/for my \$\$cmd \(qw\(([^)]*)\)\)/s,
+        'Makefile.PL declares the checkout bootstrap helper seed list explicitly',
+    );
+    my ($helper_list) = $makefile_text =~ /for my \$\$cmd \(qw\(([^)]*)\)\)/s;
+    my @seeded_helpers = split /\s+/, $helper_list || '';
+    my @expected_helpers = ( '_dashboard-core', Developer::Dashboard::InternalCLI::helper_names() );
+    is_deeply(
+        \@seeded_helpers,
+        \@expected_helpers,
+        'Makefile.PL checkout bootstrap seeds the full current private helper set into the home runtime',
+    );
+}
 
 {
     my ( $stdout, $stderr, $exit ) = capture {
