@@ -77,6 +77,26 @@ function Refresh-ProcessPathFromEnvironment {
     }
 }
 
+function Join-ScriptText {
+    # Purpose: normalize command output that may arrive as one string or multiple lines into one PowerShell script string.
+    # Input: any scalar or array output captured from a command invocation.
+    # Output: returns one newline-joined string with empty values removed.
+    param(
+        [AllowNull()]
+        [object]$Value
+    )
+
+    if ($null -eq $Value) {
+        return ''
+    }
+
+    if ($Value -is [System.Array]) {
+        return (($Value | Where-Object { $null -ne $_ } | ForEach-Object { [string]$_ }) -join [Environment]::NewLine)
+    }
+
+    return [string]$Value
+}
+
 if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
     $InstallRoot = Join-Path (Resolve-HomeDirectory) 'perl5'
 }
@@ -564,8 +584,9 @@ if (`$ddPerlCommand -and (Test-Path `$ddPerlLib)) {
 }
 if ((Get-Command dashboard -ErrorAction SilentlyContinue) -and (Test-Path `$ddHomeHelper)) {
     `$ddShellBootstrap = & dashboard shell ps
-    if (-not [string]::IsNullOrWhiteSpace(`$ddShellBootstrap)) {
-        Invoke-Expression `$ddShellBootstrap
+    `$ddShellBootstrapText = Join-ScriptText -Value `$ddShellBootstrap
+    if (-not [string]::IsNullOrWhiteSpace(`$ddShellBootstrapText)) {
+        Invoke-Expression `$ddShellBootstrapText
     }
 }
 # <<< Developer Dashboard bootstrap <<<
@@ -619,8 +640,9 @@ Set-StepStatus -Id 'install_dashboard' -Status 'ok' -Detail ("target: {0}" -f $e
 Set-StepStatus -Id 'initialize_dashboard' -Status 'running'
 Invoke-NativeCommand -Label 'dashboard init' -FilePath $dashboardCommand -Arguments @('init')
 $dashboardShellBootstrap = & $dashboardCommand shell ps
-if (-not [string]::IsNullOrWhiteSpace($dashboardShellBootstrap)) {
-    Invoke-Expression $dashboardShellBootstrap
+$dashboardShellBootstrapText = Join-ScriptText -Value $dashboardShellBootstrap
+if (-not [string]::IsNullOrWhiteSpace($dashboardShellBootstrapText)) {
+    Invoke-Expression $dashboardShellBootstrapText
 }
 if (-not [string]::IsNullOrWhiteSpace($ShellCommands)) {
     Write-Host 'Running post-install activation commands through PowerShell.'
