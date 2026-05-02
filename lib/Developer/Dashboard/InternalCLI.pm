@@ -256,6 +256,12 @@ sub _helper_asset_path {
     my ($name) = @_;
     my $repo_path = File::Spec->catfile( _repo_private_cli_root(), $name );
     return $repo_path if -f $repo_path;
+    my @roots = _shared_private_cli_root_candidates();
+    for my $root (@roots) {
+        next if !defined $root || $root eq '';
+        my $candidate = File::Spec->catfile( $root, $name );
+        return $candidate if -f $candidate;
+    }
     return File::Spec->catfile( _shared_private_cli_root(), $name );
 }
 

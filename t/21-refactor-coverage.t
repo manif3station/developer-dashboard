@@ -828,11 +828,21 @@ like(
 {
     my $home = tempdir( CLEANUP => 1 );
     my $home_private_cli_root = File::Spec->catdir( $home, '.developer-dashboard', 'cli' );
+    my $managed_dd_root = File::Spec->catdir( $home_private_cli_root, 'dd' );
+    make_path($managed_dd_root);
     make_path($home_private_cli_root);
     my $home_helper = File::Spec->catfile( $home_private_cli_root, '_dashboard-core' );
     open my $home_fh, '>:raw', $home_helper or die "Unable to write $home_helper: $!";
     print {$home_fh} "#!/usr/bin/env perl\nprint qq(home\\n);\n";
     close $home_fh or die "Unable to close $home_helper: $!";
+    my $managed_core = File::Spec->catfile( $managed_dd_root, '_dashboard-core' );
+    open my $managed_fh, '>:raw', $managed_core or die "Unable to write $managed_core: $!";
+    print {$managed_fh} "#!/usr/bin/env perl\nprint qq(managed\\n);\n";
+    close $managed_fh or die "Unable to close $managed_core: $!";
+    my $home_jq = File::Spec->catfile( $home_private_cli_root, 'jq' );
+    open my $home_jq_fh, '>:raw', $home_jq or die "Unable to write $home_jq: $!";
+    print {$home_jq_fh} "#!/usr/bin/env perl\nprint qq(jq\\n);\n";
+    close $home_jq_fh or die "Unable to close $home_jq: $!";
 
     local $ENV{HOME} = $home;
     local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { return File::Spec->catdir( $home, 'missing-private-cli' ) };
@@ -841,13 +851,18 @@ like(
 
     is(
         Developer::Dashboard::InternalCLI::_shared_private_cli_root(),
-        $home_private_cli_root,
-        'internal CLI falls back to the home bootstrap helper root when checkout installs do not ship a shared helper asset tree',
+        $managed_dd_root,
+        'internal CLI prefers the managed dd helper root once checkout installs have already staged _dashboard-core there',
     );
     is(
         Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core'),
-        $home_helper,
-        'internal CLI finds _dashboard-core through the home bootstrap helper fallback when checkout installs only staged helpers under the home runtime',
+        $managed_core,
+        'internal CLI finds _dashboard-core through the managed dd helper root once checkout installs have staged it there',
+    );
+    is(
+        Developer::Dashboard::InternalCLI::_helper_asset_path('jq'),
+        $home_jq,
+        'internal CLI still falls back to the home bootstrap helper file for non-core helpers while the managed dd helper root is only partially staged',
     );
 }
 
