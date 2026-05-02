@@ -311,6 +311,8 @@ sub _shared_private_cli_root_candidates {
         );
     }
 
+    push @candidates, _home_private_cli_root_candidates();
+
     my %seen;
     return grep { defined $_ && $_ ne '' && !$seen{$_}++ } @candidates;
 }
@@ -354,6 +356,20 @@ sub _private_cli_root_has_dashboard_core {
     return 0 if !defined $path || $path eq '';
     return 0 if !-d $path;
     return -f File::Spec->catfile( $path, '_dashboard-core' ) ? 1 : 0;
+}
+
+# _home_private_cli_root_candidates()
+# Returns the staged home helper roots that can bootstrap checkout installs
+# before the managed dd namespace has been seeded.
+# Input: none.
+# Output: ordered list of absolute home helper root candidate paths.
+sub _home_private_cli_root_candidates {
+    my $home = $ENV{HOME};
+    return if !defined $home || $home eq '';
+    return (
+        File::Spec->catdir( $home, '.developer-dashboard', 'cli', 'dd' ),
+        File::Spec->catdir( $home, '.developer-dashboard', 'cli' ),
+    );
 }
 
 1;

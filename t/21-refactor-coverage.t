@@ -767,6 +767,7 @@ like(
 );
 {
     my $shared_root = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = tempdir( CLEANUP => 1 );
     local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { return File::Spec->catdir( $shared_root, 'missing-private-cli' ) };
     local *Developer::Dashboard::InternalCLI::dist_dir = sub { return $shared_root };
 
@@ -783,6 +784,7 @@ like(
 }
 {
     my $install_root = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = tempdir( CLEANUP => 1 );
     my $module_lib_root = File::Spec->catdir( $install_root, 'lib', 'perl5' );
     my $broken_dist_root = File::Spec->catdir(
         $install_root,
@@ -821,6 +823,31 @@ like(
         Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core'),
         $shared_helper,
         'internal CLI finds _dashboard-core through the module-relative shared helper fallback when the default dist_dir root is wrong',
+    );
+}
+{
+    my $home = tempdir( CLEANUP => 1 );
+    my $home_private_cli_root = File::Spec->catdir( $home, '.developer-dashboard', 'cli' );
+    make_path($home_private_cli_root);
+    my $home_helper = File::Spec->catfile( $home_private_cli_root, '_dashboard-core' );
+    open my $home_fh, '>:raw', $home_helper or die "Unable to write $home_helper: $!";
+    print {$home_fh} "#!/usr/bin/env perl\nprint qq(home\\n);\n";
+    close $home_fh or die "Unable to close $home_helper: $!";
+
+    local $ENV{HOME} = $home;
+    local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { return File::Spec->catdir( $home, 'missing-private-cli' ) };
+    local *Developer::Dashboard::InternalCLI::dist_dir = sub { return File::Spec->catdir( $home, 'missing-dist-root' ) };
+    local *Developer::Dashboard::InternalCLI::_module_install_lib_root = sub { return File::Spec->catdir( $home, 'missing-lib-root' ) };
+
+    is(
+        Developer::Dashboard::InternalCLI::_shared_private_cli_root(),
+        $home_private_cli_root,
+        'internal CLI falls back to the home bootstrap helper root when checkout installs do not ship a shared helper asset tree',
+    );
+    is(
+        Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core'),
+        $home_helper,
+        'internal CLI finds _dashboard-core through the home bootstrap helper fallback when checkout installs only staged helpers under the home runtime',
     );
 }
 
