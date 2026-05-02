@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '3.34';
+our $VERSION = '3.35';
 
 use File::Basename qw(dirname);
 use File::Spec;
@@ -282,7 +282,7 @@ sub _shared_private_cli_root {
     my @candidates = _shared_private_cli_root_candidates();
     for my $candidate (@candidates) {
         next if !defined $candidate || $candidate eq '';
-        return $candidate if -d $candidate;
+        return $candidate if _private_cli_root_has_dashboard_core($candidate);
     }
     return $candidates[0];
 }
@@ -340,7 +340,19 @@ sub _looks_like_private_cli_root {
     my ($path) = @_;
     return 0 if !defined $path || $path eq '';
     my @parts = File::Spec->splitdir($path);
-    return 1 if @parts && $parts[-1] eq 'private-cli';
+    return 0 if !@parts || $parts[-1] ne 'private-cli';
+    return _private_cli_root_has_dashboard_core($path);
+}
+
+# _private_cli_root_has_dashboard_core($path)
+# Detects whether a candidate private-cli root contains the built-in helper
+# payloads that dashboard must stage into the user runtime.
+# Input: candidate directory path string.
+# Output: boolean true when the candidate contains _dashboard-core.
+sub _private_cli_root_has_dashboard_core {
+    my ($path) = @_;
+    return 0 if !defined $path || $path eq '';
+    return 0 if !-d $path;
     return -f File::Spec->catfile( $path, '_dashboard-core' ) ? 1 : 0;
 }
 

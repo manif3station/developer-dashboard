@@ -793,6 +793,7 @@ like(
         'Developer',
         'Dashboard',
     );
+    my $broken_private_cli_root = File::Spec->catdir( $broken_dist_root, 'private-cli' );
     my $shared_private_cli_root = File::Spec->catdir(
         $module_lib_root,
         'auto',
@@ -801,7 +802,7 @@ like(
         'Developer-Dashboard',
         'private-cli',
     );
-    make_path($shared_private_cli_root);
+    make_path( $broken_private_cli_root, $shared_private_cli_root );
     my $shared_helper = File::Spec->catfile( $shared_private_cli_root, '_dashboard-core' );
     open my $shared_fh, '>:raw', $shared_helper or die "Unable to write $shared_helper: $!";
     print {$shared_fh} "#!/usr/bin/env perl\nprint qq(core\\n);\n";
@@ -814,7 +815,7 @@ like(
     is(
         Developer::Dashboard::InternalCLI::_shared_private_cli_root(),
         $shared_private_cli_root,
-        'internal CLI falls back to the module-relative auto/share dist helper root when File::ShareDir points at an empty arch auto directory',
+        'internal CLI falls back to the module-relative auto/share dist helper root when File::ShareDir points at an existing but empty arch auto private-cli directory',
     );
     is(
         Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core'),

@@ -1,5 +1,17 @@
 # Fixed Bugs
 
+## 3.35 - Fix Windows shared helper root selection
+
+- Fixed the installed private helper asset lookup on Windows so
+  `dashboard init` no longer stops at an empty
+  `MSWin32-x64-multi-thread/auto/Developer/Dashboard/private-cli`
+  directory when the real shipped helper assets live under
+  `auto/share/dist/Developer-Dashboard/private-cli`.
+- Fixed the streamed Windows checkout bootstrap so a blank host can now
+  finish `dashboard init` after `irm .../install.ps1 | iex`, stage the home
+  helper runtime, and continue into the generated PowerShell shell bootstrap
+  cleanly.
+
 ## 3.34 - Fix Windows helper staging bootstrap lookup
 
 - Fixed the installed private helper asset lookup so Windows local::lib
