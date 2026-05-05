@@ -1874,7 +1874,7 @@ like( $prompt_without_indicators, qr/\(3 jobs\)/, 'prompt still renders job coun
     my $tmux_status = $prompt->render_tmux_status;
     like( $tmux_status, qr/🚨NEW/, 'tmux status formatter includes missing indicator glyphs' );
     like( $tmux_status, qr/✅Z ✅b/, 'tmux status formatter keeps indicator priority order' );
-    like( $tmux_status, qr/🎫:DD-4242/, 'tmux status formatter includes ticket context when present' );
+    unlike( $tmux_status, qr/🎫:DD-4242/, 'tmux status formatter leaves ticket context to the prompt or tmux session line' );
     unlike( $tmux_status, qr/\[~\/named-path\]|\n> /, 'tmux status formatter omits prompt-only cwd and cursor fragments' );
 }
 like(
@@ -2611,6 +2611,129 @@ like( $collector_prompt_output, qr/✅H/, 'prompt keeps the healthy collector st
     is( $tt_indicators->get_indicator('templated.indicator')->{label}, 'Templated Updated', 'sync_collectors still refreshes other TT-backed collector indicator metadata' );
     is( $tt_indicators->get_indicator('templated.indicator')->{icon}, '123', 'sync_collectors preserves the rendered TT collector icon while refreshing other metadata' );
     is( $tt_indicators->get_indicator('templated.indicator')->{icon_template}, '[% a %]', 'sync_collectors preserves the configured TT collector icon template while refreshing other metadata' );
+    my $live_tt_paths = Developer::Dashboard::PathRegistry->new(
+        home => tempdir( CLEANUP => 1 ),
+        cwd  => tempdir( CLEANUP => 1 ),
+    );
+    my $live_tt_indicators = Developer::Dashboard::IndicatorStore->new( paths => $live_tt_paths );
+
+    $live_tt_indicators->set_indicator(
+        'live.templated.indicator',
+        name                 => 'live.templated.indicator',
+        label                => '59.46%',
+        icon                 => '59.46%',
+        icon_template        => '[% data.rate %]%',
+        configured_label     => 'Heartbeat',
+        configured_alias     => '',
+        configured_icon      => '[% data.rate %]%',
+        configured_page_status_icon => '',
+        status               => 'ok',
+        collector_name       => 'live.templated.collector',
+        managed_by_collector => 1,
+        page_status_icon     => '&#x1F7E2;',
+        prompt_visible       => 1,
+    );
+    is(
+        scalar @{
+            $live_tt_indicators->sync_collectors(
+                [
+                    {
+                        name      => 'live.templated.collector',
+                        indicator => {
+                            name  => 'live.templated.indicator',
+                            label => 'Heartbeat',
+                            icon  => '[% data.rate %]%',
+                        },
+                    },
+                ]
+            )
+        },
+        0,
+        'sync_collectors leaves live TT-backed collector presentation fields untouched when config is unchanged',
+    );
+    is( $live_tt_indicators->get_indicator('live.templated.indicator')->{label}, '59.46%', 'sync_collectors preserves live collector labels instead of reverting to config placeholders' );
+    is( $live_tt_indicators->get_indicator('live.templated.indicator')->{icon}, '59.46%', 'sync_collectors preserves live TT-backed collector icons instead of reverting to config placeholders' );
+    is( $live_tt_indicators->get_indicator('live.templated.indicator')->{page_status_icon}, '&#x1F7E2;', 'sync_collectors preserves live collector page status icons instead of clobbering them from config sync' );
+
+    my $live_literal_paths = Developer::Dashboard::PathRegistry->new(
+        home => tempdir( CLEANUP => 1 ),
+        cwd  => tempdir( CLEANUP => 1 ),
+    );
+    my $live_literal_indicators = Developer::Dashboard::IndicatorStore->new( paths => $live_literal_paths );
+
+    $live_literal_indicators->set_indicator(
+        'live.literal.indicator',
+        name                 => 'live.literal.indicator',
+        label                => 'CPU',
+        icon                 => '96%',
+        configured_label     => 'CPU',
+        configured_alias     => '',
+        configured_icon      => 'C',
+        configured_page_status_icon => '',
+        status               => 'ok',
+        collector_name       => 'live.literal.collector',
+        managed_by_collector => 1,
+        page_status_icon     => '&#x1F7E2;',
+        prompt_visible       => 1,
+    );
+    is(
+        scalar @{
+            $live_literal_indicators->sync_collectors(
+                [
+                    {
+                        name      => 'live.literal.collector',
+                        indicator => {
+                            name  => 'live.literal.indicator',
+                            label => 'CPU',
+                            icon  => 'C',
+                        },
+                    },
+                ]
+            )
+        },
+        0,
+        'sync_collectors leaves live literal collector presentation fields untouched when config is unchanged',
+    );
+    is( $live_literal_indicators->get_indicator('live.literal.indicator')->{icon}, '96%', 'sync_collectors preserves live literal collector icons instead of reverting them to config seed values' );
+
+    my $live_alias_paths = Developer::Dashboard::PathRegistry->new(
+        home => tempdir( CLEANUP => 1 ),
+        cwd  => tempdir( CLEANUP => 1 ),
+    );
+    my $live_alias_indicators = Developer::Dashboard::IndicatorStore->new( paths => $live_alias_paths );
+
+    $live_alias_indicators->set_indicator(
+        'live.alias.indicator',
+        name                        => 'live.alias.indicator',
+        label                       => 'Alias',
+        alias                       => 'HOT',
+        configured_label            => 'Alias',
+        configured_alias            => '',
+        configured_icon             => '',
+        configured_page_status_icon => '',
+        status                      => 'ok',
+        collector_name             => 'live.alias.collector',
+        managed_by_collector       => 1,
+        prompt_visible             => 1,
+    );
+    is(
+        scalar @{
+            $live_alias_indicators->sync_collectors(
+                [
+                    {
+                        name      => 'live.alias.collector',
+                        indicator => {
+                            name  => 'live.alias.indicator',
+                            label => 'Alias',
+                        },
+                    },
+                ]
+            )
+        },
+        0,
+        'sync_collectors leaves live collector aliases untouched when config alias is unchanged',
+    );
+    is( $live_alias_indicators->get_indicator('live.alias.indicator')->{alias}, 'HOT', 'sync_collectors preserves live collector aliases instead of reverting them to config placeholders' );
 
     my $iconless_candidate = $tt_indicators->collector_indicator_candidate(
         {

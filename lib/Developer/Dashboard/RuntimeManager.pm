@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.39';
+our $VERSION = '3.41';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -191,7 +191,7 @@ sub running_web {
     if ( my $pid = $self->{files}->read('web_pid') ) {
         chomp $pid;
         $pid = $self->_normalized_process_id($pid);
-        if ( $pid && kill 0, $pid ) {
+        if ( $pid && kill( 0, $pid ) && $self->_same_pid_namespace($pid) ) {
             if ( $self->_is_managed_web($pid) || ( $state->{status} || '' ) eq 'running' ) {
                 return {
                     %$state,
@@ -1318,6 +1318,7 @@ sub _send_signal {
 sub _is_managed_web {
     my ( $self, $pid ) = @_;
     return 0 if !$pid || !kill 0, $pid;
+    return 0 if !$self->_same_pid_namespace($pid);
     my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_WEB_SERVICE' );
     return 1 if defined $marker && $marker eq '1';
     my $title = $self->_read_process_title($pid);
@@ -1511,7 +1512,7 @@ sub _listener_pids_from_state {
     return () if ref($state) ne 'HASH';
     my $port = $state->{port};
     return () if !defined $port || $port eq '';
-    return $self->_listener_pids_for_port($port);
+    return grep { $self->_same_pid_namespace($_) } $self->_listener_pids_for_port($port);
 }
 
 # _proc_owned_by_current_user($proc)
@@ -1521,6 +1522,7 @@ sub _listener_pids_from_state {
 sub _proc_owned_by_current_user {
     my ( $self, $proc ) = @_;
     return 0 if !$proc || !$proc->{pid};
+    return 0 if !$self->_same_pid_namespace( $proc->{pid} );
     return 1 if !defined $proc->{uid} || $proc->{uid} eq '';
     return ( $proc->{uid} + 0 ) == ( $< + 0 ) ? 1 : 0;
 }
@@ -2044,6 +2046,43 @@ sub _read_process_env_marker {
         return $2 if $1 eq $key;
     }
     return;
+}
+
+# _same_pid_namespace($pid)
+# Confirms whether a process id belongs to the current pid namespace so host
+# and container runtimes do not manage each other's processes.
+# Input: process id integer.
+# Output: boolean true when both processes share the same pid namespace or when
+# namespace metadata is unavailable on this platform.
+sub _same_pid_namespace {
+    my ( $self, $pid ) = @_;
+    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    my $current = $self->_current_pid_namespace_id;
+    my $target  = $self->_pid_namespace_id($pid);
+    return 1 if !defined $current || $current eq '';
+    return 1 if !defined $target  || $target eq '';
+    return $current eq $target ? 1 : 0;
+}
+
+# _current_pid_namespace_id()
+# Returns the current process pid-namespace identity string when procfs
+# exposes one.
+# Input: none.
+# Output: namespace identity string or undef.
+sub _current_pid_namespace_id {
+    my ($self) = @_;
+    return $self->_pid_namespace_id($$);
+}
+
+# _pid_namespace_id($pid)
+# Reads the pid-namespace identity for one process from procfs when available.
+# Input: process id integer.
+# Output: namespace identity string or undef.
+sub _pid_namespace_id {
+    my ( $self, $pid ) = @_;
+    my $path = "/proc/$pid/ns/pid";
+    return if !-l $path;
+    return readlink $path;
 }
 
 # _read_process_title($pid)

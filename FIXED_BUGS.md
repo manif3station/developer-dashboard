@@ -1,5 +1,26 @@
 # Fixed Bugs
 
+## 3.41 - Fix blank-mac bootstrap, container runtime isolation, and skill install live detail
+
+- Fixed blank new macOS bootstrap so `install.sh` now bootstraps Homebrew
+  automatically when `brew` is missing instead of dying immediately with
+  `Missing required command: brew`.
+- Fixed Linux runtime lifecycle isolation so host-side `dashboard restart`
+  and `dashboard stop` runs no longer kill or adopt Developer Dashboard web
+  and collector pids that belong to another pid namespace such as a sibling
+  Docker container.
+- Fixed long-running skill dependency installs so manifest steps such as
+  `brewfile`, `package.json`, `cpanfile`, and `Makefile` now stream a
+  Docker-style rolling detail window under the active epic task while keeping
+  the full task board visible.
+- Fixed tmux prompt/status handling so only `dashboard ticket` tmux sessions
+  move indicators into a session-local two-line tmux status area, ordinary
+  tmux sessions keep the normal inline prompt, the trailing date-time segment
+  is restored, the inline prompt stops duplicating status-line indicators in
+  ticket sessions, live collector indicator values stop flickering back to
+  config placeholders, and long indicator sets get a dedicated full-width
+  status line instead of being squeezed into one `status-right` fragment.
+
 ## 3.40 - Move tmux prompt indicators into tmux status-right
 
 - Fixed generated shell bootstraps so tmux sessions no longer leave collector

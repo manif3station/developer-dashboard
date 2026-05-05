@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Ticket;
 use strict;
 use warnings;
 
-our $VERSION = '3.39';
+our $VERSION = '3.41';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -42,9 +42,10 @@ sub ticket_environment {
     my ($ticket) = @_;
     die "Ticket name is required\n" if !defined $ticket || $ticket eq '';
     return {
-        TICKET_REF => $ticket,
-        B          => $ticket,
-        OB         => "origin/$ticket",
+        TICKET_REF                      => $ticket,
+        B                               => $ticket,
+        OB                              => "origin/$ticket",
+        DEVELOPER_DASHBOARD_TMUX_STATUS => 1,
     };
 }
 

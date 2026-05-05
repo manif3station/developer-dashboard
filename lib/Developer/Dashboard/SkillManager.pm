@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.39';
+our $VERSION = '3.41';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -13,7 +13,10 @@ use File::Basename qw(basename);
 use File::Find qw(find);
 use File::Temp qw(tempdir);
 use Capture::Tiny qw(capture);
+use IO::Select;
+use IPC::Open3;
 use JSON::XS qw(decode_json encode_json);
+use Symbol qw(gensym);
 use Developer::Dashboard::PathRegistry;
 
 # new()
@@ -879,6 +882,7 @@ sub _install_skill_dependencies {
         my ( $task_id, $runner ) = @{$step};
         my $running_label = $self->_dependency_progress_label( $task_id, $skill_path );
         $self->_progress_emit( { task_id => $task_id, status => 'running', label => $running_label } );
+        local $self->{_active_dependency_task_id} = $task_id;
         my $result = $runner->();
         if ( $result->{error} ) {
             $self->_progress_emit(
@@ -986,6 +990,106 @@ sub _progress_emit {
     return 1 if !$progress || ref($progress) ne 'CODE';
     $progress->($event);
     return 1;
+}
+
+# _active_dependency_task_id()
+# Returns the dependency-task id currently being executed so lower-level
+# helpers can stream detail lines into the visible progress board.
+# Input: none.
+# Output: task id string or undef.
+sub _active_dependency_task_id {
+    my ($self) = @_;
+    return $self->{_active_dependency_task_id};
+}
+
+# _progress_detail_line($line, %args)
+# Streams one compact detail line into the active dependency task.
+# Input: raw text line plus optional explicit task_id.
+# Output: true value.
+sub _progress_detail_line {
+    my ( $self, $line, %args ) = @_;
+    my $task_id = $args{task_id} || $self->_active_dependency_task_id || return 1;
+    return 1 if !defined $line;
+    $line =~ s/\r//g;
+    $line =~ s/\s+\z//;
+    return 1 if $line eq '';
+    return $self->_progress_emit(
+        {
+            task_id     => $task_id,
+            detail_line => $line,
+        }
+    );
+}
+
+# _run_streaming_command(%args)
+# Runs one external dependency command while streaming a rolling output
+# snapshot into the active progress task and collecting the full transcript.
+# Input: command array reference plus optional cwd and banner line.
+# Output: hash reference with stdout, stderr, and exit fields.
+sub _run_streaming_command {
+    my ( $self, %args ) = @_;
+    my $command = $args{command} || die "Missing command for streaming execution\n";
+    die "Streaming command must be an array reference\n" if ref($command) ne 'ARRAY' || !@{$command};
+    my $cwd = $args{cwd};
+    my $banner = $args{banner};
+    $self->_progress_detail_line($banner) if defined $banner && $banner ne '';
+
+    my $stdout_handle;
+    my $stderr_handle = gensym;
+    my $stdin_handle  = gensym;
+    my $pid;
+    my $stdout = '';
+    my $stderr = '';
+    my %target_for;
+
+    my $launcher = sub {
+        $pid = open3( $stdin_handle, $stdout_handle, $stderr_handle, @{$command} );
+    };
+
+    if ( defined $cwd && $cwd ne '' ) {
+        my $orig = Cwd::getcwd();
+        chdir $cwd or die "Unable to chdir to $cwd for command launch: $!";
+        my $ok = eval { $launcher->(); 1 };
+        my $error = $@;
+        chdir $orig or die "Unable to chdir back to $orig after command launch: $!";
+        die $error if !$ok;
+    }
+    else {
+        $launcher->();
+    }
+
+    close $stdin_handle if $stdin_handle;
+    %target_for = (
+        fileno($stdout_handle) => \$stdout,
+        fileno($stderr_handle) => \$stderr,
+    );
+
+    my $selector = IO::Select->new();
+    $selector->add($stdout_handle) if $stdout_handle;
+    $selector->add($stderr_handle) if $stderr_handle;
+    while ( my @ready = $selector->can_read ) {
+        for my $handle (@ready) {
+            my $chunk = '';
+            my $read = sysread( $handle, $chunk, 8192 );
+            if ( !defined $read || $read == 0 ) {
+                $selector->remove($handle);
+                close $handle;
+                next;
+            }
+            my $slot = $target_for{ fileno($handle) };
+            ${$slot} .= $chunk if $slot;
+            for my $line ( split /\n/, $chunk ) {
+                $self->_progress_detail_line($line);
+            }
+        }
+    }
+
+    waitpid $pid, 0;
+    return {
+        stdout => $stdout,
+        stderr => $stderr,
+        exit   => $? >> 8,
+    };
 }
 
 # _skill_install_root($skill_path)
@@ -1282,20 +1386,12 @@ sub _install_skill_package_json {
     );
     close $workspace_fh;
 
-    my $cwd = Cwd::getcwd();
-    my ( $npm_stdout, $npm_stderr, $npm_exit );
-    eval {
-        chdir $workspace or die "Unable to chdir to $workspace for package.json dependency install: $!";
-        ( $npm_stdout, $npm_stderr, $npm_exit ) = capture {
-            system( 'npx', '--yes', 'npm', 'install', @specs );
-        };
-        chdir $cwd or die "Unable to chdir back to $cwd after package.json dependency install: $!";
-        1;
-    } or do {
-        my $error = $@;
-        chdir $cwd if Cwd::getcwd() ne $cwd;
-        die $error;
-    };
+    my $run = $self->_run_streaming_command(
+        command => [ 'npx', '--yes', 'npm', 'install', @specs ],
+        cwd     => $workspace,
+        banner  => "Installing Node dependencies for " . basename($skill_path) . " from $package_json: " . join( ' ', @specs ),
+    );
+    my ( $npm_stdout, $npm_stderr, $npm_exit ) = @{$run}{qw(stdout stderr exit)};
     return {
         error => "Failed to install skill Node dependencies for $skill_path: $npm_stderr",
     } if $npm_exit != 0;
@@ -1468,18 +1564,18 @@ sub _install_skill_aptfile {
 
     my $aptfile = File::Spec->catfile( $skill_path, 'aptfile' );
     my @runner_prefix = $self->_skill_package_runner_prefix;
-    my ( $stdout, $stderr, $exit ) = capture {
-        print "Installing apt packages for ", basename($skill_path), " from $aptfile: ", join( ' ', @missing_packages ), "\n";
-        system( @runner_prefix, 'apt-get', 'install', '-y', @missing_packages );
-    };
+    my $run = $self->_run_streaming_command(
+        command => [ @runner_prefix, 'apt-get', 'install', '-y', @missing_packages ],
+        banner  => "Installing apt packages for " . basename($skill_path) . " from $aptfile: " . join( ' ', @missing_packages ),
+    );
     return {
-        error => "Failed to install skill apt dependencies for $skill_path: $stderr",
-    } if $exit != 0;
+        error => "Failed to install skill apt dependencies for $skill_path: $run->{stderr}",
+    } if $run->{exit} != 0;
 
     return {
         success => 1,
-        stdout  => $stdout,
-        stderr  => $stderr,
+        stdout  => $run->{stdout},
+        stderr  => $run->{stderr},
     };
 }
 
@@ -1504,18 +1600,18 @@ sub _install_skill_apkfile {
     } if !@missing_packages;
 
     my @runner_prefix = $self->_skill_package_runner_prefix;
-    my ( $stdout, $stderr, $exit ) = capture {
-        print "Installing apk packages for ", basename($skill_path), " from $apkfile: ", join( ' ', @missing_packages ), "\n";
-        system( @runner_prefix, 'apk', 'add', '--no-cache', @missing_packages );
-    };
+    my $run = $self->_run_streaming_command(
+        command => [ @runner_prefix, 'apk', 'add', '--no-cache', @missing_packages ],
+        banner  => "Installing apk packages for " . basename($skill_path) . " from $apkfile: " . join( ' ', @missing_packages ),
+    );
     return {
-        error => "Failed to install skill apk dependencies for $skill_path: $stderr",
-    } if $exit != 0;
+        error => "Failed to install skill apk dependencies for $skill_path: $run->{stderr}",
+    } if $run->{exit} != 0;
 
     return {
         success => 1,
-        stdout  => $stdout,
-        stderr  => $stderr,
+        stdout  => $run->{stdout},
+        stderr  => $run->{stderr},
     };
 }
 
@@ -1540,18 +1636,18 @@ sub _install_skill_dnfile {
     } if !@missing_packages;
 
     my @runner_prefix = $self->_skill_package_runner_prefix;
-    my ( $stdout, $stderr, $exit ) = capture {
-        print "Installing dnf packages for ", basename($skill_path), " from $dnfile: ", join( ' ', @missing_packages ), "\n";
-        system( @runner_prefix, 'dnf', 'install', '-y', @missing_packages );
-    };
+    my $run = $self->_run_streaming_command(
+        command => [ @runner_prefix, 'dnf', 'install', '-y', @missing_packages ],
+        banner  => "Installing dnf packages for " . basename($skill_path) . " from $dnfile: " . join( ' ', @missing_packages ),
+    );
     return {
-        error => "Failed to install skill dnf dependencies for $skill_path: $stderr",
-    } if $exit != 0;
+        error => "Failed to install skill dnf dependencies for $skill_path: $run->{stderr}",
+    } if $run->{exit} != 0;
 
     return {
         success => 1,
-        stdout  => $stdout,
-        stderr  => $stderr,
+        stdout  => $run->{stdout},
+        stderr  => $run->{stderr},
     };
 }
 
@@ -1569,22 +1665,22 @@ sub _install_skill_wingetfile {
     my @stdout;
     my @stderr;
     for my $package (@packages) {
-        my ( $stdout, $stderr, $exit ) = capture {
-            print "Installing winget packages for ", basename($skill_path), " from $wingetfile: $package\n";
-            system(
+        my $run = $self->_run_streaming_command(
+            command => [
                 'winget', 'install',
                 '--id', $package,
                 '--exact',
                 '--accept-package-agreements',
                 '--accept-source-agreements',
                 '--disable-interactivity',
-            );
-        };
+            ],
+            banner => "Installing winget packages for " . basename($skill_path) . " from $wingetfile: $package",
+        );
         return {
-            error => "Failed to install skill winget dependencies for $skill_path: $stderr",
-        } if $exit != 0;
-        push @stdout, $stdout if defined $stdout && $stdout ne '';
-        push @stderr, $stderr if defined $stderr && $stderr ne '';
+            error => "Failed to install skill winget dependencies for $skill_path: $run->{stderr}",
+        } if $run->{exit} != 0;
+        push @stdout, $run->{stdout} if defined $run->{stdout} && $run->{stdout} ne '';
+        push @stderr, $run->{stderr} if defined $run->{stderr} && $run->{stderr} ne '';
     }
 
     return {
@@ -1614,18 +1710,18 @@ sub _install_skill_brewfile {
     my @packages = $self->_dependency_file_lines($brewfile);
     return { success => 1, skipped => 1 } if !@packages || $self->_current_os ne 'darwin';
 
-    my ( $stdout, $stderr, $exit ) = capture {
-        print "Installing brew packages for ", basename($skill_path), " from $brewfile: ", join( ' ', @packages ), "\n";
-        system( 'brew', 'install', @packages );
-    };
+    my $run = $self->_run_streaming_command(
+        command => [ 'brew', 'install', @packages ],
+        banner  => "Installing brew packages for " . basename($skill_path) . " from $brewfile: " . join( ' ', @packages ),
+    );
     return {
-        error => "Failed to install skill brew dependencies for $skill_path: $stderr",
-    } if $exit != 0;
+        error => "Failed to install skill brew dependencies for $skill_path: $run->{stderr}",
+    } if $run->{exit} != 0;
 
     return {
         success => 1,
-        stdout  => $stdout,
-        stderr  => $stderr,
+        stdout  => $run->{stdout},
+        stderr  => $run->{stderr},
     };
 }
 
@@ -1638,20 +1734,12 @@ sub _install_skill_cpanfile {
     my $cpanfile = File::Spec->catfile( $skill_path, 'cpanfile' );
     return { success => 1, skipped => 1 } if !-f $cpanfile;
     my $shared_root = $self->_ensure_perl_root( $self->_shared_perl_root );
-    my $cwd = Cwd::getcwd();
-    my ( $stdout, $stderr, $exit );
-    eval {
-        chdir $skill_path or die "Unable to chdir to $skill_path for cpanfile dependency install: $!";
-        ( $stdout, $stderr, $exit ) = capture {
-            system( 'cpanm', '--notest', '-L', $shared_root, '--cpanfile', $cpanfile, '--installdeps', '.' );
-        };
-        chdir $cwd or die "Unable to chdir back to $cwd after cpanfile dependency install: $!";
-        1;
-    } or do {
-        my $error = $@;
-        chdir $cwd if Cwd::getcwd() ne $cwd;
-        die $error;
-    };
+    my $run = $self->_run_streaming_command(
+        command => [ 'cpanm', '--notest', '-L', $shared_root, '--cpanfile', $cpanfile, '--installdeps', '.' ],
+        cwd     => $skill_path,
+        banner  => "Installing Perl dependencies for " . basename($skill_path) . " from $cpanfile",
+    );
+    my ( $stdout, $stderr, $exit ) = @{$run}{qw(stdout stderr exit)};
     return {
         error => "Failed to install skill dependencies for $skill_path: $stderr",
     } if $exit != 0;
@@ -1672,20 +1760,12 @@ sub _install_skill_cpanfile_local {
     my $cpanfile_local = File::Spec->catfile( $skill_path, 'cpanfile.local' );
     return { success => 1, skipped => 1 } if !-f $cpanfile_local;
     my $local_root = $self->_ensure_perl_root( $self->_skill_local_perl_root($skill_path) );
-    my $cwd = Cwd::getcwd();
-    my ( $stdout, $stderr, $exit );
-    eval {
-        chdir $skill_path or die "Unable to chdir to $skill_path for cpanfile.local dependency install: $!";
-        ( $stdout, $stderr, $exit ) = capture {
-            system( 'cpanm', '--notest', '-L', $local_root, '--cpanfile', $cpanfile_local, '--installdeps', '.' );
-        };
-        chdir $cwd or die "Unable to chdir back to $cwd after cpanfile.local dependency install: $!";
-        1;
-    } or do {
-        my $error = $@;
-        chdir $cwd if Cwd::getcwd() ne $cwd;
-        die $error;
-    };
+    my $run = $self->_run_streaming_command(
+        command => [ 'cpanm', '--notest', '-L', $local_root, '--cpanfile', $cpanfile_local, '--installdeps', '.' ],
+        cwd     => $skill_path,
+        banner  => "Installing local Perl dependencies for " . basename($skill_path) . " from $cpanfile_local",
+    );
+    my ( $stdout, $stderr, $exit ) = @{$run}{qw(stdout stderr exit)};
     return {
         error => "Failed to install skill local dependencies for $skill_path: $stderr",
     } if $exit != 0;
@@ -1720,14 +1800,16 @@ sub _install_skill_makefile {
         ( $targets{clean} ? ( ['clean'] ) : () ),
     );
 
-    my $cwd = Cwd::getcwd();
     my ( @stdout, @stderr );
-    chdir $skill_path or die "Unable to chdir to $skill_path for Makefile dependency install: $!";
     my $result = eval {
         for my $args (@commands) {
-            my ( $stdout, $stderr, $exit ) = capture {
-                system( 'make', @{$args} );
-            };
+            my $target_name = @{$args} ? join( ' ', @{$args} ) : 'default';
+            my $run = $self->_run_streaming_command(
+                command => [ 'make', @{$args} ],
+                cwd     => $skill_path,
+                banner  => "Running make $target_name for " . basename($skill_path) . " from $makefile",
+            );
+            my ( $stdout, $stderr, $exit ) = @{$run}{qw(stdout stderr exit)};
             push @stdout, $stdout if defined $stdout && $stdout ne '';
             push @stderr, $stderr if defined $stderr && $stderr ne '';
             if ( $exit != 0 ) {
@@ -1746,7 +1828,6 @@ sub _install_skill_makefile {
         };
     };
     my $error = $@;
-    chdir $cwd or die "Unable to chdir back to $cwd after Makefile dependency install: $!";
     return { error => $error } if !$result;
     return $result;
 }

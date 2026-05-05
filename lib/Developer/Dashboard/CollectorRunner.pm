@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '3.39';
+our $VERSION = '3.41';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -408,7 +408,8 @@ sub stop_loop {
     return if !-f $pidfile;
     my $pid = _slurp($pidfile);
     chomp $pid;
-    if ( $pid && ( $self->_is_managed_loop( $pid, $name ) || $self->_state_confirms_managed_loop( $name, $pid ) ) ) {
+    my $same_namespace = $pid ? $self->_same_pid_namespace($pid) : 0;
+    if ( $pid && $same_namespace && ( $self->_is_managed_loop( $pid, $name ) || $self->_state_confirms_managed_loop( $name, $pid ) ) ) {
         kill 15, $pid;
         for ( 1 .. 20 ) {
             last if !kill 0, $pid;
@@ -416,6 +417,7 @@ sub stop_loop {
         }
         kill 9, $pid if kill 0, $pid;
     }
+    return if $pid && !$same_namespace;
     $self->_cleanup_loop_files($name);
     return $pid;
 }
@@ -437,10 +439,12 @@ sub running_loops {
         my $pid  = eval { _slurp( File::Spec->catfile( $root, $entry ) ) };
         next if !$pid;
         chomp $pid;
-        if ( $pid && ( $self->_is_managed_loop( $pid, $name ) || $self->_state_confirms_managed_loop( $name, $pid ) ) ) {
+        my $same_namespace = $pid ? $self->_same_pid_namespace($pid) : 0;
+        if ( $pid && $same_namespace && ( $self->_is_managed_loop( $pid, $name ) || $self->_state_confirms_managed_loop( $name, $pid ) ) ) {
             push @running, { name => $name, pid => $pid, state => scalar $self->loop_state($name) };
             next;
         }
+        next if $pid && !$same_namespace;
         $self->_cleanup_loop_files($name);
     }
     closedir $dh;
@@ -505,6 +509,7 @@ sub _process_title {
 sub _is_managed_loop {
     my ( $self, $pid, $name ) = @_;
     return 0 if !$pid || !kill 0, $pid;
+    return 0 if !$self->_same_pid_namespace($pid);
     my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_LOOP_NAME' );
     return 1 if defined $marker && $marker eq $name;
     my $title = $self->_read_process_title($pid);
@@ -582,6 +587,32 @@ sub _read_proc_file {
     open my $fh, '<', $file or return;
     local $/;
     return scalar <$fh>;
+}
+
+# _same_pid_namespace($pid)
+# Confirms whether a loop pid belongs to the current pid namespace so shared
+# home runtimes do not stop collector loops from sibling containers.
+# Input: process id integer.
+# Output: boolean true when the pid namespace matches or procfs metadata is unavailable.
+sub _same_pid_namespace {
+    my ( $self, $pid ) = @_;
+    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    my $current = $self->_pid_namespace_id($$);
+    my $target  = $self->_pid_namespace_id($pid);
+    return 1 if !defined $current || $current eq '';
+    return 1 if !defined $target  || $target eq '';
+    return $current eq $target ? 1 : 0;
+}
+
+# _pid_namespace_id($pid)
+# Reads the pid-namespace identity for one process from procfs when available.
+# Input: process id integer.
+# Output: namespace identity string or undef.
+sub _pid_namespace_id {
+    my ( $self, $pid ) = @_;
+    my $path = "/proc/$pid/ns/pid";
+    return if !-l $path;
+    return readlink $path;
 }
 
 # _write_loop_state($name, $data)

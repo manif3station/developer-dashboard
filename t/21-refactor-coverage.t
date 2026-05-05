@@ -1320,9 +1320,10 @@ like(
 is_deeply(
     Developer::Dashboard::CLI::Ticket::ticket_environment('DD-123'),
     {
-        TICKET_REF => 'DD-123',
-        B          => 'DD-123',
-        OB         => 'origin/DD-123',
+        TICKET_REF                      => 'DD-123',
+        B                               => 'DD-123',
+        OB                              => 'origin/DD-123',
+        DEVELOPER_DASHBOARD_TMUX_STATUS => 1,
     },
     'ticket_environment builds the expected tmux environment values',
 );
@@ -2688,15 +2689,15 @@ ok( !$manager->install( 'file://' . $no_dep_repo )->{error}, 'skill manager inst
     my $error;
     {
         no warnings 'redefine';
-        local *Developer::Dashboard::SkillManager::capture = sub (&) {
-            die "synthetic npm capture failure\n";
+        local *Developer::Dashboard::SkillManager::_run_streaming_command = sub {
+            die "synthetic npm streaming failure\n";
         };
         $error = eval { $manager->_install_skill_package_json($capture_fail_repo); 1 } ? '' : $@;
     }
     like(
         $error,
-        qr/synthetic npm capture failure/,
-        '_install_skill_package_json surfaces capture failures from the staged npm install workspace',
+        qr/synthetic npm streaming failure/,
+        '_install_skill_package_json surfaces streaming failures from the staged npm install workspace',
     );
     is(
         getcwd(),
@@ -4009,6 +4010,46 @@ sub _dies {
     ok( $progress->update( { task_id => 'missing-task', status => 'done' } ), 'CLI::Progress ignores unknown task ids without failing' );
     ok( $progress->update(), 'CLI::Progress ignores missing events without failing' );
     ok( $progress->finish, 'CLI::Progress finish succeeds after dynamic redraws' );
+}
+
+{
+    require Developer::Dashboard::CLI::Progress;
+    my $output = '';
+    open my $fh, '>', \$output or die "Unable to open scalar handle for progress output: $!";
+    my $progress = Developer::Dashboard::CLI::Progress->new(
+        title   => 'dashboard skills install progress',
+        tasks   => [
+            { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
+            { id => 'install_package_json', label => 'Install package.json dependencies' },
+        ],
+        stream  => $fh,
+        dynamic => 1,
+    );
+    $progress->update(
+        {
+            task_id      => 'install_brewfile',
+            status       => 'running',
+            label        => 'Install brewfile dependencies from /tmp/skill/brewfile',
+            detail_lines => [ map { sprintf 'brew line %02d', $_ } 1 .. 12 ],
+        }
+    );
+    like(
+        $output,
+        qr/-> Install brewfile dependencies from \/tmp\/skill\/brewfile\n(?:   .*?\n){10}\[ \] Install package\.json dependencies/s,
+        'CLI::Progress renders a ten-line rolling detail window beneath the active task without displacing later epic tasks',
+    );
+    unlike( $output, qr/brew line 01/, 'CLI::Progress drops detail lines older than the rolling ten-line window' );
+    like( $output, qr/brew line 12/, 'CLI::Progress keeps the newest detail lines in the rolling window' );
+    $progress->update(
+        {
+            task_id => 'install_brewfile',
+            status  => 'done',
+            label   => 'Install brewfile dependencies from /tmp/skill/brewfile',
+        }
+    );
+    my @boards = $output =~ /(dashboard skills install progress.*?)(?=dashboard skills install progress|\z)/sg;
+    my $last_board = $boards[-1] || '';
+    unlike( $last_board, qr/brew line 12/, 'CLI::Progress collapses active detail lines once the task completes successfully' );
 }
 
 {

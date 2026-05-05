@@ -1184,6 +1184,48 @@ END {
 }
 
 {
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub {
+        my ( undef, $pid ) = @_;
+        return $pid == 4455 ? 0 : 1;
+    };
+    ok(
+        !$manager->_proc_owned_by_current_user( { pid => 4455, uid => $< + 0, args => 'dashboard web: foreign:7890' } ),
+        '_proc_owned_by_current_user rejects foreign pid-namespace processes even when the uid matches',
+    );
+    ok(
+        $manager->_proc_owned_by_current_user( { pid => 4456, uid => $< + 0, args => 'dashboard web: local:7890' } ),
+        '_proc_owned_by_current_user keeps same-namespace processes visible to the current runtime',
+    );
+}
+
+{
+    my $foreign_pid = $$;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub {
+        my ( undef, $pid ) = @_;
+        return $pid == $foreign_pid ? 0 : 1;
+    };
+    local *Developer::Dashboard::RuntimeManager::_read_process_env_marker = sub { return '1' };
+    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub { return 'dashboard web: 0.0.0.0:7890' };
+    local *Developer::Dashboard::RuntimeManager::_find_web_processes = sub { return () };
+    $files->write( 'web_pid', "$foreign_pid\n" );
+    $manager->_write_web_state(
+        {
+            host       => '0.0.0.0',
+            pid        => $foreign_pid,
+            port       => 7890,
+            status     => 'running',
+            started_at => '2026-05-05T00:00:00Z',
+        }
+    );
+    ok(
+        !defined $manager->running_web,
+        'running_web ignores a saved managed web pid that belongs to a foreign pid namespace such as a sibling Docker container',
+    );
+}
+
+{
     my %forwarded;
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::stop_all = sub { return { web_pid => undef, collectors => [] } };

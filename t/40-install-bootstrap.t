@@ -595,6 +595,53 @@ SH
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
     _seed_fake_install_commands(
+        fake_bin         => $fake_bin,
+        log              => $log,
+        fake_brew_on_path => 0,
+    );
+
+    my $env_prefix = join ' ',
+      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+        { key => 'HOME',                   value => $home },
+        { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'SHELL',                  value => '/bin/zsh' },
+        { key => 'DD_INSTALL_OS_OVERRIDE', value => 'darwin' },
+      );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+    };
+    is( $exit >> 8, 0, 'install.sh bootstraps Homebrew on blank macOS hosts before installing brew packages' )
+      or diag $stdout . $stderr;
+
+    my @log_lines = _log_lines($log);
+    is_deeply(
+        \@log_lines,
+        [
+            'curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o /tmp/developer-dashboard-homebrew-install.sh',
+            '/bin/bash -c /tmp/developer-dashboard-homebrew-install.sh',
+            'brew install ' . join( ' ', @brew_packages ),
+            'brew --prefix perl',
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
+            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
+            'cpanm --no-wget --notest Developer::Dashboard',
+            'dashboard init',
+        ],
+        'install.sh downloads and runs the Homebrew bootstrap before the normal macOS package flow when brew is missing',
+    );
+    like(
+        $stdout,
+        qr/Bootstrapping Homebrew because brew is missing on this macOS host\./,
+        'install.sh explains the Homebrew bootstrap step on blank macOS hosts',
+    );
+}
+
+{
+    my $home = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log = File::Spec->catfile( $home, 'install.log' );
+    _seed_fake_install_commands(
         fake_bin => $fake_bin,
         log      => $log,
     );
@@ -930,6 +977,7 @@ sub _seed_fake_install_commands {
     my $fake_bin = $args{fake_bin};
     my $log      = $args{log};
     my $node_marker = File::Spec->catfile( $fake_bin, 'node-toolchain.marker' );
+    my $fake_brew_on_path = exists $args{fake_brew_on_path} ? $args{fake_brew_on_path} : 1;
     my $fake_perlbrew_on_path = exists $args{fake_perlbrew_on_path} ? $args{fake_perlbrew_on_path} : 1;
     my $fake_cpanm_installs_local_perlbrew = $args{fake_cpanm_installs_local_perlbrew} ? 1 : 0;
     make_path($fake_bin);
@@ -975,15 +1023,30 @@ fi
 exit 0
 SH
     );
-    _write_executable(
-        File::Spec->catfile( $fake_bin, 'brew' ),
-        <<"SH",
+    my $brew_script = <<"SH";
 #!/bin/sh
 printf '%s\\n' "brew \$*" >> "$log"
 if [ "\$1" = "install" ] && printf '%s ' "\$@" | grep -q ' node '; then
 grep -qx 'node' "$node_marker" 2>/dev/null || printf '%s\\n' 'node' >> "$node_marker"
 grep -qx 'npm' "$node_marker" 2>/dev/null || printf '%s\\n' 'npm' >> "$node_marker"
 grep -qx 'npx' "$node_marker" 2>/dev/null || printf '%s\\n' 'npx' >> "$node_marker"
+fi
+if [ "\$1" = "--prefix" ] && [ "\$2" = "perl" ]; then
+  printf '%s\\n' "\$HOME/.homebrew/opt/perl"
+fi
+exit 0
+SH
+    _write_executable(
+        File::Spec->catfile( $fake_bin, 'bash' ),
+        <<"SH",
+#!/bin/sh
+printf '%s\\n' "/bin/bash \$*" >> "$log"
+if [ "\$1" = "-c" ] && printf '%s' "\$2" | grep -q 'developer-dashboard-homebrew-install.sh'; then
+mkdir -p "\$HOME/.homebrew/bin" "\$HOME/.homebrew/opt/perl/bin"
+cat > "\$HOME/.homebrew/bin/brew" <<'EOS'
+$brew_script
+EOS
+chmod 0755 "\$HOME/.homebrew/bin/brew"
 fi
 exit 0
 SH
@@ -1123,23 +1186,39 @@ SH
 #!/bin/sh
 printf '%s\\n' "curl \$*" >> "$log"
 output=''
+stdout=0
 while [ \$# -gt 0 ]; do
 case "\$1" in
   -o)
     output=\$2
     shift 2
     ;;
+  -fsSL|-f|-s|-S|-L)
+    shift
+    ;;
   *)
+    url=\$1
     shift
     ;;
 esac
 done
-[ -n "\$output" ] || exit 1
+[ -n "\$url" ] || exit 1
+if [ -n "\$output" ]; then
 mkdir -p "\$(dirname "\$output")"
 printf '%s\\n' 'fake perlbrew tarball' > "\$output"
+else
+printf '%s\\n' '#!/bin/sh'
+printf '%s\\n' 'echo fake homebrew install'
+fi
 exit 0
 SH
     );
+    if ($fake_brew_on_path) {
+        _write_executable(
+            File::Spec->catfile( $fake_bin, 'brew' ),
+            $brew_script,
+        );
+    }
     _write_executable(
         File::Spec->catfile( $fake_bin, 'perl' ),
         <<"SH",

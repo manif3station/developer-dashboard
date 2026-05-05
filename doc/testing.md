@@ -139,10 +139,12 @@ interpreter that generated the shell fragment, which prevents macOS
 `JSON::XS` ABI mismatches when `/usr/bin/perl` and `~/perl5` belong to
 different Perl builds.
 That same shell-bootstrap coverage now also checks the tmux prompt split:
-when `TMUX` is present, generated bash, zsh, POSIX sh, and PowerShell
-bootstraps must wire tmux `status-right` through
-`dashboard ps1 --mode tmux-status` and suppress inline prompt indicators with
-`dashboard ps1 --no-indicators`.
+when the shell is inside a `dashboard ticket` tmux session that carries
+`DEVELOPER_DASHBOARD_TMUX_STATUS=1`, generated bash, zsh, POSIX sh, and
+PowerShell bootstraps must program a session-local two-line tmux status
+through `dashboard ps1 --mode tmux-status`, suppress inline prompt indicators
+with `dashboard ps1 --no-indicators`, and leave ordinary tmux sessions on the
+normal inline prompt path.
 Those shell-helper regression assertions also normalize printed path identity,
 so macOS `/var/...` versus `/private/var/...` aliases do not fail otherwise
 equivalent `pwd` or `which_dir` output checks.
@@ -188,6 +190,9 @@ The runtime-manager tests also cover:
 - saved-port listener fallback for `starman master` listener pids during
   `dashboard stop` and `dashboard restart`, so real serving pids remain under
   runtime control even after the original wrapper title disappears
+- Linux pid-namespace isolation for managed web and collector processes, so
+  host-side lifecycle checks ignore sibling Docker runtimes that happen to run
+  the same Developer Dashboard command names under another namespace
 - packaged fallback assertions that stub `_find_web_processes`, so ambient live dashboard processes on the host cannot contaminate the recorded-pid branch during source-tree, tarball, or PAUSE install runs
 - `dashboard stop` and `dashboard restart` lifecycle behavior
 
@@ -260,6 +265,10 @@ The web tests also cover the access model:
 - absence of accidental project-local `.developer-dashboard` creation when `dashboard restart` runs inside a git repo that has not opted into a local dashboard root
 - saved bookmark `Ajax file => ...` handlers through `/ajax/<file>?type=...`, including `dashboards/ajax/...` storage, direct process-backed streamed ajax execution for both `stdout` and `stderr`, and blank-env verification under the default deny policy
 - file-backed saved Ajax Perl wrappers with autoflushed `STDOUT` and `STDERR`, including a timing check that long-running `print` plus `sleep` handlers emit early chunks instead of buffering until exit
+- skill install progress rendering that keeps the epic checklist visible while
+  streaming a rolling ten-line detail window under the active manifest step,
+  with `CLI::Progress` coverage guarding both the rolling window and the
+  collapse-on-success redraw
 
 ## Blank Environment Integration
 

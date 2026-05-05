@@ -95,6 +95,7 @@ my $prompt = Developer::Dashboard::Prompt->new(
 );
 
 $indicators->sync_collectors( $config->collectors );
+$indicators->refresh_core_indicators( cwd => $cwd );
 _prime_ticket_ref_env();
 
 if ( $mode eq 'tmux-status' ) {

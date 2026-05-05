@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Progress;
 use strict;
 use warnings;
 
-our $VERSION = '3.39';
+our $VERSION = '3.41';
 
 # new(%args)
 # Constructs a terminal progress renderer for restart/stop lifecycle commands.
@@ -18,9 +18,10 @@ sub new {
         my $task = $_;
         my $id   = $task->{id} || die 'Progress task missing id';
         $id => {
-            id     => $id,
-            label  => $task->{label} || $id,
-            status => 'pending',
+            id           => $id,
+            label        => $task->{label} || $id,
+            status       => 'pending',
+            detail_lines => [],
         }
     } @{$tasks};
     my $stream = $args{stream} || \*STDERR;
@@ -32,6 +33,8 @@ sub new {
         dynamic  => $args{dynamic} ? 1 : 0,
         color    => $args{color} ? 1 : 0,
         rendered => 0,
+        max_detail_lines => $args{max_detail_lines} || 10,
+        last_rendered_line_count => 0,
     }, $class;
     $self->render;
     return $self;
@@ -60,6 +63,26 @@ sub update {
     my $task = $self->{tasks}{$id} || return 1;
     $task->{status} = $event->{status} if defined $event->{status} && $event->{status} ne '';
     $task->{label}  = $event->{label}  if defined $event->{label}  && $event->{label} ne '';
+    if ( exists $event->{detail_lines} ) {
+        my @detail_lines = ref( $event->{detail_lines} ) eq 'ARRAY' ? @{ $event->{detail_lines} } : ();
+        my $max = $self->{max_detail_lines} || 10;
+        if ( @detail_lines > $max ) {
+            @detail_lines = @detail_lines[ @detail_lines - $max .. $#detail_lines ];
+        }
+        $task->{detail_lines} = \@detail_lines;
+    }
+    elsif ( exists $event->{detail_line} ) {
+        my @detail_lines = @{ $task->{detail_lines} || [] };
+        push @detail_lines, $event->{detail_line};
+        my $max = $self->{max_detail_lines} || 10;
+        if ( @detail_lines > $max ) {
+            @detail_lines = @detail_lines[ @detail_lines - $max .. $#detail_lines ];
+        }
+        $task->{detail_lines} = \@detail_lines;
+    }
+    if ( $task->{status} eq 'done' ) {
+        $task->{detail_lines} = [];
+    }
     $self->render;
     return 1;
 }
@@ -85,13 +108,13 @@ sub render {
     my $stream = $self->{stream};
     my $board  = $self->render_text;
     if ( $self->{dynamic} && $self->{rendered} ) {
-        my $line_count = scalar( split /\n/, $board );
-        for ( 1 .. $line_count ) {
+        for ( 1 .. ( $self->{last_rendered_line_count} || 0 ) ) {
             print {$stream} "\e[1A\e[2K";
         }
     }
     print {$stream} $board;
     $self->{rendered} = 1;
+    $self->{last_rendered_line_count} = scalar grep { defined } split /\n/, $board;
     return 1;
 }
 
@@ -106,6 +129,9 @@ sub render_text {
         my $task   = $self->{tasks}{$id} || next;
         my $prefix = $self->_status_prefix( $task->{status} );
         push @lines, sprintf '%s %s', $self->_colorize( $prefix, $task->{status} ), $task->{label};
+        if ( $task->{status} ne 'done' && ref( $task->{detail_lines} ) eq 'ARRAY' ) {
+            push @lines, map { sprintf '   %s', $_ } @{ $task->{detail_lines} };
+        }
     }
     return join( "\n", @lines ) . "\n";
 }

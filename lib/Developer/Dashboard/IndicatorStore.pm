@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '3.39';
+our $VERSION = '3.41';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -189,16 +189,59 @@ sub sync_collectors {
         my $comparison_existing = ref($local_existing) eq 'HASH' && %{ $local_existing }
           ? $local_existing
           : $existing;
-        if ( !$self->_indicator_matches( $comparison_existing, $candidate ) ) {
-            my @preserve_existing = $healed_from_inherited ? () : qw(status updated_at stale);
+        my @preserve_existing = $healed_from_inherited ? () : qw(status updated_at stale);
+        if (
+            ( $effective_existing->{managed_by_collector} || 0 )
+            && ( $effective_existing->{collector_name} || '' ) eq $job->{name}
+            && !$self->_is_placeholder_missing_indicator($effective_existing)
+        ) {
             if (
-                defined $candidate->{icon_template}
-                && $candidate->{icon_template} ne ''
-                && defined $effective_existing->{icon_template}
-                && $effective_existing->{icon_template} eq $candidate->{icon_template}
+                exists $effective_existing->{configured_label}
+                && ( defined $effective_existing->{configured_label} ? $effective_existing->{configured_label} : '' )
+                    eq $candidate->{configured_label}
+                && ( defined $effective_existing->{label} ? $effective_existing->{label} : '' ) ne $candidate->{configured_label}
             ) {
-                push @preserve_existing, qw(icon icon_template);
+                push @preserve_existing, 'label';
             }
+            if (
+                exists $effective_existing->{configured_alias}
+                && ( defined $effective_existing->{configured_alias} ? $effective_existing->{configured_alias} : '' )
+                    eq $candidate->{configured_alias}
+                && ( defined $effective_existing->{alias} ? $effective_existing->{alias} : '' ) ne $candidate->{configured_alias}
+            ) {
+                push @preserve_existing, 'alias';
+            }
+            if (
+                exists $effective_existing->{configured_page_status_icon}
+                && ( defined $effective_existing->{configured_page_status_icon} ? $effective_existing->{configured_page_status_icon} : '' )
+                    eq $candidate->{configured_page_status_icon}
+                && ( defined $effective_existing->{page_status_icon} ? $effective_existing->{page_status_icon} : '' ) ne $candidate->{configured_page_status_icon}
+            ) {
+                push @preserve_existing, 'page_status_icon';
+            }
+            if (
+                exists $effective_existing->{configured_icon}
+                && ( defined $effective_existing->{configured_icon} ? $effective_existing->{configured_icon} : '' )
+                    eq $candidate->{configured_icon}
+                && ( defined $effective_existing->{icon} ? $effective_existing->{icon} : '' ) ne $candidate->{configured_icon}
+            ) {
+                push @preserve_existing, 'icon';
+            }
+        }
+        if (
+            defined $candidate->{icon_template}
+            && $candidate->{icon_template} ne ''
+            && defined $effective_existing->{icon_template}
+            && $effective_existing->{icon_template} eq $candidate->{icon_template}
+        ) {
+            push @preserve_existing, qw(icon icon_template);
+        }
+        my %comparison_candidate = %{$candidate};
+        for my $field (@preserve_existing) {
+            next if !exists $comparison_existing->{$field};
+            $comparison_candidate{$field} = $comparison_existing->{$field};
+        }
+        if ( !$self->_indicator_matches( $comparison_existing, \%comparison_candidate ) ) {
             push @written, $self->set_indicator(
                 $candidate->{name},
                 %{$candidate},
@@ -247,6 +290,11 @@ sub collector_indicator_candidate {
         %{$indicator},
         name                 => $name,
         label                => $label,
+        configured_label     => $label,
+        configured_alias     => exists $indicator->{alias} ? ( defined $indicator->{alias} ? $indicator->{alias} : '' ) : '',
+        configured_page_status_icon => exists $indicator->{page_status_icon}
+          ? ( defined $indicator->{page_status_icon} ? $indicator->{page_status_icon} : '' )
+          : '',
         status               => exists $opts{status}
           ? $opts{status}
           : defined $existing->{status} && $existing->{status} ne ''
@@ -271,10 +319,14 @@ sub collector_indicator_candidate {
             $preserved_icon = $existing->{icon};
         }
         $candidate{icon_template} = $indicator->{icon};
+        $candidate{configured_icon} = $indicator->{icon};
         $candidate{icon}          = $preserved_icon;
     }
     else {
         delete $candidate{icon_template};
+        $candidate{configured_icon} = exists $indicator->{icon}
+          ? ( defined $indicator->{icon} ? $indicator->{icon} : '' )
+          : '';
         if ( exists $indicator->{icon} ) {
             $candidate{icon} = defined $indicator->{icon} ? $indicator->{icon} : '';
         }
@@ -465,7 +517,7 @@ sub _page_status_icon {
 sub _indicator_matches {
     my ( $self, $existing, $candidate ) = @_;
     return 0 if ref($existing) ne 'HASH' || ref($candidate) ne 'HASH';
-    for my $key ( qw(name label alias icon icon_template status priority prompt_visible page_status_icon collector_name managed_by_collector) ) {
+    for my $key ( qw(name label alias icon icon_template configured_label configured_alias configured_icon configured_page_status_icon status priority prompt_visible page_status_icon collector_name managed_by_collector) ) {
         my $left  = exists $existing->{$key}  ? $existing->{$key}  : undef;
         my $right = exists $candidate->{$key} ? $candidate->{$key} : undef;
         $left  = '' if !defined $left;

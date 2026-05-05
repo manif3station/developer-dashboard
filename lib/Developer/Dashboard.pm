@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.40';
+our $VERSION = '3.41';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.40
+3.41
 
 =head1 INTRODUCTION
 
@@ -375,10 +375,16 @@ This matters because prompt and browser status should be cheap to render.
 Instead of re-running a Docker check, VPN probe, or project health command
 every time the prompt draws, a collector prepares the answer once and the rest
 of the system reads the cached result.
-When the generated shell bootstrap runs inside tmux, those prompt indicators
-move out of the inline shell prompt and into tmux C<status-right> so the
-cursor line stays clean while the indicator strip keeps updating between
-prompts. Outside tmux, the same indicators stay in the normal shell prompt.
+When the generated shell bootstrap runs inside a C<dashboard ticket> tmux
+session, those prompt indicators move out of the inline shell prompt and into
+that session's tmux status area so the cursor line stays clean while the
+indicator strip keeps updating between prompts. Ticket sessions get a
+two-line tmux status: a full-width indicator line plus a tmux context line.
+Ordinary tmux sessions keep the normal inline prompt. The ticket workflow
+seeds a dedicated C<DEVELOPER_DASHBOARD_TMUX_STATUS=1> session flag for that
+behavior, and Developer Dashboard updates tmux through session-local runtime
+commands instead of editing any user tmux config file or changing unrelated
+tmux sessions on the same server.
 Configured collector indicators now prefer the configured icon in both places,
 and when a collector is renamed the old managed indicator is cleaned up
 automatically so the prompt and top-right browser strip do not show both the
@@ -1110,6 +1116,10 @@ before doing any system changes, prints that full checklist once and then only
 emits step transitions so the active pointer does not appear duplicated in
 interactive terminals, explains that any upcoming C<sudo> prompt is asking for
 the user's operating-system account password only for package-manager work,
+bootstraps Homebrew itself on blank macOS hosts before it tries to read the
+repo-root F<brewfile>, updates C<PATH> from the discovered Homebrew prefix so
+the same run can immediately install the listed macOS packages without asking
+the operator to reopen the shell,
 bootstraps user-space Perl
 tooling under F<~/perl5> with
 C<cpanm --no-wget --notest --local-lib-contained "$HOME/perl5" local::lib App::cpanminus>,
@@ -1160,9 +1170,17 @@ exists, and then activates that PowerShell bootstrap in the current shell when
 possible. Future PowerShell sessions do not rely on installer-only helper
 functions while loading that generated profile block. The generated bash, zsh,
 POSIX sh, and PowerShell shell bootstraps all follow the same tmux-aware
-prompt rule: when the shell starts inside tmux, indicator glyphs move to tmux
-C<status-right> through C<dashboard ps1 --mode tmux-status> and the inline
-prompt suppresses indicator fragments with C<dashboard ps1 --no-indicators>.
+prompt rule: when the shell starts inside a C<dashboard ticket> tmux session
+that carries C<DEVELOPER_DASHBOARD_TMUX_STATUS=1>, indicator glyphs move to
+that session's tmux status area through C<dashboard ps1 --mode tmux-status>.
+Developer Dashboard programs a two-line tmux status for that session only:
+the first line is dedicated to the live indicator strip plus trailing
+date-time, the second line carries tmux session and window context, and the
+inline prompt suppresses indicator fragments with
+C<dashboard ps1 --no-indicators>. Ordinary tmux sessions keep the normal
+inline prompt. Developer Dashboard does not edit the user's tmux config file
+to provide that behavior, and it uses session-local tmux options instead of
+changing the whole tmux server.
 The Windows bootstrap
 does not try to self-install C<App::cpanminus> while the downloaded
 C<cpanm> bootstrap script is still running, which avoids the Windows file
@@ -2037,7 +2055,11 @@ pid and an accepting listener on the requested port. Restart now also reuses
 the saved listener port to recover the real serving pid when the web process
 has renamed itself into the underlying C<starman master> form, so container
 restarts still own and replace the active listener instead of losing control
-after startup
+after startup. On Linux hosts that are also running Developer Dashboard inside
+Docker containers, managed stop and restart paths now reject sibling runtime
+pids that live in a different Linux pid namespace, so a host-side restart does
+not accidentally kill or adopt a container-owned web listener or collector
+loop
 
 =item *
 
@@ -2365,6 +2387,11 @@ from that root F<ddfile> still report C<installed> even when the skill ships no
 F<.env> C<VERSION> metadata. If the root F<ddfile> does not exist yet or has no
 installable entries, the command returns an explicit error telling the user to
 install a skill first or pass a skill source.
+Long-running dependency manifests now show a Docker-build-style live detail
+window under the active epic task. That rolling window keeps the newest ten
+detail lines from tools such as C<brew>, C<npx npm install>, C<cpanm>, and
+C<make>, collapses automatically when the task completes, and leaves the full
+epic checklist visible while the active manifest streams.
 Developer Dashboard does not merge the skill's C<cli/>, C<dashboards/>,
 C<config/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>, C<dnfile>,
 C<wingetfile>, C<brewfile>, C<Makefile>, C<package.json>, C<cpanfile>,

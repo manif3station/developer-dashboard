@@ -372,6 +372,89 @@ subtest 'CLI::Progress renders and updates task boards' => sub {
     );
     $plain_progress->finish;
     like( $plain, qr/dashboard progress/, 'default title is used when none is supplied' );
+
+    ok( $plain_progress->update('not-a-hash'), 'update ignores non-hash payloads' );
+    ok( $plain_progress->update( {} ), 'update ignores payloads without a task id' );
+    ok( $plain_progress->update( { task_id => 'missing', status => 'done' } ), 'update ignores unknown task ids' );
+    ok( $plain_progress->update( { task_id => 'only', detail_lines => 'not-an-array', status => 'running' } ), 'update tolerates non-array detail_lines by clearing the detail window' );
+    ok( $plain_progress->update( { task_id => 'only', label => '', status => '' } ), 'update ignores empty label and status replacements' );
+    ok( $plain_progress->update( { task_id => 'only', status => undef } ), 'update ignores undefined statuses' );
+    is( $plain_progress->{tasks}{only}{label}, 'only', 'empty labels do not replace the existing label' );
+    is( $plain_progress->{tasks}{only}{status}, 'running', 'empty statuses do not replace the existing status' );
+    is_deeply( $plain_progress->{tasks}{only}{detail_lines}, [], 'non-array detail_lines clear the detail window safely' );
+    is( $plain_progress->_colorize( '->', 'running' ), '->', 'colorize leaves markers plain when color output is disabled' );
+
+    my $invalid_tasks_error = eval {
+        Developer::Dashboard::CLI::Progress->new(
+            tasks  => 'not-an-array',
+            stream => $plain_stream,
+        );
+        1;
+    } ? '' : $@;
+    like( $invalid_tasks_error, qr/Progress tasks must be an array reference/, 'new rejects non-array task lists' );
+
+    my $missing_id_error = eval {
+        Developer::Dashboard::CLI::Progress->new(
+            tasks  => [ { label => 'broken task' } ],
+            stream => $plain_stream,
+        );
+        1;
+    } ? '' : $@;
+    like( $missing_id_error, qr/Progress task missing id/, 'new rejects task rows without ids' );
+
+    my $sparse_progress = Developer::Dashboard::CLI::Progress->new(
+        title  => 'sparse',
+        tasks  => [
+            { id => 'first',  label => 'First task' },
+            { id => 'second', label => 'Second task' },
+        ],
+        stream => $plain_stream,
+    );
+    delete $sparse_progress->{tasks}{second};
+    unlike( $sparse_progress->render_text, qr/Second task/, 'render_text skips ordered task ids that no longer exist in the lookup table' );
+    $sparse_progress->{tasks}{first}{detail_lines} = 'not-an-array';
+    $sparse_progress->{tasks}{first}{status} = 'running';
+    unlike( $sparse_progress->render_text, qr/^\s{3}/m, 'render_text suppresses detail rendering when detail_lines is not an array reference' );
+
+    my $fallback_progress = Developer::Dashboard::CLI::Progress->new(
+        title            => 'fallback',
+        tasks            => [ { id => 'only', label => 'Only task' } ],
+        stream           => $plain_stream,
+        max_detail_lines => 0,
+    );
+    for my $idx ( 1 .. 12 ) {
+        $fallback_progress->update( { task_id => 'only', status => 'running', detail_line => "line $idx" } );
+    }
+    like( $fallback_progress->render_text, qr/line 3/, 'falsey max_detail_lines falls back to the ten-line rolling window' );
+    unlike( $fallback_progress->render_text, qr/line 2/, 'fallback rolling window still drops lines older than the newest ten entries' );
+
+    my $replace_progress = Developer::Dashboard::CLI::Progress->new(
+        title            => 'replace',
+        tasks            => [ { id => 'only', label => 'Only task' } ],
+        stream           => $plain_stream,
+        max_detail_lines => 3,
+    );
+    ok(
+        $replace_progress->update(
+            {
+                task_id      => 'only',
+                status       => 'running',
+                detail_lines => [ map { "replace $_" } 1 .. 5 ],
+            }
+        ),
+        'update accepts whole detail window replacements',
+    );
+    like( $replace_progress->render_text, qr/replace 3/, 'whole-window detail replacement keeps the newest entries when the supplied list is longer than the configured max' );
+    unlike( $replace_progress->render_text, qr/replace 2/, 'whole-window detail replacement drops entries older than the configured max' );
+
+    my $dynamic_unrendered = Developer::Dashboard::CLI::Progress->new(
+        title   => 'dynamic',
+        tasks   => [ { id => 'only', label => 'Only task' } ],
+        stream  => $plain_stream,
+        dynamic => 1,
+    );
+    $dynamic_unrendered->{rendered} = 0;
+    ok( $dynamic_unrendered->finish, 'finish also returns early when a dynamic board has not rendered yet' );
 };
 
 subtest 'CLI::Complete covers tmux session and collector-name providers' => sub {
@@ -985,7 +1068,7 @@ subtest 'SkillManager closes the remaining direct error-path coverage branches' 
     local *Developer::Dashboard::SkillManager::_is_windows = sub { 1 };
     my $winget_ok = $manager->_install_skill_wingetfile($winget_root);
     ok( $winget_ok->{success}, '_install_skill_wingetfile succeeds on Windows when winget exits cleanly' );
-    like( $winget_ok->{stdout}, qr/Installing winget packages.*Git\.Git.*winget-ok/s, '_install_skill_wingetfile returns combined stdout including the progress line and winget output' );
+    is( $winget_ok->{stdout}, "winget-ok\n", '_install_skill_wingetfile returns streamed winget stdout without folding the progress banner into the result payload' );
     like( $winget_ok->{stderr}, qr/winget-warn/, '_install_skill_wingetfile returns combined stderr from winget' );
 
     open my $winget_fail_fh, '>', $winget_bin or die $!;
@@ -1011,10 +1094,30 @@ subtest 'SkillManager closes the remaining direct error-path coverage branches' 
         no warnings 'redefine';
         local *Developer::Dashboard::SkillManager::_shared_perl_root = sub { return File::Spec->catdir( $cpan_root, 'perl5-shared' ) };
         local *Developer::Dashboard::SkillManager::_ensure_perl_root = sub { return $_[1] };
-        local *Developer::Dashboard::SkillManager::capture = sub (&) { die "cpan boom\n" };
+        local *Developer::Dashboard::SkillManager::_run_streaming_command = sub {
+            return {
+                stdout => '',
+                stderr => "cpan boom\n",
+                exit   => 1,
+            };
+        };
         eval { $manager->_install_skill_cpanfile($cpan_root); 1 } ? '' : $@;
     };
-    like( $cpan_error, qr/cpan boom/, '_install_skill_cpanfile rethrows capture failures' );
+    is( $cpan_error, '', '_install_skill_cpanfile reports streaming failures as structured errors instead of throwing raw exceptions' );
+    my $cpan_failure = do {
+        no warnings 'redefine';
+        local *Developer::Dashboard::SkillManager::_shared_perl_root = sub { return File::Spec->catdir( $cpan_root, 'perl5-shared' ) };
+        local *Developer::Dashboard::SkillManager::_ensure_perl_root = sub { return $_[1] };
+        local *Developer::Dashboard::SkillManager::_run_streaming_command = sub {
+            return {
+                stdout => '',
+                stderr => "cpan boom\n",
+                exit   => 1,
+            };
+        };
+        $manager->_install_skill_cpanfile($cpan_root);
+    };
+    like( $cpan_failure->{error}, qr/cpan boom/, '_install_skill_cpanfile surfaces the streamed cpanm failure text in the structured error result' );
     is( Cwd::getcwd(), $original_cwd, '_install_skill_cpanfile restores the original cwd after an in-flight failure' );
 
     my $cpan_local_root = tempdir( CLEANUP => 1 );
@@ -1026,10 +1129,30 @@ subtest 'SkillManager closes the remaining direct error-path coverage branches' 
         no warnings 'redefine';
         local *Developer::Dashboard::SkillManager::_skill_local_perl_root = sub { return File::Spec->catdir( $cpan_local_root, 'perl5-local' ) };
         local *Developer::Dashboard::SkillManager::_ensure_perl_root = sub { return $_[1] };
-        local *Developer::Dashboard::SkillManager::capture = sub (&) { die "cpan local boom\n" };
+        local *Developer::Dashboard::SkillManager::_run_streaming_command = sub {
+            return {
+                stdout => '',
+                stderr => "cpan local boom\n",
+                exit   => 1,
+            };
+        };
         eval { $manager->_install_skill_cpanfile_local($cpan_local_root); 1 } ? '' : $@;
     };
-    like( $cpan_local_error, qr/cpan local boom/, '_install_skill_cpanfile_local rethrows capture failures' );
+    is( $cpan_local_error, '', '_install_skill_cpanfile_local reports streaming failures as structured errors instead of throwing raw exceptions' );
+    my $cpan_local_failure = do {
+        no warnings 'redefine';
+        local *Developer::Dashboard::SkillManager::_skill_local_perl_root = sub { return File::Spec->catdir( $cpan_local_root, 'perl5-local' ) };
+        local *Developer::Dashboard::SkillManager::_ensure_perl_root = sub { return $_[1] };
+        local *Developer::Dashboard::SkillManager::_run_streaming_command = sub {
+            return {
+                stdout => '',
+                stderr => "cpan local boom\n",
+                exit   => 1,
+            };
+        };
+        $manager->_install_skill_cpanfile_local($cpan_local_root);
+    };
+    like( $cpan_local_failure->{error}, qr/cpan local boom/, '_install_skill_cpanfile_local surfaces the streamed cpanm failure text in the structured error result' );
     is( Cwd::getcwd(), $original_cwd, '_install_skill_cpanfile_local restores the original cwd after an in-flight failure' );
 };
 

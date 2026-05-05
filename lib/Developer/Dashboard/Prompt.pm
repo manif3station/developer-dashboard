@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '3.39';
+our $VERSION = '3.41';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -39,6 +39,13 @@ sub render {
     my $color = exists $args{color} ? $args{color} : 0;
     my $max_age = defined $args{max_age} ? $args{max_age} : 300;
     my $no_indicators = $args{no_indicators} ? 1 : 0;
+    $no_indicators = 1
+      if !$no_indicators
+      && defined $ENV{TMUX}
+      && $ENV{TMUX} ne ''
+      && defined $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS}
+      && $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} ne ''
+      && $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} ne '0';
     my $project = $self->{paths}->project_root_for($cwd);
     my $home = $self->{paths}->home;
     $cwd =~ s/^\Q$home\E/~/;
@@ -81,8 +88,7 @@ sub render_tmux_status {
         max_age => $max_age,
         mode    => 'compact',
     );
-    my $ticket = defined $ENV{TICKET_REF} ? $ENV{TICKET_REF} : '';
-    push @parts, "🎫:$ticket" if defined $ticket && $ticket ne '';
+    push @parts, "🕒" . $self->_timestamp;
     return join ' ', @parts;
 }
 

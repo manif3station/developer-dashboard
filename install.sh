@@ -663,11 +663,42 @@ install_debian_node_packages() {
 }
 
 install_brew_packages() {
-    require_command brew
+    ensure_homebrew
     packages=$(manifest_packages "$BREWFILE" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
     [ -n "$packages" ] || return 0
     say "Installing Homebrew packages from $BREWFILE: $packages"
     brew install $packages
+}
+
+homebrew_bin_candidates() {
+    printf '%s\n' \
+        "$HOME/.homebrew/bin" \
+        '/opt/homebrew/bin' \
+        '/usr/local/bin'
+}
+
+ensure_homebrew() {
+    if command -v brew >/dev/null 2>&1; then
+        return 0
+    fi
+
+    say "Bootstrapping Homebrew because brew is missing on this macOS host."
+    bootstrap_script="${TMPDIR:-/tmp}/developer-dashboard-homebrew-install.sh"
+    download_to_path 'https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh' "$bootstrap_script"
+    chmod 0755 "$bootstrap_script" ||
+        fail "Unable to chmod Homebrew bootstrap script $bootstrap_script"
+    NONINTERACTIVE=1 bash -c "$bootstrap_script" ||
+        fail "Unable to bootstrap Homebrew automatically on this macOS host"
+
+    for candidate in $(homebrew_bin_candidates); do
+        if [ -x "$candidate/brew" ]; then
+            PATH="$candidate:$PATH"
+            export PATH
+            break
+        fi
+    done
+
+    require_command brew
 }
 
 install_apk_packages() {

@@ -1466,9 +1466,17 @@ sub _shell_prompt_bootstrap {
         return <<'BASH';
 
 if [ -n "$TMUX" ]; then
-  tmux set-option -gq status-interval 2 >/dev/null 2>&1
-  tmux set-option -gq status-right "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status)" >/dev/null 2>&1
-  export PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact --no-indicators)'
+  if [ "${DEVELOPER_DASHBOARD_TMUX_STATUS:-0}" = "1" ]; then
+    tmux set-option -q status 2 >/dev/null 2>&1
+    tmux set-option -q status-interval 2 >/dev/null 2>&1
+    tmux set-option -q status-left-length 0 >/dev/null 2>&1
+    tmux set-option -q status-right-length 0 >/dev/null 2>&1
+    tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status)" >/dev/null 2>&1
+    tmux set-option -q status-format[1] "#S #{window_index}:#{window_name} #{?window_zoomed_flag,[zoom],} %Y-%m-%d %H:%M:%S" >/dev/null 2>&1
+    export PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact --no-indicators)'
+  else
+    export PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact)'
+  fi
 else
   export PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact)'
 fi
@@ -1479,9 +1487,13 @@ BASH
 
 autoload -Uz add-zsh-hook
 _dd_update_prompt() {
-  if [[ -n "$TMUX" ]]; then
-    tmux set-option -gq status-interval 2 >/dev/null 2>&1
-    tmux set-option -gq status-right "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status)" >/dev/null 2>&1
+  if [[ -n "$TMUX" && "${DEVELOPER_DASHBOARD_TMUX_STATUS:-0}" = "1" ]]; then
+    tmux set-option -q status 2 >/dev/null 2>&1
+    tmux set-option -q status-interval 2 >/dev/null 2>&1
+    tmux set-option -q status-left-length 0 >/dev/null 2>&1
+    tmux set-option -q status-right-length 0 >/dev/null 2>&1
+    tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status)" >/dev/null 2>&1
+    tmux set-option -q status-format[1] "#S #{window_index}:#{window_name} #{?window_zoomed_flag,[zoom],} %Y-%m-%d %H:%M:%S" >/dev/null 2>&1
     PS1="$(__DASHBOARD_CMD__ ps1 --jobs ${#jobstates} --mode compact --no-indicators)"
   else
     PS1="$(__DASHBOARD_CMD__ ps1 --jobs ${#jobstates} --mode compact)"
@@ -1495,15 +1507,19 @@ ZSH
         return <<'SH';
 
 _dd_prompt_command() {
-  if [ -n "$TMUX" ]; then
+  if [ -n "$TMUX" ] && [ "${DEVELOPER_DASHBOARD_TMUX_STATUS:-0}" = "1" ]; then
     __DASHBOARD_CMD__ ps1 --mode compact --no-indicators
   else
     __DASHBOARD_CMD__ ps1 --mode compact
   fi
 }
-if [ -n "$TMUX" ]; then
-  tmux set-option -gq status-interval 2 >/dev/null 2>&1
-  tmux set-option -gq status-right "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status)" >/dev/null 2>&1
+if [ -n "$TMUX" ] && [ "${DEVELOPER_DASHBOARD_TMUX_STATUS:-0}" = "1" ]; then
+  tmux set-option -q status 2 >/dev/null 2>&1
+  tmux set-option -q status-interval 2 >/dev/null 2>&1
+  tmux set-option -q status-left-length 0 >/dev/null 2>&1
+  tmux set-option -q status-right-length 0 >/dev/null 2>&1
+  tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status)" >/dev/null 2>&1
+  tmux set-option -q status-format[1] "#S #{window_index}:#{window_name} #{?window_zoomed_flag,[zoom],} %Y-%m-%d %H:%M:%S" >/dev/null 2>&1
 fi
 PS1='$(_dd_prompt_command)'
 export PS1
@@ -1513,12 +1529,16 @@ SH
         return <<'POWERSHELL';
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-if ($env:TMUX) {
-  & tmux set-option -gq status-interval 2 | Out-Null
-  & tmux set-option -gq status-right "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status)" | Out-Null
+if ($env:TMUX -and $env:DEVELOPER_DASHBOARD_TMUX_STATUS -eq '1') {
+  & tmux set-option -q status 2 | Out-Null
+  & tmux set-option -q status-interval 2 | Out-Null
+  & tmux set-option -q status-left-length 0 | Out-Null
+  & tmux set-option -q status-right-length 0 | Out-Null
+  & tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status)" | Out-Null
+  & tmux set-option -q status-format[1] "#S #{window_index}:#{window_name} #{?window_zoomed_flag,[zoom],} %Y-%m-%d %H:%M:%S" | Out-Null
 }
 function prompt {
-  if ($env:TMUX) {
+  if ($env:TMUX -and $env:DEVELOPER_DASHBOARD_TMUX_STATUS -eq '1') {
     $ddPrompt = & __DASHBOARD_CMD__ ps1 --mode compact --no-indicators
   } else {
     $ddPrompt = & __DASHBOARD_CMD__ ps1 --mode compact

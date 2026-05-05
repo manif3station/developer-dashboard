@@ -47,11 +47,29 @@ my @items = $indicators->list_indicators;
 is(scalar @items, 1, 'one indicator listed');
 is($items[0]{name}, 'docker', 'indicator stored');
 
+local $ENV{TMUX} = '';
 my $rendered = $prompt->render(jobs => 2, cwd => '/tmp/project');
 like($rendered, qr/^\(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\)/, 'prompt renders legacy timestamp prefix');
 like($rendered, qr/✅🐳.*\[\/tmp\/project\]/, 'compact prompt includes status glyph plus indicator icon before the bracketed path');
 like($rendered, qr/\(2 jobs\)/, 'job count included');
 like($rendered, qr/\n> \z/, 'prompt leaves the typing cursor marker on the next line');
+my $tmux_status = $prompt->render_tmux_status;
+like($tmux_status, qr/✅🐳/, 'tmux status rendering still includes prompt-visible indicators');
+like($tmux_status, qr/🕒\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\z/, 'tmux status rendering now restores the trailing date-time segment');
+unlike($tmux_status, qr/🎫:/, 'tmux status rendering leaves ticket context to the prompt or tmux session line instead of duplicating it in the indicator strip');
+{
+    local $ENV{TMUX} = '';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = 1;
+    my $non_tmux_flag_prompt = $prompt->render(jobs => 0, cwd => '/tmp/project');
+    like($non_tmux_flag_prompt, qr/✅🐳/, 'ticket-session tmux status flag alone does not suppress indicators outside tmux');
+}
+{
+    local $ENV{TMUX} = 'tmux-session';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = 1;
+    my $tmux_prompt = $prompt->render(jobs => 0, cwd => '/tmp/project');
+    unlike($tmux_prompt, qr/✅🐳/, 'inline prompt suppresses indicators automatically when tmux owns the status line');
+    like($tmux_prompt, qr/\[\/tmp\/project\]/, 'inline prompt still includes the bracketed path when tmux owns the status line');
+}
 
 $indicators->set_indicator(
     'stale',
