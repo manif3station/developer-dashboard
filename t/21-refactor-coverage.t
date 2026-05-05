@@ -622,6 +622,33 @@ ok(
     'SeedSync file_matches_content_md5 confirms the staged helper content matches the shipped helper body',
 );
 {
+    my $legacy_flat_core = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', '_dashboard-core' );
+    my $legacy_flat_shell = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'shell' );
+    open my $legacy_core_fh, '>:raw', $legacy_flat_core or die "Unable to write $legacy_flat_core: $!";
+    print {$legacy_core_fh} Developer::Dashboard::InternalCLI::_managed_helper_content('_dashboard-core');
+    close $legacy_core_fh or die "Unable to close $legacy_flat_core: $!";
+    open my $legacy_shell_fh, '>:raw', $legacy_flat_shell or die "Unable to write $legacy_flat_shell: $!";
+    print {$legacy_shell_fh} Developer::Dashboard::InternalCLI::_managed_helper_content('shell');
+    close $legacy_shell_fh or die "Unable to close $legacy_flat_shell: $!";
+
+    my $cleanup_result = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
+    is_deeply( $cleanup_result, [], 'ensure_helpers can rerun purely as a legacy flat-helper cleanup pass' );
+    ok( !-e $legacy_flat_core, 'ensure_helpers removes dashboard-managed legacy flat _dashboard-core files from the cli root' );
+    ok( !-e $legacy_flat_shell, 'ensure_helpers removes dashboard-managed legacy flat helper wrappers from the cli root' );
+}
+{
+    my $shell_helper = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'dd', 'shell' );
+    my ( $stdout, $stderr, $exit ) = capture {
+        system $^X, $shell_helper, 'bash';
+        return $? >> 8;
+    };
+    is( $exit, 0, 'the staged shell helper executes successfully from the managed dd helper root' );
+    is( $stderr, '', 'the staged shell helper writes no stderr for shell bash output' );
+    like( $stdout, qr/_dd_tmux_status_active/, 'the staged shell helper bootstrap includes the ticket tmux-status detection helper' );
+    like( $stdout, qr/status-format\[0\].*tmux-status-top --width #\{client_width\}/s, 'the staged shell helper bootstrap includes the tmux ticket status format wiring' );
+    like( $stdout, qr/ps1 --jobs \\j --mode compact --no-indicators/, 'the staged shell helper bootstrap suppresses prompt indicators when tmux owns the status line' );
+}
+{
     my $preserve_home = tempdir( CLEANUP => 1 );
     my $preserve_paths = Developer::Dashboard::PathRegistry->new( home => $preserve_home );
     my $preserve_cli_root = File::Spec->catdir( $preserve_home, '.developer-dashboard', 'cli' );

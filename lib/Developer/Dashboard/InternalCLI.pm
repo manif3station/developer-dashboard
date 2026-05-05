@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '3.42';
+our $VERSION = '3.43';
 
 use File::Basename qw(dirname);
 use File::Spec;
@@ -108,6 +108,7 @@ sub ensure_helpers {
         paths => $paths,
         name  => 'skill',
     );
+    _remove_legacy_managed_flat_helpers( paths => $paths );
 
     return \@written;
 }
@@ -179,6 +180,29 @@ sub _remove_retired_managed_helper {
     return 0 if !_is_dashboard_managed_helper( $content, $name );
     unlink $target or die "Unable to remove retired helper $target: $!";
     return 1;
+}
+
+# _remove_legacy_managed_flat_helpers(%args)
+# Removes dashboard-managed legacy helper files that used to live directly under
+# the home runtime cli root before helpers moved under cli/dd/.
+# Input: path registry object.
+# Output: array reference of removed legacy helper path strings.
+sub _remove_legacy_managed_flat_helpers {
+    my (%args) = @_;
+    my $paths = $args{paths} || die 'Missing paths registry';
+    my $parent = _helper_parent_root($paths);
+    my @removed;
+    for my $name ( '_dashboard-core', helper_names() ) {
+        my $target = File::Spec->catfile( $parent, $name );
+        next if !-e $target || !-f $target;
+        open my $fh, '<:raw', $target or die "Unable to read $target: $!";
+        my $content = do { local $/; <$fh> };
+        close $fh or die "Unable to close $target: $!";
+        next if !_is_dashboard_managed_helper( $content, $name );
+        unlink $target or die "Unable to remove legacy managed helper $target: $!";
+        push @removed, $target;
+    }
+    return \@removed;
 }
 
 # _managed_helper_content($name)

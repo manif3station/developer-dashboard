@@ -29,6 +29,7 @@ The integration run covers these command families:
 - installation: `cpanm --notest <tarball>`
 - bootstrap: `dashboard init`, user-provided `dashboard update`
 - help and prompt: `dashboard`, `dashboard help`, `dashboard ps1`, `dashboard shell bash`, `dashboard shell ps`
+- helper staging: rerun a built-in helper command after install and verify the managed helper runtime converges on `~/.developer-dashboard/cli/dd/`; dashboard-managed flat helper files left directly under `~/.developer-dashboard/cli/` by older releases should be removed automatically on that staging pass
 - paths: `dashboard paths`, `dashboard path list`, `dashboard path resolve`, `dashboard path project-root`
 - encoding: `dashboard encode`, `dashboard decode`
 - indicators: `dashboard indicator set`, `dashboard indicator list`, `dashboard indicator refresh-core`
@@ -166,6 +167,7 @@ The integration run creates:
 - `install.sh` prints a full progress board before it changes the system, then emits only per-step transitions instead of redrawing the whole board, explains any upcoming `sudo` prompt as an operating-system package-manager password request before the prompt appears, suppresses perlbrew's generic `~/.profile` advice, updates the chosen rc file itself with the required `PERLBREW_HOME` and rescue-Perl `PATH` lines without sourcing perlbrew's bash-only startup file under generic `sh`, appends the matching `dashboard shell bash|zsh|sh` eval line so `d2`, prompt integration, and completion come up automatically, bridges bash login shells through `~/.profile` to `~/.bashrc`, re-enters an activated shell automatically on a real terminal-backed `curl ... | sh` run, and for automated acceptance uses `DD_INSTALL_SHELL_COMMANDS` to prove `dashboard version`, `d2 version`, and `dashboard skills install browser` through that activated shell path
 - blank macOS streamed bootstrap now also covers the no-Homebrew starting state, proving `install.sh` bootstraps Homebrew first, updates `PATH` from the discovered Homebrew prefix in the same run, and only then installs the repo `brewfile` package set
 - `dashboard ticket` tmux sessions move prompt indicators into the first row of a session-local two-line bottom tmux status block, keep the normal indexed session/window row underneath it, keep the inline prompt free of duplicated indicators even for older ticket sessions that only expose `TICKET_REF`, refresh the live indicator strip automatically through tmux status refresh, and do not change ordinary tmux sessions or any user tmux config file
+- the staged home-runtime `shell` helper itself must emit that tmux-aware bootstrap after install, not just the repo checkout `bin/dashboard shell ...` path
 - a broken config Perl collector reports an error without stopping other configured collectors
 - a healthy config collector still reports `ok` and stays green in `dashboard indicator list`, `dashboard ps1`, and `/system/status`, without being clobbered back to `missing` by concurrent config-sync refreshes
 - `dashboard collector log` prints aggregated collector transcripts, `dashboard collector log <name>` prints the named collector transcript, and configured collectors that have not run yet report an explicit no-log message instead of blank output
@@ -269,14 +271,23 @@ In the Dockur-backed path, the host launcher stages the Strawberry Perl MSI
 into the OEM bundle and the Windows guest installs the tarball with
 `cpanm --notest` before running the real dashboard smoke checks.
 
-Build the tarball on the host and run the integration harness with:
+Build the tarball on the host, rebuild the blank-environment image from the
+current Dockerfile, and run the integration harness with:
 
 ```bash
 integration/blank-env/run-host-integration.sh
 ```
 
-The harness expects the prebuilt integration image `dd-int-test:latest` to
-exist locally and mounts the host-built tarball into that container.
+The harness rebuilds the `dd-int-test:latest` integration image from the
+current `integration/blank-env/Dockerfile` and mounts the host-built tarball
+into that fresh container run.
+That image must include the native CPAN build baseline needed by packaged
+installs, including `libexpat1-dev`, `libssl-dev`, `pkg-config`, and
+`zlib1g-dev`, so `XML::Parser`, `Net::SSLeay`, and related transitive
+dependencies can compile before the installed dashboard smoke begins.
+It must also provide a real Chromium binary, not a snap-wrapper launcher, so
+the in-container browser verification can dump DOM output directly without a
+side-channel browser install step.
 
 ## Pass Criteria
 

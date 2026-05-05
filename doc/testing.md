@@ -146,6 +146,11 @@ a session-local two-line bottom tmux status block, keep the normal indexed
 session/window row visible beneath the dashboard indicator row, suppress
 inline prompt indicators with `dashboard ps1 --no-indicators`, and leave
 ordinary tmux sessions on the normal inline prompt path.
+That helper-staging coverage also executes the staged home-runtime `shell`
+helper itself and verifies it emits the same tmux bootstrap, while rerunning
+helper staging removes dashboard-managed older flat helpers from
+`~/.developer-dashboard/cli/` so upgraded homes converge on the active
+`~/.developer-dashboard/cli/dd/` helper tree.
 Those shell-helper regression assertions also normalize printed path identity,
 so macOS `/var/...` versus `/private/var/...` aliases do not fail otherwise
 equivalent `pwd` or `which_dir` output checks.
@@ -280,9 +285,18 @@ integration/blank-env/run-host-integration.sh
 ```
 
 This integration path builds the distribution tarball on the host with
-`dzil build`, runs the prebuilt `dd-int-test:latest` container with only that
-tarball mounted into it, installs the tarball with `cpanm --notest`, and then
+`dzil build`, rebuilds `dd-int-test:latest` from the current
+`integration/blank-env/Dockerfile`, runs that container with only the tarball
+mounted into it, installs the tarball with `cpanm --notest`, and then
 exercises the installed `dashboard` command inside the clean Perl container.
+The blank-environment image must also carry the native CPAN build baseline
+needed by packaged installs, including `libexpat1-dev`, `libssl-dev`,
+`pkg-config`, and `zlib1g-dev`, so modules such as `XML::Parser` and
+`Net::SSLeay` can build before the installed-runtime smoke reaches the staged
+helper checks.
+That image must also provide a real headless Chromium binary instead of an
+Ubuntu snap launcher stub, so the browser smoke can execute inside the
+container without requiring `snapd`.
 The host-side launcher now also runs `prove -lv t/44-smart-router-two-stage.t`
 immediately after `dzil build` and before the broader blank-environment
 container flow. Treat that smart-router two-stage guard as a managed

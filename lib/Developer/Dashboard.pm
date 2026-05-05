@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.42';
+our $VERSION = '3.43';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.42
+3.43
 
 =head1 INTRODUCTION
 
@@ -1184,6 +1184,11 @@ Ordinary tmux sessions keep the normal inline prompt. Developer Dashboard
 does not edit the user's tmux config file to provide that behavior, and it
 uses session-local tmux options
 instead of changing the whole tmux server.
+When helper staging reruns during upgrades, the managed home runtime also
+removes dashboard-owned older flat helper files from
+F<~/.developer-dashboard/cli/> so the public command and shell bootstrap
+always converge on the current F<~/.developer-dashboard/cli/dd/> helper
+generation instead of silently reusing stale wrappers from older releases.
 The Windows bootstrap
 does not try to self-install C<App::cpanminus> while the downloaded
 C<cpanm> bootstrap script is still running, which avoids the Windows file

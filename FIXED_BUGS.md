@@ -1,5 +1,28 @@
 # Fixed Bugs
 
+## 3.43 - Fix stale staged helper reuse across upgrades
+
+- Fixed home-runtime helper staging so rerunning built-in helper extraction
+  removes dashboard-managed older flat helpers from
+  `~/.developer-dashboard/cli/` and keeps the active built-in helper surface
+  converged on `~/.developer-dashboard/cli/dd/`.
+- Fixed staged shell bootstrap regression coverage so the managed
+  `dashboard shell bash` helper itself must emit the tmux ticket status
+  bootstrap after staging instead of only checking the repo checkout command
+  path.
+- Fixed the blank-environment integration image so host-built tarball
+  installs now include the native CPAN build packages required by
+  `XML::Parser`, `Net::SSLeay`, and related transitive prerequisites before
+  the installed-runtime smoke reaches the helper-staging checks.
+- Fixed the blank-environment browser runtime so the integration image now
+  uses a real Debian Chromium binary instead of the Ubuntu snap-wrapper
+  launcher stub that could not run headless browser smoke checks inside the
+  container.
+- Fixed the host-side blank-environment launcher so it now rebuilds the
+  integration image from the current Dockerfile before running the
+  installed-runtime smoke, preventing cached older images from silently
+  reintroducing the dead snap-wrapper browser path.
+
 ## 3.42 - Fix blank-mac bootstrap, container runtime isolation, and ticket tmux status layout
 
 - Fixed blank new macOS bootstrap so `install.sh` now bootstraps Homebrew

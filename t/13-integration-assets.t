@@ -136,6 +136,10 @@ if ($has_integration_assets) {
     my $dockerfile = do { local $/; <$docker_fh> };
     close $docker_fh;
     like( $dockerfile, qr/\bchromium\b/, 'integration Dockerfile installs Chromium for browser verification' );
+    like( $dockerfile, qr/\blibexpat1-dev\b/, 'integration Dockerfile installs libexpat1-dev for XML::Parser during host-built tarball installs' );
+    like( $dockerfile, qr/\blibssl-dev\b/, 'integration Dockerfile installs libssl-dev for Net::SSLeay during host-built tarball installs' );
+    like( $dockerfile, qr/\bpkg-config\b/, 'integration Dockerfile installs pkg-config for native CPAN prerequisite discovery' );
+    like( $dockerfile, qr/\bzlib1g-dev\b/, 'integration Dockerfile installs zlib1g-dev for native CPAN prerequisite builds' );
     unlike( $dockerfile, qr/\bDist::Zilla\b/, 'integration Dockerfile no longer installs Dist::Zilla because host builds the tarball' );
 
     open my $compose_fh, '<', 'integration/blank-env/docker-compose.yml' or die $!;

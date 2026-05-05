@@ -1,3 +1,22 @@
+3.43  2026-05-05
+    - fixed managed helper staging so upgraded home runtimes remove
+      dashboard-owned older flat helpers from `~/.developer-dashboard/cli/`
+      and keep the active built-in helper surface converged on
+      `~/.developer-dashboard/cli/dd/`
+    - added direct staged-helper regression coverage so the managed
+      `dashboard shell bash` helper itself must emit the ticket tmux status
+      bootstrap after staging, not just the repo checkout command path
+    - fixed the blank-environment integration image so host-built tarball
+      installs now include the native CPAN build packages required by
+      XML::Parser, Net::SSLeay, and related transitive prerequisites
+    - switched the blank-environment integration image to a real Debian
+      Chromium runtime so browser smoke checks no longer die on the Ubuntu
+      snap-wrapper launcher stub
+    - fixed the host-side blank-environment launcher so it rebuilds the
+      integration image from the current Dockerfile before running the
+      installed-runtime smoke, preventing stale cached images from hiding
+      browser-runtime fixes
+
 3.42  2026-05-05
     - fixed blank-mac `curl ... | sh` bootstrap so `install.sh` now
       bootstraps Homebrew automatically before reading the repo `brewfile`

@@ -125,7 +125,7 @@ for my $coverage_workflow (
 }
 
 my $blank_env_dockerfile = _slurp('integration/blank-env/Dockerfile');
-like( $blank_env_dockerfile, qr/\AFROM\s+ubuntu:24\.04\@sha256:/, 'blank-env Dockerfile pins its Ubuntu base image by digest' );
+like( $blank_env_dockerfile, qr/\AFROM\s+perl:5\.38-bookworm\b/, 'blank-env Dockerfile uses the Debian perl:5.38-bookworm base image with a real Chromium package' );
 
 done_testing;
 

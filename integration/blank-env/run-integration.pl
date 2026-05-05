@@ -195,6 +195,34 @@ BOOKMARK
         'dashboard init reports only the fake-project bookmark files that the integration fixture created instead of seeding extracted core starter dashboards',
     );
 
+    my $legacy_flat_core  = File::Spec->catfile( $home, '.developer-dashboard', 'cli', '_dashboard-core' );
+    my $legacy_flat_shell = File::Spec->catfile( $home, '.developer-dashboard', 'cli', 'shell' );
+    _write_text(
+        $legacy_flat_core,
+        <<'PERL'
+#!/usr/bin/env perl
+# developer-dashboard-managed-helper: _dashboard-core
+print "legacy-core\n";
+PERL
+    );
+    chmod 0700, $legacy_flat_core or die "Unable to chmod $legacy_flat_core: $!";
+    _write_text(
+        $legacy_flat_shell,
+        <<'PERL'
+#!/usr/bin/env perl
+# developer-dashboard-managed-helper: shell
+print "legacy-shell\n";
+PERL
+    );
+    chmod 0700, $legacy_flat_shell or die "Unable to chmod $legacy_flat_shell: $!";
+
+    my $shell_bootstrap = _run_shell( 'dashboard shell bash', 'dashboard shell bash' );
+    _assert_match( $shell_bootstrap->{stdout}, qr/_dd_tmux_status_active/, 'dashboard shell bash emits the tmux ticket-session detection helper after install' );
+    _assert_match( $shell_bootstrap->{stdout}, qr/status-format\[0\].*tmux-status-top --width #\{client_width\}/s, 'dashboard shell bash emits the tmux status bootstrap after install' );
+    _assert_match( $shell_bootstrap->{stdout}, qr/ps1 --jobs \\j --mode compact --no-indicators/, 'dashboard shell bash suppresses prompt indicators when tmux owns the status line after install' );
+    _assert( !-e $legacy_flat_core, 'dashboard shell bash helper staging removes managed legacy flat _dashboard-core files after install' );
+    _assert( !-e $legacy_flat_shell, 'dashboard shell bash helper staging removes managed legacy flat shell wrappers after install' );
+
     make_path($update_root);
     _write_text(
         File::Spec->catfile( $cli_root, 'update' ),
