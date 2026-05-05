@@ -379,7 +379,11 @@ close $workers_config_fh;
 like( $workers_config, qr/"web"\s*:\s*\{\s*"workers"\s*:\s*3/s, 'dashboard serve workers stores the default worker count in config' );
 if ( defined $serve_workers_pid ) {
     my $serve_workers_stop = _run("$perl -I'$lib' '$dashboard' stop -o json");
-    like( $serve_workers_stop, qr/"web_pid"\s*:\s*\d+/, 'dashboard stop stops the service started by serve workers' );
+    like(
+        $serve_workers_stop,
+        qr/"web"\s*:\s*\{\s*"details"\s*:\s*"dashboard web service"\s*,\s*"pid"\s*:\s*(?:null|\d+)\s*,\s*"status"\s*:\s*"stopped"/s,
+        'dashboard stop reports the service started by serve workers as stopped even when the managed pid has already disappeared from the final summary',
+    );
 }
 else {
     pass('dashboard serve workers reused an already-running managed web service instead of starting a new pid');
@@ -1087,10 +1091,16 @@ like( $portable_cdr_keywords_multi, qr/\Q@{[ _portable_path($cwd_search_root) ]}
 my $cdr_keywords_regex = _run("bash -lc '. \"$shell_bootstrap_file\"; cd \"$cwd_search_root\"; cdr team-alpha\$; pwd'");
 is_same_path_output( $cdr_keywords_regex, $cwd_search_multi_one . "\n", 'cdr treats non-alias search terms as regexes beneath the current directory' );
 like( $shell_bootstrap, qr/ps1 --jobs \\j --mode compact/, 'dashboard shell bash bootstrap keeps bash job-count prompt rendering' );
+like( $shell_bootstrap, qr/tmux set-option -gq status-right/, 'dashboard shell bash bootstrap wires tmux status-right when tmux is present' );
+like( $shell_bootstrap, qr/ps1 --mode tmux-status/, 'dashboard shell bash bootstrap renders tmux status-right through the dedicated status formatter' );
+like( $shell_bootstrap, qr/ps1 --jobs \\j --mode compact --no-indicators/, 'dashboard shell bash bootstrap suppresses prompt indicators when tmux owns the status line' );
 
 my $zsh_bootstrap = _run("$perl -I'$lib' '$dashboard' shell zsh");
 like( $zsh_bootstrap, qr/add-zsh-hook precmd _dd_update_prompt/, 'dashboard shell zsh bootstrap refreshes the prompt through a precmd hook' );
 like( $zsh_bootstrap, qr/ps1 --jobs \$\{#jobstates\} --mode compact/, 'dashboard shell zsh bootstrap uses zsh job counts for prompt rendering' );
+like( $zsh_bootstrap, qr/tmux set-option -gq status-right/, 'dashboard shell zsh bootstrap wires tmux status-right when tmux is present' );
+like( $zsh_bootstrap, qr/ps1 --mode tmux-status/, 'dashboard shell zsh bootstrap renders tmux status-right through the dedicated status formatter' );
+like( $zsh_bootstrap, qr/ps1 --jobs \$\{#jobstates\} --mode compact --no-indicators/, 'dashboard shell zsh bootstrap suppresses prompt indicators when tmux owns the status line' );
 like( $zsh_bootstrap, qr/path cdr/, 'dashboard shell zsh bootstrap keeps the cdr path helper functions' );
 like( $zsh_bootstrap, qr/\bd2\(\)\s*\{/, 'dashboard shell zsh bootstrap exposes the d2 shortcut helper' );
 like( $zsh_bootstrap, qr/autoload -Uz compinit/, 'dashboard shell zsh bootstrap loads compinit for fresh shells before completion setup' );
@@ -1104,6 +1114,9 @@ unlike( $zsh_bootstrap, qr/d2\(\)\s*\{\s*'\Q$perl\E'\s+/s, 'dashboard shell zsh 
 my $sh_bootstrap = _run("$perl -I'$lib' '$dashboard' shell sh");
 like( $sh_bootstrap, qr/path cdr/, 'dashboard shell sh bootstrap keeps the cdr path helper functions' );
 like( $sh_bootstrap, qr/ps1 --mode compact/, 'dashboard shell sh bootstrap renders the prompt through dashboard ps1' );
+like( $sh_bootstrap, qr/tmux set-option -gq status-right/, 'dashboard shell sh bootstrap wires tmux status-right when tmux is present' );
+like( $sh_bootstrap, qr/ps1 --mode tmux-status/, 'dashboard shell sh bootstrap renders tmux status-right through the dedicated status formatter' );
+like( $sh_bootstrap, qr/ps1 --mode compact --no-indicators/, 'dashboard shell sh bootstrap suppresses prompt indicators when tmux owns the status line' );
 unlike( $sh_bootstrap, qr/\\j/, 'dashboard shell sh bootstrap does not rely on bash-specific job expansion' );
 unlike( $sh_bootstrap, qr/\bperl\s+-MJSON::XS\b/, 'dashboard shell sh bootstrap does not decode helper JSON through a bare perl command either' );
 like( $sh_bootstrap, qr/\Q$perl\E.*-MJSON::XS/s, 'dashboard shell sh bootstrap decodes helper JSON through the same perl interpreter that generated the bootstrap' );
@@ -1127,6 +1140,14 @@ my $ps_bootstrap = _run("$perl -I'$lib' '$dashboard' shell ps");
 like( $ps_bootstrap, qr/function prompt \{/, 'dashboard shell ps bootstrap uses the PowerShell prompt function instead of a PS1 variable' );
 like( $ps_bootstrap, qr/function cdr \{/, 'dashboard shell ps bootstrap exposes the cdr helper' );
 like( $ps_bootstrap, qr/\bps1 --mode compact/, 'dashboard shell ps bootstrap still renders prompt text through dashboard ps1' );
+like( $ps_bootstrap, qr/tmux set-option -gq status-right/, 'dashboard shell ps bootstrap wires tmux status-right when tmux is present' );
+like( $ps_bootstrap, qr/\bps1 --mode tmux-status/, 'dashboard shell ps bootstrap renders tmux status-right through the dedicated status formatter' );
+like( $ps_bootstrap, qr/\bps1 --mode compact --no-indicators/, 'dashboard shell ps bootstrap suppresses prompt indicators when tmux owns the status line' );
+like( $ps_bootstrap, qr/\[Console\]::InputEncoding\s*=\s*\[System\.Text\.UTF8Encoding\]::new\(\$false\)/, 'dashboard shell ps bootstrap forces UTF-8 console input encoding so prompt glyphs survive on Windows' );
+like( $ps_bootstrap, qr/\[Console\]::OutputEncoding\s*=\s*\[System\.Text\.UTF8Encoding\]::new\(\$false\)/, 'dashboard shell ps bootstrap forces UTF-8 console output encoding so prompt glyphs survive on Windows' );
+like( $ps_bootstrap, qr/\$ddPrompt\s*=\s*& .*?\bps1 --mode compact/s, 'dashboard shell ps bootstrap captures the dashboard prompt text before splitting header and cursor lines' );
+like( $ps_bootstrap, qr/Write-Host \$header/s, 'dashboard shell ps bootstrap writes the status header line separately before returning the cursor prompt' );
+like( $ps_bootstrap, qr/return '> '/s, 'dashboard shell ps bootstrap falls back to a bare next-line cursor prompt when the helper returns no content' );
 unlike( $ps_bootstrap, qr/\bPS1\b/, 'dashboard shell ps bootstrap does not mention the POSIX PS1 environment variable' );
 like( $ps_bootstrap, qr/function Invoke-DashboardShortcut \{/, 'dashboard shell ps bootstrap exposes the d2 shortcut runner' );
 like( $ps_bootstrap, qr/Set-Alias d2 Invoke-DashboardShortcut/, 'dashboard shell ps bootstrap exposes the d2 shortcut alias' );

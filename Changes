@@ -1,3 +1,11 @@
+3.40  2026-05-05
+    - moved prompt indicators out of inline shell prompts and into tmux
+      `status-right` whenever the generated shell bootstrap runs inside tmux,
+      while keeping the existing prompt indicators outside tmux
+    - added a dedicated `dashboard ps1 --mode tmux-status` formatter and a
+      `--no-indicators` prompt path so bash, zsh, POSIX sh, and PowerShell
+      all share the same tmux-aware indicator behavior
+
 3.37  2026-05-02
     - added an explicit InternalCLI coverage guard for installed layouts where
       File::ShareDir already returns the private-cli root, keeping the numeric

@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.37
+3.40
 
 # INTRODUCTION
 
@@ -239,6 +239,10 @@ This matters because prompt and browser status should be cheap to render.
 Instead of re-running a Docker check, VPN probe, or project health command
 every time the prompt draws, a collector prepares the answer once and the rest
 of the system reads the cached result.
+When the generated shell bootstrap runs inside tmux, those prompt indicators
+move out of the inline shell prompt and into tmux `status-right` so the
+cursor line stays clean while the indicator strip keeps updating between
+prompts. Outside tmux, the same indicators stay in the normal shell prompt.
 Configured collector indicators now prefer the configured icon in both places,
 and when a collector is renamed the old managed indicator is cleaned up
 automatically so the prompt and top-right browser strip do not show both the
@@ -886,7 +890,12 @@ private `~/perl5` PATH and Perl environment block plus
 `dashboard shell ps`, runs `dashboard init` first so the home helper runtime
 exists, and then activates that PowerShell bootstrap in the current shell when
 possible. Future PowerShell sessions do not rely on installer-only helper
-functions while loading that generated profile block. The Windows bootstrap
+functions while loading that generated profile block. The generated bash, zsh,
+POSIX sh, and PowerShell shell bootstraps all follow the same tmux-aware
+prompt rule: when the shell starts inside tmux, indicator glyphs move to tmux
+`status-right` through `dashboard ps1 --mode tmux-status` and the inline
+prompt suppresses indicator fragments with `dashboard ps1 --no-indicators`.
+The Windows bootstrap
 does not try to self-install `App::cpanminus` while the downloaded
 `cpanm` bootstrap script is still running, which avoids the Windows file
 replacement failure that can break streamed `irm .../install.ps1 | iex`
@@ -901,8 +910,14 @@ override is unset in the streamed `irm .../install.ps1 | iex` path,
 local tree and installs that local checkout so the bootstrap installs the same
 snapshot that shipped the installer instead of an older CPAN release. The
 Windows smoke gate also proves that a brand-new profile-loaded PowerShell
-session can resolve `dashboard`, print `dashboard version`, and run
-`dashboard logs` after that streamed bootstrap completes.
+session can resolve `dashboard`, print `dashboard version`, run
+`dashboard logs`, run `dashboard restart`, and install at least one real
+skill after that streamed bootstrap completes. The generated PowerShell shell
+bootstrap now forces UTF-8 console input and output encoding before it returns
+the multi-line prompt from `dashboard ps1`, so the prompt keeps the trailing
+command marker on the next line and preserves indicator plus branch glyphs
+such as heartbeat status and the trailing `🌿branch` fragment in normal
+Windows terminals.
 
 Useful bootstrap examples:
 
@@ -1974,8 +1989,9 @@ from that root `ddfile` still report `installed` even when the skill ships no
 installable entries, the command returns an explicit error telling the user to
 install a skill first or pass a skill source.
 Developer Dashboard does not merge the skill's `cli/`, `dashboards/`,
-`config/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`, `dnfile`, `brewfile`,
-`Makefile`, `package.json`, `cpanfile`, `cpanfile.local`, or Docker files into the
+`config/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`, `dnfile`,
+`wingetfile`, `brewfile`, `Makefile`, `package.json`, `cpanfile`,
+`cpanfile.local`, or Docker files into the
 normal runtime folders.
 
 `dashboard skills install --ddfile` reads dependency manifests from the
@@ -2171,6 +2187,11 @@ with:
 
     Optional macOS Homebrew packages installed through `brew install`
 
+- **wingetfile**
+
+    Optional Windows packages installed through `winget install --id ... --exact
+    \--accept-package-agreements --accept-source-agreements --disable-interactivity`
+
 - **Makefile**
 
     Optional skill install workflow run before `ddfile`, using `make`,
@@ -2307,6 +2328,10 @@ through `sudo apk add --no-cache`
 - if a `dnfile` exists on a Fedora host, Dashboard checks each listed package
 first and only prints and installs the packages that are still missing through
 `sudo dnf install -y`
+- if a `wingetfile` exists on a Windows host, Dashboard installs each listed
+package id through `winget install --id ... --exact
+--accept-package-agreements --accept-source-agreements
+--disable-interactivity`, and other operating systems skip that manifest
 - if a `brewfile` exists on macOS, its package list is printed and then
 installed through `brew install`
 - if a `Makefile` exists, Dashboard runs it after the Perl dependency
@@ -2353,7 +2378,7 @@ layout, environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`,
 bookmark syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, and `CODE1:`,
 bookmark browser helpers such as `fetch_value()`, `stream_value()`, and
 `stream_data()`, underscored config merge keys such as `_example-skill`,
-`aptfile -` apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> Makefile -> ddfile -> ddfile.local>
+`aptfile -` apkfile -> dnfile -> wingetfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> Makefile -> ddfile -> ddfile.local>
 automatic dependency install order, the explicit
 `dashboard skills install --ddfile` operator order of
 the deferred `ddfile -` ddfile.local> pass, the shared `~/perl5` versus skill-local

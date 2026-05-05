@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '3.37';
+our $VERSION = '3.39';
 
 use File::Basename qw(dirname);
 use File::Spec;
@@ -174,6 +174,32 @@ sub _remove_retired_managed_helper {
 sub _managed_helper_content {
     my ($name) = @_;
     my $content = helper_content($name);
+    if ( _helper_uses_dashboard_core($name) ) {
+        my $legacy_block = <<'BLOCK';
+my $command = basename($0);
+my $core = File::Spec->catfile( $Bin, '_dashboard-core' );
+exec { $^X } $^X, $core, $command, @ARGV;
+die "Unable to exec $core for $command: $!";
+BLOCK
+        my $managed_block = <<"BLOCK";
+my \$command = '$name';
+my \$core = File::Spec->catfile( \$Bin, '_dashboard-core' );
+my \@command = ( \$^X, \$core, \$command, \@ARGV );
+if (is_windows()) {
+    system \@command;
+    my \$status = \$?;
+    my \$exit_code = \$status > 255 ? \$status >> 8 : \$status;
+    exit \$exit_code;
+}
+exec { \$^X } \@command;
+die "Unable to exec \$core for \$command: \$!";
+BLOCK
+        $content =~ s/use File::Basename qw\(basename\);\n//;
+        $content =~ s/use Developer::Dashboard::Platform qw\(is_windows\);\n//g;
+        $content =~ s/use File::Spec;\nuse FindBin qw\(\$Bin\);\n/use File::Spec;\nuse FindBin qw(\$Bin);\nuse Developer::Dashboard::Platform qw(is_windows);\n/;
+        $content =~ s/\Q$legacy_block\E/$managed_block/;
+        $content =~ s/my \$command = '[^']+';\nmy \$core = File::Spec->catfile\( \$Bin, '_dashboard-core' \);\nmy \@command = \( \$\^X, \$core, \$command, \@ARGV \);\nif \(is_windows\(\)\) \{\n    system \@command;\n    my \$status = \$\?;\n    my \$exit_code = \$status > 255 \? \$status >> 8 : \$status;\n    exit \$exit_code;\n\}\nexec \{ \$\^X \} \@command;\ndie "Unable to exec \$core for \$command: \$!";/$managed_block/s;
+    }
     my $marker  = _managed_helper_marker($name) . "\n";
     return $content if $content =~ /\Q$marker\E/;
     if ( $content =~ /\A(#![^\n]*\n)/ ) {
@@ -191,6 +217,17 @@ sub _managed_helper_content {
 sub _managed_helper_marker {
     my ($name) = @_;
     return "# developer-dashboard-managed-helper: $name";
+}
+
+# _helper_uses_dashboard_core($name)
+# Returns whether one staged helper is a thin wrapper that must hand a fixed
+# built-in command name to the shared _dashboard-core runtime.
+# Input: helper name string.
+# Output: boolean true when the helper delegates into _dashboard-core.
+sub _helper_uses_dashboard_core {
+    my ($name) = @_;
+    return 0 if !defined $name || $name eq '';
+    return $name =~ /\A(?:encode|decode|indicator|collector|config|auth|init|cpan|page|action|docker|serve|stop|restart|log|shell|doctor|housekeeper|skills|which)\z/ ? 1 : 0;
 }
 
 # _is_dashboard_managed_helper($content, $name)

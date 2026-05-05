@@ -20,6 +20,7 @@ binmode STDERR, ':encoding(UTF-8)';
 
 use Developer::Dashboard::Platform qw(
   command_argv_for_path
+  is_windows
   is_runnable_file
   resolve_runnable_file
 );
@@ -310,12 +311,24 @@ sub _exec_switchboard_command {
         my $run = _resolve_directory_runner($path);
         if ($run) {
             my @command = command_argv_for_path($run);
+            if (is_windows()) {
+                system @command, @argv;
+                my $status = $?;
+                my $exit_code = $status > 255 ? $status >> 8 : $status;
+                exit $exit_code;
+            }
             exec { $command[0] } @command, @argv;
             die "Unable to exec $run: $!";
         }
     }
     if ( my $command_path = resolve_runnable_file($path) ) {
         my @command = command_argv_for_path($command_path);
+        if (is_windows()) {
+            system @command, @argv;
+            my $status = $?;
+            my $exit_code = $status > 255 ? $status >> 8 : $status;
+            exit $exit_code;
+        }
         exec { $command[0] } @command, @argv;
         die "Unable to exec $command_path: $!";
     }

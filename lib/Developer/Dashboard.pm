@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.37';
+our $VERSION = '3.40';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.37
+3.40
 
 =head1 INTRODUCTION
 
@@ -375,6 +375,10 @@ This matters because prompt and browser status should be cheap to render.
 Instead of re-running a Docker check, VPN probe, or project health command
 every time the prompt draws, a collector prepares the answer once and the rest
 of the system reads the cached result.
+When the generated shell bootstrap runs inside tmux, those prompt indicators
+move out of the inline shell prompt and into tmux C<status-right> so the
+cursor line stays clean while the indicator strip keeps updating between
+prompts. Outside tmux, the same indicators stay in the normal shell prompt.
 Configured collector indicators now prefer the configured icon in both places,
 and when a collector is renamed the old managed indicator is cleaned up
 automatically so the prompt and top-right browser strip do not show both the
@@ -1154,7 +1158,12 @@ private F<~/perl5> PATH and Perl environment block plus
 C<dashboard shell ps>, runs C<dashboard init> first so the home helper runtime
 exists, and then activates that PowerShell bootstrap in the current shell when
 possible. Future PowerShell sessions do not rely on installer-only helper
-functions while loading that generated profile block. The Windows bootstrap
+functions while loading that generated profile block. The generated bash, zsh,
+POSIX sh, and PowerShell shell bootstraps all follow the same tmux-aware
+prompt rule: when the shell starts inside tmux, indicator glyphs move to tmux
+C<status-right> through C<dashboard ps1 --mode tmux-status> and the inline
+prompt suppresses indicator fragments with C<dashboard ps1 --no-indicators>.
+The Windows bootstrap
 does not try to self-install C<App::cpanminus> while the downloaded
 C<cpanm> bootstrap script is still running, which avoids the Windows file
 replacement failure that can break streamed C<irm .../install.ps1 | iex>
@@ -1169,8 +1178,14 @@ F<install.ps1> clones the current GitHub C<master> checkout into a temporary
 local tree and installs that local checkout so the bootstrap installs the same
 snapshot that shipped the installer instead of an older CPAN release. The
 Windows smoke gate also proves that a brand-new profile-loaded PowerShell
-session can resolve C<dashboard>, print C<dashboard version>, and run
-C<dashboard logs> after that streamed bootstrap completes.
+session can resolve C<dashboard>, print C<dashboard version>, run
+C<dashboard logs>, run C<dashboard restart>, and install at least one real
+skill after that streamed bootstrap completes. The generated PowerShell shell
+bootstrap now forces UTF-8 console input and output encoding before it returns
+the multi-line prompt from C<dashboard ps1>, so the prompt keeps the trailing
+command marker on the next line and preserves indicator plus branch glyphs
+such as heartbeat status and the trailing C<🌿branch> fragment in normal
+Windows terminals.
 
 Useful bootstrap examples:
 
@@ -2351,8 +2366,9 @@ F<.env> C<VERSION> metadata. If the root F<ddfile> does not exist yet or has no
 installable entries, the command returns an explicit error telling the user to
 install a skill first or pass a skill source.
 Developer Dashboard does not merge the skill's C<cli/>, C<dashboards/>,
-C<config/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>, C<dnfile>, C<brewfile>,
-C<Makefile>, C<package.json>, C<cpanfile>, C<cpanfile.local>, or Docker files into the
+C<config/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>, C<dnfile>,
+C<wingetfile>, C<brewfile>, C<Makefile>, C<package.json>, C<cpanfile>,
+C<cpanfile.local>, or Docker files into the
 normal runtime folders.
 
 C<dashboard skills install --ddfile> reads dependency manifests from the
@@ -2601,6 +2617,11 @@ keeps only the missing packages in the install request
 
 Optional macOS Homebrew packages installed through C<brew install>
 
+=item B<wingetfile>
+
+Optional Windows packages installed through C<winget install --id ... --exact
+--accept-package-agreements --accept-source-agreements --disable-interactivity>
+
 =item B<Makefile>
 
 Optional skill install workflow run before C<ddfile>, using C<make>,
@@ -2839,6 +2860,13 @@ C<sudo dnf install -y>
 
 =item *
 
+if a C<wingetfile> exists on a Windows host, Dashboard installs each listed
+package id through C<winget install --id ... --exact
+--accept-package-agreements --accept-source-agreements
+--disable-interactivity>, and other operating systems skip that manifest
+
+=item *
+
 if a C<brewfile> exists on macOS, its package list is printed and then
 installed through C<brew install>
 
@@ -2905,7 +2933,7 @@ layout, environment variables such as C<DEVELOPER_DASHBOARD_SKILL_ROOT>,
 bookmark syntax like C<TITLE:>, C<BOOKMARK:>, C<HTML:>, and C<CODE1:>,
 bookmark browser helpers such as C<fetch_value()>, C<stream_value()>, and
 C<stream_data()>, underscored config merge keys such as C<_example-skill>,
-C<aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> Makefile -> ddfile -> ddfile.local>
+C<aptfile -> apkfile -> dnfile -> wingetfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> Makefile -> ddfile -> ddfile.local>
 automatic dependency install order, the explicit
 C<dashboard skills install --ddfile> operator order of
 the deferred C<ddfile -> ddfile.local> pass, the shared C<~/perl5> versus skill-local

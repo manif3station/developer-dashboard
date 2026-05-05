@@ -138,6 +138,11 @@ The shell bootstrap regression coverage also checks that the POSIX `cdr` and
 interpreter that generated the shell fragment, which prevents macOS
 `JSON::XS` ABI mismatches when `/usr/bin/perl` and `~/perl5` belong to
 different Perl builds.
+That same shell-bootstrap coverage now also checks the tmux prompt split:
+when `TMUX` is present, generated bash, zsh, POSIX sh, and PowerShell
+bootstraps must wire tmux `status-right` through
+`dashboard ps1 --mode tmux-status` and suppress inline prompt indicators with
+`dashboard ps1 --no-indicators`.
 Those shell-helper regression assertions also normalize printed path identity,
 so macOS `/var/...` versus `/private/var/...` aliases do not fail otherwise
 equivalent `pwd` or `which_dir` output checks.

@@ -1022,6 +1022,28 @@ my $missing_route_server = Developer::Dashboard::Web::Server->new( app => $missi
 
 {
     no warnings 'redefine';
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    local *Plack::Runner::new = sub { return Local::FakeRunner->new };
+    my $windows_server = Developer::Dashboard::Web::Server->new(
+        app     => $app,
+        host    => '127.0.0.1',
+        port    => 5997,
+        workers => 4,
+    );
+    my $fake_daemon = Developer::Dashboard::Web::Server::Daemon->new(
+        host => '127.0.0.1',
+        port => 5997,
+    );
+    ok( $windows_server->serve_daemon($fake_daemon), 'serve_daemon still runs on Windows hosts' );
+    is_deeply(
+        \@Local::FakeRunner::parse_options,
+        [ '--server', 'Standalone', '--host', '127.0.0.1', '--port', 5997, '--env', 'deployment' ],
+        'serve_daemon switches Windows hosts to the non-prefork Standalone Plack server without worker flags',
+    );
+}
+
+{
+    no warnings 'redefine';
     my $served;
     local *Developer::Dashboard::Web::Server::start_daemon = sub {
         return Developer::Dashboard::Web::Server::Daemon->new( host => '127.0.0.1', port => 5999 );

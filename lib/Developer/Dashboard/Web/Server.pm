@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '3.37';
+our $VERSION = '3.39';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -13,6 +13,7 @@ use IO::Socket::INET;
 use Plack::Runner;
 use Socket qw(MSG_PEEK);
 
+use Developer::Dashboard::Platform qw(is_windows);
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Web::DancerApp;
 use Developer::Dashboard::Web::Server::Daemon;
@@ -165,13 +166,15 @@ sub _build_runner {
     my $listen_port = $self->{ssl} && $daemon->can('internal_sockport') && defined $daemon->internal_sockport
       ? $daemon->internal_sockport
       : $daemon->sockport;
+    my $server_name = is_windows() ? 'Standalone' : 'Starman';
     my @options = (
-        '--server', 'Starman',
+        '--server', $server_name,
         '--host',   $listen_host,
         '--port',   $listen_port,
         '--env',    'deployment',
-        '--workers', $self->{workers},
     );
+
+    push @options, '--workers', $self->{workers} if !is_windows();
 
     if ( $self->{ssl} ) {
         my ( $cert, $key ) = get_ssl_cert_paths();

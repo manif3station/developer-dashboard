@@ -1853,6 +1853,7 @@ my $plain_prompt = Developer::Dashboard::Prompt->new(
 )->render( cwd => File::Spec->catdir( $plain_home, 'here' ) );
 like( $plain_prompt, qr/\[~\/here\]/, 'prompt still renders the cwd when no indicators exist' );
 unlike( $plain_prompt, qr/\bDD\b/, 'prompt omits the DD fallback when no indicators exist' );
+like( $plain_prompt, qr/\n> \z/, 'prompt still places the command marker on a fresh line when no indicators exist' );
 
 my $prompt_output = $prompt->render( jobs => 3, cwd => File::Spec->catdir( $home, 'named-path' ) );
 like( $prompt_output, qr/🚨NEW/, 'compact prompt includes the renamed missing collector indicator glyph' );
@@ -1860,6 +1861,22 @@ like( $prompt_output, qr/✅Z ✅b/, 'compact prompt includes success status gly
 unlike( $prompt_output, qr/alpha/, 'prompt skips hidden indicators' );
 like( $prompt_output, qr/~\/named-path/, 'prompt shortens home directory to tilde' );
 like( $prompt_output, qr/\(3 jobs\)/, 'prompt appends job suffix' );
+my $prompt_without_indicators = $prompt->render(
+    jobs          => 3,
+    cwd           => File::Spec->catdir( $home, 'named-path' ),
+    no_indicators => 1,
+);
+unlike( $prompt_without_indicators, qr/🚨NEW|✅Z|✅b/, 'prompt suppresses indicators when tmux owns the status line' );
+like( $prompt_without_indicators, qr/~\/named-path/, 'prompt still renders cwd when tmux suppresses indicators' );
+like( $prompt_without_indicators, qr/\(3 jobs\)/, 'prompt still renders job counts when tmux suppresses indicators' );
+{
+    local $ENV{TICKET_REF} = 'DD-4242';
+    my $tmux_status = $prompt->render_tmux_status;
+    like( $tmux_status, qr/🚨NEW/, 'tmux status formatter includes missing indicator glyphs' );
+    like( $tmux_status, qr/✅Z ✅b/, 'tmux status formatter keeps indicator priority order' );
+    like( $tmux_status, qr/🎫:DD-4242/, 'tmux status formatter includes ticket context when present' );
+    unlike( $tmux_status, qr/\[~\/named-path\]|\n> /, 'tmux status formatter omits prompt-only cwd and cursor fragments' );
+}
 like(
     Developer::Dashboard::Prompt->new( paths => $paths, indicators => $indicators )->render( jobs => 0, mode => 'extended' ),
     qr/✅beta/,
@@ -1901,6 +1918,15 @@ like(
         indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
     )->_git_branch($git_repo);
     ok( defined $detected_branch && $detected_branch ne '', 'prompt detects a git branch from a real repository' );
+}
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::Prompt::_git_branch = sub { "master\x{1F525}" };
+    my $unicode_branch_prompt = Developer::Dashboard::Prompt->new( paths => $paths, indicators => $indicators )->render(
+        jobs => 0,
+        cwd  => File::Spec->catdir( $workspace, 'Alpha-App' ),
+    );
+    like( $unicode_branch_prompt, qr/\Q🌿master🔥\E/, 'prompt keeps UTF-8 branch suffix glyphs intact when rendering the trailing git branch fragment' );
 }
 
 my $repo = File::Spec->catdir( $home, 'repo-for-config' );

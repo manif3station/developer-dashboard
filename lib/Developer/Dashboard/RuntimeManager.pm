@@ -3,15 +3,17 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.37';
+our $VERSION = '3.39';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
+use File::ShareDir qw(dist_dir);
 use IO::Socket::INET;
 use POSIX qw(setsid strftime);
 use Time::HiRes qw(sleep time);
 
 use Developer::Dashboard::JSON qw(json_encode json_decode);
+use Developer::Dashboard::Platform qw(command_in_path is_windows);
 
 our $SIGNAL_MANAGER;
 
@@ -71,6 +73,15 @@ sub start_web {
       && ( ( $running->{workers} || 1 ) == $workers )
       && ( ( $running->{ssl} || 0 ) == $ssl );
 
+    if (is_windows()) {
+        return $self->_start_web_windows_background(
+            host    => $host,
+            port    => $port,
+            workers => $workers,
+            ssl     => $ssl,
+        );
+    }
+
     $self->_cleanup_web_files;
 
     pipe my $reader, my $writer or die "Unable to create startup pipe: $!";
@@ -85,6 +96,7 @@ sub start_web {
         chomp $line;
         die "$line\n" if $line =~ /^err:/;
         my ( undef, $started_pid, $bound_host, $bound_port ) = split /\|/, $line, 4;
+        $started_pid = $self->_normalized_process_id($started_pid);
         my $state = {
             host         => $host,
             pid          => $started_pid,
@@ -105,6 +117,69 @@ sub start_web {
     exit $self->_run_web_child( $writer, $host, $port, workers => $workers, ssl => $ssl );
 }
 
+# _start_web_windows_background(%args)
+# Launches the Windows web listener in a fresh detached serve process instead
+# of pseudo-forking the active lifecycle helper.
+# Input: host, port, worker count, and ssl flag.
+# Output: detached serve pid integer after the listener is confirmed ready.
+sub _start_web_windows_background {
+    my ( $self, %args ) = @_;
+    my $host = defined $args{host} ? $args{host} : '0.0.0.0';
+    my $port = defined $args{port} ? $args{port} : 7890;
+    my $workers = defined $args{workers} ? $args{workers} : 1;
+    my $ssl = $args{ssl} ? 1 : 0;
+
+    $self->_cleanup_web_files;
+
+    my @command = $self->_windows_background_web_command(
+        host    => $host,
+        port    => $port,
+        workers => $workers,
+        ssl     => $ssl,
+    );
+    my $pid = $self->_spawn_windows_background_command(@command);
+    die "Unable to start dashboard web service on Windows\n" if !$pid;
+
+    my $running;
+    for ( 1 .. $self->_runtime_stability_polls ) {
+        my @listener_pids = $self->_listener_pids_for_port($port);
+        if (@listener_pids) {
+            my $listener_pid = $listener_pids[0];
+            $running = {
+                host         => $host,
+                pid          => $listener_pid,
+                port         => $port + 0,
+                process_name => $self->_web_process_title( $host, $port ),
+                started_at   => _now_iso8601(),
+                status       => 'running',
+                workers      => $workers + 0,
+                ssl          => $ssl + 0,
+            };
+            last if $self->_port_accepting_connections($port);
+        }
+        sleep $self->_runtime_poll_interval;
+    }
+
+    if ($running) {
+        my $state = {
+            %{$running},
+            host         => $host,
+            pid          => $running->{pid} || $pid,
+            port         => $port + 0,
+            process_name => $running->{process_name} || $running->{args} || $self->_web_process_title( $host, $port ),
+            started_at   => $running->{started_at} || _now_iso8601(),
+            status       => 'running',
+            workers      => $workers + 0,
+            ssl          => $ssl + 0,
+        };
+        $self->{files}->write( 'web_pid', "$state->{pid}\n" );
+        $self->_write_web_state($state);
+        return $state->{pid};
+    }
+
+    return $pid;
+}
+
 # running_web()
 # Discovers the currently running managed web service if present.
 # Input: none.
@@ -115,6 +190,7 @@ sub running_web {
     my $state = $self->web_state || {};
     if ( my $pid = $self->{files}->read('web_pid') ) {
         chomp $pid;
+        $pid = $self->_normalized_process_id($pid);
         if ( $pid && kill 0, $pid ) {
             if ( $self->_is_managed_web($pid) || ( $state->{status} || '' ) eq 'running' ) {
                 return {
@@ -187,6 +263,33 @@ sub stop_web {
         $pid = $listener_pids[0];
     }
 
+    if (is_windows()) {
+        $self->_send_signal( 'TERM', $pid ) if $pid;
+        $self->_send_signal( 'TERM', @listener_pids );
+        for ( 1 .. 30 ) {
+            last if !$self->_wait_for_windows_web_shutdown( $pid, $port, \@listener_pids );
+            sleep 0.1;
+        }
+        my @still_listening = grep { kill 0, $_ } @listener_pids;
+        $self->_send_signal( 'KILL', $pid ) if $pid && kill 0, $pid;
+        $self->_send_signal( 'KILL', @still_listening );
+        if ( $port && !$self->_wait_for_port_release($port) ) {
+            my @late_listeners = grep { kill 0, $_ } $self->_listener_pids_for_port($port);
+            $self->_send_signal( 'KILL', @late_listeners );
+            $self->_wait_for_port_release($port);
+        }
+        $self->_cleanup_web_files;
+        $self->_progress_emit(
+            $progress,
+            {
+                task_id => 'stop_web',
+                status  => 'done',
+                label   => 'Stop dashboard web service',
+            }
+        );
+        return $pid;
+    }
+
     $self->_send_signal( 'TERM', $pid ) if $pid;
     $self->_send_signal( 'TERM', @listener_pids );
     $self->_pkill_perl('^dashboard web:');
@@ -229,6 +332,21 @@ sub stop_web {
         }
     );
     return $pid;
+}
+
+# _wait_for_windows_web_shutdown($pid, $port, $listener_pids)
+# Checks whether the Windows-managed web process and its listener port have
+# both gone away after shutdown signals were sent.
+# Input: optional saved pid, optional listen port, and array reference of
+# listener pids discovered from persisted state.
+# Output: boolean true while the web runtime still appears alive.
+sub _wait_for_windows_web_shutdown {
+    my ( $self, $pid, $port, $listener_pids ) = @_;
+    my @listener_pids = ref($listener_pids) eq 'ARRAY' ? @{$listener_pids} : ();
+    return 1 if $pid && kill 0, $pid;
+    return 1 if grep { kill 0, $_ } @listener_pids;
+    return 1 if $port && scalar $self->_listener_pids_for_port($port);
+    return 0;
 }
 
 # start_collectors()
@@ -645,6 +763,15 @@ sub stop_target {
             ( @names ? ( names => \@names ) : () ),
             structured => 1,
         );
+        if ( !@collectors ) {
+            @collectors = (
+                {
+                    name    => @names ? $names[0] : 'all',
+                    status  => 'not running',
+                    details => 'no running collectors',
+                }
+            );
+        }
         $result{collectors} = \@collectors;
         return \%result;
     }
@@ -663,7 +790,7 @@ sub stop_target {
                 status => 'stopped',
             }
         } @{ $stopped->{collectors} || [] }
-    ];
+      ];
     return \%result;
 }
 
@@ -755,7 +882,7 @@ sub restart_target {
                 details => 'stopped then started',
             }
         } @{ $restarted->{collectors} || [] }
-    ];
+      ];
     return \%result;
 }
 
@@ -893,7 +1020,7 @@ sub _shutdown_web {
     $self->_write_web_state(
         {
             %$state,
-            pid        => $$,
+            pid        => $self->_normalized_process_id($$),
             status     => $final_status,
             updated_at => _now_iso8601(),
         }
@@ -912,7 +1039,7 @@ sub _run_web_child {
     my $workers  = exists $args{workers}  ? $args{workers}  : 1;
     my $ssl      = exists $args{ssl}      ? $args{ssl}      : 0;
     if ($detach) {
-        setsid() or die "Unable to detach dashboard web service: $!";
+        $self->_detach_web_process_session;
         my $pid = fork();
         die "Unable to complete dashboard web daemonize: $!" if !defined $pid;
         return 0 if $pid;
@@ -951,13 +1078,14 @@ sub _run_web_child {
 
     my $bound_host = $daemon->sockhost;
     my $bound_port = $daemon->sockport;
-    print {$writer} join( '|', 'ok', $$, $bound_host, $bound_port ), "\n";
+    my $child_pid = $self->_normalized_process_id($$);
+    print {$writer} join( '|', 'ok', $child_pid, $bound_host, $bound_port ), "\n";
     close $writer;
 
     $self->_write_web_state(
         {
             host         => $host,
-            pid          => $$,
+            pid          => $child_pid,
             port         => $bound_port + 0,
             process_name => $self->_web_process_title( $host, $port ),
             started_at   => _now_iso8601(),
@@ -975,7 +1103,7 @@ sub _run_web_child {
         $self->_write_web_state(
             {
                 host       => $host,
-                pid        => $$,
+                pid        => $child_pid,
                 port       => $bound_port + 0,
                 status     => 'error',
                 error      => "$@",
@@ -990,7 +1118,7 @@ sub _run_web_child {
     $self->_write_web_state(
         {
             host       => $host,
-            pid        => $$,
+            pid        => $child_pid,
             port       => $bound_port + 0,
             status     => 'stopped',
             updated_at => _now_iso8601(),
@@ -999,6 +1127,19 @@ sub _run_web_child {
         }
     );
     return 0;
+}
+
+# _detach_web_process_session()
+# Detaches the current web-service child from the parent session when the
+# active platform supports POSIX setsid.
+# Input: none.
+# Output: true value after detaching or after explicitly skipping setsid on
+# platforms that do not implement it.
+sub _detach_web_process_session {
+    my ($self) = @_;
+    return 1 if is_windows();
+    setsid() or die "Unable to detach dashboard web service: $!";
+    return 1;
 }
 
 # web_log(%args)
@@ -1142,9 +1283,31 @@ sub _portable_signal {
 # Output: number of process ids signalled by Perl kill.
 sub _send_signal {
     my ( $self, $signal, @pids ) = @_;
-    my $portable_signal = _portable_signal($signal);
     my @targets = grep { defined $_ && /^\d+$/ && $_ > 0 } @pids;
     return 0 if !@targets;
+    if (is_windows()) {
+        my $joined = join ',', @targets;
+        my @taskkill = ('taskkill');
+        for my $target (@targets) {
+            push @taskkill, '/PID', $target;
+        }
+        push @taskkill, '/T', '/F';
+        my ( $stdout, $stderr, $exit_code ) = capture {
+            system @taskkill;
+            return $? >> 8;
+        };
+        return scalar @targets if $exit_code == 0;
+        if ( defined $stderr && $stderr =~ /not found/i ) {
+            return scalar @targets;
+        }
+        if ( defined $stdout && $stdout =~ /not found/i ) {
+            return scalar @targets;
+        }
+        die "Failed to stop Windows process ids $joined: $stderr$stdout"
+          if $signal =~ /^(?:TERM|KILL)$/i;
+        return 0;
+    }
+    my $portable_signal = _portable_signal($signal);
     return kill $portable_signal, @targets;
 }
 
@@ -1162,12 +1325,136 @@ sub _is_managed_web {
     return $title =~ /^dashboard web:/ ? 1 : 0;
 }
 
+# _windows_background_web_command(%args)
+# Builds the detached helper command used to host the foreground Windows web
+# listener in its own process without also starting collector loops.
+# Input: host, port, worker count, and ssl flag.
+# Output: command list suitable for system 1, @command on Windows.
+sub _windows_background_web_command {
+    my ( $self, %args ) = @_;
+    my $core = $self->_dashboard_core_helper_path;
+    my $perl = $self->_current_perl_command;
+    my @command = (
+        $perl,
+        $core,
+        'web-foreground',
+        '--host',
+        $args{host},
+        '--port',
+        $args{port},
+        '--workers',
+        $args{workers},
+    );
+    push @command, '--ssl' if $args{ssl};
+    return @command;
+}
+
+# _current_perl_command()
+# Resolves a runnable Perl interpreter path for detached helper launches,
+# including Windows sessions where $^X can point at a nonexistent local::lib
+# shim path.
+# Input: none.
+# Output: executable path string for the current Perl interpreter.
+sub _current_perl_command {
+    my ($self) = @_;
+    if (is_windows()) {
+        return command_in_path('perl')     if command_in_path('perl');
+        return command_in_path('perl.exe') if command_in_path('perl.exe');
+    }
+    return $^X if defined $^X && $^X ne '' && -f $^X;
+    return command_in_path('perl')     if command_in_path('perl');
+    return command_in_path('perl.exe') if command_in_path('perl.exe');
+    return $^X;
+}
+
+# _dashboard_core_helper_path()
+# Resolves the staged private _dashboard-core helper used by detached Windows
+# web launches.
+# Input: none.
+# Output: absolute helper path string.
+sub _dashboard_core_helper_path {
+    my ($self) = @_;
+    my $staged = File::Spec->catfile( $self->{paths}->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
+    return $staged if $self->_helper_file_supports_internal_command( $staged, 'web-foreground' );
+
+    my $shipped = File::Spec->catfile( dist_dir('Developer-Dashboard'), 'private-cli', '_dashboard-core' );
+    return $shipped if $self->_helper_file_supports_internal_command( $shipped, 'web-foreground' );
+
+    return $staged;
+}
+
+# _helper_file_supports_internal_command($path, $command)
+# Checks whether one helper source file contains the requested private command
+# branch so Windows background launches can avoid stale staged helpers.
+# Input: helper file path and internal command string.
+# Output: boolean true when the helper source contains the requested command.
+sub _helper_file_supports_internal_command {
+    my ( $self, $path, $command ) = @_;
+    return 0 if !defined $path || $path eq '' || !-f $path;
+    return 0 if !defined $command || $command eq '';
+    open my $fh, '<:raw', $path or return 0;
+    local $/;
+    my $content = <$fh>;
+    close $fh or return 0;
+    return $content =~ /\Q$command\E/ ? 1 : 0;
+}
+
+# _spawn_windows_background_command(@command)
+# Launches one detached background Windows process command and returns the
+# spawned pid.
+# Input: command list.
+# Output: spawned pid integer or undef when the command could not be launched.
+sub _spawn_windows_background_command {
+    my ( $self, @command ) = @_;
+    my $stdout_log = $self->{files}->dashboard_log;
+    my $stderr_log = $stdout_log . '.stderr';
+    my @script = (
+        q{$ErrorActionPreference = 'Stop'},
+        '$job = Start-Process'
+          . ' -FilePath ' . _powershell_single_quote( $command[0] )
+          . ' -ArgumentList ' . join( ', ', map { _powershell_single_quote($_) } @command[ 1 .. $#command ] )
+          . ' -WindowStyle Hidden'
+          . ' -RedirectStandardOutput ' . _powershell_single_quote($stdout_log)
+          . ' -RedirectStandardError ' . _powershell_single_quote($stderr_log)
+          . ' -PassThru',
+        q{[Console]::Out.WriteLine($job.Id)},
+    );
+    my ( $stdout, $stderr, $exit_code ) = capture {
+        system 'powershell', '-NoLogo', '-NoProfile', '-Command', join '; ', @script;
+        return $? >> 8;
+    };
+    die "Unable to launch detached Windows web process: $stderr$stdout"
+      if $exit_code != 0;
+    my ($pid) = grep { defined $_ && /^\d+$/ && $_ > 0 } split /\r?\n/, ( $stdout || '' );
+    return $pid;
+}
+
+# _powershell_single_quote($value)
+# Escapes one literal string for safe use in a single-quoted PowerShell
+# argument position.
+# Input: raw scalar string value.
+# Output: single-quoted PowerShell literal string.
+sub _powershell_single_quote {
+    my ($value) = @_;
+    $value = '' if !defined $value;
+    $value =~ s/'/''/g;
+    return "'$value'";
+}
+
 # _pkill_perl($pattern)
 # Kills Perl processes whose command lines match a pattern.
 # Input: regular-expression pattern string.
 # Output: true value.
 sub _pkill_perl {
     my ( $self, $pattern ) = @_;
+    if (is_windows()) {
+        for my $proc ( $self->_ps_processes ) {
+            next if !$self->_proc_owned_by_current_user($proc);
+            next if $proc->{args} !~ /$pattern/;
+            $self->_send_signal( 'TERM', $proc->{pid} );
+        }
+        return 1;
+    }
     my ( undef, $stderr, $exit_code ) = capture {
         my $ok = system 'pkill', '-15', '-f', $pattern;
         return $ok == -1 ? -1 : ($? >> 8);
@@ -1255,6 +1542,8 @@ sub _looks_like_web_process {
     my ( $self, $proc ) = @_;
     return 0 if !$proc || !$proc->{pid} || !$proc->{args};
     return 1 if $proc->{args} =~ /^dashboard web:\s+\S+:\d+$/;
+    return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?_dashboard-core\s+(?:serve|web-foreground)(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
+    return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?perl(?:\.exe)?(?:\s+-\S+)*\s+(?:\S+[\\/])?_dashboard-core\s+(?:serve|web-foreground)(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$}i;
     return 1 if $proc->{args} =~ m{^(?:\S+/env\s+)?perl(?:\s+-\S+)*\s+(?:\S+/)?dashboard\s+serve(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
     return 1 if $proc->{args} =~ m{^(?:\S+/env\s+)?perl(?:\s+-\S+)*\s+bin/dashboard\s+serve(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
     return 1 if $proc->{args} =~ m{^(?:\S+/)?dashboard\s+serve(?:\s+(?!logs(?:\s|$)|workers(?:\s|$)).*)?$};
@@ -1268,6 +1557,28 @@ sub _looks_like_web_process {
 # Output: list of process hash references.
 sub _ps_processes {
     my ($self) = @_;
+    if (is_windows()) {
+        my ( $stdout, undef, $exit_code ) = capture {
+            system(
+                'powershell',
+                '-NoLogo',
+                '-NoProfile',
+                '-Command',
+                q{$ErrorActionPreference = 'Stop'; Get-CimInstance Win32_Process | ForEach-Object { $cmd = $_.CommandLine; if ($null -eq $cmd) { $cmd = '' }; [Console]::Out.WriteLine(('{0}`t{1}' -f $_.ProcessId, $cmd)) }},
+            );
+            return $? >> 8;
+        };
+        return if $exit_code != 0;
+        my @procs;
+        for my $line ( split /\n/, $stdout ) {
+            next if $line !~ /^\s*(\d+)\t?(.*)$/;
+            push @procs, {
+                pid  => $1 + 0,
+                args => $2,
+            };
+        }
+        return @procs;
+    }
     my ( $stdout, undef, $exit_code ) = capture {
         system 'ps', '-eo', 'pid=,uid=,args=';
         return $? >> 8;
@@ -1301,6 +1612,23 @@ sub _managed_listener_pids_for_port {
 sub _listener_pids_for_port {
     my ( $self, $port ) = @_;
     return () if !$port;
+    if (is_windows()) {
+        my ( $stdout, undef, $exit_code ) = capture {
+            system(
+                'powershell',
+                '-NoLogo',
+                '-NoProfile',
+                '-Command',
+                qq{\$ErrorActionPreference = 'Stop'; Get-NetTCPConnection -LocalPort $port -State Listen | Select-Object -ExpandProperty OwningProcess},
+            );
+            return $? >> 8;
+        };
+        if ( $exit_code == 0 && defined $stdout && $stdout ne '' ) {
+            my %seen;
+            return grep { !$seen{$_}++ } map { /^\s*(\d+)\s*$/ ? ($1 + 0) : () } split /\n/, $stdout;
+        }
+        return $self->_listener_pids_for_port_via_netstat($port);
+    }
     my ( $stdout, $stderr, $exit_code ) = capture {
         system 'ss', '-ltnp', "( sport = :$port )";
         return $? >> 8;
@@ -1322,6 +1650,29 @@ sub _listener_pids_for_port {
         if ($ss_missing) {
             @pids = $self->_listener_pids_for_port_via_proc($port);
         }
+    }
+    return @pids;
+}
+
+# _listener_pids_for_port_via_netstat($port)
+# Resolves TCP listener process ids from Windows netstat output.
+# Input: TCP port integer.
+# Output: list of process ids.
+sub _listener_pids_for_port_via_netstat {
+    my ( $self, $port ) = @_;
+    return () if !$port;
+    my ( $stdout, undef, $exit_code ) = capture {
+        system 'netstat', '-ano', '-p', 'tcp';
+        return $? >> 8;
+    };
+    return () if $exit_code != 0 || !defined $stdout || $stdout eq '';
+    my %seen;
+    my @pids;
+    for my $line ( split /\n/, $stdout ) {
+        next if $line !~ /^\s*TCP\s+\S+:$port\s+\S+\s+LISTENING\s+(\d+)\s*$/i;
+        my $pid = $1 + 0;
+        next if $seen{$pid}++;
+        push @pids, $pid;
     }
     return @pids;
 }
@@ -1502,16 +1853,47 @@ sub _progress_emit {
 # short confirmation window afterwards.
 sub _web_runtime_ready {
     my ( $self, $pid, $port ) = @_;
-    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
-    return 0 if defined $port && $port ne '' && ( $port !~ /^\d+$/ || $port < 1 );
+    $pid = $self->_normalized_process_id($pid);
+    return 0 if !defined $pid;
+    return 0 if $pid !~ /^\d+$/;
+    return 0 if $pid < 1;
+    if ( defined $port && $port ne '' ) {
+        return 0 if $port !~ /^\d+$/;
+        return 0 if $port < 1;
+    }
+    if ( is_windows() && $port ) {
+        my $ready_polls = 0;
+        for ( 1 .. $self->_runtime_stability_polls ) {
+            my @listener_pids = $self->_listener_pids_for_port($port);
+            my $listening = @listener_pids ? 1 : 0;
+            $listening = 1 if !$listening && $self->_port_accepting_connections($port);
+            if ($listening) {
+                $ready_polls++;
+                return 1 if $ready_polls >= $self->_runtime_confirmation_polls;
+            }
+            elsif ($ready_polls) {
+                return 0;
+            }
+            sleep $self->_runtime_poll_interval;
+        }
+        return 0;
+    }
+
     my $ready_polls = 0;
     for ( 1 .. $self->_runtime_stability_polls ) {
         my $running = $self->running_web;
         my $listening = 0;
-        if ( $running && ( $running->{pid} || 0 ) == $pid ) {
-            my $listener_port = $port || $running->{port} || 0;
+        my $matches_runtime = 0;
+        if ($running) {
+            $matches_runtime = $self->_web_runtime_matches_pid( $running, $pid, $port ) ? 1 : 0;
+        }
+        if ($matches_runtime) {
+            my $listener_port = 0;
+            $listener_port = $port if $port;
+            $listener_port = $running->{port} if !$listener_port && $running->{port};
             if ($listener_port) {
-                $listening = scalar $self->_listener_pids_for_port($listener_port) ? 1 : 0;
+                my @listener_pids = $self->_listener_pids_for_port($listener_port);
+                $listening = @listener_pids ? 1 : 0;
                 $listening = 1 if !$listening && $self->_port_accepting_connections($listener_port);
             }
         }
@@ -1525,6 +1907,38 @@ sub _web_runtime_ready {
         sleep $self->_runtime_poll_interval;
     }
     return 0;
+}
+
+# _normalized_process_id($pid)
+# Normalizes one observed process id into a positive integer on platforms such
+# as Windows where pseudo-fork bookkeeping can surface a negative startup pid.
+# Input: optional process id scalar.
+# Output: positive integer process id or the original scalar when it is not a
+# numeric pid.
+sub _normalized_process_id {
+    my ( $self, $pid ) = @_;
+    return $pid if !defined $pid;
+    return $pid if $pid !~ /^-?\d+$/;
+    return abs($pid);
+}
+
+# _web_runtime_matches_pid($running, $pid, $port)
+# Determines whether one observed runtime record matches the expected startup
+# pid closely enough to prove the replacement web service stayed up.
+# Input: running runtime hash reference, startup pid integer, and requested
+# TCP port integer.
+# Output: boolean true when the observed runtime matches the expected startup.
+sub _web_runtime_matches_pid {
+    my ( $self, $running, $pid, $port ) = @_;
+    return 0 if !$running || ref($running) ne 'HASH';
+    return 1 if ( $running->{pid} || 0 ) == $pid;
+    return 0 if !is_windows();
+    my $listener_port = 0;
+    $listener_port = $port if $port;
+    $listener_port = $running->{port} if !$listener_port && $running->{port};
+    return 0 if !$listener_port;
+    return 0 if ( $running->{port} || 0 ) != $listener_port;
+    return 1;
 }
 
 # _collector_runtime_ready($name, $pid)

@@ -16,6 +16,7 @@ use Developer::Dashboard::CLI::SeededPages ();
 use Developer::Dashboard::CLI::Files ();
 use Developer::Dashboard::CLI::Query ();
 use Developer::Dashboard::CLI::Ticket ();
+use Developer::Dashboard::CollectorRunner;
 use Developer::Dashboard::CLI::Paths ();
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::InternalCLI ();
@@ -576,6 +577,29 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
             "helper_content renders the shipped $helper query helper body",
         );
     }
+}
+for my $wrapper_helper (qw(encode decode indicator collector config auth init cpan page action docker serve stop restart log shell doctor housekeeper skills)) {
+    my $managed_content = Developer::Dashboard::InternalCLI::_managed_helper_content($wrapper_helper);
+    like(
+        $managed_content,
+        qr/my \$command = '\Q$wrapper_helper\E';/,
+        "_managed_helper_content stages the $wrapper_helper wrapper with an explicit built-in command name",
+    );
+    unlike(
+        $managed_content,
+        qr/basename\(\$0\)/,
+        "_managed_helper_content no longer relies on \$0 basename discovery for the staged $wrapper_helper wrapper",
+    );
+    like(
+        $managed_content,
+        qr/use Developer::Dashboard::Platform qw\(is_windows\);/,
+        "_managed_helper_content stages the $wrapper_helper wrapper with the Windows-aware helper runtime import",
+    );
+    like(
+        $managed_content,
+        qr/if \(is_windows\(\)\) \{\n    system \@command;\n    my \$status = \$\?;\n    my \$exit_code = \$status > 255 \? \$status >> 8 : \$status;\n    exit \$exit_code;\n\}/,
+        "_managed_helper_content stages the $wrapper_helper wrapper with Windows-native child-exit propagation instead of raw exec",
+    );
 }
 my $seeded_helpers = Developer::Dashboard::InternalCLI::ensure_helpers( paths => $paths );
 my @helper_names = Developer::Dashboard::InternalCLI::helper_names();
@@ -1934,6 +1958,7 @@ is_deeply(
         { id => 'install_aptfile',      label => 'Install aptfile dependencies' },
         { id => 'install_apkfile',      label => 'Install apkfile dependencies' },
         { id => 'install_dnfile',       label => 'Install dnfile dependencies' },
+        { id => 'install_wingetfile',   label => 'Install wingetfile dependencies' },
         { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
         { id => 'install_package_json', label => 'Install package.json dependencies' },
         { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
@@ -2217,8 +2242,8 @@ is_deeply(
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
 close $cpanm_log_fh;
-like( $cpanm_steps[-2], qr/^--notest -L \Q$ENV{HOME}\/skills-home\/perl5\E --cpanfile .*\/cpanfile --installdeps /, '_install_skill_dependencies installs cpanfile dependencies into HOME perl5 with cpanm --notest' );
-like( $cpanm_steps[-1], qr/^--notest -L .*\/perl5 --cpanfile .*\/cpanfile\.local --installdeps /, '_install_skill_dependencies installs cpanfile.local dependencies into the skill-local perl5 root with cpanm --notest' );
+like( $cpanm_steps[-2], qr/^--notest -L \Q$ENV{HOME}\/skills-home\/perl5\E --cpanfile .*\/cpanfile --installdeps \.$/, '_install_skill_dependencies installs cpanfile dependencies into HOME perl5 with cpanm --notest from the skill root itself' );
+like( $cpanm_steps[-1], qr/^--notest -L .*\/perl5 --cpanfile .*\/cpanfile\.local --installdeps \.$/, '_install_skill_dependencies installs cpanfile.local dependencies into the skill-local perl5 root with cpanm --notest from the skill root itself' );
 open my $npm_log_fh, '<', $npx_log or die "Unable to read $npx_log: $!";
 my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npm_log_fh>;
 close $npm_log_fh;
@@ -2320,6 +2345,36 @@ my $home_manifest_result = $manager->_install_skill_package_json($home_manifest_
 ok( !$home_manifest_result->{error}, '_install_skill_package_json ignores an npm-invalid HOME/package.json by using a private staging workspace' )
   or diag $home_manifest_result->{error};
 ok( -d File::Spec->catdir( $ENV{HOME}, 'skills-home', 'node_modules', 'left-pad' ), '_install_skill_package_json still lands packages in the manager HOME node_modules tree when HOME/package.json is npm-invalid' );
+{
+    local $ENV{PATH} = $fake_bin;
+    my $portable_copy_result = $manager->_install_skill_package_json($home_manifest_skill);
+    ok( !$portable_copy_result->{error}, '_install_skill_package_json merges staged Node dependencies without requiring a Unix cp command on PATH' )
+      or diag $portable_copy_result->{error};
+    ok( -d File::Spec->catdir( $ENV{HOME}, 'skills-home', 'node_modules', 'left-pad' ), '_install_skill_package_json still merges the staged node_modules tree when PATH omits cp' );
+}
+{
+    my $runner_home = tempdir( CLEANUP => 1 );
+    my $runner_paths = Developer::Dashboard::PathRegistry->new( home => $runner_home );
+    my $runner = Developer::Dashboard::CollectorRunner->new(
+        collectors => Developer::Dashboard::Collector->new( paths => $runner_paths ),
+        files      => Developer::Dashboard::FileRegistry->new( paths => $runner_paths ),
+        paths      => $runner_paths,
+    );
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    no warnings 'redefine';
+    local *POSIX::setsid = sub { die "setsid should not run on Windows\n" };
+    ok( $runner->_detach_process_session, '_detach_process_session skips POSIX::setsid on Windows collector loops' );
+}
+is(
+    $manager->_remove_tree_error_text(
+        [
+            { 'C:\\Users\\Docker\\.developer-dashboard\\skills\\browser' => 'Permission denied' },
+            'fallback cleanup message',
+        ]
+    ),
+    'C:\\Users\\Docker\\.developer-dashboard\\skills\\browser: Permission denied, fallback cleanup message',
+    '_remove_tree_error_text renders structured remove_tree errors without Perl hash stringification',
+);
 {
     local $ENV{DD_TEST_NPM_NO_MODULES} = '1';
     my $no_modules_result = $manager->_install_skill_package_json($home_manifest_skill);

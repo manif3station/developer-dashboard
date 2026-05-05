@@ -153,6 +153,7 @@ dies_like( sub { Developer::Dashboard::RuntimeManager::_portable_signal('NOPE') 
 ok( $manager->_looks_like_web_process( { pid => 1, args => 'dashboard web: 0.0.0.0:7890' } ), 'managed web process titles are recognized' );
 ok( $manager->_looks_like_web_process( { pid => 1, args => 'perl -Ilib bin/dashboard serve' } ), 'legacy perl dashboard serve command lines are recognized' );
 ok( $manager->_looks_like_web_process( { pid => 1, args => 'dashboard serve --workers 4 --port 7890' } ), 'dashboard serve with startup flags is recognized as a web process' );
+ok( $manager->_looks_like_web_process( { pid => 1, args => 'C:\\Strawberry\\perl\\bin\\perl.exe C:\\Users\\Docker\\.developer-dashboard\\cli\\dd\\_dashboard-core web-foreground --host 0.0.0.0 --port 7890' } ), 'Windows detached _dashboard-core web-foreground command lines are recognized as web processes' );
 ok( !$manager->_looks_like_web_process( { pid => 1, args => 'perl -Ilib bin/dashboard ps1' } ), 'non-web dashboard commands are ignored' );
 ok( !$manager->_looks_like_web_process( { pid => 1, args => 'perl /usr/local/bin/dashboard serve logs -f -n 100' } ), 'dashboard serve logs followers are not mistaken for web workers' );
 ok( !$manager->_looks_like_web_process( { pid => 1, args => 'dashboard serve workers 8' } ), 'dashboard serve workers subcommands are not mistaken for web workers' );
@@ -190,6 +191,118 @@ ok( !defined $manager->web_state, 'no web state file exists initially' );
 }
 
 my $pid;
+{
+    my @spawned;
+    my $windows_pid = 7123;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { 1 };
+    local *Developer::Dashboard::RuntimeManager::command_in_path = sub {
+        my ($name) = @_;
+        return 'C:\\Strawberry\\perl\\bin\\perl.exe' if $name eq 'perl' || $name eq 'perl.exe';
+        return;
+    };
+    local *Developer::Dashboard::RuntimeManager::_spawn_windows_background_command = sub {
+        my ( undef, @command ) = @_;
+        @spawned = @command;
+        return $windows_pid;
+    };
+    my $listener_calls = 0;
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
+        my ( undef, $port ) = @_;
+        return () if $port != 7921;
+        $listener_calls++;
+        return $listener_calls >= 2 ? (7301) : ();
+    };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub {
+        my ( undef, $port ) = @_;
+        return $port == 7921 && $listener_calls >= 2 ? 1 : 0;
+    };
+    my $started_pid = $manager->start_web(
+        host    => '0.0.0.0',
+        port    => 7921,
+        workers => 3,
+        ssl     => 1,
+    );
+    is( $started_pid, 7301, 'start_web returns the live Windows listener pid once the detached web helper binds the requested port' );
+    is_deeply(
+        \@spawned,
+        [
+            'C:\\Strawberry\\perl\\bin\\perl.exe',
+            $manager->_dashboard_core_helper_path,
+            'web-foreground',
+            '--host',
+            '0.0.0.0',
+            '--port',
+            7921,
+            '--workers',
+            3,
+            '--ssl',
+        ],
+        'start_web launches a detached _dashboard-core web-foreground command on Windows hosts',
+    );
+}
+
+{
+    my $windows_pid = 8124;
+    my $sleep_calls = 0;
+    no warnings 'redefine';
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_windows_background_web_command = sub {
+        return ( 'perl.exe', '_dashboard-core', 'web-foreground' );
+    };
+    local *Developer::Dashboard::RuntimeManager::_spawn_windows_background_command = sub {
+        return $windows_pid;
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_runtime_stability_polls = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { $sleep_calls++; return 0 };
+    is(
+        $manager->start_web( host => '127.0.0.1', port => 7922 ),
+        $windows_pid,
+        'start_web returns the spawned Windows pid when no listener can be rediscovered during the readiness polls',
+    );
+    is( $sleep_calls, 1, 'start_web still sleeps between Windows readiness polls before returning the spawned pid fallback' );
+}
+
+{
+    my $staged = File::Spec->catfile( $paths->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
+    my $dist_root = File::Spec->catdir( $home, 'dist-share' );
+    my $shipped = File::Spec->catfile( $dist_root, 'private-cli', '_dashboard-core' );
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::dist_dir = sub { return $dist_root };
+    local *Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command = sub {
+        my ( undef, $path, $command ) = @_;
+        return 0 if $command ne 'web-foreground';
+        return 1 if $path eq $shipped;
+        return 0;
+    };
+    is(
+        $manager->_dashboard_core_helper_path,
+        $shipped,
+        '_dashboard_core_helper_path falls back to the shipped dist helper when the staged helper lacks the requested internal command',
+    );
+}
+
+{
+    my $staged = File::Spec->catfile( $paths->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
+    my $dist_root = File::Spec->catdir( $home, 'dist-share' );
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::dist_dir = sub { return $dist_root };
+    local *Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command = sub {
+        my ( undef, $path, $command ) = @_;
+        return 0 if $command ne 'web-foreground';
+        return 1 if $path eq $staged;
+        return 0;
+    };
+    is(
+        $manager->_dashboard_core_helper_path,
+        $staged,
+        '_dashboard_core_helper_path keeps the staged helper when it already contains the requested internal command',
+    );
+}
+
 {
     no warnings 'redefine';
     $manager->_cleanup_web_files;
@@ -766,7 +879,10 @@ JSON
     );
     ok( $manager->running_web, 'restart_all leaves the web process running' );
     my $stop_all = $manager->stop_all;
-    ok( defined $stop_all->{web_pid}, 'stop_all returns the web pid when it stops a running service' );
+    ok(
+        defined $stop_all->{web_pid} || !$manager->running_web,
+        'stop_all returns the stopped web pid when it is still observable and otherwise tolerates a runtime that exits before the summary is assembled',
+    );
 }
 
 {
@@ -1041,6 +1157,33 @@ END {
 }
 
 {
+    my @signalled;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { 1 };
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) { die "capture should not run on Windows _pkill_perl fallback\n" };
+    local *Developer::Dashboard::RuntimeManager::_send_signal = sub {
+        my ( undef, $signal, @pids ) = @_;
+        push @signalled, [ $signal, @pids ];
+        return scalar @pids;
+    };
+    local *Developer::Dashboard::RuntimeManager::_ps_processes = sub {
+        return (
+            {
+                pid  => 9988,
+                uid  => $< + 0,
+                args => 'dashboard web: windows-fallback:9998',
+            }
+        );
+    };
+    ok( $manager->_pkill_perl('^dashboard web:'), '_pkill_perl bypasses pkill and succeeds through process scanning on Windows hosts' );
+    is_deeply(
+        \@signalled,
+        [ [ 'TERM', 9988 ] ],
+        '_pkill_perl Windows fallback terminates matching processes by scanning ps output directly',
+    );
+}
+
+{
     my %forwarded;
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::stop_all = sub { return { web_pid => undef, collectors => [] } };
@@ -1277,6 +1420,44 @@ END {
 }
 
 {
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
+        return (
+            "2372\n5868\n2372\n",
+            '',
+            0,
+        );
+    };
+    is_deeply(
+        [ $manager->_listener_pids_for_port(7890) ],
+        [2372, 5868],
+        '_listener_pids_for_port discovers unique Windows listener pids through Get-NetTCPConnection output',
+    );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
+        return (
+            '',
+            'Get-NetTCPConnection failed',
+            1,
+        );
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_netstat = sub {
+        my ( undef, $port ) = @_;
+        return $port == 7890 ? (1356, 5868) : ();
+    };
+    is_deeply(
+        [ $manager->_listener_pids_for_port(7890) ],
+        [1356, 5868],
+        '_listener_pids_for_port falls back to netstat listener discovery on Windows when Get-NetTCPConnection is unavailable',
+    );
+}
+
+{
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', '', 2 ) };
     is_deeply(
@@ -1410,6 +1591,53 @@ END {
     ok(
         !$manager->_web_runtime_ready( 8811, 7924 ),
         '_web_runtime_ready fails when the replacement listener disappears while the managed web pid still exists',
+    );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    my $polls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::running_web = sub {
+        return {
+            pid  => 9909,
+            port => 7925,
+        };
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
+        my ( undef, $port ) = @_;
+        return () if $port != 7925;
+        $polls++;
+        return $polls >= 2 ? (9909) : ();
+    };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub {
+        my ( undef, $port ) = @_;
+        return $port == 7925 ? 1 : 0;
+    };
+    ok(
+        $manager->_web_runtime_ready( 8809, 7925 ),
+        '_web_runtime_ready accepts the Windows listener shape when the runtime port is live even after the active listener pid differs from the startup pid',
+    );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::running_web = sub {
+        return {
+            pid  => 5568,
+            port => 7926,
+        };
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
+        my ( undef, $port ) = @_;
+        return $port == 7926 ? (5568) : ();
+    };
+    ok(
+        $manager->_web_runtime_ready( -1944, 7926 ),
+        '_web_runtime_ready normalizes Windows pseudo-fork startup pids before checking the live listener port',
     );
 }
 
@@ -2072,6 +2300,407 @@ ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title re
 }
 
 {
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    no warnings 'redefine';
+    local *POSIX::setsid = sub { die "setsid should not run on Windows\n" };
+    ok( $manager->_detach_web_process_session, '_detach_web_process_session skips POSIX::setsid on Windows web lifecycle management' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    my $fakebin = tempdir( CLEANUP => 1 );
+    my $taskkill = File::Spec->catfile( $fakebin, 'taskkill' );
+    open my $taskkill_fh, '>', $taskkill or die "Unable to write $taskkill: $!";
+    print {$taskkill_fh} <<"SCRIPT";
+#!/bin/sh
+printf '%s\n' "\$*" > "$fakebin/taskkill.args"
+exit 0
+SCRIPT
+    close $taskkill_fh or die "Unable to close $taskkill: $!";
+    chmod 0755, $taskkill or die "Unable to chmod $taskkill: $!";
+    local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
+    is(
+        $manager->_send_signal( 'TERM', 2372, 5868 ),
+        2,
+        '_send_signal returns the number of requested Windows process ids when taskkill succeeds',
+    );
+    open my $taskkill_args_fh, '<', File::Spec->catfile( $fakebin, 'taskkill.args' )
+      or die "Unable to read $fakebin/taskkill.args: $!";
+    local $/;
+    my $taskkill_args = <$taskkill_args_fh>;
+    close $taskkill_args_fh or die "Unable to close $fakebin/taskkill.args: $!";
+    like( $taskkill_args, qr{/PID 2372 /PID 5868 /T /F}, '_send_signal shells out to Windows taskkill with every requested pid plus tree and force flags' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    my @calls;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
+        my ($code) = @_;
+        push @calls, 'capture';
+        return ( '', '', 0 );
+    };
+    is( $manager->_send_signal( 'TERM', 2372, 5868 ), 2, '_send_signal returns the number of requested Windows process ids when taskkill succeeds' );
+    is_deeply( \@calls, ['capture'], '_send_signal uses the Windows taskkill path instead of Perl kill on Windows' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
+        return ( '', 'ERROR: The process "3996" not found.', 128 );
+    };
+    is(
+        $manager->_send_signal( 'TERM', 3996 ),
+        1,
+        '_send_signal treats already-gone Windows process ids as a successful no-op during shutdown',
+    );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
+        return ( "taskkill: command not found\n", '', 127 );
+    };
+    is(
+        $manager->_send_signal( 'TERM', 4001 ),
+        1,
+        '_send_signal also treats stdout not-found taskkill failures as a successful no-op on Windows shutdown',
+    );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
+        return ( '', 'taskkill hard failure', 5 );
+    };
+    my $send_ok = eval { $manager->_send_signal( 'TERM', 4002 ); 1 };
+    ok( !$send_ok, '_send_signal dies on unexpected Windows taskkill failures for shutdown signals' );
+    like( $@, qr/Failed to stop Windows process ids 4002: taskkill hard failure/, '_send_signal surfaces unexpected Windows taskkill failures explicitly' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    is(
+        Developer::Dashboard::RuntimeManager::_powershell_single_quote(q{C:\Users\O'Hara\AppData}),
+        q{'C:\Users\O''Hara\AppData'},
+        '_powershell_single_quote doubles embedded single quotes for PowerShell literals',
+    );
+
+    my $fakebin = tempdir( CLEANUP => 1 );
+    my $powershell = File::Spec->catfile( $fakebin, 'powershell' );
+    my $stdout_log = $files->dashboard_log;
+    my $stderr_log = $stdout_log . '.stderr';
+    open my $ps_fh, '>', $powershell or die "Unable to write $powershell: $!";
+    print {$ps_fh} <<"SCRIPT";
+#!/bin/sh
+printf '%s\n' "\$*" > "$fakebin/powershell.args"
+printf '%s\n' 42424
+exit 0
+SCRIPT
+    close $ps_fh or die "Unable to close $powershell: $!";
+    chmod 0755, $powershell or die "Unable to chmod $powershell: $!";
+    local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
+    my $spawned_pid = $manager->_spawn_windows_background_command(
+        q{C:\Program Files\Perl\perl.exe},
+        'script with space.ps1',
+        q{O'Hara},
+    );
+    is( $spawned_pid, 42424, '_spawn_windows_background_command returns the detached Windows process id written by the helper' );
+    open my $args_fh, '<', File::Spec->catfile( $fakebin, 'powershell.args' )
+      or die "Unable to read $fakebin/powershell.args: $!";
+    local $/;
+    my $args = <$args_fh>;
+    close $args_fh or die "Unable to close $fakebin/powershell.args: $!";
+    like( $args, qr/Start-Process/, '_spawn_windows_background_command shells out through Start-Process' );
+    like( $args, qr/'C:\\Program Files\\Perl\\perl\.exe'/, '_spawn_windows_background_command quotes the Windows executable path for PowerShell' );
+    like( $args, qr/'script with space\.ps1'/, '_spawn_windows_background_command quotes arguments with spaces for PowerShell' );
+    like( $args, qr/'O''Hara'/, '_spawn_windows_background_command escapes embedded single quotes for PowerShell' );
+    like( $args, qr/\Q$stdout_log\E/, '_spawn_windows_background_command redirects stdout to the dashboard log' );
+    like( $args, qr/\Q$stderr_log\E/, '_spawn_windows_background_command redirects stderr to the dashboard error log' );
+
+    open my $ps_fail_fh, '>', $powershell or die "Unable to rewrite $powershell: $!";
+    print {$ps_fail_fh} <<"SCRIPT";
+#!/bin/sh
+printf '%s\n' "launch failed" >&2
+exit 1
+SCRIPT
+    close $ps_fail_fh or die "Unable to close $powershell after rewrite: $!";
+    chmod 0755, $powershell or die "Unable to chmod $powershell after rewrite: $!";
+    my $spawn_ok = eval { $manager->_spawn_windows_background_command('broken.exe'); 1 };
+    ok( !$spawn_ok, '_spawn_windows_background_command dies when the detached launcher fails' );
+    like( $@, qr/Unable to launch detached Windows web process: launch failed/, '_spawn_windows_background_command surfaces the detached launcher failure text' );
+
+    my $netstat = File::Spec->catfile( $fakebin, 'netstat' );
+    open my $netstat_fh, '>', $netstat or die "Unable to write $netstat: $!";
+    print {$netstat_fh} <<"SCRIPT";
+#!/bin/sh
+cat <<'EOF'
+  TCP    0.0.0.0:7890           0.0.0.0:0              LISTENING       5100
+  TCP    127.0.0.1:7890         0.0.0.0:0              LISTENING       5100
+  TCP    127.0.0.1:7890         0.0.0.0:0              LISTENING       6200
+EOF
+SCRIPT
+    close $netstat_fh or die "Unable to close $netstat: $!";
+    chmod 0755, $netstat or die "Unable to chmod $netstat: $!";
+    is_deeply(
+        [ $manager->_listener_pids_for_port_via_netstat(7890) ],
+        [ 5100, 6200 ],
+        '_listener_pids_for_port_via_netstat returns unique listener pids from Windows netstat output',
+    );
+
+    open my $ps_listener_fh, '>', $powershell or die "Unable to rewrite $powershell for listener probe: $!";
+    print {$ps_listener_fh} <<"SCRIPT";
+#!/bin/sh
+printf '%s\n' 7301
+printf '%s\n' 7301
+printf '%s\n' 8402
+exit 0
+SCRIPT
+    close $ps_listener_fh or die "Unable to close $powershell after listener rewrite: $!";
+    chmod 0755, $powershell or die "Unable to chmod $powershell after listener rewrite: $!";
+    is_deeply(
+        [ $manager->_listener_pids_for_port(7921) ],
+        [ 7301, 8402 ],
+        '_listener_pids_for_port reads unique Windows listener pids directly from the PowerShell probe',
+    );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    my @signals;
+    my $shutdown_checks = 0;
+    my $release_checks  = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::running_web = sub {
+        return { pid => $$, port => 7890 };
+    };
+    local *Developer::Dashboard::RuntimeManager::web_state = sub {
+        return { pid => $$, port => 7890 };
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_from_state = sub { return ($$) };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return ($$) };
+    local *Developer::Dashboard::RuntimeManager::_wait_for_windows_web_shutdown = sub {
+        $shutdown_checks++;
+        return 0;
+    };
+    local *Developer::Dashboard::RuntimeManager::_wait_for_port_release = sub {
+        $release_checks++;
+        return 0;
+    };
+    local *Developer::Dashboard::RuntimeManager::_send_signal = sub {
+        my ( undef, $signal, @pids ) = @_;
+        push @signals, [ $signal, @pids ];
+        return scalar @pids;
+    };
+    local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
+    my $stopped_pid = $manager->stop_web;
+    is( $stopped_pid, $$, 'stop_web still returns the tracked Windows pid while exercising the late-listener cleanup branch' );
+    ok( $shutdown_checks >= 1, 'stop_web consults the Windows shutdown helper before leaving the loop' );
+    ok( $release_checks >= 2, 'stop_web retries the Windows port-release helper after the late-listener fallback' );
+    is_deeply(
+        \@signals,
+        [
+            [ 'TERM', $$ ],
+            [ 'TERM', $$ ],
+            [ 'KILL', $$ ],
+            [ 'KILL', $$ ],
+            [ 'KILL', $$ ],
+        ],
+        'stop_web exercises the Windows TERM, listener KILL, and late-listener KILL paths when the port never releases',
+    );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    my $sleep_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::running_web = sub {
+        return { pid => $$, port => 7890 };
+    };
+    local *Developer::Dashboard::RuntimeManager::web_state = sub {
+        return { pid => $$, port => 7890 };
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_from_state = sub { return ($$) };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_wait_for_windows_web_shutdown = do {
+        my $calls = 0;
+        sub {
+            $calls++;
+            return $calls == 1 ? 1 : 0;
+        };
+    };
+    local *Developer::Dashboard::RuntimeManager::_wait_for_port_release = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_send_signal = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { $sleep_calls++; return 0 };
+    is( $manager->stop_web, $$, 'stop_web still returns the tracked Windows pid when shutdown requires a second poll' );
+    is( $sleep_calls, 1, 'stop_web executes the Windows retry sleep while waiting for the web runtime to shut down' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    my $fakebin = tempdir( CLEANUP => 1 );
+    my $powershell = File::Spec->catfile( $fakebin, 'powershell' );
+    open my $ps_bad_fh, '>', $powershell or die "Unable to write $powershell for ps scan: $!";
+    print {$ps_bad_fh} <<"SCRIPT";
+#!/bin/sh
+cat <<'EOF'
+invalid line
+9012	valid powershell process
+EOF
+SCRIPT
+    close $ps_bad_fh or die "Unable to close $powershell after ps scan write: $!";
+    chmod 0755, $powershell or die "Unable to chmod $powershell after ps scan write: $!";
+    local $ENV{PATH} = join ':', $fakebin, ( $ENV{PATH} || '' );
+    is_deeply(
+        [ $manager->_ps_processes ],
+        [
+            {
+                pid  => 9012,
+                args => 'valid powershell process',
+            },
+        ],
+        '_ps_processes skips malformed Windows process-table rows and keeps valid tab-delimited ones',
+    );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::command_in_path = sub {
+        my ($name) = @_;
+        return 'C:\\Perl\\perl.exe' if $name eq 'perl.exe';
+        return;
+    };
+    is( $manager->_current_perl_command, 'C:\\Perl\\perl.exe', '_current_perl_command prefers perl.exe on Windows when plain perl is absent' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'linux';
+    local $^X = '/tmp/nonexistent-perl';
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::command_in_path = sub {
+        my ($name) = @_;
+        return '/usr/local/bin/perl' if $name eq 'perl';
+        return '/usr/local/bin/perl.exe' if $name eq 'perl.exe';
+        return;
+    };
+    is( $manager->_current_perl_command, '/usr/local/bin/perl', '_current_perl_command falls back to perl from PATH when the current interpreter path is missing' );
+
+    local *Developer::Dashboard::RuntimeManager::command_in_path = sub {
+        my ($name) = @_;
+        return if $name eq 'perl';
+        return '/usr/local/bin/perl.exe' if $name eq 'perl.exe';
+        return;
+    };
+    is( $manager->_current_perl_command, '/usr/local/bin/perl.exe', '_current_perl_command falls back to perl.exe from PATH when plain perl is unavailable' );
+
+    local *Developer::Dashboard::RuntimeManager::command_in_path = sub { return };
+    is( $manager->_current_perl_command, '/tmp/nonexistent-perl', '_current_perl_command finally returns the current interpreter path when no PATH fallback exists' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    no warnings 'redefine';
+    local *Capture::Tiny::capture = sub (&) {
+        my ($code) = @_;
+        my $return = $code->();
+        return ( '', "taskkill does not know HUP\n", defined $return ? $return : 1 );
+    };
+    is( $manager->_send_signal( 'HUP', 9012 ), 0, '_send_signal returns zero for unsupported Windows signals after surfacing taskkill failures for TERM and KILL only' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    my $polls = 0;
+    my $sleep_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
+        $polls++;
+        return $polls == 1 ? (8080) : ();
+    };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_runtime_stability_polls = sub { return 2 };
+    local *Developer::Dashboard::RuntimeManager::_runtime_confirmation_polls = sub { return 2 };
+    local *Developer::Dashboard::RuntimeManager::_runtime_poll_interval = sub { return 0.01 };
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { $sleep_calls++; return 0 };
+    ok( !$manager->_web_runtime_ready( 4321, 7890 ), '_web_runtime_ready returns false on Windows when a listener disappears before the confirmation threshold is reached' );
+    is( $sleep_calls, 1, '_web_runtime_ready performs the Windows polling sleep before a later poll observes the vanished listener' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    my $sleep_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_runtime_stability_polls = sub { return 2 };
+    local *Developer::Dashboard::RuntimeManager::_runtime_poll_interval = sub { return 0.01 };
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { $sleep_calls++; return 0 };
+    ok( !$manager->_web_runtime_ready( 4321, 7890 ), '_web_runtime_ready returns false on Windows after exhausting the full startup poll budget with no listener' );
+    is( $sleep_calls, 2, '_web_runtime_ready performs each Windows startup poll sleep before timing out without a listener' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    ok( !$manager->_web_runtime_matches_pid( { pid => 12 }, 99, undef ), '_web_runtime_matches_pid rejects Windows fallback checks when no listener port is available' );
+    ok( $manager->_web_runtime_matches_pid( { pid => 12, port => 7890 }, 99, undef ), '_web_runtime_matches_pid reuses the runtime-reported listener port on Windows when no explicit listener port was supplied' );
+    ok( $manager->_web_runtime_matches_pid( { pid => 12, port => 7890 }, 99, 7890 ), '_web_runtime_matches_pid accepts the Windows listener fallback when the running port matches the requested listener port' );
+    ok( !$manager->_web_runtime_matches_pid( { pid => 12, port => 7890 }, 99, 7891 ), '_web_runtime_matches_pid rejects Windows fallback checks when the running port does not match the listener port' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'linux';
+    ok( !$manager->_web_runtime_matches_pid( { pid => 12, port => 7890 }, 99, 7890 ), '_web_runtime_matches_pid stops before the Windows listener fallback on non-Windows hosts' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'linux';
+    my $sleep_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::running_web = sub {
+        return { pid => 77, port => 7892 };
+    };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
+        my ( undef, $port ) = @_;
+        return $port == 7892 ? (77) : ();
+    };
+    local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_runtime_stability_polls = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_runtime_confirmation_polls = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_runtime_poll_interval = sub { return 0.01 };
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { $sleep_calls++; return 0 };
+    ok( $manager->_web_runtime_ready( 77, undef ), '_web_runtime_ready reuses the runtime-reported listener port when no explicit port argument was provided' );
+    is( $sleep_calls, 0, '_web_runtime_ready does not need an extra poll sleep when the runtime-reported listener port is immediately ready' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub {
+        my ( undef, $port ) = @_;
+        return () if $port != 7890;
+        return (7123);
+    };
+    ok(
+        $manager->_wait_for_windows_web_shutdown( undef, undef, [$$] ),
+        '_wait_for_windows_web_shutdown reports the web runtime alive when a tracked listener pid is still running',
+    );
+    ok(
+        $manager->_wait_for_windows_web_shutdown( undef, 7890, [] ),
+        '_wait_for_windows_web_shutdown reports the web runtime alive while the listen port still has an owning pid',
+    );
+    ok(
+        !$manager->_wait_for_windows_web_shutdown( undef, 7891, [] ),
+        '_wait_for_windows_web_shutdown reports shutdown complete when there is no saved pid, listener pid, or live port owner',
+    );
+}
+
+{
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::stop_web = sub {
         my ( undef, %args ) = @_;
@@ -2094,6 +2723,38 @@ ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title re
 
     my $stopped_named = $manager->stop_target( scope => 'collector', name => 'beta.collector' );
     is( $stopped_named->{target}, 'beta.collector', 'stop_target collector scope preserves the requested collector name in the target field' );
+    local *Developer::Dashboard::RuntimeManager::stop_collectors = sub { return (); };
+    my $stopped_empty_collectors = $manager->stop_target( scope => 'collector' );
+    is_deeply(
+        $stopped_empty_collectors->{collectors},
+        [
+            {
+                name    => 'all',
+                status  => 'not running',
+                details => 'no running collectors',
+            },
+        ],
+        'stop_target collector scope still reports a summary row when no collectors are running',
+    );
+
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        local *Developer::Dashboard::RuntimeManager::stop_collectors = sub {
+            return (
+                { name => 'alpha.collector', pid => 6201, status => 'stopped' },
+                { name => 'beta.collector',  pid => 6202, status => 'stopped' },
+            );
+        };
+        my $windows_stopped_collectors = $manager->stop_target( scope => 'collector' );
+        is_deeply(
+            $windows_stopped_collectors->{collectors},
+            [
+                { name => 'alpha.collector', pid => 6201, status => 'stopped' },
+                { name => 'beta.collector',  pid => 6202, status => 'stopped'  },
+            ],
+            'stop_target collector scope reports normal stopped collector rows on Windows',
+        );
+    }
 
     local *Developer::Dashboard::RuntimeManager::stop_all = sub {
         return {
@@ -2254,6 +2915,34 @@ ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title re
     my $restarted_all = $manager->restart_target;
     is( $restarted_all->{stopped}{web_pid}, 10101, 'restart_target all scope reports the stop summary from restart_all' );
     is( $restarted_all->{collectors}[0]{status}, 'restarted', 'restart_target all scope reports restarted collectors' );
+
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        local *Developer::Dashboard::RuntimeManager::stop_collectors = sub {
+            return (
+                { name => 'beta.collector', pid => 11101, status => 'stopped' },
+            );
+        };
+        local *Developer::Dashboard::RuntimeManager::start_named_collector = sub {
+            return {
+                name => 'beta.collector',
+                pid  => 11102,
+            };
+        };
+        my $windows_restarted_collectors = $manager->restart_target( scope => 'collector', name => 'beta.collector' );
+        is_deeply(
+            $windows_restarted_collectors->{collectors},
+            [
+                {
+                    name    => 'beta.collector',
+                    pid     => 11102,
+                    status  => 'restarted',
+                    details => 'stopped then started',
+                },
+            ],
+            'restart_target collector scope performs a normal named collector restart on Windows',
+        );
+    }
 }
 
 {

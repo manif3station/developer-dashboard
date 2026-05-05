@@ -430,7 +430,8 @@ Get-Content -Raw -LiteralPath `$env:DD_INSTALL_BOOTSTRAP_SCRIPT | Invoke-Express
 # the installed dashboard command after install.ps1 completes.
 # Input: none.
 # Output: returns nothing or throws when the fresh session cannot resolve
-# dashboard, print a version, and run dashboard logs successfully.
+# dashboard, print a version, restart the runtime, install the browser skill,
+# and run dashboard logs successfully.
 function Assert-FreshPowerShellDashboardBootstrap {
     $freshSessionScript = @'
 $ErrorActionPreference = "Stop"
@@ -438,19 +439,40 @@ Write-Output "DASHBOARD_SOURCE_START"
 (Get-Command dashboard -ErrorAction Stop).Source
 Write-Output "DASHBOARD_VERSION_START"
 dashboard version
+if ($LASTEXITCODE -ne 0) { throw "dashboard version failed with exit code $LASTEXITCODE" }
+Write-Output "DASHBOARD_RESTART_START"
+dashboard restart
+if ($LASTEXITCODE -ne 0) { throw "dashboard restart failed with exit code $LASTEXITCODE" }
+Write-Output "DASHBOARD_RESTART_END"
+Write-Output "DASHBOARD_SKILL_INSTALL_BROWSER_START"
+dashboard skills install browser
+if ($LASTEXITCODE -ne 0) { throw "dashboard skills install browser failed with exit code $LASTEXITCODE" }
+Write-Output "DASHBOARD_SKILL_INSTALL_BROWSER_END"
 Write-Output "DASHBOARD_LOGS_START"
 dashboard logs
+if ($LASTEXITCODE -ne 0) { throw "dashboard logs failed with exit code $LASTEXITCODE" }
 Write-Output "DASHBOARD_LOGS_END"
 '@
 
-    $freshSessionOutput = & powershell.exe -NoLogo -Command $freshSessionScript | Out-String
-    if ($LASTEXITCODE -ne 0) {
-        throw "fresh profile-loaded PowerShell dashboard check failed with exit code $LASTEXITCODE"
+    $freshSessionScriptPath = Join-Path ([System.IO.Path]::GetTempPath()) "dd-fresh-session-bootstrap.ps1"
+    try {
+        Set-Content -Path $freshSessionScriptPath -Value $freshSessionScript -Encoding UTF8
+        $freshSessionOutput = & powershell.exe -NoLogo -File $freshSessionScriptPath | Out-String
+        if ($LASTEXITCODE -ne 0) {
+            throw "fresh profile-loaded PowerShell dashboard check failed with exit code $LASTEXITCODE"
+        }
+    }
+    finally {
+        Remove-Item $freshSessionScriptPath -ErrorAction SilentlyContinue
     }
 
     Invoke-AssertContains -Text $freshSessionOutput -Fragment "DASHBOARD_SOURCE_START" -Label "fresh PowerShell dashboard bootstrap"
     Invoke-AssertContains -Text $freshSessionOutput -Fragment "dashboard.bat" -Label "fresh PowerShell dashboard bootstrap"
     Invoke-AssertContains -Text $freshSessionOutput -Fragment "DASHBOARD_VERSION_START" -Label "fresh PowerShell dashboard bootstrap"
+    Invoke-AssertContains -Text $freshSessionOutput -Fragment "DASHBOARD_RESTART_START" -Label "fresh PowerShell dashboard bootstrap"
+    Invoke-AssertContains -Text $freshSessionOutput -Fragment "DASHBOARD_RESTART_END" -Label "fresh PowerShell dashboard bootstrap"
+    Invoke-AssertContains -Text $freshSessionOutput -Fragment "DASHBOARD_SKILL_INSTALL_BROWSER_START" -Label "fresh PowerShell dashboard bootstrap"
+    Invoke-AssertContains -Text $freshSessionOutput -Fragment "DASHBOARD_SKILL_INSTALL_BROWSER_END" -Label "fresh PowerShell dashboard bootstrap"
     Invoke-AssertContains -Text $freshSessionOutput -Fragment "DASHBOARD_LOGS_START" -Label "fresh PowerShell dashboard bootstrap"
     Invoke-AssertContains -Text $freshSessionOutput -Fragment "DASHBOARD_LOGS_END" -Label "fresh PowerShell dashboard bootstrap"
 }

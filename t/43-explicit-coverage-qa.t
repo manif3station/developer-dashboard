@@ -882,6 +882,21 @@ subtest 'SkillManager closes the remaining direct error-path coverage branches' 
         '_dependency_progress_label still reports errors when the dependency file is absent',
     );
 
+    my $copy_source_root = tempdir( CLEANUP => 1 );
+    my $copy_source_dir = File::Spec->catdir( $copy_source_root, 'nested' );
+    make_path($copy_source_dir);
+    my $copy_source = File::Spec->catfile( $copy_source_dir, 'source.txt' );
+    open my $copy_source_fh, '>', $copy_source or die $!;
+    print {$copy_source_fh} "copied\n";
+    close $copy_source_fh;
+    chmod 0600, $copy_source or die $!;
+    my $copy_target_root = tempdir( CLEANUP => 1 );
+    $manager->_copy_tree_contents( $copy_source_root, $copy_target_root );
+    my $copy_target = File::Spec->catfile( $copy_target_root, 'nested', 'source.txt' );
+    ok( -f $copy_target, '_copy_tree_contents creates the target parent directory and copies the source file' );
+    my $copied_mode = ( stat $copy_target )[2] & 07777;
+    is( sprintf( '%04o', $copied_mode ), '0600', '_copy_tree_contents applies the requested file mode to copied targets' );
+
     my @events;
     my $progress_manager = bless {
         progress => sub {
@@ -952,6 +967,70 @@ subtest 'SkillManager closes the remaining direct error-path coverage branches' 
         qr/^Failed to run skill Makefile target 'install' for \Q$named_make_root\E: install failed/m,
         '_install_skill_makefile reports the failing named target explicitly',
     );
+
+    my $winget_root = tempdir( CLEANUP => 1 );
+    my $wingetfile = File::Spec->catfile( $winget_root, 'wingetfile' );
+    open my $winget_fh, '>', $wingetfile or die $!;
+    print {$winget_fh} "Git.Git\n";
+    close $winget_fh;
+    my $winget_bin = File::Spec->catfile( $winget_root, 'winget' );
+    open my $winget_bin_fh, '>', $winget_bin or die $!;
+    print {$winget_bin_fh} "#!/bin/sh\n";
+    print {$winget_bin_fh} "echo winget-ok\n";
+    print {$winget_bin_fh} "echo winget-warn >&2\n";
+    print {$winget_bin_fh} "exit 0\n";
+    close $winget_bin_fh;
+    chmod 0755, $winget_bin or die $!;
+    local $ENV{PATH} = join ':', $winget_root, ( $ENV{PATH} || '' );
+    local *Developer::Dashboard::SkillManager::_is_windows = sub { 1 };
+    my $winget_ok = $manager->_install_skill_wingetfile($winget_root);
+    ok( $winget_ok->{success}, '_install_skill_wingetfile succeeds on Windows when winget exits cleanly' );
+    like( $winget_ok->{stdout}, qr/Installing winget packages.*Git\.Git.*winget-ok/s, '_install_skill_wingetfile returns combined stdout including the progress line and winget output' );
+    like( $winget_ok->{stderr}, qr/winget-warn/, '_install_skill_wingetfile returns combined stderr from winget' );
+
+    open my $winget_fail_fh, '>', $winget_bin or die $!;
+    print {$winget_fail_fh} "#!/bin/sh\n";
+    print {$winget_fail_fh} "echo broken-winget >&2\n";
+    print {$winget_fail_fh} "exit 1\n";
+    close $winget_fail_fh;
+    chmod 0755, $winget_bin or die $!;
+    my $winget_fail = $manager->_install_skill_wingetfile($winget_root);
+    like(
+        $winget_fail->{error},
+        qr/^Failed to install skill winget dependencies for \Q$winget_root\E: broken-winget/m,
+        '_install_skill_wingetfile reports failing winget installs explicitly',
+    );
+
+    my $cpan_root = tempdir( CLEANUP => 1 );
+    my $cpanfile = File::Spec->catfile( $cpan_root, 'cpanfile' );
+    open my $cpan_fh, '>', $cpanfile or die $!;
+    print {$cpan_fh} "requires 'Test::More';\n";
+    close $cpan_fh;
+    my $original_cwd = Cwd::getcwd();
+    my $cpan_error = do {
+        no warnings 'redefine';
+        local *Developer::Dashboard::SkillManager::_shared_perl_root = sub { return File::Spec->catdir( $cpan_root, 'perl5-shared' ) };
+        local *Developer::Dashboard::SkillManager::_ensure_perl_root = sub { return $_[1] };
+        local *Developer::Dashboard::SkillManager::capture = sub (&) { die "cpan boom\n" };
+        eval { $manager->_install_skill_cpanfile($cpan_root); 1 } ? '' : $@;
+    };
+    like( $cpan_error, qr/cpan boom/, '_install_skill_cpanfile rethrows capture failures' );
+    is( Cwd::getcwd(), $original_cwd, '_install_skill_cpanfile restores the original cwd after an in-flight failure' );
+
+    my $cpan_local_root = tempdir( CLEANUP => 1 );
+    my $cpanfile_local = File::Spec->catfile( $cpan_local_root, 'cpanfile.local' );
+    open my $cpan_local_fh, '>', $cpanfile_local or die $!;
+    print {$cpan_local_fh} "requires 'Test::More';\n";
+    close $cpan_local_fh;
+    my $cpan_local_error = do {
+        no warnings 'redefine';
+        local *Developer::Dashboard::SkillManager::_skill_local_perl_root = sub { return File::Spec->catdir( $cpan_local_root, 'perl5-local' ) };
+        local *Developer::Dashboard::SkillManager::_ensure_perl_root = sub { return $_[1] };
+        local *Developer::Dashboard::SkillManager::capture = sub (&) { die "cpan local boom\n" };
+        eval { $manager->_install_skill_cpanfile_local($cpan_local_root); 1 } ? '' : $@;
+    };
+    like( $cpan_local_error, qr/cpan local boom/, '_install_skill_cpanfile_local rethrows capture failures' );
+    is( Cwd::getcwd(), $original_cwd, '_install_skill_cpanfile_local restores the original cwd after an in-flight failure' );
 };
 
 done_testing();

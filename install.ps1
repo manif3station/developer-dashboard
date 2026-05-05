@@ -236,6 +236,28 @@ function Invoke-NativeCommand {
     }
 }
 
+function Invoke-InstallerCommand {
+    # Purpose: run a Windows GUI or MSI installer and wait for its real process exit without piping through a console stream.
+    # Input: a label plus an installer executable path and its argument array.
+    # Output: writes the command, waits for completion, and throws on non-zero exit status.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Label,
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $display = if ($Arguments.Count -gt 0) { "$FilePath $($Arguments -join ' ')" } else { $FilePath }
+    Write-Host $display -ForegroundColor DarkGray
+
+    $process = Start-Process -FilePath $FilePath -ArgumentList $Arguments -PassThru -Wait
+    if ($process.ExitCode -ne 0) {
+        throw "$Label failed with exit code $($process.ExitCode)"
+    }
+}
+
 function Format-ExitCode {
     # Purpose: render a native Windows exit code in both decimal and unsigned hexadecimal forms.
     # Input: a signed integer exit code captured from $LASTEXITCODE.
@@ -245,8 +267,258 @@ function Format-ExitCode {
         [int]$ExitCode
     )
 
-    $unsigned = [uint32]$ExitCode
+    $unsigned = [System.BitConverter]::ToUInt32([System.BitConverter]::GetBytes($ExitCode), 0)
     return ('{0} (0x{1:X8})' -f $ExitCode, $unsigned)
+}
+
+function Set-TlsSecurityProtocol {
+    # Purpose: enable modern TLS protocols before any Windows bootstrap HTTP request runs.
+    # Input: the current .NET ServicePointManager state.
+    # Output: updates the process security protocol flags to include TLS 1.2 and TLS 1.3 when available.
+    $protocol = [Net.SecurityProtocolType]::Tls12
+    if ([enum]::GetNames([Net.SecurityProtocolType]) -contains 'Tls13') {
+        $protocol = $protocol -bor [Net.SecurityProtocolType]::Tls13
+    }
+
+    [Net.ServicePointManager]::SecurityProtocol = $protocol
+}
+
+function Get-RemoteText {
+    # Purpose: fetch UTF-8 text over HTTPS for Windows bootstrap metadata without depending on one fragile transport.
+    # Input: a URL string plus an optional label for diagnostics.
+    # Output: returns the fetched response body text or throws after all supported transports fail.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Uri,
+        [string]$Label = 'remote text request'
+    )
+
+    Set-TlsSecurityProtocol
+
+    try {
+        return (Invoke-WebRequest -UseBasicParsing -Uri $Uri).Content
+    }
+    catch {
+        Write-Host ("Invoke-WebRequest failed for {0}: {1}" -f $Label, $_.Exception.Message) -ForegroundColor Yellow
+    }
+
+    $webClient = New-Object System.Net.WebClient
+    try {
+        return $webClient.DownloadString($Uri)
+    }
+    catch {
+        throw ("{0} failed for {1}: {2}" -f $Label, $Uri, $_.Exception.Message)
+    }
+    finally {
+        $webClient.Dispose()
+    }
+}
+
+function Download-RemoteFile {
+    # Purpose: download a Windows bootstrap installer or helper script robustly even when one HTTP client path is unreliable.
+    # Input: a URL string, a destination file path, and an optional diagnostic label.
+    # Output: writes the file to disk or throws after Invoke-WebRequest, curl, and WebClient all fail.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Uri,
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationPath,
+        [string]$Label = 'remote file download'
+    )
+
+    Ensure-ParentDirectory -Path $DestinationPath
+    Set-TlsSecurityProtocol
+
+    $curlPath = Resolve-CommandPath -Names @('curl.exe', 'curl')
+    if (-not [string]::IsNullOrWhiteSpace($curlPath)) {
+        try {
+            Invoke-NativeCommand -Label "$Label via curl" -FilePath $curlPath -Arguments @(
+                '--fail',
+                '--location',
+                '--silent',
+                '--show-error',
+                '--output', $DestinationPath,
+                $Uri
+            )
+            if ((Test-Path $DestinationPath) -and ((Get-Item $DestinationPath).Length -gt 0)) {
+                return
+            }
+            throw "curl created an empty file for $Uri"
+        }
+        catch {
+            if ((Test-Path $DestinationPath) -and ((Get-Item $DestinationPath).Length -eq 0)) {
+                Remove-Item -Force $DestinationPath
+            }
+            Write-Host ("curl failed for {0}: {1}" -f $Label, $_.Exception.Message) -ForegroundColor Yellow
+        }
+    }
+
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $DestinationPath
+        if ((Test-Path $DestinationPath) -and ((Get-Item $DestinationPath).Length -gt 0)) {
+            return
+        }
+        throw "Invoke-WebRequest created an empty file for $Uri"
+    }
+    catch {
+        if ((Test-Path $DestinationPath) -and ((Get-Item $DestinationPath).Length -eq 0)) {
+            Remove-Item -Force $DestinationPath
+        }
+        Write-Host ("Invoke-WebRequest failed for {0}: {1}" -f $Label, $_.Exception.Message) -ForegroundColor Yellow
+    }
+
+    $webClient = New-Object System.Net.WebClient
+    try {
+        $webClient.DownloadFile($Uri, $DestinationPath)
+        if ((Test-Path $DestinationPath) -and ((Get-Item $DestinationPath).Length -gt 0)) {
+            return
+        }
+        throw "WebClient created an empty file for $Uri"
+    }
+    catch {
+        if ((Test-Path $DestinationPath) -and ((Get-Item $DestinationPath).Length -eq 0)) {
+            Remove-Item -Force $DestinationPath
+        }
+        throw ("{0} failed for {1}: {2}" -f $Label, $Uri, $_.Exception.Message)
+    }
+    finally {
+        $webClient.Dispose()
+    }
+}
+
+function Get-RemoteJson {
+    # Purpose: fetch JSON metadata for Windows bootstrap decisions through the shared resilient downloader.
+    # Input: a URL string plus an optional label for diagnostics.
+    # Output: returns the decoded PowerShell object graph from the remote JSON payload.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Uri,
+        [string]$Label = 'remote JSON request'
+    )
+
+    $jsonText = Get-RemoteText -Uri $Uri -Label $Label
+    return ($jsonText | ConvertFrom-Json)
+}
+
+function Resolve-StrawberryPerlMsiUrl {
+    # Purpose: resolve the latest 64-bit Strawberry Perl MSI URL from the official release feed.
+    # Input: none.
+    # Output: returns an https MSI URL string or throws when no supported release is available.
+    $releases = Get-RemoteJson -Uri 'https://strawberryperl.com/releases.json' -Label 'Strawberry Perl releases feed'
+    foreach ($release in $releases) {
+        if ($release.archname -ne 'MSWin32-x64-multi-thread') {
+            continue
+        }
+
+        $url = $release.edition.msi.url
+        if (-not [string]::IsNullOrWhiteSpace($url)) {
+            return $url
+        }
+    }
+
+    throw 'Unable to resolve a 64-bit Strawberry Perl MSI URL from the official release feed.'
+}
+
+function Resolve-GitForWindowsInstallerUrl {
+    # Purpose: resolve the current 64-bit Git for Windows installer URL from the latest release page.
+    # Input: none.
+    # Output: returns an https EXE URL string or throws when the latest release page no longer exposes the expected asset.
+    Set-TlsSecurityProtocol
+
+    $releaseUrl = 'https://github.com/git-for-windows/git/releases/latest'
+    $releasePage = ''
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri $releaseUrl
+        $releasePage = $response.Content
+        if ($response.BaseResponse -and $response.BaseResponse.ResponseUri) {
+            $releaseUrl = $response.BaseResponse.ResponseUri.AbsoluteUri
+        }
+    }
+    catch {
+        $releasePage = Get-RemoteText -Uri $releaseUrl -Label 'Git for Windows latest release page'
+    }
+
+    if ($releasePage -match 'Git-[0-9][^"''<]*-64-bit\.exe') {
+        $assetName = $matches[0]
+        if ($releaseUrl -match '/tag/([^/?#]+)') {
+            return ('https://github.com/git-for-windows/git/releases/download/{0}/{1}' -f $matches[1], $assetName)
+        }
+    }
+
+    throw 'Unable to resolve the latest 64-bit Git for Windows installer URL from the release page.'
+}
+
+function Resolve-NodeLtsMsiUrl {
+    # Purpose: resolve the latest Windows x64 Node.js LTS MSI URL from the official Node.js release index.
+    # Input: none.
+    # Output: returns an https MSI URL string or throws when no supported LTS release is available.
+    $releases = Get-RemoteJson -Uri 'https://nodejs.org/dist/index.json' -Label 'Node.js release index'
+    foreach ($release in $releases) {
+        if (-not $release.lts) {
+            continue
+        }
+        if ($release.files -notcontains 'win-x64-msi') {
+            continue
+        }
+
+        return ('https://nodejs.org/dist/{0}/node-{1}-x64.msi' -f $release.version, $release.version)
+    }
+
+    throw 'Unable to resolve a Windows x64 Node.js LTS MSI URL from the official release index.'
+}
+
+function Install-WindowsPackageFallback {
+    # Purpose: install a required Windows bootstrap package directly from the official vendor download when winget source metadata is broken.
+    # Input: package id and user-facing label.
+    # Output: downloads and installs the package or throws if no fallback is available.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PackageId,
+        [Parameter(Mandatory = $true)]
+        [string]$Label
+    )
+
+    $tempRoot = Join-Path ([IO.Path]::GetTempPath()) 'developer-dashboard-bootstrap'
+    Ensure-ParentDirectory -Path (Join-Path $tempRoot 'bootstrap.marker')
+    $installerPath = ''
+    $arguments = @()
+    $installLabel = ''
+
+    switch ($PackageId) {
+        'Git.Git' {
+            $uri = Resolve-GitForWindowsInstallerUrl
+            $installerPath = Join-Path $tempRoot 'Git-64-bit.exe'
+            Write-Host "Downloading official Git for Windows installer to $installerPath"
+            Download-RemoteFile -Uri $uri -DestinationPath $installerPath -Label 'Git for Windows fallback installer download'
+            $arguments = @('/VERYSILENT', '/NORESTART', '/NOCANCEL', '/SP-')
+            $installLabel = 'Git for Windows fallback installer'
+        }
+        'StrawberryPerl.StrawberryPerl' {
+            $uri = Resolve-StrawberryPerlMsiUrl
+            $installerPath = Join-Path $tempRoot ([IO.Path]::GetFileName($uri))
+            Write-Host "Downloading official Strawberry Perl MSI to $installerPath"
+            Download-RemoteFile -Uri $uri -DestinationPath $installerPath -Label 'Strawberry Perl fallback installer download'
+            $arguments = @('/i', $installerPath, '/qn', '/norestart')
+            $installLabel = 'Strawberry Perl fallback installer'
+            Invoke-InstallerCommand -Label $installLabel -FilePath 'msiexec.exe' -Arguments $arguments
+            return
+        }
+        'OpenJS.NodeJS.LTS' {
+            $uri = Resolve-NodeLtsMsiUrl
+            $installerPath = Join-Path $tempRoot ([IO.Path]::GetFileName($uri))
+            Write-Host "Downloading official Node.js LTS MSI to $installerPath"
+            Download-RemoteFile -Uri $uri -DestinationPath $installerPath -Label 'Node.js LTS fallback installer download'
+            $arguments = @('/i', $installerPath, '/qn', '/norestart')
+            $installLabel = 'Node.js LTS fallback installer'
+            Invoke-InstallerCommand -Label $installLabel -FilePath 'msiexec.exe' -Arguments $arguments
+            return
+        }
+        default {
+            throw "No official fallback installer is defined for $Label ($PackageId)"
+        }
+    }
+
+    Invoke-InstallerCommand -Label $installLabel -FilePath $installerPath -Arguments $arguments
 }
 
 function Repair-WingetSources {
@@ -324,7 +596,9 @@ function Ensure-WingetPackage {
         }
         catch {
             $retryExitCode = $LASTEXITCODE
-            throw "winget install $PackageId failed after a source reset retry with exit code $(Format-ExitCode -ExitCode $retryExitCode)"
+            Write-Host ("winget install failed again for {0}: {1}" -f $PackageId, (Format-ExitCode -ExitCode $retryExitCode)) -ForegroundColor Yellow
+            Write-Host "Falling back to the official $Label installer because winget source metadata is still broken." -ForegroundColor Yellow
+            Install-WindowsPackageFallback -PackageId $PackageId -Label $Label
         }
     }
 
@@ -462,7 +736,15 @@ function Ensure-CurrentUserPowerShellExecutionPolicy {
         return $currentUserPolicy
     }
 
-    Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force
+    try {
+        Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force -ErrorAction Stop
+    }
+    catch {
+        if ($_.FullyQualifiedErrorId -notlike 'ExecutionPolicyOverride*') {
+            throw
+        }
+        Write-Host 'Current PowerShell session already overrides execution policy; kept the saved CurrentUser policy and continued.'
+    }
     return (Get-ExecutionPolicy -Scope CurrentUser)
 }
 
@@ -482,7 +764,7 @@ function Download-CpanmScript {
 
     $cpanmScript = Join-Path $binDir 'cpanm'
     Write-Host "Downloading cpanminus bootstrap script to $cpanmScript"
-    Invoke-WebRequest -Uri 'https://cpanmin.us/' -OutFile $cpanmScript
+    Download-RemoteFile -Uri 'https://cpanmin.us/' -DestinationPath $cpanmScript -Label 'cpanm bootstrap script download'
     return $cpanmScript
 }
 
@@ -561,16 +843,34 @@ Invoke-NativeCommand -Label 'cpanm local::lib bootstrap' -FilePath $perlPath -Ar
 )
 Sync-LocalLibEnvironmentFromPerl -PerlPath $perlPath -TargetInstallRoot $InstallRoot
 
+$profilePerlBin = Split-Path -Parent $perlPath
+$profilePerlRoot = Split-Path -Parent $profilePerlBin
+$profileStrawberryRoot = Split-Path -Parent $profilePerlRoot
+$profilePerlRuntimePaths = @(
+    $profilePerlBin,
+    (Join-Path $profilePerlRoot 'site\bin'),
+    (Join-Path $profileStrawberryRoot 'c\bin')
+) | Select-Object -Unique
+$profilePerlRuntimePathLines = ($profilePerlRuntimePaths | ForEach-Object { "    '{0}'" -f $_ }) -join [Environment]::NewLine
+
 $profileBlock = @"
 # >>> Developer Dashboard bootstrap >>>
 `$ddInstallRoot = '$InstallRoot'
 `$ddInstallRootForward = `$ddInstallRoot -replace '\\', '/'
 `$ddPerlBin = Join-Path `$ddInstallRoot 'bin'
 `$ddPerlLib = Join-Path `$ddInstallRoot 'lib\perl5'
+`$ddPerlRuntimePaths = @(
+$profilePerlRuntimePathLines
+)
 `$ddHomeHelper = Join-Path `$HOME '.developer-dashboard\cli\dd\_dashboard-core'
 if (Test-Path `$ddPerlBin) {
     if (`$env:PATH -notlike "*`$ddPerlBin*") {
         `$env:PATH = "`$ddPerlBin;`$env:PATH"
+    }
+}
+foreach (`$ddPerlRuntimePath in `$ddPerlRuntimePaths) {
+    if (-not [string]::IsNullOrWhiteSpace(`$ddPerlRuntimePath) -and (Test-Path `$ddPerlRuntimePath) -and `$env:PATH -notlike "*`$ddPerlRuntimePath*") {
+        `$env:PATH = "`$ddPerlRuntimePath;`$env:PATH"
     }
 }
 `$ddPerlCommand = Get-Command perl.exe -ErrorAction SilentlyContinue

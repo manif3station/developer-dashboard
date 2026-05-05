@@ -177,9 +177,16 @@ if ($has_integration_assets) {
     like( $windows_smoke, qr/DD_INSTALL_BOOTSTRAP_SCRIPT/, 'Windows Strawberry smoke script exposes the install.ps1 path through an environment variable for the streamed bootstrap wrapper' );
     like( $windows_smoke, qr/Invoke-Expression/, 'Windows Strawberry smoke script exercises install.ps1 through Invoke-Expression to match the streamed bootstrap path' );
     like( $windows_smoke, qr/Assert-FreshPowerShellDashboardBootstrap/, 'Windows Strawberry smoke script verifies a fresh profile-loaded PowerShell session after install.ps1 completes' );
-    like( $windows_smoke, qr/powershell\.exe -NoLogo -Command \$freshSessionScript/, 'Windows Strawberry smoke script re-enters a normal profile-loaded PowerShell session instead of bypassing profiles during the fresh-session bootstrap check' );
+    like( $windows_smoke, qr/dd-fresh-session-bootstrap\.ps1/, 'Windows Strawberry smoke script stages the fresh-session PowerShell proof into a temporary ps1 file before launching a normal profile-loaded session' );
+    like( $windows_smoke, qr/powershell\.exe -NoLogo -File \$freshSessionScriptPath/, 'Windows Strawberry smoke script re-enters a normal profile-loaded PowerShell session through a temporary script file instead of fragile inline -Command quoting' );
     like( $windows_smoke, qr/DASHBOARD_LOGS_START/, 'Windows Strawberry smoke script prints an explicit dashboard logs marker during the fresh PowerShell bootstrap proof' );
     like( $windows_smoke, qr/Get-Command dashboard -ErrorAction Stop/, 'Windows Strawberry smoke script requires a fresh PowerShell session to resolve dashboard through normal command discovery' );
+    like( $windows_smoke, qr/DASHBOARD_RESTART_START/, 'Windows Strawberry smoke script prints an explicit dashboard restart marker during the fresh PowerShell bootstrap proof' );
+    like( $windows_smoke, qr/DASHBOARD_SKILL_INSTALL_BROWSER_START/, 'Windows Strawberry smoke script prints an explicit browser skill install marker during the fresh PowerShell bootstrap proof' );
+    like( $windows_smoke, qr/dashboard restart/, 'Windows Strawberry smoke script exercises dashboard restart in the fresh PowerShell session' );
+    like( $windows_smoke, qr/dashboard skills install browser/, 'Windows Strawberry smoke script exercises browser skill installation in the fresh PowerShell session' );
+    like( $windows_smoke, qr/dashboard restart failed with exit code \$LASTEXITCODE/, 'Windows Strawberry smoke script treats dashboard restart failures as fatal during the fresh PowerShell bootstrap proof' );
+    like( $windows_smoke, qr/dashboard skills install browser failed with exit code \$LASTEXITCODE/, 'Windows Strawberry smoke script treats browser skill install failures as fatal during the fresh PowerShell bootstrap proof' );
     like( $windows_smoke, qr/\[switch\]\$SkipCpanmTests/, 'Windows Strawberry smoke script accepts a switch to skip upstream cpanm dependency tests on Windows' );
     like( $windows_smoke, qr/--notest/, 'Windows Strawberry smoke script can install with cpanm --notest when Windows dependency tests are intentionally skipped' );
     like( $windows_smoke, qr/Get-CommandExecutablePath/, 'Windows Strawberry smoke script centralizes command-object to executable-path resolution' );
@@ -271,7 +278,8 @@ if ( -f 'dist.ini' ) {
     open my $dist_fh, '<', 'dist.ini' or die $!;
     my $dist = do { local $/; <$dist_fh> };
     close $dist_fh;
-    like( $dist, qr/exclude_filename = Makefile\.PL/, 'dist.ini excludes checked-in Makefile.PL from dzil gather phase' );
+    unlike( $dist, qr/exclude_filename = Makefile\.PL/, 'dist.ini keeps the checked-in Makefile.PL so dzil ships the checkout install hooks' );
+    unlike( $dist, qr/^\[MakeMaker\]$/m, 'dist.ini does not regenerate Makefile.PL over the checked-in checkout install hooks' );
     like( $dist, qr/\[AutoPrereqs\]/, 'dist.ini includes AutoPrereqs for built distribution dependencies' );
     like( $dist, qr/^JSON::XS = 0$/m, 'dist.ini pins JSON::XS explicitly for built distribution runtime metadata' );
 }

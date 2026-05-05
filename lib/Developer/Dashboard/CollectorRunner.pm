@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '3.37';
+our $VERSION = '3.39';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -13,7 +13,7 @@ use Template;
 use Time::HiRes qw(sleep time);
 
 use Developer::Dashboard::JSON qw(json_encode json_decode);
-use Developer::Dashboard::Platform qw(shell_command_argv);
+use Developer::Dashboard::Platform qw(is_windows shell_command_argv);
 
 our $SIGNAL_RUNNER;
 our $SIGNAL_LOOP_NAME;
@@ -335,7 +335,7 @@ sub _run_loop_child {
     $self->_scrub_coverage_environment;
 
     if ($daemonize) {
-        setsid();
+        $self->_detach_process_session;
         open STDIN, '<', File::Spec->devnull() or die $!;
         open STDOUT, '>>', $self->{files}->collector_log or die $!;
         open STDERR, '>>', $self->{files}->collector_log or die $!;
@@ -437,7 +437,7 @@ sub running_loops {
         my $pid  = eval { _slurp( File::Spec->catfile( $root, $entry ) ) };
         next if !$pid;
         chomp $pid;
-        if ( $pid && $self->_is_managed_loop( $pid, $name ) ) {
+        if ( $pid && ( $self->_is_managed_loop( $pid, $name ) || $self->_state_confirms_managed_loop( $name, $pid ) ) ) {
             push @running, { name => $name, pid => $pid, state => scalar $self->loop_state($name) };
             next;
         }
@@ -615,6 +615,19 @@ sub _cleanup_loop_files {
     my ( $self, $name ) = @_;
     unlink $self->_pidfile($name) if -f $self->_pidfile($name);
     unlink $self->_statefile($name) if -f $self->_statefile($name);
+    return 1;
+}
+
+# _detach_process_session()
+# Detaches the current collector loop from the parent session when the active
+# platform supports POSIX setsid.
+# Input: none.
+# Output: true value after detaching or after explicitly skipping setsid on
+# platforms that do not implement it.
+sub _detach_process_session {
+    my ($self) = @_;
+    return 1 if is_windows();
+    setsid();
     return 1;
 }
 

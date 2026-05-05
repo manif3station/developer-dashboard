@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.37';
+our $VERSION = '3.39';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -47,6 +47,7 @@ sub install_progress_tasks {
         { id => 'install_aptfile',      label => 'Install aptfile dependencies' },
         { id => 'install_apkfile',      label => 'Install apkfile dependencies' },
         { id => 'install_dnfile',       label => 'Install dnfile dependencies' },
+        { id => 'install_wingetfile',   label => 'Install wingetfile dependencies' },
         { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
         { id => 'install_package_json', label => 'Install package.json dependencies' },
         { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
@@ -667,9 +668,31 @@ sub _remove_existing_skill_path {
     my $error;
     remove_tree( $skill_path, { error => \$error } );
     if ( @{$error} ) {
-        return { error => "Failed to replace existing skill at $skill_path: " . join( ', ', @{$error} ) };
+        return { error => "Failed to replace existing skill at $skill_path: " . $self->_remove_tree_error_text($error) };
     }
     return { success => 1 };
+}
+
+# _remove_tree_error_text($errors)
+# Formats File::Path::remove_tree structured error entries into a stable
+# readable message instead of Perl hash stringification.
+# Input: array reference of remove_tree error entries.
+# Output: single-line error summary string.
+sub _remove_tree_error_text {
+    my ( $self, $errors ) = @_;
+    return 'unknown remove_tree failure' if ref($errors) ne 'ARRAY' || !@{$errors};
+    my @parts;
+    for my $entry ( @{$errors} ) {
+        if ( ref($entry) eq 'HASH' ) {
+            for my $path ( sort keys %{$entry} ) {
+                my $message = defined $entry->{$path} && $entry->{$path} ne '' ? $entry->{$path} : 'unknown error';
+                push @parts, "$path: $message";
+            }
+            next;
+        }
+        push @parts, "$entry";
+    }
+    return join( ', ', @parts ) || 'unknown remove_tree failure';
 }
 
 # _install_to_skills_root($source, $skills_root)
@@ -840,6 +863,7 @@ sub _install_skill_dependencies {
         [ install_aptfile      => sub { $self->_install_skill_aptfile($skill_path) } ],
         [ install_apkfile      => sub { $self->_install_skill_apkfile($skill_path) } ],
         [ install_dnfile       => sub { $self->_install_skill_dnfile($skill_path) } ],
+        [ install_wingetfile   => sub { $self->_install_skill_wingetfile($skill_path) } ],
         [ install_brewfile     => sub { $self->_install_skill_brewfile($skill_path) } ],
         [ install_package_json => sub { $self->_install_skill_package_json($skill_path) } ],
         [ install_cpanfile     => sub { $self->_install_skill_cpanfile($skill_path) } ],
@@ -900,6 +924,7 @@ sub _dependency_progress_label {
         install_aptfile        => 'aptfile',
         install_apkfile        => 'apkfile',
         install_dnfile         => 'dnfile',
+        install_wingetfile     => 'wingetfile',
         install_brewfile       => 'brewfile',
         install_package_json   => 'package.json',
         install_cpanfile       => 'cpanfile',
@@ -912,6 +937,7 @@ sub _dependency_progress_label {
         install_aptfile        => 'Install aptfile dependencies',
         install_apkfile        => 'Install apkfile dependencies',
         install_dnfile         => 'Install dnfile dependencies',
+        install_wingetfile     => 'Install wingetfile dependencies',
         install_brewfile       => 'Install brewfile dependencies',
         install_package_json   => 'Install package.json dependencies',
         install_cpanfile       => 'Install cpanfile dependencies',
@@ -1070,6 +1096,15 @@ sub _is_fedora {
     return 1 if $ENV{DD_TEST_FEDORA};
     return 0 if $self->_current_os ne 'linux';
     return -f '/etc/fedora-release' ? 1 : 0;
+}
+
+# _is_windows()
+# Detects whether wingetfile processing should run on the current host.
+# Input: none.
+# Output: boolean true when the host is Windows.
+sub _is_windows {
+    my ($self) = @_;
+    return $self->_current_os eq 'MSWin32' ? 1 : 0;
 }
 
 # _apt_package_is_installed($package)
@@ -1268,12 +1303,14 @@ sub _install_skill_package_json {
     my $workspace_modules = File::Spec->catdir( $workspace, 'node_modules' );
     my ( $copy_stdout, $copy_stderr, $copy_exit ) = ( '', '', 0 );
     if ( -d $workspace_modules ) {
-        ( $copy_stdout, $copy_stderr, $copy_exit ) = capture {
-            system( 'cp', '-R', "$workspace_modules/.", $target_root );
-        };
+        my $copy_error = eval {
+            $self->_copy_tree_contents( $workspace_modules, $target_root );
+            1;
+        } ? '' : "$@";
+        $copy_error =~ s/\s+\z// if defined $copy_error;
         return {
-            error => "Failed to merge skill Node dependencies into $target_root for $skill_path: $copy_stderr",
-        } if $copy_exit != 0;
+            error => "Failed to merge skill Node dependencies into $target_root for $skill_path: $copy_error",
+        } if $copy_error ne '';
     }
 
     return {
@@ -1311,6 +1348,47 @@ sub _package_json_dependency_specs {
     }
 
     return @specs;
+}
+
+# _copy_tree_contents($source_root, $target_root)
+# Recursively copies the contents of one directory tree into another without
+# relying on external shell utilities.
+# Input: absolute source directory path and absolute target directory path.
+# Output: true value after the copy succeeds, or dies on the first copy error.
+sub _copy_tree_contents {
+    my ( $self, $source_root, $target_root ) = @_;
+    die "Missing source tree for copy\n" if !defined $source_root || $source_root eq '';
+    die "Missing target tree for copy\n" if !defined $target_root || $target_root eq '';
+    die "Source tree $source_root does not exist\n" if !-d $source_root;
+
+    make_path($target_root) if !-d $target_root;
+
+    find(
+        {
+            no_chdir => 1,
+            wanted   => sub {
+                my $source = $File::Find::name;
+                return if $source eq $source_root;
+
+                my $relative = File::Spec->abs2rel( $source, $source_root );
+                my $target = File::Spec->catfile( $target_root, $relative );
+
+                if ( -d $source ) {
+                    make_path($target) if !-d $target;
+                    return;
+                }
+
+                my ( undef, $target_dir ) = File::Spec->splitpath($target);
+                make_path($target_dir) if defined $target_dir && $target_dir ne '' && !-d $target_dir;
+                copy( $source, $target ) or die "Unable to copy $source to $target: $!";
+                my $mode = ( stat $source )[2];
+                chmod( $mode & 07777, $target ) if defined $mode && -f $target;
+            },
+        },
+        $source_root
+    );
+
+    return 1;
 }
 
 # _install_manifest_file($manifest_path, %args)
@@ -1477,6 +1555,45 @@ sub _install_skill_dnfile {
     };
 }
 
+# _install_skill_wingetfile($skill_path)
+# Installs wingetfile packages on Windows hosts after printing the requested
+# package list.
+# Input: absolute skill root directory path.
+# Output: result hash reference with success or error state.
+sub _install_skill_wingetfile {
+    my ( $self, $skill_path ) = @_;
+    my $wingetfile = File::Spec->catfile( $skill_path, 'wingetfile' );
+    my @packages = $self->_dependency_file_lines($wingetfile);
+    return { success => 1, skipped => 1 } if !@packages || !$self->_is_windows;
+
+    my @stdout;
+    my @stderr;
+    for my $package (@packages) {
+        my ( $stdout, $stderr, $exit ) = capture {
+            print "Installing winget packages for ", basename($skill_path), " from $wingetfile: $package\n";
+            system(
+                'winget', 'install',
+                '--id', $package,
+                '--exact',
+                '--accept-package-agreements',
+                '--accept-source-agreements',
+                '--disable-interactivity',
+            );
+        };
+        return {
+            error => "Failed to install skill winget dependencies for $skill_path: $stderr",
+        } if $exit != 0;
+        push @stdout, $stdout if defined $stdout && $stdout ne '';
+        push @stderr, $stderr if defined $stderr && $stderr ne '';
+    }
+
+    return {
+        success => 1,
+        stdout  => join( '', @stdout ),
+        stderr  => join( '', @stderr ),
+    };
+}
+
 # _skill_package_runner_prefix()
 # Returns the command prefix used for privileged package-manager installs.
 # Input: none.
@@ -1521,8 +1638,19 @@ sub _install_skill_cpanfile {
     my $cpanfile = File::Spec->catfile( $skill_path, 'cpanfile' );
     return { success => 1, skipped => 1 } if !-f $cpanfile;
     my $shared_root = $self->_ensure_perl_root( $self->_shared_perl_root );
-    my ( $stdout, $stderr, $exit ) = capture {
-        system( 'cpanm', '--notest', '-L', $shared_root, '--cpanfile', $cpanfile, '--installdeps', $skill_path );
+    my $cwd = Cwd::getcwd();
+    my ( $stdout, $stderr, $exit );
+    eval {
+        chdir $skill_path or die "Unable to chdir to $skill_path for cpanfile dependency install: $!";
+        ( $stdout, $stderr, $exit ) = capture {
+            system( 'cpanm', '--notest', '-L', $shared_root, '--cpanfile', $cpanfile, '--installdeps', '.' );
+        };
+        chdir $cwd or die "Unable to chdir back to $cwd after cpanfile dependency install: $!";
+        1;
+    } or do {
+        my $error = $@;
+        chdir $cwd if Cwd::getcwd() ne $cwd;
+        die $error;
     };
     return {
         error => "Failed to install skill dependencies for $skill_path: $stderr",
@@ -1544,8 +1672,19 @@ sub _install_skill_cpanfile_local {
     my $cpanfile_local = File::Spec->catfile( $skill_path, 'cpanfile.local' );
     return { success => 1, skipped => 1 } if !-f $cpanfile_local;
     my $local_root = $self->_ensure_perl_root( $self->_skill_local_perl_root($skill_path) );
-    my ( $stdout, $stderr, $exit ) = capture {
-        system( 'cpanm', '--notest', '-L', $local_root, '--cpanfile', $cpanfile_local, '--installdeps', $skill_path );
+    my $cwd = Cwd::getcwd();
+    my ( $stdout, $stderr, $exit );
+    eval {
+        chdir $skill_path or die "Unable to chdir to $skill_path for cpanfile.local dependency install: $!";
+        ( $stdout, $stderr, $exit ) = capture {
+            system( 'cpanm', '--notest', '-L', $local_root, '--cpanfile', $cpanfile_local, '--installdeps', '.' );
+        };
+        chdir $cwd or die "Unable to chdir back to $cwd after cpanfile.local dependency install: $!";
+        1;
+    } or do {
+        my $error = $@;
+        chdir $cwd if Cwd::getcwd() ne $cwd;
+        die $error;
     };
     return {
         error => "Failed to install skill local dependencies for $skill_path: $stderr",

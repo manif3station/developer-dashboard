@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '3.37';
+our $VERSION = '3.39';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -38,16 +38,19 @@ sub render {
     my $mode = $args{mode} || 'compact';
     my $color = exists $args{color} ? $args{color} : 0;
     my $max_age = defined $args{max_age} ? $args{max_age} : 300;
+    my $no_indicators = $args{no_indicators} ? 1 : 0;
     my $project = $self->{paths}->project_root_for($cwd);
     my $home = $self->{paths}->home;
     $cwd =~ s/^\Q$home\E/~/;
     $cwd = "Home: $home" if $cwd eq '~';
 
-    my @indicator_parts = $self->_indicator_parts(
-        color   => $color,
-        max_age => $max_age,
-        mode    => $mode,
-    );
+    my @indicator_parts = $no_indicators
+      ? ()
+      : $self->_indicator_parts(
+          color   => $color,
+          max_age => $max_age,
+          mode    => $mode,
+      );
 
     my $ticket = defined $ENV{TICKET_REF} ? $ENV{TICKET_REF} : '';
     my @info_parts = @indicator_parts;
@@ -63,6 +66,24 @@ sub render {
       $cwd,
       $jobs_suffix,
       $branch_suffix;
+}
+
+# render_tmux_status(%args)
+# Renders the tmux status-line indicator fragment without prompt-only details.
+# Input: optional color flag and max-age threshold.
+# Output: single-line tmux status fragment string.
+sub render_tmux_status {
+    my ( $self, %args ) = @_;
+    my $color = exists $args{color} ? $args{color} : 0;
+    my $max_age = defined $args{max_age} ? $args{max_age} : 300;
+    my @parts = $self->_indicator_parts(
+        color   => $color,
+        max_age => $max_age,
+        mode    => 'compact',
+    );
+    my $ticket = defined $ENV{TICKET_REF} ? $ENV{TICKET_REF} : '';
+    push @parts, "🎫:$ticket" if defined $ticket && $ticket ne '';
+    return join ' ', @parts;
 }
 
 # _timestamp()

@@ -33,6 +33,7 @@ my $apt_log = File::Spec->catfile( $fake_bin, 'apt.log' );
 my $apk_log = File::Spec->catfile( $fake_bin, 'apk.log' );
 my $dnf_log = File::Spec->catfile( $fake_bin, 'dnf.log' );
 my $brew_log = File::Spec->catfile( $fake_bin, 'brew.log' );
+my $winget_log = File::Spec->catfile( $fake_bin, 'winget.log' );
 my $npx_log = File::Spec->catfile( $fake_bin, 'npx.log' );
 my $sudo_log = File::Spec->catfile( $fake_bin, 'sudo.log' );
 my $dashboard_log = File::Spec->catfile( $fake_bin, 'dashboard.log' );
@@ -53,6 +54,16 @@ _write_file(
 #!/bin/sh
 printf '%s\\n' "\$*" >> "$brew_log"
 printf 'BREW:%s\\n' "\$*" >> "$dependency_log"
+exit 0
+SH
+    0755,
+);
+_write_file(
+    File::Spec->catfile( $fake_bin, 'winget' ),
+    <<"SH",
+#!/bin/sh
+printf '%s\\n' "\$*" >> "$winget_log"
+printf 'WINGET:%s\\n' "\$*" >> "$dependency_log"
 exit 0
 SH
     0755,
@@ -195,6 +206,7 @@ PL
     aptfile_body => "git\ncurl\n",
     apkfile_body => "procps-dev\n",
     dnfile_body => "git-core\njq\n",
+    wingetfile_body => "Git.Git\nMicrosoft.PowerShell\n",
     brewfile_body => "jq\n",
     package_json_body => qq|{"name":"alpha-skill-node","version":"0.01.0","dependencies":{"express":"^4.19.2","uuid":"^11.0.0"},"devDependencies":{"playwright":"^1.52.0"}}\n|,
     cpanfile_local_body => "requires 'YAML::XS';\n",
@@ -222,6 +234,7 @@ ok( -f File::Spec->catfile( $install->{path}, 'cpanfile' ), 'test skill includes
 ok( -f File::Spec->catfile( $install->{path}, 'aptfile' ), 'test skill includes aptfile for dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'apkfile' ), 'test skill includes apkfile for dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'dnfile' ), 'test skill includes dnfile for dependency handling' );
+ok( -f File::Spec->catfile( $install->{path}, 'wingetfile' ), 'test skill includes wingetfile for dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'brewfile' ), 'test skill includes brewfile for dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'cpanfile.local' ), 'test skill includes cpanfile.local for local dependency handling' );
 ok( -f $apt_log, 'install runs apt-get for isolated skill apt dependencies when an aptfile is present' );
@@ -237,13 +250,13 @@ close $dependency_log_fh;
 is_deeply(
     [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|CPANM):/)[0] } @dependency_steps ],
     [ 'APT', 'NPM', 'CPANM', 'CPANM', 'DDFILE', 'DDFILE_LOCAL' ],
-    'skill install processes aptfile, package.json, cpanfile, cpanfile.local, ddfile, and ddfile.local in policy order on Debian-like hosts while leaving apkfile and brewfile inactive',
+    'skill install processes aptfile, package.json, cpanfile, cpanfile.local, ddfile, and ddfile.local in policy order on Debian-like hosts while leaving apkfile, wingetfile, dnfile, and brewfile inactive',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
 close $cpanm_log_fh;
-like( $cpanm_steps[0], qr/^--notest -L \Q$ENV{HOME}\/perl5\E --cpanfile \Q$install->{path}\/cpanfile\E --installdeps \Q$install->{path}\E$/, 'cpanfile installs shared Perl dependencies into HOME perl5 with cpanm --notest' );
-is( $cpanm_steps[1], "--notest -L $install->{path}/perl5 --cpanfile $install->{path}/cpanfile.local --installdeps $install->{path}", 'cpanfile.local installs local Perl dependencies into the skill perl5 root with cpanm --notest' );
+like( $cpanm_steps[0], qr/^--notest -L \Q$ENV{HOME}\/perl5\E --cpanfile \Q$install->{path}\/cpanfile\E --installdeps \.$/, 'cpanfile installs shared Perl dependencies into HOME perl5 with cpanm --notest from the skill root itself' );
+is( $cpanm_steps[1], "--notest -L $install->{path}/perl5 --cpanfile $install->{path}/cpanfile.local --installdeps .", 'cpanfile.local installs local Perl dependencies into the skill perl5 root with cpanm --notest from the skill root itself' );
 open my $npx_log_fh, '<', $npx_log or die "Unable to read $npx_log: $!";
 my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npx_log_fh>;
 close $npx_log_fh;
@@ -260,6 +273,33 @@ my @dashboard_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dashboard
 close $dashboard_log_fh;
 is( $dashboard_steps[0], 'skills install dep-alpha', 'deferred ddfile installs dependent skills through dashboard skills install' );
 is( $dashboard_steps[1], 'skills install dep-beta', 'deferred ddfile.local installs dependent skills through dashboard skills install at the current skill level' );
+{
+    local $ENV{DD_TEST_OS} = 'MSWin32';
+    unlink $winget_log;
+    my $root_winget = $manager->_install_skill_wingetfile( $install->{path} );
+    ok( !$root_winget->{error}, '_install_skill_wingetfile succeeds on Windows hosts when a wingetfile is present' )
+      or diag $root_winget->{error};
+    open my $root_winget_fh, '<', $winget_log or die "Unable to read $winget_log: $!";
+    my @root_winget_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$root_winget_fh>;
+    close $root_winget_fh;
+    is_deeply(
+        \@root_winget_steps,
+        [
+            'install --id Git.Git --exact --accept-package-agreements --accept-source-agreements --disable-interactivity',
+            'install --id Microsoft.PowerShell --exact --accept-package-agreements --accept-source-agreements --disable-interactivity',
+        ],
+        '_install_skill_wingetfile installs every declared Windows package through winget when running on Windows',
+    );
+}
+{
+    local $ENV{DD_TEST_OS} = 'linux';
+    unlink $winget_log;
+    my $skip_winget = $manager->_install_skill_wingetfile( $install->{path} );
+    ok( !$skip_winget->{error}, '_install_skill_wingetfile succeeds on non-Windows hosts when a wingetfile is present' )
+      or diag $skip_winget->{error};
+    ok( $skip_winget->{skipped}, '_install_skill_wingetfile reports a skip outside Windows hosts' );
+    ok( !-f $winget_log, '_install_skill_wingetfile does not invoke winget outside Windows hosts' );
+}
 {
     local $ENV{DD_TEST_OS} = 'linux';
     local $ENV{DD_TEST_FEDORA} = 1;
@@ -1039,6 +1079,9 @@ sub _create_skill_repo {
     }
     if ( defined $args{dnfile_body} ) {
         _write_file( 'dnfile', $args{dnfile_body}, 0644 );
+    }
+    if ( defined $args{wingetfile_body} ) {
+        _write_file( 'wingetfile', $args{wingetfile_body}, 0644 );
     }
     if ( defined $args{brewfile_body} ) {
         _write_file( 'brewfile', $args{brewfile_body}, 0644 );

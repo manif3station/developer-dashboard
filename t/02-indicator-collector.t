@@ -51,6 +51,7 @@ my $rendered = $prompt->render(jobs => 2, cwd => '/tmp/project');
 like($rendered, qr/^\(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\)/, 'prompt renders legacy timestamp prefix');
 like($rendered, qr/✅🐳.*\[\/tmp\/project\]/, 'compact prompt includes status glyph plus indicator icon before the bracketed path');
 like($rendered, qr/\(2 jobs\)/, 'job count included');
+like($rendered, qr/\n> \z/, 'prompt leaves the typing cursor marker on the next line');
 
 $indicators->set_indicator(
     'stale',
@@ -84,6 +85,7 @@ is_deeply(
     local *Developer::Dashboard::Prompt::_git_branch = sub { 'main' };
     my $with_branch = $prompt->render( jobs => 0, cwd => $repo );
     like( $with_branch, qr/\[~\/repo\].*🌿main/, 'prompt includes git branch in the legacy trailing branch format' );
+    like( $with_branch, qr/\n> \z/, 'prompt keeps the trailing command marker on its own next line when the branch suffix is present' );
 }
 
 my $core = $indicators->refresh_core_indicators( cwd => "$ENV{HOME}/repo" );

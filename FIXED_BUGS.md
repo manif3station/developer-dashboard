@@ -1,5 +1,13 @@
 # Fixed Bugs
 
+## 3.40 - Move tmux prompt indicators into tmux status-right
+
+- Fixed generated shell bootstraps so tmux sessions no longer leave collector
+  indicators duplicated inside the inline shell prompt.
+- Fixed tmux prompt rendering by moving indicator glyphs into tmux
+  `status-right` through `dashboard ps1 --mode tmux-status` while the inline
+  prompt stays focused on the cursor line.
+
 ## 3.37 - Guard Windows fresh PowerShell bootstrap and InternalCLI installed roots
 
 - Fixed the release verification gap so the explicit coverage suite now proves
