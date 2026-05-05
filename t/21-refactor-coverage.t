@@ -4135,12 +4135,26 @@ sub _dies {
         dynamic => 0,
         color   => 1,
     );
-    $progress->update( { task_id => 'stop_web', status => 'running' } );
-    like( $output, qr/\x1b\[33m->\x1b\[0m Stop dashboard web service/, 'CLI::Progress colors the running marker yellow when color output is enabled' );
+    $progress->update(
+        {
+            task_id      => 'stop_web',
+            status       => 'running',
+            detail_lines => ['waiting for listener'],
+        }
+    );
+    like( $output, qr/\x1b\[34m->\x1b\[0m Stop dashboard web service/, 'CLI::Progress colors the running marker blue when color output is enabled' );
+    like( $output, qr/   \x1b\[34mwaiting for listener\x1b\[0m/, 'CLI::Progress colors running detail lines blue when color output is enabled' );
     $progress->update( { task_id => 'stop_web', status => 'done' } );
     like( $output, qr/\x1b\[32m\[OK\]\x1b\[0m Stop dashboard web service/, 'CLI::Progress colors the done marker green when color output is enabled' );
-    $progress->update( { task_id => 'stop_web', status => 'failed' } );
+    $progress->update(
+        {
+            task_id      => 'stop_web',
+            status       => 'failed',
+            detail_lines => ['listener never stopped'],
+        }
+    );
     like( $output, qr/\x1b\[31m\[X\]\x1b\[0m Stop dashboard web service/, 'CLI::Progress colors the failed marker red when color output is enabled' );
+    like( $output, qr/   \x1b\[31mlistener never stopped\x1b\[0m/, 'CLI::Progress colors failed detail lines red when color output is enabled' );
 }
 {
     my $versionless_skill_root = tempdir( CLEANUP => 1 );

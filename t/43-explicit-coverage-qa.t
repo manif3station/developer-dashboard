@@ -345,10 +345,16 @@ subtest 'CLI::Progress renders and updates task boards' => sub {
     is( $progress->_status_prefix('running'), '->', 'running maps to the arrow marker' );
     is( $progress->_status_prefix('failed'), '[X]', 'failed maps to the red X marker' );
     is( $progress->_status_prefix('pending'), '[ ]', 'other states stay pending' );
+    is( $progress->_status_prefix(undef), '[ ]', 'undefined status stays pending' );
     is( $progress->_colorize( '[OK]', 'done' ), "\e[32m[OK]\e[0m", 'done colorizes green when enabled' );
-    is( $progress->_colorize( '->', 'running' ), "\e[33m->\e[0m", 'running colorizes yellow when enabled' );
+    is( $progress->_colorize( '->', 'running' ), "\e[34m->\e[0m", 'running colorizes blue when enabled' );
     is( $progress->_colorize( '[X]', 'failed' ), "\e[31m[X]\e[0m", 'failed colorizes red when enabled' );
     is( $progress->_colorize( '[ ]', 'pending' ), '[ ]', 'pending text stays plain' );
+    is( $progress->_colorize( 'plain', undef ), 'plain', 'undefined marker status stays plain' );
+    is( $progress->_colorize_detail( 'detail', 'running' ), "\e[34mdetail\e[0m", 'running detail lines colorize blue when enabled' );
+    is( $progress->_colorize_detail( 'detail', 'failed' ), "\e[31mdetail\e[0m", 'failed detail lines colorize red when enabled' );
+    is( $progress->_colorize_detail( 'detail', 'pending' ), 'detail', 'pending detail lines stay plain' );
+    is( $progress->_colorize_detail( 'detail', undef ), 'detail', 'undefined detail status stays plain' );
 
     my $callback = $progress->callback;
     ok( $callback, 'callback returns a coderef' );
@@ -383,6 +389,16 @@ subtest 'CLI::Progress renders and updates task boards' => sub {
     is( $plain_progress->{tasks}{only}{status}, 'running', 'empty statuses do not replace the existing status' );
     is_deeply( $plain_progress->{tasks}{only}{detail_lines}, [], 'non-array detail_lines clear the detail window safely' );
     is( $plain_progress->_colorize( '->', 'running' ), '->', 'colorize leaves markers plain when color output is disabled' );
+    is( $plain_progress->_colorize_detail( 'detail', 'running' ), 'detail', 'detail colorization stays plain when color output is disabled' );
+
+    my $default_progress = Developer::Dashboard::CLI::Progress->new();
+    like( $default_progress->render_text, qr/\Adashboard progress\n\z/, 'new can rely on the default task list and stream fallbacks' );
+
+    my $implicit_label_progress = Developer::Dashboard::CLI::Progress->new(
+        tasks  => [ { id => 'implicit' } ],
+        stream => $plain_stream,
+    );
+    like( $implicit_label_progress->render_text, qr/\[ \] implicit/, 'task labels fall back to the task id when no label is supplied' );
 
     my $invalid_tasks_error = eval {
         Developer::Dashboard::CLI::Progress->new(
@@ -427,6 +443,42 @@ subtest 'CLI::Progress renders and updates task boards' => sub {
     }
     like( $fallback_progress->render_text, qr/line 3/, 'falsey max_detail_lines falls back to the ten-line rolling window' );
     unlike( $fallback_progress->render_text, qr/line 2/, 'fallback rolling window still drops lines older than the newest ten entries' );
+    ok(
+        $fallback_progress->update(
+            {
+                task_id      => 'only',
+                status       => 'running',
+                detail_lines => [ map { "fallback replace $_" } 1 .. 12 ],
+            }
+        ),
+        'whole-window replacement also uses the ten-line fallback when max_detail_lines is falsey',
+    );
+    like( $fallback_progress->render_text, qr/fallback replace 3/, 'falsey max_detail_lines keeps the newest replacement lines' );
+    unlike( $fallback_progress->render_text, qr/fallback replace 2/, 'falsey max_detail_lines drops older replacement lines' );
+    $fallback_progress->{max_detail_lines} = 0;
+    ok(
+        $fallback_progress->update(
+            {
+                task_id      => 'only',
+                status       => 'running',
+                detail_lines => [ map { "mutated zero $_" } 1 .. 12 ],
+            }
+        ),
+        'detail_lines replacement falls back to ten entries when max_detail_lines is reset to zero after construction',
+    );
+    like( $fallback_progress->render_text, qr/mutated zero 3/, 'runtime zero max_detail_lines keeps the newest replacement entries' );
+    unlike( $fallback_progress->render_text, qr/mutated zero 2/, 'runtime zero max_detail_lines drops the oldest replacement entries' );
+    ok(
+        $fallback_progress->update(
+            {
+                task_id     => 'only',
+                status      => 'running',
+                detail_line => 'mutated zero appended',
+            }
+        ),
+        'detail_line append also falls back to ten entries when max_detail_lines is reset to zero after construction',
+    );
+    like( $fallback_progress->render_text, qr/mutated zero appended/, 'runtime zero max_detail_lines keeps appended detail lines' );
 
     my $replace_progress = Developer::Dashboard::CLI::Progress->new(
         title            => 'replace',
@@ -446,6 +498,18 @@ subtest 'CLI::Progress renders and updates task boards' => sub {
     );
     like( $replace_progress->render_text, qr/replace 3/, 'whole-window detail replacement keeps the newest entries when the supplied list is longer than the configured max' );
     unlike( $replace_progress->render_text, qr/replace 2/, 'whole-window detail replacement drops entries older than the configured max' );
+    $replace_progress->{tasks}{only}{detail_lines} = undef;
+    ok(
+        $replace_progress->update(
+            {
+                task_id     => 'only',
+                status      => 'running',
+                detail_line => 'replace appended from empty',
+            }
+        ),
+        'single-line detail updates tolerate an undefined existing detail window',
+    );
+    like( $replace_progress->render_text, qr/replace appended from empty/, 'single-line detail update rebuilds the detail window from empty state' );
 
     my $dynamic_unrendered = Developer::Dashboard::CLI::Progress->new(
         title   => 'dynamic',
@@ -455,6 +519,9 @@ subtest 'CLI::Progress renders and updates task boards' => sub {
     );
     $dynamic_unrendered->{rendered} = 0;
     ok( $dynamic_unrendered->finish, 'finish also returns early when a dynamic board has not rendered yet' );
+    $dynamic_unrendered->{rendered} = 1;
+    $dynamic_unrendered->{last_rendered_line_count} = 0;
+    ok( $dynamic_unrendered->render, 'render tolerates a dynamic redraw with zero remembered line count' );
 };
 
 subtest 'CLI::Complete covers tmux session and collector-name providers' => sub {

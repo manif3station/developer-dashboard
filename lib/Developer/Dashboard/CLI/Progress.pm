@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Progress;
 use strict;
 use warnings;
 
-our $VERSION = '3.43';
+our $VERSION = '3.44';
 
 # new(%args)
 # Constructs a terminal progress renderer for restart/stop lifecycle commands.
@@ -130,7 +130,7 @@ sub render_text {
         my $prefix = $self->_status_prefix( $task->{status} );
         push @lines, sprintf '%s %s', $self->_colorize( $prefix, $task->{status} ), $task->{label};
         if ( $task->{status} ne 'done' && ref( $task->{detail_lines} ) eq 'ARRAY' ) {
-            push @lines, map { sprintf '   %s', $_ } @{ $task->{detail_lines} };
+            push @lines, map { sprintf '   %s', $self->_colorize_detail( $_, $task->{status} ) } @{ $task->{detail_lines} };
         }
     }
     return join( "\n", @lines ) . "\n";
@@ -156,7 +156,19 @@ sub _colorize {
     my ( $self, $text, $status ) = @_;
     return $text if !$self->{color};
     return "\e[32m$text\e[0m" if defined $status && $status eq 'done';
-    return "\e[33m$text\e[0m" if defined $status && $status eq 'running';
+    return "\e[34m$text\e[0m" if defined $status && $status eq 'running';
+    return "\e[31m$text\e[0m" if defined $status && $status eq 'failed';
+    return $text;
+}
+
+# _colorize_detail($text, $status)
+# Wraps one detail line with ANSI color escapes when terminal color output is enabled.
+# Input: detail text string and status string.
+# Output: plain or ANSI-colored detail-line string.
+sub _colorize_detail {
+    my ( $self, $text, $status ) = @_;
+    return $text if !$self->{color};
+    return "\e[34m$text\e[0m" if defined $status && $status eq 'running';
     return "\e[31m$text\e[0m" if defined $status && $status eq 'failed';
     return $text;
 }
@@ -245,8 +257,8 @@ Example 3:
 
   dashboard restart
 
-Render the interactive lifecycle board with yellow running markers, green
-C<[OK]> completion markers, and red C<[X]> failure markers when stderr is a
-real terminal.
+Render the interactive lifecycle board with blue running markers and detail
+lines, green C<[OK]> completion markers, and red C<[X]> failure markers plus
+failure detail lines when stderr is a real terminal.
 
 =cut

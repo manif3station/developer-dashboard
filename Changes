@@ -1,3 +1,8 @@
+3.44  2026-05-05
+    - refined Docker-style skill install progression so active detail lines
+      now render in blue, failed detail lines render in red, and the user-
+      facing docs match the shipped ANSI progress contract exactly
+
 3.43  2026-05-05
     - fixed managed helper staging so upgraded home runtimes remove
       dashboard-owned older flat helpers from `~/.developer-dashboard/cli/`

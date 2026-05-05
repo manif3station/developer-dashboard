@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.43';
+our $VERSION = '3.44';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.43
+3.44
 
 =head1 INTRODUCTION
 
@@ -1518,11 +1518,12 @@ Restart the local app and configured collector loops:
   dashboard restart
 
 Interactive terminal runs now print the full restart task board on C<stderr>,
-mark the active step with a yellow C<->, mark completed steps with a green
-C<[OK]>, mark failed steps with a red C<[X]>, and keep the final JSON result
-on C<stdout>. Stop and restart shutdown paths send numeric POSIX signals
-instead of named signal strings, so minimal Alpine/iSH Perl builds that reject
-C<TERM> by name still terminate managed web and collector processes correctly.
+mark the active step with a blue C<->, stream active detail lines in blue,
+mark completed steps with a green C<[OK]>, mark failed steps with a red
+C<[X]> plus red failure detail lines, and keep the final JSON result on
+C<stdout>. Stop and restart shutdown paths send numeric POSIX signals instead
+of named signal strings, so minimal Alpine/iSH Perl builds that reject C<TERM>
+by name still terminate managed web and collector processes correctly.
 
 Create a helper login user:
 
@@ -2105,11 +2106,12 @@ log, and collector-name shell completion suggests registered collector names
 
 =item *
 
-interactive restart and stop task boards mark the active step with a yellow
-C<->, mark completed steps with a green C<[OK]>, mark failed steps with a red
-C<[X]>, keep the final table or JSON summary on C<stdout>, and use numeric
-POSIX shutdown signals so minimal Alpine/iSH Perl builds that reject C<TERM>
-by name still terminate managed web and collector processes correctly
+interactive restart and stop task boards mark the active step with a blue
+C<->, stream active detail lines in blue, mark completed steps with a green
+C<[OK]>, mark failed steps with a red C<[X]> plus red failure detail lines,
+keep the final table or JSON summary on C<stdout>, and use numeric POSIX
+shutdown signals so minimal Alpine/iSH Perl builds that reject C<TERM> by
+name still terminate managed web and collector processes correctly
 
 =item *
 
@@ -2422,7 +2424,10 @@ C<stderr>; multi-source and bare update-all installs show one task for every
 source before any clone or dependency step starts. When a single skill ships
 dependency manifests such as F<package.json> or F<Makefile>, the matching task
 updates to show the detected file path so a long-running C<npm>, C<make>,
-C<cpanm>, or package-manager step stays visible instead of looking blind.
+C<cpanm>, or package-manager step stays visible instead of looking blind, with
+a rolling detail window that keeps the newest progress lines under the active
+task in blue and leaves failure detail lines visible in red when a manifest
+step stops with an error.
 
 Installed dotted skill commands such as C<dashboard demo-skill.foo> now hand
 control to the real skill command after hook processing instead of wrapping

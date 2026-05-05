@@ -1,5 +1,12 @@
 # Fixed Bugs
 
+## 3.44 - Fix Docker-style progression ANSI detail colors
+
+- Fixed `dashboard skills install` progression output so active rolling detail
+  lines now render in blue and failed detail lines stay visible in red instead
+  of leaving the Docker-style detail pane mostly uncolored while only the task
+  marker changed color.
+
 ## 3.43 - Fix stale staged helper reuse across upgrades
 
 - Fixed home-runtime helper staging so rerunning built-in helper extraction
