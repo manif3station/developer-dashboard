@@ -1465,14 +1465,28 @@ sub _shell_prompt_bootstrap {
     if ( $shell eq 'bash' ) {
         return <<'BASH';
 
+_dd_tmux_status_active() {
+  [ -n "${TMUX:-}" ] && { [ "${DEVELOPER_DASHBOARD_TMUX_STATUS:-0}" = "1" ] || [ -n "${TICKET_REF:-}" ]; }
+}
+_dd_apply_tmux_ticket_status() {
+  _dd_default_status="$(tmux show-options -gqv @dd_ticket_status_default 2>/dev/null)"
+  if [ -z "$_dd_default_status" ]; then
+    _dd_default_status="$(tmux show-options -gqv status-format[0] 2>/dev/null)"
+    [ -n "$_dd_default_status" ] && tmux set-option -gq @dd_ticket_status_default "$_dd_default_status" >/dev/null 2>&1
+  fi
+  tmux set-option -q status-position bottom >/dev/null 2>&1
+  tmux set-option -q status 2 >/dev/null 2>&1
+  tmux set-option -q status-interval 2 >/dev/null 2>&1
+  tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status-top --width #{client_width})" >/dev/null 2>&1
+  if [ -n "$_dd_default_status" ]; then
+    tmux set-option -q status-format[1] "$_dd_default_status" >/dev/null 2>&1
+  fi
+  tmux set-option -uq status-format[2] >/dev/null 2>&1
+}
+
 if [ -n "$TMUX" ]; then
-  if [ "${DEVELOPER_DASHBOARD_TMUX_STATUS:-0}" = "1" ]; then
-    tmux set-option -q status 2 >/dev/null 2>&1
-    tmux set-option -q status-interval 2 >/dev/null 2>&1
-    tmux set-option -q status-left-length 0 >/dev/null 2>&1
-    tmux set-option -q status-right-length 0 >/dev/null 2>&1
-    tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status)" >/dev/null 2>&1
-    tmux set-option -q status-format[1] "#S #{window_index}:#{window_name} #{?window_zoomed_flag,[zoom],} %Y-%m-%d %H:%M:%S" >/dev/null 2>&1
+  if _dd_tmux_status_active; then
+    _dd_apply_tmux_ticket_status
     export PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact --no-indicators)'
   else
     export PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact)'
@@ -1486,14 +1500,28 @@ BASH
         return <<'ZSH';
 
 autoload -Uz add-zsh-hook
+_dd_tmux_status_active() {
+  [[ -n "${TMUX:-}" && ( "${DEVELOPER_DASHBOARD_TMUX_STATUS:-0}" = "1" || -n "${TICKET_REF:-}" ) ]]
+}
+_dd_apply_tmux_ticket_status() {
+  local default_status
+  default_status="$(tmux show-options -gqv @dd_ticket_status_default 2>/dev/null)"
+  if [[ -z "$default_status" ]]; then
+    default_status="$(tmux show-options -gqv status-format[0] 2>/dev/null)"
+    [[ -n "$default_status" ]] && tmux set-option -gq @dd_ticket_status_default "$default_status" >/dev/null 2>&1
+  fi
+  tmux set-option -q status-position bottom >/dev/null 2>&1
+  tmux set-option -q status 2 >/dev/null 2>&1
+  tmux set-option -q status-interval 2 >/dev/null 2>&1
+  tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status-top --width #{client_width})" >/dev/null 2>&1
+  if [[ -n "$default_status" ]]; then
+    tmux set-option -q status-format[1] "$default_status" >/dev/null 2>&1
+  fi
+  tmux set-option -uq status-format[2] >/dev/null 2>&1
+}
 _dd_update_prompt() {
-  if [[ -n "$TMUX" && "${DEVELOPER_DASHBOARD_TMUX_STATUS:-0}" = "1" ]]; then
-    tmux set-option -q status 2 >/dev/null 2>&1
-    tmux set-option -q status-interval 2 >/dev/null 2>&1
-    tmux set-option -q status-left-length 0 >/dev/null 2>&1
-    tmux set-option -q status-right-length 0 >/dev/null 2>&1
-    tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status)" >/dev/null 2>&1
-    tmux set-option -q status-format[1] "#S #{window_index}:#{window_name} #{?window_zoomed_flag,[zoom],} %Y-%m-%d %H:%M:%S" >/dev/null 2>&1
+  if _dd_tmux_status_active; then
+    _dd_apply_tmux_ticket_status
     PS1="$(__DASHBOARD_CMD__ ps1 --jobs ${#jobstates} --mode compact --no-indicators)"
   else
     PS1="$(__DASHBOARD_CMD__ ps1 --jobs ${#jobstates} --mode compact)"
@@ -1506,20 +1534,33 @@ ZSH
     if ( $shell eq 'sh' ) {
         return <<'SH';
 
+_dd_tmux_status_active() {
+  [ -n "${TMUX:-}" ] && { [ "${DEVELOPER_DASHBOARD_TMUX_STATUS:-0}" = "1" ] || [ -n "${TICKET_REF:-}" ]; }
+}
+_dd_apply_tmux_ticket_status() {
+  _dd_default_status="$(tmux show-options -gqv @dd_ticket_status_default 2>/dev/null)"
+  if [ -z "$_dd_default_status" ]; then
+    _dd_default_status="$(tmux show-options -gqv status-format[0] 2>/dev/null)"
+    [ -n "$_dd_default_status" ] && tmux set-option -gq @dd_ticket_status_default "$_dd_default_status" >/dev/null 2>&1
+  fi
+  tmux set-option -q status-position bottom >/dev/null 2>&1
+  tmux set-option -q status 2 >/dev/null 2>&1
+  tmux set-option -q status-interval 2 >/dev/null 2>&1
+  tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status-top --width #{client_width})" >/dev/null 2>&1
+  if [ -n "$_dd_default_status" ]; then
+    tmux set-option -q status-format[1] "$_dd_default_status" >/dev/null 2>&1
+  fi
+  tmux set-option -uq status-format[2] >/dev/null 2>&1
+}
 _dd_prompt_command() {
-  if [ -n "$TMUX" ] && [ "${DEVELOPER_DASHBOARD_TMUX_STATUS:-0}" = "1" ]; then
+  if _dd_tmux_status_active; then
     __DASHBOARD_CMD__ ps1 --mode compact --no-indicators
   else
     __DASHBOARD_CMD__ ps1 --mode compact
   fi
 }
-if [ -n "$TMUX" ] && [ "${DEVELOPER_DASHBOARD_TMUX_STATUS:-0}" = "1" ]; then
-  tmux set-option -q status 2 >/dev/null 2>&1
-  tmux set-option -q status-interval 2 >/dev/null 2>&1
-  tmux set-option -q status-left-length 0 >/dev/null 2>&1
-  tmux set-option -q status-right-length 0 >/dev/null 2>&1
-  tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status)" >/dev/null 2>&1
-  tmux set-option -q status-format[1] "#S #{window_index}:#{window_name} #{?window_zoomed_flag,[zoom],} %Y-%m-%d %H:%M:%S" >/dev/null 2>&1
+if _dd_tmux_status_active; then
+  _dd_apply_tmux_ticket_status
 fi
 PS1='$(_dd_prompt_command)'
 export PS1
@@ -1529,16 +1570,31 @@ SH
         return <<'POWERSHELL';
 [Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-if ($env:TMUX -and $env:DEVELOPER_DASHBOARD_TMUX_STATUS -eq '1') {
+function Test-DashboardTmuxStatusActive {
+  return [bool]($env:TMUX -and (($env:DEVELOPER_DASHBOARD_TMUX_STATUS -eq '1') -or -not [string]::IsNullOrWhiteSpace($env:TICKET_REF)))
+}
+function Set-DashboardTmuxTicketStatus {
+  $ddDefaultStatus = (& tmux show-options -gqv @dd_ticket_status_default 2>$null) -join ''
+  if ([string]::IsNullOrWhiteSpace($ddDefaultStatus)) {
+    $ddDefaultStatus = (& tmux show-options -gqv status-format[0] 2>$null) -join ''
+    if (-not [string]::IsNullOrWhiteSpace($ddDefaultStatus)) {
+      & tmux set-option -gq @dd_ticket_status_default $ddDefaultStatus | Out-Null
+    }
+  }
+  & tmux set-option -q status-position bottom | Out-Null
   & tmux set-option -q status 2 | Out-Null
   & tmux set-option -q status-interval 2 | Out-Null
-  & tmux set-option -q status-left-length 0 | Out-Null
-  & tmux set-option -q status-right-length 0 | Out-Null
-  & tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status)" | Out-Null
-  & tmux set-option -q status-format[1] "#S #{window_index}:#{window_name} #{?window_zoomed_flag,[zoom],} %Y-%m-%d %H:%M:%S" | Out-Null
+  & tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status-top --width #{client_width})" | Out-Null
+  if (-not [string]::IsNullOrWhiteSpace($ddDefaultStatus)) {
+    & tmux set-option -q status-format[1] $ddDefaultStatus | Out-Null
+  }
+  & tmux set-option -uq status-format[2] | Out-Null
+}
+if (Test-DashboardTmuxStatusActive) {
+  Set-DashboardTmuxTicketStatus
 }
 function prompt {
-  if ($env:TMUX -and $env:DEVELOPER_DASHBOARD_TMUX_STATUS -eq '1') {
+  if (Test-DashboardTmuxStatusActive) {
     $ddPrompt = & __DASHBOARD_CMD__ ps1 --mode compact --no-indicators
   } else {
     $ddPrompt = & __DASHBOARD_CMD__ ps1 --mode compact

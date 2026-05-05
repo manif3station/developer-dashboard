@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '3.41';
+our $VERSION = '3.42';
 
 use Encode qw(encode);
 use File::Basename qw(basename dirname);

@@ -1847,41 +1847,53 @@ dies_like( sub { Developer::Dashboard::Prompt->new( indicators => $indicators ) 
 
 my $plain_home = tempdir(CLEANUP => 1);
 my $plain_paths = Developer::Dashboard::PathRegistry->new( home => $plain_home );
-my $plain_prompt = Developer::Dashboard::Prompt->new(
-    paths      => $plain_paths,
-    indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
-)->render( cwd => File::Spec->catdir( $plain_home, 'here' ) );
-like( $plain_prompt, qr/\[~\/here\]/, 'prompt still renders the cwd when no indicators exist' );
-unlike( $plain_prompt, qr/\bDD\b/, 'prompt omits the DD fallback when no indicators exist' );
-like( $plain_prompt, qr/\n> \z/, 'prompt still places the command marker on a fresh line when no indicators exist' );
+{
+    local $ENV{TMUX} = '';
+    local $ENV{TICKET_REF} = '';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = 0;
+    my $plain_prompt = Developer::Dashboard::Prompt->new(
+        paths      => $plain_paths,
+        indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
+    )->render( cwd => File::Spec->catdir( $plain_home, 'here' ) );
+    like( $plain_prompt, qr/\[~\/here\]/, 'prompt still renders the cwd when no indicators exist' );
+    unlike( $plain_prompt, qr/\bDD\b/, 'prompt omits the DD fallback when no indicators exist' );
+    like( $plain_prompt, qr/\n> \z/, 'prompt still places the command marker on a fresh line when no indicators exist' );
 
-my $prompt_output = $prompt->render( jobs => 3, cwd => File::Spec->catdir( $home, 'named-path' ) );
-like( $prompt_output, qr/🚨NEW/, 'compact prompt includes the renamed missing collector indicator glyph' );
-like( $prompt_output, qr/✅Z ✅b/, 'compact prompt includes success status glyphs in priority order' );
-unlike( $prompt_output, qr/alpha/, 'prompt skips hidden indicators' );
-like( $prompt_output, qr/~\/named-path/, 'prompt shortens home directory to tilde' );
-like( $prompt_output, qr/\(3 jobs\)/, 'prompt appends job suffix' );
-my $prompt_without_indicators = $prompt->render(
-    jobs          => 3,
-    cwd           => File::Spec->catdir( $home, 'named-path' ),
-    no_indicators => 1,
-);
-unlike( $prompt_without_indicators, qr/🚨NEW|✅Z|✅b/, 'prompt suppresses indicators when tmux owns the status line' );
-like( $prompt_without_indicators, qr/~\/named-path/, 'prompt still renders cwd when tmux suppresses indicators' );
-like( $prompt_without_indicators, qr/\(3 jobs\)/, 'prompt still renders job counts when tmux suppresses indicators' );
+    my $prompt_output = $prompt->render( jobs => 3, cwd => File::Spec->catdir( $home, 'named-path' ) );
+    like( $prompt_output, qr/🚨NEW/, 'compact prompt includes the renamed missing collector indicator glyph' );
+    like( $prompt_output, qr/✅Z ✅b/, 'compact prompt includes success status glyphs in priority order' );
+    unlike( $prompt_output, qr/alpha/, 'prompt skips hidden indicators' );
+    like( $prompt_output, qr/~\/named-path/, 'prompt shortens home directory to tilde' );
+    like( $prompt_output, qr/\(3 jobs\)/, 'prompt appends job suffix' );
+    my $prompt_without_indicators = $prompt->render(
+        jobs          => 3,
+        cwd           => File::Spec->catdir( $home, 'named-path' ),
+        no_indicators => 1,
+    );
+    unlike( $prompt_without_indicators, qr/🚨NEW|✅Z|✅b/, 'prompt suppresses indicators when tmux owns the status line' );
+    like( $prompt_without_indicators, qr/~\/named-path/, 'prompt still renders cwd when tmux suppresses indicators' );
+    like( $prompt_without_indicators, qr/\(3 jobs\)/, 'prompt still renders job counts when tmux suppresses indicators' );
+}
 {
     local $ENV{TICKET_REF} = 'DD-4242';
-    my $tmux_status = $prompt->render_tmux_status;
+    my $tmux_status = $prompt->render_tmux_status( width => 200 );
     like( $tmux_status, qr/🚨NEW/, 'tmux status formatter includes missing indicator glyphs' );
     like( $tmux_status, qr/✅Z ✅b/, 'tmux status formatter keeps indicator priority order' );
+    unlike( $tmux_status, qr/\n/, 'tmux status formatter stays on one line when the ticket-session indicator strip fits the available width' );
+    like( $prompt->render_tmux_status( width => 4 ), qr/\n/, 'tmux status formatter still emits multiple lines when the available width is too small for the full indicator strip' );
     unlike( $tmux_status, qr/🎫:DD-4242/, 'tmux status formatter leaves ticket context to the prompt or tmux session line' );
     unlike( $tmux_status, qr/\[~\/named-path\]|\n> /, 'tmux status formatter omits prompt-only cwd and cursor fragments' );
 }
-like(
-    Developer::Dashboard::Prompt->new( paths => $paths, indicators => $indicators )->render( jobs => 0, mode => 'extended' ),
-    qr/✅beta/,
-    'extended prompt prefixes indicator labels with success status glyphs when labels are missing',
-);
+{
+    local $ENV{TMUX} = '';
+    local $ENV{TICKET_REF} = '';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = 0;
+    like(
+        Developer::Dashboard::Prompt->new( paths => $paths, indicators => $indicators )->render( jobs => 0, mode => 'extended' ),
+        qr/✅beta/,
+        'extended prompt prefixes indicator labels with success status glyphs when labels are missing',
+    );
+}
 {
     no warnings 'redefine';
     local *Developer::Dashboard::Prompt::_git_branch = sub { 'master' };
@@ -2540,9 +2552,14 @@ is( $isolated_healthy->{exit_code}, 0, 'healthy collector still succeeds after a
 is( $collector_indicators->get_indicator('isolated.indicator.broken')->{status}, 'error', 'broken collector isolation scenario leaves its indicator red' );
 is( $collector_indicators->get_indicator('isolated.indicator.healthy')->{status}, 'ok', 'healthy collector isolation scenario leaves its indicator green' );
 my $collector_prompt = Developer::Dashboard::Prompt->new( paths => $paths, indicators => $collector_indicators );
-my $collector_prompt_output = $collector_prompt->render( jobs => 0, cwd => $home );
-like( $collector_prompt_output, qr/🚨B/, 'prompt keeps the broken collector status visible in the isolation scenario' );
-like( $collector_prompt_output, qr/✅H/, 'prompt keeps the healthy collector status visible in the isolation scenario' );
+{
+    local $ENV{TMUX} = '';
+    local $ENV{TICKET_REF} = '';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = 0;
+    my $collector_prompt_output = $collector_prompt->render( jobs => 0, cwd => $home );
+    like( $collector_prompt_output, qr/🚨B/, 'prompt keeps the broken collector status visible in the isolation scenario' );
+    like( $collector_prompt_output, qr/✅H/, 'prompt keeps the healthy collector status visible in the isolation scenario' );
+}
 {
     my $tt_home = tempdir(CLEANUP => 1);
     my $tt_paths = Developer::Dashboard::PathRegistry->new( home => $tt_home );

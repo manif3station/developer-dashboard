@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '3.41';
+our $VERSION = '3.42';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -39,13 +39,7 @@ sub render {
     my $color = exists $args{color} ? $args{color} : 0;
     my $max_age = defined $args{max_age} ? $args{max_age} : 300;
     my $no_indicators = $args{no_indicators} ? 1 : 0;
-    $no_indicators = 1
-      if !$no_indicators
-      && defined $ENV{TMUX}
-      && $ENV{TMUX} ne ''
-      && defined $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS}
-      && $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} ne ''
-      && $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} ne '0';
+    $no_indicators = 1 if !$no_indicators && $self->_tmux_status_active;
     my $project = $self->{paths}->project_root_for($cwd);
     my $home = $self->{paths}->home;
     $cwd =~ s/^\Q$home\E/~/;
@@ -77,19 +71,15 @@ sub render {
 
 # render_tmux_status(%args)
 # Renders the tmux status-line indicator fragment without prompt-only details.
-# Input: optional color flag and max-age threshold.
-# Output: single-line tmux status fragment string.
+# Input: optional color flag, max-age threshold, requested line, and width.
+# Output: one or two indicator-status lines joined by newlines when no explicit line is requested.
 sub render_tmux_status {
     my ( $self, %args ) = @_;
-    my $color = exists $args{color} ? $args{color} : 0;
-    my $max_age = defined $args{max_age} ? $args{max_age} : 300;
-    my @parts = $self->_indicator_parts(
-        color   => $color,
-        max_age => $max_age,
-        mode    => 'compact',
-    );
-    push @parts, "🕒" . $self->_timestamp;
-    return join ' ', @parts;
+    my $line = $args{line} || '';
+    my ( $top, $bottom ) = $self->_tmux_status_lines(%args);
+    return $top    if $line eq 'top';
+    return $bottom if $line eq 'bottom';
+    return join "\n", grep { defined $_ && $_ ne q{} } ( $top, $bottom );
 }
 
 # _timestamp()
@@ -129,6 +119,68 @@ sub _indicator_parts {
     }
 
     return @indicator_parts;
+}
+
+# _tmux_status_active()
+# Determines whether the current shell should suppress inline prompt indicators
+# because a dashboard-managed tmux ticket session owns the status area.
+# Input: none.
+# Output: boolean true when tmux status owns the indicator strip.
+sub _tmux_status_active {
+    return 0 if !defined $ENV{TMUX} || $ENV{TMUX} eq '';
+    return 1
+      if defined $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS}
+      && $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} ne ''
+      && $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} ne '0';
+    return 1 if defined $ENV{TICKET_REF} && $ENV{TICKET_REF} ne '';
+    return 0;
+}
+
+# _tmux_status_lines(%args)
+# Splits the tmux indicator strip into one or two lines based on the available
+# tmux width so ticket sessions can keep the normal tmux session/window line
+# below the dashboard-owned indicator area.
+# Input: optional color flag, max-age threshold, and width in terminal cells.
+# Output: two-element list containing the primary indicator line and optional
+# overflow line.
+sub _tmux_status_lines {
+    my ( $self, %args ) = @_;
+    my $color = exists $args{color} ? $args{color} : 0;
+    my $max_age = defined $args{max_age} ? $args{max_age} : 300;
+    my $width = defined $args{width} && $args{width} =~ /\A\d+\z/ ? $args{width} + 0 : 0;
+    my @parts = $self->_indicator_parts(
+        color   => $color,
+        max_age => $max_age,
+        mode    => 'compact',
+    );
+    my $timestamp = "🕒" . $self->_timestamp;
+    @parts = ( @parts, $timestamp );
+    return ( $timestamp, q{} ) if @parts == 1;
+
+    my $top = q{};
+    my @bottom_parts;
+    for my $part (@parts) {
+        my $candidate = $top eq q{} ? $part : "$top $part";
+        if ( $width > 0 && $top ne q{} && length( _strip_ansi($candidate) ) > $width ) {
+            push @bottom_parts, $part;
+            next;
+        }
+        $top = $candidate;
+    }
+
+    my $bottom = join ' ', @bottom_parts;
+    return ( $top, $bottom );
+}
+
+# _strip_ansi($text)
+# Removes ANSI colour escapes before width calculations.
+# Input: text string that may contain ANSI SGR codes.
+# Output: plain text string with ANSI SGR sequences removed.
+sub _strip_ansi {
+    my ($text) = @_;
+    $text = '' if !defined $text;
+    $text =~ s/\e\[[0-9;]*m//g;
+    return $text;
 }
 
 # _git_branch($project_root)

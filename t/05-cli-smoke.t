@@ -1093,21 +1093,25 @@ like( $portable_cdr_keywords_multi, qr/\Q@{[ _portable_path($cwd_search_root) ]}
 my $cdr_keywords_regex = _run("bash -lc '. \"$shell_bootstrap_file\"; cd \"$cwd_search_root\"; cdr team-alpha\$; pwd'");
 is_same_path_output( $cdr_keywords_regex, $cwd_search_multi_one . "\n", 'cdr treats non-alias search terms as regexes beneath the current directory' );
 like( $shell_bootstrap, qr/ps1 --jobs \\j --mode compact/, 'dashboard shell bash bootstrap keeps bash job-count prompt rendering' );
-like( $shell_bootstrap, qr/DEVELOPER_DASHBOARD_TMUX_STATUS:-0/, 'dashboard shell bash bootstrap gates tmux status-right behind the dashboard ticket session flag' );
-like( $shell_bootstrap, qr/tmux set-option -q status 2/, 'dashboard shell bash bootstrap enables a two-line tmux status only for dashboard ticket tmux sessions' );
-like( $shell_bootstrap, qr/tmux set-option -q status-format\[0\].*ps1 --mode tmux-status/s, 'dashboard shell bash bootstrap dedicates the first tmux status line to dashboard indicators' );
-like( $shell_bootstrap, qr/tmux set-option -q status-format\[1\]/, 'dashboard shell bash bootstrap programs the second tmux status line for session context' );
-unlike( $shell_bootstrap, qr/tmux set-option -gq status-right/, 'dashboard shell bash bootstrap no longer relies on global tmux status-right wiring' );
+like( $shell_bootstrap, qr/_dd_tmux_status_active/, 'dashboard shell bash bootstrap centralizes the dashboard ticket tmux-session detection helper' );
+like( $shell_bootstrap, qr/TICKET_REF/, 'dashboard shell bash bootstrap also recognizes ticket-managed tmux sessions through the ticket reference environment' );
+like( $shell_bootstrap, qr/tmux set-option -q status-position bottom/, 'dashboard shell bash bootstrap keeps the normal tmux status bar at the bottom in ticket sessions' );
+like( $shell_bootstrap, qr/tmux set-option -q status 2/, 'dashboard shell bash bootstrap enables a two-line tmux status block for ticket sessions' );
+like( $shell_bootstrap, qr/tmux set-option -q status-interval 2/, 'dashboard shell bash bootstrap refreshes the tmux status block automatically for ticket sessions' );
+like( $shell_bootstrap, qr/tmux set-option -q status-format\[0\].*tmux-status-top --width #\{client_width\}/s, 'dashboard shell bash bootstrap renders the indicator strip into the first tmux status row' );
+like( $shell_bootstrap, qr/tmux set-option -q status-format\[1\] "\$_dd_default_status"/, 'dashboard shell bash bootstrap restores the normal tmux status row beneath the indicators' );
 like( $shell_bootstrap, qr/ps1 --jobs \\j --mode compact --no-indicators/, 'dashboard shell bash bootstrap suppresses prompt indicators when tmux owns the status line' );
 
 my $zsh_bootstrap = _run("$perl -I'$lib' '$dashboard' shell zsh");
 like( $zsh_bootstrap, qr/add-zsh-hook precmd _dd_update_prompt/, 'dashboard shell zsh bootstrap refreshes the prompt through a precmd hook' );
 like( $zsh_bootstrap, qr/ps1 --jobs \$\{#jobstates\} --mode compact/, 'dashboard shell zsh bootstrap uses zsh job counts for prompt rendering' );
-like( $zsh_bootstrap, qr/DEVELOPER_DASHBOARD_TMUX_STATUS:-0/, 'dashboard shell zsh bootstrap gates tmux status-right behind the dashboard ticket session flag' );
-like( $zsh_bootstrap, qr/tmux set-option -q status 2/, 'dashboard shell zsh bootstrap enables a two-line tmux status only for dashboard ticket tmux sessions' );
-like( $zsh_bootstrap, qr/tmux set-option -q status-format\[0\].*ps1 --mode tmux-status/s, 'dashboard shell zsh bootstrap dedicates the first tmux status line to dashboard indicators' );
-like( $zsh_bootstrap, qr/tmux set-option -q status-format\[1\]/, 'dashboard shell zsh bootstrap programs the second tmux status line for session context' );
-unlike( $zsh_bootstrap, qr/tmux set-option -gq status-right/, 'dashboard shell zsh bootstrap no longer relies on global tmux status-right wiring' );
+like( $zsh_bootstrap, qr/_dd_tmux_status_active/, 'dashboard shell zsh bootstrap centralizes the dashboard ticket tmux-session detection helper' );
+like( $zsh_bootstrap, qr/TICKET_REF/, 'dashboard shell zsh bootstrap also recognizes ticket-managed tmux sessions through the ticket reference environment' );
+like( $zsh_bootstrap, qr/tmux set-option -q status-position bottom/, 'dashboard shell zsh bootstrap keeps the normal tmux status bar at the bottom in ticket sessions' );
+like( $zsh_bootstrap, qr/tmux set-option -q status 2/, 'dashboard shell zsh bootstrap enables a two-line tmux status block for ticket sessions' );
+like( $zsh_bootstrap, qr/tmux set-option -q status-interval 2/, 'dashboard shell zsh bootstrap refreshes the tmux status block automatically for ticket sessions' );
+like( $zsh_bootstrap, qr/tmux set-option -q status-format\[0\].*tmux-status-top --width #\{client_width\}/s, 'dashboard shell zsh bootstrap renders the indicator strip into the first tmux status row' );
+like( $zsh_bootstrap, qr/tmux set-option -q status-format\[1\] "\$default_status"/, 'dashboard shell zsh bootstrap restores the normal tmux status row beneath the indicators' );
 like( $zsh_bootstrap, qr/ps1 --jobs \$\{#jobstates\} --mode compact --no-indicators/, 'dashboard shell zsh bootstrap suppresses prompt indicators when tmux owns the status line' );
 like( $zsh_bootstrap, qr/path cdr/, 'dashboard shell zsh bootstrap keeps the cdr path helper functions' );
 like( $zsh_bootstrap, qr/\bd2\(\)\s*\{/, 'dashboard shell zsh bootstrap exposes the d2 shortcut helper' );
@@ -1122,11 +1126,13 @@ unlike( $zsh_bootstrap, qr/d2\(\)\s*\{\s*'\Q$perl\E'\s+/s, 'dashboard shell zsh 
 my $sh_bootstrap = _run("$perl -I'$lib' '$dashboard' shell sh");
 like( $sh_bootstrap, qr/path cdr/, 'dashboard shell sh bootstrap keeps the cdr path helper functions' );
 like( $sh_bootstrap, qr/ps1 --mode compact/, 'dashboard shell sh bootstrap renders the prompt through dashboard ps1' );
-like( $sh_bootstrap, qr/DEVELOPER_DASHBOARD_TMUX_STATUS:-0/, 'dashboard shell sh bootstrap gates tmux status-right behind the dashboard ticket session flag' );
-like( $sh_bootstrap, qr/tmux set-option -q status 2/, 'dashboard shell sh bootstrap enables a two-line tmux status only for dashboard ticket tmux sessions' );
-like( $sh_bootstrap, qr/tmux set-option -q status-format\[0\].*ps1 --mode tmux-status/s, 'dashboard shell sh bootstrap dedicates the first tmux status line to dashboard indicators' );
-like( $sh_bootstrap, qr/tmux set-option -q status-format\[1\]/, 'dashboard shell sh bootstrap programs the second tmux status line for session context' );
-unlike( $sh_bootstrap, qr/tmux set-option -gq status-right/, 'dashboard shell sh bootstrap no longer relies on global tmux status-right wiring' );
+like( $sh_bootstrap, qr/_dd_tmux_status_active/, 'dashboard shell sh bootstrap centralizes the dashboard ticket tmux-session detection helper' );
+like( $sh_bootstrap, qr/TICKET_REF/, 'dashboard shell sh bootstrap also recognizes ticket-managed tmux sessions through the ticket reference environment' );
+like( $sh_bootstrap, qr/tmux set-option -q status-position bottom/, 'dashboard shell sh bootstrap keeps the normal tmux status bar at the bottom in ticket sessions' );
+like( $sh_bootstrap, qr/tmux set-option -q status 2/, 'dashboard shell sh bootstrap enables a two-line tmux status block for ticket sessions' );
+like( $sh_bootstrap, qr/tmux set-option -q status-interval 2/, 'dashboard shell sh bootstrap refreshes the tmux status block automatically for ticket sessions' );
+like( $sh_bootstrap, qr/tmux set-option -q status-format\[0\].*tmux-status-top --width #\{client_width\}/s, 'dashboard shell sh bootstrap renders the indicator strip into the first tmux status row' );
+like( $sh_bootstrap, qr/tmux set-option -q status-format\[1\] "\$_dd_default_status"/, 'dashboard shell sh bootstrap restores the normal tmux status row beneath the indicators' );
 like( $sh_bootstrap, qr/ps1 --mode compact --no-indicators/, 'dashboard shell sh bootstrap suppresses prompt indicators when tmux owns the status line' );
 unlike( $sh_bootstrap, qr/\\j/, 'dashboard shell sh bootstrap does not rely on bash-specific job expansion' );
 unlike( $sh_bootstrap, qr/\bperl\s+-MJSON::XS\b/, 'dashboard shell sh bootstrap does not decode helper JSON through a bare perl command either' );
@@ -1152,10 +1158,12 @@ like( $ps_bootstrap, qr/function prompt \{/, 'dashboard shell ps bootstrap uses 
 like( $ps_bootstrap, qr/function cdr \{/, 'dashboard shell ps bootstrap exposes the cdr helper' );
 like( $ps_bootstrap, qr/\bps1 --mode compact/, 'dashboard shell ps bootstrap still renders prompt text through dashboard ps1' );
 like( $ps_bootstrap, qr/DEVELOPER_DASHBOARD_TMUX_STATUS -eq '1'/, 'dashboard shell ps bootstrap gates tmux status-right behind the dashboard ticket session flag' );
-like( $ps_bootstrap, qr/tmux set-option -q status 2/, 'dashboard shell ps bootstrap enables a two-line tmux status only for dashboard ticket tmux sessions' );
-like( $ps_bootstrap, qr/tmux set-option -q status-format\[0\].*ps1 --mode tmux-status/s, 'dashboard shell ps bootstrap dedicates the first tmux status line to dashboard indicators' );
-like( $ps_bootstrap, qr/tmux set-option -q status-format\[1\]/, 'dashboard shell ps bootstrap programs the second tmux status line for session context' );
-unlike( $ps_bootstrap, qr/tmux set-option -gq status-right/, 'dashboard shell ps bootstrap no longer relies on global tmux status-right wiring' );
+like( $ps_bootstrap, qr/TICKET_REF/, 'dashboard shell ps bootstrap also recognizes ticket-managed tmux sessions through the ticket reference environment' );
+like( $ps_bootstrap, qr/tmux set-option -q status-position bottom/, 'dashboard shell ps bootstrap keeps the normal tmux status bar at the bottom in ticket sessions' );
+like( $ps_bootstrap, qr/tmux set-option -q status 2/, 'dashboard shell ps bootstrap enables a two-line tmux status block for ticket sessions' );
+like( $ps_bootstrap, qr/tmux set-option -q status-interval 2/, 'dashboard shell ps bootstrap refreshes the tmux status block automatically for ticket sessions' );
+like( $ps_bootstrap, qr/tmux set-option -q status-format\[0\].*tmux-status-top --width #\{client_width\}/s, 'dashboard shell ps bootstrap renders the indicator strip into the first tmux status row' );
+like( $ps_bootstrap, qr/tmux set-option -q status-format\[1\] \$ddDefaultStatus/, 'dashboard shell ps bootstrap restores the normal tmux status row beneath the indicators' );
 like( $ps_bootstrap, qr/\bps1 --mode compact --no-indicators/, 'dashboard shell ps bootstrap suppresses prompt indicators when tmux owns the status line' );
 like( $ps_bootstrap, qr/\[Console\]::InputEncoding\s*=\s*\[System\.Text\.UTF8Encoding\]::new\(\$false\)/, 'dashboard shell ps bootstrap forces UTF-8 console input encoding so prompt glyphs survive on Windows' );
 like( $ps_bootstrap, qr/\[Console\]::OutputEncoding\s*=\s*\[System\.Text\.UTF8Encoding\]::new\(\$false\)/, 'dashboard shell ps bootstrap forces UTF-8 console output encoding so prompt glyphs survive on Windows' );
@@ -1168,9 +1176,10 @@ like( $ps_bootstrap, qr/Set-Alias d2 Invoke-DashboardShortcut/, 'dashboard shell
 like( $ps_bootstrap, qr/Register-ArgumentCompleter/, 'dashboard shell ps bootstrap wires argument completion for dashboard and d2' );
 like( $ps_bootstrap, qr/CommandName 'dashboard', 'd2'/, 'dashboard shell ps bootstrap registers completion for both dashboard and d2' );
 like( $ps_bootstrap, qr/CommandName 'cdr', 'dd_cdr', 'which_dir'/, 'dashboard shell ps bootstrap also registers cdr-family completion' );
-my $tmux_status_render = _run("$perl -I'$lib' '$dashboard' ps1 --mode tmux-status --cwd '$ENV{HOME}'");
-like( $tmux_status_render, qr/[✅🚨]🐳/, 'dashboard ps1 tmux-status refreshes and renders the built-in Docker indicator through the staged helper path' );
-like( $tmux_status_render, qr/🕒\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\n?\z/, 'dashboard ps1 tmux-status includes the trailing date-time segment again' );
+my $tmux_status_render_top = _run("$perl -I'$lib' '$dashboard' ps1 --mode tmux-status-top --width 200 --cwd '$ENV{HOME}'");
+like( $tmux_status_render_top, qr/[✅🚨]🐳.*🕒\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/, 'dashboard ps1 tmux-status-top keeps the full indicator strip plus trailing date-time on one line when the tmux width is wide enough' );
+my $tmux_status_render_bottom = _run("$perl -I'$lib' '$dashboard' ps1 --mode tmux-status-bottom --width 200 --cwd '$ENV{HOME}'");
+is( $tmux_status_render_bottom, '', 'dashboard ps1 tmux-status-bottom stays empty when the tmux width is wide enough for one indicator line' );
 {
     my $tmux_indicator_home = tempdir( CLEANUP => 1 );
     local $ENV{HOME} = $tmux_indicator_home;
@@ -1245,10 +1254,12 @@ like( $tmux_status_render, qr/🕒\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\n?\z/, 'da
         updated_at           => time,
     );
 
-    my $live_tmux_status = _run("$perl -I'$lib' '$dashboard' ps1 --mode tmux-status --cwd '$tmux_indicator_home'");
-    like( $live_tmux_status, qr/✅96%/, 'dashboard ps1 tmux-status preserves live literal collector icons instead of resetting them to the config placeholder' );
-    like( $live_tmux_status, qr/✅59\.46%/, 'dashboard ps1 tmux-status preserves TT-backed live collector icons containing percent signs instead of resetting them to the raw TT config' );
-    unlike( $live_tmux_status, qr/\[%\s*data\.rate\s*%\]/, 'dashboard ps1 tmux-status does not leak raw TT-backed collector icon templates' );
+    my $live_tmux_status_top = _run("$perl -I'$lib' '$dashboard' ps1 --mode tmux-status-top --width 18 --cwd '$tmux_indicator_home'");
+    my $live_tmux_status_bottom = _run("$perl -I'$lib' '$dashboard' ps1 --mode tmux-status-bottom --width 18 --cwd '$tmux_indicator_home'");
+    my $live_tmux_status = $live_tmux_status_top . $live_tmux_status_bottom;
+    like( $live_tmux_status, qr/✅96%/, 'dashboard tmux-status lines preserve live literal collector icons instead of resetting them to the config placeholder' );
+    like( $live_tmux_status, qr/✅59\.46%/, 'dashboard tmux-status lines preserve TT-backed live collector icons containing percent signs instead of resetting them to the raw TT config' );
+    unlike( $live_tmux_status, qr/\[%\s*data\.rate\s*%\]/, 'dashboard tmux-status lines do not leak raw TT-backed collector icon templates' );
 }
 my $path_del = _run("$perl -I'$lib' '$dashboard' path del foobar");
 like( $path_del, qr/"name"\s*:\s*"foobar"/, 'dashboard path del reports the removed alias' );

@@ -719,6 +719,51 @@ ok(
     );
 }
 {
+    my $atomic_home = tempdir( CLEANUP => 1 );
+    my $atomic_target = File::Spec->catfile( $atomic_home, 'helper' );
+    my $read_atomic_target = sub {
+        open my $fh, '<', $atomic_target or die "Unable to read $atomic_target: $!";
+        my $content = do { local $/; <$fh> };
+        close $fh;
+        return $content;
+    };
+    ok(
+        Developer::Dashboard::InternalCLI::_write_helper_atomically( $atomic_target, "one\n" ),
+        '_write_helper_atomically writes the first helper payload through a temp file and rename',
+    );
+    is( $read_atomic_target->(), "one\n", '_write_helper_atomically leaves the requested helper body on disk' );
+    ok(
+        Developer::Dashboard::InternalCLI::_write_helper_atomically( $atomic_target, "two\n" ),
+        '_write_helper_atomically also replaces an existing helper payload atomically',
+    );
+    is( $read_atomic_target->(), "two\n", '_write_helper_atomically leaves the replacement helper body on disk' );
+    is_deeply(
+        [ sort glob( $atomic_target . '.tmp.*' ) ],
+        [],
+        '_write_helper_atomically does not leave temporary helper fragments behind',
+    );
+}
+{
+    my $rename_fail_home = tempdir( CLEANUP => 1 );
+    my $rename_fail_target = File::Spec->catdir( $rename_fail_home, 'helper-target-dir' );
+    make_path($rename_fail_target);
+
+    my $error = eval {
+        Developer::Dashboard::InternalCLI::_write_helper_atomically( $rename_fail_target, "broken\n" );
+        return;
+    };
+    like(
+        $@,
+        qr/\AUnable to rename \Q$rename_fail_target\E\.tmp\.\d+\.\d+ to \Q$rename_fail_target\E:/,
+        '_write_helper_atomically reports rename failures explicitly when the final helper target cannot be replaced',
+    );
+    is_deeply(
+        [ sort glob( $rename_fail_target . '.tmp.*' ) ],
+        [],
+        '_write_helper_atomically cleans up the temporary helper file after a rename failure',
+    );
+}
+{
     my $cleanup_home = tempdir( CLEANUP => 1 );
     my $cleanup_paths = Developer::Dashboard::PathRegistry->new( home => $cleanup_home );
     my $cleanup_cli_root = File::Spec->catdir( $cleanup_home, '.developer-dashboard', 'cli', 'dd' );

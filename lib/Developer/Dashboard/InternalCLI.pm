@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '3.41';
+our $VERSION = '3.42';
 
 use File::Basename qw(dirname);
 use File::Spec;
@@ -127,9 +127,7 @@ sub _stage_managed_helper {
     if ( -e $target ) {
         return 0 if !-f $target;
         if ( ( -s $target ) == 0 && _is_managed_helper_target( $args{paths}, $target ) ) {
-            open my $repair_fh, '>:raw', $target or die "Unable to write $target: $!";
-            print {$repair_fh} $content;
-            close $repair_fh or die "Unable to close $target: $!";
+            _write_helper_atomically( $target, $content );
             return 1;
         }
         open my $existing_fh, '<:raw', $target or die "Unable to read $target: $!";
@@ -139,9 +137,26 @@ sub _stage_managed_helper {
         return 0 if Developer::Dashboard::SeedSync::same_content_md5( $existing, $content );
     }
 
-    open my $fh, '>:raw', $target or die "Unable to write $target: $!";
+    _write_helper_atomically( $target, $content );
+    return 1;
+}
+
+# _write_helper_atomically($target, $content)
+# Writes one managed helper body through a temporary file and atomic rename so
+# concurrent dashboard processes do not expose partial private helper files.
+# Input: final helper target path and full helper source text string.
+# Output: true after the new helper body is fully in place.
+sub _write_helper_atomically {
+    my ( $target, $content ) = @_;
+    my $temp = $target . '.tmp.' . $$ . '.' . int( rand(1_000_000) );
+    open my $fh, '>:raw', $temp or die "Unable to write $temp: $!";
     print {$fh} $content;
-    close $fh or die "Unable to close $target: $!";
+    close $fh or die "Unable to close $temp: $!";
+    rename $temp, $target or do {
+        my $error = $!;
+        unlink $temp;
+        die "Unable to rename $temp to $target: $error";
+    };
     return 1;
 }
 

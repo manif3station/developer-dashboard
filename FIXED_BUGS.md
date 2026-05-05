@@ -1,6 +1,6 @@
 # Fixed Bugs
 
-## 3.41 - Fix blank-mac bootstrap, container runtime isolation, and skill install live detail
+## 3.42 - Fix blank-mac bootstrap, container runtime isolation, and ticket tmux status layout
 
 - Fixed blank new macOS bootstrap so `install.sh` now bootstraps Homebrew
   automatically when `brew` is missing instead of dying immediately with
@@ -13,13 +13,13 @@
   `brewfile`, `package.json`, `cpanfile`, and `Makefile` now stream a
   Docker-style rolling detail window under the active epic task while keeping
   the full task board visible.
-- Fixed tmux prompt/status handling so only `dashboard ticket` tmux sessions
-  move indicators into a session-local two-line tmux status area, ordinary
-  tmux sessions keep the normal inline prompt, the trailing date-time segment
-  is restored, the inline prompt stops duplicating status-line indicators in
-  ticket sessions, live collector indicator values stop flickering back to
-  config placeholders, and long indicator sets get a dedicated full-width
-  status line instead of being squeezed into one `status-right` fragment.
+- Fixed `dashboard ticket` tmux prompt/status handling so both fresh and
+  already-existing ticket sessions suppress inline prompt indicators,
+  move the full indicator strip into the first row of a two-line bottom
+  tmux status block, keep tmux's normal indexed session/window row
+  underneath it, preserve TT-backed percentage indicators and live
+  collector values, and stop truncating the useful part of the indicator
+  strip as aggressively.
 
 ## 3.40 - Move tmux prompt indicators into tmux status-right
 

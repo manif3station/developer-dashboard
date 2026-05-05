@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.41';
+our $VERSION = '3.42';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.41
+3.42
 
 =head1 INTRODUCTION
 
@@ -378,11 +378,16 @@ of the system reads the cached result.
 When the generated shell bootstrap runs inside a C<dashboard ticket> tmux
 session, those prompt indicators move out of the inline shell prompt and into
 that session's tmux status area so the cursor line stays clean while the
-indicator strip keeps updating between prompts. Ticket sessions get a
-two-line tmux status: a full-width indicator line plus a tmux context line.
-Ordinary tmux sessions keep the normal inline prompt. The ticket workflow
-seeds a dedicated C<DEVELOPER_DASHBOARD_TMUX_STATUS=1> session flag for that
-behavior, and Developer Dashboard updates tmux through session-local runtime
+indicator strip keeps updating between prompts. Ticket sessions use a
+two-line bottom status block: the first row is the dashboard indicator strip
+with the trailing date-time segment, and the second row keeps tmux's normal
+session and indexed window list. Ordinary tmux sessions keep the normal
+inline prompt. The
+ticket workflow seeds a dedicated
+C<DEVELOPER_DASHBOARD_TMUX_STATUS=1> session flag for that behavior, and
+Developer Dashboard also treats the ticket reference itself as a fallback
+signal so older ticket sessions do not keep duplicating indicators in the
+inline prompt. Developer Dashboard updates tmux through session-local runtime
 commands instead of editing any user tmux config file or changing unrelated
 tmux sessions on the same server.
 Configured collector indicators now prefer the configured icon in both places,
@@ -1172,15 +1177,13 @@ functions while loading that generated profile block. The generated bash, zsh,
 POSIX sh, and PowerShell shell bootstraps all follow the same tmux-aware
 prompt rule: when the shell starts inside a C<dashboard ticket> tmux session
 that carries C<DEVELOPER_DASHBOARD_TMUX_STATUS=1>, indicator glyphs move to
-that session's tmux status area through C<dashboard ps1 --mode tmux-status>.
-Developer Dashboard programs a two-line tmux status for that session only:
-the first line is dedicated to the live indicator strip plus trailing
-date-time, the second line carries tmux session and window context, and the
-inline prompt suppresses indicator fragments with
-C<dashboard ps1 --no-indicators>. Ordinary tmux sessions keep the normal
-inline prompt. Developer Dashboard does not edit the user's tmux config file
-to provide that behavior, and it uses session-local tmux options instead of
-changing the whole tmux server.
+the first row of that session's two-line bottom tmux status block, while the
+second row keeps tmux's normal session and indexed window list. The inline
+prompt suppresses indicator fragments with C<dashboard ps1 --no-indicators>.
+Ordinary tmux sessions keep the normal inline prompt. Developer Dashboard
+does not edit the user's tmux config file to provide that behavior, and it
+uses session-local tmux options
+instead of changing the whole tmux server.
 The Windows bootstrap
 does not try to self-install C<App::cpanminus> while the downloaded
 C<cpanm> bootstrap script is still running, which avoids the Windows file

@@ -1,4 +1,4 @@
-3.41  2026-05-05
+3.42  2026-05-05
     - fixed blank-mac `curl ... | sh` bootstrap so `install.sh` now
       bootstraps Homebrew automatically before reading the repo `brewfile`
       and continuing the normal macOS package flow
@@ -9,13 +9,13 @@
     - added Docker-style rolling detail lines to `dashboard skills install`
       so long-running dependency manifests keep the epic task board visible
       while streaming the newest manifest output under the active step
-    - fixed tmux prompt/status behavior so only `dashboard ticket` sessions
-      move indicators into a session-local two-line tmux status area, the
-      trailing date-time segment comes back, live collector indicator values
-      stay live in `dashboard ps1 --mode tmux-status`, TT-backed percentage
-      indicators do not fall back to raw placeholders, and ordinary tmux
-      sessions keep the normal inline prompt without any duplicated indicator
-      strip
+    - fixed tmux ticket-session prompt/status behavior so existing and new
+      `dashboard ticket` tmux sessions suppress inline prompt indicators,
+      move the full indicator strip into the first row of a two-line bottom
+      tmux status block, keep tmux's normal indexed session/window row
+      beneath it, preserve TT-backed percentage indicators and live
+      collector values, refresh automatically through tmux status updates,
+      and leave ordinary tmux sessions on the normal inline prompt path
 
 3.40  2026-05-05
     - moved prompt indicators out of inline shell prompts and into tmux

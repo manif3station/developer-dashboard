@@ -53,10 +53,17 @@ like($rendered, qr/^\(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\)/, 'prompt renders le
 like($rendered, qr/✅🐳.*\[\/tmp\/project\]/, 'compact prompt includes status glyph plus indicator icon before the bracketed path');
 like($rendered, qr/\(2 jobs\)/, 'job count included');
 like($rendered, qr/\n> \z/, 'prompt leaves the typing cursor marker on the next line');
-my $tmux_status = $prompt->render_tmux_status;
+my $tmux_status = $prompt->render_tmux_status(width => 200);
 like($tmux_status, qr/✅🐳/, 'tmux status rendering still includes prompt-visible indicators');
-like($tmux_status, qr/🕒\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\z/, 'tmux status rendering now restores the trailing date-time segment');
+unlike($tmux_status, qr/\n/, 'tmux status rendering stays on one line when the indicator strip fits');
+like($tmux_status, qr/🕒\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\z/, 'tmux status rendering keeps the trailing date-time segment on the visible indicator line');
 unlike($tmux_status, qr/🎫:/, 'tmux status rendering leaves ticket context to the prompt or tmux session line instead of duplicating it in the indicator strip');
+like($prompt->render_tmux_status(line => 'top', width => 200), qr/✅🐳.*🕒\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\z/, 'tmux top status line includes prompt-visible indicators and the trailing date-time when the strip fits');
+is($prompt->render_tmux_status(line => 'bottom', width => 200), q{}, 'tmux overflow status line stays empty when the top line can hold the full strip');
+my $wrapped_tmux_status = $prompt->render_tmux_status(width => 4);
+like($wrapped_tmux_status, qr/\n/, 'tmux status rendering emits an overflow line when the indicator strip does not fit on one line');
+like($prompt->render_tmux_status(line => 'top', width => 4), qr/✅🐳\z/, 'tmux top status line keeps the first indicator when the strip wraps');
+like($prompt->render_tmux_status(line => 'bottom', width => 4), qr/🕒\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\z/, 'tmux overflow status line carries the trailing date-time segment when the strip wraps');
 {
     local $ENV{TMUX} = '';
     local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = 1;
@@ -69,6 +76,42 @@ unlike($tmux_status, qr/🎫:/, 'tmux status rendering leaves ticket context to 
     my $tmux_prompt = $prompt->render(jobs => 0, cwd => '/tmp/project');
     unlike($tmux_prompt, qr/✅🐳/, 'inline prompt suppresses indicators automatically when tmux owns the status line');
     like($tmux_prompt, qr/\[\/tmp\/project\]/, 'inline prompt still includes the bracketed path when tmux owns the status line');
+}
+{
+    local $ENV{TMUX} = 'tmux-session';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = '';
+    local $ENV{TICKET_REF} = '';
+    my $plain_tmux_prompt = $prompt->render(jobs => 0, cwd => '/tmp/project');
+    like($plain_tmux_prompt, qr/✅🐳/, 'plain tmux sessions keep inline indicators when dashboard-managed ticket markers are absent');
+}
+{
+    local $ENV{TMUX} = 'tmux-session';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = '';
+    local $ENV{TICKET_REF} = 'DD-4242';
+    my $ticket_tmux_prompt = $prompt->render(jobs => 0, cwd => '/tmp/project');
+    unlike($ticket_tmux_prompt, qr/✅🐳/, 'ticket tmux prompts suppress inline indicators even when older sessions only expose TICKET_REF');
+    like($ticket_tmux_prompt, qr/🎫:DD-4242/, 'ticket tmux prompts still render the ticket reference inline');
+}
+{
+    my $empty_home = tempdir(CLEANUP => 1);
+    my $empty_paths = Developer::Dashboard::PathRegistry->new(
+        home            => $empty_home,
+        cwd             => $empty_home,
+        workspace_roots => [],
+        project_roots   => [],
+    );
+    my $empty_indicators = Developer::Dashboard::IndicatorStore->new(paths => $empty_paths);
+    my $empty_prompt = Developer::Dashboard::Prompt->new(paths => $empty_paths, indicators => $empty_indicators);
+    like(
+        $empty_prompt->render_tmux_status(width => 200),
+        qr/\A🕒\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\z/,
+        'tmux status rendering falls back to the timestamp-only line when no indicators are available',
+    );
+    is(
+        $empty_prompt->render_tmux_status(line => 'bottom', width => 200),
+        q{},
+        'tmux overflow line stays empty when only the timestamp remains',
+    );
 }
 
 $indicators->set_indicator(

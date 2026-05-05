@@ -139,12 +139,13 @@ interpreter that generated the shell fragment, which prevents macOS
 `JSON::XS` ABI mismatches when `/usr/bin/perl` and `~/perl5` belong to
 different Perl builds.
 That same shell-bootstrap coverage now also checks the tmux prompt split:
-when the shell is inside a `dashboard ticket` tmux session that carries
-`DEVELOPER_DASHBOARD_TMUX_STATUS=1`, generated bash, zsh, POSIX sh, and
-PowerShell bootstraps must program a session-local two-line tmux status
-through `dashboard ps1 --mode tmux-status`, suppress inline prompt indicators
-with `dashboard ps1 --no-indicators`, and leave ordinary tmux sessions on the
-normal inline prompt path.
+when the shell is inside a `dashboard ticket` tmux session, generated bash,
+zsh, POSIX sh, and PowerShell bootstraps must recognize either the explicit
+`DEVELOPER_DASHBOARD_TMUX_STATUS=1` flag or the seeded `TICKET_REF`, program
+a session-local two-line bottom tmux status block, keep the normal indexed
+session/window row visible beneath the dashboard indicator row, suppress
+inline prompt indicators with `dashboard ps1 --no-indicators`, and leave
+ordinary tmux sessions on the normal inline prompt path.
 Those shell-helper regression assertions also normalize printed path identity,
 so macOS `/var/...` versus `/private/var/...` aliases do not fail otherwise
 equivalent `pwd` or `which_dir` output checks.
