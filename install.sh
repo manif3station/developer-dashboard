@@ -16,6 +16,7 @@ ca-certificates
 cpanminus
 curl
 git
+libcrypt-dev
 libexpat1-dev
 libssl-dev
 npm
@@ -23,6 +24,7 @@ nodejs
 perl
 perlbrew
 pkg-config
+tmux
 zlib1g-dev
 '
 BREWFILE_DEFAULT_CONTENT='
@@ -35,6 +37,7 @@ node
 openssl@3
 perl
 pkgconf
+tmux
 '
 APKFILE_DEFAULT_CONTENT='
 # Repo bootstrap packages for Alpine hosts.
@@ -50,6 +53,7 @@ perl
 perl-app-cpanminus
 perl-dev
 pkgconf
+tmux
 zlib-dev
 '
 DNFILE_DEFAULT_CONTENT='
@@ -67,10 +71,13 @@ perl
 perl-App-cpanminus
 perl-devel
 pkgconf-pkg-config
+tmux
 zlib-devel
 '
 INSTALL_ROOT="${HOME:?Missing HOME}/perl5"
-CPAN_TARGET="${DD_INSTALL_CPAN_TARGET:-Developer::Dashboard}"
+CPAN_TARGET="${DD_INSTALL_CPAN_TARGET:-}"
+DEFAULT_BOOTSTRAP_REPOSITORY_URL="${DD_INSTALL_BOOTSTRAP_REPOSITORY_URL:-https://github.com/manif3station/developer-dashboard.git}"
+DEFAULT_BOOTSTRAP_CHECKOUT_DIR="${DD_INSTALL_BOOTSTRAP_CHECKOUT_DIR:-}"
 OS_OVERRIDE="${DD_INSTALL_OS_OVERRIDE:-}"
 PERLBREW_ROOT="${PERLBREW_ROOT:-$INSTALL_ROOT/perlbrew}"
 PERLBREW_HOME="${PERLBREW_HOME:-$PERLBREW_ROOT}"
@@ -85,6 +92,7 @@ CPANM_SCRIPT=''
 RC_FILE=''
 ACTIVATION_FILE=''
 DASHBOARD_BIN=''
+EFFECTIVE_CPAN_TARGET=''
 AUTO_SHELL_MODE="${DD_INSTALL_AUTO_SHELL:-auto}"
 POST_INSTALL_SHELL_COMMANDS="${DD_INSTALL_SHELL_COMMANDS:-}"
 SHELL_BIN_OVERRIDE="${DD_INSTALL_SHELL_BIN:-}"
@@ -853,8 +861,42 @@ bootstrap_local_lib() {
     eval "$("$PERL_BIN" -I "$INSTALL_ROOT/lib/perl5" -Mlocal::lib)"
 }
 
+resolve_default_dashboard_checkout() {
+    if [ -f "$SCRIPT_DIR/lib/Developer/Dashboard.pm" ] && [ -f "$SCRIPT_DIR/Makefile.PL" ]; then
+        printf '%s\n' "$SCRIPT_DIR"
+        return 0
+    fi
+
+    require_command git
+
+    if [ -n "$DEFAULT_BOOTSTRAP_CHECKOUT_DIR" ]; then
+        checkout_root=$DEFAULT_BOOTSTRAP_CHECKOUT_DIR
+        rm -rf "$checkout_root"
+        mkdir -p "$(dirname "$checkout_root")" ||
+            fail "Unable to create the parent directory for $checkout_root"
+    else
+        checkout_root=$(mktemp -d "${TMPDIR:-/tmp}/developer-dashboard-install.XXXXXX") ||
+            fail "Unable to allocate a temporary checkout for Developer Dashboard under ${TMPDIR:-/tmp}"
+    fi
+
+    run_logged_command git clone --depth 1 --branch master "$DEFAULT_BOOTSTRAP_REPOSITORY_URL" "$checkout_root" ||
+        fail "Unable to clone Developer Dashboard from $DEFAULT_BOOTSTRAP_REPOSITORY_URL"
+    printf '%s\n' "$checkout_root"
+}
+
 install_dashboard() {
-    run_cpanm --notest "$CPAN_TARGET"
+    if [ -n "$CPAN_TARGET" ]; then
+        EFFECTIVE_CPAN_TARGET=$CPAN_TARGET
+        run_cpanm --notest "$CPAN_TARGET"
+        return 0
+    fi
+
+    checkout_root=$(resolve_default_dashboard_checkout)
+    EFFECTIVE_CPAN_TARGET=$checkout_root
+    (
+        cd "$checkout_root" || exit 1
+        run_cpanm --notest .
+    ) || fail "Unable to install Developer Dashboard from $checkout_root"
 }
 
 shell_bootstrap_target() {
@@ -979,7 +1021,7 @@ main() {
     progress_start install_dashboard_package
     install_dashboard
     write_dashboard_shell_bootstrap
-    progress_done install_dashboard_package "$CPAN_TARGET"
+    progress_done install_dashboard_package "$EFFECTIVE_CPAN_TARGET"
     progress_start initialize_dashboard
     initialize_dashboard
     progress_done initialize_dashboard "$HOME/.developer-dashboard"

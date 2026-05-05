@@ -1,7 +1,16 @@
-3.44  2026-05-05
-    - refined Docker-style skill install progression so active detail lines
-      now render in blue, failed detail lines render in red, and the user-
-      facing docs match the shipped ANSI progress contract exactly
+3.45  2026-05-05
+    - fixed Unix-like `install.sh` so blank streamed installs no longer fall
+      back to the stale `Developer::Dashboard` CPAN target; when no explicit
+      `DD_INSTALL_CPAN_TARGET` override is set they now install the current
+      checkout directly or clone GitHub `master` into a temporary checkout
+      for `curl ... | sh` style bootstraps
+    - added `tmux` to the shipped `aptfile`, `apkfile`, `dnfile`, and
+      `brewfile` bootstrap package sets because `dashboard ticket` is a
+      first-party tmux workflow
+    - fixed blank Ubuntu bootstrap coverage so Debian-family installer docs
+      and tests now prove the extra XS build header requirement for the live
+      `cpanm` dependency chain instead of silently assuming the base image
+      already ships it
 
 3.43  2026-05-05
     - fixed managed helper staging so upgraded home runtimes remove

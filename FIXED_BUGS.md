@@ -1,5 +1,22 @@
 # Fixed Bugs
 
+## 3.45 - Fix stale Unix bootstrap target selection and missing tmux package installs
+
+- Fixed Unix-like `install.sh` so blank streamed installs such as
+  `curl ... | sh` no longer fall back to the stale
+  `Developer::Dashboard` CPAN target when `DD_INSTALL_CPAN_TARGET` is unset.
+  Checkout and extracted-tarball runs now install `.` directly, while
+  streamed runs clone the current GitHub `master` checkout into a temporary
+  local tree and install that checkout instead.
+- Fixed the shipped Unix bootstrap package manifests so `aptfile`, `apkfile`,
+  `dnfile`, and `brewfile` all install `tmux`, which keeps
+  `dashboard ticket` available on blank machines without making operators
+  guess a missing first-party dependency.
+- Fixed blank Ubuntu bootstrap installs so the Debian-family package set now
+  includes `libcrypt-dev`, preventing Perl XS dependencies such as
+  `HTTP::Parser::XS`, `JSON::XS`, `YAML::XS`, and `Template::Toolkit` from
+  failing with a missing `crypt.h` header during `cpanm`.
+
 ## 3.44 - Fix Docker-style progression ANSI detail colors
 
 - Fixed `dashboard skills install` progression output so active rolling detail

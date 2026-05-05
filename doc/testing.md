@@ -120,6 +120,12 @@ Do not use `FindBin` or source-tree-relative `use lib` bootstrapping inside
 repo-owned `.pm` files that are meant to run from the installed distribution.
 Keep checkout-only bootstrap logic in entrypoints or tests, then prove the
 built distribution with the packaged-tree and blank-environment gates.
+The installer guardrails in `t/40-install-bootstrap.t` also treat the Unix
+bootstrap target as a compatibility contract: checkout or extracted-tarball
+runs must install `.` locally, streamed `curl ... | sh` runs with no checkout
+must clone the current GitHub `master` checkout instead of silently falling
+back to a stale CPAN release, and the shipped bootstrap package manifests must
+carry `tmux` because `dashboard ticket` is a first-party tmux workflow.
 
 Branch and condition reports are still generated and should be used to drive new edge-case tests, especially when adding new runtime modules.
 

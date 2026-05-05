@@ -20,6 +20,7 @@ my $aptfile    = File::Spec->catfile( $root, 'aptfile' );
 my $apkfile    = File::Spec->catfile( $root, 'apkfile' );
 my $dnfile     = File::Spec->catfile( $root, 'dnfile' );
 my $brewfile   = File::Spec->catfile( $root, 'brewfile' );
+my $default_bootstrap_repository = 'https://github.com/manif3station/developer-dashboard.git';
 my $perlbrew_app_dist_url = 'https://cpan.metacpan.org/authors/id/G/GU/GUGOD/App-perlbrew-1.02.tar.gz';
 my $perlbrew_app_dist_basename = 'App-perlbrew-1.02.tar.gz';
 
@@ -55,6 +56,30 @@ like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/pure_install\s+::\
     };
     is( $exit >> 8, 0, 'install.sh passes POSIX shell syntax validation' )
       or diag $stdout . $stderr;
+}
+
+{
+    my $install_sh_text = _slurp($install_sh);
+    unlike(
+        $install_sh_text,
+        qr/CPAN_TARGET="\$\{DD_INSTALL_CPAN_TARGET:-Developer::Dashboard\}"/,
+        'install.sh no longer defaults Unix-like streamed installs to the stale CPAN module name',
+    );
+    like(
+        $install_sh_text,
+        qr{\Q$default_bootstrap_repository\E},
+        'install.sh knows the canonical GitHub repository for the default streamed Unix-like checkout target',
+    );
+    like(
+        $install_sh_text,
+        qr/git clone --depth 1 --branch master/,
+        'install.sh clones the current GitHub master checkout when no explicit Unix-like install target override is set',
+    );
+    like(
+        $install_sh_text,
+        qr/run_cpanm --notest \./,
+        'install.sh installs the resolved local checkout with cpanm dot for default Unix-like bootstrap targets',
+    );
 }
 
 {
@@ -135,6 +160,10 @@ my @apt_packages  = _manifest_lines($aptfile);
 my @apk_packages  = _manifest_lines($apkfile);
 my @dnf_packages  = _manifest_lines($dnfile);
 my @brew_packages = _manifest_lines($brewfile);
+ok( scalar grep { $_ eq 'tmux' } @apt_packages,  'aptfile includes tmux because dashboard ticket depends on it' );
+ok( scalar grep { $_ eq 'tmux' } @apk_packages,  'apkfile includes tmux because dashboard ticket depends on it' );
+ok( scalar grep { $_ eq 'tmux' } @dnf_packages,  'dnfile includes tmux because dashboard ticket depends on it' );
+ok( scalar grep { $_ eq 'tmux' } @brew_packages, 'brewfile includes tmux because dashboard ticket depends on it' );
 my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
     packages => \@apt_packages,
 );
@@ -398,6 +427,7 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
     my $home = tempdir( CLEANUP => 1 );
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
+    my $checkout = File::Spec->catfile( $home, 'default-dashboard-checkout' );
     _seed_fake_install_commands(
         fake_bin => $fake_bin,
         log      => $log,
@@ -451,6 +481,7 @@ SH
     my $home = tempdir( CLEANUP => 1 );
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
+    my $checkout = File::Spec->catfile( $home, 'default-dashboard-checkout' );
     _seed_fake_install_commands(
         fake_bin => $fake_bin,
         log      => $log,
@@ -504,6 +535,7 @@ SH
     my $home = tempdir( CLEANUP => 1 );
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
+    my $checkout = File::Spec->catfile( $home, 'default-dashboard-checkout' );
     _seed_fake_install_commands(
         fake_bin => $fake_bin,
         log      => $log,
@@ -515,6 +547,7 @@ SH
         { key => 'PATH',                      value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
         { key => 'SHELL',                     value => '/bin/bash' },
         { key => 'DD_INSTALL_OS_OVERRIDE',    value => 'ubuntu' },
+        { key => 'DD_INSTALL_BOOTSTRAP_CHECKOUT_DIR', value => $checkout },
         { key => 'FAKE_NODEJS_PROVIDES_NPM',  value => '1' },
         { key => 'FAKE_NPM_PACKAGE_CONFLICTS', value => '1' },
       );
@@ -536,10 +569,10 @@ SH
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
-            'cpanm --no-wget --notest Developer::Dashboard',
+            'cpanm --no-wget --notest .',
             'dashboard init',
         ],
-        'install.sh avoids the conflicting Debian npm package when nodejs already ships the full Node toolchain',
+        'install.sh avoids the conflicting Debian npm package when nodejs already ships the full Node toolchain and installs the local checkout directly',
     );
 }
 
@@ -547,6 +580,7 @@ SH
     my $home = tempdir( CLEANUP => 1 );
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
+    my $checkout = File::Spec->catfile( $home, 'default-dashboard-checkout' );
     _seed_fake_install_commands(
         fake_bin => $fake_bin,
         log      => $log,
@@ -558,6 +592,7 @@ SH
         { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
         { key => 'SHELL',                  value => '/bin/zsh' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'darwin' },
+        { key => 'DD_INSTALL_BOOTSTRAP_CHECKOUT_DIR', value => $checkout },
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
@@ -575,10 +610,10 @@ SH
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
-            'cpanm --no-wget --notest Developer::Dashboard',
+            'cpanm --no-wget --notest .',
             'dashboard init',
         ],
-        'install.sh follows the macOS bootstrap flow in manifest order',
+        'install.sh follows the macOS bootstrap flow in manifest order and installs the local checkout directly',
     );
 
     my $zshrc = File::Spec->catfile( $home, '.zshrc' );
@@ -594,6 +629,7 @@ SH
     my $home = tempdir( CLEANUP => 1 );
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
+    my $checkout = File::Spec->catfile( $home, 'default-dashboard-checkout' );
     _seed_fake_install_commands(
         fake_bin         => $fake_bin,
         log              => $log,
@@ -606,6 +642,7 @@ SH
         { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
         { key => 'SHELL',                  value => '/bin/zsh' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'darwin' },
+        { key => 'DD_INSTALL_BOOTSTRAP_CHECKOUT_DIR', value => $checkout },
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
@@ -625,10 +662,10 @@ SH
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
-            'cpanm --no-wget --notest Developer::Dashboard',
+            'cpanm --no-wget --notest .',
             'dashboard init',
         ],
-        'install.sh downloads and runs the Homebrew bootstrap before the normal macOS package flow when brew is missing',
+        'install.sh downloads and runs the Homebrew bootstrap before the normal macOS package flow and installs the local checkout directly when brew is missing',
     );
     like(
         $stdout,
@@ -641,6 +678,7 @@ SH
     my $home = tempdir( CLEANUP => 1 );
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
+    my $checkout = File::Spec->catfile( $home, 'default-dashboard-checkout' );
     _seed_fake_install_commands(
         fake_bin => $fake_bin,
         log      => $log,
@@ -685,6 +723,7 @@ SH
     my $home = tempdir( CLEANUP => 1 );
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
+    my $checkout = File::Spec->catfile( $home, 'default-dashboard-checkout' );
     _seed_fake_install_commands(
         fake_bin => $fake_bin,
         log      => $log,
@@ -717,7 +756,9 @@ SH
     my $home = tempdir( CLEANUP => 1 );
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
+    my $checkout = File::Spec->catfile( $home, 'default-dashboard-checkout' );
     my $script_copy = _slurp($install_sh);
+    my $scratch = tempdir( CLEANUP => 1 );
     _seed_fake_install_commands(
         fake_bin => $fake_bin,
         log      => $log,
@@ -729,10 +770,11 @@ SH
         { key => 'PATH',                   value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
         { key => 'SHELL',                  value => '/bin/bash' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'ubuntu' },
+        { key => 'DD_INSTALL_BOOTSTRAP_CHECKOUT_DIR', value => $checkout },
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
-        open my $pipe, '|-', 'sh', '-c', "$env_prefix sh -s" or die "Unable to start streamed installer: $!";
+        open my $pipe, '|-', 'sh', '-c', "cd '$scratch' && $env_prefix sh -s" or die "Unable to start streamed installer: $!";
         print {$pipe} $script_copy;
         close $pipe or die "Streamed installer exited non-zero: $?";
     };
@@ -747,10 +789,11 @@ SH
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
-            'cpanm --no-wget --notest Developer::Dashboard',
+            "git clone --depth 1 --branch master $default_bootstrap_repository $checkout",
+            'cpanm --no-wget --notest .',
             'dashboard init',
         ],
-        'streamed install.sh falls back to the embedded Debian-family manifest content',
+        'streamed install.sh falls back to the embedded Debian-family manifest content and installs the default dashboard checkout from GitHub master',
     );
     like(
         $stdout,
@@ -763,6 +806,7 @@ SH
     my $home = tempdir( CLEANUP => 1 );
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
+    my $checkout = File::Spec->catfile( $home, 'default-dashboard-checkout' );
     _seed_fake_install_commands(
         fake_bin => $fake_bin,
         log      => $log,
@@ -775,6 +819,7 @@ SH
         { key => 'SHELL',                  value => '/bin/bash' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'debian' },
         { key => 'FAKE_PERL_MEETS_MIN',    value => '0' },
+        { key => 'DD_INSTALL_BOOTSTRAP_CHECKOUT_DIR', value => $checkout },
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
@@ -806,10 +851,10 @@ SH
             'perlbrew install-cpanm',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
-            'cpanm --no-wget --notest Developer::Dashboard',
+            'cpanm --no-wget --notest .',
             'dashboard init',
         ],
-        'install.sh switches to perlbrew before the local::lib bootstrap when Debian ships an older Perl',
+        'install.sh switches to perlbrew before the local::lib bootstrap when Debian ships an older Perl and then installs the local checkout directly',
     );
 
     my $bashrc = File::Spec->catfile( $home, '.bashrc' );
@@ -842,6 +887,7 @@ SH
     my $home = tempdir( CLEANUP => 1 );
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
+    my $checkout = File::Spec->catfile( $home, 'default-dashboard-checkout' );
     _seed_fake_install_commands(
         fake_bin                        => $fake_bin,
         log                             => $log,
@@ -856,6 +902,7 @@ SH
         { key => 'SHELL',                  value => '/bin/sh' },
         { key => 'DD_INSTALL_OS_OVERRIDE', value => 'alpine' },
         { key => 'FAKE_PERL_MEETS_MIN',    value => '0' },
+        { key => 'DD_INSTALL_BOOTSTRAP_CHECKOUT_DIR', value => $checkout },
       );
 
     my ( $stdout, $stderr, $exit ) = capture {
@@ -895,10 +942,10 @@ SH
             'perlbrew install-cpanm',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
-            'cpanm --no-wget --notest Developer::Dashboard',
+            'cpanm --no-wget --notest .',
             'dashboard init',
         ],
-        'install.sh activates the local App::perlbrew install before invoking perlbrew on Alpine',
+        'install.sh activates the local App::perlbrew install before invoking perlbrew on Alpine and then installs the local checkout directly',
     );
 
     my $profile = File::Spec->catfile( $home, '.profile' );
@@ -1176,6 +1223,23 @@ cat > "\$HOME/perl5/lib/perl5/Devel/PatchPerl.pm" <<'EOS'
 package Devel::PatchPerl;
 1;
 EOS
+fi
+exit 0
+SH
+    );
+    _write_executable(
+        File::Spec->catfile( $fake_bin, 'git' ),
+        <<"SH",
+#!/bin/sh
+printf '%s\\n' "git \$*" >> "$log"
+if [ "\$1" = "clone" ]; then
+target=''
+for arg in "\$@"; do
+target=\$arg
+done
+mkdir -p "\$target/lib/Developer"
+printf '%s\\n' 'version = 3.44' > "\$target/dist.ini"
+printf '%s\\n' 'package Developer::Dashboard; 1;' > "\$target/lib/Developer/Dashboard.pm"
 fi
 exit 0
 SH

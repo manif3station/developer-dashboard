@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.44';
+our $VERSION = '3.45';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.44
+3.45
 
 =head1 INTRODUCTION
 
@@ -1100,9 +1100,12 @@ in the source tree and release tarball so operators can run them explicitly
 from a checkout, extracted tarball, or streamed bootstrap, but CPAN and
 C<cpanm> do not install them as global commands. When the Unix-like installer
 is streamed through C<sh> without a checkout, such as C<curl ... | sh>, it
-falls back to embedded Debian-family, Alpine, and Homebrew package manifests
-instead of assuming repo-local F<aptfile>, F<apkfile>, F<dnfile>, and
-F<brewfile> files exist on disk.
+falls back to embedded Debian-family, Alpine, Fedora, and Homebrew package
+manifests instead of assuming repo-local F<aptfile>, F<apkfile>, F<dnfile>,
+and F<brewfile> files exist on disk, then clones the current GitHub
+C<master> checkout into a temporary local tree and installs that checkout so
+the streamed bootstrap gets the same implementation snapshot that shipped the
+installer instead of a stale CPAN release.
 
 That installer reads the repo-root F<aptfile> on Debian-family hosts and runs
 C<apt-get update> plus C<apt-get install -y> for the listed packages, reads
@@ -1111,7 +1114,9 @@ C<apk add --no-cache> for the listed packages, reads the repo-root
 F<dnfile> on Fedora hosts and runs C<dnf install -y> for the listed
 packages, reads the repo-root
 F<brewfile> on macOS and runs C<brew install> for the listed packages,
-verifies that C<node>, C<npm>, and C<npx> are available from those
+ships C<tmux> in every one of those bootstrap package lists because
+C<dashboard ticket> is a first-party tmux workflow, verifies that C<node>,
+C<npm>, and C<npx> are available from those
 bootstrap packages before finishing the install, or falls back to the embedded
 copies of those package lists when the script is streamed without the checkout
 files, installs Debian-family Node tooling in a conflict-aware order by
@@ -1154,10 +1159,12 @@ immediately instead of leaving the user at a dead prompt, falls back to
 printing the exact shell file it updated plus the exact C<. "<rc-file>">
 command the user should run only when the installer cannot safely take over a
 terminal, never probes F</dev/tty> during a piped C<curl ... | sh> run so
-non-interactive installs stay quiet, installs Developer Dashboard into the user account with
-C<cpanm --no-wget --notest Developer::Dashboard>,
-and then runs C<dashboard init> so the runtime exists immediately after
-installation.
+non-interactive installs stay quiet, installs Developer Dashboard into the user
+account with C<cpanm --no-wget --notest .> when the installer is running from a
+checkout or extracted tarball, and uses that same C<cpanm --no-wget --notest .>
+flow against a temporary cloned checkout when the Unix-like bootstrap had to
+clone GitHub C<master> for a streamed install, and then runs C<dashboard init>
+so the runtime exists immediately after installation.
 
 On Windows PowerShell hosts, F<install.ps1> uses C<winget> to install missing
 Git, Strawberry Perl, and Node.js LTS packages, pins those installs to the
@@ -1218,6 +1225,7 @@ Useful bootstrap examples:
   ./install.sh
   SHELL=/bin/zsh ./install.sh
   DD_INSTALL_CPAN_TARGET=./Developer-Dashboard-X.XX.tar.gz ./install.sh
+  curl https://raw.githubusercontent.com/manif3station/developer-dashboard/refs/heads/master/install.sh | sh
   powershell -ExecutionPolicy Bypass -File .\install.ps1
   $env:DD_INSTALL_CPAN_TARGET = '.\Developer-Dashboard-X.XX.tar.gz'; irm https://raw.githubusercontent.com/manif3station/developer-dashboard/refs/heads/master/install.ps1 | iex
 

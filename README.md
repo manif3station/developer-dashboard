@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.44
+3.45
 
 # INTRODUCTION
 
@@ -832,9 +832,12 @@ in the source tree and release tarball so operators can run them explicitly
 from a checkout, extracted tarball, or streamed bootstrap, but CPAN and
 `cpanm` do not install them as global commands. When the Unix-like installer
 is streamed through `sh` without a checkout, such as `curl ... | sh`, it
-falls back to embedded Debian-family, Alpine, and Homebrew package manifests
-instead of assuming repo-local `aptfile`, `apkfile`, `dnfile`, and
-`brewfile` files exist on disk.
+falls back to embedded Debian-family, Alpine, Fedora, and Homebrew package
+manifests instead of assuming repo-local `aptfile`, `apkfile`, `dnfile`,
+and `brewfile` files exist on disk, then clones the current GitHub
+`master` checkout into a temporary local tree and installs that checkout so
+the streamed bootstrap gets the same implementation snapshot that shipped the
+installer instead of a stale CPAN release.
 
 That installer reads the repo-root `aptfile` on Debian-family hosts and runs
 `apt-get update` plus `apt-get install -y` for the listed packages, reads
@@ -843,7 +846,9 @@ the repo-root `apkfile` on Alpine hosts and runs
 `dnfile` on Fedora hosts and runs `dnf install -y` for the listed
 packages, reads the repo-root
 `brewfile` on macOS and runs `brew install` for the listed packages,
-verifies that `node`, `npm`, and `npx` are available from those
+ships `tmux` in every one of those bootstrap package lists because
+`dashboard ticket` is a first-party tmux workflow, verifies that `node`,
+`npm`, and `npx` are available from those
 bootstrap packages before finishing the install, or falls back to the embedded
 copies of those package lists when the script is streamed without the checkout
 files, installs Debian-family Node tooling in a conflict-aware order by
@@ -886,10 +891,12 @@ immediately instead of leaving the user at a dead prompt, falls back to
 printing the exact shell file it updated plus the exact `. "<rc-file`">
 command the user should run only when the installer cannot safely take over a
 terminal, never probes `/dev/tty` during a piped `curl ... | sh` run so
-non-interactive installs stay quiet, installs Developer Dashboard into the user account with
-`cpanm --no-wget --notest Developer::Dashboard`,
-and then runs `dashboard init` so the runtime exists immediately after
-installation.
+non-interactive installs stay quiet, installs Developer Dashboard into the user
+account with `cpanm --no-wget --notest .` when the installer is running from a
+checkout or extracted tarball, and uses that same `cpanm --no-wget --notest .`
+flow against a temporary cloned checkout when the Unix-like bootstrap had to
+clone GitHub `master` for a streamed install, and then runs `dashboard init`
+so the runtime exists immediately after installation.
 
 On Windows PowerShell hosts, `install.ps1` uses `winget` to install missing
 Git, Strawberry Perl, and Node.js LTS packages, pins those installs to the
@@ -950,6 +957,7 @@ Useful bootstrap examples:
     ./install.sh
     SHELL=/bin/zsh ./install.sh
     DD_INSTALL_CPAN_TARGET=./Developer-Dashboard-X.XX.tar.gz ./install.sh
+    curl https://raw.githubusercontent.com/manif3station/developer-dashboard/refs/heads/master/install.sh | sh
     powershell -ExecutionPolicy Bypass -File .\install.ps1
     $env:DD_INSTALL_CPAN_TARGET = '.\Developer-Dashboard-X.XX.tar.gz'; irm https://raw.githubusercontent.com/manif3station/developer-dashboard/refs/heads/master/install.ps1 | iex
 
