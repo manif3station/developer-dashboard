@@ -10,6 +10,7 @@ use Developer::Dashboard::CLI::SeededPages ();
 use Developer::Dashboard::EnvAudit;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::IndicatorStore;
+use Developer::Dashboard::InternalCLI;
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Developer::Dashboard::PathRegistry;
 use Encode qw(decode encode);
@@ -74,6 +75,7 @@ my $runtime_ticket = File::Spec->catfile( $runtime_dd_cli_root, 'ticket' );
 my $runtime_path = File::Spec->catfile( $runtime_dd_cli_root, 'path' );
 my $runtime_paths = File::Spec->catfile( $runtime_dd_cli_root, 'paths' );
 my $runtime_ps1 = File::Spec->catfile( $runtime_dd_cli_root, 'ps1' );
+my $runtime_doctor = File::Spec->catfile( $runtime_dd_cli_root, 'doctor' );
 my $runtime_dashboard_core = File::Spec->catfile( $runtime_dd_cli_root, '_dashboard-core' );
 
 my $init = _run("$perl -I'$lib' '$dashboard' init");
@@ -285,6 +287,81 @@ is( sprintf( '%04o', ( stat($legacy_bookmarks_root) )[2] & 07777 ), '0700', 'das
 is( sprintf( '%04o', ( stat($legacy_bookmark_file) )[2] & 07777 ), '0600', 'dashboard doctor --fix tightens legacy bookmark file permissions' );
 my $doctor_clean = json_decode( _run("$perl -I'$lib' '$dashboard' doctor") );
 ok( $doctor_clean->{ok}, 'dashboard doctor reports success after repair' );
+
+my $managed_core_expected = Developer::Dashboard::InternalCLI::_managed_helper_content('_dashboard-core');
+my $managed_core_stale = $managed_core_expected;
+$managed_core_stale .= "\n# stale helper drift\n";
+open my $managed_core_stale_fh, '>:raw', $runtime_dashboard_core or die "Unable to write $runtime_dashboard_core: $!";
+print {$managed_core_stale_fh} $managed_core_stale;
+close $managed_core_stale_fh or die "Unable to close $runtime_dashboard_core: $!";
+
+my $doctor_helper_report = json_decode( _run("$perl -I'$lib' '$runtime_doctor'") );
+ok( !$doctor_helper_report->{ok}, 'dashboard doctor reports stale managed helper drift' );
+ok(
+    grep(
+        {
+            $_->{path} eq $runtime_dashboard_core
+              && $_->{kind} eq 'helper'
+              && $_->{problem} eq 'stale managed helper content'
+        } @{ $doctor_helper_report->{issues} || [] }
+    ),
+    'dashboard doctor reports stale _dashboard-core helper drift through the staged helper runtime',
+);
+
+my $doctor_helper_fixed = json_decode( _run("$perl -I'$lib' '$runtime_doctor' --fix") );
+ok( !$doctor_helper_fixed->{ok}, 'dashboard doctor --fix reports the helper drift it repaired in that run' );
+ok(
+    grep(
+        {
+            $_->{path} eq $runtime_dashboard_core
+              && $_->{kind} eq 'helper'
+              && $_->{fixed}
+        } @{ $doctor_helper_fixed->{issues} || [] }
+    ),
+    'dashboard doctor --fix marks stale helper drift as repaired through the staged helper runtime',
+);
+my $doctor_helper_clean = json_decode( _run("$perl -I'$lib' '$runtime_doctor'") );
+ok( $doctor_helper_clean->{ok}, 'dashboard doctor reports success after helper restaging repair' );
+
+my $bashrc = File::Spec->catfile( $ENV{HOME}, '.bashrc' );
+my $local_lib_line = qq{eval "\$("/usr/bin/perl" -I "$ENV{HOME}/perl5/lib/perl5" -Mlocal::lib)"};
+my $dashboard_line = qq{eval "\$("$ENV{HOME}/perl5/bin/dashboard" shell bash)"};
+open my $bashrc_fh, '>', $bashrc or die "Unable to write $bashrc: $!";
+print {$bashrc_fh} <<"BASHRC";
+[ -z "\$PS1" ] && return
+$local_lib_line
+$dashboard_line
+BASHRC
+close $bashrc_fh or die "Unable to close $bashrc: $!";
+
+my $doctor_shell_report = json_decode( _run("$perl -I'$lib' '$runtime_doctor'") );
+ok( !$doctor_shell_report->{ok}, 'dashboard doctor reports misplaced bash bootstrap lines through the staged helper runtime' );
+ok(
+    grep(
+        {
+            $_->{path} eq $bashrc
+              && $_->{kind} eq 'shell-bootstrap'
+              && $_->{problem} eq 'dashboard-managed bash bootstrap is hidden behind the non-interactive return guard'
+        } @{ $doctor_shell_report->{issues} || [] }
+    ),
+    'dashboard doctor reports the misplaced bash bootstrap issue through the staged helper runtime',
+);
+
+my $doctor_shell_fixed = json_decode( _run("$perl -I'$lib' '$runtime_doctor' --fix") );
+ok( !$doctor_shell_fixed->{ok}, 'dashboard doctor --fix reports the bash bootstrap issue it repaired through the staged helper runtime' );
+ok(
+    grep(
+        {
+            $_->{path} eq $bashrc
+              && $_->{kind} eq 'shell-bootstrap'
+              && $_->{fixed}
+        } @{ $doctor_shell_fixed->{issues} || [] }
+    ),
+    'dashboard doctor --fix marks the misplaced bash bootstrap issue as fixed through the staged helper runtime',
+);
+my $doctor_shell_clean = json_decode( _run("$perl -I'$lib' '$runtime_doctor'") );
+ok( $doctor_shell_clean->{ok}, 'dashboard doctor reports success after repairing misplaced bash bootstrap lines' );
+unlink $bashrc or die "Unable to remove $bashrc after doctor shell-bootstrap smoke coverage: $!";
 
 my $indicator_refresh = _run("$perl -I'$lib' '$dashboard' indicator refresh-core");
 like($indicator_refresh, qr/docker|project|git/, 'indicator refresh-core works');
@@ -1099,7 +1176,11 @@ like( $shell_bootstrap, qr/tmux set-option -q status-position bottom/, 'dashboar
 like( $shell_bootstrap, qr/tmux set-option -q status 2/, 'dashboard shell bash bootstrap enables a two-line tmux status block for ticket sessions' );
 like( $shell_bootstrap, qr/tmux set-option -q status-interval 2/, 'dashboard shell bash bootstrap refreshes the tmux status block automatically for ticket sessions' );
 like( $shell_bootstrap, qr/tmux set-option -q status-format\[0\].*tmux-status-top --width #\{client_width\}/s, 'dashboard shell bash bootstrap renders the indicator strip into the first tmux status row' );
+like( $shell_bootstrap, qr/status-format\[0\] "#\('\Q$dashboard\E' ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'dashboard shell bash bootstrap renders the tmux ticket indicator row through the explicit dashboard entrypoint path' );
+unlike( $shell_bootstrap, qr/status-format\[0\] "#\(dashboard ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'dashboard shell bash bootstrap does not depend on a bare dashboard PATH lookup for tmux ticket status rendering' );
 like( $shell_bootstrap, qr/tmux set-option -q status-format\[1\] "\$_dd_default_status"/, 'dashboard shell bash bootstrap restores the normal tmux status row beneath the indicators' );
+like( $shell_bootstrap, qr/_dd_update_prompt\(\)/, 'dashboard shell bash bootstrap centralizes prompt refresh through one helper so later distro PS1 assignments cannot permanently override it' );
+like( $shell_bootstrap, qr/PROMPT_COMMAND=.*_dd_update_prompt/s, 'dashboard shell bash bootstrap installs a PROMPT_COMMAND refresh hook so the dashboard prompt survives later bashrc prompt assignments' );
 like( $shell_bootstrap, qr/ps1 --jobs \\j --mode compact --no-indicators/, 'dashboard shell bash bootstrap suppresses prompt indicators when tmux owns the status line' );
 
 my $zsh_bootstrap = _run("$perl -I'$lib' '$dashboard' shell zsh");
@@ -1948,6 +2029,10 @@ if [ "\$1" = "has-session" ]; then
   fi
   exit 0
 fi
+if [ "\$1" = "show-options" ] && [ "\$3" = "status-format[0]" ]; then
+  printf '%s\n' '#[default]DEFAULT-ROW'
+  exit 0
+fi
 exit 0
 SH
 close $fake_ticket_tmux_fh;
@@ -1959,6 +2044,14 @@ my $fake_ticket_log_text = do { local $/; <$fake_ticket_log_fh> };
 close $fake_ticket_log_fh;
 like( $fake_ticket_log_text, qr/^has-session -t DD-NEW$/m, 'dashboard ticket checks whether the requested tmux session already exists' );
 like( $fake_ticket_log_text, qr/^new-session -d .* -s DD-NEW -n Code1$/m, 'dashboard ticket creates a new tmux session when the ticket session is missing' );
+like( $fake_ticket_log_text, qr/^show-options -gqv \@dd_ticket_status_default$/m, 'dashboard ticket checks whether tmux already recorded the default bottom-row status' );
+like( $fake_ticket_log_text, qr/^show-options -gqv status-format\[0\]$/m, 'dashboard ticket snapshots the current global tmux bottom-row status before replacing it with the indicator row' );
+like( $fake_ticket_log_text, qr/^set-option -gq status-position bottom$/m, 'dashboard ticket keeps the tmux status block anchored at the bottom' );
+like( $fake_ticket_log_text, qr/^set-option -gq status 2$/m, 'dashboard ticket enables a two-line tmux status block for dashboard-managed ticket sessions' );
+like( $fake_ticket_log_text, qr/^set-option -gq status-interval 2$/m, 'dashboard ticket refreshes the tmux status block automatically for dashboard-managed ticket sessions' );
+like( $fake_ticket_log_text, qr/^set-option -gq status-format\[0\] #\('.*dashboard' ps1 --mode tmux-status-top --width #\{client_width\}\)$/m, 'dashboard ticket configures the first tmux status row to render dashboard indicators through the explicit dashboard entrypoint path' );
+like( $fake_ticket_log_text, qr/^set-option -gq status-format\[1\] /m, 'dashboard ticket restores the normal tmux bottom-row status beneath the indicator strip' );
+like( $fake_ticket_log_text, qr/^set-option -guq status-format\[2\]$/m, 'dashboard ticket clears any stale third tmux status row after configuring the ticket status block' );
 like( $fake_ticket_log_text, qr/^attach-session -t DD-NEW$/m, 'dashboard ticket attaches to the requested tmux session' );
 like( $fake_ticket_log_text, qr/TICKET_REF=DD-NEW/, 'dashboard ticket seeds TICKET_REF into new tmux sessions' );
 like( $fake_ticket_log_text, qr/DEVELOPER_DASHBOARD_TMUX_STATUS=1/, 'dashboard ticket seeds the tmux-status session flag into new tmux sessions so only dashboard-managed ticket sessions move indicators into the tmux status line' );
@@ -1971,6 +2064,7 @@ my $runtime_ticket_log_text = do { local $/; <$runtime_ticket_log_fh> };
 close $runtime_ticket_log_fh;
 like( $runtime_ticket_log_text, qr/^has-session -t DD-EXISTING$/m, 'private runtime ticket helper checks the requested session' );
 unlike( $runtime_ticket_log_text, qr/^new-session /m, 'private runtime ticket helper skips session creation when tmux reports it already exists' );
+like( $runtime_ticket_log_text, qr/^set-option -gq status-format\[0\] #\('.*dashboard' ps1 --mode tmux-status-top --width #\{client_width\}\)$/m, 'private runtime ticket helper also reapplies the indicator tmux status row for existing ticket sessions' );
 like( $runtime_ticket_log_text, qr/^attach-session -t DD-EXISTING$/m, 'private runtime ticket helper attaches to existing sessions' );
 
 my $json_value = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta});
@@ -2896,8 +2990,13 @@ sub _write_zip_entries {
 sub _run {
     my ($cmd) = @_;
     my $child_perl5opt = join ' ', grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
-    my $runtime_command = defined $dashboard
-      && $cmd =~ /\Q'$dashboard'\E\s+(?:serve|restart|stop)\b/;
+    my $runtime_command = (
+        defined $dashboard
+          && $cmd =~ /\Q'$dashboard'\E\s+(?:serve|restart|stop)\b/
+    ) || (
+        defined $runtime_dd_cli_root
+          && $cmd =~ /\Q'$runtime_dd_cli_root\E\/(?:_dashboard-core|doctor|serve|restart|stop)\b/
+    );
     my ( $stdout, $stderr, $exit_code ) = capture {
         if ($runtime_command) {
             local $ENV{PERL5OPT};

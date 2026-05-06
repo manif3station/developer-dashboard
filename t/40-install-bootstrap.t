@@ -31,6 +31,10 @@ ok( -f $apkfile, 'apkfile exists at the repo root' );
 ok( -f $dnfile, 'dnfile exists at the repo root' );
 ok( -f $brewfile, 'brewfile exists at the repo root' );
 like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/VERSION_FROM\s*=>\s*'lib\/Developer\/Dashboard\.pm'/, 'Makefile.PL uses a filesystem path for VERSION_FROM so checkout installs work on Windows' );
+like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/use\s+File::ShareDir::Install\s+qw\(install_share\);/, 'Makefile.PL loads File::ShareDir::Install so packaged installs can refresh shipped helper assets under auto/share/dist' );
+like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/install_share\s+dist\s*=>\s*'share';/, 'Makefile.PL explicitly installs the repo share tree so packaged helper assets stay in sync with the tarball' );
+like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/package\s+MY;\s*use\s+File::ShareDir::Install\s+qw\(postamble\);/s, 'Makefile.PL exports the File::ShareDir::Install postamble into package MY so share assets actually install' );
+like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/File::ShareDir::Install::postamble\(\s*\$self\s*\)/, 'Makefile.PL chains the share-dir installer postamble before its checkout bootstrap hook' );
 like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/install\s+::\s*\n\t\$\(NOECHO\)\s+\$\(PERL\)\s+-e\s+"1;"/, 'Makefile.PL gives the Windows gmake install target an explicit no-op recipe so it does not synthesize install from install.sh' );
 like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/pure_install\s+::\s+install-private-cli-tools/, 'Makefile.PL runs the private helper staging hook from pure_install instead of a recipe-less install target' );
 {
@@ -313,6 +317,13 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
         { key => 'DD_INSTALL_CPAN_TARGET', value => $target },
       );
 
+    my $existing_bashrc = File::Spec->catfile( $home, '.bashrc' );
+    open my $existing_bashrc_fh, '>', $existing_bashrc or die "Unable to seed $existing_bashrc: $!";
+    print {$existing_bashrc_fh} <<'BASHRC';
+[ -z "$PS1" ] && return
+BASHRC
+    close $existing_bashrc_fh or die "Unable to close $existing_bashrc: $!";
+
     my ( $stdout, $stderr, $exit ) = capture {
         system( 'sh', '-c', "$env_prefix '$install_sh'" );
     };
@@ -373,6 +384,11 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
         $bashrc_text,
         qr/eval "\$\(\"[^\"]*\/dashboard" shell bash\)"/,
         'install.sh appends the Developer Dashboard bash shell bootstrap to ~/.bashrc',
+    );
+    ok(
+        $bashrc_text =~ qr/\Q$local_lib_line\E\n.*eval "\$\(\"[^\"]*\/dashboard" shell bash\)".*\ncase \$- in/s
+          || $bashrc_text =~ qr/\Q$local_lib_line\E\n.*eval "\$\(\"[^\"]*\/dashboard" shell bash\)".*\n\[ -z "\$PS1" \] && return/s,
+        'install.sh keeps dashboard-managed bash bootstrap lines ahead of the non-interactive return guard in ~/.bashrc',
     );
     like(
         $profile_text,

@@ -3,12 +3,15 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '3.45';
+our $VERSION = '3.58';
 
+use Cwd qw(abs_path);
 use File::Basename qw(dirname);
 use File::Spec;
 use File::ShareDir qw(dist_dir);
 use Developer::Dashboard::SeedSync ();
+
+our $MODULE_SOURCE_PATH;
 
 # helper_names()
 # Returns the built-in private helper command names that dashboard manages.
@@ -240,12 +243,17 @@ BLOCK
         $content =~ s/my \$command = '[^']+';\nmy \$core = File::Spec->catfile\( \$Bin, '_dashboard-core' \);\nmy \@command = \( \$\^X, \$core, \$command, \@ARGV \);\nif \(is_windows\(\)\) \{\n    system \@command;\n    my \$status = \$\?;\n    my \$exit_code = \$status > 255 \? \$status >> 8 : \$status;\n    exit \$exit_code;\n\}\nexec \{ \$\^X \} \@command;\ndie "Unable to exec \$core for \$command: \$!";/$managed_block/s;
     }
     my $marker  = _managed_helper_marker($name) . "\n";
-    return $content if $content =~ /\Q$marker\E/;
-    if ( $content =~ /\A(#![^\n]*\n)/ ) {
-        substr( $content, length($1), 0, $marker );
+    my $version_marker = _managed_helper_version_marker() . "\n";
+    if ( $content =~ /\Q$marker\E/ ) {
+        return $content if $content =~ /\Q$version_marker\E/;
+        $content =~ s/\Q$marker\E/$marker$version_marker/;
         return $content;
     }
-    return $marker . $content;
+    if ( $content =~ /\A(#![^\n]*\n)/ ) {
+        substr( $content, length($1), 0, $marker . $version_marker );
+        return $content;
+    }
+    return $marker . $version_marker . $content;
 }
 
 # _managed_helper_marker($name)
@@ -256,6 +264,15 @@ BLOCK
 sub _managed_helper_marker {
     my ($name) = @_;
     return "# developer-dashboard-managed-helper: $name";
+}
+
+# _managed_helper_version_marker()
+# Returns the stable marker string used to stamp managed helper bodies with the
+# dashboard build version that generated them.
+# Input: none.
+# Output: marker comment string.
+sub _managed_helper_version_marker {
+    return "# developer-dashboard-managed-helper-version: $VERSION";
 }
 
 # _helper_uses_dashboard_core($name)
@@ -332,6 +349,13 @@ sub _helper_asset_path {
     my ($name) = @_;
     my $repo_path = File::Spec->catfile( _repo_private_cli_root(), $name );
     return $repo_path if -f $repo_path;
+    if ( _module_source_looks_like_blib_build() ) {
+        for my $root ( _repo_private_cli_root_candidates() ) {
+            next if !defined $root || $root eq '';
+            my $candidate = File::Spec->catfile( $root, $name );
+            return $candidate if -f $candidate;
+        }
+    }
     my @roots = _shared_private_cli_root_candidates();
     for my $root (@roots) {
         next if !defined $root || $root eq '';
@@ -346,14 +370,70 @@ sub _helper_asset_path {
 # Input: none.
 # Output: absolute private helper asset directory path string.
 sub _repo_private_cli_root {
-    return File::Spec->catdir(
-        dirname(__FILE__),
-        File::Spec->updir,
-        File::Spec->updir,
-        File::Spec->updir,
-        'share',
-        'private-cli',
-    );
+    my @candidates = _repo_private_cli_root_candidates();
+    for my $candidate (@candidates) {
+        return $candidate if _private_cli_root_has_dashboard_core($candidate);
+    }
+    return $candidates[0];
+}
+
+# _repo_private_cli_root_candidates()
+# Builds the ordered candidate list for repo-tree private helper asset roots
+# derived from the loaded module source path.
+# Input: none.
+# Output: list of absolute candidate directory paths.
+sub _repo_private_cli_root_candidates {
+    my @candidates;
+    my $module_source = _module_source_path();
+    my $module_dir = dirname( File::Spec->rel2abs($module_source) );
+    for my $levels_up ( 3 .. 6 ) {
+        push @candidates, _abs_existing_path(
+            File::Spec->rel2abs(
+                File::Spec->catdir(
+                    $module_dir,
+                    ( File::Spec->updir ) x $levels_up,
+                    'share',
+                    'private-cli',
+                )
+            )
+        );
+    }
+    my %seen;
+    return grep { defined $_ && $_ ne '' && !$seen{$_}++ } @candidates;
+}
+
+# _module_source_path()
+# Resolves the source path for the loaded InternalCLI module from %INC when
+# available, otherwise falls back to __FILE__.
+# Input: none.
+# Output: absolute or relative module source file path string.
+sub _module_source_path {
+    $MODULE_SOURCE_PATH ||= File::Spec->rel2abs(__FILE__);
+    return $MODULE_SOURCE_PATH;
+}
+
+# _module_source_looks_like_blib_build()
+# Detects whether the loaded InternalCLI module currently comes from a blib/lib
+# build tree where helper assets still live under the unpacked dist share tree.
+# Input: none.
+# Output: boolean true when the module source path contains a blib/lib segment.
+sub _module_source_looks_like_blib_build {
+    my $module_source = _module_source_path();
+    return 0 if !defined $module_source || $module_source eq '';
+    return $module_source =~ m{(?:^|[\\/])blib[\\/]lib(?:[\\/]|$)} ? 1 : 0;
+}
+
+# _abs_existing_path($path)
+# Canonicalizes one existing filesystem path when possible without warning on
+# missing candidates.
+# Input: absolute or relative path string.
+# Output: canonical absolute path string when the path exists, otherwise the
+# original path string.
+sub _abs_existing_path {
+    my ($path) = @_;
+    return '' if !defined $path || $path eq '';
+    return $path if !-e $path;
+    return abs_path($path) || $path;
 }
 
 # _shared_private_cli_root()
@@ -383,6 +463,13 @@ sub _shared_private_cli_root_candidates {
 
     my $module_root = _module_install_lib_root();
     if ( defined $module_root && $module_root ne '' ) {
+        push @candidates, File::Spec->catdir(
+            $module_root,
+            'auto',
+            'Developer',
+            'Dashboard',
+            'private-cli',
+        );
         push @candidates, File::Spec->catdir(
             $module_root,
             'auto',

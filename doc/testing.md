@@ -80,6 +80,10 @@ reads the built `Developer-Dashboard-X.XX.tar.gz` through
 `Module::CPANTS::Analyse` and fails unless every kwalitee indicator passes.
 Use that tarball-focused check for CPANTS drift; the source tree itself is not
 the right surface for this analyzer.
+The post-build `t/44-smart-router-two-stage.t` Docker guard now retries one
+transient `cpanm` fetch or unpack failure inside its container, so a single
+corrupt upstream CPAN download does not fail the repository gate as if it were
+deterministic project breakage.
 The JavaScript fast-check wrapper is a source-tree fuzz gate. It runs when
 `node`, `npm`, `package.json`, and `package-lock.json` are all available, and
 it skips in packaged install-test trees that do not ship those checkout-only

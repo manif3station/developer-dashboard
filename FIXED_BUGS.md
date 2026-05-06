@@ -1,5 +1,49 @@
 # Fixed Bugs
 
+## 3.58 - Fix installed shell-bootstrap drift, packaged helper discovery, and flaky post-build smart-router packaging checks
+
+- Fixed dashboard-managed helper staging so each helper body now carries an
+  explicit `developer-dashboard-managed-helper-version` marker. That makes it
+  possible to distinguish a genuinely current installed helper from an older
+  helper body that happens to share the same module version number, which is
+  exactly the failure mode that hid the missing tmux ticket bootstrap on
+  `hp.local`.
+- Fixed Debian-family bash installs so dashboard-managed shell bootstrap lines
+  are now written above the standard non-interactive `return` guards in
+  `~/.bashrc`, including Ubuntu's single-line `[ -z "$PS1" ] && return`
+  form. That keeps non-interactive shells such as tmux `#()` status commands
+  able to resolve `dashboard`, which restores `dashboard ticket` indicator
+  rendering on installed hosts such as `hp.local` instead of making the
+  feature work only in fully interactive shells.
+- Fixed `dashboard doctor` so it now audits that misplaced `~/.bashrc`
+  bootstrap shape and repairs it with `dashboard doctor --fix` alongside the
+  existing staged-helper drift repair path. This gives already-installed hosts
+  a first-party self-heal path instead of forcing operators to reinstall or
+  hand-edit their shell startup files.
+- Fixed Windows `.cmd` and `.bat` launcher resolution so cross-platform hosts
+  such as Linux, WSL, and packaged-install test environments normalize an
+  extensionless local `cmd` helper in `PATH` back to `cmd.exe` instead of
+  misclassifying it as a custom command processor. This keeps the expected
+  Windows command-dispatch contract stable when tarball installs run on
+  non-Windows packaging hosts that happen to expose a generic `cmd` shim.
+- Fixed `dashboard doctor` so it now audits staged helper drift under
+  `~/.developer-dashboard/cli/dd/`, reports stale or missing
+  dashboard-managed helpers such as `_dashboard-core`, and can restage them
+  with `dashboard doctor --fix` when the installed helper assets are current.
+  This gives operators a first-party way to spot runtime helper skew instead
+  of reverse-engineering mismatched `dashboard shell` and `dashboard ps1`
+  behavior by hand.
+- Fixed packaged helper asset discovery so tarball, PAUSE, and `cpanm`
+  install-test trees now resolve `share/private-cli` from a stable absolute
+  module source path captured at load time. Later `chdir` calls in
+  long-running test or install processes no longer make the staged helper
+  runtime look for `_dashboard-core` under the wrong working directory.
+- Fixed the post-build smart-router two-stage Docker guard so one transient
+  upstream `cpanm` fetch or unpack failure is retried once before the
+  packaging gate is treated as a deterministic repository regression. This
+  keeps a corrupt CPAN download from masquerading as a smart-router breakage
+  in the built tarball.
+
 ## 3.45 - Fix stale Unix bootstrap target selection and missing tmux package installs
 
 - Fixed Unix-like `install.sh` so blank streamed installs such as

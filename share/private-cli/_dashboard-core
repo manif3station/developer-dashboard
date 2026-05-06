@@ -1483,17 +1483,27 @@ _dd_apply_tmux_ticket_status() {
   fi
   tmux set-option -uq status-format[2] >/dev/null 2>&1
 }
-
-if [ -n "$TMUX" ]; then
-  if _dd_tmux_status_active; then
+_dd_update_prompt() {
+  if [ -n "$TMUX" ] && _dd_tmux_status_active; then
     _dd_apply_tmux_ticket_status
-    export PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact --no-indicators)'
+    PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact --no-indicators)'
   else
-    export PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact)'
+    PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact)'
   fi
-else
-  export PS1='$(__DASHBOARD_CMD__ ps1 --jobs \j --mode compact)'
-fi
+  export PS1
+}
+case ";${PROMPT_COMMAND:-};" in
+  *";_dd_update_prompt;"*) ;;
+  *)
+    if [ -n "${PROMPT_COMMAND:-}" ]; then
+      PROMPT_COMMAND="_dd_update_prompt;${PROMPT_COMMAND}"
+    else
+      PROMPT_COMMAND="_dd_update_prompt"
+    fi
+    export PROMPT_COMMAND
+    ;;
+esac
+_dd_update_prompt
 BASH
     }
     if ( $shell eq 'zsh' ) {

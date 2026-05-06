@@ -582,6 +582,11 @@ for my $wrapper_helper (qw(encode decode indicator collector config auth init cp
     my $managed_content = Developer::Dashboard::InternalCLI::_managed_helper_content($wrapper_helper);
     like(
         $managed_content,
+        qr/^# developer-dashboard-managed-helper-version: \Q$Developer::Dashboard::InternalCLI::VERSION\E$/m,
+        "_managed_helper_content stamps the $wrapper_helper wrapper with the current helper-version marker",
+    );
+    like(
+        $managed_content,
         qr/my \$command = '\Q$wrapper_helper\E';/,
         "_managed_helper_content stages the $wrapper_helper wrapper with an explicit built-in command name",
     );
@@ -681,8 +686,8 @@ ok(
     };
     is(
         Developer::Dashboard::InternalCLI::_managed_helper_content('jq'),
-        "#!/usr/bin/env perl\n# developer-dashboard-managed-helper: jq\nprint qq(managed\\n);\n",
-        '_managed_helper_content leaves already-marked helper bodies unchanged',
+        "#!/usr/bin/env perl\n# developer-dashboard-managed-helper: jq\n# developer-dashboard-managed-helper-version: $Developer::Dashboard::InternalCLI::VERSION\nprint qq(managed\\n);\n",
+        '_managed_helper_content injects the current helper-version marker into already-managed helper bodies when it is missing',
     );
 }
 {
@@ -691,8 +696,8 @@ ok(
     };
     is(
         Developer::Dashboard::InternalCLI::_managed_helper_content('jq'),
-        "# developer-dashboard-managed-helper: jq\nprint qq(no-shebang\\n);\n",
-        '_managed_helper_content prepends the ownership marker when helper content has no shebang',
+        "# developer-dashboard-managed-helper: jq\n# developer-dashboard-managed-helper-version: $Developer::Dashboard::InternalCLI::VERSION\nprint qq(no-shebang\\n);\n",
+        '_managed_helper_content prepends the ownership and helper-version markers when helper content has no shebang',
     );
 }
 {
@@ -1389,6 +1394,11 @@ like(
     qr/Please specify a ticket name/,
     'resolve_ticket_request rejects empty ticket requests',
 );
+like(
+    _dies( sub { Developer::Dashboard::CLI::Ticket::resolve_ticket_request( args => 'DD-123' ) } ),
+    qr/Ticket args must be an array reference/,
+    'resolve_ticket_request rejects non-array argv containers',
+);
 is_deeply(
     Developer::Dashboard::CLI::Ticket::ticket_environment('DD-123'),
     {
@@ -1438,7 +1448,7 @@ is_deeply(
             tmux => sub {
                 return {
                     exit_code => 0,
-                    stdout    => "DD-100\nDD-200\n",
+                    stdout    => "DD-100\n\nDD-200\n",
                     stderr    => '',
                 };
             },
@@ -1491,6 +1501,15 @@ my $existing_ticket_plan = Developer::Dashboard::CLI::Ticket::build_ticket_plan(
     tmux => sub { return { exit_code => 0, stdout => '', stderr => '' } },
 );
 ok( !$existing_ticket_plan->{create}, 'build_ticket_plan skips creation for existing sessions' );
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::CLI::Ticket::cwd = sub { return '/tmp/default-ticket-cwd' };
+    my $default_cwd_plan = Developer::Dashboard::CLI::Ticket::build_ticket_plan(
+        args => ['DD-456'],
+        tmux => sub { return { exit_code => 1, stdout => '', stderr => '' } },
+    );
+    is( $default_cwd_plan->{cwd}, '/tmp/default-ticket-cwd', 'build_ticket_plan falls back to cwd when no explicit cwd is provided' );
+}
 
 {
     my @tmux_calls;
@@ -1508,7 +1527,7 @@ ok( !$existing_ticket_plan->{create}, 'build_ticket_plan skips creation for exis
     );
     is( $result->{session}, 'DD-789', 'run_ticket_command returns the executed plan' );
     is_deeply( $tmux_calls[1][0], 'new-session', 'run_ticket_command creates a missing tmux session before attaching' );
-    is_deeply( $tmux_calls[2], [ 'attach-session', '-t', 'DD-789' ], 'run_ticket_command attaches to the requested tmux session' );
+    is_deeply( $tmux_calls[-1], [ 'attach-session', '-t', 'DD-789' ], 'run_ticket_command attaches to the requested tmux session after configuring tmux status' );
 }
 {
     my @tmux_calls;
@@ -1521,7 +1540,9 @@ ok( !$existing_ticket_plan->{create}, 'build_ticket_plan skips creation for exis
             return { exit_code => 0, stdout => '', stderr => '' };
         },
     );
-    is( scalar(@tmux_calls), 2, 'run_ticket_command only checks and attaches when the session already exists' );
+    is( $tmux_calls[0][0], 'has-session', 'run_ticket_command still checks whether the session exists first' );
+    is_deeply( $tmux_calls[-1], [ 'attach-session', '-t', 'DD-790' ], 'run_ticket_command still finishes by attaching to an existing session' );
+    ok( scalar(@tmux_calls) > 2, 'run_ticket_command also refreshes tmux status before attaching to an existing session' );
 }
 like(
     _dies(
@@ -1555,8 +1576,139 @@ like(
             );
         }
     ),
-    qr/Unable to attach tmux ticket session 'DD-792': denied\nattach\n/,
-    'run_ticket_command surfaces tmux attach failures',
+    qr/Unable to configure tmux ticket status for 'DD-792': denied\nattach\n/,
+    'run_ticket_command surfaces tmux status configuration failures before attach',
+);
+like(
+    _dies(
+        sub {
+            Developer::Dashboard::CLI::Ticket::run_ticket_command(
+                args => ['DD-793'],
+                cwd  => '/tmp/work-here',
+                tmux => sub {
+                    my (%call) = @_;
+                    return { exit_code => 0, stdout => '', stderr => '' } if $call{args}[0] eq 'has-session';
+                    return { exit_code => 0, stdout => '', stderr => '' } if $call{args}[0] eq 'show-options';
+                    return { exit_code => 0, stdout => '', stderr => '' } if $call{args}[0] eq 'set-option' || $call{args}[0] eq 'set-option';
+                    return { exit_code => 4, stdout => "attach-out\n", stderr => "attach-err\n" } if $call{args}[0] eq 'attach-session';
+                    return { exit_code => 0, stdout => '', stderr => '' };
+                },
+            );
+        }
+    ),
+    qr/Unable to attach tmux ticket session 'DD-793': attach-err\nattach-out\n/,
+    'run_ticket_command surfaces tmux attach failures after status setup succeeds',
+);
+{
+    my @tmux_calls;
+    local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = '/tmp/fake-dashboard';
+    is(
+        Developer::Dashboard::CLI::Ticket::apply_ticket_status(
+            session => 'DD-794',
+            tmux    => sub {
+                my (%call) = @_;
+                push @tmux_calls, [ @{ $call{args} } ];
+                return { exit_code => 0, stdout => '', stderr => '' } if $call{args}[0] eq 'show-options';
+                return { exit_code => 0, stdout => '', stderr => '' };
+            },
+        ),
+        1,
+        'apply_ticket_status succeeds when it resolves the dashboard entrypoint from the environment',
+    );
+    like(
+        join( "\n", map { join ' ', @{$_} } @tmux_calls ),
+        qr{/tmp/fake-dashboard' ps1 --mode tmux-status-top --width \#\{client_width\}},
+        'apply_ticket_status uses the environment-provided dashboard entrypoint in the tmux status command',
+    );
+}
+{
+    my @tmux_calls;
+    no warnings 'redefine';
+    local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = '';
+    local *Developer::Dashboard::CLI::Ticket::command_in_path = sub { return '/tmp/bin/dashboard'; };
+    is(
+        Developer::Dashboard::CLI::Ticket::apply_ticket_status(
+            session => 'DD-795',
+            tmux    => sub {
+                my (%call) = @_;
+                push @tmux_calls, [ @{ $call{args} } ];
+                return { exit_code => 0, stdout => '', stderr => '' } if $call{args}[0] eq 'show-options';
+                return { exit_code => 0, stdout => '', stderr => '' };
+            },
+        ),
+        1,
+        'apply_ticket_status succeeds when it resolves the dashboard entrypoint from PATH',
+    );
+    like(
+        join( "\n", map { join ' ', @{$_} } @tmux_calls ),
+        qr{/tmp/bin/dashboard' ps1 --mode tmux-status-top --width \#\{client_width\}},
+        'apply_ticket_status uses the PATH-resolved dashboard entrypoint in the tmux status command',
+    );
+}
+{
+    my @tmux_calls;
+    no warnings 'redefine';
+    local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = '';
+    local *Developer::Dashboard::CLI::Ticket::command_in_path = sub { return undef; };
+    is(
+        Developer::Dashboard::CLI::Ticket::apply_ticket_status(
+            session => 'DD-795A',
+            tmux    => sub {
+                my (%call) = @_;
+                push @tmux_calls, [ @{ $call{args} } ];
+                return { exit_code => 0, stdout => '', stderr => '' } if $call{args}[0] eq 'show-options';
+                return { exit_code => 0, stdout => '', stderr => '' };
+            },
+        ),
+        1,
+        'apply_ticket_status falls back to the literal dashboard command name when no explicit entrypoint can be resolved',
+    );
+    like(
+        join( "\n", map { join ' ', @{$_} } @tmux_calls ),
+        qr/\#\('dashboard' ps1 --mode tmux-status-top --width \#\{client_width\}\)/,
+        'apply_ticket_status uses the literal dashboard command fallback in the tmux status command',
+    );
+}
+{
+    my @tmux_calls;
+    is(
+        Developer::Dashboard::CLI::Ticket::apply_ticket_status(
+            session => 'DD-796',
+            dashboard => '/tmp/custom-dashboard',
+            tmux    => sub {
+                my (%call) = @_;
+                push @tmux_calls, [ @{ $call{args} } ];
+                return { exit_code => 0, stdout => '', stderr => '' } if $call{args}[0] eq 'show-options' && $call{args}[2] eq '@dd_ticket_status_default';
+                return { exit_code => 0, stdout => "#[default-status]\n", stderr => '' } if $call{args}[0] eq 'show-options' && $call{args}[2] eq 'status-format[0]';
+                return { exit_code => 0, stdout => '', stderr => '' };
+            },
+        ),
+        1,
+        'apply_ticket_status records the tmux default status row when it is missing',
+    );
+    ok(
+        ( scalar grep { $_->[0] eq 'set-option' && $_->[2] eq '@dd_ticket_status_default' && $_->[3] eq '#[default-status]' } @tmux_calls ),
+        'apply_ticket_status saves the discovered default tmux status row before overriding it',
+    );
+}
+like(
+    _dies(
+        sub {
+            Developer::Dashboard::CLI::Ticket::apply_ticket_status(
+                session   => 'DD-797',
+                dashboard => '/tmp/custom-dashboard',
+                tmux      => sub {
+                    my (%call) = @_;
+                    return { exit_code => 0, stdout => '', stderr => '' } if $call{args}[0] eq 'show-options' && $call{args}[2] eq '@dd_ticket_status_default';
+                    return { exit_code => 0, stdout => "#[default-status]\n", stderr => '' } if $call{args}[0] eq 'show-options' && $call{args}[2] eq 'status-format[0]';
+                    return { exit_code => 7, stdout => "save-out\n", stderr => "save-err\n" } if $call{args}[0] eq 'set-option' && $call{args}[2] eq '@dd_ticket_status_default';
+                    return { exit_code => 0, stdout => '', stderr => '' };
+                },
+            );
+        }
+    ),
+    qr/Unable to record tmux ticket default status for 'DD-797': save-err\nsave-out\n/,
+    'apply_ticket_status surfaces failures while recording the default tmux status row',
 );
 
 {
@@ -1586,6 +1738,11 @@ SH
     like( do { local $/; <$tmux_log_fh> }, qr/attach-session -t DD-800/, 'tmux_command runs tmux with the requested argv' );
     close $tmux_log_fh;
 }
+like(
+    _dies( sub { Developer::Dashboard::CLI::Ticket::tmux_command( args => 'attach-session -t DD-800' ) } ),
+    qr/tmux args must be an array reference/,
+    'tmux_command rejects non-array tmux argv payloads',
+);
 
 is_deeply(
     [ Developer::Dashboard::CLI::Query::_split_query_args() ],

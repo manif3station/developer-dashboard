@@ -3,7 +3,7 @@ package Developer::Dashboard::Platform;
 use strict;
 use warnings;
 
-our $VERSION = '3.45';
+our $VERSION = '3.58';
 
 use Exporter 'import';
 use File::Basename qw(basename dirname);
@@ -265,10 +265,13 @@ sub _powershell_binary {
 # _cmd_binary()
 # Resolves the Windows command processor used for .cmd and .bat scripts.
 # Input: none.
-# Output: executable path or command name string.
+# Output: executable path or command name string, normalized back to cmd.exe
+# when PATH or ComSpec resolves through a generic cmd shim instead of the
+# canonical Windows command processor name.
 sub _cmd_binary {
     my $candidate = $ENV{ComSpec} || command_in_path('cmd') || 'cmd.exe';
-    return 'cmd.exe' if lc( basename($candidate) ) eq 'cmd.exe';
+    my $base = lc( basename($candidate) );
+    return 'cmd.exe' if $base eq 'cmd.exe' || $base eq 'cmd';
     return $candidate;
 }
 

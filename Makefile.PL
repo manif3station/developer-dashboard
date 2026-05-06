@@ -2,7 +2,10 @@ use strict;
 use warnings;
 
 use ExtUtils::MakeMaker;
+use File::ShareDir::Install qw(install_share);
 use File::Spec;
+
+install_share dist => 'share';
 
 WriteMakefile(
     NAME         => 'Developer::Dashboard',
@@ -46,6 +49,10 @@ WriteMakefile(
         'POSIX'                 => 0,
     },
     LICENSE      => 'perl',
+    CONFIGURE_REQUIRES => {
+        'ExtUtils::MakeMaker'    => 0,
+        'File::ShareDir::Install' => 0,
+    },
     META_MERGE   => {
         resources => {
             homepage   => 'https://github.mf/manif3station/developer-dashboard',
@@ -61,9 +68,20 @@ WriteMakefile(
     },
 );
 
-# Post-install hook: extract private CLI tools to ~/.developer-dashboard/cli/
-sub MY::postamble {
-    return <<'END_POSTAMBLE';
+package MY;
+
+use File::ShareDir::Install qw(postamble);
+
+# postamble()
+# Appends the File::ShareDir::Install postamble so packaged installs refresh
+# dist share assets, then adds the home-runtime helper bootstrap hook used by
+# checkout and local installs.
+# Input: ExtUtils::MakeMaker MY package object.
+# Output: full make postamble text string.
+sub postamble {
+    my $self = shift;
+    my $share_postamble = File::ShareDir::Install::postamble($self);
+    return $share_postamble . <<'END_POSTAMBLE';
 .PHONY: install pure_install install-private-cli-tools
 install ::
 	$(NOECHO) $(PERL) -e "1;"

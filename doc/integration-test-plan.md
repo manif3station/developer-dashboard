@@ -107,7 +107,7 @@ The integration run creates:
 ## Execution Flow
 
 1. Build the distribution tarball on the host with `dzil build`.
-2. Run `prove -lv t/44-smart-router-two-stage.t` against that freshly built tarball so the extracted-dashboard smart-router contract is verified at the post-build stage.
+2. Run `prove -lv t/44-smart-router-two-stage.t` against that freshly built tarball so the extracted-dashboard smart-router contract is verified at the post-build stage. That guard retries one transient `cpanm` fetch or unpack failure inside its Docker container before treating the post-build install as a real repository regression.
 3. Start the blank container with only that host-built tarball mounted into it.
 4. Copy the mounted tarball to a versioned local path inside the container and
    install that staged tarball with `cpanm --notest`. The staged filename must keep the

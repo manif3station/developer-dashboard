@@ -64,7 +64,10 @@ _run_or_die(
 _run_or_die( 'docker', 'cp', $tarball, "$container:$container_tarball" );
 _run_or_die( 'docker', 'cp', $skill_repo, "$container:$skill_mount_path" );
 _run_or_die( 'docker', 'exec', $container, 'sh', '-lc', "chown -R root:root $skill_mount_path" );
-_run_or_die( 'docker', 'exec', $container, 'sh', '-lc', "cpanm --notest $container_tarball" );
+_run_or_die_with_retry(
+    2,
+    [ 'docker', 'exec', $container, 'sh', '-lc', "cpanm --notest $container_tarball" ],
+);
 _run_or_die( 'docker', 'exec', $container, 'sh', '-lc', 'dashboard init' );
 _run_or_die( 'docker', 'exec', $container, 'sh', '-lc', 'cd /root && dashboard restart web' );
 
@@ -167,6 +170,40 @@ sub _run_or_die {
         die sprintf "Command failed (%s)\nSTDOUT:\n%sSTDERR:\n%s", join( ' ', @command ), $stdout, $stderr;
     }
     return $stdout;
+}
+
+sub _run_or_die_with_retry {
+    my ( $attempts, $command_ref ) = @_;
+    die "_run_or_die_with_retry requires an attempt count\n" if !defined $attempts;
+    die "_run_or_die_with_retry requires at least one attempt\n" if $attempts < 1;
+    die "_run_or_die_with_retry requires an arrayref command\n"
+      if ref $command_ref ne 'ARRAY' || !@{$command_ref};
+
+    my $last_error;
+    for my $attempt ( 1 .. $attempts ) {
+        my $ok = eval {
+            _run_or_die( @{$command_ref} );
+        };
+        return $ok if defined $ok;
+
+        $last_error = $@;
+        die $last_error if !$last_error || !_looks_like_transient_cpanm_fetch_failure($last_error);
+        die $last_error if $attempt >= $attempts;
+    }
+
+    die $last_error || "Command failed after retry attempts\n";
+}
+
+sub _looks_like_transient_cpanm_fetch_failure {
+    my ($error) = @_;
+    return 0 if !defined $error || $error eq q{};
+
+    return 1 if $error =~ /Failed to unpack .* no directory/sm;
+    return 1 if $error =~ /Failed to fetch distribution/sm;
+    return 1 if $error =~ /unexpected end of file/sm;
+    return 1 if $error =~ /Child returned status 1/sm;
+
+    return 0;
 }
 
 sub _container_http_get {

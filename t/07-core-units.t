@@ -25,6 +25,7 @@ use Developer::Dashboard::File;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::Housekeeper;
 use Developer::Dashboard::IndicatorStore;
+use Developer::Dashboard::InternalCLI;
 use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageStore;
 use Developer::Dashboard::PathRegistry;
@@ -343,6 +344,355 @@ is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'a
     is( _mode_octal($legacy_file), '0600', 'doctor --fix tightens legacy bookmark file permissions' );
     my $post_fix_report = $doctor->run;
     ok( $post_fix_report->{ok}, 'doctor reports success after fixes are applied' );
+
+    Developer::Dashboard::InternalCLI::ensure_helpers( paths => $secure_paths );
+    my $managed_core = File::Spec->catfile( $secure_paths->cli_root, 'dd', '_dashboard-core' );
+    my $expected_core = Developer::Dashboard::InternalCLI::_managed_helper_content('_dashboard-core');
+    like(
+        $expected_core,
+        qr/^# developer-dashboard-managed-helper-version: \Q$Developer::Dashboard::InternalCLI::VERSION\E$/m,
+        'doctor helper drift checks compare against helper bodies stamped with the current managed-helper version marker',
+    );
+    my $stale_core = $expected_core;
+    $stale_core .= "\n# stale helper drift\n";
+    open my $managed_core_fh, '>:raw', $managed_core or die "Unable to write $managed_core: $!";
+    print {$managed_core_fh} $stale_core;
+    close $managed_core_fh or die "Unable to close $managed_core: $!";
+
+    my $helper_report = $doctor->run;
+    ok( !$helper_report->{ok}, 'doctor flags stale managed helper content' );
+    ok(
+        grep(
+            {
+                $_->{path} eq $managed_core
+                  && $_->{kind} eq 'helper'
+                  && $_->{problem} eq 'stale managed helper content'
+            } @{ $helper_report->{issues} || [] }
+        ),
+        'doctor reports stale _dashboard-core helper drift explicitly',
+    );
+
+    my $helper_fixed = $doctor->run( fix => 1 );
+    ok( !$helper_fixed->{ok}, 'doctor --fix still reports helper drift repaired in the current run' );
+    ok(
+        grep(
+            {
+                $_->{path} eq $managed_core
+                  && $_->{kind} eq 'helper'
+                  && $_->{fixed}
+            } @{ $helper_fixed->{issues} || [] }
+        ),
+        'doctor marks stale managed helper drift as fixed after restaging',
+    );
+    open my $managed_core_verify_fh, '<:raw', $managed_core or die "Unable to read $managed_core: $!";
+    local $/;
+    my $managed_core_verify = <$managed_core_verify_fh>;
+    close $managed_core_verify_fh or die "Unable to close $managed_core: $!";
+    is( $managed_core_verify, $expected_core, 'doctor --fix restages the current _dashboard-core helper body' );
+    ok( $doctor->run->{ok}, 'doctor reports success after repairing stale helper drift' );
+
+    my $bashrc = File::Spec->catfile( $secure_home, '.bashrc' );
+    my $local_lib_line = qq{eval "\$("/usr/bin/perl" -I "$secure_home/perl5/lib/perl5" -Mlocal::lib)"};
+    my $dashboard_line = qq{eval "\$("$secure_home/perl5/bin/dashboard" shell bash)"};
+    open my $bashrc_fh, '>', $bashrc or die "Unable to write $bashrc: $!";
+    print {$bashrc_fh} <<"BASHRC";
+case \$- in
+    *i*) ;;
+      *) return;;
+esac
+$local_lib_line
+$dashboard_line
+BASHRC
+    close $bashrc_fh or die "Unable to close $bashrc: $!";
+
+    my $bashrc_report = $doctor->run;
+    ok( !$bashrc_report->{ok}, 'doctor flags dashboard-managed bash bootstrap hidden behind the non-interactive return guard' );
+    ok(
+        grep(
+            {
+                $_->{path} eq $bashrc
+                  && $_->{kind} eq 'shell-bootstrap'
+                  && $_->{problem} eq 'dashboard-managed bash bootstrap is hidden behind the non-interactive return guard'
+            } @{ $bashrc_report->{issues} || [] }
+        ),
+        'doctor reports misplaced bash bootstrap lines explicitly',
+    );
+
+    my $bashrc_fixed = $doctor->run( fix => 1 );
+    ok( !$bashrc_fixed->{ok}, 'doctor --fix reports the bash bootstrap issue it repaired in the current run' );
+    ok(
+        grep(
+            {
+                $_->{path} eq $bashrc
+                  && $_->{kind} eq 'shell-bootstrap'
+                  && $_->{fixed}
+            } @{ $bashrc_fixed->{issues} || [] }
+        ),
+        'doctor marks the misplaced bash bootstrap issue as fixed after repair',
+    );
+    open my $bashrc_read_fh, '<', $bashrc or die "Unable to read $bashrc: $!";
+    local $/;
+    my $bashrc_text = <$bashrc_read_fh>;
+    close $bashrc_read_fh or die "Unable to close $bashrc: $!";
+    like(
+        $bashrc_text,
+        qr/\Q$local_lib_line\E\n\Q$dashboard_line\E\ncase \$- in/s,
+        'doctor --fix moves dashboard-managed bash bootstrap lines ahead of the non-interactive return guard',
+    );
+    ok( $doctor->run->{ok}, 'doctor reports success after repairing the misplaced bash bootstrap lines' );
+
+    open my $bashrc_ps1_guard_fh, '>', $bashrc or die "Unable to rewrite $bashrc: $!";
+    print {$bashrc_ps1_guard_fh} <<"BASHRC";
+[ -z "\$PS1" ] && return
+$local_lib_line
+$dashboard_line
+BASHRC
+    close $bashrc_ps1_guard_fh or die "Unable to close $bashrc after rewriting: $!";
+
+    my $bashrc_ps1_report = $doctor->run;
+    ok( !$bashrc_ps1_report->{ok}, 'doctor also flags dashboard-managed bash bootstrap hidden behind the single-line PS1 return guard' );
+
+    my $bashrc_ps1_fixed = $doctor->run( fix => 1 );
+    ok( !$bashrc_ps1_fixed->{ok}, 'doctor --fix reports the single-line PS1 guard issue it repaired in the current run' );
+    open my $bashrc_ps1_read_fh, '<', $bashrc or die "Unable to read $bashrc after PS1-guard repair: $!";
+    local $/;
+    my $bashrc_ps1_text = <$bashrc_ps1_read_fh>;
+    close $bashrc_ps1_read_fh or die "Unable to close $bashrc after PS1-guard repair: $!";
+    like(
+        $bashrc_ps1_text,
+        qr/\Q$local_lib_line\E\n\Q$dashboard_line\E\n\[ -z "\$PS1" \] && return/s,
+        'doctor --fix moves dashboard-managed bash bootstrap lines ahead of the single-line PS1 return guard',
+    );
+    ok( $doctor->run->{ok}, 'doctor reports success after repairing the single-line PS1 guard form too' );
+
+    my $fake_module_root = tempdir( CLEANUP => 1 );
+    my $fake_private_cli = File::Spec->catdir( $fake_module_root, 'auto', 'Developer', 'Dashboard', 'private-cli' );
+    make_path($fake_private_cli);
+    my $fake_core = File::Spec->catfile( $fake_private_cli, '_dashboard-core' );
+    open my $fake_core_fh, '>:raw', $fake_core or die "Unable to write $fake_core: $!";
+    print {$fake_core_fh} "#!/usr/bin/env perl\n# fake packaged helper\n";
+    close $fake_core_fh or die "Unable to close $fake_core: $!";
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { File::Spec->catdir( $fake_module_root, 'missing-repo' ) };
+        local *Developer::Dashboard::InternalCLI::dist_dir = sub { die "no dist root" };
+        local *Developer::Dashboard::InternalCLI::_module_install_lib_root = sub { $fake_module_root };
+        is(
+            Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core'),
+            $fake_core,
+            '_helper_asset_path finds packaged helper assets under the build-tree auto/Developer/Dashboard/private-cli root',
+        );
+    }
+
+    my $fake_build_root = tempdir( CLEANUP => 1 );
+    my $fake_blib_module_dir = File::Spec->catdir( $fake_build_root, 'blib', 'lib', 'Developer', 'Dashboard' );
+    my $fake_share_private_cli = File::Spec->catdir( $fake_build_root, 'share', 'private-cli' );
+    make_path($fake_blib_module_dir);
+    make_path($fake_share_private_cli);
+    my $fake_build_core = File::Spec->catfile( $fake_share_private_cli, '_dashboard-core' );
+    open my $fake_build_core_fh, '>:raw', $fake_build_core or die "Unable to write $fake_build_core: $!";
+    print {$fake_build_core_fh} "#!/usr/bin/env perl\n# fake blib helper\n";
+    close $fake_build_core_fh or die "Unable to close $fake_build_core: $!";
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::InternalCLI::dirname = sub { $fake_blib_module_dir };
+        is(
+            Developer::Dashboard::InternalCLI::_repo_private_cli_root(),
+            $fake_share_private_cli,
+            '_repo_private_cli_root walks above blib/lib to the checkout share/private-cli tree during packaged build tests',
+        );
+    }
+
+    my $fake_cpanm_build_root = tempdir( CLEANUP => 1 );
+    my $fake_cpanm_module_path = File::Spec->catfile(
+        $fake_cpanm_build_root, 'blib', 'lib', 'Developer', 'Dashboard', 'InternalCLI.pm'
+    );
+    my $fake_cpanm_share_private_cli = File::Spec->catdir( $fake_cpanm_build_root, 'share', 'private-cli' );
+    make_path( File::Basename::dirname($fake_cpanm_module_path) );
+    make_path($fake_cpanm_share_private_cli);
+    my $fake_cpanm_core = File::Spec->catfile( $fake_cpanm_share_private_cli, '_dashboard-core' );
+    open my $fake_cpanm_core_fh, '>:raw', $fake_cpanm_core
+      or die "Unable to write $fake_cpanm_core: $!";
+    print {$fake_cpanm_core_fh} "#!/usr/bin/env perl\n# fake cpanm blib helper\n";
+    close $fake_cpanm_core_fh or die "Unable to close $fake_cpanm_core: $!";
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::InternalCLI::_module_source_path = sub { $fake_cpanm_module_path };
+        is(
+            Developer::Dashboard::InternalCLI::_repo_private_cli_root(),
+            $fake_cpanm_share_private_cli,
+            '_repo_private_cli_root finds checkout share/private-cli from a cpanm-style blib/lib module path',
+        );
+    }
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::InternalCLI::_module_source_path = sub { $fake_cpanm_module_path };
+        local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub {
+            return File::Spec->catdir( $fake_cpanm_build_root, 'missing-repo-private-cli' );
+        };
+        local *Developer::Dashboard::InternalCLI::dist_dir = sub {
+            return File::Spec->catdir( $fake_cpanm_build_root, 'blib', 'lib', 'auto', 'Developer', 'Dashboard' );
+        };
+        local *Developer::Dashboard::InternalCLI::_module_install_lib_root = sub {
+            return File::Spec->catdir( $fake_cpanm_build_root, 'blib', 'lib' );
+        };
+        is(
+            Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core'),
+            $fake_cpanm_core,
+            '_helper_asset_path rescans module-source share/private-cli candidates before falling back to broken blib auto helper roots in cpanm build trees',
+        );
+    }
+
+    my $captured_module_source = Developer::Dashboard::InternalCLI::_module_source_path();
+    ok(
+        File::Spec->file_name_is_absolute($captured_module_source),
+        '_module_source_path is captured as an absolute path at module load time',
+    );
+    my $cwd_before_module_source_check = getcwd();
+    my $module_source_cwd = tempdir( CLEANUP => 1 );
+    chdir $module_source_cwd or die "Unable to chdir to $module_source_cwd: $!";
+    is(
+        Developer::Dashboard::InternalCLI::_module_source_path(),
+        $captured_module_source,
+        '_module_source_path stays anchored after later cwd changes inside long-running test processes',
+    );
+    chdir $cwd_before_module_source_check
+      or die "Unable to chdir back to $cwd_before_module_source_check: $!";
+
+    {
+        local $INC{'Developer/Dashboard/InternalCLI.pm'};
+        is(
+            Cwd::abs_path( Developer::Dashboard::InternalCLI::_module_install_lib_root() ),
+            Cwd::abs_path(
+                File::Spec->catdir(
+                    File::Basename::dirname(__FILE__),
+                    File::Spec->updir,
+                    'lib',
+                )
+            ),
+            '_module_install_lib_root falls back to the loaded source file path when %INC has no InternalCLI entry',
+        );
+    }
+
+    is_deeply(
+        Developer::Dashboard::InternalCLI::helper_aliases(),
+        {
+            pjq   => 'jq',
+            pyq   => 'yq',
+            ptomq => 'tomq',
+            pjp   => 'propq',
+            skill => 'skills',
+            logs  => 'log',
+        },
+        'helper_aliases returns the shipped compatibility alias map',
+    );
+
+    my $plain_helper_body = "#!/usr/bin/env perl\nprint qq|ok\\n|;\n";
+    my $legacy_core_helper_body = join "\n",
+      '#!/usr/bin/env perl',
+      'die "Missing built-in dashboard command";',
+      'use Developer::Dashboard::CLI::SeededPages;',
+      q{};
+    my $legacy_lazy_helper_body = join "\n",
+      '#!/usr/bin/env perl',
+      '# LAZY-THIN-CMD',
+      '# Developer Dashboard',
+      q{};
+    ok(
+        Developer::Dashboard::InternalCLI::_is_dashboard_managed_helper(
+            $legacy_core_helper_body,
+            '_dashboard-core',
+        ),
+        '_is_dashboard_managed_helper recognizes the legacy _dashboard-core helper shape',
+    );
+    ok(
+        Developer::Dashboard::InternalCLI::_is_dashboard_managed_helper(
+            $legacy_lazy_helper_body,
+            'shell',
+        ),
+        '_is_dashboard_managed_helper recognizes older lazy-thin helper bodies without the newer managed marker',
+    );
+    ok(
+        !Developer::Dashboard::InternalCLI::_is_dashboard_managed_helper(
+            $plain_helper_body,
+            'shell',
+        ),
+        '_is_dashboard_managed_helper rejects unrelated helper bodies',
+    );
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::InternalCLI::helper_content = sub { "print qq|ok\\n|;\n" };
+        my $managed_plain_helper = Developer::Dashboard::InternalCLI::_managed_helper_content('jq');
+        like(
+            $managed_plain_helper,
+            qr/\A\Q# developer-dashboard-managed-helper: jq\E\n\Q# developer-dashboard-managed-helper-version: $Developer::Dashboard::InternalCLI::VERSION\E\nprint qq\|ok\\n\|;/,
+            '_managed_helper_content prefixes the managed and helper-version markers when the helper body has no shebang line',
+        );
+    }
+
+    ok(
+        Developer::Dashboard::InternalCLI::_looks_like_private_cli_root($fake_private_cli),
+        '_looks_like_private_cli_root accepts a private-cli directory that contains _dashboard-core',
+    );
+
+    my $managed_root_target = File::Spec->catfile( $paths->home_runtime_root, 'cli', 'dd' );
+    my $managed_child_target = File::Spec->catfile( $managed_root_target, 'shell' );
+    ok(
+        Developer::Dashboard::InternalCLI::_is_managed_helper_target( $paths, $managed_root_target ),
+        '_is_managed_helper_target accepts the managed helper namespace root itself',
+    );
+    ok(
+        Developer::Dashboard::InternalCLI::_is_managed_helper_target( $paths, $managed_child_target ),
+        '_is_managed_helper_target accepts helper files beneath the managed helper namespace root',
+    );
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { File::Spec->catdir( $fake_module_root, 'missing-repo' ) };
+        local *Developer::Dashboard::InternalCLI::_shared_private_cli_root = sub { $fake_private_cli };
+        local *Developer::Dashboard::InternalCLI::_shared_private_cli_root_candidates = sub { () };
+        is(
+            Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core'),
+            $fake_core,
+            '_helper_asset_path falls back to the shared private-cli root when repo and candidate scans miss the helper asset',
+        );
+    }
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::InternalCLI::_shared_private_cli_root_candidates = sub {
+            return (
+                File::Spec->catdir( $fake_module_root, 'missing-private-cli' ),
+                $fake_private_cli,
+            );
+        };
+        is(
+            Developer::Dashboard::InternalCLI::_shared_private_cli_root(),
+            $fake_private_cli,
+            '_shared_private_cli_root returns the first candidate that actually contains _dashboard-core',
+        );
+    }
+
+    {
+        my $fake_empty_private_cli = File::Spec->catdir( $fake_module_root, 'empty-private-cli' );
+        make_path($fake_empty_private_cli);
+        no warnings 'redefine';
+        local *Developer::Dashboard::InternalCLI::_shared_private_cli_root_candidates = sub {
+            return (
+                $fake_empty_private_cli,
+                File::Spec->catdir( $fake_module_root, 'still-missing-private-cli' ),
+            );
+        };
+        is(
+            Developer::Dashboard::InternalCLI::_shared_private_cli_root(),
+            $fake_empty_private_cli,
+            '_shared_private_cli_root falls back to the first candidate when none of them contain _dashboard-core yet',
+        );
+    }
 }
 
 is( $paths->home, $home, 'home accessor works' );
@@ -902,6 +1252,20 @@ SH
         open my $fh, '>', 'tool.cmd' or die $!;
         print {$fh} "\@echo off\r\necho cmd-ok\r\n";
         close $fh;
+    }
+    {
+        no warnings 'redefine';
+        local $ENV{ComSpec} = '';
+        local *Developer::Dashboard::Platform::command_in_path = sub {
+            my ($name) = @_;
+            return '/home/mv/bin/cmd' if $name eq 'cmd';
+            return undef;
+        };
+        is_deeply(
+            [ command_argv_for_path('tool.cmd') ],
+            [ 'cmd.exe', '/d', '/c', 'tool.cmd' ],
+            'command_argv_for_path normalizes extensionless cmd shims in PATH back to cmd.exe on Windows',
+        );
     }
     is_deeply(
         [ command_argv_for_path('tool.cmd') ],

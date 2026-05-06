@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.45
+3.58
 
 # INTRODUCTION
 
@@ -35,7 +35,16 @@ kept at `0600`, and owner-executable scripts stay owner-executable at
 `0700`. Run `dashboard doctor` to audit the current home runtime plus any
 older dashboard roots still living directly under `$HOME`, or
 `dashboard doctor --fix` to tighten those permissions in place. The same
-command also reads optional hook results from
+command also audits the staged helper namespace under
+`~/.developer-dashboard/cli/dd/` for missing or stale dashboard-managed
+helpers such as `_dashboard-core`, and `--fix` restages them from the
+currently shipped helper assets when the runtime drift is repairable. It also
+checks whether dashboard-managed bash bootstrap lines were appended after the
+standard Debian-family non-interactive `return` guard in `~/.bashrc`; when
+that drift is present, `dashboard doctor --fix` rewrites those lines above
+the guard so tmux status commands and other non-interactive shells can still
+resolve `dashboard` correctly. It also
+reads optional hook results from
 `~/.developer-dashboard/cli/doctor.d` so users can layer in more
 site-specific checks later.
 
@@ -1220,6 +1229,13 @@ Audit runtime permissions:
     dashboard doctor
     dashboard doctor --fix
 
+The doctor command also checks staged helper drift under
+`~/.developer-dashboard/cli/dd/` and repairs dashboard-managed helper content
+with `--fix` when the installed helper assets are current. On Debian-family
+bash hosts it also repairs dashboard-managed shell bootstrap lines that were
+previously appended after the non-interactive `return` guard in
+`~/.bashrc`.
+
 Resolve or open files from the CLI:
 
     dashboard of --print My::Module
@@ -1609,6 +1625,10 @@ trusted command actions, saved Ajax files, custom CLI commands, hook files,
 and update scripts now resolve `.ps1`, `.cmd`, `.bat`, and `.pl`
 runners without assuming `sh` or `bash`. That keeps Strawberry Perl installs
 usable without requiring a Unix shell just to load the dashboard runtime.
+The Windows command launcher also normalizes extensionless local `cmd` shims
+back to `cmd.exe` so Linux, WSL, and packaging hosts that happen to expose a
+helper named `cmd` do not break the expected Windows `.cmd` and `.bat`
+dispatch contract during cross-platform tests or tarball installs.
 
 The repository-only Windows verification assets follow the same layered
 approach: fast forced-Windows unit coverage in `t/`, a real Strawberry Perl
@@ -1840,6 +1860,10 @@ because that is the artifact PAUSE and CPANTS actually inspect. The CPANTS
 modules used by this gate stay release-only and must not leak into the
 generated install-time test prerequisites for blank-environment `cpanm`
 verification.
+The post-build smart-router two-stage Docker guard also retries one transient
+`cpanm` fetch or unpack failure inside its container, so one corrupt upstream
+download does not masquerade as a deterministic packaging regression in the
+repository itself.
 Tests that depend on a missing or empty environment variable now establish that
 state explicitly inside the test file, rather than assuming the parent shell
 or install harness starts clean.

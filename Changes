@@ -1,3 +1,38 @@
+3.58  2026-05-06
+    - stamped dashboard-managed helper bodies with an explicit
+      `developer-dashboard-managed-helper-version` marker so installed hosts
+      can prove which helper build they actually have when staged helper
+      behavior drifts from the active tarball
+    - fixed Debian-family bash bootstrap installs and repairs so
+      dashboard-managed shell lines are kept above the standard
+      non-interactive `return` guards in `~/.bashrc`, including the Ubuntu
+      single-line `[ -z "$PS1" ] && return` form, which keeps
+      `dashboard ticket` tmux status commands working on installed hosts such
+      as `hp.local`
+    - taught `dashboard doctor` to audit and repair that misplaced
+      `~/.bashrc` bootstrap shape with `dashboard doctor --fix`
+    - fixed Windows `.cmd` and `.bat` command dispatch on Linux, WSL, and
+      packaged-install hosts so an extensionless local `cmd` helper found in
+      `PATH` is normalized back to `cmd.exe` instead of being treated as a
+      custom command processor
+    - taught `dashboard doctor` to audit staged helper drift under
+      `~/.developer-dashboard/cli/dd/`, report stale or missing
+      dashboard-managed helpers such as `_dashboard-core`, and restage them
+      with `dashboard doctor --fix` when the currently shipped helper assets
+      can repair the runtime
+    - added direct regression coverage for extensionless `cmd` shims, stale
+      helper staging, and shell bootstrap drift through both source-tree and
+      packaged-install paths
+    - fixed packaged helper asset discovery so tarball, PAUSE, and `cpanm`
+      install-test trees keep resolving `share/private-cli` from a stable
+      absolute module source path even after later `chdir` calls in
+      long-running test processes
+    - hardened the post-build smart-router two-stage Docker guard so one
+      transient upstream `cpanm` fetch or unpack failure is retried once
+      before the repository packaging gate is treated as broken
+    - fixed the installer docs so they match the real checkout/master
+      bootstrap behavior and the current shell-bootstrap repair workflow
+
 3.45  2026-05-05
     - fixed Unix-like `install.sh` so blank streamed installs no longer fall
       back to the stale `Developer::Dashboard` CPAN target; when no explicit

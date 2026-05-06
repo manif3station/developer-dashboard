@@ -3,13 +3,16 @@ package Developer::Dashboard::CLI::Ticket;
 use strict;
 use warnings;
 
-our $VERSION = '3.45';
+our $VERSION = '3.58';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
 use Exporter 'import';
+use File::Spec ();
+use Developer::Dashboard::Platform qw(command_in_path shell_quote_for);
 
 our @EXPORT_OK = qw(
+  apply_ticket_status
   build_ticket_plan
   list_sessions
   resolve_ticket_request
@@ -68,6 +71,91 @@ sub tmux_command {
         stderr    => $stderr,
         exit_code => $exit_code,
     };
+}
+
+# _tmux_stdout(%args)
+# Runs one tmux command and returns trimmed stdout when the command succeeds.
+# Input: tmux runner coderef plus argv array reference.
+# Output: stdout string, or undef when tmux exits non-zero.
+sub _tmux_stdout {
+    my (%args) = @_;
+    my $tmux = $args{tmux} || \&tmux_command;
+    my $argv = $args{args} || [];
+    my $result = $tmux->( args => $argv );
+    return if ( $result->{exit_code} || 0 ) != 0;
+    my $stdout = $result->{stdout};
+    return if !defined $stdout;
+    $stdout =~ s/\r?\n\z//;
+    return $stdout;
+}
+
+# _dashboard_command_path()
+# Resolves the explicit dashboard entrypoint path used in tmux status commands.
+# Input: none.
+# Output: absolute/relative dashboard command path string, or "dashboard" as a final fallback.
+sub _dashboard_command_path {
+    return $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT}
+      if defined $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT}
+      && $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} ne '';
+    my $path = command_in_path('dashboard');
+    return $path if defined $path && $path ne '';
+    return 'dashboard';
+}
+
+# apply_ticket_status(%args)
+# Configures one tmux ticket session to render dashboard indicators on the top tmux status row.
+# Input: session name plus optional tmux runner coderef and optional dashboard command path override.
+# Output: true on success, or dies when tmux refuses the session status update.
+sub apply_ticket_status {
+    my (%args) = @_;
+    my $session = $args{session} || die 'Missing session name';
+    my $tmux = $args{tmux} || \&tmux_command;
+    my $dashboard = $args{dashboard} || _dashboard_command_path();
+
+    my $default_status = _tmux_stdout(
+        tmux => $tmux,
+        args => [ 'show-options', '-gqv', '@dd_ticket_status_default' ],
+    );
+    if ( !defined $default_status || $default_status eq '' ) {
+        $default_status = _tmux_stdout(
+            tmux => $tmux,
+            args => [ 'show-options', '-gqv', 'status-format[0]' ],
+        );
+        if ( defined $default_status && $default_status ne '' ) {
+            my $saved = $tmux->(
+                args => [ 'set-option', '-gq', '@dd_ticket_status_default', $default_status ],
+            );
+            die sprintf "Unable to record tmux ticket default status for '%s': %s%s",
+              $session,
+              ( $saved->{stderr} || '' ),
+              ( $saved->{stdout} || '' )
+              if $saved->{exit_code} != 0;
+        }
+    }
+
+    my $indicator_status = sprintf '#(%s ps1 --mode tmux-status-top --width #{client_width})',
+      shell_quote_for( 'sh', $dashboard );
+    my @commands = (
+        [ 'set-option', '-gq', 'status-position', 'bottom' ],
+        [ 'set-option', '-gq', 'status',          '2' ],
+        [ 'set-option', '-gq', 'status-interval', '2' ],
+        [ 'set-option', '-gq', 'status-format[0]', $indicator_status ],
+        ( defined $default_status && $default_status ne ''
+            ? ( [ 'set-option', '-gq', 'status-format[1]', $default_status ] )
+            : () ),
+        [ 'set-option', '-guq', 'status-format[2]' ],
+    );
+
+    for my $argv (@commands) {
+        my $result = $tmux->( args => $argv );
+        die sprintf "Unable to configure tmux ticket status for '%s': %s%s",
+          $session,
+          ( $result->{stderr} || '' ),
+          ( $result->{stdout} || '' )
+          if $result->{exit_code} != 0;
+    }
+
+    return 1;
 }
 
 # session_exists(%args)
@@ -175,6 +263,11 @@ sub run_ticket_command {
           ( $created->{stdout} || '' )
           if $created->{exit_code} != 0;
     }
+
+    apply_ticket_status(
+        session => $plan->{session},
+        tmux    => $tmux,
+    );
 
     my $attached = $tmux->( args => $plan->{attach_argv} );
     die sprintf "Unable to attach tmux ticket session '%s': %s%s",

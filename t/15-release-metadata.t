@@ -72,7 +72,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '3.45', 'repo version bumped for the Docker-style progression ANSI color release' );
+is( $version, '3.58', 'repo version bumped for the doctor shell-bootstrap repair release' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
 like( $readme, qr/\A(?:<!--.*?-->\n\n)?#\s+/s, 'README.md begins with Markdown headings' ) if $readme ne '';
@@ -81,6 +81,9 @@ like(
     qr/\A<!-- Generated from lib\/Developer\/Dashboard\.pm POD by script\/sync-readme-from-pod\. Do not edit manually\. -->\n\n#/,
     'README.md is generated from the canonical POD source',
 ) if $readme ne '';
+like( $dist, qr/^\[Prereqs \/ ConfigureRequires\]$/m, 'dist.ini declares explicit configure prerequisites for packaged installs' );
+like( $dist, qr/^File::ShareDir::Install = 0$/m, 'dist.ini declares File::ShareDir::Install as a configure prerequisite so packaged installs refresh shipped helper assets' );
+like( $cpanfile, qr/on 'configure' => sub \{\s*requires 'File::ShareDir::Install';\s*\};/s, 'cpanfile declares File::ShareDir::Install during configure so local cpanm installs refresh shipped helper assets' );
 ok( -f $readme_sync_script, 'checkout README sync script is tracked' );
 if ( $readme ne '' ) {
     SKIP: {
@@ -406,7 +409,11 @@ like(
     'release doc still documents tarball installation verification with cpanm --notest after the source-tree gates',
 ) if $release_doc ne '';
 like( $install_bootstrap_doc, qr/install\.sh/, 'bootstrap install doc names the repo installer entrypoint' ) if $install_bootstrap_doc ne '';
-like( $install_bootstrap_doc, qr/cpanm --no-wget --notest Developer::Dashboard/, 'bootstrap install doc explains the user-space cpanm install contract' ) if $install_bootstrap_doc ne '';
+like(
+    $install_bootstrap_doc,
+    qr/cpanm --no-wget --notest(?:\s+\.)?|DD_INSTALL_CPAN_TARGET.*cpanm --no-wget --notest|clone(?:d)? GitHub `master` checkout/is,
+    'bootstrap install doc explains the current user-space cpanm install contract',
+) if $install_bootstrap_doc ne '';
 like( $install_bootstrap_doc, qr/aptfile.*apkfile.*brewfile|aptfile.*brewfile.*apkfile|apkfile.*aptfile.*brewfile|apkfile.*brewfile.*aptfile|brewfile.*aptfile.*apkfile|brewfile.*apkfile.*aptfile/is, 'bootstrap install doc explains all bootstrap package manifests' ) if $install_bootstrap_doc ne '';
 like( $testing_doc, qr/after the\s+normal\s+`prove -lr t`\s+test gate/is, 'testing doc documents the explicit post-test numeric coverage QA gate ordering' ) if $testing_doc ne '';
 like( $testing_doc, qr/every change, not only releases|not only releases.*every change|every change.*not only releases/is, 'testing doc documents the per-change numeric coverage QA gate scope' ) if $testing_doc ne '';

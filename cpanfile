@@ -1,3 +1,7 @@
+on 'configure' => sub {
+    requires 'File::ShareDir::Install';
+};
+
 requires 'JSON::XS';
 requires 'YAML::XS';
 requires 'TOML::Tiny';
