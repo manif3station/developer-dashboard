@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.58
+3.59
 
 # INTRODUCTION
 
@@ -125,7 +125,10 @@ Under `DD-OOP-LAYERS`, the shared nav renderer now scans every inherited
 directory, keeps parent-only fragments visible, and lets a deeper layer
 replace the same `nav/<name>.tt` id without losing the rest of the
 shared nav set. Template includes used by those bookmarks follow the same
-layered bookmark lookup path.
+layered bookmark lookup path. Installed skill nav also follows nested
+`skills/<repo>/skills/<child>/...` trees now, so a nested
+skill can contribute `dashboards/nav/index.tt` or other shared fragments
+without being flattened back into only the first installed-skill level.
 
 Shared nav fragments and normal bookmark pages both render through Template
 Toolkit with `env.current_page` set to the active request path, such as
@@ -2369,7 +2372,12 @@ skill-local pages, Ajax handlers, and public assets work through the shipped
 PSGI route layer without being copied into the shared dashboard roots
 - `dashboards/nav/*` is loaded into those skill app routes and into the shared
 nav strip above normal saved `/app/<page>` routes such as
-`/app/index`, so every installed skill can contribute top-level nav at once
+`/app/index`, so every installed skill can contribute top-level nav at once.
+Nested installed skills under repeated `skills/<repo>` trees also
+join that shared nav discovery path, which means a route such as
+`/app/ho/coverage` can pick up nav fragments from
+`skills/ho/skills/coverage/dashboards/nav/*` in addition to the top-level
+skill nav
 - the older `/skill/<repo-name>/bookmarks/<id>` route still works for direct bookmark rendering
 - disabled skills drop out of both the dedicated skill routes and the shared nav
 strip until they are re-enabled

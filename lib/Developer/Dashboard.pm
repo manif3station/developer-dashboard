@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.58';
+our $VERSION = '3.59';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.58
+3.59
 
 =head1 INTRODUCTION
 
@@ -219,7 +219,10 @@ F<dashboards/nav/> layer from F<~/.developer-dashboard> down to the current
 directory, keeps parent-only fragments visible, and lets a deeper layer
 replace the same C<nav/E<lt>nameE<gt>.tt> id without losing the rest of the
 shared nav set. Template includes used by those bookmarks follow the same
-layered bookmark lookup path.
+layered bookmark lookup path. Installed skill nav also follows nested
+C<skills/E<lt>repoE<gt>/skills/E<lt>childE<gt>/...> trees now, so a nested
+skill can contribute C<dashboards/nav/index.tt> or other shared fragments
+without being flattened back into only the first installed-skill level.
 
 Shared nav fragments and normal bookmark pages both render through Template
 Toolkit with C<env.current_page> set to the active request path, such as
@@ -2868,7 +2871,12 @@ PSGI route layer without being copied into the shared dashboard roots
 
 C<dashboards/nav/*> is loaded into those skill app routes and into the shared
 nav strip above normal saved C</app/E<lt>pageE<gt>> routes such as
-C</app/index>, so every installed skill can contribute top-level nav at once
+C</app/index>, so every installed skill can contribute top-level nav at once.
+Nested installed skills under repeated C<skills/E<lt>repoE<gt>> trees also
+join that shared nav discovery path, which means a route such as
+C</app/ho/coverage> can pick up nav fragments from
+C<skills/ho/skills/coverage/dashboards/nav/*> in addition to the top-level
+skill nav
 
 =item *
 

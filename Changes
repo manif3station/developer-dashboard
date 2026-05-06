@@ -1,3 +1,15 @@
+3.59  2026-05-06
+    - fixed shared skill-nav discovery so nested installed skill trees such
+      as `skills/ho/skills/coverage/dashboards/nav/index.tt` now render on
+      the nested skill route itself and also join the shared nav strip above
+      normal saved pages such as `/app/index`
+    - taught the skill dispatcher to recurse through nested installed
+      `skills/<repo>` trees when collecting skill nav pages for the web UI,
+      while preserving deterministic order and disabled-skill filtering
+    - fixed layered skill nav route-id discovery so `dashboards/nav/*`
+      recursively includes nested fragment paths instead of only direct files
+      in the first `nav/` directory
+
 3.58  2026-05-06
     - stamped dashboard-managed helper bodies with an explicit
       `developer-dashboard-managed-helper-version` marker so installed hosts

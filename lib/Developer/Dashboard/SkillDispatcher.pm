@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '3.58';
+our $VERSION = '3.59';
 
 use Config ();
 use IPC::Open3 qw(open3);
@@ -633,9 +633,7 @@ sub skill_nav_pages {
 sub all_skill_nav_pages {
     my ($self) = @_;
     my @pages;
-    for my $skill_root ( $self->{manager}{paths}->installed_skill_roots ) {
-        my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
-        next if !defined $skill_name || $skill_name eq '';
+    for my $skill_name ( $self->_all_installed_skill_names ) {
         push @pages, @{ $self->skill_nav_pages($skill_name) || [] };
     }
     return \@pages;
@@ -984,20 +982,83 @@ sub _skill_nav_route_ids {
     for my $skill_path ( $self->_skill_lookup_roots($skill_name) ) {
         my $nav_root = File::Spec->catdir( $skill_path, 'dashboards', 'nav' );
         next if !-d $nav_root;
-        opendir my $dh, $nav_root or die "Unable to read $nav_root: $!";
-        for my $entry (
-            grep {
-                   $_ ne '.'
-                && $_ ne '..'
-                && -f File::Spec->catfile( $nav_root, $_ )
-            } readdir $dh
-          )
-        {
+        for my $entry ( $self->_relative_files($nav_root) ) {
             $routes{$entry} ||= 'nav/' . $entry;
         }
-        closedir $dh;
     }
     return %routes;
+}
+
+# _all_installed_skill_names()
+# Enumerates every enabled installed skill name, including nested skills/<repo>
+# trees, in deterministic order for shared nav rendering and similar global
+# skill discovery paths.
+# Input: none.
+# Output: ordered list of slash-delimited installed skill names.
+sub _all_installed_skill_names {
+    my ($self) = @_;
+    my @names;
+    for my $skill_root ( $self->{manager}{paths}->installed_skill_roots ) {
+        my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
+        next if !defined $skill_name || $skill_name eq '';
+        push @names, $self->_descendant_skill_names( $skill_name, $skill_root );
+    }
+    return @names;
+}
+
+# _descendant_skill_names($skill_name, $skill_root)
+# Recursively enumerates one installed skill and any nested skills/<repo>
+# descendants while skipping disabled nested skills from normal runtime lookup.
+# Input: installed skill name string and absolute skill root path.
+# Output: ordered list of slash-delimited skill names.
+sub _descendant_skill_names {
+    my ( $self, $skill_name, $skill_root ) = @_;
+    return () if !$skill_name || !$skill_root || !-d $skill_root;
+
+    my @names = ($skill_name);
+    my $nested_root = File::Spec->catdir( $skill_root, 'skills' );
+    return @names if !-d $nested_root;
+
+    opendir my $dh, $nested_root or die "Unable to read $nested_root: $!";
+    for my $entry (
+        sort grep {
+               $_ ne '.'
+            && $_ ne '..'
+            && -d File::Spec->catdir( $nested_root, $_ )
+        } readdir $dh
+      )
+    {
+        my $child_root = File::Spec->catdir( $nested_root, $entry );
+        next if -f File::Spec->catfile( $child_root, '.disabled' );
+        push @names, $self->_descendant_skill_names( $skill_name . '/' . $entry, $child_root );
+    }
+    closedir $dh;
+
+    return @names;
+}
+
+# _relative_files($root)
+# Recursively lists files beneath one root as forward-slash relative paths so
+# nested nav fragments can be routed without flattening subdirectories.
+# Input: absolute root directory path.
+# Output: sorted list of relative file path strings.
+sub _relative_files {
+    my ( $self, $root ) = @_;
+    return () if !$root || !-d $root;
+
+    my @relative_files;
+    opendir my $dh, $root or die "Unable to read $root: $!";
+    for my $entry ( sort grep { $_ ne '.' && $_ ne '..' } readdir $dh ) {
+        my $path = File::Spec->catfile( $root, $entry );
+        if ( -d $path ) {
+            push @relative_files, map { $entry . '/' . $_ } $self->_relative_files($path);
+            next;
+        }
+        push @relative_files, $entry if -f $path;
+    }
+    closedir $dh;
+
+    return @relative_files;
 }
 
 # _merge_skill_hashes($left, $right)

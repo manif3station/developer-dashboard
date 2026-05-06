@@ -147,6 +147,7 @@ my $nested_index = $app->handle(
 );
 is( $nested_index->[0], 200, 'nested skill index route returns success' );
 like( $nested_index->[2], qr/Nested Skill Index/, 'nested skill index route renders the nested skill bookmark' );
+like( $nested_index->[2], qr/Nested Skill Nav/, 'nested skill index route renders nav fragments contributed by the nested skill' );
 
 my $nested_page = $app->handle(
     path        => '/app/route-skill/def/foo',
@@ -156,6 +157,7 @@ my $nested_page = $app->handle(
 );
 is( $nested_page->[0], 200, 'nested skill page route returns success' );
 like( $nested_page->[2], qr/Nested Skill Foo/, 'nested skill page route renders the nested skill bookmark' );
+like( $nested_page->[2], qr/Nested Skill Nav/, 'nested skill page route renders nav fragments contributed by the nested skill' );
 
 my $nested_ajax_page = $app->handle(
     path        => '/app/route-skill/def/ajax-demo',
@@ -238,6 +240,7 @@ is( $shared_index->[0], 200, 'saved non-skill index route returns success' );
 like( $shared_index->[2], qr/Shared Index/, 'saved non-skill index route renders the shared saved page body' );
 like( $shared_index->[2], qr/Skill Route Nav/, 'saved non-skill index route renders nav from installed skills' );
 like( $shared_index->[2], qr/Other Skill Nav/, 'saved non-skill index route renders nav from every installed skill' );
+like( $shared_index->[2], qr/Nested Skill Nav/, 'saved non-skill index route also renders nav from nested installed skills' );
 
 my $disable = $manager->disable('other-skill');
 ok( !$disable->{error}, 'other-skill disables cleanly for route coverage' ) or diag $disable->{error};
@@ -349,6 +352,7 @@ BOOKMARK
     _write_file( File::Spec->catfile( 'dashboards', 'public', 'css', 'skill.css' ), qq{body { color: #123456; }\n}, 0644 );
     _write_file( File::Spec->catfile( 'dashboards', 'public', 'others', 'info.txt' ), "$name info\n", 0644 );
     make_path( File::Spec->catdir( 'skills', 'def', 'dashboards', 'ajax' ) );
+    make_path( File::Spec->catdir( 'skills', 'def', 'dashboards', 'nav' ) );
     make_path( File::Spec->catdir( 'skills', 'def', 'dashboards', 'public', 'js', 'ijk' ) );
     make_path( File::Spec->catdir( 'skills', 'def', 'dashboards', 'public', 'css', 'ijk' ) );
     make_path( File::Spec->catdir( 'skills', 'def', 'dashboards', 'public', 'others', 'ijk' ) );
@@ -396,6 +400,7 @@ BOOKMARK
         0644,
     );
     _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'ajax', 'nested' ), qq{print "nested skill ajax route\\n";\n}, 0700 );
+    _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'nav', 'index.tt' ), "<div>Nested Skill Nav</div>\n", 0644 );
     _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'public', 'js', 'ijk', 'lmn.js' ), qq{console.log("nested js");\n}, 0644 );
     _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'public', 'css', 'ijk', 'lmn.css' ), qq{body { background: #abcdef; }\n}, 0644 );
     _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'public', 'others', 'ijk', 'lmn.txt' ), "nested other asset\n", 0644 );

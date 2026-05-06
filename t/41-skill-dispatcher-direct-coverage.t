@@ -76,10 +76,13 @@ my $root = tempdir( CLEANUP => 1 );
 my $base_skill = File::Spec->catdir( $root, 'base-skill' );
 my $leaf_skill = File::Spec->catdir( $root, 'leaf-skill' );
 my $solo_skill = File::Spec->catdir( $root, 'solo-skill' );
+my $nested_skill = File::Spec->catdir( $leaf_skill, 'skills', 'child' );
 
 for my $dir (
     File::Spec->catdir( $base_skill, 'dashboards', 'nav' ),
     File::Spec->catdir( $leaf_skill, 'dashboards', 'nav' ),
+    File::Spec->catdir( $nested_skill, 'dashboards', 'nav' ),
+    File::Spec->catdir( $nested_skill, 'dashboards', 'nav', 'group' ),
     File::Spec->catdir( $leaf_skill, 'config' ),
     File::Spec->catdir( $solo_skill, 'dashboards', 'nav' ),
 )
@@ -127,6 +130,14 @@ _write_file(
 _write_file(
     File::Spec->catfile( $leaf_skill, 'dashboards', 'nav', 'leaf.tt' ),
     "<div>leaf nav</div>\n",
+);
+_write_file(
+    File::Spec->catfile( $nested_skill, 'dashboards', 'nav', 'index.tt' ),
+    "<div>nested nav</div>\n",
+);
+_write_file(
+    File::Spec->catfile( $nested_skill, 'dashboards', 'nav', 'group', 'deep.tt' ),
+    "<div>nested deep nav</div>\n",
 );
 _write_file(
     File::Spec->catfile( $leaf_skill, 'config', 'config.json' ),
@@ -185,6 +196,15 @@ is_deeply(
     '_skill_nav_route_ids exposes layered nav templates as route ids',
 );
 
+is_deeply(
+    { $dispatcher->_skill_nav_route_ids('layered/child') },
+    {
+        'group/deep.tt' => 'nav/group/deep.tt',
+        'index.tt' => 'nav/index.tt',
+    },
+    '_skill_nav_route_ids resolves nav templates for nested installed skills',
+);
+
 my $bookmark_page = $dispatcher->_load_skill_page(
     skill_name => 'layered',
     route_id   => 'index',
@@ -223,6 +243,14 @@ is( scalar @{$skill_nav_pages}, 2, 'skill_nav_pages loads every layered nav temp
 
 my $all_nav_pages = $dispatcher->all_skill_nav_pages;
 ok( scalar @{$all_nav_pages} >= 2, 'all_skill_nav_pages aggregates nav pages from every installed skill' );
+ok(
+    scalar( grep { ( $_->{meta}{skill_name} || '' ) eq 'leaf-skill/child' } @{$all_nav_pages} ),
+    'all_skill_nav_pages includes nav pages from nested installed skills',
+);
+ok(
+    scalar( grep { ( $_->{meta}{skill_route_id} || '' ) eq 'nav/group/deep.tt' } @{$all_nav_pages} ),
+    'all_skill_nav_pages keeps recursively discovered nested nav fragment paths',
+);
 
 my $raw_response = $dispatcher->_skill_page_response(
     skill_name => 'layered',

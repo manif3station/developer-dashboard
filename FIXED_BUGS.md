@@ -1,5 +1,19 @@
 # Fixed Bugs
 
+## 3.59 - Fix nested installed skill nav discovery in the web UI
+
+- Fixed shared skill-nav discovery so nested installed skill trees such as
+  `skills/ho/skills/coverage/dashboards/nav/index.tt` now render their nav
+  fragments on the nested skill route itself and also join the shared nav
+  strip above normal saved pages such as `/app/index`.
+- Fixed the skill dispatcher so global skill-nav collection now recurses
+  through nested installed `skills/<repo>` trees in deterministic order while
+  still skipping disabled nested skills during normal runtime lookup.
+- Fixed layered skill-nav route-id discovery so `dashboards/nav/*` is walked
+  recursively instead of only reading direct files from the first `nav/`
+  directory. That keeps nested nav fragments addressable without flattening
+  them back to one level.
+
 ## 3.58 - Fix installed shell-bootstrap drift, packaged helper discovery, and flaky post-build smart-router packaging checks
 
 - Fixed dashboard-managed helper staging so each helper body now carries an
