@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.60
+3.61
 
 # INTRODUCTION
 
@@ -2547,9 +2547,9 @@ Developer Dashboard Contributors
 # LICENSE
 
 This library is free software; you can redistribute it and/or modify it under
-the same terms as Perl itself. The repository root `LICENSE` file carries a
-canonical GPL text for GitHub and Scorecard detection, and the alternative
-Artistic text lives in `LICENSE-Artistic-1.0-Perl`.
+the terms of the MIT license. The repository root `LICENSE` file carries the
+canonical MIT text used for repository metadata, GitHub license detection, and
+distribution packaging.
 
 Like most widely used open-source licenses, those license texts include strong
 disclaimers. In practical terms the software is provided `"as is"`, no

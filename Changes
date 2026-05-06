@@ -1,3 +1,10 @@
+3.61  2026-05-06
+    - switched the project license from Perl_5 to MIT across the repository
+      metadata, shipped LICENSE text, README, canonical POD, and Scorecard
+      guardrails so the published license state is explicit and consistent
+    - removed the old Artistic sidecar license file and Perl dual-license
+      wording so the repo no longer advertises conflicting licensing terms
+
 3.60  2026-05-06
     - documented the open-source license disclaimer more explicitly in the
       canonical POD and synced README, making it clear that the software is

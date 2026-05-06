@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.60';
+our $VERSION = '3.61';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.60
+3.61
 
 =head1 INTRODUCTION
 
@@ -3102,9 +3102,9 @@ Developer Dashboard Contributors
 =head1 LICENSE
 
 This library is free software; you can redistribute it and/or modify it under
-the same terms as Perl itself. The repository root C<LICENSE> file carries a
-canonical GPL text for GitHub and Scorecard detection, and the alternative
-Artistic text lives in C<LICENSE-Artistic-1.0-Perl>.
+the terms of the MIT license. The repository root C<LICENSE> file carries the
+canonical MIT text used for repository metadata, GitHub license detection, and
+distribution packaging.
 
 Like most widely used open-source licenses, those license texts include strong
 disclaimers. In practical terms the software is provided C<"as is">, no

@@ -1,5 +1,14 @@
 # Fixed Bugs
 
+## 3.61 - Fix inconsistent repository licensing metadata and docs
+
+- Fixed the repository licensing state so it no longer mixed Perl_5 metadata,
+  GPL text in `LICENSE`, an Artistic sidecar file, and user-facing wording
+  that still described the project as dual-licensed under the Perl terms.
+- Switched the distribution metadata, shipped root `LICENSE`, canonical POD,
+  generated README, and Scorecard guardrails to one explicit MIT license
+  contract so users and automation now see the same license everywhere.
+
 ## 3.60 - Clarify license disclaimer and liability baseline in user-facing docs
 
 - Clarified the main README and canonical POD so the open-source license
