@@ -1,5 +1,15 @@
 # Fixed Bugs
 
+## 3.60 - Clarify license disclaimer and liability baseline in user-facing docs
+
+- Clarified the main README and canonical POD so the open-source license
+  position is explicit: the software is provided `as is`, no warranty is
+  given, and the project relies on the normal free-software liability
+  disclaimer as the baseline protection for ordinary public distribution.
+- Clarified that the disclaimer is still not unlimited and local law can
+  matter, which keeps the documentation accurate instead of overstating the
+  license as absolute protection in every jurisdiction.
+
 ## 3.59 - Fix nested installed skill nav discovery in the web UI
 
 - Fixed shared skill-nav discovery so nested installed skill trees such as

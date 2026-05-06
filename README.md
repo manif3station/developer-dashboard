@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.59
+3.60
 
 # INTRODUCTION
 
@@ -2550,3 +2550,11 @@ This library is free software; you can redistribute it and/or modify it under
 the same terms as Perl itself. The repository root `LICENSE` file carries a
 canonical GPL text for GitHub and Scorecard detection, and the alternative
 Artistic text lives in `LICENSE-Artistic-1.0-Perl`.
+
+Like most widely used open-source licenses, those license texts include strong
+disclaimers. In practical terms the software is provided `"as is"`, no
+warranty is given, and the authors are not accepting liability for damages
+caused by somebody using the free software wrongly or suffering a problem on
+their own side. That license disclaimer is the main baseline protection for
+normal open-source distribution, although it is not unlimited and local law
+can still matter.

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.59';
+our $VERSION = '3.60';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.59
+3.60
 
 =head1 INTRODUCTION
 
@@ -3105,5 +3105,13 @@ This library is free software; you can redistribute it and/or modify it under
 the same terms as Perl itself. The repository root C<LICENSE> file carries a
 canonical GPL text for GitHub and Scorecard detection, and the alternative
 Artistic text lives in C<LICENSE-Artistic-1.0-Perl>.
+
+Like most widely used open-source licenses, those license texts include strong
+disclaimers. In practical terms the software is provided C<"as is">, no
+warranty is given, and the authors are not accepting liability for damages
+caused by somebody using the free software wrongly or suffering a problem on
+their own side. That license disclaimer is the main baseline protection for
+normal open-source distribution, although it is not unlimited and local law
+can still matter.
 
 =cut

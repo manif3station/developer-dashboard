@@ -1,3 +1,9 @@
+3.60  2026-05-06
+    - documented the open-source license disclaimer more explicitly in the
+      canonical POD and synced README, making it clear that the software is
+      provided "as is", no warranty is given, and normal free-software use is
+      covered by the project's baseline liability disclaimer
+
 3.59  2026-05-06
     - fixed shared skill-nav discovery so nested installed skill trees such
       as `skills/ho/skills/coverage/dashboards/nav/index.tt` now render on
