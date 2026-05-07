@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Progress;
 use strict;
 use warnings;
 
-our $VERSION = '3.62';
+our $VERSION = '3.63';
 
 # new(%args)
 # Constructs a terminal progress renderer for restart/stop lifecycle commands.
@@ -33,7 +33,7 @@ sub new {
         dynamic  => $args{dynamic} ? 1 : 0,
         color    => $args{color} ? 1 : 0,
         rendered => 0,
-        max_detail_lines => $args{max_detail_lines} || 10,
+        max_detail_lines => $args{max_detail_lines},
         last_rendered_line_count => 0,
     }, $class;
     $self->render;
@@ -65,8 +65,8 @@ sub update {
     $task->{label}  = $event->{label}  if defined $event->{label}  && $event->{label} ne '';
     if ( exists $event->{detail_lines} ) {
         my @detail_lines = ref( $event->{detail_lines} ) eq 'ARRAY' ? @{ $event->{detail_lines} } : ();
-        my $max = $self->{max_detail_lines} || 10;
-        if ( @detail_lines > $max ) {
+        my $max = $self->{max_detail_lines};
+        if ( defined $max && @detail_lines > $max ) {
             @detail_lines = @detail_lines[ @detail_lines - $max .. $#detail_lines ];
         }
         $task->{detail_lines} = \@detail_lines;
@@ -74,8 +74,8 @@ sub update {
     elsif ( exists $event->{detail_line} ) {
         my @detail_lines = @{ $task->{detail_lines} || [] };
         push @detail_lines, $event->{detail_line};
-        my $max = $self->{max_detail_lines} || 10;
-        if ( @detail_lines > $max ) {
+        my $max = $self->{max_detail_lines};
+        if ( defined $max && @detail_lines > $max ) {
             @detail_lines = @detail_lines[ @detail_lines - $max .. $#detail_lines ];
         }
         $task->{detail_lines} = \@detail_lines;

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.62';
+our $VERSION = '3.63';
 
 1;
 
@@ -2442,7 +2442,7 @@ C<make>, collapses automatically when the task completes, and leaves the full
 epic checklist visible while the active manifest streams.
 Developer Dashboard does not merge the skill's C<cli/>, C<dashboards/>,
 C<config/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>, C<dnfile>,
-C<wingetfile>, C<brewfile>, C<Makefile>, C<package.json>, C<cpanfile>,
+C<wingetfile>, C<brewfile>, C<Makefile>, C<dockerfile>, C<package.json>, C<cpanfile>,
 C<cpanfile.local>, or Docker files into the
 normal runtime folders.
 
@@ -2521,7 +2521,7 @@ CLI command, page, docker service, collector, and indicator counts
 
 JSON booleans for C<has_config>, C<has_ddfile>, C<has_aptfile>,
 C<has_apkfile>, C<has_dnfile>, C<has_brewfile>, C<has_cpanfile>,
-C<has_cpanfile_local>, and C<has_makefile>
+C<has_cpanfile_local>, C<has_makefile>, and C<has_dockerfile>
 
 =back
 

@@ -2065,7 +2065,7 @@ detail lines from tools such as `brew`, `npx npm install`, `cpanm`, and
 epic checklist visible while the active manifest streams.
 Developer Dashboard does not merge the skill's `cli/`, `dashboards/`,
 `config/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`, `dnfile`,
-`wingetfile`, `brewfile`, `Makefile`, `package.json`, `cpanfile`,
+`wingetfile`, `brewfile`, `Makefile`, `dockerfile`, `package.json`, `cpanfile`,
 `cpanfile.local`, or Docker files into the
 normal runtime folders.
 
@@ -2128,7 +2128,7 @@ where each item reports:
 - CLI command, page, docker service, collector, and indicator counts
 - JSON booleans for `has_config`, `has_ddfile`, `has_aptfile`,
 `has_apkfile`, `has_dnfile`, `has_brewfile`, `has_cpanfile`,
-`has_cpanfile_local`, and `has_makefile`
+`has_cpanfile_local`, `has_makefile`, and `has_dockerfile`
 
 Inspect one installed skill:
 

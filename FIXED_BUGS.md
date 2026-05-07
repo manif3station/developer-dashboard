@@ -1,4 +1,25 @@
 # Fixed Bugs
+## 3.63 - Fix Docker build output truncation and add dockerfile manifest support
+
+- Root cause:
+  `Progress.pm` capped detail lines at 10 by default, truncating long-running
+  operation output such as Docker builds during skill installation. Users saw
+  only the first 10 lines with no autoscroll or continuation.
+
+- Fix:
+  changed `Progress.pm` to make `max_detail_lines` optional (undef = unlimited),
+  allowing full streaming output for operations like Docker builds while still
+  supporting explicit caps where needed.
+
+- Enhancement:
+  added `dockerfile` manifest support to `SkillManager`, allowing skills to
+  declare a `dockerfile` that gets built automatically during installation.
+  The build output now streams in full to the progress board.
+
+- Testing:
+  added test coverage for dockerfile detection in skill metadata and progress
+  task sequence.
+
 
 ## 3.62 - Fix root ddfile drift after skill uninstall
 

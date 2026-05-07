@@ -2194,6 +2194,7 @@ is_deeply(
         { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
         { id => 'install_cpanfile_local', label => 'Install cpanfile.local dependencies' },
         { id => 'install_makefile',     label => 'Install Makefile dependencies' },
+        { id => 'install_dockerfile', label => 'Install dockerfile dependencies' },
         { id => 'install_ddfile',       label => 'Install ddfile dependencies' },
         { id => 'install_ddfile_local', label => 'Install ddfile.local dependencies' },
     ],
@@ -2428,6 +2429,7 @@ my $dep_repo = _create_skill_repo(
     with_ddfile  => 1,
     with_ddfile_local => 1,
     with_makefile => 1,
+    with_dockerfile => 1,
     with_package_json => 1,
     with_cpanfile_local => 1,
 );
@@ -2619,6 +2621,7 @@ is( $metadata->{has_cpanfile}, 1, 'skill metadata records cpanfile presence' );
 is( $metadata->{has_aptfile}, 1, 'skill metadata records aptfile presence' );
 is( $metadata->{has_apkfile}, 1, 'skill metadata records apkfile presence' );
 is( $metadata->{has_makefile}, 1, 'skill metadata records Makefile presence' );
+is( $metadata->{has_dockerfile}, 1, 'skill metadata records dockerfile presence' );
 is( $metadata->{has_cpanfile_local}, 1, 'skill metadata records cpanfile.local presence' );
 is_deeply( $metadata->{docker_services}, ['postgres'], 'skill metadata records docker service folders' );
 is_deeply( $metadata->{cli_commands}, ['run-test'], 'skill metadata records cli commands only, not hook directories' );
@@ -4164,6 +4167,12 @@ sub _create_skill_repo {
         _write_file( 'ddfile.local', "shared-local-skill\n" );
     }
     if ( $args{with_makefile} ) {
+    if ( $args{with_dockerfile} ) {
+        _write_file(
+            'dockerfile',
+            "FROM alpine:latest\nRUN echo 'test dockerfile'\n",
+        );
+    }
         _write_file(
             'Makefile',
             ".PHONY: all test install clean\nall:\n\t\@:\ntest:\n\t\@:\ninstall:\n\t\@:\nclean:\n\t\@:\n",
@@ -4275,6 +4284,7 @@ sub _dies {
     open my $fh, '>', \$output or die "Unable to open scalar handle for progress output: $!";
     my $progress = Developer::Dashboard::CLI::Progress->new(
         title   => 'dashboard skills install progress',
+        max_detail_lines => 10,
         tasks   => [
             { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
             { id => 'install_package_json', label => 'Install package.json dependencies' },

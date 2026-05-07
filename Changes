@@ -1,3 +1,10 @@
+3.63  2026-05-08
+    - added dockerfile manifest support to skill installation, allowing skills
+      to declare Docker images that get built automatically during install
+    - fixed Progress.pm to support unlimited streaming output for long-running
+      operations like Docker builds, with optional max_detail_lines cap
+    - added has_dockerfile metadata to skill list and usage output
+
 3.62  2026-05-07
     - remove matching root ddfile skill source entries when uninstalling a skill
 

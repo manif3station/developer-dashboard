@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.62';
+our $VERSION = '3.63';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -56,6 +56,7 @@ sub install_progress_tasks {
         { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
         { id => 'install_cpanfile_local', label => 'Install cpanfile.local dependencies' },
         { id => 'install_makefile',     label => 'Install Makefile dependencies' },
+        { id => 'install_dockerfile', label => 'Install dockerfile dependencies' },
         { id => 'install_ddfile',       label => 'Install ddfile dependencies' },
         { id => 'install_ddfile_local', label => 'Install ddfile.local dependencies' },
     ];
@@ -946,6 +947,7 @@ sub _install_skill_dependencies {
         [ install_cpanfile     => sub { $self->_install_skill_cpanfile($skill_path) } ],
         [ install_cpanfile_local => sub { $self->_install_skill_cpanfile_local($skill_path) } ],
         [ install_makefile     => sub { $self->_install_skill_makefile($skill_path) } ],
+        [ install_dockerfile => sub { $self->_install_skill_dockerfile($skill_path) } ],
         [ install_ddfile       => sub { $self->_install_skill_ddfile($skill_path) } ],
         [ install_ddfile_local => sub { $self->_install_skill_ddfile_local($skill_path) } ],
     );
@@ -1008,6 +1010,7 @@ sub _dependency_progress_label {
         install_cpanfile       => 'cpanfile',
         install_cpanfile_local => 'cpanfile.local',
         install_makefile       => 'Makefile',
+        install_dockerfile     => 'dockerfile',
     );
     my %labels = (
         install_ddfile         => 'Install ddfile dependencies',
@@ -1021,6 +1024,7 @@ sub _dependency_progress_label {
         install_cpanfile       => 'Install cpanfile dependencies',
         install_cpanfile_local => 'Install cpanfile.local dependencies',
         install_makefile       => 'Install Makefile dependencies',
+        install_dockerfile     => 'Install dockerfile dependencies',
     );
     my $label = $labels{$task_id} || $task_id;
     my $file  = $files{$task_id} || return $label;
@@ -1906,6 +1910,32 @@ sub _install_skill_makefile {
     return $result;
 }
 
+
+# _install_skill_dockerfile($skill_path)
+# Builds Docker images declared by dockerfile in the skill root.
+# Input: absolute skill root directory path.
+# Output: result hash reference with success or error state.
+sub _install_skill_dockerfile {
+    my ( $self, $skill_path ) = @_;
+    my $dockerfile = File::Spec->catfile( $skill_path, 'dockerfile' );
+    return { success => 1, skipped => 1 } if !-f $dockerfile;
+
+    my $run = $self->_run_streaming_command(
+        command => [ 'docker', 'build', '-t', lc(basename($skill_path)), '-f', $dockerfile, $skill_path ],
+        cwd     => $skill_path,
+        banner  => "Building Docker image for " . basename($skill_path) . " from $dockerfile",
+    );
+    return {
+        error => "Failed to build Docker image for $skill_path: $run->{stderr}",
+    } if $run->{exit} != 0;
+
+    return {
+        success => 1,
+        stdout  => $run->{stdout},
+        stderr  => $run->{stderr},
+    };
+}
+
 # _makefile_targets($makefile)
 # Extracts simple top-level target names from one skill Makefile.
 # Input: absolute Makefile path.
@@ -1955,6 +1985,7 @@ sub _skill_metadata {
     my $has_dnfile = -f File::Spec->catfile( $skill_path, 'dnfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_brewfile = -f File::Spec->catfile( $skill_path, 'brewfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_makefile = -f File::Spec->catfile( $skill_path, 'Makefile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_dockerfile = -f File::Spec->catfile( $skill_path, 'dockerfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_config = -f File::Spec->catfile( $skill_path, 'config', 'config.json' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_cpanfile = -f File::Spec->catfile( $skill_path, 'cpanfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_cpanfile_local = -f File::Spec->catfile( $skill_path, 'cpanfile.local' ) ? JSON::XS::true() : JSON::XS::false();
@@ -1978,6 +2009,7 @@ sub _skill_metadata {
     $metadata->{has_dnfile} = $has_dnfile;
     $metadata->{has_brewfile} = $has_brewfile;
     $metadata->{has_makefile} = $has_makefile;
+    $metadata->{has_dockerfile} = $has_dockerfile;
     $metadata->{has_config} = $has_config;
     $metadata->{has_cpanfile} = $has_cpanfile;
     $metadata->{has_cpanfile_local} = $has_cpanfile_local;
@@ -2008,6 +2040,7 @@ sub _skill_usage {
     my $has_dnfile = -f File::Spec->catfile( $skill_path, 'dnfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_brewfile = -f File::Spec->catfile( $skill_path, 'brewfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_makefile = -f File::Spec->catfile( $skill_path, 'Makefile' ) ? JSON::XS::true() : JSON::XS::false();
+    my $has_dockerfile = -f File::Spec->catfile( $skill_path, 'dockerfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_cpanfile = -f File::Spec->catfile( $skill_path, 'cpanfile' ) ? JSON::XS::true() : JSON::XS::false();
     my $has_cpanfile_local = -f File::Spec->catfile( $skill_path, 'cpanfile.local' ) ? JSON::XS::true() : JSON::XS::false();
     my $usage = { %{ $self->_skill_metadata( $repo_name, $skill_path ) } };
@@ -2027,6 +2060,7 @@ sub _skill_usage {
     $usage->{config}{has_dnfile} = $has_dnfile;
     $usage->{config}{has_brewfile} = $has_brewfile;
     $usage->{config}{has_makefile} = $has_makefile;
+    $usage->{config}{has_dockerfile} = $has_dockerfile;
     $usage->{config}{has_cpanfile} = $has_cpanfile;
     $usage->{config}{has_cpanfile_local} = $has_cpanfile_local;
     $usage->{collectors} = $collectors;
