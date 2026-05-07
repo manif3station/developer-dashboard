@@ -1,3 +1,6 @@
+3.62  2026-05-07
+    - remove matching root ddfile skill source entries when uninstalling a skill
+
 3.61  2026-05-06
     - switched the project license from Perl_5 to MIT across the repository
       metadata, shipped LICENSE text, README, canonical POD, and Scorecard

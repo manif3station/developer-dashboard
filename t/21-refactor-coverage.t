@@ -3389,6 +3389,34 @@ SH
     );
 }
 {
+    my $uninstall_repo = _create_skill_repo( $test_repos, 'registered-uninstall-skill', with_cpanfile => 0 );
+    my $keep_repo      = _create_skill_repo( $test_repos, 'registered-keep-skill',      with_cpanfile => 0 );
+    my $root_ddfile    = File::Spec->catfile( $skill_paths->home_runtime_root, 'ddfile' );
+    $skill_paths->ensure_dir( $skill_paths->home_runtime_root );
+
+    my $install_source = 'file://' . $uninstall_repo;
+    my $keep_source    = 'file://' . $keep_repo;
+    _write_file(
+        $root_ddfile,
+        join(
+            "\n",
+            '# dashboard skills',
+            $install_source,
+            $keep_source,
+            'owner/registered-uninstall-skill',
+            q{},
+        ),
+    );
+
+    ok( !$manager->install($install_source)->{error}, 'registered-uninstall-skill installs cleanly before uninstalling it' );
+    ok( !$manager->uninstall('registered-uninstall-skill')->{error}, 'uninstall succeeds for a skill registered in the root ddfile' );
+    is(
+        _read_file($root_ddfile),
+        join( "\n", '# dashboard skills', $keep_source, q{} ),
+        'uninstall removes matching root ddfile entries while preserving unrelated sources and comments',
+    );
+}
+{
     no warnings 'redefine';
     local *Developer::Dashboard::SkillManager::remove_tree = sub {
         my ( $path, $options ) = @_;

@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.60';
+our $VERSION = '3.62';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -258,10 +258,15 @@ sub uninstall {
         return { error => "Failed to uninstall skill: " . join( ', ', @$error ) };
     }
 
+    my $registration = $self->_unregister_root_ddfile_source($repo_name);
+    return $registration if $registration->{error};
+
     return {
-        success   => 1,
-        repo_name => $repo_name,
-        message   => "Skill '$repo_name' uninstalled successfully",
+        success                     => 1,
+        repo_name                   => $repo_name,
+        message                     => "Skill '$repo_name' uninstalled successfully",
+        unregistered_ddfile         => $registration->{ddfile},
+        unregistered_ddfile_entries => $registration->{removed},
     };
 }
 
@@ -487,6 +492,75 @@ sub _register_root_ddfile_source {
         ddfile     => $ddfile,
         registered => 1,
     };
+}
+
+# _unregister_root_ddfile_source($repo_name)
+# Removes root-ddfile skill source entries that resolve to one repo name after
+# an uninstall while preserving comments, unrelated entries, and line order.
+# Input: installed skill repo name string.
+# Output: hash ref with ddfile path and removed-entry count, or an error hash.
+sub _unregister_root_ddfile_source {
+    my ( $self, $repo_name ) = @_;
+    return { error => 'Missing repo name' } if !$repo_name;
+
+    my $home_root = $self->{paths}->home_runtime_root;
+    my $ddfile = File::Spec->catfile( $home_root, 'ddfile' );
+    return {
+        success => 1,
+        ddfile  => $ddfile,
+        removed => 0,
+    } if !-f $ddfile;
+
+    open my $read_fh, '<', $ddfile or return { error => "Unable to read root ddfile $ddfile: $!" };
+    local $/;
+    my $existing = <$read_fh> // '';
+    close $read_fh;
+
+    my @kept;
+    my $removed = 0;
+    for my $line ( split /\n/, $existing, -1 ) {
+        if ( $line =~ /\A\s*#/ || $line =~ /\A\s*\z/ ) {
+            push @kept, $line;
+            next;
+        }
+        if ( $self->_ddfile_source_matches_repo_name( $line, $repo_name ) ) {
+            $removed++;
+            next;
+        }
+        push @kept, $line;
+    }
+
+    if ($removed) {
+        while ( @kept && $kept[-1] eq '' ) {
+            pop @kept;
+        }
+        my $rewritten = @kept ? join( "\n", @kept ) . "\n" : q{};
+        open my $write_fh, '>', $ddfile or return { error => "Unable to update root ddfile $ddfile: $!" };
+        print {$write_fh} $rewritten;
+        close $write_fh;
+        $self->{paths}->secure_file_permissions($ddfile) if $rewritten ne q{};
+    }
+
+    return {
+        success => 1,
+        ddfile  => $ddfile,
+        removed => $removed,
+    };
+}
+
+# _ddfile_source_matches_repo_name($source, $repo_name)
+# Reports whether one explicit root-ddfile source line resolves to one repo
+# name using the same repo-name extraction rules as install.
+# Input: source line string and installed repo name string.
+# Output: boolean true when the source resolves to the same repo name.
+sub _ddfile_source_matches_repo_name {
+    my ( $self, $source, $repo_name ) = @_;
+    return 0 if !defined $source || !defined $repo_name;
+    $source =~ s/^\s+|\s+$//g;
+    return 0 if $source eq q{} || $source =~ /\A#/;
+    my $resolved = _extract_repo_name($source);
+    return 0 if !defined $resolved || $resolved eq q{};
+    return $resolved eq $repo_name ? 1 : 0;
 }
 
 # _register_home_gitignore_skill($repo_name)
@@ -2175,7 +2249,10 @@ Manages the lifecycle of installed dashboard skills:
 
 Skills are isolated under the active DD-OOP-LAYERS skills root such as
 ~/.developer-dashboard/skills/<repo-name>/ or
-<project>/.developer-dashboard/skills/<repo-name>/
+<project>/.developer-dashboard/skills/<repo-name>/. Explicit installs also
+register their original source lines in the home root F<ddfile>, and uninstall
+removes matching entries again by repo name while preserving comments and
+unrelated sources.
 
 =for comment FULL-POD-DOC START
 

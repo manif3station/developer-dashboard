@@ -1,5 +1,18 @@
 # Fixed Bugs
 
+## 3.62 - Fix root ddfile drift after skill uninstall
+
+- Root cause:
+  explicit `dashboard skills install <source>` correctly registered the source
+  in `~/.developer-dashboard/ddfile`, but `dashboard skills uninstall
+  <repo-name>` only removed the cloned skill tree and left the root registry
+  behind.
+
+- Fix:
+  uninstall now removes root `ddfile` entries whose sources resolve back to the
+  uninstalled repo name while preserving comments, line order, and unrelated
+  entries.
+
 ## 3.61 - Fix inconsistent repository licensing metadata and docs
 
 - Fixed the repository licensing state so it no longer mixed Perl_5 metadata,

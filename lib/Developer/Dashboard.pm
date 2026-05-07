@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.61';
+our $VERSION = '3.62';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.61
+3.62
 
 =head1 INTRODUCTION
 
@@ -2431,7 +2431,10 @@ changes version, the summary explicitly says C<No update.>. First-time installs
 from that root F<ddfile> still report C<installed> even when the skill ships no
 F<.env> C<VERSION> metadata. If the root F<ddfile> does not exist yet or has no
 installable entries, the command returns an explicit error telling the user to
-install a skill first or pass a skill source.
+install a skill first or pass a skill source. When an operator later runs
+C<dashboard skills uninstall E<lt>repo-nameE<gt>>, the home root
+F<ddfile> now drops any exact source lines that resolve back to that repo name
+while leaving comments and unrelated entries untouched.
 Long-running dependency manifests now show a Docker-build-style live detail
 window under the active epic task. That rolling window keeps the newest ten
 detail lines from tools such as C<brew>, C<npx npm install>, C<cpanm>, and
@@ -2730,7 +2733,8 @@ C<E<lt>skill-rootE<gt>/perl5>
 
 Skills are completely isolated from the main dashboard runtime and from other
 skills. Removing a skill is simple: C<dashboard skills uninstall E<lt>repo-nameE<gt>>
-cleanly removes only that skill's directory.
+cleanly removes only that skill's directory and unregisters matching install
+sources from the home root F<ddfile>.
 
 Hook lifecycle details:
 
