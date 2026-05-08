@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Progress;
 use strict;
 use warnings;
 
-our $VERSION = '3.64';
+our $VERSION = '3.65';
 
 # new(%args)
 # Constructs a terminal progress renderer for restart/stop lifecycle commands.
@@ -65,7 +65,7 @@ sub update {
     $task->{label}  = $event->{label}  if defined $event->{label}  && $event->{label} ne '';
     if ( exists $event->{detail_lines} ) {
         my @detail_lines = ref( $event->{detail_lines} ) eq 'ARRAY' ? @{ $event->{detail_lines} } : ();
-        my $max = $self->{max_detail_lines};
+        my $max = $self->_detail_line_limit;
         if ( defined $max && @detail_lines > $max ) {
             @detail_lines = @detail_lines[ @detail_lines - $max .. $#detail_lines ];
         }
@@ -74,7 +74,7 @@ sub update {
     elsif ( exists $event->{detail_line} ) {
         my @detail_lines = @{ $task->{detail_lines} || [] };
         push @detail_lines, $event->{detail_line};
-        my $max = $self->{max_detail_lines};
+        my $max = $self->_detail_line_limit;
         if ( defined $max && @detail_lines > $max ) {
             @detail_lines = @detail_lines[ @detail_lines - $max .. $#detail_lines ];
         }
@@ -134,6 +134,20 @@ sub render_text {
         }
     }
     return join( "\n", @lines ) . "\n";
+}
+
+# _detail_line_limit()
+# Normalizes the configured rolling detail-line cap for runtime updates.
+# Input: none.
+# Output: positive integer line cap, 10 when explicitly configured falsey, or
+# undef when no cap was requested.
+sub _detail_line_limit {
+    my ($self) = @_;
+    return undef if !exists $self->{max_detail_lines};
+    my $max = $self->{max_detail_lines};
+    return undef if !defined $max;
+    return $max if $max =~ /^\d+$/ && $max > 0;
+    return 10;
 }
 
 # _status_prefix($status)

@@ -1,4 +1,26 @@
 # Fixed Bugs
+## 3.65 - Fix release closeout drift and staged helper/runtime verification regressions
+
+- Root cause:
+  the post-`3.64` tree contained real fixes, but the closeout flow stalled
+  before commit and push. During that gap, version metadata was left at `3.64`
+  while new changes accumulated, staged helpers that re-entered
+  `_dashboard-core` directly could lose the repo lib path in direct helper
+  smoke coverage, and `CLI::Progress` treated falsey `max_detail_lines` as
+  zero visible detail lines instead of the documented fallback rolling window.
+
+- Fix:
+  bumped the release to `3.65`, resynced the canonical POD, generated README,
+  and release metadata expectations, taught staged core-backed helpers to seed
+  `DEVELOPER_DASHBOARD_REPO_LIB` from `@INC` before re-entering
+  `_dashboard-core`, and normalized falsey `max_detail_lines` to the intended
+  ten-line fallback window.
+
+- Prevention:
+  added an explicit repo rule that once a mandatory gate miss is identified,
+  the closeout flow must continue automatically instead of stopping at a soft
+  handoff question.
+
 ## 3.64 - Fix macOS Terminal.app update_terminal_cwd error
 
 - Root cause:

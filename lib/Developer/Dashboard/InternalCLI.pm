@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '3.64';
+our $VERSION = '3.65';
 
 use Cwd qw(abs_path);
 use File::Basename qw(dirname);
@@ -226,6 +226,16 @@ BLOCK
         my $managed_block = <<"BLOCK";
 my \$command = '$name';
 my \$core = File::Spec->catfile( \$Bin, '_dashboard-core' );
+if ( !defined \$ENV{DEVELOPER_DASHBOARD_REPO_LIB} || \$ENV{DEVELOPER_DASHBOARD_REPO_LIB} eq q{} ) {
+    for my \$inc (\@INC) {
+        next if !defined \$inc || \$inc eq q{};
+        my \$candidate = File::Spec->catfile( \$inc, 'Developer', 'Dashboard.pm' );
+        if ( -f \$candidate ) {
+            \$ENV{DEVELOPER_DASHBOARD_REPO_LIB} = \$inc;
+            last;
+        }
+    }
+}
 my \@command = ( \$^X, \$core, \$command, \@ARGV );
 if (is_windows()) {
     system \@command;
