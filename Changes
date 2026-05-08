@@ -1,3 +1,8 @@
+3.64  2026-05-08
+    - fixed macOS Terminal.app shell bootstrap to source /etc/bashrc_Apple_Terminal
+      when update_terminal_cwd is missing, preventing "command not found"
+      errors on fresh macOS bash sessions
+
 3.63  2026-05-08
     - added dockerfile manifest support to skill installation, allowing skills
       to declare Docker images that get built automatically during install

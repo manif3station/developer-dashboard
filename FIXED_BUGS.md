@@ -1,4 +1,18 @@
 # Fixed Bugs
+## 3.64 - Fix macOS Terminal.app update_terminal_cwd error
+
+- Root cause:
+  On macOS, Terminal.app defines `update_terminal_cwd()` in
+  `/etc/bashrc_Apple_Terminal` to update the window title with the current
+  working directory. When the dashboard shell bootstrap was evaluated in a
+  fresh bash session without this file being sourced first, pressing Enter
+  would trigger the error: `-bash: update_terminal_cwd: command not found`
+
+- Fix:
+  added guard to bash shell bootstrap to source `/etc/bashrc_Apple_Terminal`
+  when `update_terminal_cwd` is missing, preventing the error on fresh macOS
+  bash sessions.
+
 ## 3.63 - Fix Docker build output truncation and add dockerfile manifest support
 
 - Root cause:
