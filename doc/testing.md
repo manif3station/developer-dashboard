@@ -196,6 +196,7 @@ The runtime-manager tests also cover:
 
 - background web startup handshake and web-state persistence
 - `dashboard serve` collector startup and failure handling, including explicit startup errors and cleanup of already-started loops when a later collector fails
+- collector watchdog supervision after startup, including automatic restart of unexpectedly-dead loops and explicit `attention_required` state after repeated crashes inside the watchdog window
 - DD-OOP-LAYERS canonical-path normalization, including a symlinked-home versus canonical-cwd regression that matches macOS `/var/...` and `/private/var/...` alias behaviour
 - CLI `dashboard path project-root` assertions compare path identity instead of raw strings, so packaged installs stay green when macOS resolves the same temp repo through `/private/var/...`
 - shell-helper `cdr` and `which_dir` assertions also normalize those `/var/...` versus `/private/var/...` aliases, so source-tree and packaged macOS runs do not fail on equivalent canonical paths

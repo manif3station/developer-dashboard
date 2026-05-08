@@ -124,24 +124,25 @@ The integration run creates:
 13. Exercise path, prompt, shell, encode/decode, and indicator commands.
 14. Exercise collector write/run/read/start/restart/stop flows, including fake-project config collector definitions, TT-backed collector indicator icons rendered from collector stdout JSON, `dashboard collector log`, `dashboard collector log <name>`, and housekeeper-driven collector log rotation from configured `rotation` or `rotations` rules.
 15. Restart the installed runtime with one intentionally broken Perl config collector and one healthy config collector, then verify the broken collector reports an error without stopping the healthy collector or its green indicator state, even when prompt/browser status refreshes run during the restart window.
-16. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
-17. Exercise builtin action execution.
-18. For Windows-targeted changes, run `integration/windows/run-strawberry-smoke.ps1 -UseInstallBootstrap -BootstrapScript <checkout install.ps1>` so the guest validates the same streamed `Invoke-Expression` bootstrap shape that operators use with `irm .../install.ps1 | iex`, including successful `cpanm --notest .` checkout installation and a fresh PowerShell session that can load the generated profile without a `running scripts is disabled` failure, resolve `dashboard`, print `dashboard version`, and run `dashboard logs`.
-18. Exercise docker compose dry-run resolution against a temporary project.
-19. Start the installed web service.
-20. Confirm exact-loopback access reaches the editor page in Chromium.
-21. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
-22. Confirm the browser inserts sorted rendered `nav/*.tt` bookmark fragments between the top chrome and the main page body.
-23. Confirm the browser top-right status strip shows configured collector icons, not collector names, that UTF-8 icons such as `🐳` and `💰` are visibly rendered, and that renamed collectors no longer leave stale managed indicators behind.
-24. Confirm an installed saved bookmark page can declare `var endpoints = {};`, then use `fetch_value()` and `stream_value()` from `$(document).ready(...)` against saved `/ajax/<file>` routes without inline-script ordering failures or browser console `ReferenceError`s.
-25. Confirm an installed long-running saved `/ajax/<file>` route starts streaming the first output chunks promptly instead of buffering until the worker exits.
-26. Confirm non-loopback self-access returns `401` with an empty body and without a login form before any helper user exists in the active runtime.
-27. Add a helper user for the outsider browser flow, then confirm non-loopback self-access reaches the helper login page in Chromium.
-28. Log in as a helper through the HTTP helper flow.
-29. Confirm helper page chrome shows `Logout`.
-30. Log out and confirm the helper account is removed.
-31. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
-32. Stop the runtime and confirm the web service is gone.
+16. Kill one managed collector loop after startup, confirm the watchdog restarts it automatically, and verify `dashboard collector status <name>` records watchdog restart counters/timestamps. Kill it repeatedly until the watchdog limit is exceeded, then confirm the collector is marked `attention_required` instead of disappearing silently.
+17. Exercise page create/save/show/encode/decode/render/source flows inside the fake bookmark directory.
+18. Exercise builtin action execution.
+19. For Windows-targeted changes, run `integration/windows/run-strawberry-smoke.ps1 -UseInstallBootstrap -BootstrapScript <checkout install.ps1>` so the guest validates the same streamed `Invoke-Expression` bootstrap shape that operators use with `irm .../install.ps1 | iex`, including successful `cpanm --notest .` checkout installation and a fresh PowerShell session that can load the generated profile without a `running scripts is disabled` failure, resolve `dashboard`, print `dashboard version`, and run `dashboard logs`.
+20. Exercise docker compose dry-run resolution against a temporary project.
+21. Start the installed web service.
+22. Confirm exact-loopback access reaches the editor page in Chromium.
+23. Confirm the browser can render a saved fake-project bookmark page from the fake project bookmark directory.
+24. Confirm the browser inserts sorted rendered `nav/*.tt` bookmark fragments between the top chrome and the main page body.
+25. Confirm the browser top-right status strip shows configured collector icons, not collector names, that UTF-8 icons such as `🐳` and `💰` are visibly rendered, and that renamed collectors no longer leave stale managed indicators behind.
+26. Confirm an installed saved bookmark page can declare `var endpoints = {};`, then use `fetch_value()` and `stream_value()` from `$(document).ready(...)` against saved `/ajax/<file>` routes without inline-script ordering failures or browser console `ReferenceError`s.
+27. Confirm an installed long-running saved `/ajax/<file>` route starts streaming the first output chunks promptly instead of buffering until the worker exits.
+28. Confirm non-loopback self-access returns `401` with an empty body and without a login form before any helper user exists in the active runtime.
+29. Add a helper user for the outsider browser flow, then confirm non-loopback self-access reaches the helper login page in Chromium.
+30. Log in as a helper through the HTTP helper flow.
+31. Confirm helper page chrome shows `Logout`.
+32. Log out and confirm the helper account is removed.
+33. Restart the installed runtime from the extracted tarball tree and confirm the web service comes back.
+34. Stop the runtime and confirm the web service is gone.
 
 ## Expected Results
 
@@ -171,6 +172,7 @@ The integration run creates:
 - the staged home-runtime `shell` helper itself must emit that tmux-aware bootstrap after install, not just the repo checkout `bin/dashboard shell ...` path
 - a broken config Perl collector reports an error without stopping other configured collectors
 - a healthy config collector still reports `ok` and stays green in `dashboard indicator list`, `dashboard ps1`, and `/system/status`, without being clobbered back to `missing` by concurrent config-sync refreshes
+- a killed managed collector loop is restarted automatically by the watchdog, and repeated crash loops eventually surface `watchdog_attention_required` in `dashboard collector status <name>` instead of going silent
 - `dashboard collector log` prints aggregated collector transcripts, `dashboard collector log <name>` prints the named collector transcript, and configured collectors that have not run yet report an explicit no-log message instead of blank output
 - TT-backed collector icons render from stdout JSON and stay rendered through later config-sync reads instead of reverting to raw `[% ... %]` text
 - the web service serves the root editor on `127.0.0.1:7890`

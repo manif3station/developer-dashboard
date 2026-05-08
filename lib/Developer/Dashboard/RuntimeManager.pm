@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.65';
+our $VERSION = '3.66';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -12,10 +12,12 @@ use IO::Socket::INET;
 use POSIX qw(setsid strftime);
 use Time::HiRes qw(sleep time);
 
+use Developer::Dashboard::Collector;
 use Developer::Dashboard::JSON qw(json_encode json_decode);
 use Developer::Dashboard::Platform qw(command_in_path is_windows);
 
 our $SIGNAL_MANAGER;
+our $COLLECTOR_SUPERVISOR_MANAGER;
 
 # new(%args)
 # Constructs the runtime lifecycle manager.
@@ -31,6 +33,7 @@ sub new {
 
     return bless {
         app_builder => $app_builder,
+        collectors  => $args{collectors} || Developer::Dashboard::Collector->new( paths => $paths ),
         config      => $config,
         files       => $files,
         paths       => $paths,
@@ -287,7 +290,7 @@ sub stop_web {
                 label   => 'Stop dashboard web service',
             }
         );
-        return $pid;
+        return _numeric_pid($pid);
     }
 
     $self->_send_signal( 'TERM', $pid ) if $pid;
@@ -331,7 +334,18 @@ sub stop_web {
             label   => 'Stop dashboard web service',
         }
     );
-    return $pid;
+    return _numeric_pid($pid);
+}
+
+# _numeric_pid($pid)
+# Normalizes persisted pid values back to numeric scalars for lifecycle JSON
+# output while preserving undef when no process id is available.
+# Input: optional pid scalar.
+# Output: numeric pid scalar or undef.
+sub _numeric_pid {
+    my ($pid) = @_;
+    return undef if !defined $pid || $pid eq '';
+    return $pid =~ /^\d+$/ ? $pid + 0 : $pid;
 }
 
 # _wait_for_windows_web_shutdown($pid, $port, $listener_pids)
@@ -418,6 +432,7 @@ sub start_collectors {
         );
         push @started, { name => $job->{name}, pid => $pid } if defined $pid;
     }
+    $self->_merge_collector_supervisor_targets( [ map { $_->{name} } @started ] ) if @started;
     return @started;
 }
 
@@ -473,6 +488,7 @@ sub start_named_collector {
             label   => "Start collector $name",
         }
     );
+    $self->_merge_collector_supervisor_targets( [$name] );
     return {
         name => $name,
         pid  => $pid,
@@ -521,12 +537,11 @@ sub serve_all {
         };
     }
 
-    my $pid = $self->start_web(
-        foreground => 0,
-        host       => $host,
-        port       => $port,
-        workers    => $workers,
-        ssl        => $ssl,
+    my $pid = $self->_restart_web_with_retry(
+        host     => $host,
+        port     => $port,
+        workers  => $workers,
+        ssl      => $ssl,
     );
     my @collectors = $self->start_collectors;
     return {
@@ -549,6 +564,12 @@ sub stop_collectors {
     my %wanted = map { $_ => 1 } @{ $args{names} || [] };
     my @targets = $self->_collector_stop_targets( \%wanted );
     my @names = map { $_->{name} } @targets;
+    if (%wanted) {
+        $self->_remove_collector_supervisor_targets( \@names );
+    }
+    else {
+        $self->_stop_collector_supervisor;
+    }
     my @stopped;
     for my $loop (@targets) {
         my $name = $loop->{name};
@@ -915,6 +936,551 @@ sub _loop_job_for_named_start {
         $loop_job{schedule} = 'interval';
     }
     return \%loop_job;
+}
+
+# _supervise_collectors_once(%args)
+# Runs one watchdog pass across the requested collector names, restarting
+# unexpectedly-dead loops until the restart threshold is exceeded.
+# Input: names array reference.
+# Output: hash reference with restarted and attention arrays.
+sub _supervise_collectors_once {
+    my ( $self, %args ) = @_;
+    my @names = $self->_normalized_collector_watch_names( $args{names} );
+    my %running = map { $_->{name} => $_ } $self->{runner}->running_loops;
+    my %result = (
+        restarted => [],
+        attention => [],
+    );
+
+    for my $name (@names) {
+        next if $running{$name};
+
+        my $job = eval { $self->_collector_job_by_name($name) };
+        if ( !$job ) {
+            my $error = $@ || "Unknown collector '$name'\n";
+            $self->_mark_collector_watchdog_attention(
+                $name,
+                $error,
+                restart_count => 0,
+            );
+            push @{ $result{attention} }, { name => $name, reason => $error };
+            next;
+        }
+
+        my $status = $self->{collectors}->read_status($name) || {};
+        my ( $restart_count, $window_started_at, $window_started_epoch ) =
+          $self->_collector_watchdog_window($status);
+        my $observed_at_epoch = time;
+        my $observed_at = _now_iso8601();
+        $restart_count++;
+
+        if ( $restart_count > $self->_collector_restart_limit ) {
+            my $message = sprintf
+              "Collector '%s' stopped unexpectedly too many times within %s seconds; manual investigation is required",
+              $name, $self->_collector_restart_window_seconds;
+            $self->_mark_collector_watchdog_attention(
+                $name,
+                $message,
+                observed_at            => $observed_at,
+                observed_at_epoch      => $observed_at_epoch,
+                restart_count          => $restart_count,
+                window_started_at      => $window_started_at,
+                window_started_epoch   => $window_started_epoch,
+            );
+            push @{ $result{attention} }, { name => $name, reason => $message };
+            next;
+        }
+
+        my $loop_job = $self->_loop_job_for_named_start($job);
+        my $pid = eval { $self->{runner}->start_loop($loop_job) };
+        my $start_error = $@;
+        if ( !$start_error && defined $pid && !$self->_collector_runtime_ready( $name, $pid ) ) {
+            eval { $self->{runner}->stop_loop($name) };
+            $start_error = "Failed to keep collector '$name' running after watchdog restart\n";
+        }
+
+        if ($start_error) {
+            chomp $start_error;
+            $self->{collectors}->write_status(
+                $name,
+                {
+                    running                              => 0,
+                    watchdog_attention_required          => 0,
+                    watchdog_last_error                  => $start_error,
+                    watchdog_last_unexpected_stop_at     => $observed_at,
+                    watchdog_last_unexpected_stop_at_epoch => $observed_at_epoch,
+                    watchdog_restart_count               => $restart_count,
+                    watchdog_restart_window_started_at   => $window_started_at,
+                    watchdog_restart_window_started_at_epoch => $window_started_epoch,
+                    watchdog_status                      => 'restart_failed',
+                }
+            );
+            $self->_log_collector_watchdog_event( $name, $start_error );
+            next;
+        }
+
+        $self->{collectors}->write_status(
+            $name,
+            {
+                running                              => 1,
+                watchdog_attention_required          => 0,
+                watchdog_last_error                  => undef,
+                watchdog_last_restart_at             => $observed_at,
+                watchdog_last_restart_at_epoch       => $observed_at_epoch,
+                watchdog_last_unexpected_stop_at     => $observed_at,
+                watchdog_last_unexpected_stop_at_epoch => $observed_at_epoch,
+                watchdog_restart_count               => $restart_count,
+                watchdog_restart_window_started_at   => $window_started_at,
+                watchdog_restart_window_started_at_epoch => $window_started_epoch,
+                watchdog_status                      => 'running',
+            }
+        );
+        $self->_log_collector_watchdog_event( $name, "Watchdog restarted collector '$name' (attempt $restart_count)" );
+        push @{ $result{restarted} }, { name => $name, pid => $pid };
+    }
+
+    return \%result;
+}
+
+# _collector_watchdog_window($status)
+# Normalizes the collector watchdog restart window and counter from persisted
+# collector status.
+# Input: collector status hash reference.
+# Output: restart count integer, window-start ISO-8601 string, and window-start epoch.
+sub _collector_watchdog_window {
+    my ( $self, $status ) = @_;
+    $status ||= {};
+    my $now_epoch = time;
+    my $count = $status->{watchdog_restart_count} || 0;
+    my $window_epoch = $status->{watchdog_restart_window_started_at_epoch};
+    my $window_at = $status->{watchdog_restart_window_started_at};
+    if ( !defined $window_epoch || $window_epoch !~ /^\d+(?:\.\d+)?$/ || ( $now_epoch - $window_epoch ) > $self->_collector_restart_window_seconds ) {
+        $count = 0;
+        $window_epoch = $now_epoch;
+        $window_at = _now_iso8601();
+    }
+    return ( $count, $window_at, $window_epoch );
+}
+
+# _mark_collector_watchdog_attention($name, $message, %args)
+# Persists the collector watchdog attention state and records an explicit log
+# entry explaining why automatic restarts stopped.
+# Input: collector name string, human-readable message, and optional timing/count fields.
+# Output: true value.
+sub _mark_collector_watchdog_attention {
+    my ( $self, $name, $message, %args ) = @_;
+    my $observed_at = $args{observed_at} || _now_iso8601();
+    my $observed_at_epoch = defined $args{observed_at_epoch} ? $args{observed_at_epoch} : time;
+    $self->{collectors}->write_status(
+        $name,
+        {
+            running                              => 0,
+            watchdog_attention_required          => 1,
+            watchdog_last_error                  => $message,
+            watchdog_last_unexpected_stop_at     => $observed_at,
+            watchdog_last_unexpected_stop_at_epoch => $observed_at_epoch,
+            watchdog_restart_count               => $args{restart_count},
+            watchdog_restart_window_started_at   => $args{window_started_at},
+            watchdog_restart_window_started_at_epoch => $args{window_started_epoch},
+            watchdog_status                      => 'attention_required',
+        }
+    );
+    $self->_log_collector_watchdog_event( $name, $message );
+    return 1;
+}
+
+# _log_collector_watchdog_event($name, $message)
+# Writes one explicit watchdog event to the global collector log and the named
+# collector transcript log.
+# Input: collector name string and message text.
+# Output: true value.
+sub _log_collector_watchdog_event {
+    my ( $self, $name, $message ) = @_;
+    chomp $message if defined $message;
+    my $timestamp = _now_iso8601();
+    $self->{files}->append( 'collector_log', sprintf "[%s][watchdog][%s] %s\n", $timestamp, $name, $message );
+    $self->{collectors}->append_log_entry(
+        $name,
+        happened_at => $timestamp,
+        error       => $message,
+        source      => 'watchdog',
+    );
+    return 1;
+}
+
+# _merge_collector_supervisor_targets($names)
+# Adds collector names to the persisted watchdog target set and ensures the
+# background supervisor process is running.
+# Input: array reference of collector names.
+# Output: supervisor pid integer or undef when no targets remain.
+sub _merge_collector_supervisor_targets {
+    my ( $self, $names ) = @_;
+    my $state = $self->_collector_supervisor_state || {};
+    my @merged = $self->_normalized_collector_watch_names( [ @{ $state->{watched_names} || [] }, @{ $names || [] } ] );
+    return $self->_set_collector_supervisor_targets( \@merged );
+}
+
+# _remove_collector_supervisor_targets($names)
+# Removes collector names from the persisted watchdog target set and stops the
+# supervisor when no watched collectors remain.
+# Input: array reference of collector names.
+# Output: supervisor pid integer or undef.
+sub _remove_collector_supervisor_targets {
+    my ( $self, $names ) = @_;
+    my %remove = map { $_ => 1 } $self->_normalized_collector_watch_names($names);
+    my $state = $self->_collector_supervisor_state || {};
+    my @remaining = grep { !$remove{$_} } @{ $state->{watched_names} || [] };
+    return $self->_set_collector_supervisor_targets( \@remaining );
+}
+
+# _set_collector_supervisor_targets($names)
+# Replaces the persisted watchdog target set, starting or stopping the
+# supervisor process to match the desired collector fleet.
+# Input: array reference of collector names.
+# Output: supervisor pid integer or undef when the supervisor is stopped.
+sub _set_collector_supervisor_targets {
+    my ( $self, $names ) = @_;
+    my @targets = $self->_normalized_collector_watch_names($names);
+    if ( !@targets ) {
+        $self->_stop_collector_supervisor;
+        return;
+    }
+
+    my $pid = $self->_collector_supervisor_running;
+    $self->_write_collector_supervisor_state(
+        {
+            pid          => $pid,
+            process_name => $self->_collector_supervisor_process_title,
+            status       => $pid ? 'running' : 'starting',
+            watched_names => \@targets,
+            updated_at   => _now_iso8601(),
+        }
+    );
+    return $pid if $pid;
+    return $self->_start_collector_supervisor;
+}
+
+# _start_collector_supervisor()
+# Starts the long-lived collector watchdog background process when it is not
+# already running.
+# Input: none.
+# Output: supervisor pid integer or undef when no watched targets exist.
+sub _start_collector_supervisor {
+    my ($self) = @_;
+    my $state = $self->_collector_supervisor_state || {};
+    my @targets = $self->_normalized_collector_watch_names( $state->{watched_names} );
+    return if !@targets;
+
+    if ( my $running = $self->_collector_supervisor_running ) {
+        return $running;
+    }
+
+    if (is_windows()) {
+        my @command = $self->_windows_background_collector_supervisor_command;
+        my $pid = $self->_spawn_windows_background_command(@command);
+        $self->{paths}->secure_file_permissions( $self->_collector_supervisor_pidfile );
+        open my $fh, '>', $self->_collector_supervisor_pidfile or die "Unable to write " . $self->_collector_supervisor_pidfile . ": $!";
+        print {$fh} $pid;
+        close $fh;
+        $self->{paths}->secure_file_permissions( $self->_collector_supervisor_pidfile );
+        $self->_write_collector_supervisor_state(
+            {
+                %{$state},
+                pid          => $pid,
+                process_name => $self->_collector_supervisor_process_title,
+                status       => 'running',
+                started_at   => _now_iso8601(),
+                heartbeat_at => _now_iso8601(),
+            }
+        );
+        return $pid;
+    }
+
+    my $pid = fork();
+    die "Unable to fork collector supervisor: $!" if !defined $pid;
+    if ($pid) {
+        open my $fh, '>', $self->_collector_supervisor_pidfile or die "Unable to write " . $self->_collector_supervisor_pidfile . ": $!";
+        print {$fh} $pid;
+        close $fh;
+        $self->{paths}->secure_file_permissions( $self->_collector_supervisor_pidfile );
+        $self->_write_collector_supervisor_state(
+            {
+                %{$state},
+                pid          => $pid,
+                process_name => $self->_collector_supervisor_process_title,
+                status       => 'running',
+                started_at   => _now_iso8601(),
+                heartbeat_at => _now_iso8601(),
+            }
+        );
+        return $pid;
+    }
+
+    return $self->_run_collector_supervisor_child;
+}
+
+# _run_collector_supervisor_child(%args)
+# Runs the collector watchdog loop in the detached supervisor process.
+# Input: optional daemonize and redirect booleans.
+# Output: never returns in normal operation.
+sub _run_collector_supervisor_child {
+    my ( $self, %args ) = @_;
+    my $daemonize = exists $args{daemonize} ? $args{daemonize} : 1;
+    my $redirect  = exists $args{redirect}  ? $args{redirect}  : 1;
+
+    if ($daemonize) {
+        $self->_detach_web_process_session;
+    }
+    if ($redirect) {
+        open STDIN, '<', File::Spec->devnull() or die $!;
+        open STDOUT, '>>', $self->{files}->collector_log or die $!;
+        open STDERR, '>>', $self->{files}->collector_log or die $!;
+    }
+
+    $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR} = 1;
+    local $0 = $self->_collector_supervisor_process_title;
+    local $COLLECTOR_SUPERVISOR_MANAGER = $self;
+    my $shutdown = sub { $self->_shutdown_collector_supervisor('stopped') };
+    local $SIG{TERM} = $shutdown;
+    local $SIG{INT}  = $shutdown;
+    local $SIG{HUP}  = $shutdown;
+
+    while (1) {
+        my $state = $self->_collector_supervisor_state || {};
+        my @targets = $self->_normalized_collector_watch_names( $state->{watched_names} );
+        if ( !@targets ) {
+            $self->_shutdown_collector_supervisor('stopped');
+        }
+        $self->_write_collector_supervisor_state(
+            {
+                %{$state},
+                pid          => $$,
+                process_name => $self->_collector_supervisor_process_title,
+                status       => 'running',
+                heartbeat_at => _now_iso8601(),
+            }
+        );
+        eval { $self->_supervise_collectors_once( names => \@targets ) };
+        if ($@) {
+            my $error = "$@";
+            chomp $error;
+            $self->{files}->append( 'collector_log', sprintf "[%s][watchdog] %s\n", _now_iso8601(), $error );
+            $self->_write_collector_supervisor_state(
+                {
+                    %{$state},
+                    pid          => $$,
+                    process_name => $self->_collector_supervisor_process_title,
+                    status       => 'error',
+                    error        => $error,
+                    heartbeat_at => _now_iso8601(),
+                }
+            );
+        }
+        sleep $self->_collector_supervisor_poll_interval;
+    }
+}
+
+# _shutdown_collector_supervisor($status)
+# Persists the final watchdog supervisor state and removes its pid/state files.
+# Input: final status string.
+# Output: never returns.
+sub _shutdown_collector_supervisor {
+    my ( $self, $status ) = @_;
+    my $state = $self->_collector_supervisor_state || {};
+    $self->_write_collector_supervisor_state(
+        {
+            %{$state},
+            pid          => $$,
+            process_name => $self->_collector_supervisor_process_title,
+            status       => $status || 'stopped',
+            heartbeat_at => _now_iso8601(),
+            stopped_at   => _now_iso8601(),
+        }
+    );
+    $self->_cleanup_collector_supervisor_files;
+    exit 0;
+}
+
+# _stop_collector_supervisor()
+# Stops the background collector watchdog process when it is running.
+# Input: none.
+# Output: stopped supervisor pid integer or undef.
+sub _stop_collector_supervisor {
+    my ($self) = @_;
+    my $pid = $self->_collector_supervisor_running;
+    if ($pid) {
+        $self->_send_signal( 'TERM', $pid );
+        for ( 1 .. 20 ) {
+            last if !kill 0, $pid;
+            sleep 0.1;
+        }
+        $self->_send_signal( 'KILL', $pid ) if kill 0, $pid;
+    }
+    $self->_cleanup_collector_supervisor_files;
+    return $pid;
+}
+
+# _collector_supervisor_running()
+# Returns the live watchdog supervisor pid when the managed process is still
+# active in the current pid namespace.
+# Input: none.
+# Output: supervisor pid integer or undef.
+sub _collector_supervisor_running {
+    my ($self) = @_;
+    my $pidfile = $self->_collector_supervisor_pidfile;
+    return if !-f $pidfile;
+    open my $fh, '<', $pidfile or die "Unable to read $pidfile: $!";
+    my $pid = <$fh>;
+    close $fh or die "Unable to close $pidfile: $!";
+    chomp $pid if defined $pid;
+    if ( $pid && $pid =~ /^\d+$/ && kill( 0, $pid ) && $self->_same_pid_namespace($pid) && $self->_is_collector_supervisor($pid) ) {
+        return $pid + 0;
+    }
+    $self->_cleanup_collector_supervisor_files;
+    return;
+}
+
+# _is_collector_supervisor($pid)
+# Confirms whether a pid belongs to the managed collector watchdog process.
+# Input: process id integer.
+# Output: boolean managed flag.
+sub _is_collector_supervisor {
+    my ( $self, $pid ) = @_;
+    return 0 if !$pid || !kill 0, $pid;
+    my $marker = $self->_read_process_env_marker( $pid, 'DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR' );
+    return 1 if defined $marker && $marker eq '1';
+    my $title = $self->_read_process_title($pid);
+    return 0 if !defined $title || $title eq '';
+    return 1 if $title eq $self->_collector_supervisor_process_title;
+    return 1 if $self->_looks_like_collector_supervisor_process( { pid => $pid, args => $title } );
+    return 0;
+}
+
+# _looks_like_collector_supervisor_process($proc)
+# Determines whether one process record matches the detached watchdog command
+# shape used on platforms that expose the helper command line instead of the
+# process title.
+# Input: process hash reference with args text.
+# Output: boolean match flag.
+sub _looks_like_collector_supervisor_process {
+    my ( $self, $proc ) = @_;
+    return 0 if !$proc || !$proc->{args};
+    return 1 if $proc->{args} =~ /^dashboard collector supervisor$/;
+    return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$};
+    return 1 if $proc->{args} =~ m{^(?:\S+[\\/])?perl(?:\.exe)?(?:\s+-\S+)*\s+(?:\S+[\\/])?_dashboard-core\s+collector-supervisor-foreground(?:\s+.*)?$}i;
+    return 0;
+}
+
+# _collector_supervisor_pidfile()
+# Returns the watchdog supervisor pidfile path.
+# Input: none.
+# Output: file path string.
+sub _collector_supervisor_pidfile {
+    my ($self) = @_;
+    return File::Spec->catfile( $self->{paths}->state_root, 'collector-supervisor.pid' );
+}
+
+# _collector_supervisor_statefile()
+# Returns the watchdog supervisor state file path.
+# Input: none.
+# Output: file path string.
+sub _collector_supervisor_statefile {
+    my ($self) = @_;
+    return File::Spec->catfile( $self->{paths}->state_root, 'collector-supervisor.json' );
+}
+
+# _collector_supervisor_state()
+# Loads the persisted watchdog supervisor state.
+# Input: none.
+# Output: state hash reference or undef.
+sub _collector_supervisor_state {
+    my ($self) = @_;
+    my $file = $self->_collector_supervisor_statefile;
+    return if !-f $file;
+    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
+    local $/;
+    return json_decode( scalar <$fh> );
+}
+
+# _write_collector_supervisor_state($state)
+# Atomically persists the watchdog supervisor state snapshot.
+# Input: state hash reference.
+# Output: written state hash reference.
+sub _write_collector_supervisor_state {
+    my ( $self, $data ) = @_;
+    my $file = $self->_collector_supervisor_statefile;
+    my $tmp = sprintf '%s.%s.%s.pending', $file, $$, time;
+    open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
+    print {$fh} json_encode( $data || {} );
+    close $fh;
+    $self->{paths}->secure_file_permissions($tmp);
+    rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
+    $self->{paths}->secure_file_permissions($file);
+    return $data || {};
+}
+
+# _cleanup_collector_supervisor_files()
+# Removes the watchdog supervisor pid and state files.
+# Input: none.
+# Output: true value.
+sub _cleanup_collector_supervisor_files {
+    my ($self) = @_;
+    unlink $self->_collector_supervisor_pidfile if -f $self->_collector_supervisor_pidfile;
+    unlink $self->_collector_supervisor_statefile if -f $self->_collector_supervisor_statefile;
+    return 1;
+}
+
+# _collector_supervisor_process_title()
+# Returns the managed process title used by the watchdog supervisor.
+# Input: none.
+# Output: process title string.
+sub _collector_supervisor_process_title {
+    return 'dashboard collector supervisor';
+}
+
+# _normalized_collector_watch_names($names)
+# Deduplicates and sorts collector names for the watchdog target set.
+# Input: array reference or list-like scalar containing collector names.
+# Output: ordered list of collector name strings.
+sub _normalized_collector_watch_names {
+    my ( $self, $names ) = @_;
+    my @names = ref($names) eq 'ARRAY' ? @{$names} : ();
+    my %seen;
+    return sort grep { defined && $_ ne '' && !$seen{$_}++ } @names;
+}
+
+# _collector_restart_limit()
+# Returns how many unexpected collector restarts are allowed within the active
+# watchdog window before human attention is required.
+# Input: none.
+# Output: positive integer restart limit.
+sub _collector_restart_limit {
+    my ($self) = @_;
+    my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_RESTART_LIMIT};
+    return $value if defined $value && $value =~ /^\d+$/ && $value > 0;
+    return 3;
+}
+
+# _collector_restart_window_seconds()
+# Returns the rolling time window used for watchdog restart-threshold tracking.
+# Input: none.
+# Output: positive integer number of seconds.
+sub _collector_restart_window_seconds {
+    my ($self) = @_;
+    my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_RESTART_WINDOW_SECONDS};
+    return $value if defined $value && $value =~ /^\d+$/ && $value > 0;
+    return 300;
+}
+
+# _collector_supervisor_poll_interval()
+# Returns how often the watchdog supervisor scans the collector fleet.
+# Input: none.
+# Output: positive fractional second poll interval.
+sub _collector_supervisor_poll_interval {
+    my ($self) = @_;
+    my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_SUPERVISOR_POLL_INTERVAL};
+    return $value if defined $value && $value =~ /^(?:\d+|\d*\.\d+)$/ && $value > 0;
+    return 5;
 }
 
 # stop_progress_tasks()
@@ -1333,7 +1899,7 @@ sub _is_managed_web {
 # Output: command list suitable for system 1, @command on Windows.
 sub _windows_background_web_command {
     my ( $self, %args ) = @_;
-    my $core = $self->_dashboard_core_helper_path;
+    my $core = $self->_dashboard_core_helper_path('web-foreground');
     my $perl = $self->_current_perl_command;
     my @command = (
         $perl,
@@ -1348,6 +1914,22 @@ sub _windows_background_web_command {
     );
     push @command, '--ssl' if $args{ssl};
     return @command;
+}
+
+# _windows_background_collector_supervisor_command()
+# Builds the detached helper command used to host the collector watchdog on
+# Windows without tying it to the current process lifetime.
+# Input: none.
+# Output: command list suitable for system 1, @command on Windows.
+sub _windows_background_collector_supervisor_command {
+    my ($self) = @_;
+    my $core = $self->_dashboard_core_helper_path('collector-supervisor-foreground');
+    my $perl = $self->_current_perl_command;
+    return (
+        $perl,
+        $core,
+        'collector-supervisor-foreground',
+    );
 }
 
 # _current_perl_command()
@@ -1374,12 +1956,13 @@ sub _current_perl_command {
 # Input: none.
 # Output: absolute helper path string.
 sub _dashboard_core_helper_path {
-    my ($self) = @_;
+    my ( $self, $command ) = @_;
+    $command ||= 'web-foreground';
     my $staged = File::Spec->catfile( $self->{paths}->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
-    return $staged if $self->_helper_file_supports_internal_command( $staged, 'web-foreground' );
+    return $staged if $self->_helper_file_supports_internal_command( $staged, $command );
 
     my $shipped = File::Spec->catfile( dist_dir('Developer-Dashboard'), 'private-cli', '_dashboard-core' );
-    return $shipped if $self->_helper_file_supports_internal_command( $shipped, 'web-foreground' );
+    return $shipped if $self->_helper_file_supports_internal_command( $shipped, $command );
 
     return $staged;
 }
@@ -2137,9 +2720,11 @@ Developer::Dashboard::RuntimeManager - runtime lifecycle manager
 =head1 DESCRIPTION
 
 This module manages the lifecycle of the dashboard web service and managed
-collector loops, including stop and restart orchestration. Shutdown uses
-numeric POSIX signals internally so minimal Perl builds that reject named
-signals still stop managed processes correctly.
+collector loops, including stop and restart orchestration plus the collector
+watchdog that restarts unexpectedly-dead loops and records explicit
+attention-required state after repeated crashes. Shutdown uses numeric POSIX
+signals internally so minimal Perl builds that reject named signals still stop
+managed processes correctly.
 
 =head1 METHODS
 
@@ -2151,15 +2736,15 @@ Construct and manage the dashboard runtime.
 
 =head1 PURPOSE
 
-This module manages the dashboard runtime processes. It starts, stops, and restarts the web listener, tracks the web pid, coordinates collector lifecycle around restart/stop flows, sends numeric POSIX shutdown signals for Alpine/iSH compatibility, and exposes the process-management behavior behind the serve/restart/stop command family.
+This module manages the dashboard runtime processes. It starts, stops, and restarts the web listener, tracks the web pid, coordinates collector lifecycle around restart/stop flows, supervises managed collector loops with a watchdog, sends numeric POSIX shutdown signals for Alpine/iSH compatibility, and exposes the process-management behavior behind the serve/restart/stop command family.
 
 =head1 WHY IT EXISTS
 
-It exists because runtime lifecycle management needs one owner for pid files, process validation, restart ordering, and port-release races. That keeps the browser server and collector loops moving together instead of leaving each command to improvise process control.
+It exists because runtime lifecycle management needs one owner for pid files, process validation, restart ordering, watchdog restart thresholds, and port-release races. That keeps the browser server and collector loops moving together instead of leaving each command to improvise process control.
 
 =head1 WHEN TO USE
 
-Use this file when changing how the web process is launched, how restart waits for ports to free up, how collectors are stopped and restarted with the web process, or how runtime state is validated before a lifecycle command acts.
+Use this file when changing how the web process is launched, how restart waits for ports to free up, how collectors are stopped, restarted, or watchdog-supervised with the web process, or how runtime state is validated before a lifecycle command acts.
 
 =head1 HOW TO USE
 

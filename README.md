@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.65
+3.66
 
 # INTRODUCTION
 
@@ -1384,6 +1384,7 @@ left untouched.
 List collector status:
 
     dashboard collector list
+    dashboard collector status shell.example
 
 Inspect collector logs:
 
@@ -1394,6 +1395,11 @@ Inspect collector logs:
 `dashboard collector log <name>` prints one collector transcript.
 If a configured collector has not run yet, the command prints an explicit
 no-log message instead of blank output.
+`dashboard collector status <name>` now also exposes watchdog
+metadata for managed loops, including `watchdog_restart_count`,
+`watchdog_last_unexpected_stop_at`, `watchdog_last_restart_at`, and
+`watchdog_attention_required`, so repeated collector crashes are visible
+instead of looking like silent disappearance.
 Collector status timestamps and collector log headers use the machine's local
 system time with an explicit numeric timezone offset such as `+0100`, so the
 visible timestamps line up with cron scheduling on the same machine instead of
@@ -1762,6 +1768,11 @@ loop
 collector loop, including an on-demand manual collector by converting it into
 a managed interval loop, and collector-name shell completion suggests
 registered collector names
+- managed collector loops also run under a watchdog supervisor; if a loop dies
+unexpectedly after startup, the watchdog restarts it automatically, records
+the restart attempt in collector status/logs, and after too many crashes
+inside the watchdog window marks the collector `attention_required` so the
+operator sees an explicit problem instead of infinite silent restart churn
 - `dashboard log` and `dashboard logs` print the combined dashboard web log
 plus collector logs
 - `dashboard log web` prints only the dashboard web log and still supports

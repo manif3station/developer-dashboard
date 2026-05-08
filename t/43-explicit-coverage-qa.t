@@ -218,7 +218,16 @@ use Developer::Dashboard::SkillManager ();
     }
 
     sub install_progress_tasks {
-        return [ { id => 'fetch', label => 'Fetch' } ];
+        return [
+            { id => 'fetch_source',       label => 'Fetch skill source' },
+            { id => 'prepare_layout',     label => 'Prepare skill layout' },
+            { id => 'install_aptfile',    label => 'Install aptfile dependencies' },
+            { id => 'install_apkfile',    label => 'Install apkfile dependencies' },
+            { id => 'install_dnfile',     label => 'Install dnfile dependencies' },
+            { id => 'install_wingetfile', label => 'Install wingetfile dependencies' },
+            { id => 'install_brewfile',   label => 'Install brewfile dependencies' },
+            { id => 'install_cpanfile',   label => 'Install cpanfile dependencies' },
+        ];
     }
 
     sub install_progress_tasks_for_sources {
@@ -291,6 +300,7 @@ use Developer::Dashboard::SkillManager ();
 
     sub new {
         my ( $class, @args ) = @_;
+        shift @args if @args % 2 == 1 && !ref( $args[0] );
         my %args
           = @args == 1 && ref( $args[0] ) eq 'HASH' ? %{ $args[0] }
           : @args % 2 == 0                         ? @args

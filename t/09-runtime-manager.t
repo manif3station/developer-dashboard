@@ -24,9 +24,30 @@ use lib 'lib';
 my $UNDER_COVER = exists $INC{'Devel/Cover.pm'};
 
 use Developer::Dashboard::Config;
+use Developer::Dashboard::Collector;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::RuntimeManager;
+
+BEGIN {
+    no warnings 'redefine';
+    *Developer::Dashboard::RuntimeManager::_set_collector_supervisor_targets = sub {
+        my ( $self, $names ) = @_;
+        $self->{_test_collector_supervisor_targets} = [ @{ $names || [] } ];
+        return @{ $self->{_test_collector_supervisor_targets} };
+    };
+    *Developer::Dashboard::RuntimeManager::_start_collector_supervisor = sub {
+        my ($self) = @_;
+        $self->{_test_collector_supervisor_started} = 1;
+        return 1;
+    };
+    *Developer::Dashboard::RuntimeManager::_stop_collector_supervisor = sub {
+        my ($self) = @_;
+        $self->{_test_collector_supervisor_targets} = [];
+        $self->{_test_collector_supervisor_started} = 0;
+        return 1;
+    };
+}
 
 sub dies_like {
     my ( $code, $pattern, $label ) = @_;
@@ -110,6 +131,7 @@ local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
 my $paths  = Developer::Dashboard::PathRegistry->new( home => $home );
 my $files  = Developer::Dashboard::FileRegistry->new( paths => $paths );
 my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
+my $collector_store = Developer::Dashboard::Collector->new( paths => $paths );
 $config->save_global(
     {
         collectors => [
@@ -821,7 +843,7 @@ JSON
 {
     my %forwarded;
     no warnings 'redefine';
-    local *Developer::Dashboard::RuntimeManager::start_web = sub {
+    local *Developer::Dashboard::RuntimeManager::_restart_web_with_retry = sub {
         my ( undef, %args ) = @_;
         %forwarded = %args;
         return 9903;
@@ -842,7 +864,7 @@ JSON
         ],
         'serve_all reports the configured collectors it started in background mode',
     );
-    is_deeply( \%forwarded, { foreground => 0, host => '127.0.0.1', port => 7931, workers => 4, ssl => 1 }, 'serve_all forwards normalized background web arguments to start_web' );
+    is_deeply( \%forwarded, { host => '127.0.0.1', port => 7931, workers => 4, ssl => 1 }, 'serve_all forwards normalized background web arguments to the retry-based startup helper' );
 }
 
 {
@@ -1932,6 +1954,119 @@ END {
 }
 
 {
+    no warnings 'redefine';
+    $runner->{started} = [];
+    $runner->{loops} = [];
+    $collector_store->write_status( 'missing.collector', {} );
+    local *Local::RuntimeRunner::running_loops = sub { return () };
+
+    my $result = $manager->_supervise_collectors_once( names => ['missing.collector'] );
+    my $status = $collector_store->read_status('missing.collector') || {};
+
+    is_deeply( $result->{restarted}, [], '_supervise_collectors_once does not report restarts for unknown collectors' );
+    is( $result->{attention}[0]{name}, 'missing.collector', '_supervise_collectors_once reports unknown watched collectors in the attention list' );
+    is( $status->{watchdog_status}, 'attention_required', '_supervise_collectors_once marks unknown watched collectors as attention_required' );
+    ok( $status->{watchdog_last_error}, '_supervise_collectors_once records an explicit error for unknown watched collectors' );
+}
+
+{
+    no warnings 'redefine';
+    $runner->{started} = [];
+    $runner->{loops} = [ { name => 'alpha.collector', pid => 4401 } ];
+    local *Local::RuntimeRunner::running_loops = sub { return @{ $runner->{loops} } };
+
+    my $result = $manager->_supervise_collectors_once( names => ['alpha.collector'] );
+
+    is_deeply( $result->{restarted}, [], '_supervise_collectors_once skips watchdog work for collectors that are already running' );
+    is_deeply( $result->{attention}, [], '_supervise_collectors_once does not raise attention for collectors that are already running' );
+}
+
+{
+    no warnings 'redefine';
+    $runner->{started} = [];
+    $runner->{stopped} = [];
+    $runner->{loops} = [];
+    $collector_store->write_status( 'alpha.collector', {} );
+    local *Local::RuntimeRunner::running_loops = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_collector_runtime_ready = sub { return 1 };
+
+    my $result = $manager->_supervise_collectors_once( names => ['alpha.collector'] );
+    my $status = $collector_store->read_status('alpha.collector') || {};
+
+    is_deeply( $runner->{started}, ['alpha.collector'], '_supervise_collectors_once restarts a missing watched collector' );
+    is( $result->{restarted}[0]{name}, 'alpha.collector', '_supervise_collectors_once reports the restarted collector name' );
+    is( $status->{watchdog_status}, 'running', '_supervise_collectors_once marks a restarted collector as watchdog-running' );
+    is( $status->{watchdog_restart_count}, 1, '_supervise_collectors_once records the first watchdog restart attempt' );
+    ok( $status->{watchdog_last_unexpected_stop_at}, '_supervise_collectors_once records when the collector was found unexpectedly stopped' );
+    ok( $status->{watchdog_last_restart_at}, '_supervise_collectors_once records when the watchdog restarted the collector' );
+    ok( !$status->{watchdog_attention_required}, '_supervise_collectors_once keeps attention_required clear after a successful restart' );
+}
+
+{
+    no warnings 'redefine';
+    $runner->{started} = [];
+    $runner->{stopped} = [];
+    $runner->{loops} = [];
+    local $runner->{fail} = { 'alpha.collector' => "watchdog restart boom\n" };
+    local *Local::RuntimeRunner::running_loops = sub { return () };
+    $collector_store->write_status( 'alpha.collector', {} );
+
+    my $result = $manager->_supervise_collectors_once( names => ['alpha.collector'] );
+    my $status = $collector_store->read_status('alpha.collector') || {};
+
+    is_deeply( $result->{restarted}, [], '_supervise_collectors_once does not report a restart when loop startup fails' );
+    is_deeply( $result->{attention}, [], '_supervise_collectors_once keeps restart-failed loops out of the attention list until the threshold is exceeded' );
+    is( $status->{watchdog_status}, 'restart_failed', '_supervise_collectors_once records restart_failed when the watchdog cannot restart a collector' );
+    is( $status->{watchdog_last_error}, 'watchdog restart boom', '_supervise_collectors_once records the watchdog restart failure text' );
+    is( $status->{watchdog_restart_count}, 2, '_supervise_collectors_once still increments the watchdog restart count after a failed restart attempt' );
+}
+
+{
+    no warnings 'redefine';
+    $runner->{started} = [];
+    $runner->{stopped} = [];
+    $runner->{loops} = [];
+    $collector_store->write_status( 'alpha.collector', {} );
+    local *Local::RuntimeRunner::running_loops = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_collector_runtime_ready = sub { return 0 };
+
+    my $result = $manager->_supervise_collectors_once( names => ['alpha.collector'] );
+    my $status = $collector_store->read_status('alpha.collector') || {};
+
+    is_deeply( $result->{restarted}, [], '_supervise_collectors_once does not report a restart when the collector dies during watchdog readiness confirmation' );
+    is_deeply( $runner->{stopped}, ['alpha.collector'], '_supervise_collectors_once stops a collector loop that dies during watchdog readiness confirmation' );
+    is( $status->{watchdog_status}, 'restart_failed', '_supervise_collectors_once records restart_failed when the watchdog restart does not survive readiness confirmation' );
+    like( $status->{watchdog_last_error}, qr/Failed to keep collector 'alpha\.collector' running after watchdog restart/, '_supervise_collectors_once records an explicit watchdog readiness failure error' );
+}
+
+{
+    no warnings 'redefine';
+    $runner->{started} = [];
+    $runner->{loops} = [];
+    my $now = Developer::Dashboard::RuntimeManager::_now_iso8601();
+    $collector_store->write_status(
+        'alpha.collector',
+        {
+            watchdog_restart_count            => 1,
+            watchdog_restart_window_started_at => $now,
+            watchdog_status                   => 'running',
+        }
+    );
+    local *Local::RuntimeRunner::running_loops = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_collector_restart_limit = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_collector_runtime_ready = sub { return 1 };
+
+    my $result = $manager->_supervise_collectors_once( names => ['alpha.collector'] );
+    my $status = $collector_store->read_status('alpha.collector') || {};
+
+    is_deeply( $runner->{started}, [], '_supervise_collectors_once stops restarting once the watchdog threshold is exceeded' );
+    is( $result->{attention}[0]{name}, 'alpha.collector', '_supervise_collectors_once reports the collector that now needs attention' );
+    is( $status->{watchdog_status}, 'attention_required', '_supervise_collectors_once marks repeatedly-crashing collectors as attention_required' );
+    ok( $status->{watchdog_attention_required}, '_supervise_collectors_once raises the attention_required flag after too many restarts' );
+    is( $status->{watchdog_restart_count}, 2, '_supervise_collectors_once increments the restart count before raising attention_required' );
+}
+
+{
     local $ENV{DEVELOPER_DASHBOARD_RUNTIME_STABILITY_POLLS};
     local $ENV{PERL5OPT};
     local $ENV{HARNESS_PERL_SWITCHES};
@@ -1941,6 +2076,31 @@ END {
 {
     local $ENV{DEVELOPER_DASHBOARD_RUNTIME_CONFIRMATION_POLLS};
     is( $manager->_runtime_confirmation_polls, 3, '_runtime_confirmation_polls keeps the default short confirmation window when no override is active' );
+}
+
+{
+    my @start_attempts;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::start_web = sub {
+        my ( $self, %args ) = @_;
+        push @start_attempts, { %args };
+        die "Address already in use\n" if @start_attempts == 1;
+        return 7123;
+    };
+    local *Developer::Dashboard::RuntimeManager::_send_signal = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::stop_collectors = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::start_collectors = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::running_web = sub { return { pid => 7123 } };
+    local *Developer::Dashboard::RuntimeManager::_web_runtime_ready = sub { return 1 };
+    my $result = $manager->serve_all(
+        host    => '127.0.0.1',
+        port    => 7999,
+        workers => 2,
+        ssl     => 0,
+    );
+    is( $result->{pid}, 7123, 'serve_all retries transient background startup failures and returns the recovered web pid' );
+    is( scalar @start_attempts, 2, 'serve_all retries once after a transient bind-style startup failure' );
 }
 
 {

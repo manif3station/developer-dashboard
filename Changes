@@ -1,14 +1,13 @@
-3.65  2026-05-08
-    - fixed release closeout drift so version metadata, canonical POD, generated
-      README, and release tests stay aligned for the current shipped version
-    - fixed staged built-in helpers that re-enter `_dashboard-core` directly so
-      they preserve the repo lib path and keep `dashboard doctor` working
-      through the staged helper runtime during verification
-    - fixed `CLI::Progress` so falsey `max_detail_lines` falls back to the
-      documented ten-line rolling window instead of dropping all detail output
-    - updated repo workflow guidance so once a mandatory gate miss is detected,
-      the closeout flow continues automatically instead of stopping at a soft
-      handoff question
+3.66  2026-05-08
+    - added a collector watchdog supervisor that restarts unexpectedly-dead
+      managed collector loops after startup instead of leaving them silently
+      stopped until an operator notices
+    - persisted watchdog restart counters, timestamps, error text, and
+      `attention_required` collector status metadata so repeated crash loops
+      are explicit in `dashboard collector status <name>` and collector logs
+    - stopped the watchdog from thrashing forever by raising an explicit
+      attention-required state after too many crashes inside the watchdog
+      window, forcing a visible operator follow-up instead of silent churn
 
 3.64  2026-05-08
     - fixed macOS Terminal.app shell bootstrap to source /etc/bashrc_Apple_Terminal

@@ -993,6 +993,15 @@ elsif ( $cmd eq 'web-foreground' ) {
     );
     exit 0;
 }
+elsif ( $cmd eq 'collector-supervisor-foreground' ) {
+    _load_configured_path_aliases();
+    _migrate_saved_pages();
+    $runtime->_run_collector_supervisor_child(
+        daemonize => 0,
+        redirect  => 0,
+    );
+    exit 0;
+}
 elsif ( $cmd eq 'stop' ) {
     require Developer::Dashboard::CLI::RuntimeControl;
     exit Developer::Dashboard::CLI::RuntimeControl::run_runtime_command(
@@ -1668,7 +1677,7 @@ _dashboard-core - contains the shared private built-in command runtime that the 
 
 =head1 PURPOSE
 
-This private staged runtime owns the heavier built-in command implementations after C<bin/dashboard> has already done hook execution and helper dispatch. It is also where the generated shell bootstrap snippets come from, including C<cdr>, C<which_dir>, and prompt wiring across bash, zsh, POSIX sh, and PowerShell. While it runs, it normalizes the live process title to C<developer-dashboard ...> so operators see the public command name in C<ps> output instead of the staged helper path under F<~/.developer-dashboard/cli/dd/>.
+This private staged runtime owns the heavier built-in command implementations after C<bin/dashboard> has already done hook execution and helper dispatch. It is also where the generated shell bootstrap snippets come from, including C<cdr>, C<which_dir>, and prompt wiring across bash, zsh, POSIX sh, and PowerShell. Detached internal foreground helpers such as the web listener and collector watchdog also re-enter through this file when the runtime needs a background-managed process without bloating the public entrypoint. While it runs, it normalizes the live process title to C<developer-dashboard ...> so operators see the public command name in C<ps> output instead of the staged helper path under F<~/.developer-dashboard/cli/dd/>.
 
 =head1 WHY IT EXISTS
 
@@ -1676,7 +1685,7 @@ It exists so the public entrypoint stays thin while dashboard-managed built-ins 
 
 =head1 WHEN TO USE
 
-Use this file when changing built-in command dispatch after helper staging, shell bootstrap generation, or behavior shared across multiple staged helper wrappers.
+Use this file when changing built-in command dispatch after helper staging, shell bootstrap generation, detached foreground helper entrypoints such as the web listener or collector watchdog, or behavior shared across multiple staged helper wrappers.
 
 =head1 HOW TO USE
 

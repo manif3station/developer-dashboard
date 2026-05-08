@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.65';
+our $VERSION = '3.66';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.65
+3.66
 
 =head1 INTRODUCTION
 
@@ -1652,6 +1652,7 @@ left untouched.
 List collector status:
 
   dashboard collector list
+  dashboard collector status shell.example
 
 Inspect collector logs:
 
@@ -1662,6 +1663,11 @@ C<dashboard collector log> prints the known collector log streams.
 C<dashboard collector log E<lt>nameE<gt>> prints one collector transcript.
 If a configured collector has not run yet, the command prints an explicit
 no-log message instead of blank output.
+C<dashboard collector status E<lt>nameE<gt>> now also exposes watchdog
+metadata for managed loops, including C<watchdog_restart_count>,
+C<watchdog_last_unexpected_stop_at>, C<watchdog_last_restart_at>, and
+C<watchdog_attention_required>, so repeated collector crashes are visible
+instead of looking like silent disappearance.
 Collector status timestamps and collector log headers use the machine's local
 system time with an explicit numeric timezone offset such as C<+0100>, so the
 visible timestamps line up with cron scheduling on the same machine instead of
@@ -2115,6 +2121,14 @@ C<dashboard restart collector E<lt>nameE<gt>> only restarts the requested
 collector loop, including an on-demand manual collector by converting it into
 a managed interval loop, and collector-name shell completion suggests
 registered collector names
+
+=item *
+
+managed collector loops also run under a watchdog supervisor; if a loop dies
+unexpectedly after startup, the watchdog restarts it automatically, records
+the restart attempt in collector status/logs, and after too many crashes
+inside the watchdog window marks the collector C<attention_required> so the
+operator sees an explicit problem instead of infinite silent restart churn
 
 =item *
 

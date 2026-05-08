@@ -1,4 +1,25 @@
 # Fixed Bugs
+## 3.66 - Fix silent collector death with watchdog restart supervision
+
+- Root cause:
+  collector job failures inside the loop were already caught and logged, but
+  there was no long-lived watchdog around the collector loop process itself.
+  If that loop process died after startup, the collector stayed down until a
+  human noticed and restarted it manually, which looked like a silent stop.
+
+- Fix:
+  added a managed collector watchdog supervisor in `RuntimeManager` that keeps
+  watching the configured collector fleet after startup, restarts loops that
+  die unexpectedly, and records restart counters, timestamps, and error text
+  in collector status plus collector logs. After too many crashes in the
+  watchdog window, it now stops blindly restarting and marks the collector
+  `attention_required` so the operator sees a concrete problem to address.
+
+- Prevention:
+  added regression coverage for post-start collector supervision so the runtime
+  tests now fail if a managed collector can disappear without watchdog restart
+  state or without an explicit attention-required escalation path.
+
 ## 3.65 - Fix release closeout drift and staged helper/runtime verification regressions
 
 - Root cause:
