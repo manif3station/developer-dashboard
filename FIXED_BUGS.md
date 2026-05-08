@@ -20,6 +20,11 @@
   added test coverage for dockerfile detection in skill metadata and progress
   task sequence.
 
+- macOS Terminal.app fix:
+  added guard to source /etc/bashrc_Apple_Terminal when update_terminal_cwd
+  is missing, preventing "-bash: update_terminal_cwd: command not found" errors
+  on fresh macOS bash sessions.
+
 
 ## 3.62 - Fix root ddfile drift after skill uninstall
 

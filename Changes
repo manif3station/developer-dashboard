@@ -4,6 +4,9 @@
     - fixed Progress.pm to support unlimited streaming output for long-running
       operations like Docker builds, with optional max_detail_lines cap
     - added has_dockerfile metadata to skill list and usage output
+    - fixed macOS Terminal.app shell bootstrap to source /etc/bashrc_Apple_Terminal
+      when update_terminal_cwd is missing, preventing "command not found"
+      errors on fresh macOS bash sessions
 
 3.62  2026-05-07
     - remove matching root ddfile skill source entries when uninstalling a skill

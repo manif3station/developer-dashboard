@@ -1465,6 +1465,11 @@ sub _shell_prompt_bootstrap {
     if ( $shell eq 'bash' ) {
         return <<'BASH';
 
+# Guard for macOS Terminal.app update_terminal_cwd
+if [ -z "${update_terminal_cwd+x}" ] && [ -f /etc/bashrc_Apple_Terminal ]; then
+  source /etc/bashrc_Apple_Terminal 2>/dev/null || true
+fi
+
 _dd_tmux_status_active() {
   [ -n "${TMUX:-}" ] && { [ "${DEVELOPER_DASHBOARD_TMUX_STATUS:-0}" = "1" ] || [ -n "${TICKET_REF:-}" ]; }
 }
