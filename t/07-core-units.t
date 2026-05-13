@@ -40,6 +40,7 @@ use Developer::Dashboard::Platform qw(
   shell_command_argv
 );
 use Developer::Dashboard::Prompt;
+use Developer::Dashboard::Web::App;
 use POSIX qw(:sys_wait_h);
 use Developer::Dashboard::UpdateManager;
 
@@ -82,6 +83,12 @@ sub is_same_paths {
 sub _child_perl5opt {
     return join ' ', grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
 }
+
+is(
+    Developer::Dashboard::Web::App::_ajax_content_type('custom-token'),
+    'text/plain; charset=utf-8',
+    '_ajax_content_type falls back to plain text for unknown symbolic ajax types',
+);
 
 my $home = tempdir(CLEANUP => 1);
 local $ENV{HOME} = $home;
@@ -2162,6 +2169,40 @@ is( $indicators->get_indicator('fresh.collector')->{collector_name}, 'fresh.coll
 my @page_header_items = $indicators->page_header_items;
 my ($fresh_page_item) = grep { $_->{prog} eq 'fresh.collector' } @page_header_items;
 is( $fresh_page_item->{alias}, 'NEW', 'page header status prefers the configured indicator icon over the collector name' );
+{
+    local $ENV{TMUX} = '';
+    local $ENV{TICKET_REF} = '';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = 0;
+    my $ordered_home = tempdir(CLEANUP => 1);
+    my $ordered_paths = Developer::Dashboard::PathRegistry->new( home => $ordered_home );
+    my $ordered_store = Developer::Dashboard::IndicatorStore->new( paths => $ordered_paths );
+    $ordered_store->sync_collectors(
+        [
+            { name => 'zeta.collector',  indicator => { icon => 'Z' } },
+            { name => 'alpha.collector', indicator => { icon => 'A' } },
+            { name => 'mu.collector',    indicator => { icon => 'M' } },
+        ]
+    );
+    is_deeply(
+        [ map { $_->{name} } $ordered_store->list_indicators ],
+        [ 'zeta.collector', 'alpha.collector', 'mu.collector' ],
+        'list_indicators keeps managed collector indicators in the configured collector array order',
+    );
+    is_deeply(
+        [ map { $_->{prog} } $ordered_store->page_header_items ],
+        [ 'zeta.collector', 'alpha.collector', 'mu.collector' ],
+        'page_header_items keeps managed collector indicators in the configured collector array order',
+    );
+    my $ordered_prompt = Developer::Dashboard::Prompt->new(
+        paths      => $ordered_paths,
+        indicators => $ordered_store,
+    )->render( jobs => 0, cwd => $ordered_home );
+    like(
+        $ordered_prompt,
+        qr/🚨Z 🚨A 🚨M/,
+        'prompt output keeps managed collector indicators in the configured collector array order',
+    );
+}
 {
     my $race_home = tempdir(CLEANUP => 1);
     my $race_paths = Developer::Dashboard::PathRegistry->new( home => $race_home );

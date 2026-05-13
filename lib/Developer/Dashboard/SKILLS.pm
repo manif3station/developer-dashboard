@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '3.68';
+our $VERSION = '3.69';
 
 1;
 
@@ -229,6 +229,18 @@ Developer Dashboard resolves the longest installed skill prefix first and, if
 the skill-local ajax or public asset file does not exist, falls back to the
 normal nested saved-bookmark file path instead of assuming the leading path
 segments must always belong to a skill.
+
+Optional C<dashboards/routes.json> metadata can also publish canonical custom
+ajax paths and fallback aliases for skill-local C<dashboards/ajax/*> handlers.
+The schema is a JSON object with C<version = 1> plus an C<ajax> object keyed
+by relative C<dashboards/ajax/> file paths. Each ajax entry requires a
+canonical absolute C<path>, may declare zero or more absolute C<aliases>, and
+may set a default C<type> such as C<json>, C<html>, or a raw mime type string.
+When this metadata exists, skill pages emit the declared canonical custom path
+instead of the default C</ajax/E<lt>repo-nameE<gt>/...> url. The smart
+longest-prefix C</ajax/...> route still stays the parent resolver, alias or
+custom paths are fallback-only after smart route lookup misses, and a total
+miss still returns the normal C<404>.
 
 =item B<dashboards/nav/>
 

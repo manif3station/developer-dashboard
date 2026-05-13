@@ -1,4 +1,33 @@
 # Fixed Bugs
+## 3.69 - Fix skill ajax custom routing and collector indicator ordering
+
+- Root cause:
+  installed skill ajax handling only knew the smart `/ajax/<repo>/...`
+  namespace and the saved-page `Ajax(file => ...)` helper always emitted that
+  older route shape. Skill authors had no supported way to publish a
+  canonical custom path such as `/v1/status`, no alias metadata contract, and
+  no route-level default content type beyond repeating `?type=...` in every
+  generated URL. At the same time, managed collector indicators were sorted by
+  name once they reached prompt and page-header rendering, so the browser
+  status strip and `dashboard ps1` could drift away from the configured
+  collector array order.
+
+- Fix:
+  added `dashboards/routes.json` skill metadata with `version`, `ajax`,
+  required canonical `path`, optional `aliases`, and optional default `type`
+  fields. Skill pages now emit the declared canonical custom path while the
+  smart `/ajax/<repo>/...` resolver stays the parent route and alias/custom
+  paths only run after that smart route misses. The web layer now honors route
+  default content types including raw mime strings, and browser prompt/status
+  rendering now preserves managed collector order from the configured
+  collector array instead of re-sorting those indicators alphabetically.
+
+- Prevention:
+  added focused dispatcher, direct web, PSGI, prompt, and page-header
+  regressions for canonical custom ajax paths, alias fallback, smart-route
+  compatibility, default `json`/`html`/raw mime handling, and configured
+  collector-order rendering in both `/system/status` payloads and PS1 output.
+
 ## 3.68 - Fix collector overlap policy and bounded parallel scheduling
 
 - Root cause:

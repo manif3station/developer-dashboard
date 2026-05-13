@@ -80,8 +80,11 @@ my $nested_skill = File::Spec->catdir( $leaf_skill, 'skills', 'child' );
 
 for my $dir (
     File::Spec->catdir( $base_skill, 'dashboards', 'nav' ),
+    File::Spec->catdir( $base_skill, 'dashboards', 'ajax' ),
     File::Spec->catdir( $leaf_skill, 'dashboards', 'nav' ),
+    File::Spec->catdir( $leaf_skill, 'dashboards', 'ajax' ),
     File::Spec->catdir( $nested_skill, 'dashboards', 'nav' ),
+    File::Spec->catdir( $nested_skill, 'dashboards', 'ajax' ),
     File::Spec->catdir( $nested_skill, 'dashboards', 'nav', 'group' ),
     File::Spec->catdir( $leaf_skill, 'config' ),
     File::Spec->catdir( $solo_skill, 'dashboards', 'nav' ),
@@ -124,20 +127,90 @@ welcome
 EOF
 );
 _write_file(
+    File::Spec->catfile( $base_skill, 'dashboards', 'ajax', 'base-only' ),
+    qq{print "base-only\\n";\n},
+);
+_write_file(
     File::Spec->catfile( $base_skill, 'dashboards', 'nav', 'base.tt' ),
     "<div>base nav</div>\n",
+);
+_write_file(
+    File::Spec->catfile( $base_skill, 'dashboards', 'routes.json' ),
+    <<'EOF'
+{
+   "version" : 1,
+   "ajax" : {
+      "base-only" : {
+         "aliases" : [
+            "/ajax/layered/base-only"
+         ],
+         "path" : "/v1/layered/base-only",
+         "type" : "text/plain"
+      },
+      "shared" : {
+         "aliases" : [
+            "/legacy/shared"
+         ],
+         "path" : "/v1/layered/shared-base",
+         "type" : "json"
+      }
+   }
+}
+EOF
 );
 _write_file(
     File::Spec->catfile( $leaf_skill, 'dashboards', 'nav', 'leaf.tt' ),
     "<div>leaf nav</div>\n",
 );
 _write_file(
+    File::Spec->catfile( $leaf_skill, 'dashboards', 'ajax', 'shared' ),
+    "print qq({\"shared\":true}\\n);\n",
+);
+_write_file(
+    File::Spec->catfile( $leaf_skill, 'dashboards', 'routes.json' ),
+    <<'EOF'
+{
+   "version" : 1,
+   "ajax" : {
+      "shared" : {
+         "aliases" : [
+            "/ajax/layered/shared"
+         ],
+         "path" : "/v1/layered/shared",
+         "type" : "json"
+      }
+   }
+}
+EOF
+);
+_write_file(
     File::Spec->catfile( $nested_skill, 'dashboards', 'nav', 'index.tt' ),
     "<div>nested nav</div>\n",
 );
 _write_file(
+    File::Spec->catfile( $nested_skill, 'dashboards', 'ajax', 'nested' ),
+    qq{print "<p>nested</p>\\n";\n},
+);
+_write_file(
     File::Spec->catfile( $nested_skill, 'dashboards', 'nav', 'group', 'deep.tt' ),
     "<div>nested deep nav</div>\n",
+);
+_write_file(
+    File::Spec->catfile( $nested_skill, 'dashboards', 'routes.json' ),
+    <<'EOF'
+{
+   "version" : 1,
+   "ajax" : {
+      "nested" : {
+         "aliases" : [
+            "/ajax/layered/child/nested"
+         ],
+         "path" : "/v1/layered/nested",
+         "type" : "html"
+      }
+   }
+}
+EOF
 );
 _write_file(
     File::Spec->catfile( $leaf_skill, 'config', 'config.json' ),
@@ -146,6 +219,14 @@ _write_file(
 _write_file(
     File::Spec->catfile( $solo_skill, 'dashboards', 'nav', 'solo.tt' ),
     "<div>solo nav</div>\n",
+);
+_write_file(
+    File::Spec->catfile( $solo_skill, 'dashboards', 'routes.json' ),
+    <<'EOF'
+{
+   "version" : 1
+}
+EOF
 );
 
 my $paths = Local::SkillPaths->new(
@@ -185,6 +266,12 @@ is_deeply(
     [ $dispatcher->_skill_bookmark_entries('layered') ],
     [ 'index', 'welcome' ],
     '_skill_bookmark_entries lists layered bookmark files without nav entries',
+);
+
+is_deeply(
+    $dispatcher->_skill_ajax_routes_for('solo'),
+    {},
+    '_skill_ajax_routes_for treats routes.json without an ajax key as an empty ajax route map',
 );
 
 is_deeply(
@@ -334,6 +421,92 @@ is(
     'fallback',
     '_defined_or_default returns the fallback scalar when the candidate value is undef',
 );
+
+is_deeply(
+    $dispatcher->skill_ajax_route_spec( 'layered', 'shared' ),
+    {
+        ajax_file   => 'shared',
+        aliases     => ['/ajax/layered/shared'],
+        path        => '/v1/layered/shared',
+        skill_name  => 'layered',
+        source_file => File::Spec->catfile( $leaf_skill, 'dashboards', 'routes.json' ),
+        type        => 'json',
+    },
+    'skill_ajax_route_spec prefers the deepest layered routes.json entry for one ajax file',
+);
+
+is_deeply(
+    $dispatcher->skill_ajax_route_spec( 'layered', 'base-only' ),
+    {
+        ajax_file   => 'base-only',
+        aliases     => ['/ajax/layered/base-only'],
+        path        => '/v1/layered/base-only',
+        skill_name  => 'layered',
+        source_file => File::Spec->catfile( $base_skill, 'dashboards', 'routes.json' ),
+        type        => 'text/plain',
+    },
+    'skill_ajax_route_spec falls back to inherited routes.json entries when the leaf layer has none',
+);
+
+is_deeply(
+    $dispatcher->resolve_ajax_route_path('/v1/layered/shared'),
+    {
+        ajax_file   => 'shared',
+        aliases     => ['/ajax/layered/shared'],
+        path        => '/v1/layered/shared',
+        skill_name  => 'leaf-skill',
+        source_file => File::Spec->catfile( $leaf_skill, 'dashboards', 'routes.json' ),
+        type        => 'json',
+    },
+    'resolve_ajax_route_path returns the canonical custom route spec for a top-level skill ajax handler',
+);
+
+is_deeply(
+    $dispatcher->resolve_ajax_route_path('/ajax/layered/child/nested'),
+    {
+        ajax_file   => 'nested',
+        aliases     => ['/ajax/layered/child/nested'],
+        path        => '/v1/layered/nested',
+        skill_name  => 'leaf-skill/child',
+        source_file => File::Spec->catfile( $nested_skill, 'dashboards', 'routes.json' ),
+        type        => 'html',
+    },
+    'resolve_ajax_route_path also resolves nested skill alias entries',
+);
+
+{
+    my $invalid_skill = File::Spec->catdir( $root, 'invalid-skill' );
+    make_path( File::Spec->catdir( $invalid_skill, 'dashboards', 'ajax' ) );
+    _write_file(
+        File::Spec->catfile( $invalid_skill, 'dashboards', 'ajax', 'broken' ),
+        qq{print "broken\\n";\n},
+    );
+    _write_file(
+        File::Spec->catfile( $invalid_skill, 'dashboards', 'routes.json' ),
+        <<'EOF'
+{
+   "version" : 1,
+   "ajax" : {
+      "broken" : {
+         "path" : "v1/not-absolute",
+         "type" : "json"
+      }
+   }
+}
+EOF
+    );
+    my $invalid_paths = Local::SkillPaths->new(
+        home      => $root,
+        layers    => { invalid => [$invalid_skill] },
+        installed => [$invalid_skill],
+    );
+    my $invalid_dispatcher = Developer::Dashboard::SkillDispatcher->new(
+        manager => Local::SkillManager->new( paths => $invalid_paths ),
+    );
+    my $ok = eval { $invalid_dispatcher->skill_ajax_route_spec( 'invalid', 'broken' ); 1 };
+    ok( !$ok, 'invalid routes.json dies explicitly' );
+    like( $@, qr/must start with \//, 'invalid routes.json surfaces the absolute-path validation failure' );
+}
 
 {
     local $Local::ExecShim::MODE = 'fail';

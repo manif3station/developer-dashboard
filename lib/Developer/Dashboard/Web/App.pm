@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '3.68';
+our $VERSION = '3.69';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -29,13 +29,19 @@ sub new {
     my $auth     = $args{auth}     || die 'Missing auth store';
     my $pages    = $args{pages}    || die 'Missing page store';
     my $sessions = $args{sessions} || die 'Missing session store';
+    my $runtime = $args{runtime};
+    if ( !$runtime ) {
+        $runtime = Developer::Dashboard::PageRuntime->new(
+            paths => ref($pages) eq 'Developer::Dashboard::PageStore' ? $pages->{paths} : undef,
+        );
+    }
     return bless {
         actions  => $args{actions},
         auth     => $auth,
         config   => $args{config},
         pages    => $pages,
         prompt   => $args{prompt},
-        runtime  => $args{runtime} || Developer::Dashboard::PageRuntime->new,
+        runtime  => $runtime,
         resolver => $args{resolver},
         sessions => $sessions,
     }, $class;
@@ -205,6 +211,9 @@ sub dispatch_request {
         return $self->skill_route_response( skill_name => $1, route => $2, %args );
     }
     return $self->transient_action_response(%args) if $path eq '/action' && $method eq 'POST';
+    if ( my $custom_ajax = $self->_custom_skill_ajax_route_response( %args, route_path => $path ) ) {
+        return $custom_ajax;
+    }
 
     return [ 404, 'text/plain; charset=utf-8', "Not found\n" ];
 }
@@ -443,6 +452,9 @@ sub skill_ajax_file_response {
         %body_params,
         file => $saved_ajax_path ne '' ? $ajax_file : join( '/', $skill_name, $ajax_file ),
     );
+    if ( !exists $request_params{type} && ( $args{default_type} || '' ) ne '' ) {
+        $request_params{type} = $args{default_type};
+    }
     return _transient_url_forbidden_response() if !$self->_legacy_ajax_allowed( \%request_params );
     return $self->_legacy_ajax_response(
         params          => \%request_params,
@@ -464,10 +476,12 @@ sub prefixed_ajax_file_response {
         my $ajax_file = join '/', @{ $spec->{route_segments} || [] };
         if ( $ajax_file ne '' ) {
             my $saved_ajax_path = $self->_skill_ajax_file_path( $spec->{skill_name}, $ajax_file );
+            my $route_spec = $self->_skill_ajax_route_spec( $spec->{skill_name}, $ajax_file );
             return $self->skill_ajax_file_response(
                 %args,
-                skill_name => $spec->{skill_name},
-                ajax_file  => $ajax_file,
+                default_type => $route_spec ? ( $route_spec->{type} || '' ) : '',
+                skill_name   => $spec->{skill_name},
+                ajax_file    => $ajax_file,
             ) if $saved_ajax_path ne '';
         }
     }
@@ -1899,9 +1913,47 @@ sub _skill_app_fallback_response {
 # Output: hash reference with skill_name, route_segments, and skill_layers, or undef.
 sub _resolve_skill_route_spec {
     my ( $self, @segments ) = @_;
+    return $self->_skill_dispatcher->resolve_route_segments( \@segments );
+}
+
+# _custom_skill_ajax_route_response(%args)
+# Resolves one non-/ajax custom skill ajax route path after all primary routes
+# have already declined to handle the request.
+# Input: normalized request metadata plus route_path.
+# Output: response array reference or undef when no custom skill ajax route matches.
+sub _custom_skill_ajax_route_response {
+    my ( $self, %args ) = @_;
+    my $route_path = $args{route_path} || '';
+    return if $route_path eq '' || $route_path eq '/';
+    my $spec = $self->_skill_dispatcher->resolve_ajax_route_path($route_path);
+    return if !$spec;
+    return $self->skill_ajax_file_response(
+        %args,
+        ajax_file    => $spec->{ajax_file},
+        default_type => $spec->{type} || '',
+        skill_name   => $spec->{skill_name},
+    );
+}
+
+# _skill_dispatcher()
+# Builds the skill dispatcher used by web route helpers that resolve layered
+# skill routes, ajax handlers, and static assets.
+# Input: none.
+# Output: Developer::Dashboard::SkillDispatcher object.
+sub _skill_dispatcher {
+    my ($self) = @_;
     require Developer::Dashboard::SkillDispatcher;
-    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $self->{pages} ? $self->{pages}{paths} : undef );
-    return $dispatcher->resolve_route_segments( \@segments );
+    return Developer::Dashboard::SkillDispatcher->new( paths => $self->{pages} ? $self->{pages}{paths} : undef );
+}
+
+# _skill_ajax_route_spec($skill_name, $ajax_file)
+# Resolves one custom skill ajax route specification for default mime handling.
+# Input: skill name string and relative ajax file name.
+# Output: route spec hash reference or undef.
+sub _skill_ajax_route_spec {
+    my ( $self, $skill_name, $ajax_file ) = @_;
+    return if !$skill_name || !$ajax_file;
+    return $self->_skill_dispatcher->skill_ajax_route_spec( $skill_name, $ajax_file );
 }
 
 # _missing_named_page_response($id)
@@ -1948,16 +2000,6 @@ sub _legacy_ajax_response {
     my ( $self, %args ) = @_;
     my $params = $args{params} || {};
     my $type  = $params->{type} || 'text';
-    my %types = (
-        html => 'text/html; charset=utf-8',
-        text => 'text/plain; charset=utf-8',
-        json => 'application/json; charset=utf-8',
-        js   => 'application/javascript; charset=utf-8',
-        xml  => 'application/xml; charset=utf-8',
-        yml  => 'text/plain; charset=utf-8',
-        yaml => 'text/plain; charset=utf-8',
-        xslt => 'application/xml; charset=utf-8',
-    );
     my $code;
     my $saved_path = '';
     if ( my $token = $params->{token} ) {
@@ -1988,7 +2030,7 @@ sub _legacy_ajax_response {
     );
     return [
         200,
-        $types{$type} || 'text/plain; charset=utf-8',
+        _ajax_content_type($type),
         {
             stream => sub {
                 my ($writer) = @_;
@@ -2017,6 +2059,29 @@ sub _legacy_ajax_response {
             },
         },
     ];
+}
+
+# _ajax_content_type($type)
+# Maps symbolic Ajax response types to concrete content types while accepting
+# raw mime strings from skill route metadata.
+# Input: symbolic type string or raw mime type string.
+# Output: HTTP content type string.
+sub _ajax_content_type {
+    my ($type) = @_;
+    my %types = (
+        html => 'text/html; charset=utf-8',
+        text => 'text/plain; charset=utf-8',
+        json => 'application/json; charset=utf-8',
+        js   => 'application/javascript; charset=utf-8',
+        xml  => 'application/xml; charset=utf-8',
+        yml  => 'text/plain; charset=utf-8',
+        yaml => 'text/plain; charset=utf-8',
+        xslt => 'application/xml; charset=utf-8',
+    );
+    my $value = defined $type && $type ne '' ? $type : 'text';
+    return $types{$value} if exists $types{$value};
+    return $value if $value =~ m{/};
+    return 'text/plain; charset=utf-8';
 }
 
 # _legacy_ajax_allowed($params)
@@ -2477,9 +2542,7 @@ sub _serve_static_file_from_roots {
 sub _skill_ajax_file_path {
     my ( $self, $skill_name, $ajax_file ) = @_;
     return '' if !$skill_name || !$ajax_file;
-    require Developer::Dashboard::SkillDispatcher;
-    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $self->{pages} ? $self->{pages}{paths} : undef );
-    return $dispatcher->skill_ajax_file_path( $skill_name, $ajax_file ) || '';
+    return $self->_skill_dispatcher->skill_ajax_file_path( $skill_name, $ajax_file ) || '';
 }
 
 # _skill_static_file_path($skill_name, $type, $file)
@@ -2489,9 +2552,7 @@ sub _skill_ajax_file_path {
 sub _skill_static_file_path {
     my ( $self, $skill_name, $type, $file ) = @_;
     return '' if !$skill_name || !$type || !$file;
-    require Developer::Dashboard::SkillDispatcher;
-    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $self->{pages} ? $self->{pages}{paths} : undef );
-    return $dispatcher->skill_static_file_path( $skill_name, $type, $file ) || '';
+    return $self->_skill_dispatcher->skill_static_file_path( $skill_name, $type, $file ) || '';
 }
 
 # _static_file_roots($type)

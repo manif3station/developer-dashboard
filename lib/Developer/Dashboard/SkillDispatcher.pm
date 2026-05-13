@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '3.68';
+our $VERSION = '3.69';
 
 use Config ();
 use IPC::Open3 qw(open3);
@@ -913,6 +913,133 @@ sub _page_location {
     return;
 }
 
+# skill_ajax_route_spec($skill_name, $ajax_file)
+# Resolves one custom dashboards/routes.json ajax route definition for a skill.
+# Input: skill repository name string and relative ajax file path.
+# Output: normalized route spec hash reference or undef when no custom route exists.
+sub skill_ajax_route_spec {
+    my ( $self, $skill_name, $ajax_file ) = @_;
+    return if !$skill_name || !$ajax_file;
+    my $routes = $self->_skill_ajax_routes_for($skill_name);
+    return $routes->{$ajax_file};
+}
+
+# resolve_ajax_route_path($path)
+# Resolves one canonical or alias custom ajax route path across installed skills.
+# Input: absolute request path string.
+# Output: normalized route spec hash reference or undef when no custom route matches.
+sub resolve_ajax_route_path {
+    my ( $self, $path ) = @_;
+    return if !defined $path || $path eq '';
+    for my $skill_name ( $self->_all_installed_skill_names ) {
+        my $routes = $self->_skill_ajax_routes_for($skill_name);
+        for my $ajax_file ( sort keys %{$routes} ) {
+            my $spec = $routes->{$ajax_file};
+            return $spec if ( $spec->{path} || '' ) eq $path;
+            return $spec if grep { $_ eq $path } @{ $spec->{aliases} || [] };
+        }
+    }
+    return;
+}
+
+# _skill_ajax_routes_for($skill_name)
+# Loads and merges dashboards/routes.json ajax metadata for one layered skill.
+# Input: skill repository name string.
+# Output: hash reference keyed by ajax file path with normalized route specs.
+sub _skill_ajax_routes_for {
+    my ( $self, $skill_name ) = @_;
+    return {} if !$skill_name;
+    my %routes;
+    my %claimed_paths;
+
+    for my $skill_path ( $self->_skill_lookup_roots($skill_name) ) {
+        my $routes_file = File::Spec->catfile( $skill_path, 'dashboards', 'routes.json' );
+        next if !-f $routes_file;
+        my $payload = $self->_load_skill_routes_file($routes_file);
+        my $ajax = $payload->{ajax} || {};
+        for my $ajax_file ( sort keys %{$ajax} ) {
+            next if exists $routes{$ajax_file};
+            my $spec = $self->_normalize_skill_ajax_route_spec(
+                skill_name  => $skill_name,
+                ajax_file   => $ajax_file,
+                routes_file => $routes_file,
+                spec        => $ajax->{$ajax_file},
+            );
+            for my $route_path ( $spec->{path}, @{ $spec->{aliases} || [] } ) {
+                next if !defined $route_path || $route_path eq '';
+                die "Duplicate ajax route path '$route_path' in skill '$skill_name'"
+                  if $claimed_paths{$route_path}++;
+            }
+            $routes{$ajax_file} = $spec;
+        }
+    }
+
+    return \%routes;
+}
+
+# _load_skill_routes_file($routes_file)
+# Parses one dashboards/routes.json file and validates the top-level schema.
+# Input: absolute routes.json file path.
+# Output: decoded hash reference.
+sub _load_skill_routes_file {
+    my ( $self, $routes_file ) = @_;
+    open my $fh, '<', $routes_file or die "Unable to read $routes_file: $!";
+    local $/;
+    my $json_text = <$fh>;
+    close $fh;
+    my $payload = eval { decode_json($json_text) };
+    die "Invalid JSON in $routes_file: $@" if $@;
+    die "$routes_file must contain a JSON object" if ref($payload) ne 'HASH';
+    die "$routes_file version must be 1" if ( $payload->{version} || 0 ) != 1;
+    if ( exists $payload->{ajax} ) {
+        die "$routes_file ajax must be a JSON object" if ref( $payload->{ajax} ) ne 'HASH';
+    }
+    else {
+        $payload->{ajax} = {};
+    }
+    return $payload;
+}
+
+# _normalize_skill_ajax_route_spec(%args)
+# Validates and normalizes one dashboards/routes.json ajax route entry.
+# Input: skill_name, ajax_file, routes_file, and raw spec hash reference.
+# Output: normalized route spec hash reference.
+sub _normalize_skill_ajax_route_spec {
+    my ( $self, %args ) = @_;
+    my $skill_name = $args{skill_name} || die 'Missing skill_name';
+    my $ajax_file = $args{ajax_file} || die 'Missing ajax_file';
+    my $routes_file = $args{routes_file} || die 'Missing routes_file';
+    my $spec = $args{spec};
+    die "$routes_file ajax entry '$ajax_file' must be a JSON object" if ref($spec) ne 'HASH';
+    die "$routes_file ajax entry '$ajax_file' path is required"
+      if !defined $spec->{path} || $spec->{path} eq '';
+    die "$routes_file ajax entry '$ajax_file' path must start with /"
+      if $spec->{path} !~ m{\A/};
+    my $aliases = $spec->{aliases};
+    $aliases = [] if !defined $aliases;
+    die "$routes_file ajax entry '$ajax_file' aliases must be an array"
+      if ref($aliases) ne 'ARRAY';
+    my @aliases = grep { defined $_ && $_ ne '' } @{$aliases};
+    for my $alias (@aliases) {
+        die "$routes_file ajax entry '$ajax_file' aliases must start with /"
+          if $alias !~ m{\A/};
+    }
+    if ( exists $spec->{type} ) {
+        die "$routes_file ajax entry '$ajax_file' type must be a scalar"
+          if ref( $spec->{type} );
+        die "$routes_file ajax entry '$ajax_file' type must not be empty"
+          if !defined $spec->{type} || $spec->{type} eq '';
+    }
+    return {
+        ajax_file   => $ajax_file,
+        aliases     => \@aliases,
+        path        => $spec->{path},
+        skill_name  => $skill_name,
+        source_file => $routes_file,
+        type        => $spec->{type},
+    };
+}
+
 # skill_ajax_file_path($skill_name, $ajax_file)
 # Resolves one layered skill-local dashboards/ajax file in deepest-first order.
 # Input: skill repository name string and relative ajax file path.
@@ -959,6 +1086,7 @@ sub _skill_bookmark_entries {
                    $_ ne '.'
                 && $_ ne '..'
                 && $_ ne 'nav'
+                && $_ ne 'routes.json'
                 && -f File::Spec->catfile( $dashboards_root, $_ )
             } readdir($dh)
           )

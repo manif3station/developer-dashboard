@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '3.68';
+our $VERSION = '3.69';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -138,7 +138,7 @@ sub list_indicators {
         closedir $dh;
     }
 
-    return sort { ($a->{priority} || 999) <=> ($b->{priority} || 999) || $a->{name} cmp $b->{name} } values %items;
+    return sort { $self->_indicator_sort_cmp( $a, $b ) } values %items;
 }
 
 # sync_collectors($jobs)
@@ -153,6 +153,7 @@ sub sync_collectors {
 
     my @written;
     my %active_collectors;
+    my $collector_order = 0;
     for my $job ( @{$jobs} ) {
         next if ref($job) ne 'HASH';
         next if ref( $job->{indicator} ) ne 'HASH';
@@ -183,6 +184,7 @@ sub sync_collectors {
         }
         my $candidate = $self->collector_indicator_candidate(
             $job,
+            collector_order => $collector_order,
             existing => $effective_existing,
             status   => defined $effective_existing->{status} && $effective_existing->{status} ne '' ? $effective_existing->{status} : 'missing',
         );
@@ -248,6 +250,7 @@ sub sync_collectors {
                 _preserve_existing_fields => \@preserve_existing,
             );
         }
+        $collector_order++;
     }
 
     for my $indicator ( $self->list_indicators ) {
@@ -300,6 +303,11 @@ sub collector_indicator_candidate {
           : defined $existing->{status} && $existing->{status} ne ''
           ? $existing->{status}
           : 'missing',
+        collector_order      => defined $opts{collector_order}
+          ? $opts{collector_order}
+          : exists $existing->{collector_order}
+          ? $existing->{collector_order}
+          : undef,
         collector_name       => $job->{name},
         managed_by_collector => 1,
         prompt_visible       => exists $indicator->{prompt_visible}
@@ -456,7 +464,7 @@ sub refresh_core_indicators {
 sub page_header_items {
     my ($self) = @_;
     my @items;
-    for my $indicator ( sort { $a->{name} cmp $b->{name} } $self->list_indicators ) {
+    for my $indicator ( $self->list_indicators ) {
         next if exists $indicator->{prompt_visible} && !$indicator->{prompt_visible};
         my $alias = defined $indicator->{alias} && $indicator->{alias} ne ''
           ? $indicator->{alias}
@@ -517,7 +525,8 @@ sub _page_status_icon {
 sub _indicator_matches {
     my ( $self, $existing, $candidate ) = @_;
     return 0 if ref($existing) ne 'HASH' || ref($candidate) ne 'HASH';
-    for my $key ( qw(name label alias icon icon_template configured_label configured_alias configured_icon configured_page_status_icon status priority prompt_visible page_status_icon collector_name managed_by_collector) ) {
+    for my $key ( qw(name label alias icon icon_template configured_label configured_alias configured_icon configured_page_status_icon status priority prompt_visible page_status_icon collector_name collector_order managed_by_collector) ) {
+        next if $key eq 'collector_order' && ( !exists $existing->{$key} || !defined $existing->{$key} || $existing->{$key} eq '' );
         my $left  = exists $existing->{$key}  ? $existing->{$key}  : undef;
         my $right = exists $candidate->{$key} ? $candidate->{$key} : undef;
         $left  = '' if !defined $left;
@@ -525,6 +534,30 @@ sub _indicator_matches {
         return 0 if $left ne $right;
     }
     return 1;
+}
+
+# _indicator_sort_cmp($left, $right)
+# Compares two indicator records for prompt and page-header ordering while
+# keeping managed collector indicators in configured collector-array order.
+# Input: two indicator hash references.
+# Output: negative, zero, or positive integer suitable for Perl sort.
+sub _indicator_sort_cmp {
+    my ( $self, $left, $right ) = @_;
+    my $left_priority = $left->{priority} || 999;
+    my $right_priority = $right->{priority} || 999;
+    my $priority_cmp = $left_priority <=> $right_priority;
+    return $priority_cmp if $priority_cmp;
+
+    my $left_collector = ( $left->{managed_by_collector} || 0 ) ? 1 : 0;
+    my $right_collector = ( $right->{managed_by_collector} || 0 ) ? 1 : 0;
+    if ( $left_collector && $right_collector ) {
+        my $left_order = defined $left->{collector_order} ? $left->{collector_order} : 999;
+        my $right_order = defined $right->{collector_order} ? $right->{collector_order} : 999;
+        my $collector_cmp = $left_order <=> $right_order;
+        return $collector_cmp if $collector_cmp;
+    }
+
+    return ( $left->{name} || '' ) cmp ( $right->{name} || '' );
 }
 
 # _local_indicator($name)

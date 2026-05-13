@@ -102,13 +102,23 @@ ok( !$dancer_skill_install->{error}, 'dancer route skill installs cleanly for PS
     my $psgi_app = Developer::Dashboard::Web::DancerApp->build_psgi_app( app => $app );
     Local::PSGITest::test_psgi $psgi_app, sub {
         my ($cb) = @_;
-        my $ajax = $cb->( GET 'http://127.0.0.1/ajax/dancer-route-skill/bar?type=text' );
-        is( $ajax->code, 200, 'Dancer ajax route serves top-level skill-local ajax handlers' );
-        is( decode_body_text( $ajax->content ), "dancer top-level ajax\n", 'Dancer ajax route streams the top-level skill-local ajax body' );
+        my $ajax = $cb->( GET 'http://127.0.0.1/v1/dancer/bar' );
+        is( $ajax->code, 200, 'Dancer custom ajax route serves top-level skill-local ajax handlers' );
+        is( $ajax->content_type, 'application/json', 'Dancer custom ajax route applies its default json content type' );
+        is( decode_body_text( $ajax->content ), qq|{"route":"dancer-top"}\n|, 'Dancer custom ajax route streams the top-level skill-local ajax body' );
 
-        my $nested = $cb->( GET 'http://127.0.0.1/ajax/dancer-route-skill/def/nested?type=text' );
-        is( $nested->code, 200, 'Dancer ajax route serves nested skill-local ajax handlers' );
-        is( decode_body_text( $nested->content ), "dancer nested ajax\n", 'Dancer ajax route streams the nested skill-local ajax body' );
+        my $legacy_ajax = $cb->( GET 'http://127.0.0.1/ajax/dancer-route-skill/bar' );
+        is( $legacy_ajax->code, 200, 'Dancer smart ajax route still serves the top-level skill-local ajax handler' );
+        is( decode_body_text( $legacy_ajax->content ), qq|{"route":"dancer-top"}\n|, 'Dancer smart ajax route still streams the top-level skill-local ajax body' );
+
+        my $nested = $cb->( GET 'http://127.0.0.1/v1/dancer/nested' );
+        is( $nested->code, 200, 'Dancer custom ajax route serves nested skill-local ajax handlers' );
+        is( $nested->content_type, 'text/html', 'Dancer nested custom ajax route applies its default html content type' );
+        is( decode_body_text( $nested->content ), "<p>dancer nested ajax</p>\n", 'Dancer custom ajax route streams the nested skill-local ajax body' );
+
+        my $legacy_nested = $cb->( GET 'http://127.0.0.1/ajax/dancer-route-skill/def/nested' );
+        is( $legacy_nested->code, 200, 'Dancer smart ajax route still serves nested skill-local ajax handlers' );
+        is( decode_body_text( $legacy_nested->content ), "<p>dancer nested ajax</p>\n", 'Dancer smart ajax route still streams the nested skill-local ajax body' );
 
         my $page = $cb->( GET 'http://127.0.0.1/app/dancer-route-skill' );
         is( $page->code, 200, 'Dancer app route serves the top-level skill bookmark page' );
@@ -1209,10 +1219,28 @@ sub _create_dancer_route_skill_repo {
 
     open my $top_ajax, '>:raw', File::Spec->catfile( $repo, 'dashboards', 'ajax', 'bar' )
       or die "Unable to write top-level skill ajax file: $!";
-    print {$top_ajax} qq|print "dancer top-level ajax\\n";\n|;
+    print {$top_ajax} "print qq({\"route\":\"dancer-top\"}\\n);\n";
     close $top_ajax or die "Unable to close top-level skill ajax file: $!";
     chmod 0700, File::Spec->catfile( $repo, 'dashboards', 'ajax', 'bar' )
       or die "Unable to chmod top-level skill ajax file: $!";
+
+    open my $top_routes, '>:raw', File::Spec->catfile( $repo, 'dashboards', 'routes.json' )
+      or die "Unable to write top-level skill routes file: $!";
+    print {$top_routes} <<'JSON';
+{
+   "version" : 1,
+   "ajax" : {
+      "bar" : {
+         "aliases" : [
+            "/ajax/dancer-route-skill/bar"
+         ],
+         "path" : "/v1/dancer/bar",
+         "type" : "json"
+      }
+   }
+}
+JSON
+    close $top_routes or die "Unable to close top-level skill routes file: $!";
 
     open my $index, '>:raw', File::Spec->catfile( $repo, 'dashboards', 'index' )
       or die "Unable to write top-level skill index bookmark: $!";
@@ -1243,10 +1271,28 @@ BOOKMARK
 
     open my $nested_ajax, '>:raw', File::Spec->catfile( $repo, 'skills', 'def', 'dashboards', 'ajax', 'nested' )
       or die "Unable to write nested skill ajax file: $!";
-    print {$nested_ajax} qq|print "dancer nested ajax\\n";\n|;
+    print {$nested_ajax} qq|print "<p>dancer nested ajax</p>\\n";\n|;
     close $nested_ajax or die "Unable to close nested skill ajax file: $!";
     chmod 0700, File::Spec->catfile( $repo, 'skills', 'def', 'dashboards', 'ajax', 'nested' )
       or die "Unable to chmod nested skill ajax file: $!";
+
+    open my $nested_routes, '>:raw', File::Spec->catfile( $repo, 'skills', 'def', 'dashboards', 'routes.json' )
+      or die "Unable to write nested skill routes file: $!";
+    print {$nested_routes} <<'JSON';
+{
+   "version" : 1,
+   "ajax" : {
+      "nested" : {
+         "aliases" : [
+            "/ajax/dancer-route-skill/def/nested"
+         ],
+         "path" : "/v1/dancer/nested",
+         "type" : "html"
+      }
+   }
+}
+JSON
+    close $nested_routes or die "Unable to close nested skill routes file: $!";
 
     open my $nested_index, '>:raw', File::Spec->catfile( $repo, 'skills', 'def', 'dashboards', 'index' )
       or die "Unable to write nested skill index bookmark: $!";

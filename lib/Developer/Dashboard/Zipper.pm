@@ -3,12 +3,13 @@ package Developer::Dashboard::Zipper;
 use strict;
 use warnings;
 
-our $VERSION = '3.68';
+our $VERSION = '3.69';
 
 use Exporter 'import';
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
+use Scalar::Util qw(blessed);
 use URI::Escape qw(uri_escape);
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
@@ -162,18 +163,45 @@ sub load_saved_ajax_code {
 sub _saved_ajax_url {
     my (%args) = @_;
     my $file = _validate_saved_ajax_file( $args{file} );
-    my $path = ( $args{skill_name} || '' ) ne ''
-      ? sprintf '/ajax/%s/%s', _url_path_escape( $args{skill_name} ), _url_path_escape($file)
-      : sprintf '/ajax/%s', _url_path_escape($file);
-    my $query = sprintf '%s?type=%s',
-      $path,
-      uri_escape( $args{type} || 'text' );
+    my $route = _saved_skill_ajax_route_spec(
+        skill_name => $args{skill_name} || '',
+        file       => $file,
+    );
+    my $path = $route
+      ? ( $route->{path} || '' )
+      : (
+        ( $args{skill_name} || '' ) ne ''
+        ? sprintf '/ajax/%s/%s', _url_path_escape( $args{skill_name} ), _url_path_escape($file)
+        : sprintf '/ajax/%s', _url_path_escape($file)
+      );
+    my $query = $path;
+    if ( !$route ) {
+        $query = sprintf '%s?type=%s',
+          $path,
+          uri_escape( $args{type} || 'text' );
+    }
     if ( defined $args{singleton} && $args{singleton} ne '' ) {
-        $query .= '&singleton=' . uri_escape( $args{singleton} );
+        $query .= ( $query =~ /\?/ ? '&' : '?' ) . 'singleton=' . uri_escape( $args{singleton} );
     }
     return {
         url => ( $args{base_url} || '' ) . $query,
     };
+}
+
+# _saved_skill_ajax_route_spec(%args)
+# Resolves the canonical custom route metadata for one skill-local saved Ajax file.
+# Input: skill_name string and relative ajax file path.
+# Output: hash reference route spec or undef when the skill has no custom route.
+sub _saved_skill_ajax_route_spec {
+    my (%args) = @_;
+    my $skill_name = $args{skill_name} || '';
+    return if $skill_name eq '';
+    my $context = ref($AJAX_CONTEXT) eq 'HASH' ? $AJAX_CONTEXT : {};
+    my $paths = $context->{paths};
+    return if !blessed($paths);
+    require Developer::Dashboard::SkillDispatcher;
+    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $paths );
+    return $dispatcher->skill_ajax_route_spec( $skill_name, $args{file} || '' );
 }
 
 # _url_path_escape($path)

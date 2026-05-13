@@ -32,6 +32,17 @@ integration/browser/run-bookmark-browser-smoke.pl \
   --expect-dom-fragment '<span class="display">123</span>'
 ```
 
+For a skill page that declares `dashboards/routes.json`, assert the canonical
+custom ajax path rather than the default smart `/ajax/<repo-name>/...` path:
+
+```bash
+integration/browser/run-bookmark-browser-smoke.pl \
+  --bookmark-file ~/.developer-dashboard/skills/example-skill/dashboards/index \
+  --expect-page-fragment "set_chain_value(endpoints,'status','/v1/status')" \
+  --expect-ajax-path /v1/status \
+  --expect-ajax-body '{"status":"ok"}'
+```
+
 For long-running saved bookmark Ajax handlers that would otherwise survive a
 browser refresh, prefer `Ajax(..., singleton => 'NAME', ...)`. The runtime will
 rename the Perl worker to `dashboard ajax: NAME`, terminate the older matching

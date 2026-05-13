@@ -1,3 +1,16 @@
+3.69  2026-05-13
+    - added skill-local `dashboards/routes.json` metadata so installed skill
+      Ajax handlers can publish canonical custom paths, optional fallback
+      aliases, and default response types such as `json`, `html`, or raw
+      mime strings without breaking the smart `/ajax/<repo>/...` resolver
+    - fixed saved skill-page Ajax URL generation so `Ajax(file => ...)`
+      emits the declared canonical custom route when route metadata exists,
+      while the longest-prefix smart `/ajax/...` route remains the primary
+      resolver and custom aliases are fallback-only before a normal `404`
+    - fixed browser `/system/status`, page-header status, and `dashboard ps1`
+      indicator ordering so managed collector indicators now follow the
+      collector array order from config instead of drifting alphabetically
+
 3.68  2026-05-13
     - added collector overlap control with explicit `mode` and `multiple`
       config fields, defaulting collectors to singleton scheduling and

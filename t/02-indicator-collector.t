@@ -133,10 +133,10 @@ my $page_payload = $indicators->page_header_payload;
 is_deeply(
     $page_payload->{array},
     [
-        { prog => 'docker', alias => '🐳', status => '&#x2705;' },
         { prog => 'stale',  alias => 'S',  status => '&#x2705;' },
+        { prog => 'docker', alias => '🐳', status => '&#x2705;' },
     ],
-    'page header payload renders legacy status-plus-alias entries',
+    'page header payload keeps indicator priority order while rendering status-plus-alias entries',
 );
 {
     my $repo = "$ENV{HOME}/repo";

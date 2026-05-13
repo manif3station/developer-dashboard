@@ -100,17 +100,36 @@ my $ajax_page = $app->handle(
     remote_addr => '127.0.0.1',
 );
 is( $ajax_page->[0], 200, 'skill ajax demo page route returns success' );
-like( $ajax_page->[2], qr{set_chain_value\(endpoints,'bar','/ajax/route-skill/bar\?type=text'\)}, 'skill page binds saved ajax helper to the skill-local ajax route' );
+like( $ajax_page->[2], qr{set_chain_value\(endpoints,'bar','/v1/bar'\)}, 'skill page binds saved ajax helper to the canonical custom skill route' );
 
-my $skill_ajax = $app->handle(
-    path        => '/ajax/route-skill/bar',
-    query       => 'type=text',
+my $skill_alias_ajax = $app->handle(
+    path        => '/v1/bar',
     method      => 'GET',
     headers     => { host => '127.0.0.1' },
     remote_addr => '127.0.0.1',
 );
-is( $skill_ajax->[0], 200, 'skill-local ajax route returns success' );
-is( _drain_stream_body( $skill_ajax->[2] ), "skill ajax route\n", 'skill-local ajax route streams the skill handler output' );
+is( $skill_alias_ajax->[0], 200, 'custom skill ajax alias route returns success' );
+is( $skill_alias_ajax->[1], 'application/json; charset=utf-8', 'custom skill ajax alias route applies its default json content type' );
+is( _drain_stream_body( $skill_alias_ajax->[2] ), qq|{"route":"bar"}\n|, 'custom skill ajax alias route streams the skill handler output' );
+
+my $raw_mime_ajax = $app->handle(
+    path        => '/v1/raw',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $raw_mime_ajax->[0], 200, 'custom skill ajax route with a raw mime type returns success' );
+is( $raw_mime_ajax->[1], 'application/vnd.route+json', 'custom skill ajax route keeps an arbitrary configured mime type' );
+is( _drain_stream_body( $raw_mime_ajax->[2] ), qq|{"route":"raw"}\n|, 'custom skill ajax route with a raw mime type streams the skill handler output' );
+
+my $skill_ajax = $app->handle(
+    path        => '/ajax/route-skill/bar',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $skill_ajax->[0], 200, 'legacy smart skill ajax route still returns success' );
+is( _drain_stream_body( $skill_ajax->[2] ), qq|{"route":"bar"}\n|, 'legacy smart skill ajax route still streams the skill handler output' );
 
 my $skill_js = $app->handle(
     path        => '/js/route-skill/skill.js',
@@ -166,17 +185,26 @@ my $nested_ajax_page = $app->handle(
     remote_addr => '127.0.0.1',
 );
 is( $nested_ajax_page->[0], 200, 'nested skill ajax demo page route returns success' );
-like( $nested_ajax_page->[2], qr{set_chain_value\(endpoints,'nested','/ajax/route-skill/def/nested\?type=text'\)}, 'nested skill page binds saved ajax helper to the nested skill-local ajax route' );
+like( $nested_ajax_page->[2], qr{set_chain_value\(endpoints,'nested','/v1/nested'\)}, 'nested skill page binds saved ajax helper to the nested canonical custom route' );
 
-my $nested_ajax = $app->handle(
-    path        => '/ajax/route-skill/def/nested',
-    query       => 'type=text',
+my $nested_alias_ajax = $app->handle(
+    path        => '/v1/nested',
     method      => 'GET',
     headers     => { host => '127.0.0.1' },
     remote_addr => '127.0.0.1',
 );
-is( $nested_ajax->[0], 200, 'nested skill-local ajax route returns success' );
-is( _drain_stream_body( $nested_ajax->[2] ), "nested skill ajax route\n", 'nested skill-local ajax route streams the nested skill handler output' );
+is( $nested_alias_ajax->[0], 200, 'nested custom ajax alias route returns success' );
+is( $nested_alias_ajax->[1], 'text/html; charset=utf-8', 'nested custom ajax alias route applies its default html content type' );
+is( _drain_stream_body( $nested_alias_ajax->[2] ), "<p>nested skill ajax route</p>\n", 'nested custom ajax alias route streams the nested skill handler output' );
+
+my $nested_ajax = $app->handle(
+    path        => '/ajax/route-skill/def/nested',
+    method      => 'GET',
+    headers     => { host => '127.0.0.1' },
+    remote_addr => '127.0.0.1',
+);
+is( $nested_ajax->[0], 200, 'legacy nested skill-local ajax route still returns success' );
+is( _drain_stream_body( $nested_ajax->[2] ), "<p>nested skill ajax route</p>\n", 'legacy nested skill-local ajax route still streams the nested skill handler output' );
 
 my $nested_js = $app->handle(
     path        => '/js/route-skill/def/ijk/lmn.js',
@@ -341,13 +369,36 @@ HTML:
 var endpoints = {};
 </script>
 :--------------------------------------------------------------------------------:
-CODE1: Ajax jvar => 'endpoints.bar', file => 'bar', code => q{
-print "skill ajax route\n";
+CODE1: Ajax jvar => 'endpoints.bar', file => 'bar', type => 'json', code => q{
+print qq|{"route":"bar"}\n|;
 };
 BOOKMARK
         0644,
     );
-    _write_file( File::Spec->catfile( 'dashboards', 'ajax', 'bar' ), qq{print "skill ajax route\\n";\n}, 0700 );
+    _write_file(
+        File::Spec->catfile( 'dashboards', 'routes.json' ),
+        <<'JSON',
+{
+   "version" : 1,
+   "ajax" : {
+      "bar" : {
+         "aliases" : [
+            "/ajax/route-skill/bar"
+         ],
+         "path" : "/v1/bar",
+         "type" : "json"
+      },
+      "raw" : {
+         "path" : "/v1/raw",
+         "type" : "application/vnd.route+json"
+      }
+   }
+}
+JSON
+        0644,
+    );
+    _write_file( File::Spec->catfile( 'dashboards', 'ajax', 'bar' ), qq{print qq|{"route":"bar"}\\n|;\n}, 0700 );
+    _write_file( File::Spec->catfile( 'dashboards', 'ajax', 'raw' ), qq{print qq|{"route":"raw"}\\n|;\n}, 0700 );
     _write_file( File::Spec->catfile( 'dashboards', 'public', 'js', 'skill.js' ), qq{console.log("$name js");\n}, 0644 );
     _write_file( File::Spec->catfile( 'dashboards', 'public', 'css', 'skill.css' ), qq{body { color: #123456; }\n}, 0644 );
     _write_file( File::Spec->catfile( 'dashboards', 'public', 'others', 'info.txt' ), "$name info\n", 0644 );
@@ -394,12 +445,30 @@ var endpoints = {};
 </script>
 :--------------------------------------------------------------------------------:
 CODE1: Ajax jvar => 'endpoints.nested', file => 'nested', code => q{
-print "nested skill ajax route\n";
+print "<p>nested skill ajax route</p>\n";
 };
 BOOKMARK
         0644,
     );
-    _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'ajax', 'nested' ), qq{print "nested skill ajax route\\n";\n}, 0700 );
+    _write_file(
+        File::Spec->catfile( 'skills', 'def', 'dashboards', 'routes.json' ),
+        <<'JSON',
+{
+   "version" : 1,
+   "ajax" : {
+      "nested" : {
+         "aliases" : [
+            "/ajax/route-skill/def/nested"
+         ],
+         "path" : "/v1/nested",
+         "type" : "html"
+      }
+   }
+}
+JSON
+        0644,
+    );
+    _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'ajax', 'nested' ), qq{print "<p>nested skill ajax route</p>\\n";\n}, 0700 );
     _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'nav', 'index.tt' ), "<div>Nested Skill Nav</div>\n", 0644 );
     _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'public', 'js', 'ijk', 'lmn.js' ), qq{console.log("nested js");\n}, 0644 );
     _write_file( File::Spec->catfile( 'skills', 'def', 'dashboards', 'public', 'css', 'ijk', 'lmn.css' ), qq{body { background: #abcdef; }\n}, 0644 );

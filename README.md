@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.68
+3.69
 
 # INTRODUCTION
 
@@ -535,10 +535,37 @@ default deny policy.
 an explicit `file => 'name.json'` argument. When a saved page supplies that
 name, the helper stores the Ajax Perl code under the saved dashboard ajax tree and emits a
 stable saved-bookmark endpoint such as
-`/ajax/name.json?type=text`. Skill pages use the same helper contract, but the
-generated saved endpoint is namespaced under the longest matching skill route,
-for example `/ajax/example-skill/name.json?type=text` or
-`/ajax/example-skill/sub-skill/name.json?type=text`. Those saved Ajax handlers
+`/ajax/name.json?type=text`. Skill pages use the same helper contract. Without
+extra skill route metadata the generated saved endpoint is namespaced under the
+longest matching skill route, for example
+`/ajax/example-skill/name.json?type=text` or
+`/ajax/example-skill/sub-skill/name.json?type=text`. Skills can also ship
+`dashboards/routes.json` to declare canonical custom ajax paths plus optional
+aliases per saved handler. The schema is a JSON object with
+`version = 1` and an `ajax` object keyed by relative
+`dashboards/ajax/` file paths, for example
+
+    {
+       "version" : 1,
+       "ajax" : {
+          "status" : {
+             "path" : "/v1/status",
+             "aliases" : [
+                "/ajax/example-skill/status"
+             ],
+             "type" : "json"
+          }
+       }
+    }
+
+When that file is present, skill pages emit the declared canonical
+`path` such as `/v1/status` instead of the default `/ajax/...` url, while the
+smart longest-prefix `/ajax/example-skill/...` route still remains the primary
+installed-skill resolver and any declared alias or custom path is checked only
+after the normal smart route misses. If neither the smart route nor the custom
+alias path resolves, the request falls through to the normal `404` response.
+The optional `type` value can be `json`, `html`, `text`, or an arbitrary
+raw mime type such as `application/vnd.example+json`. Those saved Ajax handlers
 run the stored file as a real process, defaulting to Perl unless the file
 starts with a shebang, and stream both `stdout` and `stderr` back to the
 browser as they happen. That keeps bookmark Ajax workflows usable even while
@@ -2402,7 +2429,11 @@ skill's `dashboards/index` and
 child skill's `dashboards/<page>`
 - skill-local ajax handlers under `dashboards/ajax/*` resolve at
 `/ajax/<repo-name>/...` and nested child skills extend that prefix as
-`/ajax/<repo-name>/<sub-skill>/...`
+`/ajax/<repo-name>/<sub-skill>/...`. Optional
+`dashboards/routes.json` metadata can also publish canonical custom ajax
+paths such as `/v1/status` plus alias paths, but the smart
+`/ajax/<repo-name>/...` resolver stays the parent route and custom
+paths are fallback-only after smart route lookup misses
 - skill-local static assets under `dashboards/public/js/*`,
 `dashboards/public/css/*`, and `dashboards/public/others/*` resolve at
 `/js/<repo-name>/...`, `/css/<repo-name>/...`, and

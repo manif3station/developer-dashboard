@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '3.68';
+our $VERSION = '3.69';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
@@ -298,6 +298,7 @@ sub _run_single_block {
            && ref( $args{page} ) eq 'Developer::Dashboard::PageDocument'
            && ref( $args{page}->as_hash->{meta} ) eq 'HASH'
         ) ? ( $args{page}->as_hash->{meta}{skill_name} || '' ) : '',
+        paths         => $self->{paths},
         source       => $args{source} || '',
     };
     my ( $stdout, $stderr, $exit_code ) = capture {
@@ -354,6 +355,7 @@ sub stream_code_block {
         ) ? 1 : 0,
         page_id      => $args{page} && ref( $args{page} ) ? ( $args{page}->as_hash->{id} || '' ) : '',
         runtime_root => $self->{paths} ? $self->{paths}->runtime_root : '',
+        paths        => $self->{paths},
         source       => $args{source} || '',
     };
 

@@ -15,6 +15,7 @@ Use it when you need:
 - executable `.go` hook files running through `go run` and executable `.java` hook files compiling through `javac` before they run through `java`
 - the difference between skill-local commands and dashboard-wide custom CLI hooks
 - bookmark syntax, bookmark browser helpers, and route details
+- skill-local `dashboards/routes.json` custom ajax path and alias metadata
 - app-style skill routes such as `/app/<repo-name>` and `/app/<repo-name>/<page>`
 - underscored config merge keys such as `_<repo-name>`
 - dependency manifest processing order: C<aptfile>, C<apkfile>, C<dnfile>, C<wingetfile>, C<brewfile>, C<package.json>, C<cpanfile>, C<cpanfile.local>, C<Makefile>, C<dockerfile>, then C<ddfile>

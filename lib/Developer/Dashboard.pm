@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.68';
+our $VERSION = '3.69';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.68
+3.69
 
 =head1 INTRODUCTION
 
@@ -725,10 +725,37 @@ C<Ajax> helper calls inside saved bookmark C<CODE*> blocks should use
 an explicit C<file =E<gt> 'name.json'> argument. When a saved page supplies that
 name, the helper stores the Ajax Perl code under the saved dashboard ajax tree and emits a
 stable saved-bookmark endpoint such as
-C</ajax/name.json?type=text>. Skill pages use the same helper contract, but the
-generated saved endpoint is namespaced under the longest matching skill route,
-for example C</ajax/example-skill/name.json?type=text> or
-C</ajax/example-skill/sub-skill/name.json?type=text>. Those saved Ajax handlers
+C</ajax/name.json?type=text>. Skill pages use the same helper contract. Without
+extra skill route metadata the generated saved endpoint is namespaced under the
+longest matching skill route, for example
+C</ajax/example-skill/name.json?type=text> or
+C</ajax/example-skill/sub-skill/name.json?type=text>. Skills can also ship
+C<dashboards/routes.json> to declare canonical custom ajax paths plus optional
+aliases per saved handler. The schema is a JSON object with
+C<version = 1> and an C<ajax> object keyed by relative
+C<dashboards/ajax/> file paths, for example
+
+  {
+     "version" : 1,
+     "ajax" : {
+        "status" : {
+           "path" : "/v1/status",
+           "aliases" : [
+              "/ajax/example-skill/status"
+           ],
+           "type" : "json"
+        }
+     }
+  }
+
+When that file is present, skill pages emit the declared canonical
+C<path> such as C</v1/status> instead of the default C</ajax/...> url, while the
+smart longest-prefix C</ajax/example-skill/...> route still remains the primary
+installed-skill resolver and any declared alias or custom path is checked only
+after the normal smart route misses. If neither the smart route nor the custom
+alias path resolves, the request falls through to the normal C<404> response.
+The optional C<type> value can be C<json>, C<html>, C<text>, or an arbitrary
+raw mime type such as C<application/vnd.example+json>. Those saved Ajax handlers
 run the stored file as a real process, defaulting to Perl unless the file
 starts with a shebang, and stream both C<stdout> and C<stderr> back to the
 browser as they happen. That keeps bookmark Ajax workflows usable even while
@@ -2910,7 +2937,11 @@ child skill's C<dashboards/E<lt>pageE<gt>>
 
 skill-local ajax handlers under C<dashboards/ajax/*> resolve at
 C</ajax/E<lt>repo-nameE<gt>/...> and nested child skills extend that prefix as
-C</ajax/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/...>
+C</ajax/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/...>. Optional
+C<dashboards/routes.json> metadata can also publish canonical custom ajax
+paths such as C</v1/status> plus alias paths, but the smart
+C</ajax/E<lt>repo-nameE<gt>/...> resolver stays the parent route and custom
+paths are fallback-only after smart route lookup misses
 
 =item *
 
