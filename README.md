@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.67
+3.68
 
 # INTRODUCTION
 
@@ -87,6 +87,13 @@ such as macOS and WSL. Managed collectors are also watched after startup: an
 unexpected exit triggers an automatic restart, while repeated crash loops are
 raised as explicit `attention_required` collector state instead of silently
 stopping or spinning forever.
+Collector schedules now also support bounded overlap control. The default
+collector `mode` is `singleton`, which means one long-running collector run
+blocks the next scheduled start until the active run finishes. Set
+`mode => "multiple"` to allow overlap, and use `multiple => N` to
+bound how many concurrent runs of that same collector can exist at once. When
+the field is omitted in `multiple` mode, the runtime defaults that bound to
+`2`.
 
 Developer Dashboard is meant to become the developer's working home:
 
@@ -1477,6 +1484,8 @@ Example collector definitions:
           "command": "./foobar",
           "cwd": "home",
           "interval": 10,
+          "mode": "multiple",
+          "multiple": 3,
           "rotation": {
             "lines": 100,
             "days": 1
@@ -1489,6 +1498,16 @@ Example collector definitions:
         }
       ]
     }
+
+Collector concurrency defaults are explicit:
+
+- When `mode` is omitted, the collector runs in `singleton` mode.
+- In `singleton` mode, the scheduler skips a due run while an older run of the
+same collector is still active.
+- In `multiple` mode, the scheduler still starts due runs while older runs are
+active, but only until `multiple` active runs are already in flight.
+- When `mode` is `multiple` and `multiple` is omitted, the runtime uses
+`2`.
 
 Collector indicators follow the collector exit code automatically: `0`
 stores an `ok` indicator state and any non-zero exit code stores `error`.

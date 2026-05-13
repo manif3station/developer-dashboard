@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.67';
+our $VERSION = '3.68';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.67
+3.68
 
 =head1 INTRODUCTION
 
@@ -142,6 +142,13 @@ such as macOS and WSL. Managed collectors are also watched after startup: an
 unexpected exit triggers an automatic restart, while repeated crash loops are
 raised as explicit C<attention_required> collector state instead of silently
 stopping or spinning forever.
+Collector schedules now also support bounded overlap control. The default
+collector C<mode> is C<singleton>, which means one long-running collector run
+blocks the next scheduled start until the active run finishes. Set
+C<mode =E<gt> "multiple"> to allow overlap, and use C<multiple =E<gt> N> to
+bound how many concurrent runs of that same collector can exist at once. When
+the field is omitted in C<multiple> mode, the runtime defaults that bound to
+C<2>.
 
 Developer Dashboard is meant to become the developer's working home:
 
@@ -1754,6 +1761,8 @@ Example collector definitions:
         "command": "./foobar",
         "cwd": "home",
         "interval": 10,
+        "mode": "multiple",
+        "multiple": 3,
         "rotation": {
           "lines": 100,
           "days": 1
@@ -1766,6 +1775,31 @@ Example collector definitions:
       }
     ]
   }
+
+Collector concurrency defaults are explicit:
+
+=over 4
+
+=item *
+
+When C<mode> is omitted, the collector runs in C<singleton> mode.
+
+=item *
+
+In C<singleton> mode, the scheduler skips a due run while an older run of the
+same collector is still active.
+
+=item *
+
+In C<multiple> mode, the scheduler still starts due runs while older runs are
+active, but only until C<multiple> active runs are already in flight.
+
+=item *
+
+When C<mode> is C<multiple> and C<multiple> is omitted, the runtime uses
+C<2>.
+
+=back
 
 Collector indicators follow the collector exit code automatically: C<0>
 stores an C<ok> indicator state and any non-zero exit code stores C<error>.

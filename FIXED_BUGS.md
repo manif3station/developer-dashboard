@@ -1,4 +1,30 @@
 # Fixed Bugs
+## 3.68 - Fix collector overlap policy and bounded parallel scheduling
+
+- Root cause:
+  collector loops executed `run_once()` inline inside the long-lived scheduler
+  process. A slow collector therefore blocked the next interval tick entirely,
+  which made "run again on schedule even while the previous run is still
+  active" impossible. The persisted collector status model also used an
+  unlocked read/merge/write path plus a single `running => 0` completion write,
+  so any future overlap support would have raced and cleared a still-live run.
+
+- Fix:
+  normalized collector config to accept `mode` and `multiple`, defaulting to
+  `singleton` and allowing bounded overlap only when `mode` is `multiple`.
+  The collector loop now spawns bounded worker children per due tick, reaps
+  them explicitly, and keeps singleton collectors from overlapping while
+  allowing opt-in multiple collectors to run up to their configured parallel
+  limit. Collector status writes now run under an exclusive lock and maintain
+  an `active_runs` counter so concurrent completions do not incorrectly mark
+  another live run as stopped.
+
+- Prevention:
+  added focused config and collector-loop regressions that lock in the default
+  singleton policy, the default `multiple => 2` bound, invalid config
+  rejection, active-run cleanup after synchronous execution, and the
+  scheduler's different overlap behavior across singleton and multiple modes.
+
 ## 3.67 - Fix zombie child processes across runtime helpers
 
 - Root cause:

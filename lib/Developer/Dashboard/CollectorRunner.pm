@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '3.67';
+our $VERSION = '3.68';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -17,6 +17,7 @@ use Developer::Dashboard::Platform qw(is_windows shell_command_argv);
 
 our $SIGNAL_RUNNER;
 our $SIGNAL_LOOP_NAME;
+our $SIGNAL_LOOP_WORKERS;
 
 # new(%args)
 # Constructs the collector execution runtime.
@@ -71,56 +72,64 @@ sub run_once {
             updated_at => $started_at,
         }
     );
-    $self->{collectors}->write_status(
+    $self->{collectors}->mark_run_started(
         $name,
         {
             enabled         => 1,
-            running         => 1,
             last_started_at => $started_at,
             schedule        => $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' ),
         }
     );
 
-    my ( $stdout, $stderr, $exit_code, $timed_out ) = $self->_run_job(
-        mode       => $mode,
-        source     => $source,
-        cwd        => $cwd,
-        env        => $job->{env},
-        timeout_ms => $job->{timeout_ms} || ( $job->{timeout} ? $job->{timeout} * 1000 : undef ),
-    );
-
     my $indicator_payload;
-    if ( $self->{indicators} && ref( $job->{indicator} ) eq 'HASH' ) {
-        $indicator_payload = $self->{indicators}->collector_indicator_candidate(
-            $job,
-            status => $exit_code ? 'error' : 'ok',
+    my ( $stdout, $stderr, $exit_code, $timed_out ) = ( '', '', 255, 0 );
+    my $ok = eval {
+        ( $stdout, $stderr, $exit_code, $timed_out ) = $self->_run_job(
+            mode       => $mode,
+            source     => $source,
+            cwd        => $cwd,
+            env        => $job->{env},
+            timeout_ms => $job->{timeout_ms} || ( $job->{timeout} ? $job->{timeout} * 1000 : undef ),
         );
-        my $materialized = eval {
-            $self->_materialize_indicator_state(
-                job       => $job,
-                indicator => $indicator_payload,
-                stdout    => $stdout,
+
+        if ( $self->{indicators} && ref( $job->{indicator} ) eq 'HASH' ) {
+            $indicator_payload = $self->{indicators}->collector_indicator_candidate(
+                $job,
+                status => $exit_code ? 'error' : 'ok',
             );
-        };
-        if ( !$materialized ) {
-            my $error = "$@";
-            $error =~ s/\s+\z//;
-            $stderr = $self->_append_error_text( $stderr, $error );
-            $exit_code = 255 if !$exit_code;
-            $indicator_payload->{status} = 'error';
+            my $materialized = eval {
+                $self->_materialize_indicator_state(
+                    job       => $job,
+                    indicator => $indicator_payload,
+                    stdout    => $stdout,
+                );
+            };
+            if ( !$materialized ) {
+                my $error = "$@";
+                $error =~ s/\s+\z//;
+                $stderr = $self->_append_error_text( $stderr, $error );
+                $exit_code = 255 if !$exit_code;
+                $indicator_payload->{status} = 'error';
+            }
+            else {
+                $indicator_payload = $materialized;
+            }
         }
-        else {
-            $indicator_payload = $materialized;
-        }
+        return 1;
+    };
+    if ( !$ok ) {
+        my $error = "$@";
+        $error =~ s/\s+\z//;
+        $stderr = $self->_append_error_text( $stderr, $error );
+        $exit_code = 255;
     }
 
-    $self->{collectors}->write_result(
+    $self->{collectors}->mark_run_finished(
         $name,
         exit_code => $exit_code,
         stdout    => $stdout,
         stderr    => $stderr,
         started_at => $started_at,
-        running    => 0,
         output_format => $job->{output_format},
         timed_out  => $timed_out,
     );
@@ -346,11 +355,15 @@ sub _run_loop_child {
     $0 = $title;
     local $SIGNAL_RUNNER    = $self;
     local $SIGNAL_LOOP_NAME = $name;
+    my %active_workers;
+    local $SIGNAL_LOOP_WORKERS = \%active_workers;
     local $SIG{TERM} = \&_signal_stop;
     local $SIG{INT}  = \&_signal_stop;
     local $SIG{HUP}  = \&_signal_stop;
+    my ( $execution_mode, $max_parallel ) = $self->_collector_execution_policy($job);
 
     while (1) {
+        $self->_reap_finished_loop_workers( \%active_workers );
         $self->_write_loop_state(
             $name,
             {
@@ -362,40 +375,194 @@ sub _run_loop_child {
                 interval     => $interval,
                 schedule     => $schedule_mode,
                 status       => 'running',
+                mode         => $execution_mode,
+                multiple     => $max_parallel,
+                active_runs  => scalar keys %active_workers,
                 heartbeat_at => _now_iso8601(),
             }
         );
         my $due = $self->_job_is_due( $job, $name );
-        eval { $self->run_once($job) } if $due;
-        if ($@) {
-            my $error = "$@";
-            my $message = sprintf "[%s][%s] %s\n", _now_iso8601(), $name, $error;
-            $self->{files}->append( 'collector_log', $message );
-            $self->{collectors}->append_log_entry(
-                $name,
-                happened_at => _now_iso8601(),
-                error       => $error,
-                source      => 'loop error',
-            );
-            $self->_write_loop_state(
-                $name,
-                {
-                    pid          => $$,
-                    name         => $name,
-                    process_name => $title,
-                    command      => $job->{command},
-                    cwd          => $job->{cwd},
-                    interval     => $interval,
-                    schedule     => $schedule_mode,
-                    status       => 'error',
-                    heartbeat_at => _now_iso8601(),
-                    error        => $error,
-                }
-            );
+        if ( $due && scalar( keys %active_workers ) < $max_parallel ) {
+            my $worker_pid = eval { $self->_start_loop_worker( $job, $name, $title ) };
+            if ($@) {
+                my $error = "$@";
+                my $message = sprintf "[%s][%s] %s\n", _now_iso8601(), $name, $error;
+                $self->{files}->append( 'collector_log', $message );
+                $self->{collectors}->append_log_entry(
+                    $name,
+                    happened_at => _now_iso8601(),
+                    error       => $error,
+                    source      => 'loop error',
+                );
+                $self->_write_loop_state(
+                    $name,
+                    {
+                        pid          => $$,
+                        name         => $name,
+                        process_name => $title,
+                        command      => $job->{command},
+                        cwd          => $job->{cwd},
+                        interval     => $interval,
+                        schedule     => $schedule_mode,
+                        status       => 'error',
+                        mode         => $execution_mode,
+                        multiple     => $max_parallel,
+                        active_runs  => scalar keys %active_workers,
+                        heartbeat_at => _now_iso8601(),
+                        error        => $error,
+                    }
+                );
+            }
+            elsif ($worker_pid) {
+                $active_workers{$worker_pid} = 1;
+            }
         }
         sleep( $schedule_mode eq 'cron' ? 1 : $interval );
-        return 1 if $single_tick;
+        if ($single_tick) {
+            $self->_settle_single_tick_workers( \%active_workers );
+            return 1;
+        }
     }
+}
+
+# _collector_execution_policy($job)
+# Normalizes one collector loop execution policy from config, defaulting to
+# singleton mode and a bounded multiple-run limit when requested.
+# Input: collector job hash reference.
+# Output: execution mode string and maximum parallel run count integer.
+sub _collector_execution_policy {
+    my ( $self, $job ) = @_;
+    $job ||= {};
+    my $mode = defined $job->{mode} && $job->{mode} ne '' ? $job->{mode} : 'singleton';
+    die "Collector '$job->{name}' has unsupported mode '$mode'" if $mode ne 'singleton' && $mode ne 'multiple';
+    return ( 'singleton', 1 ) if $mode eq 'singleton';
+    my $max_parallel = defined $job->{multiple} ? $job->{multiple} : 2;
+    die "Collector '$job->{name}' multiple value must be a positive integer"
+      if $max_parallel !~ /^\d+$/ || $max_parallel < 1;
+    return ( 'multiple', $max_parallel + 0 );
+}
+
+# _start_loop_worker($job, $name)
+# Starts one collector execution worker from the scheduling loop so long
+# collector runs do not block future interval ticks.
+# Input: collector job hash reference and collector name string.
+# Output: worker pid integer in the parent or never returns in the child.
+sub _start_loop_worker {
+    my ( $self, $job, $name, $title ) = @_;
+    my $pid = $self->_fork_process();
+    die "Unable to fork collector worker '$name': $!" if !defined $pid;
+    return $pid if $pid;
+    return $self->_run_loop_worker( $job, $name, $title, $$ );
+}
+
+# _run_loop_worker($job, $name, $title, $loop_pid)
+# Executes one scheduled collector run in a worker child process.
+# Input: collector job hash reference, collector name string, loop process
+# title string, and owning loop pid integer.
+# Output: never returns in normal operation.
+sub _run_loop_worker {
+    my ( $self, $job, $name, $title, $loop_pid ) = @_;
+    $0 = "dashboard collector worker: $name";
+    local $SIG{TERM} = 'DEFAULT';
+    local $SIG{INT}  = 'DEFAULT';
+    local $SIG{HUP}  = 'DEFAULT';
+    my $ok = eval { $self->run_once($job); 1 };
+    if ( !$ok ) {
+        my $error = "$@";
+        my $message = sprintf "[%s][%s] %s\n", _now_iso8601(), $name, $error;
+        $self->{files}->append( 'collector_log', $message );
+        $self->{collectors}->append_log_entry(
+            $name,
+            happened_at => _now_iso8601(),
+            error       => $error,
+            source      => 'loop error',
+        );
+        $self->_write_loop_state(
+            $name,
+            {
+                pid          => $loop_pid || $$,
+                name         => $name,
+                process_name => $title || $self->_process_title($name),
+                command      => $job->{command},
+                cwd          => $job->{cwd},
+                interval     => $job->{interval},
+                schedule     => $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' ),
+                status       => 'error',
+                error        => $error,
+                heartbeat_at => _now_iso8601(),
+            }
+        );
+        exit 255;
+    }
+    exit 0;
+}
+
+# _reap_finished_loop_workers($active_workers)
+# Reaps exited scheduled worker children and removes them from the active set
+# so bounded parallel collector modes do not leak zombies.
+# Input: hash reference keyed by active worker pid.
+# Output: count of reaped worker processes.
+sub _reap_finished_loop_workers {
+    my ( $self, $active_workers ) = @_;
+    $active_workers ||= {};
+    my $reaped = 0;
+    for my $pid ( keys %{$active_workers} ) {
+        my $waited = $self->_waitpid_nonblocking($pid);
+        next if $waited != $pid;
+        delete $active_workers->{$pid};
+        $reaped++;
+    }
+    return $reaped;
+}
+
+# _waitpid_nonblocking($pid)
+# Wraps non-blocking waitpid so loop-reap behaviour can be tested without
+# relying on process timing races.
+# Input: worker pid integer.
+# Output: waitpid return value.
+sub _waitpid_nonblocking {
+    my ( $self, $pid ) = @_;
+    return waitpid( $pid, 1 );
+}
+
+# _terminate_loop_workers($active_workers)
+# Stops and reaps all active scheduled collector workers during loop shutdown.
+# Input: hash reference keyed by active worker pid.
+# Output: true value.
+sub _terminate_loop_workers {
+    my ( $self, $active_workers ) = @_;
+    $active_workers ||= {};
+    for my $pid ( keys %{$active_workers} ) {
+        next if !$self->_pid_is_running($pid);
+        kill 15, $pid;
+    }
+    for my $pid ( keys %{$active_workers} ) {
+        for ( 1 .. 20 ) {
+            last if !$self->_pid_is_running($pid);
+            sleep 0.1;
+        }
+        kill 9, $pid if $self->_pid_is_running($pid);
+        $self->_reap_child_process($pid);
+        delete $active_workers->{$pid};
+    }
+    return 1;
+}
+
+# _settle_single_tick_workers($active_workers)
+# Gives single-tick test loops a bounded chance to observe immediate worker
+# completion before returning control to the caller.
+# Input: hash reference keyed by active worker pid.
+# Output: true value after the bounded settle window.
+sub _settle_single_tick_workers {
+    my ( $self, $active_workers ) = @_;
+    $active_workers ||= {};
+    for ( 1 .. 50 ) {
+        last if !keys %{$active_workers};
+        $self->_reap_finished_loop_workers($active_workers);
+        last if !keys %{$active_workers};
+        sleep 0.01;
+    }
+    return 1;
 }
 
 # stop_loop($name)
@@ -408,8 +575,15 @@ sub stop_loop {
     return if !-f $pidfile;
     my $pid = _slurp($pidfile);
     chomp $pid;
+    my $already_reaped = $pid ? $self->_reap_child_process($pid) : 0;
     my $same_namespace = $pid ? $self->_same_pid_namespace($pid) : 0;
-    if ( $pid && $same_namespace && ( $self->_is_managed_loop( $pid, $name ) || $self->_state_confirms_managed_loop( $name, $pid ) ) ) {
+    if (
+        $pid
+        && !$already_reaped
+        && $same_namespace
+        && ( $self->_is_managed_loop( $pid, $name ) || $self->_state_confirms_managed_loop( $name, $pid ) )
+      )
+    {
         kill 15, $pid;
         for ( 1 .. 20 ) {
             last if !$self->_pid_is_running($pid);
@@ -422,7 +596,10 @@ sub stop_loop {
         }
         $self->_reap_child_process($pid);
     }
-    return if $pid && !$same_namespace;
+    if ( $pid && !$same_namespace ) {
+        $self->_cleanup_loop_files($name);
+        return $pid;
+    }
     $self->_cleanup_loop_files($name);
     return $pid;
 }
@@ -849,7 +1026,8 @@ sub _run_code {
 # Input: collector name string.
 # Output: never returns.
 sub _shutdown_loop {
-    my ( $self, $name, $status ) = @_;
+    my ( $self, $name, $status, $active_workers ) = @_;
+    $self->_terminate_loop_workers($active_workers) if ref($active_workers) eq 'HASH';
     $self->_write_loop_state(
         $name,
         {
@@ -869,7 +1047,7 @@ sub _shutdown_loop {
 # Input: none.
 # Output: never returns when a managed runner is active.
 sub _signal_stop {
-    $SIGNAL_RUNNER->_shutdown_loop( $SIGNAL_LOOP_NAME, 'stopped' );
+    $SIGNAL_RUNNER->_shutdown_loop( $SIGNAL_LOOP_NAME, 'stopped', $SIGNAL_LOOP_WORKERS );
 }
 
 # _slurp($file)

@@ -1,3 +1,15 @@
+3.68  2026-05-13
+    - added collector overlap control with explicit `mode` and `multiple`
+      config fields, defaulting collectors to singleton scheduling and
+      allowing bounded parallel runs only when a collector opts into
+      `mode = multiple`
+    - fixed collector loop scheduling so long-running jobs no longer block
+      the next interval tick for opt-in multiple-mode collectors, while
+      singleton collectors still suppress overlap by design
+    - made collector status updates lock-safe so active-run counts and the
+      `running` flag stay correct when overlapping collector workers finish
+      concurrently
+
 3.67  2026-05-13
     - fixed managed runtime child cleanup so detached web startup helpers,
       collector stop paths, the collector watchdog supervisor, SSL frontend

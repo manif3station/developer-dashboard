@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '3.67';
+our $VERSION = '3.68';
 
 use File::Spec;
 use Cwd qw(cwd);
@@ -205,7 +205,32 @@ sub collectors {
         @jobs = grep { ref($_) eq 'HASH' && $wanted{ $_->{name} } } @jobs;
     }
 
+    @jobs = map { $self->_normalize_collector_job($_) } @jobs;
     return \@jobs;
+}
+
+# _normalize_collector_job($job)
+# Applies collector execution defaults and validates bounded multiple-mode
+# settings so the runtime sees a stable config contract.
+# Input: collector job hash reference.
+# Output: normalized collector job hash reference.
+sub _normalize_collector_job {
+    my ( $self, $job ) = @_;
+    return $job if ref($job) ne 'HASH';
+    my %normalized = %{$job};
+    $normalized{mode} = defined $normalized{mode} && $normalized{mode} ne '' ? $normalized{mode} : 'singleton';
+    die "Collector '$normalized{name}' has unsupported mode '$normalized{mode}'"
+      if $normalized{mode} ne 'singleton' && $normalized{mode} ne 'multiple';
+    if ( $normalized{mode} eq 'multiple' ) {
+        my $parallel = defined $normalized{multiple} ? $normalized{multiple} : 2;
+        die "Collector '$normalized{name}' multiple value must be a positive integer"
+          if $parallel !~ /^\d+$/ || $parallel < 1;
+        $normalized{multiple} = $parallel + 0;
+    }
+    else {
+        $normalized{multiple} = 1;
+    }
+    return \%normalized;
 }
 
 # _builtin_collectors()

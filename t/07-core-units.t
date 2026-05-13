@@ -3334,6 +3334,8 @@ my $env_job = {
 };
 my $env_result = $runner->run_once($env_job);
 like( $env_result->{stdout}, qr/collector-ok/, 'collector runner injects explicit env values' );
+is( $collector->read_status('env.collector')->{active_runs}, 0, 'collector runner clears active_runs after a synchronous run finishes' );
+ok( !$collector->read_status('env.collector')->{running}, 'collector runner clears running after a synchronous run finishes' );
 dies_like(
     sub {
         $runner->start_loop(
@@ -3348,8 +3350,103 @@ dies_like(
     qr/manual schedule/,
     'manual collector schedules are rejected for background loops',
 );
+is_deeply(
+    [ $runner->_collector_execution_policy( { name => 'single.policy' } ) ],
+    [ 'singleton', 1 ],
+    'collector execution policy defaults to singleton mode',
+);
+is_deeply(
+    [ $runner->_collector_execution_policy( { name => 'multi.policy', mode => 'multiple' } ) ],
+    [ 'multiple', 2 ],
+    'collector execution policy defaults multiple mode to two parallel runs',
+);
+is_deeply(
+    [ $runner->_collector_execution_policy( { name => 'wide.policy', mode => 'multiple', multiple => 5 } ) ],
+    [ 'multiple', 5 ],
+    'collector execution policy keeps explicit multiple limits',
+);
+dies_like(
+    sub { $runner->_collector_execution_policy( { name => 'bad.policy', mode => 'burst' } ) },
+    qr/unsupported mode/,
+    'collector execution policy rejects unsupported modes',
+);
+dies_like(
+    sub { $runner->_collector_execution_policy( { name => 'bad.parallel', mode => 'multiple', multiple => 0 } ) },
+    qr/positive integer/,
+    'collector execution policy rejects invalid multiple limits',
+);
 ok( Developer::Dashboard::CollectorRunner::_cron_match('*/2', 4), 'cron matcher supports step expressions' );
 ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher rejects non-matching step expressions' );
+
+{
+    my @spawned;
+    my $sleep_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_job_is_due = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::_start_loop_worker = sub {
+        my ( undef, $job, $name ) = @_;
+        push @spawned, $name;
+        return 4000 + scalar @spawned;
+    };
+    local *Developer::Dashboard::CollectorRunner::_reap_finished_loop_workers = sub { return 0 };
+    local *Developer::Dashboard::CollectorRunner::sleep = sub {
+        $sleep_calls++;
+        die "stop loop\n" if $sleep_calls >= 2;
+        return 0;
+    };
+    eval {
+        $runner->_run_loop_child(
+            job => {
+                name     => 'singleton.loop',
+                command  => q{printf single},
+                cwd      => 'home',
+                interval => 1,
+            },
+            name      => 'singleton.loop',
+            interval  => 1,
+            daemonize => 0,
+        );
+        1;
+    };
+    like( $@, qr/stop loop/, 'singleton overlap scheduler test stops after two ticks' );
+    is_deeply( \@spawned, ['singleton.loop'], 'singleton loops suppress overlap while a prior worker is still active' );
+}
+
+{
+    my @spawned;
+    my $sleep_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_job_is_due = sub { return 1 };
+    local *Developer::Dashboard::CollectorRunner::_start_loop_worker = sub {
+        my ( undef, $job, $name ) = @_;
+        push @spawned, $name;
+        return 5000 + scalar @spawned;
+    };
+    local *Developer::Dashboard::CollectorRunner::_reap_finished_loop_workers = sub { return 0 };
+    local *Developer::Dashboard::CollectorRunner::sleep = sub {
+        $sleep_calls++;
+        die "stop loop\n" if $sleep_calls >= 2;
+        return 0;
+    };
+    eval {
+        $runner->_run_loop_child(
+            job => {
+                name     => 'multiple.loop',
+                command  => q{printf multi},
+                cwd      => 'home',
+                interval => 1,
+                mode     => 'multiple',
+                multiple => 2,
+            },
+            name      => 'multiple.loop',
+            interval  => 1,
+            daemonize => 0,
+        );
+        1;
+    };
+    like( $@, qr/stop loop/, 'multiple overlap scheduler test stops after two ticks' );
+    is_deeply( \@spawned, [ 'multiple.loop', 'multiple.loop' ], 'multiple loops can overlap up to their configured parallel limit' );
+}
 
 {
     my $child = fork();
