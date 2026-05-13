@@ -1,3 +1,16 @@
+3.67  2026-05-13
+    - fixed managed runtime child cleanup so detached web startup helpers,
+      collector stop paths, the collector watchdog supervisor, SSL frontend
+      connection workers, and background page actions no longer leave zombie
+      processes behind on hosts such as macOS and WSL
+    - fixed the SSL frontend accept loop so child-reaping `SIGCHLD` traffic
+      no longer makes the public listener shut its backend down early, while
+      TERM/INT/HUP now request a clean frontend shutdown explicitly instead
+      of depending on interrupted `accept()` side effects
+    - tightened regression coverage so collector stop and watchdog shutdown
+      tests fail if the runtime leaves direct child processes unreaped, and
+      action/background SSL runtime tests now enforce the no-zombie contract
+
 3.66  2026-05-08
     - added a collector watchdog supervisor that restarts unexpectedly-dead
       managed collector loops after startup instead of leaving them silently

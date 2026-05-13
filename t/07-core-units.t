@@ -1872,6 +1872,7 @@ dies_like( sub { $page_store->load_saved_page('missing-page') }, qr/not found/, 
 my $transient = $page_store->load_transient_page( $page_store->encode_page($page) );
 is( $transient->as_hash->{layout}{body}, "Hello <world>", 'load_transient_page decodes tokenized pages into canonical instruction form' );
 ok( $page_store->encode_page($page), 'encode_page accepts page documents directly' );
+like( $page_store->source_url($page), qr{^\Q/?mode=source&token=\E}, 'source_url builds the transient source route for saved pages' );
 dies_like(
     sub {
         $page_store->save_page(
@@ -2124,6 +2125,17 @@ is(
 );
 is( scalar @{ $indicators->sync_collectors([]) }, 0, 'sync_collectors ignores empty collector lists' );
 $indicators->set_indicator(
+    'stale',
+    label          => 'Stale',
+    icon           => 'S',
+    status         => 'ok',
+    priority       => 5,
+    prompt_visible => 1,
+);
+my $stale_indicator = $indicators->mark_stale( 'stale', status => 'error' );
+ok( $stale_indicator->{stale}, 'mark_stale marks stored indicators as stale' );
+is( $stale_indicator->{status}, 'error', 'mark_stale can replace indicator status while preserving the record' );
+$indicators->set_indicator(
     'stale.collector',
     icon                 => 'OLD',
     label                => 'stale.collector',
@@ -2204,6 +2216,31 @@ is( $fresh_page_item->{alias}, 'NEW', 'page header status prefers the configured
         'sync_collectors preserves a concurrent collector status update instead of writing stale missing state',
     );
 }
+{
+    my $core_home = tempdir(CLEANUP => 1);
+    my $core_paths = Developer::Dashboard::PathRegistry->new( home => $core_home );
+    my $core_indicators = Developer::Dashboard::IndicatorStore->new( paths => $core_paths );
+    my $core_repo = File::Spec->catdir( $core_home, 'core-repo' );
+    make_path($core_repo);
+    system( 'git', 'init', '-q', $core_repo ) == 0 or die 'git init failed';
+    system( 'git', '-C', $core_repo, 'config', 'user.email', 'core@example.test' ) == 0 or die 'git config user.email failed';
+    system( 'git', '-C', $core_repo, 'config', 'user.name', 'Core Coverage' ) == 0 or die 'git config user.name failed';
+    open my $core_fh, '>', File::Spec->catfile( $core_repo, 'README' ) or die $!;
+    print {$core_fh} "core coverage\n";
+    close $core_fh;
+    system( 'git', '-C', $core_repo, 'add', 'README' ) == 0 or die 'git add failed';
+    system( 'git', '-C', $core_repo, 'commit', '-q', '-m', 'init' ) == 0 or die 'git commit failed';
+
+    no warnings 'redefine';
+    local *Developer::Dashboard::IndicatorStore::command_in_path = sub { return 1 };
+    my $core_items = $core_indicators->refresh_core_indicators( cwd => $core_repo );
+    my ($docker_indicator)  = grep { $_->{name} eq 'docker' } @{$core_items};
+    my ($project_indicator) = grep { $_->{name} eq 'project' } @{$core_items};
+    my ($git_indicator)     = grep { $_->{name} eq 'git' } @{$core_items};
+    is( $docker_indicator->{status}, 'ok', 'refresh_core_indicators marks docker available when docker is on PATH' );
+    is( $project_indicator->{status}, 'ok', 'refresh_core_indicators marks the project indicator active inside a repository' );
+    is( $git_indicator->{status}, 'clean', 'refresh_core_indicators marks a clean git work tree as clean' );
+}
 
 my $prompt = Developer::Dashboard::Prompt->new( paths => $paths, indicators => $indicators );
 dies_like( sub { Developer::Dashboard::Prompt->new( paths => $paths ) }, qr/Missing indicator store/, 'prompt requires indicators' );
@@ -2229,6 +2266,7 @@ my $plain_paths = Developer::Dashboard::PathRegistry->new( home => $plain_home )
     unlike( $prompt_output, qr/alpha/, 'prompt skips hidden indicators' );
     like( $prompt_output, qr/~\/named-path/, 'prompt shortens home directory to tilde' );
     like( $prompt_output, qr/\(3 jobs\)/, 'prompt appends job suffix' );
+    like( $prompt->render( jobs => 0, cwd => File::Spec->catdir( $home, 'named-path' ), color => 1 ), qr/\e\[[0-9;]*m/, 'prompt can colorize compact indicator parts when requested' );
     my $prompt_without_indicators = $prompt->render(
         jobs          => 3,
         cwd           => File::Spec->catdir( $home, 'named-path' ),
@@ -2257,6 +2295,18 @@ my $plain_paths = Developer::Dashboard::PathRegistry->new( home => $plain_home )
         qr/✅beta/,
         'extended prompt prefixes indicator labels with success status glyphs when labels are missing',
     );
+}
+{
+    local $ENV{TMUX} = 'tmux-session';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = '';
+    local $ENV{TICKET_REF} = 'DD-4242';
+    ok( $prompt->_tmux_status_active, '_tmux_status_active recognizes ticket-owned tmux sessions when only TICKET_REF is set' );
+}
+{
+    local $ENV{TMUX} = 'tmux-session';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = '';
+    local $ENV{TICKET_REF} = '';
+    ok( !$prompt->_tmux_status_active, '_tmux_status_active leaves ordinary tmux sessions alone when no dashboard ticket marker is present' );
 }
 {
     no warnings 'redefine';
@@ -3200,7 +3250,7 @@ close $stale_pid;
         sleep 1;
         ok( $runner->loop_state('stale')->{pid}, 'start_loop writes loop metadata for new loops' );
         my $stopped_pid = $runner->stop_loop('stale');
-        waitpid( $stopped_pid, 0 ) if $stopped_pid;
+        is( waitpid( $stopped_pid, 1 ), -1, 'stop_loop reaps stale-loop children instead of leaving zombies behind' ) if $stopped_pid;
     }
 }
 
@@ -3230,7 +3280,7 @@ close $stale_pid;
         like( $runner->loop_state('loop')->{status}, qr/^(?:starting|running)$/, 'running loops publish managed lifecycle state metadata' );
         my $stopped_pid = $runner->stop_loop('loop');
         ok( $stopped_pid, 'stop_loop returns the forked pid' );
-        waitpid( $stopped_pid, 0 ) if $stopped_pid;
+        is( waitpid( $stopped_pid, 1 ), -1, 'stop_loop reaps managed loop children instead of leaving zombies behind' ) if $stopped_pid;
         ok( !defined $runner->loop_state('loop'), 'stop_loop removes loop metadata after shutdown' );
     }
 }
@@ -3259,7 +3309,7 @@ close $stale_pid;
         sleep 1;
         like( $runner->loop_state('broken-loop')->{status}, qr/error|running/, 'failing loops keep state metadata for management' );
         my $stopped_pid = $runner->stop_loop('broken-loop');
-        waitpid( $stopped_pid, 0 ) if $stopped_pid;
+        is( waitpid( $stopped_pid, 1 ), -1, 'stop_loop reaps failing managed loop children instead of leaving zombies behind' ) if $stopped_pid;
         like( $files->read('collector_log'), qr/broken-loop/, 'start_loop logs collector failures from the child loop' );
     }
 }
@@ -3315,7 +3365,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     print {$manual_pid} "$child\n";
     close $manual_pid;
     is( $runner->stop_loop('manual'), $child, 'stop_loop terminates manual pidfile processes' );
-    waitpid( $child, 0 );
+    is( waitpid( $child, 1 ), -1, 'stop_loop reaps manual collector children after shutdown' );
 }
 
 {
@@ -3392,7 +3442,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             'stop_loop terminates a managed collector from persisted loop state when process markers are not observable yet',
         );
     }
-    waitpid( $child, 0 );
+    is( waitpid( $child, 1 ), -1, 'stop_loop reaps state-backed managed children after shutdown' );
     $runner->_cleanup_loop_files('state-backed');
 }
 

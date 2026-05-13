@@ -1,4 +1,30 @@
 # Fixed Bugs
+## 3.67 - Fix zombie child processes across runtime helpers
+
+- Root cause:
+  several long-lived runtime paths started or stopped child processes without
+  fully owning their wait/reap lifecycle. Detached web startup left behind the
+  intermediate launcher child, collector and watchdog stop paths signalled
+  managed children without reaping them, the SSL frontend only reaped
+  connection workers opportunistically from the accept loop, and background
+  page actions returned the direct forked child to the caller instead of
+  daemonizing cleanly. On macOS and WSL that left visible zombie processes
+  behind after normal runtime activity.
+
+- Fix:
+  moved child reaping into the runtime owners. Collector stop and watchdog
+  shutdown now reap managed children after TERM/KILL handling, background page
+  actions now daemonize through an intermediate launcher and return the real
+  detached pid, web startup reaps its intermediate launcher child, and the SSL
+  frontend now reaps connection workers through `SIGCHLD` while treating
+  interrupted `accept()` calls as retries until an explicit shutdown signal is
+  requested.
+
+- Prevention:
+  strengthened the focused runtime tests so stop paths now fail if they leave
+  caller-owned children to be reaped later, and SSL/action regressions now
+  lock the no-zombie contract into the suite.
+
 ## 3.66 - Fix silent collector death with watchdog restart supervision
 
 - Root cause:

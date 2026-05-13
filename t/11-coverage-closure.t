@@ -7,6 +7,7 @@ use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use Test::More;
+use Time::HiRes qw(sleep);
 
 use lib 'lib';
 
@@ -249,8 +250,31 @@ my $background_result = $actions->run_command_action(
     timeout_ms => 1000,
 );
 ok( $background_result->{pid} > 0, 'background action forks a child process' );
-waitpid( $background_result->{pid}, 0 );
-ok( !kill( 0, $background_result->{pid} ), 'background action child exits cleanly after running' );
+for ( 1 .. 20 ) {
+    last if !kill 0, $background_result->{pid};
+    sleep 0.1;
+}
+ok( !kill( 0, $background_result->{pid} ), 'background action child exits cleanly after running without requiring the caller to reap an intermediate zombie' );
+
+{
+    my $fork_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::ActionRunner::_fork_process = sub {
+        $fork_calls++;
+        return fork() if $fork_calls == 1;
+        return undef;
+    };
+    my $error = eval {
+        $actions->run_command_action(
+            command    => 'printf background-fail',
+            cwd        => $repo,
+            background => 1,
+            timeout_ms => 1000,
+        );
+        return '';
+    } || $@;
+    like( $error, qr/Unable to complete background action daemonize:/, 'background action surfaces daemonize fork failures explicitly' );
+}
 
 ok(
     !$actions->_is_action_trusted(

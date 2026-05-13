@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '3.66';
+our $VERSION = '3.67';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -412,10 +412,15 @@ sub stop_loop {
     if ( $pid && $same_namespace && ( $self->_is_managed_loop( $pid, $name ) || $self->_state_confirms_managed_loop( $name, $pid ) ) ) {
         kill 15, $pid;
         for ( 1 .. 20 ) {
-            last if !kill 0, $pid;
+            last if !$self->_pid_is_running($pid);
             sleep 0.1;
         }
-        kill 9, $pid if kill 0, $pid;
+        kill 9, $pid if $self->_pid_is_running($pid);
+        for ( 1 .. 20 ) {
+            last if !$self->_pid_is_running($pid);
+            sleep 0.1;
+        }
+        $self->_reap_child_process($pid);
     }
     return if $pid && !$same_namespace;
     $self->_cleanup_loop_files($name);
@@ -647,6 +652,30 @@ sub _cleanup_loop_files {
     unlink $self->_pidfile($name) if -f $self->_pidfile($name);
     unlink $self->_statefile($name) if -f $self->_statefile($name);
     return 1;
+}
+
+# _reap_child_process($pid)
+# Reaps one managed collector child owned by the current process when it has
+# already exited.
+# Input: process id integer.
+# Output: boolean true when waitpid reaped the child.
+sub _reap_child_process {
+    my ( $self, $pid ) = @_;
+    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    my $waited = waitpid( $pid, 1 );
+    return $waited == $pid ? 1 : 0;
+}
+
+# _pid_is_running($pid)
+# Determines whether one collector loop pid is still alive after opportunistic
+# child reaping.
+# Input: process id integer.
+# Output: boolean true when the pid is still running.
+sub _pid_is_running {
+    my ( $self, $pid ) = @_;
+    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    return 0 if $self->_reap_child_process($pid);
+    return kill( 0, $pid ) ? 1 : 0;
 }
 
 # _detach_process_session()

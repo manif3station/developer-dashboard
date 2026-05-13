@@ -6,6 +6,7 @@ use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use Test::More;
+use Time::HiRes qw(sleep);
 use URI::Escape qw(uri_escape);
 
 use lib 'lib';
@@ -253,7 +254,11 @@ my $background_result = $actions->run_command_action(
 ok( $background_result->{pid} > 0, 'background command action returns a child pid' );
 ok( kill( 0, $background_result->{pid} ), 'background action child is running initially' );
 kill 'TERM', $background_result->{pid};
-waitpid( $background_result->{pid}, 0 );
+for ( 1 .. 20 ) {
+    last if !kill 0, $background_result->{pid};
+    sleep 0.1;
+}
+ok( !kill( 0, $background_result->{pid} ), 'background action child stops cleanly without leaving a direct child for the caller to reap' );
 
 my $transient = Developer::Dashboard::PageDocument->new(
     title       => 'Transient',

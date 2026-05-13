@@ -452,7 +452,7 @@ ok(
         return $pid == $child ? 1 : 0;
     };
     is( $manager->_stop_collector_supervisor, $child, 'collector supervisor stop returns the managed child pid' );
-    waitpid( $child, 0 );
+    is( waitpid( $child, 1 ), -1, 'collector supervisor stop reaps the managed child instead of leaving a zombie behind' );
     ok( !-f $manager->_collector_supervisor_pidfile, 'collector supervisor stop removes the pidfile after shutdown' );
 }
 

@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.66';
+our $VERSION = '3.67';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -95,6 +95,7 @@ sub start_web {
         close $writer;
         my $line = <$reader>;
         close $reader;
+        $self->_reap_child_process($pid);
         die "Unable to start dashboard web service\n" if !defined $line;
         chomp $line;
         die "$line\n" if $line =~ /^err:/;
@@ -322,8 +323,10 @@ sub stop_web {
     if ( !$released && $port ) {
         my @late_listeners = grep { kill 0, $_ } $self->_listener_pids_for_port($port);
         $self->_send_signal( 'KILL', @late_listeners );
+        $self->_reap_child_processes(@late_listeners);
         $self->_wait_for_port_release($port);
     }
+    $self->_reap_child_processes( $pid, @listener_pids );
 
     $self->_cleanup_web_files;
     $self->_progress_emit(
@@ -346,6 +349,44 @@ sub _numeric_pid {
     my ($pid) = @_;
     return undef if !defined $pid || $pid eq '';
     return $pid =~ /^\d+$/ ? $pid + 0 : $pid;
+}
+
+# _reap_child_process($pid)
+# Reaps one direct runtime child when it has already exited so background
+# lifecycle helpers do not accumulate zombie processes.
+# Input: process id integer.
+# Output: boolean true when waitpid reaped the child.
+sub _reap_child_process {
+    my ( $self, $pid ) = @_;
+    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    my $waited = waitpid( $pid, 1 );
+    return $waited == $pid ? 1 : 0;
+}
+
+# _pid_is_running($pid)
+# Determines whether one runtime-managed pid is still alive after opportunistic
+# child reaping.
+# Input: process id integer.
+# Output: boolean true when the process is still running.
+sub _pid_is_running {
+    my ( $self, $pid ) = @_;
+    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    return 0 if $self->_reap_child_process($pid);
+    return kill( 0, $pid ) ? 1 : 0;
+}
+
+# _reap_child_processes(@pids)
+# Reaps every direct child in one pid list when those children have already
+# exited.
+# Input: list of process id integers.
+# Output: number of child processes reaped.
+sub _reap_child_processes {
+    my ( $self, @pids ) = @_;
+    my $count = 0;
+    for my $pid (@pids) {
+        $count++ if $self->_reap_child_process($pid);
+    }
+    return $count;
 }
 
 # _wait_for_windows_web_shutdown($pid, $port, $listener_pids)
@@ -1311,10 +1352,15 @@ sub _stop_collector_supervisor {
     if ($pid) {
         $self->_send_signal( 'TERM', $pid );
         for ( 1 .. 20 ) {
-            last if !kill 0, $pid;
+            last if !$self->_pid_is_running($pid);
             sleep 0.1;
         }
-        $self->_send_signal( 'KILL', $pid ) if kill 0, $pid;
+        $self->_send_signal( 'KILL', $pid ) if $self->_pid_is_running($pid);
+        for ( 1 .. 20 ) {
+            last if !$self->_pid_is_running($pid);
+            sleep 0.1;
+        }
+        $self->_reap_child_process($pid);
     }
     $self->_cleanup_collector_supervisor_files;
     return $pid;

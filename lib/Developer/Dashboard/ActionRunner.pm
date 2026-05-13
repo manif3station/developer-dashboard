@@ -3,7 +3,7 @@ package Developer::Dashboard::ActionRunner;
 use strict;
 use warnings;
 
-our $VERSION = '3.66';
+our $VERSION = '3.67';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -134,16 +134,38 @@ sub run_command_action {
     my $background = $args{background} ? 1 : 0;
 
     if ($background) {
-        my $pid = fork();
+        pipe my $reader, my $writer or die "Unable to create background action pipe: $!";
+        my $pid = $self->_fork_process;
         die "Unable to fork background action: $!" if !defined $pid;
         if ($pid) {
+            close $writer;
+            my $line = <$reader>;
+            close $reader;
+            waitpid( $pid, 0 );
+            die "Unable to start background action\n" if !defined $line;
+            chomp $line;
+            die "$line\n" if $line =~ /^err:/;
+            my ( undef, $started_pid ) = split /\|/, $line, 2;
             return {
                 background => 1,
-                pid        => $pid,
+                pid        => $started_pid + 0,
                 started_at => _now_iso8601(),
             };
         }
-        setsid();
+        close $reader;
+        setsid() or die "Unable to detach background action session: $!";
+        my $grandchild_pid = $self->_fork_process;
+        if ( !defined $grandchild_pid ) {
+            print {$writer} "err: Unable to complete background action daemonize: $!\n";
+            close $writer;
+            exit 1;
+        }
+        if ($grandchild_pid) {
+            print {$writer} join( '|', 'ok', $grandchild_pid ), "\n";
+            close $writer;
+            exit 0;
+        }
+        close $writer;
         open STDIN, '<', File::Spec->devnull() or die $!;
         open STDOUT, '>>', $self->{files}->dashboard_log or die $!;
         open STDERR, '>>', $self->{files}->dashboard_log or die $!;
@@ -162,6 +184,15 @@ sub run_command_action {
         env        => $env,
         timeout_ms => $timeout_ms,
     );
+}
+
+# _fork_process()
+# Wraps Perl fork so tests can drive the direct-child and daemonize-child paths
+# deterministically.
+# Input: none.
+# Output: child pid in parent, zero in child, or undef on failure.
+sub _fork_process {
+    return fork();
 }
 
 # _run_builtin_action(%args)

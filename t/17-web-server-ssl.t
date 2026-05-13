@@ -707,6 +707,15 @@ OPENSSL_CONFIG
         'previous-signal chaining returns success for non-code non-default handlers'
     );
 
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Web::Server::_waitpid = sub { return 0 };
+        ok(
+            Developer::Dashboard::Web::Server::_wait_for_managed_child(1234),
+            '_wait_for_managed_child tolerates nonterminal waitpid responses during best-effort cleanup',
+        );
+    }
+
     my $default_signal_pid = fork();
     die "Unable to fork default signal test child: $!" if !defined $default_signal_pid;
     if ( !$default_signal_pid ) {

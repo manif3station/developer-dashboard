@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.66';
+our $VERSION = '3.67';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.66
+3.67
 
 =head1 INTRODUCTION
 
@@ -133,6 +133,15 @@ config-backed providers, path aliases, and compose overlays
 update scripts and installable runtime packaging
 
 =back
+
+Managed runtime children are expected to clean up after themselves. Detached
+web startup helpers, collector loops, the collector watchdog supervisor, the
+SSL frontend connection workers, and background page actions now reap the
+direct children they own instead of leaving zombie processes behind on hosts
+such as macOS and WSL. Managed collectors are also watched after startup: an
+unexpected exit triggers an automatic restart, while repeated crash loops are
+raised as explicit C<attention_required> collector state instead of silently
+stopping or spinning forever.
 
 Developer Dashboard is meant to become the developer's working home:
 

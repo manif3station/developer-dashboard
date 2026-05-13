@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.66
+3.67
 
 # INTRODUCTION
 
@@ -78,6 +78,15 @@ variables across `CODE*` blocks without leaking them into later page runs
 - action execution with trusted and safer page boundaries
 - config-backed providers, path aliases, and compose overlays
 - update scripts and installable runtime packaging
+
+Managed runtime children are expected to clean up after themselves. Detached
+web startup helpers, collector loops, the collector watchdog supervisor, the
+SSL frontend connection workers, and background page actions now reap the
+direct children they own instead of leaving zombie processes behind on hosts
+such as macOS and WSL. Managed collectors are also watched after startup: an
+unexpected exit triggers an automatic restart, while repeated crash loops are
+raised as explicit `attention_required` collector state instead of silently
+stopping or spinning forever.
 
 Developer Dashboard is meant to become the developer's working home:
 
