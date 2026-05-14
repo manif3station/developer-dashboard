@@ -108,6 +108,47 @@ ok(
 );
 
 {
+    my @signals;
+    my @sleeps;
+    my $reaped_pid = 0;
+    my $cleaned = 0;
+    my $running_checks = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { push @sleeps, $_[0]; return 0 };
+    local *Developer::Dashboard::RuntimeManager::_collector_supervisor_running = sub { return 4242 };
+    local *Developer::Dashboard::RuntimeManager::_pid_is_running = sub {
+        $running_checks++;
+        return $running_checks <= 22 ? 1 : 0;
+    };
+    local *Developer::Dashboard::RuntimeManager::_send_signal = sub {
+        my ( $self, $signal, @pids ) = @_;
+        push @signals, [ $signal, @pids ];
+        return scalar @pids;
+    };
+    local *Developer::Dashboard::RuntimeManager::_reap_child_process = sub {
+        my ( $self, $pid ) = @_;
+        $reaped_pid = $pid;
+        return 1;
+    };
+    local *Developer::Dashboard::RuntimeManager::_cleanup_collector_supervisor_files = sub {
+        $cleaned = 1;
+        return 1;
+    };
+    $manager->_stop_collector_supervisor;
+    is_deeply(
+        \@signals,
+        [
+            [ 'TERM', 4242 ],
+            [ 'KILL', 4242 ],
+        ],
+        '_stop_collector_supervisor escalates from TERM to KILL when the supervisor stays alive',
+    );
+    is( scalar @sleeps, 21, '_stop_collector_supervisor waits through the TERM loop and the post-KILL confirmation loop' );
+    is( $reaped_pid, 4242, '_stop_collector_supervisor reaps the stopped supervisor pid after escalation' );
+    ok( $cleaned, '_stop_collector_supervisor still cleans up supervisor state files after escalation' );
+}
+
+{
     my $state = $manager->_write_collector_supervisor_state(
         {
             pid           => 3210,

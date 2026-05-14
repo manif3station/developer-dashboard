@@ -1,4 +1,28 @@
 # Fixed Bugs
+## 3.70 - Move skill route metadata to config/routes.json and widen custom route coverage
+
+- Root cause:
+  installed skill custom routing only understood the earlier
+  `dashboards/routes.json` Ajax-only schema. Skill authors could not define
+  custom fallback paths for `/app`, `/js`, `/css`, or `/others`, and the
+  manifest format did not match the simpler public-path-to-smart-route form
+  you wanted. That left the route contract broader in the runtime than in the
+  authoring surface, and it kept the metadata in the wrong place.
+
+- Fix:
+  moved skill route metadata to `config/routes.json` and changed the supported
+  schema to a flat custom-path map. Each custom path now maps to one local
+  smart route string such as `/ajax/foo` or to an object with `to` plus an
+  optional `type`. The loader now expands that format into the internal route
+  model, rejects mixed/invalid schemas explicitly, defaults custom Ajax routes
+  to `json`, and serves custom `/app`, `/ajax`, `/js`, `/css`, and `/others`
+  paths only after the smart parent routes miss. Saved skill-page Ajax URLs
+  now continue to emit the canonical custom path from `config/routes.json`.
+  Also fixed `dashboard serve logs -f` so it snapshots the already-read log
+  byte offset before entering follow mode; without that, a line appended in
+  the gap between the initial tail print and the old seek-to-end follow loop
+  could be skipped forever and hang the follower tests.
+
 ## 3.69 - Fix skill ajax custom routing and collector indicator ordering
 
 - Root cause:

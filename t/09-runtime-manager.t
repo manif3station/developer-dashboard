@@ -666,7 +666,11 @@ $files->remove('dashboard_log');
 is( $manager->web_log, '', 'web_log returns an empty string when the dashboard log file is missing' );
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::RuntimeManager::_follow_log_file = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_follow_log_file = sub {
+        my ( $self, %args ) = @_;
+        is( $args{start_pos}, length("follow once\n"), 'web_log follow mode passes the original file byte length into the follow loop so appended lines are not skipped by a seek-to-end race' );
+        return 1;
+    };
     $files->write( 'dashboard_log', "follow once\n" );
     is( $manager->web_log( follow => 1, lines => 1 ), '', 'web_log follow mode returns an empty string after delegating to the follow loop' );
 }

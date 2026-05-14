@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '3.69';
+our $VERSION = '3.70';
 
 use Config ();
 use IPC::Open3 qw(open3);
@@ -913,72 +913,106 @@ sub _page_location {
     return;
 }
 
+# skill_route_spec($kind, $skill_name, $target)
+# Resolves one custom config/routes.json route definition for a skill route kind.
+# Input: route kind string, skill repository name string, and relative route target path.
+# Output: normalized route spec hash reference or undef when no custom route exists.
+sub skill_route_spec {
+    my ( $self, $kind, $skill_name, $target ) = @_;
+    return if !$kind || !$skill_name || !$target;
+    my $routes = $self->_skill_routes_for( $skill_name, $kind );
+    return $routes->{$target};
+}
+
 # skill_ajax_route_spec($skill_name, $ajax_file)
-# Resolves one custom dashboards/routes.json ajax route definition for a skill.
+# Resolves one custom config/routes.json ajax route definition for a skill.
 # Input: skill repository name string and relative ajax file path.
 # Output: normalized route spec hash reference or undef when no custom route exists.
 sub skill_ajax_route_spec {
     my ( $self, $skill_name, $ajax_file ) = @_;
-    return if !$skill_name || !$ajax_file;
-    my $routes = $self->_skill_ajax_routes_for($skill_name);
-    return $routes->{$ajax_file};
+    return $self->skill_route_spec( 'ajax', $skill_name, $ajax_file );
 }
 
-# resolve_ajax_route_path($path)
-# Resolves one canonical or alias custom ajax route path across installed skills.
+# resolve_custom_route_path($path)
+# Resolves one canonical or alias custom route path across installed skills and route kinds.
 # Input: absolute request path string.
 # Output: normalized route spec hash reference or undef when no custom route matches.
-sub resolve_ajax_route_path {
+sub resolve_custom_route_path {
     my ( $self, $path ) = @_;
     return if !defined $path || $path eq '';
     for my $skill_name ( $self->_all_installed_skill_names ) {
-        my $routes = $self->_skill_ajax_routes_for($skill_name);
-        for my $ajax_file ( sort keys %{$routes} ) {
-            my $spec = $routes->{$ajax_file};
-            return $spec if ( $spec->{path} || '' ) eq $path;
-            return $spec if grep { $_ eq $path } @{ $spec->{aliases} || [] };
+        for my $kind (qw(app ajax js css others)) {
+            my $routes = $self->_skill_routes_for( $skill_name, $kind );
+            for my $target ( sort keys %{$routes} ) {
+                my $spec = $routes->{$target};
+                return $spec if ( $spec->{path} || '' ) eq $path;
+                my $aliases = $spec->{aliases};
+                $aliases = [] if ref($aliases) ne 'ARRAY';
+                return $spec if grep { $_ eq $path } @{$aliases};
+            }
         }
     }
     return;
 }
 
-# _skill_ajax_routes_for($skill_name)
-# Loads and merges dashboards/routes.json ajax metadata for one layered skill.
-# Input: skill repository name string.
-# Output: hash reference keyed by ajax file path with normalized route specs.
-sub _skill_ajax_routes_for {
-    my ( $self, $skill_name ) = @_;
-    return {} if !$skill_name;
+# resolve_ajax_route_path($path)
+# Resolves one canonical or alias custom ajax route path across installed skills.
+# Input: absolute request path string.
+# Output: normalized route spec hash reference or undef when no custom ajax route matches.
+sub resolve_ajax_route_path {
+    my ( $self, $path ) = @_;
+    my $spec = $self->resolve_custom_route_path($path);
+    return if !$spec || ( $spec->{kind} || '' ) ne 'ajax';
+    return $spec;
+}
+
+# _skill_routes_for($skill_name, $kind)
+# Loads and merges config/routes.json metadata for one layered skill and route kind.
+# Input: skill repository name string and route kind string.
+# Output: hash reference keyed by relative route target with normalized route specs.
+sub _skill_routes_for {
+    my ( $self, $skill_name, $kind ) = @_;
+    return {} if !$skill_name || !$kind;
     my %routes;
     my %claimed_paths;
 
     for my $skill_path ( $self->_skill_lookup_roots($skill_name) ) {
-        my $routes_file = File::Spec->catfile( $skill_path, 'dashboards', 'routes.json' );
+        my $routes_file = File::Spec->catfile( $skill_path, 'config', 'routes.json' );
         next if !-f $routes_file;
         my $payload = $self->_load_skill_routes_file($routes_file);
-        my $ajax = $payload->{ajax} || {};
-        for my $ajax_file ( sort keys %{$ajax} ) {
-            next if exists $routes{$ajax_file};
-            my $spec = $self->_normalize_skill_ajax_route_spec(
-                skill_name  => $skill_name,
-                ajax_file   => $ajax_file,
+        my $kind_routes = $payload->{$kind} || {};
+        for my $target ( sort keys %{$kind_routes} ) {
+            next if exists $routes{$target};
+            my $spec = $self->_normalize_skill_route_spec(
+                kind       => $kind,
+                skill_name => $skill_name,
+                target     => $target,
                 routes_file => $routes_file,
-                spec        => $ajax->{$ajax_file},
+                spec       => $kind_routes->{$target},
             );
             for my $route_path ( $spec->{path}, @{ $spec->{aliases} || [] } ) {
                 next if !defined $route_path || $route_path eq '';
-                die "Duplicate ajax route path '$route_path' in skill '$skill_name'"
+                die "Duplicate $kind route path '$route_path' in skill '$skill_name'"
                   if $claimed_paths{$route_path}++;
             }
-            $routes{$ajax_file} = $spec;
+            $routes{$target} = $spec;
         }
     }
 
     return \%routes;
 }
 
+# _skill_ajax_routes_for($skill_name)
+# Backward-compatible wrapper for the ajax-specific custom route map loader.
+# Input: skill repository name string.
+# Output: hash reference keyed by ajax file path.
+sub _skill_ajax_routes_for {
+    my ( $self, $skill_name ) = @_;
+    return $self->_skill_routes_for( $skill_name, 'ajax' );
+}
+
 # _load_skill_routes_file($routes_file)
-# Parses one dashboards/routes.json file and validates the top-level schema.
+# Parses one config/routes.json file and validates the top-level schema.
 # Input: absolute routes.json file path.
 # Output: decoded hash reference.
 sub _load_skill_routes_file {
@@ -990,54 +1024,132 @@ sub _load_skill_routes_file {
     my $payload = eval { decode_json($json_text) };
     die "Invalid JSON in $routes_file: $@" if $@;
     die "$routes_file must contain a JSON object" if ref($payload) ne 'HASH';
-    die "$routes_file version must be 1" if ( $payload->{version} || 0 ) != 1;
-    if ( exists $payload->{ajax} ) {
-        die "$routes_file ajax must be a JSON object" if ref( $payload->{ajax} ) ne 'HASH';
+    my @non_version_keys = grep { $_ ne 'version' } keys %{$payload};
+    my $has_flat_keys = grep { m{\A/} } @non_version_keys;
+    my $has_typed_keys = grep { /^(?:app|ajax|js|css|others)$/ } @non_version_keys;
+    die "$routes_file must not mix flat custom-path routes with typed route sections"
+      if $has_flat_keys && $has_typed_keys;
+    if ($has_flat_keys) {
+        my @invalid = grep { $_ !~ m{\A/} } @non_version_keys;
+        die "$routes_file flat routes must use absolute custom-path keys"
+          if @invalid;
+        return $self->_expand_flat_skill_routes_payload( $routes_file, $payload );
     }
-    else {
-        $payload->{ajax} = {};
+    my @unknown = grep { $_ !~ /^(?:app|ajax|js|css|others)$/ } @non_version_keys;
+    die "$routes_file contains unsupported top-level keys: @unknown"
+      if @unknown;
+    die "$routes_file version must be 1" if exists $payload->{version} && ( $payload->{version} || 0 ) != 1;
+    for my $kind (qw(app ajax js css others)) {
+        if ( exists $payload->{$kind} ) {
+            die "$routes_file $kind must be a JSON object" if ref( $payload->{$kind} ) ne 'HASH';
+        }
+        else {
+            $payload->{$kind} = {};
+        }
     }
     return $payload;
 }
 
-# _normalize_skill_ajax_route_spec(%args)
-# Validates and normalizes one dashboards/routes.json ajax route entry.
-# Input: skill_name, ajax_file, routes_file, and raw spec hash reference.
+# _expand_flat_skill_routes_payload($routes_file, $payload)
+# Converts the flat custom-path config/routes.json schema into the internal typed route map.
+# Input: absolute routes.json file path and decoded payload hash reference.
+# Output: normalized payload hash reference with app/ajax/js/css/others maps.
+sub _expand_flat_skill_routes_payload {
+    my ( $self, $routes_file, $payload ) = @_;
+    my %expanded = map { $_ => {} } qw(app ajax js css others);
+    my %claimed_targets;
+    for my $route_path ( sort grep { $_ ne 'version' } keys %{$payload} ) {
+        die "$routes_file route path '$route_path' must start with /"
+          if $route_path !~ m{\A/};
+        my $route = $payload->{$route_path};
+        my ( $to, $type );
+        if ( !ref($route) ) {
+            $to = $route;
+        }
+        elsif ( ref($route) eq 'HASH' ) {
+            my @unknown = grep { $_ ne 'to' && $_ ne 'type' } keys %{$route};
+            die "$routes_file route path '$route_path' contains unsupported keys: @unknown"
+              if @unknown;
+            $to   = $route->{to};
+            $type = $route->{type};
+        }
+        else {
+            die "$routes_file route path '$route_path' must map to a string or JSON object";
+        }
+        die "$routes_file route path '$route_path' must map to a non-empty route target"
+          if !defined $to || ref($to) || $to eq '';
+        my ( $kind, $target ) = $to =~ m{\A/(ajax|app|js|css|others)/(.*)\z};
+        die "$routes_file route path '$route_path' must map to /ajax/, /app/, /js/, /css/, or /others/"
+          if !$kind;
+        die "$routes_file route path '$route_path' target must not be empty"
+          if !defined $target || $target eq '';
+        die "$routes_file route path '$route_path' type must be a scalar"
+          if defined $type && ref($type);
+        die "$routes_file route path '$route_path' type must not be empty"
+          if defined $type && $type eq '';
+        die "$routes_file route path '$route_path' does not allow type for /app targets"
+          if defined $type && $kind eq 'app';
+        die "$routes_file route path '$route_path' does not allow type for /js targets"
+          if defined $type && $kind eq 'js';
+        die "$routes_file route path '$route_path' does not allow type for /css targets"
+          if defined $type && $kind eq 'css';
+        die "Duplicate $kind route target '/$kind/$target' in $routes_file"
+          if $claimed_targets{"$kind:$target"}++;
+        $type = 'json' if !defined $type && $kind eq 'ajax';
+        $expanded{$kind}{$target} = {
+            path => $route_path,
+            ( defined $type ? ( type => $type ) : () ),
+        };
+    }
+    return \%expanded;
+}
+
+# _normalize_skill_route_spec(%args)
+# Validates and normalizes one config/routes.json route entry.
+# Input: kind, skill_name, target, routes_file, and raw spec hash reference.
 # Output: normalized route spec hash reference.
-sub _normalize_skill_ajax_route_spec {
+sub _normalize_skill_route_spec {
     my ( $self, %args ) = @_;
+    my $kind = $args{kind} || die 'Missing kind';
     my $skill_name = $args{skill_name} || die 'Missing skill_name';
-    my $ajax_file = $args{ajax_file} || die 'Missing ajax_file';
+    my $target = $args{target} || die 'Missing target';
     my $routes_file = $args{routes_file} || die 'Missing routes_file';
     my $spec = $args{spec};
-    die "$routes_file ajax entry '$ajax_file' must be a JSON object" if ref($spec) ne 'HASH';
-    die "$routes_file ajax entry '$ajax_file' path is required"
+    die "$routes_file $kind entry '$target' must be a JSON object" if ref($spec) ne 'HASH';
+    die "$routes_file $kind entry '$target' path is required"
       if !defined $spec->{path} || $spec->{path} eq '';
-    die "$routes_file ajax entry '$ajax_file' path must start with /"
+    die "$routes_file $kind entry '$target' path must start with /"
       if $spec->{path} !~ m{\A/};
     my $aliases = $spec->{aliases};
     $aliases = [] if !defined $aliases;
-    die "$routes_file ajax entry '$ajax_file' aliases must be an array"
+    die "$routes_file $kind entry '$target' aliases must be an array"
       if ref($aliases) ne 'ARRAY';
     my @aliases = grep { defined $_ && $_ ne '' } @{$aliases};
     for my $alias (@aliases) {
-        die "$routes_file ajax entry '$ajax_file' aliases must start with /"
+        die "$routes_file $kind entry '$target' aliases must start with /"
           if $alias !~ m{\A/};
     }
     if ( exists $spec->{type} ) {
-        die "$routes_file ajax entry '$ajax_file' type must be a scalar"
+        die "$routes_file $kind entry '$target' type must be a scalar"
           if ref( $spec->{type} );
-        die "$routes_file ajax entry '$ajax_file' type must not be empty"
+        die "$routes_file $kind entry '$target' type must not be empty"
           if !defined $spec->{type} || $spec->{type} eq '';
+        die "$routes_file app entry '$target' must not declare type"
+          if $kind eq 'app';
     }
-    return {
-        ajax_file   => $ajax_file,
+    my $normalized = {
         aliases     => \@aliases,
+        kind        => $kind,
         path        => $spec->{path},
         skill_name  => $skill_name,
         source_file => $routes_file,
+        target      => $target,
         type        => $spec->{type},
     };
+    $normalized->{ajax_file} = $target if $kind eq 'ajax';
+    $normalized->{route_id}  = $target if $kind eq 'app';
+    $normalized->{file}      = $target if $kind ne 'ajax' && $kind ne 'app';
+    return $normalized;
 }
 
 # skill_ajax_file_path($skill_name, $ajax_file)

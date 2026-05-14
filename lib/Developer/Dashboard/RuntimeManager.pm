@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.69';
+our $VERSION = '3.70';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -1763,13 +1763,21 @@ sub web_log {
     my $file = $self->{files}->resolve_file('dashboard_log');
     my $lines = $args{lines};
     my $follow = $args{follow} ? 1 : 0;
+    my $start_pos = 0;
     if ( defined $lines ) {
         die 'Line count must be a positive integer' if $lines !~ /^\d+$/ || $lines < 1;
     }
     return '' if !$follow && !-f $file;
 
-    my $log = $self->{files}->read('dashboard_log');
-    $log = '' if !defined $log;
+    my $log = '';
+    if ( -f $file ) {
+        open my $fh, '<', $file or die "Unable to read $file: $!";
+        local $/;
+        $log = <$fh>;
+        $log = '' if !defined $log;
+        $start_pos = tell($fh);
+        close $fh;
+    }
     $log = $self->_tail_text( $log, $lines ) if defined $lines;
     return $log if !$follow;
 
@@ -1777,7 +1785,10 @@ sub web_log {
     $| = 1;
     select $old_stdout;
     print $log if $log ne '';
-    $self->_follow_log_file( file => $file );
+    $self->_follow_log_file(
+        file      => $file,
+        start_pos => $start_pos,
+    );
     return '';
 }
 
@@ -1801,12 +1812,13 @@ sub _tail_text {
 
 # _follow_log_file(%args)
 # Streams appended content from one log file until interrupted.
-# Input: file path plus optional poll interval seconds.
+# Input: file path plus optional poll interval seconds and start byte offset.
 # Output: never returns under normal command use; prints new log chunks to STDOUT.
 sub _follow_log_file {
     my ( $self, %args ) = @_;
     my $file = $args{file} || die 'Missing log file';
     my $interval = defined $args{interval} ? $args{interval} : 0.1;
+    my $start_pos = $args{start_pos};
     my $fh;
     if ( !open( $fh, '<', $file ) ) {
         open my $create_fh, '>>', $file or die "Unable to create $file: $!";
@@ -1814,7 +1826,12 @@ sub _follow_log_file {
         $self->{paths}->secure_file_permissions($file);
         open( $fh, '<', $file ) or die "Unable to read $file: $!";
     }
-    seek $fh, 0, 2 or die "Unable to seek $file: $!";
+    if ( defined $start_pos ) {
+        seek $fh, $start_pos, 0 or die "Unable to seek $file: $!";
+    }
+    else {
+        seek $fh, 0, 2 or die "Unable to seek $file: $!";
+    }
     local $SIG{TERM} = sub { exit 0 };
     local $SIG{INT}  = sub { exit 0 };
     local $SIG{HUP}  = sub { exit 0 };

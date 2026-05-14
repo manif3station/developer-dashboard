@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Complete;
 use strict;
 use warnings;
 
-our $VERSION = '3.69';
+our $VERSION = '3.70';
 
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::Config;

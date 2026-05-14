@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.69';
+our $VERSION = '3.70';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.69
+3.70
 
 =head1 INTRODUCTION
 
@@ -730,38 +730,43 @@ extra skill route metadata the generated saved endpoint is namespaced under the
 longest matching skill route, for example
 C</ajax/example-skill/name.json?type=text> or
 C</ajax/example-skill/sub-skill/name.json?type=text>. Skills can also ship
-C<dashboards/routes.json> to declare canonical custom ajax paths plus optional
-aliases per saved handler. The schema is a JSON object with
-C<version = 1> and an C<ajax> object keyed by relative
-C<dashboards/ajax/> file paths, for example
+C<config/routes.json> to declare canonical custom paths for skill-local app
+pages, Ajax handlers, JavaScript assets, CSS assets, and other public assets.
+The schema is a JSON object whose keys are the public custom paths and whose
+values are either one smart local route string or an object with C<to> plus an
+optional C<type>, for example
 
   {
-     "version" : 1,
-     "ajax" : {
-        "status" : {
-           "path" : "/v1/status",
-           "aliases" : [
-              "/ajax/example-skill/status"
-           ],
-           "type" : "json"
-        }
-     }
+     "/v1/status" : {
+        "to" : "/ajax/status",
+        "type" : "json"
+     },
+     "/hello/world" : "/app/hello/world",
+     "/main.css" : "/css/hello/world.css",
+     "/hey.js" : "/js/hey/how/are/you.js",
+     "/what/are/you" : "/others/hello/world/you.html"
   }
 
 When that file is present, skill pages emit the declared canonical
-C<path> such as C</v1/status> instead of the default C</ajax/...> url, while the
-smart longest-prefix C</ajax/example-skill/...> route still remains the primary
-installed-skill resolver and any declared alias or custom path is checked only
-after the normal smart route misses. If neither the smart route nor the custom
-alias path resolves, the request falls through to the normal C<404> response.
-The optional C<type> value can be C<json>, C<html>, C<text>, or an arbitrary
-raw mime type such as C<application/vnd.example+json>. Those saved Ajax handlers
-run the stored file as a real process, defaulting to Perl unless the file
-starts with a shebang, and stream both C<stdout> and C<stderr> back to the
-browser as they happen. That keeps bookmark Ajax workflows usable even while
-transient token URLs stay disabled by default, and it means bookmark Ajax code
-can rely on normal C<print>, C<warn>, C<die>, C<system>, and C<exec> process
-behaviour instead of a buffered JSON wrapper.
+C<ajax> path such as C</v1/status> instead of the default C</ajax/...> url.
+The same manifest also makes the declared custom C</app>, C</js>, C</css>, and
+C</others> paths requestable. The smart longest-prefix routes remain the parent
+resolvers:
+C</app/example-skill/...>, C</ajax/example-skill/...>,
+C</js/example-skill/...>, C</css/example-skill/...>, and
+C</others/example-skill/...> are always checked first, and any declared custom
+path is checked only after the normal smart route misses. If neither the smart
+route nor the custom path resolves, the request falls through to the normal
+C<404> response. Ajax custom routes default to C<json> when no explicit
+C<type> is present, and the optional C<type> value can also be C<html>,
+C<text>, or an arbitrary raw mime type such as
+C<application/vnd.example+json>. Those saved Ajax handlers run the stored file
+as a real process, defaulting to Perl unless the file starts with a shebang,
+and stream both C<stdout> and C<stderr> back to the browser as they happen.
+That keeps bookmark Ajax workflows usable even while transient token URLs stay
+disabled by default, and it means bookmark Ajax code can rely on normal
+C<print>, C<warn>, C<die>, C<system>, and C<exec> process behaviour instead of
+a buffered JSON wrapper.
 Saved bookmark Ajax handlers also default to C<text/plain> when no explicit
 C<type =E<gt> ...> argument is supplied, and the generated Perl wrapper now
 enables autoflush on both C<STDOUT> and C<STDERR> so long-running handlers
@@ -2938,8 +2943,8 @@ child skill's C<dashboards/E<lt>pageE<gt>>
 skill-local ajax handlers under C<dashboards/ajax/*> resolve at
 C</ajax/E<lt>repo-nameE<gt>/...> and nested child skills extend that prefix as
 C</ajax/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/...>. Optional
-C<dashboards/routes.json> metadata can also publish canonical custom ajax
-paths such as C</v1/status> plus alias paths, but the smart
+C<config/routes.json> metadata can also publish canonical custom ajax
+paths such as C</v1/status>, but the smart
 C</ajax/E<lt>repo-nameE<gt>/...> resolver stays the parent route and custom
 paths are fallback-only after smart route lookup misses
 
@@ -2950,7 +2955,11 @@ C<dashboards/public/css/*>, and C<dashboards/public/others/*> resolve at
 C</js/E<lt>repo-nameE<gt>/...>, C</css/E<lt>repo-nameE<gt>/...>, and
 C</others/E<lt>repo-nameE<gt>/...>, with nested child skills extending those
 same prefixes under C</js/.../E<lt>sub-skillE<gt>/...>,
-C</css/.../E<lt>sub-skillE<gt>/...>, and C</others/.../E<lt>sub-skillE<gt>/...>
+C</css/.../E<lt>sub-skillE<gt>/...>, and C</others/.../E<lt>sub-skillE<gt>/...>.
+Optional C<config/routes.json> metadata can also publish canonical custom
+C</js>, C</css>, and C</others> paths for those same assets, but the smart
+C</js/...>, C</css/...>, and C</others/...> routes still stay the parent
+resolvers and custom paths remain fallback-only after the smart lookup misses
 
 =item *
 

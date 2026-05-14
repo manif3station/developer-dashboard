@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.69
+3.70
 
 # INTRODUCTION
 
@@ -540,38 +540,43 @@ extra skill route metadata the generated saved endpoint is namespaced under the
 longest matching skill route, for example
 `/ajax/example-skill/name.json?type=text` or
 `/ajax/example-skill/sub-skill/name.json?type=text`. Skills can also ship
-`dashboards/routes.json` to declare canonical custom ajax paths plus optional
-aliases per saved handler. The schema is a JSON object with
-`version = 1` and an `ajax` object keyed by relative
-`dashboards/ajax/` file paths, for example
+`config/routes.json` to declare canonical custom paths for skill-local app
+pages, Ajax handlers, JavaScript assets, CSS assets, and other public assets.
+The schema is a JSON object whose keys are the public custom paths and whose
+values are either one smart local route string or an object with `to` plus an
+optional `type`, for example
 
     {
-       "version" : 1,
-       "ajax" : {
-          "status" : {
-             "path" : "/v1/status",
-             "aliases" : [
-                "/ajax/example-skill/status"
-             ],
-             "type" : "json"
-          }
-       }
+       "/v1/status" : {
+          "to" : "/ajax/status",
+          "type" : "json"
+       },
+       "/hello/world" : "/app/hello/world",
+       "/main.css" : "/css/hello/world.css",
+       "/hey.js" : "/js/hey/how/are/you.js",
+       "/what/are/you" : "/others/hello/world/you.html"
     }
 
 When that file is present, skill pages emit the declared canonical
-`path` such as `/v1/status` instead of the default `/ajax/...` url, while the
-smart longest-prefix `/ajax/example-skill/...` route still remains the primary
-installed-skill resolver and any declared alias or custom path is checked only
-after the normal smart route misses. If neither the smart route nor the custom
-alias path resolves, the request falls through to the normal `404` response.
-The optional `type` value can be `json`, `html`, `text`, or an arbitrary
-raw mime type such as `application/vnd.example+json`. Those saved Ajax handlers
-run the stored file as a real process, defaulting to Perl unless the file
-starts with a shebang, and stream both `stdout` and `stderr` back to the
-browser as they happen. That keeps bookmark Ajax workflows usable even while
-transient token URLs stay disabled by default, and it means bookmark Ajax code
-can rely on normal `print`, `warn`, `die`, `system`, and `exec` process
-behaviour instead of a buffered JSON wrapper.
+`ajax` path such as `/v1/status` instead of the default `/ajax/...` url.
+The same manifest also makes the declared custom `/app`, `/js`, `/css`, and
+`/others` paths requestable. The smart longest-prefix routes remain the parent
+resolvers:
+`/app/example-skill/...`, `/ajax/example-skill/...`,
+`/js/example-skill/...`, `/css/example-skill/...`, and
+`/others/example-skill/...` are always checked first, and any declared custom
+path is checked only after the normal smart route misses. If neither the smart
+route nor the custom path resolves, the request falls through to the normal
+`404` response. Ajax custom routes default to `json` when no explicit
+`type` is present, and the optional `type` value can also be `html`,
+`text`, or an arbitrary raw mime type such as
+`application/vnd.example+json`. Those saved Ajax handlers run the stored file
+as a real process, defaulting to Perl unless the file starts with a shebang,
+and stream both `stdout` and `stderr` back to the browser as they happen.
+That keeps bookmark Ajax workflows usable even while transient token URLs stay
+disabled by default, and it means bookmark Ajax code can rely on normal
+`print`, `warn`, `die`, `system`, and `exec` process behaviour instead of
+a buffered JSON wrapper.
 Saved bookmark Ajax handlers also default to `text/plain` when no explicit
 `type => ...` argument is supplied, and the generated Perl wrapper now
 enables autoflush on both `STDOUT` and `STDERR` so long-running handlers
@@ -2430,8 +2435,8 @@ child skill's `dashboards/<page>`
 - skill-local ajax handlers under `dashboards/ajax/*` resolve at
 `/ajax/<repo-name>/...` and nested child skills extend that prefix as
 `/ajax/<repo-name>/<sub-skill>/...`. Optional
-`dashboards/routes.json` metadata can also publish canonical custom ajax
-paths such as `/v1/status` plus alias paths, but the smart
+`config/routes.json` metadata can also publish canonical custom ajax
+paths such as `/v1/status`, but the smart
 `/ajax/<repo-name>/...` resolver stays the parent route and custom
 paths are fallback-only after smart route lookup misses
 - skill-local static assets under `dashboards/public/js/*`,
@@ -2439,7 +2444,11 @@ paths are fallback-only after smart route lookup misses
 `/js/<repo-name>/...`, `/css/<repo-name>/...`, and
 `/others/<repo-name>/...`, with nested child skills extending those
 same prefixes under `/js/.../<sub-skill>/...`,
-`/css/.../<sub-skill>/...`, and `/others/.../<sub-skill>/...`
+`/css/.../<sub-skill>/...`, and `/others/.../<sub-skill>/...`.
+Optional `config/routes.json` metadata can also publish canonical custom
+`/js`, `/css`, and `/others` paths for those same assets, but the smart
+`/js/...`, `/css/...`, and `/others/...` routes still stay the parent
+resolvers and custom paths remain fallback-only after the smart lookup misses
 - the installed web server uses the same smart longest-prefix dispatcher for
 those `/app`, `/ajax`, `/js`, `/css`, and `/others` routes, so installed
 skill-local pages, Ajax handlers, and public assets work through the shipped

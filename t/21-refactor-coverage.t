@@ -2038,6 +2038,7 @@ my $make_log = File::Spec->catfile( $fake_bin, 'make.log' );
 my $npx_log = File::Spec->catfile( $fake_bin, 'npx.log' );
 my $sudo_log = File::Spec->catfile( $fake_bin, 'sudo.log' );
 my $dashboard_log = File::Spec->catfile( $fake_bin, 'dashboard.log' );
+my $docker_log = File::Spec->catfile( $fake_bin, 'docker.log' );
 my $dependency_log = File::Spec->catfile( $fake_bin, 'dependency-install.log' );
 _write_file(
     File::Spec->catfile( $fake_bin, 'cpanm' ),
@@ -2122,6 +2123,19 @@ else
   printf 'DDFILE:%s\\n' "\$*" >> "$dependency_log"
 fi
 if [ "\$DD_TEST_DDFILE_FAIL" = "1" ]; then
+  exit 1
+fi
+exit 0
+SH
+    0755,
+);
+_write_file(
+    File::Spec->catfile( $fake_bin, 'docker' ),
+    <<"SH",
+#!/bin/sh
+printf '%s|cwd=%s\\n' "\$*" "\$PWD" >> "$docker_log"
+printf 'DOCKER:%s\\n' "\$*" >> "$dependency_log"
+if [ "\$DD_TEST_DOCKER_FAIL" = "1" ]; then
   exit 1
 fi
 exit 0
@@ -2467,9 +2481,9 @@ open my $dependency_log_fh, '<', $dependency_log or die "Unable to read $depende
 my @dependency_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dependency_log_fh>;
 close $dependency_log_fh;
 is_deeply(
-    [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|CPANM|MAKE):/)[0] } @dependency_steps[-10 .. -1] ],
-    [ 'APT', 'NPM', 'CPANM', 'CPANM', 'MAKE', 'MAKE', 'MAKE', 'MAKE', 'DDFILE', 'DDFILE_LOCAL' ],
-    '_install_skill_dependencies follows the documented aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> Makefile -> ddfile -> ddfile.local order on Debian-like hosts while leaving apkfile, dnfile, and brewfile inactive',
+    [ map { (/^(DDFILE_LOCAL|DDFILE|DOCKER|APT|BREW|NPM|CPANM|MAKE):/)[0] } @dependency_steps[-11 .. -1] ],
+    [ 'APT', 'NPM', 'CPANM', 'CPANM', 'MAKE', 'MAKE', 'MAKE', 'MAKE', 'DOCKER', 'DDFILE', 'DDFILE_LOCAL' ],
+    '_install_skill_dependencies follows the documented aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> Makefile -> dockerfile -> ddfile -> ddfile.local order on Debian-like hosts while leaving apkfile, dnfile, and brewfile inactive',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
@@ -2496,6 +2510,14 @@ is_deeply(
         "clean|cwd=$dep_skill_root",
     ],
     '_install_skill_dependencies runs the default Makefile command chain before ddfile processing',
+);
+open my $docker_log_fh, '<', $docker_log or die "Unable to read $docker_log: $!";
+my @docker_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$docker_log_fh>;
+close $docker_log_fh;
+like(
+    $docker_steps[-1],
+    qr/^build -t dep-skill -f \Q$dep_skill_root\E\/dockerfile \Q$dep_skill_root\E\|cwd=\Q$dep_skill_root\E$/,
+    '_install_skill_dependencies builds dockerfile-based skill images from the installed skill root',
 );
 {
     unlink $make_log;

@@ -915,6 +915,31 @@ like($headers11->{'Set-Cookie'}, qr/dashboard_session=;/, 'helper logout expires
 ok(!defined $auth->get_user('helper_user'), 'helper logout removes helper account');
 ok(!defined $sessions->get($helper_session->{session_id}), 'helper logout removes helper session');
 
+is(
+    $app->_custom_skill_route_response( route_path => '/' ),
+    undef,
+    '_custom_skill_route_response ignores the root path so custom fallback only runs after smart routing misses',
+);
+
+{
+    package Local::UnknownRouteDispatcher;
+    sub resolve_custom_route_path { return { kind => 'bogus' } }
+    package main;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::App::_skill_dispatcher = sub { return bless {}, 'Local::UnknownRouteDispatcher' };
+    is(
+        $app->_custom_skill_route_response( route_path => '/bogus/custom/path' ),
+        undef,
+        '_custom_skill_route_response returns undef when custom route metadata resolves to an unsupported route kind',
+    );
+}
+
+is_deeply(
+    $app->_serve_static_file_at_path( 'css', 'missing.css', '' ),
+    [ 404, 'text/plain; charset=utf-8', "Not Found\n" ],
+    '_serve_static_file_at_path returns an explicit 404 when the caller does not resolve a readable asset path',
+);
+
 done_testing;
 
 __END__

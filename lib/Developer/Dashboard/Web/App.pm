@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '3.69';
+our $VERSION = '3.70';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -211,8 +211,8 @@ sub dispatch_request {
         return $self->skill_route_response( skill_name => $1, route => $2, %args );
     }
     return $self->transient_action_response(%args) if $path eq '/action' && $method eq 'POST';
-    if ( my $custom_ajax = $self->_custom_skill_ajax_route_response( %args, route_path => $path ) ) {
-        return $custom_ajax;
+    if ( my $custom_route = $self->_custom_skill_route_response( %args, route_path => $path ) ) {
+        return $custom_route;
     }
 
     return [ 404, 'text/plain; charset=utf-8', "Not found\n" ];
@@ -737,8 +737,10 @@ sub prefixed_static_file_response {
         my $skill_file = join '/', @{ $spec->{route_segments} || [] };
         if ( $skill_file ne '' ) {
             my $resolved = $self->_skill_static_file_path( $spec->{skill_name}, $type, $skill_file );
+            my $route_spec = $self->_skill_route_spec( $type, $spec->{skill_name}, $skill_file );
             return $self->skill_static_file_response(
                 %args,
+                default_type => $route_spec ? ( $route_spec->{type} || '' ) : '',
                 skill_name => $spec->{skill_name},
                 file       => $skill_file,
             ) if $resolved ne '';
@@ -778,10 +780,16 @@ sub skill_route_response {
     
     require Developer::Dashboard::SkillDispatcher;
     my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $self->{pages} ? $self->{pages}{paths} : undef );
+    my ( $query_params, $body_params ) = $self->_request_params(%args);
     return $dispatcher->route_response(
-        app        => $self,
-        skill_name => $skill_name,
-        route      => $route,
+        app          => $self,
+        body_params  => $body_params,
+        headers      => $args{headers} || {},
+        path         => $args{path} || '',
+        query_params => $query_params,
+        remote_addr  => $args{remote_addr},
+        route        => $route,
+        skill_name   => $skill_name,
     );
 }
 
@@ -796,7 +804,7 @@ sub skill_static_file_response {
     my $file       = $args{file}       || '';
     return [ 400, 'text/plain; charset=utf-8', "Invalid skill name\n" ] if $skill_name eq '';
     my $skill_file = $self->_skill_static_file_path( $skill_name, $type, $file );
-    return $self->_serve_static_file_at_path( $type, $file, $skill_file ) if $skill_file ne '';
+    return $self->_serve_static_file_at_path( $type, $file, $skill_file, $args{default_type} || '' ) if $skill_file ne '';
     return $self->_serve_static_file( $type, join( '/', $skill_name, $file ) );
 }
 
@@ -1916,23 +1924,43 @@ sub _resolve_skill_route_spec {
     return $self->_skill_dispatcher->resolve_route_segments( \@segments );
 }
 
-# _custom_skill_ajax_route_response(%args)
-# Resolves one non-/ajax custom skill ajax route path after all primary routes
-# have already declined to handle the request.
+# _custom_skill_route_response(%args)
+# Resolves one non-smart custom skill route path after all primary routes have
+# already declined to handle the request.
 # Input: normalized request metadata plus route_path.
-# Output: response array reference or undef when no custom skill ajax route matches.
-sub _custom_skill_ajax_route_response {
+# Output: response array reference or undef when no custom skill route matches.
+sub _custom_skill_route_response {
     my ( $self, %args ) = @_;
     my $route_path = $args{route_path} || '';
     return if $route_path eq '' || $route_path eq '/';
-    my $spec = $self->_skill_dispatcher->resolve_ajax_route_path($route_path);
+    my $spec = $self->_skill_dispatcher->resolve_custom_route_path($route_path);
     return if !$spec;
-    return $self->skill_ajax_file_response(
-        %args,
-        ajax_file    => $spec->{ajax_file},
-        default_type => $spec->{type} || '',
-        skill_name   => $spec->{skill_name},
-    );
+    if ( ( $spec->{kind} || '' ) eq 'app' ) {
+        return $self->skill_route_response(
+            %args,
+            path       => $route_path,
+            route      => $spec->{route_id},
+            skill_name => $spec->{skill_name},
+        );
+    }
+    if ( ( $spec->{kind} || '' ) eq 'ajax' ) {
+        return $self->skill_ajax_file_response(
+            %args,
+            ajax_file    => $spec->{ajax_file},
+            default_type => $spec->{type} || '',
+            skill_name   => $spec->{skill_name},
+        );
+    }
+    if ( grep { $_ eq ( $spec->{kind} || '' ) } qw(js css others) ) {
+        return $self->skill_static_file_response(
+            %args,
+            default_type => $spec->{type} || '',
+            file         => $spec->{file},
+            skill_name   => $spec->{skill_name},
+            type         => $spec->{kind},
+        );
+    }
+    return;
 }
 
 # _skill_dispatcher()
@@ -1946,14 +1974,23 @@ sub _skill_dispatcher {
     return Developer::Dashboard::SkillDispatcher->new( paths => $self->{pages} ? $self->{pages}{paths} : undef );
 }
 
+# _skill_route_spec($kind, $skill_name, $target)
+# Resolves one custom skill route specification for default mime handling.
+# Input: route kind string, skill name string, and relative route target.
+# Output: route spec hash reference or undef.
+sub _skill_route_spec {
+    my ( $self, $kind, $skill_name, $target ) = @_;
+    return if !$kind || !$skill_name || !$target;
+    return $self->_skill_dispatcher->skill_route_spec( $kind, $skill_name, $target );
+}
+
 # _skill_ajax_route_spec($skill_name, $ajax_file)
 # Resolves one custom skill ajax route specification for default mime handling.
 # Input: skill name string and relative ajax file name.
 # Output: route spec hash reference or undef.
 sub _skill_ajax_route_spec {
     my ( $self, $skill_name, $ajax_file ) = @_;
-    return if !$skill_name || !$ajax_file;
-    return $self->_skill_dispatcher->skill_ajax_route_spec( $skill_name, $ajax_file );
+    return $self->_skill_route_spec( 'ajax', $skill_name, $ajax_file );
 }
 
 # _missing_named_page_response($id)
@@ -2589,15 +2626,17 @@ sub _static_file_roots {
     return @roots;
 }
 
-# _serve_static_file_at_path($type, $filename, $file_path)
+# _serve_static_file_at_path($type, $filename, $file_path, $default_type)
 # Serves one already-resolved static file path after the caller has chosen the lookup source.
-# Input: asset type string, request filename string, and resolved file path string.
+# Input: asset type string, request filename string, resolved file path string, and optional explicit mime type override.
 # Output: array reference of status code, content type, and body.
 sub _serve_static_file_at_path {
-    my ( $self, $type, $filename, $file_path ) = @_;
+    my ( $self, $type, $filename, $file_path, $default_type ) = @_;
     return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
       if !defined $file_path || $file_path eq '' || !-f $file_path || !-r $file_path;
-    my $content_type = $self->_get_content_type( $type, $filename );
+    my $content_type = defined $default_type && $default_type ne ''
+      ? _ajax_content_type($default_type)
+      : $self->_get_content_type( $type, $filename );
     open my $fh, '<', $file_path or return [ 500, 'text/plain; charset=utf-8', "Internal Server Error\n" ];
     my $content = do { local $/; <$fh> };
     close $fh;

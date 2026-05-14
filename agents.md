@@ -141,11 +141,12 @@ These happen after coding and before release.
 * Build tarball with `dzil`.
 * Install it in a blank Docker environment using `cpanm` without `--notest`.
 
-16. **Scorecard is advisory**
+16. **Scorecard is advisory and non-blocking**
 
-* OpenSSF Scorecard results should be recorded and reviewed.
-* Scorecard findings do not block local completion, release readiness, or normal closeout for this repo.
-* Treat Scorecard as a follow-up security and repository-hardening signal, not a mandatory gate.
+* OpenSSF Scorecard results should be recorded and reviewed when practical.
+* Scorecard findings do not block local completion, release readiness, commit, push, or normal closeout for this repo.
+* Do not treat Scorecard as a mandatory test or required gate for this repo.
+* Treat Scorecard as a follow-up security and repository-hardening signal only.
 
 17. **Do not stop at the last gate**
 

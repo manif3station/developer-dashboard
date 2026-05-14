@@ -1,3 +1,20 @@
+3.70  2026-05-13
+    - moved skill route metadata to `config/routes.json` and changed the
+      schema to the flat custom-path form, where each public path maps to one
+      local smart route string or an object with `to` and optional `type`
+    - expanded custom skill route support beyond Ajax so installed skills can
+      publish fallback custom paths for `/app`, `/ajax`, `/js`, `/css`, and
+      `/others` without breaking the smart longest-prefix parent routing
+    - kept saved skill-page Ajax URL generation on the canonical custom path
+      from `config/routes.json`, with Ajax custom routes defaulting to `json`
+      unless an explicit route-level `type` is supplied
+    - fixed browser `/system/status`, page-header status, and `dashboard ps1`
+      indicator ordering so managed collector indicators now follow the
+      collector array order from config instead of drifting alphabetically
+    - fixed `dashboard serve logs -f` so a line appended immediately after
+      the initial tail output is no longer skipped by a seek-to-end race
+      before follow mode starts streaming new content
+
 3.69  2026-05-13
     - added skill-local `dashboards/routes.json` metadata so installed skill
       Ajax handlers can publish canonical custom paths, optional fallback

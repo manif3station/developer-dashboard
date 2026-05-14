@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '3.69';
+our $VERSION = '3.70';
 
 use Capture::Tiny qw(capture);
 use Errno qw(EINTR);
@@ -200,11 +200,8 @@ sub _serve_ssl_frontend {
     die "Unable to fork SSL backend process: $!" if !defined $backend_pid;
 
     if ( !$backend_pid ) {
-        my $runner = $self->_build_runner($daemon);
-        my $app = $self->psgi_app;
-        $runner->run($app);
-        # uncoverable statement
-        exit 0;
+        my $exit_code = $self->_run_ssl_backend_process($daemon);
+        exit $exit_code; # uncoverable statement
     }
 
     my $previous_term = $SIG{TERM};
@@ -230,19 +227,11 @@ sub _serve_ssl_frontend {
         return;
     };
 
-    my $listener = IO::Socket::INET->new(
-        LocalAddr => $daemon->sockhost,
-        LocalPort => $daemon->sockport,
-        Proto     => 'tcp',
-        ReuseAddr => 1,
-        Listen    => 128,
+    my $listener = $self->_open_ssl_frontend_listener_or_die(
+        daemon          => $daemon,
+        backend_pid     => $backend_pid,
+        reaped_children => \%reaped_children,
     );
-    if ( !$listener ) {
-        # uncoverable statement
-        _stop_ssl_backend( $backend_pid, \%reaped_children );
-        # uncoverable statement
-        die "Unable to bind SSL frontend on $self->{host}:$self->{port}: $!";
-    }
 
     while (1) {
         last if $SSL_SHUTDOWN_REQUESTED;
@@ -273,6 +262,41 @@ sub _serve_ssl_frontend {
     _stop_ssl_backend( $backend_pid, \%reaped_children );
     _wait_for_managed_child( $backend_pid, \%reaped_children );
     return 1;
+}
+
+# _run_ssl_backend_process($daemon)
+# Runs the internal SSL PSGI backend inside the forked child process and
+# returns its exit code to the immediate caller.
+# Input: daemon descriptor object.
+# Output: numeric process exit code.
+sub _run_ssl_backend_process {
+    my ( $self, $daemon ) = @_;
+    my $runner = $self->_build_runner($daemon);
+    my $app = $self->psgi_app;
+    $runner->run($app);
+    return 0;
+}
+
+# _open_ssl_frontend_listener_or_die(%args)
+# Opens the public SSL frontend listener or stops the backend child and dies
+# with an explicit bind error when the public socket cannot be reserved.
+# Input: daemon descriptor, backend pid integer, and reaped-child hash ref.
+# Output: bound listener socket handle.
+sub _open_ssl_frontend_listener_or_die {
+    my ( $self, %args ) = @_;
+    my $daemon          = $args{daemon}          || die 'Missing SSL frontend daemon descriptor';
+    my $backend_pid     = $args{backend_pid};
+    my $reaped_children = $args{reaped_children};
+    my $listener = IO::Socket::INET->new(
+        LocalAddr => $daemon->sockhost,
+        LocalPort => $daemon->sockport,
+        Proto     => 'tcp',
+        ReuseAddr => 1,
+        Listen    => 128,
+    );
+    return $listener if $listener;
+    _stop_ssl_backend( $backend_pid, $reaped_children );
+    die "Unable to bind SSL frontend on $self->{host}:$self->{port}: $!";
 }
 
 # _handle_ssl_frontend_client(%args)

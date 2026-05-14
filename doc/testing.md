@@ -32,7 +32,7 @@ integration/browser/run-bookmark-browser-smoke.pl \
   --expect-dom-fragment '<span class="display">123</span>'
 ```
 
-For a skill page that declares `dashboards/routes.json`, assert the canonical
+For a skill page that declares `config/routes.json`, assert the canonical
 custom ajax path rather than the default smart `/ajax/<repo-name>/...` path:
 
 ```bash

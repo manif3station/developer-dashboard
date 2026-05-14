@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '3.69';
+our $VERSION = '3.70';
 
 1;
 
@@ -230,17 +230,18 @@ the skill-local ajax or public asset file does not exist, falls back to the
 normal nested saved-bookmark file path instead of assuming the leading path
 segments must always belong to a skill.
 
-Optional C<dashboards/routes.json> metadata can also publish canonical custom
-ajax paths and fallback aliases for skill-local C<dashboards/ajax/*> handlers.
-The schema is a JSON object with C<version = 1> plus an C<ajax> object keyed
-by relative C<dashboards/ajax/> file paths. Each ajax entry requires a
-canonical absolute C<path>, may declare zero or more absolute C<aliases>, and
-may set a default C<type> such as C<json>, C<html>, or a raw mime type string.
-When this metadata exists, skill pages emit the declared canonical custom path
+Optional C<config/routes.json> metadata can also publish canonical custom
+paths for skill-local C<dashboards/> pages, C<dashboards/ajax/*> handlers, and
+C<dashboards/public/*> assets. The schema is a JSON object whose keys are the
+public custom paths and whose values are either one smart local route string
+such as C</ajax/status> or an object with C<to> plus an optional C<type>. When
+this metadata exists, skill pages emit the declared canonical custom Ajax path
 instead of the default C</ajax/E<lt>repo-nameE<gt>/...> url. The smart
-longest-prefix C</ajax/...> route still stays the parent resolver, alias or
-custom paths are fallback-only after smart route lookup misses, and a total
-miss still returns the normal C<404>.
+longest-prefix C</app/...>, C</ajax/...>, C</js/...>, C</css/...>, and
+C</others/...> routes still stay the parent resolvers, custom paths are
+fallback-only after smart route lookup misses, and a total miss still returns
+the normal C<404>. Ajax custom routes default to C<json> unless an explicit
+C<type> such as C<html>, C<text>, or a raw mime type string is supplied.
 
 =item B<dashboards/nav/>
 

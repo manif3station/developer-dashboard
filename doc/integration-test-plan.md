@@ -136,7 +136,7 @@ The integration run creates:
 25. Confirm the browser top-right status strip shows configured collector icons, not collector names, that UTF-8 icons such as `🐳` and `💰` are visibly rendered, and that renamed collectors no longer leave stale managed indicators behind.
 26. Confirm an installed saved bookmark page can declare `var endpoints = {};`, then use `fetch_value()` and `stream_value()` from `$(document).ready(...)` against saved `/ajax/<file>` routes without inline-script ordering failures or browser console `ReferenceError`s.
 27. Confirm an installed long-running saved `/ajax/<file>` route starts streaming the first output chunks promptly instead of buffering until the worker exits.
-28. Confirm an installed skill page that ships `dashboards/routes.json` emits the declared canonical custom ajax path, that the custom path resolves, that the smart `/ajax/<repo-name>/...` route still resolves for the same handler, and that a route-level default `type` such as `json`, `html`, or a raw mime type is honored when the request omits `?type=...`.
+28. Confirm an installed skill page that ships `config/routes.json` emits the declared canonical custom ajax path, that the custom path resolves, that the smart `/ajax/<repo-name>/...` route still resolves for the same handler, and that a route-level default `type` such as `json`, `html`, or a raw mime type is honored when the request omits `?type=...`.
 29. Confirm non-loopback self-access returns `401` with an empty body and without a login form before any helper user exists in the active runtime.
 30. Add a helper user for the outsider browser flow, then confirm non-loopback self-access reaches the helper login page in Chromium.
 31. Log in as a helper through the HTTP helper flow.
@@ -184,7 +184,7 @@ The integration run creates:
 - under `DD-OOP-LAYERS`, `dashboard path add` writes only the new child-layer alias delta into the deepest child `config/config.json` instead of copying inherited parent config domains into that file
 - bookmark pages can use `fetch_value()`, `stream_value()`, and `stream_data()` helpers against saved `/ajax/...` endpoints on first render
 - the installed `/ajax/<file>` route streams early output chunks promptly enough to prove browser-visible progress instead of silent buffering
-- skill pages that ship `dashboards/routes.json` emit their declared canonical custom ajax paths, while the smart `/ajax/<repo-name>/...` route still works as the parent compatibility resolver and alias/custom paths stay fallback-only before a normal `404`
+- skill pages that ship `config/routes.json` emit their declared canonical custom ajax paths, while the smart `/ajax/<repo-name>/...` route still works as the parent compatibility resolver and custom paths stay fallback-only before a normal `404`
 - non-loopback access produces `401` with an empty body and without a login page until a helper user exists in the active runtime
 - under `dashboard serve --ssl`, plain `http://HOST:PORT/...` requests on the public listener return a same-port `307` redirect to `https://HOST:PORT/...`, the generated cert advertises SAN coverage for `localhost`, `127.0.0.1`, and `::1`, and a browser then reaches the expected self-signed certificate warning instead of a reset connection
 - after a helper user exists, non-loopback access produces the helper login page
