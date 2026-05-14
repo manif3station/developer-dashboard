@@ -154,7 +154,7 @@ bootstrap target as a compatibility contract: checkout or extracted-tarball
 runs must install `.` locally, streamed `curl ... | sh` runs with no checkout
 must clone the current GitHub `master` checkout instead of silently falling
 back to a stale CPAN release, and the shipped bootstrap package manifests must
-carry `tmux` because `dashboard ticket` is a first-party tmux workflow.
+carry `tmux` because `dashboard workspace` is a first-party tmux workflow.
 
 Branch and condition reports are still generated and should be used to drive new edge-case tests, especially when adding new runtime modules.
 
@@ -174,13 +174,14 @@ interpreter that generated the shell fragment, which prevents macOS
 `JSON::XS` ABI mismatches when `/usr/bin/perl` and `~/perl5` belong to
 different Perl builds.
 That same shell-bootstrap coverage now also checks the tmux prompt split:
-when the shell is inside a `dashboard ticket` tmux session, generated bash,
+when the shell is inside a `dashboard workspace` tmux session, generated bash,
 zsh, POSIX sh, and PowerShell bootstraps must recognize either the explicit
-`DEVELOPER_DASHBOARD_TMUX_STATUS=1` flag or the seeded `TICKET_REF`, program
-a session-local two-line bottom tmux status block, keep the normal indexed
-session/window row visible beneath the dashboard indicator row, suppress
-inline prompt indicators with `dashboard ps1 --no-indicators`, and leave
-ordinary tmux sessions on the normal inline prompt path.
+`DEVELOPER_DASHBOARD_TMUX_STATUS=1` flag, the seeded `WORKSPACE_REF`, or the
+older compatibility `TICKET_REF`, program a session-local two-line bottom tmux
+status block, keep the normal indexed session/window row visible beneath the
+dashboard indicator row, suppress inline prompt indicators with
+`dashboard ps1 --no-indicators`, and leave ordinary tmux sessions on the
+normal inline prompt path.
 That helper-staging coverage also executes the staged home-runtime `shell`
 helper itself and verifies it emits the same tmux bootstrap, while rerunning
 helper staging removes dashboard-managed older flat helpers from
@@ -223,6 +224,7 @@ The runtime-manager tests also cover:
 - background web startup handshake and web-state persistence
 - `dashboard serve` collector startup and failure handling, including explicit startup errors and cleanup of already-started loops when a later collector fails
 - collector watchdog supervision after startup, including automatic restart of unexpectedly-dead loops and explicit `attention_required` state after repeated crashes inside the watchdog window
+- collector stall supervision after startup, including automatic restart of a live loop that stops updating its status/output timestamps instead of dying outright
 - DD-OOP-LAYERS canonical-path normalization, including a symlinked-home versus canonical-cwd regression that matches macOS `/var/...` and `/private/var/...` alias behaviour
 - CLI `dashboard path project-root` assertions compare path identity instead of raw strings, so packaged installs stay green when macOS resolves the same temp repo through `/private/var/...`
 - shell-helper `cdr` and `which_dir` assertions also normalize those `/var/...` versus `/private/var/...` aliases, so source-tree and packaged macOS runs do not fail on equivalent canonical paths

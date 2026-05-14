@@ -2002,8 +2002,81 @@ END {
     no warnings 'redefine';
     $runner->{started} = [];
     $runner->{stopped} = [];
+    $runner->{loops} = [ { name => 'alpha.collector', pid => 4401 } ];
+    my $stale_at = '2001-01-01T00:00:00+0000';
+    $collector_store->write_status(
+        'alpha.collector',
+        {
+            last_started_at   => $stale_at,
+            last_completed_at => $stale_at,
+            running           => 1,
+        }
+    );
+    local *Local::RuntimeRunner::running_loops = sub { return @{ $runner->{loops} } };
+    local *Developer::Dashboard::RuntimeManager::_collector_watchdog_stale_seconds = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_collector_runtime_ready = sub { return 1 };
+
+    my $result = $manager->_supervise_collectors_once( names => ['alpha.collector'] );
+    my $status = $collector_store->read_status('alpha.collector') || {};
+
+    is_deeply( $runner->{stopped}, ['alpha.collector'], '_supervise_collectors_once stops a live collector loop that stopped making progress' );
+    is_deeply( $runner->{started}, ['alpha.collector'], '_supervise_collectors_once restarts a live collector loop that stopped making progress' );
+    is( $result->{restarted}[0]{name}, 'alpha.collector', '_supervise_collectors_once reports a restarted stalled collector' );
+    is( $status->{watchdog_status}, 'running', '_supervise_collectors_once returns a restarted stalled collector to watchdog-running status' );
+    like( $status->{watchdog_last_error}, qr/stopped making progress/, '_supervise_collectors_once records why the watchdog recycled a stalled collector' );
+}
+{
+    no warnings 'redefine';
+    $runner->{started} = [];
+    $runner->{stopped} = [];
+    $runner->{loops} = [ { name => 'alpha.collector', pid => 4402 } ];
+    my $stale_at = '2001-01-01T00:00:00+0000';
+    $collector_store->write_status(
+        'alpha.collector',
+        {
+            last_started_at   => $stale_at,
+            last_completed_at => $stale_at,
+            running           => 1,
+        }
+    );
+    local *Local::RuntimeRunner::running_loops = sub { return @{ $runner->{loops} } };
+    local *Local::RuntimeRunner::stop_loop = sub {
+        my ( $self, $name ) = @_;
+        push @{ $self->{stopped} }, $name;
+        die "stop stale boom\n";
+    };
+    local *Developer::Dashboard::RuntimeManager::_collector_watchdog_stale_seconds = sub { return 1 };
+
+    my $result = $manager->_supervise_collectors_once( names => ['alpha.collector'] );
+    my $status = $collector_store->read_status('alpha.collector') || {};
+
+    is_deeply( $result->{restarted}, [], '_supervise_collectors_once does not restart a stalled collector when stop_loop fails' );
+    is( $result->{attention}[0]{name}, 'alpha.collector', '_supervise_collectors_once reports stalled collectors that fail stop_loop in the attention list' );
+    like( $result->{attention}[0]{reason}, qr/stop stale boom/, '_supervise_collectors_once records the stop_loop failure text for stalled collectors' );
+    is( $status->{watchdog_status}, 'attention_required', '_supervise_collectors_once marks a stalled collector as attention_required when stop_loop fails' );
+    like( $status->{watchdog_last_error}, qr/stop stale boom/, '_supervise_collectors_once persists the stale stop_loop failure in collector status' );
+}
+
+{
+    no warnings 'redefine';
+    $runner->{started} = [];
+    $runner->{stopped} = [];
     $runner->{loops} = [];
-    $collector_store->write_status( 'alpha.collector', {} );
+    $collector_store->write_status(
+        'alpha.collector',
+        {
+            watchdog_attention_required            => 0,
+            watchdog_last_error                    => undef,
+            watchdog_last_restart_at               => undef,
+            watchdog_last_restart_at_epoch         => undef,
+            watchdog_last_unexpected_stop_at       => undef,
+            watchdog_last_unexpected_stop_at_epoch => undef,
+            watchdog_restart_count                 => 0,
+            watchdog_restart_window_started_at     => undef,
+            watchdog_restart_window_started_at_epoch => undef,
+            watchdog_status                        => undef,
+        }
+    );
     local *Local::RuntimeRunner::running_loops = sub { return () };
     local *Developer::Dashboard::RuntimeManager::_collector_runtime_ready = sub { return 1 };
 
@@ -2026,7 +2099,21 @@ END {
     $runner->{loops} = [];
     local $runner->{fail} = { 'alpha.collector' => "watchdog restart boom\n" };
     local *Local::RuntimeRunner::running_loops = sub { return () };
-    $collector_store->write_status( 'alpha.collector', {} );
+    $collector_store->write_status(
+        'alpha.collector',
+        {
+            watchdog_attention_required            => 0,
+            watchdog_last_error                    => undef,
+            watchdog_last_restart_at               => undef,
+            watchdog_last_restart_at_epoch         => undef,
+            watchdog_last_unexpected_stop_at       => undef,
+            watchdog_last_unexpected_stop_at_epoch => undef,
+            watchdog_restart_count                 => 1,
+            watchdog_restart_window_started_at     => Developer::Dashboard::RuntimeManager::_now_iso8601(),
+            watchdog_restart_window_started_at_epoch => time,
+            watchdog_status                        => undef,
+        }
+    );
 
     my $result = $manager->_supervise_collectors_once( names => ['alpha.collector'] );
     my $status = $collector_store->read_status('alpha.collector') || {};
@@ -2043,7 +2130,21 @@ END {
     $runner->{started} = [];
     $runner->{stopped} = [];
     $runner->{loops} = [];
-    $collector_store->write_status( 'alpha.collector', {} );
+    $collector_store->write_status(
+        'alpha.collector',
+        {
+            watchdog_attention_required            => 0,
+            watchdog_last_error                    => undef,
+            watchdog_last_restart_at               => undef,
+            watchdog_last_restart_at_epoch         => undef,
+            watchdog_last_unexpected_stop_at       => undef,
+            watchdog_last_unexpected_stop_at_epoch => undef,
+            watchdog_restart_count                 => 0,
+            watchdog_restart_window_started_at     => undef,
+            watchdog_restart_window_started_at_epoch => undef,
+            watchdog_status                        => undef,
+        }
+    );
     local *Local::RuntimeRunner::running_loops = sub { return () };
     local *Developer::Dashboard::RuntimeManager::_collector_runtime_ready = sub { return 0 };
 
@@ -2081,6 +2182,27 @@ END {
     is( $status->{watchdog_status}, 'attention_required', '_supervise_collectors_once marks repeatedly-crashing collectors as attention_required' );
     ok( $status->{watchdog_attention_required}, '_supervise_collectors_once raises the attention_required flag after too many restarts' );
     is( $status->{watchdog_restart_count}, 2, '_supervise_collectors_once increments the restart count before raising attention_required' );
+}
+{
+    local $ENV{DEVELOPER_DASHBOARD_COLLECTOR_STALL_GRACE_SECONDS} = 17;
+    is( $manager->_collector_stall_grace_seconds, 17, '_collector_stall_grace_seconds honours the explicit environment override' );
+    local $ENV{DEVELOPER_DASHBOARD_COLLECTOR_STALL_GRACE_SECONDS} = 'bogus';
+    is( $manager->_collector_stall_grace_seconds, 10, '_collector_stall_grace_seconds falls back to the default grace period for invalid values' );
+    is(
+        $manager->_collector_watchdog_stale_seconds( { interval => 2.5, timeout_ms => 1500 } ),
+        14,
+        '_collector_watchdog_stale_seconds adds interval, timeout_ms, and grace together before rounding up',
+    );
+    is(
+        $manager->_collector_watchdog_stale_seconds( { interval => 4, timeout => 6 } ),
+        20,
+        '_collector_watchdog_stale_seconds uses timeout when timeout_ms is absent',
+    );
+    is(
+        $manager->_collector_watchdog_stale_seconds( {} ),
+        70,
+        '_collector_watchdog_stale_seconds falls back to the default interval, timeout, and grace values',
+    );
 }
 
 {

@@ -3,7 +3,7 @@ package Developer::Dashboard::Housekeeper;
 use strict;
 use warnings;
 
-our $VERSION = '3.71';
+our $VERSION = '3.72';
 
 use File::Path qw(remove_tree);
 use File::Spec;

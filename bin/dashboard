@@ -414,7 +414,7 @@ dashboard - thin command switchboard for Developer Dashboard
   dashboard file locate <term...>
   dashboard of [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
   dashboard open-file [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
-  dashboard ticket [ticket-ref]
+  dashboard workspace [workspace-ref]
   dashboard jq [path] [file]
   dashboard yq [path] [file]
   dashboard tomq [path] [file]

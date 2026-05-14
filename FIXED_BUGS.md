@@ -1,4 +1,28 @@
 # Fixed Bugs
+## 3.72 - Fix stalled collectors and move tmux workspaces to layered env refresh
+
+- Root cause:
+  the collector watchdog only checked whether the managed loop process still
+  existed. If a collector loop stayed alive but stopped updating its runtime
+  status or completing new runs, the watchdog treated it as healthy and left
+  it silent forever. The tmux workflow was also still named `ticket`
+  throughout the primary user-facing command surface, and resumed sessions
+  kept whatever environment they were created with instead of reloading the
+  current plain-directory `.env` chain.
+
+- Fix:
+  the watchdog now detects a live managed collector loop that has stopped
+  making progress, stops that loop explicitly, and restarts it through the
+  same managed restart path used for dead-loop recovery. Added regression
+  coverage for stalled-loop recycling and for the watchdog error metadata
+  written when a stall is repaired. The primary tmux workflow is now
+  `dashboard workspace`, with `dashboard ticket` preserved as a compatibility
+  alias. Workspace sessions now seed `WORKSPACE_REF`, keep `TICKET_REF` for
+  compatibility, and reload plain-directory `.env` files from the highest
+  ancestor down to the current directory both when a session is created and
+  when it is resumed, unsetting keys that disappeared from the current layered
+  environment.
+
 ## 3.71 - Preserve collector indicator order and runtime custom-route aliases
 
 - Root cause:

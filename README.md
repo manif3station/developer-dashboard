@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.71
+3.72
 
 # INTRODUCTION
 
@@ -50,13 +50,13 @@ site-specific checks later.
 
 Frequently used built-in commands such as `jq`, `yq`, `tomq`, `propq`,
 `iniq`, `csvq`, `xmlq`, `of`, `open-file`, `file`, `files`, and
-`ticket` are staged
+`workspace` are staged
 privately under `~/.developer-dashboard/cli/dd/` and dispatched by
 `dashboard` without polluting the global PATH. That keeps dashboard-owned
 built-ins separate from user commands and hooks under
 `~/.developer-dashboard/cli/`. Compatibility aliases `pjq`, `pyq`,
-`ptomq`, and `pjp` still normalize to the renamed commands when they are
-invoked through `dashboard`.
+`ptomq`, `pjp`, and `ticket` still normalize to the current commands when
+they are invoked through `dashboard`.
 
 It provides a small ecosystem for:
 
@@ -271,18 +271,18 @@ This matters because prompt and browser status should be cheap to render.
 Instead of re-running a Docker check, VPN probe, or project health command
 every time the prompt draws, a collector prepares the answer once and the rest
 of the system reads the cached result.
-When the generated shell bootstrap runs inside a `dashboard ticket` tmux
+When the generated shell bootstrap runs inside a `dashboard workspace` tmux
 session, those prompt indicators move out of the inline shell prompt and into
 that session's tmux status area so the cursor line stays clean while the
-indicator strip keeps updating between prompts. Ticket sessions use a
+indicator strip keeps updating between prompts. Workspace sessions use a
 two-line bottom status block: the first row is the dashboard indicator strip
 with the trailing date-time segment, and the second row keeps tmux's normal
 session and indexed window list. Ordinary tmux sessions keep the normal
 inline prompt. The
-ticket workflow seeds a dedicated
+workspace workflow seeds a dedicated
 `DEVELOPER_DASHBOARD_TMUX_STATUS=1` session flag for that behavior, and
-Developer Dashboard also treats the ticket reference itself as a fallback
-signal so older ticket sessions do not keep duplicating indicators in the
+Developer Dashboard also treats the older `TICKET_REF` session reference as a
+fallback signal so older workspace sessions do not keep duplicating indicators in the
 inline prompt. Developer Dashboard updates tmux through session-local runtime
 commands instead of editing any user tmux config file or changing unrelated
 tmux sessions on the same server.
@@ -448,14 +448,14 @@ generic package names.
 
     Private `~/.developer-dashboard/cli/dd/` helper files provide the built-in
     command behaviour without installing generic command names into the global
-    PATH. Query, open-file, ticket, path, file, and prompt commands keep
+    PATH. Query, open-file, workspace, path, file, and prompt commands keep
     dedicated helper bodies, while the remaining built-ins stage thin wrappers
     that hand off to a shared private `_dashboard-core` runtime.
 
     Only `dashboard` is intended to be the public CPAN-facing command-line
     entrypoint. The real built-in command bodies live outside `bin/dashboard`
     under `share/private-cli/`, then stage into `~/.developer-dashboard/cli/dd/`
-    on demand. Generic helper names such as `ticket`, `of`, `open-file`,
+    on demand. Generic helper names such as `workspace`, `of`, `open-file`,
     `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, `path`,
     `paths`, `file`, and `files` are intentionally kept out of the installed
     global PATH to avoid
@@ -465,11 +465,14 @@ generic package names.
     title is normalized to the public `developer-dashboard ...` form so `ps`
     output shows the user-facing command instead of the staged helper path.
 
-    `dashboard ticket` creates or reuses a tmux session for the requested ticket
-    reference, seeds `TICKET_REF` plus dashboard-friendly branch aliases into that
-    session environment, attaches to it through a dashboard-managed private helper
-    instead of a public standalone binary, and completes already-open tmux session
-    names when shell completion is enabled.
+    `dashboard workspace` creates or reuses a tmux session for the requested
+    workspace reference, seeds `WORKSPACE_REF`, keeps `TICKET_REF` for
+    compatibility with older shells, refreshes plain-directory `.env` files from
+    the highest ancestor down to the current directory when it creates or resumes a
+    session, attaches through a dashboard-managed private helper instead of a
+    public standalone binary, and completes already-open tmux session names when
+    shell completion is enabled. The older `dashboard ticket` spelling remains as
+    a compatibility alias.
 
 - Runtime Manager
 
@@ -918,7 +921,7 @@ the repo-root `apkfile` on Alpine hosts and runs
 packages, reads the repo-root
 `brewfile` on macOS and runs `brew install` for the listed packages,
 ships `tmux` in every one of those bootstrap package lists because
-`dashboard ticket` is a first-party tmux workflow, verifies that `node`,
+`dashboard workspace` is a first-party tmux workflow, verifies that `node`,
 `npm`, and `npx` are available from those
 bootstrap packages before finishing the install, or falls back to the embedded
 copies of those package lists when the script is streamed without the checkout
@@ -985,7 +988,7 @@ exists, and then activates that PowerShell bootstrap in the current shell when
 possible. Future PowerShell sessions do not rely on installer-only helper
 functions while loading that generated profile block. The generated bash, zsh,
 POSIX sh, and PowerShell shell bootstraps all follow the same tmux-aware
-prompt rule: when the shell starts inside a `dashboard ticket` tmux session
+prompt rule: when the shell starts inside a `dashboard workspace` tmux session
 that carries `DEVELOPER_DASHBOARD_TMUX_STATUS=1`, indicator glyphs move to
 the first row of that session's two-line bottom tmux status block, while the
 second row keeps tmux's normal session and indexed window list. The inline
@@ -1641,11 +1644,12 @@ Render prompt text directly:
     dashboard ps1 --jobs 2
 
 `dashboard ps1` now follows the original `~/bin/ps1` shape more closely: a
-`(YYYY-MM-DD HH:MM:SS)` timestamp prefix, dashboard status and ticket info, a
+`(YYYY-MM-DD HH:MM:SS)` timestamp prefix, dashboard status and workspace info, a
 bracketed working directory, an optional jobs suffix, and a trailing
-`🌿branch` marker when git metadata is available. If the ticket workflow
-seeded `TICKET_REF` into the current tmux session, `dashboard ps1` also
-reads it from tmux when the shell environment does not already export it.
+`🌿branch` marker when git metadata is available. If the workspace workflow
+seeded `WORKSPACE_REF` or the older `TICKET_REF` into the current tmux
+session, `dashboard ps1` also reads that context from tmux when the shell
+environment does not already export it.
 
 Generate shell bootstrap:
 
@@ -2041,7 +2045,7 @@ those user-space files while refreshing the home-only dd namespace.
 The public `dashboard` entrypoint also stays thin for all built-in commands.
 It only stages and execs helper assets from `share/private-cli/`: dedicated
 helper bodies for `dashboard jq`, `dashboard yq`, `dashboard of`,
-`dashboard open-file`, `dashboard ticket`, `dashboard path`,
+`dashboard open-file`, `dashboard workspace`, `dashboard path`,
 `dashboard paths`, `dashboard file`, `dashboard files`, and
 `dashboard ps1`, plus thin wrappers for the
 remaining built-ins that hand off to the shared private

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.71';
+our $VERSION = '3.72';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.71
+3.72
 
 =head1 INTRODUCTION
 
@@ -63,13 +63,13 @@ site-specific checks later.
 
 Frequently used built-in commands such as C<jq>, C<yq>, C<tomq>, C<propq>,
 C<iniq>, C<csvq>, C<xmlq>, C<of>, C<open-file>, C<file>, C<files>, and
-C<ticket> are staged
+C<workspace> are staged
 privately under F<~/.developer-dashboard/cli/dd/> and dispatched by
 C<dashboard> without polluting the global PATH. That keeps dashboard-owned
 built-ins separate from user commands and hooks under
 F<~/.developer-dashboard/cli/>. Compatibility aliases C<pjq>, C<pyq>,
-C<ptomq>, and C<pjp> still normalize to the renamed commands when they are
-invoked through C<dashboard>.
+C<ptomq>, C<pjp>, and C<ticket> still normalize to the current commands when
+they are invoked through C<dashboard>.
 
 It provides a small ecosystem for:
 
@@ -407,18 +407,18 @@ This matters because prompt and browser status should be cheap to render.
 Instead of re-running a Docker check, VPN probe, or project health command
 every time the prompt draws, a collector prepares the answer once and the rest
 of the system reads the cached result.
-When the generated shell bootstrap runs inside a C<dashboard ticket> tmux
+When the generated shell bootstrap runs inside a C<dashboard workspace> tmux
 session, those prompt indicators move out of the inline shell prompt and into
 that session's tmux status area so the cursor line stays clean while the
-indicator strip keeps updating between prompts. Ticket sessions use a
+indicator strip keeps updating between prompts. Workspace sessions use a
 two-line bottom status block: the first row is the dashboard indicator strip
 with the trailing date-time segment, and the second row keeps tmux's normal
 session and indexed window list. Ordinary tmux sessions keep the normal
 inline prompt. The
-ticket workflow seeds a dedicated
+workspace workflow seeds a dedicated
 C<DEVELOPER_DASHBOARD_TMUX_STATUS=1> session flag for that behavior, and
-Developer Dashboard also treats the ticket reference itself as a fallback
-signal so older ticket sessions do not keep duplicating indicators in the
+Developer Dashboard also treats the older C<TICKET_REF> session reference as a
+fallback signal so older workspace sessions do not keep duplicating indicators in the
 inline prompt. Developer Dashboard updates tmux through session-local runtime
 commands instead of editing any user tmux config file or changing unrelated
 tmux sessions on the same server.
@@ -626,14 +626,14 @@ data-inspection toolkit that fits naturally into shell workflows.
 
 Private F<~/.developer-dashboard/cli/dd/> helper files provide the built-in
 command behaviour without installing generic command names into the global
-PATH. Query, open-file, ticket, path, file, and prompt commands keep
+PATH. Query, open-file, workspace, path, file, and prompt commands keep
 dedicated helper bodies, while the remaining built-ins stage thin wrappers
 that hand off to a shared private C<_dashboard-core> runtime.
 
 Only C<dashboard> is intended to be the public CPAN-facing command-line
 entrypoint. The real built-in command bodies live outside F<bin/dashboard>
 under F<share/private-cli/>, then stage into F<~/.developer-dashboard/cli/dd/>
-on demand. Generic helper names such as C<ticket>, C<of>, C<open-file>,
+on demand. Generic helper names such as C<workspace>, C<of>, C<open-file>,
 C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, C<xmlq>, C<path>,
 C<paths>, C<file>, and C<files> are intentionally kept out of the installed
 global PATH to avoid
@@ -643,11 +643,14 @@ F<~/.developer-dashboard/cli/>. While those staged helpers run, their process
 title is normalized to the public C<developer-dashboard ...> form so C<ps>
 output shows the user-facing command instead of the staged helper path.
 
-C<dashboard ticket> creates or reuses a tmux session for the requested ticket
-reference, seeds C<TICKET_REF> plus dashboard-friendly branch aliases into that
-session environment, attaches to it through a dashboard-managed private helper
-instead of a public standalone binary, and completes already-open tmux session
-names when shell completion is enabled.
+C<dashboard workspace> creates or reuses a tmux session for the requested
+workspace reference, seeds C<WORKSPACE_REF>, keeps C<TICKET_REF> for
+compatibility with older shells, refreshes plain-directory C<.env> files from
+the highest ancestor down to the current directory when it creates or resumes a
+session, attaches through a dashboard-managed private helper instead of a
+public standalone binary, and completes already-open tmux session names when
+shell completion is enabled. The older C<dashboard ticket> spelling remains as
+a compatibility alias.
 
 =item * Runtime Manager
 
@@ -1186,7 +1189,7 @@ F<dnfile> on Fedora hosts and runs C<dnf install -y> for the listed
 packages, reads the repo-root
 F<brewfile> on macOS and runs C<brew install> for the listed packages,
 ships C<tmux> in every one of those bootstrap package lists because
-C<dashboard ticket> is a first-party tmux workflow, verifies that C<node>,
+C<dashboard workspace> is a first-party tmux workflow, verifies that C<node>,
 C<npm>, and C<npx> are available from those
 bootstrap packages before finishing the install, or falls back to the embedded
 copies of those package lists when the script is streamed without the checkout
@@ -1253,7 +1256,7 @@ exists, and then activates that PowerShell bootstrap in the current shell when
 possible. Future PowerShell sessions do not rely on installer-only helper
 functions while loading that generated profile block. The generated bash, zsh,
 POSIX sh, and PowerShell shell bootstraps all follow the same tmux-aware
-prompt rule: when the shell starts inside a C<dashboard ticket> tmux session
+prompt rule: when the shell starts inside a C<dashboard workspace> tmux session
 that carries C<DEVELOPER_DASHBOARD_TMUX_STATUS=1>, indicator glyphs move to
 the first row of that session's two-line bottom tmux status block, while the
 second row keeps tmux's normal session and indexed window list. The inline
@@ -1933,11 +1936,12 @@ Render prompt text directly:
   dashboard ps1 --jobs 2
 
 C<dashboard ps1> now follows the original F<~/bin/ps1> shape more closely: a
-C<(YYYY-MM-DD HH:MM:SS)> timestamp prefix, dashboard status and ticket info, a
+C<(YYYY-MM-DD HH:MM:SS)> timestamp prefix, dashboard status and workspace info, a
 bracketed working directory, an optional jobs suffix, and a trailing
-C<🌿branch> marker when git metadata is available. If the ticket workflow
-seeded C<TICKET_REF> into the current tmux session, C<dashboard ps1> also
-reads it from tmux when the shell environment does not already export it.
+C<🌿branch> marker when git metadata is available. If the workspace workflow
+seeded C<WORKSPACE_REF> or the older C<TICKET_REF> into the current tmux
+session, C<dashboard ps1> also reads that context from tmux when the shell
+environment does not already export it.
 
 Generate shell bootstrap:
 
@@ -2436,7 +2440,7 @@ those user-space files while refreshing the home-only dd namespace.
 The public C<dashboard> entrypoint also stays thin for all built-in commands.
 It only stages and execs helper assets from F<share/private-cli/>: dedicated
 helper bodies for C<dashboard jq>, C<dashboard yq>, C<dashboard of>,
-C<dashboard open-file>, C<dashboard ticket>, C<dashboard path>,
+C<dashboard open-file>, C<dashboard workspace>, C<dashboard path>,
 C<dashboard paths>, C<dashboard file>, C<dashboard files>, and
 C<dashboard ps1>, plus thin wrappers for the
 remaining built-ins that hand off to the shared private

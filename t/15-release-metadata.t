@@ -72,7 +72,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '3.71', 'repo version bumped for the collector indicator order preservation fix' );
+is( $version, '3.72', 'repo version bumped for the collector stall and workspace refresh fix' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
 like( $readme, qr/\A(?:<!--.*?-->\n\n)?#\s+/s, 'README.md begins with Markdown headings' ) if $readme ne '';
@@ -197,7 +197,7 @@ for my $module (
     like( $cpanfile, qr/requires ['"]\Q$module\E['"];/, "cpanfile declares runtime prerequisite $module" );
     like( $dist, qr/^\Q$module\E = 0$/m, "dist.ini declares runtime prerequisite $module" ) if $dist ne '';
 }
-for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket path paths ps1 encode decode indicator collector config auth init cpan page action docker serve stop restart shell doctor housekeeper skills which)) {
+for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket workspace path paths ps1 encode decode indicator collector config auth init cpan page action docker serve stop restart shell doctor housekeeper skills which)) {
     ok( -f _repo_path( 'share', 'private-cli', $helper ), "share/private-cli/$helper is shipped as a private helper asset" );
 }
 ok( -f _repo_path('install.sh'), 'repo-root install.sh is tracked for bootstrap installs' );
@@ -245,7 +245,7 @@ SKIP: {
 for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/~\/\.developer-dashboard\/cli/, 'docs describe private helper extraction under the runtime cli root' );
     like( $doc, qr/\bof\b.*~\/\.developer-dashboard\/cli|~\/\.developer-dashboard\/cli.*\bof\b/s, 'docs describe private of/open-file helper staging' );
-    like( $doc, qr/\bticket\b.*~\/\.developer-dashboard\/cli|~\/\.developer-dashboard\/cli.*\bticket\b/s, 'docs describe private ticket helper staging' );
+    like( $doc, qr/\bworkspace\b.*~\/\.developer-dashboard\/cli|~\/\.developer-dashboard\/cli.*\bworkspace\b/s, 'docs describe private workspace helper staging' );
     like( $doc, qr/dashboard jq/, 'docs describe the renamed jq subcommand' );
     like( $doc, qr/dashboard yq/, 'docs describe the renamed yq subcommand' );
     like( $doc, qr/dashboard tomq/, 'docs describe the renamed tomq subcommand' );

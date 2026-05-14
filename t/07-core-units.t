@@ -483,6 +483,7 @@ BASHRC
     {
         no warnings 'redefine';
         local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { File::Spec->catdir( $fake_module_root, 'missing-repo' ) };
+        local *Developer::Dashboard::InternalCLI::_repo_private_cli_root_candidates = sub { () };
         local *Developer::Dashboard::InternalCLI::dist_dir = sub { die "no dist root" };
         local *Developer::Dashboard::InternalCLI::_module_install_lib_root = sub { $fake_module_root };
         is(
@@ -587,12 +588,13 @@ BASHRC
     is_deeply(
         Developer::Dashboard::InternalCLI::helper_aliases(),
         {
-            pjq   => 'jq',
-            pyq   => 'yq',
-            ptomq => 'tomq',
-            pjp   => 'propq',
-            skill => 'skills',
-            logs  => 'log',
+            pjq    => 'jq',
+            pyq    => 'yq',
+            ptomq  => 'tomq',
+            pjp    => 'propq',
+            ticket => 'workspace',
+            skill  => 'skills',
+            logs   => 'log',
         },
         'helper_aliases returns the shipped compatibility alias map',
     );
@@ -660,6 +662,7 @@ BASHRC
     {
         no warnings 'redefine';
         local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { File::Spec->catdir( $fake_module_root, 'missing-repo' ) };
+        local *Developer::Dashboard::InternalCLI::_repo_private_cli_root_candidates = sub { () };
         local *Developer::Dashboard::InternalCLI::_shared_private_cli_root = sub { $fake_private_cli };
         local *Developer::Dashboard::InternalCLI::_shared_private_cli_root_candidates = sub { () };
         is(

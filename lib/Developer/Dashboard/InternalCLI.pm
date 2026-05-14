@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '3.71';
+our $VERSION = '3.72';
 
 use Cwd qw(abs_path);
 use File::Basename qw(dirname);
@@ -11,7 +11,7 @@ use File::Spec;
 use File::ShareDir qw(dist_dir);
 use Developer::Dashboard::SeedSync ();
 
-our $MODULE_SOURCE_PATH;
+our $MODULE_SOURCE_PATH = File::Spec->rel2abs(__FILE__);
 
 # helper_names()
 # Returns the built-in private helper command names that dashboard manages.
@@ -20,7 +20,7 @@ our $MODULE_SOURCE_PATH;
 sub helper_names {
     return qw(
       jq yq tomq propq iniq csvq xmlq
-      of open-file ticket file files path paths ps1
+      of open-file workspace file files path paths ps1
       encode decode indicator collector config auth init cpan page action docker serve stop restart log shell doctor housekeeper skills which
       complete
     );
@@ -36,6 +36,7 @@ sub helper_aliases {
         pyq   => 'yq',
         ptomq => 'tomq',
         pjp   => 'propq',
+        ticket => 'workspace',
         skill => 'skills',
         logs  => 'log',
     };
@@ -359,8 +360,13 @@ sub _helper_asset_path {
     my ($name) = @_;
     my $repo_path = File::Spec->catfile( _repo_private_cli_root(), $name );
     return $repo_path if -f $repo_path;
+    for my $root ( _repo_private_cli_root_candidates() ) {
+        next if !defined $root || $root eq '';
+        my $candidate = File::Spec->catfile( $root, $name );
+        return $candidate if -f $candidate;
+    }
     if ( _module_source_looks_like_blib_build() ) {
-        for my $root ( _repo_private_cli_root_candidates() ) {
+        for my $root ( _shared_private_cli_root_candidates() ) {
             next if !defined $root || $root eq '';
             my $candidate = File::Spec->catfile( $root, $name );
             return $candidate if -f $candidate;

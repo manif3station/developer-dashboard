@@ -1,3 +1,16 @@
+3.72  2026-05-14
+    - fixed collector watchdog supervision so a managed loop that stays alive
+      but stops making progress is treated as stalled, restarted
+      automatically, and reported explicitly instead of sitting silent until
+      an operator notices
+    - renamed the primary tmux workflow from `dashboard ticket` to
+      `dashboard workspace`, while keeping the older `dashboard ticket`
+      spelling plus `TICKET_REF` session state as compatibility fallbacks
+    - added layered plain-directory `.env` refresh for workspace sessions, so
+      the highest ancestor `.env` acts as the base, parent `.env` files merge
+      next, the current directory `.env` overrides last, and resumed tmux
+      workspace sessions are refreshed in place with dropped keys unset
+
 3.71  2026-05-14
     - fixed live collector status writes so managed indicator ordering now
       keeps the collector array order from `config/config.json` even after one

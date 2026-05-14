@@ -164,10 +164,10 @@ my @apt_packages  = _manifest_lines($aptfile);
 my @apk_packages  = _manifest_lines($apkfile);
 my @dnf_packages  = _manifest_lines($dnfile);
 my @brew_packages = _manifest_lines($brewfile);
-ok( scalar grep { $_ eq 'tmux' } @apt_packages,  'aptfile includes tmux because dashboard ticket depends on it' );
-ok( scalar grep { $_ eq 'tmux' } @apk_packages,  'apkfile includes tmux because dashboard ticket depends on it' );
-ok( scalar grep { $_ eq 'tmux' } @dnf_packages,  'dnfile includes tmux because dashboard ticket depends on it' );
-ok( scalar grep { $_ eq 'tmux' } @brew_packages, 'brewfile includes tmux because dashboard ticket depends on it' );
+ok( scalar grep { $_ eq 'tmux' } @apt_packages,  'aptfile includes tmux because dashboard workspace depends on it' );
+ok( scalar grep { $_ eq 'tmux' } @apk_packages,  'apkfile includes tmux because dashboard workspace depends on it' );
+ok( scalar grep { $_ eq 'tmux' } @dnf_packages,  'dnfile includes tmux because dashboard workspace depends on it' );
+ok( scalar grep { $_ eq 'tmux' } @brew_packages, 'brewfile includes tmux because dashboard workspace depends on it' );
 my @expected_apt_bootstrap_steps = _expected_apt_bootstrap_steps(
     packages => \@apt_packages,
 );

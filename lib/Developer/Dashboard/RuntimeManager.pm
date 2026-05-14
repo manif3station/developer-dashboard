@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.71';
+our $VERSION = '3.72';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -994,8 +994,6 @@ sub _supervise_collectors_once {
     );
 
     for my $name (@names) {
-        next if $running{$name};
-
         my $job = eval { $self->_collector_job_by_name($name) };
         if ( !$job ) {
             my $error = $@ || "Unknown collector '$name'\n";
@@ -1009,6 +1007,28 @@ sub _supervise_collectors_once {
         }
 
         my $status = $self->{collectors}->read_status($name) || {};
+        my $stalled = $running{$name}
+          ? $self->_collector_stalled_for_watchdog( $job, $status )
+          : 0;
+        next if $running{$name} && !$stalled;
+
+        my $stopped_stalled = 0;
+        if ( $running{$name} ) {
+            my $ok = eval { $self->{runner}->stop_loop($name); 1 };
+            if ( !$ok ) {
+                my $error = $@ || "Unable to stop stale collector '$name'\n";
+                chomp $error;
+                $self->_mark_collector_watchdog_attention(
+                    $name,
+                    $error,
+                    restart_count => 0,
+                );
+                push @{ $result{attention} }, { name => $name, reason => $error };
+                next;
+            }
+            $stopped_stalled = 1;
+        }
+
         my ( $restart_count, $window_started_at, $window_started_epoch ) =
           $self->_collector_watchdog_window($status);
         my $observed_at_epoch = time;
@@ -1065,7 +1085,12 @@ sub _supervise_collectors_once {
             {
                 running                              => 1,
                 watchdog_attention_required          => 0,
-                watchdog_last_error                  => undef,
+                watchdog_last_error                  => $stopped_stalled
+                  ? sprintf(
+                    "Collector '%s' stopped making progress and was restarted by the watchdog",
+                    $name
+                  )
+                  : undef,
                 watchdog_last_restart_at             => $observed_at,
                 watchdog_last_restart_at_epoch       => $observed_at_epoch,
                 watchdog_last_unexpected_stop_at     => $observed_at,
@@ -1081,6 +1106,61 @@ sub _supervise_collectors_once {
     }
 
     return \%result;
+}
+
+# _collector_stalled_for_watchdog($job, $status)
+# Detects when a managed scheduled collector loop is alive but has stopped
+# making progress long enough that the watchdog should recycle it.
+# Input: collector job hash reference and collector status hash reference.
+# Output: boolean true when the collector is stalled.
+sub _collector_stalled_for_watchdog {
+    my ( $self, $job, $status ) = @_;
+    return 0 if ref($job) ne 'HASH';
+    return 0 if ref($status) ne 'HASH';
+    my $latest_epoch = $self->_collector_watchdog_last_progress_epoch($status);
+    return 0 if !$latest_epoch;
+    my $stale_after = $self->_collector_watchdog_stale_seconds($job);
+    return 0 if $stale_after < 1;
+    return time - $latest_epoch > $stale_after ? 1 : 0;
+}
+
+# _collector_watchdog_last_progress_epoch($status)
+# Extracts the latest meaningful collector progress timestamp from persisted
+# status fields so the watchdog can detect live-but-stalled collector loops.
+# Input: collector status hash reference.
+# Output: latest progress epoch integer or zero when no usable timestamp exists.
+sub _collector_watchdog_last_progress_epoch {
+    my ( $self, $status ) = @_;
+    return 0 if ref($status) ne 'HASH';
+    my @epochs;
+    for my $field (qw(last_completed_at last_started_at last_run)) {
+        my $timestamp = $status->{$field};
+        next if !defined $timestamp || $timestamp eq '';
+        my $epoch = eval { $self->{collectors}->_iso8601_to_epoch($timestamp) };
+        next if !$epoch;
+        push @epochs, $epoch;
+    }
+    return 0 if !@epochs;
+    return ( sort { $b <=> $a } @epochs )[0];
+}
+
+# _collector_watchdog_stale_seconds($job)
+# Builds the maximum no-progress window for a collector from its configured
+# interval and timeout plus a small watchdog grace period.
+# Input: collector job hash reference.
+# Output: positive integer number of seconds.
+sub _collector_watchdog_stale_seconds {
+    my ( $self, $job ) = @_;
+    $job ||= {};
+    my $interval = defined $job->{interval} && $job->{interval} =~ /^(?:\d+|\d*\.\d+)$/ && $job->{interval} > 0
+      ? $job->{interval}
+      : 30;
+    my $timeout = defined $job->{timeout_ms} && $job->{timeout_ms} =~ /^\d+$/ && $job->{timeout_ms} > 0
+      ? ( $job->{timeout_ms} / 1000 )
+      : defined $job->{timeout} && $job->{timeout} =~ /^(?:\d+|\d*\.\d+)$/ && $job->{timeout} > 0
+      ? $job->{timeout}
+      : 30;
+    return int( $interval + $timeout + $self->_collector_stall_grace_seconds + 0.999999 );
 }
 
 # _collector_watchdog_window($status)
@@ -1516,6 +1596,18 @@ sub _collector_restart_window_seconds {
     my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_RESTART_WINDOW_SECONDS};
     return $value if defined $value && $value =~ /^\d+$/ && $value > 0;
     return 300;
+}
+
+# _collector_stall_grace_seconds()
+# Returns the extra grace period added to collector timeout-plus-interval
+# windows before the watchdog treats a managed scheduled collector as stalled.
+# Input: none.
+# Output: positive integer number of seconds.
+sub _collector_stall_grace_seconds {
+    my ($self) = @_;
+    my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_STALL_GRACE_SECONDS};
+    return $value if defined $value && $value =~ /^\d+$/ && $value > 0;
+    return 10;
 }
 
 # _collector_supervisor_poll_interval()

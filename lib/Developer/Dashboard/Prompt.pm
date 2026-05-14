@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '3.71';
+our $VERSION = '3.72';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -53,7 +53,9 @@ sub render {
           mode    => $mode,
       );
 
-    my $ticket = defined $ENV{TICKET_REF} ? $ENV{TICKET_REF} : '';
+    my $ticket = defined $ENV{WORKSPACE_REF} && $ENV{WORKSPACE_REF} ne ''
+      ? $ENV{WORKSPACE_REF}
+      : ( defined $ENV{TICKET_REF} ? $ENV{TICKET_REF} : '' );
     my @info_parts = @indicator_parts;
     push @info_parts, "🎫:$ticket" if defined $ticket && $ticket ne '';
     my $info = @info_parts ? join( ' ', @info_parts ) : '';
@@ -132,6 +134,7 @@ sub _tmux_status_active {
       if defined $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS}
       && $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} ne ''
       && $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} ne '0';
+    return 1 if defined $ENV{WORKSPACE_REF} && $ENV{WORKSPACE_REF} ne '';
     return 1 if defined $ENV{TICKET_REF} && $ENV{TICKET_REF} ne '';
     return 0;
 }

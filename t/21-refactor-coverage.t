@@ -267,19 +267,21 @@ like(
 is_deeply(
     Developer::Dashboard::InternalCLI::helper_aliases(),
     {
-        pjq   => 'jq',
-        pyq   => 'yq',
-        ptomq => 'tomq',
-        pjp   => 'propq',
-        skill => 'skills',
-        logs  => 'log',
+        pjq    => 'jq',
+        pyq    => 'yq',
+        ptomq  => 'tomq',
+        pjp    => 'propq',
+        ticket => 'workspace',
+        skill  => 'skills',
+        logs   => 'log',
     },
     'internal CLI exposes the expected helper aliases',
 );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('pjq'), 'jq', 'legacy helper alias normalizes to jq' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('skill'), 'skills', 'singular skill helper alias normalizes to skills' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('xmlq'), 'xmlq', 'current helper name stays unchanged' );
-is( Developer::Dashboard::InternalCLI::canonical_helper_name('ticket'), 'ticket', 'ticket helper name stays unchanged' );
+is( Developer::Dashboard::InternalCLI::canonical_helper_name('ticket'), 'workspace', 'ticket helper name now aliases to workspace' );
+is( Developer::Dashboard::InternalCLI::canonical_helper_name('workspace'), 'workspace', 'workspace helper name stays unchanged' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('paths'), 'paths', 'paths helper name stays unchanged' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('bogus'), '', 'unsupported helper names normalize to empty string' );
 is(
@@ -528,6 +530,13 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
             'helper_content renders the embedded ticket helper body',
         );
     }
+    elsif ( $helper eq 'workspace' ) {
+        like(
+            $content,
+            qr/\Qrun_workspace_command( args => \@ARGV );\E/,
+            'helper_content renders the shipped workspace helper body',
+        );
+    }
     elsif ( $helper eq 'path' || $helper eq 'paths' ) {
         like(
             $content,
@@ -614,7 +623,7 @@ is_deeply( $seeded_helpers_second, [], 'ensure_helpers skips rewriting staged he
 ok( -f File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'dd', '_dashboard-core' ), 'ensure_helpers also stages the shared _dashboard-core runtime under the dd namespace' );
 ok( grep( $_ =~ m{/\Qof\E$}, @$seeded_helpers ), 'ensure_helpers writes the private of helper' );
 ok( grep( $_ =~ m{/\Qopen-file\E$}, @$seeded_helpers ), 'ensure_helpers writes the private open-file helper' );
-ok( grep( $_ =~ m{/\Qticket\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ticket helper' );
+ok( grep( $_ =~ m{/\Qworkspace\E$}, @$seeded_helpers ), 'ensure_helpers writes the private workspace helper' );
 ok( grep( $_ =~ m{/\Qpath\E$}, @$seeded_helpers ), 'ensure_helpers writes the private path helper' );
 ok( grep( $_ =~ m{/\Qpaths\E$}, @$seeded_helpers ), 'ensure_helpers writes the private paths helper' );
 ok( grep( $_ =~ m{/\Qps1\E$}, @$seeded_helpers ), 'ensure_helpers writes the private ps1 helper' );
@@ -870,6 +879,7 @@ like(
     my $shared_root = tempdir( CLEANUP => 1 );
     local $ENV{HOME} = tempdir( CLEANUP => 1 );
     local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { return File::Spec->catdir( $shared_root, 'missing-private-cli' ) };
+    local *Developer::Dashboard::InternalCLI::_repo_private_cli_root_candidates = sub { return File::Spec->catdir( $shared_root, 'missing-private-cli' ) };
     local *Developer::Dashboard::InternalCLI::dist_dir = sub { return $shared_root };
 
     is(
@@ -894,6 +904,7 @@ like(
 
     local $ENV{HOME} = tempdir( CLEANUP => 1 );
     local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { return File::Spec->catdir( $install_root, 'missing-private-cli' ) };
+    local *Developer::Dashboard::InternalCLI::_repo_private_cli_root_candidates = sub { return File::Spec->catdir( $install_root, 'missing-private-cli' ) };
     local *Developer::Dashboard::InternalCLI::dist_dir = sub { return $shared_private_cli_root };
     local *Developer::Dashboard::InternalCLI::_module_install_lib_root = sub { return File::Spec->catdir( $install_root, 'missing-lib-root' ) };
 
@@ -937,6 +948,7 @@ like(
     close $shared_fh or die "Unable to close $shared_helper: $!";
 
     local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { return File::Spec->catdir( $install_root, 'missing-private-cli' ) };
+    local *Developer::Dashboard::InternalCLI::_repo_private_cli_root_candidates = sub { return File::Spec->catdir( $install_root, 'missing-private-cli' ) };
     local *Developer::Dashboard::InternalCLI::dist_dir = sub { return $broken_dist_root };
     local *Developer::Dashboard::InternalCLI::_module_install_lib_root = sub { return $module_lib_root };
 
@@ -972,6 +984,7 @@ like(
 
     local $ENV{HOME} = $home;
     local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { return File::Spec->catdir( $home, 'missing-private-cli' ) };
+    local *Developer::Dashboard::InternalCLI::_repo_private_cli_root_candidates = sub { return File::Spec->catdir( $home, 'missing-private-cli' ) };
     local *Developer::Dashboard::InternalCLI::dist_dir = sub { return File::Spec->catdir( $home, 'missing-dist-root' ) };
     local *Developer::Dashboard::InternalCLI::_module_install_lib_root = sub { return File::Spec->catdir( $home, 'missing-lib-root' ) };
 
@@ -989,6 +1002,43 @@ like(
         Developer::Dashboard::InternalCLI::_helper_asset_path('jq'),
         $home_jq,
         'internal CLI still falls back to the home bootstrap helper file for non-core helpers while the managed dd helper root is only partially staged',
+    );
+}
+{
+    my $install_root = tempdir( CLEANUP => 1 );
+    my $blib_root = File::Spec->catdir( $install_root, 'blib', 'lib' );
+    my $shared_private_cli_root = File::Spec->catdir( $install_root, 'auto', 'share', 'dist', 'Developer-Dashboard', 'private-cli' );
+    make_path($shared_private_cli_root);
+    my $shared_helper = File::Spec->catfile( $shared_private_cli_root, '_dashboard-core' );
+    open my $shared_fh, '>:raw', $shared_helper or die "Unable to write $shared_helper: $!";
+    print {$shared_fh} "#!/usr/bin/env perl\nprint qq(core\\n);\n";
+    close $shared_fh or die "Unable to close $shared_helper: $!";
+
+    local *Developer::Dashboard::InternalCLI::_repo_private_cli_root = sub { return File::Spec->catdir( $install_root, 'missing-private-cli' ) };
+    local *Developer::Dashboard::InternalCLI::_repo_private_cli_root_candidates = sub { return File::Spec->catdir( $install_root, 'missing-private-cli' ) };
+    local *Developer::Dashboard::InternalCLI::_module_source_path = sub { return File::Spec->catfile( $blib_root, 'Developer', 'Dashboard', 'InternalCLI.pm' ) };
+    local *Developer::Dashboard::InternalCLI::dist_dir = sub { return File::Spec->catdir( $install_root, 'missing-dist-root' ) };
+    local *Developer::Dashboard::InternalCLI::_shared_private_cli_root_candidates = sub { return ($shared_private_cli_root) };
+
+    is(
+        Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core'),
+        $shared_helper,
+        'internal CLI uses shared helper candidates directly when the module source path comes from a blib build tree',
+    );
+}
+{
+    my $candidate_root = tempdir( CLEANUP => 1 );
+    my $first = File::Spec->catdir( $candidate_root, 'first-private-cli' );
+    my $second = File::Spec->catdir( $candidate_root, 'second-private-cli' );
+    make_path( $first, $second );
+
+    local *Developer::Dashboard::InternalCLI::_repo_private_cli_root_candidates = sub { return ( $first, $second ) };
+    local *Developer::Dashboard::InternalCLI::_private_cli_root_has_dashboard_core = sub { return 0 };
+
+    is(
+        Developer::Dashboard::InternalCLI::_repo_private_cli_root(),
+        $first,
+        'internal CLI falls back to the first repo helper candidate when none of them expose _dashboard-core',
     );
 }
 
@@ -1414,6 +1464,28 @@ like(
     qr/Ticket name is required/,
     'ticket_environment rejects empty ticket names',
 );
+{
+    my $workspace_root = tempdir( CLEANUP => 1 );
+    my $workspace_parent = File::Spec->catdir( $workspace_root, 'parent' );
+    my $workspace_child  = File::Spec->catdir( $workspace_parent, 'child' );
+    make_path($workspace_child);
+    _write_file( File::Spec->catfile( $workspace_root, '.env' ), "ROOT_ONLY=root\nSHARED=root\n" );
+    _write_file( File::Spec->catfile( $workspace_parent, '.env' ), "PARENT_ONLY=parent\nSHARED=parent\n" );
+    _write_file( File::Spec->catfile( $workspace_child, '.env' ), "CHILD_ONLY=child\nSHARED=child\n" );
+
+    my $workspace_env = Developer::Dashboard::CLI::Ticket::workspace_environment( 'DD-123', cwd => $workspace_child );
+    is( $workspace_env->{ROOT_ONLY}, 'root', 'workspace_environment loads the highest ancestor .env as the base layer' );
+    is( $workspace_env->{PARENT_ONLY}, 'parent', 'workspace_environment loads parent .env files after the root base layer' );
+    is( $workspace_env->{CHILD_ONLY}, 'child', 'workspace_environment loads the current directory .env last' );
+    is( $workspace_env->{SHARED}, 'child', 'workspace_environment lets the current directory .env override shallower values' );
+    is( $workspace_env->{WORKSPACE_REF}, 'DD-123', 'workspace_environment seeds WORKSPACE_REF for workspace sessions' );
+    is( $workspace_env->{TICKET_REF}, 'DD-123', 'workspace_environment keeps TICKET_REF for compatibility with older prompt flows' );
+    is(
+        $workspace_env->{DEVELOPER_DASHBOARD_WORKSPACE_ENV_KEYS},
+        'CHILD_ONLY:PARENT_ONLY:ROOT_ONLY:SHARED',
+        'workspace_environment records the layered .env keys for later tmux session refresh',
+    );
+}
 is(
     Developer::Dashboard::CLI::Ticket::session_exists(
         session => 'exists',
@@ -1544,6 +1616,52 @@ ok( !$existing_ticket_plan->{create}, 'build_ticket_plan skips creation for exis
     is_deeply( $tmux_calls[-1], [ 'attach-session', '-t', 'DD-790' ], 'run_ticket_command still finishes by attaching to an existing session' );
     ok( scalar(@tmux_calls) > 2, 'run_ticket_command also refreshes tmux status before attaching to an existing session' );
 }
+{
+    my $workspace_root = tempdir( CLEANUP => 1 );
+    my $workspace_parent = File::Spec->catdir( $workspace_root, 'parent' );
+    my $workspace_child  = File::Spec->catdir( $workspace_parent, 'child' );
+    make_path($workspace_child);
+    _write_file( File::Spec->catfile( $workspace_root, '.env' ), "ROOT_ONLY=root\nSHARED=root\n" );
+    _write_file( File::Spec->catfile( $workspace_parent, '.env' ), "PARENT_ONLY=parent\nSHARED=parent\n" );
+    _write_file( File::Spec->catfile( $workspace_child, '.env' ), "CHILD_ONLY=child\nSHARED=child\n" );
+
+    my @tmux_calls;
+    Developer::Dashboard::CLI::Ticket::run_workspace_command(
+        args => ['DD-790A'],
+        cwd  => $workspace_child,
+        tmux => sub {
+            my (%call) = @_;
+            push @tmux_calls, [ @{ $call{args} } ];
+            return { exit_code => 0, stdout => '', stderr => '' } if $call{args}[0] eq 'has-session';
+            return {
+                exit_code => 0,
+                stdout    => "DEVELOPER_DASHBOARD_WORKSPACE_ENV_KEYS=OLD_ONLY:SHARED\n",
+                stderr    => '',
+            } if $call{args}[0] eq 'show-environment';
+            return { exit_code => 0, stdout => '', stderr => '' };
+        },
+    );
+    ok(
+        scalar( grep { $_->[0] eq 'set-environment' && $_->[3] eq '-u' && $_->[4] eq 'OLD_ONLY' } @tmux_calls ),
+        'run_workspace_command unsets stale layered tmux env keys when a workspace session is resumed',
+    );
+    ok(
+        scalar( grep { $_->[0] eq 'set-environment' && $_->[3] eq 'ROOT_ONLY' && $_->[4] eq 'root' } @tmux_calls ),
+        'run_workspace_command refreshes root-layer .env values into resumed workspace sessions',
+    );
+    ok(
+        scalar( grep { $_->[0] eq 'set-environment' && $_->[3] eq 'PARENT_ONLY' && $_->[4] eq 'parent' } @tmux_calls ),
+        'run_workspace_command refreshes parent-layer .env values into resumed workspace sessions',
+    );
+    ok(
+        scalar( grep { $_->[0] eq 'set-environment' && $_->[3] eq 'CHILD_ONLY' && $_->[4] eq 'child' } @tmux_calls ),
+        'run_workspace_command refreshes current-directory .env values into resumed workspace sessions',
+    );
+    ok(
+        scalar( grep { $_->[0] eq 'set-environment' && $_->[3] eq 'SHARED' && $_->[4] eq 'child' } @tmux_calls ),
+        'run_workspace_command applies current-directory .env values as the final override when a workspace session is resumed',
+    );
+}
 like(
     _dies(
         sub {
@@ -1571,7 +1689,14 @@ like(
                 tmux => sub {
                     my (%call) = @_;
                     return { exit_code => 0, stdout => '', stderr => '' } if $call{args}[0] eq 'has-session';
-                    return { exit_code => 3, stdout => "attach\n", stderr => "denied\n" };
+                    return {
+                        exit_code => 0,
+                        stdout    => "DEVELOPER_DASHBOARD_WORKSPACE_ENV_KEYS=\n",
+                        stderr    => '',
+                    } if $call{args}[0] eq 'show-environment';
+                    return { exit_code => 0, stdout => '', stderr => '' } if $call{args}[0] eq 'set-environment';
+                    return { exit_code => 3, stdout => "attach\n", stderr => "denied\n" } if $call{args}[0] eq 'set-option';
+                    return { exit_code => 0, stdout => '', stderr => '' };
                 },
             );
         }
@@ -1619,6 +1744,26 @@ like(
         join( "\n", map { join ' ', @{$_} } @tmux_calls ),
         qr{/tmp/fake-dashboard' ps1 --mode tmux-status-top --width \#\{client_width\}},
         'apply_ticket_status uses the environment-provided dashboard entrypoint in the tmux status command',
+    );
+}
+{
+    my @tmux_calls;
+    is(
+        Developer::Dashboard::CLI::Ticket::apply_workspace_status(
+            session => 'DD-794W',
+            tmux    => sub {
+                my (%call) = @_;
+                push @tmux_calls, [ @{ $call{args} } ];
+                return { exit_code => 0, stdout => '', stderr => '' };
+            },
+        ),
+        1,
+        'apply_workspace_status delegates through the shared tmux status configurator',
+    );
+    is_deeply(
+        $tmux_calls[0],
+        [ 'show-options', '-gqv', '@dd_ticket_status_default' ],
+        'apply_workspace_status starts from the same tmux default-status lookup as apply_ticket_status',
     );
 }
 {

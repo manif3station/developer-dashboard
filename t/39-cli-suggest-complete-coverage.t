@@ -75,13 +75,13 @@ is_deeply(
 is_deeply(
     [
         Developer::Dashboard::CLI::Complete::complete(
-            words           => [ 'dashboard', 'ticket', 'DD-' ],
+            words           => [ 'dashboard', 'workspace', 'DD-' ],
             index           => 2,
             ticket_sessions => sub { return qw(DD-123 DD-456 OTHER-1) },
         )
     ],
     [ qw(DD-123 DD-456) ],
-    'complete suggests tmux ticket session names for dashboard ticket',
+    'complete suggests tmux workspace session names for dashboard workspace',
 );
 
 is_deeply(

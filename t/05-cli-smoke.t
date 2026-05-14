@@ -71,7 +71,7 @@ my $runtime_csvq = File::Spec->catfile( $runtime_dd_cli_root, 'csvq' );
 my $runtime_xmlq = File::Spec->catfile( $runtime_dd_cli_root, 'xmlq' );
 my $runtime_of = File::Spec->catfile( $runtime_dd_cli_root, 'of' );
 my $runtime_open_file = File::Spec->catfile( $runtime_dd_cli_root, 'open-file' );
-my $runtime_ticket = File::Spec->catfile( $runtime_dd_cli_root, 'ticket' );
+my $runtime_workspace = File::Spec->catfile( $runtime_dd_cli_root, 'workspace' );
 my $runtime_path = File::Spec->catfile( $runtime_dd_cli_root, 'path' );
 my $runtime_paths = File::Spec->catfile( $runtime_dd_cli_root, 'paths' );
 my $runtime_ps1 = File::Spec->catfile( $runtime_dd_cli_root, 'ps1' );
@@ -80,7 +80,7 @@ my $runtime_dashboard_core = File::Spec->catfile( $runtime_dd_cli_root, '_dashbo
 
 my $init = _run("$perl -I'$lib' '$dashboard' init");
 like($init, qr/runtime_root/, 'dashboard init works');
-for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runtime_iniq, $runtime_csvq, $runtime_xmlq, $runtime_of, $runtime_open_file, $runtime_ticket, $runtime_path, $runtime_paths, $runtime_ps1 ) {
+for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runtime_iniq, $runtime_csvq, $runtime_xmlq, $runtime_of, $runtime_open_file, $runtime_workspace, $runtime_path, $runtime_paths, $runtime_ps1 ) {
     ok( -f $helper, "dashboard init seeds private helper $helper" );
     ok( -x $helper, "dashboard init marks private helper $helper executable" );
 }
@@ -406,7 +406,7 @@ my $help = _run("$perl -I'$lib' '$dashboard' help");
 like($help, qr/Description:/, 'dashboard help renders the fuller POD help');
 like($help, qr/dashboard serve \[logs \[-f\] \[-n N\]\|workers <N>\]/, 'dashboard help documents serve logs tail/follow flags and serve workers commands');
 like($help, qr/dashboard serve .*--no-editor.*--no-endit.*--no-indicators.*--no-indicator/s, 'dashboard help documents serve no-editor and no-indicators aliases');
-like($help, qr/dashboard ticket \[ticket-ref\]/, 'dashboard help documents the built-in ticket subcommand');
+like($help, qr/dashboard workspace \[workspace-ref\]/, 'dashboard help documents the built-in workspace subcommand');
 like($help, qr/dashboard docker enable <service>/, 'dashboard help documents docker enable for isolated compose services');
 like($help, qr/dashboard docker disable <service>/, 'dashboard help documents docker disable for isolated compose services');
 like($help, qr/dashboard docker list \[--enabled\|--disabled\]/, 'dashboard help documents docker list filters for isolated compose services');
@@ -2037,35 +2037,36 @@ exit 0
 SH
 close $fake_ticket_tmux_fh;
 chmod 0755, $fake_ticket_tmux or die "Unable to chmod $fake_ticket_tmux: $!";
-my $ticket_output = _run("PATH='$fake_ticket_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' ticket DD-NEW");
-is( $ticket_output, '', 'dashboard ticket stays quiet on success while tmux handles the terminal attach' );
+my $ticket_output = _run("PATH='$fake_ticket_bin':\"\$PATH\" $perl -I'$lib' '$dashboard' workspace DD-NEW");
+is( $ticket_output, '', 'dashboard workspace stays quiet on success while tmux handles the terminal attach' );
 open my $fake_ticket_log_fh, '<', $fake_ticket_log or die "Unable to read $fake_ticket_log: $!";
 my $fake_ticket_log_text = do { local $/; <$fake_ticket_log_fh> };
 close $fake_ticket_log_fh;
-like( $fake_ticket_log_text, qr/^has-session -t DD-NEW$/m, 'dashboard ticket checks whether the requested tmux session already exists' );
-like( $fake_ticket_log_text, qr/^new-session -d .* -s DD-NEW -n Code1$/m, 'dashboard ticket creates a new tmux session when the ticket session is missing' );
-like( $fake_ticket_log_text, qr/^show-options -gqv \@dd_ticket_status_default$/m, 'dashboard ticket checks whether tmux already recorded the default bottom-row status' );
-like( $fake_ticket_log_text, qr/^show-options -gqv status-format\[0\]$/m, 'dashboard ticket snapshots the current global tmux bottom-row status before replacing it with the indicator row' );
-like( $fake_ticket_log_text, qr/^set-option -gq status-position bottom$/m, 'dashboard ticket keeps the tmux status block anchored at the bottom' );
-like( $fake_ticket_log_text, qr/^set-option -gq status 2$/m, 'dashboard ticket enables a two-line tmux status block for dashboard-managed ticket sessions' );
-like( $fake_ticket_log_text, qr/^set-option -gq status-interval 2$/m, 'dashboard ticket refreshes the tmux status block automatically for dashboard-managed ticket sessions' );
-like( $fake_ticket_log_text, qr/^set-option -gq status-format\[0\] #\('.*dashboard' ps1 --mode tmux-status-top --width #\{client_width\}\)$/m, 'dashboard ticket configures the first tmux status row to render dashboard indicators through the explicit dashboard entrypoint path' );
-like( $fake_ticket_log_text, qr/^set-option -gq status-format\[1\] /m, 'dashboard ticket restores the normal tmux bottom-row status beneath the indicator strip' );
-like( $fake_ticket_log_text, qr/^set-option -guq status-format\[2\]$/m, 'dashboard ticket clears any stale third tmux status row after configuring the ticket status block' );
-like( $fake_ticket_log_text, qr/^attach-session -t DD-NEW$/m, 'dashboard ticket attaches to the requested tmux session' );
-like( $fake_ticket_log_text, qr/TICKET_REF=DD-NEW/, 'dashboard ticket seeds TICKET_REF into new tmux sessions' );
-like( $fake_ticket_log_text, qr/DEVELOPER_DASHBOARD_TMUX_STATUS=1/, 'dashboard ticket seeds the tmux-status session flag into new tmux sessions so only dashboard-managed ticket sessions move indicators into the tmux status line' );
+like( $fake_ticket_log_text, qr/^has-session -t DD-NEW$/m, 'dashboard workspace checks whether the requested tmux session already exists' );
+like( $fake_ticket_log_text, qr/^new-session -d .* -s DD-NEW -n Code1$/m, 'dashboard workspace creates a new tmux session when the workspace session is missing' );
+like( $fake_ticket_log_text, qr/^show-options -gqv \@dd_ticket_status_default$/m, 'dashboard workspace checks whether tmux already recorded the default bottom-row status' );
+like( $fake_ticket_log_text, qr/^show-options -gqv status-format\[0\]$/m, 'dashboard workspace snapshots the current global tmux bottom-row status before replacing it with the indicator row' );
+like( $fake_ticket_log_text, qr/^set-option -gq status-position bottom$/m, 'dashboard workspace keeps the tmux status block anchored at the bottom' );
+like( $fake_ticket_log_text, qr/^set-option -gq status 2$/m, 'dashboard workspace enables a two-line tmux status block for dashboard-managed workspace sessions' );
+like( $fake_ticket_log_text, qr/^set-option -gq status-interval 2$/m, 'dashboard workspace refreshes the tmux status block automatically for dashboard-managed workspace sessions' );
+like( $fake_ticket_log_text, qr/^set-option -gq status-format\[0\] #\('.*dashboard' ps1 --mode tmux-status-top --width #\{client_width\}\)$/m, 'dashboard workspace configures the first tmux status row to render dashboard indicators through the explicit dashboard entrypoint path' );
+like( $fake_ticket_log_text, qr/^set-option -gq status-format\[1\] /m, 'dashboard workspace restores the normal tmux bottom-row status beneath the indicator strip' );
+like( $fake_ticket_log_text, qr/^set-option -guq status-format\[2\]$/m, 'dashboard workspace clears any stale third tmux status row after configuring the workspace status block' );
+like( $fake_ticket_log_text, qr/^attach-session -t DD-NEW$/m, 'dashboard workspace attaches to the requested tmux session' );
+like( $fake_ticket_log_text, qr/WORKSPACE_REF=DD-NEW/, 'dashboard workspace seeds WORKSPACE_REF into new tmux sessions' );
+like( $fake_ticket_log_text, qr/TICKET_REF=DD-NEW/, 'dashboard workspace keeps TICKET_REF seeded for compatibility with older tmux sessions' );
+like( $fake_ticket_log_text, qr/DEVELOPER_DASHBOARD_TMUX_STATUS=1/, 'dashboard workspace seeds the tmux-status session flag into new tmux sessions so only dashboard-managed workspace sessions move indicators into the tmux status line' );
 
 unlink $fake_ticket_log or die "Unable to unlink $fake_ticket_log: $!";
-my $runtime_ticket_output = _run("PATH='$fake_ticket_bin':\"\$PATH\" $perl -I'$lib' '$runtime_ticket' DD-EXISTING");
-is( $runtime_ticket_output, '', 'private runtime ticket helper stays quiet on success' );
+my $runtime_ticket_output = _run("PATH='$fake_ticket_bin':\"\$PATH\" $perl -I'$lib' '$runtime_workspace' DD-EXISTING");
+is( $runtime_ticket_output, '', 'private runtime workspace helper stays quiet on success' );
 open my $runtime_ticket_log_fh, '<', $fake_ticket_log or die "Unable to read $fake_ticket_log: $!";
 my $runtime_ticket_log_text = do { local $/; <$runtime_ticket_log_fh> };
 close $runtime_ticket_log_fh;
-like( $runtime_ticket_log_text, qr/^has-session -t DD-EXISTING$/m, 'private runtime ticket helper checks the requested session' );
-unlike( $runtime_ticket_log_text, qr/^new-session /m, 'private runtime ticket helper skips session creation when tmux reports it already exists' );
-like( $runtime_ticket_log_text, qr/^set-option -gq status-format\[0\] #\('.*dashboard' ps1 --mode tmux-status-top --width #\{client_width\}\)$/m, 'private runtime ticket helper also reapplies the indicator tmux status row for existing ticket sessions' );
-like( $runtime_ticket_log_text, qr/^attach-session -t DD-EXISTING$/m, 'private runtime ticket helper attaches to existing sessions' );
+like( $runtime_ticket_log_text, qr/^has-session -t DD-EXISTING$/m, 'private runtime workspace helper checks the requested session' );
+unlike( $runtime_ticket_log_text, qr/^new-session /m, 'private runtime workspace helper skips session creation when tmux reports it already exists' );
+like( $runtime_ticket_log_text, qr/^set-option -gq status-format\[0\] #\('.*dashboard' ps1 --mode tmux-status-top --width #\{client_width\}\)$/m, 'private runtime workspace helper also reapplies the indicator tmux status row for existing workspace sessions' );
+like( $runtime_ticket_log_text, qr/^attach-session -t DD-EXISTING$/m, 'private runtime workspace helper attaches to existing sessions' );
 
 my $json_value = _run(qq{printf '{"alpha":{"beta":2}}' | $perl -I'$lib' '$dashboard' jq alpha.beta});
 is( $json_value, "2\n", 'jq extracts scalar JSON values' );
