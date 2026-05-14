@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '3.70';
+our $VERSION = '3.71';
 
 use Config ();
 use IPC::Open3 qw(open3);
@@ -940,6 +940,12 @@ sub skill_ajax_route_spec {
 sub resolve_custom_route_path {
     my ( $self, $path ) = @_;
     return if !defined $path || $path eq '';
+    for my $spec ( reverse $self->_runtime_custom_route_specs ) {
+        return $spec if ( $spec->{path} || '' ) eq $path;
+        my $aliases = $spec->{aliases};
+        $aliases = [] if ref($aliases) ne 'ARRAY';
+        return $spec if grep { $_ eq $path } @{$aliases};
+    }
     for my $skill_name ( $self->_all_installed_skill_names ) {
         for my $kind (qw(app ajax js css others)) {
             my $routes = $self->_skill_routes_for( $skill_name, $kind );
@@ -953,6 +959,37 @@ sub resolve_custom_route_path {
         }
     }
     return;
+}
+
+# _runtime_custom_route_specs()
+# Loads runtime-level config/routes.json custom route metadata across every
+# participating DD-OOP-LAYER config root.
+# Input: none.
+# Output: ordered list of normalized route specs from home to deepest layer.
+sub _runtime_custom_route_specs {
+    my ($self) = @_;
+    my $paths = $self->{manager}{paths};
+    return () if !$paths || !$paths->can('config_layers');
+
+    my @specs;
+    for my $config_root ( $paths->config_layers ) {
+        my $routes_file = File::Spec->catfile( $config_root, 'routes.json' );
+        next if !-f $routes_file;
+        my $payload = $self->_load_skill_routes_file($routes_file);
+        for my $kind (qw(app ajax js css others)) {
+            my $kind_routes = $payload->{$kind} || {};
+            for my $target ( sort keys %{$kind_routes} ) {
+                push @specs, $self->_normalize_skill_route_spec(
+                    kind        => $kind,
+                    routes_file => $routes_file,
+                    spec        => $kind_routes->{$target},
+                    target      => $target,
+                );
+            }
+        }
+    }
+
+    return @specs;
 }
 
 # resolve_ajax_route_path($path)
@@ -1111,7 +1148,7 @@ sub _expand_flat_skill_routes_payload {
 sub _normalize_skill_route_spec {
     my ( $self, %args ) = @_;
     my $kind = $args{kind} || die 'Missing kind';
-    my $skill_name = $args{skill_name} || die 'Missing skill_name';
+    my $skill_name = $args{skill_name};
     my $target = $args{target} || die 'Missing target';
     my $routes_file = $args{routes_file} || die 'Missing routes_file';
     my $spec = $args{spec};
@@ -1141,11 +1178,11 @@ sub _normalize_skill_route_spec {
         aliases     => \@aliases,
         kind        => $kind,
         path        => $spec->{path},
-        skill_name  => $skill_name,
         source_file => $routes_file,
         target      => $target,
         type        => $spec->{type},
     };
+    $normalized->{skill_name} = $skill_name if defined $skill_name && $skill_name ne '';
     $normalized->{ajax_file} = $target if $kind eq 'ajax';
     $normalized->{route_id}  = $target if $kind eq 'app';
     $normalized->{file}      = $target if $kind ne 'ajax' && $kind ne 'app';

@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.70
+3.71
 
 # INTRODUCTION
 
@@ -87,6 +87,10 @@ such as macOS and WSL. Managed collectors are also watched after startup: an
 unexpected exit triggers an automatic restart, while repeated crash loops are
 raised as explicit `attention_required` collector state instead of silently
 stopping or spinning forever.
+Managed collector indicators also keep the collector array order declared in
+`config/config.json` even after a live collector run rewrites its own status,
+so the browser status board and `dashboard ps1` do not drift back to
+alphabetical ordering after one collector refreshes.
 Collector schedules now also support bounded overlap control. The default
 collector `mode` is `singleton`, which means one long-running collector run
 blocks the next scheduled start until the active run finishes. Set
@@ -539,14 +543,16 @@ stable saved-bookmark endpoint such as
 extra skill route metadata the generated saved endpoint is namespaced under the
 longest matching skill route, for example
 `/ajax/example-skill/name.json?type=text` or
-`/ajax/example-skill/sub-skill/name.json?type=text`. Skills can also ship
-`config/routes.json` to declare canonical custom paths for skill-local app
-pages, Ajax handlers, JavaScript assets, CSS assets, and other public assets.
-The schema is a JSON object whose keys are the public custom paths and whose
-values are either one smart local route string or an object with `to` plus an
-optional `type`, for example
+`/ajax/example-skill/sub-skill/name.json?type=text`. The runtime config tree
+and installed skills can both ship `config/routes.json` to declare canonical
+custom paths for normal saved app pages, skill-local app pages, Ajax handlers,
+JavaScript assets, CSS assets, and other public assets. The schema is a JSON
+object whose keys are the public custom paths and whose values are either one
+smart local route string or an object with `to` plus an optional `type`, for
+example
 
     {
+       "/java" : "/app/learn.ai",
        "/v1/status" : {
           "to" : "/ajax/status",
           "type" : "json"
@@ -558,17 +564,22 @@ optional `type`, for example
     }
 
 When that file is present, skill pages emit the declared canonical
-`ajax` path such as `/v1/status` instead of the default `/ajax/...` url.
-The same manifest also makes the declared custom `/app`, `/js`, `/css`, and
-`/others` paths requestable. The smart longest-prefix routes remain the parent
-resolvers:
+`ajax` path such as `/v1/status` instead of the default `/ajax/...` url,
+and runtime-level aliases such as `/java` can point at normal saved bookmark
+ids such as `/app/learn.ai` without treating the dot as skill notation. The
+same manifest also makes the declared custom `/app`, `/js`, `/css`, and
+`/others` paths requestable. The smart longest-prefix routes remain the
+parent resolvers:
 `/app/example-skill/...`, `/ajax/example-skill/...`,
 `/js/example-skill/...`, `/css/example-skill/...`, and
 `/others/example-skill/...` are always checked first, and any declared custom
-path is checked only after the normal smart route misses. If neither the smart
-route nor the custom path resolves, the request falls through to the normal
-`404` response. Ajax custom routes default to `json` when no explicit
-`type` is present, and the optional `type` value can also be `html`,
+path is checked only after the normal smart route misses. Runtime-level custom
+paths from the active `config/routes.json` layer chain follow the same
+fallback rule against the built-in `/app`, `/ajax`, `/js`, `/css`, and
+`/others` route handlers. If neither the smart route nor the custom path
+resolves, the request falls through to the normal `404` response. Ajax custom
+routes default to `json` when no explicit `type` is present, and the
+optional `type` value can also be `html`,
 `text`, or an arbitrary raw mime type such as
 `application/vnd.example+json`. Those saved Ajax handlers run the stored file
 as a real process, defaulting to Perl unless the file starts with a shebang,
@@ -2439,6 +2450,11 @@ child skill's `dashboards/<page>`
 paths such as `/v1/status`, but the smart
 `/ajax/<repo-name>/...` resolver stays the parent route and custom
 paths are fallback-only after smart route lookup misses
+- runtime-level `config/routes.json` aliases can also point at normal saved
+bookmark ids such as `/app/learn.ai` plus the built-in `/ajax/...`,
+`/js/...`, `/css/...`, and `/others/...` route families, so one dashboard
+runtime can expose shorter stable public paths like `/java` without changing
+the underlying saved filename
 - skill-local static assets under `dashboards/public/js/*`,
 `dashboards/public/css/*`, and `dashboards/public/others/*` resolve at
 `/js/<repo-name>/...`, `/css/<repo-name>/...`, and

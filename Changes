@@ -1,3 +1,15 @@
+3.71  2026-05-14
+    - fixed live collector status writes so managed indicator ordering now
+      keeps the collector array order from `config/config.json` even after one
+      collector refreshes its own state, instead of dropping back to
+      alphabetical order in `/system/status`, page-header indicators, and
+      `dashboard ps1`
+    - fixed runtime `config/routes.json` aliases so normal saved bookmarks
+      such as `/app/learn.ai` can be reached through shorter custom paths like
+      `/java`, and widened that runtime alias loading across `/app`, `/ajax`,
+      `/js`, `/css`, and `/others` instead of limiting custom paths to
+      installed skill route metadata only
+
 3.70  2026-05-13
     - moved skill route metadata to `config/routes.json` and changed the
       schema to the flat custom-path form, where each public path maps to one

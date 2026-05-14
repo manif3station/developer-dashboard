@@ -84,6 +84,20 @@ my $page = Developer::Dashboard::PageDocument->new(
     layout => { body => 'body text [% stash.name %]' },
 );
 $store->save_page($page);
+my $dotted_page = Developer::Dashboard::PageDocument->new(
+    id     => 'learn.ai',
+    title  => 'Learn AI',
+    layout => { body => 'learn ai body' },
+);
+$store->save_page($dotted_page);
+open my $runtime_routes, '>:raw', File::Spec->catfile( $paths->config_root, 'routes.json' )
+  or die "Unable to write runtime routes.json: $!";
+print {$runtime_routes} <<'JSON';
+{
+   "/java" : "/app/learn.ai"
+}
+JSON
+close $runtime_routes or die "Unable to close runtime routes.json: $!";
 
 my $app = Developer::Dashboard::Web::App->new(
     auth     => $auth,
@@ -178,6 +192,10 @@ dies_like( sub { Developer::Dashboard::Web::App->new( auth => $auth, pages => $s
 my ( $root_code, $root_type, $root_body ) = @{ $app->handle( path => '/', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $root_code, 200, 'root route responds with success' );
 like( $root_body, qr/<textarea[^>]*name="instruction"/, 'root route renders free-form instruction editor' );
+
+my ( $runtime_alias_code, undef, $runtime_alias_body ) = @{ $app->handle( path => '/java', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
+is( $runtime_alias_code, 200, 'runtime config custom app route serves a saved bookmark with a dotted filename id' );
+like( $runtime_alias_body, qr/learn ai body/, 'runtime config custom app route renders the same saved bookmark body as /app/learn\.ai' );
 
 my $index_page = Developer::Dashboard::PageDocument->new(
     id     => 'index',

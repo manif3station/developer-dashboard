@@ -85,6 +85,16 @@ module upgrades can change column padding without changing the real
 `100.0 / 100.0 / 100.0` result.
 The `t/07-core-units.t` collector loop guard treats both `HARNESS_PERL_SWITCHES` and `PERL5OPT` as valid `Devel::Cover` signals, because this machine uses both launch styles during verification.
 The runtime-manager coverage cases also use bounded child reaping for stubborn process shutdown scenarios, so `Devel::Cover` runs do not stall indefinitely after the escalation path has already been exercised.
+The collector indicator ordering regression also stays under direct unit
+coverage now: a live `CollectorRunner->run_once()` status write must preserve
+the existing managed indicator `collector_order`, otherwise `dashboard ps1`,
+page-header items, and the browser status board can fall back to name sorting
+after one collector refresh.
+Custom route coverage now also includes the runtime-level `config/routes.json`
+surface, not only installed skills. A flat alias such as `"/java":
+"/app/learn.ai"` must resolve to the same saved bookmark body as
+`/app/learn.ai`, and dispatcher coverage also locks the runtime `/ajax`,
+`/js`, `/css`, and `/others` alias families to the same route schema.
 The focused skill regression in `t/19-skill-system.t` now also exercises `PathRegistry::installed_skill_docker_roots()` directly, including the default enabled-only view and the explicit `include_disabled => 1` path, so skill docker layering changes do not quietly drag the reviewed `lib/` total below `100.0 / 100.0 / 100.0`.
 That same focused skill regression now also locks the same-repo
 `DD-OOP-LAYERS` fallback contract inside one skill name, including inherited

@@ -934,6 +934,59 @@ is(
     );
 }
 
+{
+    package Local::UnknownSkillOwnedRouteDispatcher;
+    sub resolve_custom_route_path { return { kind => 'bogus', skill_name => 'example-skill' } }
+    package main;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::App::_skill_dispatcher = sub { return bless {}, 'Local::UnknownSkillOwnedRouteDispatcher' };
+    is(
+        $app->_custom_skill_route_response( route_path => '/bogus/skill/path' ),
+        undef,
+        '_custom_skill_route_response also returns undef when one skill-owned custom route resolves to an unsupported route kind',
+    );
+}
+
+{
+    package Local::RuntimeAjaxAliasDispatcher;
+    sub resolve_custom_route_path { return { kind => 'ajax', ajax_file => 'runtime/status' } }
+    package main;
+    my @captured;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::App::_skill_dispatcher = sub { return bless {}, 'Local::RuntimeAjaxAliasDispatcher' };
+    local *Developer::Dashboard::Web::App::dispatch_request = sub {
+        my ( $self, %args ) = @_;
+        push @captured, $args{path};
+        return [ 200, 'text/plain; charset=utf-8', "runtime ajax alias\n" ];
+    };
+    is_deeply(
+        $app->_custom_skill_route_response( route_path => '/runtime/status' ),
+        [ 200, 'text/plain; charset=utf-8', "runtime ajax alias\n" ],
+        '_custom_skill_route_response dispatches runtime ajax aliases back through the built-in ajax route family',
+    );
+    is_deeply( \@captured, ['/ajax/runtime/status'], 'runtime ajax aliases dispatch to the matching built-in ajax path' );
+}
+
+{
+    package Local::RuntimeStaticAliasDispatcher;
+    sub resolve_custom_route_path { return { kind => 'js', file => 'site/main.js' } }
+    package main;
+    my @captured;
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::App::_skill_dispatcher = sub { return bless {}, 'Local::RuntimeStaticAliasDispatcher' };
+    local *Developer::Dashboard::Web::App::dispatch_request = sub {
+        my ( $self, %args ) = @_;
+        push @captured, $args{path};
+        return [ 200, 'application/javascript', "console.log('runtime static alias');\n" ];
+    };
+    is_deeply(
+        $app->_custom_skill_route_response( route_path => '/runtime/main.js' ),
+        [ 200, 'application/javascript', "console.log('runtime static alias');\n" ],
+        '_custom_skill_route_response dispatches runtime static aliases back through the built-in static route families',
+    );
+    is_deeply( \@captured, ['/js/site/main.js'], 'runtime static aliases dispatch to the matching built-in static path' );
+}
+
 is_deeply(
     $app->_serve_static_file_at_path( 'css', 'missing.css', '' ),
     [ 404, 'text/plain; charset=utf-8', "Not Found\n" ],

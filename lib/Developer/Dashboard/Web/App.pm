@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '3.70';
+our $VERSION = '3.71';
 
 use Capture::Tiny qw(capture);
 use POSIX qw(strftime);
@@ -1935,6 +1935,24 @@ sub _custom_skill_route_response {
     return if $route_path eq '' || $route_path eq '/';
     my $spec = $self->_skill_dispatcher->resolve_custom_route_path($route_path);
     return if !$spec;
+    if ( !( $spec->{skill_name} || '' ) ) {
+        my $kind = $spec->{kind} || '';
+        my $dispatch_path = '';
+        if ( $kind eq 'app' ) {
+            $dispatch_path = '/app/' . ( $spec->{route_id} || '' );
+        }
+        elsif ( $kind eq 'ajax' ) {
+            $dispatch_path = '/ajax/' . ( $spec->{ajax_file} || '' );
+        }
+        elsif ( grep { $_ eq $kind } qw(js css others) ) {
+            $dispatch_path = '/' . $kind . '/' . ( $spec->{file} || '' );
+        }
+        return if $dispatch_path eq '';
+        return $self->dispatch_request(
+            %args,
+            path => $dispatch_path,
+        );
+    }
     if ( ( $spec->{kind} || '' ) eq 'app' ) {
         return $self->skill_route_response(
             %args,

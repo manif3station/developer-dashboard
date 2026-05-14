@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '3.70';
+our $VERSION = '3.71';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -93,8 +93,12 @@ sub run_once {
         );
 
         if ( $self->{indicators} && ref( $job->{indicator} ) eq 'HASH' ) {
+            my $existing_indicator = eval {
+                $self->{indicators}->get_indicator( $job->{indicator}{name} || $job->{name} );
+            } || {};
             $indicator_payload = $self->{indicators}->collector_indicator_candidate(
                 $job,
+                existing => $existing_indicator,
                 status => $exit_code ? 'error' : 'ok',
             );
             my $materialized = eval {

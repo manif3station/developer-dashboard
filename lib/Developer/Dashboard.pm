@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.70';
+our $VERSION = '3.71';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.70
+3.71
 
 =head1 INTRODUCTION
 
@@ -142,6 +142,10 @@ such as macOS and WSL. Managed collectors are also watched after startup: an
 unexpected exit triggers an automatic restart, while repeated crash loops are
 raised as explicit C<attention_required> collector state instead of silently
 stopping or spinning forever.
+Managed collector indicators also keep the collector array order declared in
+C<config/config.json> even after a live collector run rewrites its own status,
+so the browser status board and C<dashboard ps1> do not drift back to
+alphabetical ordering after one collector refreshes.
 Collector schedules now also support bounded overlap control. The default
 collector C<mode> is C<singleton>, which means one long-running collector run
 blocks the next scheduled start until the active run finishes. Set
@@ -729,14 +733,16 @@ C</ajax/name.json?type=text>. Skill pages use the same helper contract. Without
 extra skill route metadata the generated saved endpoint is namespaced under the
 longest matching skill route, for example
 C</ajax/example-skill/name.json?type=text> or
-C</ajax/example-skill/sub-skill/name.json?type=text>. Skills can also ship
-C<config/routes.json> to declare canonical custom paths for skill-local app
-pages, Ajax handlers, JavaScript assets, CSS assets, and other public assets.
-The schema is a JSON object whose keys are the public custom paths and whose
-values are either one smart local route string or an object with C<to> plus an
-optional C<type>, for example
+C</ajax/example-skill/sub-skill/name.json?type=text>. The runtime config tree
+and installed skills can both ship C<config/routes.json> to declare canonical
+custom paths for normal saved app pages, skill-local app pages, Ajax handlers,
+JavaScript assets, CSS assets, and other public assets. The schema is a JSON
+object whose keys are the public custom paths and whose values are either one
+smart local route string or an object with C<to> plus an optional C<type>, for
+example
 
   {
+     "/java" : "/app/learn.ai",
      "/v1/status" : {
         "to" : "/ajax/status",
         "type" : "json"
@@ -748,17 +754,22 @@ optional C<type>, for example
   }
 
 When that file is present, skill pages emit the declared canonical
-C<ajax> path such as C</v1/status> instead of the default C</ajax/...> url.
-The same manifest also makes the declared custom C</app>, C</js>, C</css>, and
-C</others> paths requestable. The smart longest-prefix routes remain the parent
-resolvers:
+C<ajax> path such as C</v1/status> instead of the default C</ajax/...> url,
+and runtime-level aliases such as C</java> can point at normal saved bookmark
+ids such as C</app/learn.ai> without treating the dot as skill notation. The
+same manifest also makes the declared custom C</app>, C</js>, C</css>, and
+C</others> paths requestable. The smart longest-prefix routes remain the
+parent resolvers:
 C</app/example-skill/...>, C</ajax/example-skill/...>,
 C</js/example-skill/...>, C</css/example-skill/...>, and
 C</others/example-skill/...> are always checked first, and any declared custom
-path is checked only after the normal smart route misses. If neither the smart
-route nor the custom path resolves, the request falls through to the normal
-C<404> response. Ajax custom routes default to C<json> when no explicit
-C<type> is present, and the optional C<type> value can also be C<html>,
+path is checked only after the normal smart route misses. Runtime-level custom
+paths from the active C<config/routes.json> layer chain follow the same
+fallback rule against the built-in C</app>, C</ajax>, C</js>, C</css>, and
+C</others> route handlers. If neither the smart route nor the custom path
+resolves, the request falls through to the normal C<404> response. Ajax custom
+routes default to C<json> when no explicit C<type> is present, and the
+optional C<type> value can also be C<html>,
 C<text>, or an arbitrary raw mime type such as
 C<application/vnd.example+json>. Those saved Ajax handlers run the stored file
 as a real process, defaulting to Perl unless the file starts with a shebang,
@@ -2947,6 +2958,14 @@ C<config/routes.json> metadata can also publish canonical custom ajax
 paths such as C</v1/status>, but the smart
 C</ajax/E<lt>repo-nameE<gt>/...> resolver stays the parent route and custom
 paths are fallback-only after smart route lookup misses
+
+=item *
+
+runtime-level C<config/routes.json> aliases can also point at normal saved
+bookmark ids such as C</app/learn.ai> plus the built-in C</ajax/...>,
+C</js/...>, C</css/...>, and C</others/...> route families, so one dashboard
+runtime can expose shorter stable public paths like C</java> without changing
+the underlying saved filename
 
 =item *
 

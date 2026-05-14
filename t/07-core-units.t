@@ -2202,6 +2202,26 @@ is( $fresh_page_item->{alias}, 'NEW', 'page header status prefers the configured
         qr/🚨Z 🚨A 🚨M/,
         'prompt output keeps managed collector indicators in the configured collector array order',
     );
+    my $ordered_collectors = Developer::Dashboard::Collector->new( paths => $ordered_paths );
+    my $ordered_runner = Developer::Dashboard::CollectorRunner->new(
+        collectors => $ordered_collectors,
+        files      => Developer::Dashboard::FileRegistry->new( paths => $ordered_paths ),
+        indicators => $ordered_store,
+        paths      => $ordered_paths,
+    );
+    $ordered_runner->run_once(
+        {
+            name      => 'alpha.collector',
+            code      => 'print "ok\n"; return 0;',
+            cwd       => $ordered_home,
+            indicator => { icon => 'A' },
+        }
+    );
+    is_deeply(
+        [ map { $_->{name} } $ordered_store->list_indicators ],
+        [ 'zeta.collector', 'alpha.collector', 'mu.collector' ],
+        'collector status writes preserve the configured collector array order after live runs',
+    );
 }
 {
     my $race_home = tempdir(CLEANUP => 1);

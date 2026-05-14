@@ -51,6 +51,11 @@ use Developer::Dashboard::SkillDispatcher;
         my ($self) = @_;
         return @{ $self->{installed} || [] };
     }
+
+    sub config_layers {
+        my ($self) = @_;
+        return @{ $self->{config_layers} || [] };
+    }
 }
 
 {
@@ -78,6 +83,8 @@ my $leaf_skill = File::Spec->catdir( $root, 'leaf-skill' );
 my $solo_skill = File::Spec->catdir( $root, 'solo-skill' );
 my $alias_skill = File::Spec->catdir( $root, 'alias-skill' );
 my $nested_skill = File::Spec->catdir( $leaf_skill, 'skills', 'child' );
+my $runtime_home_config = File::Spec->catdir( $root, 'runtime-home', 'config' );
+my $runtime_leaf_config = File::Spec->catdir( $root, 'runtime-leaf', 'config' );
 
 for my $dir (
     File::Spec->catdir( $base_skill, 'dashboards', 'nav' ),
@@ -96,10 +103,42 @@ for my $dir (
     File::Spec->catdir( $solo_skill, 'config' ),
     File::Spec->catdir( $solo_skill, 'dashboards', 'nav' ),
     File::Spec->catdir( $alias_skill, 'config' ),
+    $runtime_home_config,
+    $runtime_leaf_config,
 )
 {
     make_path($dir);
 }
+
+_write_file(
+    File::Spec->catfile( $runtime_home_config, 'routes.json' ),
+    <<'EOF'
+{
+   "app" : {
+      "learn.ai" : {
+         "path" : "/java-home",
+         "aliases" : ["/java-alias"]
+      }
+   }
+}
+EOF
+);
+
+_write_file(
+    File::Spec->catfile( $runtime_leaf_config, 'routes.json' ),
+    <<'EOF'
+{
+   "/java" : "/app/learn.ai",
+   "/runtime/status" : {
+      "to" : "/ajax/runtime/status",
+      "type" : "text"
+   },
+   "/runtime/main.js" : "/js/site/main.js",
+   "/runtime/main.css" : "/css/site/main.css",
+   "/runtime/page.txt" : "/others/docs/page.txt"
+}
+EOF
+);
 
 _write_file(
     File::Spec->catfile( $base_skill, 'dashboards', 'index' ),
@@ -247,6 +286,7 @@ EOF
 
 my $paths = Local::SkillPaths->new(
     home      => $root,
+    config_layers => [ $runtime_home_config, $runtime_leaf_config ],
     layers    => {
         layered   => [ $base_skill, $leaf_skill ],
         alias     => [$alias_skill],
@@ -259,6 +299,90 @@ my $paths = Local::SkillPaths->new(
 );
 my $manager = Local::SkillManager->new( paths => $paths );
 my $dispatcher = Developer::Dashboard::SkillDispatcher->new( manager => $manager );
+
+is_deeply(
+    $dispatcher->resolve_custom_route_path('/java'),
+    {
+        aliases     => [],
+        kind        => 'app',
+        path        => '/java',
+        route_id    => 'learn.ai',
+        source_file => File::Spec->catfile( $runtime_leaf_config, 'routes.json' ),
+        target      => 'learn.ai',
+        type        => undef,
+    },
+    'resolve_custom_route_path also resolves runtime config app aliases for saved bookmark ids that include dots',
+);
+
+is_deeply(
+    $dispatcher->resolve_custom_route_path('/java-alias'),
+    {
+        aliases     => ['/java-alias'],
+        kind        => 'app',
+        path        => '/java-home',
+        route_id    => 'learn.ai',
+        source_file => File::Spec->catfile( $runtime_home_config, 'routes.json' ),
+        target      => 'learn.ai',
+        type        => undef,
+    },
+    'resolve_custom_route_path also matches runtime app aliases declared through the typed schema',
+);
+
+is_deeply(
+    $dispatcher->resolve_custom_route_path('/runtime/status'),
+    {
+        ajax_file   => 'runtime/status',
+        aliases     => [],
+        kind        => 'ajax',
+        path        => '/runtime/status',
+        source_file => File::Spec->catfile( $runtime_leaf_config, 'routes.json' ),
+        target      => 'runtime/status',
+        type        => 'text',
+    },
+    'resolve_custom_route_path also resolves runtime config ajax aliases',
+);
+
+is_deeply(
+    $dispatcher->resolve_custom_route_path('/runtime/main.js'),
+    {
+        aliases     => [],
+        file        => 'site/main.js',
+        kind        => 'js',
+        path        => '/runtime/main.js',
+        source_file => File::Spec->catfile( $runtime_leaf_config, 'routes.json' ),
+        target      => 'site/main.js',
+        type        => undef,
+    },
+    'resolve_custom_route_path also resolves runtime config js aliases',
+);
+
+is_deeply(
+    $dispatcher->resolve_custom_route_path('/runtime/main.css'),
+    {
+        aliases     => [],
+        file        => 'site/main.css',
+        kind        => 'css',
+        path        => '/runtime/main.css',
+        source_file => File::Spec->catfile( $runtime_leaf_config, 'routes.json' ),
+        target      => 'site/main.css',
+        type        => undef,
+    },
+    'resolve_custom_route_path also resolves runtime config css aliases',
+);
+
+is_deeply(
+    $dispatcher->resolve_custom_route_path('/runtime/page.txt'),
+    {
+        aliases     => [],
+        file        => 'docs/page.txt',
+        kind        => 'others',
+        path        => '/runtime/page.txt',
+        source_file => File::Spec->catfile( $runtime_leaf_config, 'routes.json' ),
+        target      => 'docs/page.txt',
+        type        => undef,
+    },
+    'resolve_custom_route_path also resolves runtime config other-file aliases',
+);
 
 is_deeply(
     [ $dispatcher->_skill_layers('layered') ],

@@ -1,4 +1,36 @@
 # Fixed Bugs
+## 3.71 - Preserve collector indicator order and runtime custom-route aliases
+
+- Root cause:
+  collector config sync correctly seeded `collector_order` from the
+  `collectors` array in `config/config.json`, but a later live
+  `CollectorRunner->run_once()` update rebuilt that indicator payload without
+  passing the existing indicator record back into
+  `collector_indicator_candidate()`. That dropped the persisted
+  `collector_order` field after one collector refreshed itself, so the status
+  board, page-header indicators, and `dashboard ps1` could drift back to
+  alphabetical ordering even though the configured collector order was still
+  correct.
+  The custom route loader also only read installed skill `config/routes.json`
+  files. Runtime-level `config/routes.json` aliases for normal saved bookmarks
+  or built-in `/ajax`, `/js`, `/css`, and `/others` paths were never loaded,
+  so a route like `"/java": "/app/learn.ai"` always fell through to `404`
+  even when `dashboards/learn.ai` existed.
+
+- Fix:
+  live collector status writes now reload the existing indicator state and
+  pass it into `collector_indicator_candidate()` before persisting the updated
+  status. That keeps the managed collector metadata, including
+  `collector_order`, stable across live refreshes. Added a regression that
+  runs one collector after `sync_collectors()` and verifies the ordered
+  indicator list still matches the `collectors` array order. The route
+  dispatcher now also loads runtime-level `config/routes.json` files across
+  the active config-layer chain, so saved bookmark aliases like `/java ->
+  /app/learn.ai` resolve through the same flat route schema as skill custom
+  routes. Added regressions for runtime `/app`, `/ajax`, `/js`, `/css`, and
+  `/others` aliases, plus an integration check that `/java` renders the same
+  bookmark body as `/app/learn.ai`.
+
 ## 3.70 - Move skill route metadata to config/routes.json and widen custom route coverage
 
 - Root cause:
