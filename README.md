@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.74
+3.75
 
 # INTRODUCTION
 
@@ -609,13 +609,11 @@ If `code => ...` is omitted, `Ajax(file => 'name')` targets the
 existing executable at `dashboards/ajax/name` instead of rewriting it.
 Static files referenced by saved bookmarks are resolved from the effective
 runtime public tree first and then from the saved bookmark root. The web layer
-also provides a built-in `/js/jquery.js` compatibility shim, so bookmark pages
-that expect a local jQuery-style helper still have `$`, `$(document).ready`,
-`$.ajax`, jqXHR-style `.done(...)` / `.fail(...)` / `.always(...)`
-chaining, the `method` alias used by modern callers, and selector
-`.text(...)` support even when no runtime file has been copied into
-`dashboard/public/js` yet. Skills can ship the same classes of assets under
-their own dashboard tree: `dashboards/ajax/*` resolves at
+also provides a built-in bundled `/js/jquery.js` asset that serves the local
+copy of jQuery 4.0.0, with `/js/jquery-4.0.0.min.js` kept as a compatibility
+alias for the same shipped payload even when no runtime file has been copied
+into `dashboard/public/js` yet. Skills can ship the same classes of assets
+under their own dashboard tree: `dashboards/ajax/*` resolves at
 `/ajax/<repo-name>/...` or
 `/ajax/<repo-name>/<sub-skill>/...`, and
 `dashboards/public/js/*`, `dashboards/public/css/*`, and
@@ -1407,6 +1405,11 @@ highlight layer inside a clipped overlay viewport that follows the real
 textarea scroll position by transform instead of via a second scrollbox.
 That restores the visible highlighting while keeping long bookmark lines,
 full-text selection, and caret placement aligned with the real textarea.
+When you type `:---` on its own line, the editor also expands it to the full
+separator line automatically and seeds the next sensible unique directive,
+moving from `TITLE:` to `HTML:` and then on to the next available
+`CODE<N>:` section so the common bookmark-writing flow stays fast and
+brainless.
 
 Edit and source views preserve raw Template Toolkit placeholders inside
 `HTML:` sections, so values such as `[% title %]` are kept in the bookmark

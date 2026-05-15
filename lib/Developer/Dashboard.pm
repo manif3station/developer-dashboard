@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.74';
+our $VERSION = '3.75';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.74
+3.75
 
 =head1 INTRODUCTION
 
@@ -799,13 +799,11 @@ If C<code =E<gt> ...> is omitted, C<Ajax(file =E<gt> 'name')> targets the
 existing executable at C<dashboards/ajax/name> instead of rewriting it.
 Static files referenced by saved bookmarks are resolved from the effective
 runtime public tree first and then from the saved bookmark root. The web layer
-also provides a built-in C</js/jquery.js> compatibility shim, so bookmark pages
-that expect a local jQuery-style helper still have C<$>, C<$(document).ready>,
-C<$.ajax>, jqXHR-style C<.done(...)> / C<.fail(...)> / C<.always(...)>
-chaining, the C<method> alias used by modern callers, and selector
-C<.text(...)> support even when no runtime file has been copied into
-C<dashboard/public/js> yet. Skills can ship the same classes of assets under
-their own dashboard tree: C<dashboards/ajax/*> resolves at
+also provides a built-in bundled C</js/jquery.js> asset that serves the local
+copy of jQuery 4.0.0, with C</js/jquery-4.0.0.min.js> kept as a compatibility
+alias for the same shipped payload even when no runtime file has been copied
+into C<dashboard/public/js> yet. Skills can ship the same classes of assets
+under their own dashboard tree: C<dashboards/ajax/*> resolves at
 C</ajax/E<lt>repo-nameE<gt>/...> or
 C</ajax/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/...>, and
 C<dashboards/public/js/*>, C<dashboards/public/css/*>, and
@@ -1675,6 +1673,11 @@ highlight layer inside a clipped overlay viewport that follows the real
 textarea scroll position by transform instead of via a second scrollbox.
 That restores the visible highlighting while keeping long bookmark lines,
 full-text selection, and caret placement aligned with the real textarea.
+When you type C<:---> on its own line, the editor also expands it to the full
+separator line automatically and seeds the next sensible unique directive,
+moving from C<TITLE:> to C<HTML:> and then on to the next available
+C<CODEE<lt>NE<gt>:> section so the common bookmark-writing flow stays fast and
+brainless.
 
 Edit and source views preserve raw Template Toolkit placeholders inside
 C<HTML:> sections, so values such as C<[% title %]> are kept in the bookmark

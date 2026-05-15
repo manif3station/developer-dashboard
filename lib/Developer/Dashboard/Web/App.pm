@@ -3,9 +3,11 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '3.74';
+our $VERSION = '3.75';
 
 use Capture::Tiny qw(capture);
+use File::Basename qw(dirname);
+use File::ShareDir qw(dist_dir);
 use POSIX qw(strftime);
 use File::Spec;
 use Scalar::Util qw(blessed);
@@ -19,6 +21,8 @@ use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageRuntime;
 use Developer::Dashboard::Codec qw(decode_payload);
 use Developer::Dashboard::Zipper ();
+
+our $MODULE_SOURCE_PATH = File::Spec->rel2abs(__FILE__);
 
 # new(%args)
 # Constructs the browser-facing dashboard web application.
@@ -499,187 +503,73 @@ sub status_response {
 }
 
 # marked_js_response(%args)
-# Serves the built-in marked shim asset.
+# Serves the bundled jQuery asset used by saved bookmark pages.
 # Input: normalized request arguments.
 # Output: response array reference.
 sub jquery_js_response {
     my ( $self, %args ) = @_;
-    return [ 200, 'application/javascript; charset=utf-8', <<'JS' ];
-(function () {
-  function asArray(list) {
-    return Array.prototype.slice.call(list || []);
-  }
+    my $path = _bundled_public_asset_path( 'js', 'jquery-4.0.0.min.js' );
+    open my $fh, '<:raw', $path or die "Unable to read $path: $!";
+    local $/;
+    my $content = <$fh>;
+    close $fh or die "Unable to close $path: $!";
+    return [ 200, 'application/javascript; charset=utf-8', $content ];
+}
 
-  function onReady(fn) {
-    if (typeof fn !== 'function') return;
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', function () { fn(window.jQuery); }, { once: true });
-      return;
-    }
-    fn(window.jQuery);
-  }
+# _bundled_public_asset_path($type, $file)
+# Resolves one bundled public asset from the repo share tree during
+# development or from the installed distribution share dir after install.
+# Input: asset type directory plus file name.
+# Output: absolute asset path string.
+sub _bundled_public_asset_path {
+    my ( $type, $file ) = @_;
+    die 'asset type is required' if !defined $type || $type eq '';
+    die 'asset file is required' if !defined $file || $file eq '';
 
-  function wrap(nodes) {
-    var api = {
-      nodes: nodes || [],
-      length: (nodes || []).length,
-      ready: function (fn) {
-        if (this.nodes[0] === document) onReady(fn);
-        return this;
-      },
-      text: function (value) {
-        if (arguments.length === 0) {
-          return this.nodes[0] ? this.nodes[0].textContent : '';
-        }
-        this.nodes.forEach(function (node) {
-          node.textContent = value == null ? '' : String(value);
-        });
-        return this;
-      }
-    };
-    return api;
-  }
+    my $module_source = $MODULE_SOURCE_PATH || File::Spec->rel2abs(__FILE__);
+    my $module_dir    = dirname($module_source);
+    my @candidates;
 
-  function $(arg) {
-    if (typeof arg === 'function') {
-      onReady(arg);
-      return wrap([document]);
-    }
-    if (arg === document) {
-      return wrap([document]);
-    }
-    if (typeof arg === 'string') {
-      return wrap(asArray(document.querySelectorAll(arg)));
-    }
-    if (arg && arg.nodeType) {
-      return wrap([arg]);
-    }
-    return wrap([]);
-  }
-
-  $.ajax = function (options) {
-    var opts = options || {};
-    var xhr = new XMLHttpRequest();
-    var method = opts.method || opts.type || 'GET';
-    var successArgs = null;
-    var failureArgs = null;
-    var alwaysArgs = null;
-    var finished = false;
-
-    function remember(callback, args, store) {
-      if (typeof callback !== 'function') return xhr;
-      if (args) {
-        callback.apply(xhr, args);
-        return xhr;
-      }
-      store.push(callback);
-      return xhr;
+    for my $levels_up ( 4 .. 7 ) {
+        push @candidates, File::Spec->catfile(
+            File::Spec->rel2abs(
+                File::Spec->catdir(
+                    $module_dir,
+                    ( File::Spec->updir ) x $levels_up,
+                    'share',
+                    'public',
+                    $type,
+                )
+            ),
+            $file,
+        );
     }
 
-    function runCallbacks(callbacks, args) {
-      callbacks.forEach(function (callback) {
-        callback.apply(xhr, args);
-      });
+    my $dist_root = eval { dist_dir('Developer-Dashboard') };
+    if ( defined $dist_root && $dist_root ne '' ) {
+        push @candidates, File::Spec->catfile( $dist_root, 'public', $type, $file );
     }
 
-    function finishSuccess(payload) {
-      if (finished) return;
-      finished = true;
-      successArgs = [payload, 'success', xhr];
-      alwaysArgs = [xhr, 'success'];
-      if (typeof opts.success === 'function') {
-        opts.success(payload, 'success', xhr);
-      }
-      if (typeof opts.complete === 'function') {
-        opts.complete(xhr, 'success');
-      }
-      runCallbacks(xhr._done_callbacks, successArgs);
-      runCallbacks(xhr._always_callbacks, alwaysArgs);
+    my $module_path = $INC{'Developer/Dashboard/Web/App.pm'} || __FILE__;
+    my $module_root = File::Spec->rel2abs(
+        File::Spec->catdir(
+            dirname($module_path),
+            File::Spec->updir,
+            File::Spec->updir,
+            File::Spec->updir,
+            File::Spec->updir,
+        )
+    );
+    push @candidates, File::Spec->catfile( $module_root, 'auto', 'share', 'dist', 'Developer-Dashboard', 'public', $type, $file );
+    push @candidates, File::Spec->catfile( $module_root, 'auto', 'Developer', 'Dashboard', 'public', $type, $file );
+
+    my %seen;
+    for my $candidate (@candidates) {
+        next if !defined $candidate || $candidate eq '' || $seen{$candidate}++;
+        return $candidate if -f $candidate;
     }
 
-    function finishFailure(status, error) {
-      if (finished) return;
-      finished = true;
-      failureArgs = [xhr, status, error];
-      alwaysArgs = [xhr, status];
-      if (typeof opts.error === 'function') {
-        opts.error(xhr, status, error);
-      }
-      if (typeof opts.complete === 'function') {
-        opts.complete(xhr, status);
-      }
-      runCallbacks(xhr._fail_callbacks, failureArgs);
-      runCallbacks(xhr._always_callbacks, alwaysArgs);
-    }
-
-    xhr._done_callbacks = [];
-    xhr._fail_callbacks = [];
-    xhr._always_callbacks = [];
-    xhr.done = function (callback) {
-      return remember(callback, successArgs, xhr._done_callbacks);
-    };
-    xhr.fail = function (callback) {
-      return remember(callback, failureArgs, xhr._fail_callbacks);
-    };
-    xhr.always = function (callback) {
-      return remember(callback, alwaysArgs, xhr._always_callbacks);
-    };
-    xhr.then = function (onDone, onFail) {
-      xhr.done(onDone);
-      xhr.fail(onFail);
-      return xhr;
-    };
-    xhr.open(method, opts.url || '', true);
-
-    if (opts.headers && typeof opts.headers === 'object') {
-      Object.keys(opts.headers).forEach(function (key) {
-        xhr.setRequestHeader(key, opts.headers[key]);
-      });
-    }
-
-    xhr.onreadystatechange = function () {
-      var payload;
-      if (xhr.readyState !== 4) return;
-      if (xhr.status >= 200 && xhr.status < 300) {
-        payload = xhr.responseText;
-        if (opts.dataType === 'json') {
-          try {
-            payload = payload === '' ? null : JSON.parse(payload);
-          } catch (error) {
-            finishFailure('parsererror', error);
-            return;
-          }
-        }
-        finishSuccess(payload);
-        return;
-      }
-      finishFailure('error', xhr.statusText || 'error');
-    };
-
-    xhr.onerror = function () {
-      finishFailure('error', xhr.statusText || 'error');
-    };
-
-    xhr.onabort = function () {
-      finishFailure('abort', xhr.statusText || 'abort');
-    };
-
-    if (opts.data && typeof opts.data === 'object' && !(opts.data instanceof FormData)) {
-      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
-      xhr.send(new URLSearchParams(opts.data).toString());
-      return xhr;
-    }
-
-    xhr.send(opts.data == null ? null : opts.data);
-    return xhr;
-  };
-
-  $.ready = onReady;
-  $.fn = {};
-  window.jQuery = $;
-  window.$ = $;
-})();
-JS
+    die "Unable to find bundled public asset $type/$file";
 }
 
 # marked_js_response(%args)
@@ -1316,6 +1206,65 @@ function ddOverlayHtml(text) {
   if (source.endsWith('\n')) html += ' ';
   return html;
 }
+function ddDirectiveName(line) {
+  const match = String(line).match(/^([A-Za-z][A-Za-z0-9.]*)\s*:/);
+  return match ? match[1].toUpperCase() : '';
+}
+function ddHighestCodeDirective(text) {
+  let highest = 0;
+  String(text).split('\n').forEach(function(line) {
+    const match = String(line).match(/^(CODE)(\d+)\s*:/i);
+    if (!match) return;
+    const number = parseInt(match[2], 10);
+    if (number > highest) highest = number;
+  });
+  return highest;
+}
+function ddNextDirectiveForContext(textBefore, fullText) {
+  const directives = {};
+  String(fullText).split('\n').forEach(function(line) {
+    const name = ddDirectiveName(line);
+    if (name) directives[name] = 1;
+  });
+  const priorLines = String(textBefore).split('\n');
+  let priorDirective = '';
+  for (let index = priorLines.length - 1; index >= 0; index -= 1) {
+    const name = ddDirectiveName(priorLines[index]);
+    if (!name) continue;
+    priorDirective = name;
+    break;
+  }
+  if (priorDirective === 'TITLE') {
+    return directives.HTML ? '' : 'HTML: ';
+  }
+  if (priorDirective === 'HTML' || /^CODE\d+$/.test(priorDirective)) {
+    return 'CODE' + (ddHighestCodeDirective(fullText) + 1) + ': ';
+  }
+  return '';
+}
+function ddApplyDirectiveAssist() {
+  if (ddEditor.selectionStart !== ddEditor.selectionEnd) return false;
+  const caret = ddEditor.selectionStart;
+  const value = ddEditor.value;
+  const lineStart = value.lastIndexOf('\n', Math.max(caret - 1, 0) - 1) + 1;
+  const lineEndAt = value.indexOf('\n', caret);
+  const lineEnd = lineEndAt >= 0 ? lineEndAt : value.length;
+  const line = value.slice(lineStart, lineEnd);
+  if (line !== ':---' || caret !== lineEnd) return false;
+
+  const textBefore = value.slice(0, lineStart);
+  const textAfter = value.slice(lineEnd);
+  const nextDirective = ddNextDirectiveForContext(textBefore, value);
+  let replacement = ':--------------------------------------------------------------------------------:';
+  let nextCaret = lineStart + replacement.length;
+  if (nextDirective) {
+    replacement += '\n' + nextDirective;
+    nextCaret += 1 + nextDirective.length;
+  }
+  ddEditor.value = textBefore + replacement + textAfter;
+  ddEditor.setSelectionRange(nextCaret, nextCaret);
+  return true;
+}
 function ddSyncEditorOverlay() {
   ddHighlight.style.minWidth = Math.max(ddEditor.scrollWidth, ddEditor.clientWidth) + 'px';
   ddHighlight.style.minHeight = Math.max(ddEditor.scrollHeight, ddEditor.clientHeight) + 'px';
@@ -1326,6 +1275,7 @@ function ddRenderEditor(text) {
   ddSyncEditorOverlay();
 }
 ddEditor.addEventListener('input', function() {
+  ddApplyDirectiveAssist();
   ddRenderEditor(ddEditor.value);
 });
 ddEditor.addEventListener('scroll', function() {

@@ -72,7 +72,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '3.74', 'repo version bumped for the JavaScript command dispatch fix' );
+is( $version, '3.75', 'repo version bumped for the JavaScript command dispatch fix' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
 like( $readme, qr/\A(?:<!--.*?-->\n\n)?#\s+/s, 'README.md begins with Markdown headings' ) if $readme ne '';
@@ -200,6 +200,7 @@ for my $module (
 for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket workspace path paths ps1 encode decode indicator collector config auth init cpan page action docker serve stop restart shell doctor housekeeper skills which)) {
     ok( -f _repo_path( 'share', 'private-cli', $helper ), "share/private-cli/$helper is shipped as a private helper asset" );
 }
+ok( -f _repo_path( 'share', 'public', 'js', 'jquery-4.0.0.min.js' ), 'share/public/js/jquery-4.0.0.min.js is shipped as a bundled public asset' );
 ok( -f _repo_path('install.sh'), 'repo-root install.sh is tracked for bootstrap installs' );
 ok( -f _repo_path('install.ps1'), 'repo-root install.ps1 is tracked for Windows bootstrap installs' );
 ok( -f _repo_path('aptfile'), 'repo-root aptfile is tracked for bootstrap installs' );
@@ -212,6 +213,7 @@ my @required_tarball_paths = (
     "Developer-Dashboard-$version/aptfile",
     "Developer-Dashboard-$version/apkfile",
     "Developer-Dashboard-$version/brewfile",
+    "Developer-Dashboard-$version/share/public/js/jquery-4.0.0.min.js",
     "Developer-Dashboard-$version/doc/integration-test-plan.md",
     "Developer-Dashboard-$version/doc/install-bootstrap.md",
     "Developer-Dashboard-$version/doc/testing.md",

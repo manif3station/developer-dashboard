@@ -293,7 +293,7 @@ my $pid;
     my $dist_root = File::Spec->catdir( $home, 'dist-share' );
     my $shipped = File::Spec->catfile( $dist_root, 'private-cli', '_dashboard-core' );
     no warnings 'redefine';
-    local *Developer::Dashboard::RuntimeManager::dist_dir = sub { return $dist_root };
+    local *Developer::Dashboard::InternalCLI::_helper_asset_path = sub { return $shipped };
     local *Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command = sub {
         my ( undef, $path, $command ) = @_;
         return 0 if $command ne 'web-foreground';
@@ -311,7 +311,9 @@ my $pid;
     my $staged = File::Spec->catfile( $paths->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
     my $dist_root = File::Spec->catdir( $home, 'dist-share' );
     no warnings 'redefine';
-    local *Developer::Dashboard::RuntimeManager::dist_dir = sub { return $dist_root };
+    local *Developer::Dashboard::InternalCLI::_helper_asset_path = sub {
+        return File::Spec->catfile( $dist_root, 'private-cli', '_dashboard-core' );
+    };
     local *Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command = sub {
         my ( undef, $path, $command ) = @_;
         return 0 if $command ne 'web-foreground';
@@ -329,12 +331,28 @@ my $pid;
     my $staged = File::Spec->catfile( $paths->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
     my $dist_root = File::Spec->catdir( $home, 'dist-share' );
     no warnings 'redefine';
-    local *Developer::Dashboard::RuntimeManager::dist_dir = sub { return $dist_root };
+    local *Developer::Dashboard::InternalCLI::_helper_asset_path = sub {
+        return File::Spec->catfile( $dist_root, 'private-cli', '_dashboard-core' );
+    };
     local *Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command = sub { return 0 };
     is(
         $manager->_dashboard_core_helper_path,
         $staged,
         '_dashboard_core_helper_path falls back to the staged helper path when neither staged nor shipped helpers advertise the requested internal command',
+    );
+}
+
+{
+    my $staged = File::Spec->catfile( $paths->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
+    no warnings 'redefine';
+    local *Developer::Dashboard::InternalCLI::_helper_asset_path = sub {
+        die "Failed to find share dir for dist 'Developer-Dashboard'";
+    };
+    local *Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command = sub { return 0 };
+    is(
+        $manager->_dashboard_core_helper_path,
+        $staged,
+        '_dashboard_core_helper_path survives missing dist share directories and falls back to the staged helper path',
     );
 }
 

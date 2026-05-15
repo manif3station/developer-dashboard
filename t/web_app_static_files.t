@@ -147,13 +147,13 @@ sub create_mock_app {
     my $store = Developer::Dashboard::PageStore->new(paths => $paths);
     my $app = create_mock_app( pages => $store );
     my $response = $app->jquery_js_response();
-    is($response->[0], 200, 'built-in jquery shim returns 200');
-    is($response->[1], 'application/javascript; charset=utf-8', 'built-in jquery shim returns javascript content type');
-    like($response->[2], qr/window\.jQuery = \$;/, 'built-in jquery shim exposes window.jQuery');
-    like($response->[2], qr/\$\.ajax = function/, 'built-in jquery shim exposes ajax support');
+    is($response->[0], 200, 'built-in jquery asset returns 200');
+    is($response->[1], 'application/javascript; charset=utf-8', 'built-in jquery asset returns javascript content type');
+    like($response->[2], qr/jQuery v4\.0\.0/, 'built-in jquery asset serves the bundled jQuery 4 payload');
+    like($response->[2], qr/e\.jQuery=e\.\$=T/, 'built-in jquery asset exposes jQuery on the window object');
 }
 
-# Test: static_file_response routes the jquery compatibility alias through the built-in shim
+# Test: static_file_response routes the jquery compatibility alias through the bundled asset
 {
     local $ENV{HOME} = tempdir(CLEANUP => 1);
     my $paths = Developer::Dashboard::PathRegistry->new(home => $ENV{HOME});
@@ -162,7 +162,15 @@ sub create_mock_app {
     my $response = $app->static_file_response( type => 'js', file => 'jquery-4.0.0.min.js' );
     is($response->[0], 200, 'jquery compatibility alias returns 200');
     like($response->[1], qr/application\/javascript/, 'jquery compatibility alias returns javascript content');
-    like($response->[2], qr/window\.jQuery = \$;/, 'jquery compatibility alias reuses the built-in jquery shim');
+    like($response->[2], qr/jQuery v4\.0\.0/, 'jquery compatibility alias reuses the bundled jQuery 4 asset');
+}
+
+# Test: _bundled_public_asset_path fails explicitly when no shipped asset exists
+{
+    my $error = eval { Developer::Dashboard::Web::App::_bundled_public_asset_path( 'js', 'definitely-missing-bundled-asset.js' ); 1 }
+      ? ''
+      : $@;
+    like( $error, qr/Unable to find bundled public asset js\/definitely-missing-bundled-asset\.js/, '_bundled_public_asset_path dies clearly for missing bundled assets' );
 }
 
 

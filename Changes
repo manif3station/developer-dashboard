@@ -1,3 +1,17 @@
+3.75  2026-05-15
+    - fixed Windows background web helper lookup so source-tree and CI test
+      runs no longer die when `RuntimeManager` asks `File::ShareDir` for an
+      installed dist share that does not exist yet; helper fallback now reuses
+      the same guarded helper-asset resolver used elsewhere in the runtime
+    - replaced the built-in `/js/jquery.js` shim with a bundled local copy of
+      jQuery 4.0.0, while keeping `/js/jquery-4.0.0.min.js` as a compatibility
+      alias for the same shipped asset
+    - taught the browser bookmark editor to expand `:---` into the full
+      separator line and insert the next sensible unique directive so common
+      `TITLE -> HTML -> CODE<N>` authoring flows are smoother
+    - added release and route coverage for the bundled jQuery asset and the
+      missing-dist-share helper fallback path
+
 3.74  2026-05-15
     - added direct `python` dispatch for executable `cli/*.py` commands and
       hook files so Python-backed skills now run through the same logical

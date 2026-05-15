@@ -3,16 +3,16 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.74';
+our $VERSION = '3.75';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
-use File::ShareDir qw(dist_dir);
 use IO::Socket::INET;
 use POSIX qw(setsid strftime);
 use Time::HiRes qw(sleep time);
 
 use Developer::Dashboard::Collector;
+use Developer::Dashboard::InternalCLI ();
 use Developer::Dashboard::JSON qw(json_encode json_decode);
 use Developer::Dashboard::Platform qw(command_in_path is_windows);
 
@@ -2116,7 +2116,8 @@ sub _dashboard_core_helper_path {
     my $staged = File::Spec->catfile( $self->{paths}->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
     return $staged if $self->_helper_file_supports_internal_command( $staged, $command );
 
-    my $shipped = File::Spec->catfile( dist_dir('Developer-Dashboard'), 'private-cli', '_dashboard-core' );
+    my $shipped = eval { Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core') };
+    $shipped = '' if !defined $shipped;
     return $shipped if $self->_helper_file_supports_internal_command( $shipped, $command );
 
     return $staged;

@@ -118,6 +118,11 @@ like($body1, qr/<textarea[^>]*name="instruction"/, 'root route renders editable 
 unlike($body1, qr/Saved pages live under/, 'root route no longer renders landing list');
 unlike($body1, qr/>Update</, 'root route does not render manual update button');
 like($body1, qr/addEventListener\('change', function\(\) \{\s*ddForm\.submit\(\);/s, 'root route auto-submits textarea changes on blur');
+like($body1, qr/function ddApplyDirectiveAssist\(\)/, 'root route editor script includes directive assist helper');
+like($body1, qr/if \(priorDirective === 'TITLE'\) \{\s*return directives\.HTML \? '' : 'HTML: ';/s, 'directive assist offers HTML after TITLE only when HTML is still missing');
+like($body1, qr/if \(priorDirective === 'HTML' \|\| \/\^CODE\\d\+\$\/\.test\(priorDirective\)\) \{\s*return 'CODE' \+ \(ddHighestCodeDirective\(fullText\) \+ 1\) \+ ': ';/s, 'directive assist advances CODE directives from HTML and CODE sections');
+like($body1, qr/if \(line !== ':---' \|\| caret !== lineEnd\) return false;/s, 'directive assist only expands fresh :--- separator markers at line end');
+like($body1, qr/ddEditor\.addEventListener\('input', function\(\) \{\s*ddApplyDirectiveAssist\(\);\s*ddRenderEditor\(ddEditor\.value\);/s, 'directive assist runs before overlay refresh on editor input');
 
 my $root_index = Developer::Dashboard::PageDocument->new(
     id     => 'index',
@@ -699,11 +704,9 @@ like($existing_stream, qr/existing-err/, 'existing ajax executable streams stder
 my ($jquery_code, $jquery_type, $jquery_body) = @{ $app->handle(path => '/js/jquery.js', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($jquery_code, 200, 'built-in jquery bookmark helper route is available');
 like($jquery_type, qr/application\/javascript/, 'built-in jquery bookmark helper route returns javascript');
-like($jquery_body, qr/window\.jQuery = \$;/, 'built-in jquery bookmark helper exposes window.jQuery');
-like($jquery_body, qr/var method = opts\.method \|\| opts\.type \|\| 'GET';/, 'built-in jquery bookmark helper honors the jQuery method alias used by saved dashboard pages');
-like($jquery_body, qr/xhr\.done = function \(callback\)/, 'built-in jquery bookmark helper exposes jqXHR-style done chaining');
-like($jquery_body, qr/xhr\.fail = function \(callback\)/, 'built-in jquery bookmark helper exposes jqXHR-style fail chaining');
-like($jquery_body, qr/xhr\.always = function \(callback\)/, 'built-in jquery bookmark helper exposes jqXHR-style always chaining');
+like($jquery_body, qr/jQuery v4\.0\.0/, 'built-in jquery bookmark helper route ships the bundled jQuery 4 asset');
+like($jquery_body, qr/define\("jquery"/, 'built-in jquery bookmark helper keeps the packaged jQuery module wrapper');
+like($jquery_body, qr/e\.jQuery=e\.\$=T/, 'built-in jquery bookmark helper exposes jQuery on the window object');
 
 my $legacy_jquery_ajax_page = Developer::Dashboard::PageDocument->from_instruction(<<'PAGE');
 BOOKMARK: test-jquery-ajax

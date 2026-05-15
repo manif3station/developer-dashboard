@@ -1,4 +1,28 @@
 # Fixed Bugs
+## 3.75 - Fix source-tree helper lookup in RuntimeManager and bundle jQuery 4
+
+- Root cause:
+  the Windows background web-launch helper path in `RuntimeManager` called
+  `dist_dir('Developer-Dashboard')` directly. That works in installed
+  distributions, but a source-tree CI run has no installed dist share yet, so
+  `t/09-runtime-manager.t` could die early with `Failed to find share dir for
+  dist 'Developer-Dashboard'`. Separately, `/js/jquery.js` still served an
+  older handwritten compatibility shim instead of the real bundled jQuery 4
+  asset the route name now implies.
+
+- Fix:
+  switched `RuntimeManager` onto the existing guarded helper-asset resolver so
+  missing installed dist shares no longer abort source-tree tests and the
+  staged helper path still wins when appropriate. Added regression coverage
+  for the exact missing-dist-share failure case. Replaced the built-in
+  `/js/jquery.js` response with a bundled local copy of `jquery-4.0.0.min.js`,
+  kept `/js/jquery-4.0.0.min.js` as a compatibility alias for the same
+  shipped payload, and updated route, static-file, release-metadata, and
+  documentation checks to reflect the bundled asset. Also taught the browser
+  bookmark editor to expand a fresh `:---` line into the full separator and
+  seed the next sensible unique directive automatically, so common
+  `TITLE -> HTML -> CODE<N>` edits no longer require repetitive manual typing.
+
 ## 3.74 - Add Python skill command dispatch and requirements.txt installs
 
 - Root cause:
