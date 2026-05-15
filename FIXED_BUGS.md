@@ -1,4 +1,13 @@
 # Fixed Bugs
+## 3.76 - Fix blank-host bootstrap installer checkout configure prereqs
+
+- Fixed blank Ubuntu streamed installs such as
+  `curl .../install.sh | sh` so the installer now seeds
+  `File::ShareDir::Install` into `~/perl5` before it asks `cpanm --notest .`
+  to install the cloned checkout.
+- Fixed the matching Windows checkout bootstrap path so `install.ps1` also
+  stages `File::ShareDir::Install` before the local checkout install.
+
 ## 3.75 - Fix source-tree helper lookup in RuntimeManager and bundle jQuery 4
 
 - Root cause:

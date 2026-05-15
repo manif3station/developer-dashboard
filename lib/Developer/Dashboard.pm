@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.75';
+our $VERSION = '3.76';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.75
+3.76
 
 =head1 INTRODUCTION
 
@@ -1208,7 +1208,7 @@ the same run can immediately install the listed macOS packages without asking
 the operator to reopen the shell,
 bootstraps user-space Perl
 tooling under F<~/perl5> with
-C<cpanm --no-wget --notest --local-lib-contained "$HOME/perl5" local::lib App::cpanminus>,
+C<cpanm --no-wget --notest --local-lib-contained "$HOME/perl5" local::lib App::cpanminus File::ShareDir::Install>,
 appends exactly one C<local::lib> bootstrap line to F<~/.bashrc>,
 F<~/.zshrc>, or F<~/.profile> depending on the preferred login shell even
 when the installer is run through plain C<sh>, keeps bash login shells wired
@@ -1239,8 +1239,11 @@ non-interactive installs stay quiet, installs Developer Dashboard into the user
 account with C<cpanm --no-wget --notest .> when the installer is running from a
 checkout or extracted tarball, and uses that same C<cpanm --no-wget --notest .>
 flow against a temporary cloned checkout when the Unix-like bootstrap had to
-clone GitHub C<master> for a streamed install, and then runs C<dashboard init>
-so the runtime exists immediately after installation.
+clone GitHub C<master> for a streamed install. That bootstrap now seeds
+C<File::ShareDir::Install> into F<~/perl5> before the checkout install step so
+F<Makefile.PL> can refresh the shipped share tree even on a blank Ubuntu host,
+and then runs C<dashboard init> so the runtime exists immediately after
+installation.
 
 On Windows PowerShell hosts, F<install.ps1> uses C<winget> to install missing
 Git, Strawberry Perl, and Node.js LTS packages, pins those installs to the
@@ -1248,8 +1251,9 @@ community C<winget> source so a broken C<msstore> source does not block the
 bootstrap, resets and refreshes the source catalog once before retrying when a
 C<winget> source failure still occurs, downloads C<cpanm> from
 C<https://cpanmin.us/>, bootstraps C<local::lib> into the private
-F<~/perl5> tree with that standalone script, installs Developer Dashboard
-with C<cpanm --notest>, sets the CurrentUser PowerShell execution policy to
+F<~/perl5> tree with that standalone script together with
+C<File::ShareDir::Install>, installs Developer Dashboard with C<cpanm --notest>,
+sets the CurrentUser PowerShell execution policy to
 C<RemoteSigned> when it is still too restrictive to load profile scripts,
 updates the current-user PowerShell profile with a self-contained
 private F<~/perl5> PATH and Perl environment block plus

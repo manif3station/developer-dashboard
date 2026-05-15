@@ -918,7 +918,7 @@ bootstrap_local_lib() {
     resolve_perl
 
     mkdir -p "$INSTALL_ROOT"
-    run_cpanm --notest --local-lib-contained "$INSTALL_ROOT" local::lib App::cpanminus
+    run_cpanm --notest --local-lib-contained "$INSTALL_ROOT" local::lib App::cpanminus File::ShareDir::Install
 
     LOCAL_LIB_LINE=$(printf 'eval "$("%s" -I "%s/lib/perl5" -Mlocal::lib)"' "$PERL_BIN" "$INSTALL_ROOT")
     write_rc_line "$RC_FILE" "$LOCAL_LIB_LINE"

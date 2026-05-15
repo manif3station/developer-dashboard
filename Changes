@@ -1,3 +1,12 @@
+3.76  2026-05-15
+    - fixed blank Ubuntu `curl ... | sh` bootstrap installs so `install.sh`
+      seeds `File::ShareDir::Install` into `~/perl5` before `cpanm --notest .`
+      runs against the cloned checkout, avoiding the configure-time
+      `Can't locate File/ShareDir/Install.pm` failure on fresh hosts
+    - aligned `install.ps1` with the same configure-prerequisite bootstrap so
+      the checkout install path does not drift between Unix-like and Windows
+      operators
+
 3.75  2026-05-15
     - fixed Windows background web helper lookup so source-tree and CI test
       runs no longer die when `RuntimeManager` asks `File::ShareDir` for an

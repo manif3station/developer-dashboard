@@ -127,6 +127,11 @@ like( _slurp(File::Spec->catfile( $root, 'Makefile.PL' )), qr/pure_install\s+::\
     like( $install_ps_text, qr/git\s+clone/s, 'install.ps1 clones the current GitHub master source for the default streamed Windows install target' );
     like( $install_ps_text, qr/Push-Location\s+\$effectiveCpanTarget/s, 'install.ps1 installs the default cloned Windows checkout from inside the local checkout directory' );
     like( $install_ps_text, qr/Sync-LocalLibEnvironmentFromPerl/, 'install.ps1 delegates local::lib environment setup to perl so Windows install paths stay canonical' );
+    like(
+        $install_ps_text,
+        qr/'--notest',\s*'--local-lib-contained',\s*\$InstallRoot,\s*'local::lib',\s*'File::ShareDir::Install'/s,
+        'install.ps1 bootstraps the checkout configure prerequisite into the private Windows install root before it installs the checkout',
+    );
     like( $install_ps_text, qr/--notest',\s*'--local-lib-contained',\s*\$InstallRoot,\s*'\.'/s, 'install.ps1 runs cpanm against dot with an explicit local-lib target for the default cloned Windows checkout' );
     like( $install_ps_text, qr/--notest',\s*'--local-lib-contained',\s*\$InstallRoot,\s*\$effectiveCpanTarget/s, 'install.ps1 runs cpanm against explicit Windows targets with the same local-lib target' );
     like( $install_ps_text, qr/Sync-LocalLibEnvironmentFromPerl\s+-PerlPath\s+\$perlPath\s+-TargetInstallRoot\s+\$InstallRoot/s, 'install.ps1 reapplies the perl-reported local::lib environment after bootstrapping local::lib on Windows' );
@@ -210,7 +215,7 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
         [
             @expected_dnf_bootstrap_steps,
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
-            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             "cpanm --no-wget --notest $target",
             'dashboard init',
@@ -268,7 +273,7 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
         [
             @expected_apk_bootstrap_steps,
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
-            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             "cpanm --no-wget --notest $target",
             'dashboard init',
@@ -360,7 +365,7 @@ BASHRC
         [
             @expected_apt_bootstrap_steps,
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
-            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             "cpanm --no-wget --notest $target",
             'dashboard init',
@@ -583,7 +588,7 @@ SH
                 nodejs_provides_npm => 1,
             ),
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
-            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --no-wget --notest .',
             'dashboard init',
@@ -624,7 +629,7 @@ SH
             'brew install ' . join( ' ', @brew_packages ),
             'brew --prefix perl',
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
-            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --no-wget --notest .',
             'dashboard init',
@@ -676,7 +681,7 @@ SH
             'brew install ' . join( ' ', @brew_packages ),
             'brew --prefix perl',
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
-            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --no-wget --notest .',
             'dashboard init',
@@ -803,7 +808,7 @@ SH
         [
             @expected_apt_bootstrap_steps,
             'perl -e exit(($] >= 5.038) ? 0 : 1)',
-            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             "git clone --depth 1 --branch master $default_bootstrap_repository $checkout",
             'cpanm --no-wget --notest .',
@@ -865,7 +870,7 @@ SH
             'perlbrew list',
             'perlbrew --notest install perl-5.38.5',
             'perlbrew install-cpanm',
-            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --no-wget --notest .',
             'dashboard init',
@@ -956,7 +961,7 @@ SH
             'perlbrew --notest install perl-5.38.5',
             'patchperl apply perl-5.38.5',
             'perlbrew install-cpanm',
-            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus",
+            "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --no-wget --notest .',
             'dashboard init',

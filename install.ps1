@@ -839,7 +839,8 @@ Invoke-NativeCommand -Label 'cpanm local::lib bootstrap' -FilePath $perlPath -Ar
     $cpanmScript,
     '--notest',
     '--local-lib-contained', $InstallRoot,
-    'local::lib'
+    'local::lib',
+    'File::ShareDir::Install'
 )
 Sync-LocalLibEnvironmentFromPerl -PerlPath $perlPath -TargetInstallRoot $InstallRoot
 
@@ -891,7 +892,7 @@ if ((Get-Command dashboard -ErrorAction SilentlyContinue) -and (Test-Path `$ddHo
 }
 # <<< Developer Dashboard bootstrap <<<
 "@
-Set-StepStatus -Id 'bootstrap_perl' -Status 'ok' -Detail 'cpanm and local::lib environment ready'
+Set-StepStatus -Id 'bootstrap_perl' -Status 'ok' -Detail 'cpanm, local::lib, and configure prereqs ready'
 
 $dashboardCommand = Resolve-CommandPath -Names @('dashboard.bat', 'dashboard', 'dashboard.cmd')
 if ([string]::IsNullOrWhiteSpace($dashboardCommand)) {

@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.75
+3.76
 
 # INTRODUCTION
 
@@ -940,7 +940,7 @@ the same run can immediately install the listed macOS packages without asking
 the operator to reopen the shell,
 bootstraps user-space Perl
 tooling under `~/perl5` with
-`cpanm --no-wget --notest --local-lib-contained "$HOME/perl5" local::lib App::cpanminus`,
+`cpanm --no-wget --notest --local-lib-contained "$HOME/perl5" local::lib App::cpanminus File::ShareDir::Install`,
 appends exactly one `local::lib` bootstrap line to `~/.bashrc`,
 `~/.zshrc`, or `~/.profile` depending on the preferred login shell even
 when the installer is run through plain `sh`, keeps bash login shells wired
@@ -971,8 +971,11 @@ non-interactive installs stay quiet, installs Developer Dashboard into the user
 account with `cpanm --no-wget --notest .` when the installer is running from a
 checkout or extracted tarball, and uses that same `cpanm --no-wget --notest .`
 flow against a temporary cloned checkout when the Unix-like bootstrap had to
-clone GitHub `master` for a streamed install, and then runs `dashboard init`
-so the runtime exists immediately after installation.
+clone GitHub `master` for a streamed install. That bootstrap now seeds
+`File::ShareDir::Install` into `~/perl5` before the checkout install step so
+`Makefile.PL` can refresh the shipped share tree even on a blank Ubuntu host,
+and then runs `dashboard init` so the runtime exists immediately after
+installation.
 
 On Windows PowerShell hosts, `install.ps1` uses `winget` to install missing
 Git, Strawberry Perl, and Node.js LTS packages, pins those installs to the
@@ -980,8 +983,9 @@ community `winget` source so a broken `msstore` source does not block the
 bootstrap, resets and refreshes the source catalog once before retrying when a
 `winget` source failure still occurs, downloads `cpanm` from
 `https://cpanmin.us/`, bootstraps `local::lib` into the private
-`~/perl5` tree with that standalone script, installs Developer Dashboard
-with `cpanm --notest`, sets the CurrentUser PowerShell execution policy to
+`~/perl5` tree with that standalone script together with
+`File::ShareDir::Install`, installs Developer Dashboard with `cpanm --notest`,
+sets the CurrentUser PowerShell execution policy to
 `RemoteSigned` when it is still too restrictive to load profile scripts,
 updates the current-user PowerShell profile with a self-contained
 private `~/perl5` PATH and Perl environment block plus
