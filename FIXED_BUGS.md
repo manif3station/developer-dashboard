@@ -1,4 +1,43 @@
 # Fixed Bugs
+## 3.74 - Add Python skill command dispatch and requirements.txt installs
+
+- Root cause:
+  the runtime could already launch Perl, Node, Go, Java, shell, and Windows
+  script extensions directly from logical `cli/<command>` names, but it did
+  not recognize `.py` files at all. Skill installs also had no first-class
+  Python dependency step, so a skill could ship `cli/foo.py` and
+  `requirements.txt` but the runtime would neither launch the command through
+  `python` nor install its Python dependencies through the normal manifest
+  chain.
+
+- Fix:
+  added `.py` to the runnable-file resolution path on Unix and Windows,
+  dispatches those files through the preferred `python` interpreter, and added
+  regression coverage for extensionless lookup plus Windows runnable-file
+  detection. Added a dedicated `requirements.txt` install step after
+  `package.json` and before the Perl manifests, running
+  `python -m pip install --user --requirement requirements.txt` from the skill
+  root. Updated the shipped manuals, progress labels, and dependency-order
+  coverage so the public docs and release gates describe the Python path in
+  full detail.
+
+## 3.73 - Run executable JavaScript skill commands and hooks through node
+
+- Root cause:
+  the runnable-file resolver only knew about `.pl`, `.go`, `.java`, shell,
+  and Windows script extensions. Skills could already install Node
+  dependencies from `package.json`, but executable `cli/<command>.js` files
+  and `.js` hook files were never discovered from logical command names and
+  were never launched through `node`.
+
+- Fix:
+  added `.js` to the runnable-file extension search chain, dispatches those
+  files through the preferred `node` binary on Unix and Windows, and added
+  regression coverage for both extensionless lookup and Windows runnable-file
+  detection. Updated the shipped manuals and release-metadata coverage so the
+  public docs describe the end-to-end Node command path alongside the
+  existing `package.json` install chain.
+
 ## 3.72 - Fix stalled collectors and move tmux workspaces to layered env refresh
 
 - Root cause:

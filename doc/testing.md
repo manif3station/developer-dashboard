@@ -254,6 +254,7 @@ The extension tests also cover:
 - explicit `[[STOP]]` hook-stop behavior, where only the stderr marker skips later hook files while control still returns to the main command path
 - `LAST_RESULT` chaining through `Developer::Dashboard::Runtime::Result`, so each hook and the final command can inspect the immediate previous hook as `{ file, exit, STDOUT, STDERR }`
 - oversized hook `RESULT` payloads spilling into `RESULT_FILE` before `exec()` would hit the kernel arg/env limit, while later hooks and final commands still read the same logical result set through `Runtime::Result`
+- direct `.py` custom commands plus executable `.py` hook files resolving through `python`, and direct `.js` custom commands plus executable `.js` hook files resolving through `node`, without breaking existing `.pl`, `.go`, `.java`, `.sh`, `.bash`, `.ps1`, `.cmd`, or `.bat` dispatch
 - directory-backed custom commands through `~/.developer-dashboard/cli/<command>/run`
 - non-destructive home helper staging, with dashboard-managed helpers isolated under `~/.developer-dashboard/cli/dd/` and user commands plus hooks preserved under `~/.developer-dashboard/cli/`
 - MD5-aware `dashboard init` helper and seed refreshes, including unchanged mtimes when a dashboard-managed helper or seeded starter page already matches the shipped content

@@ -81,6 +81,7 @@ like($prompt->render_tmux_status(line => 'bottom', width => 4), qr/🕒\d{4}-\d{
     local $ENV{TMUX} = 'tmux-session';
     local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = '';
     local $ENV{TICKET_REF} = '';
+    local $ENV{WORKSPACE_REF} = '';
     my $plain_tmux_prompt = $prompt->render(jobs => 0, cwd => '/tmp/project');
     like($plain_tmux_prompt, qr/✅🐳/, 'plain tmux sessions keep inline indicators when dashboard-managed ticket markers are absent');
 }
@@ -88,6 +89,7 @@ like($prompt->render_tmux_status(line => 'bottom', width => 4), qr/🕒\d{4}-\d{
     local $ENV{TMUX} = 'tmux-session';
     local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = '';
     local $ENV{TICKET_REF} = 'DD-4242';
+    local $ENV{WORKSPACE_REF} = '';
     my $ticket_tmux_prompt = $prompt->render(jobs => 0, cwd => '/tmp/project');
     unlike($ticket_tmux_prompt, qr/✅🐳/, 'ticket tmux prompts suppress inline indicators even when older sessions only expose TICKET_REF');
     like($ticket_tmux_prompt, qr/🎫:DD-4242/, 'ticket tmux prompts still render the ticket reference inline');

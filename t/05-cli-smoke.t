@@ -382,6 +382,7 @@ close $fake_tmux_fh;
 chmod 0755, $fake_tmux or die "Unable to chmod $fake_tmux: $!";
 local $ENV{PATH} = join ':', $fake_tmux_dir, ( $ENV{PATH} || () );
 local $ENV{TICKET_REF};
+local $ENV{WORKSPACE_REF};
 local $ENV{TMUX} = '';
 
 my $ps1 = _run("$perl -I'$lib' '$dashboard' ps1 --jobs 1");

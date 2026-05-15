@@ -35,6 +35,7 @@ my $dnf_log = File::Spec->catfile( $fake_bin, 'dnf.log' );
 my $brew_log = File::Spec->catfile( $fake_bin, 'brew.log' );
 my $winget_log = File::Spec->catfile( $fake_bin, 'winget.log' );
 my $npx_log = File::Spec->catfile( $fake_bin, 'npx.log' );
+my $python_log = File::Spec->catfile( $fake_bin, 'python.log' );
 my $sudo_log = File::Spec->catfile( $fake_bin, 'sudo.log' );
 my $dashboard_log = File::Spec->catfile( $fake_bin, 'dashboard.log' );
 my $dependency_log = File::Spec->catfile( $fake_bin, 'dependency-install.log' );
@@ -81,6 +82,16 @@ for spec in "\$@"; do
   name=\${spec%%@*}
   mkdir -p "\$PWD/node_modules/\$name"
 done
+exit 0
+SH
+    0755,
+);
+_write_file(
+    File::Spec->catfile( $fake_bin, 'python' ),
+    <<"SH",
+#!/bin/sh
+printf '%s|cwd=%s\\n' "\$*" "\$PWD" >> "$python_log"
+printf 'PYTHON:%s\\n' "\$*" >> "$dependency_log"
 exit 0
 SH
     0755,
@@ -209,6 +220,7 @@ PL
     wingetfile_body => "Git.Git\nMicrosoft.PowerShell\n",
     brewfile_body => "jq\n",
     package_json_body => qq|{"name":"alpha-skill-node","version":"0.01.0","dependencies":{"express":"^4.19.2","uuid":"^11.0.0"},"devDependencies":{"playwright":"^1.52.0"}}\n|,
+    requirements_txt_body => "requests==2.32.3\nrich==13.9.4\n",
     cpanfile_local_body => "requires 'YAML::XS';\n",
     bookmark_body => <<'BOOKMARK',
 TITLE: Skill Bookmark
@@ -236,6 +248,7 @@ ok( -f File::Spec->catfile( $install->{path}, 'apkfile' ), 'test skill includes 
 ok( -f File::Spec->catfile( $install->{path}, 'dnfile' ), 'test skill includes dnfile for dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'wingetfile' ), 'test skill includes wingetfile for dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'brewfile' ), 'test skill includes brewfile for dependency handling' );
+ok( -f File::Spec->catfile( $install->{path}, 'requirements.txt' ), 'test skill includes requirements.txt for Python dependency handling' );
 ok( -f File::Spec->catfile( $install->{path}, 'cpanfile.local' ), 'test skill includes cpanfile.local for local dependency handling' );
 ok( -f $apt_log, 'install runs apt-get for isolated skill apt dependencies when an aptfile is present' );
 ok( -f $cpanm_log, 'install runs cpanm for isolated skill dependencies when a cpanfile is present' );
@@ -248,9 +261,9 @@ open my $dependency_log_fh, '<', $dependency_log or die "Unable to read $depende
 my @dependency_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dependency_log_fh>;
 close $dependency_log_fh;
 is_deeply(
-    [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|CPANM):/)[0] } @dependency_steps ],
-    [ 'APT', 'NPM', 'CPANM', 'CPANM', 'DDFILE', 'DDFILE_LOCAL' ],
-    'skill install processes aptfile, package.json, cpanfile, cpanfile.local, ddfile, and ddfile.local in policy order on Debian-like hosts while leaving apkfile, wingetfile, dnfile, and brewfile inactive',
+    [ map { (/^(DDFILE_LOCAL|DDFILE|APT|BREW|NPM|PYTHON|CPANM):/)[0] } @dependency_steps ],
+    [ 'APT', 'NPM', 'PYTHON', 'CPANM', 'CPANM', 'DDFILE', 'DDFILE_LOCAL' ],
+    'skill install processes aptfile, package.json, requirements.txt, cpanfile, cpanfile.local, ddfile, and ddfile.local in policy order on Debian-like hosts while leaving apkfile, wingetfile, dnfile, and brewfile inactive',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
@@ -264,6 +277,14 @@ like(
     $npm_steps[0],
     qr/^--yes npm install express\@\^4\.19\.2 uuid\@\^11\.0\.0 playwright\@\^1\.52\.0\|cwd=\Q$ENV{HOME}\E\/\.developer-dashboard\/cache\/node-package-installs\/npm-install-/,
     'package.json installs declared Node dependencies through npx from a private staging workspace instead of using bare HOME as the npm project root',
+);
+open my $python_log_fh, '<', $python_log or die "Unable to read $python_log: $!";
+my @python_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$python_log_fh>;
+close $python_log_fh;
+is(
+    $python_steps[0],
+    "-m pip install --user --requirement $install->{path}/requirements.txt|cwd=$install->{path}",
+    'requirements.txt installs declared Python dependencies through python -m pip install --user from the skill root itself',
 );
 ok( -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'express' ), 'package.json merges staged Node dependencies into HOME/node_modules' );
 ok( -d File::Spec->catdir( $ENV{HOME}, 'node_modules', 'uuid' ), 'package.json merges additional staged Node dependencies into HOME/node_modules' );
@@ -1088,6 +1109,9 @@ sub _create_skill_repo {
     }
     if ( defined $args{package_json_body} ) {
         _write_file( 'package.json', $args{package_json_body}, 0644 );
+    }
+    if ( defined $args{requirements_txt_body} ) {
+        _write_file( 'requirements.txt', $args{requirements_txt_body}, 0644 );
     }
     if ( defined $args{cpanfile_local_body} ) {
         _write_file( 'cpanfile.local', $args{cpanfile_local_body}, 0644 );

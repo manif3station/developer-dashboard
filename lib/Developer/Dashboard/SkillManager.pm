@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.72';
+our $VERSION = '3.74';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -17,6 +17,7 @@ use IO::Select;
 use IPC::Open3;
 use JSON::XS qw(decode_json encode_json);
 use Symbol qw(gensym);
+use Developer::Dashboard::Platform qw(command_in_path);
 use Developer::Dashboard::PathRegistry;
 
 # new()
@@ -53,6 +54,7 @@ sub install_progress_tasks {
         { id => 'install_wingetfile',   label => 'Install wingetfile dependencies' },
         { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
         { id => 'install_package_json', label => 'Install package.json dependencies' },
+        { id => 'install_requirements_txt', label => 'Install requirements.txt dependencies' },
         { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
         { id => 'install_cpanfile_local', label => 'Install cpanfile.local dependencies' },
         { id => 'install_makefile',     label => 'Install Makefile dependencies' },
@@ -944,6 +946,7 @@ sub _install_skill_dependencies {
         [ install_wingetfile   => sub { $self->_install_skill_wingetfile($skill_path) } ],
         [ install_brewfile     => sub { $self->_install_skill_brewfile($skill_path) } ],
         [ install_package_json => sub { $self->_install_skill_package_json($skill_path) } ],
+        [ install_requirements_txt => sub { $self->_install_skill_requirements_txt($skill_path) } ],
         [ install_cpanfile     => sub { $self->_install_skill_cpanfile($skill_path) } ],
         [ install_cpanfile_local => sub { $self->_install_skill_cpanfile_local($skill_path) } ],
         [ install_makefile     => sub { $self->_install_skill_makefile($skill_path) } ],
@@ -1007,6 +1010,7 @@ sub _dependency_progress_label {
         install_wingetfile     => 'wingetfile',
         install_brewfile       => 'brewfile',
         install_package_json   => 'package.json',
+        install_requirements_txt => 'requirements.txt',
         install_cpanfile       => 'cpanfile',
         install_cpanfile_local => 'cpanfile.local',
         install_makefile       => 'Makefile',
@@ -1021,6 +1025,7 @@ sub _dependency_progress_label {
         install_wingetfile     => 'Install wingetfile dependencies',
         install_brewfile       => 'Install brewfile dependencies',
         install_package_json   => 'Install package.json dependencies',
+        install_requirements_txt => 'Install requirements.txt dependencies',
         install_cpanfile       => 'Install cpanfile dependencies',
         install_cpanfile_local => 'Install cpanfile.local dependencies',
         install_makefile       => 'Install Makefile dependencies',
@@ -1492,6 +1497,41 @@ sub _install_skill_package_json {
         stdout  => $npm_stdout . $copy_stdout,
         stderr  => $npm_stderr . $copy_stderr,
     };
+}
+
+# _install_skill_requirements_txt($skill_path)
+# Installs Python dependencies declared by requirements.txt into the current
+# user's Python environment through python -m pip --user.
+# Input: absolute skill root directory path.
+# Output: result hash reference with success or error state.
+sub _install_skill_requirements_txt {
+    my ( $self, $skill_path ) = @_;
+    my $requirements = File::Spec->catfile( $skill_path, 'requirements.txt' );
+    return { success => 1, skipped => 1 } if !-f $requirements;
+
+    my $run = $self->_run_streaming_command(
+        command => [ $self->_python_dependency_command, '-m', 'pip', 'install', '--user', '--requirement', $requirements ],
+        cwd     => $skill_path,
+        banner  => "Installing Python dependencies for " . basename($skill_path) . " from $requirements",
+    );
+    my ( $stdout, $stderr, $exit ) = @{$run}{qw(stdout stderr exit)};
+    return {
+        error => "Failed to install skill Python dependencies for $skill_path: $stderr",
+    } if $exit != 0;
+
+    return {
+        success => 1,
+        stdout  => $stdout,
+        stderr  => $stderr,
+    };
+}
+
+# _python_dependency_command()
+# Resolves the preferred Python executable for requirements.txt installs.
+# Input: none.
+# Output: executable path or command name string.
+sub _python_dependency_command {
+    return command_in_path('python') || command_in_path('python3') || 'python';
 }
 
 # _package_json_dependency_specs($package_json)

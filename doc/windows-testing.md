@@ -21,7 +21,7 @@ generated PowerShell profile cannot load in new sessions.
 - locally override the platform detector so Linux CI can still exercise Windows dispatch logic
 - assert `dashboard shell ps` and PowerShell prompt bootstrap output
 - assert `ps` resolves to PowerShell rather than the POSIX `PS1` variable
-- assert `.pl`, `.ps1`, `.cmd`, and `.bat` command argv resolution
+- assert `.pl`, `.py`, `.js`, `.ps1`, `.cmd`, and `.bat` command argv resolution
 - assert Windows `PATHEXT` lookup behavior
 
 2. Real Strawberry Perl smoke on Windows

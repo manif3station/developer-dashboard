@@ -1,3 +1,26 @@
+3.74  2026-05-15
+    - added direct `python` dispatch for executable `cli/*.py` commands and
+      hook files so Python-backed skills now run through the same logical
+      command and hook resolution path as Perl, Node, Go, Java, and shell
+      helpers
+    - added `requirements.txt` to the skill dependency chain after
+      `package.json`, installing Python dependencies through
+      `python -m pip install --user --requirement requirements.txt`
+    - regenerated README.md from the canonical POD after the runtime and
+      dependency-chain changes so release metadata stays in sync
+
+3.73  2026-05-15
+    - added direct `node` dispatch for executable `cli/*.js` commands and
+      hook files, so JavaScript-backed skill commands now run through Node in
+      the same extension-resolution path already used for Perl, Go, Java, and
+      shell helpers
+    - fixed the platform runnable-file resolver so logical command names can
+      discover matching `.js` files on Unix and Windows without breaking the
+      existing `package.json` dependency-install chain used by
+      `dashboard skills install`
+    - fixed the prompt tmux-status unit coverage to clear `WORKSPACE_REF`
+      explicitly so ordinary tmux sessions still test the non-dashboard path
+
 3.72  2026-05-14
     - fixed collector watchdog supervision so a managed loop that stays alive
       but stops making progress is treated as stalled, restarted

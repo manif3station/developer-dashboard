@@ -1031,6 +1031,56 @@ is_deeply(
         unlink 'unix-runner' or die $!;
     }
     {
+        open my $fh, '>', 'unix-hook.js' or die $!;
+        print {$fh} "console.log('ok');\n";
+        close $fh;
+        chmod 0755, 'unix-hook.js' or die $!;
+        {
+            no warnings 'redefine';
+            local *Developer::Dashboard::Platform::command_in_path = sub {
+                my ($name) = @_;
+                return '/usr/local/bin/node' if $name eq 'node';
+                return undef;
+            };
+            is_deeply(
+                [ command_argv_for_path('unix-hook.js') ],
+                [ '/usr/local/bin/node', 'unix-hook.js' ],
+                'command_argv_for_path resolves executable JavaScript source files through node',
+            );
+        }
+        is(
+            resolve_runnable_file('unix-hook'),
+            'unix-hook.js',
+            'resolve_runnable_file finds executable JavaScript sources when the logical command name omits the .js suffix',
+        );
+        unlink 'unix-hook.js' or die $!;
+    }
+    {
+        open my $fh, '>', 'unix-hook.py' or die $!;
+        print {$fh} "print('ok')\n";
+        close $fh;
+        chmod 0755, 'unix-hook.py' or die $!;
+        {
+            no warnings 'redefine';
+            local *Developer::Dashboard::Platform::command_in_path = sub {
+                my ($name) = @_;
+                return '/usr/local/bin/python' if $name eq 'python';
+                return undef;
+            };
+            is_deeply(
+                [ command_argv_for_path('unix-hook.py') ],
+                [ '/usr/local/bin/python', 'unix-hook.py' ],
+                'command_argv_for_path resolves executable Python source files through python',
+            );
+        }
+        is(
+            resolve_runnable_file('unix-hook'),
+            'unix-hook.py',
+            'resolve_runnable_file finds executable Python sources when the logical command name omits the .py suffix',
+        );
+        unlink 'unix-hook.py' or die $!;
+    }
+    {
         open my $fh, '>', 'unix-hook.go' or die $!;
         print {$fh} "package main\nfunc main() {}\n";
         close $fh;
@@ -1347,6 +1397,44 @@ SH
     is( $runner_sh[1], 'runner.sh', 'command_argv_for_path keeps the shell-script path when dispatching through an available POSIX shell on Windows' );
     like( $runner_sh[0], qr{(?:^|/)sh$}, 'command_argv_for_path resolves .sh scripts through an available POSIX shell on Windows' );
     {
+        open my $fh, '>', 'runner.js' or die $!;
+        print {$fh} "console.log('win-ok');\n";
+        close $fh;
+    }
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Platform::command_in_path = sub {
+            my ($name) = @_;
+            return 'C:/Program Files/nodejs/node.exe' if $name eq 'node';
+            return undef;
+        };
+        ok( is_runnable_file('runner.js'), 'is_runnable_file treats .js files as runnable on Windows when node is available' );
+        is_deeply(
+            [ command_argv_for_path('runner.js') ],
+            [ 'C:/Program Files/nodejs/node.exe', 'runner.js' ],
+            'command_argv_for_path resolves .js scripts on Windows through node',
+        );
+    }
+    {
+        open my $fh, '>', 'runner.py' or die $!;
+        print {$fh} "print('win-ok')\n";
+        close $fh;
+    }
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Platform::command_in_path = sub {
+            my ($name) = @_;
+            return 'C:/Python312/python.exe' if $name eq 'python';
+            return undef;
+        };
+        ok( is_runnable_file('runner.py'), 'is_runnable_file treats .py files as runnable on Windows when python is available' );
+        is_deeply(
+            [ command_argv_for_path('runner.py') ],
+            [ 'C:/Python312/python.exe', 'runner.py' ],
+            'command_argv_for_path resolves .py scripts on Windows through python',
+        );
+    }
+    {
         open my $fh, '>', 'script.foo' or die $!;
         print {$fh} "#!/usr/bin/env perl\nprint qq{shebang-ok\\n};\n";
         close $fh;
@@ -1382,6 +1470,8 @@ SH
     }
     unlink 'runner.bat' or die $!;
     unlink 'runner.sh' or die $!;
+    unlink 'runner.js' or die $!;
+    unlink 'runner.py' or die $!;
     unlink 'script.foo' or die $!;
     unlink 'notes.txt' or die $!;
     unlink File::Spec->catfile( $home, 'sh' ) or die $!;
@@ -2175,6 +2265,7 @@ is( $fresh_page_item->{alias}, 'NEW', 'page header status prefers the configured
 {
     local $ENV{TMUX} = '';
     local $ENV{TICKET_REF} = '';
+    local $ENV{WORKSPACE_REF} = '';
     local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = 0;
     my $ordered_home = tempdir(CLEANUP => 1);
     my $ordered_paths = Developer::Dashboard::PathRegistry->new( home => $ordered_home );
@@ -2315,6 +2406,7 @@ my $plain_paths = Developer::Dashboard::PathRegistry->new( home => $plain_home )
 {
     local $ENV{TMUX} = '';
     local $ENV{TICKET_REF} = '';
+    local $ENV{WORKSPACE_REF} = '';
     local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = 0;
     my $plain_prompt = Developer::Dashboard::Prompt->new(
         paths      => $plain_paths,
@@ -2364,12 +2456,14 @@ my $plain_paths = Developer::Dashboard::PathRegistry->new( home => $plain_home )
     local $ENV{TMUX} = 'tmux-session';
     local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = '';
     local $ENV{TICKET_REF} = 'DD-4242';
+    local $ENV{WORKSPACE_REF} = '';
     ok( $prompt->_tmux_status_active, '_tmux_status_active recognizes ticket-owned tmux sessions when only TICKET_REF is set' );
 }
 {
     local $ENV{TMUX} = 'tmux-session';
     local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = '';
     local $ENV{TICKET_REF} = '';
+    local $ENV{WORKSPACE_REF} = '';
     ok( !$prompt->_tmux_status_active, '_tmux_status_active leaves ordinary tmux sessions alone when no dashboard ticket marker is present' );
 }
 {

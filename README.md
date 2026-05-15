@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.72
+3.74
 
 # INTRODUCTION
 
@@ -671,7 +671,7 @@ different directory, and then `~/.developer-dashboard/cli`. For example,
 stderr.
 
 A direct custom command can also be stored as an executable
-`cli/<command>.pl`, `cli/<command>.go`,
+`cli/<command>.pl`, `cli/<command>.py`, `cli/<command>.js`, `cli/<command>.go`,
 `cli/<command>.java`, `cli/<command>.sh`,
 `cli/<command>.bash`, `cli/<command>.ps1`,
 `cli/<command>.cmd`, or `cli/<command>.bat`, and
@@ -684,6 +684,8 @@ Concrete source-backed examples:
     dashboard foo
 
 If `cli/hi.go` is executable, `dashboard hi` runs it through `go run`.
+If `cli/report.py` is executable, `dashboard report` runs it through `python`.
+If `cli/webhook.js` is executable, `dashboard webhook` runs it through `node`.
 If `cli/foo.java` is executable, `dashboard foo` compiles it with `javac`
 into an isolated temp directory and then runs the declared main class with
 `java`.
@@ -727,7 +729,9 @@ to earlier hook output and also inspect the immediate previous hook in a stable
 shape. `LAST_RESULT` carries `file`, `exit`, `STDOUT`, and `STDERR`.
 Only an explicit `[[STOP]]` marker in one hook's `stderr` stops the
 remaining hook files for that command. A non-zero exit code alone is still
-recorded, but it does not skip later hooks. Executable `.go` hook files and
+recorded, but it does not skip later hooks. Executable `.py` hook files and
+direct `.py` custom commands run through `python`. Executable `.js` hook files and
+direct `.js` custom commands run through `node`. Executable `.go` hook files and
 direct `.go` custom commands run through `go run`. Executable `.java`
 hook files and direct `.java` custom commands are compiled with `javac`
 into an isolated temp directory and then run through `java` using the
@@ -2376,6 +2380,11 @@ with:
     workspace and then merging the resulting packages into
     `$HOME/node_modules`
 
+- **requirements.txt**
+
+    Optional Python dependencies installed through
+    `python -m pip install --user --requirement requirements.txt`
+
 - **cpanfile**
 
     Optional shared Perl dependencies installed into `~/perl5`
@@ -2398,6 +2407,8 @@ Hook lifecycle details:
 - oversized hook payloads spill into `RESULT_FILE` or
 `LAST_RESULT_FILE` before later skill hook or command execs would hit the
 kernel arg/env limit
+- executable `.py` hooks run through `python`
+- executable `.js` hooks run through `node`
 - executable `.go` hooks run through `go run`
 - executable `.java` hooks compile with `javac` and then run through `java`
 - later hooks are skipped only when a hook writes the explicit marker
@@ -2527,6 +2538,9 @@ manifests and before any deferred `ddfile` processing, using `make`,
 inside a private dashboard staging workspace and then merging the resulting
 packages into `$HOME/node_modules`, so unrelated `$HOME/package.json` files
 do not break skill installs
+- if a `requirements.txt` exists, its Python dependencies are installed through
+`python -m pip install --user --requirement requirements.txt` from the skill
+root before the Perl dependency manifests run
 - if a `cpanfile` exists, its Perl dependencies are installed into `~/perl5`
 - if a `cpanfile.local` exists, its Perl dependencies are installed into the
 skill-local `perl5/` tree
@@ -2541,7 +2555,7 @@ To build a new skill, start with a Git repository that contains `cli/`,
 `config/config.json`, and optional `dashboards/`, `dashboards/nav/`,
 `state/`, `logs/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`,
 `dnfile`,
-`brewfile`, `Makefile`, `package.json`, `cpanfile`, and `cpanfile.local` files under the skill
+`brewfile`, `Makefile`, `package.json`, `requirements.txt`, `cpanfile`, and `cpanfile.local` files under the skill
 root. Skill commands are file-based
 commands run through the dotted
 `dashboard <repo-name>.<command>` form. Skill hook files live
@@ -2561,12 +2575,13 @@ layout, environment variables such as `DEVELOPER_DASHBOARD_SKILL_ROOT`,
 bookmark syntax like `TITLE:`, `BOOKMARK:`, `HTML:`, and `CODE1:`,
 bookmark browser helpers such as `fetch_value()`, `stream_value()`, and
 `stream_data()`, underscored config merge keys such as `_example-skill`,
-`aptfile -` apkfile -> dnfile -> wingetfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> Makefile -> ddfile -> ddfile.local>
+`aptfile -` apkfile -> dnfile -> wingetfile -> brewfile -> package.json -> requirements.txt -> cpanfile -> cpanfile.local -> Makefile -> ddfile -> ddfile.local>
 automatic dependency install order, the explicit
 `dashboard skills install --ddfile` operator order of
 the deferred `ddfile -` ddfile.local> pass, the shared `~/perl5` versus skill-local
 `perl5/` split, the `$HOME/node_modules` Node install target used by
-`package.json`, the optional `Makefile` command chain and `--notest` skip,
+`package.json`, the `python -m pip install --user` path used by
+`requirements.txt`, the optional `Makefile` command chain and `--notest` skip,
 the same-install-level dependency target used by skill-local `ddfile.local`,
 skill docker layering, and when to use dashboard-wide custom CLI hook folders such as
 `~/.developer-dashboard/cli/<command>.d` instead of a skill-local

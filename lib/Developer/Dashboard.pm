@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.72';
+our $VERSION = '3.74';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.72
+3.74
 
 =head1 INTRODUCTION
 
@@ -861,7 +861,7 @@ F<cli/foobar> with C<a b> as argv, while preserving stdin, stdout, and
 stderr.
 
 A direct custom command can also be stored as an executable
-F<cli/E<lt>commandE<gt>.pl>, F<cli/E<lt>commandE<gt>.go>,
+F<cli/E<lt>commandE<gt>.pl>, F<cli/E<lt>commandE<gt>.py>, F<cli/E<lt>commandE<gt>.js>, F<cli/E<lt>commandE<gt>.go>,
 F<cli/E<lt>commandE<gt>.java>, F<cli/E<lt>commandE<gt>.sh>,
 F<cli/E<lt>commandE<gt>.bash>, F<cli/E<lt>commandE<gt>.ps1>,
 F<cli/E<lt>commandE<gt>.cmd>, or F<cli/E<lt>commandE<gt>.bat>, and
@@ -874,6 +874,8 @@ Concrete source-backed examples:
   dashboard foo
 
 If F<cli/hi.go> is executable, C<dashboard hi> runs it through C<go run>.
+If F<cli/report.py> is executable, C<dashboard report> runs it through C<python>.
+If F<cli/webhook.js> is executable, C<dashboard webhook> runs it through C<node>.
 If F<cli/foo.java> is executable, C<dashboard foo> compiles it with C<javac>
 into an isolated temp directory and then runs the declared main class with
 C<java>.
@@ -917,7 +919,9 @@ to earlier hook output and also inspect the immediate previous hook in a stable
 shape. C<LAST_RESULT> carries C<file>, C<exit>, C<STDOUT>, and C<STDERR>.
 Only an explicit C<[[STOP]]> marker in one hook's C<stderr> stops the
 remaining hook files for that command. A non-zero exit code alone is still
-recorded, but it does not skip later hooks. Executable F<.go> hook files and
+recorded, but it does not skip later hooks. Executable F<.py> hook files and
+direct F<.py> custom commands run through C<python>. Executable F<.js> hook files and
+direct F<.js> custom commands run through C<node>. Executable F<.go> hook files and
 direct F<.go> custom commands run through C<go run>. Executable F<.java>
 hook files and direct F<.java> custom commands are compiled with C<javac>
 into an isolated temp directory and then run through C<java> using the
@@ -2824,6 +2828,11 @@ C<npx --yes npm install E<lt>dependency-spec...E<gt>> inside a private dashboard
 workspace and then merging the resulting packages into
 C<$HOME/node_modules>
 
+=item B<requirements.txt>
+
+Optional Python dependencies installed through
+C<python -m pip install --user --requirement requirements.txt>
+
 =item B<cpanfile>
 
 Optional shared Perl dependencies installed into C<~/perl5>
@@ -2861,6 +2870,14 @@ the immediately previous hook payload is exposed through C<LAST_RESULT>
 oversized hook payloads spill into C<RESULT_FILE> or
 C<LAST_RESULT_FILE> before later skill hook or command execs would hit the
 kernel arg/env limit
+
+=item *
+
+executable F<.py> hooks run through C<python>
+
+=item *
+
+executable F<.js> hooks run through C<node>
 
 =item *
 
@@ -3092,6 +3109,12 @@ do not break skill installs
 
 =item *
 
+if a C<requirements.txt> exists, its Python dependencies are installed through
+C<python -m pip install --user --requirement requirements.txt> from the skill
+root before the Perl dependency manifests run
+
+=item *
+
 if a C<cpanfile> exists, its Perl dependencies are installed into C<~/perl5>
 
 =item *
@@ -3117,7 +3140,7 @@ To build a new skill, start with a Git repository that contains C<cli/>,
 C<config/config.json>, and optional C<dashboards/>, C<dashboards/nav/>,
 C<state/>, C<logs/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>,
 C<dnfile>,
-C<brewfile>, C<Makefile>, C<package.json>, C<cpanfile>, and C<cpanfile.local> files under the skill
+C<brewfile>, C<Makefile>, C<package.json>, C<requirements.txt>, C<cpanfile>, and C<cpanfile.local> files under the skill
 root. Skill commands are file-based
 commands run through the dotted
 C<dashboard E<lt>repo-nameE<gt>.E<lt>commandE<gt>> form. Skill hook files live
@@ -3137,12 +3160,13 @@ layout, environment variables such as C<DEVELOPER_DASHBOARD_SKILL_ROOT>,
 bookmark syntax like C<TITLE:>, C<BOOKMARK:>, C<HTML:>, and C<CODE1:>,
 bookmark browser helpers such as C<fetch_value()>, C<stream_value()>, and
 C<stream_data()>, underscored config merge keys such as C<_example-skill>,
-C<aptfile -> apkfile -> dnfile -> wingetfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> Makefile -> ddfile -> ddfile.local>
+C<aptfile -> apkfile -> dnfile -> wingetfile -> brewfile -> package.json -> requirements.txt -> cpanfile -> cpanfile.local -> Makefile -> ddfile -> ddfile.local>
 automatic dependency install order, the explicit
 C<dashboard skills install --ddfile> operator order of
 the deferred C<ddfile -> ddfile.local> pass, the shared C<~/perl5> versus skill-local
 C<perl5/> split, the C<$HOME/node_modules> Node install target used by
-C<package.json>, the optional C<Makefile> command chain and C<--notest> skip,
+C<package.json>, the C<python -m pip install --user> path used by
+C<requirements.txt>, the optional C<Makefile> command chain and C<--notest> skip,
 the same-install-level dependency target used by skill-local F<ddfile.local>,
 skill docker layering, and when to use dashboard-wide custom CLI hook folders such as
 F<~/.developer-dashboard/cli/E<lt>commandE<gt>.d> instead of a skill-local

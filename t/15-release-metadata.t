@@ -72,7 +72,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '3.72', 'repo version bumped for the collector stall and workspace refresh fix' );
+is( $version, '3.74', 'repo version bumped for the JavaScript command dispatch fix' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
 like( $readme, qr/\A(?:<!--.*?-->\n\n)?#\s+/s, 'README.md begins with Markdown headings' ) if $readme ne '';
@@ -283,6 +283,8 @@ for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/RESULT_FILE|LAST_RESULT_FILE/, 'docs describe file-backed hook result overflow handling' );
     like( $doc, qr/\[\[STOP\]\]/, 'docs describe the explicit stderr stop marker for hook chains' );
     like( $doc, qr/\.go.*go run|go run.*\.go/s, 'docs describe direct executable Go command and hook dispatch through go run' );
+    like( $doc, qr/\.js.*node|node.*\.js/s, 'docs describe direct executable JavaScript command and hook dispatch through node' );
+    like( $doc, qr/\.py.*python|python.*\.py/s, 'docs describe direct executable Python command and hook dispatch through python' );
     like( $doc, qr/\.java.*javac.*java|javac.*\.java.*java/s, 'docs describe direct executable Java command and hook dispatch through javac and java' );
     like( $doc, qr/dashboard hi|dashboard foo/, 'docs include concrete custom-command examples for source-backed CLI dispatch' );
     unlike( $doc, qr/CPANManager/, 'docs do not describe a dedicated CPAN manager module for a removed browser workspace runtime driver flow' );

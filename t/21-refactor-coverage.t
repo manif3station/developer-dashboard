@@ -2181,6 +2181,7 @@ my $apk_log = File::Spec->catfile( $fake_bin, 'apk.log' );
 my $brew_log = File::Spec->catfile( $fake_bin, 'brew.log' );
 my $make_log = File::Spec->catfile( $fake_bin, 'make.log' );
 my $npx_log = File::Spec->catfile( $fake_bin, 'npx.log' );
+my $python_log = File::Spec->catfile( $fake_bin, 'python.log' );
 my $sudo_log = File::Spec->catfile( $fake_bin, 'sudo.log' );
 my $dashboard_log = File::Spec->catfile( $fake_bin, 'dashboard.log' );
 my $docker_log = File::Spec->catfile( $fake_bin, 'docker.log' );
@@ -2230,6 +2231,19 @@ for spec in "\$@"; do
   name=\${spec%%@*}
   mkdir -p "\$PWD/node_modules/\$name"
 done
+exit 0
+SH
+    0755,
+);
+_write_file(
+    File::Spec->catfile( $fake_bin, 'python' ),
+    <<"SH",
+#!/bin/sh
+printf '%s|cwd=%s\\n' "\$*" "\$PWD" >> "$python_log"
+printf 'PYTHON:%s\\n' "\$*" >> "$dependency_log"
+if [ "\$DD_TEST_PYTHON_FAIL" = "1" ]; then
+  exit 1
+fi
 exit 0
 SH
     0755,
@@ -2350,6 +2364,7 @@ is_deeply(
         { id => 'install_wingetfile',   label => 'Install wingetfile dependencies' },
         { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
         { id => 'install_package_json', label => 'Install package.json dependencies' },
+        { id => 'install_requirements_txt', label => 'Install requirements.txt dependencies' },
         { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
         { id => 'install_cpanfile_local', label => 'Install cpanfile.local dependencies' },
         { id => 'install_makefile',     label => 'Install Makefile dependencies' },
@@ -2375,9 +2390,11 @@ is_deeply(
 {
     my $label_skill = File::Spec->catdir( $ENV{HOME}, 'label-skill' );
     my $label_package_json = File::Spec->catfile( $label_skill, 'package.json' );
+    my $label_requirements = File::Spec->catfile( $label_skill, 'requirements.txt' );
     my $label_makefile = File::Spec->catfile( $label_skill, 'Makefile' );
     make_path($label_skill);
     _write_file( $label_package_json, qq|{"name":"label-skill","version":"1.0.0"}\n| );
+    _write_file( $label_requirements, "requests==2.32.3\n" );
     _write_file( $label_makefile, "all:\n\t\@:\n" );
     is(
         $manager->_dependency_progress_label( 'install_package_json', $label_skill ),
@@ -2403,6 +2420,31 @@ is_deeply(
         ),
         "Install package.json dependencies from $label_package_json (error: Failed to install skill Node dependencies for $label_skill: npm blew up with details)",
         '_dependency_progress_label carries one compact failure reason into the visible progress board',
+    );
+    is(
+        $manager->_dependency_progress_label( 'install_requirements_txt', $label_skill ),
+        "Install requirements.txt dependencies from $label_requirements",
+        '_dependency_progress_label surfaces the detected requirements.txt path while pip work is in progress',
+    );
+    is(
+        $manager->_dependency_progress_label(
+            'install_requirements_txt',
+            $label_skill,
+            result => { success => 1, skipped => 1 },
+        ),
+        'Install requirements.txt dependencies (skipped: requirements.txt not present)',
+        '_dependency_progress_label makes skipped requirements.txt work explicit in the progress board',
+    );
+    is(
+        $manager->_dependency_progress_label(
+            'install_requirements_txt',
+            $label_skill,
+            result => {
+                error => "Failed to install skill Python dependencies for $label_skill: pip blew up\nwith details",
+            },
+        ),
+        "Install requirements.txt dependencies from $label_requirements (error: Failed to install skill Python dependencies for $label_skill: pip blew up with details)",
+        '_dependency_progress_label carries requirements.txt failures into the visible progress board',
     );
     is(
         $manager->_dependency_progress_label( 'install_makefile', $label_skill ),
@@ -2590,6 +2632,7 @@ my $dep_repo = _create_skill_repo(
     with_makefile => 1,
     with_dockerfile => 1,
     with_package_json => 1,
+    with_requirements_txt => 1,
     with_cpanfile_local => 1,
 );
 my $install = $manager->install( 'file://' . $dep_repo );
@@ -2626,9 +2669,9 @@ open my $dependency_log_fh, '<', $dependency_log or die "Unable to read $depende
 my @dependency_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$dependency_log_fh>;
 close $dependency_log_fh;
 is_deeply(
-    [ map { (/^(DDFILE_LOCAL|DDFILE|DOCKER|APT|BREW|NPM|CPANM|MAKE):/)[0] } @dependency_steps[-11 .. -1] ],
-    [ 'APT', 'NPM', 'CPANM', 'CPANM', 'MAKE', 'MAKE', 'MAKE', 'MAKE', 'DOCKER', 'DDFILE', 'DDFILE_LOCAL' ],
-    '_install_skill_dependencies follows the documented aptfile -> apkfile -> dnfile -> brewfile -> package.json -> cpanfile -> cpanfile.local -> Makefile -> dockerfile -> ddfile -> ddfile.local order on Debian-like hosts while leaving apkfile, dnfile, and brewfile inactive',
+    [ map { (/^(DDFILE_LOCAL|DDFILE|DOCKER|APT|BREW|NPM|PYTHON|CPANM|MAKE):/)[0] } @dependency_steps[-12 .. -1] ],
+    [ 'APT', 'NPM', 'PYTHON', 'CPANM', 'CPANM', 'MAKE', 'MAKE', 'MAKE', 'MAKE', 'DOCKER', 'DDFILE', 'DDFILE_LOCAL' ],
+    '_install_skill_dependencies follows the documented aptfile -> apkfile -> dnfile -> brewfile -> package.json -> requirements.txt -> cpanfile -> cpanfile.local -> Makefile -> dockerfile -> ddfile -> ddfile.local order on Debian-like hosts while leaving apkfile, dnfile, and brewfile inactive',
 );
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
@@ -2642,6 +2685,14 @@ like(
     $npm_steps[-1],
     qr/^--yes npm install dep-skill-runtime\@\^1\.2\.3 dep-skill-dev\@\^4\.5\.6\|cwd=\Q$ENV{HOME}\E\/skills-home\/\.developer-dashboard\/cache\/node-package-installs\/npm-install-/,
     '_install_skill_dependencies stages package.json work under the dashboard runtime cache through npx instead of using bare HOME as the npm project root',
+);
+open my $python_log_fh, '<', $python_log or die "Unable to read $python_log: $!";
+my @python_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$python_log_fh>;
+close $python_log_fh;
+is(
+    $python_steps[-1],
+    "-m pip install --user --requirement $dep_skill_root/requirements.txt|cwd=$dep_skill_root",
+    '_install_skill_dependencies installs requirements.txt through python -m pip install --user from the installed skill root',
 );
 open my $make_log_fh, '<', $make_log or die "Unable to read $make_log: $!";
 my @make_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$make_log_fh>;
@@ -4354,6 +4405,9 @@ sub _create_skill_repo {
             qq|{"name":"$name-node","version":"0.01.0","dependencies":{"$name-runtime":"^1.2.3"},"devDependencies":{"$name-dev":"^4.5.6"}}\n|
         );
     }
+    if ( $args{with_requirements_txt} ) {
+        _write_file( 'requirements.txt', "requests==2.32.3\nrich==13.9.4\n" );
+    }
     if ( $args{with_cpanfile_local} ) {
         _write_file( 'cpanfile.local', "requires 'YAML::XS';\n" );
     }
@@ -4455,6 +4509,7 @@ sub _dies {
         tasks   => [
             { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
             { id => 'install_package_json', label => 'Install package.json dependencies' },
+            { id => 'install_requirements_txt', label => 'Install requirements.txt dependencies' },
         ],
         stream  => $fh,
         dynamic => 1,
@@ -4469,7 +4524,7 @@ sub _dies {
     );
     like(
         $output,
-        qr/-> Install brewfile dependencies from \/tmp\/skill\/brewfile\n(?:   .*?\n){10}\[ \] Install package\.json dependencies/s,
+        qr/-> Install brewfile dependencies from \/tmp\/skill\/brewfile\n(?:   .*?\n){10}\[ \] Install package\.json dependencies\n\[ \] Install requirements\.txt dependencies/s,
         'CLI::Progress renders a ten-line rolling detail window beneath the active task without displacing later epic tasks',
     );
     unlike( $output, qr/brew line 01/, 'CLI::Progress drops detail lines older than the rolling ten-line window' );
