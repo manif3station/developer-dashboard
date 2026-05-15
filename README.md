@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.76
+3.77
 
 # INTRODUCTION
 

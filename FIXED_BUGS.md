@@ -1,4 +1,12 @@
 # Fixed Bugs
+## 3.77 - Align all shipped lib module versions with the repo version
+
+- Fixed a release metadata drift where the main repo version had moved forward
+  but many shipped modules under `lib/` still declared the previous version.
+- Fixed the source tree so every shipped Perl module now reports the same
+  `3.77` distribution version, keeping CI, release metadata, and packaged
+  builds in sync.
+
 ## 3.76 - Fix blank-host bootstrap installer checkout configure prereqs
 
 - Fixed blank Ubuntu streamed installs such as

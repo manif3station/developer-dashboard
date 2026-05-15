@@ -1,3 +1,9 @@
+3.77  2026-05-15
+    - aligned every shipped Perl module under `lib/` with the distribution
+      version after the blank-host installer fix so the source tree, release
+      metadata, and CI coverage gates all read one consistent `3.77` version
+      instead of a mixed `3.75`/`3.76` module set
+
 3.76  2026-05-15
     - fixed blank Ubuntu `curl ... | sh` bootstrap installs so `install.sh`
       seeds `File::ShareDir::Install` into `~/perl5` before `cpanm --notest .`
