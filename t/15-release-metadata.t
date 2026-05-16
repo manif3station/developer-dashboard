@@ -72,7 +72,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '3.77', 'repo version bumped for the lib version-alignment fix' );
+is( $version, '3.79', 'repo version bumped for the TOML parser dependency stability fix' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
 like( $readme, qr/\A(?:<!--.*?-->\n\n)?#\s+/s, 'README.md begins with Markdown headings' ) if $readme ne '';
@@ -171,7 +171,7 @@ for my $module (
     qw(
     JSON::XS
     YAML::XS
-    TOML::Tiny
+    TOML::Parser
     Capture::Tiny
     Getopt::Long
     Digest::MD5

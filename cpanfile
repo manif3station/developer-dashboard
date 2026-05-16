@@ -4,7 +4,7 @@ on 'configure' => sub {
 
 requires 'JSON::XS';
 requires 'YAML::XS';
-requires 'TOML::Tiny';
+requires 'TOML::Parser';
 requires 'Capture::Tiny';
 requires 'Getopt::Long';
 requires 'Digest::MD5';

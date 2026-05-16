@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.77';
+our $VERSION = '3.79';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.77
+3.79
 
 =head1 INTRODUCTION
 
@@ -621,6 +621,9 @@ C<dashboard jq>, C<dashboard yq>, C<dashboard tomq>, and C<dashboard propq>
 parse JSON, YAML, TOML, and Java properties input, then optionally extract a
 dotted path and print a scalar or canonical JSON, giving the CLI a small
 data-inspection toolkit that fits naturally into shell workflows.
+C<dashboard tomq> inflates TOML booleans into plain Perl C<1> and C<0>
+scalars, so CLI output and JSON-encoded query results stay stable instead of
+depending on backend-specific boolean objects.
 
 =item * Private CLI Helper Assets
 
@@ -2321,6 +2324,9 @@ GitHub workflow coverage gates must match the C<Devel::Cover> C<Total> summary
 line by regex rather than one fixed-width spacing layout, because runner or
 module upgrades can change column padding without changing the real
 C<100.0 / 100.0 / 100.0> result.
+The tag-driven GitHub release workflow must also install C<Devel::Cover>
+before it runs that numeric coverage gate, or the signed-release path can
+fail before any release assets are published.
 
 The coverage-closure suite includes managed collector loop start/stop paths
 under C<Devel::Cover>, including wrapped fork coverage in

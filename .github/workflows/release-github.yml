@@ -36,6 +36,7 @@ jobs:
       - name: Install release dependencies
         run: |
           cpanm --installdeps --notest .
+          cpanm --notest Devel::Cover
           cpanm --notest Dist::Zilla
 
       - name: Run tests

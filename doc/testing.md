@@ -168,6 +168,12 @@ three release metadata sources in the same change: `Makefile.PL`, `cpanfile`,
 and `dist.ini`. The release metadata guardrail fails if a required non-core
 runtime module is missing from one of those files, so dependency drift is
 caught before `dzil build`, blank-environment installs, or CI releases.
+The blank-container `cpanm` gate is allowed to reject an upstream dependency
+whose own test suite no longer passes on the target Perl version. When that
+happens, replace or rework the dependency instead of downgrading the gate.
+The current TOML query path uses `TOML::Parser` with explicit boolean
+inflation to plain Perl `1` and `0`, because `TOML::Tiny 0.21` no longer
+passes its own clean-install test suite on Perl 5.38.
 The shell bootstrap regression coverage also checks that the POSIX `cdr` and
 `which_dir` helpers decode their JSON payloads through the same Perl
 interpreter that generated the shell fragment, which prevents macOS

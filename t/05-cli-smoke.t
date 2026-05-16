@@ -2553,6 +2553,8 @@ my $toml_root_stdin = _run("cat '$toml_file' | $perl -I'$lib' '$dashboard' tomq 
 is( $toml_root_stdin, $toml_root, 'tomq returns the same whole-document result from stdin and file input' );
 my $toml_keys = _run(qq{printf '[foo]\\na = 1\\n[bar]\\nb = 2\\n' | $perl -I'$lib' '$dashboard' tomq 'sort keys %\$d'});
 is_deeply( json_decode($toml_keys), [ 'bar', 'foo' ], 'tomq evaluates Perl expressions against decoded TOML data through $d' );
+my $toml_bool = _run(qq{printf 'enabled = true\\ndisabled = false\\n' | $perl -I'$lib' '$dashboard' tomq '\$d'});
+is_deeply( json_decode($toml_bool), { disabled => 0, enabled => 1 }, 'tomq returns plain Perl scalar booleans instead of TOML backend objects' );
 my $toml_direct = _run(qq{printf '[alpha]\\nbeta = 4\\n' | $perl -I'$lib' '$runtime_tomq' alpha.beta});
 is( $toml_direct, $toml_value, 'private runtime tomq matches dashboard tomq output' );
 

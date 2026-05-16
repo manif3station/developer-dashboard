@@ -30,7 +30,7 @@ WriteMakefile(
         'LWP::Protocol::https'  => 0,
         'LWP::UserAgent'        => 0,
         'YAML::XS'              => 0,
-        'TOML::Tiny'            => 0,
+        'TOML::Parser'          => 0,
         'Capture::Tiny'         => 0,
         'Digest::MD5'           => 0,
         'Digest::SHA'           => 0,

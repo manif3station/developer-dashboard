@@ -1,3 +1,15 @@
+3.79  2026-05-16
+    - replaced the `tomq` backend dependency with `TOML::Parser`, inflating
+      TOML booleans to plain Perl `1` and `0` scalars so query output stays
+      stable while the blank-container `cpanm` install gate no longer trips
+      over the failing upstream `TOML::Tiny 0.21` test suite on Perl 5.38
+
+3.78  2026-05-16
+    - fixed the tag-driven GitHub release workflow so it installs
+      `Devel::Cover` before running the numeric coverage gate; this avoids
+      the exit-127 `cover` failure that previously blocked signed GitHub
+      release publication and kept Scorecard from seeing any releases
+
 3.77  2026-05-15
     - aligned every shipped Perl module under `lib/` with the distribution
       version after the blank-host installer fix so the source tree, release

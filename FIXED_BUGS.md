@@ -1,4 +1,23 @@
 # Fixed Bugs
+## 3.79 - Replace TOML::Tiny with TOML::Parser for tarball-install stability
+
+- Fixed the `tomq` runtime dependency chain by replacing `TOML::Tiny` with
+  `TOML::Parser`.
+- `TOML::Tiny 0.21` no longer passes its own clean-container test suite on
+  Perl 5.38, which made `cpanm Developer-Dashboard-X.XX.tar.gz` fail under
+  the required install-with-tests gate before the distribution could finish
+  installing.
+- The new parser path also inflates TOML booleans into plain Perl `1` and `0`
+  scalars so CLI and JSON query output stays predictable.
+
+## 3.78 - Fix missing Devel::Cover in the GitHub release workflow
+
+- Fixed the tag-triggered GitHub release workflow so it installs
+  `Devel::Cover` before it runs the numeric coverage gate.
+- This removes the `cover: command not found` exit-127 failure that blocked
+  GitHub release publication even after the local test and coverage gates had
+  already passed.
+
 ## 3.77 - Align all shipped lib module versions with the repo version
 
 - Fixed a release metadata drift where the main repo version had moved forward
