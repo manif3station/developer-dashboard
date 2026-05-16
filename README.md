@@ -2442,6 +2442,9 @@ For repository delivery on this machine, follow the loop:
 Use `~/bin/git-push-mf` for the authenticated push step.
 Do not treat Scorecard as a pre-commit local gate; run it only after the local
 gates, commit, and push are complete.
+When Scorecard needs a signed GitHub release, push a `vX.XX` tag so the
+tag-triggered GitHub release workflow can publish the tarball, checksum, and
+detached signature assets that back the `Signed-Releases` check.
 
 Skill fleet integration:
 
