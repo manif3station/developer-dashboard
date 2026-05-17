@@ -3702,6 +3702,250 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
 }
 
 {
+    ok(
+        !$runner->_state_confirms_managed_loop( 'missing-state', $$ ),
+        '_state_confirms_managed_loop returns false when no persisted loop state exists for a live pid',
+    );
+
+    for my $case (
+        [
+            'wrong-pid',
+            {
+                pid          => $$ + 1,
+                name         => 'wrong-pid',
+                process_name => 'dashboard collector: wrong-pid',
+                status       => 'running',
+            },
+            qr/pid mismatch/,
+        ],
+        [
+            'wrong-name',
+            {
+                pid          => $$,
+                name         => 'other-name',
+                process_name => 'dashboard collector: wrong-name',
+                status       => 'running',
+            },
+            qr/name mismatch/,
+        ],
+        [
+            'wrong-title',
+            {
+                pid          => $$,
+                name         => 'wrong-title',
+                process_name => 'foreign collector title',
+                status       => 'running',
+            },
+            qr/title mismatch/,
+        ],
+        [
+            'wrong-status',
+            {
+                pid          => $$,
+                name         => 'wrong-status',
+                process_name => 'dashboard collector: wrong-status',
+                status       => 'stopped',
+            },
+            qr/status mismatch/,
+        ],
+    ) {
+        my ( $name, $state, $label ) = @$case;
+        if ( $label =~ /name mismatch/ ) {
+            my $statefile = File::Spec->catfile( $paths->collector_dir($name), 'loop.json' );
+            open my $fh, '>', $statefile or die $!;
+            print {$fh} json_encode($state);
+            close $fh;
+        }
+        else {
+            $runner->_write_loop_state( $name, $state );
+        }
+        ok(
+            !$runner->_state_confirms_managed_loop( $name, $$ ),
+            "_state_confirms_managed_loop rejects persisted loop state with $label",
+        );
+        $runner->_cleanup_loop_files($name);
+    }
+}
+
+{
+    my $pidfile = File::Spec->catfile( $paths->collectors_root, 'stubborn-state.pid' );
+    open my $stubborn_pid, '>', $pidfile or die $!;
+    print {$stubborn_pid} "424242\n";
+    close $stubborn_pid;
+    $runner->_write_loop_state(
+        'stubborn-state',
+        {
+            pid          => 424242,
+            name         => 'stubborn-state',
+            process_name => 'dashboard collector: stubborn-state',
+            status       => 'running',
+        }
+    );
+    my $error = '';
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CollectorRunner::_reap_child_process = sub { return 0 };
+        local *Developer::Dashboard::CollectorRunner::_same_pid_namespace = sub { return 1 };
+        local *Developer::Dashboard::CollectorRunner::_is_managed_loop = sub { return 1 };
+        local *Developer::Dashboard::CollectorRunner::_pid_is_running = sub { return 1 };
+        local *Developer::Dashboard::CollectorRunner::sleep = sub { return 0 };
+        eval { $runner->stop_loop('stubborn-state'); 1 } or $error = $@;
+    }
+    like( $error, qr/Collector 'stubborn-state' did not stop after TERM and KILL/, 'stop_loop fails explicitly when a managed collector still appears alive after TERM and KILL' );
+    ok( -f $pidfile, 'stop_loop keeps the pidfile when a managed collector refuses to stop' );
+    ok( defined $runner->loop_state('stubborn-state'), 'stop_loop keeps loop state metadata when a managed collector refuses to stop' );
+    $runner->_cleanup_loop_files('stubborn-state');
+}
+
+{
+    my $proc_root = tempdir( CLEANUP => 1 );
+    my $proc_dir  = File::Spec->catdir( $proc_root, '4242' );
+    mkdir $proc_dir or die $!;
+    my $environ = File::Spec->catfile( $proc_dir, 'environ' );
+    open my $env_fh, '>', $environ or die $!;
+    print {$env_fh} "BROKEN\0TARGET_KEY=collector-value\0";
+    close $env_fh;
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CollectorRunner::_read_process_env_marker = sub {
+            my ( $self, $pid, $key ) = @_;
+            my $proc = File::Spec->catfile( $proc_root, $pid, 'environ' );
+            open my $fh, '<', $proc or return;
+            local $/;
+            my $env = scalar <$fh>;
+            return if !defined $env || $env eq '';
+            for my $pair ( split /\0/, $env ) {
+                next if $pair !~ /^([^=]+)=(.*)$/s;
+                return $2 if $1 eq $key;
+            }
+            return;
+        };
+        is(
+            $runner->_read_process_env_marker( 4242, 'TARGET_KEY' ),
+            'collector-value',
+            '_read_process_env_marker skips malformed environ entries and returns the requested value',
+        );
+    }
+}
+
+{
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return '' };
+        local *Developer::Dashboard::CollectorRunner::capture = sub (&) {
+            return ( "dashboard collector: ps-fallback   \n", '', 0 );
+        };
+        is(
+            $runner->_read_process_title(4242),
+            'dashboard collector: ps-fallback',
+            '_read_process_title falls back to ps output when procfs command line data is unavailable',
+        );
+    }
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return '' };
+        local *Developer::Dashboard::CollectorRunner::capture = sub (&) {
+            return ( "dashboard collector: ps-failure\n", '', 1 );
+        };
+        ok(
+            !defined $runner->_read_process_title(4242),
+            '_read_process_title returns undef when ps fallback itself fails',
+        );
+    }
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return "4242 (dashboard) Z 1 2 3 4\n" };
+        is(
+            $runner->_read_process_state(4242),
+            'Z',
+            '_read_process_state reads the one-letter procfs process state',
+        );
+    }
+
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub { return '' };
+        local *Developer::Dashboard::CollectorRunner::capture = sub (&) {
+            return ( "Z+\n", '', 0 );
+        };
+        is(
+            $runner->_read_process_state(4242),
+            'Z',
+            '_read_process_state falls back to ps output when procfs state is unavailable',
+        );
+    }
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_reap_child_process = sub { return 0 };
+    local *Developer::Dashboard::CollectorRunner::_read_process_state = sub { return 'Z' };
+    local *Developer::Dashboard::CollectorRunner::_process_exists = sub { return 1 };
+    ok(
+        !$runner->_pid_is_running(4242),
+        '_pid_is_running treats zombie collectors as stopped even when signal 0 still succeeds',
+    );
+}
+
+{
+    local $ENV{PERL5OPT}            = '-MDevel::Cover';
+    local $ENV{HARNESS_PERL_SWITCHES} = '';
+    ok( $runner->_coverage_instrumentation_active, '_coverage_instrumentation_active detects Devel::Cover in PERL5OPT' );
+    $runner->_scrub_coverage_environment;
+    ok( !defined $ENV{PERL5OPT}, '_scrub_coverage_environment removes PERL5OPT from managed loop children' );
+
+    local $ENV{PERL5OPT}            = '';
+    local $ENV{HARNESS_PERL_SWITCHES} = '';
+    ok( !$runner->_coverage_instrumentation_active, '_coverage_instrumentation_active returns false when coverage is not requested' );
+}
+
+{
+    {
+        no warnings 'redefine';
+        my $setsid_called = 0;
+        local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
+        local *Developer::Dashboard::CollectorRunner::setsid     = sub { $setsid_called++; return 1 };
+        ok( $runner->_detach_process_session, '_detach_process_session is a no-op on Windows' );
+        is( $setsid_called, 0, '_detach_process_session skips setsid on Windows' );
+    }
+
+    {
+        no warnings 'redefine';
+        my $setsid_called = 0;
+        local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 0 };
+        local *Developer::Dashboard::CollectorRunner::setsid     = sub { $setsid_called++; return 1 };
+        ok( $runner->_detach_process_session, '_detach_process_session detaches the session on POSIX platforms' );
+        is( $setsid_called, 1, '_detach_process_session calls setsid exactly once on POSIX platforms' );
+    }
+}
+
+{
+    my ( $stdout, $stderr, $exit_code, $timed_out ) = $runner->_run_command(
+        source     => q{printf collector-command},
+        cwd        => $paths->home,
+        timeout_ms => 1_000,
+    );
+    is( $stdout, 'collector-command', '_run_command captures stdout from a successful shell command' );
+    is( $stderr, '', '_run_command leaves stderr empty for a successful shell command' );
+    is( $exit_code, 0, '_run_command returns zero for a successful shell command' );
+    is( $timed_out, 0, '_run_command does not mark successful commands as timed out' );
+}
+
+{
+    my ( $stdout, $stderr, $exit_code, $timed_out ) = $runner->_run_code(
+        source     => q{ die "collector code boom\n"; },
+        cwd        => $paths->home,
+        timeout_ms => 1_000,
+    );
+    is( $stdout, '', '_run_code does not emit stdout for a dying code collector' );
+    like( $stderr, qr/collector code boom/, '_run_code writes code evaluation errors to stderr explicitly' );
+    is( $exit_code, 255, '_run_code returns 255 when collector code dies' );
+    is( $timed_out, 0, '_run_code distinguishes code errors from collector timeouts' );
+}
+
+{
     my $child = fork();
     die 'Unable to fork sort child' if !defined $child;
     if ( !$child ) {

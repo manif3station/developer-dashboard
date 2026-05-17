@@ -18,6 +18,7 @@ use Developer::Dashboard::Config;
 use Developer::Dashboard::EnvAudit;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::Platform qw(command_in_path);
 use Developer::Dashboard::SkillDispatcher;
 use Developer::Dashboard::SkillManager;
 
@@ -39,6 +40,7 @@ my $python_log = File::Spec->catfile( $fake_bin, 'python.log' );
 my $sudo_log = File::Spec->catfile( $fake_bin, 'sudo.log' );
 my $dashboard_log = File::Spec->catfile( $fake_bin, 'dashboard.log' );
 my $dependency_log = File::Spec->catfile( $fake_bin, 'dependency-install.log' );
+my $runtime_path = join ':', grep { defined && $_ ne '' && $_ ne $fake_bin } split /:/, ( $ENV{PATH} || '' );
 _write_file(
     File::Spec->catfile( $fake_bin, 'cpanm' ),
     <<"SH",
@@ -1011,6 +1013,66 @@ is(
     'dashboard which --edit <skill>.<command> opens the resolved skill command path through dashboard open-file',
 );
 
+my $python_skill_repo = _create_skill_repo('python-dotted-skill');
+_append_repo_commit(
+    $python_skill_repo,
+    File::Spec->catfile( 'cli', 'bar.py' ),
+    <<'PY',
+import sys
+
+print("python-dotted:" + "|".join(sys.argv[1:]))
+PY
+);
+my $python_skill_install = $manager->install( 'file://' . $python_skill_repo );
+ok( !$python_skill_install->{error}, 'python dotted skill installs cleanly' ) or diag $python_skill_install->{error};
+my ( $python_dotted_stdout, $python_dotted_stderr, $python_dotted_exit ) = capture {
+    local $ENV{PATH} = $runtime_path;
+    system( $^X, '-I', 'lib', $repo_bin, 'python-dotted-skill.bar', 'py-arg' );
+};
+is( $python_dotted_exit >> 8, 0, 'dashboard <skill>.<command> dispatch exits cleanly for cli/<command>.py' );
+is( $python_dotted_stderr, '', 'python dotted skill dispatch keeps stderr clean' );
+like( $python_dotted_stdout, qr/^python-dotted:py-arg\r?\n\z/, 'dashboard <skill>.<command> runs cli/<command>.py through python' );
+my ( $python_which_stdout, $python_which_stderr, $python_which_exit ) = capture {
+    system( $^X, '-I', 'lib', $repo_bin, 'which', 'python-dotted-skill.bar' );
+};
+is( $python_which_exit >> 8, 0, 'dashboard which resolves dotted python skill commands' );
+is( $python_which_stderr, '', 'dashboard which keeps stderr clean for dotted python skill commands' );
+like(
+    $python_which_stdout,
+    qr/^COMMAND \Q@{[ File::Spec->catfile( $python_skill_install->{path}, 'cli', 'bar.py' ) ]}\E$/m,
+    'dashboard which reports the cli/<command>.py path for dotted python skill commands',
+);
+
+my $javascript_skill_repo = _create_skill_repo('javascript-dotted-skill');
+_append_repo_commit(
+    $javascript_skill_repo,
+    File::Spec->catfile( 'cli', 'foo.js' ),
+    <<'JS',
+console.log("javascript-dotted:" + process.argv.slice(2).join("|"));
+JS
+);
+my $javascript_skill_install = $manager->install( 'file://' . $javascript_skill_repo );
+ok( !$javascript_skill_install->{error}, 'javascript dotted skill installs cleanly' ) or diag $javascript_skill_install->{error};
+SKIP: {
+    skip 'javascript dotted skill dispatch requires node on PATH', 6 if !command_in_path('node');
+    my ( $javascript_dotted_stdout, $javascript_dotted_stderr, $javascript_dotted_exit ) = capture {
+        system( $^X, '-I', 'lib', $repo_bin, 'javascript-dotted-skill.foo', 'js-arg' );
+    };
+    is( $javascript_dotted_exit >> 8, 0, 'dashboard <skill>.<command> dispatch exits cleanly for cli/<command>.js' );
+    is( $javascript_dotted_stderr, '', 'javascript dotted skill dispatch keeps stderr clean' );
+    like( $javascript_dotted_stdout, qr/^javascript-dotted:js-arg\r?\n\z/, 'dashboard <skill>.<command> runs cli/<command>.js through node' );
+    my ( $javascript_which_stdout, $javascript_which_stderr, $javascript_which_exit ) = capture {
+        system( $^X, '-I', 'lib', $repo_bin, 'which', 'javascript-dotted-skill.foo' );
+    };
+    is( $javascript_which_exit >> 8, 0, 'dashboard which resolves dotted javascript skill commands' );
+    is( $javascript_which_stderr, '', 'dashboard which keeps stderr clean for dotted javascript skill commands' );
+    like(
+        $javascript_which_stdout,
+        qr/^COMMAND \Q@{[ File::Spec->catfile( $javascript_skill_install->{path}, 'cli', 'foo.js' ) ]}\E$/m,
+        'dashboard which reports the cli/<command>.js path for dotted javascript skill commands',
+    );
+}
+
 make_path( File::Spec->catdir( $install->{path}, 'skills', 'foo', 'cli' ) );
 _write_file(
     File::Spec->catfile( $install->{path}, 'skills', 'foo', 'cli', 'foo' ),
@@ -1052,11 +1114,10 @@ my ( $uninstall_stdout, $uninstall_stderr, $uninstall_exit ) = capture {
     system( $^X, '-I', 'lib', $repo_bin, 'skills', 'uninstall', 'alpha-skill' );
 };
 is( $uninstall_exit >> 8, 0, 'dashboard skills uninstall exits cleanly' );
-is_deeply(
-    [ map { $_->{name} } @{ $manager->list } ],
-    [ 'home-only-skill', 'shared-skill' ],
-    'uninstall removes the targeted base skill without touching layered skills from other DD-OOP-LAYERS',
-);
+my @remaining_skills = map { $_->{name} } @{ $manager->list };
+ok( !grep { $_ eq 'alpha-skill' } @remaining_skills, 'uninstall removes the targeted base skill' );
+ok( grep { $_ eq 'home-only-skill' } @remaining_skills, 'uninstall preserves inherited home-only layered skills' );
+ok( grep { $_ eq 'shared-skill' } @remaining_skills, 'uninstall preserves shared layered skills from other DD-OOP-LAYERS' );
 
 done_testing();
 

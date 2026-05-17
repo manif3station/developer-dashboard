@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.79
+3.82
 
 # INTRODUCTION
 
@@ -1832,6 +1832,10 @@ of silent waiting. The shutdown path now also follows the saved managed
 listener port back to the real listener pid when the live web process has
 renamed itself into a `starman master` shape, so minimal Docker runs still
 stop the actual serving process instead of leaving the listener behind.
+Managed collector stop and restart flows also wait for the previous loop to
+really die before accepting a replacement, so a slow shutdown does not leave a
+stale collector process rewriting loop state while the next restart is proving
+the new pid.
 - `dashboard stop web` only stops the managed web service
 - `dashboard stop collector` only stops managed collector loops
 - `dashboard stop collector <name>` only stops the requested managed
@@ -2285,6 +2289,12 @@ ships `cli/somecmd`, `dashboard example-skill.somecmd` resolves the correct
 layered skill command. If the active child layer for that same repo omits
 `cli/somecmd`, the command falls back to the nearest inherited skill layer
 that still provides it.
+
+That same dotted dispatch also applies to runtime-backed command files such as
+`cli/report.py` and `cli/webhook.js`. In those cases the resolved skill
+command still runs through the same public `dashboard <skill>.<command>`
+route, with Python-backed files launched through `python` and JavaScript-backed
+files launched through `node`.
 
 If the skill command itself lives below nested
 `skills/<repo>/.../skills/<repo>` trees, the same dotted

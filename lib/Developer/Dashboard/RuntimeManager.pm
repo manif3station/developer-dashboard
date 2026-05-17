@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.79';
+our $VERSION = '3.82';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -372,7 +372,8 @@ sub _pid_is_running {
     my ( $self, $pid ) = @_;
     return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
     return 0 if $self->_reap_child_process($pid);
-    return kill( 0, $pid ) ? 1 : 0;
+    return 0 if ( $self->_read_process_state($pid) || '' ) eq 'Z';
+    return $self->_process_exists($pid) ? 1 : 0;
 }
 
 # _reap_child_processes(@pids)
@@ -2726,9 +2727,9 @@ sub _runtime_stability_polls {
     return $override if defined $override && $override =~ /^\d+$/ && $override > 0;
 
     my $perl5opt = join ' ', grep { defined && $_ ne '' } @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)};
-    return 300 if $perl5opt =~ /Devel::Cover/;
+    return 300 if $perl5opt =~ /Devel::Cover/ || exists $INC{'Devel/Cover.pm'};
 
-    return 100;
+    return 300;
 }
 
 # _runtime_confirmation_polls()
@@ -2849,6 +2850,42 @@ sub _read_process_title {
     return if $exit_code != 0;
     $stdout =~ s/\s+$// if defined $stdout;
     return $stdout;
+}
+
+# _read_process_state($pid)
+# Reads one process state code so lifecycle checks can distinguish live
+# processes from zombie entries that still answer signal 0.
+# Input: process id integer.
+# Output: one-letter process state string or undef.
+sub _read_process_state {
+    my ( $self, $pid ) = @_;
+    my $proc = "/proc/$pid/stat";
+    if ( -r $proc ) {
+        open my $fh, '<', $proc or return;
+        local $/;
+        my $stat = scalar <$fh>;
+        if ( defined $stat && $stat ne '' && $stat =~ /^\d+\s+\(.*\)\s+(\S)/s ) {
+            return $1;
+        }
+    }
+
+    my ( $stdout, undef, $exit_code ) = capture {
+        system 'ps', '-o', 'stat=', '-p', $pid;
+        return $? >> 8;
+    };
+    return if $exit_code != 0;
+    $stdout =~ s/^\s+|\s+$//g if defined $stdout;
+    return if !defined $stdout || $stdout eq '';
+    return substr( $stdout, 0, 1 );
+}
+
+# _process_exists($pid)
+# Checks whether one process id still exists from the current runtime view.
+# Input: process id integer.
+# Output: boolean true when signal 0 succeeds.
+sub _process_exists {
+    my ( $self, $pid ) = @_;
+    return kill( 0, $pid ) ? 1 : 0;
 }
 
 # _now_iso8601()

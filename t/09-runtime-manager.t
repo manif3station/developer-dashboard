@@ -2227,7 +2227,9 @@ END {
     local $ENV{DEVELOPER_DASHBOARD_RUNTIME_STABILITY_POLLS};
     local $ENV{PERL5OPT};
     local $ENV{HARNESS_PERL_SWITCHES};
-    is( $manager->_runtime_stability_polls, 100, '_runtime_stability_polls keeps the default poll count when no override or instrumentation is active' );
+    local $INC{'Devel/Cover.pm'};
+    delete $INC{'Devel/Cover.pm'};
+    is( $manager->_runtime_stability_polls, 300, '_runtime_stability_polls keeps the default widened poll count when no override or instrumentation is active' );
 }
 
 {
@@ -2281,7 +2283,7 @@ END {
     local $ENV{DEVELOPER_DASHBOARD_RUNTIME_STABILITY_POLLS} = 'broken';
     local $ENV{PERL5OPT};
     local $ENV{HARNESS_PERL_SWITCHES};
-    is( $manager->_runtime_stability_polls, 100, '_runtime_stability_polls ignores invalid environment overrides' );
+    is( $manager->_runtime_stability_polls, 300, '_runtime_stability_polls ignores invalid environment overrides and falls back to the widened default' );
 }
 
 {
@@ -2289,6 +2291,18 @@ END {
     local $ENV{PERL5OPT};
     local $ENV{HARNESS_PERL_SWITCHES} = '-MDevel::Cover';
     is( $manager->_runtime_stability_polls, 300, '_runtime_stability_polls widens the startup grace window when coverage instrumentation is active' );
+}
+
+{
+    local $ENV{DEVELOPER_DASHBOARD_RUNTIME_STABILITY_POLLS};
+    local $ENV{PERL5OPT};
+    local $ENV{HARNESS_PERL_SWITCHES};
+    local $INC{'Devel/Cover.pm'} = 'Devel/Cover.pm';
+    is(
+        $manager->_runtime_stability_polls,
+        300,
+        '_runtime_stability_polls widens the startup grace window when Devel::Cover is already loaded even after coverage env vars are cleared',
+    );
 }
 
 {
@@ -2559,6 +2573,28 @@ TCP6
     is( $manager->_read_process_title(999_999_999), 'ps fallback title', '_read_process_title falls back to ps output when /proc cmdline is unavailable' );
 }
 ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title returns undef when ps also cannot resolve the pid' );
+
+SKIP: {
+    skip '_read_process_state direct procfs coverage requires /proc', 1 if !-r "/proc/$$/stat";
+    like( $manager->_read_process_state($$), qr/^[A-Z]$/, '_read_process_state reads the direct procfs state code for the current process' );
+}
+
+ok( $manager->_process_exists($$), '_process_exists returns true for the current runtime process' );
+ok( !defined $manager->_read_process_state(999_999_998), '_read_process_state returns undef when ps also cannot resolve the pid' );
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( "Z+\n", undef, 0 ) };
+    is( $manager->_read_process_state(999_999_999), 'Z', '_read_process_state falls back to ps output when procfs state data is unavailable' );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_reap_child_process = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_read_process_state = sub { return 'Z' };
+    local *Developer::Dashboard::RuntimeManager::_process_exists     = sub { return 1 };
+    ok( !$manager->_pid_is_running(4242), '_pid_is_running treats zombie runtime pids as stopped even when signal 0 still succeeds' );
+}
 
 {
     no warnings 'redefine';

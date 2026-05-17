@@ -8,6 +8,12 @@ Run the full test suite with:
 prove -lr t
 ```
 
+The dotted installed-skill command regressions cover both `cli/<command>.py`
+and `cli/<command>.js`. The JavaScript execution assertions require `node` on
+`PATH`, so the release tarball gate keeps the path-resolution assertions
+everywhere and skips only the `.js` execution step on minimal hosts that do not
+ship Node.js.
+
 Run the fast saved-bookmark browser smoke check with:
 
 ```bash
@@ -74,6 +80,11 @@ statement and 100% subroutine coverage for `lib/`.
 
 The coverage-closure suite includes managed collector loop start/stop paths under `Devel::Cover`, including wrapped fork coverage in `t/14-coverage-closure-extra.t`, so the covered run stays green without breaking TAP from daemon-style child processes.
 Managed collector children now scrub inherited `PERL5OPT` and `HARNESS_PERL_SWITCHES` coverage settings before their long-lived loop work begins, and the runtime manager widens its startup stability polls when the parent harness is running under `Devel::Cover`, so the full covered suite does not misclassify a slow instrumented startup as a dead runtime.
+The collector stop path is also part of that regression surface now: a managed
+loop must be truly gone before its pid/state files are cleaned up, otherwise a
+dying old loop can keep rewriting state while a replacement restart is trying
+to prove its new pid. `t/07-core-units.t`, `t/09-runtime-manager.t`, and the
+covered `t/05-cli-smoke.t` restart/serve flows now lock that race down.
 The runtime child-lifecycle contract is also part of the regression surface now: collector stop paths, watchdog shutdown, detached background actions, and the SSL frontend must reap the direct children they own so macOS, Linux, and WSL hosts do not accumulate zombie helper processes after normal stop or restart flows.
 Collector scheduler coverage now also locks in the overlap policy contract:
 default collector mode is singleton, opt-in `mode => multiple` collectors can
@@ -100,6 +111,11 @@ That same focused skill regression now also locks the same-repo
 `DD-OOP-LAYERS` fallback contract inside one skill name, including inherited
 fallback for missing `cli/<command>` files, missing bookmark files, missing
 `dashboards/nav/` folders, and missing skill config keys.
+That same focused skill regression now also covers installed dotted skill
+commands backed by `cli/<command>.py` and `cli/<command>.js`, and the release
+loop also rechecks those two command shapes inside the
+`developer-dashboard:latest` container image so packaged Python and Node
+dispatch stays aligned with the source-tree suite.
 The release-metadata checks also reject repeated FULL-POD-DOC template prose in shipped Perl assets, so contributors have to document the actual responsibility of each module or staged helper instead of pasting one generic block across the tree. The release gate also treats one-line or placeholder POD as a failure: shipped Perl docs must cover real inputs, outputs or side effects, command/runtime position, and multiple concrete examples.
 The tarball release gate now also includes `t/36-release-kwalitee.t`, which
 reads the built `Developer-Dashboard-X.XX.tar.gz` through

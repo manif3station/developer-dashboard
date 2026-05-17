@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.79';
+our $VERSION = '3.82';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.79
+3.82
 
 =head1 INTRODUCTION
 
@@ -2179,6 +2179,10 @@ of silent waiting. The shutdown path now also follows the saved managed
 listener port back to the real listener pid when the live web process has
 renamed itself into a C<starman master> shape, so minimal Docker runs still
 stop the actual serving process instead of leaving the listener behind.
+Managed collector stop and restart flows also wait for the previous loop to
+really die before accepting a replacement, so a slow shutdown does not leave a
+stale collector process rewriting loop state while the next restart is proving
+the new pid.
 
 =item *
 
@@ -2731,6 +2735,12 @@ ships C<cli/somecmd>, C<dashboard example-skill.somecmd> resolves the correct
 layered skill command. If the active child layer for that same repo omits
 C<cli/somecmd>, the command falls back to the nearest inherited skill layer
 that still provides it.
+
+That same dotted dispatch also applies to runtime-backed command files such as
+C<cli/report.py> and C<cli/webhook.js>. In those cases the resolved skill
+command still runs through the same public C<dashboard E<lt>skillE<gt>.E<lt>commandE<gt>>
+route, with Python-backed files launched through C<python> and JavaScript-backed
+files launched through C<node>.
 
 If the skill command itself lives below nested
 C<skills/E<lt>repoE<gt>/.../skills/E<lt>repoE<gt>> trees, the same dotted

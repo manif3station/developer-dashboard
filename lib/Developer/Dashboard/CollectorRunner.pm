@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '3.79';
+our $VERSION = '3.82';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -599,6 +599,7 @@ sub stop_loop {
             sleep 0.1;
         }
         $self->_reap_child_process($pid);
+        die "Collector '$name' did not stop after TERM and KILL\n" if $self->_pid_is_running($pid);
     }
     if ( $pid && !$same_namespace ) {
         $self->_cleanup_loop_files($name);
@@ -763,6 +764,29 @@ sub _read_process_title {
     return $title;
 }
 
+# _read_process_state($pid)
+# Reads one process state code so lifecycle checks can distinguish live
+# processes from unreapable zombie entries.
+# Input: process id integer.
+# Output: one-letter process state string or undef.
+sub _read_process_state {
+    my ( $self, $pid ) = @_;
+    my $proc = "/proc/$pid/stat";
+    my $stat = $self->_read_proc_file($proc);
+    if ( defined $stat && $stat ne '' && $stat =~ /^\d+\s+\(.*\)\s+(\S)/s ) {
+        return $1;
+    }
+
+    my ( $state, undef, $exit_code ) = capture {
+        system 'ps', '-o', 'stat=', '-p', $pid;
+        return $? >> 8;
+    };
+    return if defined $exit_code && $exit_code != 0;
+    $state =~ s/^\s+|\s+$//g if defined $state;
+    return if !defined $state || $state eq '';
+    return substr( $state, 0, 1 );
+}
+
 # _read_proc_file($file)
 # Reads a procfs file when it is available.
 # Input: file path string.
@@ -847,6 +871,15 @@ sub _reap_child_process {
     return $waited == $pid ? 1 : 0;
 }
 
+# _process_exists($pid)
+# Checks whether the current process can still signal one process id.
+# Input: process id integer.
+# Output: boolean true when signal 0 succeeds.
+sub _process_exists {
+    my ( $self, $pid ) = @_;
+    return kill( 0, $pid ) ? 1 : 0;
+}
+
 # _pid_is_running($pid)
 # Determines whether one collector loop pid is still alive after opportunistic
 # child reaping.
@@ -856,7 +889,8 @@ sub _pid_is_running {
     my ( $self, $pid ) = @_;
     return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
     return 0 if $self->_reap_child_process($pid);
-    return kill( 0, $pid ) ? 1 : 0;
+    return 0 if ( $self->_read_process_state($pid) || '' ) eq 'Z';
+    return $self->_process_exists($pid) ? 1 : 0;
 }
 
 # _detach_process_session()
