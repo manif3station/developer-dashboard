@@ -2451,6 +2451,24 @@ is_deeply(
         "Install Makefile dependencies from $label_makefile",
         '_dependency_progress_label surfaces the detected Makefile path while make work is in progress',
     );
+    {
+        local $ENV{DD_TEST_OS} = 'linux';
+        local $ENV{DD_TEST_DEBIAN_LIKE} = 1;
+        local $ENV{DD_TEST_ALPINE} = 0;
+        local $ENV{DD_TEST_FEDORA} = 0;
+        _write_file( File::Spec->catfile( $label_skill, 'aptfile' ), "jq\n" );
+        _write_file( File::Spec->catfile( $label_skill, 'brewfile' ), "jq\n" );
+        is_deeply(
+            $manager->dependency_progress_tasks_for_skill_path($label_skill),
+            [
+                { id => 'install_aptfile', label => 'Install aptfile dependencies' },
+                { id => 'install_package_json', label => 'Install package.json dependencies' },
+                { id => 'install_requirements_txt', label => 'Install requirements.txt dependencies' },
+                { id => 'install_makefile', label => 'Install Makefile dependencies' },
+            ],
+            'dependency_progress_tasks_for_skill_path keeps only present cross-platform manifests plus the host-relevant package manager task',
+        );
+    }
 }
 is( $manager->get_skill_path('missing'), undef, 'get_skill_path returns undef for missing skills' );
 is( $manager->_normalize_install_source('browser'), 'https://github.com/manif3station/browser', '_normalize_install_source expands bare skill names against the official GitHub base' );
@@ -4505,6 +4523,31 @@ sub _dies {
     open my $fh, '>', \$output or die "Unable to open scalar handle for progress output: $!";
     my $progress = Developer::Dashboard::CLI::Progress->new(
         title   => 'dashboard skills install progress',
+        tasks   => [
+            { id => 'fetch_source',   label => 'Fetch skill source' },
+            { id => 'prepare_layout', label => 'Prepare skill layout' },
+        ],
+        stream  => $fh,
+        dynamic => 0,
+    );
+    $progress->update(
+        {
+            add_tasks => [
+                { id => 'install_package_json', label => 'Install package.json dependencies' },
+                { id => 'install_cpanfile',     label => 'Install cpanfile dependencies' },
+            ],
+        }
+    );
+    like( $output, qr/\[ \] Install package\.json dependencies/, 'CLI::Progress can append newly discovered tasks after the board is created' );
+    like( $output, qr/\[ \] Install cpanfile dependencies/, 'CLI::Progress keeps appended tasks pending until work begins' );
+}
+
+{
+    require Developer::Dashboard::CLI::Progress;
+    my $output = '';
+    open my $fh, '>', \$output or die "Unable to open scalar handle for progress output: $!";
+    my $progress = Developer::Dashboard::CLI::Progress->new(
+        title   => 'dashboard skills install progress',
         max_detail_lines => 10,
         tasks   => [
             { id => 'install_brewfile',     label => 'Install brewfile dependencies' },
@@ -4572,6 +4615,126 @@ sub _dies {
     );
     like( $output, qr/\x1b\[31m\[X\]\x1b\[0m Stop dashboard web service/, 'CLI::Progress colors the failed marker red when color output is enabled' );
     like( $output, qr/   \x1b\[31mlistener never stopped\x1b\[0m/, 'CLI::Progress colors failed detail lines red when color output is enabled' );
+}
+
+{
+    require Developer::Dashboard::CLI::Progress;
+
+    my $invalid_array_error;
+    eval { Developer::Dashboard::CLI::Progress->new( tasks => {} ); 1 } or $invalid_array_error = $@;
+    like( $invalid_array_error, qr/Progress tasks must be an array reference/, 'CLI::Progress rejects non-array task lists' );
+
+    my $missing_id_error;
+    eval { Developer::Dashboard::CLI::Progress->new( tasks => [ {} ] ); 1 } or $missing_id_error = $@;
+    like( $missing_id_error, qr/Progress task missing id/, 'CLI::Progress rejects task entries without ids' );
+
+    my $output = '';
+    open my $fh, '>', \$output or die "Unable to open scalar handle for progress output: $!";
+    my $progress = Developer::Dashboard::CLI::Progress->new(
+        title   => 'dashboard progress edge coverage',
+        tasks   => [ { id => 'only_task', label => 'Only task label' } ],
+        stream  => $fh,
+        dynamic => 0,
+        color   => 0,
+    );
+
+    is( $progress->_detail_line_limit, undef, 'CLI::Progress leaves the detail-line limit undefined when no cap is configured' );
+    is( $progress->_status_prefix('pending'), '[ ]', 'CLI::Progress uses the pending prefix for unknown statuses' );
+    is( $progress->_colorize( '[ ]', 'pending' ), '[ ]', 'CLI::Progress leaves pending markers uncolored' );
+    is( $progress->_colorize_detail( 'detail line', 'pending' ), 'detail line', 'CLI::Progress leaves pending detail text uncolored' );
+    like( $progress->render_text, qr/\[ \] Only task label/, 'CLI::Progress render_text includes the pending task board text' );
+
+    my $callback = $progress->callback;
+    ok( ref($callback) eq 'CODE', 'CLI::Progress callback returns a coderef' );
+    ok( $callback->( { task_id => 'only_task', status => 'running', label => 'Only task running' } ), 'CLI::Progress callback forwards runtime events to update' );
+    like( $output, qr/-> Only task running/, 'CLI::Progress callback updates the rendered board' );
+
+    ok( $progress->add_tasks(), 'CLI::Progress ignores missing appended task lists' );
+    ok( $progress->add_tasks('not-an-array'), 'CLI::Progress ignores non-array appended task lists' );
+    ok(
+        $progress->add_tasks(
+            [
+                'not-a-hash',
+                {},
+                { id => 'only_task', label => 'Duplicate id stays ignored' },
+                { id => 'second_task', label => 'Second task label' },
+            ]
+        ),
+        'CLI::Progress ignores invalid or duplicate appended tasks while accepting valid new tasks'
+    );
+    like( $output, qr/\[ \] Second task label/, 'CLI::Progress appends only valid new tasks' );
+
+    ok( $progress->update( { add_tasks => [ { id => 'third_task', label => 'Third task label' } ] } ), 'CLI::Progress accepts add_tasks-only events' );
+    like( $output, qr/\[ \] Third task label/, 'CLI::Progress add_tasks-only events still render appended tasks' );
+
+    ok(
+        $progress->update(
+            {
+                task_id     => 'second_task',
+                status      => 'running',
+                label       => 'Second task running',
+                detail_line => 'one appended line',
+            }
+        ),
+        'CLI::Progress accepts one-by-one detail lines'
+    );
+    like( $output, qr/one appended line/, 'CLI::Progress renders appended single detail lines' );
+
+    ok(
+        $progress->update(
+            {
+                task_id      => 'second_task',
+                status       => 'failed',
+                detail_lines => 'not-an-array',
+            }
+        ),
+        'CLI::Progress clears detail lines when detail_lines is not an array reference'
+    );
+    my @boards = $output =~ /(dashboard progress edge coverage.*?)(?=dashboard progress edge coverage|\z)/sg;
+    my $last_board = $boards[-1] || '';
+    unlike( $last_board, qr/one appended line/, 'CLI::Progress drops stale detail lines when a malformed detail_lines payload arrives' );
+
+    my $zero_output = '';
+    open my $zero_fh, '>', \$zero_output or die "Unable to open scalar handle for zero-limit progress output: $!";
+    my $zero_limit_progress = Developer::Dashboard::CLI::Progress->new(
+        title            => 'dashboard zero detail limit',
+        tasks            => [ { id => 'zero_task', label => 'Zero task label' } ],
+        stream           => $zero_fh,
+        dynamic          => 0,
+        max_detail_lines => 0,
+    );
+    is( $zero_limit_progress->_detail_line_limit, 10, 'CLI::Progress normalizes a falsey configured detail limit back to ten lines' );
+    $zero_limit_progress->update(
+        {
+            task_id      => 'zero_task',
+            status       => 'running',
+            detail_lines => [ map { sprintf 'line %02d', $_ } 1 .. 12 ],
+        }
+    );
+    unlike( $zero_output, qr/line 01/, 'CLI::Progress trims older lines when a falsey configured detail limit falls back to ten lines' );
+    like( $zero_output, qr/line 12/, 'CLI::Progress keeps the newest detail lines after the falsey limit fallback' );
+
+    my $undef_output = '';
+    open my $undef_fh, '>', \$undef_output or die "Unable to open scalar handle for undef-limit progress output: $!";
+    my $undef_limit_progress = Developer::Dashboard::CLI::Progress->new(
+        title            => 'dashboard undef detail limit',
+        tasks            => [ { id => 'undef_task', label => 'Undef task label' } ],
+        stream           => $undef_fh,
+        dynamic          => 0,
+        max_detail_lines => undef,
+    );
+    is( $undef_limit_progress->_detail_line_limit, undef, 'CLI::Progress preserves an explicit undef detail-line limit as unlimited' );
+    $undef_limit_progress->update(
+        {
+            task_id      => 'undef_task',
+            status       => 'running',
+            detail_lines => [ map { sprintf 'line %02d', $_ } 1 .. 12 ],
+        }
+    );
+    like( $undef_output, qr/line 01/, 'CLI::Progress keeps older detail lines when the configured limit is explicitly undef' );
+    like( $undef_output, qr/line 12/, 'CLI::Progress also keeps the newest detail lines when the configured limit is explicitly undef' );
+
+    ok( $undef_limit_progress->finish, 'CLI::Progress finish succeeds without emitting a newline when the board is static' );
 }
 {
     my $versionless_skill_root = tempdir( CLEANUP => 1 );

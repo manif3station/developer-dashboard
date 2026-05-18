@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Skills;
 use strict;
 use warnings;
 
-our $VERSION = '3.82';
+our $VERSION = '3.83';
 
 use Getopt::Long qw(GetOptionsFromArray);
 use Cwd qw(getcwd);
@@ -218,41 +218,10 @@ sub _skills_install_progress_for_sources {
 # Input: none.
 # Output: array reference of progress task hashes.
 sub _skills_install_progress_tasks {
-    my @tasks = @{ Developer::Dashboard::SkillManager::install_progress_tasks() };
-    my %keep_system_task = map { $_ => 1 } qw(install_aptfile install_apkfile install_dnfile install_wingetfile install_brewfile);
-    my $os = $ENV{DD_TEST_OS} || $^O;
-    my $is_alpine = $ENV{DD_TEST_ALPINE} ? 1 : ( $os eq 'linux' && -f '/etc/alpine-release' ? 1 : 0 );
-    my $is_fedora = $ENV{DD_TEST_FEDORA} ? 1 : ( $os eq 'linux' && -f '/etc/fedora-release' ? 1 : 0 );
-    my $is_debian_like = $ENV{DD_TEST_DEBIAN_LIKE}
-      ? 1
-      : ( $os eq 'linux' && !$is_alpine && -f '/etc/debian_version' ? 1 : 0 );
-
-    if ( $os eq 'MSWin32' ) {
-        %keep_system_task = ( install_wingetfile => 1 );
-    }
-    elsif ( $os eq 'darwin' ) {
-        %keep_system_task = ( install_brewfile => 1 );
-    }
-    elsif ($is_alpine) {
-        %keep_system_task = ( install_apkfile => 1 );
-    }
-    elsif ($is_fedora) {
-        %keep_system_task = ( install_dnfile => 1 );
-    }
-    elsif ($is_debian_like) {
-        %keep_system_task = ( install_aptfile => 1 );
-    }
-    else {
-        return \@tasks;
-    }
-
-    @tasks = grep {
-        my $id = $_->{id} || '';
-        $id !~ /^install_(?:aptfile|apkfile|dnfile|wingetfile|brewfile)$/
-          ? 1
-          : ( $keep_system_task{$id} ? 1 : 0 );
-    } @tasks;
-    return \@tasks;
+    return [
+        { id => 'fetch_source',   label => 'Fetch skill source' },
+        { id => 'prepare_layout', label => 'Prepare skill layout' },
+    ];
 }
 
 # _skills_install_summary_table($result)

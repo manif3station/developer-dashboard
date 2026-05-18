@@ -1,43 +1,29 @@
 # Fixed Bugs
-## 3.82 - Lock in dotted skill dispatch and fix zombie-aware collector stop checks
+## 3.83 - Show only real skill dependency work in install progress
 
-- Added regression coverage for installed dotted skill commands that resolve to
-  `cli/<command>.py` and `cli/<command>.js`.
-- This proves `dashboard <skill>.<command>` continues to route Python-backed
-  skill commands through `python` and JavaScript-backed skill commands through
-  `node`.
-- The same two dotted command shapes were also verified inside the
-  `developer-dashboard:latest` container image so the packaged runtime keeps
-  that dispatch behavior after installation.
-- Fixed the release tarball test gate for the new JavaScript dotted skill
-  regression coverage.
+- Fixed the interactive `dashboard skills install` progress board so it no
+  longer prints `[OK] ... skipped: ... not present` rows for dependency files
+  that do not exist in the fetched skill.
 - Root cause:
-  the blank Perl 5.38 `cpanm` container used for the final tarball gate does
-  not ship `node`, so an unconditional `cli/<command>.js` execution assertion
-  made the release gate fail even though command resolution itself was correct.
+  the progress board predeclared every possible dependency step before the
+  skill checkout had been inspected, so the install path later marked absent
+  manifests as successful skipped work. That made users think a dependency had
+  been installed when there had actually been nothing to do.
 - Fix:
-  the JavaScript dotted skill regression now skips only the runtime execution
-  assertions when `node` is absent, while still checking dotted command
-  resolution everywhere and leaving the actual Node-backed execution path
-  covered on hosts that provide `node`.
-- Fixed an intermittent managed-collector restart race under heavy covered test
-  load.
-- The old stop path could delete the pid and loop-state files even when a
-  managed collector loop still had not died after TERM and KILL. That left the
-  stale loop free to keep rewriting `loop.json` while a replacement restart was
-  proving its new pid, which surfaced as sporadic `Failed to keep collector
-  'housekeeper' running after startup` failures in `dashboard restart` and
-  `dashboard serve workers`.
-- The collector runner now refuses to clean up a managed loop until it is
-  truly gone and raises an explicit error if the loop still appears alive after
-  escalation. The runtime startup grace window was also widened so slower hosts
-  do not misclassify a healthy replacement loop as dead on arrival.
-- Fixed the final tarball integration failure where `dashboard collector
-  restart` could still die in a blank environment even after TERM and KILL had
-  already ended the old loop.
+  the progress board now starts with fetch and layout tasks only, then appends
+  dependency rows after the fetched skill root is known and only for manifest
+  files that are really present.
+- Fixed platform noise in the same install progress flow.
 - Root cause:
-  zombie processes can still answer `kill 0`, and a fresh dashboard process
-  cannot reap a zombie it does not own. The old stop logic treated that zombie
+  operating-system-specific manifests such as `brewfile` and `wingetfile` were
+  being shown on unrelated hosts, even though those package managers could
+  never run there.
+- Fix:
+  `aptfile`, `apkfile`, `dnfile`, `wingetfile`, and `brewfile` now appear only
+  on their matching host families, while cross-platform manifests such as
+  `package.json`, `requirements.txt`, `cpanfile`, `cpanfile.local`,
+  `Makefile`, `ddfile`, and `ddfile.local` appear only when the corresponding
+  file exists.
   pid as live forever, then died with `Collector '...' did not stop after TERM
   and KILL`.
 - Fix:

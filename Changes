@@ -1,21 +1,16 @@
-3.82  2026-05-16
-    - added explicit regression coverage for installed dotted skill commands
-      backed by `cli/<command>.py` and `cli/<command>.js`, proving both the
-      repo suite and the `developer-dashboard:latest` container image dispatch
-      those commands correctly through `python` and `node`
-    - fixed the blank-container tarball gate for that new JavaScript dotted
-      dispatch coverage by skipping the runtime execution assertions when the
-      minimal test host does not provide `node`; resolution checks still run
-      everywhere and the execution path remains covered on Node-capable hosts
-    - hardened managed collector lifecycle timing so slow stop/start hand-offs
-      no longer let an old loop keep rewriting state while a replacement is
-      being verified; the runtime now keeps a wider collector startup grace
-      window and fails explicit stop requests when a managed loop still refuses
-      to die after TERM and KILL
-    - fixed managed collector and web-runtime stop checks so unreapable zombie
-      pids are treated as dead instead of alive, which closes the
-      blank-environment `dashboard collector restart` failure during the final
-      tarball integration gate
+3.83  2026-05-18
+    - fixed interactive `dashboard skills install` progress so dependency rows
+      are only added when the matching manifest file actually exists in the
+      fetched skill, instead of printing `[OK] ... skipped: ... not present`
+      noise for absent files
+    - filtered operating-system-specific dependency rows so `aptfile`,
+      `apkfile`, `dnfile`, `wingetfile`, and `brewfile` only appear on their
+      matching host families and stay hidden on unrelated platforms even when
+      those files exist in the skill
+    - kept cross-platform manifest rows such as `package.json`,
+      `requirements.txt`, `cpanfile`, `cpanfile.local`, `Makefile`, `ddfile`,
+      and `ddfile.local` visible only when those files are present, which
+      leaves the progress board focused on real work instead of skipped probes
 
 3.79  2026-05-16
     - replaced the `tomq` backend dependency with `TOML::Parser`, inflating

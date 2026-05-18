@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Progress;
 use strict;
 use warnings;
 
-our $VERSION = '3.82';
+our $VERSION = '3.83';
 
 # new(%args)
 # Constructs a terminal progress renderer for restart/stop lifecycle commands.
@@ -52,6 +52,30 @@ sub callback {
     };
 }
 
+# add_tasks($tasks)
+# Appends newly discovered tasks to the rendered board without disturbing the
+# status and order of already registered tasks.
+# Input: array reference of task hashes with id and optional label.
+# Output: true value.
+sub add_tasks {
+    my ( $self, $tasks ) = @_;
+    return 1 if ref($tasks) ne 'ARRAY' || !@{$tasks};
+    for my $task ( @{$tasks} ) {
+        next if ref($task) ne 'HASH';
+        my $id = $task->{id} || next;
+        next if $self->{tasks}{$id};
+        push @{ $self->{order} }, $id;
+        $self->{tasks}{$id} = {
+            id           => $id,
+            label        => $task->{label} || $id,
+            status       => 'pending',
+            detail_lines => [],
+        };
+    }
+    $self->render;
+    return 1;
+}
+
 # update($event)
 # Applies one lifecycle progress event to the tracked task board.
 # Input: hash reference with task_id, status, and optional label.
@@ -59,6 +83,7 @@ sub callback {
 sub update {
     my ( $self, $event ) = @_;
     return 1 if !$event || ref($event) ne 'HASH';
+    $self->add_tasks( $event->{add_tasks} ) if exists $event->{add_tasks};
     my $id = $event->{task_id} || return 1;
     my $task = $self->{tasks}{$id} || return 1;
     $task->{status} = $event->{status} if defined $event->{status} && $event->{status} ne '';

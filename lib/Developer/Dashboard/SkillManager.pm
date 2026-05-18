@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.82';
+our $VERSION = '3.83';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);
@@ -62,6 +62,18 @@ sub install_progress_tasks {
         { id => 'install_ddfile',       label => 'Install ddfile dependencies' },
         { id => 'install_ddfile_local', label => 'Install ddfile.local dependencies' },
     ];
+}
+
+# dependency_progress_tasks_for_skill_path($skill_path)
+# Returns the ordered dependency-task list that should be shown for one
+# installed skill after its manifest files are known on disk.
+# Input: absolute skill root directory path.
+# Output: array reference of applicable progress task hashes.
+sub dependency_progress_tasks_for_skill_path {
+    my ( $self, $skill_path ) = @_;
+    my %wanted = map { $_ => 1 } $self->_dependency_progress_task_ids_for_skill_path($skill_path);
+    my @tasks = grep { $wanted{ $_->{id} || '' } } @{ install_progress_tasks() };
+    return \@tasks;
 }
 
 # install_progress_tasks_for_sources(@sources)
@@ -846,6 +858,11 @@ sub _install_to_skills_root {
     $self->_progress_emit( { task_id => 'prepare_layout', status => 'running' } );
     $self->_prepare_skill_layout($skill_path);
     $self->_progress_emit( { task_id => 'prepare_layout', status => 'done' } );
+    $self->_progress_emit(
+        {
+            add_tasks => $self->dependency_progress_tasks_for_skill_path($skill_path),
+        }
+    );
     my $dependency = $self->_install_skill_dependencies($skill_path);
     return $dependency if $dependency->{error};
     my $version_after = $self->_skill_env_version($skill_path);
@@ -939,6 +956,7 @@ sub _prepare_skill_layout {
 # Output: result hash reference with success or error state.
 sub _install_skill_dependencies {
     my ( $self, $skill_path ) = @_;
+    my %visible_task = map { $_ => 1 } $self->_dependency_progress_task_ids_for_skill_path($skill_path);
     my @steps = (
         [ install_aptfile      => sub { $self->_install_skill_aptfile($skill_path) } ],
         [ install_apkfile      => sub { $self->_install_skill_apkfile($skill_path) } ],
@@ -959,8 +977,9 @@ sub _install_skill_dependencies {
     my $ran = 0;
     for my $step (@steps) {
         my ( $task_id, $runner ) = @{$step};
+        my $show_progress = $visible_task{$task_id} ? 1 : 0;
         my $running_label = $self->_dependency_progress_label( $task_id, $skill_path );
-        $self->_progress_emit( { task_id => $task_id, status => 'running', label => $running_label } );
+        $self->_progress_emit( { task_id => $task_id, status => 'running', label => $running_label } ) if $show_progress;
         local $self->{_active_dependency_task_id} = $task_id;
         my $result = $runner->();
         if ( $result->{error} ) {
@@ -970,7 +989,7 @@ sub _install_skill_dependencies {
                     status  => 'failed',
                     label   => $self->_dependency_progress_label( $task_id, $skill_path, result => $result ),
                 }
-            );
+            ) if $show_progress;
             return $result;
         }
         $self->_progress_emit(
@@ -979,7 +998,7 @@ sub _install_skill_dependencies {
                 status  => 'done',
                 label   => $self->_dependency_progress_label( $task_id, $skill_path, result => $result ),
             }
-        );
+        ) if $show_progress;
         $ran ||= !$result->{skipped};
         push @stdout, $result->{stdout} if defined $result->{stdout} && $result->{stdout} ne '';
         push @stderr, $result->{stderr} if defined $result->{stderr} && $result->{stderr} ne '';
@@ -991,6 +1010,70 @@ sub _install_skill_dependencies {
         stdout  => join( '', @stdout ),
         stderr  => join( '', @stderr ),
     };
+}
+
+# _dependency_progress_task_ids_for_skill_path($skill_path)
+# Resolves which dependency install tasks should appear in the visible progress
+# board for one concrete skill on the current host.
+# Input: absolute skill root directory path.
+# Output: ordered task id list.
+sub _dependency_progress_task_ids_for_skill_path {
+    my ( $self, $skill_path ) = @_;
+    return () if !defined $skill_path || $skill_path eq '';
+
+    my %cross_platform_file_for = (
+        install_package_json     => 'package.json',
+        install_requirements_txt => 'requirements.txt',
+        install_cpanfile         => 'cpanfile',
+        install_cpanfile_local   => 'cpanfile.local',
+        install_makefile         => 'Makefile',
+        install_dockerfile       => 'dockerfile',
+        install_ddfile           => 'ddfile',
+        install_ddfile_local     => 'ddfile.local',
+    );
+    my %system_file_for = (
+        install_aptfile    => 'aptfile',
+        install_apkfile    => 'apkfile',
+        install_dnfile     => 'dnfile',
+        install_wingetfile => 'wingetfile',
+        install_brewfile   => 'brewfile',
+    );
+    my %allowed_system = map { $_ => 1 } $self->_host_progress_system_task_ids;
+    my @task_ids;
+    for my $task ( @{ install_progress_tasks() } ) {
+        my $task_id = $task->{id} || '';
+        next if $task_id eq 'fetch_source' || $task_id eq 'prepare_layout';
+        if ( my $file = $cross_platform_file_for{$task_id} ) {
+            push @task_ids, $task_id if -f File::Spec->catfile( $skill_path, $file );
+            next;
+        }
+        if ( my $file = $system_file_for{$task_id} ) {
+            push @task_ids, $task_id if $allowed_system{$task_id} && -f File::Spec->catfile( $skill_path, $file );
+            next;
+        }
+    }
+    return @task_ids;
+}
+
+# _host_progress_system_task_ids()
+# Detects which OS-specific dependency manifest types are relevant for the
+# current host when building the visible progress board.
+# Input: none.
+# Output: ordered task id list for host-relevant system package managers.
+sub _host_progress_system_task_ids {
+    my ($self) = @_;
+    my $os = $ENV{DD_TEST_OS} || $^O;
+    my $is_alpine = $ENV{DD_TEST_ALPINE} ? 1 : ( $os eq 'linux' && -f '/etc/alpine-release' ? 1 : 0 );
+    my $is_fedora = $ENV{DD_TEST_FEDORA} ? 1 : ( $os eq 'linux' && -f '/etc/fedora-release' ? 1 : 0 );
+    my $is_debian_like = $ENV{DD_TEST_DEBIAN_LIKE}
+      ? 1
+      : ( $os eq 'linux' && !$is_alpine && !$is_fedora && -f '/etc/debian_version' ? 1 : 0 );
+    return ('install_wingetfile') if $os eq 'MSWin32';
+    return ('install_brewfile')   if $os eq 'darwin';
+    return ('install_apkfile')    if $is_alpine;
+    return ('install_dnfile')     if $is_fedora;
+    return ('install_aptfile')    if $is_debian_like;
+    return ();
 }
 
 # _dependency_progress_label($task_id, $skill_path, %args)

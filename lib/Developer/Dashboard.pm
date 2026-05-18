@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.82';
+our $VERSION = '3.83';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.82
+3.83
 
 =head1 INTRODUCTION
 
@@ -2584,13 +2584,18 @@ for already-installed targets, just like repeated explicit
 C<dashboard skills install E<lt>sourceE<gt>> runs.
 Interactive C<dashboard skills install> runs also print a task board on
 C<stderr>; multi-source and bare update-all installs show one task for every
-source before any clone or dependency step starts. When a single skill ships
-dependency manifests such as F<package.json> or F<Makefile>, the matching task
-updates to show the detected file path so a long-running C<npm>, C<make>,
-C<cpanm>, or package-manager step stays visible instead of looking blind, with
-a rolling detail window that keeps the newest progress lines under the active
-task in blue and leaves failure detail lines visible in red when a manifest
-step stops with an error.
+source before any clone or dependency step starts. For a single skill, the
+board begins with fetch and layout only, then appends dependency tasks after
+the fetched skill root has been inspected. A dependency row appears only when
+the matching manifest file really exists, and operating-system-specific rows
+such as F<aptfile>, F<apkfile>, F<dnfile>, F<wingetfile>, and F<brewfile>
+appear only on matching host families. When a single skill ships dependency
+manifests such as F<package.json> or F<Makefile>, the matching task updates to
+show the detected file path so a long-running C<npm>, C<make>, C<cpanm>, or
+package-manager step stays visible instead of looking blind, with a rolling
+detail window that keeps the newest progress lines under the active task in
+blue and leaves failure detail lines visible in red when a manifest step stops
+with an error.
 
 Installed dotted skill commands such as C<dashboard demo-skill.foo> now hand
 control to the real skill command after hook processing instead of wrapping
@@ -3088,31 +3093,36 @@ F<skills/E<lt>repo-nameE<gt>/> tree after the global F<ddfile> pass completes
 
 if an C<aptfile> exists on a Debian-family host, Dashboard checks each listed
 package first and only prints and installs the packages that are still missing
-through C<sudo apt-get install -y>
+through C<sudo apt-get install -y>; interactive progress output only shows this
+row when both the manifest exists and the host is Debian-family
 
 =item *
 
 if an C<apkfile> exists on an Alpine host, Dashboard checks each listed
 package first and only prints and installs the packages that are still missing
-through C<sudo apk add --no-cache>
+through C<sudo apk add --no-cache>; interactive progress output only shows this
+row when both the manifest exists and the host is Alpine
 
 =item *
 
 if a C<dnfile> exists on a Fedora host, Dashboard checks each listed package
 first and only prints and installs the packages that are still missing through
-C<sudo dnf install -y>
+C<sudo dnf install -y>; interactive progress output only shows this row when
+both the manifest exists and the host is Fedora
 
 =item *
 
 if a C<wingetfile> exists on a Windows host, Dashboard installs each listed
 package id through C<winget install --id ... --exact
 --accept-package-agreements --accept-source-agreements
---disable-interactivity>, and other operating systems skip that manifest
+--disable-interactivity>; interactive progress output only shows this row when
+both the manifest exists and the host is Windows
 
 =item *
 
 if a C<brewfile> exists on macOS, its package list is printed and then
-installed through C<brew install>
+installed through C<brew install>; interactive progress output only shows this
+row when both the manifest exists and the host is macOS
 
 =item *
 
@@ -3120,7 +3130,8 @@ if a C<Makefile> exists, Dashboard runs it after the Perl dependency
 manifests and before any deferred C<ddfile> processing, using C<make>,
 C<make test> when a C<test> or C<tests> target exists unless
 C<dashboard skills install --notest> was requested, C<make install>, and
-C<make clean> when a C<clean> target exists
+C<make clean> when a C<clean> target exists; interactive progress output only
+shows this row when the file exists
 
 =item *
 
@@ -3128,22 +3139,26 @@ if a C<package.json> exists, its Node dependencies are installed into
 C<$HOME/node_modules> by running C<npx --yes npm install E<lt>dependency-spec...E<gt>>
 inside a private dashboard staging workspace and then merging the resulting
 packages into C<$HOME/node_modules>, so unrelated C<$HOME/package.json> files
-do not break skill installs
+do not break skill installs; interactive progress output only shows this row
+when the file exists
 
 =item *
 
 if a C<requirements.txt> exists, its Python dependencies are installed through
 C<python -m pip install --user --requirement requirements.txt> from the skill
-root before the Perl dependency manifests run
+root before the Perl dependency manifests run; interactive progress output only
+shows this row when the file exists
 
 =item *
 
-if a C<cpanfile> exists, its Perl dependencies are installed into C<~/perl5>
+if a C<cpanfile> exists, its Perl dependencies are installed into C<~/perl5>;
+interactive progress output only shows this row when the file exists
 
 =item *
 
 if a C<cpanfile.local> exists, its Perl dependencies are installed into the
-skill-local C<perl5/> tree
+skill-local C<perl5/> tree; interactive progress output only shows this row
+when the file exists
 
 =item *
 

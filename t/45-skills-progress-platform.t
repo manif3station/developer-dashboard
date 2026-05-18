@@ -1,11 +1,15 @@
 use strict;
 use warnings;
 
+use File::Path qw(make_path);
+use File::Spec;
+use File::Temp qw(tempdir);
 use Test::More;
 
 use lib 'lib';
 
 use Developer::Dashboard::CLI::Skills ();
+use Developer::Dashboard::SkillManager;
 
 {
     package Local::CaptureProgress;
@@ -22,18 +26,16 @@ use Developer::Dashboard::CLI::Skills ();
     no warnings 'redefine';
     local *Developer::Dashboard::CLI::Progress::new = sub { return Local::CaptureProgress->new(@_) };
     local $ENV{DEVELOPER_DASHBOARD_PROGRESS} = 1;
-    local $ENV{DD_TEST_OS} = 'linux';
-    local $ENV{DD_TEST_DEBIAN_LIKE} = 1;
-    local $ENV{DD_TEST_ALPINE} = 0;
-    local $ENV{DD_TEST_FEDORA} = 0;
 
     my $progress = Developer::Dashboard::CLI::Skills::_skills_install_progress();
     isa_ok( $progress, 'Local::CaptureProgress', 'skills install progress can be captured through the progress constructor override' );
     is( $progress->{max_detail_lines}, 10, 'skills install progress caps dependency detail output at ten lines' );
     my @task_ids = map { $_->{id} } @{ $progress->{tasks} || [] };
-    ok( scalar( grep { $_ eq 'install_aptfile' } @task_ids ), 'skills install progress keeps aptfile tasks on Debian-like hosts' );
-    ok( !scalar( grep { $_ eq 'install_wingetfile' } @task_ids ), 'skills install progress hides wingetfile tasks on Debian-like hosts' );
-    ok( !scalar( grep { $_ eq 'install_brewfile' } @task_ids ), 'skills install progress hides brewfile tasks on Debian-like hosts' );
+    is_deeply(
+        \@task_ids,
+        [ 'fetch_source', 'prepare_layout' ],
+        'skills install progress starts with only fetch and layout tasks before manifest files are known',
+    );
 
     my $source_progress = Developer::Dashboard::CLI::Skills::_skills_install_progress_for_sources(qw(one two));
     isa_ok( $source_progress, 'Local::CaptureProgress', 'multi-source skills install progress also uses the capture progress override' );
@@ -41,19 +43,56 @@ use Developer::Dashboard::CLI::Skills ();
 }
 
 {
-    no warnings 'redefine';
-    local *Developer::Dashboard::CLI::Progress::new = sub { return Local::CaptureProgress->new(@_) };
-    local $ENV{DEVELOPER_DASHBOARD_PROGRESS} = 1;
-    local $ENV{DD_TEST_OS} = 'darwin';
-    local $ENV{DD_TEST_DEBIAN_LIKE} = 0;
-    local $ENV{DD_TEST_ALPINE} = 0;
-    local $ENV{DD_TEST_FEDORA} = 0;
+    my $skill_root = tempdir( CLEANUP => 1 );
+    my $manager = Developer::Dashboard::SkillManager->new();
+    make_path($skill_root);
+    _write_file( File::Spec->catfile( $skill_root, 'aptfile' ), "jq\n" );
+    _write_file( File::Spec->catfile( $skill_root, 'brewfile' ), "jq\n" );
+    _write_file( File::Spec->catfile( $skill_root, 'package.json' ), qq|{"name":"skill","version":"1.0.0"}\n| );
+    _write_file( File::Spec->catfile( $skill_root, 'requirements.txt' ), "requests==2.32.3\n" );
+    _write_file( File::Spec->catfile( $skill_root, 'cpanfile' ), "requires 'JSON::XS';\n" );
+    _write_file( File::Spec->catfile( $skill_root, 'Makefile' ), "all:\n\t\@:\n" );
+    _write_file( File::Spec->catfile( $skill_root, 'ddfile' ), "dep-alpha\n" );
 
-    my $progress = Developer::Dashboard::CLI::Skills::_skills_install_progress();
-    my @task_ids = map { $_->{id} } @{ $progress->{tasks} || [] };
-    ok( scalar( grep { $_ eq 'install_brewfile' } @task_ids ), 'skills install progress keeps brewfile tasks on macOS' );
-    ok( !scalar( grep { $_ eq 'install_aptfile' } @task_ids ), 'skills install progress hides aptfile tasks on macOS' );
-    ok( !scalar( grep { $_ eq 'install_wingetfile' } @task_ids ), 'skills install progress hides wingetfile tasks on macOS' );
+    {
+        local $ENV{DD_TEST_OS} = 'linux';
+        local $ENV{DD_TEST_DEBIAN_LIKE} = 1;
+        local $ENV{DD_TEST_ALPINE} = 0;
+        local $ENV{DD_TEST_FEDORA} = 0;
+        my @task_ids = map { $_->{id} } @{ $manager->dependency_progress_tasks_for_skill_path($skill_root) || [] };
+        is_deeply(
+            \@task_ids,
+            [
+                'install_aptfile',
+                'install_package_json',
+                'install_requirements_txt',
+                'install_cpanfile',
+                'install_makefile',
+                'install_ddfile',
+            ],
+            'skills install progress on Debian-like hosts shows only applicable manifest-backed tasks in install order',
+        );
+    }
+
+    {
+        local $ENV{DD_TEST_OS} = 'darwin';
+        local $ENV{DD_TEST_DEBIAN_LIKE} = 0;
+        local $ENV{DD_TEST_ALPINE} = 0;
+        local $ENV{DD_TEST_FEDORA} = 0;
+        my @task_ids = map { $_->{id} } @{ $manager->dependency_progress_tasks_for_skill_path($skill_root) || [] };
+        is_deeply(
+            \@task_ids,
+            [
+                'install_brewfile',
+                'install_package_json',
+                'install_requirements_txt',
+                'install_cpanfile',
+                'install_makefile',
+                'install_ddfile',
+            ],
+            'skills install progress on macOS shows brewfile plus present cross-platform manifests only',
+        );
+    }
 }
 
 {
@@ -61,12 +100,17 @@ use Developer::Dashboard::CLI::Skills ();
     local $ENV{DD_TEST_DEBIAN_LIKE} = 0;
     local $ENV{DD_TEST_ALPINE} = 0;
     local $ENV{DD_TEST_FEDORA} = 0;
+    my $skill_root = tempdir( CLEANUP => 1 );
+    my $manager = Developer::Dashboard::SkillManager->new();
+    _write_file( File::Spec->catfile( $skill_root, 'wingetfile' ), "Git.Git\n" );
+    _write_file( File::Spec->catfile( $skill_root, 'package.json' ), qq|{"name":"skill","version":"1.0.0"}\n| );
 
-    my $tasks = Developer::Dashboard::CLI::Skills::_skills_install_progress_tasks();
-    my @task_ids = map { $_->{id} } @{ $tasks || [] };
-    ok( scalar( grep { $_ eq 'install_wingetfile' } @task_ids ), 'skills install progress keeps wingetfile tasks on Windows' );
-    ok( !scalar( grep { $_ eq 'install_aptfile' } @task_ids ), 'skills install progress hides aptfile tasks on Windows' );
-    ok( !scalar( grep { $_ eq 'install_brewfile' } @task_ids ), 'skills install progress hides brewfile tasks on Windows' );
+    my @task_ids = map { $_->{id} } @{ $manager->dependency_progress_tasks_for_skill_path($skill_root) || [] };
+    is_deeply(
+        \@task_ids,
+        [ 'install_wingetfile', 'install_package_json' ],
+        'skills install progress on Windows shows wingetfile plus present cross-platform manifests only',
+    );
 }
 
 {
@@ -74,12 +118,12 @@ use Developer::Dashboard::CLI::Skills ();
     local $ENV{DD_TEST_DEBIAN_LIKE} = 0;
     local $ENV{DD_TEST_ALPINE} = 1;
     local $ENV{DD_TEST_FEDORA} = 0;
-
-    my $tasks = Developer::Dashboard::CLI::Skills::_skills_install_progress_tasks();
-    my @task_ids = map { $_->{id} } @{ $tasks || [] };
-    ok( scalar( grep { $_ eq 'install_apkfile' } @task_ids ), 'skills install progress keeps apkfile tasks on Alpine hosts' );
-    ok( !scalar( grep { $_ eq 'install_aptfile' } @task_ids ), 'skills install progress hides aptfile tasks on Alpine hosts' );
-    ok( !scalar( grep { $_ eq 'install_brewfile' } @task_ids ), 'skills install progress hides brewfile tasks on Alpine hosts' );
+    my $skill_root = tempdir( CLEANUP => 1 );
+    my $manager = Developer::Dashboard::SkillManager->new();
+    _write_file( File::Spec->catfile( $skill_root, 'apkfile' ), "git\n" );
+    _write_file( File::Spec->catfile( $skill_root, 'brewfile' ), "jq\n" );
+    my @task_ids = map { $_->{id} } @{ $manager->dependency_progress_tasks_for_skill_path($skill_root) || [] };
+    is_deeply( \@task_ids, ['install_apkfile'], 'skills install progress on Alpine hosts hides unrelated system package manifests even when they exist' );
 }
 
 {
@@ -87,12 +131,11 @@ use Developer::Dashboard::CLI::Skills ();
     local $ENV{DD_TEST_DEBIAN_LIKE} = 0;
     local $ENV{DD_TEST_ALPINE} = 0;
     local $ENV{DD_TEST_FEDORA} = 1;
-
-    my $tasks = Developer::Dashboard::CLI::Skills::_skills_install_progress_tasks();
-    my @task_ids = map { $_->{id} } @{ $tasks || [] };
-    ok( scalar( grep { $_ eq 'install_dnfile' } @task_ids ), 'skills install progress keeps dnfile tasks on Fedora-like hosts' );
-    ok( !scalar( grep { $_ eq 'install_aptfile' } @task_ids ), 'skills install progress hides aptfile tasks on Fedora-like hosts' );
-    ok( !scalar( grep { $_ eq 'install_brewfile' } @task_ids ), 'skills install progress hides brewfile tasks on Fedora-like hosts' );
+    my $skill_root = tempdir( CLEANUP => 1 );
+    my $manager = Developer::Dashboard::SkillManager->new();
+    _write_file( File::Spec->catfile( $skill_root, 'dnfile' ), "git\n" );
+    my @task_ids = map { $_->{id} } @{ $manager->dependency_progress_tasks_for_skill_path($skill_root) || [] };
+    is_deeply( \@task_ids, ['install_dnfile'], 'skills install progress on Fedora-like hosts keeps only dnfile-backed package manager work' );
 }
 
 {
@@ -100,15 +143,30 @@ use Developer::Dashboard::CLI::Skills ();
     local $ENV{DD_TEST_DEBIAN_LIKE} = 0;
     local $ENV{DD_TEST_ALPINE} = 0;
     local $ENV{DD_TEST_FEDORA} = 0;
-
-    my $tasks = Developer::Dashboard::CLI::Skills::_skills_install_progress_tasks();
-    my @task_ids = map { $_->{id} } @{ $tasks || [] };
-    ok( scalar( grep { $_ eq 'install_aptfile' } @task_ids ), 'skills install progress keeps aptfile tasks on unknown hosts' );
-    ok( scalar( grep { $_ eq 'install_wingetfile' } @task_ids ), 'skills install progress keeps wingetfile tasks on unknown hosts' );
-    ok( scalar( grep { $_ eq 'install_brewfile' } @task_ids ), 'skills install progress keeps brewfile tasks on unknown hosts' );
+    my $skill_root = tempdir( CLEANUP => 1 );
+    my $manager = Developer::Dashboard::SkillManager->new();
+    _write_file( File::Spec->catfile( $skill_root, 'aptfile' ), "jq\n" );
+    _write_file( File::Spec->catfile( $skill_root, 'brewfile' ), "jq\n" );
+    _write_file( File::Spec->catfile( $skill_root, 'cpanfile' ), "requires 'JSON::XS';\n" );
+    my @task_ids = map { $_->{id} } @{ $manager->dependency_progress_tasks_for_skill_path($skill_root) || [] };
+    is_deeply(
+        \@task_ids,
+        ['install_cpanfile'],
+        'skills install progress on unknown hosts still hides OS-specific manifests and keeps only present cross-platform tasks',
+    );
 }
 
 done_testing();
+
+sub _write_file {
+    my ( $path, $content ) = @_;
+    my ( undef, $dir ) = File::Spec->splitpath($path);
+    make_path($dir) if defined $dir && $dir ne '' && !-d $dir;
+    open my $fh, '>', $path or die "Unable to write $path: $!";
+    print {$fh} $content;
+    close $fh;
+    return 1;
+}
 
 __END__
 

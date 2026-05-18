@@ -521,6 +521,55 @@ subtest 'CLI::Progress renders and updates task boards' => sub {
     );
     like( $replace_progress->render_text, qr/replace appended from empty/, 'single-line detail update rebuilds the detail window from empty state' );
 
+    ok( $plain_progress->add_tasks(), 'add_tasks ignores missing task arrays' );
+    ok( $plain_progress->add_tasks('not-an-array'), 'add_tasks ignores non-array task lists' );
+    ok(
+        $plain_progress->add_tasks(
+            [
+                'not-a-hash',
+                {},
+                { id => 'only', label => 'Duplicate task id' },
+                { id => 'implicit-added' },
+                { id => 'labeled-added', label => 'Labeled added task' },
+            ]
+        ),
+        'add_tasks skips invalid rows and appends only valid new tasks'
+    );
+    like( $plain_progress->render_text, qr/\[ \] implicit-added/, 'add_tasks falls back to the task id when the appended task label is missing' );
+    like( $plain_progress->render_text, qr/\[ \] Labeled added task/, 'add_tasks preserves an explicit appended task label' );
+
+    ok(
+        $plain_progress->update(
+            {
+                add_tasks => [
+                    { id => 'event-added', label => 'Event-added task' },
+                ],
+            }
+        ),
+        'update accepts add_tasks-only events'
+    );
+    like( $plain_progress->render_text, qr/\[ \] Event-added task/, 'update add_tasks-only events append new visible tasks' );
+
+    my $unlimited_progress = Developer::Dashboard::CLI::Progress->new(
+        title            => 'unlimited',
+        tasks            => [ { id => 'only', label => 'Only task' } ],
+        stream           => $plain_stream,
+        max_detail_lines => undef,
+    );
+    is( $unlimited_progress->_detail_line_limit, undef, 'explicit undef max_detail_lines keeps the detail window unlimited' );
+    ok(
+        $unlimited_progress->update(
+            {
+                task_id      => 'only',
+                status       => 'running',
+                detail_lines => [ map { "unlimited $_" } 1 .. 12 ],
+            }
+        ),
+        'update accepts whole detail window replacements when max_detail_lines is explicitly undef',
+    );
+    like( $unlimited_progress->render_text, qr/unlimited 1/, 'explicit undef max_detail_lines keeps the oldest detail line instead of trimming it' );
+    like( $unlimited_progress->render_text, qr/unlimited 12/, 'explicit undef max_detail_lines also keeps the newest detail line' );
+
     my $dynamic_unrendered = Developer::Dashboard::CLI::Progress->new(
         title   => 'dynamic',
         tasks   => [ { id => 'only', label => 'Only task' } ],
