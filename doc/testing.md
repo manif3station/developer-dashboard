@@ -101,6 +101,13 @@ coverage now: a live `CollectorRunner->run_once()` status write must preserve
 the existing managed indicator `collector_order`, otherwise `dashboard ps1`,
 page-header items, and the browser status board can fall back to name sorting
 after one collector refresh.
+Prompt fast-path coverage also now locks down the low-latency shell contract:
+`dashboard ps1` must not probe `tmux show-environment` unless `TMUX` is
+actually set, and it must resolve the trailing git branch from `.git/HEAD`
+metadata without spawning `git branch`. The prompt-only core indicator refresh
+path also skips the hidden `project` and `git` status subprocess checks, so
+slow hosts such as iSH do not pay for those background details on every prompt
+render.
 Custom route coverage now also includes the runtime-level `config/routes.json`
 surface, not only installed skills. A flat alias such as `"/java":
 "/app/learn.ai"` must resolve to the same saved bookmark body as

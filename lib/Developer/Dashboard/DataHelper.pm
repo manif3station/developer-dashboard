@@ -3,7 +3,7 @@ package Developer::Dashboard::DataHelper;
 use strict;
 use warnings;
 
-our $VERSION = '3.90';
+our $VERSION = '3.91';
 
 use Exporter 'import';
 

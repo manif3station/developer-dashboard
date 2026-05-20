@@ -369,10 +369,12 @@ like($indicator_refresh, qr/docker|project|git/, 'indicator refresh-core works')
 my $fake_tmux_dir = File::Spec->catdir( $ENV{HOME}, 'fake-bin' );
 make_path($fake_tmux_dir);
 my $fake_tmux = File::Spec->catfile( $fake_tmux_dir, 'tmux' );
+my $fake_tmux_log = File::Spec->catfile( $ENV{HOME}, 'fake-tmux.log' );
 open my $fake_tmux_fh, '>', $fake_tmux or die "Unable to write $fake_tmux: $!";
-print {$fake_tmux_fh} <<'SH';
+print {$fake_tmux_fh} <<"SH";
 #!/bin/sh
-if [ "$1" = "show-environment" ] && [ "$2" = "TICKET_REF" ]; then
+printf '%s\n' "\$*" >> '$fake_tmux_log'
+if [ "\$1" = "show-environment" ] && [ "\$2" = "TICKET_REF" ]; then
   printf 'TICKET_REF=DD-123\n'
   exit 0
 fi
@@ -389,9 +391,42 @@ my $ps1 = _run("$perl -I'$lib' '$dashboard' ps1 --jobs 1");
 like($ps1, qr/\(1 jobs\)|developer-dashboard:master| D /, 'ps1 command works');
 like($ps1, qr/🚨🔑/, 'ps1 seeds configured collector indicators before their first run');
 like($ps1, qr/🚨🐳/, 'ps1 shows all configured collector indicators, not just previously-run collectors');
-like($ps1, qr/🎫:DD-123/, 'ps1 loads the ticket from the tmux session environment when TICKET_REF is not already exported');
+unlike($ps1, qr/🎫:DD-123/, 'ps1 does not probe tmux for ticket context when TMUX is unset');
+ok( !-e $fake_tmux_log || _run("cat '$fake_tmux_log'") eq '', 'ps1 skips tmux show-environment entirely when TMUX is unset' );
+local $ENV{TMUX} = 'tmux-session';
+my $tmux_ps1 = _run("$perl -I'$lib' '$dashboard' ps1 --jobs 1");
+like($tmux_ps1, qr/🎫:DD-123/, 'ps1 loads the ticket from the tmux session environment when TMUX is active and TICKET_REF is not already exported');
 my $ps1_extended = _run("$perl -I'$lib' '$dashboard' ps1 --jobs 1 --mode extended --color");
 like($ps1_extended, qr/\e\[|\(1 jobs\)/, 'ps1 supports extended/color modes');
+{
+    my $fake_git_repo = File::Spec->catdir( $ENV{HOME}, 'prompt-head-repo' );
+    my $fake_git_meta = File::Spec->catdir( $fake_git_repo, '.git', 'refs', 'heads' );
+    my $fake_git_bin_dir = File::Spec->catdir( $ENV{HOME}, 'fake-git-bin' );
+    my $fake_git_log = File::Spec->catfile( $ENV{HOME}, 'fake-git.log' );
+    make_path( $fake_git_meta, $fake_git_bin_dir );
+    open my $fake_head_fh, '>', File::Spec->catfile( $fake_git_repo, '.git', 'HEAD' ) or die $!;
+    print {$fake_head_fh} "ref: refs/heads/main\n";
+    close $fake_head_fh;
+    open my $fake_branch_fh, '>', File::Spec->catfile( $fake_git_meta, 'main' ) or die $!;
+    print {$fake_branch_fh} "0123456789abcdef0123456789abcdef01234567\n";
+    close $fake_branch_fh;
+    my $fake_git = File::Spec->catfile( $fake_git_bin_dir, 'git' );
+    open my $fake_git_fh, '>', $fake_git or die "Unable to write $fake_git: $!";
+    print {$fake_git_fh} <<"SH";
+#!/bin/sh
+printf '%s\n' "\$*" >> '$fake_git_log'
+exit 98
+SH
+    close $fake_git_fh;
+    chmod 0755, $fake_git or die "Unable to chmod $fake_git: $!";
+
+    local $ENV{PATH} = join ':', $fake_git_bin_dir, $fake_tmux_dir, grep { defined && $_ ne '' } split /:/, ( $ENV{PATH} || '' );
+    local $ENV{TMUX} = '';
+    unlink $fake_git_log if -e $fake_git_log;
+    my $head_only_ps1 = _run("$perl -I'$lib' '$dashboard' ps1 --jobs 0 --cwd '$fake_git_repo'");
+    like( $head_only_ps1, qr/\Q🌿main\E/, 'ps1 reads the git branch from .git metadata without needing the git command' );
+    ok( !-e $fake_git_log || _run("cat '$fake_git_log'") eq '', 'ps1 does not invoke git subprocesses when branch metadata is available on disk' );
+}
 
 my $collector_inspect = _run("$perl -I'$lib' '$dashboard' collector inspect docker.collector");
 like($collector_inspect, qr/"job"|"status"/, 'collector inspect works');

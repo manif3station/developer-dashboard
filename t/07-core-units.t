@@ -2249,6 +2249,47 @@ is(
     0,
     'sync_collectors skips rewriting indicators when the stored config-backed indicator already matches',
 );
+ok(
+    !$indicators->collectors_need_sync(
+        [
+            {
+                name      => 'vpn',
+                indicator => {
+                    icon => '🔑',
+                },
+            },
+            {
+                name      => 'docker.collector',
+                indicator => {
+                    icon  => '🐳',
+                    label => 'Docker',
+                },
+            },
+        ]
+    ),
+    'collectors_need_sync stays false when collector-managed indicator state already matches config',
+);
+ok(
+    $indicators->collectors_need_sync(
+        [
+            {
+                name      => 'vpn',
+                indicator => {
+                    icon  => '🔑',
+                    label => 'VPN',
+                },
+            },
+            {
+                name      => 'docker.collector',
+                indicator => {
+                    icon  => '🐳',
+                    label => 'Docker',
+                },
+            },
+        ]
+    ),
+    'collectors_need_sync returns true when one collector indicator definition changes',
+);
 is( scalar @{ $indicators->sync_collectors([]) }, 0, 'sync_collectors ignores empty collector lists' );
 $indicators->set_indicator(
     'stale',
@@ -2422,6 +2463,44 @@ is( $fresh_page_item->{alias}, 'NEW', 'page header status prefers the configured
     is( $project_indicator->{status}, 'ok', 'refresh_core_indicators marks the project indicator active inside a repository' );
     is( $git_indicator->{status}, 'clean', 'refresh_core_indicators marks a clean git work tree as clean' );
 }
+{
+    my $prompt_only_home = tempdir(CLEANUP => 1);
+    my $prompt_only_paths = Developer::Dashboard::PathRegistry->new( home => $prompt_only_home );
+    my $prompt_only_indicators = Developer::Dashboard::IndicatorStore->new( paths => $prompt_only_paths );
+    my $prompt_only_repo = File::Spec->catdir( $prompt_only_home, 'prompt-only-repo' );
+    my $prompt_only_git_dir = File::Spec->catdir( $prompt_only_repo, '.git', 'refs', 'heads' );
+    make_path($prompt_only_git_dir);
+    open my $prompt_only_head_fh, '>', File::Spec->catfile( $prompt_only_repo, '.git', 'HEAD' ) or die $!;
+    print {$prompt_only_head_fh} "ref: refs/heads/main\n";
+    close $prompt_only_head_fh;
+    open my $prompt_only_branch_fh, '>', File::Spec->catfile( $prompt_only_git_dir, 'main' ) or die $!;
+    print {$prompt_only_branch_fh} "0123456789abcdef0123456789abcdef01234567\n";
+    close $prompt_only_branch_fh;
+
+    my $fake_git_dir = File::Spec->catdir( $prompt_only_home, 'fake-bin' );
+    my $fake_git_log = File::Spec->catfile( $prompt_only_home, 'fake-git.log' );
+    make_path($fake_git_dir);
+    open my $fake_git_fh, '>', File::Spec->catfile( $fake_git_dir, 'git' ) or die $!;
+    print {$fake_git_fh} <<"SH";
+#!/bin/sh
+printf '%s\\n' "\$*" >> '$fake_git_log'
+exit 99
+SH
+    close $fake_git_fh;
+    chmod 0755, File::Spec->catfile( $fake_git_dir, 'git' ) or die $!;
+
+    local $ENV{PATH} = join ':', $fake_git_dir, ( $ENV{PATH} || () );
+    my $prompt_only_items = $prompt_only_indicators->refresh_core_indicators(
+        cwd         => $prompt_only_repo,
+        prompt_only => 1,
+    );
+    is_deeply(
+        [ map { $_->{name} } @{$prompt_only_items} ],
+        ['docker'],
+        'refresh_core_indicators prompt_only refreshes only prompt-visible core indicators',
+    );
+    ok( !-e $fake_git_log, 'refresh_core_indicators prompt_only skips git subprocess checks entirely' );
+}
 
 my $prompt = Developer::Dashboard::Prompt->new( paths => $paths, indicators => $indicators );
 dies_like( sub { Developer::Dashboard::Prompt->new( paths => $paths ) }, qr/Missing indicator store/, 'prompt requires indicators' );
@@ -2459,6 +2538,18 @@ my $plain_paths = Developer::Dashboard::PathRegistry->new( home => $plain_home )
     like( $prompt_without_indicators, qr/\(3 jobs\)/, 'prompt still renders job counts when tmux suppresses indicators' );
 }
 {
+    local $ENV{TMUX} = 'tmux-session';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = 1;
+    local $ENV{TICKET_REF} = '';
+    local $ENV{WORKSPACE_REF} = '';
+    my $auto_tmux_prompt = $prompt->render(
+        jobs => 2,
+        cwd  => File::Spec->catdir( $home, 'named-path' ),
+    );
+    unlike( $auto_tmux_prompt, qr/🚨NEW|✅Z|✅b/, 'prompt auto-suppresses inline indicators when the dashboard tmux status flag is active' );
+    like( $auto_tmux_prompt, qr/\(2 jobs\)/, 'prompt still reports jobs when tmux auto-suppresses inline indicators' );
+}
+{
     local $ENV{TICKET_REF} = 'DD-4242';
     my $tmux_status = $prompt->render_tmux_status( width => 200 );
     like( $tmux_status, qr/🚨NEW/, 'tmux status formatter includes missing indicator glyphs' );
@@ -2467,6 +2558,15 @@ my $plain_paths = Developer::Dashboard::PathRegistry->new( home => $plain_home )
     like( $prompt->render_tmux_status( width => 4 ), qr/\n/, 'tmux status formatter still emits multiple lines when the available width is too small for the full indicator strip' );
     unlike( $tmux_status, qr/🎫:DD-4242/, 'tmux status formatter leaves ticket context to the prompt or tmux session line' );
     unlike( $tmux_status, qr/\[~\/named-path\]|\n> /, 'tmux status formatter omits prompt-only cwd and cursor fragments' );
+}
+{
+    my $timestamp_only_prompt = Developer::Dashboard::Prompt->new(
+        paths      => $plain_paths,
+        indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
+    );
+    my ( $timestamp_top, $timestamp_bottom ) = $timestamp_only_prompt->_tmux_status_lines( width => 20 );
+    like( $timestamp_top, qr/\A🕒\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\z/, 'tmux status lines fall back to the timestamp when no indicators exist' );
+    is( $timestamp_bottom, '', 'tmux status lines leave the overflow line empty when only the timestamp exists' );
 }
 {
     local $ENV{TMUX} = '';
@@ -2480,10 +2580,24 @@ my $plain_paths = Developer::Dashboard::PathRegistry->new( home => $plain_home )
 }
 {
     local $ENV{TMUX} = 'tmux-session';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = 1;
+    local $ENV{TICKET_REF} = '';
+    local $ENV{WORKSPACE_REF} = '';
+    ok( $prompt->_tmux_status_active, '_tmux_status_active recognizes the explicit dashboard tmux-status session flag' );
+}
+{
+    local $ENV{TMUX} = 'tmux-session';
     local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = '';
     local $ENV{TICKET_REF} = 'DD-4242';
     local $ENV{WORKSPACE_REF} = '';
     ok( $prompt->_tmux_status_active, '_tmux_status_active recognizes ticket-owned tmux sessions when only TICKET_REF is set' );
+}
+{
+    local $ENV{TMUX} = 'tmux-session';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = '';
+    local $ENV{TICKET_REF} = '';
+    local $ENV{WORKSPACE_REF} = 'WS-4242';
+    ok( $prompt->_tmux_status_active, '_tmux_status_active recognizes workspace-owned tmux sessions when only WORKSPACE_REF is set' );
 }
 {
     local $ENV{TMUX} = 'tmux-session';
@@ -2530,6 +2644,128 @@ my $plain_paths = Developer::Dashboard::PathRegistry->new( home => $plain_home )
     ok( defined $detected_branch && $detected_branch ne '', 'prompt detects a git branch from a real repository' );
 }
 {
+    my $direct_git_home = tempdir(CLEANUP => 1);
+    my $direct_git_repo = File::Spec->catdir( $direct_git_home, 'repo' );
+    my $direct_git_dir = File::Spec->catdir( $direct_git_home, 'actual.git', 'refs', 'heads' );
+    make_path( $direct_git_dir, $direct_git_repo );
+    open my $direct_git_file_fh, '>', File::Spec->catfile( $direct_git_repo, '.git' ) or die $!;
+    print {$direct_git_file_fh} "gitdir: ../actual.git\n";
+    close $direct_git_file_fh;
+    open my $direct_head_fh, '>', File::Spec->catfile( $direct_git_home, 'actual.git', 'HEAD' ) or die $!;
+    print {$direct_head_fh} "ref: refs/heads/main\n";
+    close $direct_head_fh;
+    open my $direct_branch_fh, '>', File::Spec->catfile( $direct_git_dir, 'main' ) or die $!;
+    print {$direct_branch_fh} "0123456789abcdef0123456789abcdef01234567\n";
+    close $direct_branch_fh;
+
+    my $fake_git_dir = File::Spec->catdir( $direct_git_home, 'fake-bin' );
+    my $fake_git_log = File::Spec->catfile( $direct_git_home, 'fake-git.log' );
+    make_path($fake_git_dir);
+    open my $fake_git_fh, '>', File::Spec->catfile( $fake_git_dir, 'git' ) or die $!;
+    print {$fake_git_fh} <<"SH";
+#!/bin/sh
+printf '%s\\n' "\$*" >> '$fake_git_log'
+exit 97
+SH
+    close $fake_git_fh;
+    chmod 0755, File::Spec->catfile( $fake_git_dir, 'git' ) or die $!;
+
+    local $ENV{PATH} = join ':', $fake_git_dir, ( $ENV{PATH} || () );
+    my $direct_prompt = Developer::Dashboard::Prompt->new(
+        paths      => $plain_paths,
+        indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
+    );
+    is( $direct_prompt->_git_branch($direct_git_repo), 'main', 'prompt reads the branch directly from git metadata without a git subprocess' );
+    ok( !-e $fake_git_log, 'prompt direct git metadata branch detection does not invoke the git command' );
+}
+{
+    my $detached_git_home = tempdir(CLEANUP => 1);
+    my $detached_git_repo = File::Spec->catdir( $detached_git_home, 'repo' );
+    my $detached_git_dir = File::Spec->catdir( $detached_git_repo, '.git' );
+    make_path($detached_git_dir);
+    open my $detached_head_fh, '>', File::Spec->catfile( $detached_git_dir, 'HEAD' ) or die $!;
+    print {$detached_head_fh} "0123456789abcdef0123456789abcdef01234567\n";
+    close $detached_head_fh;
+
+    my $detached_prompt = Developer::Dashboard::Prompt->new(
+        paths      => $plain_paths,
+        indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
+    );
+    is( $detached_prompt->_git_branch($detached_git_repo), '0123456', 'prompt shortens detached HEAD hashes without invoking git' );
+}
+{
+    my $invalid_git_home = tempdir(CLEANUP => 1);
+    my $invalid_git_repo = File::Spec->catdir( $invalid_git_home, 'repo' );
+    make_path($invalid_git_repo);
+    open my $invalid_git_file_fh, '>', File::Spec->catfile( $invalid_git_repo, '.git' ) or die $!;
+    print {$invalid_git_file_fh} "gitdir: ../missing.git\n";
+    close $invalid_git_file_fh;
+
+    my $invalid_prompt = Developer::Dashboard::Prompt->new(
+        paths      => $plain_paths,
+        indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
+    );
+    is( $invalid_prompt->_git_metadata_dir($invalid_git_repo), undef, 'prompt ignores gitdir files that resolve to missing metadata directories' );
+}
+{
+    my $malformed_git_home = tempdir(CLEANUP => 1);
+    my $malformed_git_repo = File::Spec->catdir( $malformed_git_home, 'repo' );
+    make_path($malformed_git_repo);
+    open my $malformed_git_file_fh, '>', File::Spec->catfile( $malformed_git_repo, '.git' ) or die $!;
+    print {$malformed_git_file_fh} "not-a-gitdir-line\n";
+    close $malformed_git_file_fh;
+
+    my $malformed_prompt = Developer::Dashboard::Prompt->new(
+        paths      => $plain_paths,
+        indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
+    );
+    is( $malformed_prompt->_git_metadata_dir($malformed_git_repo), undef, 'prompt ignores malformed gitdir indirection files' );
+    is( $malformed_prompt->_git_branch($malformed_git_repo), undef, 'prompt skips malformed gitdir indirection files when resolving branches' );
+}
+{
+    my $headless_git_home = tempdir(CLEANUP => 1);
+    my $headless_git_repo = File::Spec->catdir( $headless_git_home, 'repo' );
+    make_path( File::Spec->catdir( $headless_git_repo, '.git' ) );
+
+    my $headless_prompt = Developer::Dashboard::Prompt->new(
+        paths      => $plain_paths,
+        indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
+    );
+    is( $headless_prompt->_git_branch($headless_git_repo), undef, 'prompt returns undef when git metadata exists but HEAD is missing' );
+}
+{
+    my $invalid_head_home = tempdir(CLEANUP => 1);
+    my $invalid_head_repo = File::Spec->catdir( $invalid_head_home, 'repo' );
+    my $invalid_head_git_dir = File::Spec->catdir( $invalid_head_repo, '.git' );
+    make_path($invalid_head_git_dir);
+    open my $invalid_head_fh, '>', File::Spec->catfile( $invalid_head_git_dir, 'HEAD' ) or die $!;
+    print {$invalid_head_fh} "definitely-not-a-ref-or-sha\n";
+    close $invalid_head_fh;
+
+    my $invalid_head_prompt = Developer::Dashboard::Prompt->new(
+        paths      => $plain_paths,
+        indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
+    );
+    is( $invalid_head_prompt->_git_branch($invalid_head_repo), undef, 'prompt returns undef when HEAD text is neither a ref nor a detached sha' );
+}
+{
+    my $fallback_git_home = tempdir(CLEANUP => 1);
+    my $fallback_git_repo = File::Spec->catdir( $fallback_git_home, 'repo' );
+    my $fallback_git_dir = File::Spec->catdir( $fallback_git_home, 'actual.git' );
+    make_path( $fallback_git_repo, $fallback_git_dir );
+    open my $fallback_git_file_fh, '>', File::Spec->catfile( $fallback_git_repo, '.git' ) or die $!;
+    print {$fallback_git_file_fh} "gitdir: $fallback_git_dir\n";
+    close $fallback_git_file_fh;
+
+    my $fallback_prompt = Developer::Dashboard::Prompt->new(
+        paths      => $plain_paths,
+        indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
+    );
+    no warnings 'redefine';
+    local *Developer::Dashboard::Prompt::abs_path = sub { undef };
+    is( $fallback_prompt->_git_metadata_dir($fallback_git_repo), $fallback_git_dir, 'prompt falls back to the absolute gitdir path when abs_path cannot resolve it but the directory exists' );
+}
+{
     no warnings 'redefine';
     local *Developer::Dashboard::Prompt::_git_branch = sub { "master\x{1F525}" };
     my $unicode_branch_prompt = Developer::Dashboard::Prompt->new( paths => $paths, indicators => $indicators )->render(
@@ -2537,6 +2773,19 @@ my $plain_paths = Developer::Dashboard::PathRegistry->new( home => $plain_home )
         cwd  => File::Spec->catdir( $workspace, 'Alpha-App' ),
     );
     like( $unicode_branch_prompt, qr/\Q🌿master🔥\E/, 'prompt keeps UTF-8 branch suffix glyphs intact when rendering the trailing git branch fragment' );
+}
+{
+    local $ENV{TMUX} = '';
+    local $ENV{TICKET_REF} = 'DD-OLD';
+    local $ENV{WORKSPACE_REF} = 'WS-NEW';
+    local $ENV{DEVELOPER_DASHBOARD_TMUX_STATUS} = 0;
+    my $workspace_prompt = Developer::Dashboard::Prompt->new(
+        paths      => $plain_paths,
+        indicators => Developer::Dashboard::IndicatorStore->new( paths => $plain_paths ),
+    )->render( cwd => $plain_home, no_indicators => 1 );
+    like( $workspace_prompt, qr/\Q[Home: $plain_home]\E/, 'prompt rewrites the bare home directory to the explicit Home: label' );
+    like( $workspace_prompt, qr/🎫:WS-NEW/, 'prompt prefers WORKSPACE_REF over TICKET_REF when both are present' );
+    unlike( $workspace_prompt, qr/🎫:DD-OLD/, 'prompt suppresses the older TICKET_REF when WORKSPACE_REF overrides it' );
 }
 
 my $repo = File::Spec->catdir( $home, 'repo-for-config' );

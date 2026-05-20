@@ -1,3 +1,14 @@
+3.91  2026-05-20
+    - make `dashboard ps1` skip `tmux show-environment` when `TMUX` is unset,
+      stop constructing an unused collector object, and refresh only
+      prompt-visible core indicators on the prompt path
+    - read the prompt branch directly from `.git/HEAD` and worktree `gitdir:`
+      metadata instead of spawning `git branch`, keeping branch rendering fast
+      on slower hosts such as iSH
+    - add a collector-sync fast path so repeated prompt renders avoid the full
+      collector indicator rewrite path when the stored config-backed indicator
+      state already matches
+
 3.90  2026-05-20
     - make `PathRegistry` actually reuse a precomputed invocation cwd and
       memoize repeated DD-OOP-LAYERS path derivation so thin helper commands

@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.90';
+our $VERSION = '3.91';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.90
+3.91
 
 =head1 INTRODUCTION
 
@@ -2006,10 +2006,13 @@ Render prompt text directly:
 C<dashboard ps1> now follows the original F<~/bin/ps1> shape more closely: a
 C<(YYYY-MM-DD HH:MM:SS)> timestamp prefix, dashboard status and workspace info, a
 bracketed working directory, an optional jobs suffix, and a trailing
-C<🌿branch> marker when git metadata is available. If the workspace workflow
-seeded C<WORKSPACE_REF> or the older C<TICKET_REF> into the current tmux
-session, C<dashboard ps1> also reads that context from tmux when the shell
-environment does not already export it.
+C<🌿branch> marker when git metadata is available. The prompt helper reads the
+branch directly from on-disk git metadata instead of shelling out to
+C<git branch>, so repeated prompt renders stay lightweight on slower hosts such
+as iSH. If the workspace workflow seeded C<WORKSPACE_REF> or the older
+C<TICKET_REF> into the current tmux session, C<dashboard ps1> also reads that
+context from tmux when the shell environment does not already export it, but it
+skips that tmux probe entirely when the shell is not inside tmux.
 
 Generate shell bootstrap:
 

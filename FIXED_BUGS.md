@@ -1,4 +1,21 @@
 # Fixed Bugs
+## 3.91 - Prompt fast-path subprocess trimming and collector sync skipping
+
+- Fixed `dashboard ps1` so it no longer probes `tmux show-environment` when
+  the shell is not inside tmux. Ordinary non-tmux shells now avoid that extra
+  subprocess entirely.
+- Fixed prompt git branch rendering so it reads `.git/HEAD` and worktree
+  `gitdir:` metadata directly instead of spawning `git branch` on every prompt
+  render.
+- Fixed prompt core-indicator refresh so the prompt path now refreshes only
+  prompt-visible core indicators instead of paying for hidden `project` and
+  `git` subprocess checks every time.
+- Fixed prompt collector syncing so repeated `dashboard ps1` renders skip the
+  full collector indicator sync path when the stored managed indicator state
+  already matches the configured collector set.
+- Removed one unused `Developer::Dashboard::Collector` construction from the
+  staged `ps1` helper so prompt startup does not instantiate dead runtime work.
+
 ## 3.90 - PathRegistry cwd reuse, env-loader cwd reuse, and nested skill env hardening
 
 - Fixed the startup-performance miss from the improvement plan: `PathRegistry`
