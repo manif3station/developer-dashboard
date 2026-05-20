@@ -146,6 +146,10 @@ The same boundary applies to repo-internal Markdown filenames: user-facing
 manuals and shipped Perl POD must not send readers to `*.md` files by name.
 If a product guide needs to refer to one of those internal documents, describe
 it conceptually instead of exposing the repository filename.
+When changing startup-path behavior, keep the thin-switchboard performance
+contract explicit in tests: `PathRegistry` must reuse a precomputed cwd when
+one is supplied, and `EnvLoader` plain-directory traversal must read that same
+invocation-scoped cwd from the registry instead of re-running `cwd()` itself.
 Markdown files themselves are also checkout-only documentation and must not be
 released in the CPAN tarball. Keep the `dist.ini` Markdown exclusion in place,
 and treat any shipped `*.md` file as a release-gate failure.

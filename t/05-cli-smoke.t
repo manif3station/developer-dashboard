@@ -1131,6 +1131,20 @@ unlike( $shell_bootstrap, qr/d2\(\)\s*\{\s*'\Q$perl\E'\s+/s, 'dashboard shell ba
 unlike( $shell_bootstrap, qr/done\s+<\s+</, 'dashboard shell bash bootstrap avoids process substitution in completion helpers for macOS compatibility' );
 like( $shell_bootstrap, qr/completion_output="\$\('\Q$dashboard\E' complete /, 'dashboard shell bash bootstrap captures dashboard completions through command substitution' );
 like( $shell_bootstrap, qr/completion_output="\$\('\Q$dashboard\E' path complete-cdr /, 'dashboard shell bash bootstrap captures cdr completions through command substitution' );
+{
+    local $ENV{DEVELOPER_DASHBOARD_ENTRYPOINT} = '/tmp/stale-dashboard-entrypoint';
+    my $stale_entrypoint_bootstrap = _run("$perl -I'$lib' '$dashboard' shell bash");
+    like(
+        $stale_entrypoint_bootstrap,
+        qr/d2\(\)\s*\{\s*'\Q$dashboard\E'\s+"\$@"/s,
+        'dashboard shell bash bootstrap ignores a stale inherited dashboard entrypoint path',
+    );
+    unlike(
+        $stale_entrypoint_bootstrap,
+        qr/\Q$ENV{DEVELOPER_DASHBOARD_ENTRYPOINT}\E/,
+        'dashboard shell bash bootstrap does not leak an inherited stale dashboard entrypoint path',
+    );
+}
 my $shell_bootstrap_file = File::Spec->catfile( $ENV{HOME}, 'dashboard-shell.sh' );
 open my $shell_bootstrap_fh, '>', $shell_bootstrap_file or die "Unable to write $shell_bootstrap_file: $!";
 print {$shell_bootstrap_fh} $shell_bootstrap;

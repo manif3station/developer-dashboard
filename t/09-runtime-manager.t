@@ -1862,6 +1862,28 @@ END {
     local *Developer::Dashboard::RuntimeManager::sleep = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::start_web = sub {
         $attempt++;
+        die "Unable to start dashboard web service\n" if $attempt == 1;
+        return 8807;
+    };
+    local *Developer::Dashboard::RuntimeManager::_web_runtime_ready = sub {
+        my ( undef, $pid, $port ) = @_;
+        return 1 if $pid == 8807 && $port == 7919;
+        return 0;
+    };
+    is(
+        $manager->_restart_web_with_retry( host => '127.0.0.1', port => 7919 ),
+        8807,
+        '_restart_web_with_retry retries when startup aborts before the web child can report readiness',
+    );
+    is( $attempt, 2, '_restart_web_with_retry retries once after a transient startup-abort error' );
+}
+
+{
+    my $attempt = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::sleep = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::start_web = sub {
+        $attempt++;
         return 8806;
     };
     local *Developer::Dashboard::RuntimeManager::_web_runtime_ready = sub { return 0 };

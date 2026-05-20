@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.83
+3.90
 
 # INTRODUCTION
 
@@ -372,7 +372,9 @@ generic package names.
 
     `Developer::Dashboard::PathRegistry` resolves the runtime roots that
     everything else depends on, such as dashboards, config, collectors,
-    indicators, CLI hooks, logs, and cache.
+    indicators, CLI hooks, logs, and cache. The registry now keeps one
+    invocation-scoped cwd plus memoized derived roots so thin-helper startup does
+    not keep recomputing the same DD-OOP-LAYERS path chain during one command.
 
 - File Registry
 
@@ -791,6 +793,31 @@ to the deepest matching child skill layer, applying:
 This means a deeper skill env can override a shared runtime key, but that
 override stays isolated to the skill execution path and does not leak into
 unrelated commands.
+
+For nested skill commands such as `dashboard foo.bar.zzz.show`, the skill env
+chain expands from the root nested skill to the leaf skill before the command
+runs:
+
+- `skills/foo/.env`
+- `skills/foo/skills/bar/.env`
+- `skills/foo/skills/bar/skills/zzz/.env`
+
+If a deeper nested skill overrides the same key, the parent value is preserved
+under that parent skill alias before the deeper skill replaces the plain key.
+For example, if all three nested skills assign `VERSION`, the leaf command
+sees `VERSION` from `zzz`, `foo_VERSION` from `foo`, and
+`foo_bar_VERSION` from `foo.bar`.
+
+The Docker Compose resolver also loads `<skill-root>/.env` for each installed
+skill whose `config/docker/<service>/compose.yml` or
+`config/docker/<service>/development.compose.yml` file actually participates in
+the resolved compose stack. That compose-only skill env layer stays isolated to
+the compose resolver, respects disabled skills, and does not execute
+`<skill-root>/.env.pl`. Nested skill compose services use that same
+root-to-leaf env expansion, so a participating leaf service such as
+`skills/foo/skills/bar/skills/zzz/config/docker/zzz/compose.yml` loads the
+env chain from `foo` to `foo.bar` to `foo.bar.zzz` and preserves parent
+overrides under aliases such as `foo_VERSION` and `foo_bar_VERSION`.
 
 Perl code can inspect where a dashboard-managed env key came from with
 `Developer::Dashboard::EnvAudit`.
@@ -1647,6 +1674,21 @@ config-root docker directory for the current runtime, so compose YAML can keep u
 `--service`, `--addon`, `--mode`, `--project`, and `--dry-run` are
 consumed first, and all remaining docker compose flags such as `-d` and
 `--build` pass straight through to the real `docker compose` command.
+If one resolved service comes from an installed skill docker root, the
+resolver also loads that skill's `<skill-root>/.env` file into the compose
+environment before docker-config, addon, and mode env overlays are applied.
+Only skills whose compose service files actually participate are included,
+disabled skills are skipped, and `<skill-root>/.env.pl` is not executed from
+this compose path. Nested skill services expand their env chain from the root
+nested skill to the participating leaf service, preserving overwritten parent
+keys under cumulative aliases such as `foo_VERSION` and
+`foo_bar_VERSION` before the leaf value becomes the plain key. The resolver
+also exports one skill-specific `<skill-name>_DDDC` variable for each
+participating skill, using the leaf skill name with non-identifier characters
+normalized to underscores and pointing that variable at the owning
+`config/docker/` root. Nested skill services additionally export the full
+cumulative skill path alias such as `foo_bar_zzz_DDDC` for the same compose
+root, while the leaf alias stays available as `zzz_DDDC`.
 When `--dry-run` is omitted, the dashboard hands off with `exec` so the
 terminal sees the normal streaming output from `docker compose` itself
 instead of a dashboard JSON wrapper.

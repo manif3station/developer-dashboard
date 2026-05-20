@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.83';
+our $VERSION = '3.90';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -2561,6 +2561,7 @@ sub _restart_web_with_retry {
         if ( !$error ) {
             $error = "Unable to restart dashboard web service on $host:$port\n";
         }
+        my $retryable_error = $error =~ /Address already in use|Unable to confirm dashboard web service stayed running|Unable to start dashboard web service/;
         $self->_progress_emit(
             $progress,
             {
@@ -2568,8 +2569,8 @@ sub _restart_web_with_retry {
                 status  => 'failed',
                 label   => 'Start dashboard web service',
             }
-        ) if $attempt == $attempts || $error !~ /Address already in use|Unable to confirm dashboard web service stayed running/;
-        die $error if $error !~ /Address already in use|Unable to confirm dashboard web service stayed running/;
+        ) if $attempt == $attempts || !$retryable_error;
+        die $error if !$retryable_error;
         die $error if $attempt == $attempts;
         sleep 0.25;
     }

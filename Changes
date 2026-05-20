@@ -1,3 +1,45 @@
+3.90  2026-05-20
+    - make `PathRegistry` actually reuse a precomputed invocation cwd and
+      memoize repeated DD-OOP-LAYERS path derivation so thin helper commands
+      stop recalculating the same runtime chain during one process
+    - make `EnvLoader` plain-directory traversal reuse the registry cwd cache
+      instead of re-running `cwd()` while it walks root -> project -> leaf
+      `.env` layers
+    - tighten the nested skill env/compose fix set with the final blank-host
+      and coverage gate closure work
+
+3.89  2026-05-19
+    - expand nested skill env loading from root to leaf for dotted skill
+      commands and participating docker compose skill services, preserving
+      overwritten parent values under cumulative aliases such as
+      `foo_VERSION` and `foo_bar_VERSION`
+    - discover nested installed-skill docker compose roots so participating
+      leaf services such as `skills/foo/skills/bar/skills/zzz/config/docker`
+      contribute both leaf `zzz_DDDC` and cumulative `foo_bar_zzz_DDDC`
+      aliases during compose resolution
+    - cover the remaining action-runner defensive and background-child startup
+      branches so the final tree can close the 100% coverage gate again
+
+3.88  2026-05-19
+    - load participating skill-root `.env` files into `dashboard docker compose`
+      resolution and export normalized `<skill>_DDDC` variables for each
+      participating skill docker root
+    - run detached background page command actions through a reaped supervisor
+      path so blank-container tarball installs and root-owned hosts do not
+      leave stale background wrappers behind or fail the tarball gate
+
+3.86  2026-05-19
+    - fixed packaged shell bootstrap generation so staged helpers always
+      re-enter the active dashboard entrypoint instead of leaking a stale
+      inherited source-tree path into extracted tarball installs and tests
+
+3.85  2026-05-19
+    - export one skill-specific <skill-name>_DDDC compose env variable for each participating skill docker root
+    - keep participating skill .env loading isolated to docker compose resolution without executing skill .env.pl files
+
+3.84  2026-05-19
+    - load participating installed skill .env files into docker compose resolution without executing skill .env.pl files
+
 3.83  2026-05-18
     - fixed interactive `dashboard skills install` progress so dependency rows
       are only added when the matching manifest file actually exists in the

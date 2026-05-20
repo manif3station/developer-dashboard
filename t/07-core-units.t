@@ -867,6 +867,27 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
     is_deeply( \@warnings, [], 'runtime_layers does not warn when cwd is unavailable' );
 }
 {
+    no warnings 'redefine';
+    local *Developer::Dashboard::PathRegistry::cwd = sub { die "cwd should not be called when the registry was constructed with one\n"; };
+    my $precomputed_cwd_paths = Developer::Dashboard::PathRegistry->new(
+        home => $home,
+        cwd  => $local_repo,
+    );
+    is_same_path(
+        $precomputed_cwd_paths->current_project_root,
+        $local_repo,
+        'current_project_root uses the precomputed cwd supplied to the registry constructor',
+    );
+    is_same_paths(
+        [ $precomputed_cwd_paths->runtime_layers ],
+        [
+            File::Spec->catdir( $home, '.developer-dashboard' ),
+            File::Spec->catdir( $local_repo, '.developer-dashboard' ),
+        ],
+        'runtime_layers uses the precomputed cwd supplied to the registry constructor',
+    );
+}
+{
     my $outside_no_repo = tempdir( CLEANUP => 1 );
     no warnings 'redefine';
     local *Developer::Dashboard::PathRegistry::cwd = sub { return $outside_no_repo; };
@@ -1499,6 +1520,11 @@ SH
         $paths->_prefer_reference_style( $private_tmp, '/tmp' ),
         File::Spec->catdir( '/tmp', 'demo' ),
         '_prefer_reference_style keeps equivalent tmp aliases in the reference style',
+    );
+    is(
+        $paths->_prefer_reference_style( '/tmp/demo', '/tmp/demo' ),
+        '/tmp/demo',
+        '_prefer_reference_style keeps the reference path unchanged when no suffix remains',
     );
     is(
         $paths->_display_path($private_var),
@@ -4600,6 +4626,64 @@ EOF
     is( $audit_keys->{CHILD_DD}{envfile}, File::Spec->catfile( $child_root, '.developer-dashboard', '.env' ), 'EnvAudit->keys exposes the source file for each recorded key' );
     chdir $previous_cwd or die "Unable to chdir back to $previous_cwd: $!";
 }
+{
+    my $env_home = tempdir( CLEANUP => 1 );
+    my $project_root = File::Spec->catdir( $env_home, 'projects', 'cached-cwd-env-project' );
+    my $child_root = File::Spec->catdir( $project_root, 'child' );
+    make_path(
+        File::Spec->catdir( $env_home, '.developer-dashboard' ),
+        File::Spec->catdir( $project_root, '.git' ),
+        $child_root,
+    );
+    open my $home_fh, '>:raw', File::Spec->catfile( $env_home, '.env' ) or die "Unable to write cached cwd home .env: $!";
+    print {$home_fh} "ROOT_CACHE=home\n";
+    close $home_fh or die "Unable to close cached cwd home .env: $!";
+    open my $project_fh, '>:raw', File::Spec->catfile( $project_root, '.env' ) or die "Unable to write cached cwd project .env: $!";
+    print {$project_fh} "PROJECT_CACHE=project\n";
+    close $project_fh or die "Unable to close cached cwd project .env: $!";
+    open my $child_fh, '>:raw', File::Spec->catfile( $child_root, '.env' ) or die "Unable to write cached cwd child .env: $!";
+    print {$child_fh} "CHILD_CACHE=child\n";
+    close $child_fh or die "Unable to close cached cwd child .env: $!";
+
+    local $ENV{HOME} = $env_home;
+    local $ENV{ROOT_CACHE};
+    local $ENV{PROJECT_CACHE};
+    local $ENV{CHILD_CACHE};
+    Developer::Dashboard::EnvAudit->clear();
+    my $paths = Developer::Dashboard::PathRegistry->new(
+        home => $env_home,
+        cwd  => $child_root,
+    );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::EnvLoader::cwd = sub { die "EnvLoader plain-directory scanning should reuse the registry cwd\n"; };
+        Developer::Dashboard::EnvLoader->load_runtime_layers( paths => $paths );
+    }
+    is( $ENV{ROOT_CACHE}, 'home', 'EnvLoader still loads the root plain-directory env file when using the registry cwd cache' );
+    is( $ENV{PROJECT_CACHE}, 'project', 'EnvLoader still loads the project plain-directory env file when using the registry cwd cache' );
+    is( $ENV{CHILD_CACHE}, 'child', 'EnvLoader still loads the leaf plain-directory env file when using the registry cwd cache' );
+}
+
+{
+    my $docker_runtime_root = File::Spec->catdir( $home, '.developer-dashboard' );
+    my $nested_leaf = File::Spec->catdir( $docker_runtime_root, 'skills', 'alpha', 'skills', 'beta' );
+    make_path(
+        File::Spec->catdir( $docker_runtime_root, 'skills', 'alpha', 'config', 'docker', 'alpha' ),
+        File::Spec->catdir( $nested_leaf, 'config', 'docker', 'beta' ),
+    );
+    is_deeply(
+        [ sort $paths->installed_skill_docker_roots_for_runtime($docker_runtime_root) ],
+        [
+            File::Spec->catdir( $docker_runtime_root, 'skills', 'alpha', 'config', 'docker' ),
+        ],
+        'installed_skill_docker_roots_for_runtime returns docker roots for the matching runtime layer',
+    );
+    is_deeply(
+        [ $paths->installed_skill_docker_roots_for_runtime(undef) ],
+        [],
+        'installed_skill_docker_roots_for_runtime returns an empty list when runtime root is missing',
+    );
+}
 
 {
     my $bad_home = tempdir( CLEANUP => 1 );
@@ -4679,6 +4763,67 @@ EOF
         'EnvLoader propagates .env.pl execution failures instead of hiding them',
     );
     chdir $previous_cwd or die "Unable to chdir back to $previous_cwd: $!";
+}
+
+{
+    my $overlay_dir = tempdir( CLEANUP => 1 );
+    my $env_file = File::Spec->catfile( $overlay_dir, '.env' );
+    my $env_pl_file = File::Spec->catfile( $overlay_dir, '.env.pl' );
+    open my $env_fh, '>:raw', $env_file or die "Unable to write overlay env file: $!";
+    print {$env_fh} "VERSION=leaf\nNEW_ONLY=from-file\n";
+    close $env_fh or die "Unable to close overlay env file: $!";
+    open my $env_pl_fh, '>:raw', $env_pl_file or die "Unable to write overlay env.pl file: $!";
+    print {$env_pl_fh} "\$ENV{PL_ONLY} = \"\$ENV{VERSION}-pl\";\n1;\n";
+    close $env_pl_fh or die "Unable to close overlay env.pl file: $!";
+
+    my $overlay = Developer::Dashboard::EnvLoader->load_files_into_hash(
+        files    => [ undef, $env_file, $env_pl_file, $env_file ],
+        base_env => {
+            KEEP    => 'keep',
+            VERSION => 'base',
+        },
+    );
+    is_deeply(
+        $overlay->{files},
+        [ $env_file, $env_pl_file ],
+        'load_files_into_hash reports only unique existing files in load order',
+    );
+    is_deeply(
+        $overlay->{env},
+        {
+            DEVELOPER_DASHBOARD_ENV_AUDIT => json_encode(
+                {
+                    NEW_ONLY => {
+                        envfile => $env_file,
+                        value   => 'from-file',
+                    },
+                    PL_ONLY => {
+                        envfile => $env_pl_file,
+                        value   => 'leaf-pl',
+                    },
+                    VERSION => {
+                        envfile => $env_file,
+                        value   => 'leaf',
+                    },
+                }
+            ),
+            NEW_ONLY => 'from-file',
+            PL_ONLY  => 'leaf-pl',
+            VERSION  => 'leaf',
+        },
+        'load_files_into_hash returns only added and changed environment values',
+    );
+
+    local $ENV{HOME};
+    is(
+        Developer::Dashboard::EnvLoader->_expand_env_value(
+            value   => '~/fallback-home',
+            file    => $env_file,
+            line_no => 1,
+        ),
+        '~/fallback-home',
+        '_expand_env_value preserves leading tilde text when HOME is unavailable',
+    );
 }
 
 {

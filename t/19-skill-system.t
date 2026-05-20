@@ -645,6 +645,73 @@ PL
 }
 
 {
+    my $nested_home = tempdir( CLEANUP => 1 );
+    local $ENV{HOME} = $nested_home;
+    my $nested_root = File::Spec->catdir( $nested_home, 'nested-skill-app' );
+    make_path(
+        File::Spec->catdir( $nested_home, '.developer-dashboard', 'skills', 'foo', 'skills', 'bar', 'skills', 'zzz', 'cli' ),
+        File::Spec->catdir( $nested_root, '.git' ),
+    );
+    my $previous_cwd = getcwd();
+    chdir $nested_root or die "Unable to chdir to $nested_root: $!";
+
+    _write_file(
+        File::Spec->catfile( $nested_home, '.developer-dashboard', 'skills', 'foo', '.env' ),
+        "VERSION=foo\nSHARED_CHAIN=foo\n",
+        0644,
+    );
+    _write_file(
+        File::Spec->catfile( $nested_home, '.developer-dashboard', 'skills', 'foo', 'skills', 'bar', '.env' ),
+        "VERSION=bar\nSHARED_CHAIN=bar\n",
+        0644,
+    );
+    _write_file(
+        File::Spec->catfile( $nested_home, '.developer-dashboard', 'skills', 'foo', 'skills', 'bar', 'skills', 'zzz', '.env' ),
+        "VERSION=zzz\nSHARED_CHAIN=zzz\n",
+        0644,
+    );
+    _write_file(
+        File::Spec->catfile( $nested_home, '.developer-dashboard', 'skills', 'foo', 'skills', 'bar', 'skills', 'zzz', 'cli', 'show' ),
+        <<'PL',
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use JSON::XS qw(encode_json);
+print encode_json(
+    {
+        version         => $ENV{VERSION},
+        foo_version     => $ENV{foo_VERSION},
+        foo_bar_version => $ENV{foo_bar_VERSION},
+        shared          => $ENV{SHARED_CHAIN},
+    }
+), "\n";
+PL
+        0755,
+    );
+
+    my $nested_paths = Developer::Dashboard::PathRegistry->new( home => $nested_home );
+    my $nested_dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $nested_paths );
+    my $nested_dispatch = $nested_dispatcher->dispatch( 'foo', 'bar.zzz.show' );
+    ok( !$nested_dispatch->{error}, 'dispatcher resolves nested skill env chains from root to leaf for dotted nested commands' )
+      or diag $nested_dispatch->{error};
+    my $nested_payload = decode_json( $nested_dispatch->{stdout} );
+    is( $nested_payload->{version}, 'zzz', 'nested skill dispatch lets the leaf .env value win' );
+    is( $nested_payload->{foo_version}, 'foo', 'nested skill dispatch preserves the root skill env value under the root alias' );
+    is( $nested_payload->{foo_bar_version}, 'bar', 'nested skill dispatch preserves the parent skill env value under the cumulative parent alias' );
+    is( $nested_payload->{shared}, 'zzz', 'nested skill dispatch applies nested skill env files in root-to-leaf order' );
+
+    my ( $nested_stdout, $nested_stderr, $nested_exit ) = capture {
+        system( $^X, '-I', 'lib', $repo_bin, 'foo.bar.zzz.show' );
+    };
+    is( $nested_exit >> 8, 0, 'dashboard <root>.<parent>.<leaf>.<command> loads nested skill env layers through the public dotted switchboard path' );
+    my $nested_dotted_payload = decode_json($nested_stdout);
+    is( $nested_dotted_payload->{version}, 'zzz', 'public nested skill dispatch keeps the leaf env value as the effective key' );
+    is( $nested_dotted_payload->{foo_version}, 'foo', 'public nested skill dispatch preserves the root env value under the root alias' );
+    is( $nested_dotted_payload->{foo_bar_version}, 'bar', 'public nested skill dispatch preserves the parent env value under the cumulative parent alias' );
+    chdir $previous_cwd or die "Unable to chdir back to $previous_cwd: $!";
+}
+
+{
     my $oversized_skill_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'skills', 'oversized-result-skill' );
     make_path( File::Spec->catdir( $oversized_skill_root, 'cli', 'show.d' ) );
     _write_file(

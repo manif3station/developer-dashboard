@@ -1,4 +1,75 @@
 # Fixed Bugs
+## 3.90 - PathRegistry cwd reuse, env-loader cwd reuse, and nested skill env hardening
+
+- Fixed the startup-performance miss from the improvement plan: `PathRegistry`
+  now actually uses the constructor-supplied cwd and memoizes repeated
+  DD-OOP-LAYERS path derivation for the lifetime of one helper invocation.
+- Fixed `EnvLoader` plain-directory traversal so it reuses the registry cwd
+  instead of calling `cwd()` again while walking root, project, and leaf `.env`
+  files.
+- Kept the nested skill env and compose layering behavior intact while closing
+  the remaining coverage and packaging gates on top of the new startup-path
+  changes.
+
+## 3.89 - Nested skill env chains, nested compose roots, and ActionRunner gate closure
+
+- Fixed nested skill env loading so dotted commands such as
+  `dashboard foo.bar.zzz.show` now load `foo/.env`, `foo/bar/.env`, and
+  `foo/bar/zzz/.env` from root to leaf before the command runs.
+- When a deeper nested skill overrides the same key, the parent value is now
+  preserved under cumulative aliases before the leaf wins the plain key. For
+  example, three nested `VERSION` assignments now leave `foo_VERSION`,
+  `foo_bar_VERSION`, and `VERSION` available together.
+- Fixed docker compose skill discovery so nested installed skill compose roots
+  such as `skills/foo/skills/bar/skills/zzz/config/docker/zzz/compose.yml`
+  participate in service resolution instead of being ignored.
+- Participating nested skill compose roots now export both the leaf
+  `<skill>_DDDC` alias such as `zzz_DDDC` and the cumulative nested alias such
+  as `foo_bar_zzz_DDDC`, both pointing at the owning `config/docker/` root.
+- Closed the remaining ActionRunner gate miss by adding regression coverage for
+  invalid action payloads, missing cwd failures, safe/trust edge cases, and
+  detached background-child startup failures around stdio, cwd, and exec.
+
+## 3.88 - Compose skill env layering and detached background tarball stability
+
+- Fixed `dashboard docker compose` so each participating skill compose service
+  now contributes its `<skill-root>/.env` file plus one normalized
+  `<skill>_DDDC` docker-root variable during stack resolution.
+- Fixed detached background page command actions so root-owned blank-container
+  tarball installs no longer fail when the action wrapper exits. The detached
+  supervisor now reaps its owned command child, and action-runner liveness
+  checks treat already-reaped or zombie wrappers as stopped instead of leaving
+  stale background-action state behind.
+
+## 3.86 - Fix packaged shell bootstrap entrypoint reuse
+
+- Fixed `dashboard shell` packaging so generated bootstrap helpers always
+  re-enter the active public `bin/dashboard` path instead of leaking a stale
+  inherited `DEVELOPER_DASHBOARD_ENTRYPOINT` from another checkout or build
+  tree.
+- This closes the blank-container tarball install failure where extracted
+  distributions generated shell helpers that pointed back to the source
+  checkout.
+
+## 3.85 - Export skill-specific compose env roots for participating skills
+
+- Fixed `dashboard docker compose` so installed skill services can contribute
+  `<skill-root>/.env` when their `config/docker/<service>/compose.yml` or
+  `development.compose.yml` file actually participates in the resolved stack.
+- Disabled skills stay excluded from compose env loading, and the compose path
+  does not execute `<skill-root>/.env.pl`.
+- Added a skill-specific `<skill-name>_DDDC` compose environment variable for
+  each participating skill, pointing at that skill's `config/docker/` root
+  after normalizing non-identifier characters in the skill name to
+  underscores.
+
+## 3.84 - Load participating skill .env files into docker compose resolution
+
+- Fixed `dashboard docker compose` so installed skill services can contribute
+  `<skill-root>/.env` when their `config/docker/<service>/compose.yml` or
+  `development.compose.yml` file actually participates in the resolved stack.
+- Disabled skills stay excluded from compose env loading, and the compose path
+  does not execute `<skill-root>/.env.pl`.
 ## 3.83 - Show only real skill dependency work in install progress
 
 - Fixed the interactive `dashboard skills install` progress board so it no
