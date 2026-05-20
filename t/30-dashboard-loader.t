@@ -68,6 +68,46 @@ is( $version_exit, 0, 'dashboard version also stays on the lightweight path with
   or diag $version_output;
 like( $version_output, qr/^\d+\.\d+\s*\z/, 'dashboard version still prints the package version' );
 
+my $lazy_home = tempdir( CLEANUP => 1 );
+{
+    local $ENV{HOME} = $lazy_home;
+    my $init_output = qx{$^X -I$lib $dashboard init 2>&1};
+    my $init_exit = $? >> 8;
+    is( $init_exit, 0, 'dashboard init stages private helpers before the prompt lazy-load check' )
+      or diag $init_output;
+}
+my $lazy_lib = tempdir( CLEANUP => 1 );
+my $lazy_cli_dir = File::Spec->catdir( $lazy_lib, 'Developer', 'Dashboard', 'CLI' );
+my $lazy_skill_dir = File::Spec->catdir( $lazy_lib, 'Developer', 'Dashboard' );
+my $lazy_file_dir = File::Spec->catdir( $lazy_lib, 'File' );
+make_path( $lazy_cli_dir, $lazy_skill_dir, $lazy_file_dir );
+_write_perl_module(
+    File::Spec->catfile( $lazy_cli_dir, 'Suggest.pm' ),
+    "package Developer::Dashboard::CLI::Suggest;\ndie qq(lazy-loader-regression: suggestion runtime loaded during dashboard ps1\\n);\n",
+);
+_write_perl_module(
+    File::Spec->catfile( $lazy_skill_dir, 'SkillManager.pm' ),
+    "package Developer::Dashboard::SkillManager;\ndie qq(lazy-loader-regression: skill manager loaded during dashboard ps1\\n);\n",
+);
+_write_perl_module(
+    File::Spec->catfile( $lazy_skill_dir, 'SeedSync.pm' ),
+    "package Developer::Dashboard::SeedSync;\ndie qq(lazy-loader-regression: seed sync loaded during dashboard ps1\\n);\n",
+);
+_write_perl_module(
+    File::Spec->catfile( $lazy_file_dir, 'ShareDir.pm' ),
+    "package File::ShareDir;\ndie qq(lazy-loader-regression: File::ShareDir loaded during dashboard ps1\\n);\n",
+);
+
+{
+    local $ENV{HOME} = $lazy_home;
+    local $ENV{PERL5OPT} = '-I' . $lazy_lib;
+    my $ps1_output = qx{$^X -I$lib $dashboard ps1 --cwd "$lazy_home" --mode compact --no-indicators 2>&1};
+    my $ps1_exit = $? >> 8;
+    is( $ps1_exit, 0, 'dashboard ps1 stays on the lightweight helper path once helpers are already staged' )
+      or diag $ps1_output;
+    unlike( $ps1_output, qr/lazy-loader-regression:/, 'dashboard ps1 does not load suggestion, skill, or helper-staging-only modules on the hot path' );
+}
+
 my @perl_scripts = (
     File::Spec->catfile( $repo_root, 'bin', 'dashboard' ),
     File::Spec->catfile( $repo_root, 'app.psgi' ),
@@ -141,6 +181,14 @@ sub _slurp {
     my $content = do { local $/; <$fh> };
     close $fh;
     return $content;
+}
+
+sub _write_perl_module {
+    my ( $path, $content ) = @_;
+    open my $fh, '>', $path or die "Unable to write $path: $!";
+    print {$fh} $content;
+    close $fh;
+    return 1;
 }
 
 __END__

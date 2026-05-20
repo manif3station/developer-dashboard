@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.91';
+our $VERSION = '3.92';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.91
+3.92
 
 =head1 INTRODUCTION
 
@@ -69,7 +69,11 @@ C<dashboard> without polluting the global PATH. That keeps dashboard-owned
 built-ins separate from user commands and hooks under
 F<~/.developer-dashboard/cli/>. Compatibility aliases C<pjq>, C<pyq>,
 C<ptomq>, C<pjp>, and C<ticket> still normalize to the current commands when
-they are invoked through C<dashboard>.
+they are invoked through C<dashboard>. The public switchboard now keeps the
+prompt path lighter as well: once the managed helper files are already staged,
+C<dashboard ps1> refreshes only the requested helper, reuses one path registry
+for the whole invocation, and avoids loading the suggestion and skill dispatch
+stack on the ordinary prompt fast path.
 
 It provides a small ecosystem for:
 

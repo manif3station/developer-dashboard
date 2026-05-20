@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.91
+3.92
 
 # INTRODUCTION
 
@@ -56,7 +56,11 @@ privately under `~/.developer-dashboard/cli/dd/` and dispatched by
 built-ins separate from user commands and hooks under
 `~/.developer-dashboard/cli/`. Compatibility aliases `pjq`, `pyq`,
 `ptomq`, `pjp`, and `ticket` still normalize to the current commands when
-they are invoked through `dashboard`.
+they are invoked through `dashboard`. The public switchboard now keeps the
+prompt path lighter as well: once the managed helper files are already staged,
+`dashboard ps1` refreshes only the requested helper, reuses one path registry
+for the whole invocation, and avoids loading the suggestion and skill dispatch
+stack on the ordinary prompt fast path.
 
 It provides a small ecosystem for:
 

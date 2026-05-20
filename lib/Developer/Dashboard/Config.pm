@@ -3,13 +3,12 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '3.91';
+our $VERSION = '3.92';
 
 use File::Spec;
 use Cwd qw(cwd);
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
-use Developer::Dashboard::SkillDispatcher;
 
 # new(%args)
 # Constructs a configuration loader bound to files and paths.
@@ -620,34 +619,54 @@ sub _skill_config_fragments {
     my ($self) = @_;
     my @fragments;
     for my $entry ( $self->_skill_config_entries ) {
-        my $fragment = $entry->{dispatcher}->config_fragment( $entry->{skill_name} );
-        push @fragments, $fragment if ref($fragment) eq 'HASH' && %{$fragment};
+        push @fragments, { '_' . $entry->{skill_name} => $entry->{config} };
     }
     return @fragments;
 }
 
 # _skill_config_entries()
-# Enumerates installed skill config payloads together with the skill name and dispatcher.
+# Enumerates installed skill config payloads together with the skill name and installed root.
 # Input: none.
-# Output: ordered list of hash refs with skill_name, skill_root, config, and dispatcher.
+# Output: ordered list of hash refs with skill_name, skill_root, and config.
 sub _skill_config_entries {
     my ($self) = @_;
-    my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $self->{paths} );
     my @entries;
     for my $skill_root ( $self->{paths}->installed_skill_roots ) {
         my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
         next if !defined $skill_name || $skill_name eq '';
-        my $config = $dispatcher->get_skill_config($skill_name);
+        my $config = $self->_skill_config_hash($skill_name);
         next if ref($config) ne 'HASH' || !%{$config};
         push @entries,
           {
             skill_name => $skill_name,
             skill_root => $skill_root,
             config     => $config,
-            dispatcher => $dispatcher,
           };
     }
     return @entries;
+}
+
+# _skill_config_hash($skill_name)
+# Reads and merges config/config.json from every participating layer of one installed skill.
+# Input: skill repository name string.
+# Output: merged skill configuration hash reference.
+sub _skill_config_hash {
+    my ( $self, $skill_name ) = @_;
+    return {} if !defined $skill_name || $skill_name eq '';
+    my @layers = $self->{paths}->skill_layers( $skill_name, include_disabled => 1 );
+    return {} if !@layers;
+    my $merged = {};
+    for my $skill_path (@layers) {
+        my $config_file = File::Spec->catfile( $skill_path, 'config', 'config.json' );
+        next if !-f $config_file;
+        open my $fh, '<:raw', $config_file or die "Unable to read $config_file: $!";
+        local $/;
+        my $config = eval { json_decode(<$fh>) } || {};
+        close $fh;
+        return {} if ref($config) ne 'HASH';
+        $merged = $self->_merge_hashes( $merged, $config );
+    }
+    return $merged;
 }
 
 # _skill_collectors()

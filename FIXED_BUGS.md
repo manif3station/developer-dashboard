@@ -1,4 +1,23 @@
 # Fixed Bugs
+## 3.92 - Prompt switchboard eager-load trimming and targeted helper refresh
+
+- Fixed the remaining `dashboard ps1` startup drag after the earlier prompt
+  renderer cleanup.
+- Root cause:
+  the public `dashboard` switchboard was still doing expensive work before the
+  staged `ps1` helper ran. Every prompt render still loaded the suggestion
+  runtime, loaded helper-staging-only modules, rebuilt the same path registry
+  multiple times, and refreshed the whole helper tree instead of just the one
+  helper being invoked.
+- Fix:
+  the switchboard now lazy-loads the unknown-command suggestion runtime, keeps
+  `File::ShareDir` and `SeedSync` out of the hot path unless a helper really
+  needs repair, stages only the requested built-in helper during steady-state
+  dispatch, and reuses one `PathRegistry` object across the whole invocation.
+- Fixed prompt-time config loading to read installed skill `config/config.json`
+  files directly instead of constructing the full skill dispatch runtime just
+  to merge config fragments.
+
 ## 3.91 - Prompt fast-path subprocess trimming and collector sync skipping
 
 - Fixed `dashboard ps1` so it no longer probes `tmux show-environment` when

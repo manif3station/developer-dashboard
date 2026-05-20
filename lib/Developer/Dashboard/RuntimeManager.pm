@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '3.91';
+our $VERSION = '3.92';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -195,7 +195,7 @@ sub running_web {
     if ( my $pid = $self->{files}->read('web_pid') ) {
         chomp $pid;
         $pid = $self->_normalized_process_id($pid);
-        if ( $pid && kill( 0, $pid ) && $self->_same_pid_namespace($pid) ) {
+        if ( $pid && $self->_pid_is_running($pid) && $self->_same_pid_namespace($pid) ) {
             if ( $self->_is_managed_web($pid) || ( $state->{status} || '' ) eq 'running' ) {
                 return {
                     %$state,
@@ -2218,10 +2218,21 @@ sub _pkill_perl {
 # Output: list of process hash references.
 sub _find_processes_by_prefix {
     my ( $self, $prefix ) = @_;
-    return grep {
-        $self->_proc_owned_by_current_user($_)
-          && $_->{args} =~ /^\Q$prefix\E/
-    } $self->_ps_processes;
+    my @matches;
+    for my $proc ( $self->_ps_processes ) {
+        next if !$self->_proc_owned_by_current_user($proc);
+        if ( defined $proc->{args} && $proc->{args} =~ /^\Q$prefix\E/ ) {
+            push @matches, $proc;
+            next;
+        }
+        my $title = $self->_read_process_title( $proc->{pid} );
+        next if !defined $title || $title !~ /^\Q$prefix\E/;
+        push @matches, {
+            %{$proc},
+            args => $title,
+        };
+    }
+    return @matches;
 }
 
 # _find_web_processes()
@@ -2833,15 +2844,15 @@ sub _pid_namespace_id {
 sub _read_process_title {
     my ( $self, $pid ) = @_;
     my $proc = "/proc/$pid/cmdline";
-    if ( -r $proc ) {
-        open my $fh, '<', $proc or return;
-        local $/;
-        my $cmdline = scalar <$fh>;
+    if ( $self->_procfs_available ) {
+        my $cmdline = $self->_slurp_proc_file($proc);
+        return if !defined $cmdline;
         if ( defined $cmdline && $cmdline ne '' ) {
             $cmdline =~ s/\0/ /g;
             $cmdline =~ s/\s+$//;
             return $cmdline;
         }
+        return;
     }
 
     my ( $stdout, undef, $exit_code ) = capture {
@@ -2861,13 +2872,13 @@ sub _read_process_title {
 sub _read_process_state {
     my ( $self, $pid ) = @_;
     my $proc = "/proc/$pid/stat";
-    if ( -r $proc ) {
-        open my $fh, '<', $proc or return;
-        local $/;
-        my $stat = scalar <$fh>;
+    if ( $self->_procfs_available ) {
+        my $stat = $self->_slurp_proc_file($proc);
+        return if !defined $stat;
         if ( defined $stat && $stat ne '' && $stat =~ /^\d+\s+\(.*\)\s+(\S)/s ) {
             return $1;
         }
+        return;
     }
 
     my ( $stdout, undef, $exit_code ) = capture {
@@ -2887,6 +2898,27 @@ sub _read_process_state {
 sub _process_exists {
     my ( $self, $pid ) = @_;
     return kill( 0, $pid ) ? 1 : 0;
+}
+
+# _procfs_available()
+# Reports whether procfs-backed process inspection is available on the current host.
+# Input: none.
+# Output: boolean true when /proc exists and process readers should prefer it.
+sub _procfs_available {
+    return -d '/proc' ? 1 : 0;
+}
+
+# _slurp_proc_file($path)
+# Reads one procfs-backed text payload when it is available on disk.
+# Input: absolute procfs file path string.
+# Output: file content string or undef when the proc entry is unreadable.
+sub _slurp_proc_file {
+    my ( $self, $path ) = @_;
+    return if !defined $path || $path eq '';
+    return if !-r $path;
+    open my $fh, '<', $path or return;
+    local $/;
+    return scalar <$fh>;
 }
 
 # _now_iso8601()

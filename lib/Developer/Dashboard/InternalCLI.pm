@@ -3,13 +3,11 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '3.91';
+our $VERSION = '3.92';
 
 use Cwd qw(abs_path);
 use File::Basename qw(dirname);
 use File::Spec;
-use File::ShareDir qw(dist_dir);
-use Developer::Dashboard::SeedSync ();
 
 our $MODULE_SOURCE_PATH = File::Spec->rel2abs(__FILE__);
 
@@ -117,6 +115,49 @@ sub ensure_helpers {
     return \@written;
 }
 
+# ensure_helper(%args)
+# Stages one dashboard-managed helper, plus the shared _dashboard-core runtime
+# when the helper delegates through it, without refreshing every helper on the
+# hot command path.
+# Input: path registry object plus helper command name.
+# Output: array reference of helper file paths written during this focused sync.
+sub ensure_helper {
+    my (%args) = @_;
+    my $paths = $args{paths} || die 'Missing paths registry';
+    my $name  = canonical_helper_name( $args{name} );
+    die "Unsupported helper command '$args{name}'" if $name eq '';
+
+    my @written;
+    $paths->ensure_dir( _helper_parent_root($paths) );
+    $paths->ensure_dir( _helper_install_root($paths) );
+
+    if ( _helper_uses_dashboard_core($name) ) {
+        my $core_target = File::Spec->catfile( _helper_install_root($paths), '_dashboard-core' );
+        if ( !_managed_helper_file_current( $core_target, '_dashboard-core' ) ) {
+            if ( _stage_managed_helper( paths => $paths, name => '_dashboard-core', target => $core_target ) ) {
+                $paths->secure_file_permissions( $core_target, executable => 1 );
+                push @written, $core_target;
+            }
+        }
+    }
+
+    my $target = helper_path( paths => $paths, name => $name );
+    if ( !_managed_helper_file_current( $target, $name ) ) {
+        if ( _stage_managed_helper( paths => $paths, name => $name, target => $target ) ) {
+            $paths->secure_file_permissions( $target, executable => 1 );
+            push @written, $target;
+        }
+    }
+
+    _remove_retired_managed_helper(
+        paths => $paths,
+        name  => 'skill',
+    );
+    _remove_legacy_managed_flat_helpers( paths => $paths );
+
+    return \@written;
+}
+
 # _stage_managed_helper(%args)
 # Writes one dashboard-managed helper file only when the existing target is
 # absent or already owned by the dashboard runtime.
@@ -139,6 +180,7 @@ sub _stage_managed_helper {
         my $existing = do { local $/; <$existing_fh> };
         close $existing_fh or die "Unable to close $target: $!";
         return 0 if !_is_dashboard_managed_helper( $existing, $name );
+        require Developer::Dashboard::SeedSync;
         return 0 if Developer::Dashboard::SeedSync::same_content_md5( $existing, $content );
     }
 
@@ -351,6 +393,23 @@ sub _is_managed_helper_target {
     return index( $path, $root . '/' ) == 0;
 }
 
+# _managed_helper_file_current($path, $name)
+# Detects whether one staged helper file already belongs to dashboard and
+# carries the current helper-version marker so the hot command path can skip a
+# full helper refresh.
+# Input: helper file path string and helper name string.
+# Output: boolean true when the target already matches the current dashboard
+# helper version marker.
+sub _managed_helper_file_current {
+    my ( $path, $name ) = @_;
+    return 0 if !defined $path || $path eq '' || !-f $path;
+    open my $fh, '<:raw', $path or die "Unable to read $path: $!";
+    my $content = do { local $/; <$fh> };
+    close $fh or die "Unable to close $path: $!";
+    return 0 if !_is_dashboard_managed_helper( $content, $name );
+    return $content =~ /^\Q@{[ _managed_helper_version_marker() ]}\E$/m ? 1 : 0;
+}
+
 # _helper_asset_path($name)
 # Resolves one private helper asset path from the repo share tree during
 # development or from the installed distribution share dir after install.
@@ -500,6 +559,15 @@ sub _shared_private_cli_root_candidates {
 
     my %seen;
     return grep { defined $_ && $_ ne '' && !$seen{$_}++ } @candidates;
+}
+
+# dist_dir($dist_name)
+# Lazily resolves one installed distribution share root through File::ShareDir.
+# Input: distribution name string.
+# Output: distribution share directory path string.
+sub dist_dir {
+    require File::ShareDir;
+    return File::ShareDir::dist_dir(@_);
 }
 
 # _module_install_lib_root()

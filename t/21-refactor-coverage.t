@@ -636,6 +636,47 @@ ok(
     'SeedSync file_matches_content_md5 confirms the staged helper content matches the shipped helper body',
 );
 {
+    my $single_home = tempdir( CLEANUP => 1 );
+    my $single_paths = Developer::Dashboard::PathRegistry->new( home => $single_home );
+    my $single_written = Developer::Dashboard::InternalCLI::ensure_helper(
+        paths => $single_paths,
+        name  => 'ps1',
+    );
+    is_deeply(
+        $single_written,
+        [ File::Spec->catfile( $single_home, '.developer-dashboard', 'cli', 'dd', 'ps1' ) ],
+        'ensure_helper stages only the requested standalone helper when the helper has no shared core runtime dependency',
+    );
+    ok(
+        !-e File::Spec->catfile( $single_home, '.developer-dashboard', 'cli', 'dd', '_dashboard-core' ),
+        'ensure_helper does not eagerly stage _dashboard-core for standalone helpers',
+    );
+    is_deeply(
+        Developer::Dashboard::InternalCLI::ensure_helper(
+            paths => $single_paths,
+            name  => 'ps1',
+        ),
+        [],
+        'ensure_helper skips rewriting a staged helper when the version marker already matches the current dashboard build',
+    );
+}
+{
+    my $wrapper_home = tempdir( CLEANUP => 1 );
+    my $wrapper_paths = Developer::Dashboard::PathRegistry->new( home => $wrapper_home );
+    my $wrapper_written = Developer::Dashboard::InternalCLI::ensure_helper(
+        paths => $wrapper_paths,
+        name  => 'shell',
+    );
+    is_deeply(
+        $wrapper_written,
+        [
+            File::Spec->catfile( $wrapper_home, '.developer-dashboard', 'cli', 'dd', '_dashboard-core' ),
+            File::Spec->catfile( $wrapper_home, '.developer-dashboard', 'cli', 'dd', 'shell' ),
+        ],
+        'ensure_helper stages the shared core runtime and the requested wrapper helper when the helper delegates through _dashboard-core',
+    );
+}
+{
     my $legacy_flat_core = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', '_dashboard-core' );
     my $legacy_flat_shell = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'shell' );
     open my $legacy_core_fh, '>:raw', $legacy_flat_core or die "Unable to write $legacy_flat_core: $!";
@@ -661,6 +702,24 @@ ok(
     like( $stdout, qr/_dd_tmux_status_active/, 'the staged shell helper bootstrap includes the ticket tmux-status detection helper' );
     like( $stdout, qr/status-format\[0\].*tmux-status-top --width #\{client_width\}/s, 'the staged shell helper bootstrap includes the tmux ticket status format wiring' );
     like( $stdout, qr/ps1 --jobs \\j --mode compact --no-indicators/, 'the staged shell helper bootstrap suppresses prompt indicators when tmux owns the status line' );
+}
+{
+    my $legacy_flat_core = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', '_dashboard-core' );
+    my $legacy_flat_shell = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'shell' );
+    open my $legacy_core_fh, '>:raw', $legacy_flat_core or die "Unable to write $legacy_flat_core: $!";
+    print {$legacy_core_fh} Developer::Dashboard::InternalCLI::_managed_helper_content('_dashboard-core');
+    close $legacy_core_fh or die "Unable to close $legacy_flat_core: $!";
+    open my $legacy_shell_fh, '>:raw', $legacy_flat_shell or die "Unable to write $legacy_flat_shell: $!";
+    print {$legacy_shell_fh} Developer::Dashboard::InternalCLI::_managed_helper_content('shell');
+    close $legacy_shell_fh or die "Unable to close $legacy_flat_shell: $!";
+
+    my $focused_cleanup = Developer::Dashboard::InternalCLI::ensure_helper(
+        paths => $paths,
+        name  => 'shell',
+    );
+    ok( ref($focused_cleanup) eq 'ARRAY', 'ensure_helper returns an array reference while cleaning legacy flat helpers on the focused path' );
+    ok( !-e $legacy_flat_core, 'ensure_helper also removes dashboard-managed legacy flat _dashboard-core files from the cli root' );
+    ok( !-e $legacy_flat_shell, 'ensure_helper also removes dashboard-managed legacy flat helper wrappers from the cli root' );
 }
 {
     my $preserve_home = tempdir( CLEANUP => 1 );
@@ -1055,6 +1114,17 @@ is(
     File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'dd', 'jq' ),
     'helper_path always stages built-in helpers under the home runtime dd helper root',
 );
+
+{
+    no warnings 'redefine';
+    require File::ShareDir;
+    local *File::ShareDir::dist_dir = sub { return '/tmp/internal-cli-dist-root' };
+    is(
+        Developer::Dashboard::InternalCLI::dist_dir('Developer-Dashboard'),
+        '/tmp/internal-cli-dist-root',
+        'InternalCLI dist_dir lazily proxies File::ShareDir::dist_dir',
+    );
+}
 
 my $paths_output = capture {
     Developer::Dashboard::CLI::Paths::run_paths_command( command => 'paths', args => [] );

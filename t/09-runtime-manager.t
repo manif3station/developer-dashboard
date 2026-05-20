@@ -437,6 +437,26 @@ else {
     ok( scalar @prefixed, 'process prefix scan finds running web process' );
 }
 
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_ps_processes = sub {
+        return (
+            {
+                pid  => $pid,
+                uid  => $< + 0,
+                args => 'perl /tmp/dashboard-wrapper.pl',
+            }
+        );
+    };
+    local *Developer::Dashboard::RuntimeManager::_read_process_title = sub {
+        my ( undef, $requested_pid ) = @_;
+        return $requested_pid == $pid ? 'dashboard web: 127.0.0.1:7898' : undef;
+    };
+    my @title_prefixed = $manager->_find_processes_by_prefix('dashboard web:');
+    ok( scalar @title_prefixed, 'process prefix scan falls back to the readable process title when the ps command line itself is not prefixed' );
+    is( $title_prefixed[0]{args}, 'dashboard web: 127.0.0.1:7898', 'process prefix scan returns the recovered process title when the fallback path matches' );
+}
+
 $manager->_write_web_state( { pid => $pid, host => 'scan.host', port => 9999, status => 'running' } );
 $files->remove('web_pid');
 {
@@ -2591,10 +2611,18 @@ TCP6
 
 {
     no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( "ps fallback title\n", undef, 0 ) };
     is( $manager->_read_process_title(999_999_999), 'ps fallback title', '_read_process_title falls back to ps output when /proc cmdline is unavailable' );
 }
 ok( !defined $manager->_read_process_title(999_999_998), '_read_process_title returns undef when ps also cannot resolve the pid' );
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
+    my $ps_title = $manager->_read_process_title($$);
+    like( $ps_title, qr/\S/, '_read_process_title can execute the ps fallback path directly when procfs is disabled' );
+}
 
 SKIP: {
     skip '_read_process_state direct procfs coverage requires /proc', 1 if !-r "/proc/$$/stat";
@@ -2606,8 +2634,22 @@ ok( !defined $manager->_read_process_state(999_999_998), '_read_process_state re
 
 {
     no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( "Z+\n", undef, 0 ) };
     is( $manager->_read_process_state(999_999_999), 'Z', '_read_process_state falls back to ps output when procfs state data is unavailable' );
+}
+
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
+    like( $manager->_read_process_state($$), qr/^[A-Z]$/, '_read_process_state can execute the ps fallback path directly when procfs is disabled' );
+}
+
+SKIP: {
+    skip '_read_process_state invalid procfs parse coverage requires /proc', 1 if !-r "/proc/$$/stat";
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_slurp_proc_file = sub { return "broken stat payload\n" };
+    is( $manager->_read_process_state($$), undef, '_read_process_state returns undef when procfs data cannot be parsed' );
 }
 
 {
@@ -2616,6 +2658,17 @@ ok( !defined $manager->_read_process_state(999_999_998), '_read_process_state re
     local *Developer::Dashboard::RuntimeManager::_read_process_state = sub { return 'Z' };
     local *Developer::Dashboard::RuntimeManager::_process_exists     = sub { return 1 };
     ok( !$manager->_pid_is_running(4242), '_pid_is_running treats zombie runtime pids as stopped even when signal 0 still succeeds' );
+}
+
+{
+    no warnings 'redefine';
+    $manager->_write_web_state( { pid => 4242, host => 'zombie.host', port => 4242, status => 'running' } );
+    $files->write( 'web_pid', "4242\n" );
+    local *Developer::Dashboard::RuntimeManager::_pid_is_running     = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_find_web_processes = sub { return () };
+    local *Developer::Dashboard::RuntimeManager::_listener_pids_from_state = sub { return () };
+    ok( !defined $manager->running_web, 'running_web treats a zombie saved web pid as stopped instead of preserving stale running state' );
 }
 
 {
