@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '3.92';
+our $VERSION = '3.99';
 
 use Capture::Tiny qw(capture);
 use File::Basename qw(dirname);

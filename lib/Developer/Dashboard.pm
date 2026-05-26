@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.92';
+our $VERSION = '3.99';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.92
+3.99
 
 =head1 INTRODUCTION
 
@@ -74,6 +74,24 @@ prompt path lighter as well: once the managed helper files are already staged,
 C<dashboard ps1> refreshes only the requested helper, reuses one path registry
 for the whole invocation, and avoids loading the suggestion and skill dispatch
 stack on the ordinary prompt fast path.
+
+Dashboard also normalizes C<PERL5LIB> for its own processes before the staged
+helper runtime loads. Dashboard-owned libraries stay visible, but the active
+Perl core, site, and vendor directories are forced ahead of inherited
+user-local shadow copies. That keeps stale dual-life XS modules such as
+C<Encode> from breaking helper startup, collector child commands, saved Ajax
+subprocesses, or skill hooks on hosts with older local-lib artefacts.
+Dashboard-managed child commands also keep the current interpreter's bin
+directory plus the active shell directory at the front of C<PATH>, and
+collector shell commands now run through a non-login shell so macOS
+shell-session restore banners and similar startup chatter do not get prefixed
+onto JSON collector output.
+
+Explicit named collector stop and restart actions also pause the watchdog
+supervisor for the targeted collector set while the lifecycle command is in
+flight, then restore supervision for the remaining watched fleet afterwards.
+That prevents the watchdog from racing a manual collector restart and spawning
+another replacement loop underneath the CLI.
 
 It provides a small ecosystem for:
 
@@ -142,7 +160,11 @@ Managed runtime children are expected to clean up after themselves. Detached
 web startup helpers, collector loops, the collector watchdog supervisor, the
 SSL frontend connection workers, and background page actions now reap the
 direct children they own instead of leaving zombie processes behind on hosts
-such as macOS and WSL. Managed collectors are also watched after startup: an
+such as macOS and WSL. Collector loops and the collector watchdog supervisor
+also reap those children immediately on C<SIGCHLD>, so long-interval
+collectors and orphaned watchdogs do not leave visible C<E<lt>defunctE<gt>>
+dashboard processes behind until some later housekeeping pass. Managed
+collectors are also watched after startup: an
 unexpected exit triggers an automatic restart, while repeated crash loops are
 raised as explicit C<attention_required> collector state instead of silently
 stopping or spinning forever.
@@ -1316,7 +1338,9 @@ prompt suppresses indicator fragments with C<dashboard ps1 --no-indicators>.
 Ordinary tmux sessions keep the normal inline prompt. Developer Dashboard
 does not edit the user's tmux config file to provide that behavior, and it
 uses session-local tmux options
-instead of changing the whole tmux server.
+instead of changing the whole tmux server. Those dashboard-managed tmux
+sessions also refresh the status block at a 15-second cadence instead of a
+hot 2-second loop.
 When helper staging reruns during upgrades, the managed home runtime also
 removes dashboard-owned older flat helper files from
 F<~/.developer-dashboard/cli/> so the public command and shell bootstrap
@@ -1901,6 +1925,30 @@ active, but only until C<multiple> active runs are already in flight.
 
 When C<mode> is C<multiple> and C<multiple> is omitted, the runtime uses
 C<2>.
+
+=item *
+
+Collectors whose C<command> re-enters C<dashboard> or C<d2> through a shell
+path now have a safety floor of C<30> seconds even if config asks for a
+smaller interval, because those recursive dashboard collectors are materially
+heavier than direct shell probes. Set C<allow_fast_poll> or
+C<allow_fast_dashboard_poll> on that collector, or set
+C<DEVELOPER_DASHBOARD_MIN_DASHBOARD_COMMAND_INTERVAL_SECONDS>, when the faster
+cadence is intentional and understood.
+
+=item *
+
+When a collector sets C<disable =E<gt> 1> or C<"disable": true>, dashboard
+will not start that collector, explicit named starts reject it, and any
+already-running managed loop for that collector is stopped during the next
+collector lifecycle action. Managed indicator state for that collector is
+also removed instead of lingering as if it were still active.
+
+=item *
+
+Stopping a singleton collector loop also terminates the long-running command
+currently owned by that loop, so C<dashboard stop collector foo> does not leave
+the old worker command alive behind the stopped dispatcher.
 
 =back
 

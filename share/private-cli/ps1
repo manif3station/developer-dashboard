@@ -58,6 +58,17 @@ sub _prime_ticket_ref_env {
     return 1;
 }
 
+# _collectors_need_sync($indicator_store, $collector_jobs)
+# Determines whether collector-managed prompt indicators need a sync write.
+# Input: indicator store object and collector job array reference.
+# Output: boolean true when the helper should run sync_collectors.
+sub _collectors_need_sync {
+    my ( $indicator_store, $collector_jobs ) = @_;
+    return 1 if !$indicator_store;
+    return 1 if !$indicator_store->can('collectors_need_sync');
+    return $indicator_store->collectors_need_sync($collector_jobs) ? 1 : 0;
+}
+
 # main(@ARGV)
 # Runs the prompt renderer helper for Developer Dashboard.
 # Input: command-line arguments from @ARGV.
@@ -97,7 +108,7 @@ my $prompt = Developer::Dashboard::Prompt->new(
 
 my $collector_jobs = $config->collectors;
 $indicators->sync_collectors($collector_jobs)
-  if $indicators->collectors_need_sync($collector_jobs);
+  if _collectors_need_sync( $indicators, $collector_jobs );
 $indicators->refresh_core_indicators( cwd => $cwd, prompt_only => 1 );
 _prime_ticket_ref_env();
 

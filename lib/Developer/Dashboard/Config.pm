@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '3.92';
+our $VERSION = '3.99';
 
 use File::Spec;
 use Cwd qw(cwd);
@@ -217,6 +217,7 @@ sub _normalize_collector_job {
     my ( $self, $job ) = @_;
     return $job if ref($job) ne 'HASH';
     my %normalized = %{$job};
+    $normalized{disable} = $self->_collector_disable_flag( $normalized{disable} );
     $normalized{mode} = defined $normalized{mode} && $normalized{mode} ne '' ? $normalized{mode} : 'singleton';
     die "Collector '$normalized{name}' has unsupported mode '$normalized{mode}'"
       if $normalized{mode} ne 'singleton' && $normalized{mode} ne 'multiple';
@@ -230,6 +231,18 @@ sub _normalize_collector_job {
         $normalized{multiple} = 1;
     }
     return \%normalized;
+}
+
+# _collector_disable_flag($value)
+# Normalizes one collector disable value into a stable boolean flag.
+# Input: scalar config value from collector disable.
+# Output: numeric boolean where 1 disables the collector and 0 keeps it active.
+sub _collector_disable_flag {
+    my ( $self, $value ) = @_;
+    return 0 if !defined $value;
+    return $value ? 1 : 0 if ref($value);
+    return 0 if $value =~ /\A(?:0|false|no|off)\z/i;
+    return $value ne '' ? 1 : 0;
 }
 
 # _builtin_collectors()

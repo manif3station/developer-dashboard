@@ -8,6 +8,7 @@ use Config ();
 use Cwd qw(abs_path cwd);
 use FindBin qw($Bin);
 use lib "$Bin/../lib";
+use Developer::Dashboard::PerlEnv ();
 use File::Spec;
 use IO::Handle ();
 use IO::Select ();
@@ -17,6 +18,13 @@ use Symbol qw(gensym);
 
 binmode STDOUT, ':encoding(UTF-8)';
 binmode STDERR, ':encoding(UTF-8)';
+
+BEGIN {
+    my $dashboard_lib = File::Spec->catdir( $Bin, '..', 'lib' );
+    Developer::Dashboard::PerlEnv->bootstrap_perl5lib(
+        dashboard_lib => $dashboard_lib,
+    );
+}
 
 use Developer::Dashboard::Platform qw(
   command_argv_for_path
@@ -28,13 +36,6 @@ use Developer::Dashboard::Platform qw(
 my $dashboard_lib = File::Spec->catdir( $Bin, '..', 'lib' );
 my $switchboard_cwd = eval { cwd() };
 my $switchboard_paths;
-if ( -d $dashboard_lib ) {
-    my $path_sep = $Config::Config{path_sep} || ':';
-    my @existing = grep { defined && $_ ne '' } split /\Q$path_sep\E/, ( $ENV{PERL5LIB} || '' );
-    if ( !grep { $_ eq $dashboard_lib } @existing ) {
-        $ENV{PERL5LIB} = join $path_sep, $dashboard_lib, @existing;
-    }
-}
 
 my $cmd = shift @ARGV || '';
 _load_runtime_env();

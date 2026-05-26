@@ -1,3 +1,4 @@
+.env
 blib/
 _build/
 .build/

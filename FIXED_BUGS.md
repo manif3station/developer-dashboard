@@ -1,4 +1,157 @@
 # Fixed Bugs
+## 3.99 - Blank-environment tarball installs keep shell-based child commands runnable
+
+- Fixed blank-environment tarball installs that failed even after dashboard
+  child processes repaired `PATH` for the current Perl interpreter.
+- Root cause:
+  collector shell commands are launched through `sh -c`, but the shared child
+  environment builder only forced the current Perl interpreter directory to
+  the front of `PATH`. In a clean container with an intentionally broken or
+  stripped `PATH`, that kept `perl` resolvable while still leaving `sh`
+  missing, so `_run_command` failed during the packaged `t/07-core-units.t`
+  regression that exercises the repaired-path contract.
+- Fix:
+  dashboard-managed child env builders now also keep the active shell
+  directory at the front of `PATH`, alongside the current interpreter bin.
+  The loader regression now locks in that shell-directory guarantee, the core
+  units regression proves `_run_command` succeeds under a stripped `PATH`, and
+  the rebuilt tarball now installs successfully in a blank Docker environment
+  with `cpanm` and dist tests enabled.
+
+## 3.98 - Disabled collectors, singleton loops, and lifecycle stop paths behave correctly
+
+- Fixed collector config handling so `disable => 1` or `"disable": true`
+  means the collector is actually disabled instead of only being marked in
+  config while the runtime still lets it run.
+- Root cause:
+  collector startup and indicator sync still treated configured collectors as
+  active as long as they were present in merged config. A disabled collector
+  could still be started by lifecycle commands, a named manual start could
+  still launch it, and its managed indicator state could linger behind as if
+  it were still part of the live fleet.
+- Fix:
+  collector config normalization now carries a stable disable flag, runtime
+  startup skips those jobs, named starts reject them explicitly, and lifecycle
+  actions stop any already-running managed loop for a disabled collector.
+  Managed collector indicator sync now also removes disabled collector
+  indicators instead of keeping stale active rows around.
+- Fixed lingering dashboard `<defunct>` processes that still built up under
+  long-lived collector loops and collector watchdog supervisor parents.
+- Root cause:
+  the collector loop only reaped finished worker children at the top of the
+  next scheduler tick, and the watchdog supervisor did not reap adopted direct
+  children at all. Long-interval collectors could therefore leave zombie worker
+  children behind until the next interval, and stale supervisors could keep
+  unreaped dashboard children around for days.
+- Fix:
+  collector loops now reap exited workers immediately through a local
+  `SIGCHLD` handler as well as on each loop pass, and the watchdog supervisor
+  now reaps exited direct children both when `SIGCHLD` fires and on every
+  watchdog pass. The regression tests lock in both paths so the runtime no
+  longer depends on a later tick or external cleanup to remove defunct
+  dashboard processes.
+- Fixed dashboard-managed tmux ticket and workspace sessions that repainted
+  their status block every two seconds and kept `ps1 --mode tmux-status-top`
+  churn permanently hot.
+- Root cause:
+  the staged shell bootstrap and ticket status helper hard-coded tmux
+  `status-interval 2`, so every managed session kept re-running the prompt
+  status command far more often than the dashboard indicators actually needed.
+- Fix:
+  dashboard-managed tmux sessions now refresh that status strip every
+  fifteen seconds instead of every two seconds. The helper staging and CLI
+  regression tests lock the new cadence in.
+- Fixed shell collectors that recursively executed `dashboard ...` or `d2 ...`
+  on tiny intervals and could flood one machine with overlapping dashboard
+  process trees.
+- Root cause:
+  collector scheduling treated heavy dashboard-recursive shell commands the
+  same as cheap direct probes, so a local config with several `interval: 5`
+  dashboard collectors could keep the runtime permanently busy even when the
+  user only wanted occasional status updates.
+- Fix:
+  collector loops now apply a default `30` second floor to shell collectors
+  that re-enter dashboard, while still allowing explicit opt-out through
+  `allow_fast_poll`, `allow_fast_dashboard_poll`, or the
+  `DEVELOPER_DASHBOARD_MIN_DASHBOARD_COMMAND_INTERVAL_SECONDS` override. The
+  watchdog uses that same effective interval when deciding whether a collector
+  is stale, so the safety floor does not create false restarts.
+- Fixed collector stop and restart paths that could leave a long-running
+  singleton command alive after the loop wrapper had already been stopped.
+- Root cause:
+  collector stop logic concentrated on the managed loop pid and its worker pid,
+  but not the full worker process group. A shell-launched long-running command
+  could outlive the loop wrapper, making singleton scheduling appear to overlap
+  because the old command was still alive after the loop bookkeeping moved on.
+- Fix:
+  collector workers now run in their own process groups, loop shutdown signals
+  those whole worker groups, and loop state persists `active_worker_pids` so
+  tests can lock in the live singleton no-overlap contract.
+- Fixed web stop flows that could hang or return misleading lifecycle state when
+  process discovery lagged behind the saved runtime metadata.
+- Root cause:
+  `stop_web` only escalated to `KILL` when `running_web()` could still
+  rediscover the live pid, and it treated every `dashboard ajax:` process owned
+  by the current user as part of the web runtime being stopped.
+- Fix:
+  web stop now keeps the saved managed pid as the reported lifecycle owner,
+  still kills the saved pid when runtime discovery lags, and limits ajax worker
+  cleanup to the current dashboard runtime root instead of sweeping unrelated
+  ajax workers.
+- Fixed macOS helper/collector startup failures caused by stale user-local
+  dual-life XS modules shadowing the active Perl core.
+- Root cause:
+  dashboard-owned processes inherited `PERL5LIB` as-is, so a local-lib tree
+  with an older `Encode.bundle` or similar dual-life module could appear ahead
+  of the current interpreter's matching core directories. Staged helpers,
+  collector child commands, saved Ajax subprocesses, and skill hooks could
+  then die during startup with XS handshake mismatch errors.
+- Fix:
+  dashboard bootstrap now normalizes `PERL5LIB` so dashboard-owned libraries
+  remain visible while the active interpreter's core, site, and vendor
+  directories stay ahead of inherited user-local shadow copies. The same safe
+  ordering is used for the public switchboard, staged private helper core,
+  runtime child-process envs, and skill command envs.
+- Fixed macOS collector child commands that still fell back to the wrong Perl
+  binary even after the safe `PERL5LIB` ordering was in place.
+- Root cause:
+  dashboard-managed child commands and hooks could still execute `dashboard`
+  through `/usr/bin/env perl` inside a non-interactive child `PATH` that found
+  `/usr/bin/perl` before the Perl interpreter that installed Dashboard under
+  `~/perl5`. That left collector commands such as
+  `dashboard system-status.load memory` running the wrong executable against
+  the right library tree, which failed with Perl-version mismatch errors and
+  left restart flows chasing stale loop state.
+- Fix:
+  dashboard-managed child env builders now keep the current interpreter's bin
+  directory at the front of `PATH` alongside the safe `PERL5LIB` ordering, so
+  collectors, saved Ajax subprocesses, and skill hooks continue to execute the
+  same Perl build as the parent dashboard process.
+- Fixed macOS collector commands that emitted shell startup chatter before
+  their JSON payload and then failed collector JSON parsing.
+- Root cause:
+  collector shell commands were launched through a login shell. On affected
+  macOS hosts that let the shell print session-restore text, commands such as
+  `dashboard system-status.load memory` produced banner text before the JSON
+  body, which made collector JSON parsing fail even though the command itself
+  succeeded.
+- Fix:
+  collector shell commands now run through a non-login shell, keeping the
+  inherited runtime environment but avoiding shell startup chatter that is not
+  part of the collector payload.
+- Fixed manual named collector stop/restart operations that could hang while
+  the watchdog restarted the same collector underneath the CLI.
+- Root cause:
+  explicit named collector lifecycle commands removed the target from the
+  watched set, but they left the watchdog supervisor process itself running.
+  One in-flight watchdog pass could still observe the collector as missing and
+  spawn a replacement loop while the manual restart path was still waiting for
+  the collector it had just stopped.
+- Fix:
+  explicit named collector stop/restart operations now pause the watchdog
+  supervisor while the manual lifecycle action runs, then restore supervision
+  for the remaining watched collectors afterwards.
+
 ## 3.92 - Prompt switchboard eager-load trimming and targeted helper refresh
 
 - Fixed the remaining `dashboard ps1` startup drag after the earlier prompt

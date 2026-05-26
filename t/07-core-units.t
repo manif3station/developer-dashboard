@@ -994,7 +994,8 @@ is_deeply(
     local $Developer::Dashboard::Platform::OS_NAME = 'linux';
     is( normalize_shell_name('bash'), 'bash', 'normalize_shell_name keeps bash' );
     is( normalize_shell_name('/usr/bin/zsh'), 'zsh', 'normalize_shell_name strips Unix shell paths' );
-    is_deeply( [ shell_command_argv('printf ok', shell => 'sh') ], [ 'sh', '-lc', 'printf ok' ], 'shell_command_argv builds POSIX shell argv' );
+    is_deeply( [ shell_command_argv('printf ok', shell => 'sh') ], [ 'sh', '-c', 'printf ok' ], 'shell_command_argv builds non-login POSIX shell argv by default' );
+    is_deeply( [ shell_command_argv( 'printf ok', shell => 'sh', login => 1 ) ], [ 'sh', '-lc', 'printf ok' ], 'shell_command_argv can still request a login POSIX shell explicitly' );
     is( shell_quote_for( 'sh', q{O'Hara} ), q{'O'\''Hara'}, 'shell_quote_for escapes POSIX single quotes' );
     dies_like( sub { normalize_shell_name('fish') }, qr/Unsupported shell 'fish'/, 'normalize_shell_name rejects unsupported shells explicitly' );
     {
@@ -2100,6 +2101,29 @@ $collector->write_result( 'beta.collector', exit_code => 0 );
 ok( -f $collector->collector_paths('beta.collector')->{status}, 'write_result overwrites existing collector files cleanly' );
 unlike( $collector->read_log('beta.collector'), qr/\[stdout\]/, 'read_log omits an empty stdout section' );
 
+$collector->write_status(
+    'finish-race.collector',
+    {
+        active_runs => 2,
+        running     => 1,
+    }
+);
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::Collector::read_status = sub {
+        die "mark_run_finished should not read status outside the update lock\n";
+    };
+    $collector->mark_run_finished(
+        'finish-race.collector',
+        exit_code => 0,
+        stdout    => "done\n",
+        stderr    => '',
+    );
+}
+my $finish_race_status = $collector->read_status('finish-race.collector');
+is( $finish_race_status->{active_runs}, 1, 'mark_run_finished decrements active_runs under the write lock without relying on a separate unlocked status read' );
+is( $finish_race_status->{running}, 1, 'mark_run_finished keeps running true when another overlapping collector run is still active' );
+
 my $legacy_paths = $collector->collector_paths('legacy.collector');
 make_path( $legacy_paths->{dir} );
 open my $legacy_stdout, '>', $legacy_paths->{stdout} or die $!;
@@ -2162,7 +2186,7 @@ is( $collector->read_status('broken.collector')->{running}, 1, 'write_status rec
 my @collectors = $collector->list_collectors;
 is_deeply(
     [ map { $_->{name} } @collectors ],
-    [ 'alpha.collector', 'beta.collector', 'broken.collector', 'legacy.collector', 'status-only.collector' ],
+    [ 'alpha.collector', 'beta.collector', 'broken.collector', 'finish-race.collector', 'legacy.collector', 'status-only.collector' ],
     'list_collectors sorts collector status and includes legacy plus status-only persisted collector state once invalid status is repaired',
 );
 
@@ -3636,6 +3660,38 @@ my $collector_prompt = Developer::Dashboard::Prompt->new( paths => $paths, indic
 }
 like( $runner->_process_title('demo'), qr/^dashboard collector: demo$/, '_process_title formats managed process names' );
 ok( !defined $runner->loop_state('missing-loop-state'), 'loop_state returns undef for missing state files' );
+{
+    my $retry_state_path = File::Spec->catfile( $paths->collector_dir('retry-loop-state'), 'loop.json' );
+    open my $retry_state, '>', $retry_state_path or die $!;
+    print {$retry_state} '{"status":"running"}';
+    close $retry_state;
+    my $decode_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::json_decode = sub {
+        my ($payload) = @_;
+        $decode_calls++;
+        die "transient decode failure\n" if $decode_calls == 1;
+        return Developer::Dashboard::JSON::json_decode($payload);
+    };
+    is(
+        $runner->loop_state('retry-loop-state')->{status},
+        'running',
+        'loop_state retries one transient decode failure before surfacing an error',
+    );
+}
+{
+    my $empty_state_path = File::Spec->catfile( $paths->collector_dir('empty-loop-state'), 'loop.json' );
+    open my $empty_state, '>', $empty_state_path or die $!;
+    close $empty_state;
+    my $error;
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::sleep = sub { return 0 };
+    eval {
+        $runner->loop_state('empty-loop-state');
+        1;
+    } or $error = $@;
+    like( $error, qr/Loop state file .* was empty/, 'loop_state reports empty state files explicitly after retrying the empty payload path' );
+}
 ok( !$runner->_is_managed_loop( undef, 'demo' ), '_is_managed_loop rejects missing pids' );
 {
     no warnings 'redefine';
@@ -3740,7 +3796,7 @@ close $stale_pid;
         }
         ok( $pid, 'start_loop also returns a pid for failing jobs' );
         sleep 1;
-        like( $runner->loop_state('broken-loop')->{status}, qr/error|running/, 'failing loops keep state metadata for management' );
+        like( $runner->loop_state('broken-loop')->{status}, qr/error|running|starting/, 'failing loops keep state metadata for management' );
         my $stopped_pid = $runner->stop_loop('broken-loop');
         is( waitpid( $stopped_pid, 1 ), -1, 'stop_loop reaps failing managed loop children instead of leaving zombies behind' ) if $stopped_pid;
         like( $files->read('collector_log'), qr/broken-loop/, 'start_loop logs collector failures from the child loop' );
@@ -3798,6 +3854,24 @@ is_deeply(
     [ 'multiple', 5 ],
     'collector execution policy keeps explicit multiple limits',
 );
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::loop_state = sub {
+        return {
+            active_worker_pids => [ 11, '17', 11, 0, -3, 'nope' ],
+        };
+    };
+    is_deeply(
+        [ $runner->_state_active_worker_pids('state-backed.collector') ],
+        [ 11, 17 ],
+        '_state_active_worker_pids filters persisted active worker pids down to unique positive numeric values',
+    );
+}
+is_deeply(
+    [ $runner->_active_worker_pids( { 17 => 1, foo => 1, 3 => 1, 0 => 1, -2 => 1 } ) ],
+    [ 3, 17 ],
+    '_active_worker_pids returns a sorted list of positive numeric worker pids from the in-memory tracking hash',
+);
 dies_like(
     sub { $runner->_collector_execution_policy( { name => 'bad.policy', mode => 'burst' } ) },
     qr/unsupported mode/,
@@ -3847,7 +3921,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
 
 {
     my @spawned;
-    my $sleep_calls = 0;
+    my $tick_sleeps = 0;
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::_job_is_due = sub { return 1 };
     local *Developer::Dashboard::CollectorRunner::_start_loop_worker = sub {
@@ -3856,9 +3930,9 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         return 5000 + scalar @spawned;
     };
     local *Developer::Dashboard::CollectorRunner::_reap_finished_loop_workers = sub { return 0 };
-    local *Developer::Dashboard::CollectorRunner::sleep = sub {
-        $sleep_calls++;
-        die "stop loop\n" if $sleep_calls >= 2;
+    local *Developer::Dashboard::CollectorRunner::_sleep_until_next_tick = sub {
+        $tick_sleeps++;
+        die "stop loop\n" if $tick_sleeps >= 2;
         return 0;
     };
     eval {
@@ -3882,13 +3956,69 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
 }
 
 {
+    my $reap_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::_job_is_due = sub {
+        $SIG{CHLD}->() if ref( $SIG{CHLD} ) eq 'CODE';
+        die "stop loop\n";
+    };
+    local *Developer::Dashboard::CollectorRunner::_reap_finished_loop_workers = sub {
+        $reap_calls++;
+        return 0;
+    };
+    eval {
+        $runner->_run_loop_child(
+            job => {
+                name     => 'signal.loop',
+                command  => q{printf signal},
+                cwd      => 'home',
+                interval => 60,
+            },
+            name      => 'signal.loop',
+            interval  => 60,
+            daemonize => 0,
+        );
+        1;
+    };
+    like( $@, qr/stop loop/, 'collector loop signal-reap test stops after the injected CHLD event' );
+    ok( $reap_calls >= 2, 'collector loop reaps finished workers both during the loop and from the CHLD handler' );
+}
+
+{
+    my @slept;
+    my $reap_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::sleep = sub {
+        push @slept, $_[0];
+        return 0;
+    };
+    local *Developer::Dashboard::CollectorRunner::_reap_finished_loop_workers = sub {
+        $reap_calls++;
+        return 0;
+    };
+    ok(
+        $runner->_sleep_until_next_tick(
+            interval       => 0.35,
+            active_workers => {},
+        ),
+        '_sleep_until_next_tick returns true after the bounded interval sleep',
+    );
+    is_deeply(
+        \@slept,
+        [ 0.1, 0.1, 0.1, 0.05 ],
+        '_sleep_until_next_tick sleeps in short bounded slices and finishes with the remaining fraction',
+    );
+    is( $reap_calls, 4, '_sleep_until_next_tick reaps finished workers after every sleep slice' );
+}
+
+{
     my $child = fork();
     die 'Unable to fork test child' if !defined $child;
     if ( !$child ) {
         $ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = 'manual';
         $0 = 'dashboard collector: manual';
         sleep 30;
-        exit 0;
+        POSIX::_exit(0);
     }
     my $pidfile = File::Spec->catfile( $paths->collectors_root, 'manual.pid' );
     open my $manual_pid, '>', $pidfile or die $!;
@@ -3896,6 +4026,56 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     close $manual_pid;
     is( $runner->stop_loop('manual'), $child, 'stop_loop terminates manual pidfile processes' );
     is( waitpid( $child, 1 ), -1, 'stop_loop reaps manual collector children after shutdown' );
+}
+
+{
+    my $cmd_pidfile = File::Spec->catfile( $home, 'singleton-live-command.pid' );
+    my $loop_pid = $runner->start_loop(
+        {
+            name     => 'singleton-live',
+            command  => sprintf( q{perl -e 'open my $fh, q{>}, q{%s} or die $!; print {$fh} $$; close $fh; sleep 30'}, $cmd_pidfile ),
+            cwd      => 'home',
+            interval => 0.1,
+        }
+    );
+    ok( $loop_pid, 'start_loop launches a live singleton collector loop for a long-running command' );
+
+    my ( $worker_pid, $command_pid );
+    for ( 1 .. 60 ) {
+        my $state = $runner->loop_state('singleton-live') || {};
+        if ( ref( $state->{active_worker_pids} ) eq 'ARRAY' && @{ $state->{active_worker_pids} } ) {
+            $worker_pid = $state->{active_worker_pids}[0];
+        }
+        if ( -f $cmd_pidfile ) {
+            open my $fh, '<', $cmd_pidfile or die $!;
+            $command_pid = <$fh>;
+            close $fh;
+            chomp $command_pid if defined $command_pid;
+        }
+        last if $worker_pid && $command_pid;
+        sleep 0.1;
+    }
+
+    ok( $worker_pid, 'live singleton loop records the active worker pid in loop state' );
+    ok( $command_pid, 'live singleton loop exposes the long-running command pid for shutdown verification' );
+
+    sleep 0.35;
+    my $steady_state = $runner->loop_state('singleton-live') || {};
+    is( $steady_state->{active_runs}, 1, 'singleton live loop keeps exactly one active run while the long-running command is still executing' );
+    is_deeply(
+        $steady_state->{active_worker_pids},
+        [$worker_pid],
+        'singleton live loop does not replace the active worker while the current command is still running',
+    );
+
+    is( $runner->stop_loop('singleton-live'), $loop_pid, 'stop_loop returns the singleton loop pid for a live long-running collector' );
+    for ( 1 .. 40 ) {
+        last if !kill( 0, $worker_pid ) && !kill( 0, $command_pid );
+        sleep 0.1;
+    }
+    ok( !kill( 0, $worker_pid ), 'stop_loop terminates the active singleton worker process' );
+    ok( !kill( 0, $command_pid ), 'stop_loop also terminates the long-running command started by the singleton worker' );
+    is( waitpid( $loop_pid, 1 ), -1, 'stop_loop reaps the singleton loop after shutting down the worker tree' );
 }
 
 {
@@ -3943,7 +4123,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     die 'Unable to fork state-backed stop child' if !defined $child;
     if ( !$child ) {
         sleep 30;
-        exit 0;
+        POSIX::_exit(0);
     }
     my $pidfile = File::Spec->catfile( $paths->collectors_root, 'state-backed.pid' );
     open my $state_pid, '>', $pidfile or die $!;
@@ -4070,6 +4250,62 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     ok( -f $pidfile, 'stop_loop keeps the pidfile when a managed collector refuses to stop' );
     ok( defined $runner->loop_state('stubborn-state'), 'stop_loop keeps loop state metadata when a managed collector refuses to stop' );
     $runner->_cleanup_loop_files('stubborn-state');
+}
+
+{
+    my $pidfile = File::Spec->catfile( $paths->collectors_root, 'worker-shutdown.pid' );
+    open my $worker_pid, '>', $pidfile or die $!;
+    print {$worker_pid} "535353\n";
+    close $worker_pid;
+    my @terminated;
+    my $reaped = 0;
+    my $calls  = 0;
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CollectorRunner::_reap_child_process = sub {
+            my ( undef, $pid ) = @_;
+            $reaped++;
+            return 0 if $reaped == 1;
+            return 1;
+        };
+        local *Developer::Dashboard::CollectorRunner::_same_pid_namespace = sub { return 1 };
+        local *Developer::Dashboard::CollectorRunner::_is_managed_loop = sub { return 1 };
+        local *Developer::Dashboard::CollectorRunner::_pid_is_running = sub {
+            $calls++;
+            return $calls <= 2 ? 1 : 0;
+        };
+        local *Developer::Dashboard::CollectorRunner::_state_active_worker_pids = sub { return ( 81, 82 ) };
+        local *Developer::Dashboard::CollectorRunner::_terminate_loop_workers = sub {
+            my ( undef, $workers ) = @_;
+            push @terminated, [ sort { $a <=> $b } keys %{$workers} ];
+            return 1;
+        };
+        local *Developer::Dashboard::CollectorRunner::sleep = sub { return 0 };
+        is( $runner->stop_loop('worker-shutdown'), '535353', 'stop_loop still returns the managed pid after terminating tracked worker pids' );
+    }
+    is_deeply( $terminated[0], [ 81, 82 ], 'stop_loop passes active worker pid hashes into _terminate_loop_workers during shutdown escalation' );
+}
+
+{
+    my $pidfile = File::Spec->catfile( $paths->collectors_root, 'foreign-loop.pid' );
+    open my $foreign_pid, '>', $pidfile or die $!;
+    print {$foreign_pid} "525252\n";
+    close $foreign_pid;
+    my $stopped_pid;
+    my @cleanup_names;
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CollectorRunner::_reap_child_process = sub { return 0 };
+        local *Developer::Dashboard::CollectorRunner::_same_pid_namespace = sub { return 0 };
+        local *Developer::Dashboard::CollectorRunner::_cleanup_loop_files = sub {
+            my ( undef, $name ) = @_;
+            push @cleanup_names, $name;
+            return 1;
+        };
+        $stopped_pid = $runner->stop_loop('foreign-loop');
+    }
+    is( $stopped_pid, '525252', 'stop_loop returns the recorded pid when the loop belongs to a different pid namespace' );
+    is_deeply( \@cleanup_names, ['foreign-loop'], 'stop_loop still delegates cleanup when the loop belongs to a different pid namespace' );
 }
 
 {
@@ -4209,6 +4445,19 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
 }
 
 {
+    local $ENV{PATH} = '/definitely-missing';
+    my ( $stdout, $stderr, $exit_code, $timed_out ) = $runner->_run_command(
+        source     => q{perl -e 'print $^X'},
+        cwd        => $paths->home,
+        timeout_ms => 1_000,
+    );
+    is( $stdout, $^X, '_run_command keeps the current Perl interpreter available to child commands even when PATH would otherwise miss perl' );
+    is( $stderr, '', '_run_command does not emit stderr when it repairs PATH for Perl child commands' );
+    is( $exit_code, 0, '_run_command still exits successfully when it repairs PATH for Perl child commands' );
+    is( $timed_out, 0, '_run_command PATH repair for Perl child commands does not report a timeout' );
+}
+
+{
     my ( $stdout, $stderr, $exit_code, $timed_out ) = $runner->_run_code(
         source     => q{ die "collector code boom\n"; },
         cwd        => $paths->home,
@@ -4225,7 +4474,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     die 'Unable to fork sort child' if !defined $child;
     if ( !$child ) {
         sleep 30;
-        exit 0;
+        POSIX::_exit(0);
     }
     for my $entry (
         [ 'alpha-sort', $child ],
@@ -4297,6 +4546,73 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
 is_deeply( [ $runner->running_loops ], [], 'running_loops prunes stale pidfiles' );
 }
 
+{
+    my $zombie = fork();
+    die "fork failed: $!" if !defined $zombie;
+    if ( !$zombie ) {
+        POSIX::_exit(0);
+    }
+    for ( 1 .. 50 ) {
+        last if ( $runner->_read_process_state($zombie) || '' ) eq 'Z';
+        sleep 0.01;
+    }
+    my $pidfile = File::Spec->catfile( $paths->collectors_root, 'zombie-loop.pid' );
+    open my $zombie_pid, '>', $pidfile or die $!;
+    print {$zombie_pid} "$zombie\n";
+    close $zombie_pid;
+    $runner->_write_loop_state(
+        'zombie-loop',
+        {
+            pid          => $zombie,
+            name         => 'zombie-loop',
+            process_name => 'dashboard collector: zombie-loop',
+            status       => 'running',
+        }
+    );
+    is_deeply( [ $runner->running_loops ], [], 'running_loops reaps exited managed loop children before reporting active loops' );
+    ok( !-f $pidfile, 'running_loops removes the pidfile for an exited managed loop child after reaping it' );
+    ok( !defined $runner->loop_state('zombie-loop'), 'running_loops removes loop metadata for an exited managed loop child after reaping it' );
+}
+
+{
+    pipe my $result_reader, my $result_writer or die "Unable to create result pipe: $!";
+    my $pid = fork();
+    die "Unable to fork inherited-fd collector test child: $!" if !defined $pid;
+    if ( !$pid ) {
+        close $result_reader;
+        pipe my $keep_reader, my $keep_writer or die "Unable to create keep pipe: $!";
+        pipe my $drop_reader, my $drop_writer or die "Unable to create drop pipe: $!";
+        local $SIG{PIPE} = 'IGNORE';
+        local $SIG{__WARN__} = sub {
+            my ($warning) = @_;
+            return if defined $warning && $warning =~ /Bad file descriptor/;
+            warn $warning;
+        };
+        $runner->_close_inherited_fds(
+            keep => [
+                fileno($result_writer),
+                fileno($keep_reader),
+                fileno($keep_writer),
+            ],
+        );
+        my $keep_ok = defined syswrite( $keep_writer, "kept\n" ) ? 1 : 0;
+        my $drop_ok = defined syswrite( $drop_writer, "dropped\n" ) ? 1 : 0;
+        print {$result_writer} "$keep_ok:$drop_ok\n";
+        close $result_writer;
+        undef $drop_writer;
+        undef $keep_writer;
+        undef $keep_reader;
+        undef $result_reader;
+        POSIX::_exit(0);
+    }
+    close $result_writer;
+    my $payload = <$result_reader>;
+    close $result_reader;
+    waitpid( $pid, 0 );
+    chomp $payload if defined $payload;
+    is( $payload, '1:0', '_close_inherited_fds keeps explicit collector child descriptors open while closing the rest' );
+}
+
 my $empty_config = Developer::Dashboard::Config->new(
     files => Developer::Dashboard::FileRegistry->new(
         paths => Developer::Dashboard::PathRegistry->new( home => tempdir(CLEANUP => 1) )
@@ -4352,6 +4668,8 @@ is_deeply(
 
 {
     my $housekeeper = Developer::Dashboard::Housekeeper->new( paths => $paths );
+    my $housekeeper_tmp = tempdir(CLEANUP => 1);
+    local $ENV{TMPDIR} = $housekeeper_tmp;
     my $current_state_root = $paths->state_root;
     my $stale_runtime_root = File::Spec->catdir( $home, 'missing-project', '.developer-dashboard' );
     my $stale_state_root = File::Spec->catdir( $paths->state_base_root, $paths->_state_root_key($stale_runtime_root) );
@@ -4625,6 +4943,24 @@ dies_like(
     ok( !$branch_keeper->_state_root_is_stale( $preserved_dir, 60 ), '_state_root_is_stale keeps roots whose runtime metadata still resolves to a live runtime root' );
     ok( $branch_keeper->_state_root_has_live_collectors($live_dir), '_state_root_has_live_collectors returns true for live collector pidfiles' );
 
+    my $blank_runtime_meta_dir = File::Spec->catdir( $state_base, 'blank-runtime-root' );
+    make_path($blank_runtime_meta_dir);
+    my $blank_runtime_meta = File::Spec->catfile( $blank_runtime_meta_dir, 'runtime.json' );
+    open my $blank_runtime_meta_fh, '>', $blank_runtime_meta or die "Unable to write $blank_runtime_meta: $!";
+    print {$blank_runtime_meta_fh} json_encode( { runtime_root => '' } );
+    close $blank_runtime_meta_fh or die "Unable to close $blank_runtime_meta: $!";
+    utime time - 7200, time - 7200, $blank_runtime_meta_dir, $blank_runtime_meta or die "Unable to age $blank_runtime_meta_dir metadata";
+    ok( $branch_keeper->_state_root_is_stale( $blank_runtime_meta_dir, 60 ), '_state_root_is_stale treats empty runtime_root metadata as stale' );
+
+    my $missing_runtime_meta_dir = File::Spec->catdir( $state_base, 'missing-runtime-root' );
+    make_path($missing_runtime_meta_dir);
+    my $missing_runtime_meta = File::Spec->catfile( $missing_runtime_meta_dir, 'runtime.json' );
+    open my $missing_runtime_meta_fh, '>', $missing_runtime_meta or die "Unable to write $missing_runtime_meta: $!";
+    print {$missing_runtime_meta_fh} json_encode( { runtime_root => File::Spec->catdir( $branch_home, 'missing-runtime', '.developer-dashboard' ) } );
+    close $missing_runtime_meta_fh or die "Unable to close $missing_runtime_meta: $!";
+    utime time - 7200, time - 7200, $missing_runtime_meta_dir, $missing_runtime_meta or die "Unable to age $missing_runtime_meta_dir metadata";
+    ok( $branch_keeper->_state_root_is_stale( $missing_runtime_meta_dir, 60 ), '_state_root_is_stale treats missing runtime_root metadata targets as stale' );
+
     my $array_meta_dir = File::Spec->catdir( $state_base, 'array-metadata' );
     make_path($array_meta_dir);
     my $array_meta_file = File::Spec->catfile( $array_meta_dir, 'runtime.json' );
@@ -4666,6 +5002,8 @@ dies_like(
 
 {
     my $ajax_home = tempdir(CLEANUP => 1);
+    my $ajax_tmp = tempdir(CLEANUP => 1);
+    local $ENV{TMPDIR} = $ajax_tmp;
     my $ajax_paths = Developer::Dashboard::PathRegistry->new( home => $ajax_home );
     my $ajax_keeper = Developer::Dashboard::Housekeeper->new( paths => $ajax_paths );
 
@@ -4678,6 +5016,17 @@ dies_like(
     print {$cleanup_result_fh} "result payload";
     close $cleanup_result_fh or die "Unable to close $cleanup_result_path: $!";
     utime time - 7200, time - 7200, $cleanup_result_path or die "Unable to age $cleanup_result_path: $!";
+
+    my $unrelated_path = File::Spec->catfile( $ajax_tmp, 'unrelated-temp-file' );
+    open my $unrelated_fh, '>', $unrelated_path or die "Unable to write $unrelated_path: $!";
+    print {$unrelated_fh} "ignore me";
+    close $unrelated_fh or die "Unable to close $unrelated_path: $!";
+    is_deeply(
+        [ sort $ajax_keeper->_temp_file_candidates ],
+        [ sort $cleanup_ajax_path, $cleanup_result_path ],
+        '_temp_file_candidates only returns dashboard-owned temp file patterns instead of scanning unrelated temp entries',
+    );
+    is_deeply( [ $ajax_keeper->_temp_file_kind('unrelated-temp-file') ], [], '_temp_file_kind returns no cleanup category for unrelated temp entries' );
 
     my @removed = $ajax_keeper->_cleanup_temp_files(
         min_age_seconds => 60,

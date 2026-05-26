@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
-our $VERSION = '3.92';
+our $VERSION = '3.99';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -158,6 +158,7 @@ sub sync_collectors {
         next if ref($job) ne 'HASH';
         next if ref( $job->{indicator} ) ne 'HASH';
         next if !defined $job->{name} || $job->{name} eq '';
+        next if $job->{disable};
 
         $active_collectors{ $job->{name} } = 1;
         my $plan = $self->_collector_sync_plan( $job, collector_order => $collector_order );
@@ -200,6 +201,7 @@ sub collectors_need_sync {
         next if ref($job) ne 'HASH';
         next if ref( $job->{indicator} ) ne 'HASH';
         next if !defined $job->{name} || $job->{name} eq '';
+        next if $job->{disable};
 
         $active_collectors{ $job->{name} } = 1;
         my $plan = $self->_collector_sync_plan( $job, collector_order => $collector_order );

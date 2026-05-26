@@ -27,6 +27,7 @@ use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::Prompt;
 use Developer::Dashboard::Runtime::Result ();
+use Developer::Dashboard::RuntimeManager ();
 use Developer::Dashboard::SeedSync ();
 use Developer::Dashboard::SkillDispatcher;
 use Developer::Dashboard::SkillManager;
@@ -701,6 +702,7 @@ ok(
     is( $stderr, '', 'the staged shell helper writes no stderr for shell bash output' );
     like( $stdout, qr/_dd_tmux_status_active/, 'the staged shell helper bootstrap includes the ticket tmux-status detection helper' );
     like( $stdout, qr/status-format\[0\].*tmux-status-top --width #\{client_width\}/s, 'the staged shell helper bootstrap includes the tmux ticket status format wiring' );
+    like( $stdout, qr/status-interval 15/, 'the staged shell helper bootstrap slows the tmux status refresh cadence to avoid hot-looping' );
     like( $stdout, qr/ps1 --jobs \\j --mode compact --no-indicators/, 'the staged shell helper bootstrap suppresses prompt indicators when tmux owns the status line' );
 }
 {
@@ -1519,8 +1521,9 @@ like(
     qr/Ticket args must be an array reference/,
     'resolve_ticket_request rejects non-array argv containers',
 );
+my $isolated_ticket_env_cwd = tempdir( CLEANUP => 1 );
 is_deeply(
-    Developer::Dashboard::CLI::Ticket::ticket_environment('DD-123'),
+    Developer::Dashboard::CLI::Ticket::ticket_environment( 'DD-123', cwd => $isolated_ticket_env_cwd ),
     {
         TICKET_REF                      => 'DD-123',
         B                               => 'DD-123',
@@ -4868,9 +4871,20 @@ sub _dies {
 {
     my $default_fail_skill = _create_skill_repo( $test_repos, 'make-default-fail', with_cpanfile => 0 );
     _write_file( File::Spec->catfile( $default_fail_skill, 'Makefile' ), "install:\n\t\@true\n" );
-    local $ENV{DD_TEST_MAKE_FAIL} = 'default';
-
-    my $default_make_failure = $manager->_install_skill_makefile($default_fail_skill);
+    my $default_make_failure;
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::SkillManager::_run_streaming_command = sub {
+            my ( undef, %args ) = @_;
+            my $target = @{ $args{command} } > 1 ? join( ' ', @{ $args{command} }[ 1 .. $#{ $args{command} } ] ) : 'default';
+            return {
+                stdout => '',
+                stderr => "synthetic make failure for $target\n",
+                exit   => 1,
+            };
+        };
+        $default_make_failure = $manager->_install_skill_makefile($default_fail_skill);
+    }
     ok( $default_make_failure->{error}, '_install_skill_makefile returns an explicit error when the default make target fails' );
     like(
         $default_make_failure->{error},
@@ -4879,8 +4893,20 @@ sub _dies {
     );
 }
 {
-    local $ENV{DD_TEST_MAKE_FAIL} = 'install';
-    my $install_target_make_failure = $manager->_install_skill_makefile($dep_skill_root);
+    my $install_target_make_failure;
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::SkillManager::_run_streaming_command = sub {
+            my ( undef, %args ) = @_;
+            my $target = @{ $args{command} } > 1 ? join( ' ', @{ $args{command} }[ 1 .. $#{ $args{command} } ] ) : 'default';
+            return {
+                stdout => '',
+                stderr => $target eq 'install' ? "synthetic make failure for $target\n" : '',
+                exit   => $target eq 'install' ? 1 : 0,
+            };
+        };
+        $install_target_make_failure = $manager->_install_skill_makefile($dep_skill_root);
+    }
     ok( $install_target_make_failure->{error}, '_install_skill_makefile returns an explicit error when a named target fails' );
     like(
         $install_target_make_failure->{error},

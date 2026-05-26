@@ -14,6 +14,16 @@ and `cli/<command>.js`. The JavaScript execution assertions require `node` on
 everywhere and skips only the `.js` execution step on minimal hosts that do not
 ship Node.js.
 
+Collector lifecycle regressions also cover two macOS-specific runtime rules:
+Dashboard-owned Perl child processes must keep the current interpreter ahead of
+the system Perl in `PATH`, and collector shell commands must avoid login-shell
+startup chatter that can prepend text ahead of collector JSON output.
+Those path regressions now also lock in the shell side of that contract:
+dashboard-managed child commands must keep the active shell directory in
+`PATH`, not just the Perl interpreter bin, because `_run_command` executes
+shell collectors through `sh -c` and blank-environment install verification
+will fail if `perl` is found but `sh` is not.
+
 Run the fast saved-bookmark browser smoke check with:
 
 ```bash
@@ -85,16 +95,32 @@ loop must be truly gone before its pid/state files are cleaned up, otherwise a
 dying old loop can keep rewriting state while a replacement restart is trying
 to prove its new pid. `t/07-core-units.t`, `t/09-runtime-manager.t`, and the
 covered `t/05-cli-smoke.t` restart/serve flows now lock that race down.
-The runtime child-lifecycle contract is also part of the regression surface now: collector stop paths, watchdog shutdown, detached background actions, and the SSL frontend must reap the direct children they own so macOS, Linux, and WSL hosts do not accumulate zombie helper processes after normal stop or restart flows.
+The runtime child-lifecycle contract is also part of the regression surface now: collector stop paths, collector loop parents, watchdog shutdown, detached background actions, and the SSL frontend must reap the direct children they own so macOS, Linux, and WSL hosts do not accumulate zombie helper processes after normal stop or restart flows. The collector loop and watchdog cases now also lock in immediate `SIGCHLD` reaping so long-interval loops and stale watchdog parents do not leave visible `<defunct>` dashboard children behind until a later poll.
 Collector scheduler coverage now also locks in the overlap policy contract:
 default collector mode is singleton, opt-in `mode => multiple` collectors can
 overlap only up to their `multiple` bound, and concurrent worker completion
 must keep `active_runs` plus `running` status accurate under lock.
+The live singleton regression now also proves that a real long-running command
+still holds the single active worker slot across multiple due ticks, and that
+stopping the collector loop tears down that long-running command instead of
+only stopping the loop wrapper.
+Collector disable coverage now also locks in the stop-and-skip contract:
+`disable => 1` collectors are not started, explicit named starts reject them,
+already-running managed loops for those collectors are stopped on the next
+lifecycle action, and managed collector indicators are removed instead of
+staying behind as stale active state.
 GitHub workflow coverage gates must match the `Devel::Cover` `Total` summary
 line by regex rather than one fixed-width spacing layout, because runner or
 module upgrades can change column padding without changing the real
 `100.0 / 100.0 / 100.0` result.
 The `t/07-core-units.t` collector loop guard treats both `HARNESS_PERL_SWITCHES` and `PERL5OPT` as valid `Devel::Cover` signals, because this machine uses both launch styles during verification.
+
+Dashboard bootstrap now also treats inherited `PERL5LIB` ordering as part of
+the runtime contract. The public switchboard, staged private helper core,
+runtime child-process env builders, and skill command env builders must keep
+the active interpreter's core, site, and vendor directories ahead of any
+user-local shadow copies so stale dual-life XS modules such as `Encode` do not
+break helper startup on macOS or other hosts with older local-lib artefacts.
 The runtime-manager coverage cases also use bounded child reaping for stubborn process shutdown scenarios, so `Devel::Cover` runs do not stall indefinitely after the escalation path has already been exercised.
 The collector indicator ordering regression also stays under direct unit
 coverage now: a live `CollectorRunner->run_once()` status write must preserve
@@ -195,8 +221,12 @@ three release metadata sources in the same change: `Makefile.PL`, `cpanfile`,
 and `dist.ini`. The release metadata guardrail fails if a required non-core
 runtime module is missing from one of those files, so dependency drift is
 caught before `dzil build`, blank-environment installs, or CI releases.
-The blank-container `cpanm` gate is allowed to reject an upstream dependency
-whose own test suite no longer passes on the target Perl version. When that
+The blank-container `cpanm` gate is an install-verification pass against the
+built versioned tarball, so the scripted harness still uses `--notest` there
+after the source-tree suite and numeric coverage gates have already exercised
+the distribution tests. The gate is still allowed to reject an upstream
+dependency whose own test suite no longer passes on the target Perl version.
+When that
 happens, replace or rework the dependency instead of downgrading the gate.
 The current TOML query path uses `TOML::Parser` with explicit boolean
 inflation to plain Perl `1` and `0`, because `TOML::Tiny 0.21` no longer
@@ -256,6 +286,7 @@ The runtime-manager tests also cover:
 
 - background web startup handshake and web-state persistence
 - `dashboard serve` collector startup and failure handling, including explicit startup errors and cleanup of already-started loops when a later collector fails
+- disabled collector lifecycle handling, including skip-on-start, stop-if-running, and explicit rejection of named starts for collectors with `disable => 1`
 - collector watchdog supervision after startup, including automatic restart of unexpectedly-dead loops and explicit `attention_required` state after repeated crashes inside the watchdog window
 - collector stall supervision after startup, including automatic restart of a live loop that stops updating its status/output timestamps instead of dying outright
 - DD-OOP-LAYERS canonical-path normalization, including a symlinked-home versus canonical-cwd regression that matches macOS `/var/...` and `/private/var/...` alias behaviour
