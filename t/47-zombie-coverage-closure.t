@@ -3,11 +3,40 @@ use warnings;
 
 use POSIX ();
 use Test::More;
+use File::Temp qw(tempdir tempfile);
 
 use lib 'lib';
 
 use Developer::Dashboard::RuntimeManager;
 use Developer::Dashboard::CollectorRunner;
+
+{
+    my ( $helper_fh, $helper ) = tempfile();
+    print {$helper_fh} "web-foreground\n";
+    close $helper_fh or die "Unable to close $helper: $!";
+    my @command = (
+        $^X,
+        '-Ilib',
+        '-MDeveloper::Dashboard::RuntimeManager',
+        '-e',
+        'print Developer::Dashboard::RuntimeManager->_helper_file_supports_internal_command(shift, q{web-foreground})',
+        $helper,
+    );
+    open my $probe, '-|', @command or die "Unable to launch helper support probe: $!";
+    my $supported = do { local $/; <$probe> };
+    close $probe or die "Helper support probe failed: $?";
+    chomp $supported if defined $supported;
+    is(
+        $supported,
+        '1',
+        '_helper_file_supports_internal_command detects the requested internal command token in helper content',
+    );
+    is(
+        Developer::Dashboard::RuntimeManager->_helper_file_supports_internal_command( $helper, 'collector-foreground' ),
+        0,
+        '_helper_file_supports_internal_command returns false when the helper content does not include the requested command token',
+    );
+}
 
 {
     my $runner = bless {}, 'Developer::Dashboard::CollectorRunner';

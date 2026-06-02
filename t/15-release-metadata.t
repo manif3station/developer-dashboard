@@ -72,7 +72,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.00', 'repo version bumped for layered ajax api auth delivery and gate refresh' );
+is( $version, '4.01', 'repo version bumped for layered API CLI management delivery and gate refresh' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
 like( $readme, qr/\A(?:<!--.*?-->\n\n)?#\s+/s, 'README.md begins with Markdown headings' ) if $readme ne '';
@@ -197,7 +197,7 @@ for my $module (
     like( $cpanfile, qr/requires ['"]\Q$module\E['"];/, "cpanfile declares runtime prerequisite $module" );
     like( $dist, qr/^\Q$module\E = 0$/m, "dist.ini declares runtime prerequisite $module" ) if $dist ne '';
 }
-for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket workspace path paths ps1 encode decode indicator collector config auth init cpan page action docker serve stop restart shell doctor housekeeper skills which)) {
+for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket workspace path paths ps1 encode decode indicator collector config auth api init cpan page action docker serve stop restart shell doctor housekeeper skills which)) {
     ok( -f _repo_path( 'share', 'private-cli', $helper ), "share/private-cli/$helper is shipped as a private helper asset" );
 }
 ok( -f _repo_path( 'share', 'public', 'js', 'jquery-4.0.0.min.js' ), 'share/public/js/jquery-4.0.0.min.js is shipped as a bundled public asset' );
@@ -263,6 +263,7 @@ for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/dashboard cpan(?: <Module\.\.\.>| E<lt>Module\.\.\.E<gt>)?|C<dashboard cpan E<lt>Module\.\.\.E<gt>>/, 'docs describe the runtime-local dashboard cpan command' );
     like( $doc, qr/ssl_subject_alt_names/, 'docs describe configured extra SSL SAN aliases and IPs' );
     like( $doc, qr/config\/api\.json|F<config\/api\.json>/, 'docs describe layered config/api.json machine auth for saved ajax routes' );
+    like( $doc, qr/dashboard api(?: add| rm| ls)?/, 'docs describe the dashboard api management command for layered machine auth' );
     like( $doc, qr/X-DD-API-Key|x-dd-api-key/i, 'docs describe the API key header for saved ajax machine auth' );
     like( $doc, qr/X-DD-API-Secret|x-dd-api-secret/i, 'docs describe the API secret header for saved ajax machine auth' );
     like( $doc, qr/bin\/dashboard|dashboard entrypoint|C<dashboard> entrypoint/, 'docs describe the dashboard cpan implementation as entrypoint-local' );

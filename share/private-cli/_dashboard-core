@@ -627,6 +627,13 @@ elsif ( $cmd eq 'auth' ) {
         exit 0;
     }
 }
+elsif ( $cmd eq 'api' ) {
+    require Developer::Dashboard::CLI::API;
+    my $exit_code = Developer::Dashboard::CLI::API::run_api_command(
+        args => \@ARGV,
+    );
+    exit $exit_code;
+}
 elsif ( $cmd eq 'init' ) {
     _migrate_saved_pages();
     my $migrated = [];

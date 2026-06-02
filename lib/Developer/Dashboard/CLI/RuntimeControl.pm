@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::RuntimeControl;
 use strict;
 use warnings;
 
-our $VERSION = '4.00';
+our $VERSION = '4.01';
 
 use Getopt::Long qw(GetOptionsFromArray);
 

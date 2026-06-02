@@ -351,33 +351,20 @@ my $pid;
     open my $helper_fh, '>', $helper or die "Unable to write $helper: $!";
     print {$helper_fh} "web-foreground\n";
     close $helper_fh;
-    my @command = (
-        $^X,
-        ( $UNDER_COVER ? ('-MDevel::Cover=-silent,1') : () ),
-        "-I$repo_lib",
-        '-MDeveloper::Dashboard::RuntimeManager',
-        '-e',
-        'print Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command(undef, shift, q{web-foreground})',
-        $helper,
-    );
-    open my $probe, '-|', @command or die "Unable to launch helper support probe: $!";
-    my $supported = do { local $/; <$probe> };
-    close $probe or die "Helper support probe failed: $?";
-    chomp $supported if defined $supported;
     is(
-        $supported,
-        '1',
-        '_helper_file_supports_internal_command detects the requested internal command token in helper content',
-    );
-    is(
-        Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command( undef, '', 'web-foreground' ),
+        Developer::Dashboard::RuntimeManager->_helper_file_supports_internal_command( '', 'web-foreground' ),
         0,
         '_helper_file_supports_internal_command rejects an empty helper path',
     );
     is(
-        Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command( undef, $helper, '' ),
+        Developer::Dashboard::RuntimeManager->_helper_file_supports_internal_command( $helper, '' ),
         0,
         '_helper_file_supports_internal_command rejects an empty command token',
+    );
+    is(
+        Developer::Dashboard::RuntimeManager->_helper_file_supports_internal_command( $helper, 'collector-foreground' ),
+        0,
+        '_helper_file_supports_internal_command returns false when the helper content does not include the requested command token',
     );
 }
 

@@ -1,4 +1,22 @@
 # Fixed Bugs
+## 4.01 - Layered API auth is now operable through a first-class dashboard api command
+
+- Fixed the missing operator workflow for layered saved-Ajax machine auth.
+- Root cause:
+  the backend already understood layered `config/api.json`, but operators had
+  no supported command to inspect the effective merged registry, hash raw
+  secrets safely, update only the deepest writable layer, or hide inherited
+  API groups without editing parent JSON by hand.
+- Fix:
+  added the built-in `dashboard api` command with `ls`, `add`, and `rm`
+  actions; `dashboard api` now defaults to listing the effective merged
+  registry, raw secrets are hashed to SHA-256 before persistence, exact
+  `/ajax/...` routes can be added or removed idempotently, `--maybe-secret`
+  now supports one-command route-focused creates or overwrites, fresh runtimes
+  bootstrap `config/api.json` automatically, and inherited API groups can be
+  masked through child-layer tombstones in the writable layer while the parent
+  config stays untouched.
+
 ## 4.00 - Layered API auth for saved ajax routes works without weakening helper sessions
 
 - Fixed remote machine access for selected saved `/ajax/...` handlers so

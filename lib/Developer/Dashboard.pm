@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '4.00';
+our $VERSION = '4.01';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.00
+4.01
 
 =head1 INTRODUCTION
 
@@ -829,7 +829,9 @@ same saved Ajax routes, so browser workflows and machine callers can coexist on
 one handler without adding a second copy of the route. Like the rest of
 C<DD-OOP-LAYERS>, runtime C<config/api.json> files merge from home to the
 deepest active child layer, and installed skills contribute their own layered
-C<config/api.json> fragments for skill-local saved Ajax routes.
+C<config/api.json> fragments for skill-local saved Ajax routes. The built-in
+C<dashboard api> command is the supported way to inspect or update the writable
+runtime layer for that registry.
 Saved bookmark Ajax handlers also default to C<text/plain> when no explicit
 C<type =E<gt> ...> argument is supplied, and the generated Perl wrapper now
 enables autoflush on both C<STDOUT> and C<STDERR> so long-running handlers
@@ -1720,6 +1722,51 @@ Helper sessions show a Logout link in the page chrome. Logging out removes both
 the helper session and that helper account. Helper page views also show the
 helper username in the top-right chrome instead of the local system account.
 Exact-loopback admin requests do not show a Logout link.
+
+=head2 Managing API Keys For Saved Ajax Routes
+
+List the effective machine-auth API registry:
+
+  dashboard api
+  dashboard api ls
+  dashboard api ls --key helper-bot
+  dashboard api ls --key helper-bot -o json
+
+Create or update one API group from a raw secret:
+
+  dashboard api add --key helper-bot --secret raw-secret
+  dashboard api add --key helper-bot --secret rotated-secret
+  dashboard api add --key helper-bot --secret raw-secret --route /ajax/health --route /ajax/healthz
+  dashboard api add --key helper-bot --maybe-secret raw-secret --route /ajax/health --route /ajax/healthz
+
+Add one exact saved Ajax route to an existing API group:
+
+  dashboard api add --key helper-bot --route /ajax/health
+  dashboard api add --key helper-bot --route /ajax/healthz
+
+Remove one route or remove the whole API group:
+
+  dashboard api rm --key helper-bot --route /ajax/healthz
+  dashboard api rm --key helper-bot
+
+The C<dashboard api> command manages the deepest writable runtime
+C<config/api.json> layer under C<DD-OOP-LAYERS>. Listing shows the effective
+merged registry from home through the active child layer together with any
+installed-skill API fragments that contribute saved Ajax machine auth. Updates
+never rewrite installed skill files; they only change the writable runtime
+layer for the current working context.
+
+When you pass C<--secret>, the raw secret is hashed to a SHA-256 hex digest
+before it is stored. C<--maybe-secret> is the route-friendly alias for the
+same raw secret input: if the key is missing it creates the group, and if the
+key already exists it overwrites the stored secret while the command updates
+the requested routes. The saved JSON keeps the digest under C<secret> plus the
+exact allowed saved Ajax routes under C<ajax>. C<dashboard api add> accepts
+one or more repeated C<--route> flags, so one command can create the key,
+hash the secret, and register multiple exact routes at once. Adding the same
+route twice is a no-op. Removing an inherited API group from a deeper child
+layer writes a child-layer tombstone so the parent definition is hidden
+without editing the parent file.
 
 =head2 Working With Pages
 

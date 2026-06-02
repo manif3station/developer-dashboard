@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '4.00';
+our $VERSION = '4.01';
 
 use File::Spec;
 use Cwd qw(cwd);
@@ -586,15 +586,58 @@ sub docker_config {
 # Output: hash reference keyed by API client name with secret and ajax route list.
 sub api_keys {
     my ($self) = @_;
+    return $self->api_registry;
+}
+
+# api_registry()
+# Returns the visible layered API-key ajax authorization config from
+# config/api.json files, excluding child-layer tombstones.
+# Input: none.
+# Output: hash reference keyed by API client name with secret and ajax route list.
+sub api_registry {
+    my ($self) = @_;
     my $merged = {};
     for my $file ( reverse $self->_global_api_files ) {
         next if !-f $file;
-        $merged = $self->_merge_hashes( $merged, $self->_load_json_hash_file($file) );
+        $merged = $self->_merge_api_key_hashes( $merged, $self->_load_json_hash_file($file) );
     }
     for my $fragment ( $self->_skill_api_fragments ) {
-        $merged = $self->_merge_hashes( $merged, $fragment );
+        $merged = $self->_merge_api_key_hashes( $merged, $fragment );
     }
     return $self->_normalize_api_keys($merged);
+}
+
+# writable_api_registry()
+# Loads only the writable runtime layer config/api.json payload without
+# merging inherited parent layers.
+# Input: none.
+# Output: normalized writable-layer API config hash reference.
+sub writable_api_registry {
+    my ($self) = @_;
+    return $self->_normalize_api_keys(
+        $self->_load_writable_api_registry,
+        preserve_disabled => 1,
+    );
+}
+
+# save_writable_api_registry($registry)
+# Persists the writable runtime-layer config/api.json payload.
+# Input: API config hash reference keyed by API client name.
+# Output: written config file path string.
+sub save_writable_api_registry {
+    my ( $self, $registry ) = @_;
+    my $file = $self->_global_api_file;
+    $self->{paths}->ensure_dir( $self->{paths}->config_root );
+    open my $fh, '>:raw', $file or die "Unable to write $file: $!";
+    print {$fh} json_encode(
+        $self->_normalize_api_keys(
+            $registry || {},
+            preserve_disabled => 1,
+        )
+    );
+    close $fh or die "Unable to close $file: $!";
+    $self->{paths}->secure_file_permissions($file);
+    return $file;
 }
 
 # providers()
@@ -616,6 +659,15 @@ sub providers {
 sub _global_config_file {
     my ($self) = @_;
     return File::Spec->catfile( $self->{paths}->config_root, 'config.json' );
+}
+
+# _global_api_file()
+# Returns the writable runtime-layer config/api.json path.
+# Input: none.
+# Output: writable API config file path string.
+sub _global_api_file {
+    my ($self) = @_;
+    return File::Spec->catfile( $self->{paths}->config_root, 'api.json' );
 }
 
 # _global_config_files()
@@ -648,6 +700,17 @@ sub _load_writable_global {
     open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
     return json_decode(<$fh>);
+}
+
+# _load_writable_api_registry()
+# Loads only the writable runtime-layer config/api.json payload.
+# Input: none.
+# Output: decoded API config hash reference for the writable layer only.
+sub _load_writable_api_registry {
+    my ($self) = @_;
+    my $file = $self->_global_api_file;
+    return {} if !-f $file;
+    return $self->_load_json_hash_file($file);
 }
 
 # _load_json_hash_file($file)
@@ -779,25 +842,69 @@ sub _skill_api_hash {
 # Input: hash reference keyed by API client name.
 # Output: normalized hash reference with malformed entries removed.
 sub _normalize_api_keys {
-    my ( $self, $keys ) = @_;
+    my ( $self, $keys, %args ) = @_;
     return {} if ref($keys) ne 'HASH';
     my %normalized;
     for my $name ( keys %{$keys} ) {
         next if !defined $name || ref($name) || $name eq '';
         my $entry = $keys->{$name};
         next if ref($entry) ne 'HASH';
+        my $disabled = $self->_api_key_disabled_flag($entry);
+        if ($disabled) {
+            $normalized{$name} = { disabled => 1 } if $args{preserve_disabled};
+            next;
+        }
         my $secret = defined $entry->{secret} && !ref( $entry->{secret} ) ? $entry->{secret} : '';
         $secret =~ s/^\s+//;
         $secret =~ s/\s+$//;
         next if $secret eq '';
         my $ajax = $self->_normalize_api_ajax_routes( $entry->{ajax} );
-        next if !@{$ajax};
         $normalized{$name} = {
             secret => $secret,
             ajax   => $ajax,
         };
     }
     return \%normalized;
+}
+
+# _merge_api_key_hashes($left, $right)
+# Merges layered API auth config while allowing a deeper layer to tombstone one
+# inherited key entirely.
+# Input: left and right hash references keyed by API client name.
+# Output: merged hash reference.
+sub _merge_api_key_hashes {
+    my ( $self, $left, $right ) = @_;
+    $left  ||= {};
+    $right ||= {};
+    my %merged = %{ $self->_normalize_api_keys( $left, preserve_disabled => 1 ) };
+    my $normalized_right = $self->_normalize_api_keys( $right, preserve_disabled => 1 );
+    for my $name ( keys %{$normalized_right} ) {
+        my $entry = $normalized_right->{$name};
+        if ( ref($entry) eq 'HASH' && $entry->{disabled} ) {
+            delete $merged{$name};
+            next;
+        }
+        $merged{$name} = $entry;
+    }
+    return \%merged;
+}
+
+# _api_key_disabled_flag($entry)
+# Returns whether one raw API config entry is an explicit child-layer
+# tombstone.
+# Input: API entry hash reference.
+# Output: numeric boolean flag.
+sub _api_key_disabled_flag {
+    my ( $self, $entry ) = @_;
+    return 0 if ref($entry) ne 'HASH';
+    for my $field (qw(disabled _disabled)) {
+        next if !exists $entry->{$field};
+        my $value = $entry->{$field};
+        return $value ? 1 : 0 if ref($value);
+        return 0 if !defined $value || $value eq '' || $value =~ /\A(?:0|false|no|off)\z/i;
+        return 1;
+    }
+    return 0;
 }
 
 # _normalize_api_ajax_routes($routes)
@@ -871,7 +978,7 @@ C<indicator> metadata without discarding inherited defaults.
 
 =head1 METHODS
 
-=head2 new, load_global, save_global, load_repo, merged, collectors, path_aliases, global_path_aliases, web_workers, save_global_web_workers, web_settings, save_global_web_settings, save_global_path_alias, remove_global_path_alias, docker_config, api_keys, providers
+=head2 new, load_global, save_global, load_repo, merged, collectors, path_aliases, global_path_aliases, web_workers, save_global_web_workers, web_settings, save_global_web_settings, save_global_path_alias, remove_global_path_alias, docker_config, api_keys, api_registry, writable_api_registry, save_writable_api_registry, providers
 
 Load and expose configuration domains used by the runtime.
 
@@ -880,9 +987,12 @@ including host, port, workers, ssl flag, the persisted C<no_editor> read-only
 browser flag, and optional C<ssl_subject_alt_names> entries used to extend the
 generated HTTPS certificate. These settings persist across restart, so
 dashboard restart inherits the previous serve session configuration.
-The api_keys() method merges layered runtime and installed-skill
+The api_keys() and api_registry() methods merge layered runtime and installed-skill
 F<config/api.json> files into the exact saved C</ajax/...> machine-auth
-allowlist used by the web backend.
+allowlist used by the web backend. The writable_api_registry() and
+save_writable_api_registry() methods operate on only the deepest writable
+runtime layer so CLI management commands can update the correct OOP config
+target without rewriting inherited parents.
 
 =for comment FULL-POD-DOC START
 

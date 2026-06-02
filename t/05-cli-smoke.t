@@ -5,6 +5,7 @@ use utf8;
 use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 use Capture::Tiny qw(capture);
 use Cwd qw(abs_path getcwd);
+use Digest::SHA qw(sha256_hex);
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::CLI::SeededPages ();
 use Developer::Dashboard::EnvAudit;
@@ -75,12 +76,13 @@ my $runtime_workspace = File::Spec->catfile( $runtime_dd_cli_root, 'workspace' )
 my $runtime_path = File::Spec->catfile( $runtime_dd_cli_root, 'path' );
 my $runtime_paths = File::Spec->catfile( $runtime_dd_cli_root, 'paths' );
 my $runtime_ps1 = File::Spec->catfile( $runtime_dd_cli_root, 'ps1' );
+my $runtime_api = File::Spec->catfile( $runtime_dd_cli_root, 'api' );
 my $runtime_doctor = File::Spec->catfile( $runtime_dd_cli_root, 'doctor' );
 my $runtime_dashboard_core = File::Spec->catfile( $runtime_dd_cli_root, '_dashboard-core' );
 
 my $init = _run("$perl -I'$lib' '$dashboard' init");
 like($init, qr/runtime_root/, 'dashboard init works');
-for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runtime_iniq, $runtime_csvq, $runtime_xmlq, $runtime_of, $runtime_open_file, $runtime_workspace, $runtime_path, $runtime_paths, $runtime_ps1 ) {
+for my $helper ( $runtime_jq, $runtime_yq, $runtime_tomq, $runtime_propq, $runtime_iniq, $runtime_csvq, $runtime_xmlq, $runtime_of, $runtime_open_file, $runtime_workspace, $runtime_path, $runtime_paths, $runtime_ps1, $runtime_api ) {
     ok( -f $helper, "dashboard init seeds private helper $helper" );
     ok( -x $helper, "dashboard init marks private helper $helper executable" );
 }
@@ -236,6 +238,53 @@ like($auth_add, qr/"username"\s*:\s*"helper"/, 'auth add-user works');
 
 my $auth_list = _run("$perl -I'$lib' '$dashboard' auth list-users");
 like($auth_list, qr/"username"\s*:\s*"helper"/, 'auth list-users works');
+
+my $api_list_table = _run("$perl -I'$lib' '$dashboard' api");
+like( $api_list_table, qr/^Key\s+Secret\s+Route/m, 'dashboard api defaults to a table listing' );
+
+my $api_add_secret = json_decode( _run("$perl -I'$lib' '$dashboard' api add --key helper-bot --secret helper-secret --route /ajax/health --route /ajax/status -o json") );
+is( $api_add_secret->{file}, File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'api.json' ), 'dashboard api add writes to the home runtime when no deeper layer participates' );
+is( $api_add_secret->{api}{'helper-bot'}{secret}, sha256_hex('helper-secret'), 'dashboard api add hashes raw secrets before saving them' );
+is_deeply( $api_add_secret->{api}{'helper-bot'}{ajax}, [ '/ajax/health', '/ajax/status' ], 'dashboard api add can create an API key and multiple routes in one command' );
+
+my $api_add_route = json_decode( _run("$perl -I'$lib' '$dashboard' api add --key helper-bot --route /ajax/health -o json") );
+is_deeply( $api_add_route->{api}{'helper-bot'}{ajax}, [ '/ajax/health', '/ajax/status' ], 'dashboard api add keeps the existing route set unchanged when a repeated route is requested' );
+
+my $api_duplicate_route = json_decode( _run("$perl -I'$lib' '$dashboard' api add --key helper-bot --route /ajax/health -o json") );
+ok( !$api_duplicate_route->{changed}, 'dashboard api add reports no change when a route already exists' );
+
+my $api_update_secret = json_decode( _run("$perl -I'$lib' '$dashboard' api add --key helper-bot --secret rotated-secret -o json") );
+is( $api_update_secret->{api}{'helper-bot'}{secret}, sha256_hex('rotated-secret'), 'dashboard api add updates an existing key secret' );
+
+my $api_maybe_secret = json_decode( _run("$perl -I'$lib' '$dashboard' api add --key helper-bot --maybe-secret maybe-secret --route /ajax/extra -o json") );
+is( $api_maybe_secret->{api}{'helper-bot'}{secret}, sha256_hex('maybe-secret'), 'dashboard api add updates an existing key secret through --maybe-secret' );
+is_deeply( $api_maybe_secret->{api}{'helper-bot'}{ajax}, [ '/ajax/health', '/ajax/status', '/ajax/extra' ], 'dashboard api add can append routes while using --maybe-secret' );
+
+my $api_filtered = json_decode( _run("$perl -I'$lib' '$dashboard' api ls --key helper-bot -o json") );
+is_deeply(
+    $api_filtered->{api}{'helper-bot'},
+    {
+        secret => sha256_hex('maybe-secret'),
+        ajax   => [ '/ajax/health', '/ajax/status', '/ajax/extra' ],
+    },
+    'dashboard api ls --key returns the targeted API group as JSON',
+);
+
+my $api_remove_route = json_decode( _run("$perl -I'$lib' '$dashboard' api rm --key helper-bot --route /ajax/status -o json") );
+is_deeply( $api_remove_route->{api}{'helper-bot'}{ajax}, [ '/ajax/health', '/ajax/extra' ], 'dashboard api rm removes one route while keeping the remaining routes and key' );
+
+my $api_project = File::Spec->catdir( $ENV{HOME}, 'projects', 'api-cli-layer' );
+make_path( File::Spec->catdir( $api_project, '.git' ), File::Spec->catdir( $api_project, '.developer-dashboard', 'config' ) );
+my $api_home_seed = json_decode( _run("$perl -I'$lib' '$dashboard' api add --key inherited-bot --secret inherited-secret --route /ajax/inherited -o json") );
+is( $api_home_seed->{file}, File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'config', 'api.json' ), 'dashboard api seed for inherited smoke coverage stays in the home runtime' );
+
+my $api_project_add = json_decode( _run_in_dir( $api_project, "$perl -I'$lib' '$dashboard' api add --key project-bot --secret project-secret -o json" ) );
+is( $api_project_add->{file}, File::Spec->catfile( $api_project, '.developer-dashboard', 'config', 'api.json' ), 'dashboard api add writes to the deepest project layer under DD-OOP-LAYERS' );
+
+my $api_project_remove = json_decode( _run_in_dir( $api_project, "$perl -I'$lib' '$dashboard' api rm --key inherited-bot -o json" ) );
+ok( $api_project_remove->{changed}, 'dashboard api rm can mask an inherited key from a project layer' );
+my $api_project_hidden = json_decode( _run_in_dir( $api_project, "$perl -I'$lib' '$dashboard' api ls --key inherited-bot -o json" ) );
+ok( !exists $api_project_hidden->{api}{'inherited-bot'}, 'dashboard api ls hides inherited keys after a project-layer tombstone is written' );
 
 my $legacy_bookmarks_root = File::Spec->catdir( $ENV{HOME}, 'bookmarks' );
 make_path($legacy_bookmarks_root);

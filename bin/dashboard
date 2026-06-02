@@ -455,6 +455,9 @@ dashboard - thin command switchboard for Developer Dashboard
   dashboard which [--edit] <cmd>|<skill>.<cmd>|<skill1>.<skill2>...<cmd>
   dashboard config init
   dashboard config show
+  dashboard api [ls] [--key <name>] [-o json|table]
+  dashboard api add --key <name> [--secret <raw>|--maybe-secret <raw>] [--route /ajax/...]...
+  dashboard api rm --key <name> [--route /ajax/...]
   dashboard auth add-user <username> <password>
   dashboard auth list-users
   dashboard auth remove-user <username>

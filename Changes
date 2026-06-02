@@ -1,3 +1,11 @@
+4.01  2026-06-02
+    - add the built-in `dashboard api` management command for layered
+      `config/api.json` machine auth, including merged registry listing,
+      per-key inspection, SHA-256 hashing of raw secrets before persistence,
+      optional `--maybe-secret` route-oriented secret input, exact saved
+      `/ajax/...` route add/remove controls, duplicate-route no-op handling,
+      and child-layer tombstones that hide inherited API groups without
+      rewriting parent config
 4.00  2026-06-02
     - add layered `config/api.json` machine auth for selected saved
       `/ajax/...` routes, including installed skill `config/api.json`
