@@ -2852,6 +2852,24 @@ print {$home_cfg} <<'JSON';
 }
 JSON
 close $home_cfg;
+open my $home_api, '>', File::Spec->catfile( $home, '.developer-dashboard', 'config', 'api.json' ) or die $!;
+print {$home_api} <<'JSON';
+{
+  "home-client": {
+    "secret": "home-secret-hash",
+    "ajax": [
+      "/ajax/home-only"
+    ]
+  },
+  "shared-client": {
+    "secret": "home-shared-secret",
+    "ajax": [
+      "/ajax/shared-home"
+    ]
+  }
+}
+JSON
+close $home_api;
 my $local_config_file = File::Spec->catfile( $repo, '.developer-dashboard', 'config', 'config.json' );
 make_path( File::Spec->catdir( $repo, '.developer-dashboard', 'config' ) );
 open my $local_cfg, '>', $local_config_file or die $!;
@@ -2875,6 +2893,18 @@ print {$local_cfg} <<'JSON';
 }
 JSON
 close $local_cfg;
+open my $local_api, '>', File::Spec->catfile( $repo, '.developer-dashboard', 'config', 'api.json' ) or die $!;
+print {$local_api} <<'JSON';
+{
+  "local-client": {
+    "secret": "local-secret-hash",
+    "ajax": [
+      "/ajax/local-only"
+    ]
+  }
+}
+JSON
+close $local_api;
 
 my $layered_parent = File::Spec->catdir( $home, 'repo-for-config', 'app-parent' );
 my $layered_leaf = File::Spec->catdir( $layered_parent, 'app-leaf' );
@@ -2902,6 +2932,24 @@ print {$parent_cfg} <<'JSON';
 }
 JSON
 close $parent_cfg;
+open my $parent_api, '>', File::Spec->catfile( $layered_parent, '.developer-dashboard', 'config', 'api.json' ) or die $!;
+print {$parent_api} <<'JSON';
+{
+  "parent-client": {
+    "secret": "parent-secret-hash",
+    "ajax": [
+      "/ajax/parent-only"
+    ]
+  },
+  "shared-client": {
+    "secret": "parent-shared-secret",
+    "ajax": [
+      "/ajax/shared-parent"
+    ]
+  }
+}
+JSON
+close $parent_api;
 open my $leaf_cfg, '>', File::Spec->catfile( $layered_leaf, '.developer-dashboard', 'config', 'config.json' ) or die $!;
 print {$leaf_cfg} <<'JSON';
 {
@@ -2933,6 +2981,26 @@ print {$leaf_cfg} <<'JSON';
 }
 JSON
 close $leaf_cfg;
+open my $leaf_api, '>', File::Spec->catfile( $layered_leaf, '.developer-dashboard', 'config', 'api.json' ) or die $!;
+print {$leaf_api} <<'JSON';
+{
+  "leaf-client": {
+    "secret": "leaf-secret-hash",
+    "ajax": [
+      " /ajax/leaf-only ",
+      "",
+      "/ajax/leaf-second"
+    ]
+  },
+  "shared-client": {
+    "secret": "leaf-shared-secret",
+    "ajax": [
+      "/ajax/shared-leaf"
+    ]
+  }
+}
+JSON
+close $leaf_api;
 
 {
     my $utf8_home = tempdir( CLEANUP => 1 );
@@ -3104,6 +3172,32 @@ JSON
             'leaf-added'  => '$HOME/leaf-added',
         },
         'load_global still exposes inherited path aliases together with the newly saved deepest-layer alias',
+    );
+    is_deeply(
+        $layered_config->api_keys,
+        {
+            'home-client' => {
+                secret => 'home-secret-hash',
+                ajax   => ['/ajax/home-only'],
+            },
+            'local-client' => {
+                secret => 'local-secret-hash',
+                ajax   => ['/ajax/local-only'],
+            },
+            'parent-client' => {
+                secret => 'parent-secret-hash',
+                ajax   => ['/ajax/parent-only'],
+            },
+            'leaf-client' => {
+                secret => 'leaf-secret-hash',
+                ajax   => [ '/ajax/leaf-only', '/ajax/leaf-second' ],
+            },
+            'shared-client' => {
+                secret => 'leaf-shared-secret',
+                ajax   => ['/ajax/shared-leaf'],
+            },
+        },
+        'api_keys follows DD-OOP-LAYERS across config/api.json files and lets deeper layers override matching API client names',
     );
     chdir $original_cwd or die $!;
 }

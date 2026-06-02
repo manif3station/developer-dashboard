@@ -121,6 +121,7 @@ sub wait_for_child_exit {
 }
 
 my $original_cwd = getcwd();
+my $repo_lib = File::Spec->catdir( $original_cwd, 'lib' );
 my $test_cwd = tempdir(CLEANUP => 1);
 chdir $test_cwd or die "Unable to chdir to $test_cwd: $!";
 
@@ -158,7 +159,6 @@ my $manager = Developer::Dashboard::RuntimeManager->new(
     paths  => $paths,
     runner => $runner,
 );
-my $helper_file_supports_internal_command = \&Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command;
 
 dies_like( sub { Developer::Dashboard::RuntimeManager->new }, qr/Missing config/, 'runtime manager requires config' );
 dies_like( sub { Developer::Dashboard::RuntimeManager->new( config => $config ) }, qr/Missing file registry/, 'runtime manager requires files' );
@@ -312,9 +312,10 @@ my $pid;
 {
     my $staged = File::Spec->catfile( $paths->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
     my $dist_root = File::Spec->catdir( $home, 'dist-share' );
+    my $shipped = File::Spec->catfile( $dist_root, 'private-cli', '_dashboard-core' );
     no warnings 'redefine';
     local *Developer::Dashboard::InternalCLI::_helper_asset_path = sub {
-        return File::Spec->catfile( $dist_root, 'private-cli', '_dashboard-core' );
+        return $shipped;
     };
     local *Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command = sub {
         my ( undef, $path, $command ) = @_;
@@ -332,15 +333,51 @@ my $pid;
 {
     my $staged = File::Spec->catfile( $paths->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
     my $dist_root = File::Spec->catdir( $home, 'dist-share' );
+    my $shipped = File::Spec->catfile( $dist_root, 'private-cli', '_dashboard-core' );
     no warnings 'redefine';
     local *Developer::Dashboard::InternalCLI::_helper_asset_path = sub {
-        return File::Spec->catfile( $dist_root, 'private-cli', '_dashboard-core' );
+        return $shipped;
     };
     local *Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command = sub { return 0 };
     is(
         $manager->_dashboard_core_helper_path,
         $staged,
         '_dashboard_core_helper_path falls back to the staged helper path when neither staged nor shipped helpers advertise the requested internal command',
+    );
+}
+
+{
+    my $helper = File::Spec->catfile( $home, 'helper-supports-web-foreground.pl' );
+    open my $helper_fh, '>', $helper or die "Unable to write $helper: $!";
+    print {$helper_fh} "web-foreground\n";
+    close $helper_fh;
+    my @command = (
+        $^X,
+        ( $UNDER_COVER ? ('-MDevel::Cover=-silent,1') : () ),
+        "-I$repo_lib",
+        '-MDeveloper::Dashboard::RuntimeManager',
+        '-e',
+        'print Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command(undef, shift, q{web-foreground})',
+        $helper,
+    );
+    open my $probe, '-|', @command or die "Unable to launch helper support probe: $!";
+    my $supported = do { local $/; <$probe> };
+    close $probe or die "Helper support probe failed: $?";
+    chomp $supported if defined $supported;
+    is(
+        $supported,
+        '1',
+        '_helper_file_supports_internal_command detects the requested internal command token in helper content',
+    );
+    is(
+        Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command( undef, '', 'web-foreground' ),
+        0,
+        '_helper_file_supports_internal_command rejects an empty helper path',
+    );
+    is(
+        Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command( undef, $helper, '' ),
+        0,
+        '_helper_file_supports_internal_command rejects an empty command token',
     );
 }
 
@@ -355,35 +392,6 @@ my $pid;
         $manager->_dashboard_core_helper_path,
         $staged,
         '_dashboard_core_helper_path survives missing dist share directories and falls back to the staged helper path',
-    );
-}
-
-{
-    my $helper = File::Spec->catfile( $home, 'helper-supports-shell.pl' );
-    open my $helper_fh, '>', $helper or die "Unable to write $helper: $!";
-    print {$helper_fh} "elsif ( \$cmd eq 'shell' ) {\n    print \"shell\\n\";\n}\n";
-    close $helper_fh;
-    local $ENV{PERL5OPT} = join ' ',
-      grep { defined $_ && $_ ne '' }
-      (
-        $ENV{PERL5OPT},
-        ( $UNDER_COVER ? '-MDevel::Cover' : () ),
-      );
-    open my $probe, '-|',
-      $^X,
-      '-Ilib',
-      '-MDeveloper::Dashboard::RuntimeManager',
-      '-e',
-      'print Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command(undef, shift, q{shell})',
-      $helper
-      or die "Unable to launch helper support probe: $!";
-    my $supported = do { local $/; <$probe> };
-    close $probe or die "Helper support probe failed: $?";
-    chomp $supported if defined $supported;
-    is(
-        $supported,
-        '1',
-        '_helper_file_supports_internal_command detects the requested internal command token in helper content',
     );
 }
 

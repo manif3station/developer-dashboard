@@ -1,3 +1,14 @@
+4.00  2026-06-02
+    - add layered `config/api.json` machine auth for selected saved
+      `/ajax/...` routes, including installed skill `config/api.json`
+      fragments, exact route allowlists, and `X-DD-API-Key` plus
+      `X-DD-API-Secret` header verification against stored SHA-256 digests
+    - keep helper-session auth working on those same API-registered ajax
+      routes while failing unauthenticated or wrong-secret machine callers
+      closed with `403 {"status":"forbidden"}`
+    - pass saved ajax API auth headers through the PSGI/Dancer adapter so
+      browser-facing and direct HTTP entrypoints enforce the same machine-auth
+      contract
 3.99  2026-05-26
     - keep the active shell directory in dashboard-managed child `PATH`
       repairs alongside the current Perl interpreter bin so collector shell

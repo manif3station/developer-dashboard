@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '3.99';
+our $VERSION = '4.00';
 
 use Config ();
 use IPC::Open3 qw(open3);

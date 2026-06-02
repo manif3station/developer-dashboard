@@ -3,7 +3,7 @@ package Developer::Dashboard::Codec;
 use strict;
 use warnings;
 
-our $VERSION = '3.99';
+our $VERSION = '4.00';
 
 use Exporter 'import';
 use IO::Compress::Gzip qw(gzip $GzipError);

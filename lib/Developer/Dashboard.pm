@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '3.99';
+our $VERSION = '4.00';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-3.99
+4.00
 
 =head1 INTRODUCTION
 
@@ -812,6 +812,24 @@ That keeps bookmark Ajax workflows usable even while transient token URLs stay
 disabled by default, and it means bookmark Ajax code can rely on normal
 C<print>, C<warn>, C<die>, C<system>, and C<exec> process behaviour instead of
 a buffered JSON wrapper.
+The same layered runtime config chain and installed-skill config trees can now
+ship C<config/api.json> files that authorize selected C</ajax/...> routes for
+machine-to-machine callers without forcing a helper login form. The schema is a
+JSON object keyed by API client name. Each entry must provide a stored SHA-256
+hex digest under C<secret> plus an C<ajax> array of exact saved Ajax route
+paths such as C</ajax/stream.txt> or
+C</ajax/example-skill/status.json>. When a non-admin remote request targets one
+of those registered C</ajax/...> paths, the caller can send
+C<X-DD-API-Key: NAME> and C<X-DD-API-Secret: RAW-SECRET>. Developer Dashboard
+hashes the raw secret with SHA-256, compares it to the stored digest, and
+executes the saved Ajax handler when they match. Missing or wrong credentials
+for a registered API route return C<403> with the JSON body
+C<{"status":"forbidden"}>. Existing helper-session auth still works on the
+same saved Ajax routes, so browser workflows and machine callers can coexist on
+one handler without adding a second copy of the route. Like the rest of
+C<DD-OOP-LAYERS>, runtime C<config/api.json> files merge from home to the
+deepest active child layer, and installed skills contribute their own layered
+C<config/api.json> fragments for skill-local saved Ajax routes.
 Saved bookmark Ajax handlers also default to C<text/plain> when no explicit
 C<type =E<gt> ...> argument is supplied, and the generated Perl wrapper now
 enables autoflush on both C<STDOUT> and C<STDERR> so long-running handlers
@@ -2909,6 +2927,14 @@ Skill-local JSON config, merged into runtime config under
 C<_E<lt>repo-nameE<gt>>. Any declared C<collectors> join the managed fleet
 under repo-qualified names such as C<example-skill.status>
 
+=item B<config/api.json>
+
+Skill-local machine auth config for selected C</ajax/...> routes. Entries merge
+through the same skill-layer contract, keep SHA-256 secret digests plus exact
+saved Ajax route lists, and allow remote callers to send C<X-DD-API-Key> plus
+C<X-DD-API-Secret> instead of a helper session for those registered saved Ajax
+handlers.
+
 =item B<config/docker/>
 
 Skill-local Docker Compose roots that participate in layered docker service lookup
@@ -3284,7 +3310,7 @@ re-enabled
 =head3 Skill Authoring
 
 To build a new skill, start with a Git repository that contains C<cli/>,
-C<config/config.json>, and optional C<dashboards/>, C<dashboards/nav/>,
+C<config/config.json>, optional C<config/api.json>, and optional C<dashboards/>, C<dashboards/nav/>,
 C<state/>, C<logs/>, C<ddfile>, C<ddfile.local>, C<aptfile>, C<apkfile>,
 C<dnfile>,
 C<brewfile>, C<Makefile>, C<package.json>, C<requirements.txt>, C<cpanfile>, and C<cpanfile.local> files under the skill
@@ -3298,7 +3324,9 @@ resolves direct bookmark renders. If C<config/config.json> declares
 collectors, those collectors join the normal managed fleet under
 repo-qualified names such as C<example-skill.status>, which means
 C<dashboard serve>, C<dashboard restart>, and C<dashboard stop> treat them the
-same way they treat system-owned collectors.
+same way they treat system-owned collectors. If C<config/api.json> declares API
+clients, those entries join the layered machine-auth allowlist for exact
+saved C</ajax/...> route paths owned by that skill.
 
 The repository also ships a dedicated skill authoring guide, and the installed
 reference is available through the POD module

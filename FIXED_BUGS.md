@@ -1,4 +1,26 @@
 # Fixed Bugs
+## 4.00 - Layered API auth for saved ajax routes works without weakening helper sessions
+
+- Fixed remote machine access for selected saved `/ajax/...` handlers so
+  operators can authorize them with layered `config/api.json` keys instead of
+  forcing a helper-user login flow.
+- Root cause:
+  saved ajax routes only understood the existing local-admin or helper-session
+  auth path. Even when an operator needed one exact saved ajax route for a
+  remote application, the backend had no layered `config/api.json` contract,
+  no SHA-256 machine-secret verification, and no route-scoped auth bypass for
+  that use case. The PSGI/Dancer adapter also discarded the custom API auth
+  headers before they could reach the backend.
+- Fix:
+  the config loader now merges `config/api.json` through `DD-OOP-LAYERS` plus
+  installed skill layer chains, the web backend recognizes exact registered
+  `/ajax/...` routes and verifies `X-DD-API-Key` plus `X-DD-API-Secret`
+  against stored SHA-256 digests, helper sessions still work on the same
+  routes, and missing or wrong machine credentials now fail closed with
+  `403 {"status":"forbidden"}`. The PSGI/Dancer adapter now forwards those API
+  headers unchanged so the browser-facing entrypoint and direct backend calls
+  enforce the same contract.
+
 ## 3.99 - Blank-environment tarball installs keep shell-based child commands runnable
 
 - Fixed blank-environment tarball installs that failed even after dashboard

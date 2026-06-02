@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-3.99
+4.00
 
 # INTRODUCTION
 
@@ -622,6 +622,24 @@ That keeps bookmark Ajax workflows usable even while transient token URLs stay
 disabled by default, and it means bookmark Ajax code can rely on normal
 `print`, `warn`, `die`, `system`, and `exec` process behaviour instead of
 a buffered JSON wrapper.
+The same layered runtime config chain and installed-skill config trees can now
+ship `config/api.json` files that authorize selected `/ajax/...` routes for
+machine-to-machine callers without forcing a helper login form. The schema is a
+JSON object keyed by API client name. Each entry must provide a stored SHA-256
+hex digest under `secret` plus an `ajax` array of exact saved Ajax route
+paths such as `/ajax/stream.txt` or
+`/ajax/example-skill/status.json`. When a non-admin remote request targets one
+of those registered `/ajax/...` paths, the caller can send
+`X-DD-API-Key: NAME` and `X-DD-API-Secret: RAW-SECRET`. Developer Dashboard
+hashes the raw secret with SHA-256, compares it to the stored digest, and
+executes the saved Ajax handler when they match. Missing or wrong credentials
+for a registered API route return `403` with the JSON body
+`{"status":"forbidden"}`. Existing helper-session auth still works on the
+same saved Ajax routes, so browser workflows and machine callers can coexist on
+one handler without adding a second copy of the route. Like the rest of
+`DD-OOP-LAYERS`, runtime `config/api.json` files merge from home to the
+deepest active child layer, and installed skills contribute their own layered
+`config/api.json` fragments for skill-local saved Ajax routes.
 Saved bookmark Ajax handlers also default to `text/plain` when no explicit
 `type => ...` argument is supplied, and the generated Perl wrapper now
 enables autoflush on both `STDOUT` and `STDERR` so long-running handlers
@@ -2440,6 +2458,14 @@ with:
     `_<repo-name>`. Any declared `collectors` join the managed fleet
     under repo-qualified names such as `example-skill.status`
 
+- **config/api.json**
+
+    Skill-local machine auth config for selected `/ajax/...` routes. Entries merge
+    through the same skill-layer contract, keep SHA-256 secret digests plus exact
+    saved Ajax route lists, and allow remote callers to send `X-DD-API-Key` plus
+    `X-DD-API-Secret` instead of a helper session for those registered saved Ajax
+    handlers.
+
 - **config/docker/**
 
     Skill-local Docker Compose roots that participate in layered docker service lookup
@@ -2678,7 +2704,7 @@ re-enabled
 ### Skill Authoring
 
 To build a new skill, start with a Git repository that contains `cli/`,
-`config/config.json`, and optional `dashboards/`, `dashboards/nav/`,
+`config/config.json`, optional `config/api.json`, and optional `dashboards/`, `dashboards/nav/`,
 `state/`, `logs/`, `ddfile`, `ddfile.local`, `aptfile`, `apkfile`,
 `dnfile`,
 `brewfile`, `Makefile`, `package.json`, `requirements.txt`, `cpanfile`, and `cpanfile.local` files under the skill
@@ -2692,7 +2718,9 @@ resolves direct bookmark renders. If `config/config.json` declares
 collectors, those collectors join the normal managed fleet under
 repo-qualified names such as `example-skill.status`, which means
 `dashboard serve`, `dashboard restart`, and `dashboard stop` treat them the
-same way they treat system-owned collectors.
+same way they treat system-owned collectors. If `config/api.json` declares API
+clients, those entries join the layered machine-auth allowlist for exact
+saved `/ajax/...` route paths owned by that skill.
 
 The repository also ships a dedicated skill authoring guide, and the installed
 reference is available through the POD module

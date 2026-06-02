@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '3.99';
+our $VERSION = '4.00';
 
 use File::Spec;
 use Cwd qw(cwd);
@@ -580,6 +580,23 @@ sub docker_config {
     return { %{ $cfg->{docker} } };
 }
 
+# api_keys()
+# Returns layered API-key ajax authorization config from config/api.json files.
+# Input: none.
+# Output: hash reference keyed by API client name with secret and ajax route list.
+sub api_keys {
+    my ($self) = @_;
+    my $merged = {};
+    for my $file ( reverse $self->_global_api_files ) {
+        next if !-f $file;
+        $merged = $self->_merge_hashes( $merged, $self->_load_json_hash_file($file) );
+    }
+    for my $fragment ( $self->_skill_api_fragments ) {
+        $merged = $self->_merge_hashes( $merged, $fragment );
+    }
+    return $self->_normalize_api_keys($merged);
+}
+
 # providers()
 # Returns configured provider page definitions.
 # Input: none.
@@ -610,6 +627,15 @@ sub _global_config_files {
     return map { File::Spec->catfile( $_, 'config.json' ) } $self->{paths}->config_roots;
 }
 
+# _global_api_files()
+# Returns the layered config/api.json candidates in effective lookup order.
+# Input: none.
+# Output: ordered list of configuration file path strings.
+sub _global_api_files {
+    my ($self) = @_;
+    return map { File::Spec->catfile( $_, 'api.json' ) } $self->{paths}->config_roots;
+}
+
 # _load_writable_global()
 # Loads only the writable runtime layer configuration file without merging
 # inherited parent-layer settings into the returned hash.
@@ -622,6 +648,19 @@ sub _load_writable_global {
     open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
     return json_decode(<$fh>);
+}
+
+# _load_json_hash_file($file)
+# Reads one JSON config file and requires it to decode to a hash reference.
+# Input: readable filesystem path string.
+# Output: decoded hash reference.
+sub _load_json_hash_file {
+    my ( $self, $file ) = @_;
+    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
+    local $/;
+    my $decoded = json_decode(<$fh>);
+    die "Expected JSON object in $file\n" if ref($decoded) ne 'HASH';
+    return $decoded;
 }
 
 # _skill_config_fragments()
@@ -659,6 +698,41 @@ sub _skill_config_entries {
     return @entries;
 }
 
+# _skill_api_fragments()
+# Loads installed skill config/api.json payloads as layered API auth fragments.
+# Input: none.
+# Output: ordered list of api-key hash refs.
+sub _skill_api_fragments {
+    my ($self) = @_;
+    my @fragments;
+    for my $entry ( $self->_skill_api_entries ) {
+        push @fragments, $entry->{api};
+    }
+    return @fragments;
+}
+
+# _skill_api_entries()
+# Enumerates installed skill API auth payloads together with their skill names.
+# Input: none.
+# Output: ordered list of hash refs with skill_name, skill_root, and api.
+sub _skill_api_entries {
+    my ($self) = @_;
+    my @entries;
+    for my $skill_root ( $self->{paths}->installed_skill_roots ) {
+        my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
+        next if !defined $skill_name || $skill_name eq '';
+        my $api = $self->_skill_api_hash($skill_name);
+        next if ref($api) ne 'HASH' || !%{$api};
+        push @entries,
+          {
+            skill_name => $skill_name,
+            skill_root => $skill_root,
+            api        => $api,
+          };
+    }
+    return @entries;
+}
+
 # _skill_config_hash($skill_name)
 # Reads and merges config/config.json from every participating layer of one installed skill.
 # Input: skill repository name string.
@@ -680,6 +754,71 @@ sub _skill_config_hash {
         $merged = $self->_merge_hashes( $merged, $config );
     }
     return $merged;
+}
+
+# _skill_api_hash($skill_name)
+# Reads and merges config/api.json from every participating layer of one installed skill.
+# Input: skill repository name string.
+# Output: merged API auth configuration hash reference.
+sub _skill_api_hash {
+    my ( $self, $skill_name ) = @_;
+    return {} if !defined $skill_name || $skill_name eq '';
+    my @layers = $self->{paths}->skill_layers( $skill_name, include_disabled => 1 );
+    return {} if !@layers;
+    my $merged = {};
+    for my $skill_path (@layers) {
+        my $api_file = File::Spec->catfile( $skill_path, 'config', 'api.json' );
+        next if !-f $api_file;
+        $merged = $self->_merge_hashes( $merged, $self->_load_json_hash_file($api_file) );
+    }
+    return $merged;
+}
+
+# _normalize_api_keys($keys)
+# Normalizes one layered API auth hash into trimmed secrets and ajax route lists.
+# Input: hash reference keyed by API client name.
+# Output: normalized hash reference with malformed entries removed.
+sub _normalize_api_keys {
+    my ( $self, $keys ) = @_;
+    return {} if ref($keys) ne 'HASH';
+    my %normalized;
+    for my $name ( keys %{$keys} ) {
+        next if !defined $name || ref($name) || $name eq '';
+        my $entry = $keys->{$name};
+        next if ref($entry) ne 'HASH';
+        my $secret = defined $entry->{secret} && !ref( $entry->{secret} ) ? $entry->{secret} : '';
+        $secret =~ s/^\s+//;
+        $secret =~ s/\s+$//;
+        next if $secret eq '';
+        my $ajax = $self->_normalize_api_ajax_routes( $entry->{ajax} );
+        next if !@{$ajax};
+        $normalized{$name} = {
+            secret => $secret,
+            ajax   => $ajax,
+        };
+    }
+    return \%normalized;
+}
+
+# _normalize_api_ajax_routes($routes)
+# Normalizes one API auth ajax route allowlist into unique /ajax paths.
+# Input: array reference of route strings.
+# Output: normalized array reference with blank, duplicate, and non-/ajax routes removed.
+sub _normalize_api_ajax_routes {
+    my ( $self, $routes ) = @_;
+    return [] if ref($routes) ne 'ARRAY';
+    my @normalized;
+    my %seen;
+    for my $route ( @{$routes} ) {
+        next if !defined $route || ref($route);
+        $route =~ s/^\s+//;
+        $route =~ s/\s+$//;
+        next if $route eq '';
+        next if $route !~ m{\A/ajax(?:/|\z)};
+        next if $seen{$route}++;
+        push @normalized, $route;
+    }
+    return \@normalized;
 }
 
 # _skill_collectors()
@@ -732,7 +871,7 @@ C<indicator> metadata without discarding inherited defaults.
 
 =head1 METHODS
 
-=head2 new, load_global, save_global, load_repo, merged, collectors, path_aliases, global_path_aliases, web_workers, save_global_web_workers, web_settings, save_global_web_settings, save_global_path_alias, remove_global_path_alias, docker_config, providers
+=head2 new, load_global, save_global, load_repo, merged, collectors, path_aliases, global_path_aliases, web_workers, save_global_web_workers, web_settings, save_global_web_settings, save_global_path_alias, remove_global_path_alias, docker_config, api_keys, providers
 
 Load and expose configuration domains used by the runtime.
 
@@ -741,15 +880,19 @@ including host, port, workers, ssl flag, the persisted C<no_editor> read-only
 browser flag, and optional C<ssl_subject_alt_names> entries used to extend the
 generated HTTPS certificate. These settings persist across restart, so
 dashboard restart inherits the previous serve session configuration.
+The api_keys() method merges layered runtime and installed-skill
+F<config/api.json> files into the exact saved C</ajax/...> machine-auth
+allowlist used by the web backend.
 
 =for comment FULL-POD-DOC START
 
 =head1 PURPOSE
 
 This module owns runtime configuration files such as F<config/config.json>,
-path aliases, web settings, collector definitions, and feature-specific config
-trees. It loads the effective config through C<DD-OOP-LAYERS> and writes
-changes back to the deepest participating runtime root.
+F<config/api.json>, path aliases, web settings, collector definitions, and
+feature-specific config trees. It loads the effective config through
+C<DD-OOP-LAYERS> and writes changes back to the deepest participating runtime
+root.
 
 =head1 WHY IT EXISTS
 

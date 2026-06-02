@@ -186,6 +186,7 @@ The integration run creates:
 - bookmark pages can use `fetch_value()`, `stream_value()`, and `stream_data()` helpers against saved `/ajax/...` endpoints on first render
 - the installed `/ajax/<file>` route streams early output chunks promptly enough to prove browser-visible progress instead of silent buffering
 - skill pages that ship `config/routes.json` emit their declared canonical custom ajax paths, while the smart `/ajax/<repo-name>/...` route still works as the parent compatibility resolver and custom paths stay fallback-only before a normal `404`
+- layered `config/api.json` files under both runtime roots and installed skills can authorize selected saved `/ajax/...` routes for machine callers, those callers must present matching `X-DD-API-Key` and `X-DD-API-Secret` headers, helper-session auth still works on the same registered routes, and missing or wrong API credentials fail closed with `403 {"status":"forbidden"}`
 - non-loopback access produces `401` with an empty body and without a login page until a helper user exists in the active runtime
 - under `dashboard serve --ssl`, plain `http://HOST:PORT/...` requests on the public listener return a same-port `307` redirect to `https://HOST:PORT/...`, the generated cert advertises SAN coverage for `localhost`, `127.0.0.1`, and `::1`, and a browser then reaches the expected self-signed certificate warning instead of a reset connection
 - after a helper user exists, non-loopback access produces the helper login page
