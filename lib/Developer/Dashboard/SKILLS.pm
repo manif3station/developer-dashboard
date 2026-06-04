@@ -3,7 +3,7 @@ package Developer::Dashboard::SKILLS;
 use strict;
 use warnings;
 
-our $VERSION = '4.01';
+our $VERSION = '4.02';
 
 1;
 

@@ -1,9 +1,10 @@
 use strict;
 use warnings;
 
+use File::Spec;
 use POSIX ();
 use Test::More;
-use File::Temp qw(tempdir tempfile);
+use Time::HiRes qw(time);
 
 use lib 'lib';
 
@@ -11,31 +12,27 @@ use Developer::Dashboard::RuntimeManager;
 use Developer::Dashboard::CollectorRunner;
 
 {
-    my ( $helper_fh, $helper ) = tempfile();
+    my $helper = File::Spec->catfile( File::Spec->tmpdir, sprintf 'developer-dashboard-t47-%d-%d.helper', $$, int( time() * 1_000_000 ) );
+    my $runtime = bless {}, 'Developer::Dashboard::RuntimeManager';
+    my $helper_supports_internal_command = \&Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command;
+    open my $helper_fh, '>', $helper or die "Unable to create $helper: $!";
     print {$helper_fh} "web-foreground\n";
     close $helper_fh or die "Unable to close $helper: $!";
-    my @command = (
-        $^X,
-        '-Ilib',
-        '-MDeveloper::Dashboard::RuntimeManager',
-        '-e',
-        'print Developer::Dashboard::RuntimeManager->_helper_file_supports_internal_command(shift, q{web-foreground})',
-        $helper,
-    );
-    open my $probe, '-|', @command or die "Unable to launch helper support probe: $!";
-    my $supported = do { local $/; <$probe> };
-    close $probe or die "Helper support probe failed: $?";
-    chomp $supported if defined $supported;
+    ok( -f $helper, 'helper fixture exists before helper command detection checks run' );
+    my $supported = $helper_supports_internal_command->( $runtime, $helper, 'web-foreground' );
     is(
         $supported,
-        '1',
+        1,
         '_helper_file_supports_internal_command detects the requested internal command token in helper content',
     );
+    my $negative_supported = $helper_supports_internal_command->( $runtime, $helper, 'collector-foreground' );
     is(
-        Developer::Dashboard::RuntimeManager->_helper_file_supports_internal_command( $helper, 'collector-foreground' ),
+        $negative_supported,
         0,
         '_helper_file_supports_internal_command returns false when the helper content does not include the requested command token',
     );
+    unlink $helper or die "Unable to remove $helper: $!";
+    ok( !-e $helper, 'helper fixture is removed after the helper command detection checks finish' );
 }
 
 {

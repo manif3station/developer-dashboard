@@ -3,7 +3,7 @@ package Developer::Dashboard::RuntimeManager;
 use strict;
 use warnings;
 
-our $VERSION = '4.01';
+our $VERSION = '4.02';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
@@ -2408,8 +2408,9 @@ sub _helper_file_supports_internal_command {
     open my $fh, '<:raw', $path or return 0;
     local $/;
     my $content = <$fh>;
-    close $fh or return 0;
-    return index( $content, $command ) >= 0 ? 1 : 0;
+    CORE::close($fh) or return 0;
+    my $matched = $content =~ /\Q$command\E/ ? 1 : 0;
+    return $matched;
 }
 
 # _spawn_windows_background_command(@command)

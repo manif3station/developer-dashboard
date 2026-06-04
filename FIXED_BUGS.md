@@ -1,4 +1,19 @@
 # Fixed Bugs
+## 4.02 - Runtime helper detection and final gate closure are stable
+
+- Fixed the runtime helper substring probe and the final coverage-closure harness path that depended on it.
+- Root cause:
+  `_helper_file_supports_internal_command` was using a compact return
+  expression that did not stay trustworthy under the full gate loop, and the
+  matching coverage-closure test used a fragile temporary helper setup that
+  was too easy to destabilize while closing the last line-level coverage gaps.
+- Fix:
+  the runtime helper matcher now returns an explicit boolean from a stable
+  substring check, and `t/47-zombie-coverage-closure.t` now keeps a real
+  helper fixture alive on disk and exercises the matcher through a direct
+  runtime object call before validating the remaining collector-runner
+  branches.
+
 ## 4.01 - Layered API auth is now operable through a first-class dashboard api command
 
 - Fixed the missing operator workflow for layered saved-Ajax machine auth.

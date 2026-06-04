@@ -1,3 +1,10 @@
+4.02  2026-06-04
+    - fix `_helper_file_supports_internal_command` substring detection so
+      runtime helper refresh probes return true for matching staged helpers
+      and stay stable under the plain and covered harnesses
+    - harden `t/47-zombie-coverage-closure.t` with a persistent helper
+      fixture and direct runtime-object assertions so the final gate loop
+      stays deterministic
 4.01  2026-06-02
     - add the built-in `dashboard api` management command for layered
       `config/api.json` machine auth, including merged registry listing,
