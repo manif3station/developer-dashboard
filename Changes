@@ -1,3 +1,8 @@
+4.03  2026-06-05
+    - ship an explicit OWASP compliance SOW and evidence matrix, wire it into
+      the OWASP and release-metadata tests, and tighten the manuals so the
+      safe public wording stays `OWASP-aligned` / `OWASP-gated` until the
+      remaining governance blockers are truly closed
 4.02  2026-06-04
     - fix `_helper_file_supports_internal_command` substring detection so
       runtime helper refresh probes return true for matching staged helpers

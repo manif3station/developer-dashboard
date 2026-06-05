@@ -1,4 +1,20 @@
 # Fixed Bugs
+## 4.03 - OWASP claim wording now matches the actual shipped evidence
+
+- Fixed the repo's OWASP claim boundary so the docs and gates no longer stop
+  at policy wording without a shipped closure artifact.
+- Root cause:
+  the repository already had an OWASP ASVS 5.0 and Top 10 gate in policy,
+  tests, and manuals, but it still lacked a dedicated scope-of-work record
+  that mapped chapters to evidence and stated clearly when a stronger public
+  `OWASP compliant` claim would actually be justified.
+- Fix:
+  added a shipped OWASP compliance SOW and evidence matrix under `doc/`,
+  wired it into `t/47-owasp-gate.t` and `t/15-release-metadata.t`, and
+  tightened the security and release manuals plus the main generated manual so
+  the safe public wording remains `OWASP-aligned` / `OWASP-gated` until the
+  remaining governance and release blockers are really closed.
+
 ## 4.02 - Runtime helper detection and final gate closure are stable
 
 - Fixed the runtime helper substring probe and the final coverage-closure harness path that depended on it.

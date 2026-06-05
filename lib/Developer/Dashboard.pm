@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '4.02';
+our $VERSION = '4.03';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.02
+4.03
 
 =head1 INTRODUCTION
 
@@ -2550,6 +2550,44 @@ The JavaScript fast-check wrapper is a source-tree fuzz gate: it runs when
 C<node>, C<npm>, C<package.json>, and C<package-lock.json> are all present, and
 it skips in packaged install-test trees that do not ship those checkout-only
 JavaScript manifests.
+
+Security review is also a hard verification gate. This repository now treats
+OWASP as a full gate rather than a baseline-only spot check: every
+security-sensitive change must complete an OWASP ASVS 5.0.0 applicability
+review across V1 through V14, use ASVS Level 2 rigor as the default floor,
+and escalate to Level 3 review when the change touches higher-trust surfaces
+such as authentication, session handling, cryptographic handling, release
+signing, or externally callable API routes. The same review must also map the
+change against the OWASP Top 10 2021 categories, with explicit attention to
+C<A01 Broken Access Control>, C<A02 Cryptographic Failures>,
+C<A03 Injection>, C<A04 Insecure Design>,
+C<A05 Security Misconfiguration>, C<A06 Vulnerable and Outdated Components>,
+C<A07 Identification and Authentication Failures>,
+C<A08 Software and Data Integrity Failures>,
+C<A09 Security Logging and Monitoring Failures>, and
+C<A10 Server-Side Request Forgery>.
+
+The shipped security review now also keeps a dedicated OWASP compliance SOW
+and evidence matrix. That record exists so the project can distinguish
+between the currently safe public wording, which is OWASP-aligned or
+OWASP-gated, and the stronger blanket phrase C<OWASP compliant>. Do not use
+the stronger phrase until the chapter-by-chapter evidence record, repo-side
+audit set, and remaining governance gates are all closed together.
+
+For the local repo-side evidence, run the grep-based auth/session, redirect,
+traversal, command-execution, header, and raw-SQL checks from the shipped
+security verification guidance, then keep the focused web and SSL regressions
+green:
+
+  rg -n "LWP::Simple|HTTP::Tiny|JSON::PP|capture_merged" bin lib t
+  rg -n "companies house|ewf|xmlgw|chips|tuxedo|chs|grover|cidev|pbs|password=|dsn=" bin lib README doc t
+  rg -n "X-Content-Type-Options|nosniff|Content-Security-Policy|X-Frame-Options|Referrer-Policy|SameSite=Strict|HttpOnly" lib doc SECURITY
+  rg -n "Transient token URLs are disabled|_transient_url_tokens_allowed|verify_user|login_response|_session_cookie" lib/Developer/Dashboard/Web lib/Developer/Dashboard/Auth.pm
+  rg -n "DBI->connect|\\$dbh->prepare\\(\\$sql\\)|table_info|column_info" bin/dashboard lib t
+  rg -n "_sanitize_redirect_target|Location|redirect" lib/Developer/Dashboard/Web lib t
+  rg -n "\\.\\./|rel2abs|dashboards/public|dashboards/ajax|skills/.+/dashboards" lib/Developer/Dashboard/Web lib t
+  rg -n "system\\(|exec\\(|open STDOUT|open STDERR|timeout_ms|alarm\\(" lib/Developer/Dashboard/ActionRunner.pm lib/Developer/Dashboard/CollectorRunner.pm lib/Developer/Dashboard/Web/Server.pm t
+  prove -lv t/08-web-update-coverage.t t/web_app_static_files.t t/17-web-server-ssl.t
 
 From a source checkout, for fast saved-bookmark browser regressions, run the
 dedicated smoke script:
