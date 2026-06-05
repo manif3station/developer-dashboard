@@ -4,6 +4,11 @@
 
 `SCORECARD-GATEKEEPER` is a hard release rule for this repository.
 
+> **Note**: For detailed step-by-step instructions on improving Scorecard scores through GitHub settings,
+> including branch protection, releases, and pull request workflows, see the comprehensive guide:
+> **[doc/scorecard-improvements.md](scorecard-improvements.md)**
+
+
 Before saying the work is done, before a release, and before a push that is
 meant to close a task, run the live GitHub Scorecard check through the machine
 specific authenticated path:
