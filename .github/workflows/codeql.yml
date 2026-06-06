@@ -31,7 +31,7 @@ jobs:
           - javascript-typescript
     steps:
       - name: Checkout
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v5.2.2
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@3b1a19a80ab047f35cbb237b5bd9bdc1e14f166c
