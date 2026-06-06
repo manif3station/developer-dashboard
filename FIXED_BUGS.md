@@ -1,4 +1,40 @@
 # Fixed Bugs
+## 4.06 - Fix Node.js 24 deprecation warnings and Dockerfile undefined variable in package-ghcr workflow
+
+- Fixed GitHub Actions workflow deprecation warnings and Dockerfile variable issues in the package-ghcr.yml workflow.
+- Root cause:
+  the package-ghcr.yml workflow was using outdated action versions that only supported Node.js 20, which
+  is being deprecated (EOL: September 16, 2026). The workflow used:
+  - actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 (pinned to v5.2.2)
+  - docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 (no version comment)
+  - docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 (no version comment)
+  Additionally, the dynamically generated Dockerfile used `${GITHUB_REPOSITORY}` variable in a heredoc
+  with single quotes (`<<'EOF'`), preventing shell variable expansion. Docker build then reported:
+  "UndefinedVar: Usage of undefined variable '$GITHUB_REPOSITORY'". The variable should have used
+  GitHub Actions context syntax `${{ github.repository }}` and the heredoc needed to allow variable
+  expansion.
+- Fix:
+  updated all GitHub Actions in package-ghcr.yml to use Node.js 24-compatible major version tags:
+  - actions/checkout@v4 (v4.2.2 - Node.js 24 compatible)
+  - docker/login-action@v3 (v3.4.0 - Node.js 24 compatible)
+  - docker/build-push-action@v6 (v6.12.0 - Node.js 24 compatible)
+  Changed the Dockerfile generation heredoc from `<<'EOF'` (no expansion) to `<<EOF` (with expansion),
+  and replaced `${GITHUB_REPOSITORY}` with the proper GitHub Actions context variable
+  `${{ github.repository }}` which is available during workflow execution. This resolves both the
+  Node.js deprecation warnings and the Dockerfile undefined variable error.
+- Prevention:
+  using major version tags (v4, v3, v6) instead of SHA pins provides automatic patch updates while
+  maintaining major version stability. These versions all support Node.js 24 runtime, ensuring the
+  workflow continues to function after Node.js 20 EOL. The heredoc without single quotes allows
+  proper variable substitution at workflow execution time, and using GitHub Actions context variables
+  ensures values are available when the script runs. This change affects only the package-ghcr.yml
+  workflow; other workflows with similar deprecation warnings should be updated separately if needed.
+- Impact:
+  eliminates Node.js 20 deprecation warnings from package workflow runs, prevents Dockerfile build
+  errors due to undefined variables, and ensures the OCI package publishing pipeline continues to work
+  beyond the Node.js 20 EOL date. The workflow will automatically receive minor version updates within
+  the specified major versions, maintaining compatibility with future GitHub Actions runner changes.
+
 ## 4.05 - Update GitHub Actions to Node 24 compatible versions
 
 - Fixed all GitHub Actions workflows that were failing with deprecated action
