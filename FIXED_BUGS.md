@@ -1,4 +1,29 @@
 # Fixed Bugs
+## Pending - Fix test.yml coverage verification regex to match actual Devel::Cover output
+
+- Fixed the GitHub Actions test workflow coverage verification so it no longer
+  fails with coverage reports that don't have exactly three 100.0 values.
+- Root cause:
+  Line 49 of .github/workflows/test.yml was checking for THREE values of
+  `100.0` in the Devel::Cover output with the regex:
+  `grep -E '^Total[[:space:]]+100\.0[[:space:]]+100\.0[[:space:]]+100\.0$'`
+  However, line 47 only requests TWO coverage types (statement and subroutine):
+  `cover -report text -select_re '^lib/' -coverage statement -coverage subroutine`
+  This mismatch caused the test to fail because it was looking for a third
+  100.0 value that was never reported by Devel::Cover.
+- Fix:
+  Updated the grep regex from requiring exactly three 100.0 values to requiring
+  only the first two (statement and subroutine), making it match what's actually
+  being measured. Changed line 49 to:
+  `grep -E '^Total[[:space:]]+100\.0[[:space:]]+100\.0($|[[:space:]])'`
+  This pattern matches "Total", then 100.0 for statements, then 100.0 for
+  subroutines, then either ends the line or allows additional whitespace/columns.
+- Prevention:
+  The new regex is more resilient to Devel::Cover output format variations,
+  handles variable column spacing as documented in README line 2096-2097, and
+  maintains the 100% coverage requirement for the metrics that are actually
+  being measured.
+
 ## 4.07 - Complete Node.js 24 migration with SHA-pinned action versions in package-ghcr workflow
 
 - Fixed remaining GitHub Actions Node.js 20 deprecation warnings in package-ghcr.yml by upgrading to SHA-pinned Node.js 24-compatible action versions.
