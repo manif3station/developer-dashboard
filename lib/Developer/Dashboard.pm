@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '4.08';
+our $VERSION = '4.09';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.08
+4.09
 
 =head1 INTRODUCTION
 
@@ -1867,7 +1867,8 @@ bookmark should show its title in the page body, add it explicitly inside
 C<HTML:>, for example with C<[% title %]>.
 
 C</apps> redirects to C</app/index>, and C</app/E<lt>nameE<gt>> can load
-either a saved bookmark document or a saved ajax/url bookmark file.
+either a saved bookmark document, a saved ajax/url bookmark file, or an
+installed skill index page when the smart route resolves to a skill.
 
 =head2 Working With Collectors
 
@@ -2286,6 +2287,12 @@ to the named C</app/E<lt>idE<gt>/edit> route, while the Play button
 recomposes the visible blocks, saves the hidden source payload, and submits the
 same form in render mode against C</app/E<lt>idE<gt>> instead of a transient
 C<token=> URL, so updates still work while transient URLs are disabled.
+Smart-routed skill pages now follow that same browser contract on their
+canonical aliases: C</app/E<lt>skillE<gt>/edit> and nested forms such as
+C</app/E<lt>skillE<gt>/E<lt>sub-skillE<gt>/edit> load the underlying skill
+bookmark source, C</app/E<lt>skillE<gt>/source> returns the raw skill
+bookmark text, and Play keeps the browser on the smart route alias instead of
+collapsing to the underlying C<BOOKMARK: index> id from the skill file.
 Bookmark parsing also treats a standalone C<---> line as a section
 break, preventing pasted prose after a code block from being compiled into the
 saved C<CODE*> body.

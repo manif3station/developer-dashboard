@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-4.08
+4.09
 
 # INTRODUCTION
 
@@ -1587,7 +1587,8 @@ bookmark should show its title in the page body, add it explicitly inside
 `HTML:`, for example with `[% title %]`.
 
 `/apps` redirects to `/app/index`, and `/app/<name>` can load
-either a saved bookmark document or a saved ajax/url bookmark file.
+either a saved bookmark document, a saved ajax/url bookmark file, or an
+installed skill index page when the smart route resolves to a skill.
 
 ## Working With Collectors
 
@@ -1946,6 +1947,12 @@ to the named `/app/<id>/edit` route, while the Play button
 recomposes the visible blocks, saves the hidden source payload, and submits the
 same form in render mode against `/app/<id>` instead of a transient
 `token=` URL, so updates still work while transient URLs are disabled.
+Smart-routed skill pages now follow that same browser contract on their
+canonical aliases: `/app/<skill>/edit` and nested forms such as
+`/app/<skill>/<sub-skill>/edit` load the underlying skill
+bookmark source, `/app/<skill>/source` returns the raw skill
+bookmark text, and Play keeps the browser on the smart route alias instead of
+collapsing to the underlying `BOOKMARK: index` id from the skill file.
 Bookmark parsing also treats a standalone `---` line as a section
 break, preventing pasted prose after a code block from being compiled into the
 saved `CODE*` body.
