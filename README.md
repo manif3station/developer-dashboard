@@ -1,5 +1,7 @@
 <!-- Generated from lib/Developer/Dashboard.pm POD by script/sync-readme-from-pod. Do not edit manually. -->
 
+[![GitHub Release](https://github.com/manif3station/developer-dashboard/actions/workflows/release-github.yml/badge.svg)](https://github.com/manif3station/developer-dashboard/actions/workflows/release-github.yml)
+
 # NAME
 
 Developer::Dashboard - a local home for development work
