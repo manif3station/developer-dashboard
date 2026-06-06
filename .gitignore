@@ -16,6 +16,7 @@ cover_db/
 .perl5/
 Developer-Dashboard-0*
 *.md
+!SECURITY_CHECKS.md
 !doc/owasp-compliance-sow.md
 !doc/security.md
 !doc/update-and-release.md
