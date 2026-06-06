@@ -693,8 +693,15 @@ subtest 'CLI::Files covers files inventory and locate branches' => sub {
     my $tmp = tempdir( CLEANUP => 1 );
     my $scan_root = File::Spec->catdir( $tmp, 'scan' );
     make_path($scan_root);
+    my $old = Cwd::getcwd();
+    chdir $tmp or die "Unable to chdir to $tmp: $!";
+    my %file_aliases = (
+        alias_file => '/tmp/alias-file.txt',
+        root_dir   => '/tmp/root-dir',
+    );
 
     no warnings 'redefine';
+    no warnings 'once';
 
     local *Developer::Dashboard::CLI::Files::_build_paths = sub { return bless {}, 'TestCLIPathRegistry' };
     local *Developer::Dashboard::FileRegistry::new = sub {
@@ -704,6 +711,17 @@ subtest 'CLI::Files covers files inventory and locate branches' => sub {
         }, 'TestCLIFileRegistry';
     };
     local *Developer::Dashboard::Config::new = sub { return bless {}, 'TestCLIConfig' };
+    local *TestCLIConfig::file_aliases = sub { return { %file_aliases }; };
+    local *TestCLIConfig::save_global_file_alias = sub {
+        my ( $self, $name, $path ) = @_;
+        $file_aliases{$name} = $path;
+        return { name => $name, path => $path };
+    };
+    local *TestCLIConfig::remove_global_file_alias = sub {
+        my ( $self, $name ) = @_;
+        my $removed = delete $file_aliases{$name} ? 1 : 0;
+        return { name => $name, removed => $removed };
+    };
     local *TestCLIFileRegistry::register_named_files = sub {
         my ( $self, $aliases ) = @_;
         %{$self->{named}} = ( %{$self->{named}}, %{ $aliases || {} } );
@@ -738,6 +756,10 @@ subtest 'CLI::Files covers files inventory and locate branches' => sub {
     like( $stdout_files, qr/^File\s+Value/m, 'files command defaults to a summary table' );
     like( $stdout_files, qr/builtin\s+\/tmp\/builtin\.txt/, 'files command summary table includes built-in inventory rows' );
     like( $stdout_files, qr/alias_file\s+\/tmp\/alias-file\.txt/, 'files command summary table includes configured alias rows' );
+    my ( $stdout_files_json ) = capture {
+        Developer::Dashboard::CLI::Files::run_files_command( command => 'files', args => [ '-o', 'json' ] );
+    };
+    is( decode_json($stdout_files_json)->{builtin}, '/tmp/builtin.txt', 'files command can still emit the full JSON payload explicitly' );
 
     my ( $stdout_resolve ) = capture {
         Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'resolve', 'alias_file' ] );
@@ -761,6 +783,227 @@ subtest 'CLI::Files covers files inventory and locate branches' => sub {
         [ File::Spec->catfile( $scan_root, 'match.txt' ) ],
         'file locate can scope the search to an explicit directory argument',
     );
+
+    my ( $stdout_locate_table ) = capture {
+        Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'locate', 'plain.txt' ] );
+    };
+    like( $stdout_locate_table, qr/^Path\s*$/m, 'file locate defaults to a one-column summary table' );
+    like( $stdout_locate_table, qr/\Q$tmp\/plain.txt\E/, 'file locate default table searches beneath the current working directory' );
+
+    my ( $stdout_add ) = capture {
+        Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'add', 'report', '/tmp/report.txt' ] );
+    };
+    like( $stdout_add, qr/^Alias\s+Stored\s+Resolved\s+Status/m, 'file add defaults to a mutation summary table' );
+    like( $stdout_add, qr/report\s+\/tmp\/report\.txt\s+\/tmp\/report\.txt\s+saved/, 'file add summary table reports the stored and resolved file target' );
+
+    my ( $stdout_list ) = capture {
+        Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'list' ] );
+    };
+    like( $stdout_list, qr/^Alias\s+Path/m, 'file list defaults to an alias summary table' );
+    like( $stdout_list, qr/alias_file\s+\/tmp\/alias-file\.txt/, 'file list summary table includes configured aliases' );
+    like( $stdout_list, qr/report\s+\/tmp\/report\.txt/, 'file list summary table includes newly added aliases' );
+
+    my ( $stdout_del ) = capture {
+        Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'del', 'report' ] );
+    };
+    like( $stdout_del, qr/^Alias\s+Removed\s+Status/m, 'file del defaults to a removal summary table' );
+    like( $stdout_del, qr/report\s+yes\s+removed/, 'file del summary table reports removed aliases' );
+
+    like(
+        Developer::Dashboard::CLI::Files::_render_table(
+            [ 'Alias', 'Status' ],
+            [
+                [ undef,     'saved' ],
+                [ 'example', undef ],
+            ],
+        ),
+        qr/^Alias\s+Status/m,
+        '_render_table handles undef file-table cells while preserving the header row',
+    );
+
+    like(
+        _dies( sub { Developer::Dashboard::CLI::Files::run_files_command( command => 'files', args => [ '-o', 'yaml' ] ) } ),
+        qr/Usage: dashboard files \[-o json\|table\]/,
+        'files rejects unsupported output formats explicitly',
+    );
+    like(
+        _dies( sub { Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'locate', '-o', 'yaml', 'plain.txt' ] ) } ),
+        qr/Usage: dashboard file locate \[-o json\|table\]/,
+        'file locate rejects unsupported output formats explicitly',
+    );
+    like(
+        _dies( sub { Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'add', '-o', 'yaml', 'bad', '/tmp/bad.txt' ] ) } ),
+        qr/Usage: dashboard file add <name> <path> \[-o json\|table\]/,
+        'file add rejects unsupported output formats explicitly',
+    );
+    like(
+        _dies( sub { Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'del', '-o', 'yaml', 'bad' ] ) } ),
+        qr/Usage: dashboard file del <name> \[-o json\|table\]/,
+        'file del rejects unsupported output formats explicitly',
+    );
+    like(
+        _dies( sub { Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'list', '-o', 'yaml' ] ) } ),
+        qr/Usage: dashboard file list \[-o json\|table\]/,
+        'file list rejects unsupported output formats explicitly',
+    );
+
+    chdir $old or die "Unable to chdir back to $old: $!";
+};
+
+subtest 'CLI::Paths covers table defaults and output guards' => sub {
+    my $tmp = tempdir( CLEANUP => 1 );
+    my $cwd = File::Spec->catdir( $tmp, 'cwd' );
+    my $named_root = File::Spec->catdir( $tmp, 'named-root' );
+    my $project_root = File::Spec->catdir( $tmp, 'project-root' );
+    my $workspace_hit = File::Spec->catdir( $tmp, 'workspace-hit' );
+    my $nested_hit = File::Spec->catdir( $named_root, 'alpha-hit' );
+    make_path( $cwd, $named_root, $project_root, $workspace_hit, $nested_hit );
+    my $old = Cwd::getcwd();
+    chdir $cwd or die "Unable to chdir to $cwd: $!";
+    my %path_aliases = (
+        root_alias => $named_root,
+        home       => $cwd,
+    );
+
+    no warnings 'redefine';
+    no warnings 'once';
+
+    local *Developer::Dashboard::CLI::Paths::_build_paths = sub {
+        return bless {
+            named_paths => {},
+        }, 'TestCLIPathRegistry';
+    };
+    local *Developer::Dashboard::Config::new = sub { return bless {}, 'TestCLIPathsConfig' };
+    local *TestCLIPathsConfig::path_aliases = sub { return { %path_aliases }; };
+    local *TestCLIPathsConfig::save_global_path_alias = sub {
+        my ( $self, $name, $path ) = @_;
+        $path_aliases{$name} = $path;
+        return { name => $name, path => $path };
+    };
+    local *TestCLIPathsConfig::remove_global_path_alias = sub {
+        my ( $self, $name ) = @_;
+        my $removed = delete $path_aliases{$name} ? 1 : 0;
+        return { name => $name, removed => $removed };
+    };
+    local *TestCLIPathRegistry::register_named_paths = sub {
+        my ( $self, $aliases ) = @_;
+        %{$self->{named_paths}} = ( %{$self->{named_paths}}, %{ $aliases || {} } );
+        return $self;
+    };
+    local *TestCLIPathRegistry::unregister_named_path = sub {
+        my ( $self, $name ) = @_;
+        delete $self->{named_paths}{$name};
+        return $self;
+    };
+    local *TestCLIPathRegistry::named_paths = sub { return $_[0]{named_paths}; };
+    local *TestCLIPathRegistry::all_paths = sub {
+        return {
+            home_runtime_root => '/tmp/home-runtime',
+            cwd               => $cwd,
+        };
+    };
+    local *TestCLIPathRegistry::all_path_aliases = sub {
+        my ($self) = @_;
+        return {
+            home => $cwd,
+            %{ $self->{named_paths} || {} },
+        };
+    };
+    local *TestCLIPathRegistry::resolve_dir = sub {
+        my ( $self, $name ) = @_;
+        die "Unknown path alias '$name'" if !exists $self->{named_paths}{$name};
+        return $self->{named_paths}{$name};
+    };
+    local *TestCLIPathRegistry::locate_projects = sub {
+        my ( $self, @terms ) = @_;
+        return map { File::Spec->catdir( $workspace_hit, $_ ) } @terms;
+    };
+    local *TestCLIPathRegistry::locate_dirs_under = sub {
+        my ( $self, $root, @terms ) = @_;
+        return map { File::Spec->catdir( $root, $_ ) } @terms;
+    };
+    local *TestCLIPathRegistry::current_working_directory = sub { return $cwd; };
+    local *TestCLIPathRegistry::current_project_root = sub { return $project_root; };
+
+    my ( $stdout_paths ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command( command => 'paths', args => [] );
+    };
+    like( $stdout_paths, qr/^Path\s+Value/m, 'paths defaults to a summary table' );
+    like( $stdout_paths, qr/home_runtime_root\s+\/tmp\/home-runtime/, 'paths summary table includes the runtime inventory rows' );
+    my ( $stdout_paths_json ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command( command => 'paths', args => [ '-o', 'json' ] );
+    };
+    is( decode_json($stdout_paths_json)->{home_runtime_root}, '/tmp/home-runtime', 'paths can still emit the full JSON payload explicitly' );
+
+    my ( $stdout_locate ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'locate', 'match-dir' ] );
+    };
+    like( $stdout_locate, qr/^Path\s*$/m, 'path locate defaults to a one-column summary table' );
+    like( $stdout_locate, qr/\Q$workspace_hit\/match-dir\E/, 'path locate table includes the matched project path' );
+
+    my ( $stdout_add ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'add', 'demo', $named_root ] );
+    };
+    like( $stdout_add, qr/^Alias\s+Stored\s+Resolved\s+Status/m, 'path add defaults to a mutation summary table' );
+    like( $stdout_add, qr/demo\s+\Q$named_root\E\s+\Q$named_root\E\s+saved/, 'path add summary table reports the stored and resolved target' );
+
+    my ( $stdout_list ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'list' ] );
+    };
+    like( $stdout_list, qr/^Alias\s+Path/m, 'path list defaults to an alias summary table' );
+    like( $stdout_list, qr/root_alias\s+\Q$named_root\E/, 'path list summary table includes configured aliases' );
+    like( $stdout_list, qr/demo\s+\Q$named_root\E/, 'path list summary table includes added aliases' );
+
+    my ( $stdout_del ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'del', 'demo' ] );
+    };
+    like( $stdout_del, qr/^Alias\s+Removed\s+Status/m, 'path del defaults to a removal summary table' );
+    like( $stdout_del, qr/demo\s+yes\s+removed/, 'path del summary table reports removed aliases' );
+
+    my ( $stdout_project_root ) = capture {
+        Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'project-root' ] );
+    };
+    is( $stdout_project_root, "$project_root\n", 'path project-root prints the current project root' );
+
+    like(
+        Developer::Dashboard::CLI::Paths::_render_table(
+            [ 'Alias', 'Status' ],
+            [
+                [ undef,     'saved' ],
+                [ 'example', undef ],
+            ],
+        ),
+        qr/^Alias\s+Status/m,
+        '_render_table handles undef path-table cells while preserving the header row',
+    );
+
+    like(
+        _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'paths', args => [ '-o', 'yaml' ] ) } ),
+        qr/Usage: dashboard paths \[-o json\|table\]/,
+        'paths rejects unsupported output formats explicitly',
+    );
+    like(
+        _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'locate', '-o', 'yaml', 'match-dir' ] ) } ),
+        qr/Usage: dashboard path locate \[-o json\|table\]/,
+        'path locate rejects unsupported output formats explicitly',
+    );
+    like(
+        _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'add', '-o', 'yaml', 'demo', $named_root ] ) } ),
+        qr/Usage: dashboard path add <name> <path> \[-o json\|table\]/,
+        'path add rejects unsupported output formats explicitly',
+    );
+    like(
+        _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'del', '-o', 'yaml', 'demo' ] ) } ),
+        qr/Usage: dashboard path del <name> \[-o json\|table\]/,
+        'path del rejects unsupported output formats explicitly',
+    );
+    like(
+        _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'list', '-o', 'yaml' ] ) } ),
+        qr/Usage: dashboard path list \[-o json\|table\]/,
+        'path list rejects unsupported output formats explicitly',
+    );
+
+    chdir $old or die "Unable to chdir back to $old: $!";
 };
 
 subtest 'Developer::Dashboard::File and FileRegistry cover direct file helpers' => sub {
@@ -1322,6 +1565,13 @@ subtest 'SkillManager closes the remaining direct error-path coverage branches' 
     like( $cpan_local_failure->{error}, qr/cpan local boom/, '_install_skill_cpanfile_local surfaces the streamed cpanm failure text in the structured error result' );
     is( Cwd::getcwd(), $original_cwd, '_install_skill_cpanfile_local restores the original cwd after an in-flight failure' );
 };
+
+sub _dies {
+    my ($code) = @_;
+    my $ok = eval { $code->(); 1 };
+    return '' if $ok;
+    return $@;
+}
 
 done_testing();
 
