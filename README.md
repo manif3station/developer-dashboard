@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-4.03
+4.04
 
 # INTRODUCTION
 
@@ -72,7 +72,12 @@ Dashboard-managed child commands also keep the current interpreter's bin
 directory plus the active shell directory at the front of `PATH`, and
 collector shell commands now run through a non-login shell so macOS
 shell-session restore banners and similar startup chatter do not get prefixed
-onto JSON collector output.
+onto JSON collector output. On Windows, long-lived web, collector-loop,
+collector-worker, and watchdog launches now re-enter through staged private
+`_dashboard-core` foreground commands instead of relying on Perl
+pseudo-forking, and their runtime-state writes keep explicit replacement
+fallbacks for hosts where Windows rename collisions would otherwise leave stale
+or missing state files behind.
 
 Explicit named collector stop and restart actions also pause the watchdog
 supervisor for the targeted collector set while the lifecycle command is in
@@ -1065,10 +1070,14 @@ sets the CurrentUser PowerShell execution policy to
 `RemoteSigned` when it is still too restrictive to load profile scripts,
 updates the current-user PowerShell profile with a self-contained
 private `~/perl5` PATH and Perl environment block plus
-`dashboard shell ps`, runs `dashboard init` first so the home helper runtime
-exists, and then activates that PowerShell bootstrap in the current shell when
-possible. Future PowerShell sessions do not rely on installer-only helper
-functions while loading that generated profile block. The generated bash, zsh,
+`dashboard shell ps`, seeds `$env:HOME` from PowerShell's own `$HOME` inside
+that managed profile block when Windows did not export `HOME` itself, creates
+a stable user-space `make.cmd` shim that points at Strawberry Perl's GNU make
+provider so skill `Makefile` workflows keep working in later sessions, runs
+`dashboard init` first so the home helper runtime exists, and then activates
+that PowerShell bootstrap in the current shell when possible. Future
+PowerShell sessions do not rely on installer-only helper functions while
+loading that generated profile block. The generated bash, zsh,
 POSIX sh, and PowerShell shell bootstraps all follow the same tmux-aware
 prompt rule: when the shell starts inside a `dashboard workspace` tmux session
 that carries `DEVELOPER_DASHBOARD_TMUX_STATUS=1`, indicator glyphs move to

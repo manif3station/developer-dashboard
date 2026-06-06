@@ -1,3 +1,19 @@
+4.04  2026-06-05
+    - restore the public switchboard helper path contract for dotted
+      `dashboard <skill>.<command>` dispatch, keep Windows core-backed
+      built-ins routed through the shared staged `_dashboard-core` helper,
+      and fix the staged private core import drift that broke `dashboard init`
+      and later helper refreshes
+    - harden Windows runtime helper and state-file flows so detached web,
+      collector-loop, collector-worker, and watchdog launches use the staged
+      foreground helper entrypoints and tolerate Windows rename collisions
+      through explicit replace fallbacks
+    - teach the Windows checkout bootstrap to seed `HOME` from PowerShell's
+      own `HOME`, create a stable user-space `make.cmd` shim for Strawberry
+      GNU make, and keep the fuzz gate lightweight under `Devel::Cover`
+    - force non-interactive CPAN environment defaults for skill `cpanm`
+      installs so Windows fresh-session bootstrap checks do not stall behind
+      dependency configure prompts
 4.03  2026-06-05
     - ship an explicit OWASP compliance SOW and evidence matrix, wire it into
       the OWASP and release-metadata tests, and tighten the manuals so the

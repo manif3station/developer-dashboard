@@ -45,6 +45,7 @@ _write_file(
     File::Spec->catfile( $fake_bin, 'cpanm' ),
     <<"SH",
 #!/bin/sh
+printf 'PERL_MM_USE_DEFAULT=%s NONINTERACTIVE_TESTING=%s PERL_CANARY_STABILITY_NOPROMPT=%s\\n' "\${PERL_MM_USE_DEFAULT:-}" "\${NONINTERACTIVE_TESTING:-}" "\${PERL_CANARY_STABILITY_NOPROMPT:-}" >> "$cpanm_log"
 printf '%s\\n' "\$*" >> "$cpanm_log"
 printf 'CPANM:%s\\n' "\$*" >> "$dependency_log"
 exit 0
@@ -270,8 +271,10 @@ is_deeply(
 open my $cpanm_log_fh, '<', $cpanm_log or die "Unable to read $cpanm_log: $!";
 my @cpanm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$cpanm_log_fh>;
 close $cpanm_log_fh;
-like( $cpanm_steps[0], qr/^--notest -L \Q$ENV{HOME}\/perl5\E --cpanfile \Q$install->{path}\/cpanfile\E --installdeps \.$/, 'cpanfile installs shared Perl dependencies into HOME perl5 with cpanm --notest from the skill root itself' );
-is( $cpanm_steps[1], "--notest -L $install->{path}/perl5 --cpanfile $install->{path}/cpanfile.local --installdeps .", 'cpanfile.local installs local Perl dependencies into the skill perl5 root with cpanm --notest from the skill root itself' );
+is( $cpanm_steps[0], 'PERL_MM_USE_DEFAULT=1 NONINTERACTIVE_TESTING=1 PERL_CANARY_STABILITY_NOPROMPT=1', 'cpanfile installs force non-interactive CPAN environment defaults' );
+like( $cpanm_steps[1], qr/^--notest -L \Q$ENV{HOME}\/perl5\E --cpanfile \Q$install->{path}\/cpanfile\E --installdeps \.$/, 'cpanfile installs shared Perl dependencies into HOME perl5 with cpanm --notest from the skill root itself' );
+is( $cpanm_steps[2], 'PERL_MM_USE_DEFAULT=1 NONINTERACTIVE_TESTING=1 PERL_CANARY_STABILITY_NOPROMPT=1', 'cpanfile.local installs force non-interactive CPAN environment defaults' );
+is( $cpanm_steps[3], "--notest -L $install->{path}/perl5 --cpanfile $install->{path}/cpanfile.local --installdeps .", 'cpanfile.local installs local Perl dependencies into the skill perl5 root with cpanm --notest from the skill root itself' );
 open my $npx_log_fh, '<', $npx_log or die "Unable to read $npx_log: $!";
 my @npm_steps = grep { defined && $_ ne '' } map { chomp; $_ } <$npx_log_fh>;
 close $npx_log_fh;

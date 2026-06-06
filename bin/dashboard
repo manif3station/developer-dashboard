@@ -33,6 +33,10 @@ use Developer::Dashboard::Platform qw(
   resolve_runnable_file
 );
 
+if ( (!defined $ENV{HOME} || $ENV{HOME} eq '') && defined $ENV{USERPROFILE} && $ENV{USERPROFILE} ne '' ) {
+    $ENV{HOME} = $ENV{USERPROFILE};
+}
+
 my $dashboard_lib = File::Spec->catdir( $Bin, '..', 'lib' );
 my $switchboard_cwd = eval { cwd() };
 my $switchboard_paths;
@@ -61,8 +65,9 @@ if ( $cmd eq 'version' ) {
     exit 0;
 }
 
-if ( my $helper_path = _builtin_helper_path($cmd) ) {
-    _exec_switchboard_command( $helper_path, @ARGV );
+if ( my @helper_command = _builtin_helper_command($cmd) ) {
+    my ( $helper_path, @helper_argv ) = @helper_command;
+    _exec_switchboard_command( $helper_path, @helper_argv, @ARGV );
 }
 
 if ( my $custom_path = _custom_command_path($cmd) ) {
@@ -270,21 +275,50 @@ sub _custom_command_path {
 }
 
 # _builtin_helper_path($cmd)
-# Resolves one dashboard-managed built-in helper under the home runtime and
-# stages the shipped helper assets there on demand.
+# Resolves one dashboard-managed built-in helper path under the home runtime
+# and stages the shipped helper assets there on demand.
 # Input: top-level command name string.
-# Output: helper file path string or empty string when unsupported.
+# Output: helper path string, or an empty string when unsupported.
 sub _builtin_helper_path {
+    my ($cmd) = @_;
+    my ( $path, @argv ) = _builtin_helper_command($cmd);
+    return '' if !defined $path || $path eq '' || @argv;
+    return $path;
+}
+
+# _builtin_helper_command($cmd)
+# Resolves one dashboard-managed built-in helper command under the home runtime
+# and stages the shipped helper assets there on demand.
+# Input: top-level command name string.
+# Output: helper path plus any fixed leading argv values, or an empty list when
+# unsupported.
+sub _builtin_helper_command {
     my ($cmd) = @_;
     require Developer::Dashboard::InternalCLI;
     my $helper = Developer::Dashboard::InternalCLI::canonical_helper_name($cmd);
-    return '' if $helper eq '';
+    return () if $helper eq '';
     my $paths = _switchboard_paths();
+    if ( is_windows() && Developer::Dashboard::InternalCLI::_helper_uses_dashboard_core($helper) ) {
+        Developer::Dashboard::InternalCLI::ensure_dashboard_core(
+            paths => $paths,
+        );
+        return (
+            Developer::Dashboard::InternalCLI::dashboard_core_path(
+                paths => $paths,
+            ),
+            $helper,
+        );
+    }
     Developer::Dashboard::InternalCLI::ensure_helper(
         paths => $paths,
         name  => $helper,
     );
-    return Developer::Dashboard::InternalCLI::helper_path( paths => $paths, name => $helper );
+    return (
+        Developer::Dashboard::InternalCLI::helper_path(
+            paths => $paths,
+            name  => $helper,
+        )
+    );
 }
 
 # _skill_dotted_command_parts($cmd)
