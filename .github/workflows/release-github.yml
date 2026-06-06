@@ -26,10 +26,10 @@ jobs:
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
       - name: Checkout
-        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v5.2.2
 
       - name: Setup Perl
-        uses: shogo82148/actions-setup-perl@8a3e458e34220c3cd62497d8c297eae315b88a72
+        uses: shogo82148/actions-setup-perl@9c1eca9952ccc07f9ca4a2097b63df93d9d138e9  # v1.32.0
         with:
           perl-version: '5.38'
 
@@ -37,7 +37,20 @@ jobs:
         run: |
           cpanm --installdeps --notest .
           cpanm --notest Devel::Cover
+          cpanm --notest Capture::Tiny
+          cpanm --notest Sub::Install Data::OptList Params::Util
+          cpanm --notest Sub::Exporter Sub::Exporter::Util
+          cpanm --notest Module::Runtime Try::Tiny Module::Implementation
+          cpanm --notest Dist::CheckConflicts Package::Stash::XS Package::Stash Class::Load
+          cpanm --notest Getopt::Long Getopt::Long::Descriptive
+          cpanm --notest IO::TieCombine String::RewritePrefix Module::Pluggable::Object
+          cpanm --notest App::Cmd
           cpanm --notest Dist::Zilla
+          cpanm --notest Dist::Zilla::Plugin::ManifestSkip
+          cpanm --notest Dist::Zilla::Plugin::MetaProvides::Package
+          cpanm --notest Dist::Zilla::Plugin::PkgVersion
+          cpanm --notest Dist::Zilla::Plugin::ShareDir
+          cpanm --notest File::ShareDir::Install
 
       - name: Run tests
         run: |
