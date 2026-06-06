@@ -452,7 +452,7 @@ For Windows-targeted changes, keep the verification layered:
 - run the full-system QEMU guest smoke with `integration/windows/run-host-windows-smoke.sh` before making a release-grade Windows compatibility claim
 
 The Strawberry smoke verifies `dashboard shell ps`, `dashboard ps1`, one
-PowerShell-backed collector command, one saved Ajax PowerShell handler through
+PowerShell-backed collector command, one saved Ajax handler through
 `Invoke-WebRequest`, and a browser DOM dump through Edge or Chrome when either
 browser is present in the Windows environment.
 In the Dockur-backed guest path, the launcher stages the Strawberry Perl MSI
@@ -464,7 +464,9 @@ in-guest smoke first runs the repo-root `install.ps1` through a streamed
 staged tarball, so the release gate matches the intended operator flow of
 `irm .../install.ps1 | iex`. That bootstrap path must also prove that a
 brand-new profile-loaded PowerShell session can resolve `dashboard`, print
-`dashboard version`, and run `dashboard logs` without a manual PATH edit.
+`dashboard version`, run `dashboard logs` without a manual PATH edit, keep
+`HOME` visible to later dashboard commands, and expose a working user-space
+`make` shim for skill `Makefile` flows.
 It must also keep test-only dependencies such as `Plack::Test` and
 `Test::Pod` out of the packaged install prerequisite chain so blank Windows
 guests do not fail while pulling `Test::SharedFork`.

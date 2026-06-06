@@ -1,4 +1,29 @@
 # Fixed Bugs
+## 4.04 - Windows helper staging, bootstrap, and dotted skill dispatch are stable again
+
+- Fixed the public switchboard and Windows helper-runtime regressions that
+  broke `dashboard init`, dotted skill execution, and later Windows bootstrap
+  sessions.
+- Root cause:
+  the switchboard refactor moved built-in helper dispatch to the more general
+  command-aware path but left one direct `_builtin_helper_path('skills')` call
+  behind, while the staged private `_dashboard-core` helper started calling
+  `is_windows()` without importing it. At the same time, the in-progress
+  Windows runtime and bootstrap work needed one coherent closeout for helper
+  refresh deferral, detached helper entrypoints, PowerShell `HOME`, and GNU
+  make exposure.
+- Fix:
+  restored the public `_builtin_helper_path` compatibility wrapper on top of
+  `_builtin_helper_command`, imported `is_windows` into the staged private
+  core, kept Windows core-backed built-ins on the shared `_dashboard-core`
+  path, completed the detached Windows web and collector helper coverage plus
+  state-file replacement fallbacks, and taught `install.ps1` to seed
+  `env:HOME` from PowerShell `HOME` and create a stable `make.cmd` shim for
+  Strawberry Perl's GNU make provider. Follow-on hardening now also forces
+  non-interactive CPAN environment defaults for skill `cpanm` installs so the
+  fresh-session PowerShell bootstrap proof does not hang behind dependency
+  configure prompts when it reaches `dashboard skills install browser`.
+
 ## 4.03 - OWASP claim wording now matches the actual shipped evidence
 
 - Fixed the repo's OWASP claim boundary so the docs and gates no longer stop
