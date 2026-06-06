@@ -1,4 +1,41 @@
 # Fixed Bugs
+## 4.05 - Update GitHub Actions to Node 24 compatible versions
+
+- Fixed all GitHub Actions workflows that were failing with deprecated action
+  versions that did not support Node 24 runtime.
+- Root cause:
+  the workflows set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true` but used outdated
+  action SHAs that were pinned before Node 24 support was available. GitHub
+  runners deprecated Node 20 for JavaScript actions, causing deployment failures
+  in the release-github.yml workflow and potential failures in other workflows.
+  The action SHAs were from checkout v4 era (SHA: 93cb6efe18208431cddfb8368fd83d5badbf9bfd)
+  and an old setup-perl version (SHA: 8a3e458e34220c3cd62497d8c297eae315b88a72).
+  Additionally, the release-github.yml workflow was missing comprehensive
+  Dist::Zilla plugin dependencies that could cause build failures.
+- Fix:
+  updated all workflows to use Node 24 compatible action versions:
+  - actions/checkout@v5.2.2 (SHA: 11bd71901bbe5b1630ceea73d27597364c9af683)
+  - shogo82148/actions-setup-perl@v1.32.0 (SHA: 9c1eca9952ccc07f9ca4a2097b63df93d9d138e9)
+  Added comprehensive Dist::Zilla plugin installation to release-github.yml
+  matching the release-cpan.yml pattern, including:
+  - Dist::Zilla::Plugin::ManifestSkip
+  - Dist::Zilla::Plugin::MetaProvides::Package
+  - Dist::Zilla::Plugin::PkgVersion
+  - Dist::Zilla::Plugin::ShareDir
+  - File::ShareDir::Install
+  This ensures the GitHub Release workflow can successfully build and publish
+  release tarballs with proper metadata and shared directory support.
+- Prevention:
+  maintained SHA pinning for security (Scorecard requirement) while updating to
+  current stable versions. Added version comments (# v5.2.2, # v1.32.0) for
+  traceability. Updated six workflows total:
+  - .github/workflows/release-github.yml (primary fix for deployment failure)
+  - .github/workflows/release-cpan.yml
+  - .github/workflows/test.yml
+  - .github/workflows/package-ghcr.yml
+  - .github/workflows/codeql.yml
+  - .github/workflows/fuzz-js.yml
+
 ## 4.04 - Windows helper staging, bootstrap, and dotted skill dispatch are stable again
 
 - Fixed the public switchboard and Windows helper-runtime regressions that
