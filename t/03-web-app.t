@@ -435,8 +435,12 @@ like($body1e, qr/wrap="off"/, 'editor textarea disables soft wrapping so long bo
 like($body1e, qr/white-space:\s*pre;/, 'editor stack keeps preformatted line geometry instead of wrapping overlay lines differently from the textarea');
 like($body1e, qr/viewport\.className = 'editor-overlay-viewport';/, 'editor route builds a clipped overlay viewport for each visible block');
 like($body1e, qr/function ddSyncEditorOverlay\(editor, highlight\)/, 'editor route exposes a dedicated overlay sync helper for one block overlay');
+like($body1e, qr/function ddAutoResizeEditor\(editor\)/, 'editor route exposes a dedicated auto-resize helper for each block textarea');
+like($body1e, qr/editor\.style\.height = 'auto';\s*editor\.style\.height = Math\.max\(editor\.scrollHeight, 48\) \+ 'px';/s, 'editor route grows each block textarea to match its content height');
 like($body1e, qr/highlight\.style\.transform = 'translate\('/, 'editor route syncs each block overlay position through transforms instead of a second scrollbox');
 like($body1e, qr/function ddCreateEditorBlock\(/, 'editor route builds visible block editors dynamically from bookmark sections');
+like($body1e, qr/function ddRenderEditor\(editor, highlight\) \{\s*highlight\.innerHTML = ddOverlayHtml\(editor\.value\);\s*ddAutoResizeEditor\(editor\);\s*ddSyncEditorOverlay\(editor, highlight\);/s, 'editor route auto-resizes a block before syncing its overlay');
+like($body1e, qr/window\.addEventListener\('resize', function\(\) \{\s*Array\.prototype\.slice\.call\(ddBlocks\.querySelectorAll\('\.editor-block'\)\)\.forEach\(function\(block\) \{\s*const editor = block\.querySelector\('\.instruction-block-editor'\);\s*const highlight = block\.querySelector\('\.editor-overlay'\);\s*ddAutoResizeEditor\(editor\);\s*ddSyncEditorOverlay\(editor, highlight\);/s, 'editor route reapplies auto-resize when the window size changes');
 my $demo_overlay = $app->_editor_overlay_html($highlight_source);
 like($demo_overlay, qr/<span class="tok-directive">HTML:<\/span>/, 'editor overlay highlights bookmark directives');
 like($demo_overlay, qr/<span class="tok-tag">&lt;style<\/span>/, 'editor overlay highlights HTML tag names');

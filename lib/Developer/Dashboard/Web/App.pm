@@ -1422,8 +1422,13 @@ function ddSyncEditorOverlay(editor, highlight) {
   highlight.style.minHeight = Math.max(editor.scrollHeight, editor.clientHeight) + 'px';
   highlight.style.transform = 'translate(' + (-editor.scrollLeft) + 'px, ' + (-editor.scrollTop) + 'px)';
 }
+function ddAutoResizeEditor(editor) {
+  editor.style.height = 'auto';
+  editor.style.height = Math.max(editor.scrollHeight, 48) + 'px';
+}
 function ddRenderEditor(editor, highlight) {
   highlight.innerHTML = ddOverlayHtml(editor.value);
+  ddAutoResizeEditor(editor);
   ddSyncEditorOverlay(editor, highlight);
 }
 function ddBlockLabel(text, index) {
@@ -1552,6 +1557,7 @@ window.addEventListener('resize', function() {
   Array.prototype.slice.call(ddBlocks.querySelectorAll('.editor-block')).forEach(function(block) {
     const editor = block.querySelector('.instruction-block-editor');
     const highlight = block.querySelector('.editor-overlay');
+    ddAutoResizeEditor(editor);
     ddSyncEditorOverlay(editor, highlight);
   });
 });
