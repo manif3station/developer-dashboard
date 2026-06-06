@@ -1,28 +1,30 @@
 # Fixed Bugs
-## Pending - Fix test.yml coverage verification regex to match actual Devel::Cover output
+## 4.08 - Fix test.yml coverage verification regex to match Devel::Cover three-column output
 
-- Fixed the GitHub Actions test workflow coverage verification so it no longer
-  fails with coverage reports that don't have exactly three 100.0 values.
+- Fixed the GitHub Actions test workflow coverage verification so it correctly
+  matches all three coverage columns that Devel::Cover outputs.
 - Root cause:
-  Line 49 of .github/workflows/test.yml was checking for THREE values of
-  `100.0` in the Devel::Cover output with the regex:
-  `grep -E '^Total[[:space:]]+100\.0[[:space:]]+100\.0[[:space:]]+100\.0$'`
-  However, line 47 only requests TWO coverage types (statement and subroutine):
-  `cover -report text -select_re '^lib/' -coverage statement -coverage subroutine`
-  This mismatch caused the test to fail because it was looking for a third
-  100.0 value that was never reported by Devel::Cover.
-- Fix:
-  Updated the grep regex from requiring exactly three 100.0 values to requiring
-  only the first two (statement and subroutine), making it match what's actually
-  being measured. Changed line 49 to:
+  Line 49 of .github/workflows/test.yml was using an incomplete regex pattern:
   `grep -E '^Total[[:space:]]+100\.0[[:space:]]+100\.0($|[[:space:]])'`
-  This pattern matches "Total", then 100.0 for statements, then 100.0 for
-  subroutines, then either ends the line or allows additional whitespace/columns.
+  This pattern only matched the first two 100.0 values (statement and subroutine),
+  but when you run `cover -report text -select_re '^lib/' -coverage statement -coverage subroutine`,
+  Devel::Cover actually outputs THREE columns in the Total line: statement, subroutine, and branch.
+  The incomplete regex caused t/34-scorecard-guardrails.t test 73 to fail because
+  the test expects all coverage workflows to use the full three-value pattern that
+  matches the complete Devel::Cover output format.
+- Fix:
+  Updated line 49 of .github/workflows/test.yml to use the complete regex pattern:
+  `grep -E '^Total[[:space:]]+100\.0[[:space:]]+100\.0[[:space:]]+100\.0$'`
+  This pattern now correctly matches all three 100.0 values that Devel::Cover
+  outputs in the Total coverage summary line, ensuring 100% coverage across
+  statement, subroutine, and branch metrics.
 - Prevention:
-  The new regex is more resilient to Devel::Cover output format variations,
-  handles variable column spacing as documented in README line 2096-2097, and
-  maintains the 100% coverage requirement for the metrics that are actually
-  being measured.
+  The test suite in t/34-scorecard-guardrails.t (lines 104-123) enforces that all
+  coverage workflows (test.yml, release-cpan.yml, release-github.yml) use this
+  consistent three-value regex pattern. This prevents future drift where workflows
+  might use different coverage verification patterns. The pattern is also resilient
+  to Devel::Cover output format variations by using flexible [[:space:]] matching
+  rather than fixed-width column spacing.
 
 ## 4.08 - The browser editor and operator CLI output are harder to misuse
 
