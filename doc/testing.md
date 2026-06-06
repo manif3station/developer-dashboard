@@ -211,7 +211,7 @@ carry `tmux` because `dashboard workspace` is a first-party tmux workflow.
 
 Branch and condition reports are still generated and should be used to drive new edge-case tests, especially when adding new runtime modules.
 
-Frontend editor changes should also be checked in a real browser route, not just from HTML output. In particular, the bookmark editor overlay must keep the visible syntax-highlighted source aligned with the real textarea caret while typing, must not soft-wrap differently from the textarea, and exact saved `/app/<id>/edit` repros with multi-line `<script>` blocks must be checked in Chromium so the editor keeps its highlight spans without drifting onto the wrong line.
+Frontend editor changes should also be checked in a real browser route, not just from HTML output. In particular, the split bookmark editor must load one visible block per section while still recomposing the canonical separator-based source into the hidden `instruction` field, the visible syntax-highlighted overlays must stay aligned with the real textarea carets while typing, block `Tab` handling must create the next section instead of corrupting the source, and exact saved `/app/<id>/edit` repros with multi-line `<script>` blocks must be checked in Chromium so the editor keeps its highlight spans without drifting onto the wrong line.
 
 JSON behavior is exercised through the shared `Developer::Dashboard::JSON` wrapper, which now uses `JSON::XS`.
 Release metadata checks also verify that built tarball runtime prerequisites

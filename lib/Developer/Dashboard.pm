@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '4.04';
+our $VERSION = '4.08';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.04
+4.08
 
 =head1 INTRODUCTION
 
@@ -1521,13 +1521,17 @@ Initialize the runtime:
 Inspect resolved paths:
 
   dashboard paths
+  dashboard paths -o json
   dashboard path resolve bookmarks_root
   dashboard path add foobar /tmp/foobar
+  dashboard path add foobar /tmp/foobar -o json
   dashboard path add .
   dashboard path del foobar
   dashboard path rm foobar
   dashboard files
+  dashboard files -o json
   dashboard file add notes ~/notes.txt
+  dashboard file add notes ~/notes.txt -o json
   dashboard file resolve notes
   dashboard file del notes
   dashboard which jq
@@ -1548,6 +1552,14 @@ C<$HOME/...> instead of a hard-coded absolute home path so a shared fallback
 runtime remains portable across different developer accounts. Re-adding an
 existing alias updates it without error, and deleting a missing alias is also
 safe.
+
+Developer Dashboard now uses one CLI output contract for operator-facing
+built-ins. By default, inventory and mutation commands print a human-readable
+summary table. When a script or LLM needs the full raw payload, pass
+C<-o json>. Shell-plumbing commands that need one stable direct value such as
+C<dashboard path resolve>, C<dashboard path project-root>, C<cdr>, and
+C<which_dir> keep their direct output contracts instead of forcing a summary
+table.
 
 C<cdr> now follows a two-stage path flow instead of only jumping to one alias
 or one top-level project name. If the first argument resolves as a saved alias
@@ -1619,8 +1631,9 @@ C<Developer::Dashboard::File-E<gt>$name()> also works directly. When the alias
 is numeric such as C<123>, use a scalar method name like
 C<my $name = 123; Developer::Dashboard::File-E<gt>$name()> because bare
 C<-E<gt>123> is not valid Perl syntax. C<dashboard files> prints the full
-built-in plus configured file inventory, while C<dashboard file list> prints
-only the named configured file aliases.
+built-in plus configured file inventory as a table by default, while
+C<dashboard file list> prints only the named configured file aliases. Use
+C<-o json> with either command when you need the full raw payload.
 
 C<dashboard of> and C<dashboard open-file> now treat configured file aliases
 as direct file targets before they fall back to Perl-module, Java-class, or
@@ -1697,7 +1710,7 @@ Start the local app:
 
   dashboard serve
 
-Open the root path with no bookmark path to get the free-form bookmark editor directly. If you start the web service with C<dashboard serve --no-editor> or C<dashboard serve --no-endit>, the browser stays read-only instead and direct editor/source routes are blocked. If you start it with C<dashboard serve --no-indicators> or C<dashboard serve --no-indicator>, the right-top browser chrome is cleared while normal page rendering still works.
+Open the root path with no bookmark path to get the free-form bookmark editor directly. The browser now splits bookmark sections into separate editor blocks instead of making you manage one long source textarea by hand, but it still saves the same on-disk bookmark file format behind the scenes. If you start the web service with C<dashboard serve --no-editor> or C<dashboard serve --no-endit>, the browser stays read-only instead and direct editor/source routes are blocked. If you start it with C<dashboard serve --no-indicators> or C<dashboard serve --no-indicator>, the right-top browser chrome is cleared while normal page rendering still works.
 
 Stop the local app and collector loops:
 
@@ -1763,7 +1776,9 @@ C<config/api.json> layer under C<DD-OOP-LAYERS>. Listing shows the effective
 merged registry from home through the active child layer together with any
 installed-skill API fragments that contribute saved Ajax machine auth. Updates
 never rewrite installed skill files; they only change the writable runtime
-layer for the current working context.
+layer for the current working context. List, add, and remove actions print
+human-readable tables by default; use C<-o json> when you need the full raw
+machine payload.
 
 When you pass C<--secret>, the raw secret is hashed to a SHA-256 hex digest
 before it is stored. C<--maybe-secret> is the route-friendly alias for the
@@ -1816,16 +1831,17 @@ Posting a bookmark document with C<BOOKMARK: some-id> back through the root
 editor now saves it to the bookmark store so C</app/some-id> resolves it
 immediately.
 
-The browser editor now renders syntax-highlight markup again, but keeps that
-highlight layer inside a clipped overlay viewport that follows the real
-textarea scroll position by transform instead of via a second scrollbox.
-That restores the visible highlighting while keeping long bookmark lines,
-full-text selection, and caret placement aligned with the real textarea.
-When you type C<:---> on its own line, the editor also expands it to the full
-separator line automatically and seeds the next sensible unique directive,
-moving from C<TITLE:> to C<HTML:> and then on to the next available
-C<CODEE<lt>NE<gt>:> section so the common bookmark-writing flow stays fast and
-brainless.
+The browser editor now loads one visible block per bookmark section while it
+keeps the canonical separator-based bookmark source in a hidden form field for
+saves and play requests. Each visible block still uses the syntax-highlighted
+overlay viewport that follows the real textarea scroll position by transform
+instead of a second scrollbox, so long lines, full-text selection, and caret
+placement stay aligned with the real editor. Pressing C<Tab> inside one block
+starts the next section block, and the browser recomposes those blocks back
+into the original separator-line bookmark document before it posts or plays
+the page. The directive assist still understands C<:---> when you paste older
+single-textarea workflows into one block, expanding it to the full separator
+line and seeding the next sensible directive.
 
 Edit and source views preserve raw Template Toolkit placeholders inside
 C<HTML:> sections, so values such as C<[% title %]> are kept in the bookmark
@@ -2263,11 +2279,13 @@ That top-right area also includes the local username, the current host or IP
 link, and the current date/time in the same spirit as the old local dashboard chrome.
 The displayed address is discovered from the machine interfaces, preferring a VPN-style address when one is active, and the date/time is refreshed in the browser with JavaScript.
 C<dashboard serve --no-indicators> and C<dashboard serve --no-indicator> clear that whole top-right browser-only area without changing the terminal prompt or C</system/status>.
-The bookmark editor also follows the old auto-submit flow, so the form submits when the textarea changes and loses focus instead of showing a manual update button.
-For saved bookmark files, that browser save posts back to the named
-C</app/E<lt>idE<gt>/edit> route and keeps the Play link on
-C</app/E<lt>idE<gt>> instead of a transient C<token=> URL, so updates still
-work while transient URLs are disabled.
+The bookmark editor also follows the old auto-submit flow, but now it waits
+until focus leaves the whole editor form instead of firing every time you move
+between section blocks. For saved bookmark files, that browser save posts back
+to the named C</app/E<lt>idE<gt>/edit> route, while the Play button
+recomposes the visible blocks, saves the hidden source payload, and submits the
+same form in render mode against C</app/E<lt>idE<gt>> instead of a transient
+C<token=> URL, so updates still work while transient URLs are disabled.
 Bookmark parsing also treats a standalone C<---> line as a section
 break, preventing pasted prose after a code block from being compiled into the
 saved C<CODE*> body.
@@ -2879,10 +2897,10 @@ C<has_cpanfile_local>, C<has_makefile>, and C<has_dockerfile>
 Inspect one installed skill:
 
   dashboard skills usage example-skill
-  dashboard skills usage example-skill -o table
+  dashboard skills usage example-skill -o json
 
-The default output is JSON. It returns the installed skill state even when the
-skill is disabled, including:
+The default output is a readable multi-section summary. It still returns the
+installed skill state even when the skill is disabled, including:
 
 =over 4
 
@@ -2907,6 +2925,9 @@ the merged config key such as C<_example-skill>
 declared collectors, their repo-qualified names, and indicator metadata
 
 =back
+
+Use C<-o json> when you need the full machine-readable payload for the same
+usage data.
 
 Update registered skills to their latest versions:
 

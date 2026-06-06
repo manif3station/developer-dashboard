@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-4.04
+4.08
 
 # INTRODUCTION
 
@@ -1241,13 +1241,17 @@ Initialize the runtime:
 Inspect resolved paths:
 
     dashboard paths
+    dashboard paths -o json
     dashboard path resolve bookmarks_root
     dashboard path add foobar /tmp/foobar
+    dashboard path add foobar /tmp/foobar -o json
     dashboard path add .
     dashboard path del foobar
     dashboard path rm foobar
     dashboard files
+    dashboard files -o json
     dashboard file add notes ~/notes.txt
+    dashboard file add notes ~/notes.txt -o json
     dashboard file resolve notes
     dashboard file del notes
     dashboard which jq
@@ -1268,6 +1272,14 @@ alias points inside the current home directory, the stored config uses
 runtime remains portable across different developer accounts. Re-adding an
 existing alias updates it without error, and deleting a missing alias is also
 safe.
+
+Developer Dashboard now uses one CLI output contract for operator-facing
+built-ins. By default, inventory and mutation commands print a human-readable
+summary table. When a script or LLM needs the full raw payload, pass
+`-o json`. Shell-plumbing commands that need one stable direct value such as
+`dashboard path resolve`, `dashboard path project-root`, `cdr`, and
+`which_dir` keep their direct output contracts instead of forcing a summary
+table.
 
 `cdr` now follows a two-stage path flow instead of only jumping to one alias
 or one top-level project name. If the first argument resolves as a saved alias
@@ -1339,8 +1351,9 @@ When the alias name is a valid Perl method token,
 is numeric such as `123`, use a scalar method name like
 `my $name = 123; Developer::Dashboard::File->$name()` because bare
 `->123` is not valid Perl syntax. `dashboard files` prints the full
-built-in plus configured file inventory, while `dashboard file list` prints
-only the named configured file aliases.
+built-in plus configured file inventory as a table by default, while
+`dashboard file list` prints only the named configured file aliases. Use
+`-o json` with either command when you need the full raw payload.
 
 `dashboard of` and `dashboard open-file` now treat configured file aliases
 as direct file targets before they fall back to Perl-module, Java-class, or
@@ -1417,7 +1430,7 @@ Start the local app:
 
     dashboard serve
 
-Open the root path with no bookmark path to get the free-form bookmark editor directly. If you start the web service with `dashboard serve --no-editor` or `dashboard serve --no-endit`, the browser stays read-only instead and direct editor/source routes are blocked. If you start it with `dashboard serve --no-indicators` or `dashboard serve --no-indicator`, the right-top browser chrome is cleared while normal page rendering still works.
+Open the root path with no bookmark path to get the free-form bookmark editor directly. The browser now splits bookmark sections into separate editor blocks instead of making you manage one long source textarea by hand, but it still saves the same on-disk bookmark file format behind the scenes. If you start the web service with `dashboard serve --no-editor` or `dashboard serve --no-endit`, the browser stays read-only instead and direct editor/source routes are blocked. If you start it with `dashboard serve --no-indicators` or `dashboard serve --no-indicator`, the right-top browser chrome is cleared while normal page rendering still works.
 
 Stop the local app and collector loops:
 
@@ -1483,7 +1496,9 @@ The `dashboard api` command manages the deepest writable runtime
 merged registry from home through the active child layer together with any
 installed-skill API fragments that contribute saved Ajax machine auth. Updates
 never rewrite installed skill files; they only change the writable runtime
-layer for the current working context.
+layer for the current working context. List, add, and remove actions print
+human-readable tables by default; use `-o json` when you need the full raw
+machine payload.
 
 When you pass `--secret`, the raw secret is hashed to a SHA-256 hex digest
 before it is stored. `--maybe-secret` is the route-friendly alias for the
@@ -1536,16 +1551,17 @@ Posting a bookmark document with `BOOKMARK: some-id` back through the root
 editor now saves it to the bookmark store so `/app/some-id` resolves it
 immediately.
 
-The browser editor now renders syntax-highlight markup again, but keeps that
-highlight layer inside a clipped overlay viewport that follows the real
-textarea scroll position by transform instead of via a second scrollbox.
-That restores the visible highlighting while keeping long bookmark lines,
-full-text selection, and caret placement aligned with the real textarea.
-When you type `:---` on its own line, the editor also expands it to the full
-separator line automatically and seeds the next sensible unique directive,
-moving from `TITLE:` to `HTML:` and then on to the next available
-`CODE<N>:` section so the common bookmark-writing flow stays fast and
-brainless.
+The browser editor now loads one visible block per bookmark section while it
+keeps the canonical separator-based bookmark source in a hidden form field for
+saves and play requests. Each visible block still uses the syntax-highlighted
+overlay viewport that follows the real textarea scroll position by transform
+instead of a second scrollbox, so long lines, full-text selection, and caret
+placement stay aligned with the real editor. Pressing `Tab` inside one block
+starts the next section block, and the browser recomposes those blocks back
+into the original separator-line bookmark document before it posts or plays
+the page. The directive assist still understands `:---` when you paste older
+single-textarea workflows into one block, expanding it to the full separator
+line and seeding the next sensible directive.
 
 Edit and source views preserve raw Template Toolkit placeholders inside
 `HTML:` sections, so values such as `[% title %]` are kept in the bookmark
@@ -1923,11 +1939,13 @@ That top-right area also includes the local username, the current host or IP
 link, and the current date/time in the same spirit as the old local dashboard chrome.
 The displayed address is discovered from the machine interfaces, preferring a VPN-style address when one is active, and the date/time is refreshed in the browser with JavaScript.
 `dashboard serve --no-indicators` and `dashboard serve --no-indicator` clear that whole top-right browser-only area without changing the terminal prompt or `/system/status`.
-The bookmark editor also follows the old auto-submit flow, so the form submits when the textarea changes and loses focus instead of showing a manual update button.
-For saved bookmark files, that browser save posts back to the named
-`/app/<id>/edit` route and keeps the Play link on
-`/app/<id>` instead of a transient `token=` URL, so updates still
-work while transient URLs are disabled.
+The bookmark editor also follows the old auto-submit flow, but now it waits
+until focus leaves the whole editor form instead of firing every time you move
+between section blocks. For saved bookmark files, that browser save posts back
+to the named `/app/<id>/edit` route, while the Play button
+recomposes the visible blocks, saves the hidden source payload, and submits the
+same form in render mode against `/app/<id>` instead of a transient
+`token=` URL, so updates still work while transient URLs are disabled.
 Bookmark parsing also treats a standalone `---` line as a section
 break, preventing pasted prose after a code block from being compiled into the
 saved `CODE*` body.
@@ -2445,16 +2463,19 @@ where each item reports:
 Inspect one installed skill:
 
     dashboard skills usage example-skill
-    dashboard skills usage example-skill -o table
+    dashboard skills usage example-skill -o json
 
-The default output is JSON. It returns the installed skill state even when the
-skill is disabled, including:
+The default output is a readable multi-section summary. It still returns the
+installed skill state even when the skill is disabled, including:
 
 - CLI commands plus whether each command has hooks and how many
 - bookmark pages and `dashboards/nav/*` entries
 - docker service folders and the files inside each one
 - the merged config key such as `_example-skill`
 - declared collectors, their repo-qualified names, and indicator metadata
+
+Use `-o json` when you need the full machine-readable payload for the same
+usage data.
 
 Update registered skills to their latest versions:
 

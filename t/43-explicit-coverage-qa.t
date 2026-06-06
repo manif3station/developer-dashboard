@@ -735,9 +735,9 @@ subtest 'CLI::Files covers files inventory and locate branches' => sub {
     my ( $stdout_files ) = capture {
         Developer::Dashboard::CLI::Files::run_files_command( command => 'files', args => [] );
     };
-    my $files_payload = decode_json($stdout_files);
-    is( $files_payload->{builtin}, '/tmp/builtin.txt', 'files command prints the merged file inventory' );
-    is( $files_payload->{alias_file}, '/tmp/alias-file.txt', 'files command loads configured aliases' );
+    like( $stdout_files, qr/^File\s+Value/m, 'files command defaults to a summary table' );
+    like( $stdout_files, qr/builtin\s+\/tmp\/builtin\.txt/, 'files command summary table includes built-in inventory rows' );
+    like( $stdout_files, qr/alias_file\s+\/tmp\/alias-file\.txt/, 'files command summary table includes configured alias rows' );
 
     my ( $stdout_resolve ) = capture {
         Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'resolve', 'alias_file' ] );
@@ -745,7 +745,7 @@ subtest 'CLI::Files covers files inventory and locate branches' => sub {
     is( $stdout_resolve, "/tmp/alias-file.txt\n", 'file resolve prints the resolved alias path' );
 
     my ( $stdout_locate_alias ) = capture {
-        Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'locate', 'root_dir', 'needle.txt' ] );
+        Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'locate', 'root_dir', 'needle.txt', '-o', 'json' ] );
     };
     is_deeply(
         decode_json($stdout_locate_alias),
@@ -754,7 +754,7 @@ subtest 'CLI::Files covers files inventory and locate branches' => sub {
     );
 
     my ( $stdout_locate_dir ) = capture {
-        Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'locate', $scan_root, 'match.txt' ] );
+        Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'locate', $scan_root, 'match.txt', '-o', 'json' ] );
     };
     is_deeply(
         decode_json($stdout_locate_dir),
@@ -862,6 +862,7 @@ subtest 'Developer::Dashboard::File and FileRegistry cover direct file helpers' 
 
 subtest 'CLI::Skills covers helper branches and table rendering' => sub {
     no warnings 'redefine';
+    no warnings 'once';
 
     require Developer::Dashboard::SkillDispatcher;
 
@@ -889,7 +890,16 @@ subtest 'CLI::Skills covers helper branches and table rendering' => sub {
         );
         is( $exit, 0, 'uninstall returns success' );
     };
-    is( decode_json($stdout_uninstall)->{repo_name}, 'demo', 'uninstall prints the uninstall payload as JSON' );
+    like( $stdout_uninstall, qr/^Skill\s+Status/m, 'uninstall defaults to a table summary' );
+    like( $stdout_uninstall, qr/demo\s+removed/, 'uninstall table summary reports the removed skill' );
+    my ( $stdout_uninstall_json ) = capture {
+        my $exit = Developer::Dashboard::CLI::Skills::run_skills_command(
+            command => 'skills',
+            args    => [ 'uninstall', 'demo', '-o', 'json' ],
+        );
+        is( $exit, 0, 'uninstall json returns success' );
+    };
+    is( decode_json($stdout_uninstall_json)->{repo_name}, 'demo', 'uninstall prints the uninstall payload as JSON when requested' );
 
     my ( $stdout_enable ) = capture {
         my $exit = Developer::Dashboard::CLI::Skills::run_skills_command(
@@ -898,7 +908,16 @@ subtest 'CLI::Skills covers helper branches and table rendering' => sub {
         );
         is( $exit, 0, 'enable returns success' );
     };
-    ok( decode_json($stdout_enable)->{enabled}, 'enable prints the enabled result' );
+    like( $stdout_enable, qr/^Skill\s+Status\s+Enabled/m, 'enable defaults to a table summary' );
+    like( $stdout_enable, qr/demo\s+enabled\s+yes/, 'enable table summary reports the enabled result' );
+    my ( $stdout_enable_json ) = capture {
+        my $exit = Developer::Dashboard::CLI::Skills::run_skills_command(
+            command => 'skills',
+            args    => [ 'enable', 'demo', '-o', 'json' ],
+        );
+        is( $exit, 0, 'enable json returns success' );
+    };
+    ok( decode_json($stdout_enable_json)->{enabled}, 'enable prints the enabled result as JSON when requested' );
 
     my ( $stdout_disable ) = capture {
         my $exit = Developer::Dashboard::CLI::Skills::run_skills_command(
@@ -907,7 +926,16 @@ subtest 'CLI::Skills covers helper branches and table rendering' => sub {
         );
         is( $exit, 0, 'disable returns success' );
     };
-    ok( !decode_json($stdout_disable)->{enabled}, 'disable prints the disabled result' );
+    like( $stdout_disable, qr/^Skill\s+Status\s+Enabled/m, 'disable defaults to a table summary' );
+    like( $stdout_disable, qr/demo\s+disabled\s+no/, 'disable table summary reports the disabled result' );
+    my ( $stdout_disable_json ) = capture {
+        my $exit = Developer::Dashboard::CLI::Skills::run_skills_command(
+            command => 'skills',
+            args    => [ 'disable', 'demo', '-o', 'json' ],
+        );
+        is( $exit, 0, 'disable json returns success' );
+    };
+    ok( !decode_json($stdout_disable_json)->{enabled}, 'disable prints the disabled result as JSON when requested' );
 
     my ( $stdout_list_json ) = capture {
         my $exit = Developer::Dashboard::CLI::Skills::run_skills_command(

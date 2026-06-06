@@ -242,7 +242,7 @@ my ( $saved_edit_code, undef, $saved_edit_body ) = @{ $app->handle( path => '/ap
 is( $saved_edit_code, 200, 'saved edit route responds with success' );
 like( $saved_edit_body, qr/Right Click Copy &amp; Share or Bookmark This Page/, 'saved edit route includes top chrome links' );
 like( $saved_edit_body, qr{<form method="post" action="/app/sample/edit" id="instruction-form">}, 'saved edit route posts back to the named bookmark edit path' );
-like( $saved_edit_body, qr{<a href="/app/sample" id="play-url">Play</a>}, 'saved edit route exposes a saved-page play link instead of a transient token url' );
+like( $saved_edit_body, qr{<button type="button" class="chrome-button" id="play-button" data-play-url="/app/sample">Play</button>}, 'saved edit route exposes a saved-page play button that submits the split editor source into render mode' );
 my ( $saved_edit_post_without_instruction_code, undef, $saved_edit_post_without_instruction_body ) = @{ $app->handle(
     path        => '/app/sample/edit',
     method      => 'POST',

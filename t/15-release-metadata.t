@@ -76,7 +76,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.04', 'repo version bumped for layered API CLI management delivery and gate refresh' );
+is( $version, '4.08', 'repo version bumped for split-block editor and CLI output delivery' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
 like( $readme, qr/\A(?:<!--.*?-->\n\n)?#\s+/s, 'README.md begins with Markdown headings' ) if $readme ne '';
@@ -393,7 +393,7 @@ for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
     like( $doc, qr/dashboard skills enable/, 'README documents skill enablement' );
     like( $doc, qr/dashboard skills disable/, 'README documents skill disablement' );
     like( $doc, qr/dashboard skills usage/, 'README documents skill usage inspection' );
-    like( $doc, qr/dashboard skills list -o table|dashboard skills usage example-skill -o table/, 'README documents table output for skill inspection' );
+    like( $doc, qr/dashboard skills list -o json|dashboard skills usage example-skill -o json|default output is a readable multi-section summary|default output is a padded table/is, 'README documents the human-summary plus explicit JSON contract for skill inspection' );
     like( $doc, qr/dashboard skills list -o json/, 'README documents explicit JSON output for the skills list' );
     like( $doc, qr/default output is a padded table|default output is a .*table/i, 'README documents table as the default skills list output' );
     like( $doc, qr/dashboard example-skill\.somecmd/, 'README documents dotted isolated skill command dispatch' );

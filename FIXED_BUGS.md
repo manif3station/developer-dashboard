@@ -24,6 +24,24 @@
   maintains the 100% coverage requirement for the metrics that are actually
   being measured.
 
+## 4.08 - The browser editor and operator CLI output are harder to misuse
+
+- Fixed two recurring product-shape problems: bookmark editing still exposed
+  the raw separator format too directly, and several built-in operator
+  commands still defaulted to raw JSON instead of readable summaries.
+- Root cause:
+  the browser editor preserved the canonical bookmark file structure but made
+  users manage every separator line inside one large textarea, while the CLI
+  surface had drifted into a mixed output model where some operator commands
+  printed tables and others printed machine payloads by default.
+- Fix:
+  the Web UI editor now breaks bookmark sections into separate visible blocks,
+  keeps the canonical hidden source in sync, lets `Tab` create a new section,
+  and uses an explicit Play button to recombine, save, and render. In the CLI,
+  operator-facing path, file, api, and skill inspection or mutation commands
+  now default to human-readable table summaries, with `-o json` reserved for
+  the full raw machine payload when automation needs it.
+
 ## 4.07 - Complete Node.js 24 migration with SHA-pinned action versions in package-ghcr workflow
 
 - Fixed remaining GitHub Actions Node.js 20 deprecation warnings in package-ghcr.yml by upgrading to SHA-pinned Node.js 24-compatible action versions.
@@ -103,7 +121,7 @@
   - .github/workflows/test.yml
   - .github/workflows/package-ghcr.yml
   - .github/workflows/codeql.yml
-  - .github/workflows/fuzz-js.yml
+- .github/workflows/fuzz-js.yml
 
 ## 4.04 - Windows helper staging, bootstrap, and dotted skill dispatch are stable again
 
