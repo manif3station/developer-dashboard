@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '4.08';
+our $VERSION = '4.09';
 
 use Capture::Tiny qw(capture);
 use Digest::SHA qw(sha256_hex);
@@ -817,7 +817,8 @@ sub page_source_response {
     my ( $self, %args ) = @_;
     return _no_editor_response() if $self->_editor_disabled;
     my ( $params, $body_params ) = $self->_request_params(%args);
-    my $page = $self->_load_named_page( $args{id} );
+    my $page = $self->_load_editable_named_page( $args{id} );
+    return [ 404, 'text/plain; charset=utf-8', "Not found\n" ] if !$page;
     $page->{meta}{raw_instruction} = $page->{meta}{raw_instruction} || $page->canonical_instruction;
     $page = $self->_page_with_runtime_state(
         $page,
@@ -845,23 +846,35 @@ sub page_edit_post_response {
     my ( $params, $body_params ) = $self->_request_params(%args);
     my $instruction = exists $body_params->{instruction} ? $body_params->{instruction} : $params->{instruction};
     if ( defined $instruction ) {
+        my $existing_page = $self->_load_editable_named_page( $args{id} );
         my $page = Developer::Dashboard::PageDocument->from_instruction($instruction);
         $page->{meta}{raw_instruction} = $instruction;
         $page->{id} ||= $args{id};
-        $page->{meta}{source_kind} = 'saved';
-        $self->{pages}->save_page($page);
+        my $source_kind = 'saved';
+        if ( $existing_page && ( $existing_page->{meta}{source_kind} || '' ) eq 'skill' ) {
+            $source_kind = 'skill';
+            $page->{id} = $args{id};
+            $page->{meta}{source_kind} = 'skill';
+            $self->_decorate_skill_page_routes($page);
+        }
+        else {
+            $page->{meta}{source_kind} = 'saved';
+            $self->{pages}->save_page($page);
+        }
         my $mode = $params->{mode} || $body_params->{mode} || 'edit';
+        my $request_path = $args{path} || '/app/' . $args{id} . '/edit';
+        $request_path = '/app/' . $args{id} if $mode eq 'render' && $source_kind eq 'skill';
         $page = $self->_page_with_runtime_state(
             $page,
             query_params => $params,
             body_params  => $body_params,
-            path         => $args{path} || '/app/' . $args{id} . '/edit',
+            path         => $request_path,
             remote_addr  => $args{remote_addr},
             headers      => $args{headers} || {},
         );
         $page = $self->{runtime}->prepare_page(
             page            => $page,
-            source          => 'saved',
+            source          => $source_kind,
             runtime_context => { params => { %{$params}, %{$body_params} } },
         );
         return $self->_page_response( $page, $mode );
@@ -877,8 +890,8 @@ sub page_edit_response {
     my ( $self, %args ) = @_;
     return _no_editor_response() if $self->_editor_disabled;
     my ( $params, $body_params ) = $self->_request_params(%args);
-    return $self->_missing_named_page_response( $args{id} ) if !$self->_saved_page_exists( $args{id} );
-    my $page = $self->_load_named_page( $args{id} );
+    my $page = $self->_load_editable_named_page( $args{id} );
+    return $self->_missing_named_page_response( $args{id} ) if !$page;
     $page->{meta}{raw_instruction} = $page->{meta}{raw_instruction} || $page->canonical_instruction;
     $page = $self->_page_with_runtime_state(
         $page,
@@ -959,6 +972,93 @@ sub _saved_page_exists {
     return eval { $self->{pages}->load_saved_page($id); 1 } ? 1 : 0;
 }
 
+# _load_editable_named_page($id)
+# Resolves one named editor/source route through saved bookmarks first, then smart-routed skill pages.
+# Input: page id string without the /app/ prefix.
+# Output: page document object or undef when neither a saved page nor a skill route exists.
+sub _load_editable_named_page {
+    my ( $self, $id ) = @_;
+    return if !defined $id || $id eq '';
+    return $self->_load_named_page($id) if $self->_saved_page_exists($id);
+    return $self->_load_skill_named_page($id);
+}
+
+# _load_skill_named_page($id)
+# Resolves one /app/<id> alias as a smart-routed skill page, including index aliases such as /app/<skill>.
+# Input: page id string without the /app/ prefix.
+# Output: decorated skill page document object or undef when the id is not an installed skill route.
+sub _load_skill_named_page {
+    my ( $self, $id ) = @_;
+    return if !defined $id || $id eq '';
+    my @segments = grep { defined && $_ ne '' } split m{/+}, $id;
+    return if !@segments;
+
+    my $dispatcher = $self->_skill_dispatcher;
+    my $spec = $self->_resolve_skill_route_spec(@segments);
+    return if !$spec || !@{ $spec->{skill_layers} || [] };
+
+    my @route_segments = @{ $spec->{route_segments} || [] };
+    my $route_id = @route_segments ? join( '/', @route_segments ) : 'index';
+    my $page = eval {
+        $dispatcher->_load_skill_page(
+            skill_name => $spec->{skill_name},
+            route_id   => $route_id,
+        );
+    };
+    return if !$page || $@;
+    return $self->_decorate_skill_page_routes($page);
+}
+
+# _decorate_skill_page_routes($page)
+# Stamps the canonical smart-routed browser URLs onto one loaded skill page so render and edit stay on /app/<skill>.
+# Input: skill page document object.
+# Output: the same page document object with browser route metadata attached.
+sub _decorate_skill_page_routes {
+    my ( $self, $page ) = @_;
+    return $page if ref($page) ne 'Developer::Dashboard::PageDocument';
+    return $page if ( $page->{meta}{source_kind} || '' ) ne 'skill';
+    my $page_id = $page->as_hash->{id} || '';
+    return $page if $page_id eq '';
+
+    my $page_url = $self->_saved_page_url($page_id);
+    $page->{meta}{render_route} = $page_url;
+    $page->{meta}{edit_route}   = $page_url . '/edit';
+    $page->{meta}{source_route} = $page_url . '/edit';
+    $page->{meta}{form_action}  = $page_url . '/edit';
+    return $page;
+}
+
+# _page_route_urls($page)
+# Resolves the browser edit/render/source URLs for one page, including explicit smart-routed skill aliases.
+# Input: page document object.
+# Output: hash reference with page_url, form_action, edit, render, and source URL strings.
+sub _page_route_urls {
+    my ( $self, $page ) = @_;
+    my $meta = $page->{meta} || {};
+    if ( $meta->{edit_route} || $meta->{render_route} || $meta->{source_route} || $meta->{form_action} ) {
+        return {
+            page_url    => $meta->{render_route} || '',
+            form_action => $meta->{form_action} || '/',
+            edit        => $meta->{edit_route} || '',
+            render      => $meta->{render_route} || '',
+            source      => $meta->{source_route} || '',
+        };
+    }
+
+    my $page_id = $page->as_hash->{id} || '';
+    my $source_kind = $meta->{source_kind} || '';
+    my $is_saved = $source_kind eq 'saved' && $page_id ne '';
+    my $is_transient = $source_kind eq 'transient';
+    my $page_url = $is_saved ? $self->_saved_page_url($page_id) : '';
+    return {
+        page_url    => $is_transient ? $self->{pages}->editable_url($page) : $page_url,
+        form_action => $is_saved ? $page_url . '/edit' : '/',
+        edit        => $is_saved ? $page_url . '/edit' : ( $is_transient ? $self->{pages}->editable_url($page) : '' ),
+        render      => $is_saved ? $page_url : ( $is_transient ? $self->{pages}->render_url($page) : '' ),
+        source      => $is_saved ? $page_url . '/edit' : ( $is_transient ? $self->{pages}->editable_url($page) : '' ),
+    };
+}
+
 # _page_response($page, $mode)
 # Builds a page response for edit, render, or source mode.
 # Input: page document object and mode string.
@@ -991,17 +1091,8 @@ sub _edit_html {
     $source =~ s/</&lt;/g;
     $source =~ s/>/&gt;/g;
 
-    my $page_id = $page->as_hash->{id} || '';
-    my $source_kind = $page->{meta}{source_kind} || '';
-    my $is_saved = $source_kind eq 'saved' && $page_id ne '';
-    my $is_transient = $source_kind eq 'transient';
-    my $page_url = $is_saved ? $self->_saved_page_url($page_id) : '';
-    my $urls = {
-        edit   => $is_saved ? $page_url . '/edit' : ( $is_transient ? $self->{pages}->editable_url($page) : '' ),
-        render => $is_saved ? $page_url : ( $is_transient ? $self->{pages}->render_url($page) : '' ),
-        source => $is_saved ? $page_url . '/edit' : ( $is_transient ? $self->{pages}->editable_url($page) : '' ),
-    };
-    my $form_action = $is_saved ? $page_url . '/edit' : '/';
+    my $urls = $self->_page_route_urls($page);
+    my $form_action = $urls->{form_action} || '/';
 
     my $title = $page->as_hash->{title};
     $title =~ s/&/&amp;/g;
@@ -1849,9 +1940,8 @@ sub _render_page_html {
     my $source_kind = $page->{meta}{source_kind} || '';
     my $is_saved = $source_kind eq 'saved';
     my $is_transient = $source_kind eq 'transient';
-    my $page_url = $is_transient
-      ? $self->{pages}->editable_url($page)
-      : ( $is_saved ? $self->_saved_page_url( $page->as_hash->{id} || '' ) : '' );
+    my $urls = $self->_page_route_urls($page);
+    my $page_url = $urls->{page_url} || '';
     my $runtime_context = {
         params       => { %{ $page->{state} || {} } },
         current_page => $current_page,
@@ -1862,9 +1952,9 @@ sub _render_page_html {
         chrome_html => $self->_top_chrome_html(
             $page,
             {
-                edit   => ( $is_transient && $transient_allowed ) ? '/?token=' . $self->{pages}->encode_page($page) : ( $is_saved ? $page_url . '/edit' : '' ),
-                render => ( $is_transient && $transient_allowed ) ? '/?mode=render&token=' . $self->{pages}->encode_page($page) : ( $is_saved ? $page_url : '' ),
-                source => ( $is_transient && $transient_allowed ) ? '/?token=' . $self->{pages}->encode_page($page) : ( $is_saved ? $page_url . '/edit' : '' ),
+                edit   => ( $is_transient && $transient_allowed ) ? '/?token=' . $self->{pages}->encode_page($page) : ( $urls->{edit} || '' ),
+                render => ( $is_transient && $transient_allowed ) ? '/?mode=render&token=' . $self->{pages}->encode_page($page) : ( $urls->{render} || '' ),
+                source => ( $is_transient && $transient_allowed ) ? '/?token=' . $self->{pages}->encode_page($page) : ( $urls->{source} || '' ),
             },
         ),
         nav_html => $self->_nav_items_html(

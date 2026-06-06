@@ -1,4 +1,30 @@
 # Fixed Bugs
+## 4.09 - Smart-routed skill browser edits now stay on the skill alias
+
+- Fixed the browser editor and Play flow for smart-routed skill pages such as
+  `/app/youtube`, where the underlying skill bookmark file can still declare
+  `BOOKMARK: index`.
+- Root cause:
+  the normal render path already knew how to resolve `/app/<skill>` and nested
+  `/app/<skill>/<sub-skill>` aliases through the skill dispatcher, but the
+  `/app/.../edit` and `/app/.../source` routes still assumed every named route
+  was a saved bookmark. That made edit fall back to the blank saved-page
+  template, and a Play POST could collapse the browser chrome to
+  `/app/index/edit` because the posted skill source kept the file's internal
+  `BOOKMARK: index` id instead of the smart route alias.
+- Fix:
+  the web app now resolves edit and source requests through the same saved-then-
+  skill smart-routing path, stamps canonical browser routes onto skill pages,
+  and keeps skill edit POSTs transient while forcing the rendered page id back
+  to the requested smart alias. That preserves `/app/<skill>/edit`,
+  `/app/<skill>/source`, `/app/<skill>`, and nested child-skill aliases across
+  Edit and Play without saving over bookmark namespaces.
+- Prevention:
+  `t/20-skill-web-routes.t` now covers top-level and nested skill-index render,
+  edit, source, and Play flows. The regression explicitly checks that browser
+  chrome and form actions stay on the smart route alias rather than drifting to
+  `/app/index`.
+
 ## 4.08 - Fix test.yml coverage verification regex to match Devel::Cover three-column output
 
 - Fixed the GitHub Actions test workflow coverage verification so it correctly

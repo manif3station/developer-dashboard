@@ -1,3 +1,9 @@
+4.09  2026-06-06
+    - keep smart-routed skill page browser edits on their canonical
+      `/app/<skill>` and nested `/app/<skill>/<sub-skill>` aliases by
+      teaching the edit/source routes and Play handoff to load skill index
+      pages through the same smart resolver instead of collapsing to the
+      underlying `BOOKMARK: index` id
 4.08  2026-06-06
     - split the Web UI bookmark editor into Jupyter-like section blocks while
       keeping the saved bookmark file format canonical, including block-aware
