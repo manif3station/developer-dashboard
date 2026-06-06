@@ -1,39 +1,47 @@
 # Fixed Bugs
-## 4.06 - Fix Node.js 24 deprecation warnings and Dockerfile undefined variable in package-ghcr workflow
+## 4.07 - Complete Node.js 24 migration with SHA-pinned action versions in package-ghcr workflow
 
-- Fixed GitHub Actions workflow deprecation warnings and Dockerfile variable issues in the package-ghcr.yml workflow.
+- Fixed remaining GitHub Actions Node.js 20 deprecation warnings in package-ghcr.yml by upgrading to SHA-pinned Node.js 24-compatible action versions.
 - Root cause:
-  the package-ghcr.yml workflow was using outdated action versions that only supported Node.js 20, which
-  is being deprecated (EOL: September 16, 2026). The workflow used:
-  - actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 (pinned to v5.2.2)
-  - docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 (no version comment)
-  - docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 (no version comment)
-  Additionally, the dynamically generated Dockerfile used `${GITHUB_REPOSITORY}` variable in a heredoc
-  with single quotes (`<<'EOF'`), preventing shell variable expansion. Docker build then reported:
-  "UndefinedVar: Usage of undefined variable '$GITHUB_REPOSITORY'". The variable should have used
-  GitHub Actions context syntax `${{ github.repository }}` and the heredoc needed to allow variable
-  expansion.
+  package-ghcr.yml was previously updated (v4.06) to use major version tags (v4, v3, v6) with
+  Node.js 24 compatibility claims in comments, but continued to generate deprecation warnings because
+  those major version tags resolved to older minor versions that still used Node.js 20 runtime.
+  GitHub Actions deprecation notice specifically warned:
+  "Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not
+  work as expected: actions/checkout@v4, docker/build-push-action@v6, docker/login-action@v3."
+  All other workflows (test.yml, release-cpan.yml, release-github.yml, codeql.yml, fuzz-js.yml) had
+  already been updated to use SHA-pinned v5.2.2 checkout and proper Node.js 24-compatible versions
+  with FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 environment variable in v4.05, but package-ghcr.yml was
+  left behind using the v4 major tag approach.
 - Fix:
-  updated all GitHub Actions in package-ghcr.yml to use Node.js 24-compatible major version tags:
-  - actions/checkout@v4 (v4.2.2 - Node.js 24 compatible)
-  - docker/login-action@v3 (v3.4.0 - Node.js 24 compatible)
-  - docker/build-push-action@v6 (v6.12.0 - Node.js 24 compatible)
-  Changed the Dockerfile generation heredoc from `<<'EOF'` (no expansion) to `<<EOF` (with expansion),
-  and replaced `${GITHUB_REPOSITORY}` with the proper GitHub Actions context variable
-  `${{ github.repository }}` which is available during workflow execution. This resolves both the
-  Node.js deprecation warnings and the Dockerfile undefined variable error.
+  updated package-ghcr.yml to use the same SHA-pinned Node.js 24-compatible action versions used
+  across all other workflows in the repository:
+  - actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v5.2.2
+  - docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567  # v3.3.0
+  - docker/build-push-action@48aba3b46d1b1fec4febb7c5d0c644b249a11355  # v6.10.0
+  Added FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true environment variable to the job configuration,
+  consistent with test.yml, release-cpan.yml, and release-github.yml workflows. This ensures
+  explicit opt-in to Node.js 24 runtime and eliminates all deprecation warnings.
 - Prevention:
-  using major version tags (v4, v3, v6) instead of SHA pins provides automatic patch updates while
-  maintaining major version stability. These versions all support Node.js 24 runtime, ensuring the
-  workflow continues to function after Node.js 20 EOL. The heredoc without single quotes allows
-  proper variable substitution at workflow execution time, and using GitHub Actions context variables
-  ensures values are available when the script runs. This change affects only the package-ghcr.yml
-  workflow; other workflows with similar deprecation warnings should be updated separately if needed.
+  maintained SHA pinning for security (OpenSSF Scorecard requirement) consistent with all other
+  workflows in the repository. Version comments (# v5.2.2, # v3.3.0, # v6.10.0) provide traceability
+  while SHA pins ensure deterministic, auditable builds. All six GitHub Actions workflows now use
+  consistent Node.js 24-compatible action versions with SHA pinning:
+  - .github/workflows/package-ghcr.yml (this fix)
+  - .github/workflows/test.yml (updated in v4.05)
+  - .github/workflows/release-cpan.yml (updated in v4.05)
+  - .github/workflows/release-github.yml (updated in v4.05)
+  - .github/workflows/codeql.yml (updated in v4.05)
+  - .github/workflows/fuzz-js.yml (updated in v4.05)
 - Impact:
-  eliminates Node.js 20 deprecation warnings from package workflow runs, prevents Dockerfile build
-  errors due to undefined variables, and ensures the OCI package publishing pipeline continues to work
-  beyond the Node.js 20 EOL date. The workflow will automatically receive minor version updates within
-  the specified major versions, maintaining compatibility with future GitHub Actions runner changes.
+  eliminates the last remaining Node.js 20 deprecation warnings from GitHub Actions workflow runs.
+  All workflows now use SHA-pinned Node.js 24-compatible actions that will continue to function
+  after Node.js 20 EOL (September 16, 2026). Repository now maintains consistent security posture
+  with SHA-pinned actions across all workflows while being future-proof against the Node.js 20
+  deprecation timeline. OCI package publishing pipeline will continue to work reliably through and
+  beyond the Node.js 24 transition period.
+
+## 4.06 - Fix Node.js 24 deprecation warnings and Dockerfile undefined variable in package-ghcr workflow (SUPERSEDED by 4.07)
 
 ## 4.05 - Update GitHub Actions to Node 24 compatible versions
 
