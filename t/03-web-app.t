@@ -144,6 +144,12 @@ like($unknown_body, qr/<textarea[^>]*name="instruction"/, 'unknown saved app rou
 like($unknown_body, qr/BOOKMARK:\s+\/app\/foobar/, 'unknown saved app routes prefill the requested bookmark path');
 like($unknown_body, qr/HTML:\s*\nBlank page/s, 'unknown saved app routes prefill the blank page body');
 
+my ($unknown_edit_code, undef, $unknown_edit_body) = @{ $app->handle(path => '/app/foobar/edit', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
+is($unknown_edit_code, 200, 'unknown saved edit routes open the editor instead of dying in page resolution');
+like($unknown_edit_body, qr/<textarea[^>]*name="instruction"/, 'unknown saved edit routes render the bookmark editor');
+like($unknown_edit_body, qr/BOOKMARK:\s+\/app\/foobar/, 'unknown saved edit routes prefill the requested bookmark path');
+like($unknown_edit_body, qr/HTML:\s*\nBlank page/s, 'unknown saved edit routes prefill the blank page body');
+
 my $prefixed_saved_page = Developer::Dashboard::PageDocument->new(
     id     => '/app/prefixed-save',
     title  => 'Prefixed Save',

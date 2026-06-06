@@ -877,6 +877,7 @@ sub page_edit_response {
     my ( $self, %args ) = @_;
     return _no_editor_response() if $self->_editor_disabled;
     my ( $params, $body_params ) = $self->_request_params(%args);
+    return $self->_missing_named_page_response( $args{id} ) if !$self->_saved_page_exists( $args{id} );
     my $page = $self->_load_named_page( $args{id} );
     $page->{meta}{raw_instruction} = $page->{meta}{raw_instruction} || $page->canonical_instruction;
     $page = $self->_page_with_runtime_state(
@@ -991,12 +992,14 @@ sub _edit_html {
     $source =~ s/>/&gt;/g;
 
     my $page_id = $page->as_hash->{id} || '';
-    my $is_saved = ( $page->{meta}{source_kind} || '' ) ne 'transient' && $page_id ne '';
+    my $source_kind = $page->{meta}{source_kind} || '';
+    my $is_saved = $source_kind eq 'saved' && $page_id ne '';
+    my $is_transient = $source_kind eq 'transient';
     my $page_url = $is_saved ? $self->_saved_page_url($page_id) : '';
     my $urls = {
-        edit   => $is_saved ? $page_url . '/edit' : $self->{pages}->editable_url($page),
-        render => $is_saved ? $page_url : $self->{pages}->render_url($page),
-        source => $is_saved ? $page_url . '/edit' : $self->{pages}->editable_url($page),
+        edit   => $is_saved ? $page_url . '/edit' : ( $is_transient ? $self->{pages}->editable_url($page) : '' ),
+        render => $is_saved ? $page_url : ( $is_transient ? $self->{pages}->render_url($page) : '' ),
+        source => $is_saved ? $page_url . '/edit' : ( $is_transient ? $self->{pages}->editable_url($page) : '' ),
     };
     my $form_action = $is_saved ? $page_url . '/edit' : '/';
 
@@ -1843,9 +1846,12 @@ sub _render_page_html {
           ? ( $transient_allowed ? '/action?atoken=' . URI::Escape::uri_escape($atoken) : $saved_action_url )
           : $saved_action_url;
     }
-    my $page_url = ( $page->{meta}{source_kind} || '' ) eq 'transient'
+    my $source_kind = $page->{meta}{source_kind} || '';
+    my $is_saved = $source_kind eq 'saved';
+    my $is_transient = $source_kind eq 'transient';
+    my $page_url = $is_transient
       ? $self->{pages}->editable_url($page)
-      : $self->_saved_page_url( $page->as_hash->{id} || '' );
+      : ( $is_saved ? $self->_saved_page_url( $page->as_hash->{id} || '' ) : '' );
     my $runtime_context = {
         params       => { %{ $page->{state} || {} } },
         current_page => $current_page,
@@ -1856,9 +1862,9 @@ sub _render_page_html {
         chrome_html => $self->_top_chrome_html(
             $page,
             {
-                edit   => ( ( $page->{meta}{source_kind} || '' ) eq 'transient' && $transient_allowed ) ? '/?token=' . $self->{pages}->encode_page($page) : $page_url . '/edit',
-                render => ( ( $page->{meta}{source_kind} || '' ) eq 'transient' && $transient_allowed ) ? '/?mode=render&token=' . $self->{pages}->encode_page($page) : $page_url,
-                source => ( ( $page->{meta}{source_kind} || '' ) eq 'transient' && $transient_allowed ) ? '/?token=' . $self->{pages}->encode_page($page) : $page_url . '/edit',
+                edit   => ( $is_transient && $transient_allowed ) ? '/?token=' . $self->{pages}->encode_page($page) : ( $is_saved ? $page_url . '/edit' : '' ),
+                render => ( $is_transient && $transient_allowed ) ? '/?mode=render&token=' . $self->{pages}->encode_page($page) : ( $is_saved ? $page_url : '' ),
+                source => ( $is_transient && $transient_allowed ) ? '/?token=' . $self->{pages}->encode_page($page) : ( $is_saved ? $page_url . '/edit' : '' ),
             },
         ),
         nav_html => $self->_nav_items_html(
