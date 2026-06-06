@@ -438,19 +438,20 @@ dashboard - thin command switchboard for Developer Dashboard
   dashboard update
   dashboard doctor [--fix]
   dashboard ps1 [--jobs N] [--cwd PATH] [--mode compact|extended] [--color]
-  dashboard paths
+  dashboard paths [-o json|table]
   dashboard files
-  dashboard path list
+  dashboard files [-o json|table]
+  dashboard path list [-o json|table]
   dashboard path resolve <name>
-  dashboard path add <name> <path>
-  dashboard path del <name>
+  dashboard path add <name> <path> [-o json|table]
+  dashboard path del <name> [-o json|table]
   dashboard path rm <name>
   dashboard path locate <term...>
   dashboard path project-root
-  dashboard file list
+  dashboard file list [-o json|table]
   dashboard file resolve <name>
-  dashboard file add <name> <path>
-  dashboard file del <name>
+  dashboard file add <name> <path> [-o json|table]
+  dashboard file del <name> [-o json|table]
   dashboard file locate <term...>
   dashboard of [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
   dashboard open-file [--print] [--line N] [--editor CMD] <file|scope> [pattern...]
@@ -490,8 +491,8 @@ dashboard - thin command switchboard for Developer Dashboard
   dashboard config init
   dashboard config show
   dashboard api [ls] [--key <name>] [-o json|table]
-  dashboard api add --key <name> [--secret <raw>|--maybe-secret <raw>] [--route /ajax/...]...
-  dashboard api rm --key <name> [--route /ajax/...]
+  dashboard api add --key <name> [--secret <raw>|--maybe-secret <raw>] [--route /ajax/...]... [-o json|table]
+  dashboard api rm --key <name> [--route /ajax/...] [-o json|table]
   dashboard auth add-user <username> <password>
   dashboard auth list-users
   dashboard auth remove-user <username>

@@ -1315,7 +1315,8 @@ is(
 my $paths_output = capture {
     Developer::Dashboard::CLI::Paths::run_paths_command( command => 'paths', args => [] );
 };
-like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payload' );
+like( $paths_output, qr/^Path\s+Value/m, 'CLI::Paths renders the default paths summary table' );
+like( $paths_output, qr/home_runtime_root/, 'CLI::Paths default table includes the home runtime row' );
 {
     my $cwd = getcwd();
     my $projects_root = File::Spec->catdir( $ENV{HOME}, 'projects' );
@@ -1339,7 +1340,7 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     my ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command(
             command => 'path',
-            args    => [ 'add', 'named-home-target', $named_dir ],
+            args    => [ 'add', 'named-home-target', $named_dir, '-o', 'json' ],
         );
     };
     is( $stderr, '', 'CLI::Paths add writes no stderr on success' );
@@ -1421,7 +1422,7 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command(
             command => 'path',
-            args    => [ 'locate', 'sample' ],
+            args    => [ 'locate', 'sample', '-o', 'json' ],
         );
     };
     is( $stderr, '', 'CLI::Paths locate writes no stderr on success' );
@@ -1522,7 +1523,7 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command(
             command => 'path',
-            args    => ['list'],
+            args    => [ 'list', '-o', 'json' ],
         );
     };
     is( $stderr, '', 'CLI::Paths list writes no stderr on success' );
@@ -1534,7 +1535,7 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command(
             command => 'path',
-            args    => ['add', '.'],
+            args    => [ 'add', '.', '-o', 'json' ],
         );
     };
     is( $stderr, '', 'CLI::Paths add . writes no stderr on success' );
@@ -1546,7 +1547,7 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command(
             command => 'path',
-            args    => [ 'add', 'here', '.' ],
+            args    => [ 'add', 'here', '.', '-o', 'json' ],
         );
     };
     is( $stderr, '', 'CLI::Paths add NAME . writes no stderr on success' );
@@ -1558,7 +1559,7 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command(
             command => 'path',
-            args    => [ 'del', 'named-home-target' ],
+            args    => [ 'del', 'named-home-target', '-o', 'json' ],
         );
     };
     is( $stderr, '', 'CLI::Paths del writes no stderr on success' );
@@ -1569,7 +1570,7 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command(
             command => 'path',
-            args    => [ 'del', '.' ],
+            args    => [ 'del', '.', '-o', 'json' ],
         );
     };
     is( $stderr, '', 'CLI::Paths del . writes no stderr on success' );
@@ -1580,7 +1581,7 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Paths::run_paths_command(
             command => 'path',
-            args    => [ 'rm', 'here' ],
+            args    => [ 'rm', 'here', '-o', 'json' ],
         );
     };
     is( $stderr, '', 'CLI::Paths rm writes no stderr on success' );
@@ -1610,7 +1611,7 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     my ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Files::run_files_command(
             command => 'file',
-            args    => [ 'add', 'notes', File::Spec->catfile( $home, 'notes.txt' ) ],
+            args    => [ 'add', 'notes', File::Spec->catfile( $home, 'notes.txt' ), '-o', 'json' ],
         );
     };
     is( $stderr, '', 'CLI::Files add writes no stderr on success' );
@@ -1631,7 +1632,7 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Files::run_files_command(
             command => 'file',
-            args    => ['list'],
+            args    => [ 'list', '-o', 'json' ],
         );
     };
     is( $stderr, '', 'CLI::Files list writes no stderr on success' );
@@ -1641,7 +1642,7 @@ like( $paths_output, qr/"home_runtime_root"/, 'CLI::Paths renders the paths payl
     ( $stdout, $stderr ) = capture {
         Developer::Dashboard::CLI::Files::run_files_command(
             command => 'file',
-            args    => [ 'del', 'notes' ],
+            args    => [ 'del', 'notes', '-o', 'json' ],
         );
     };
     is( $stderr, '', 'CLI::Files del writes no stderr on success' );

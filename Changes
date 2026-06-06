@@ -1,3 +1,11 @@
+4.08  2026-06-06
+    - split the Web UI bookmark editor into Jupyter-like section blocks while
+      keeping the saved bookmark file format canonical, including block-aware
+      syntax overlays, Tab-created sections, hidden source recomposition, and
+      Play-mode save-and-render handoff
+    - standardize operator-facing built-in CLI output so path, file, api, and
+      skill inventory or mutation commands default to readable table summaries
+      while `-o json` returns the full raw machine payload
 4.04  2026-06-05
     - restore the public switchboard helper path contract for dotted
       `dashboard <skill>.<command>` dispatch, keep Windows core-backed
