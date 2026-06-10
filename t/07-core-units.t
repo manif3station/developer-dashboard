@@ -4367,11 +4367,16 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
 
     is( $runner->stop_loop('singleton-live'), $loop_pid, 'stop_loop returns the singleton loop pid for a live long-running collector' );
     for ( 1 .. 40 ) {
-        last if !kill( 0, $worker_pid ) && !kill( 0, $command_pid );
+        last
+          if !$runner->_pid_is_running($worker_pid)
+          && !$runner->_pid_is_running($command_pid);
         sleep 0.1;
     }
-    ok( !kill( 0, $worker_pid ), 'stop_loop terminates the active singleton worker process' );
-    ok( !kill( 0, $command_pid ), 'stop_loop also terminates the long-running command started by the singleton worker' );
+    ok( !$runner->_pid_is_running($worker_pid), 'stop_loop terminates the active singleton worker process' );
+    ok(
+        !$runner->_pid_is_running($command_pid),
+        'stop_loop also terminates the long-running command started by the singleton worker',
+    );
     is( waitpid( $loop_pid, 1 ), -1, 'stop_loop reaps the singleton loop after shutting down the worker tree' );
 }
 

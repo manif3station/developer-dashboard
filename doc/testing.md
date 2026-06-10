@@ -140,6 +140,12 @@ surface, not only installed skills. A flat alias such as `"/java":
 `/app/learn.ai`, and dispatcher coverage also locks the runtime `/ajax`,
 `/js`, `/css`, and `/others` alias families to the same route schema.
 The focused skill regression in `t/19-skill-system.t` now also exercises `PathRegistry::installed_skill_docker_roots()` directly, including the default enabled-only view and the explicit `include_disabled => 1` path, so skill docker layering changes do not quietly drag the reviewed `lib/` total below `100.0 / 100.0 / 100.0`.
+The focused web coverage suites must also call low-traffic `Web::App`
+compatibility helpers directly when their only other execution path would be
+indirect route fan-out. That is now part of the coverage contract for
+`apps_redirect_response`, the singleton stop helper, and the shipped shim asset
+responses, so GitHub-hosted `Devel::Cover` runs cannot drift below the local
+reviewed `100.0 / 100.0 / 100.0` result for `lib/Developer/Dashboard/Web/App.pm`.
 That same focused skill regression now also locks the same-repo
 `DD-OOP-LAYERS` fallback contract inside one skill name, including inherited
 fallback for missing `cli/<command>` files, missing bookmark files, missing
