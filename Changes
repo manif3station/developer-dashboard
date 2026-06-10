@@ -1,3 +1,9 @@
+4.11  2026-06-10
+    - decouple the GitHub-hosted CPAN upload workflow from ordinary `vX.XX`
+      tag pushes so signed GitHub release tags can be published without
+      triggering an unasked PAUSE upload
+    - broaden the CodeQL push trigger to every branch so repository-side SAST
+      coverage is visible on more commit paths instead of only `master`
 4.10  2026-06-10
     - move project-local isolated Docker Compose service discovery and
       disable markers under `./.developer-dashboard/config/docker/...` so

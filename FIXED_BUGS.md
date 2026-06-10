@@ -1,4 +1,25 @@
 # Fixed Bugs
+## 4.11 - GitHub signed-release tags no longer imply an unasked CPAN upload
+
+- Fixed the GitHub Actions release split so ordinary `vX.XX` tags can drive
+  the signed GitHub release path without automatically invoking the GitHub-
+  hosted PAUSE upload workflow.
+- Root cause:
+  the repository had coupled both `release-github.yml` and `release-cpan.yml`
+  to the same tag-push event. That made the safest repo-side way to satisfy
+  Scorecard's signed-release check collide with the standing rule that PAUSE
+  publication must stay explicit and operator-driven.
+- Fix:
+  `release-cpan.yml` is now manual-only through `workflow_dispatch`, while the
+  tag-driven `release-github.yml` path remains in place for signed GitHub
+  releases. The release guidance and main POD now describe that split
+  explicitly, and the CodeQL workflow also watches every branch on push so the
+  repository-side SAST signal is not artificially limited to `master`.
+- Prevention:
+  the release metadata regression test now checks that the release manual says
+  `vX.XX` tags belong to the signed GitHub release path and that the GitHub-
+  hosted CPAN upload workflow stays manual-only.
+
 ## 4.10 - Project-local Docker service folders now really live under config/docker
 
 - Fixed the project-local Docker Compose service layout so isolated service
