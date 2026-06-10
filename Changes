@@ -1,3 +1,8 @@
+4.10  2026-06-10
+    - move project-local isolated Docker Compose service discovery and
+      disable markers under `./.developer-dashboard/config/docker/...` so
+      the implementation matches the documented config-root contract across
+      resolver lookup, toggle writes, and exported `DDDC` paths
 4.09  2026-06-06
     - keep smart-routed skill page browser edits on their canonical
       `/app/<skill>` and nested `/app/<skill>/<sub-skill>` aliases by

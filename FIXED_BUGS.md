@@ -1,4 +1,24 @@
 # Fixed Bugs
+## 4.10 - Project-local Docker service folders now really live under config/docker
+
+- Fixed the project-local Docker Compose service layout so isolated service
+  folders, override lookup, and disabled markers all live under
+  `./.developer-dashboard/config/docker/...`.
+- Root cause:
+  the implementation had drifted into a split model where the home runtime
+  used `config/docker/...` but child project runtime layers still looked under
+  `./.developer-dashboard/docker/...`. That contradicted the intended
+  config-root contract and made the public docs impossible to keep accurate.
+- Fix:
+  the resolver now searches project-local isolated service folders only under
+  `./.developer-dashboard/config/docker/...`, and toggle writes for child
+  project layers now persist `disabled.yml` in that same tree. The README, main
+  POD, and docker-focused docs now describe one consistent layout.
+- Prevention:
+  `t/10-extension-action-docker.t` now creates the project-local service
+  override under `./.developer-dashboard/config/docker/...` and checks that the
+  project-local disable marker is written there too.
+
 ## 4.09 - Smart-routed skill browser edits now stay on the skill alias
 
 - Fixed the browser editor and Play flow for smart-routed skill pages such as
