@@ -1,3 +1,8 @@
+4.12  2026-06-10
+    - harden the GitHub-hosted `Devel::Cover` gate by exercising the
+      low-traffic `Web::App` compatibility helpers directly in the focused web
+      coverage tests, so route fan-out timing on CI runners cannot leave the
+      reviewed `lib/` totals below `100.0 / 100.0 / 100.0`
 4.11  2026-06-10
     - decouple the GitHub-hosted CPAN upload workflow from ordinary `vX.XX`
       tag pushes so signed GitHub release tags can be published without

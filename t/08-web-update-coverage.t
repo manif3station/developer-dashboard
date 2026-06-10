@@ -216,6 +216,11 @@ my ( $apps_code, undef, undef, $apps_headers ) = @{ $app->handle( path => '/apps
 is( $apps_code, 302, '/apps redirects to default index bookmark' );
 is( $apps_headers->{Location}, '/app/index', '/apps uses index bookmark as default target' );
 
+my ( $apps_direct_code, undef, $apps_direct_body, $apps_direct_headers ) = @{ $app->apps_redirect_response() };
+is( $apps_direct_code, 302, 'direct /apps compatibility response returns a redirect' );
+is( $apps_direct_headers->{Location}, '/app/index', 'direct /apps compatibility response keeps the canonical index target' );
+like( $apps_direct_body, qr/Redirecting/, 'direct /apps compatibility response keeps the redirect body' );
+
 my $token = uri_escape( $store->encode_page($page) );
 my ( $blocked_code, $blocked_type, $blocked_body ) = @{ $app->handle( path => '/', query => "token=$token", remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
 is( $blocked_code, 403, 'transient edit route is denied by default' );
@@ -677,8 +682,15 @@ PAGE
         my ( $stop_code, undef, $stop_body ) = @{ $app->handle( path => '/ajax/singleton/stop', query => 'singleton=BROWSER-STOP', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } ) };
         is( $stop_code, 204, 'singleton stop route returns no content after lifecycle cleanup' );
         is( $stop_body, '', 'singleton stop route keeps the response body empty' );
+        my ( $direct_stop_code, undef, $direct_stop_body ) = @{ $app->ajax_singleton_stop_response( query => 'singleton=BROWSER-STOP' ) };
+        is( $direct_stop_code, 204, 'direct singleton stop response returns no content after lifecycle cleanup' );
+        is( $direct_stop_body, '', 'direct singleton stop response keeps the response body empty' );
     }
-    is_deeply( \@patterns, ['^dashboard ajax: BROWSER-STOP$'], 'singleton stop route targets the matching saved ajax worker process title' );
+    is_deeply(
+        \@patterns,
+        [ '^dashboard ajax: BROWSER-STOP$', '^dashboard ajax: BROWSER-STOP$' ],
+        'singleton stop route and direct response target the matching saved ajax worker process title',
+    );
 }
 
 {

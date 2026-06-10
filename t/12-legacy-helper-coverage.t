@@ -854,6 +854,9 @@ $pages->save_page($saved_file);
 is( $app->handle( path => '/marked.min.js', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } )->[0], 200, 'web app serves marked shim' );
 is( $app->handle( path => '/tiff.min.js', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } )->[0], 200, 'web app serves tiff shim' );
 is( $app->handle( path => '/loading.webp', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' } )->[0], 200, 'web app serves loading image shim' );
+is( $app->marked_js_response()->[0], 200, 'direct marked shim response returns success' );
+is( $app->tiff_js_response()->[0], 200, 'direct tiff shim response returns success' );
+is( $app->loading_image_response()->[0], 200, 'direct loading image response returns success' );
 
 my $login_user = $auth->add_user( username => 'helperx', password => 'helper-pass-123' );
 ok( $login_user->{username}, 'helper user can be created for login flow coverage' );

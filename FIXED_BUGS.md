@@ -1,4 +1,26 @@
 # Fixed Bugs
+## 4.12 - GitHub Actions now closes the `Web::App` coverage edge reliably
+
+- Fixed the remaining GitHub Actions coverage drift where the source tree could
+  pass locally at `100.0 / 100.0 / 100.0` but the hosted `Test` and
+  `GitHub Release` workflows still reported `lib/Developer/Dashboard/Web/App.pm`
+  at `99.9` statement coverage.
+- Root cause:
+  a small set of compatibility helpers in `Developer::Dashboard::Web::App`
+  depended on indirect route fan-out for coverage. On slower or differently
+  scheduled GitHub runners, those helper calls were not always observed in the
+  same way as the local full-suite run, which left the workflow-side numeric
+  `Devel::Cover` gate just below the strict `100.0 / 100.0 / 100.0` threshold.
+- Fix:
+  the focused web coverage tests now call those compatibility helpers directly
+  as well as through the routed browser paths. That keeps the behaviour contract
+  unchanged while making the reviewed `Web::App` statement coverage deterministic
+  across local and GitHub-hosted runs.
+- Prevention:
+  future low-traffic compatibility helpers must get direct focused assertions in
+  the web coverage suite instead of relying only on indirect route dispatch to
+  keep the release coverage totals closed.
+
 ## 4.11 - GitHub signed-release tags no longer imply an unasked CPAN upload
 
 - Fixed the GitHub Actions release split so ordinary `vX.XX` tags can drive
