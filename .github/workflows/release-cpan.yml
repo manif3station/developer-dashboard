@@ -2,9 +2,6 @@ name: Release To CPAN
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
 
 permissions:
   contents: read

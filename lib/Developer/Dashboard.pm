@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '4.10';
+our $VERSION = '4.11';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.10
+4.11
 
 =head1 INTRODUCTION
 
@@ -2541,6 +2541,11 @@ C<100.0 / 100.0 / 100.0> result.
 The tag-driven GitHub release workflow must also install C<Devel::Cover>
 before it runs that numeric coverage gate, or the signed-release path can
 fail before any release assets are published.
+The GitHub release tag path is intentionally decoupled from the repository's
+GitHub Actions CPAN upload workflow. Tag pushes in the form C<vX.XX> are for
+the signed GitHub release path, while any GitHub-hosted CPAN upload remains a
+manual C<workflow_dispatch> action so an ordinary release tag cannot perform an
+unasked PAUSE upload behind the operator's back.
 
 The coverage-closure suite includes managed collector loop start/stop paths
 under C<Devel::Cover>, including wrapped fork coverage in

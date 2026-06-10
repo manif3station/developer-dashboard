@@ -76,7 +76,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.10', 'repo version bumped for project-local docker config root alignment' );
+is( $version, '4.11', 'repo version bumped for GitHub release gating and CodeQL trigger hardening' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
 like( $readme, qr/\A(?:<!--.*?-->\n\n)?#\s+/s, 'README.md begins with Markdown headings' ) if $readme ne '';
@@ -416,6 +416,8 @@ for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
 like( $release_doc, qr/dzil build/, 'release doc still documents the dzil build step' ) if $release_doc ne '';
 like( $release_doc, qr/OWASP ASVS 5\.0|ASVS 5\.0/, 'release doc references the current OWASP ASVS gate version' ) if $release_doc ne '';
 like( $release_doc, qr/OWASP Top 10/i, 'release doc references OWASP Top 10 coverage as part of the security gate' ) if $release_doc ne '';
+like( $release_doc, qr/tag pushes.*signed GitHub release path|signed GitHub release path.*tag pushes/is, 'release doc keeps vX.XX tags dedicated to the signed GitHub release path' ) if $release_doc ne '';
+like( $release_doc, qr/CPAN upload workflow.*manual-only|manual-only.*CPAN upload workflow/is, 'release doc states that GitHub-hosted CPAN upload stays manual-only' ) if $release_doc ne '';
 like( $release_doc, qr/exactly one unpacked\s+`Developer-Dashboard-X\.XX\/`\s+build directory and exactly one matching\s+`Developer-Dashboard-X\.XX\.tar\.gz`\s+tarball/s, 'release doc describes the enforced single-build-dir and single-tarball invariant' ) if $release_doc ne '';
 like(
     $release_doc,

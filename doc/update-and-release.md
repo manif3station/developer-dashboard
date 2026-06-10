@@ -50,6 +50,10 @@ checksum, generates a detached signature, and creates or updates the GitHub
 release for that tag. That workflow must also install `Devel::Cover` before
 it runs the numeric `cover` gate, or the release path will die before the
 tarball, checksum, and signature assets are published.
+The GitHub-hosted CPAN upload workflow is deliberately manual-only. Do not
+wire tag pushes to automatic PAUSE uploads here; ordinary `vX.XX` tags are for
+the signed GitHub release path, while CPAN publication stays an explicit
+`workflow_dispatch` or local `dashboard pause-release` operator action.
 
 ## OWASP Gate
 
