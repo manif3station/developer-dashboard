@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-4.09
+4.10
 
 # INTRODUCTION
 
@@ -1779,9 +1779,9 @@ Include addons or modes:
     dashboard docker disable green
     dashboard docker enable green
 
-The resolver also supports old-style isolated service folders without adding
-entries to dashboard JSON config. If
-`./.developer-dashboard/docker/green/compose.yml` exists in the current
+The resolver also supports isolated service folders without adding entries to
+dashboard JSON config. If
+`./.developer-dashboard/config/docker/green/compose.yml` exists in the current
 project it wins; otherwise the resolver falls back to
 `~/.developer-dashboard/config/docker/green/compose.yml`.
 `dashboard docker compose config green` or
@@ -1794,17 +1794,19 @@ contributes `development.compose.yml` when present, otherwise `compose.yml`.
 To toggle that marker without creating or deleting the file manually, use
 `dashboard docker disable <service>` or
 `dashboard docker enable <service>`. The toggle writes to the
-deepest runtime docker root, so a child project layer can locally disable an
-inherited home service by creating
-`./.developer-dashboard/docker/<service>/disabled.yml` and can
+deepest runtime `config/docker` root, so a child project layer can locally
+disable an inherited home service by creating
+`./.developer-dashboard/config/docker/<service>/disabled.yml` and can
 re-enable it again by removing that same local marker.
 To inspect the effective marker state without walking the folders manually,
 use `dashboard docker list`. Add `--disabled` to show only disabled
 services or `--enabled` to show only enabled services.
 
-During compose execution the dashboard exports `DDDC` as the effective
-config-root docker directory for the current runtime, so compose YAML can keep using
-`${DDDC}` paths inside the YAML itself. Wrapper flags such as
+During compose execution the dashboard exports `DDDC` as the runtime
+`config/docker` directory for the current runtime, so compose YAML can keep using
+`${DDDC}` paths inside the YAML itself. Project-local isolated services are
+discovered from that same
+`./.developer-dashboard/config/docker/<service>/...` tree. Wrapper flags such as
 `--service`, `--addon`, `--mode`, `--project`, and `--dry-run` are
 consumed first, and all remaining docker compose flags such as `-d` and
 `--build` pass straight through to the real `docker compose` command.
@@ -2819,7 +2821,8 @@ interactive progress output only shows this row when the file exists
 skill-local `perl5/` tree; interactive progress output only shows this row
 when the file exists
 - skill `config/docker/...` roots participate in docker service discovery after
-the home runtime docker config and before deeper project-layer overrides
+the home runtime `config/docker` root and before deeper project-layer
+`config/docker/...` overrides
 - disabled skills are skipped by docker root discovery until they are
 re-enabled
 

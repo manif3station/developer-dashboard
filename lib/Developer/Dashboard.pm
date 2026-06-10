@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '4.09';
+our $VERSION = '4.10';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.09
+4.10
 
 =head1 INTRODUCTION
 
@@ -2092,9 +2092,9 @@ Include addons or modes:
   dashboard docker disable green
   dashboard docker enable green
 
-The resolver also supports old-style isolated service folders without adding
-entries to dashboard JSON config. If
-C<./.developer-dashboard/docker/green/compose.yml> exists in the current
+The resolver also supports isolated service folders without adding entries to
+dashboard JSON config. If
+C<./.developer-dashboard/config/docker/green/compose.yml> exists in the current
 project it wins; otherwise the resolver falls back to
 C<~/.developer-dashboard/config/docker/green/compose.yml>.
 C<dashboard docker compose config green> or
@@ -2107,17 +2107,19 @@ contributes C<development.compose.yml> when present, otherwise C<compose.yml>.
 To toggle that marker without creating or deleting the file manually, use
 C<dashboard docker disable E<lt>serviceE<gt>> or
 C<dashboard docker enable E<lt>serviceE<gt>>. The toggle writes to the
-deepest runtime docker root, so a child project layer can locally disable an
-inherited home service by creating
-C<./.developer-dashboard/docker/E<lt>serviceE<gt>/disabled.yml> and can
+deepest runtime C<config/docker> root, so a child project layer can locally
+disable an inherited home service by creating
+C<./.developer-dashboard/config/docker/E<lt>serviceE<gt>/disabled.yml> and can
 re-enable it again by removing that same local marker.
 To inspect the effective marker state without walking the folders manually,
 use C<dashboard docker list>. Add C<--disabled> to show only disabled
 services or C<--enabled> to show only enabled services.
 
-During compose execution the dashboard exports C<DDDC> as the effective
-config-root docker directory for the current runtime, so compose YAML can keep using
-C<${DDDC}> paths inside the YAML itself. Wrapper flags such as
+During compose execution the dashboard exports C<DDDC> as the runtime
+C<config/docker> directory for the current runtime, so compose YAML can keep using
+C<${DDDC}> paths inside the YAML itself. Project-local isolated services are
+discovered from that same
+C<./.developer-dashboard/config/docker/E<lt>serviceE<gt>/...> tree. Wrapper flags such as
 C<--service>, C<--addon>, C<--mode>, C<--project>, and C<--dry-run> are
 consumed first, and all remaining docker compose flags such as C<-d> and
 C<--build> pass straight through to the real C<docker compose> command.
@@ -3420,7 +3422,8 @@ when the file exists
 =item *
 
 skill C<config/docker/...> roots participate in docker service discovery after
-the home runtime docker config and before deeper project-layer overrides
+the home runtime C<config/docker> root and before deeper project-layer
+C<config/docker/...> overrides
 
 =item *
 
