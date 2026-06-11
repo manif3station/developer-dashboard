@@ -857,6 +857,26 @@ is( $app->handle( path => '/loading.webp', remote_addr => '127.0.0.1', headers =
 is( $app->marked_js_response()->[0], 200, 'direct marked shim response returns success' );
 is( $app->tiff_js_response()->[0], 200, 'direct tiff shim response returns success' );
 is( $app->loading_image_response()->[0], 200, 'direct loading image response returns success' );
+{
+    my $fake_dist_root = tempdir( CLEANUP => 1 );
+    my $fake_asset_dir = File::Spec->catdir( $fake_dist_root, 'public', 'js' );
+    make_path($fake_asset_dir);
+    my $fake_asset = File::Spec->catfile( $fake_asset_dir, 'dist-only.js' );
+    open my $fh, '>', $fake_asset or die "Unable to write fake dist asset: $!";
+    print {$fh} "console.log('dist only');\n";
+    close $fh;
+
+    local $Developer::Dashboard::Web::App::MODULE_SOURCE_PATH
+      = File::Spec->catfile( $fake_dist_root, 'isolated', 'lib', 'Developer', 'Dashboard', 'Web', 'App.pm' );
+    no warnings 'redefine';
+    local *Developer::Dashboard::Web::App::dist_dir = sub {
+        my ($dist_name) = @_;
+        is( $dist_name, 'Developer-Dashboard', 'bundled asset lookup queries the expected dist name' );
+        return $fake_dist_root;
+    };
+    my $dist_asset = Developer::Dashboard::Web::App::_bundled_public_asset_path( 'js', 'dist-only.js' );
+    is( $dist_asset, $fake_asset, 'bundled asset lookup falls back to the installed dist share directory when the repo share tree is absent' );
+}
 
 my $login_user = $auth->add_user( username => 'helperx', password => 'helper-pass-123' );
 ok( $login_user->{username}, 'helper user can be created for login flow coverage' );

@@ -1,25 +1,24 @@
 # Fixed Bugs
-## 4.12 - GitHub Actions now closes the `Web::App` coverage edge reliably
+## 4.13 - GitHub Actions now closes the installed-dist `Web::App` asset branch too
 
-- Fixed the remaining GitHub Actions coverage drift where the source tree could
-  pass locally at `100.0 / 100.0 / 100.0` but the hosted `Test` and
+- Fixed the last GitHub Actions coverage drift where the source tree could pass
+  locally at `100.0 / 100.0 / 100.0` but the hosted `Test` and
   `GitHub Release` workflows still reported `lib/Developer/Dashboard/Web/App.pm`
   at `99.9` statement coverage.
 - Root cause:
-  a small set of compatibility helpers in `Developer::Dashboard::Web::App`
-  depended on indirect route fan-out for coverage. On slower or differently
-  scheduled GitHub runners, those helper calls were not always observed in the
-  same way as the local full-suite run, which left the workflow-side numeric
-  `Devel::Cover` gate just below the strict `100.0 / 100.0 / 100.0` threshold.
+  the earlier hardening covered the route-level compatibility helpers, but the
+  clean Ubuntu runner still missed the installed-distribution
+  `File::ShareDir::dist_dir()` asset candidate branch inside
+  `Developer::Dashboard::Web::App::_bundled_public_asset_path`. Local runs were
+  masking that because the repo-share tree was available first.
 - Fix:
-  the focused web coverage tests now call those compatibility helpers directly
-  as well as through the routed browser paths. That keeps the behaviour contract
-  unchanged while making the reviewed `Web::App` statement coverage deterministic
-  across local and GitHub-hosted runs.
+  the focused helper coverage test now forces `_bundled_public_asset_path`
+  through an isolated installed-dist asset root, proving the `dist_dir()`
+  branch directly instead of relying on the source-tree share layout.
 - Prevention:
-  future low-traffic compatibility helpers must get direct focused assertions in
-  the web coverage suite instead of relying only on indirect route dispatch to
-  keep the release coverage totals closed.
+  whenever a path resolver has separate source-tree and installed-dist branches,
+  the focused coverage suite must drive both explicitly so GitHub-hosted covered
+  runs cannot depend on whichever asset tree happens to exist first.
 
 ## 4.11 - GitHub signed-release tags no longer imply an unasked CPAN upload
 
