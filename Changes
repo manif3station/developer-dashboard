@@ -1,9 +1,26 @@
+4.14  2026-06-11
+    - align every module under `lib/` back onto the single repository release
+      version after the `4.13` bump only advanced `Developer::Dashboard`,
+      leaving the other 53 packaged modules still declaring `4.12`
+    - add a release-metadata gate that walks every `lib/**/*.pm` and asserts
+      its `$VERSION` matches the `dist.ini` release version, so a partial
+      version bump can never ship again
+    - validate IPv4 loopback octets strictly in `Auth::_ip_is_loopback`, so
+      malformed literals such as `127.0.0.999` are no longer classified as
+      loopback addresses
+    - restore the `4.12` entries in `Changes` and `FIXED_BUGS.md` that the
+      `4.13` update overwrote instead of prepending
 4.13  2026-06-11
     - harden the GitHub-hosted `Devel::Cover` gate again by exercising the
       installed-dist `File::ShareDir` asset lookup branch in
       `Web::App::_bundled_public_asset_path`, so clean Ubuntu runners close
       the final `99.9` statement gap and keep the reviewed `lib/` totals at
       `100.0 / 100.0 / 100.0`
+4.12  2026-06-10
+    - harden the GitHub-hosted `Devel::Cover` gate by exercising the
+      low-traffic `Web::App` compatibility helpers directly in the focused web
+      coverage tests, so route fan-out timing on CI runners cannot leave the
+      reviewed `lib/` totals below `100.0 / 100.0 / 100.0`
 4.11  2026-06-10
     - decouple the GitHub-hosted CPAN upload workflow from ordinary `vX.XX`
       tag pushes so signed GitHub release tags can be published without

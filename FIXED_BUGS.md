@@ -1,4 +1,31 @@
 # Fixed Bugs
+## 4.14 - Packaged module versions can no longer drift behind a release bump
+
+- Fixed the `4.13` release shipping 53 of 54 modules under `lib/` still
+  declaring `our $VERSION = '4.12'` while `dist.ini` and
+  `Developer::Dashboard` said `4.13`, which broke the rule that every packaged
+  module carries the single repository release version.
+- Also fixed `Auth::_ip_is_loopback` accepting malformed IPv4 literals such as
+  `127.0.0.999` as loopback, because the octet pattern matched any one-to-three
+  digit run instead of the valid `0-255` range.
+- Also restored the released `4.12` entries in `Changes` and `FIXED_BUGS.md`
+  that the `4.13` update overwrote in place instead of prepending, which had
+  erased the changelog record of a tagged release.
+- Root cause:
+  the `4.13` bump edited only `Developer::Dashboard`, `dist.ini`, and the
+  previous changelog entries, and the release-metadata gate only compared the
+  main module version against `dist.ini`, so nothing failed when the other 53
+  modules and the released `4.12` history were left behind.
+- Fix:
+  every module under `lib/` now declares `4.14`, the lost `4.12` changelog and
+  fixed-bugs entries are restored from the `v4.12` tag, and the loopback check
+  validates each octet strictly.
+- Prevention:
+  `t/15-release-metadata.t` now walks every `lib/**/*.pm` and fails when any
+  module version differs from the `dist.ini` release version, and the auth
+  unit tests pin both the invalid-octet rejections and the valid
+  `127.0.0.0/8` acceptances so neither regression can ship silently again.
+
 ## 4.13 - GitHub Actions now closes the installed-dist `Web::App` asset branch too
 
 - Fixed the last GitHub Actions coverage drift where the source tree could pass
@@ -19,6 +46,28 @@
   whenever a path resolver has separate source-tree and installed-dist branches,
   the focused coverage suite must drive both explicitly so GitHub-hosted covered
   runs cannot depend on whichever asset tree happens to exist first.
+
+## 4.12 - GitHub Actions now closes the `Web::App` coverage edge reliably
+
+- Fixed the remaining GitHub Actions coverage drift where the source tree could
+  pass locally at `100.0 / 100.0 / 100.0` but the hosted `Test` and
+  `GitHub Release` workflows still reported `lib/Developer/Dashboard/Web/App.pm`
+  at `99.9` statement coverage.
+- Root cause:
+  a small set of compatibility helpers in `Developer::Dashboard::Web::App`
+  depended on indirect route fan-out for coverage. On slower or differently
+  scheduled GitHub runners, those helper calls were not always observed in the
+  same way as the local full-suite run, which left the workflow-side numeric
+  `Devel::Cover` gate just below the strict `100.0 / 100.0 / 100.0` threshold.
+- Fix:
+  the focused web coverage tests now call those compatibility helpers directly
+  as well as through the routed browser paths. That keeps the behaviour contract
+  unchanged while making the reviewed `Web::App` statement coverage deterministic
+  across local and GitHub-hosted runs.
+- Prevention:
+  future low-traffic compatibility helpers must get direct focused assertions in
+  the web coverage suite instead of relying only on indirect route dispatch to
+  keep the release coverage totals closed.
 
 ## 4.11 - GitHub signed-release tags no longer imply an unasked CPAN upload
 
