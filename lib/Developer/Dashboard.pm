@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '4.15';
+our $VERSION = '4.16';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.15
+4.16
 
 =head1 INTRODUCTION
 
@@ -687,6 +687,16 @@ session, attaches through a dashboard-managed private helper instead of a
 public standalone binary, and completes already-open tmux session names when
 shell completion is enabled. The older C<dashboard ticket> spelling remains as
 a compatibility alias.
+
+Passing C<-c> before or after the workspace name changes directory first. When
+the workspace name is registered in the dashboard paths inventory, the same
+registered names the shell C<cdr> helper resolves, the command changes into
+that registered directory before planning the session, so
+C<dashboard workspace -c foobar> behaves like running C<cdr foobar> followed
+by C<dashboard workspace foobar>: the tmux session and its layered C<.env>
+refresh both start from the registered project directory. When the name is not
+a registered dashboard path, C<-c> fails with an explicit error instead of
+silently starting the workspace from the wrong directory.
 
 =item * Runtime Manager
 

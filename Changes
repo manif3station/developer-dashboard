@@ -1,3 +1,14 @@
+4.16  2026-06-11
+    - teach the built-in `dashboard workspace` command a `-c` flag, accepted
+      before or after the workspace name, that changes into the registered
+      dashboard path for that name before planning the session, so
+      `dashboard workspace -c foobar` behaves like `cdr foobar` followed by
+      `dashboard workspace foobar` and the tmux session plus its layered
+      `.env` refresh start from the registered project directory
+    - fail `-c` explicitly when the workspace name is not a registered
+      dashboard path, when the registered target is not a directory, or when
+      the directory cannot be entered, instead of silently starting the
+      workspace from the wrong directory
 4.15  2026-06-11
     - keep the `install.sh` post-install activation runner on the same shell
       dialect as the bootstrap target, so blank hosts without `SHELL` exported

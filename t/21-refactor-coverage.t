@@ -1920,6 +1920,122 @@ ok( !$existing_ticket_plan->{create}, 'build_ticket_plan skips creation for exis
         'run_workspace_command applies current-directory .env values as the final override when a workspace session is resumed',
     );
 }
+{
+    my ( $clean, $flag ) = Developer::Dashboard::CLI::Ticket::split_workspace_change_dir_args( [ '-c', 'foobar' ] );
+    is_deeply( $clean, ['foobar'], 'split_workspace_change_dir_args strips a leading -c flag from workspace argv' );
+    is( $flag, 1, 'split_workspace_change_dir_args reports the change-directory flag when -c leads the argv' );
+    ( $clean, $flag ) = Developer::Dashboard::CLI::Ticket::split_workspace_change_dir_args( [ 'foobar', '-c' ] );
+    is_deeply( $clean, ['foobar'], 'split_workspace_change_dir_args strips a trailing -c flag from workspace argv' );
+    is( $flag, 1, 'split_workspace_change_dir_args reports the change-directory flag when -c trails the workspace name' );
+    ( $clean, $flag ) = Developer::Dashboard::CLI::Ticket::split_workspace_change_dir_args( ['foobar'] );
+    is_deeply( $clean, ['foobar'], 'split_workspace_change_dir_args keeps plain workspace argv unchanged' );
+    is( $flag, 0, 'split_workspace_change_dir_args reports no change-directory flag for plain workspace argv' );
+    like(
+        _dies( sub { Developer::Dashboard::CLI::Ticket::split_workspace_change_dir_args('foobar') } ),
+        qr/Workspace args must be an array reference/,
+        'split_workspace_change_dir_args rejects argv that is not an array reference',
+    );
+}
+for my $flag_order ( [ '-c', 'foobar' ], [ 'foobar', '-c' ] ) {
+    my $registered_root = tempdir( CLEANUP => 1 );
+    my $registered_target = abs_path($registered_root);
+    my @tmux_calls;
+    my @resolve_calls;
+    my $old_cwd = getcwd();
+    my $plan = Developer::Dashboard::CLI::Ticket::run_workspace_command(
+        args        => [ @{$flag_order} ],
+        resolve_dir => sub { push @resolve_calls, $_[0]; return $registered_target },
+        tmux        => sub {
+            my (%call) = @_;
+            push @tmux_calls, [ @{ $call{args} } ];
+            return { exit_code => 1, stdout => '', stderr => '' } if $call{args}[0] eq 'has-session';
+            return { exit_code => 0, stdout => '', stderr => '' };
+        },
+    );
+    my $order_label = join ' ', @{$flag_order};
+    is_deeply( \@resolve_calls, ['foobar'], "workspace -c resolves the workspace name through the registered paths inventory for '$order_label'" );
+    is( abs_path( getcwd() ), $registered_target, "workspace -c changes the helper process into the registered directory first for '$order_label'" );
+    is( $plan->{session}, 'foobar', "workspace -c keeps the workspace session name free of the flag for '$order_label'" );
+    is( $plan->{cwd}, $registered_target, "workspace -c plans the tmux session from the registered directory for '$order_label'" );
+    my ($create_call) = grep { $_->[0] eq 'new-session' } @tmux_calls;
+    ok( $create_call, "workspace -c still creates the tmux session when it does not exist for '$order_label'" );
+    my %create_pairs;
+    for my $index ( 1 .. $#{$create_call} - 1 ) {
+        $create_pairs{ $create_call->[$index] } = $create_call->[ $index + 1 ];
+    }
+    is( $create_pairs{'-c'}, $registered_target, "workspace -c starts the tmux session inside the registered directory for '$order_label'" );
+    chdir $old_cwd or die "Unable to restore cwd to $old_cwd: $!";
+}
+like(
+    _dies(
+        sub {
+            Developer::Dashboard::CLI::Ticket::run_workspace_command(
+                args        => [ '-c', 'unregistered-workspace' ],
+                resolve_dir => sub { return '' },
+                tmux        => sub { return { exit_code => 0, stdout => '', stderr => '' } },
+            );
+        }
+    ),
+    qr/Workspace 'unregistered-workspace' is not a registered dashboard path/,
+    'workspace -c refuses to run when the workspace name is not a registered dashboard path',
+);
+{
+    my $not_dir_root = tempdir( CLEANUP => 1 );
+    my $not_dir = File::Spec->catfile( $not_dir_root, 'plain-file' );
+    _write_file( $not_dir, "not a directory\n" );
+    like(
+        _dies(
+            sub {
+                Developer::Dashboard::CLI::Ticket::run_workspace_command(
+                    args        => [ '-c', 'file-backed' ],
+                    resolve_dir => sub { return $not_dir },
+                    tmux        => sub { return { exit_code => 0, stdout => '', stderr => '' } },
+                );
+            }
+        ),
+        qr/resolves to '\Q$not_dir\E', which is not a directory/,
+        'workspace -c refuses to change into a registered path that is not a directory',
+    );
+}
+{
+    my $blocked_root = tempdir( CLEANUP => 1 );
+    my $blocked_dir = File::Spec->catdir( $blocked_root, 'blocked' );
+    make_path($blocked_dir);
+    chmod 0000, $blocked_dir or die "Unable to chmod $blocked_dir: $!";
+    like(
+        _dies(
+            sub {
+                Developer::Dashboard::CLI::Ticket::run_workspace_command(
+                    args        => [ '-c', 'blocked-workspace' ],
+                    resolve_dir => sub { return $blocked_dir },
+                    tmux        => sub { return { exit_code => 0, stdout => '', stderr => '' } },
+                );
+            }
+        ),
+        qr/Unable to change directory to '\Q$blocked_dir\E' for workspace 'blocked-workspace'/,
+        'workspace -c surfaces the chdir failure instead of starting the workspace from the wrong directory',
+    );
+    chmod 0700, $blocked_dir or die "Unable to restore permissions on $blocked_dir: $!";
+}
+{
+    my $alias_home = tempdir( CLEANUP => 1 );
+    my $alias_target = File::Spec->catdir( $alias_home, 'projects', 'foobar-repo' );
+    make_path($alias_target);
+    my $alias_config_dir = File::Spec->catdir( $alias_home, '.developer-dashboard', 'config' );
+    make_path($alias_config_dir);
+    _write_file(
+        File::Spec->catfile( $alias_config_dir, 'config.json' ),
+        json_encode( { path_aliases => { foobar => $alias_target } } ),
+    );
+    local $ENV{HOME} = $alias_home;
+    my $old_cwd = getcwd();
+    chdir $alias_home or die "Unable to chdir to $alias_home: $!";
+    my $resolved = Developer::Dashboard::CLI::Ticket::registered_workspace_dir('foobar');
+    my $missing  = Developer::Dashboard::CLI::Ticket::registered_workspace_dir('not-a-registered-alias');
+    chdir $old_cwd or die "Unable to restore cwd to $old_cwd: $!";
+    is( abs_path($resolved), abs_path($alias_target), 'registered_workspace_dir resolves configured path aliases like cdr does' );
+    is( $missing, '', 'registered_workspace_dir returns an empty target for names that are not registered' );
+}
 like(
     _dies(
         sub {
