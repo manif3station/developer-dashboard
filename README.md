@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-4.15
+4.16
 
 # INTRODUCTION
 
@@ -509,6 +509,16 @@ generic package names.
     public standalone binary, and completes already-open tmux session names when
     shell completion is enabled. The older `dashboard ticket` spelling remains as
     a compatibility alias.
+
+    Passing `-c` before or after the workspace name changes directory first. When
+    the workspace name is registered in the dashboard paths inventory, the same
+    registered names the shell `cdr` helper resolves, the command changes into
+    that registered directory before planning the session, so
+    `dashboard workspace -c foobar` behaves like running `cdr foobar` followed
+    by `dashboard workspace foobar`: the tmux session and its layered `.env`
+    refresh both start from the registered project directory. When the name is not
+    a registered dashboard path, `-c` fails with an explicit error instead of
+    silently starting the workspace from the wrong directory.
 
 - Runtime Manager
 
