@@ -76,8 +76,26 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.13', 'repo version bumped for GitHub-hosted Web::App dist-share coverage hardening' );
+is( $version, '4.14', 'repo version bumped for the module-version alignment and loopback-octet validation fixes' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
+{
+    my @module_files;
+    find(
+        {
+            wanted   => sub { push @module_files, $File::Find::name if /\.pm\z/ },
+            no_chdir => 1,
+        },
+        File::Spec->catdir( $ROOT, 'lib' ),
+    );
+    @module_files = sort @module_files;
+    cmp_ok( scalar(@module_files), '>', 1, 'release version gate walks the full lib module tree' );
+    for my $module_file (@module_files) {
+        my $module_source = _slurp($module_file);
+        my ($module_version) = $module_source =~ /our \$VERSION = '([^']+)'/;
+        my $relative = File::Spec->abs2rel( $module_file, $ROOT );
+        is( $module_version, $version, "$relative carries the repo release version so no packaged module can drift behind a bump" );
+    }
+}
 unlike( $readme, qr/\A=(?:pod|head\d|over|item|back|cut)\b/m, 'README.md is Markdown instead of raw POD' ) if $readme ne '';
 like( $readme, qr/\A(?:<!--.*?-->\n\n)?#\s+/s, 'README.md begins with Markdown headings' ) if $readme ne '';
 like(
