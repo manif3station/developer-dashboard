@@ -1,4 +1,27 @@
 # Fixed Bugs
+## 4.15 - Blank-host installs no longer fail the post-install activation step
+
+- Fixed `install.sh` runs on blank hosts without `SHELL` exported (fresh
+  Docker containers and `curl ... | sh` bootstraps) failing the post-install
+  activation step with `eval: Syntax error: "(" unexpected` after an otherwise
+  successful install.
+- Root cause:
+  the bootstrap target shell and the activation runner were resolved through
+  two different paths. `shell_bootstrap_target` consulted the passwd entry and
+  correctly picked `bash`, so bash-dialect rc and activation files were
+  written, but `shell_command_runner` only consulted `$SHELL` and fell back to
+  plain `sh` when it was unset, so dash sourced the bash-only bootstrap and
+  died on the first function definition.
+- Fix:
+  `shell_command_runner` now resolves the preferred shell path and name before
+  falling back, so the runner always speaks the same dialect as the bootstrap
+  files it sources.
+- Prevention:
+  `t/40-install-bootstrap.t` now drives `install.sh` with an empty `SHELL` and
+  a bash bootstrap target and asserts the post-install commands dispatch
+  through the resolved bash runner, locking the target-runner pairing in place
+  for blank-container installs.
+
 ## 4.14 - Packaged module versions can no longer drift behind a release bump
 
 - Fixed the `4.13` release shipping 53 of 54 modules under `lib/` still

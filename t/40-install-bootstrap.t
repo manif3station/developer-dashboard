@@ -540,6 +540,59 @@ SH
     my $home = tempdir( CLEANUP => 1 );
     my $fake_bin = tempdir( CLEANUP => 1 );
     my $log = File::Spec->catfile( $home, 'install.log' );
+    _seed_fake_install_commands(
+        fake_bin => $fake_bin,
+        log      => $log,
+    );
+
+    my $fake_bash = File::Spec->catfile( $fake_bin, 'bash' );
+    _write_executable(
+        $fake_bash,
+        <<"SH",
+#!/bin/sh
+printf '%s\\n' "fake-bash \$*" >> "$log"
+exit 0
+SH
+    );
+
+    my $env_prefix = join ' ',
+      map { sprintf q{%s='%s'}, $_->{key}, $_->{value} } (
+        { key => 'HOME',                       value => $home },
+        { key => 'PATH',                       value => $fake_bin . ':' . ( $ENV{PATH} || '' ) },
+        { key => 'SHELL',                      value => '' },
+        { key => 'DD_INSTALL_PREFERRED_SHELL', value => 'bash' },
+        { key => 'DD_INSTALL_OS_OVERRIDE',     value => 'ubuntu' },
+        { key => 'DD_INSTALL_SHELL_COMMANDS',  value => 'dashboard version' },
+      );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'sh', '-c', "$env_prefix '$install_sh'" );
+    };
+    is( $exit >> 8, 0, 'install.sh can run post-install commands when SHELL is unset in a blank container' )
+      or diag $stdout . $stderr;
+
+    my @log_lines = _log_lines($log);
+    like(
+        join( "\n", @log_lines ),
+        qr/fake-bash -ilc \. "\Q$home\/.profile\E" .*dashboard version/s,
+        'install.sh resolves the bash bootstrap target as the post-install runner instead of falling back to sh when SHELL is unset',
+    );
+    like(
+        $stdout,
+        qr/Running post-install activation commands through bash\./,
+        'install.sh still reports the bash bootstrap target for blank-container runs',
+    );
+    like(
+        $stdout,
+        qr/Post-install activation commands completed\./,
+        'install.sh completes the post-install shell commands without a target-runner dialect mismatch',
+    );
+}
+
+{
+    my $home = tempdir( CLEANUP => 1 );
+    my $fake_bin = tempdir( CLEANUP => 1 );
+    my $log = File::Spec->catfile( $home, 'install.log' );
     my $checkout = File::Spec->catfile( $home, 'default-dashboard-checkout' );
     _seed_fake_install_commands(
         fake_bin => $fake_bin,
