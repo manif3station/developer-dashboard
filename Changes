@@ -1,3 +1,9 @@
+4.15  2026-06-11
+    - keep the `install.sh` post-install activation runner on the same shell
+      dialect as the bootstrap target, so blank hosts without `SHELL` exported
+      (fresh Docker containers, `curl ... | sh` runs) no longer source the
+      bash-flavoured activation files through plain `sh` and die on the first
+      bash-only construct
 4.14  2026-06-11
     - align every module under `lib/` back onto the single repository release
       version after the `4.13` bump only advanced `Developer::Dashboard`,
