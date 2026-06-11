@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '4.12';
+our $VERSION = '4.13';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.12
+4.13
 
 =head1 INTRODUCTION
 
@@ -2566,9 +2566,10 @@ The focused web coverage suites must also call low-traffic
 C<Developer::Dashboard::Web::App> compatibility helpers directly when their
 other execution path would only be indirect route fan-out. That is now part
 of the reviewed contract for the C</apps> redirect helper, the singleton stop
-helper, and the shipped shim asset responses, so GitHub-hosted
-C<Devel::Cover> runs cannot drift below the local C<100.0 / 100.0 / 100.0>
-result for C<lib/Developer/Dashboard/Web/App.pm>.
+helper, the shipped shim asset responses, and the installed-distribution
+C<File::ShareDir> asset-root fallback, so GitHub-hosted C<Devel::Cover> runs
+cannot drift below the local C<100.0 / 100.0 / 100.0> result for
+C<lib/Developer/Dashboard/Web/App.pm>.
 The packaged C<t/09-runtime-manager.t> fallback assertions also stub ambient
 managed-web discovery explicitly, so tarball and PAUSE installs do not get
 contaminated by unrelated live dashboard-shaped processes already running on
