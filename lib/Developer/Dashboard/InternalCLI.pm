@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '4.17';
+our $VERSION = '4.18';
 
 use Cwd qw(abs_path);
 use File::Basename qw(dirname);
@@ -21,7 +21,7 @@ sub helper_names {
     return qw(
       jq yq tomq propq iniq csvq xmlq
       of open-file workspace file files path paths ps1
-      encode decode indicator collector config auth api init cpan page action docker serve stop restart log shell doctor housekeeper skills which
+      encode decode indicator collector config auth api ask init cpan page action docker serve stop restart log shell doctor housekeeper skills which
       complete
     );
 }
@@ -472,7 +472,7 @@ sub _managed_helper_version_marker {
 sub _helper_uses_dashboard_core {
     my ($name) = @_;
     return 0 if !defined $name || $name eq '';
-    return $name =~ /\A(?:encode|decode|indicator|collector|config|auth|api|init|cpan|page|action|docker|serve|stop|restart|log|shell|doctor|housekeeper|skills|which)\z/ ? 1 : 0;
+    return $name =~ /\A(?:encode|decode|indicator|collector|config|auth|api|ask|init|cpan|page|action|docker|serve|stop|restart|log|shell|doctor|housekeeper|skills|which)\z/ ? 1 : 0;
 }
 
 # _is_dashboard_managed_helper($content, $name)

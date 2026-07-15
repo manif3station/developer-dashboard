@@ -1,3 +1,17 @@
+4.18  2026-07-15
+    - add `dashboard ask <question>`: a uniform AI-assistant command that answers
+      from the Anthropic API when an `ANTHROPIC_API_KEY` (or the `claude` config
+      domain) is set, and otherwise falls back to the local `claude` CLI
+    - support pluggable backends `--claude` (default), `--codex`, `--copilot`,
+      and `--gemini`; the chosen backend becomes sticky per workspace, and each
+      shells out non-interactively in a forced read-only mode
+    - remember the conversation per workspace (keyed by WORKSPACE_REF or the
+      active project root) so follow-up questions carry prior turns; `--new`
+      starts fresh and `--no-memory` skips the transcript for one turn
+    - inline `--file` text attachments into the prompt and pass image attachments
+      natively (Anthropic image blocks, codex `-i`, copilot `--attachment`); the
+      transcript is stored owner-only under the runtime state root
+
 4.17  2026-07-15
     - make `dashboard collector stop <name>` actually stop the collector: it now
       routes through the supervisor-aware stop path so the collector watchdog is

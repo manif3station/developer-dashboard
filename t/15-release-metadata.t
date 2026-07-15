@@ -76,7 +76,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.17', 'repo version bumped for the workspace -c change-directory flag' );
+is( $version, '4.18', 'repo version bumped for the dashboard ask AI-backend command' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
@@ -219,7 +219,7 @@ for my $module (
     like( $cpanfile, qr/requires ['"]\Q$module\E['"];/, "cpanfile declares runtime prerequisite $module" );
     like( $dist, qr/^\Q$module\E = 0$/m, "dist.ini declares runtime prerequisite $module" ) if $dist ne '';
 }
-for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket workspace path paths ps1 encode decode indicator collector config auth api init cpan page action docker serve stop restart shell doctor housekeeper skills which)) {
+for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket workspace path paths ps1 encode decode indicator collector config auth api ask init cpan page action docker serve stop restart shell doctor housekeeper skills which)) {
     ok( -f _repo_path( 'share', 'private-cli', $helper ), "share/private-cli/$helper is shipped as a private helper asset" );
 }
 ok( -f _repo_path( 'share', 'public', 'js', 'jquery-4.0.0.min.js' ), 'share/public/js/jquery-4.0.0.min.js is shipped as a bundled public asset' );
