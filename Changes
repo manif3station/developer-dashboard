@@ -1,3 +1,27 @@
+4.21  2026-07-15
+    - batch of fixes from the automated bug-hunt (round 1), each test-covered:
+    - config: the merged config now always dedupes the `collectors` array by
+      name and `providers` by id, even when only one layer defines them (a
+      single layer repeating a collector name previously leaked duplicates);
+      config.json / api.json are now written atomically (temp file + checked
+      close + rename) instead of truncated in place
+    - security: the encoded-action transient path no longer trusts a
+      payload-supplied `source`/trusted flag, closing a forged-token arbitrary
+      command execution; the session id from the cookie is charset-sanitized
+      before path use, closing a session-file path traversal; the session cookie
+      gains `Secure` over HTTPS; helper passwords are now stretched with
+      PBKDF2-HMAC-SHA256 while still verifying existing hashes
+    - collectors: `timeout_ms` now round-trips correctly (no more x1000 blow-up
+      on Windows worker restart); a `* * * * *` cron collector no longer bypasses
+      per-minute dedup; signal-killed collector/action commands are recorded as
+      failures instead of exit 0; background actions guard setsid on Windows
+    - state writes: Collector and IndicatorStore atomic-write helpers now check
+      close() and no longer unlink before rename; a git error is no longer
+      reported as a dirty tree
+    - added SessionStore::sweep_expired for expired-session reclaim (wiring it
+      into the housekeeper, plus the DNS-rebinding host-trust tightening and the
+      timed-out-command subtree kill, are deferred as follow-ups)
+
 4.20  2026-07-15
     - security: in `dashboard serve --ssl` the public front-proxy relays raw TLS
       to the internal loopback backend, so every backend connection arrived from
