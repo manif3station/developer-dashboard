@@ -96,10 +96,9 @@ sub set_indicator {
     my $tmp = "$file.pending";
     open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode( \%data );
-    close $fh;
+    close $fh or die "Unable to close $tmp: $!";
     $self->{paths}->secure_file_permissions($tmp);
 
-    unlink $file if -f $file;
     rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
     $self->{paths}->secure_file_permissions($file);
 
@@ -397,7 +396,13 @@ sub refresh_core_indicators {
                 system( 'git', 'diff', '--quiet', '--ignore-submodules', 'HEAD', '--' );
                 return $? >> 8;
             };
-            $git_status = $dirty_exit == 0 ? 'clean' : 'dirty';
+            # git diff --quiet exits 0 for a clean tree and 1 for a modified
+            # one; any other exit (for example 128) is a real git failure, not a
+            # dirty work tree, so surface it as an explicit error status.
+            $git_status =
+                $dirty_exit == 0 ? 'clean'
+              : $dirty_exit == 1 ? 'dirty'
+              :                    'error';
         }
         chdir $old or die "Unable to restore cwd to $old: $!";
     }
