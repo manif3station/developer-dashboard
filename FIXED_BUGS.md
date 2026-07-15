@@ -1,5 +1,10 @@
 # Fixed Bugs
 
+## 4.22 - expired sessions are now actually reclaimed
+
+The 4.21 batch added SessionStore::sweep_expired but left it unwired, so expired session files still accumulated. The housekeeper run now calls the sweep each cycle and reports the count (t/58), completing the expired-session-GC fix.
+
+
 ## 4.21 - automated bug-hunt round 1 batch fixes
 
 Fixes found by the hourly automated bug-hunt and shipped together, each with a regression test (t/50-t/57): single-layer collector/provider dedup in the config merge; atomic config/api/state writes with checked close(); forged encoded-action token arbitrary command execution (payload `source` no longer trusted); session-id path traversal (cookie id sanitized before path use); `Secure` on the session cookie over HTTPS; PBKDF2 password stretching, still verifying existing password hashes; `timeout_ms` round-trip (Windows x1000 blow-up); `* * * * *` cron per-minute dedup; signal-killed commands recorded as failures not exit 0; setsid Windows guard on background actions; git-error vs dirty-tree distinction. Deferred: housekeeper wiring of session sweep, DNS-rebinding host-trust tightening, timed-out command subtree kill.

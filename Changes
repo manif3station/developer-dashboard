@@ -1,3 +1,8 @@
+4.22  2026-07-15
+    - the housekeeper now sweeps expired helper-session files each run (wiring the
+      SessionStore expired-session sweep added in 4.21 into the periodic cleanup),
+      so stale session records no longer accumulate unbounded between logins
+
 4.21  2026-07-15
     - batch of fixes from the automated bug-hunt (round 1), each test-covered:
     - config: the merged config now always dedupes the `collectors` array by

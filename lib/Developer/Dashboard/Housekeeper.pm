@@ -3,7 +3,7 @@ package Developer::Dashboard::Housekeeper;
 use strict;
 use warnings;
 
-our $VERSION = '4.21';
+our $VERSION = '4.22';
 
 use File::Path qw(remove_tree);
 use File::Spec;
@@ -14,6 +14,7 @@ use Developer::Dashboard::Collector;
 use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::JSON qw(json_decode);
+use Developer::Dashboard::SessionStore;
 
 # new(%args)
 # Constructs the temp-state cleanup service.
@@ -43,11 +44,13 @@ sub run {
         ajax_temp_files   => 0,
         result_temp_files => 0,
         collector_logs    => 0,
+        expired_sessions  => 0,
     };
 
     push @{$removed}, $self->_cleanup_state_roots( min_age_seconds => $min_age_seconds, scanned => $scanned );
     push @{$removed}, $self->_cleanup_temp_files( min_age_seconds => $min_age_seconds, scanned => $scanned );
     push @{$removed}, $self->_rotate_collector_logs( scanned => $scanned, now_epoch => $args{now_epoch} );
+    $scanned->{expired_sessions} = $self->_sweep_expired_sessions;
 
     return {
         ok               => 1,
@@ -57,6 +60,17 @@ sub run {
         removed          => $removed,
         removed_count    => scalar @{$removed},
     };
+}
+
+# _sweep_expired_sessions()
+# Removes expired helper-session records through the session store so stale
+# session files cannot accumulate unbounded between logins.
+# Input: none.
+# Output: count of expired session files removed.
+sub _sweep_expired_sessions {
+    my ($self) = @_;
+    my $sessions = Developer::Dashboard::SessionStore->new( paths => $self->{paths} );
+    return $sessions->sweep_expired;
 }
 
 # _rotate_collector_logs(%args)
