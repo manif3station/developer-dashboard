@@ -1,4 +1,36 @@
 # Fixed Bugs
+## 4.17 - `dashboard collector stop <name>` now truly stops the collector
+
+- Fixed `dashboard collector stop <name>` appearing to do nothing: the collector
+  came back running (a new loop pid) and `dashboard collector status <name>` kept
+  reporting `running: 1` moments after the stop.
+- Root cause:
+  `dashboard collector start` starts the collector loop AND a background
+  supervisor (watchdog) that keeps the collector alive. The `collector stop`
+  subcommand called the low-level `CollectorRunner::stop_loop` directly, which
+  only killed the loop and never told the supervisor to stop — so the supervisor
+  immediately restarted the collector. A related race also let the supervisor
+  create a DUPLICATE loop when it checked the freshly started loop before that
+  loop had set its process title, and stop only tracked one of them. Killed loops
+  additionally left their long-running command subtrees behind, and the
+  consumer-facing `status.json` was never reset.
+- Fix:
+  `collector stop` now routes through the supervisor-aware
+  `RuntimeManager::stop_collectors` (matching `dashboard stop collector`), which
+  deregisters the collector from the supervisor and stops it before terminating
+  the loop. `start_loop` now recognizes an already-running loop from its recorded
+  state as well as by process identity, so no duplicate loop is created. Stopping
+  a loop now resets `status.json`, group-SIGKILLs SIGTERM-ignoring command
+  subtrees, kills the loop before its workers with a worker-count-scaled grace,
+  persists active worker pids on spawn, sweeps crashed-loop orphans, and
+  recognizes managed loops from recorded state on proc-blind hosts (Windows).
+- Prevention:
+  `dashboard collector stop <name>` is now regression-tested end to end in
+  `t/05-cli-smoke.t` (the collector stays not-running after the stop), and the
+  loop process-tree, scaled-grace, crashed-loop-sweep, proc-blind recognition,
+  and start_loop de-duplication behaviours each have focused coverage in
+  `t/14-coverage-closure-extra.t`.
+
 ## 4.15 - Blank-host installs no longer fail the post-install activation step
 
 - Fixed `install.sh` runs on blank hosts without `SHELL` exported (fresh
