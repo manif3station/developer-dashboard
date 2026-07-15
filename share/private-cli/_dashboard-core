@@ -1282,13 +1282,7 @@ function cdr {
   }
 }
 
-function Invoke-DashboardShortcut {
-  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$DashboardArgs)
-  & __DASHBOARD_CMD__ @DashboardArgs
-}
-
 Set-Alias dd_cdr cdr
-Set-Alias d2 Invoke-DashboardShortcut
 
 Register-ArgumentCompleter -CommandName 'dashboard', 'd2' -ScriptBlock {
   param($wordToComplete, $commandAst, $cursorPosition)
@@ -1389,10 +1383,6 @@ dd_cdr() {
   cdr "$@"
 }
 
-d2() {
-  __DASHBOARD_CMD__ "$@"
-}
-
 which_dir() {
   payload="$(__DASHBOARD_CMD__ path cdr "$@")"
   matches="$(printf '%s' "$payload" | __DASHBOARD_JSON_MATCHES__)"
@@ -1445,10 +1435,6 @@ cdr() {
 
 dd_cdr() {
   cdr "$@"
-}
-
-d2() {
-  __DASHBOARD_CMD__ "$@"
 }
 
 which_dir() {
@@ -1510,10 +1496,6 @@ cdr() {
 
 dd_cdr() {
   cdr "$@"
-}
-
-d2() {
-  __DASHBOARD_CMD__ "$@"
 }
 
 which_dir() {
@@ -1746,8 +1728,9 @@ after the public C<dashboard> entrypoint has already handled hook execution and
 switchboard dispatch. It is staged under F<~/.developer-dashboard/cli/dd/> as
 F<_dashboard-core> and is not meant to be called by users directly. It also
 generates the shared shell bootstrap snippets that expose C<cdr>,
-C<dd_cdr>, C<d2>, C<which_dir>, prompt wiring, and tab-completion handlers
-across bash, zsh, POSIX sh, and PowerShell. While it is running, it rewrites
+C<dd_cdr>, C<which_dir>, prompt wiring, and tab-completion handlers (including
+completion for the real C<d2> command) across bash, zsh, POSIX sh, and
+PowerShell. While it is running, it rewrites
 its process title to the public-facing C<developer-dashboard ...> form so
 process listings do not leak the staged helper path.
 

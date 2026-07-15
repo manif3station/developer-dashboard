@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '4.18';
+our $VERSION = '4.19';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.18
+4.19
 
 =head1 INTRODUCTION
 
@@ -2200,9 +2200,11 @@ to a prompt command that does not depend on bash-only prompt escapes, and
 PowerShell installs a C<prompt> function instead of using the POSIX C<PS1>
 variable.
 
-C<d2> is the short shell shortcut for C<dashboard>, so after loading the
-bootstrap you can run C<d2 version>, C<d2 doctor>, or
-C<d2 docker compose ps> without typing the full command name each time.
+C<d2> is a real, installed short command for C<dashboard>, shipped in the same
+C<bin> directory and re-execing the C<dashboard> entrypoint, so you can run
+C<d2 version>, C<d2 doctor>, or C<d2 docker compose ps> without typing the full
+command name -- in scripts and fresh shells as well as interactively, without
+depending on the shell bootstrap.
 
 The same generated bootstrap also wires live tab completion for C<dashboard>
 and C<d2>. Bash registers C<_dashboard_complete>, zsh registers

@@ -1,3 +1,12 @@
+4.19  2026-07-15
+    - ship `d2` as a real, installed command instead of only a shell-bootstrap
+      alias: `bin/d2` is a first-class entrypoint that re-execs its sibling
+      `dashboard` with the same arguments, so `d2 <command>` behaves exactly like
+      `dashboard <command>` and now works in scripts, cron jobs, and fresh shells
+      that never sourced the dashboard shell integration
+    - the shell bootstrap keeps completion wiring for `d2`, and the generated
+      shell shortcut remains as a convenience where the bootstrap is loaded
+
 4.18  2026-07-15
     - add `dashboard ask <question>`: a uniform AI-assistant command that answers
       from the Anthropic API when an `ANTHROPIC_API_KEY` (or the `claude` config

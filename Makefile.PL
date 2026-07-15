@@ -14,6 +14,7 @@ WriteMakefile(
     AUTHOR       => 'Developer Dashboard Contributors',
     EXE_FILES    => [
         'bin/dashboard',
+        'bin/d2',
     ],
     PREREQ_PM    => {
         'strict'                => 0,
