@@ -13,7 +13,7 @@ use POSIX qw(WNOHANG setsid strftime);
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
 use Developer::Dashboard::JSON qw(json_encode);
-use Developer::Dashboard::Platform qw(shell_command_argv);
+use Developer::Dashboard::Platform qw(is_windows shell_command_argv);
 
 # new(%args)
 # Constructs an action runner bound to file and path registries.
@@ -100,18 +100,36 @@ sub decode_action_payload {
 }
 
 # run_encoded_action(%args)
-# Decodes and executes an encoded action transport payload.
+# Decodes and executes an encoded action transport payload at the untrusted
+# transient trust level, refusing command actions that arrive over the
+# forgeable token transport.
 # Input: encoded action token and optional params hash.
-# Output: action result hash reference.
+# Output: builtin action result hash reference (dies for command actions).
 sub run_encoded_action {
     my ( $self, %args ) = @_;
     my $payload = $self->decode_action_payload( $args{token} || '' );
     my $page_class = 'Developer::Dashboard::PageDocument';
     my $page = $page_class->from_instruction( $payload->{page_source} || '' );
+
+    # SECURITY: the encoded action token is a client-supplied, unauthenticated
+    # transport (gzip + base64), and its 'trusted_id' is an unkeyed digest an
+    # attacker can recompute, so no field carried in the payload can prove a
+    # genuine trusted origin: neither the claimed 'source', nor the per-action
+    # 'safe' flag, nor 'trusted_id'. A command action even carries its own
+    # executable string inside that same forgeable payload, so a decoded command
+    # action is always fully attacker-controlled and must never run through this
+    # path. Command actions are only trusted through the authenticated saved-page
+    # route, where the server itself loaded the page source. Built-in actions map
+    # to a fixed server-side allowlist and stay safe, but are still evaluated at
+    # the untrusted transient trust level rather than any origin the payload claims.
+    my $action = $payload->{action};
+    die "Command actions cannot be executed through an encoded action token\n"
+      if ref($action) eq 'HASH' && ( $action->{kind} || 'builtin' ) eq 'command';
+
     return $self->run_page_action(
-        action => $payload->{action},
+        action => $action,
         page   => $page,
-        source => $payload->{source} || 'saved',
+        source => 'transient',
         params => $args{params} || {},
     );
 }
@@ -221,10 +239,13 @@ sub _fork_process {
 
 # _detach_background_session()
 # Starts a detached session for a background action child before stdio is
-# redirected into the dashboard log.
+# redirected into the dashboard log, skipping the POSIX setsid call on Windows
+# where process sessions are not available (matching the collector and runtime
+# detach paths).
 # Input: none.
 # Output: truthy on success, false on failure.
 sub _detach_background_session {
+    return 1 if is_windows();
     return setsid();
 }
 
@@ -391,7 +412,7 @@ sub _run_command {
         alarm( int( ( $timeout_ms + 999 ) / 1000 ) );
         my $ok = eval {
             system shell_command_argv($cmd);
-            return $? >> 8;
+            return $self->_wait_status_exit_code($?);
         };
         if ($@) {
             die $@ if $@ !~ /__ACTION_TIMEOUT__/;

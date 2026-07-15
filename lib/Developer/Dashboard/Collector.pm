@@ -658,17 +658,21 @@ sub _atomic_write_json {
 }
 
 # _atomic_write_text($file, $text)
-# Atomically writes raw text to a file using a pending temporary file.
+# Atomically writes raw text to a file by fully flushing a pending temporary
+# file and then renaming it over the target in a single step. The write and the
+# close are both checked so a short write or a failed flush is surfaced as an
+# error instead of being renamed into place, and the target is never removed
+# before the rename so consumers only ever observe the old or the new file, never
+# a missing one.
 # Input: target file path and text string.
 # Output: written file path string.
 sub _atomic_write_text {
     my ( $self, $file, $text ) = @_;
     my $tmp = "$file.pending";
     open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
-    print {$fh} $text;
-    close $fh;
+    print {$fh} $text or die "Unable to write $tmp: $!";
+    close $fh or die "Unable to close $tmp: $!";
     $self->{paths}->secure_file_permissions($tmp);
-    unlink $file if -f $file;
     rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
     $self->{paths}->secure_file_permissions($file);
     return $file;

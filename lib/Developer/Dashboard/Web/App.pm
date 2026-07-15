@@ -347,7 +347,7 @@ sub _handle_login {
         "Redirecting\n",
         {
             'Location'   => $redirect_to || '/',
-            'Set-Cookie' => _session_cookie( $session->{session_id} ),
+            'Set-Cookie' => _session_cookie( $session->{session_id}, _request_is_secure() ),
         },
     ];
 }
@@ -2858,13 +2858,27 @@ sub _page_status_payload {
     return $indicators->page_header_payload;
 }
 
-# _session_cookie($session_id)
+# _session_cookie($session_id, $secure)
 # Builds the Set-Cookie header value for a dashboard session.
-# Input: session id string.
+# Input: session id string, and an optional boolean secure flag that appends the
+#        Secure attribute when the request arrived over HTTPS.
 # Output: cookie header string.
 sub _session_cookie {
-    my ($session_id) = @_;
-    return "dashboard_session=$session_id; Path=/; HttpOnly; SameSite=Strict";
+    my ( $session_id, $secure ) = @_;
+    my $cookie = "dashboard_session=$session_id; Path=/; HttpOnly; SameSite=Strict";
+    $cookie .= '; Secure' if $secure;
+    return $cookie;
+}
+
+# _request_is_secure()
+# Reports whether the current request is being served over HTTPS/TLS.
+# The dashboard only ever serves real HTTPS traffic through its SSL front-proxy,
+# which marks backend worker processes with DEVELOPER_DASHBOARD_SSL_PROXIED; plain
+# HTTP (loopback) serving never sets that flag.
+# Input: none.
+# Output: boolean true when the request arrived over HTTPS, false for plain HTTP.
+sub _request_is_secure {
+    return $ENV{DEVELOPER_DASHBOARD_SSL_PROXIED} ? 1 : 0;
 }
 
 # _expired_session_cookie()
