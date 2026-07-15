@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-4.18
+4.19
 
 # INTRODUCTION
 
@@ -1884,9 +1884,11 @@ to a prompt command that does not depend on bash-only prompt escapes, and
 PowerShell installs a `prompt` function instead of using the POSIX `PS1`
 variable.
 
-`d2` is the short shell shortcut for `dashboard`, so after loading the
-bootstrap you can run `d2 version`, `d2 doctor`, or
-`d2 docker compose ps` without typing the full command name each time.
+`d2` is a real, installed short command for `dashboard`, shipped in the same
+`bin` directory and re-execing the `dashboard` entrypoint, so you can run
+`d2 version`, `d2 doctor`, or `d2 docker compose ps` without typing the full
+command name -- in scripts and fresh shells as well as interactively, without
+depending on the shell bootstrap.
 
 The same generated bootstrap also wires live tab completion for `dashboard`
 and `d2`. Bash registers `_dashboard_complete`, zsh registers

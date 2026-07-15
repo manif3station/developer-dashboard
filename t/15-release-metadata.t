@@ -76,7 +76,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.18', 'repo version bumped for the dashboard ask AI-backend command' );
+is( $version, '4.19', 'repo version bumped for the real d2 short entrypoint' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
@@ -170,6 +170,9 @@ for my $path (
 {
     ok( !-e _repo_path($path), "$path is no longer shipped as a public executable" );
 }
+
+ok( -f _repo_path( 'bin', 'd2' ), 'bin/d2 is shipped as the real short dashboard entrypoint' );
+ok( -x _repo_path( 'bin', 'd2' ), 'bin/d2 is shipped as an executable' );
 
 for my $module (
     qw(
