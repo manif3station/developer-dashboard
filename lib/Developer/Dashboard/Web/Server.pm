@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '4.19';
+our $VERSION = '4.20';
 
 use Capture::Tiny qw(capture);
 use Errno qw(EINTR);
@@ -267,6 +267,11 @@ sub _serve_ssl_frontend {
 # Output: numeric process exit code.
 sub _run_ssl_backend_process {
     my ( $self, $daemon ) = @_;
+    # Mark this process as the internal backend behind the SSL front-proxy so
+    # authorize_request never auto-grants loopback admin (every connection here
+    # arrives from the proxy's loopback socket). Starman workers fork from here
+    # and inherit the flag.
+    local $ENV{DEVELOPER_DASHBOARD_SSL_PROXIED} = 1;
     my $runner = $self->_build_runner($daemon);
     my $app = $self->psgi_app;
     $runner->run($app);

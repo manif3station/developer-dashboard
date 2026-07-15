@@ -3331,6 +3331,8 @@ chdir $original_cwd or die $!;
     is( $auth->trust_tier( remote_addr => '::1', host => '[::1]:7890' ), 'admin', 'auth trusts exact IPv6 loopback host headers as admin traffic' );
     is( $auth->trust_tier( remote_addr => '127.0.0.1', host => 'localhost:7890' ), 'admin', 'auth trusts localhost hostnames that resolve only to loopback' );
     is( $auth->trust_tier( remote_addr => '127.0.0.999', host => '127.0.0.1:7890' ), 'helper', 'auth keeps loopback-looking remote addresses with invalid octets out of the admin tier' );
+    is( $auth->trust_tier( remote_addr => '127.0.0.1', host => '127.0.0.1:7890', ssl_proxied => 1 ), 'helper', 'auth does NOT grant loopback admin behind the SSL front-proxy, where remote_addr is always the proxy loopback socket' );
+    is( $auth->trust_tier( remote_addr => '127.0.0.1', host => '127.0.0.1:7890', ssl_proxied => 0 ), 'admin', 'auth still trusts genuine loopback admin traffic when not behind the SSL proxy' );
     ok( !$auth->_ip_is_loopback('127.0.0.999'), '_ip_is_loopback rejects final octets above 255' );
     ok( !$auth->_ip_is_loopback('127.999.0.1'), '_ip_is_loopback rejects middle octets above 255' );
     ok( !$auth->_ip_is_loopback('127.0.0.256'), '_ip_is_loopback rejects the first invalid octet boundary value' );

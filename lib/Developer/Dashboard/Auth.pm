@@ -3,7 +3,7 @@ package Developer::Dashboard::Auth;
 use strict;
 use warnings;
 
-our $VERSION = '4.19';
+our $VERSION = '4.20';
 
 use Fcntl qw(:mode);
 use Digest::SHA qw(sha256_hex);
@@ -36,6 +36,11 @@ sub trust_tier {
     my ( $self, %args ) = @_;
     my $remote_addr = $self->_canonical_ip( $args{remote_addr} );
     my $host = $self->_canonical_host( $args{host} );
+    # Behind the SSL front-proxy every backend connection arrives from the
+    # proxy's loopback socket, so remote_addr is ALWAYS loopback and can no
+    # longer prove the real client is local. Never grant the loopback-admin
+    # shortcut in that mode -- require an explicit helper login instead.
+    return 'helper' if $args{ssl_proxied};
     return 'admin' if $self->_request_is_loopback_admin(
         remote_addr          => $remote_addr,
         host                 => $host,
