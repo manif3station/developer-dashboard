@@ -3,7 +3,7 @@ package Developer::Dashboard::Collector;
 use strict;
 use warnings;
 
-our $VERSION = '4.16';
+our $VERSION = '4.17';
 
 use Fcntl qw(:flock);
 use File::Spec;
@@ -216,6 +216,33 @@ sub mark_run_finished {
                 running     => $active_runs > 0 ? 1 : 0,
             };
         },
+    );
+}
+
+# mark_stopped($name)
+# Resets one collector's consumer-facing status so a stopped loop is no longer
+# reported as running. Clears the live-run counters while preserving the other
+# recorded status fields, and records when the collector was stopped so prompt,
+# web, and CLI status readers reflect the stop immediately.
+# Input: collector name string.
+# Output: written status file path, or undef when the collector has no status
+# file yet (nothing to reset).
+sub mark_stopped {
+    my ( $self, $name ) = @_;
+    die 'Missing collector name' if !defined $name || $name eq '';
+    my $paths = $self->collector_paths($name);
+    return if !-f $paths->{status};
+    return $self->update_status(
+        $name,
+        sub {
+            my ($existing) = @_;
+            return {
+                %{$existing},
+                running     => 0,
+                active_runs => 0,
+                stopped_at  => _now_iso8601(),
+            };
+        }
     );
 }
 

@@ -1,3 +1,23 @@
+4.17  2026-07-15
+    - make `dashboard collector stop <name>` actually stop the collector: it now
+      routes through the supervisor-aware stop path so the collector watchdog is
+      deregistered and cannot immediately respawn the loop (previously it called
+      the low-level loop stop directly, so the supervisor restarted the collector
+      and its status snapped back to running)
+    - stop the collector supervisor from creating a DUPLICATE loop when it races
+      a freshly started loop before that loop has set its process title, by
+      recognizing an already-running loop from its recorded state as well as by
+      process identity
+    - reset the consumer-facing collector `status.json` (running / active_runs)
+      when a loop is stopped, so prompt, web, and CLI status readers reflect the
+      stop immediately
+    - reliably terminate long-running collector command subtrees on stop: send
+      the worker process-group SIGKILL unconditionally so a SIGTERM-ignoring
+      child is still reaped, kill the loop first and scale the TERM grace to the
+      worker count so the loop is not KILLed mid-cleanup, persist active worker
+      pids on spawn, and sweep orphaned workers left behind by a crashed loop
+    - recognize managed collector loops from recorded state on hosts without
+      `/proc` or `ps` (Windows), so stop can still terminate them
 4.16  2026-06-11
     - teach the built-in `dashboard workspace` command a `-c` flag, accepted
       before or after the workspace name, that changes into the registered

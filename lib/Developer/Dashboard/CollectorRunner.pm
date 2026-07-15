@@ -3,7 +3,7 @@ package Developer::Dashboard::CollectorRunner;
 use strict;
 use warnings;
 
-our $VERSION = '4.16';
+our $VERSION = '4.17';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -273,7 +273,11 @@ sub start_loop {
     if ( -f $pidfile ) {
         my $pid = _slurp($pidfile);
         chomp $pid;
-        if ( $pid && $self->_is_managed_loop( $pid, $name ) ) {
+        # Recognize an already-running managed loop by its recorded state as
+        # well as by proc/ps identity, so the supervisor's start_loop does not
+        # create a DUPLICATE loop when it races the fresh loop before that loop
+        # has set its process title.
+        if ( $pid && ( $self->_is_managed_loop( $pid, $name ) || $self->_state_confirms_managed_loop( $name, $pid ) ) ) {
             $self->_write_loop_state(
                 $name,
                 {
@@ -496,6 +500,13 @@ sub _run_loop_child {
             }
             elsif ($worker_pid) {
                 $active_workers{$worker_pid} = 1;
+                $self->_write_loop_state(
+                    $name,
+                    {
+                        active_runs        => scalar keys %active_workers,
+                        active_worker_pids => [ $self->_active_worker_pids( \%active_workers ) ],
+                    }
+                );
             }
         }
         $self->_sleep_until_next_tick(
@@ -680,10 +691,13 @@ sub _terminate_loop_workers {
             last if !$self->_pid_is_running($pid);
             sleep 0.1;
         }
-        if ( $self->_pid_is_running($pid) ) {
-            kill 9, -$pid if !is_windows();
-            kill 9, $pid;
-        }
+        # Send the group SIGKILL unconditionally: a command child that ignores
+        # SIGTERM can still be alive in the worker's process group even after
+        # the worker (group leader) has exited, and a running leader is only
+        # signalled directly when it is still alive. kill on an empty group is a
+        # harmless no-op.
+        kill 9, -$pid if !is_windows();
+        kill 9, $pid if $self->_pid_is_running($pid);
         $self->_reap_child_process($pid);
         delete $active_workers->{$pid};
     }
@@ -758,7 +772,6 @@ sub stop_loop {
     my $pid = _slurp($pidfile);
     chomp $pid;
     my @state_worker_pids = $self->_state_active_worker_pids($name);
-    $self->_terminate_loop_workers( { map { $_ => 1 } @state_worker_pids } ) if @state_worker_pids;
     my $already_reaped = $pid ? $self->_reap_child_process($pid) : 0;
     my $same_namespace = $pid ? $self->_same_pid_namespace($pid) : 0;
     if (
@@ -768,20 +781,37 @@ sub stop_loop {
         && ( $self->_is_managed_loop( $pid, $name ) || $self->_state_confirms_managed_loop( $name, $pid ) )
       )
     {
+        # Kill the loop FIRST so it stops spawning new workers and its own
+        # SIGTERM handler can terminate its accurate in-memory worker set. Scale
+        # the grace to the recorded worker count so the loop is not KILL-9'd
+        # mid-cleanup (its handler may spend up to ~2s per stubborn worker).
         kill 15, $pid;
+        my $grace = 20 + 20 * scalar(@state_worker_pids);
+        for ( 1 .. $grace ) {
+            last if !$self->_pid_is_running($pid);
+            sleep 0.1;
+        }
+        kill 9, -$pid if !is_windows();
+        kill 9, $pid  if $self->_pid_is_running($pid);
         for ( 1 .. 20 ) {
             last if !$self->_pid_is_running($pid);
             sleep 0.1;
         }
-        kill 9, $pid if $self->_pid_is_running($pid);
-        for ( 1 .. 20 ) {
-            last if !$self->_pid_is_running($pid);
-            sleep 0.1;
-        }
+        # Backstop after the loop is gone: sweep any worker the loop did not
+        # reap (the KILL escalation path skips its handler). Fix A keeps the
+        # persisted set complete, and the sweep kills each worker's process
+        # group so command subtrees are reaped too.
         $self->_terminate_loop_workers( { map { $_ => 1 } $self->_state_active_worker_pids($name) } );
         $self->_reap_child_process($pid);
         die "Collector '$name' did not stop after TERM and KILL\n" if $self->_pid_is_running($pid);
     }
+    else {
+        # The loop is not signalable here (already dead/crashed, foreign
+        # namespace, or unrecognized): still sweep any workers recorded in state
+        # so a crashed loop does not leave orphaned worker subtrees behind.
+        $self->_terminate_loop_workers( { map { $_ => 1 } @state_worker_pids } ) if @state_worker_pids;
+    }
+    $self->{collectors}->mark_stopped($name);
     if ( $pid && !$same_namespace ) {
         $self->_cleanup_loop_files($name);
         return $pid;
@@ -933,7 +963,10 @@ sub _state_confirms_managed_loop {
     return 0 if ( $state->{pid} || 0 ) != $pid;
     return 0 if ( $state->{name} || '' ) ne $name;
     return 0 if ( $state->{process_name} || '' ) ne $self->_process_title($name);
-    return 0 if ( $state->{status} || '' ) !~ /^(?:starting|running|error)$/;
+    # The recorded pid+name+process-title identity is strong evidence we own
+    # this loop even when /proc and ps are unavailable (Windows), so recognize
+    # any live recorded loop except one that has already marked itself stopped.
+    return 0 if ( $state->{status} || '' ) eq 'stopped';
     return 1;
 }
 

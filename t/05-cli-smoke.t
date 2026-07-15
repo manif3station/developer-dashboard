@@ -951,6 +951,16 @@ if ( !$UNDER_COVER ) {
     my $collector_start_pid = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector start cli.collector" );
     like( $collector_start_pid, qr/\A\d+\n\z/, 'dashboard collector start still starts one named collector loop directly' );
 
+    # dashboard collector stop <name> (path 2) must go through the supervisor-aware
+    # stop so the watchdog cannot respawn the collector (regression: it used to
+    # call the low-level stop_loop directly and leave the supervisor running).
+    my $collector_subcmd_stop = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector stop cli.collector" );
+    like( $collector_subcmd_stop, qr/\A(?:\d+\n)?\z/, 'dashboard collector stop <name> prints the stopped loop pid (or nothing when already stopped)' );
+    my $collector_subcmd_stopped_status = json_decode( _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector status cli.collector" ) );
+    ok( !$collector_subcmd_stopped_status->{running}, 'dashboard collector stop <name> leaves the collector not running so the supervisor cannot respawn it' );
+    # re-start so the following top-level stop/restart assertions still control a live collector
+    _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' collector start cli.collector" );
+
     my $top_level_stop_named_collector = _run_in_home( $collector_log_home, "$perl -I'$lib' '$dashboard' stop collector cli.collector" );
     like( $top_level_stop_named_collector, qr/Component\s+Target\s+Status/, 'dashboard stop collector <name> prints a table summary by default' );
     like( $top_level_stop_named_collector, qr/collector\s+cli\.collector\s+stopped/, 'dashboard stop collector <name> reports the named collector row' );

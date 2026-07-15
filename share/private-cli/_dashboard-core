@@ -588,7 +588,9 @@ elsif ( $cmd eq 'collector' ) {
     }
     elsif ( $action eq 'stop' ) {
         my $name = shift @ARGV || die "Usage: dashboard collector stop <name>\n";
-        my $pid = $runner->stop_loop($name);
+        my @stopped = $runtime->stop_collectors( names => [$name], structured => 1 );
+        my ($entry) = grep { ( $_->{name} || '' ) eq $name } @stopped;
+        my $pid = $entry ? $entry->{pid} : undef;
         print defined $pid ? "$pid\n" : '';
         exit 0;
     }
