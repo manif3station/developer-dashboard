@@ -650,6 +650,17 @@ elsif ( $cmd eq 'api' ) {
     );
     exit $exit_code;
 }
+elsif ( $cmd eq 'ask' ) {
+    require Developer::Dashboard::CLI::Ask;
+    my %ask_opts = ( args => \@ARGV );
+    if ( !-t STDIN ) {
+        local $/;
+        my $piped = <STDIN>;
+        $ask_opts{stdin} = $piped if defined $piped && $piped ne '';
+    }
+    my $exit_code = Developer::Dashboard::CLI::Ask::run_ask(%ask_opts);
+    exit $exit_code;
+}
 elsif ( $cmd eq 'init' ) {
     _migrate_saved_pages();
     my $migrated = [];

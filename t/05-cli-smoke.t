@@ -1957,7 +1957,10 @@ my $skill_dotted_dispatch = _run("$perl -I'$lib' '$dashboard' demo-skill.foo alp
 like( $skill_dotted_dispatch, qr/skill-hook/, 'dashboard <skill>.<command> runs skill-local hooks before the skill command body' );
 like( $skill_dotted_dispatch, qr/alpha\|beta/, 'dashboard <skill>.<command> forwards remaining args to the skill command body' );
 {
-    my $interactive_cli = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'ask' );
+    # 'ask' is now a reserved built-in command, so this stdin-passthrough check
+    # uses a non-reserved custom command name to keep exercising the user
+    # top-level command path (built-ins resolve before custom commands).
+    my $interactive_cli = File::Spec->catfile( $ENV{HOME}, '.developer-dashboard', 'cli', 'interactive-demo' );
     open my $interactive_cli_fh, '>', $interactive_cli or die "Unable to write $interactive_cli: $!";
     print {$interactive_cli_fh} <<'PERL';
 #!/usr/bin/env perl
@@ -1972,7 +1975,7 @@ PERL
     chmod 0755, $interactive_cli or die "Unable to chmod $interactive_cli: $!";
 
     my $top_level_prompt = _run_interactive_command(
-        command => [ $perl, '-I', $lib, $dashboard, 'ask' ],
+        command => [ $perl, '-I', $lib, $dashboard, 'interactive-demo' ],
         input   => "bar\n",
     );
     is( $top_level_prompt->{exit_code}, 0, 'dashboard top-level CLI command keeps stdin prompting interactive' );

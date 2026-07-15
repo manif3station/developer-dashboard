@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '4.17';
+our $VERSION = '4.18';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.17
+4.18
 
 =head1 INTRODUCTION
 
@@ -154,6 +154,13 @@ action execution with trusted and safer page boundaries
 =item *
 
 config-backed providers, path aliases, and compose overlays
+
+=item *
+
+asking an AI backend from the shell with C<dashboard ask>, over the Anthropic
+API, the local C<claude> CLI, or the C<codex>, C<copilot>, and C<gemini>
+command-line tools, keeping a per-workspace conversation so follow-up questions
+carry context and inlining C<--file> attachments
 
 =item *
 

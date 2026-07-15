@@ -588,6 +588,13 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
             'helper_content renders the shipped api wrapper body',
         );
     }
+    elsif ( $helper eq 'ask' ) {
+        like(
+            $content,
+            qr/\Qdashboard ask ...\E/,
+            'helper_content renders the shipped ask wrapper body',
+        );
+    }
     else {
         like(
             $content,
@@ -596,7 +603,7 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
         );
     }
 }
-for my $wrapper_helper (qw(encode decode indicator collector config auth api init cpan page action docker serve stop restart log shell doctor housekeeper skills)) {
+for my $wrapper_helper (qw(encode decode indicator collector config auth api ask init cpan page action docker serve stop restart log shell doctor housekeeper skills)) {
     my $managed_content = Developer::Dashboard::InternalCLI::_managed_helper_content($wrapper_helper);
     like(
         $managed_content,

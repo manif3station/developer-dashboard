@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-4.17
+4.18
 
 # INTRODUCTION
 
@@ -104,6 +104,10 @@ variables across `CODE*` blocks without leaking them into later page runs
 - a lightweight local web interface
 - action execution with trusted and safer page boundaries
 - config-backed providers, path aliases, and compose overlays
+- asking an AI backend from the shell with `dashboard ask`, over the Anthropic
+API, the local `claude` CLI, or the `codex`, `copilot`, and `gemini`
+command-line tools, keeping a per-workspace conversation so follow-up questions
+carry context and inlining `--file` attachments
 - update scripts and installable runtime packaging
 
 Managed runtime children are expected to clean up after themselves. Detached
