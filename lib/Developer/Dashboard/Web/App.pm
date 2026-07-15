@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '4.19';
+our $VERSION = '4.20';
 
 use Capture::Tiny qw(capture);
 use Digest::SHA qw(sha256_hex);
@@ -140,6 +140,7 @@ sub authorize_request {
     my $tier = $self->{auth}->trust_tier(
         remote_addr          => $args{remote_addr},
         host                 => $headers->{host},
+        ssl_proxied          => ( $ENV{DEVELOPER_DASHBOARD_SSL_PROXIED} ? 1 : 0 ),
         extra_loopback_hosts => (
             $config_has_web_settings
             ? ( $self->{config}->web_settings->{ssl_subject_alt_names} || [] )

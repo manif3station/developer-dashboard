@@ -1,3 +1,11 @@
+4.20  2026-07-15
+    - security: in `dashboard serve --ssl` the public front-proxy relays raw TLS
+      to the internal loopback backend, so every backend connection arrived from
+      127.0.0.1; combined with a `Host: 127.0.0.1` header a remote HTTPS client
+      was classified as trusted loopback admin and got unauthenticated admin.
+      The internal SSL backend now marks itself proxied and never grants the
+      loopback-admin shortcut, so remote HTTPS clients must authenticate.
+
 4.19  2026-07-15
     - ship `d2` as a real, installed command instead of only a shell-bootstrap
       alias: `bin/d2` is a first-class entrypoint that re-execs its sibling

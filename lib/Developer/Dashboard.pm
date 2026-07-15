@@ -3,7 +3,7 @@ package Developer::Dashboard;
 use strict;
 use warnings;
 
-our $VERSION = '4.19';
+our $VERSION = '4.20';
 
 1;
 
@@ -18,7 +18,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.19
+4.20
 
 =head1 INTRODUCTION
 
@@ -391,6 +391,14 @@ treated as local-admin when they still arrive from loopback
 
 helper access is for everyone else, including non-loopback IPs and other
 machines on the network
+
+=item *
+
+the loopback-admin shortcut applies only to direct (plain HTTP) connections;
+under C<dashboard serve --ssl> the public front-proxy relays TLS to an internal
+loopback backend, so every backend connection looks like loopback and cannot
+prove the real client is local -- in that mode the shortcut is disabled and
+even loopback HTTPS requests require a helper login
 
 =item *
 
