@@ -7,6 +7,7 @@ use utf8;
 use Test::More;
 use File::Temp qw(tempdir);
 use File::Spec;
+use Cwd qw(getcwd);
 use Capture::Tiny qw(capture);
 
 use Developer::Dashboard::JSON qw(json_encode json_decode);
@@ -25,6 +26,16 @@ my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME}                           = $home;
 local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} = tempdir( CLEANUP => 1 );
 delete local $ENV{ANTHROPIC_API_KEY};
+
+# The layered config root is derived from the CURRENT WORKING DIRECTORY's
+# deepest .developer-dashboard/ layer, not from $HOME. Run the whole test from a
+# throwaway directory so config writes (e.g. the config-file subtest's
+# save_global) land in temp space instead of polluting the repo's own
+# .developer-dashboard/config, which would break this and other tests on reruns.
+my $cwd_before = getcwd();
+my $work_root  = tempdir( CLEANUP => 1 );
+chdir $work_root or die "Unable to chdir to $work_root: $!";
+END { chdir $cwd_before if defined $cwd_before; }
 
 # A fake HTTP UA returning a canned reply and recording requests.
 {
