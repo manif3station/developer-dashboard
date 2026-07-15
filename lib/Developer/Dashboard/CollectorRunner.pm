@@ -57,6 +57,12 @@ sub run_once {
     die "Collector cwd '$cwd' does not exist" if !-d $cwd;
 
     my $started_at = _now_iso8601();
+    # Normalize the timeout to milliseconds once and persist it under its own
+    # field. Storing a millisecond value under the seconds-keyed 'timeout' field
+    # made a persisted-and-reloaded job (for example the Windows worker re-read,
+    # and the watchdog stale window) re-inflate the timeout by 1000x, so keep
+    # 'timeout' as seconds and record the derived 'timeout_ms' explicitly.
+    my $timeout_ms = $self->_normalize_timeout_ms($job);
     $self->{collectors}->write_job(
         $name,
         {
@@ -68,7 +74,8 @@ sub run_once {
             interval   => $job->{interval},
             cron       => $job->{cron},
             schedule   => $job->{schedule},
-            timeout    => $job->{timeout} || $job->{timeout_ms},
+            timeout    => $job->{timeout},
+            timeout_ms => $timeout_ms,
             env        => $job->{env},
             output_format => $job->{output_format},
             updated_at => $started_at,
@@ -91,7 +98,7 @@ sub run_once {
             source     => $source,
             cwd        => $cwd,
             env        => $job->{env},
-            timeout_ms => $job->{timeout_ms} || ( $job->{timeout} ? $job->{timeout} * 1000 : undef ),
+            timeout_ms => $timeout_ms,
         );
 
         if ( $self->{indicators} && ref( $job->{indicator} ) eq 'HASH' ) {
@@ -154,6 +161,21 @@ sub run_once {
         stderr    => $stderr,
         timed_out => $timed_out ? 1 : 0,
     };
+}
+
+# _normalize_timeout_ms($job)
+# Normalizes a collector job timeout to milliseconds, preferring an explicit
+# millisecond value and otherwise converting the seconds-keyed timeout, so a
+# persisted-and-reloaded job keeps the same effective timeout instead of being
+# re-inflated by 1000x.
+# Input: collector job hash reference.
+# Output: timeout in milliseconds, or undef when no timeout is configured.
+sub _normalize_timeout_ms {
+    my ( $self, $job ) = @_;
+    return undef if ref($job) ne 'HASH';
+    return $job->{timeout_ms} if $job->{timeout_ms};
+    return $job->{timeout} * 1000 if $job->{timeout};
+    return undef;
 }
 
 # _materialize_indicator_state(%args)
@@ -1533,7 +1555,11 @@ sub _job_is_due {
 # Output: boolean due flag.
 sub _cron_due {
     my ( $self, $expr, $name ) = @_;
-    return 1 if !defined $expr || $expr eq '' || $expr eq '* * * * *';
+    # A missing expression means "always due". A fully-wildcard "* * * * *" must
+    # NOT short-circuit here: it has to fall through to the per-minute
+    # last_cron_slot de-duplication below, otherwise it fires on every
+    # one-second cron scheduling tick (~60x/minute) instead of once per minute.
+    return 1 if !defined $expr || $expr eq '';
     my @now = localtime();
     my @parts = split /\s+/, $expr;
     return 0 if @parts < 5;
@@ -1592,7 +1618,7 @@ sub _run_command {
         alarm( int( ( $timeout_ms + 999 ) / 1000 ) );
         my $ok = eval {
             system shell_command_argv( $cmd, login => 0 );
-            return $? >> 8;
+            return _exit_code_from_status($?);
         };
         if ($@) {
             die $@ if $@ !~ /__COLLECTOR_TIMEOUT__/;
@@ -1605,6 +1631,20 @@ sub _run_command {
     alarm(0);
     chdir $old or die "Unable to restore cwd to $old: $!";
     return ( $stdout, $stderr, $exit_code, $timed_out );
+}
+
+# _exit_code_from_status($status)
+# Converts a raw child wait status into a collector exit code that stays
+# non-zero when the command was terminated by a signal, so a crashed or killed
+# run is never mistaken for a successful (exit 0) run.
+# Input: raw $? style wait status integer (or undef).
+# Output: non-negative exit code integer.
+sub _exit_code_from_status {
+    my ($status) = @_;
+    $status = 0 if !defined $status;
+    my $signal = $status & 127;
+    return 128 + $signal if $signal;
+    return $status >> 8;
 }
 
 # _run_code(%args)
