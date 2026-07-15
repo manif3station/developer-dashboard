@@ -50,10 +50,24 @@ sub load_global {
 # Output: written file path string.
 sub save_global {
     my ( $self, $config ) = @_;
-    my $file = $self->_global_config_file;
-    open my $fh, '>:raw', $file or die "Unable to write $file: $!";
-    print {$fh} json_encode( $config || {} );
-    close $fh;
+    return $self->_write_json_atomic( $self->_global_config_file, json_encode( $config || {} ) );
+}
+
+# _write_json_atomic($file, $text)
+# Persists JSON text to a config file atomically: it stages the payload in a
+# sibling temporary file, hardens the temp file, checks close(), and renames it
+# over the target so a concurrent reader never observes a truncated or
+# partially written config, and a failed write never destroys the previous file.
+# Input: destination config file path string and already-encoded JSON text.
+# Output: written destination file path string.
+sub _write_json_atomic {
+    my ( $self, $file, $text ) = @_;
+    my $temp = $file . '.tmp.' . $$ . '.' . int( rand(1_000_000) );
+    open my $fh, '>:raw', $temp or die "Unable to write $temp: $!";
+    print {$fh} $text;
+    close $fh or die "Unable to close $temp: $!";
+    $self->{paths}->secure_file_permissions($temp);
+    rename $temp, $file or die "Unable to rename $temp to $file: $!";
     $self->{paths}->secure_file_permissions($file);
     return $file;
 }
@@ -137,6 +151,16 @@ sub _merge_hashes {
         }
         $merged{$key} = $right->{$key};
     }
+
+    # Collectors (by name) and providers (by id) are logical sets, so a single
+    # contributing layer that already lists the same identity twice must not
+    # leak a duplicate into the merged view. Re-collapse them by identity after
+    # the merge regardless of how many layers contributed, letting the last
+    # duplicate's fields win.
+    $merged{collectors} = $self->_merge_named_hash_array( [], $merged{collectors}, 'name' )
+      if ref( $merged{collectors} ) eq 'ARRAY';
+    $merged{providers} = $self->_merge_named_hash_array( [], $merged{providers}, 'id' )
+      if ref( $merged{providers} ) eq 'ARRAY';
 
     return \%merged;
 }
@@ -628,16 +652,15 @@ sub save_writable_api_registry {
     my ( $self, $registry ) = @_;
     my $file = $self->_global_api_file;
     $self->{paths}->ensure_dir( $self->{paths}->config_root );
-    open my $fh, '>:raw', $file or die "Unable to write $file: $!";
-    print {$fh} json_encode(
-        $self->_normalize_api_keys(
-            $registry || {},
-            preserve_disabled => 1,
-        )
+    return $self->_write_json_atomic(
+        $file,
+        json_encode(
+            $self->_normalize_api_keys(
+                $registry || {},
+                preserve_disabled => 1,
+            )
+        ),
     );
-    close $fh or die "Unable to close $file: $!";
-    $self->{paths}->secure_file_permissions($file);
-    return $file;
 }
 
 # providers()
