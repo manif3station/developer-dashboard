@@ -6,12 +6,22 @@ use warnings;
 our $VERSION = '4.20';
 
 use Fcntl qw(:mode);
-use Digest::SHA qw(sha256_hex);
+use Digest::SHA qw(sha256_hex hmac_sha256);
 use File::Spec;
 use POSIX qw(strftime);
 use Socket qw(AF_INET AF_INET6 SOCK_STREAM getaddrinfo inet_ntoa inet_ntop unpack_sockaddr_in unpack_sockaddr_in6);
 
 use Developer::Dashboard::JSON qw(json_encode json_decode);
+
+# Work factor for the PBKDF2-HMAC-SHA256 helper-password scheme. This is the
+# iteration count new helper passwords are stretched with; it is also recorded
+# per-record so each stored hash is always verified with its own work factor.
+my $PBKDF2_ITERATIONS = 210_000;
+
+# Scheme label stored in a helper-user record so verify_user knows which
+# derivation to reproduce. Records without this key are legacy single-round
+# SHA-256 hashes and are still accepted for backward compatibility.
+my $PBKDF2_SCHEME = 'pbkdf2-hmac-sha256';
 
 # new(%args)
 # Constructs an auth manager bound to file and path registries.
@@ -52,7 +62,9 @@ sub trust_tier {
 # add_user(%args)
 # Creates or replaces a file-backed helper user record.
 # Input: username, password, and optional role.
-# Output: saved user hash reference.
+# Output: saved user hash reference; the stored password is stretched with
+# PBKDF2-HMAC-SHA256 and the scheme/iteration work factor is recorded alongside
+# it so verification can reproduce the exact derivation later.
 sub add_user {
     my ( $self, %args ) = @_;
     my $username = $args{username} || die 'Missing username';
@@ -62,13 +74,16 @@ sub add_user {
       if $username !~ /\A[A-Za-z0-9_.-]{1,64}\z/;
     die 'Password must be at least 8 characters long'
       if length($password) < 8;
-    my $salt     = sha256_hex( join ':', $$, time, rand(), $username );
-    my $record   = {
-        username      => $username,
-        role          => $role,
-        salt          => $salt,
-        password_hash => $self->_password_hash( $username, $password, $salt ),
-        updated_at    => _now_iso8601(),
+    my $salt       = sha256_hex( join ':', $$, time, rand(), $username );
+    my $iterations = $PBKDF2_ITERATIONS;
+    my $record     = {
+        username        => $username,
+        role            => $role,
+        salt            => $salt,
+        password_scheme => $PBKDF2_SCHEME,
+        iterations      => $iterations,
+        password_hash   => _pbkdf2_hmac_sha256_hex( $password, $salt, $iterations ),
+        updated_at      => _now_iso8601(),
     };
     my $file = $self->_user_file($username);
     open my $fh, '>:raw', $file or die "Unable to write $file: $!";
@@ -81,15 +96,32 @@ sub add_user {
 # verify_user(%args)
 # Verifies a username/password pair against stored auth data.
 # Input: username and password.
-# Output: user hash reference on success or undef on failure.
+# Output: user hash reference on success or undef on failure. New records are
+# verified with PBKDF2-HMAC-SHA256; pre-existing single-round SHA-256 records
+# stay verifiable so upgrading the scheme never locks out established users.
 sub verify_user {
     my ( $self, %args ) = @_;
     my $username = $args{username} || return;
     my $password = $args{password} || return;
     my $user = $self->get_user($username) or return;
-    my $expected = $self->_password_hash( $username, $password, $user->{salt} );
-    return if $expected ne $user->{password_hash};
+    my $expected = $self->_expected_password_hash( $user, $username, $password );
+    return if !_secure_compare( $expected, $user->{password_hash} );
     return $user;
+}
+
+# _expected_password_hash($user, $username, $password)
+# Recomputes the stored password hash for a record using that record's own
+# scheme so legacy and stretched records both verify against the right
+# derivation.
+# Input: stored user hash reference, username string, candidate password string.
+# Output: expected password-hash hex string for the record's declared scheme.
+sub _expected_password_hash {
+    my ( $self, $user, $username, $password ) = @_;
+    if ( ( $user->{password_scheme} || '' ) eq $PBKDF2_SCHEME ) {
+        my $iterations = $user->{iterations} || $PBKDF2_ITERATIONS;
+        return _pbkdf2_hmac_sha256_hex( $password, $user->{salt}, $iterations );
+    }
+    return $self->_password_hash( $username, $password, $user->{salt} );
 }
 
 # get_user($username)
@@ -332,12 +364,45 @@ sub _ip_is_loopback {
 }
 
 # _password_hash($username, $password, $salt)
-# Derives the stored password hash for a user.
+# Derives the legacy single-round SHA-256 password hash for a user. Retained
+# only so pre-existing helper records created before password stretching keep
+# verifying; new records use the PBKDF2 scheme instead.
 # Input: username string, password string, salt string.
 # Output: hash string.
 sub _password_hash {
     my ( $self, $username, $password, $salt ) = @_;
     return sha256_hex( join ':', $salt, $username, $password );
+}
+
+# _pbkdf2_hmac_sha256_hex($password, $salt, $iterations)
+# Stretches a password with PBKDF2-HMAC-SHA256 (RFC 2898). The 32-byte SHA-256
+# output equals the derived-key length, so exactly one output block is needed.
+# Input: password string, salt string, positive iteration count.
+# Output: 64-character lowercase hex string of the derived key.
+sub _pbkdf2_hmac_sha256_hex {
+    my ( $password, $salt, $iterations ) = @_;
+    my $u      = hmac_sha256( $salt . pack( 'N', 1 ), $password );
+    my $result = $u;
+    for ( 2 .. $iterations ) {
+        $u = hmac_sha256( $u, $password );
+        $result ^= $u;
+    }
+    return unpack( 'H*', $result );
+}
+
+# _secure_compare($left, $right)
+# Compares two strings in length-constant time so password-hash verification
+# does not leak how many leading characters matched through timing.
+# Input: two strings (either may be undef).
+# Output: boolean true only when both are defined, equal length, and identical.
+sub _secure_compare {
+    my ( $left, $right ) = @_;
+    return 0 if !defined $left || !defined $right;
+    return 0 if length($left) != length($right);
+    my $diff = 0;
+    $diff |= ord( substr( $left, $_, 1 ) ) ^ ord( substr( $right, $_, 1 ) )
+      for 0 .. length($left) - 1;
+    return $diff == 0 ? 1 : 0;
 }
 
 # _now_iso8601()
@@ -369,6 +434,12 @@ Loopback requests using loopback-local hosts such as C<127.0.0.1>,
 C<localhost>, or configured local alias names can be treated as trusted admin
 access, while other requests authenticate through file-backed helper user
 records.
+
+Helper passwords are stored stretched with PBKDF2-HMAC-SHA256 and each record
+carries its own scheme label and iteration work factor. Helper records written
+before stretching was introduced used a single-round salted SHA-256 hash and
+are still accepted, so tightening the scheme never locks out an established
+helper user.
 
 =head1 METHODS
 
