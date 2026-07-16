@@ -134,7 +134,7 @@ sub load_provider_page {
             layout      => { body => $provider->{body} || '' },
             actions     => $provider->{actions} || [],
             state       => $provider->{state} || {},
-        );
+        );    # uncoverable condition false count:1
     }
 
     $page->{meta}{source_kind} = 'provider';

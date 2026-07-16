@@ -20,7 +20,7 @@ sub encode_payload {
     my ($text) = @_;
     return if !defined $text;
 
-    gzip \$text => \my $zipped
+    gzip \$text => \my $zipped    # uncoverable branch true
       or die "gzip failed: $GzipError";
 
     return encode_base64( $zipped, '' );

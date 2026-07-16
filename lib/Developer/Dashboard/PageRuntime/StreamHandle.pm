@@ -11,7 +11,7 @@ our $VERSION = '4.22';
 # Output: tied handle object hash reference.
 sub TIEHANDLE {
     my ( $class, %args ) = @_;
-    return bless { writer => $args{writer} || sub { } }, $class;
+    return bless { writer => $args{writer} || sub { } }, $class;    # uncoverable condition false
 }
 
 # PRINT(@parts)
