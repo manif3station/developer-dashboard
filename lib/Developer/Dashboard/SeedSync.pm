@@ -36,7 +36,7 @@ sub file_matches_content_md5 {
     return 0 if !defined $path || $path eq '' || !-f $path;
     open my $fh, '<:raw', $path or die "Unable to read $path: $!";
     my $existing = do { local $/; <$fh> };
-    close $fh or die "Unable to close $path: $!";
+    close $fh or die "Unable to close $path: $!";    # uncoverable branch true
     return same_content_md5( $existing, $content );
 }
 

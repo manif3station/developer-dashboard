@@ -76,7 +76,7 @@ sub run {
         };
         my $output = $stdout . $stderr;
 
-        print $output if defined $output && $output ne '';
+        print $output if defined $output && $output ne ''; # uncoverable condition left
         print "\n>> Finished.\n\n";
 
         push @results, {

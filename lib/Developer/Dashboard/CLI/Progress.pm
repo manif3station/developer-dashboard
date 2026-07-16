@@ -19,7 +19,7 @@ sub new {
         my $id   = $task->{id} || die 'Progress task missing id';
         $id => {
             id           => $id,
-            label        => $task->{label} || $id,
+            label        => $task->{label} || $id,    # uncoverable condition false
             status       => 'pending',
             detail_lines => [],
         }
@@ -67,7 +67,7 @@ sub add_tasks {
         push @{ $self->{order} }, $id;
         $self->{tasks}{$id} = {
             id           => $id,
-            label        => $task->{label} || $id,
+            label        => $task->{label} || $id,    # uncoverable condition false
             status       => 'pending',
             detail_lines => [],
         };
