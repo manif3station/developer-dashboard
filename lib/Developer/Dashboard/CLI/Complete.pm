@@ -60,7 +60,7 @@ sub complete {
     }
 
     my %seen;
-    return grep { !$seen{$_}++ } grep { !defined $current || $current eq '' || index( $_, $current ) == 0 } @candidates;
+    return grep { !$seen{$_}++ } grep { $current eq '' || index( $_, $current ) == 0 } @candidates;
 }
 
 # _subcommand_candidates($command)
@@ -101,8 +101,8 @@ sub _collector_names {
     my $home = $ENV{HOME} || '';
     my $paths = Developer::Dashboard::PathRegistry->new(
         home            => $home,
-        workspace_roots => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],
-        project_roots   => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],
+        workspace_roots => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
+        project_roots   => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
     );
     my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
     my $config = Developer::Dashboard::Config->new(
@@ -115,7 +115,7 @@ sub _collector_names {
     my @names;
     for my $job ( @{ $config->collectors } ) {
         my $name = ref($job) eq 'HASH' ? $job->{name} : undef;
-        next if !defined $name || $name eq '' || $seen{$name}++;
+        next if !defined $name || $name eq '' || $seen{$name}++;    # uncoverable condition right
         push @names, $name;
     }
     for my $status ( $collector->list_collectors ) {
