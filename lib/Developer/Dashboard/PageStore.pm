@@ -246,7 +246,7 @@ sub _load_page_file {
         );
     }
 
-    die( $@ || "Unable to load bookmark file $file" );
+    die $@;
 }
 
 # _raw_nav_fragment_page(%args)
@@ -286,8 +286,8 @@ sub _read_saved_instruction {
     open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
     my $raw = <$fh>;
-    close $fh or die "Unable to close $file: $!";
-    return '' if !defined $raw;
+    close $fh or die "Unable to close $file: $!";    # uncoverable branch true
+    return '' if !defined $raw;    # uncoverable branch true
     my $text = eval { decode( 'UTF-8', $raw, FB_CROAK ) } || decode( 'UTF-8', $raw, FB_DEFAULT );
     return $self->_normalize_legacy_icon_markup($text);
 }
