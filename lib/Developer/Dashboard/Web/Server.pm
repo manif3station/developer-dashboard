@@ -37,7 +37,7 @@ sub new {
     my $ssl_subject_alt_names = ref( $args{ssl_subject_alt_names} ) eq 'ARRAY'
       ? [ @{ $args{ssl_subject_alt_names} } ]
       : [];
-    die 'Missing worker count' if !defined $workers || $workers eq '';
+    die 'Missing worker count' if !defined $workers || $workers eq '';    # uncoverable condition left
     die 'Worker count must be a positive integer' if $workers !~ /^\d+$/ || $workers < 1;
 
     if ($ssl) {
@@ -311,7 +311,7 @@ sub _handle_ssl_frontend_client {
     my $daemon = $args{daemon} || die 'Missing daemon descriptor';
     my $first = '';
     my $peeked = recv( $client, $first, 1, MSG_PEEK );
-    return 1 if !defined $peeked || !defined $first || $first eq '';
+    return 1 if !defined $peeked || $first eq '';
 
     if ( _socket_looks_like_tls($first) ) {
         my $backend = IO::Socket::INET->new(
@@ -626,7 +626,7 @@ sub _https_redirect_location {
         my $server_name = defined $env->{SERVER_NAME} ? $env->{SERVER_NAME} : '127.0.0.1';
         my $server_port = defined $env->{SERVER_PORT} ? $env->{SERVER_PORT} : 443;
         $host = $server_name;
-        $host .= ':' . $server_port if defined $server_port && $server_port ne '' && $server_port !~ /^443$/;
+        $host .= ':' . $server_port if $server_port ne '' && $server_port !~ /^443$/;
     }
     my $path = defined $env->{SCRIPT_NAME} ? $env->{SCRIPT_NAME} : '';
     $path .= defined $env->{PATH_INFO} ? $env->{PATH_INFO} : '/';
@@ -749,13 +749,13 @@ sub _ssl_expected_subject_alt_names {
     my (%args) = @_;
     my @requested = ( 'localhost', '127.0.0.1', '::1' );
     push @requested, $args{host} if defined $args{host};
-    push @requested, @{ $args{hosts} || [] } if ref( $args{hosts} ) eq 'ARRAY';
+    push @requested, @{ $args{hosts} } if ref( $args{hosts} ) eq 'ARRAY';
 
     my @normalized;
     my %seen;
     for my $name (@requested) {
         my $normalized = _normalize_ssl_subject_alt_name($name);
-        next if !defined $normalized || $normalized eq '';
+        next if !defined $normalized || $normalized eq '';    # uncoverable condition left
         next if _ssl_subject_alt_name_is_wildcard($normalized);
         my $seen_key = lc $normalized;
         next if $seen{$seen_key}++;

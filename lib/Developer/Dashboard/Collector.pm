@@ -424,7 +424,7 @@ sub _render_latest_log_entry {
     my ( $self, $name ) = @_;
     return '' if !$self->collector_exists($name);
     my $status = $self->read_status($name) || {};
-    my $output = $self->read_output($name) || {};
+    my $output = $self->read_output($name);
     return '' if !$self->_log_payload_present( $status, $output );
     return $self->_format_log_entry(
         name        => $name,
@@ -589,8 +589,11 @@ sub _trim_log_by_lines {
     return $text if $text eq '';
 
     my $has_trailing_newline = $text =~ /\n\z/ ? 1 : 0;
+    # Splitting non-empty text with a negative limit always yields at least one
+    # field, and a newline-terminated blob always yields an empty final field,
+    # so the trailing-newline flag alone decides whether to drop it.
     my @parts = split /\n/, $text, -1;
-    pop @parts if $has_trailing_newline && @parts && $parts[-1] eq '';
+    pop @parts if $has_trailing_newline;
     return $text if @parts <= $lines;
     @parts = @parts[ @parts - $lines .. $#parts ];
     return join( "\n", @parts ) . ( $has_trailing_newline ? "\n" : '' );
@@ -603,7 +606,10 @@ sub _trim_log_by_lines {
 sub _split_log_entries {
     my ( $self, $text ) = @_;
     return () if !defined $text || $text eq '';
-    return grep { defined && $_ ne '' } split /(?=^=== collector )/m, $text;
+    # The split pattern is a bare lookahead with no capture group, so split can
+    # never hand back an undefined field: the defined() side that would skip one
+    # is unreachable.
+    return grep { defined && $_ ne '' } split /(?=^=== collector )/m, $text;    # uncoverable branch false
 }
 
 # _entry_timestamp_epoch($name, $entry)

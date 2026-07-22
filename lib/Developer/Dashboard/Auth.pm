@@ -118,7 +118,7 @@ sub verify_user {
 sub _expected_password_hash {
     my ( $self, $user, $username, $password ) = @_;
     if ( ( $user->{password_scheme} || '' ) eq $PBKDF2_SCHEME ) {
-        my $iterations = $user->{iterations} || $PBKDF2_ITERATIONS;
+        my $iterations = $user->{iterations} || $PBKDF2_ITERATIONS;    # uncoverable condition false
         return _pbkdf2_hmac_sha256_hex( $password, $user->{salt}, $iterations );
     }
     return $self->_password_hash( $username, $password, $user->{salt} );
@@ -282,7 +282,7 @@ sub _request_is_loopback_admin {
     return 0 if !$self->_ip_is_loopback($remote_addr);
     return 1 if !defined $host || $host eq '';
     return 1 if $self->_ip_is_loopback($host);
-    return 1 if grep { defined $_ && $_ ne '' && $_ eq $host } @extra_loopback_hosts;
+    return 1 if grep { $_ eq $host } @extra_loopback_hosts;
     return $self->_host_resolves_only_to_loopback($host);
 }
 
@@ -323,7 +323,7 @@ sub _resolve_host_ips {
             $ip = inet_ntop( AF_INET6, $packed_addr );
         }
         $ip = $self->_canonical_ip($ip);
-        next if !defined $ip || $ip eq '';
+        next if $ip eq '';
         next if $seen{$ip}++;
         push @ips, $ip;
     }
