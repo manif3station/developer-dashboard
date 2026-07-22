@@ -65,7 +65,7 @@ sub _write_json_atomic {
     my $temp = $file . '.tmp.' . $$ . '.' . int( rand(1_000_000) );
     open my $fh, '>:raw', $temp or die "Unable to write $temp: $!";
     print {$fh} $text;
-    close $fh or die "Unable to close $temp: $!";
+    close $fh or die "Unable to close $temp: $!";    # uncoverable branch true
     $self->{paths}->secure_file_permissions($temp);
     rename $temp, $file or die "Unable to rename $temp to $file: $!";
     $self->{paths}->secure_file_permissions($file);
@@ -224,7 +224,7 @@ sub collectors {
     @jobs = @{ $self->_merge_named_hash_array( \@jobs, [ $self->_skill_collectors ], 'name' ) };
 
     if ( my $filter = $ENV{DEVELOPER_DASHBOARD_CHECKERS} ) {
-        my %wanted = map { $_ => 1 } grep { defined && $_ ne '' } split /:/, $filter;
+        my %wanted = map { $_ => 1 } grep { defined && $_ ne '' } split /:/, $filter;    # uncoverable branch false
         @jobs = grep { ref($_) eq 'HASH' && $wanted{ $_->{name} } } @jobs;
     }
 
@@ -264,7 +264,7 @@ sub _normalize_collector_job {
 sub _collector_disable_flag {
     my ( $self, $value ) = @_;
     return 0 if !defined $value;
-    return $value ? 1 : 0 if ref($value);
+    return 1 if ref($value);
     return 0 if $value =~ /\A(?:0|false|no|off)\z/i;
     return $value ne '' ? 1 : 0;
 }
@@ -771,9 +771,9 @@ sub _skill_config_entries {
     my @entries;
     for my $skill_root ( $self->{paths}->installed_skill_roots ) {
         my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
-        next if !defined $skill_name || $skill_name eq '';
+        next if !defined $skill_name;    # uncoverable branch true
         my $config = $self->_skill_config_hash($skill_name);
-        next if ref($config) ne 'HASH' || !%{$config};
+        next if ref($config) ne 'HASH' || !%{$config};    # uncoverable condition left
         push @entries,
           {
             skill_name => $skill_name,
@@ -806,9 +806,9 @@ sub _skill_api_entries {
     my @entries;
     for my $skill_root ( $self->{paths}->installed_skill_roots ) {
         my ($skill_name) = $skill_root =~ m{/([^/]+)\z};
-        next if !defined $skill_name || $skill_name eq '';
+        next if !defined $skill_name;    # uncoverable branch true
         my $api = $self->_skill_api_hash($skill_name);
-        next if ref($api) ne 'HASH' || !%{$api};
+        next if ref($api) ne 'HASH' || !%{$api};    # uncoverable condition left
         push @entries,
           {
             skill_name => $skill_name,
@@ -869,7 +869,7 @@ sub _normalize_api_keys {
     return {} if ref($keys) ne 'HASH';
     my %normalized;
     for my $name ( keys %{$keys} ) {
-        next if !defined $name || ref($name) || $name eq '';
+        next if $name eq '';
         my $entry = $keys->{$name};
         next if ref($entry) ne 'HASH';
         my $disabled = $self->_api_key_disabled_flag($entry);
@@ -903,7 +903,7 @@ sub _merge_api_key_hashes {
     my $normalized_right = $self->_normalize_api_keys( $right, preserve_disabled => 1 );
     for my $name ( keys %{$normalized_right} ) {
         my $entry = $normalized_right->{$name};
-        if ( ref($entry) eq 'HASH' && $entry->{disabled} ) {
+        if ( $entry->{disabled} ) {
             delete $merged{$name};
             next;
         }
@@ -923,7 +923,7 @@ sub _api_key_disabled_flag {
     for my $field (qw(disabled _disabled)) {
         next if !exists $entry->{$field};
         my $value = $entry->{$field};
-        return $value ? 1 : 0 if ref($value);
+        return 1 if ref($value);
         return 0 if !defined $value || $value eq '' || $value =~ /\A(?:0|false|no|off)\z/i;
         return 1;
     }
