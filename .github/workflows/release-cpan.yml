@@ -23,7 +23,7 @@ jobs:
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v5.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v5.2.2
 
       - name: Setup Perl
         uses: shogo82148/actions-setup-perl@9c1eca9952ccc07f9ca4a2097b63df93d9d138e9  # v1.32.0
