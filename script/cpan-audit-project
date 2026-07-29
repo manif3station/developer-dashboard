@@ -21,14 +21,14 @@ repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 perl5_root="$(CDPATH= cd -- "$1" && pwd)"
 exclusions="$repo_root/cpan-audit-exclusions.txt"
 
-if grep -R -n -E "Plack::Middleware::XSendfile|(enable|enable_if)[[:space:]\(]+['\"](Plack::Middleware::)?XSendfile['\"]|X-Sendfile-Type|X-Accel-Mapping" \
-  "$repo_root/bin" "$repo_root/lib" "$repo_root/share"; then
+if grep -R -n -E "Plack::Middleware::XSendfile|(enable|enable_if)[[:space:]\(]+(['\"](Plack::Middleware::)?XSendfile['\"]|XSendfile([[:space:];,)]+|$))|X-Sendfile-Type|X-Accel-Mapping" \
+  "$repo_root/app.psgi" "$repo_root/bin" "$repo_root/lib" "$repo_root/share"; then
   printf '%s\n' 'CPANSA-Plack-2026-7381 exclusion invalid: XSendfile middleware is activated by production code' >&2
   exit 1
 fi
 
 if grep -R -n -E 'File::Temp[[:space:]]*(->|::)[[:space:]]*safe_level[[:space:]]*\(' \
-  "$repo_root/bin" "$repo_root/lib" "$repo_root/share"; then
+  "$repo_root/app.psgi" "$repo_root/bin" "$repo_root/lib" "$repo_root/share"; then
   printf '%s\n' 'CPANSA-File-Temp-2011-4116 exclusion invalid: File::Temp vulnerable safety checks are activated by production code' >&2
   exit 1
 fi

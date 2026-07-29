@@ -74,6 +74,7 @@ like( $audit, qr/--perl/, 'audit gate includes the isolated Perl runtime in its 
 like( $audit, qr/--exclude-file/, 'audit gate consumes the reviewed advisory disposition file' );
 like( $audit, qr/Plack::Middleware::XSendfile/, 'audit gate guards against Plack XSendfile use before applying its disposition' );
 like( $audit, qr/File::Temp.*safe_level/s, 'audit gate guards activation of the vulnerable File::Temp safety checks before applying its disposition' );
+like( $audit, qr/\$repo_root\/app\.psgi/, 'audit gate scans the shipped PSGI activation surface' );
 
 my @exclusions = grep { /\S/ && !/^\s*#/ } split /\n/, $exclude;
 is_deeply(
@@ -85,6 +86,8 @@ is_deeply(
 like( $workflow, qr/perl-version:\s*'5\.44'/, 'CI exercises the hardened Perl baseline' );
 like( $workflow, qr/cpanm\s+--installdeps\s+--notest\s+-L\s+local\s+\./, 'CI installs project dependencies into an isolated local root' );
 like( $workflow, qr/script\/cpan-audit-project\s+local\/lib\/perl5/, 'CI executes the project audit gate against that isolated root' );
+like( $workflow, qr/echo\s+"\$GITHUB_WORKSPACE\/audit-local\/bin"\s+>>\s+"\$GITHUB_PATH"/, 'CI adds cpan-audit to the preserved runner PATH' );
+unlike( $workflow, qr/PATH:\s*\$\{\{\s*env\.PATH\s*\}\}/, 'CI does not replace the runner PATH with an unavailable env context value' );
 like( $installer, qr/PERLBREW_PERL="\$\{DD_INSTALL_PERLBREW_PERL:-perl-5\.44\.0\}"/, 'bootstrap fallback builds the hardened Perl 5.44 runtime' );
 like( $installer, qr/MIN_PERL_VERSION='5\.044'/, 'bootstrap rejects host Perl releases below 5.44' );
 like( $main_pod, qr/older than the required\s+C<5\.44>/, 'installation documentation names the hardened Perl baseline' );
@@ -114,32 +117,39 @@ my $sh_rc = 0;
     like( $bogus_out, qr/Usage:/, 'audit gate prints a usage diagnostic on missing root' );
 }
 
-# Executable proof: ordinary Plack builder activation invalidates the XSendfile disposition.
-{
+# Executable proof: quoted and bareword Plack builder activation invalidate the XSendfile disposition.
+for my $activation ( q{enable 'XSendfile'}, q{enable XSendfile} ) {
     my $fixture = File::Spec->catfile( $ROOT, 'lib', 'T107XSendfileFixture.pm' );
     my $scan_root = File::Spec->catdir( $ROOT, '.t107-guard-root' );
     make_path($scan_root);
-    _write_file( $fixture, "use Plack::Builder;\nbuilder { enable 'XSendfile'; sub { [ 200, [], [] ] } };\n" );
+    _write_file( $fixture, "use Plack::Builder;\nbuilder { $activation; sub { [ 200, [], [] ] } };\n" );
     my ( $rc, $out ) = _run_gate($scan_root);
-    isnt( $rc, 0, 'audit gate rejects normal Plack builder XSendfile activation' );
-    like( $out, qr/CPANSA-Plack-2026-7381 exclusion invalid/, 'XSendfile activation reports its exact advisory disposition' );
+    isnt( $rc, 0, "audit gate rejects Plack builder activation: $activation" );
+    like( $out, qr/CPANSA-Plack-2026-7381 exclusion invalid/, "$activation reports its exact advisory disposition" );
     unlink $fixture or die "unlink $fixture: $!";
     remove_tree($scan_root);
 }
 
-# Executable proof: public File::Temp activation at MEDIUM/HIGH invalidates its disposition.
-{
+# Executable proof: every public constructor at MEDIUM/HIGH invalidates the File::Temp disposition.
+for my $case (
+    [ MEDIUM => 'tempfile' ],
+    [ MEDIUM => 'tempdir' ],
+    [ HIGH   => 'tempfile' ],
+    [ HIGH   => 'tempdir' ],
+) {
+    my ( $level, $constructor ) = @$case;
     my $fixture = File::Spec->catfile( $ROOT, 'lib', 'T107FileTempFixture.pm' );
     my $scan_root = File::Spec->catdir( $ROOT, '.t107-guard-root' );
     make_path($scan_root);
-    _write_file( $fixture, <<'PERL' );
-use File::Temp qw(tempfile);
-File::Temp->safe_level( File::Temp::MEDIUM );
-my ( $fh, $path ) = tempfile();
-PERL
+    _write_file(
+        $fixture,
+        "use File::Temp qw($constructor);\n"
+          . "File::Temp->safe_level( File::Temp::$level );\n"
+          . "$constructor();\n",
+    );
     my ( $rc, $out ) = _run_gate($scan_root);
-    isnt( $rc, 0, 'audit gate rejects public File::Temp vulnerable-path activation' );
-    like( $out, qr/CPANSA-File-Temp-2011-4116 exclusion invalid/, 'File::Temp activation reports its exact advisory disposition' );
+    isnt( $rc, 0, "audit gate rejects File::Temp $level $constructor activation" );
+    like( $out, qr/CPANSA-File-Temp-2011-4116 exclusion invalid/, "$level $constructor reports its exact advisory disposition" );
     unlink $fixture or die "unlink $fixture: $!";
     remove_tree($scan_root);
 }
@@ -157,6 +167,7 @@ PERL
     my ( $bad_rc, $bad_out ) = _run_gate($bad);
     isnt( $bad_rc, 0, 'audit gate is non-zero for a real vulnerable HTTP-Tiny fixture' );
     like( $bad_out, qr/HTTP-Tiny.*0\.086.*advisor/is, 'audit output attributes failure to vulnerable HTTP-Tiny 0.086' );
+    like( $bad_out, qr/CPANSA-HTTP-Tiny-2026-7017/, 'vulnerable fixture reports the expected advisory ID' );
     remove_tree($bad);
 }
 
