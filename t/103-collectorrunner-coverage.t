@@ -792,6 +792,96 @@ like( ( eval { $runner->_run_command( source => 'true', cwd => File::Spec->catdi
     ok( $timed_out, '_run_command flags a timed-out command' );
 }
 
+# Command-launcher pid tracking and platform-specific subtree cleanup branches.
+{
+    my $pidfile = File::Spec->catfile( $home, 'command.pid' );
+    ok( !defined $runner->_command_pid_from_file(undef), '_command_pid_from_file rejects an undef path' );
+    ok( !defined $runner->_command_pid_from_file(''), '_command_pid_from_file rejects an empty path' );
+    ok( !defined $runner->_command_pid_from_file($pidfile), '_command_pid_from_file rejects a missing file' );
+
+    open my $fh, '>', $pidfile or die $!;
+    print {$fh} "not-a-pid\n";
+    close $fh;
+    ok( !defined $runner->_command_pid_from_file($pidfile), '_command_pid_from_file rejects non-numeric content' );
+
+    open $fh, '>', $pidfile or die $!;
+    print {$fh} "0\n";
+    close $fh;
+    ok( !defined $runner->_command_pid_from_file($pidfile), '_command_pid_from_file rejects pid zero' );
+
+    open $fh, '>', $pidfile or die $!;
+    print {$fh} "4242\n";
+    close $fh;
+    is( $runner->_command_pid_from_file($pidfile), 4242, '_command_pid_from_file returns a positive pid' );
+
+    is( $runner->_await_command_pid($pidfile), 4242,
+        '_await_command_pid returns a pid as soon as the launcher records it' );
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CollectorRunner::_command_pid_from_file = sub { return undef };
+        local *Developer::Dashboard::CollectorRunner::sleep = sub { return 0 };
+        ok( !defined $runner->_await_command_pid($pidfile),
+            '_await_command_pid stops after its bounded startup wait' );
+    }
+
+    my @launcher = $runner->_command_launcher_argv( $pidfile, 'command', 'arg' );
+    is( $launcher[0], $^X, '_command_launcher_argv uses the current Perl interpreter' );
+    is_deeply( [ @launcher[ -3 .. -1 ] ], [ $pidfile, 'command', 'arg' ],
+        '_command_launcher_argv preserves the pid file and command argv' );
+}
+
+ok( $runner->_terminate_command_process(undef), '_terminate_command_process tolerates an undef pid' );
+ok( $runner->_terminate_command_process('bad'), '_terminate_command_process tolerates a non-numeric pid' );
+ok( $runner->_terminate_command_process(0), '_terminate_command_process tolerates pid zero' );
+{
+    my $fake_bin = File::Spec->catdir( $home, 'fake-taskkill-bin' );
+    make_path($fake_bin);
+    my $taskkill = File::Spec->catfile( $fake_bin, 'taskkill' );
+    open my $fh, '>', $taskkill or die $!;
+    print {$fh} "#!/bin/sh\nexit 0\n";
+    close $fh;
+    chmod 0755, $taskkill or die $!;
+    local $ENV{PATH} = "$fake_bin:$ENV{PATH}";
+    no warnings 'redefine';
+    local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
+    ok( $runner->_terminate_command_process(999999999),
+        '_terminate_command_process invokes the Windows taskkill tree path' );
+}
+SKIP: {
+    skip 'stubborn command cleanup needs POSIX process groups', 1
+      if Developer::Dashboard::Platform::is_windows();
+    my $child = fork();
+    die "fork failed: $!" if !defined $child;
+    if ( !$child ) {
+        POSIX::setsid();
+        $SIG{TERM} = 'IGNORE';
+        select undef, undef, undef, 30;
+        POSIX::_exit(0);
+    }
+    select undef, undef, undef, 0.1;
+    ok( $runner->_terminate_command_process($child),
+        '_terminate_command_process escalates a stubborn POSIX group to KILL' );
+}
+{
+    my $pidfile = File::Spec->catfile( $home, 'forwarded-command.pid' );
+    open my $fh, '>', $pidfile or die $!;
+    print {$fh} "4242\n";
+    close $fh;
+    my $child = fork();
+    die "fork failed: $!" if !defined $child;
+    if ( !$child ) {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
+        local *Developer::Dashboard::CollectorRunner::_await_command_pid = sub { return 4242 };
+        local *Developer::Dashboard::CollectorRunner::_terminate_command_process = sub { return 1 };
+        $runner->_forward_command_signal( $pidfile, 'TERM', 15 );
+        POSIX::_exit(1);
+    }
+    waitpid( $child, 0 );
+    is( $? >> 8, 143, '_forward_command_signal preserves the numeric signal exit on Windows' );
+    ok( !-e $pidfile, '_forward_command_signal removes the command pid file' );
+}
+
 like( ( eval { $runner->_run_code( source => '1', cwd => File::Spec->catdir( $home, 'no-such-cwd' ), timeout_ms => 1000 ); 1 } ? '' : $@ ), qr/Unable to chdir/, '_run_code dies when it cannot chdir into the collector cwd' );
 {
     my ( undef, undef, $exit_code ) = $runner->_run_code( source => 'undef', cwd => $home );
