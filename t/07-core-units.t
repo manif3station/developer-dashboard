@@ -4348,7 +4348,12 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     ok( $loop_pid, 'start_loop launches a live singleton collector loop for a long-running command' );
 
     my ( $worker_pid, $command_pid );
-    for ( 1 .. 60 ) {
+    # Budget 15s, not 6s: the command child is started through the owned-subtree
+    # launcher (DD-388), so its pidfile appears only after two interpreter
+    # startups. The loop exits as soon as both pids are seen, so the extra
+    # budget costs nothing in the normal case and only stops a loaded host
+    # (full suite in parallel) from reporting a spurious failure.
+    for ( 1 .. 150 ) {
         my $state = $runner->loop_state('singleton-live') || {};
         if ( ref( $state->{active_worker_pids} ) eq 'ARRAY' && @{ $state->{active_worker_pids} } ) {
             $worker_pid = $state->{active_worker_pids}[0];
