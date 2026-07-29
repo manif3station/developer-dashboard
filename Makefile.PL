@@ -75,7 +75,7 @@ WriteMakefile(
         'Time::HiRes'           => 0,
         'POSIX'                 => 0,
     },
-    LICENSE      => 'perl',
+    LICENSE      => 'mit',
     CONFIGURE_REQUIRES => {
         'ExtUtils::MakeMaker'    => 0,
         'File::ShareDir::Install' => 0,
