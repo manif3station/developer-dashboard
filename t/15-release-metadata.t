@@ -232,6 +232,38 @@ ok( -f _repo_path('aptfile'), 'repo-root aptfile is tracked for bootstrap instal
 ok( -f _repo_path('apkfile'), 'repo-root apkfile is tracked for bootstrap installs' );
 ok( -f _repo_path('brewfile'), 'repo-root brewfile is tracked for bootstrap installs' );
 
+# Operator-local rule/planning files must never ship. .gitignore does not
+# protect the tarball (Dist::Zilla's GatherDir gathers from disk, not git), so
+# every one of these must be individually excluded in dist.ini and absent from
+# any built release tarball.
+my @operator_local_files = qw(
+    agents.md
+    AGENTS.md
+    AGENTS.override.md
+    CLAUDE.md
+    DASHBOARD_IMPROVEMENT_PLAN.md
+    ELLEN.md
+    FIX.md
+    FIXED_BUGS.md
+    MISTAKE.md
+    SCORECARD_ACTIONS.md
+    SKILL.md
+    SKILLS.md
+    SOFTWARE_SPEC.md
+    TEST_PLAN.md
+    TEST_PLAN_RESULTS.md
+);
+{
+    my $dist = _slurp( _repo_path('dist.ini') );
+    for my $operator_file (@operator_local_files) {
+        like(
+            $dist,
+            qr/^exclude_filename = \Q$operator_file\E$/m,
+            "dist.ini excludes operator-local $operator_file from release tarballs",
+        );
+    }
+}
+
 my @required_tarball_paths = (
     "Developer-Dashboard-$version/install.sh",
     "Developer-Dashboard-$version/install.ps1",
@@ -250,7 +282,8 @@ my @required_tarball_paths = (
 );
 my $matching_tarball = _repo_path("Developer-Dashboard-$version.tar.gz");
 SKIP: {
-    skip "matching release tarball $matching_tarball has not been built yet", 6 + scalar @required_tarball_paths
+    skip "matching release tarball $matching_tarball has not been built yet",
+      6 + scalar(@required_tarball_paths) + scalar(@operator_local_files)
       if !-f $matching_tarball;
 
     my $tar = Archive::Tar->new;
@@ -261,6 +294,12 @@ SKIP: {
     my %files = map { $_ => 1 } @files;
     for my $required (@required_tarball_paths) {
         ok( $files{$required}, "$required is packaged into the release tarball" );
+    }
+    for my $operator_file (@operator_local_files) {
+        ok(
+            !$files{"Developer-Dashboard-$version/$operator_file"},
+            "release tarball does not leak operator-local $operator_file",
+        );
     }
     my $meta_member = "Developer-Dashboard-$version/META.json";
     ok( $files{$meta_member}, 'matching release tarball ships META.json for packaged prerequisite assertions' );
