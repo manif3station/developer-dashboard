@@ -1334,13 +1334,13 @@ by bridging F<~/.profile> to F<~/.bashrc>, prefers
 Homebrew Perl on macOS when C<brew --prefix perl> exposes a brewed
 interpreter, bootstraps a user-space C<perlbrew> Perl on Debian-family,
 Alpine, or Fedora hosts when the system Perl is older than the required
-C<5.38>, installs C<App::perlbrew> into F<~/perl5/bin> first if the package manager did not
+C<5.44>, installs C<App::perlbrew> into F<~/perl5/bin> first if the package manager did not
 already put C<perlbrew> on C<PATH>, keeps that local C<perlbrew> and
 C<patchperl> toolchain pinned to the private F<~/perl5/lib/perl5> include path
 while the rescue build runs, fetches the C<App::perlbrew> tarball with
 C<curl> before the local install so Alpine does not emit the noisy
 C<IO::Socket::IP> warning during that bootstrap step, uses
-C<perlbrew --notest install perl-5.38.5> so blank-machine bootstrap does not
+C<perlbrew --notest install perl-5.44.0> so blank-machine bootstrap does not
 stall in upstream Perl core test failures, updates the selected shell rc file
 itself with the needed C<PERLBREW_HOME> and rescue-Perl C<PATH> lines instead
 of leaving a manual F<~/.profile> editing step behind or sourcing perlbrew's

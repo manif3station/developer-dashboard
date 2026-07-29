@@ -29,12 +29,26 @@ jobs:
       - name: Setup Perl
         uses: shogo82148/actions-setup-perl@9c1eca9952ccc07f9ca4a2097b63df93d9d138e9  # v1.32.0
         with:
-          perl-version: '5.38'
+          perl-version: '5.44'
 
-      - name: Install dependencies
+      - name: Install project dependencies
+        run: cpanm --installdeps --notest -L local .
+
+      - name: Install the audit tool outside the scanned root
         run: |
-          cpanm --installdeps --notest .
-          cpanm --notest Devel::Cover
+          cpanm --notest -L audit-local CPAN::Audit
+          echo "$GITHUB_WORKSPACE/audit-local/bin" >> "$GITHUB_PATH"
+
+      - name: Audit isolated Perl dependencies
+        env:
+          PERL5LIB: ${{ github.workspace }}/audit-local/lib/perl5
+        run: script/cpan-audit-project local/lib/perl5
+
+      - name: Install test tools and export project environment
+        run: |
+          cpanm --notest -L local Devel::Cover
+          echo "PERL5LIB=$(perl -Ilocal/lib/perl5 -Mlocal::lib=local -e 'print $ENV{PERL5LIB}')" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/local/bin" >> "$GITHUB_PATH"
 
       - name: Run tests
         run: |

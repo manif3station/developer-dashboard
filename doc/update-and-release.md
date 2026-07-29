@@ -181,7 +181,7 @@ After the source-tree `prove -lr t` and explicit `Devel::Cover` gates pass,
 verify the built tarball still installs in a blank Perl container with:
 
 ```bash
-docker run --rm -v "$PWD:/work" -w /work perl:5.38-bookworm \
+docker run --rm -v "$PWD:/work" -w /work perl:5.44-bookworm \
   sh -lc 'cpanm --notest /work/Developer-Dashboard-X.XX.tar.gz -v'
 ```
 
