@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::SeededPages;
 use strict;
 use warnings;
 
-our $VERSION = '4.22';
+our $VERSION = '4.23';
 
 use File::Spec;
 use Developer::Dashboard::JSON qw(json_decode json_encode);

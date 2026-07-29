@@ -1,3 +1,26 @@
+4.23  2026-07-29
+
+  - Coverage: every module under lib/ now reaches 100.0 on all four
+    Devel::Cover metrics - statement, subroutine, branch, AND condition -
+    driven by the new per-module hermetic coverage suites (t/59 through
+    t/106) with genuinely-unreachable outcomes annotated inline and dead
+    guard operands removed where redundancy caused unreachable branches.
+  - CI: all three workflows (test, release-github, release-cpan) enforce the
+    all-metric standard through script/check-all-metric-coverage, which
+    fails closed on any metric below 100.0 or any malformed report
+    (t/107-all-metric-coverage-gate.t).
+  - Security: helper host-trust no longer accepts arbitrary Host headers
+    that merely resolve to loopback, closing a DNS-rebinding vector; exact
+    loopback literals and configured alias hosts remain trusted.
+  - Test isolation: the fresh-runtime API assertions in
+    t/15-cli-module-coverage.t now chdir into their isolated HOME so a
+    dev-runtime layer in the working checkout cannot capture their writes.
+  - Installability: the dependency hardening initially raised the Perl floor
+    to 5.44, which cpanm rejects on every mainstream perl (perl:latest is
+    5.42); the floor is restored to 5.38 (the code's real requirement) while
+    CI continues to run on Perl 5.44 and the dependency version pins keep
+    the security gate.
+
 4.22  2026-07-15
     - the housekeeper now sweeps expired helper-session files each run (wiring the
       SessionStore expired-session sweep added in 4.21 into the periodic cleanup),
