@@ -1,0 +1,51 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+my @lines = <STDIN>;
+print @lines;
+
+my @headers = grep { /^File\b/ } @lines;
+my @totals  = grep { /^Total\b/ } @lines;
+die "coverage gate: missing Total row\n" if !@totals;
+die "coverage gate: expected exactly one Total row\n" if @totals != 1;
+die "coverage gate: missing coverage header\n" if !@headers;
+die "coverage gate: expected exactly one coverage header\n" if @headers != 1;
+
+my @metrics = map {
+    my $name = lc $_;
+    $name eq 'stmt' ? 'statement'
+        : $name eq 'bran' ? 'branch'
+        : $name eq 'cond' ? 'condition'
+        : $name eq 'sub'  ? 'subroutine'
+        : $name;
+} split /\s+/, $headers[0];
+shift @metrics if @metrics && $metrics[0] eq 'file';
+my $has_aggregate = @metrics && $metrics[-1] eq 'total';
+pop @metrics if $has_aggregate;
+
+die "coverage gate: duplicate or unknown metric columns\n"
+    if @metrics != 4 || join( ',', @metrics ) ne 'statement,branch,condition,subroutine';
+
+my @fields = split /\s+/, $totals[0];
+shift @fields if @fields && $fields[0] eq 'Total';
+die "coverage gate: expected statement, branch, condition, and subroutine totals\n"
+    if @fields != @metrics + ( $has_aggregate ? 1 : 0 );
+die "coverage gate: malformed numeric total\n"
+    if grep { !/\A(?:0|[1-9]\d*)(?:\.\d+)?\z/ } @fields;
+pop @fields if $has_aggregate;
+
+my %totals;
+@totals{@metrics} = @fields;
+
+my @required = qw(statement branch condition subroutine);
+my @missing = grep { !exists $totals{$_} } @required;
+die 'coverage gate: missing metrics: ' . join( ', ', @missing ) . "\n" if @missing;
+
+my @failed;
+for my $metric (@required) {
+    push @failed, "$metric $totals{$metric}" if $totals{$metric} != 100;
+}
+
+die 'coverage gate: below 100.0: ' . join( ', ', @failed ) . "\n" if @failed;
+print "coverage gate: statement, branch, condition, and subroutine totals are 100.0\n";
