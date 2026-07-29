@@ -3,6 +3,7 @@ use warnings;
 use utf8;
 
 use Encode qw(decode);
+use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use IO::Socket::INET;
 use Test::More;
@@ -150,6 +151,27 @@ like($unknown_edit_body, qr/<textarea[^>]*name="instruction"/, 'unknown saved ed
 like($unknown_edit_body, qr/BOOKMARK:\s+\/app\/foobar/, 'unknown saved edit routes prefill the requested bookmark path');
 like($unknown_edit_body, qr/HTML:\s*\nBlank page/s, 'unknown saved edit routes prefill the blank page body');
 
+# Given an authorized local user, when a saved-page route contains a traversal
+# component, then the route returns an explicit client error instead of reading
+# or writing outside dashboards_root (or leaking an uncaught exception).
+for my $unsafe_path (
+    '/app/../escaped',
+    '/app/nested/../../escaped/edit',
+    '/app/nested/../escaped/source',
+    '/app/nested/../escaped/action/go',
+    '/app/%2e%2e/encoded-escaped',
+  ) {
+    my ( $unsafe_code, $unsafe_type, $unsafe_body ) = @{ $app->handle(
+        path        => $unsafe_path,
+        query       => '',
+        remote_addr => '127.0.0.1',
+        headers     => { host => '127.0.0.1' },
+    ) };
+    is( $unsafe_code, 400, "authorized traversal route '$unsafe_path' returns a client error" );
+    like( $unsafe_type, qr{text/plain}, "authorized traversal route '$unsafe_path' returns plain text" );
+    like( $unsafe_body, qr/Invalid page id/, "authorized traversal route '$unsafe_path' explains the invalid page id" );
+}
+
 my $prefixed_saved_page = Developer::Dashboard::PageDocument->new(
     id     => '/app/prefixed-save',
     title  => 'Prefixed Save',
@@ -191,6 +213,104 @@ my ($code1_allowed_bookmark, undef, $body1_allowed_bookmark) = @{ $app->handle(
 is($code1_allowed_bookmark, 200, 'posted bookmark instruction is still allowed when transient URLs are disabled');
 like($body1_allowed_bookmark, qr/saved body/, 'posted bookmark instruction still renders after it is saved');
 ok( -f File::Spec->catfile( $paths->dashboards_root, 'allowed-under-default' ), 'posted bookmark instruction still persists bookmark files when transient URLs are disabled' );
+
+# Given an authorized local user submits a bookmark id that escapes the saved
+# page root, when the root editor handles the POST, then it returns a deliberate
+# client error and does not turn PageStore's rejection into a raw server error.
+{
+    my $outside_file = File::Spec->catfile( dirname( $paths->dashboards_root ), 'escaped' );
+    unlink $outside_file if -e $outside_file;
+    my $response;
+    my $handled = eval {
+        $response = $app->handle(
+            path        => '/',
+            method      => 'POST',
+            body        => 'instruction=' . uri_escape("TITLE: Escaped POST\n:--------------------------------------------------------------------------------:\nBOOKMARK: ../escaped\n:--------------------------------------------------------------------------------:\nHTML: must not save\n"),
+            remote_addr => '127.0.0.1',
+            headers     => { host => '127.0.0.1' },
+        );
+        1;
+    };
+    ok( $handled, 'authorized traversal bookmark POST is handled without an uncaught exception' );
+    is( $response ? $response->[0] : undef, 400, 'authorized traversal bookmark POST returns HTTP 400' );
+    like( $response ? $response->[1] : '', qr{text/plain}, 'authorized traversal bookmark POST returns plain text' );
+    like( $response ? $response->[2] : '', qr/Invalid page id/, 'authorized traversal bookmark POST explains the invalid page id' );
+    ok( !-e $outside_file, 'authorized traversal bookmark POST creates no file outside dashboards_root' );
+}
+
+# Given an authorized user posts a traversal BOOKMARK id to a saved-page edit
+# route, when the editor saves it, then the response is a deliberate client
+# error and nothing is written outside dashboards_root.
+{
+    my ( $edit_code, $edit_type, $edit_body ) = @{ $app->handle(
+        path        => '/app/editable-host/edit',
+        method      => 'POST',
+        body        => 'instruction=' . uri_escape("TITLE: Escaped edit\n:--------------------------------------------------------------------------------:\nBOOKMARK: ../edit-escaped\n:--------------------------------------------------------------------------------:\nHTML: must not save\n"),
+        remote_addr => '127.0.0.1',
+        headers     => { host => '127.0.0.1' },
+    ) };
+    is( $edit_code, 400, 'a traversal bookmark id in an edit POST body returns HTTP 400' );
+    like( $edit_type, qr{text/plain}, 'the edit POST traversal rejection is plain text' );
+    like( $edit_body, qr/Invalid page id/, 'the edit POST traversal rejection explains the invalid page id' );
+    ok( !-e File::Spec->catfile( dirname( $paths->dashboards_root ), 'edit-escaped' ),
+        'the edit POST traversal writes nothing outside dashboards_root' );
+}
+
+# Saved-page error translation units: the invalid-id guard only intercepts
+# PageStore validation failures and leaves every other error untouched.
+{
+    package T03::AuthStub;     sub new { bless {}, shift }
+    package T03::SessionsStub; sub new { bless {}, shift }
+    package T03::NoPageFile;   sub new { bless {}, shift }
+
+    package T03::DyingStore;
+    sub new { bless {}, shift }
+    sub page_file { die "weird store failure\n" }
+}
+{
+    my $guard_app = Developer::Dashboard::Web::App->new(
+        auth => T03::AuthStub->new, pages => T03::NoPageFile->new, sessions => T03::SessionsStub->new,
+    );
+    is( $guard_app->_invalid_saved_page_id_response('anything'),
+        undef, 'the invalid-id guard ignores pages objects without page_file' );
+
+    my $dying_app = Developer::Dashboard::Web::App->new(
+        auth => T03::AuthStub->new, pages => T03::DyingStore->new, sessions => T03::SessionsStub->new,
+    );
+    ok( !eval { $dying_app->_invalid_saved_page_id_response('anything'); 1 },
+        'the invalid-id guard rethrows non-validation page_file failures' );
+    like( $@, qr/weird store failure/, 'the rethrown page_file failure keeps its original message' );
+
+    is( $app->_saved_page_error_response(undef), undef, 'saved-page error translation ignores undefined errors' );
+    is( $app->_saved_page_error_response("boom\n"), undef, 'saved-page error translation ignores unrelated errors' );
+    is( $app->_saved_page_error_response("Invalid page path at X line 1.\n")->[0],
+        400, 'saved-page error translation converts containment failures to HTTP 400' );
+}
+
+# Given the page store fails a save for a reason that is not id validation,
+# when the editors handle the POST, then the original failure still dies
+# instead of being converted into a client error.
+{
+    no warnings qw(once redefine);
+    local *Developer::Dashboard::PageStore::save_page = sub { die "disk exploded\n" };
+    my $disk_body = 'instruction=' . uri_escape("TITLE: T\n:--------------------------------------------------------------------------------:\nBOOKMARK: diskfail\n:--------------------------------------------------------------------------------:\nHTML: x\n");
+    ok( !eval { $app->root_response(
+        path        => '/',
+        method      => 'POST',
+        body        => $disk_body,
+        remote_addr => '127.0.0.1',
+        headers     => { host => '127.0.0.1' },
+    ); 1 }, 'a non-validation save failure on the root editor still dies' );
+    like( $@, qr/disk exploded/, 'the root editor rethrows the original save failure' );
+    ok( !eval { $app->page_edit_post_response(
+        id          => 'diskfail',
+        method      => 'POST',
+        body        => $disk_body,
+        remote_addr => '127.0.0.1',
+        headers     => { host => '127.0.0.1' },
+    ); 1 }, 'a non-validation save failure on the page editor still dies' );
+    like( $@, qr/disk exploded/, 'the page editor rethrows the original save failure' );
+}
 
 local $ENV{DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS} = 1;
 
