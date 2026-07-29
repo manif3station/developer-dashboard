@@ -53,13 +53,12 @@ jobs:
         run: |
           prove -lr t
 
-      - name: Verify coverage
+      - name: Verify all-metric lib coverage
         run: |
           cover -delete
           HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
-          report="$(cover -report text -select_re '^lib/' -coverage statement -coverage subroutine)"
-          printf '%s\n' "$report"
-          printf '%s\n' "$report" | grep -E '^Total[[:space:]]+100\.0[[:space:]]+100\.0[[:space:]]+100\.0$'
+          cover -report text -select_re '^lib/' -coverage statement -coverage branch -coverage condition -coverage subroutine \
+            | perl script/check-all-metric-coverage
 
       - name: Build distribution tarball
         run: |
