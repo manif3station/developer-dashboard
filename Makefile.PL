@@ -3,6 +3,7 @@ use warnings;
 
 use ExtUtils::MakeMaker;
 use File::ShareDir::Install qw(install_share);
+use Config;
 use File::Spec;
 use Cwd qw(cwd);
 
@@ -14,7 +15,12 @@ install_share dist => 'share';
 my $local_lib_root;
 for my $candidate ( '.perl5', "$ENV{HOME}/perl5" ) {
     my $lib = File::Spec->catdir( $candidate, 'lib', 'perl5' );
-    if ( -d $lib && grep { -f $_ } glob( File::Spec->catfile( $lib, 'x86_64-linux-gnu-thread-multi', '*.pm' ) ) ) {
+    my @module_dirs = (
+        $lib,
+        File::Spec->catdir( $lib, $Config{archname} ),
+        File::Spec->catdir( $lib, $Config{version} ),
+    );
+    if ( grep { -d $_ && grep { -f $_ } glob( File::Spec->catfile( $_, '*.pm' ) ) } @module_dirs ) {
         $local_lib_root = $candidate;
         last;
     }
@@ -91,26 +97,24 @@ WriteMakefile(
 
 package MY;
 
-use File::ShareDir::Install qw(postamble);
-
 # _local_lib_perl5_path()
 # Convenience helper: returns the PERL5LIB path fragment for the detected
 # local Perl library root, or an empty string if none was configured.
 # Includes both the base perl5 directory and any arch-specific subdirs
-# (e.g. x86_64-linux-gnu-thread-multi, 5.38.2) that local::lib creates.
+# that local::lib creates for the active Perl.
 # Called from postamble() to inject the path into the generated Makefile.
 # Input: none.
-# Output: colon-separated absolute paths suitable for PERL5LIB, or ''.
+# Output: platform-separated absolute paths suitable for PERL5LIB, or ''.
 sub _local_lib_perl5_path {
     return '' if !$local_lib_root || $local_lib_root eq '';
     my $base = File::Spec->catdir( $local_lib_root, 'lib', 'perl5' );
-    my $cwd = Cwd::cwd();
-    my @paths = ( File::Spec->catfile( $cwd, $base ) );
-    for my $arch ( qw(x86_64-linux-gnu-thread-multi 5.38.2) ) {
-        my $d = File::Spec->catdir( $base, $arch );
-        push @paths, File::Spec->catfile( $cwd, $d ) if -d $d;
+    $base = File::Spec->rel2abs( $base, Cwd::cwd() );
+    my @paths = ($base);
+    for my $platform_dir ( @Config::Config{qw(archname version)} ) {
+        my $d = File::Spec->catdir( $base, $platform_dir );
+        push @paths, $d if -d $d;
     }
-    return join ':', @paths;
+    return join $Config::Config{path_sep}, @paths;
 }
 
 # postamble()
@@ -127,7 +131,7 @@ sub postamble {
 
     my $local_perl5 = _local_lib_perl5_path();
     my $perl5lib_preamble = $local_perl5 ne ''
-        ? "PERL5LIB := $local_perl5:\$(PERL5LIB)\nexport PERL5LIB\n\n"
+        ? "PERL5LIB := $local_perl5$Config::Config{path_sep}\$(PERL5LIB)\nexport PERL5LIB\n\n"
         : '';
 
     return $perl5lib_preamble . $share_postamble . <<'END_POSTAMBLE';
