@@ -16,13 +16,18 @@ use Symbol qw(gensym);
 use Developer::Dashboard::PageRuntime::StreamHandle;
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::PerlEnv ();
-use Developer::Dashboard::Platform qw(command_argv_for_path command_in_path);
+use Developer::Dashboard::Platform qw(command_argv_for_path command_in_path is_windows);
 use Developer::Dashboard::RuntimeManager ();
 use Developer::Dashboard::Folder ();
 use Template;
 use Developer::Dashboard::Zipper qw(Ajax acmdx zip unzip);
 
 my $SANDPIT_SEQ = 0;
+
+# Injectable POSIX process-group primitive (same pattern as the Platform
+# launcher subs) so tests can drive the setpgid failure path without needing a
+# session-leader process on the test host.
+our $SETPGID = sub { return POSIX::setpgid( 0, 0 ) };
 
 # new(%args)
 # Constructs the older-style page runtime used by browser-rendered bookmarks.
@@ -432,13 +437,14 @@ sub stream_saved_ajax_file {
     my $stdin  = gensym;
     my $pid = eval {
         local %ENV = ( %ENV, %env );
-        open3( $stdin, $stdout, $stderr, @command );
+        open3( $stdin, $stdout, $stderr, $self->_saved_ajax_launch_command(@command) );
     };
     if ($@) {
         $self->_cleanup_saved_ajax_temp_files(@temp_files);
         die $@;
     }
     close $stdin;
+    my $process_group = $self->_own_saved_ajax_process_group($pid);
 
     my $select = IO::Select->new( $stdout, $stderr );
     my $stream_error = '';
@@ -490,10 +496,10 @@ sub stream_saved_ajax_file {
     $self->_close_saved_ajax_streams( $select, $stdout, $stderr );
     my $fatal_error = '';
     if ($disconnected) {
-        $self->_terminate_saved_ajax_process($pid);
+        $self->_terminate_saved_ajax_process( $pid, $process_group );
     }
     elsif ( $stream_error ne '' ) {
-        $self->_terminate_saved_ajax_process($pid);
+        $self->_terminate_saved_ajax_process( $pid, $process_group );
         $fatal_error = $stream_error if !$self->_looks_like_stream_disconnect_error($stream_error);
     }
     my $status;
@@ -511,6 +517,37 @@ sub stream_saved_ajax_file {
         exit_code => $status >> 8,
         status    => $status,
     };
+}
+
+# _saved_ajax_launch_command(@command)
+# Builds the argv used to launch one saved-Ajax worker, wrapping POSIX runs in
+# the in-module process-group launcher so disconnect cleanup can signal every
+# descendant, while Windows keeps its direct argv unchanged.
+# Input: non-empty saved-Ajax command argv list.
+# Output: launch-ready argv list for open3().
+sub _saved_ajax_launch_command {
+    my ( $self, @command ) = @_;
+    die "Missing saved ajax command\n" if !@command;
+    return @command if is_windows();
+    return (
+        $^X,
+        '-MDeveloper::Dashboard::PageRuntime',
+        '-e',
+        'Developer::Dashboard::PageRuntime->_exec_saved_ajax_command(@ARGV)',
+        @command,
+    );
+}
+
+# _own_saved_ajax_process_group($pid)
+# Records the POSIX process-group id established by the saved-Ajax launcher so
+# cancellation can address descendants that the worker forks before exit.
+# Input: direct saved-Ajax child process id integer.
+# Output: positive POSIX process-group id, or zero on Windows.
+sub _own_saved_ajax_process_group {
+    my ( $self, $pid ) = @_;
+    return 0 if is_windows();
+    die "Missing saved ajax process id\n" if !$pid;
+    return $pid;
 }
 
 # _drain_saved_ajax_post_exit_handles(%args)
@@ -609,20 +646,24 @@ sub _close_saved_ajax_streams {
     return 1;
 }
 
-# _terminate_saved_ajax_process($pid)
-# Stops one saved-Ajax worker process after stream cancellation or writer failure.
-# Input: child process id integer.
+# _terminate_saved_ajax_process($pid, $process_group)
+# Stops one saved-Ajax worker and its owned POSIX process group after stream
+# cancellation or writer failure, retaining direct-pid behavior on Windows.
+# Input: child process id integer and optional positive POSIX process-group id.
 # Output: true value.
 sub _terminate_saved_ajax_process {
-    my ( $self, $pid ) = @_;
+    my ( $self, $pid, $process_group ) = @_;
     return 1 if !$pid;
-    return 1 if !kill 0, $pid;
+    my $owns_group = !is_windows() && defined $process_group && $process_group =~ /^\d+$/ && $process_group > 0;
+    return 1 if !$owns_group && !kill 0, $pid;
+    kill 15, -$process_group if $owns_group;
     kill 15, $pid;
     for ( 1 .. 20 ) {
-        return 1 if !kill 0, $pid;    # uncoverable branch true
+        last if !kill 0, $pid;
         sleep 0.05;
     }
-    kill 9, $pid if kill 0, $pid;    # uncoverable branch false
+    kill 9, -$process_group if $owns_group;
+    kill 9, $pid if kill 0, $pid;
     return 1;
 }
 
@@ -884,6 +925,21 @@ die $@ if $@;
 PERL
 }
 
+# _exec_saved_ajax_command(@command)
+# Runs inside the launcher child: establishes POSIX process-group ownership and
+# replaces the launcher with the saved-Ajax worker command, preserving its argv
+# without shell parsing.
+# Input: non-empty command argv list.
+# Output: never returns on success; dies when grouping or exec fails.
+sub _exec_saved_ajax_command {
+    my ( $class, @command ) = @_;
+    die "Missing saved ajax command\n" if !@command;
+    defined $SETPGID->()
+      or die "Unable to isolate saved ajax process $$: $!\n";
+    exec { $command[0] } @command;
+    die "Unable to exec saved ajax command $command[0]: $!\n";
+}
+
 # _run_saved_ajax_perl_file($path)
 # Executes one saved Perl Ajax file through the in-module bootstrap wrapper so
 # Windows does not have to carry a multi-line `perl -e` payload through the
@@ -1072,7 +1128,10 @@ older C<CODE*> blocks while capturing STDOUT and STDERR for in-page display.
 =head2 new, prepare_page, run_code_blocks, stream_code_block, stream_saved_ajax_file
 
 Construct the runtime, render bookmark templates, execute in-process CODE
-blocks, and stream saved Ajax files as real child processes.
+blocks, and stream saved Ajax files as real child processes. On POSIX systems
+each saved Ajax worker runs inside its own process group, and disconnect or
+stream-error cleanup signals that whole group so descendant processes forked by
+the worker terminate with it; Windows keeps direct child-process termination.
 
 =for comment FULL-POD-DOC START
 
