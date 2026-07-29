@@ -35,12 +35,13 @@ jobs:
         run: cpanm --installdeps --notest -L local .
 
       - name: Install the audit tool outside the scanned root
-        run: cpanm --notest -L audit-local CPAN::Audit
+        run: |
+          cpanm --notest -L audit-local CPAN::Audit
+          echo "$GITHUB_WORKSPACE/audit-local/bin" >> "$GITHUB_PATH"
 
       - name: Audit isolated Perl dependencies
         env:
           PERL5LIB: ${{ github.workspace }}/audit-local/lib/perl5
-          PATH: ${{ github.workspace }}/audit-local/bin:${{ env.PATH }}
         run: script/cpan-audit-project local/lib/perl5
 
       - name: Install test tools and export project environment
