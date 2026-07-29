@@ -119,11 +119,53 @@ my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
 }
 
 # --------------------------------------------------------------------------
-# current_working_directory with an explicit empty cwd falls back to cwd().
+# current_working_directory uses the in-process getcwd implementation while
+# preserving explicit constructor overrides and live post-construction chdir.
 # --------------------------------------------------------------------------
 {
+    my $first = File::Spec->catdir( $home, 'cwd-first' );
+    my $second = File::Spec->catdir( $home, 'cwd-second' );
+    make_path( $first, $second );
+    chdir $first or die "Unable to chdir to $first: $!";
+
+    my $getcwd_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::PathRegistry::getcwd = sub { $getcwd_calls++; return Cwd::getcwd(); };
+    local *Developer::Dashboard::PathRegistry::cwd = sub { die "current_working_directory must not fork pwd\n"; };
+
     my $reg = Developer::Dashboard::PathRegistry->new( home => $home, cwd => '' );
-    ok( defined $reg->current_working_directory, 'empty cwd falls back to process cwd' );
+    is( $reg->current_working_directory, $first, 'empty cwd uses the live in-process working directory' );
+    chdir $second or die "Unable to chdir to $second: $!";
+    is( $reg->current_working_directory, $second, 'the same registry observes a later process chdir' );
+    is( $getcwd_calls, 2, 'the live working directory is read without stale per-instance memoization' );
+
+    my $fixed = Developer::Dashboard::PathRegistry->new( home => $home, cwd => $first );
+    is( $fixed->current_working_directory, $first, 'a supplied cwd remains invocation-scoped' );
+    is( $getcwd_calls, 2, 'a supplied cwd bypasses live working-directory lookup' );
+
+    local *Developer::Dashboard::PathRegistry::getcwd = sub { die "working directory unavailable\n"; };
+    is( $reg->current_working_directory, undef, 'an unavailable working directory remains non-fatal' );
+
+    chdir $home or die "Unable to chdir to $home: $!";
+}
+
+is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the in-process lookup' );
+
+{
+    my $nested = File::Spec->catdir( $home, 'with-dir-getcwd' );
+    make_path($nested);
+    my $cwd_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::PathRegistry::getcwd = sub { $cwd_calls++; return Cwd::getcwd(); };
+    local *Developer::Dashboard::PathRegistry::cwd = sub { die "with_dir must not fork pwd\n"; };
+
+    is(
+        $paths->with_dir( $nested, sub { return Cwd::getcwd(); } ),
+        $nested,
+        'with_dir enters the requested directory without using external pwd',
+    );
+    is( Cwd::getcwd(), $home, 'with_dir restores the original working directory' );
+    is( $cwd_calls, 1, 'with_dir snapshots the original directory in-process once' );
 }
 
 # --------------------------------------------------------------------------

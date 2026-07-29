@@ -6,7 +6,7 @@ use warnings;
 our $VERSION = '4.23';
 
 use Digest::MD5 qw(md5_hex);
-use Cwd qw(abs_path cwd);
+use Cwd qw(abs_path getcwd);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
@@ -721,7 +721,17 @@ sub current_project_root {
 sub current_working_directory {
     my ($self) = @_;
     return $self->{cwd} if defined $self->{cwd} && $self->{cwd} ne '';
-    return eval { cwd() };
+    return eval { getcwd() };
+}
+
+# cwd()
+# Preserves the public path-registry working-directory accessor that was
+# historically supplied incidentally by importing Cwd::cwd into this package.
+# Input: none.
+# Output: the same directory path or undef as current_working_directory().
+sub cwd {
+    my ($self) = @_;
+    return $self->current_working_directory;
 }
 
 # project_root_for($start_dir)
@@ -826,7 +836,7 @@ sub ls {
 sub with_dir {
     my ( $self, $name, $code ) = @_;
     my $dir = $self->resolve_dir($name);
-    my $old = cwd();
+    my $old = getcwd();
     chdir $dir or die "Unable to chdir to $dir: $!";    # uncoverable branch true
     my @result = eval { $code->($dir) };
     my $error = $@;
@@ -1238,6 +1248,10 @@ Construct the path registry.
 =head2 resolve_dir, resolve_any, locate_projects, locate_dirs_under, current_project_root, project_root_for
 
 Resolve and discover project-related directories.
+
+=head2 current_working_directory, cwd
+
+Report the effective working directory: the explicit constructor C<cwd> when one was supplied, otherwise a live in-process C<getcwd> lookup that follows later C<chdir> calls without forking an external C<pwd> process (undef when the directory is unavailable). C<cwd> is the public compatibility alias consumed by the file registry.
 
 =for comment FULL-POD-DOC START
 
