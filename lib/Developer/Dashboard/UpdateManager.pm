@@ -47,13 +47,13 @@ sub updates_dir {
 sub run {
     my ($self) = @_;
 
-    my @running = $self->_running_collectors;
-    $self->_stop_collectors(@running);
-
     my @results;
     my $dir = $self->updates_dir;
 
     return \@results if !-d $dir;
+
+    my @running = $self->_running_collectors;
+    $self->_stop_collectors(@running);
 
     opendir my $dh, $dir or die "Unable to open updates directory $dir: $!";
     for my $file ( sort readdir $dh ) {
