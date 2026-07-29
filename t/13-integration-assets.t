@@ -313,7 +313,7 @@ if ( -f 'dist.ini' ) {
     unlike( $dist, qr/exclude_filename = Makefile\.PL/, 'dist.ini keeps the checked-in Makefile.PL so dzil ships the checkout install hooks' );
     unlike( $dist, qr/^\[MakeMaker\]$/m, 'dist.ini does not regenerate Makefile.PL over the checked-in checkout install hooks' );
     like( $dist, qr/\[AutoPrereqs\]/, 'dist.ini includes AutoPrereqs for built distribution dependencies' );
-    like( $dist, qr/^JSON::XS = 0$/m, 'dist.ini pins JSON::XS explicitly for built distribution runtime metadata' );
+    like( $dist, qr/^JSON::XS = 4\.04$/m, 'dist.ini pins JSON::XS at its secure minimum for built distribution runtime metadata' );
 }
 else {
     ok( !-f 'dist.ini', 'release tarball excludes dist.ini from shipped assets' );

@@ -1048,13 +1048,13 @@ by bridging `~/.profile` to `~/.bashrc`, prefers
 Homebrew Perl on macOS when `brew --prefix perl` exposes a brewed
 interpreter, bootstraps a user-space `perlbrew` Perl on Debian-family,
 Alpine, or Fedora hosts when the system Perl is older than the required
-`5.38`, installs `App::perlbrew` into `~/perl5/bin` first if the package manager did not
+`5.44`, installs `App::perlbrew` into `~/perl5/bin` first if the package manager did not
 already put `perlbrew` on `PATH`, keeps that local `perlbrew` and
 `patchperl` toolchain pinned to the private `~/perl5/lib/perl5` include path
 while the rescue build runs, fetches the `App::perlbrew` tarball with
 `curl` before the local install so Alpine does not emit the noisy
 `IO::Socket::IP` warning during that bootstrap step, uses
-`perlbrew --notest install perl-5.38.5` so blank-machine bootstrap does not
+`perlbrew --notest install perl-5.44.0` so blank-machine bootstrap does not
 stall in upstream Perl core test failures, updates the selected shell rc file
 itself with the needed `PERLBREW_HOME` and rescue-Perl `PATH` lines instead
 of leaving a manual `~/.profile` editing step behind or sourcing perlbrew's

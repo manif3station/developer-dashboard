@@ -28,7 +28,7 @@ jobs:
       - name: Setup Perl
         uses: shogo82148/actions-setup-perl@9c1eca9952ccc07f9ca4a2097b63df93d9d138e9  # v1.32.0
         with:
-          perl-version: '5.38'
+          perl-version: '5.44'
 
       - name: Install release dependencies
         run: |
