@@ -180,12 +180,26 @@ sub _render_templates {
     );
 
     my $system = $self->_system_context(%args);
+    my @tt_roots = $self->{paths} ? $self->{paths}->dashboards_roots : '.';
     my $tt = Template->new(
         {
             EVAL_PERL   => 1,
-            INCLUDE_PATH => $self->{paths} ? [ $self->{paths}->dashboards_roots ] : '.',
+            INCLUDE_PATH => \@tt_roots,
         }
     );
+    # TT3 returns undef when NONE of the INCLUDE_PATH directories exist at
+    # construction time (unlike TT2 which deferred the check to process()).
+    # Fall back to the first existing root, or the project root, or '.'.
+    if (!$tt) {
+        @tt_roots = grep { -d } @tt_roots;
+        $tt = Template->new(
+            { EVAL_PERL => 1, INCLUDE_PATH => \@tt_roots }
+        ) if @tt_roots;
+        $tt ||= Template->new(
+            { EVAL_PERL => 1, INCLUDE_PATH => ['.'] }
+        );
+        return if !$tt;
+    }
 
     for my $field (qw(body)) {
         my $template = $layout->{$field};

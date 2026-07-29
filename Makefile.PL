@@ -4,8 +4,22 @@ use warnings;
 use ExtUtils::MakeMaker;
 use File::ShareDir::Install qw(install_share);
 use File::Spec;
+use Cwd qw(cwd);
 
 install_share dist => 'share';
+
+# Detect the project-local Perl library root so generated Perl invocations
+# (e.g.  make test) can reach locally-installed CPAN modules without the
+# calling shell having set PERL5LIB.
+my $local_lib_root;
+for my $candidate ( '.perl5', "$ENV{HOME}/perl5" ) {
+    my $lib = File::Spec->catdir( $candidate, 'lib', 'perl5' );
+    if ( -d $lib && grep { -f $_ } glob( File::Spec->catfile( $lib, 'x86_64-linux-gnu-thread-multi', '*.pm' ) ) ) {
+        $local_lib_root = $candidate;
+        last;
+    }
+}
+$local_lib_root ||= '.perl5';
 
 WriteMakefile(
     NAME         => 'Developer::Dashboard',
@@ -73,16 +87,44 @@ package MY;
 
 use File::ShareDir::Install qw(postamble);
 
+# _local_lib_perl5_path()
+# Convenience helper: returns the PERL5LIB path fragment for the detected
+# local Perl library root, or an empty string if none was configured.
+# Includes both the base perl5 directory and any arch-specific subdirs
+# (e.g. x86_64-linux-gnu-thread-multi, 5.38.2) that local::lib creates.
+# Called from postamble() to inject the path into the generated Makefile.
+# Input: none.
+# Output: colon-separated absolute paths suitable for PERL5LIB, or ''.
+sub _local_lib_perl5_path {
+    return '' if !$local_lib_root || $local_lib_root eq '';
+    my $base = File::Spec->catdir( $local_lib_root, 'lib', 'perl5' );
+    my $cwd = Cwd::cwd();
+    my @paths = ( File::Spec->catfile( $cwd, $base ) );
+    for my $arch ( qw(x86_64-linux-gnu-thread-multi 5.38.2) ) {
+        my $d = File::Spec->catdir( $base, $arch );
+        push @paths, File::Spec->catfile( $cwd, $d ) if -d $d;
+    }
+    return join ':', @paths;
+}
+
 # postamble()
 # Appends the File::ShareDir::Install postamble so packaged installs refresh
 # dist share assets, then adds the home-runtime helper bootstrap hook used by
-# checkout and local installs.
+# checkout and local installs.  Also prepends a PERL5LIB export so the local
+# Perl library (e.g. .perl5) is reachable during "make test" without the
+# calling shell having set PERL5LIB manually.
 # Input: ExtUtils::MakeMaker MY package object.
 # Output: full make postamble text string.
 sub postamble {
     my $self = shift;
     my $share_postamble = File::ShareDir::Install::postamble($self);
-    return $share_postamble . <<'END_POSTAMBLE';
+
+    my $local_perl5 = _local_lib_perl5_path();
+    my $perl5lib_preamble = $local_perl5 ne ''
+        ? "PERL5LIB := $local_perl5:\$(PERL5LIB)\nexport PERL5LIB\n\n"
+        : '';
+
+    return $perl5lib_preamble . $share_postamble . <<'END_POSTAMBLE';
 .PHONY: install pure_install install-private-cli-tools
 install ::
 	$(NOECHO) $(PERL) -e "1;"

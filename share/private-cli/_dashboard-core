@@ -1129,7 +1129,11 @@ elsif ( $cmd eq 'log' || $cmd eq 'logs' ) {
 }
 elsif ( $cmd eq 'shell' ) {
     my $shell = normalize_shell_name( shift @ARGV || native_shell_name() );
-    print _shell_bootstrap($shell);
+    my $bootstrap = _shell_bootstrap($shell);
+    if ( $shell eq 'powershell' || $shell eq 'pwsh' ) {
+        _cache_powershell_bootstrap($bootstrap);
+    }
+    print $bootstrap;
     exit 0;
 }
 elsif ( $cmd eq 'doctor' ) {
@@ -1709,6 +1713,45 @@ function prompt {
 POWERSHELL
     }
     die "Unsupported shell '$shell'\n";
+}
+
+# _cache_powershell_bootstrap($bootstrap)
+# Caches the PowerShell shell bootstrap and local::lib environment to the cache
+# directory so PowerShell startup does not need to launch Perl on every session.
+# Input: assembled PowerShell bootstrap script string.
+# Output: true after the cache files are written.
+sub _cache_powershell_bootstrap {
+    my ($bootstrap) = @_;
+    my $cache_dir = $paths->cache_root;
+
+    # Write the bootstrap script atomically (write .tmp, rename into place)
+    my $bootstrap_file = File::Spec->catfile( $cache_dir, 'powershell-bootstrap.ps1' );
+    my $bootstrap_tmp   = sprintf '%s.%s.%s.pending', $bootstrap_file, $$, time;
+    open my $bfh, '>:raw', $bootstrap_tmp
+      or die "Unable to write $bootstrap_tmp: $!";    # uncoverable branch true the cache root exists and is writable, so the pending-file write cannot fail on the test host
+    print {$bfh} $bootstrap;
+    close $bfh;
+    rename( $bootstrap_tmp, $bootstrap_file )
+      or die "Unable to rename $bootstrap_tmp to $bootstrap_file: $!";
+
+    # Write the local::lib environment dump atomically using the
+    # Sync-LocalLibEnvironmentFromPerl env-var-key pattern, emitting
+    # PowerShell commands that cache consumers can dot-source directly.
+    my $env_file   = File::Spec->catfile( $cache_dir, 'powershell-env.ps1' );
+    my $env_tmp    = sprintf '%s.%s.%s.pending', $env_file, $$, time;
+    open my $efh, '>:raw', $env_tmp
+      or die "Unable to write $env_tmp: $!";    # uncoverable branch true same guarantee as the bootstrap file above
+    for my $key (qw(PATH PERL5LIB PERL_LOCAL_LIB_ROOT PERL_MB_OPT PERL_MM_OPT)) {
+        next unless exists $ENV{$key};
+        my $value = $ENV{$key};
+        $value =~ s/'/''/g;    # escape single quotes for PowerShell single-quoted strings
+        print {$efh} "\$env:$key='$value'\n";
+    }
+    close $efh;
+    rename( $env_tmp, $env_file )
+      or die "Unable to rename $env_tmp to $env_file: $!";
+
+    return 1;
 }
 
 __END__
