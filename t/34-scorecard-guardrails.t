@@ -97,8 +97,8 @@ like( $release_cpan_workflow, qr/Developer-Dashboard-\*\.tar\.gz/, 'PAUSE releas
 unlike( $release_cpan_workflow, qr/\.build\/\*\.tar\.gz/, 'PAUSE release workflow no longer looks for tarballs under a nonexistent .build directory' );
 like(
     $release_cpan_workflow,
-    qr/grep -E '\^Total\[\[:space:\]\]\+100\\\.0\[\[:space:\]\]\+100\\\.0\[\[:space:\]\]\+100\\\.0\$'/,
-    'PAUSE release workflow enforces the same 100% lib coverage gate as the main CI workflow without depending on fixed column spacing',
+    qr/check-all-metric-coverage/,
+    'PAUSE release workflow enforces the same all-metric lib coverage gate as the main CI workflow',
 );
 
 for my $coverage_workflow (
@@ -112,13 +112,13 @@ for my $coverage_workflow (
     my $text = _slurp($coverage_workflow);
     like(
         $text,
-        qr/grep -E '\^Total\[\[:space:\]\]\+100\\\.0\[\[:space:\]\]\+100\\\.0\[\[:space:\]\]\+100\\\.0\$'/,
-        "$coverage_workflow matches the Total coverage line by regex instead of a brittle fixed-width string",
+        qr/-coverage statement -coverage branch -coverage condition -coverage subroutine[^\n]*\n[^\n]*check-all-metric-coverage/s,
+        "$coverage_workflow pipes the four-metric cover report through the coverage gate script",
     );
     unlike(
         $text,
-        qr/grep -F "Total\s{10,}100\.0\s+100\.0\s+100\.0"/,
-        "$coverage_workflow no longer hard-codes one Devel::Cover spacing layout",
+        qr/grep [-A-Za-z]+ ['"]\^?Total/,
+        "$coverage_workflow does not gate coverage on a brittle Total-line grep",
     );
 }
 
