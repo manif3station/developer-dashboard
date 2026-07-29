@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use utf8;
 
+use Fcntl qw(:flock);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -405,6 +406,9 @@ SKIP: {
     like( $full, qr/\[stdout\]\nout-without-newline\n/, 'stdout is rendered with a normalized trailing newline' );
     like( $full, qr/\[stderr\]\nerr\n/, 'stderr is rendered in its own section' );
     like( $full, qr/\[error\]\nboom\n/, 'an error is rendered in its own section' );
+    is( sprintf( '%04o', ( stat $collector->collector_paths($name)->{log} )[2] & 07777 ), '0600', 'serialized log appends keep the collector log owner-only' );
+    my $lock = File::Spec->catfile( $collector->collector_paths($name)->{dir}, '.log.lock' );
+    is( sprintf( '%04o', ( stat $lock )[2] & 07777 ), '0600', 'the collector log lock is owner-only' );
 }
 
 {
@@ -418,6 +422,99 @@ SKIP: {
         'append_log_entry dies when the log file cannot be opened for append',
     );
     rmdir $log or die "Unable to remove $log: $!";
+}
+
+# Log mutations surface lock-file open and acquisition failures without writing.
+{
+    my $name = 'log-lockdir';
+    my $dir  = $paths->collector_dir($name);
+    my $lock = File::Spec->catdir( $dir, '.log.lock' );
+    mkdir $lock or die "Unable to create $lock: $!";
+    dies_like(
+        sub { $collector->append_log_entry( $name, happened_at => '2026-01-01T00:00:00Z' ) },
+        qr/Unable to open \Q$lock\E/,
+        'append_log_entry dies when the shared log lock file cannot be opened',
+    );
+    rmdir $lock or die "Unable to remove $lock: $!";
+}
+
+{
+    my $name = 'log-flocky';
+    my $lived;
+    {
+        local $FAIL_FLOCK = 1;
+        $lived = eval { $collector->append_log_entry( $name, happened_at => '2026-01-01T00:00:00Z' ); 1 };
+    }
+    ok( !$lived, 'append_log_entry dies when the shared log lock cannot be acquired' );
+    like( $@, qr/Unable to lock/, 'the failed shared log lock reports the lock file' );
+    ok( !-f $collector->collector_paths($name)->{log}, 'a failed shared log lock leaves the collector log untouched' );
+}
+
+# A rotation that has already read its input must serialize with a concurrent
+# append instead of replacing the newly appended entry with its stale snapshot.
+{
+    my $name = 'log-rotation-race';
+    seed_collector( $name, 'log' => "old-line\nkept-line\n" );
+
+    pipe my $ready_r, my $ready_w or die "Unable to create rotation-ready pipe: $!";
+    pipe my $release_r, my $release_w or die "Unable to create rotation-release pipe: $!";
+    my $apply_rotation = \&Developer::Dashboard::Collector::_apply_log_rotation;
+    my $rotation_pid = fork();
+    die "Unable to fork log rotation child: $!" if !defined $rotation_pid;
+    if ( !$rotation_pid ) {
+        close $ready_r;
+        close $release_w;
+        no warnings 'redefine';
+        local *Developer::Dashboard::Collector::_apply_log_rotation = sub {
+            syswrite $ready_w, 'R' or POSIX::_exit(91);
+            my $released = '';
+            sysread $release_r, $released, 1 or POSIX::_exit(92);
+            return $apply_rotation->(@_);
+        };
+        eval { $collector->rotate_log( $name, { lines => 1 } ); 1 }
+          or POSIX::_exit(93);
+        POSIX::_exit(0);
+    }
+    close $ready_w;
+    close $release_r;
+    my $ready = '';
+    sysread $ready_r, $ready, 1 or die 'Rotation child exited before reading its log snapshot';
+
+    my $lock = File::Spec->catfile( $collector->collector_paths($name)->{dir}, '.log.lock' );
+    open my $probe_fh, '>>', $lock or die "Unable to open log-lock probe $lock: $!";
+    my $rotation_holds_lock = !flock( $probe_fh, LOCK_EX | LOCK_NB );
+    flock( $probe_fh, LOCK_UN ) if !$rotation_holds_lock;
+
+    pipe my $appended_r, my $appended_w or die "Unable to create append-complete pipe: $!";
+    my $append_pid = fork();
+    die "Unable to fork log append child: $!" if !defined $append_pid;
+    if ( !$append_pid ) {
+        close $appended_r;
+        eval {
+            $collector->append_log_entry(
+                $name,
+                happened_at => '2026-07-29T12:00:00Z',
+                stdout      => "concurrent-marker\n",
+            );
+            1;
+        } or POSIX::_exit(94);
+        syswrite $appended_w, 'A' or POSIX::_exit(95);
+        POSIX::_exit(0);
+    }
+    close $appended_w;
+
+    my $appended = '';
+    sysread $appended_r, $appended, 1
+      if !$rotation_holds_lock;
+    syswrite $release_w, 'G' or die 'Unable to release paused log rotation';
+    sysread $appended_r, $appended, 1
+      if $rotation_holds_lock;
+
+    waitpid( $rotation_pid, 0 );
+    is( $? >> 8, 0, 'the coordinated log rotation child exits cleanly' );
+    waitpid( $append_pid, 0 );
+    is( $? >> 8, 0, 'the coordinated log append child exits cleanly' );
+    like( $collector->read_log($name), qr/concurrent-marker/, 'a concurrent append survives a rotation that already read its input snapshot' );
 }
 
 dies_like( sub { $collector->_format_log_entry( name => '' ) }, qr/Missing collector name/, '_format_log_entry rejects an empty collector name' );
