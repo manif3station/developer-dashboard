@@ -23,7 +23,7 @@ $local_lib_root ||= '.perl5';
 
 WriteMakefile(
     NAME         => 'Developer::Dashboard',
-    MIN_PERL_VERSION => '5.044',
+    MIN_PERL_VERSION => '5.038',
     VERSION_FROM => 'lib/Developer/Dashboard.pm',
     ABSTRACT     => 'Project-neutral local developer dashboard runtime',
     AUTHOR       => 'Developer Dashboard Contributors',
