@@ -1,5 +1,23 @@
 # Fixed Bugs
 
+## 4.23
+
+- Host-trust DNS-rebinding vector: `_request_is_loopback_admin` trusted any
+  Host header that resolved to a loopback address, so an attacker-controlled
+  DNS name pointing at 127.0.0.1 could reach admin-tier routes from a local
+  browser. Trust now requires exact loopback literals or configured
+  `web.ssl_subject_alt_names` aliases (plus the existing loopback remote
+  check); resolution alone no longer grants admin.
+- CI coverage gate under-enforcement: the workflows verified only statement
+  and subroutine coverage, so branch/condition regressions could merge
+  silently. All three workflows now fail closed through
+  script/check-all-metric-coverage on any of the four metrics below 100.0
+  or any malformed report.
+- Fresh-runtime API test pollution: t/15's fresh-runtime block resolved the
+  config root from the ambient working directory, writing config/api.json
+  into a dev checkout's runtime layer and failing locally while passing in
+  CI. The block now chdirs into its isolated HOME.
+
 ## 4.22 - expired sessions are now actually reclaimed
 
 The 4.21 batch added SessionStore::sweep_expired but left it unwired, so expired session files still accumulated. The housekeeper run now calls the sweep each cycle and reports the count (t/58), completing the expired-session-GC fix.
