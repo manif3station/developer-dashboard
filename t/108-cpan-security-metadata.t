@@ -41,9 +41,9 @@ my %secure_minimum = (
     'YAML::XS'               => '0.903.0',
 );
 
-like( $makefile, qr/MIN_PERL_VERSION\s*=>\s*'5\.044'/, 'Makefile.PL requires the hardened Perl 5.44 baseline' );
-like( $cpanfile, qr/requires\s+'perl'\s*,\s*'5\.044'\s*;/, 'cpanfile requires the hardened Perl 5.44 baseline' );
-like( $dist, qr/^perl = 5\.044$/m, 'dist.ini requires the hardened Perl 5.44 baseline' );
+like( $makefile, qr/MIN_PERL_VERSION\s*=>\s*'5\.038'/, 'Makefile.PL keeps the installable Perl 5.38 floor (interpreter advisories are environmental; dependency pins carry the CVE gate)' );
+like( $cpanfile, qr/requires\s+'perl'\s*,\s*'5\.038'\s*;/, 'cpanfile keeps the installable Perl 5.38 floor' );
+like( $dist, qr/^perl = 5\.038$/m, 'dist.ini keeps the installable Perl 5.38 floor' );
 
 for my $module ( sort keys %secure_minimum ) {
     my $version = $secure_minimum{$module};
@@ -89,7 +89,7 @@ like( $workflow, qr/script\/cpan-audit-project\s+local\/lib\/perl5/, 'CI execute
 like( $workflow, qr/echo\s+"\$GITHUB_WORKSPACE\/audit-local\/bin"\s+>>\s+"\$GITHUB_PATH"/, 'CI adds cpan-audit to the preserved runner PATH' );
 unlike( $workflow, qr/PATH:\s*\$\{\{\s*env\.PATH\s*\}\}/, 'CI does not replace the runner PATH with an unavailable env context value' );
 like( $installer, qr/PERLBREW_PERL="\$\{DD_INSTALL_PERLBREW_PERL:-perl-5\.44\.0\}"/, 'bootstrap fallback builds the hardened Perl 5.44 runtime' );
-like( $installer, qr/MIN_PERL_VERSION='5\.044'/, 'bootstrap rejects host Perl releases below 5.44' );
+like( $installer, qr/MIN_PERL_VERSION='5\.038'/, 'bootstrap accepts host Perl releases from 5.38 and only builds the perlbrew fallback below that floor' );
 like( $main_pod, qr/older than the required\s+C<5\.44>/, 'installation documentation names the hardened Perl baseline' );
 like( $main_pod, qr/perlbrew --notest install perl-5\.44\.0/, 'installation documentation names the hardened rescue Perl' );
 like( $blank_env, qr/\AFROM\s+perl:5\.44-bookworm\@sha256:[0-9a-f]{64}\b/, 'blank-environment E2E uses a digest-pinned hardened Perl image' );

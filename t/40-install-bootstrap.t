@@ -252,7 +252,7 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
         \@log_lines,
         [
             @expected_dnf_bootstrap_steps,
-            'perl -e exit(($] >= 5.044) ? 0 : 1)',
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             "cpanm --no-wget --notest $target",
@@ -310,7 +310,7 @@ my @expected_dnf_bootstrap_steps = _expected_dnf_bootstrap_steps(
         \@log_lines,
         [
             @expected_apk_bootstrap_steps,
-            'perl -e exit(($] >= 5.044) ? 0 : 1)',
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             "cpanm --no-wget --notest $target",
@@ -402,7 +402,7 @@ BASHRC
         \@log_lines,
         [
             @expected_apt_bootstrap_steps,
-            'perl -e exit(($] >= 5.044) ? 0 : 1)',
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             "cpanm --no-wget --notest $target",
@@ -678,7 +678,7 @@ SH
                 packages             => \@apt_packages,
                 nodejs_provides_npm => 1,
             ),
-            'perl -e exit(($] >= 5.044) ? 0 : 1)',
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --no-wget --notest .',
@@ -719,7 +719,7 @@ SH
         [
             'brew install ' . join( ' ', @brew_packages ),
             'brew --prefix perl',
-            'perl -e exit(($] >= 5.044) ? 0 : 1)',
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --no-wget --notest .',
@@ -771,7 +771,7 @@ SH
             '/bin/bash -c /tmp/developer-dashboard-homebrew-install.sh',
             'brew install ' . join( ' ', @brew_packages ),
             'brew --prefix perl',
-            'perl -e exit(($] >= 5.044) ? 0 : 1)',
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             'cpanm --no-wget --notest .',
@@ -898,7 +898,7 @@ SH
         \@log_lines,
         [
             @expected_apt_bootstrap_steps,
-            'perl -e exit(($] >= 5.044) ? 0 : 1)',
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 local::lib App::cpanminus File::ShareDir::Install",
             "perl -I $home/perl5/lib/perl5 -Mlocal::lib",
             "git clone --depth 1 --branch master $default_bootstrap_repository $checkout",
@@ -955,7 +955,7 @@ SH
         \@log_lines,
         [
             @expected_apt_bootstrap_steps,
-            'perl -e exit(($] >= 5.044) ? 0 : 1)',
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
             'perl -MConfig -e print $Config{archname}',
             'perlbrew init',
             'perlbrew list',
@@ -1043,7 +1043,7 @@ SH
         \@log_lines,
         [
             _expected_apk_bootstrap_steps( packages => \@apk_packages ),
-            'perl -e exit(($] >= 5.044) ? 0 : 1)',
+            'perl -e exit(($] >= 5.038) ? 0 : 1)',
             'perl -MConfig -e print $Config{archname}',
             "curl -fsSL $perlbrew_app_dist_url -o $home/perl5/bootstrap-cache/$perlbrew_app_dist_basename",
             "cpanm --no-wget --notest --local-lib-contained $home/perl5 $home/perl5/bootstrap-cache/$perlbrew_app_dist_basename",
@@ -1399,7 +1399,7 @@ SH
         File::Spec->catfile( $fake_bin, 'perl' ),
         <<"SH",
 #!/bin/sh
-if [ "\$1" = "-e" ] && [ "\$2" = "exit((\$] >= 5.044) ? 0 : 1)" ]; then
+if [ "\$1" = "-e" ] && [ "\$2" = "exit((\$] >= 5.038) ? 0 : 1)" ]; then
 printf '%s\\n' "perl \$*" >> "$log"
 if [ "\${FAKE_PERL_MEETS_MIN:-1}" = "1" ]; then
 exit 0

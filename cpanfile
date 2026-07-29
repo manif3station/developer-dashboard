@@ -2,7 +2,7 @@ on 'configure' => sub {
     requires 'File::ShareDir::Install';
 };
 
-requires 'perl', '5.044';
+requires 'perl', '5.038';
 requires 'JSON::XS', '4.04';
 requires 'YAML::XS', '0.903.0';
 requires 'TOML::Parser';
