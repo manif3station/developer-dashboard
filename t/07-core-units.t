@@ -943,7 +943,7 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
 }
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::PathRegistry::cwd = sub { return undef; };
+    local *Developer::Dashboard::PathRegistry::getcwd = sub { return undef; };
     my @warnings;
     local $SIG{__WARN__} = sub { push @warnings, @_ };
     my $paths_without_cwd = Developer::Dashboard::PathRegistry->new( home => $home );
@@ -956,7 +956,7 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
 }
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::PathRegistry::cwd = sub { die "cwd should not be called when the registry was constructed with one\n"; };
+    local *Developer::Dashboard::PathRegistry::getcwd = sub { die "cwd should not be called when the registry was constructed with one\n"; };
     my $precomputed_cwd_paths = Developer::Dashboard::PathRegistry->new(
         home => $home,
         cwd  => $local_repo,
@@ -978,7 +978,7 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
 {
     my $outside_no_repo = tempdir( CLEANUP => 1 );
     no warnings 'redefine';
-    local *Developer::Dashboard::PathRegistry::cwd = sub { return $outside_no_repo; };
+    local *Developer::Dashboard::PathRegistry::getcwd = sub { return $outside_no_repo; };
     local *Developer::Dashboard::PathRegistry::current_project_root = sub { return undef; };
     is_same_paths(
         [ Developer::Dashboard::PathRegistry->new( home => $home )->runtime_layers ],
@@ -997,7 +997,7 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
         make_path( File::Spec->catdir( $real_home, 'dd-oop-layers', 'parent', 'leaf', '.developer-dashboard' ) );
         my $real_leaf = File::Spec->catdir( $real_home, 'dd-oop-layers', 'parent', 'leaf' );
         no warnings 'redefine';
-        local *Developer::Dashboard::PathRegistry::cwd = sub { return $real_leaf; };
+        local *Developer::Dashboard::PathRegistry::getcwd = sub { return $real_leaf; };
         local *Developer::Dashboard::PathRegistry::current_project_root = sub { return undef; };
         my $alias_paths = Developer::Dashboard::PathRegistry->new( home => $alias_home );
         is_same_paths(
@@ -1016,7 +1016,7 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
     my $layer_leaf = File::Spec->catdir( $layer_parent, 'leaf' );
     make_path( File::Spec->catdir( $layer_leaf, '.developer-dashboard' ) );
     no warnings 'redefine';
-    local *Developer::Dashboard::PathRegistry::cwd = sub { return $layer_leaf; };
+    local *Developer::Dashboard::PathRegistry::getcwd = sub { return $layer_leaf; };
     local *Developer::Dashboard::PathRegistry::dirname = sub { return $_[0] };
     is_same_paths(
         [ Developer::Dashboard::PathRegistry->new( home => $home )->runtime_layers ],
@@ -1035,7 +1035,7 @@ ok( !defined $paths->resolve_any('missing-name'), 'resolve_any returns undef whe
         File::Spec->catdir( $home, 'dd-oop-layers', 'parent', 'leaf', '.developer-dashboard' ),
     );
     no warnings 'redefine';
-    local *Developer::Dashboard::PathRegistry::cwd = sub { return undef; };
+    local *Developer::Dashboard::PathRegistry::getcwd = sub { return undef; };
     is_same_paths(
         [ Developer::Dashboard::PathRegistry->new( home => $home )->runtime_layers ],
         [
@@ -3388,15 +3388,15 @@ chdir $original_cwd or die $!;
     my $parent_state_root;
     my $leaf_state_root;
     {
-        local *Developer::Dashboard::PathRegistry::cwd = sub { return $layer_root; };
+        local *Developer::Dashboard::PathRegistry::getcwd = sub { return $layer_root; };
         $home_state_root = $state_paths->state_root;
     }
     {
-        local *Developer::Dashboard::PathRegistry::cwd = sub { return $layer_parent; };
+        local *Developer::Dashboard::PathRegistry::getcwd = sub { return $layer_parent; };
         $parent_state_root = $state_paths->state_root;
     }
     {
-        local *Developer::Dashboard::PathRegistry::cwd = sub { return $layer_leaf; };
+        local *Developer::Dashboard::PathRegistry::getcwd = sub { return $layer_leaf; };
         $leaf_state_root = $state_paths->state_root;
     }
 
@@ -3484,7 +3484,7 @@ chdir $original_cwd or die $!;
     );
 
     {
-        local *Developer::Dashboard::PathRegistry::cwd = sub { return $owning_parent; };
+        local *Developer::Dashboard::PathRegistry::getcwd = sub { return $owning_parent; };
         my $owning_parent_paths = Developer::Dashboard::PathRegistry->new( home => $owning_home );
         my $owning_parent_store = Developer::Dashboard::IndicatorStore->new( paths => $owning_parent_paths );
         $owning_parent_store->set_indicator(
