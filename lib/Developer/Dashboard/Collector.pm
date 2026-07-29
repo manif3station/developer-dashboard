@@ -306,11 +306,16 @@ sub append_log_entry {
         error       => $entry{error},
         source      => $entry{source},
     );
-    open my $fh, '>>', $paths->{log} or die "Unable to append $paths->{log}: $!";
-    print {$fh} $text;
-    close $fh;
-    $self->{paths}->secure_file_permissions( $paths->{log} );
-    return $paths->{log};
+    return $self->_with_log_lock(
+        $paths,
+        sub {
+            open my $fh, '>>', $paths->{log} or die "Unable to append $paths->{log}: $!";
+            print {$fh} $text;
+            close $fh;
+            $self->{paths}->secure_file_permissions( $paths->{log} );
+            return $paths->{log};
+        }
+    );
 }
 
 # rotate_log($name, $rotation, %args)
@@ -326,24 +331,43 @@ sub rotate_log {
     my $paths = $self->collector_paths($name);
     return if !-f $paths->{log};
 
-    my $original = _slurp( $paths->{log} );
-    my $rotated = $self->_apply_log_rotation(
-        $name,
-        $original,
-        $normalized,
-        now_epoch => $args{now_epoch},
-    );
-    return if $rotated eq $original;
+    return $self->_with_log_lock(
+        $paths,
+        sub {
+            my $original = _slurp( $paths->{log} );
+            my $rotated = $self->_apply_log_rotation(
+                $name,
+                $original,
+                $normalized,
+                now_epoch => $args{now_epoch},
+            );
+            return if $rotated eq $original;
 
-    $self->_atomic_write_text( $paths->{log}, $rotated );
-    return {
-        kind         => 'collector-log-rotation',
-        name         => $name,
-        path         => $paths->{log},
-        strategy     => join( ',', map { $_ . '=' . $normalized->{$_} } sort keys %{$normalized} ),
-        before_bytes => length $original,
-        after_bytes  => length $rotated,
-    };
+            $self->_atomic_write_text( $paths->{log}, $rotated );
+            return {
+                kind         => 'collector-log-rotation',
+                name         => $name,
+                path         => $paths->{log},
+                strategy     => join( ',', map { $_ . '=' . $normalized->{$_} } sort keys %{$normalized} ),
+                before_bytes => length $original,
+                after_bytes  => length $rotated,
+            };
+        }
+    );
+}
+
+# _with_log_lock($paths, $callback)
+# Serializes collector log mutation so append and read-modify-replace rotation
+# cannot overwrite each other across processes.
+# Input: collector path hash reference and callback run inside the critical section.
+# Output: callback return value.
+sub _with_log_lock {
+    my ( $self, $paths, $callback ) = @_;
+    my $lock = File::Spec->catfile( $paths->{dir}, '.log.lock' );
+    open my $lock_fh, '>>', $lock or die "Unable to open $lock: $!";
+    $self->{paths}->secure_file_permissions($lock);
+    flock( $lock_fh, LOCK_EX ) or die "Unable to lock $lock: $!";
+    return $callback->();
 }
 
 # read_log($name)
