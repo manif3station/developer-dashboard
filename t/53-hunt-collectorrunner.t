@@ -138,9 +138,74 @@ SKIP: {
     ok( $timed_out, 'a timed-out collector command is still flagged as timed out' );
 }
 
-# NOTE: Finding 4 (killing the timed-out command's process subtree) is
-# intentionally NOT implemented here. See this file's POD and the change notes:
-# both viable single-file approaches regress tested behavior.
+# ----------------------------------------------------------------------------
+# Finding 4: timing out a command must terminate the complete command subtree.
+# The helper records both itself and its long-lived child before blocking so the
+# assertion covers the shell command and a descendant rather than only the
+# direct process that CollectorRunner waits for.
+# ----------------------------------------------------------------------------
+{
+    my $helper = File::Spec->catfile( $home, 'timeout-subtree.pl' );
+    my $pidfile = File::Spec->catfile( $home, 'timeout-subtree.pids' );
+    open my $helper_fh, '>', $helper or die "Unable to write $helper: $!";
+    print {$helper_fh} <<'HELPER';
+use strict;
+use warnings;
+$| = 1;
+my ($pidfile) = @ARGV;
+my $descendant;
+if ( $^O eq 'MSWin32' ) {
+    $descendant = system 1, $^X, '-e', '$| = 1; print "descendant-ready\\n"; sleep 30';
+    die "Unable to spawn timeout descendant: $!" if !defined $descendant || $descendant < 1;
+}
+else {
+    $descendant = fork();
+    die "Unable to fork timeout descendant: $!" if !defined $descendant;
+    if ( !$descendant ) {
+        print "descendant-ready\n";
+        sleep 30;
+        exit 0;
+    }
+}
+open my $pid_fh, '>', $pidfile or die "Unable to write $pidfile: $!";
+print {$pid_fh} "$$ $descendant\n";
+close $pid_fh or die "Unable to close $pidfile: $!";
+print "parent-ready\n";
+print STDERR "parent-stderr-ready\n";
+sleep 30;
+HELPER
+    close $helper_fh or die "Unable to close $helper: $!";
+
+    my $shell = Developer::Dashboard::Platform::is_windows() ? 'cmd' : 'sh';
+    my $command = join ' ',
+      map { Developer::Dashboard::Platform::shell_quote_for( $shell, $_ ) }
+      ( $^X, $helper, $pidfile );
+    my ( $stdout, $stderr, $exit_code, $timed_out ) = $runner->_run_command(
+        source     => $command,
+        cwd        => $home,
+        timeout_ms => 100,
+    );
+
+    is( $exit_code, 124, 'a command-subtree timeout returns exit 124' );
+    ok( $timed_out, 'a command-subtree timeout is flagged as timed out' );
+    like( $stdout, qr/parent-ready/, 'stdout emitted before timeout remains captured' );
+    like( $stderr, qr/parent-stderr-ready/, 'stderr emitted before timeout remains captured' );
+
+    open my $pid_fh, '<', $pidfile or die "Unable to read $pidfile: $!";
+    my $pids = <$pid_fh>;
+    close $pid_fh;
+    my ( $command_pid, $descendant_pid ) = $pids =~ /^(\d+)\s+(\d+)/;
+    for ( 1 .. 100 ) {
+        last if !kill( 0, $command_pid ) && !kill( 0, $descendant_pid );
+        select undef, undef, undef, 0.01;
+    }
+    ok( !kill( 0, $command_pid ), 'timeout terminates the executing command process' );
+    ok( !kill( 0, $descendant_pid ), 'timeout terminates the command descendant' );
+
+    # Keep the RED case hermetic: the pre-fix implementation leaves these
+    # processes alive, so remove them after observing the failed assertions.
+    kill 9, grep { defined && kill( 0, $_ ) } ( $command_pid, $descendant_pid );
+}
 
 done_testing();
 
@@ -157,17 +222,12 @@ timeout being persisted under the seconds-keyed field and re-inflated on reload,
 a wildcard C<* * * * *> cron bypassing the per-minute de-duplication, and a
 signal-killed command being recorded as a success instead of a failure.
 
-A fourth defect (a timed-out command orphaning its process subtree instead of
-being killed) is intentionally NOT fixed here. Killing the subtree requires
-either isolating the command into its own process group -- which regresses the
-tested loop-shutdown worker-group sweep that relies on the command sharing the
-worker process group -- or a Perl-level fork+exec to capture the command pid,
-which under the Devel::Cover coverage gate makes the forked child re-initialise
-its own coverage run before exec and intermittently exceed short collector
-timeouts. Both are regressions, and a safe fix needs cross-cutting changes
-beyond this module, so the timeout-kill is deliberately left for a dedicated
-change. This test only pins that the timeout contract (return 124, flag timed
-out) is unchanged by the signal-aware exit code.
+A fourth regression covers complete timed-out command subtree cleanup. The
+runner uses a small uninstrumented launcher to record the direct command pid,
+isolates POSIX commands into their own sessions, and uses Windows taskkill tree
+mode. That avoids both the old orphaning behavior and Devel::Cover's expensive
+fork-time reinitialization while preserving the timeout and captured-output
+contracts.
 
 =head1 WHY IT EXISTS
 

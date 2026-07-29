@@ -8,6 +8,7 @@ our $VERSION = '4.23';
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
 use File::Spec;
+use File::Temp qw(tempfile);
 use POSIX qw(close setsid strftime);
 use Template;
 use Time::HiRes qw(sleep time);
@@ -1600,7 +1601,8 @@ sub _cron_match {
 }
 
 # _run_command(%args)
-# Executes a collector command with captured stdout/stderr and timeout handling.
+# Executes a collector command as an owned child process with captured
+# stdout/stderr, timeout handling, and complete subtree cleanup.
 # Input: command string, cwd path, env hash, and timeout_ms.
 # Output: list of stdout, stderr, exit_code, and timed_out flag.
 sub _run_command {
@@ -1616,24 +1618,138 @@ sub _run_command {
     my %dashboard_env = %{ Developer::Dashboard::PerlEnv->dashboard_child_env() };
     local @ENV{ keys %dashboard_env } = values %dashboard_env;
     my $timed_out = 0;
+    my ( $pid_fh, $pidfile ) = tempfile( 'dashboard-collector-command-XXXXXX', TMPDIR => 1, UNLINK => 0 );
+    CORE::close $pid_fh or die "Unable to close collector command pid file $pidfile: $!";
     my ( $stdout, $stderr, $exit_code ) = capture {
+        my @argv = shell_command_argv( $cmd, login => 0 );
+        my @launcher = $self->_command_launcher_argv( $pidfile, @argv );
+
+        local $SIG{TERM} = sub { $self->_forward_command_signal( $pidfile, 'TERM', 15 ) };
+        local $SIG{INT}  = sub { $self->_forward_command_signal( $pidfile, 'INT',  2 ) };
+        local $SIG{HUP}  = sub { $self->_forward_command_signal( $pidfile, 'HUP',  1 ) };
         local $SIG{ALRM} = sub { die "__COLLECTOR_TIMEOUT__\n" };
+        local $ENV{PERL5OPT} = $ENV{PERL5OPT};
+        local $ENV{HARNESS_PERL_SWITCHES} = $ENV{HARNESS_PERL_SWITCHES};
+        delete @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)};
         alarm( int( ( $timeout_ms + 999 ) / 1000 ) );
         my $ok = eval {
-            system shell_command_argv( $cmd, login => 0 );
+            system { $launcher[0] } @launcher;
             return _exit_code_from_status($?);
         };
         if ($@) {
             die $@ if $@ !~ /__COLLECTOR_TIMEOUT__/;
             $timed_out = 1;
+            alarm(0);
+            $self->_terminate_command_process( $self->_await_command_pid($pidfile) );
             return 124;
         }
         alarm(0);
         return $ok;
     };
     alarm(0);
+    unlink $pidfile;
     chdir $old or die "Unable to restore cwd to $old: $!";
     return ( $stdout, $stderr, $exit_code, $timed_out );
+}
+
+# _command_launcher_argv($pidfile, @command_argv)
+# Builds a small uninstrumented Perl launcher that records its pid before
+# becoming the collector command. This preserves system()'s fast native spawn
+# path under Devel::Cover while making the command subtree addressable.
+# Input: pid-file path followed by the shell command argv.
+# Output: launcher argv list.
+sub _command_launcher_argv {
+    my ( $self, $pidfile, @argv ) = @_;
+    my $launcher = <<'PERL';
+use strict;
+use warnings;
+use POSIX ();
+my $pidfile = shift @ARGV;
+open my $pid_fh, '>', $pidfile or die "Unable to write collector command pid file $pidfile: $!";
+print {$pid_fh} $$;
+close $pid_fh or die "Unable to close collector command pid file $pidfile: $!";
+POSIX::setsid() if $^O ne 'MSWin32';
+exec { $ARGV[0] } @ARGV or die "Unable to exec collector command: $!";
+PERL
+    return ( $^X, '-e', $launcher, $pidfile, @argv );
+}
+
+# _command_pid_from_file($pidfile)
+# Reads and validates the direct command pid recorded by the launcher.
+# Input: pid-file path.
+# Output: positive pid integer or undef.
+sub _command_pid_from_file {
+    my ( $self, $pidfile ) = @_;
+    return if !defined $pidfile || $pidfile eq '' || !-f $pidfile;
+    open my $fh, '<', $pidfile or return;
+    my $pid = <$fh>;
+    close $fh;
+    return if !defined $pid || $pid !~ /^(\d+)$/ || $pid < 1;
+    return 0 + $pid;
+}
+
+# _await_command_pid($pidfile)
+# Waits briefly for the native-spawned launcher to record its pid. This closes
+# the startup race where an immediate timeout or stop signal could otherwise
+# arrive before the command subtree became addressable.
+# Input: pid-file path.
+# Output: positive pid integer or undef after a bounded wait.
+sub _await_command_pid {
+    my ( $self, $pidfile ) = @_;
+    for ( 1 .. 100 ) {
+        my $pid = $self->_command_pid_from_file($pidfile);
+        return $pid if defined $pid;
+        sleep 0.01;
+    }
+    return;
+}
+
+# _forward_command_signal($pidfile, $signal, $number)
+# Cleans up an executing command subtree before preserving the signal semantics
+# of the CollectorRunner process that received the external stop request.
+# Input: command pid-file path, signal name, and numeric POSIX signal value.
+# Output: never returns.
+sub _forward_command_signal {
+    my ( $self, $pidfile, $signal, $number ) = @_;
+    $self->_terminate_command_process( $self->_await_command_pid($pidfile) );
+    unlink $pidfile if defined $pidfile && $pidfile ne '';
+    if ( !is_windows() ) {
+        $SIG{$signal} = 'DEFAULT';
+        kill $signal, $$;
+    }
+    CORE::exit( 128 + $number );
+}
+
+# _terminate_command_process($pid)
+# Terminates and reaps one owned command process plus every descendant. POSIX
+# commands are isolated session leaders, while Windows uses taskkill's tree mode.
+# Input: direct command child pid integer.
+# Output: true value after bounded TERM/KILL cleanup.
+sub _terminate_command_process {
+    my ( $self, $pid ) = @_;
+    return 1 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+
+    if (is_windows()) {
+        capture { system 'taskkill', '/PID', $pid, '/T', '/F' };
+        waitpid( $pid, 0 );
+        return 1;
+    }
+
+    kill 'TERM', -$pid;
+    kill 'TERM', $pid;
+    my $reaped = 0;
+    for ( 1 .. 20 ) {
+        my $waited = waitpid( $pid, 1 );
+        if ( $waited == $pid || $waited == -1 ) {
+            $reaped = 1;
+            last;
+        }
+        sleep 0.01;
+    }
+    kill 'KILL', -$pid;
+    kill 'KILL', $pid if !$reaped;
+    waitpid( $pid, 0 ) if !$reaped;
+    return 1;
 }
 
 # _exit_code_from_status($status)
