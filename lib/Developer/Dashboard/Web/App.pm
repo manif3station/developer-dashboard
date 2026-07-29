@@ -195,6 +195,11 @@ sub dispatch_request {
     my $path   = $args{path} || '/';
     my $method = uc( $args{method} || 'GET' );
 
+    if ( $path =~ m{^/app/(.+)$} ) {
+        my $invalid_id = $self->_invalid_saved_page_id_response( uri_unescape($1) );
+        return $invalid_id if $invalid_id;
+    }
+
     return $self->root_response(%args) if $path eq '/';
     return $self->apps_redirect_response(%args) if $path eq '/apps';
     return $self->legacy_ajax_response(%args) if $path eq '/ajax';
@@ -234,6 +239,30 @@ sub dispatch_request {
     }
 
     return [ 404, 'text/plain; charset=utf-8', "Not found\n" ];
+}
+
+# _invalid_saved_page_id_response($id)
+# Converts PageStore's saved-id containment rejection into an authorized route response.
+# Input: saved page id captured from an /app route.
+# Output: undef for a valid id, otherwise a 400 plain-text response.
+sub _invalid_saved_page_id_response {
+    my ( $self, $id ) = @_;
+    return if !$self->{pages}->can('page_file');
+    my $ok = eval { $self->{pages}->page_file($id); 1 };
+    return if $ok;
+    die $@ if $@ !~ /Invalid page (?:id|path)/;
+    return [ 400, 'text/plain; charset=utf-8', "Invalid page id\n" ];
+}
+
+# _saved_page_error_response($error)
+# Converts PageStore containment failures at body-derived write boundaries into
+# a fixed client response without exposing filesystem details or source lines.
+# Input: caught exception string.
+# Output: 400 response for invalid page ids/paths, otherwise undef.
+sub _saved_page_error_response {
+    my ( $self, $error ) = @_;
+    return if !defined $error || $error !~ /Invalid page (?:id|path)/;
+    return [ 400, 'text/plain; charset=utf-8', "Invalid page id\n" ];
 }
 
 # _helper_access_disabled_response()
@@ -411,7 +440,12 @@ sub root_response {
         }
         my $source_kind = 'transient';
         if ( exists $body_params->{instruction} && $page_id ne '' ) {
-            $self->{pages}->save_page($page);
+            my $saved = eval { $self->{pages}->save_page($page); 1 };
+            if ( !$saved ) {
+                my $invalid = $self->_saved_page_error_response($@);
+                return $invalid if $invalid;
+                die $@;
+            }
             $source_kind = 'saved';
         }
         $page->{meta}{source_kind} = $source_kind;
@@ -864,7 +898,12 @@ sub page_edit_post_response {
         }
         else {
             $page->{meta}{source_kind} = 'saved';
-            $self->{pages}->save_page($page);
+            my $saved = eval { $self->{pages}->save_page($page); 1 };
+            if ( !$saved ) {
+                my $invalid = $self->_saved_page_error_response($@);
+                return $invalid if $invalid;
+                die $@;
+            }
         }
         my $mode = $params->{mode} || $body_params->{mode} || 'edit';
         my $request_path = $args{path} || '/app/' . $args{id} . '/edit';    # uncoverable condition false
