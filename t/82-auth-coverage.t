@@ -186,15 +186,16 @@ isa_ok( $auth, 'Developer::Dashboard::Auth', 'constructed auth manager' );
     is_deeply( [ $auth->_resolve_host_ips('') ], [], '_resolve_host_ips returns nothing for a blank host' );
 
     # _request_is_loopback_admin: alias filtering (undef/blank/whitespace inputs)
-    # plus the resolve fallback when no alias matches.
+    # plus DNS-rebinding protection: a non-localhost hostname is not trusted
+    # even when it resolves only to loopback.
     is(
         $auth->_request_is_loopback_admin(
             remote_addr          => '127.0.0.1',
             host                 => 'target-host',
             extra_loopback_hosts => [ undef, '', '   ', 'other-alias' ],
         ),
-        1,
-        '_request_is_loopback_admin falls through to resolution when no configured alias matches',
+        0,
+        '_request_is_loopback_admin rejects a non-localhost hostname even when it resolves only to loopback (DNS-rebinding fix)',
     );
     is(
         $auth->_request_is_loopback_admin(
