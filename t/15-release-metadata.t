@@ -2,10 +2,14 @@ use strict;
 use warnings;
 
 use Cwd qw(abs_path);
+use File::Copy qw(copy);
 use File::Find qw(find);
+use File::Path qw(make_path);
 use File::Spec;
+use File::Temp qw(tempdir);
 use FindBin qw($RealBin);
 use Capture::Tiny qw(capture);
+use JSON::XS ();
 use Test::More;
 use Archive::Tar;
 
@@ -128,6 +132,35 @@ is(
 );
 if ( $dist ne '' ) {
     like( $dist, qr/^version = \Q$version\E$/m, 'dist.ini version matches the module version in the source tree' );
+    like( $dist, qr/^license = MIT$/m, 'dist.ini declares the canonical MIT distribution license' );
+    {
+        my $fixture = tempdir( CLEANUP => 1 );
+        make_path( File::Spec->catdir( $fixture, 'lib', 'Developer' ) );
+        copy( _repo_path('Makefile.PL'), File::Spec->catfile( $fixture, 'Makefile.PL' ) )
+          or die "Unable to copy Makefile.PL into $fixture: $!";
+        copy(
+            _repo_path( 'lib', 'Developer', 'Dashboard.pm' ),
+            File::Spec->catfile( $fixture, 'lib', 'Developer', 'Dashboard.pm' ),
+          ) or die "Unable to copy Developer::Dashboard into $fixture: $!";
+        make_path( File::Spec->catdir( $fixture, 'share' ) );
+
+        my ( $configure_stdout, $configure_stderr, $configure_exit ) = capture {
+            my $original = Cwd::cwd();
+            chdir $fixture or die "Unable to chdir to $fixture: $!";
+            local $ENV{HOME} = $fixture;
+            system( $^X, 'Makefile.PL' );
+            my $exit = $? >> 8;
+            chdir $original or die "Unable to return to $original: $!";
+            return $exit;
+        };
+        is( $configure_exit, 0, 'Makefile.PL generates metadata in a temporary source fixture' )
+          or diag("stdout:\n$configure_stdout\nstderr:\n$configure_stderr");
+
+        my $mymeta_path = File::Spec->catfile( $fixture, 'MYMETA.json' );
+        ok( -f $mymeta_path, 'Makefile.PL writes MYMETA.json' );
+        my $generated_meta = JSON::XS->new->decode( _slurp($mymeta_path) );
+        is_deeply( $generated_meta->{license}, ['mit'], 'generated MakeMaker metadata declares only the canonical MIT license' );
+    }
     like( $dist, qr/^skip = \^Module::CPANTS::Analyse\$$/m, 'dist.ini skips release-only Module::CPANTS::Analyse from generated install-time prereqs' );
     like( $dist, qr/^skip = \^Module::CPANTS::Kwalitee\$$/m, 'dist.ini skips release-only Module::CPANTS::Kwalitee from generated install-time prereqs' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
