@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# IMPORTANT: do not invoke this via `sh`/`dash`. The shebang pins bash so that
+# `set -euo pipefail` and `set -o pipefail` are recognized and command errors
+# fail the gate. Running it under a different shell silently drops the
+# pipefail guarantee, masking advisory exits.
+#
+# Probe the real interpreter early and refuse to run if the caller used a
+# different shell (e.g. `sh script/cpan-audit-project` from CI).
+if [ -z "${BASH_VERSION:-}" ]; then
+    printf '%s\n' 'cpan-audit-project must be invoked through bash; current shell is not bash' >&2
+    exit 2
+fi
+set -euo pipefail
+
+if [ "$#" -ne 1 ] || [ ! -d "$1" ]; then
+  printf 'Usage: %s <isolated-perl5-library-root>\n' "$0" >&2
+  exit 2
+fi
+
+repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+perl5_root="$(CDPATH= cd -- "$1" && pwd)"
+exclusions="$repo_root/cpan-audit-exclusions.txt"
+
+if grep -R -n -E "Plack::Middleware::XSendfile|(enable|enable_if)[[:space:]\(]+['\"](Plack::Middleware::)?XSendfile['\"]|X-Sendfile-Type|X-Accel-Mapping" \
+  "$repo_root/bin" "$repo_root/lib" "$repo_root/share"; then
+  printf '%s\n' 'CPANSA-Plack-2026-7381 exclusion invalid: XSendfile middleware is activated by production code' >&2
+  exit 1
+fi
+
+if grep -R -n -E 'File::Temp[[:space:]]*(->|::)[[:space:]]*safe_level[[:space:]]*\(' \
+  "$repo_root/bin" "$repo_root/lib" "$repo_root/share"; then
+  printf '%s\n' 'CPANSA-File-Temp-2011-4116 exclusion invalid: File::Temp vulnerable safety checks are activated by production code' >&2
+  exit 1
+fi
+
+cpan-audit installed "$perl5_root" --perl --exclude-file "$exclusions"

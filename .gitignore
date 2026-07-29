@@ -14,6 +14,8 @@ Developer-Dashboard-*/
 .developer-dashboard/
 cover_db/
 .perl5/
+local/
+audit-local/
 Developer-Dashboard-0*
 *.md
 !SECURITY_CHECKS.md

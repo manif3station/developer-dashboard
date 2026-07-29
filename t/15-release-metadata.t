@@ -192,35 +192,43 @@ unlike( $makefile, qr/["']Test::Pod["']\s*=>\s*0/, 'Makefile.PL does not ship Te
 unlike( $makefile, qr/["']HTTP::Daemon["']\s*=>\s*0/, 'Makefile.PL no longer declares unused HTTP::Daemon metadata' );
 unlike( $makefile, qr/["']HTTP::Status["']\s*=>\s*0/, 'Makefile.PL no longer declares unused HTTP::Status metadata' );
 unlike( $cpanfile, qr/requires ['"]Test::Pod['"];/, 'cpanfile does not ship Test::Pod as an install-time prerequisite' );
-for my $module (
-    qw(
-    JSON::XS
-    YAML::XS
-    TOML::Parser
-    Capture::Tiny
-    Getopt::Long
-    Digest::MD5
-    Digest::SHA
-    Archive::Zip
-    MIME::Base64
-    IO::Compress::Gzip
-    IO::Uncompress::Gunzip
-    Dancer2
-    Plack
-    Starman
-    HTTP::Request
-    LWP::Protocol::https
-    LWP::UserAgent
-    Template
-    URI
-    URI::Escape
-    XML::Parser
-    )
-  )
-{
-    like( $makefile, qr/["']\Q$module\E["']\s*=>\s*0/, "Makefile.PL declares runtime prerequisite $module" );
-    like( $cpanfile, qr/requires ['"]\Q$module\E['"];/, "cpanfile declares runtime prerequisite $module" );
-    like( $dist, qr/^\Q$module\E = 0$/m, "dist.ini declares runtime prerequisite $module" ) if $dist ne '';
+my %runtime_prereq_minimum = (
+    'JSON::XS'               => '4.04',
+    'YAML::XS'               => '0.903.0',
+    'TOML::Parser'           => '0',
+    'Capture::Tiny'          => '0.24',
+    'Getopt::Long'           => '0',
+    'Digest::MD5'            => '2.25',
+    'Digest::SHA'            => '5.96',
+    'Archive::Tar'           => '3.10',
+    'Archive::Zip'           => '1.61',
+    'MIME::Base64'           => '0',
+    'Compress::Raw::Zlib'    => '2.220',
+    'IO::Compress::Gzip'     => '2.220',
+    'IO::Uncompress::Gunzip' => '2.220',
+    'Dancer2'                => '0.206000',
+    'Plack'                  => '1.0054',
+    'Socket'                 => '2.041',
+    'Starman'                => '0.4018',
+    'Storable'               => '3.41',
+    'HTTP::Request'          => '0',
+    'HTTP::Tiny'             => '0.095',
+    'LWP::Protocol::https'   => '6.07',
+    'LWP::UserAgent'         => '6.83',
+    'Template'               => '3.103',
+    'URI'                    => '0',
+    'URI::Escape'            => '0',
+    'XML::Parser'            => '2.48',
+);
+for my $module ( sort keys %runtime_prereq_minimum ) {
+    my $minimum = $runtime_prereq_minimum{$module};
+    my $makefile_value = $minimum eq '0' ? '0' : "['\"]\Q$minimum\E['\"]";
+    my $cpanfile_re = $minimum eq '0'
+        ? qr/requires ['"]\Q$module\E['"];/
+        : qr/requires ['"]\Q$module\E['"]\s*,\s*['"]\Q$minimum\E['"];/;
+    like( $makefile, qr/["']\Q$module\E["']\s*=>\s*$makefile_value/, "Makefile.PL declares runtime prerequisite $module at $minimum" );
+    like( $cpanfile, $cpanfile_re, "cpanfile declares runtime prerequisite $module at $minimum" );
+    like( $dist, qr/^\Q$module\E = \Q$minimum\E$/m, "dist.ini declares runtime prerequisite $module at $minimum" ) if $dist ne '';
 }
 for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket workspace path paths ps1 encode decode indicator collector config auth api ask init cpan page action docker serve stop restart shell doctor housekeeper skills which)) {
     ok( -f _repo_path( 'share', 'private-cli', $helper ), "share/private-cli/$helper is shipped as a private helper asset" );
