@@ -1527,6 +1527,11 @@ those payloads through C<Runtime::Result>.
 
 Use C<dashboard version> to print the installed Developer Dashboard version.
 
+Use C<dashboard upgrade> or the identical C<d2 upgrade> short entrypoint to
+download, validate, and run the canonical HTTPS installer for the active
+platform. Add C<--dry-run> to print the selected installer URL and execution
+plan without making a network request or changing the host.
+
 The blank-container integration harness applies fake-project dashboard override
 environment variables only after C<cpanm --notest> finishes installing the
 tarball so the source-tree test and coverage gates stay responsible for full

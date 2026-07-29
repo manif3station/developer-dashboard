@@ -25,6 +25,7 @@ d2 - first-class short entrypoint for the Developer Dashboard CLI
 
   d2 version
   d2 doctor
+  d2 upgrade [--dry-run]
   d2 collector status housekeeper
   d2 ask "How do I list collectors?"
 

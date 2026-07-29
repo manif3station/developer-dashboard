@@ -595,6 +595,13 @@ for my $helper ( Developer::Dashboard::InternalCLI::helper_names() ) {
             'helper_content renders the shipped ask wrapper body',
         );
     }
+    elsif ( $helper eq 'upgrade' ) {
+        like(
+            $content,
+            qr/\QDeveloper::Dashboard::CLI::Upgrade::run_upgrade( args => \@ARGV )\E/,
+            'helper_content renders the shipped upgrade wrapper body',
+        );
+    }
     else {
         like(
             $content,
