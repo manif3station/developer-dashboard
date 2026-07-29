@@ -1,0 +1,11 @@
+# CPANSA-Plack-2026-7381 has no fixed Plack release. The project does not load
+# Plack::Middleware::XSendfile and script/cpan-audit-project rejects both direct
+# references and normal Plack builder activation before this advisory is excluded.
+CPANSA-Plack-2026-7381
+
+# CPANSA-File-Temp-2011-4116 has no fixed File::Temp release. The historical
+# finding concerns the _is_safe symlink check reached by public tempfile/tempdir
+# calls at MEDIUM safety level. The project uses those public constructors only
+# at the default STANDARD level, and the audit script rejects any production
+# call that changes File::Temp's safe_level before this advisory is excluded.
+CPANSA-File-Temp-2011-4116
