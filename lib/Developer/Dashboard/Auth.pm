@@ -270,8 +270,13 @@ sub _canonical_host {
 
 # _request_is_loopback_admin(%args)
 # Reports whether one request should be treated as trusted local-admin traffic.
+# Hostnames that are well-known local-machine aliases ('localhost',
+# 'localhost.localdomain') are always accepted.  Hostnames that merely resolve
+# to loopback via DNS are NOT trusted — that prevents DNS-rebinding attacks
+# where an attacker hostname resolves to 127.0.0.1.
 # Input: canonical remote_addr IP string and canonical host string.
-# Output: boolean true when the request comes from loopback and the host is blank, loopback, or resolves only to loopback addresses.
+# Output: boolean true when the request comes from loopback and the host
+# belongs to an explicitly trusted local-only set.
 sub _request_is_loopback_admin {
     my ( $self, %args ) = @_;
     my $remote_addr = $args{remote_addr} || '';
@@ -283,7 +288,14 @@ sub _request_is_loopback_admin {
     return 1 if !defined $host || $host eq '';
     return 1 if $self->_ip_is_loopback($host);
     return 1 if grep { $_ eq $host } @extra_loopback_hosts;
-    return $self->_host_resolves_only_to_loopback($host);
+    # Well-known system-local hostnames are implicitly trusted without
+    # DNS resolution.  This list is intentionally small — arbitrary
+    # hostnames that happen to resolve to loopback are NOT trusted,
+    # preventing DNS-rebinding admin elevation.
+    return 1 if $host eq 'localhost';
+    return 1 if $host eq 'localhost.localdomain';
+    return 1 if $host eq 'localhost6' || $host eq 'localhost6.localdomain6';
+    return 0;    # Any other hostname is HELPER even when it resolves to loopback
 }
 
 # _host_resolves_only_to_loopback($host)
@@ -430,10 +442,17 @@ Developer::Dashboard::Auth - local auth and trust-tier handling
 =head1 DESCRIPTION
 
 This module implements the local-first trust model for Developer Dashboard.
-Loopback requests using loopback-local hosts such as C<127.0.0.1>,
-C<localhost>, or configured local alias names can be treated as trusted admin
-access, while other requests authenticate through file-backed helper user
-records.
+Loopback requests using loopback-local IPs such as C<127.0.0.1> or C<::1>,
+explicitly configured local alias names, or the well-known hostnames
+C<localhost>, C<localhost.localdomain>, C<localhost6>, and
+C<localhost6.localdomain6> can be treated as trusted admin access, while
+all other requests authenticate through file-backed helper user records.
+
+DNS-rebinding protection: hostnames that merely resolve to loopback addresses
+via DNS are NOT granted admin trust.  Only the well-known local-machine
+aliases listed above, configured C<extra_loopback_hosts>, and literal loopback
+IPs are accepted.  This prevents an attacker-controlled hostname that resolves
+to C<127.0.0.1> from gaining admin access over a loopback connection.
 
 Helper passwords are stored stretched with PBKDF2-HMAC-SHA256 and each record
 carries its own scheme label and iteration work factor. Helper records written

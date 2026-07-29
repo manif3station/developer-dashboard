@@ -3349,10 +3349,12 @@ chdir $original_cwd or die $!;
                 },
             );
         };
+        # DNS-rebinding fix: hostnames that resolve only to loopback are NOT
+        # trusted as admin -- only literal loopback IPs and localhost aliases.
         is(
             $auth->trust_tier( remote_addr => '::1', host => 'v6-loopback.local:7890' ),
-            'admin',
-            'auth trusts hostnames that resolve only to IPv6 loopback addresses',
+            'helper',
+            'auth does NOT trust arbitrary hostnames that resolve only to IPv6 loopback (DNS-rebinding protection)',
         );
     }
     is( $auth->trust_tier( remote_addr => '127.0.0.1', host => 'dashboard-ssl-alias.local:7890' ), 'helper', 'auth keeps non-loopback-resolving alias hosts in helper mode by default' );

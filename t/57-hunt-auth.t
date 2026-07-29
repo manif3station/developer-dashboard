@@ -115,13 +115,10 @@ ok( !Developer::Dashboard::Auth::_secure_compare( 'abc', 'abcd' ), 'secure compa
 ok( !Developer::Dashboard::Auth::_secure_compare( undef, 'abc' ), 'secure compare rejects an undefined operand' );
 
 # ---------------------------------------------------------------------------
-# Finding (1): DNS-rebinding admin-trust. The invariants that MUST hold are
-# pinned here as passing assertions. The full fix (dropping resolution-based
-# admin trust so an attacker hostname that merely resolves to loopback is no
-# longer admin) is intentionally NOT applied in this change because it also
-# requires updating an out-of-scope regression that asserts the current
-# resolves-to-loopback behavior. The residual gap is characterized as a TODO so
-# it stays visible without turning the suite red.
+# Finding (1): DNS-rebinding admin-trust — FIXED.  Arbitrary hostnames that
+# merely resolve to loopback are no longer trusted as admin.  Well-known
+# local machine aliases (localhost, localhost.localdomain) are still
+# accepted without DNS resolution.
 # ---------------------------------------------------------------------------
 
 is(
@@ -152,14 +149,11 @@ is(
             { family => AF_INET, addr => pack_sockaddr_in( 0, inet_aton('127.0.0.1') ) },
         );
     };
-    TODO: {
-        local $TODO = 'DNS-rebinding: an arbitrary attacker host that merely resolves to loopback should be helper, not admin; the full fix also needs an out-of-scope regression update';
-        is(
-            $auth->trust_tier( remote_addr => '::1', host => 'rebind.attacker.example:7890' ),
-            'helper',
-            'arbitrary hostnames that only resolve to loopback must not be trusted as admin',
-        );
-    }
+    is(
+        $auth->trust_tier( remote_addr => '::1', host => 'rebind.attacker.example:7890' ),
+        'helper',
+        'arbitrary hostnames that only resolve to loopback must not be trusted as admin',
+    );
 }
 
 done_testing;
