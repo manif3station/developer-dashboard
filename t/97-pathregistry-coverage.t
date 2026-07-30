@@ -596,6 +596,27 @@ is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the 
 }
 
 # --------------------------------------------------------------------------
+# home_cache_root stays anchored at the home layer even when a deeper runtime
+# layer is the effective write target, because shell-startup caches belong to
+# the user rather than to whichever project the refreshing shell stood in.
+# --------------------------------------------------------------------------
+{
+    my $chome = tempdir( CLEANUP => 1 );
+    my $cproj = File::Spec->catdir( $chome, 'repo' );
+    make_path( File::Spec->catdir( $cproj, '.git' ) );
+    make_path( File::Spec->catdir( $cproj, '.developer-dashboard' ) );
+    my $creg = Developer::Dashboard::PathRegistry->new( home => $chome, cwd => $cproj );
+
+    is( $creg->cache_root,
+        File::Spec->catdir( $cproj, '.developer-dashboard', 'cache' ),
+        'cache_root follows the deepest runtime layer' );
+    is( $creg->home_cache_root,
+        File::Spec->catdir( $chome, '.developer-dashboard', 'cache' ),
+        'home_cache_root stays on the home layer regardless of the deepest layer' );
+    ok( -d $creg->home_cache_root, 'home_cache_root creates the home-layer cache directory' );
+}
+
+# --------------------------------------------------------------------------
 # Exercise the aggregate inventories so the state/metadata write path runs.
 # --------------------------------------------------------------------------
 {
