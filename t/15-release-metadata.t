@@ -268,6 +268,7 @@ for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file 
     ok( -f _repo_path( 'share', 'private-cli', $helper ), "share/private-cli/$helper is shipped as a private helper asset" );
 }
 ok( -f _repo_path( 'share', 'public', 'js', 'jquery-4.0.0.min.js' ), 'share/public/js/jquery-4.0.0.min.js is shipped as a bundled public asset' );
+ok( -f _repo_path( 'share', 'public', 'others', 'favicon.ico' ), 'share/public/others/favicon.ico is shipped as a bundled public asset' );
 ok( -f _repo_path('install.sh'), 'repo-root install.sh is tracked for bootstrap installs' );
 ok( -f _repo_path('install.ps1'), 'repo-root install.ps1 is tracked for Windows bootstrap installs' );
 ok( -f _repo_path('aptfile'), 'repo-root aptfile is tracked for bootstrap installs' );
@@ -313,6 +314,7 @@ my @required_tarball_paths = (
     "Developer-Dashboard-$version/apkfile",
     "Developer-Dashboard-$version/brewfile",
     "Developer-Dashboard-$version/share/public/js/jquery-4.0.0.min.js",
+    "Developer-Dashboard-$version/share/public/others/favicon.ico",
     "Developer-Dashboard-$version/doc/integration-test-plan.md",
     "Developer-Dashboard-$version/doc/install-bootstrap.md",
     "Developer-Dashboard-$version/doc/testing.md",
