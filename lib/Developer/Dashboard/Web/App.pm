@@ -2682,6 +2682,13 @@ sub _login_redirect_target {
 
 # _sanitize_redirect_target($target)
 # Validates a post-login redirect target so helpers only return to local app routes.
+# A target is only safe when the browser's own URL parser cannot re-read it as an
+# authority. Two byte classes do exactly that after the value leaves this server:
+# a backslash, which URL parsers fold to a forward slash, and a raw tab, newline
+# or carriage return, which URL parsers strip before parsing - so "/\evil.com"
+# and "/<tab>/evil.com" both arrive as the protocol-relative "//evil.com". Any
+# legitimate local target percent-encodes those bytes, so rejecting the whole
+# ASCII control range costs nothing and closes the class rather than one byte.
 # Input: requested redirect target string.
 # Output: safe relative redirect target string, or '/' when invalid.
 sub _sanitize_redirect_target {
@@ -2690,7 +2697,8 @@ sub _sanitize_redirect_target {
     return '/' if $target eq '';
     return '/' if $target !~ m{\A/};
     return '/' if $target =~ m{\A//};
-    return '/' if $target =~ m{[\r\n]};
+    return '/' if $target =~ m{\\};
+    return '/' if $target =~ m{[\x00-\x1f\x7f]};
     return '/' if $target =~ m{\A/login(?:\z|[/?#])};
     return $target;
 }

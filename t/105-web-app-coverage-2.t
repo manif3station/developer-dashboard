@@ -320,6 +320,20 @@ is( $app->handle( path => '/js/route-skill/fallback.js', remote_addr => '127.0.0
     is( $login->[0], 302, 'good login -> 302' );
     my $cookie = $login->[3]{'Set-Cookie'};
 
+    # DD-415: a malicious backslash-authority redirect_to (%2F%5C -> "/\") must
+    # never reach the 302 Location header; browsers treat "/\evil.com" as an
+    # off-site authority, so the sanitizer has to collapse it to "/".
+    my $evil_login = $app_api->handle( path => '/login', method => 'POST', body => 'username=helper&password=helper-pass-123&redirect_to=%2F%5Cevil.com', remote_addr => '203.0.113.7', headers => { host => $ah } );
+    is( $evil_login->[0], 302, 'malicious backslash redirect still authenticates' );
+    is( $evil_login->[3]{Location}, '/', 'DD-415: backslash-authority redirect_to collapses to / in Location header' );
+
+    # DD-415: same bypass class through a raw tab (%2F%09%2F -> "/\t/"). A URL
+    # parser strips the tab before parsing, so an unsanitized target reaches the
+    # browser as "//evil.com" and becomes an off-site protocol-relative redirect.
+    my $tab_login = $app_api->handle( path => '/login', method => 'POST', body => 'username=helper&password=helper-pass-123&redirect_to=%2F%09%2Fevil.com', remote_addr => '203.0.113.7', headers => { host => $ah } );
+    is( $tab_login->[0], 302, 'malicious tab redirect still authenticates' );
+    is( $tab_login->[3]{Location}, '/', 'DD-415: tab-hidden authority redirect_to collapses to / in Location header' );
+
     # registered ajax route WITH session cookie -> session path (skip api)
     is( $app_api->handle( path => '/ajax/demo.json', query => 'type=json', remote_addr => '203.0.113.7', headers => { host => $ah, cookie => $cookie } )->[0], 200, 'session cookie keeps ajax access' );
     # unregistered route WITH session cookie -> authorized
@@ -608,7 +622,14 @@ is( $m->_sanitize_redirect_target('/app/x'), '/app/x', 'sanitize keeps valid tar
 is( $m->_sanitize_redirect_target(''), '/', 'sanitize empty' );
 is( $m->_sanitize_redirect_target('no-slash'), '/', 'sanitize non-slash' );
 is( $m->_sanitize_redirect_target('//evil'), '/', 'sanitize protocol-relative' );
+is( $m->_sanitize_redirect_target('/\evil.com'),    '/', 'sanitize backslash-authority (browsers normalise backslash to slash)' );
+is( $m->_sanitize_redirect_target('/app\evil.com'), '/', 'sanitize embedded backslash mid-path' );
+is( $m->_sanitize_redirect_target('/\\'),           '/', 'sanitize leading slash-backslash' );
 is( $m->_sanitize_redirect_target("/a\nb"), '/', 'sanitize newline' );
+is( $m->_sanitize_redirect_target("/\t/evil.com"), '/', 'DD-415: sanitize tab-hidden authority (URL parsers strip tab, leaving //evil.com)' );
+is( $m->_sanitize_redirect_target("/app\tx"),      '/', 'DD-415: sanitize embedded tab mid-path' );
+is( $m->_sanitize_redirect_target("/a\rb"),        '/', 'DD-415: sanitize carriage return' );
+is( $m->_sanitize_redirect_target("/a\x00b"),      '/', 'DD-415: sanitize every other raw control byte' );
 is( $m->_sanitize_redirect_target('/login'), '/', 'sanitize login path' );
 is( $m->_sanitize_redirect_target('/login?next=1'), '/', 'sanitize login path with query' );
 
