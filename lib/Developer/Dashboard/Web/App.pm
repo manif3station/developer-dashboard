@@ -1789,7 +1789,7 @@ HTML
     $html =~ s/__TOP_CHROME__/$self->_top_chrome_html( $page, \%$urls )/ge;
     $html =~ s/__SOURCE__/$source/g;
     $html =~ s/__SOURCE_JSON__/_json_for_inline_script($raw_source)/ge;
-    $html =~ s/__FORM_ACTION__/$form_action/g;
+    $html =~ s/__FORM_ACTION__/_escape_html_attr($form_action)/ge;
     return $html;
 }
 
@@ -2034,6 +2034,23 @@ sub _escape_html {
     return $text;
 }
 
+# _escape_html_attr($value)
+# Escapes one value for safe output inside a quoted HTML attribute.
+# Quotes are what _escape_html deliberately leaves alone, and a quote is
+# exactly what closes an attribute early, so attribute context needs its own
+# escaper: saved bookmark ids reach the route builders with only traversal
+# components rejected, so a quote in an id would otherwise end the attribute
+# and let the rest of the id open a tag.
+# Input: raw value, possibly undefined.
+# Output: escaped value safe between either kind of attribute quote.
+sub _escape_html_attr {
+    my ($value) = @_;
+    $value = _escape_html($value);
+    $value =~ s/"/&quot;/g;
+    $value =~ s/'/&#39;/g;
+    return $value;
+}
+
 # _render_page_html($page, $mode)
 # Renders the browser page view and action URLs for a page.
 # Input: page document object and mode string.
@@ -2159,7 +2176,7 @@ sub _nav_items_html {
         );
         my $fragment = $self->_page_fragment_html($nav_page);
         next if $fragment eq '';
-        push @items, qq{<li data-nav-id="} . _escape_html($nav_id) . qq{">$fragment</li>};
+        push @items, qq{<li data-nav-id="} . _escape_html_attr($nav_id) . qq{">$fragment</li>};
     }
 
     my $dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $paths );
@@ -2182,7 +2199,7 @@ sub _nav_items_html {
         my $nav_id = $nav_page->as_hash->{id} || '';
         my $fragment = $self->_page_fragment_html($nav_page);
         next if $fragment eq '';
-        push @items, qq{<li data-nav-id="} . _escape_html($nav_id) . qq{">$fragment</li>};
+        push @items, qq{<li data-nav-id="} . _escape_html_attr($nav_id) . qq{">$fragment</li>};
     }
 
     return '' if !@items;
@@ -2747,8 +2764,8 @@ sub _top_chrome_html {
     my $mode  = $page->as_hash->{mode} || 'edit';
     my $ctx   = $page->{meta}{request_context} || {};
     my @links;
-    push @links, qq{<button type="button" class="chrome-button" id="play-button" data-play-url="$play">Play</button>} if $mode ne 'render' && $play ne '';
-    push @links, qq{<a href="$src" id="view-source-url">View Source</a>} if $mode ne 'edit' && $src ne '';
+    push @links, qq{<button type="button" class="chrome-button" id="play-button" data-play-url="} . _escape_html_attr($play) . qq{">Play</button>} if $mode ne 'render' && $play ne '';
+    push @links, qq{<a href="} . _escape_html_attr($src) . qq{" id="view-source-url">View Source</a>} if $mode ne 'edit' && $src ne '';
     push @links, q{<a href="/logout" id="logout-url">Logout</a>}
       if ( $ctx->{tier} || '' ) eq 'helper';
     my $nav = join ' ', @links;
@@ -2756,7 +2773,7 @@ sub _top_chrome_html {
     my $status = $hide_indicators ? q{} : $self->_prompt_summary;
     my $context = $hide_indicators ? q{} : $self->_top_context_html($page);
     my $share_html = $share ne ''
-      ? qq{<div><a href="$share" id="share-url">Right Click Copy &amp; Share or Bookmark This Page</a></div>}
+      ? qq{<div><a href="} . _escape_html_attr($share) . qq{" id="share-url">Right Click Copy &amp; Share or Bookmark This Page</a></div>}
       : q{};
     my $nav_html = $nav ne '' ? qq{<div style="margin-top:6px">$nav</div>} : q{};
     # The colour-emoji families must trail the text families: they carry the
@@ -2845,7 +2862,7 @@ sub _top_context_html {
     my $now = strftime '%Y-%m-%d %H:%M:%S', localtime;
     return sprintf q{<span class="user-name-and-icon">&#128129;&#127996; %s</span> <span id="status-server">&#128187; <a href="%s">%s</a></span> &#128467; <span id="status-datetime">%s</span><br>},
       _escape_html($user),
-      _escape_html($host_href),
+      _escape_html_attr($host_href),
       _escape_html($machine_ip),
       _escape_html($now);
 }
