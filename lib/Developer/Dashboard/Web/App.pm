@@ -13,7 +13,7 @@ use POSIX qw(strftime);
 use File::Spec;
 use Scalar::Util qw(blessed);
 use URI;
-use URI::Escape qw(uri_unescape);
+use URI::Escape qw(uri_escape uri_unescape);
 use Cwd qw(abs_path cwd);
 
 use Developer::Dashboard::JSON qw(json_encode);
@@ -1139,7 +1139,7 @@ sub _decorate_skill_page_routes {
     my $page_id = $page->as_hash->{id} || '';
     return $page if $page_id eq '';
 
-    my $page_url = $self->_saved_page_url($page_id);
+    my $page_url = $self->_saved_page_href($page_id);
     $page->{meta}{render_route} = $page_url;
     $page->{meta}{edit_route}   = $page_url . '/edit';
     $page->{meta}{source_route} = $page_url . '/edit';
@@ -1168,7 +1168,7 @@ sub _page_route_urls {
     my $source_kind = $meta->{source_kind} || '';
     my $is_saved = $source_kind eq 'saved' && $page_id ne '';
     my $is_transient = $source_kind eq 'transient';
-    my $page_url = $is_saved ? $self->_saved_page_url($page_id) : '';
+    my $page_url = $is_saved ? $self->_saved_page_href($page_id) : '';
     return {
         page_url    => $is_transient ? $self->{pages}->editable_url($page) : $page_url,
         form_action => $is_saved ? $page_url . '/edit' : '/',
@@ -2064,8 +2064,8 @@ sub _render_page_html {
     my %action_urls;
     for my $action ( @{ $page->as_hash->{actions} || [] } ) {
         next if ref($action) ne 'HASH' || !$action->{id};
-        my $saved_action_url = $self->_saved_page_url( $page->as_hash->{id} || '' );
-        $saved_action_url .= '/action/' . $action->{id} if $saved_action_url ne '';
+        my $saved_action_url = $self->_saved_page_href( $page->as_hash->{id} || '' );
+        $saved_action_url .= '/action/' . uri_escape( $action->{id} ) if $saved_action_url ne '';
         my $atoken = $self->{actions}
           ? $self->{actions}->encode_action_payload(
               action => $action,
@@ -2748,6 +2748,22 @@ sub _saved_page_url {
     my $normalized = $self->_normalized_saved_page_id($id);
     return '' if $normalized eq '';
     return '/app/' . $normalized;
+}
+
+# _saved_page_href($id)
+# Builds the browser-facing /app/<id> hyperlink for one saved bookmark id.
+# Unlike _saved_page_url, which stays in decoded PATH_INFO space for
+# request-context paths and the BOOKMARK: document field, this form is for
+# HTML emission: each path segment is percent-encoded so ids carrying #, ?,
+# %, or spaces survive as valid URLs, while the / separators stay raw so the
+# route table still sees the nested segments.
+# Input: saved bookmark id string.
+# Output: percent-encoded /app/<id> href string, or empty string when id is empty.
+sub _saved_page_href {
+    my ( $self, $id ) = @_;
+    my $normalized = $self->_normalized_saved_page_id($id);
+    return '' if $normalized eq '';
+    return '/app/' . join '/', map { uri_escape($_) } split m{/+}, $normalized;
 }
 
 # _top_chrome_html($page, $urls)
