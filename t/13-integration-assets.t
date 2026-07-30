@@ -226,6 +226,11 @@ if ($has_integration_assets) {
     like( $windows_smoke, qr/\$ErrorActionPreference = 'Continue'/, 'Windows Strawberry smoke script avoids PowerShell terminating on native stderr before exit-code checks' );
     like( $windows_smoke, qr/dashboard shell ps/, 'Windows Strawberry smoke script verifies PowerShell shell bootstrap output' );
     like( $windows_smoke, qr/dashboard collector run/, 'Windows Strawberry smoke script exercises collector command execution' );
+    like( $windows_smoke, qr/windows\.timeout\.collector/, 'Windows Strawberry smoke script exercises the native collector timeout path' );
+    like( $windows_smoke, qr/exit_code=124/, 'Windows Strawberry smoke script requires the timed-out collector to return exit code 124' );
+    like( $windows_smoke, qr/timed_out=1/, 'Windows Strawberry smoke script requires the timed-out collector flag' );
+    like( $windows_smoke, qr/Get-CimInstance Win32_Process/, 'Windows Strawberry smoke script verifies the unique timed-out process marker is absent afterward' );
+    like( $windows_smoke, qr/elapsed_ms/, 'Windows Strawberry smoke script records bounded timeout elapsed time' );
     like( $windows_smoke, qr/Invoke-WebRequest/, 'Windows Strawberry smoke script verifies browser-facing HTTP routes with PowerShell web requests' );
     like( $windows_smoke, qr/saved Ajax route:/, 'Windows Strawberry smoke script prints the resolved saved Ajax route during the guest smoke for route-shape diagnostics' );
     like( $windows_smoke, qr/\/ajax\/hello\.pl\?type=text/, 'Windows Strawberry smoke script replays the deterministic saved Ajax route defined by the Windows smoke fixture' );
