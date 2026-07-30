@@ -169,6 +169,8 @@ if ( $dist ne '' ) {
     like( $dist, qr/^exclude_match = \^node_modules\/$/m, 'dist.ini excludes node_modules so JavaScript dependency trees do not leak into release tarballs' );
     like( $dist, qr/^exclude_match = \^test_by_michael\/$/m, 'dist.ini excludes test_by_michael so private scratch fixtures do not leak into release tarballs' );
     like( $dist, qr/^exclude_match = \^updates\/$/m, 'dist.ini excludes checkout-only update scripts so user-defined update remains the installed runtime contract' );
+    like( $dist, qr/^exclude_match = \^dogfood-output\/$/m, 'dist.ini excludes dogfood-output so browser QA evidence and screenshots do not leak into release tarballs' );
+    like( $dist, qr/^exclude_match = \^\\\.worktrees\/$/m, 'dist.ini excludes .worktrees so ticket worktrees do not leak into release tarballs' );
     unlike( $dist, qr/^exclude_match = \^integration\/$/m, 'dist.ini keeps integration assets in the release tarball so install-time integration tests can read them' );
     unlike( $dist, qr/^exclude_match = \\.md\$$/m, 'dist.ini keeps Markdown documentation in the release tarball so release tests can read the shipped docs' );
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
@@ -343,6 +345,18 @@ SKIP: {
         ok(
             !$files{"Developer-Dashboard-$version/$operator_file"},
             "release tarball does not leak operator-local $operator_file",
+        );
+    }
+    # Untracked-but-not-ignored working directories are the same leak class as
+    # the operator files above: GatherDir reads the disk, so .gitignore never
+    # protects the tarball. dogfood-output/ in particular holds browser QA
+    # evidence and screenshots of the operator's machine.
+    for my $leak_prefix (qw(dogfood-output .worktrees)) {
+        my @leaked = grep { m{^Developer-Dashboard-\Q$version\E/\Q$leak_prefix\E/} } @files;
+        is(
+            scalar @leaked,
+            0,
+            "release tarball carries no $leak_prefix/ member",
         );
     }
     my $meta_member = "Developer-Dashboard-$version/META.json";
