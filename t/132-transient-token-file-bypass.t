@@ -114,13 +114,11 @@ __END__
 
 t/132-transient-token-file-bypass.t - contract test for the transient token default-deny policy
 
-=head1 WHAT THIS IS
+=head1 PURPOSE
 
 A regression contract test for DD-425. It pins that the default-deny policy on
 tokenized transient web execution cannot be lifted by adding a file parameter or
 an C</ajax/E<lt>fileE<gt>> path segment to the request.
-
-=head1 WHAT IT IS FOR
 
 C<Developer::Dashboard::Web::App> refuses tokenized C<?token=> execution unless
 C<DEVELOPER_DASHBOARD_ALLOW_TRANSIENT_URLS> opts in, because such a token is
@@ -136,12 +134,12 @@ file value. The two disagreed about which parameter wins, so the gate protected
 a branch the handler never took and C</ajax?file=x&token=...> executed arbitrary
 Perl with the policy switched off. This file locks the two back together.
 
-=head1 WHEN TO USE IT
+=head1 WHEN TO USE
 
 Run it whenever the C</ajax> routing, the transient URL policy, or the ordering
 inside the older Ajax request handler changes.
 
-=head1 HOW TO USE IT
+=head1 HOW TO USE
 
   prove -lv t/132-transient-token-file-bypass.t
 
