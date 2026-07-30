@@ -25,6 +25,25 @@ function Resolve-HomeDirectory {
     throw 'Unable to resolve the current user home directory for install.ps1'
 }
 
+function Resolve-DashboardRuntimeHome {
+    # Purpose: resolve the home directory the Perl runtime anchors ~/.developer-dashboard under, which is HOME-first and can differ from PowerShell's own $HOME on hosts that export HOME.
+    # Input: the HOME, USERPROFILE, HOMEDRIVE, and HOMEPATH environment variables plus the PowerShell home fallback.
+    # Output: returns a non-empty absolute home-directory path string matching the Perl-side resolution order.
+    if (-not [string]::IsNullOrWhiteSpace($env:HOME)) {
+        return $env:HOME
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE)) {
+        return $env:USERPROFILE
+    }
+
+    if ((-not [string]::IsNullOrWhiteSpace($env:HOMEDRIVE)) -and (-not [string]::IsNullOrWhiteSpace($env:HOMEPATH))) {
+        return (Join-Path $env:HOMEDRIVE $env:HOMEPATH)
+    }
+
+    return (Resolve-HomeDirectory)
+}
+
 function Resolve-CommandPath {
     # Purpose: resolve a runnable command path for the requested executable names.
     # Input: one or more command names to search through Get-Command.
@@ -96,6 +115,12 @@ function Join-ScriptText {
 
     return [string]$Value
 }
+
+# Pin env:HOME for this installer session so the Perl runtime, the cache
+# validation below, and the generated profile block all resolve the same
+# ~/.developer-dashboard root. The generated profile performs the same seeding
+# for future sessions.
+$env:HOME = Resolve-DashboardRuntimeHome
 
 if ([string]::IsNullOrWhiteSpace($InstallRoot)) {
     $InstallRoot = Join-Path (Resolve-HomeDirectory) 'perl5'
@@ -1037,6 +1062,7 @@ if (Test-Path (Join-Path $InstallRoot 'nodejs')) {
 $profileExtraRuntimePaths = $profileExtraRuntimePaths | Select-Object -Unique
 $profilePerlRuntimePathLines = ($profilePerlRuntimePaths | ForEach-Object { "    '{0}'" -f $_ }) -join [Environment]::NewLine
 $profileExtraRuntimePathLines = ($profileExtraRuntimePaths | ForEach-Object { "    '{0}'" -f $_ }) -join [Environment]::NewLine
+$profileRuntimeHome = $env:HOME
 
 $profileBlock = @"
 # >>> Developer Dashboard bootstrap >>>
@@ -1045,13 +1071,16 @@ $profileBlock = @"
 if ([string]::IsNullOrWhiteSpace(`$env:HOME) -and -not [string]::IsNullOrWhiteSpace(`$HOME)) {
     `$env:HOME = `$HOME
 }
+if ([string]::IsNullOrWhiteSpace(`$env:HOME)) {
+    `$env:HOME = '$profileRuntimeHome'
+}
 `$ddPerlRuntimePaths = @(
 $profilePerlRuntimePathLines
 )
 `$ddExtraRuntimePaths = @(
 $profileExtraRuntimePathLines
 )
-`$ddCacheRoot = Join-Path `$HOME '.developer-dashboard\cache'
+`$ddCacheRoot = Join-Path `$env:HOME '.developer-dashboard\cache'
 `$ddEnvironmentCache = Join-Path `$ddCacheRoot 'powershell-env.ps1'
 `$ddBootstrapCache = Join-Path `$ddCacheRoot 'powershell-bootstrap.ps1'
 if (Test-Path `$ddPerlBin) {
@@ -1135,7 +1164,7 @@ Set-StepStatus -Id 'initialize_dashboard' -Status 'running'
 Invoke-NativeCommand -Label 'dashboard init' -FilePath $dashboardCommand -Arguments @('init')
 $dashboardShellBootstrap = & $perlPath $dashboardCommand shell ps
 $dashboardShellBootstrapText = Join-ScriptText -Value $dashboardShellBootstrap
-$powershellCacheRoot = Join-Path (Resolve-HomeDirectory) '.developer-dashboard\cache'
+$powershellCacheRoot = Join-Path $env:HOME '.developer-dashboard\cache'
 $powershellEnvironmentCache = Join-Path $powershellCacheRoot 'powershell-env.ps1'
 $powershellBootstrapCache = Join-Path $powershellCacheRoot 'powershell-bootstrap.ps1'
 if (-not (Test-Path -LiteralPath $powershellEnvironmentCache -PathType Leaf) -or

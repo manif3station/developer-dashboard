@@ -226,6 +226,19 @@ sub cache_root {
     return $self->_ensure_dir( File::Spec->catdir( $self->runtime_root, 'cache' ) );
 }
 
+# home_cache_root()
+# Returns the home-layer cache root directory, ignoring any deeper runtime
+# layer. Per-user artifacts that a fixed external consumer reads from one
+# well-known path - such as the generated shell-startup caches a login profile
+# dot-sources - must not follow the working directory into a project layer,
+# because the consumer would then read a cache no refresh ever rewrites.
+# Input: none.
+# Output: directory path string.
+sub home_cache_root {
+    my ($self) = @_;
+    return $self->_ensure_dir( File::Spec->catdir( $self->home_runtime_root, 'cache' ) );
+}
+
 # logs_root()
 # Returns the logs root directory.
 # Input: none.
@@ -1252,6 +1265,10 @@ Resolve and discover project-related directories.
 =head2 current_working_directory, cwd
 
 Report the effective working directory: the explicit constructor C<cwd> when one was supplied, otherwise a live in-process C<getcwd> lookup that follows later C<chdir> calls without forking an external C<pwd> process (undef when the directory is unavailable). C<cwd> is the public compatibility alias consumed by the file registry.
+
+=head2 runtime_root, cache_root, home_runtime_root, home_cache_root
+
+Report the layered runtime directories. C<runtime_root> and C<cache_root> follow the deepest discovered layer, which is the write target for layered runtime state. C<home_runtime_root> and C<home_cache_root> stay pinned to the home layer, for per-user artifacts that a fixed external consumer reads from one well-known path - the generated shell-startup caches a login profile dot-sources are the motivating case, because a project-layer copy of those would be a cache no refresh ever rewrites.
 
 =for comment FULL-POD-DOC START
 
