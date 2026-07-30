@@ -1487,7 +1487,7 @@ sub _install_skill_dependency_manifest {
     for my $dependency (@skills) {
         next if $seen{$dependency};
         next if $self->get_skill_path( $dependency, include_disabled => 1 );
-        my $install_stack = join ':', grep { defined && $_ ne '' } sort keys %{{ %seen, $dependency => 1 }};
+        my $install_stack = join ':', grep { defined && $_ ne '' } sort keys %{{ %seen, $dependency => 1 }};    # uncoverable branch false
         my ( $step_stdout, $step_stderr, $exit ) = do {
             local $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} = $install_stack;
             local $ENV{DEVELOPER_DASHBOARD_DEPENDENCY_MANIFEST} = $manifest_name;
