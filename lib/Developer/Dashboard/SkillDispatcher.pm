@@ -15,6 +15,7 @@ use File::Basename qw(dirname basename);
 use Symbol qw(gensym);
 use Developer::Dashboard::CLI::Suggest;
 use Developer::Dashboard::EnvLoader;
+use Developer::Dashboard::PathRegistry ();
 use Developer::Dashboard::PerlEnv ();
 use Developer::Dashboard::Runtime::Result;
 use Developer::Dashboard::SkillManager;
@@ -753,13 +754,16 @@ sub _skill_env {
 }
 
 # _skill_layers($skill_name)
-# Returns the participating installed roots for one skill in inheritance order.
+# Returns the participating installed roots for one skill in inheritance order,
+# refusing any skill name whose slash-delimited segments fail the shared path
+# validation so a crafted name can never address a directory outside the
+# layered skills trees.
 # Input: skill repository name string and optional include_disabled flag.
 # Output: ordered list of skill root directory path strings from home to leaf.
 sub _skill_layers {
     my ( $self, $skill_name, %args ) = @_;
     return () if !$skill_name;
-    my @segments = grep { $_ ne '' } split m{/+}, $skill_name;
+    my @segments = Developer::Dashboard::PathRegistry::validated_path_segments($skill_name);
     return () if !@segments;
     my $root_skill = shift @segments;
     my $paths = $self->{manager}{paths};
@@ -902,14 +906,18 @@ sub _nested_skill_path {
 }
 
 # _page_location($skill_name, $route_id)
-# Resolves one skill dashboard file across every participating skill layer.
+# Resolves one skill dashboard file across every participating skill layer,
+# refusing any route id whose segments fail the shared path validation so a
+# browser-supplied id can never address a file outside a skill dashboards tree.
 # Input: skill repository name string and route id string such as index or nav/foo.tt.
 # Output: file path string and the skill layer root that provided it.
 sub _page_location {
     my ( $self, $skill_name, $route_id ) = @_;
     return if !$skill_name || !$route_id;
+    my @segments = Developer::Dashboard::PathRegistry::validated_path_segments($route_id);
+    return if !@segments;
     for my $skill_path ( $self->_skill_lookup_roots($skill_name) ) {
-        my $file = File::Spec->catfile( $skill_path, 'dashboards', split m{/+}, $route_id );
+        my $file = File::Spec->catfile( $skill_path, 'dashboards', @segments );
         return ( $file, $skill_path ) if -f $file;
     }
     return;
@@ -1191,28 +1199,53 @@ sub _normalize_skill_route_spec {
 }
 
 # skill_ajax_file_path($skill_name, $ajax_file)
-# Resolves one layered skill-local dashboards/ajax file in deepest-first order.
+# Resolves one layered skill-local dashboards/ajax file in deepest-first order,
+# refusing any ajax file path whose segments fail the shared path validation so
+# a browser-supplied name can never address a file outside a skill ajax tree.
 # Input: skill repository name string and relative ajax file path.
-# Output: absolute file path string or undef when missing.
+# Output: absolute file path string or undef when missing or invalid.
 sub skill_ajax_file_path {
     my ( $self, $skill_name, $ajax_file ) = @_;
     return if !$skill_name || !$ajax_file;
+    my @segments = Developer::Dashboard::PathRegistry::validated_path_segments($ajax_file);
+    return if !@segments;
     for my $skill_path ( $self->_skill_lookup_roots($skill_name) ) {
-        my $file = File::Spec->catfile( $skill_path, 'dashboards', 'ajax', split m{/+}, $ajax_file );
+        my $file = File::Spec->catfile( $skill_path, 'dashboards', 'ajax', @segments );
         return $file if -f $file;
     }
     return;
 }
 
+# skill_static_roots($skill_name, $type)
+# Lists the layered dashboards/public/<type> roots one skill may serve static
+# assets from, in effective lookup order, so the web layer can assert that a
+# resolved asset path stays inside one of them before opening it. The asset
+# type must be exactly one validated path segment.
+# Input: skill repository name string and static asset type string.
+# Output: ordered list of public root directory path strings, or an empty list
+# when the skill name or asset type is missing or invalid.
+sub skill_static_roots {
+    my ( $self, $skill_name, $type ) = @_;
+    return () if !$skill_name || !$type;
+    my @type_segments = Developer::Dashboard::PathRegistry::validated_path_segments($type);
+    return () if @type_segments != 1;
+    return map { File::Spec->catdir( $_, 'dashboards', 'public', $type ) } $self->_skill_lookup_roots($skill_name);
+}
+
 # skill_static_file_path($skill_name, $type, $file)
-# Resolves one layered skill-local dashboards/public asset in deepest-first order.
+# Resolves one layered skill-local dashboards/public asset in deepest-first
+# order, refusing any asset type or file path whose segments fail the shared
+# path validation so a browser-supplied name can never address a file outside
+# a skill public tree.
 # Input: skill repository name string, static asset type, and relative file path.
-# Output: absolute file path string or undef when missing.
+# Output: absolute file path string or undef when missing or invalid.
 sub skill_static_file_path {
     my ( $self, $skill_name, $type, $file ) = @_;
     return if !$skill_name || !$type || !$file;
-    for my $skill_path ( $self->_skill_lookup_roots($skill_name) ) {
-        my $candidate = File::Spec->catfile( $skill_path, 'dashboards', 'public', $type, split m{/+}, $file );
+    my @file_segments = Developer::Dashboard::PathRegistry::validated_path_segments($file);
+    return if !@file_segments;
+    for my $public_root ( $self->skill_static_roots( $skill_name, $type ) ) {
+        my $candidate = File::Spec->catfile( $public_root, @file_segments );
         return $candidate if -f $candidate;
     }
     return;
@@ -1400,6 +1433,14 @@ Handles:
 - Configuration reading
 - Skill path resolution
 - Command output capture
+
+Every browser-facing resolver (skill names, route ids, ajax files, and static
+asset paths) validates its untrusted path input through the shared
+C<Developer::Dashboard::PathRegistry::validated_path_segments> guard before
+joining it onto a skill root, so parent-directory, absolute, drive-qualified,
+backslash, and control-byte shapes resolve to nothing instead of escaping the
+layered skills trees, and C<skill_static_roots> exposes the layered
+C<dashboards/public> roots the web layer asserts containment against.
 
 =for comment FULL-POD-DOC START
 

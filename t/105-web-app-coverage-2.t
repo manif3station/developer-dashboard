@@ -868,7 +868,7 @@ is( $m->_missing_named_page_response('x')->[0], 200, 'missing page editor -> 200
 
     is( $m->_serve_static_file_at_path( 'js', 'x', '' )->[0], 404, 'serve at empty path -> 404' );
     is( $m->_serve_static_file_at_path( 'js', 'x', '/no/such/path' )->[0], 404, 'serve at missing path -> 404' );
-    is( $m->_serve_static_file_at_path( 'js', 'ok.js', File::Spec->catfile( $absroot, 'ok.js' ) )->[0], 200, 'serve at a real path -> 200' );
+    is( $m->_serve_static_file_at_path( 'js', 'ok.js', File::Spec->catfile( $absroot, 'ok.js' ), '', [$absroot] )->[0], 200, 'serve at a real path inside an allowed root -> 200' );
     my $unreadable = File::Spec->catfile( $absroot, 'noperm.js' );
     wfile( $unreadable, "x\n", 0000 );
     is( $m->_serve_static_file_at_path( 'js', 'noperm.js', $unreadable )->[0], 404, 'serve at an unreadable path -> 404' );
@@ -1595,6 +1595,54 @@ ok( defined 'Developer::Dashboard::Web::App'->_highlight_perl_text('my $x = 1;')
     my $ip = $m->_machine_ip;
     # If a real interface was found it's a string; if not it falls through
     ok( defined $ip, 'machine_ip with a real ip pair (2755 true side)' );
+}
+
+# =====================================================================
+# DD-416. _static_path_contained is the last gate before a resolved static
+# asset is opened, so every rejection shape it has to recognise is driven
+# directly here instead of only through the route surface.
+# =====================================================================
+{
+    my $contained_root = File::Spec->catdir( $home, 'dd416-static-root' );
+    make_path($contained_root);
+    my $inside = File::Spec->catfile( $contained_root, 'inside.js' );
+    wfile( $inside, "console.log(1);\n", 0644 );
+    my $outside = File::Spec->catfile( $home, 'dd416-outside.txt' );
+    wfile( $outside, "DD416-OUTSIDE\n", 0600 );
+
+    my $contained = \&Developer::Dashboard::Web::App::_static_path_contained;
+
+    ok( $contained->( $inside, [$contained_root] ), 'a file inside an allowed root is contained' );
+    ok( !$contained->( File::Spec->catfile( $contained_root, File::Spec->updir, 'dd416-outside.txt' ), [$contained_root] ),
+        'a parent-directory path that resolves outside the allowed root is rejected' );
+    ok( !$contained->( $outside, [$contained_root] ), 'a file beside the allowed root is rejected' );
+    ok( !$contained->( $inside, undef ), 'a missing allowed-root list denies by default' );
+    ok( !$contained->( $inside, [] ),    'an empty allowed-root list denies by default' );
+    ok( !$contained->( $inside, [ undef, '' ] ), 'undef and empty allowed roots are skipped' );
+    ok( !$contained->( $inside, [ File::Spec->catdir( $home, 'dd416-no-such-root' ) ] ),
+        'an allowed root that does not exist on disk is skipped' );
+    ok( !$contained->( File::Spec->catfile( $contained_root, 'dd416-missing.js' ), [$contained_root] ),
+        'a path that does not resolve at all is rejected' );
+
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        ok( $contained->( $inside, [$contained_root] ),
+            'containment case-folds and still matches on a Windows runtime' );
+        ok( !$contained->( $outside, [$contained_root] ),
+            'containment still rejects an outside path on a Windows runtime' );
+    }
+
+    # The serve helper refuses to open a resolved path outside its allowed roots
+    # even when that path exists and is readable.
+    is( $m->_serve_static_file_at_path( 'js', 'inside.js', $inside, '', [$contained_root] )->[0], 200,
+        'serve at a contained path -> 200' );
+    is( $m->_serve_static_file_at_path( 'others', 'outside.txt', $outside, '', [$contained_root] )->[0], 404,
+        'serve at an uncontained path -> 404' );
+    is( $m->_serve_static_file_at_path( 'js', 'inside.js', $inside )->[0], 404,
+        'serve with no allowed roots -> 404' );
+    is( $m->_serve_static_file_at_path( 'js', 'inside.js', $inside, undef, [$contained_root] )->[1],
+        'application/javascript; charset=utf-8',
+        'serve with an undefined mime override falls back to the type-derived content type' );
 }
 
 done_testing;

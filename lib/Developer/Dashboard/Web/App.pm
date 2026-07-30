@@ -14,10 +14,10 @@ use File::Spec;
 use Scalar::Util qw(blessed);
 use URI;
 use URI::Escape qw(uri_unescape);
-use Cwd qw(cwd);
+use Cwd qw(abs_path cwd);
 
 use Developer::Dashboard::JSON qw(json_encode);
-use Developer::Dashboard::Platform qw(command_in_path);
+use Developer::Dashboard::Platform qw(command_in_path is_windows);
 use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageRuntime;
 use Developer::Dashboard::Codec qw(decode_payload);
@@ -764,10 +764,13 @@ sub favicon_response {
     my ( $self, %args ) = @_;
     my $override = $self->_serve_static_file( 'others', 'favicon.ico' );
     return $override if $override->[0] == 200;
+    my $bundled = _bundled_public_asset_path( 'others', 'favicon.ico' );
     return $self->_serve_static_file_at_path(
         'others',
         'favicon.ico',
-        _bundled_public_asset_path( 'others', 'favicon.ico' ),
+        $bundled,
+        '',
+        [ dirname($bundled) ],
     );
 }
 
@@ -874,7 +877,11 @@ sub skill_static_file_response {
     my $file       = $args{file}       || '';
     return [ 400, 'text/plain; charset=utf-8', "Invalid skill name\n" ] if $skill_name eq '';
     my $skill_file = $self->_skill_static_file_path( $skill_name, $type, $file );
-    return $self->_serve_static_file_at_path( $type, $file, $skill_file, $args{default_type} || '' ) if $skill_file ne '';
+    return $self->_serve_static_file_at_path(
+        $type, $file, $skill_file,
+        $args{default_type} || '',
+        [ $self->_skill_dispatcher->skill_static_roots( $skill_name, $type ) ],
+    ) if $skill_file ne '';
     return $self->_serve_static_file( $type, join( '/', $skill_name, $file ) );
 }
 
@@ -3054,7 +3061,7 @@ sub _serve_static_file_from_roots {
     }
     return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ] if $file_path eq '';
 
-    return $self->_serve_static_file_at_path( $type, $filename, $file_path );
+    return $self->_serve_static_file_at_path( $type, $filename, $file_path, '', \@public_roots );
 }
 
 # _skill_ajax_file_path($skill_name, $ajax_file)
@@ -3111,14 +3118,51 @@ sub _static_file_roots {
     return @roots;
 }
 
-# _serve_static_file_at_path($type, $filename, $file_path, $default_type)
-# Serves one already-resolved static file path after the caller has chosen the lookup source.
-# Input: asset type string, request filename string, resolved file path string, and optional explicit mime type override.
+# _static_path_contained($file_path, $allowed_roots)
+# Asserts that one resolved static asset path still lives beneath an allowed
+# public root after symlinks and parent-directory components are resolved,
+# denying by default when no allowed roots are supplied. Comparison folds case
+# on Windows runtimes and normalizes separators, mirroring the saved-page
+# containment assertion.
+# Input: resolved candidate file path string and array reference of allowed
+# root directory path strings.
+# Output: boolean true when the resolved path is inside one existing allowed
+# root, otherwise false.
+sub _static_path_contained {
+    my ( $file_path, $allowed_roots ) = @_;
+    return 0 if ref($allowed_roots) ne 'ARRAY';
+    my $path_real = -e $file_path ? abs_path($file_path) : undef;
+    return 0 if !defined $path_real;
+    for my $root ( @{$allowed_roots} ) {
+        next if !defined $root || $root eq '';
+        my $root_real = -d $root ? abs_path($root) : undef;
+        next if !defined $root_real;
+        my ( $path_cmp, $root_cmp ) = ( $path_real, $root_real );
+        if ( is_windows() ) {
+            $path_cmp = lc $path_cmp;
+            $root_cmp = lc $root_cmp;
+        }
+        $path_cmp =~ s{\\}{/}g;
+        $root_cmp =~ s{\\}{/}g;
+        return 1 if index( $path_cmp, $root_cmp . '/' ) == 0;
+    }
+    return 0;
+}
+
+# _serve_static_file_at_path($type, $filename, $file_path, $default_type, $allowed_roots)
+# Serves one already-resolved static file path after the caller has chosen the
+# lookup source, refusing any resolved path that escapes the caller's allowed
+# public roots.
+# Input: asset type string, request filename string, resolved file path string,
+# optional explicit mime type override, and array reference of allowed root
+# directories the resolved path must stay inside.
 # Output: array reference of status code, content type, and body.
 sub _serve_static_file_at_path {
-    my ( $self, $type, $filename, $file_path, $default_type ) = @_;
+    my ( $self, $type, $filename, $file_path, $default_type, $allowed_roots ) = @_;
     return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
       if !defined $file_path || $file_path eq '' || !-f $file_path || !-r $file_path;
+    return [ 404, 'text/plain; charset=utf-8', "Not Found\n" ]
+      if !_static_path_contained( $file_path, $allowed_roots );
     my $content_type = defined $default_type && $default_type ne ''
       ? _ajax_content_type($default_type)
       : $self->_get_content_type( $type, $filename );
@@ -3217,6 +3261,21 @@ Output: array reference of [status_code, content_type, body].
 
 Security: Prevents directory traversal attacks and verifies files are within
 the public directory before serving.
+
+=head2 _static_path_contained($file_path, $allowed_roots)
+
+Package function asserting that one resolved static asset path still lives
+beneath an allowed public root after symlinks and parent-directory components
+are resolved with C<Cwd::abs_path>, denying by default when no allowed roots
+are supplied. Every static-serving entry point passes its lookup roots through
+this check before opening a resolved path, including skill-namespaced assets,
+whose allowed roots come from the skill dispatcher's layered
+C<dashboards/public> trees.
+
+Input: resolved candidate file path string and array reference of allowed root
+directory path strings.
+Output: boolean true when the resolved path is inside one existing allowed
+root, otherwise false.
 
 =head2 _get_content_type($type, $filename)
 
