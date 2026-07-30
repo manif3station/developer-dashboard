@@ -73,10 +73,7 @@ sub start_web {
     my $running = $self->running_web;
     return $running->{pid}
       if $running
-      && $running->{host} eq $host
-      && $running->{port} == $port
-      && ( ( $running->{workers} || 1 ) == $workers )
-      && ( ( $running->{ssl} || 0 ) == $ssl );
+      && $self->_running_web_satisfies_request( $running, $host, $port, $workers, $ssl );
 
     if (is_windows()) {
         return $self->_start_web_windows_background(
@@ -186,6 +183,91 @@ sub _start_web_windows_background {
     return $pid;
 }
 
+# _running_web_satisfies_request($running, $host, $port, $workers, $ssl)
+# Decides whether an already running web service satisfies a background start
+# request. The endpoint decides identity and must be known: an unknown host or
+# port is a mismatch, never an uninitialized-value warning. A property the
+# persisted payload does not carry is unverifiable rather than different, so it
+# never justifies forking a second listener onto an endpoint that already
+# matches, which would strand the running child as an untrackable orphan.
+# Input: running web state hash reference, requested host, port, worker count,
+# and ssl flag.
+# Output: boolean true when the running service already satisfies the request.
+sub _running_web_satisfies_request {
+    my ( $self, $running, $host, $port, $workers, $ssl ) = @_;
+    return 0 if !defined $running->{host} || !defined $running->{port};
+    return 0 if $running->{host} ne $host;
+    return 0 if $running->{port} != $port;
+    return 0 if defined $running->{workers} && $running->{workers} != $workers;
+    return 0 if defined $running->{ssl} && $running->{ssl} != $ssl;
+    return 1;
+}
+
+# _state_settle_polls()
+# Returns how many times a lifecycle read re-checks a state file that exists but
+# yields no usable payload before concluding there is no state to read. The
+# budget stays small on purpose: the window it covers is a single file
+# replacement, and every probe pays it when a state file is corrupt rather than
+# merely mid-write.
+# Input: none.
+# Output: positive poll count integer.
+sub _state_settle_polls {
+    return 10;
+}
+
+# _state_settle_interval()
+# Returns the pause between re-checks of a state file that exists but yields no
+# usable payload.
+# Input: none.
+# Output: fractional seconds.
+sub _state_settle_interval {
+    return 0.01;
+}
+
+# _read_settled_web_state()
+# Reads persisted web state for lifecycle decisions, tolerating the brief window
+# in which an existing state file is observable as empty or partially written.
+# The lifecycle uses this answer to deduplicate starts and to delete persisted
+# files, so a transient observation must never be treated as a fact.
+# Input: none.
+# Output: two-element list of the state hash reference or undef, and a flag that
+# is true when a state file exists but never yielded a usable payload.
+sub _read_settled_web_state {
+    my ($self) = @_;
+    my $file  = $self->{files}->web_state;
+    my $polls = $self->_state_settle_polls;
+    for my $attempt ( 1 .. $polls ) {
+        my $state = $self->web_state;
+        return ( $state, 0 ) if ref($state) eq 'HASH';
+        return ( undef, 0 ) if !-f $file;
+        sleep $self->_state_settle_interval if $attempt < $polls;
+    }
+    return ( undef, 1 );
+}
+
+# _web_state_with_endpoint($state, $pid)
+# Builds the running-web answer for one live managed pid, filling a host or port
+# the persisted payload does not carry from the live process title. Callers
+# compare the reported endpoint against a requested one, so a gap in the
+# persisted payload must never surface as an unknown endpoint.
+# Input: persisted state hash reference and live process id.
+# Output: web state hash reference carrying the live pid.
+sub _web_state_with_endpoint {
+    my ( $self, $state, $pid ) = @_;
+    my $running = {
+        %{$state},
+        pid => $pid + 0,
+    };
+    return $running if defined $running->{host} && defined $running->{port};
+
+    my $title = $self->_read_process_title($pid);
+    if ( defined $title && $title =~ /^dashboard web:\s+(\S+):(\d+)$/ ) {
+        $running->{host} = defined $running->{host} ? $running->{host} : $1;
+        $running->{port} = defined $running->{port} ? $running->{port} : $2 + 0;
+    }
+    return $running;
+}
+
 # running_web()
 # Discovers the currently running managed web service if present.
 # Input: none.
@@ -193,16 +275,14 @@ sub _start_web_windows_background {
 sub running_web {
     my ($self) = @_;
 
-    my $state = $self->web_state || {};
+    my ( $settled, $unresolved ) = $self->_read_settled_web_state;
+    my $state = $settled || {};
     if ( my $pid = $self->{files}->read('web_pid') ) {
         chomp $pid;
         $pid = $self->_normalized_process_id($pid);
         if ( $pid && $self->_pid_is_running($pid) && $self->_same_pid_namespace($pid) ) {
             if ( $self->_is_managed_web($pid) || ( $state->{status} || '' ) eq 'running' ) {
-                return {
-                    %$state,
-                    pid => $pid + 0,
-                };
+                return $self->_web_state_with_endpoint( $state, $pid );
             }
         }
     }
@@ -240,6 +320,11 @@ sub running_web {
             };
         }
     }
+
+    # A state file that exists but never yielded a usable payload is evidence of
+    # nothing. Removing it here would destroy the persisted identity of a service
+    # this probe merely failed to observe, so leave the files for the next read.
+    return if $unresolved;
 
     $self->_cleanup_web_files;
     return;
@@ -1952,6 +2037,14 @@ sub _run_web_child {
     my $bound_host = $daemon->sockhost;
     my $bound_port = $daemon->sockport;
     my $child_pid = $self->_normalized_process_id($$);
+
+    # The startup pipe is a private handshake with the forking parent, which
+    # persists pid and state synchronously before start_web returns. Signalling it
+    # before this child's own state write therefore exposes no consumer-visible
+    # window: every caller that learns about the service through start_web already
+    # sees persisted state, and the write below only refreshes it with the bound
+    # endpoint. Keep the order - reversing it would delay the parent's read
+    # without closing any window.
     $self->_write_startup_pipe_message( $writer, join( '|', 'ok', $child_pid, $bound_host, $bound_port ) . "\n" );
     $self->_close_inherited_fds( close_ipc => 1 ) if $detach || $redirect;
 
