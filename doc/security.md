@@ -16,6 +16,7 @@ Developer Dashboard now applies these runtime protections in the active codebase
 - helper sessions expire automatically after 12 hours
 - session cookies use `HttpOnly` and `SameSite=Strict`
 - HTTP responses add `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, and `Cache-Control: no-store`
+- every page-derived value placed inside a quoted HTML attribute (the page chrome's play, source, and share URLs, the bookmark editor's form action, nav ids, and the host link) is escaped in attribute context, so both quote characters are neutralised and a bookmark id cannot terminate an attribute and inject markup
 
 ## OWASP Gate
 
