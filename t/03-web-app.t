@@ -567,6 +567,11 @@ like($body1e, qr/highlight\.style\.transform = 'translate\('/, 'editor route syn
 like($body1e, qr/function ddCreateEditorBlock\(/, 'editor route builds visible block editors dynamically from bookmark sections');
 like($body1e, qr/function ddRenderEditor\(editor, highlight\) \{\s*highlight\.innerHTML = ddOverlayHtml\(editor\.value\);\s*ddAutoResizeEditor\(editor\);\s*ddSyncEditorOverlay\(editor, highlight\);/s, 'editor route auto-resizes a block before syncing its overlay');
 like($body1e, qr/window\.addEventListener\('resize', function\(\) \{\s*Array\.prototype\.slice\.call\(ddBlocks\.querySelectorAll\('\.editor-block'\)\)\.forEach\(function\(block\) \{\s*const editor = block\.querySelector\('\.instruction-block-editor'\);\s*const highlight = block\.querySelector\('\.editor-overlay'\);\s*ddAutoResizeEditor\(editor\);\s*ddSyncEditorOverlay\(editor, highlight\);/s, 'editor route reapplies auto-resize when the window size changes');
+
+# DD-409: the mirrored source textarea must expose a programmatic accessible
+# name; the exhaustive accessible-name contract for every generated control
+# lives in the dedicated editor field label test.
+like($body1e, qr/<textarea class="instruction-source" id="instruction-source" name="instruction" aria-label="[^"]+"/, 'mirrored editor source textarea carries a non-empty accessible name');
 my $demo_overlay = $app->_editor_overlay_html($highlight_source);
 like($demo_overlay, qr/<span class="tok-directive">HTML:<\/span>/, 'editor overlay highlights bookmark directives');
 like($demo_overlay, qr/<span class="tok-tag">&lt;style<\/span>/, 'editor overlay highlights HTML tag names');
