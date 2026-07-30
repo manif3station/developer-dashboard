@@ -320,25 +320,48 @@ is( $runner->_state_confirms_managed_loop( 'demo', 0 ), 0, '_state_confirms_mana
 is( $runner->_read_process_env_marker( 999999999, 'ANY' ), undef, '_read_process_env_marker returns undef for an unreadable environ' );
 ok( defined $runner->_read_process_env_marker( $$, 'PATH' ), '_read_process_env_marker reads a present env marker for the current process' );
 
-# A child launched under `env -i` has a genuinely empty (zero-length) environ,
-# which reads back as an empty string and drives the empty-environ return path.
+# A child that clears %ENV before exec has a genuinely empty (zero-length)
+# environ, which reads back as a defined empty string and drives the
+# empty-environ return path.
+#
+# This used to delegate to `env -i sleep 30` and poll /proc/<pid>/cmdline for
+# /sleep/, but the intermediate env process already matches that pattern in its
+# own cmdline, so the poll returned on its first iteration - before env had
+# exec'd sleep and installed the empty environment. Measured 10 runs out of 10,
+# the environ at that moment was still the inherited one (1564 and 1820 bytes in
+# two samples), so whether the routine below saw an empty environ at all came
+# down to env finishing its exec inside the gap between the poll exiting and the
+# call being made. Nothing pinned that: is($marker, undef) is satisfied just as
+# well by a populated environ that lacks the key, so the empty-environ leg could
+# stop being exercised without a single assertion failing. Clearing the
+# environment in this very fork removes the intermediate process entirely, and
+# the environ assertion below turns the precondition into a real one.
 SKIP: {
-    skip 'env -i unavailable', 1 if !-x '/usr/bin/env';
-    my $child = fork();
+    my ($sleep_bin) = grep { -x } qw(/bin/sleep /usr/bin/sleep);
+    skip 'no sleep binary available to hold an empty environment open', 2 if !defined $sleep_bin;
+    my $probe_title = 'dd-empty-environ-probe';
+    my $child       = fork();
     die "fork failed: $!" if !defined $child;
     if ( !$child ) {
-        exec { '/usr/bin/env' } 'env', '-i', 'sleep', '30' or CORE::exit(127);
+        %ENV = ();
+        exec { $sleep_bin } $probe_title, '30' or CORE::exit(127);
     }
-    # Wait until the child has actually exec'd sleep (its cmdline changes) so
-    # that /proc/<pid>/environ reflects the empty environment env -i installed.
+    # Poll on the exec'd argv[0], which only the post-exec process can show.
+    my $probe_environ;
     for ( 1 .. 500 ) {
         my $cmdline = '';
         if ( open my $cf, '<', "/proc/$child/cmdline" ) { local $/; $cmdline = <$cf>; close $cf; }
-        last if defined $cmdline && $cmdline =~ /sleep/;
+        if ( defined $cmdline && index( $cmdline, $probe_title ) == 0 ) {
+            if ( open my $ef, '<', "/proc/$child/environ" ) { local $/; $probe_environ = <$ef>; close $ef; }
+            last;
+        }
         select undef, undef, undef, 0.01;
     }
-    my $marker = $runner->_read_process_env_marker( $child, 'ANY' );
-    is( $marker, undef, '_read_process_env_marker returns undef for an empty environ' );
+    # Pin the precondition the coverage below depends on. Without this the
+    # marker assertion is satisfied by any environ that lacks the key, so the
+    # empty-environ leg can stop being exercised without a single test failing.
+    is( $probe_environ, '', 'the probe child exposes a readable zero-length environ' );
+    is( $runner->_read_process_env_marker( $child, 'ANY' ), undef, '_read_process_env_marker returns undef for an empty environ' );
     kill 9, $child;
     waitpid( $child, 0 );
 }
