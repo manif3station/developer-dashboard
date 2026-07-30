@@ -1145,7 +1145,7 @@ sub _edit_html {
 
     my $html = <<'HTML';
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
