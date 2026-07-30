@@ -868,7 +868,7 @@ is( $m->_missing_named_page_response('x')->[0], 200, 'missing page editor -> 200
 
     is( $m->_serve_static_file_at_path( 'js', 'x', '' )->[0], 404, 'serve at empty path -> 404' );
     is( $m->_serve_static_file_at_path( 'js', 'x', '/no/such/path' )->[0], 404, 'serve at missing path -> 404' );
-    is( $m->_serve_static_file_at_path( 'js', 'ok.js', File::Spec->catfile( $absroot, 'ok.js' ) )->[0], 200, 'serve at a real path -> 200' );
+    is( $m->_serve_static_file_at_path( 'js', 'ok.js', File::Spec->catfile( $absroot, 'ok.js' ), '', [$absroot] )->[0], 200, 'serve at a real path inside an allowed root -> 200' );
     my $unreadable = File::Spec->catfile( $absroot, 'noperm.js' );
     wfile( $unreadable, "x\n", 0000 );
     is( $m->_serve_static_file_at_path( 'js', 'noperm.js', $unreadable )->[0], 404, 'serve at an unreadable path -> 404' );
