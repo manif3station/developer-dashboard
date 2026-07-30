@@ -303,7 +303,9 @@ sub _request_is_loopback_admin {
 sub host_is_local_alias {
     my ( $self, %args ) = @_;
     my $host = $self->_canonical_host( $args{host} );
-    return 0 if !defined $host || $host eq '';
+    # _canonical_host returns undef or a non-empty lowercased host, never an
+    # empty string, so undef is the only not-a-host outcome to reject here.
+    return 0 if !defined $host;
     my @extra_loopback_hosts = map { $self->_canonical_host($_) }
       grep { defined $_ && $_ ne '' }
       @{ ref( $args{extra_loopback_hosts} ) eq 'ARRAY' ? $args{extra_loopback_hosts} : [] };

@@ -542,6 +542,49 @@ my $admin_control_code;
         ),
         'a reference-valued Host header cannot satisfy the comparison',
     );
+    ok(
+        !$app->_request_source_is_same_site( source => 'http://evil.example' ),
+        'a foreign source with no headers hash at all stays foreign',
+    );
+    ok(
+        $app->_request_source_is_same_site(
+            source  => 'http://127.0.0.1',
+            headers => {},
+        ),
+        'a loopback source stays same-site when the headers carry no Host',
+    );
+
+    # Local::T130::SanlessConfig
+    # Duck-typed config stub whose web_settings answers without an
+    # ssl_subject_alt_names entry, so the defense's empty-alias fallback is
+    # exercised directly rather than through Config fixture defaults.
+    {
+
+        package Local::T130::SanlessConfig;
+
+        # new()
+        # Purpose: construct the stub. Input: class name. Output: blessed stub.
+        sub new { my ($class) = @_; return bless {}, $class }
+
+        # web_settings()
+        # Purpose: mimic a config whose web section names no SSL aliases.
+        # Input: none. Output: hash reference without ssl_subject_alt_names.
+        sub web_settings { return {} }
+    }
+
+    my $sanless_app = Developer::Dashboard::Web::App->new(
+        auth     => $auth,
+        config   => Local::T130::SanlessConfig->new,
+        pages    => $store,
+        sessions => $sessions,
+    );
+    ok(
+        !$sanless_app->_request_source_is_same_site(
+            source  => 'http://evil.example',
+            headers => { host => $ADMIN_HOST },
+        ),
+        'a web-settings hash without alias names contributes no extra aliases',
+    );
 
     # Config objects without web_settings (or non-objects) contribute no extra
     # aliases; the comparison itself must still work.
