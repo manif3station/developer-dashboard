@@ -5603,6 +5603,14 @@ is_deeply(
                         days => 1,
                     },
                 },
+                {
+                    name     => 'combo.rotator',
+                    cwd      => 'home',
+                    rotation => {
+                        lines => 6,
+                        days  => 1,
+                    },
+                },
             ],
         }
     );
@@ -5625,6 +5633,19 @@ is_deeply(
         exit_code   => 0,
         stdout      => "fresh-entry\n",
     );
+
+    # Three five-line entries, all inside the one-day window, against a
+    # six-line budget: the line cut lands inside the middle entry, which is the
+    # combination that used to persist a headerless transcript and then kill
+    # every later housekeeper pass.
+    for my $hour ( 9, 10, 11 ) {
+        $rotation_collector->append_log_entry(
+            'combo.rotator',
+            happened_at => sprintf( '2026-04-17T%02d:00:00Z', $hour ),
+            exit_code   => 0,
+            stdout      => "combo-$hour-line-a\ncombo-$hour-line-b\n",
+        );
+    }
 
     my $rotation_housekeeper = Developer::Dashboard::Housekeeper->new( paths => $rotation_paths );
     my $rotation_result = $rotation_housekeeper->run(
@@ -5661,6 +5682,19 @@ is_deeply(
         ),
         'housekeeper reports collector log age rotation explicitly',
     );
+
+    my $combo_log = $rotation_collector->read_log('combo.rotator');
+    like( $combo_log, qr/\A=== collector combo\.rotator \|/, 'housekeeper combined line and age rotation leaves a log that still starts at an entry header' );
+    like( $combo_log, qr/combo-11-line-b/, 'housekeeper combined rotation keeps the newest whole collector log entry' );
+    unlike( $combo_log, qr/combo-9-line-a/, 'housekeeper combined rotation drops the entries outside the line budget' );
+
+    my $second_result = $rotation_housekeeper->run(
+        min_age_seconds => 0,
+        now_epoch       => 1_776_441_600,
+    );
+    ok( $second_result->{ok}, 'a second housekeeper pass survives a combined line and age collector log rotation' );
+    ok( defined $second_result->{scanned}{expired_sessions}, 'a second housekeeper pass still reaches the expired-session sweep' );
+    is( $rotation_collector->read_log('combo.rotator'), $combo_log, 'a second housekeeper pass leaves the entry-aligned collector log untouched' );
 }
 
 dies_like(

@@ -710,6 +710,75 @@ dies_like( sub { $collector->_format_log_entry( name => '' ) }, qr/Missing colle
     );
 }
 
+# A combined line + age rotation must cut on entry boundaries. The line trim
+# runs after the age trim, so a purely line-based cut used to leave an orphaned
+# entry body at the front of the log; the very next rotation pass then died on
+# that headerless chunk and the housekeeper stopped for good.
+{
+    my $name = 'rot-combined';
+
+    # combined_log($count)
+    # Builds a collector log blob of five-line entries for the combined-rotation checks.
+    # Input: number of entries to format.
+    # Output: log text string holding that many formatted entries.
+    my $combined_log = sub {
+        my ($count) = @_;
+        return join '', map {
+            $collector->_format_log_entry(
+                name        => $name,
+                happened_at => sprintf( '2026-07-%02dT00:00:00Z', 20 + $_ ),
+                exit_code   => 0,
+                stdout      => "body-$_-line-a\nbody-$_-line-b\n",
+            )
+        } 1 .. $count;
+    };
+
+    my $now      = 1_785_000_000;
+    my $newest   = $collector->_format_log_entry(
+        name        => $name,
+        happened_at => '2026-07-24T00:00:00Z',
+        exit_code   => 0,
+        stdout      => "body-4-line-a\nbody-4-line-b\n",
+    );
+
+    # Every entry is five lines, so a six-line budget deliberately cuts inside
+    # the second-newest entry and keeps only its trailing blank separator.
+    seed_collector( $name, 'log' => $combined_log->(4) );
+    my $rotation = { lines => 6, days => 3650 };
+    my $rotated  = $collector->rotate_log( $name, $rotation, now_epoch => $now );
+    is( $rotated->{strategy}, 'days=3650,lines=6', 'a combined age and line rotation reports both rules in one strategy' );
+    is( $collector->read_log($name), $newest, 'a combined rotation keeps whole entries instead of slicing one in half' );
+
+    is( $collector->rotate_log( $name, $rotation, now_epoch => $now ), undef, 'a second combined rotation pass finds nothing left to rotate' );
+    is( $collector->read_log($name), $newest, 'a second combined rotation pass leaves the entry-aligned log untouched' );
+
+    # A budget that lands exactly on an entry boundary needs no realignment.
+    seed_collector( $name, 'log' => $combined_log->(4) );
+    $collector->rotate_log( $name, { lines => 5, days => 3650 }, now_epoch => $now );
+    is( $collector->read_log($name), $newest, 'a line budget that lands on an entry boundary keeps that entry verbatim' );
+
+    # A budget smaller than a single entry cannot keep any whole entry, so the
+    # transcript empties out rather than persisting a headerless fragment.
+    seed_collector( $name, 'log' => $combined_log->(4) );
+    $collector->rotate_log( $name, { lines => 4, days => 3650 }, now_epoch => $now );
+    is( $collector->read_log($name), '', 'a line budget smaller than one entry empties the log instead of orphaning a body' );
+}
+
+# A log that was already headerless before rotation was corrupted outside the
+# rotation path: keep its content and let the age trim keep failing loudly.
+{
+    my $name = 'rot-foreign';
+    seed_collector( $name, 'log' => "f1\nf2\nf3\nf4\n" );
+    $collector->rotate_log( $name, { lines => 2 } );
+    is( $collector->read_log($name), "f3\nf4\n", 'a line rotation of an externally headerless log keeps its trailing lines' );
+
+    dies_like(
+        sub { $collector->rotate_log( $name, { lines => 2, days => 1 } ) },
+        qr/Unable to parse collector log timestamp for rot-foreign/,
+        'a combined rotation of an externally headerless log still fails loudly',
+    );
+}
+
 # ---------------------------------------------------------------------------
 # Rotation helpers in isolation.
 # ---------------------------------------------------------------------------
@@ -721,6 +790,18 @@ dies_like( sub { $collector->_format_log_entry( name => '' ) }, qr/Missing colle
     is( $collector->_trim_log_by_lines( "a\nb\n", 9 ), "a\nb\n", '_trim_log_by_lines keeps a log shorter than the limit' );
     is( $collector->_trim_log_by_lines( "a\nb\nc\n", 2 ), "b\nc\n", '_trim_log_by_lines keeps the trailing lines of a newline-terminated log' );
     is( $collector->_trim_log_by_lines( "a\nb\nc", 2 ), "b\nc", '_trim_log_by_lines keeps the trailing lines of a log with no trailing newline' );
+
+    my $one   = "=== collector one | \@ 2026-01-01T00:00:00Z ===\nbody-one\n\n";
+    my $two   = "=== collector two | \@ 2026-01-02T00:00:00Z ===\nbody-two\n\n";
+    my $split = $one . $two;
+    is( $collector->_trim_log_by_lines( $split, 4 ), $two, '_trim_log_by_lines realigns a cut that lands inside an entry' );
+    is( $collector->_trim_log_by_lines( $split, 3 ), $two, '_trim_log_by_lines keeps a cut that already lands on an entry header' );
+    is( $collector->_trim_log_by_lines( $split, 2 ), '', '_trim_log_by_lines returns an empty log when no whole entry fits the line budget' );
+    is( $collector->_trim_log_by_lines( $split, 0 ), '', '_trim_log_by_lines with a zero line budget returns an empty log' );
+
+    is( $collector->_realign_to_entry_boundary( $split, $two ), $two, '_realign_to_entry_boundary leaves a header-anchored cut alone' );
+    is( $collector->_realign_to_entry_boundary( $split, "body-one\n\n$two" ), $two, '_realign_to_entry_boundary drops an orphaned entry body' );
+    is( $collector->_realign_to_entry_boundary( "x\ny\n", "y\n" ), "y\n", '_realign_to_entry_boundary keeps a log that was already headerless before the cut' );
 
     is( scalar( () = $collector->_split_log_entries(undef) ), 0, '_split_log_entries returns nothing for an undefined log' );
     is( scalar( () = $collector->_split_log_entries('') ), 0, '_split_log_entries returns nothing for an empty log' );
