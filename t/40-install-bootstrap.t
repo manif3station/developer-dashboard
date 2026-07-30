@@ -175,7 +175,12 @@ like(
     like( $install_ps_text, qr/\[Regex\]::Escape\(\$endMarker\)/, 'install.ps1 escapes the managed end marker with the .NET regex API before replacing older profile blocks' );
     unlike( $install_ps_text, qr/\\Q\$beginMarker\\E|\\Q\$endMarker\\E/, 'install.ps1 avoids Perl-style \\Q...\\E regex quoting that PowerShell does not support in [Regex]::Replace' );
     like( $install_ps_text, qr/legacyManagedPattern/, 'install.ps1 strips legacy unmarked Developer Dashboard profile blocks from earlier Windows bootstrap failures' );
-    like( $install_ps_text, qr/Join-Path\s+\`\$HOME\s+'.developer-dashboard\\cache'/s, 'install.ps1 resolves the managed PowerShell cache root without invoking Perl during profile startup' );
+    like( $install_ps_text, qr/\`\$ddCacheRoot = Join-Path\s+\`\$env:HOME\s+'\.developer-dashboard\\cache'/s, 'install.ps1 resolves the managed PowerShell cache root from env:HOME, matching the Perl-side home resolution, without invoking Perl during profile startup' );
+    unlike( $install_ps_text, qr/\`\$ddCacheRoot = Join-Path\s+\`\$HOME\s/s, 'install.ps1 does not resolve the managed PowerShell cache root from the PowerShell-only HOME variable, which can diverge from the HOME that Perl writes the cache under' );
+    like( $install_ps_text, qr/function Resolve-DashboardRuntimeHome/s, 'install.ps1 has a dedicated resolver for the HOME that the Perl runtime uses for its cache root' );
+    like( $install_ps_text, qr/\$env:HOME = Resolve-DashboardRuntimeHome/s, 'install.ps1 seeds env:HOME for its own session so the Perl runtime and the generated profile agree on the cache root' );
+    like( $install_ps_text, qr/\$powershellCacheRoot = Join-Path\s+\$env:HOME\s+'\.developer-dashboard\\cache'/s, 'install.ps1 validates the same env:HOME-derived cache root that the generated profile will read' );
+    like( $install_ps_text, qr/if\s+\(\[string\]::IsNullOrWhiteSpace\(\`\$env:HOME\)\)\s*\{\s*\`\$env:HOME = '\$profileRuntimeHome'/s, 'install.ps1 bakes the install-time runtime home into the managed profile block as a last-resort seed so the cache root is never joined against an empty HOME' );
     like( $install_ps_text, qr/Join-Path\s+\`\$ddCacheRoot\s+'powershell-env\.ps1'/s, 'install.ps1 points the managed profile at the cached local-lib environment script' );
     like( $install_ps_text, qr/Join-Path\s+\`\$ddCacheRoot\s+'powershell-bootstrap\.ps1'/s, 'install.ps1 points the managed profile at the cached dashboard shell bootstrap script' );
     like( $install_ps_text, qr/\.\s+\`\$ddEnvironmentCache.*?\.\s+\`\$ddBootstrapCache/s, 'install.ps1 dot-sources the cached environment before the cached shell bootstrap' );

@@ -4,6 +4,7 @@ use utf8;
 
 use Capture::Tiny qw(capture);
 use Cwd qw(getcwd);
+use File::Path ();
 use File::Spec;
 use File::Temp qw(tempdir);
 use Test::More;
@@ -19,6 +20,10 @@ local $ENV{PERL5LIB} = join ':',
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
 local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+
+# A scalar local::lib option carrying a single quote proves the generator
+# escapes values for PowerShell single-quoted strings.
+local $ENV{PERL_MB_OPT} = q{--install_base 'C:\dd quoted'};
 chdir $ENV{HOME} or die "Unable to chdir to $ENV{HOME}: $!";
 
 my $perl      = $^X;
@@ -94,6 +99,69 @@ like( $env_content, qr/^\$env:/m, 'powershell-env.ps1 contains $env: variable as
 # Verify at least one known env var is present (PATH or PERL5LIB)
 my $has_known_var = $env_content =~ /^\$env:(?:PATH|PERL5LIB)\b/m ? 1 : 0;
 ok( $has_known_var, 'powershell-env.ps1 sets at least one known local::lib environment variable (PATH or PERL5LIB)' );
+
+# The pre-cache profile block re-derived PATH through a live perl local::lib
+# subprocess that inherited the session PATH, so entries the session already
+# carried survived. A cached absolute snapshot must not clobber them: the
+# cached entries are prepended to whatever the live session has.
+for my $list_key (qw(PATH PERL5LIB)) {
+    like(
+        $env_content,
+        qr/^\$env:\Q$list_key\E = \(\(\@\(/m,
+        "powershell-env.ps1 rebuilds \$env:$list_key from a cached entry list instead of assigning a frozen snapshot"
+    );
+    like(
+        $env_content,
+        qr/^\$env:\Q$list_key\E = .*\Q$list_key\E -split /m,
+        "powershell-env.ps1 merges the live \$env:$list_key entries behind the cached entries"
+    );
+    unlike(
+        $env_content,
+        qr/^\$env:\Q$list_key\E='/m,
+        "powershell-env.ps1 never overwrites \$env:$list_key with an install-time snapshot"
+    );
+}
+
+# Non-list local::lib options stay direct assignments, single-quote escaped.
+like(
+    $env_content,
+    qr/^\$env:PERL_MB_OPT='--install_base ''C:\\dd quoted'''$/m,
+    'powershell-env.ps1 assigns scalar local::lib options directly and doubles embedded single quotes'
+);
+
+# The managed PowerShell profile always reads $HOME/.developer-dashboard/cache,
+# so the generator must write there regardless of which DD-OOP-LAYER the
+# refreshing shell happens to be standing in. Writing into a deeper project
+# layer would leave the profile reading a cache nothing ever refreshes.
+{
+    my $home_cache_dir = $cache_dir;
+    my $project        = File::Spec->catdir( $ENV{HOME}, 'proj' );
+    my $project_cache  = File::Spec->catdir( $project, '.developer-dashboard', 'cache' );
+    File::Path::make_path( File::Spec->catdir( $project, '.developer-dashboard' ) );
+    File::Path::make_path( File::Spec->catdir( $project, '.git' ) );
+
+    # Remove the home-layer caches so only a fresh write can restore them.
+    unlink $bootstrap_cache, $env_cache;
+    ok( !-e $bootstrap_cache, 'home-layer bootstrap cache removed before the project-layer refresh' );
+
+    chdir $project or die "Unable to chdir to $project: $!";
+    my ( $stdout, $stderr, $exit_code ) = capture {
+        system $perl, '-I', $lib, $dashboard, 'shell', 'ps';
+        $? >> 8;
+    };
+    chdir $ENV{HOME} or die "Unable to chdir to $ENV{HOME}: $!";
+
+    is( $exit_code, 0, 'dashboard shell ps exits successfully from inside a project runtime layer' )
+      or diag "STDERR: $stderr";
+    ok( -s File::Spec->catfile( $home_cache_dir, 'powershell-bootstrap.ps1' ),
+        'a project-layer refresh rewrites the home-layer PowerShell bootstrap cache' );
+    ok( -s File::Spec->catfile( $home_cache_dir, 'powershell-env.ps1' ),
+        'a project-layer refresh rewrites the home-layer PowerShell environment cache' );
+    ok( !-e File::Spec->catfile( $project_cache, 'powershell-bootstrap.ps1' ),
+        'a project-layer refresh does not strand the PowerShell bootstrap cache in the project layer' );
+    ok( !-e File::Spec->catfile( $project_cache, 'powershell-env.ps1' ),
+        'a project-layer refresh does not strand the PowerShell environment cache in the project layer' );
+}
 
 done_testing;
 
