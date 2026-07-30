@@ -288,6 +288,19 @@ sub await_absent_pids {
         '_record_command_pid dies when the pid file cannot be written' );
 }
 
+# The close of a written pid file can genuinely fail: the buffered integer is
+# only flushed at close time, so a full device reports ENOSPC there rather than
+# at open or print. /dev/full provides that deterministically, which keeps the
+# failure branch covered by a real test instead of an annotation.
+SKIP: {
+    skip 'this host has no writable /dev/full to provoke a close-time ENOSPC', 1
+      if !-w '/dev/full';
+
+    my $close_error = eval { $runner->_record_command_pid( '/dev/full', 4243 ); 1 } ? '' : $@;
+    like( $close_error, qr/Unable to close collector command pid file/,
+        '_record_command_pid dies when the pid file cannot be flushed at close' );
+}
+
 done_testing();
 
 __END__
