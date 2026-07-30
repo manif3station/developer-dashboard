@@ -59,7 +59,7 @@ jobs:
       - name: Verify all-metric lib coverage
         run: |
           cover -delete
-          HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
+          HARNESS_PERL_SWITCHES='-MDevel::Cover=-blib,0' prove -lr t
           cover -report text -select_re '^lib/' -coverage statement -coverage branch -coverage condition -coverage subroutine \
             | perl script/check-all-metric-coverage
 

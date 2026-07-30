@@ -160,6 +160,6 @@ Run it together with the neighbouring web application contracts:
 
 Run it under the coverage harness while checking the web application module:
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -l t/132-transient-token-file-bypass.t
+  HARNESS_PERL_SWITCHES=-MDevel::Cover=-blib,0 prove -l t/132-transient-token-file-bypass.t
 
 =cut

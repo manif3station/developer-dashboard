@@ -415,7 +415,7 @@ __END__
 
 =head1 NAME
 
-t/122-upgrade-cli.t - acceptance contract for dashboard and d2 self-upgrade
+t/136-upgrade-cli.t - acceptance contract for dashboard and d2 self-upgrade
 
 =head1 PURPOSE
 
@@ -438,7 +438,7 @@ installer URLs, or platform process invocation changes.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/122-upgrade-cli.t> during the RED-GREEN-REFACTOR loop, then
+Run C<prove -lv t/136-upgrade-cli.t> during the RED-GREEN-REFACTOR loop, then
 run the full test and coverage gates before shipping.
 
 =head1 WHAT USES IT
@@ -449,7 +449,7 @@ failures.
 
 =head1 EXAMPLES
 
-  prove -lv t/122-upgrade-cli.t
+  prove -lv t/136-upgrade-cli.t
   prove -lr t
 
 =cut

@@ -101,7 +101,7 @@ __END__
 
 =head1 NAME
 
-t/122-defined-grep-cleanup.t - enforce concise filters for split-derived fields
+t/134-defined-grep-cleanup.t - enforce concise filters for split-derived fields
 
 =head1 PURPOSE
 
@@ -132,7 +132,7 @@ changed, and after adding a new module that parses split output.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/122-defined-grep-cleanup.t> for the focused source-policy
+Run C<prove -lv t/134-defined-grep-cleanup.t> for the focused source-policy
 check. A failure reports every module and line that still applies a definedness
 term to direct C<split> output. Review each reported expression to confirm that
 C<split> is the actual list producer, then remove only the redundant term and
@@ -150,13 +150,13 @@ legitimately be undefined.
 
 Example 1:
 
-  prove -lv t/122-defined-grep-cleanup.t
+  prove -lv t/134-defined-grep-cleanup.t
 
 Run the focused policy test and inspect any reported module-line pairs.
 
 Example 2:
 
-  prove -lv t/122-defined-grep-cleanup.t t/64-cli-progress-coverage.t
+  prove -lv t/134-defined-grep-cleanup.t t/64-cli-progress-coverage.t
 
 Run the policy test together with the renderer coverage test that pins the
 rendered line count derived from a split expression, confirming the cleanup is
