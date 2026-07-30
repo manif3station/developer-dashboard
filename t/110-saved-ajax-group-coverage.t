@@ -9,6 +9,7 @@ use Capture::Tiny qw(capture);
 use File::Spec;
 use File::Temp qw(tempdir);
 use POSIX qw(:sys_wait_h);
+use Time::HiRes ();
 
 use lib 'lib';
 
@@ -188,6 +189,204 @@ sub _fork_reaped_child {
     unlink $marker if -e $marker;
 }
 
+# ---- DD-428: the SIGTERM escalation grants a real elapsed grace window -------
+
+# _await_ready($read_handle)
+# Blocks until a fixture process reports that its signal handlers are installed.
+# Input: read end of the fixture readiness pipe.
+# Output: the two-byte readiness token the fixture wrote.
+sub _await_ready {
+    my ($read_handle) = @_;
+    my $ready = '';
+    sysread $read_handle, $ready, 2;
+    close $read_handle;
+    return $ready;
+}
+
+# _read_marker_pid($path)
+# Reads a pid a fixture descendant recorded in its marker file.
+# Input: marker file path.
+# Output: pid integer, or undef when the marker holds no pid.
+sub _read_marker_pid {
+    my ($path) = @_;
+    open my $fh, '<', $path or return undef;
+    my $line = <$fh> // '';
+    close $fh;
+    $line =~ s/\s+//g;
+    return $line =~ /^\d+$/ ? $line + 0 : undef;
+}
+
+# The shipped window is what production actually grants a signalled worker, so
+# pin it here: the defect this block guards was a loop that believed it waited
+# one second and returned in about a millisecond.
+{
+    is( $Developer::Dashboard::PageRuntime::SAVED_AJAX_TERM_GRACE_SECONDS, 1, 'the shipped saved-Ajax SIGTERM grace window is one second' );
+    cmp_ok( $Developer::Dashboard::PageRuntime::SAVED_AJAX_TERM_POLL_SECONDS, '>', 0, 'the grace-window poll interval is positive' );
+    cmp_ok(
+        $Developer::Dashboard::PageRuntime::SAVED_AJAX_TERM_POLL_SECONDS, '<',
+        $Developer::Dashboard::PageRuntime::SAVED_AJAX_TERM_GRACE_SECONDS,
+        'the grace-window poll interval is shorter than the window it polls',
+    );
+}
+
+# Scenario: a cooperative worker whose SIGTERM handler needs measurable time to
+# reap its children, delete scratch files, and flush partial output.
+{
+    # A generous window keeps the assertion about returning early from riding on
+    # host load: the handler needs 0.3s and the window here is 5s.
+    local $Developer::Dashboard::PageRuntime::SAVED_AJAX_TERM_GRACE_SECONDS = 5;
+
+    my $marker = File::Spec->catfile( $home, "dd428-worker-cleanup-$$.txt" );
+    pipe my $ready_r, my $ready_w or die "pipe: $!";
+    my $worker = fork();
+    die "fork failed: $!" if !defined $worker;
+    if ( !$worker ) {
+        close $ready_r;
+        POSIX::setpgid( 0, 0 ) or POSIX::_exit(97);
+        $SIG{TERM} = sub {
+            select undef, undef, undef, 0.3;
+            open my $marker_fh, '>', $marker or POSIX::_exit(91);
+            print {$marker_fh} "cleaned up\n";
+            close $marker_fh or POSIX::_exit(92);
+            POSIX::_exit(0);
+        };
+        syswrite $ready_w, 'up';
+        select undef, undef, undef, 30;
+        POSIX::_exit(0);
+    }
+    push @cleanup_pids, $worker;
+    close $ready_w;
+    is( _await_ready($ready_r), 'up', 'cooperative worker fixture installed its SIGTERM cleanup handler' );
+
+    my $reaped_status;
+    my $started = Time::HiRes::time();
+    is( $runtime->_terminate_saved_ajax_process( $worker, $worker, \$reaped_status ), 1, '_terminate_saved_ajax_process reports success for a cooperative owned group' );
+    my $elapsed = Time::HiRes::time() - $started;
+
+    ok( -e $marker, '_terminate_saved_ajax_process lets the worker SIGTERM handler finish its cleanup before escalating' );
+    is( $reaped_status, 0, '_terminate_saved_ajax_process reports the cooperative exit status instead of a SIGKILL status' );
+    cmp_ok( $elapsed, '>=', 0.3, '_terminate_saved_ajax_process waits for the handler rather than returning instantly' );
+    cmp_ok( $elapsed, '<', 4, '_terminate_saved_ajax_process returns as soon as the owned group is gone instead of burning the window' );
+    is( waitpid( $worker, WNOHANG ), -1, '_terminate_saved_ajax_process reaped the worker it waited out' );
+    unlink $marker if -e $marker;
+}
+
+# Scenario: a descendant, not the worker itself, is the one still cleaning up.
+{
+    my $descendant_marker = File::Spec->catfile( $home, "dd428-descendant-pid-$$.txt" );
+    my $cleanup_marker    = File::Spec->catfile( $home, "dd428-descendant-cleanup-$$.txt" );
+    pipe my $ready_r, my $ready_w or die "pipe: $!";
+    my $leader = fork();
+    die "fork failed: $!" if !defined $leader;
+    if ( !$leader ) {
+        close $ready_r;
+        POSIX::setpgid( 0, 0 ) or POSIX::_exit(97);
+        my $descendant = fork();
+        POSIX::_exit(98) if !defined $descendant;
+        if ( !$descendant ) {
+            $SIG{TERM} = sub {
+                select undef, undef, undef, 0.3;
+                open my $cleanup_fh, '>', $cleanup_marker or POSIX::_exit(91);
+                print {$cleanup_fh} "cleaned up\n";
+                close $cleanup_fh or POSIX::_exit(92);
+                POSIX::_exit(0);
+            };
+            open my $marker_fh, '>', $descendant_marker or POSIX::_exit(93);
+            print {$marker_fh} "$$\n";
+            close $marker_fh or POSIX::_exit(94);
+            select undef, undef, undef, 30;
+            POSIX::_exit(0);
+        }
+        $SIG{TERM} = sub { POSIX::_exit(0) };
+        for ( 1 .. 200 ) {
+            last if -s $descendant_marker;
+            select undef, undef, undef, 0.02;
+        }
+        syswrite $ready_w, 'up';
+        select undef, undef, undef, 30;
+        POSIX::_exit(0);
+    }
+    push @cleanup_pids, $leader;
+    close $ready_w;
+    is( _await_ready($ready_r), 'up', 'descendant fixture reports the leader ready after its descendant started' );
+
+    my $descendant_pid = _read_marker_pid($descendant_marker);
+    push @cleanup_pids, $descendant_pid;
+    ok( defined $descendant_pid && kill( 0, $descendant_pid ), 'descendant fixture process is alive before termination' );
+
+    is( $runtime->_terminate_saved_ajax_process( $leader, $leader ), 1, '_terminate_saved_ajax_process completes when only a descendant is still shutting down' );
+    ok( -e $cleanup_marker, '_terminate_saved_ajax_process holds the SIGKILL escalation while an owned descendant is still cleaning up' );
+
+    my $descendant_gone = 0;
+    for ( 1 .. 100 ) {
+        if ( !kill 0, $descendant_pid ) { $descendant_gone = 1; last; }
+        select undef, undef, undef, 0.05;
+    }
+    ok( $descendant_gone, '_terminate_saved_ajax_process leaves no descendant behind once the group drains' );
+    waitpid( $leader, WNOHANG );
+    unlink grep { -e $_ } $descendant_marker, $cleanup_marker;
+}
+
+# Scenario: nothing in the owned group cooperates, so the escalation must fire
+# only after the window really elapsed, and must clear the whole subtree.
+{
+    # A short window keeps the timing assertion cheap; the point is that the
+    # measured wait tracks the configured window instead of collapsing to zero.
+    local $Developer::Dashboard::PageRuntime::SAVED_AJAX_TERM_GRACE_SECONDS = 0.4;
+
+    my $marker = File::Spec->catfile( $home, "dd428-stubborn-pid-$$.txt" );
+    pipe my $ready_r, my $ready_w or die "pipe: $!";
+    my $leader = fork();
+    die "fork failed: $!" if !defined $leader;
+    if ( !$leader ) {
+        close $ready_r;
+        POSIX::setpgid( 0, 0 ) or POSIX::_exit(97);
+        $SIG{TERM} = 'IGNORE';
+        my $descendant = fork();
+        POSIX::_exit(98) if !defined $descendant;
+        if ( !$descendant ) {
+            $SIG{TERM} = 'IGNORE';
+            open my $marker_fh, '>', $marker or POSIX::_exit(91);
+            print {$marker_fh} "$$\n";
+            close $marker_fh or POSIX::_exit(92);
+            select undef, undef, undef, 30;
+            POSIX::_exit(0);
+        }
+        for ( 1 .. 200 ) {
+            last if -s $marker;
+            select undef, undef, undef, 0.02;
+        }
+        syswrite $ready_w, 'up';
+        select undef, undef, undef, 30;
+        POSIX::_exit(0);
+    }
+    push @cleanup_pids, $leader;
+    close $ready_w;
+    is( _await_ready($ready_r), 'up', 'TERM-ignoring fixture reports the leader ready after its descendant started' );
+
+    my $descendant_pid = _read_marker_pid($marker);
+    push @cleanup_pids, $descendant_pid;
+    ok( defined $descendant_pid && kill( 0, $descendant_pid ), 'TERM-ignoring descendant is alive before termination' );
+
+    my $reaped_status = 'untouched';
+    my $started       = Time::HiRes::time();
+    is( $runtime->_terminate_saved_ajax_process( $leader, $leader, \$reaped_status ), 1, '_terminate_saved_ajax_process escalates for a TERM-ignoring owned group' );
+    my $elapsed = Time::HiRes::time() - $started;
+
+    cmp_ok( $elapsed, '>=', 0.4, '_terminate_saved_ajax_process waits the whole configured window before the SIGKILL escalation' );
+    is( $reaped_status, 'untouched', '_terminate_saved_ajax_process leaves the status untouched when the worker had to be SIGKILLed' );
+    waitpid( $leader, 0 );
+    ok( !kill( 0, $leader ), '_terminate_saved_ajax_process leaves the TERM-ignoring group leader dead' );
+
+    my $descendant_gone = 0;
+    for ( 1 .. 100 ) {
+        if ( !kill 0, $descendant_pid ) { $descendant_gone = 1; last; }
+        select undef, undef, undef, 0.05;
+    }
+    ok( $descendant_gone, '_terminate_saved_ajax_process still kills the TERM-ignoring descendant after the real window' );
+    unlink $marker if -e $marker;
+}
+
 done_testing;
 
 __END__
@@ -202,7 +401,11 @@ This test drives every branch and condition of the saved-Ajax process-group
 helpers in C<Developer::Dashboard::PageRuntime>: the launch-command wrapper,
 the group-ownership recorder, the child-side exec launcher, and the
 group-aware terminator, including the live owned-group path that must kill a
-TERM-ignoring descendant.
+TERM-ignoring descendant. It also pins the elapsed SIGTERM grace window the
+terminator grants before escalating to SIGKILL: a cooperative worker completes
+its own cleanup handler, a still-draining descendant holds the escalation off,
+and a group that ignores SIGTERM is killed only after the configured window has
+really passed.
 
 =for comment FULL-POD-DOC START
 
@@ -210,7 +413,8 @@ TERM-ignoring descendant.
 
 Give the DD-396 process-group cleanup code direct unit coverage on all four
 Devel::Cover metrics, complementing the end-to-end disconnect acceptance test
-with deterministic per-branch checks.
+with deterministic per-branch checks, and hold the DD-428 grace window to a
+measured elapsed wait rather than an intention expressed in code.
 
 =head1 WHY IT EXISTS
 
