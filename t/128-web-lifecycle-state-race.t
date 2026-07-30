@@ -354,7 +354,7 @@ __END__
 
 =head1 NAME
 
-t/124-web-lifecycle-state-race.t - web lifecycle contracts for incomplete runtime state
+t/128-web-lifecycle-state-race.t - web lifecycle contracts for incomplete runtime state
 
 =head1 PURPOSE
 
@@ -388,7 +388,7 @@ already up.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/124-web-lifecycle-state-race.t> while iterating on the web
+Run C<prove -lv t/128-web-lifecycle-state-race.t> while iterating on the web
 lifecycle. The test is hermetic - it builds its own temporary home, state root,
 and stand-in web process - so it can run repeatedly without touching a real
 runtime. Keep it green under C<prove -lr t> and under the all-metric coverage
@@ -405,13 +405,13 @@ cleanup safe against incomplete observations.
 
 Example 1:
 
-  prove -lv t/124-web-lifecycle-state-race.t
+  prove -lv t/128-web-lifecycle-state-race.t
 
 Run the web lifecycle state contract by itself.
 
 Example 2:
 
-  prove -lv t/09-runtime-manager.t t/124-web-lifecycle-state-race.t
+  prove -lv t/09-runtime-manager.t t/128-web-lifecycle-state-race.t
 
 Run it beside the full runtime-manager suite after changing start_web or
 running_web.
