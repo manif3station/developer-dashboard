@@ -11,6 +11,7 @@ BEGIN {
 }
 
 use Capture::Tiny qw(capture);
+use Cwd qw(getcwd);
 use Errno qw(EADDRINUSE);
 use File::Path qw(make_path remove_tree);
 use File::Spec;
@@ -1140,6 +1141,58 @@ OPENSSL_CONFIG
         qr{\r\nLocation: https://127\.0\.0\.1:7890/\r\n},
         'frontend redirect response falls back to the bound authority and a safe target'
     );
+}
+
+# Test 17: HTTPS starts on a Windows session, which has no HOME variable
+{
+    # Windows does not export HOME. The profile directory is named by
+    # USERPROFILE, or by HOMEDRIVE plus HOMEPATH on older shells, and the path
+    # registry already resolves that order. The SSL certificate helpers must go
+    # through it: demanding HOME here killed "dashboard web --ssl" on Windows
+    # before it ever reached a socket.
+    my $started_in = getcwd();
+    my $profile_home = tempdir( CLEANUP => 1 );
+    chdir $profile_home or die "Unable to chdir to $profile_home: $!";
+
+    my $expected_dir  = File::Spec->catdir( $profile_home, '.developer-dashboard', 'certs' );
+    my $expected_cert = File::Spec->catfile( $expected_dir, 'server.crt' );
+    my $expected_key  = File::Spec->catfile( $expected_dir, 'server.key' );
+
+    {
+        local %ENV = %ENV;
+        delete $ENV{HOME};
+        $ENV{USERPROFILE} = $profile_home;
+
+        my $generated = Developer::Dashboard::Web::Server::generate_self_signed_cert();
+        is(
+            $generated,
+            $expected_cert,
+            'certificate generation resolves USERPROFILE as home when HOME is absent'
+        );
+        ok( -d $expected_dir, 'certificate directory is created under the Windows profile directory' );
+        ok( -f $expected_key, 'private key is written under the Windows profile directory' );
+
+        my ( $cert_file, $key_file ) = Developer::Dashboard::Web::Server::get_ssl_cert_paths();
+        is(
+            $cert_file,
+            $expected_cert,
+            'certificate path lookup resolves USERPROFILE as home when HOME is absent'
+        );
+        is(
+            $key_file,
+            $expected_key,
+            'key path lookup resolves USERPROFILE as home when HOME is absent'
+        );
+
+        my $cert_info = _openssl_cert_text($cert_file);
+        like(
+            $cert_info,
+            qr/Subject Alternative Name:\s+DNS:localhost, IP Address:127\.0\.0\.1/s,
+            'the certificate generated without HOME still carries the browser-safe SAN profile'
+        );
+    }
+
+    chdir $started_in or die "Unable to return to $started_in: $!";
 }
 
 done_testing();

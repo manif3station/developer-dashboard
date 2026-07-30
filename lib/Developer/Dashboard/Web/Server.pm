@@ -758,9 +758,23 @@ sub _safe_redirect_target {
     return $target;
 }
 
+# _ssl_certificate_directory()
+# Resolves the home-layer certificate directory for the current user. The home
+# directory itself is resolved by the path registry, which understands HOME,
+# then USERPROFILE, then HOMEDRIVE plus HOMEPATH. Reading $ENV{HOME} directly
+# here would refuse to serve HTTPS on Windows, which does not export HOME at
+# all, before the server ever reached a listening socket.
+# Input: none.
+# Output: list of (path registry object, certificate directory path string); dies
+# when no home directory is resolvable from the environment.
+sub _ssl_certificate_directory {
+    my $paths = Developer::Dashboard::PathRegistry->new;
+    return ( $paths, File::Spec->catdir( $paths->home_runtime_path, 'certs' ) );
+}
+
 # generate_self_signed_cert(%args)
 # Generates or reuses a self-signed certificate for HTTPS.
-# Creates ~/.developer-dashboard/certs/ if it does not exist.
+# Creates the certs/ directory in the home runtime layer if it does not exist.
 # Reuses existing certificates when they already match the expected browser-safe
 # localhost/loopback profile plus any requested extra SAN names/IPs, and
 # regenerates older legacy certificates when they do not.
@@ -768,9 +782,7 @@ sub _safe_redirect_target {
 # Output: path to certificate file, or dies on error.
 sub generate_self_signed_cert {
     my (%args) = @_;
-    my $home = $ENV{HOME} || die 'Missing HOME environment variable';
-    my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
-    my $cert_dir = File::Spec->catdir( $paths->home_runtime_path, 'certs' );
+    my ( $paths, $cert_dir ) = _ssl_certificate_directory();
     my $cert_file = File::Spec->catfile($cert_dir, 'server.crt');
     my $key_file  = File::Spec->catfile($cert_dir, 'server.key');
     my @expected_subject_alt_names = _ssl_expected_subject_alt_names(
@@ -972,8 +984,7 @@ sub _ssl_cert_has_expected_profile {
 # most recently prepared for the active dashboard runtime.
 # Output: list of (cert_path, key_path) or dies if files do not exist.
 sub get_ssl_cert_paths {
-    my $home = $ENV{HOME} || die 'Missing HOME environment variable';
-    my $cert_dir = File::Spec->catdir($home, '.developer-dashboard', 'certs');
+    my ( undef, $cert_dir ) = _ssl_certificate_directory();
     my $cert_file = File::Spec->catfile($cert_dir, 'server.crt');
     my $key_file  = File::Spec->catfile($cert_dir, 'server.key');
 
@@ -1003,7 +1014,7 @@ and runs it under Starman through Plack::Runner.
 
 =head1 METHODS
 
-=head2 new, run, start_daemon, listening_url, serve_daemon, psgi_app, _build_runner, _default_headers, generate_self_signed_cert, get_ssl_cert_paths
+=head2 new, run, start_daemon, listening_url, serve_daemon, psgi_app, _build_runner, _default_headers, _ssl_certificate_directory, generate_self_signed_cert, get_ssl_cert_paths
 
 Construct and run the local PSGI web server with optional SSL/HTTPS support.
 
@@ -1020,6 +1031,8 @@ Pass C<ssl => 1> to the new() constructor to enable HTTPS:
   $server->run;
 
 Self-signed certificates are generated automatically in C<~/.developer-dashboard/certs/> and reused on subsequent runs when they already match the expected browser-safe localhost/loopback profile plus any configured SAN aliases or IP literals. Older legacy dashboard certs without the required SAN and server-auth extensions are regenerated automatically.
+
+Both C<generate_self_signed_cert> and C<get_ssl_cert_paths> locate that directory through C<_ssl_certificate_directory>, which asks C<Developer::Dashboard::PathRegistry> for the home runtime layer. The registry resolves the home directory from C<HOME>, then C<USERPROFILE>, then C<HOMEDRIVE> plus C<HOMEPATH>, so HTTPS also starts on a Windows session, which does not export C<HOME> at all. Only an environment that names no home directory by any of those variables is an error, and it is reported as a missing home directory rather than as a missing single variable.
 
 =head1 HTTPS REDIRECT TRUST BOUNDARY
 
