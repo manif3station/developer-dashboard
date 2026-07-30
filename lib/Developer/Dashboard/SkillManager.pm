@@ -1478,7 +1478,7 @@ sub _install_skill_dependency_manifest {
     return { success => 1, skipped => 1 } if !@skills;
 
     my $skills_root = $self->_skill_install_root($skill_path);
-    my %seen = map { $_ => 1 } grep { defined && $_ ne '' } split /:/, ( $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} || '' );    # uncoverable branch false
+    my %seen = map { $_ => 1 } grep { $_ ne '' } split /:/, ( $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} || '' );
     my $repo_name = basename($skill_path);
     $seen{$repo_name} = 1;
 

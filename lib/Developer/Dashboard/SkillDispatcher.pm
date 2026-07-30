@@ -577,7 +577,7 @@ sub route_response {
     my @skill_layers = $self->_skill_layers($skill_name);
     return [ 404, 'text/plain; charset=utf-8', "Skill '$skill_name' not found\n" ] if !@skill_layers;
 
-    my @parts = grep { defined && $_ ne '' } split m{/+}, $route;    # uncoverable branch false
+    my @parts = grep { $_ ne '' } split m{/+}, $route;
     my @dashboards_roots = map { File::Spec->catdir( $_, 'dashboards' ) } @skill_layers;
     return [ 404, 'text/plain; charset=utf-8', "Skill '$skill_name' does not provide dashboards\n" ]
       if !grep { -d $_ } @dashboards_roots;
@@ -759,7 +759,7 @@ sub _skill_env {
 sub _skill_layers {
     my ( $self, $skill_name, %args ) = @_;
     return () if !$skill_name;
-    my @segments = grep { defined && $_ ne '' } split m{/+}, $skill_name;    # uncoverable branch false
+    my @segments = grep { $_ ne '' } split m{/+}, $skill_name;
     return () if !@segments;
     my $root_skill = shift @segments;
     my $paths = $self->{manager}{paths};
@@ -828,7 +828,7 @@ sub _command_spec {
     my ( $self, $skill_name, $command ) = @_;
     return if !$skill_name || !$command;
 
-    my @segments = grep { defined && $_ ne '' } split /\./, $command;    # uncoverable branch false
+    my @segments = grep { $_ ne '' } split /\./, $command;
     return if !@segments;
 
     for my $command_root_spec ( $self->_command_root_specs( \@segments ) ) {

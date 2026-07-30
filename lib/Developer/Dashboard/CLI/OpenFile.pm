@@ -144,7 +144,7 @@ sub _selection_matches {
 
     if ( $choices =~ /^\d+(?:\s*-\s*\d+)?(?:[\s,]+\d+(?:\s*-\s*\d+)?)*$/ ) {
         my @chosen;
-        for my $chunk ( grep { defined && $_ ne '' } split /[,\s]+/, $choices ) {    # uncoverable branch false split always yields defined fields
+        for my $chunk ( grep { $_ ne '' } split /[,\s]+/, $choices ) {
             if ( $chunk =~ /^(\d+)-(\d+)$/ ) {
                 my ( $start, $end ) = ( $1, $2 );
                 return if $start < 1 || $end < $start || $end > @$matches;
@@ -220,7 +220,7 @@ sub _scope_match_rank {
         next if !defined $pattern || $pattern eq '';
         my $regex = _compile_open_file_regex($pattern);
         my $score = 50;
-        my @components = grep { defined && $_ ne '' } split m{[\\/]+}, $match_path;    # uncoverable branch false split always yields defined fields
+        my @components = grep { $_ ne '' } split m{[\\/]+}, $match_path;
 
         if ( $basename =~ /\A(?:$pattern)\z/i ) {
             $score = 0;
@@ -602,7 +602,7 @@ sub _cached_archive_source_path {
     my $archive = $args{archive} || die 'Missing archive path';
     my $entry   = $args{entry}   || die 'Missing archive entry';
     my $digest  = md5_hex( join "\0", $archive, $entry );
-    my @parts   = grep { defined && $_ ne '' } split m{/+}, $entry;    # uncoverable branch false split always yields defined fields
+    my @parts   = grep { $_ ne '' } split m{/+}, $entry;
 
     return File::Spec->catfile(
         $paths->cache_root,
