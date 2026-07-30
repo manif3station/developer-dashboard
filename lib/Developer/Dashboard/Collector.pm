@@ -633,7 +633,7 @@ sub _split_log_entries {
     # The split pattern is a bare lookahead with no capture group, so split can
     # never hand back an undefined field: the defined() side that would skip one
     # is unreachable.
-    return grep { defined && $_ ne '' } split /(?=^=== collector )/m, $text;    # uncoverable branch false
+    return grep { $_ ne '' } split /(?=^=== collector )/m, $text;
 }
 
 # _entry_timestamp_epoch($name, $entry)

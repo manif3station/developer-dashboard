@@ -224,7 +224,7 @@ sub collectors {
     @jobs = @{ $self->_merge_named_hash_array( \@jobs, [ $self->_skill_collectors ], 'name' ) };
 
     if ( my $filter = $ENV{DEVELOPER_DASHBOARD_CHECKERS} ) {
-        my %wanted = map { $_ => 1 } grep { defined && $_ ne '' } split /:/, $filter;    # uncoverable branch false
+        my %wanted = map { $_ => 1 } grep { $_ ne '' } split /:/, $filter;
         @jobs = grep { ref($_) eq 'HASH' && $wanted{ $_->{name} } } @jobs;
     }
 
