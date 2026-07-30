@@ -125,6 +125,48 @@ sub write_file {
     is( ref($r2), 'HASH', 'load_skill_layers_into_hash returns a hash for an explicit base env and skill list' );
 }
 
+# --- load_skill_layers_into_hash: overlay difference classes ----------------
+# The overlay filter keeps a key only when the skill chain added it or changed
+# it. The changed-value class (key exists in the base env, both values defined,
+# values differ) is the one outcome nothing else in the suite produces, so it
+# is pinned here directly rather than left to incidental execution: without it
+# the value-comparison arm of the overlay filter sits uncovered and a refactor
+# could silently start leaking unchanged keys into, or dropping changed keys
+# from, the overlay.
+{
+    my $covchange = File::Spec->catdir( $home, 'skills', 'covchange' );
+    write_file(
+        File::Spec->catfile( $covchange, '.env' ),
+        "COV_CHANGE=new\nCOV_KEEP=same\nCOV_ADDED=fresh\n",
+    );
+    my $r = $EL->load_skill_layers_into_hash(
+        base_env => {
+            COV_CHANGE    => 'old',
+            COV_KEEP      => 'same',
+            COV_UNTOUCHED => 'stay',
+        },
+        skill_layers => [$covchange],
+    );
+    is(
+        $r->{env}{COV_CHANGE},
+        'new',
+        'a base key the skill chain rewrites to a different value lands in the overlay with the new value',
+    );
+    is(
+        $r->{env}{COV_ADDED},
+        'fresh',
+        'a key the skill chain introduces lands in the overlay',
+    );
+    ok(
+        !exists $r->{env}{COV_KEEP},
+        'a base key the skill chain rewrites to the identical value stays out of the overlay',
+    );
+    ok(
+        !exists $r->{env}{COV_UNTOUCHED},
+        'a base key the skill chain never touches stays out of the overlay',
+    );
+}
+
 # --- load_files ------------------------------------------------------------
 
 {
@@ -412,8 +454,11 @@ This test is the executable coverage contract for
 C<Developer::Dashboard::EnvLoader>. It drives every decision point in the
 layered env-file loader: the entry-guard defaults, the plain-directory and
 skill-root ancestry walks, the nested-skill parent-value preservation, the
-C<.env> parser failure paths, and the C<.env.pl> defined-ness transition
-detection. Read it to see the concrete inputs that reach each branch and
+C<.env> parser failure paths, the C<.env.pl> defined-ness transition
+detection, and the overlay difference classes of
+C<load_skill_layers_into_hash> - a changed base key must surface in the
+overlay with its new value, an added key must surface, and identical or
+untouched base keys must stay out. Read it to see the concrete inputs that reach each branch and
 condition instead of inferring them from the module source.
 
 =head1 WHY IT EXISTS

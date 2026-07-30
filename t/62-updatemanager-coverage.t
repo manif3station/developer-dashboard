@@ -5,6 +5,7 @@ use warnings;
 use utf8;
 
 use Test::More;
+use Capture::Tiny qw(capture);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -98,6 +99,51 @@ like(
     'run() dies when the updates directory exists but cannot be opened',
 );
 
+# --- run(): an update script that emits output. The output-print guard only
+# fires when a script actually writes to stdout or stderr, and every other
+# suite scenario runs silent scripts, so the printing side of the guard and the
+# script-output round-trip into the result record are pinned here. (The
+# defined-ness side of that guard is annotated uncoverable in the module
+# because the stdout/stderr concatenation is always defined.) With no
+# collectors running, the same call also drives run() into its
+# nothing-to-restart hand-off.
+my $noisy = File::Spec->catfile( $updates_dir, '10-noisy.sh' );
+open my $noisy_fh, '>', $noisy or die "Unable to write $noisy: $!";
+print {$noisy_fh} "#!/bin/sh\necho update-output-marker-stdout\necho update-output-marker-stderr >&2\nexit 0\n";
+close $noisy_fh or die "Unable to close $noisy: $!";
+chmod 0755, $noisy or die "Unable to chmod $noisy: $!";
+
+my ( $run_stdout, $run_stderr, $run_results ) = capture { $updater->run };
+like(
+    $run_stdout,
+    qr/update-output-marker-stdout/,
+    'run() prints the captured update script stdout when the script produces output',
+);
+like(
+    $run_stdout,
+    qr/update-output-marker-stderr/,
+    'run() folds the captured update script stderr into the printed output',
+);
+is( $run_stderr, '', 'run() writes nothing to stderr for a clean noisy script' );
+is( scalar @{$run_results}, 1, 'run() records one result for the single update script' );
+is( $run_results->[0]{exit_code}, 0, 'the noisy update script exits cleanly' );
+like(
+    $run_results->[0]{output},
+    qr/update-output-marker-stdout/,
+    'the result record carries the script output',
+);
+
+# --- _restart_collectors with nothing to restart: the early-return no-op.
+# run() only reaches _restart_collectors with whatever collectors were running
+# when the update started, so the empty-list case is pinned by direct call
+# rather than left to incidental execution: it must return immediately without
+# touching the runner or the collector config.
+is_deeply(
+    [ $updater->_restart_collectors ],
+    [],
+    '_restart_collectors returns immediately when no collector names are given',
+);
+
 done_testing;
 
 __END__
@@ -114,8 +160,11 @@ This test is the executable coverage contract for the update manager's guard
 logic. It drives the small number of branch and condition outcomes in update
 script classification and update execution that the higher-level update and CLI
 tests never reach: the empty and undefined update-path rejections, the
-extensionless runnable-file probe on both its true and false outcomes, and the
-error path taken when the updates directory exists but cannot be opened.
+extensionless runnable-file probe on both its true and false outcomes, the
+error path taken when the updates directory exists but cannot be opened, the
+output-printing side of the run cycle (a script that writes to stdout and
+stderr must have that output printed and recorded in its result entry), and
+the nothing-to-restart no-op of the collector restart hand-off.
 
 =head1 WHY IT EXISTS
 
