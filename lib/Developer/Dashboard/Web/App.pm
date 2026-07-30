@@ -1272,7 +1272,7 @@ sub _edit_html {
   <form method="post" action="__FORM_ACTION__" id="instruction-form">
     <input type="hidden" name="mode" id="instruction-mode" value="edit">
     <div class="editor-hint">Each bookmark section is edited as its own block. Press Tab inside a block to start the next section.</div>
-    <textarea class="instruction-source" id="instruction-source" name="instruction" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off">__SOURCE__</textarea>
+    <textarea class="instruction-source" id="instruction-source" name="instruction" aria-label="Bookmark source" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off">__SOURCE__</textarea>
     <div class="editor-blocks" id="instruction-blocks"></div>
   </form>
 </main>
@@ -1283,6 +1283,7 @@ const ddMode = document.getElementById('instruction-mode');
 const ddBlocks = document.getElementById('instruction-blocks');
 const ddPlayButton = document.getElementById('play-button');
 const ddLegacySep = ':--------------------------------------------------------------------------------:';
+let ddBlockSeq = 0;
 function ddEscapeHtml(text) {
   return String(text)
     .replace(/&/g, '&amp;')
@@ -1583,8 +1584,10 @@ function ddCreateEditorBlock(text, index) {
   const wrapper = document.createElement('div');
   wrapper.className = 'editor-block';
 
+  const labelId = 'editor-block-label-' + (++ddBlockSeq);
   const label = document.createElement('div');
   label.className = 'editor-block-label';
+  label.id = labelId;
   label.textContent = ddBlockLabel(text, index);
   wrapper.appendChild(label);
 
@@ -1603,6 +1606,7 @@ function ddCreateEditorBlock(text, index) {
 
   const editor = document.createElement('textarea');
   editor.className = 'instruction-block-editor';
+  editor.setAttribute('aria-labelledby', labelId);
   editor.wrap = 'off';
   editor.spellcheck = false;
   editor.autocapitalize = 'off';
