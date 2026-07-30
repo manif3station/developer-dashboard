@@ -72,6 +72,16 @@ PowerShell sessions still expose `node`, `npm`, and `npx`.
   descendant are really gone from `Win32_Process`, the cached collector status
   reflects the timeout, and a healthy collector run afterwards proves the
   collector agent survived
+- the harness also pins `DD_STATE_ROOT_USER`, because a non-interactive Windows
+  session sets neither `USER` nor `LOGNAME` and the remaining username fallback
+  is POSIX-only
+- drive the whole gate from the Linux host with
+  `integration/windows/run-dockur-collector-timeout-e2e.sh`, which checks the
+  Dockur guest and its job agent are alive, installs the freshly built tarball
+  in the guest, refuses to continue unless the installed
+  `Developer::Dashboard::CollectorRunner` really carries the Windows
+  command-timeout implementation, and then runs the harness and returns its
+  guest exit code
 - use this gate for any change touching collector timeout, signal, or
   process-subtree behavior on Windows
 
@@ -130,6 +140,13 @@ dashboard on `PATH` with:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File integration/windows/run-collector-timeout-e2e.ps1
+```
+
+Run that same collector timeout gate end to end from the Linux host against the
+Dockur QEMU Windows guest with:
+
+```bash
+integration/windows/run-dockur-collector-timeout-e2e.sh
 ```
 
 Run the full-system Windows VM gate from a Linux host with:
