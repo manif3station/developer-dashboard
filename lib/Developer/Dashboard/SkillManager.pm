@@ -429,7 +429,10 @@ sub usage {
 }
 
 # _extract_repo_name($source)
-# Extracts repository name from various Git URL formats.
+# Extracts repository name from various Git URL formats. This is a parser, not
+# a validator: sources such as owner/.., file:///x/.. or git@github.com:owner/..
+# legitimately yield a '..' segment, so every caller that joins the result onto
+# a directory must first clear it through _is_safe_skill_name.
 # Input: Git URL string or local directory path.
 # Output: repo name or undef.
 sub _extract_repo_name {
@@ -445,6 +448,40 @@ sub _extract_repo_name {
     }
     
     return;
+}
+
+# _is_safe_skill_name($name)
+# Reports whether one derived skill repository name is exactly one ordinary
+# relative path segment, so joining it onto a skills root can never address
+# anything but a direct child of that root. File::Spec->catdir never collapses
+# a parent-directory component, so this whitelist is what keeps '..' out.
+# Input: candidate skill repository name string.
+# Output: boolean true for a single validated segment, false otherwise.
+sub _is_safe_skill_name {
+    my ($name) = @_;
+    my @segments = Developer::Dashboard::PathRegistry::validated_path_segments($name);
+    return @segments == 1 ? 1 : 0;
+}
+
+# _install_path_contained($skill_path, $skills_root)
+# Reports whether one install destination resolves to somewhere strictly
+# beneath its skills root, following symlinks so a planted link cannot redirect
+# the pre-install removal or the checkout that follows it out of the tree. A
+# destination that does not exist yet is contained by construction, because the
+# name it was built from is already one validated segment; a destination whose
+# resolved target cannot be established is refused rather than assumed safe.
+# Input: candidate installed skill path and its skills root directory path.
+# Output: boolean true when the destination is safe to remove and write.
+sub _install_path_contained {
+    my ( $self, $skill_path, $skills_root ) = @_;
+    my $root_real = realpath($skills_root);
+    return 0 if !defined $root_real;
+    return 1 if !-e $skill_path && !-l $skill_path;
+    my $path_real = realpath($skill_path);
+    return 0 if !defined $path_real;
+    $root_real =~ s{\\}{/}g;
+    $path_real =~ s{\\}{/}g;
+    return index( $path_real, $root_real . '/' ) == 0 ? 1 : 0;
 }
 
 # _normalize_install_source($source)
@@ -809,9 +846,15 @@ sub _install_to_skills_root {
     my $clone_source = $local_source ? $source : $self->_normalize_install_source($source);
     my $repo_name = $local_source ? basename($local_source) : _extract_repo_name($clone_source);
     return { error => "Unable to extract repo name from $source" } if !$repo_name;
+    return {
+        error => "Refusing to install skill outside skills root: '$source' resolves to the unsafe skill name '$repo_name'"
+    } if !_is_safe_skill_name($repo_name);
 
     $self->{paths}->ensure_dir($skills_root);
     my $skill_path = File::Spec->catdir( $skills_root, $repo_name );
+    return {
+        error => "Refusing to install skill outside skills root: '$skill_path' does not resolve inside '$skills_root'"
+    } if !$self->_install_path_contained( $skill_path, $skills_root );
     my $had_existing = -e $skill_path ? 1 : 0;
     my $version_before = $self->_skill_env_version($skill_path);
     my $remove = $self->_remove_existing_skill_path($skill_path);
@@ -2436,6 +2479,15 @@ Skills are isolated under the active DD-OOP-LAYERS skills root such as
 register their original source lines in the home root F<ddfile>, and uninstall
 removes matching entries again by repo name while preserving comments and
 unrelated sources.
+
+The repository name an install source resolves to is untrusted input, whether it
+arrives from an operator argument or from a F<ddfile> manifest line. Sources such
+as C<owner/..> parse to a parent-directory segment, and C<File::Spec> never
+collapses one, so install applies two independent guards before it touches the
+filesystem: the resolved name must be exactly one ordinary relative path segment,
+and the destination built from it must resolve to somewhere strictly beneath the
+target skills root. Either guard failing aborts the install with an explicit
+refusal instead of removing or writing outside the skills tree.
 
 =for comment FULL-POD-DOC START
 
