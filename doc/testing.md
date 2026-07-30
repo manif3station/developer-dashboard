@@ -364,7 +364,7 @@ The repository also now enforces:
 
 The web tests also cover the access model:
 
-- exact `127.0.0.1` admin bypass
+- loopback admin bypass across the full strict-octet `127.0.0.0/8` range and `::1`, not just exact `127.0.0.1`
 - `localhost` helper login requirement
 - helper login session creation and logout
 - helper session remote-address binding and expiry validation paths
