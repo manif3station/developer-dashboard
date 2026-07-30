@@ -1973,7 +1973,11 @@ also rotates collector log transcripts when a collector defines C<rotation>
 or C<rotations>. C<lines> keeps the trailing line count, while C<minute>,
 C<minutes>, C<hour>, C<hours>, C<day>, C<days>, C<week>, C<weeks>,
 C<month>, and C<months> keep only log entries newer than the requested
-retention window. Run it on demand with:
+retention window. Both rules cut on entry boundaries, so a rotated
+transcript always starts at a complete entry header: a line budget drops
+whole entries rather than slicing one in half, and a budget smaller than
+the newest entry empties the transcript instead of leaving a headerless
+fragment behind. Run it on demand with:
 
   dashboard housekeeper
   dashboard collector run housekeeper
