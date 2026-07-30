@@ -1478,7 +1478,7 @@ sub _install_skill_dependency_manifest {
     return { success => 1, skipped => 1 } if !@skills;
 
     my $skills_root = $self->_skill_install_root($skill_path);
-    my %seen = map { $_ => 1 } grep { defined && $_ ne '' } split /:/, ( $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} || '' );    # uncoverable branch false
+    my %seen = map { $_ => 1 } grep { $_ ne '' } split /:/, ( $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} || '' );
     my $repo_name = basename($skill_path);
     $seen{$repo_name} = 1;
 
@@ -1487,7 +1487,7 @@ sub _install_skill_dependency_manifest {
     for my $dependency (@skills) {
         next if $seen{$dependency};
         next if $self->get_skill_path( $dependency, include_disabled => 1 );
-        my $install_stack = join ':', grep { defined && $_ ne '' } sort keys %{{ %seen, $dependency => 1 }};    # uncoverable branch false
+        my $install_stack = join ':', grep { defined && $_ ne '' } sort keys %{{ %seen, $dependency => 1 }};
         my ( $step_stdout, $step_stderr, $exit ) = do {
             local $ENV{DEVELOPER_DASHBOARD_INSTALL_STACK} = $install_stack;
             local $ENV{DEVELOPER_DASHBOARD_DEPENDENCY_MANIFEST} = $manifest_name;
