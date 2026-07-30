@@ -62,6 +62,7 @@ my @doc_paths = grep { -e $_ } (
     _repo_path( 'doc', 'static-file-serving.md' ),
     _repo_path( 'doc', 'testing.md' ),
     _repo_path( 'doc', 'update-and-release.md' ),
+    _repo_path( 'doc', 'upgrade.md' ),
     _repo_path( 'doc', 'web-readonly-mode.md' ),
 );
 my @pod_paths = (
@@ -263,7 +264,7 @@ for my $module ( sort keys %runtime_prereq_minimum ) {
     like( $cpanfile, $cpanfile_re, "cpanfile declares runtime prerequisite $module at $minimum" );
     like( $dist, qr/^\Q$module\E = \Q$minimum\E$/m, "dist.ini declares runtime prerequisite $module at $minimum" ) if $dist ne '';
 }
-for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket workspace path paths ps1 encode decode indicator collector config auth api ask init cpan page action docker serve stop restart shell doctor housekeeper skills which)) {
+for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket workspace path paths ps1 encode decode indicator collector config auth api ask init cpan page action docker serve stop restart shell doctor housekeeper skills which upgrade)) {
     ok( -f _repo_path( 'share', 'private-cli', $helper ), "share/private-cli/$helper is shipped as a private helper asset" );
 }
 ok( -f _repo_path( 'share', 'public', 'js', 'jquery-4.0.0.min.js' ), 'share/public/js/jquery-4.0.0.min.js is shipped as a bundled public asset' );
