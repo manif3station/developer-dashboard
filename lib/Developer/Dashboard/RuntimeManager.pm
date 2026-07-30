@@ -14,7 +14,7 @@ use Time::HiRes qw(sleep time);
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::CollectorRunner ();
 use Developer::Dashboard::InternalCLI ();
-use Developer::Dashboard::JSON qw(json_encode json_decode);
+use Developer::Dashboard::JSON qw(json_encode json_decode json_decode_state);
 use Developer::Dashboard::Platform qw(command_in_path is_windows);
 
 our $SIGNAL_MANAGER;
@@ -1697,7 +1697,7 @@ sub _collector_supervisor_state {
     return if !-f $file;
     open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
-    return json_decode( scalar <$fh> );
+    return json_decode_state( scalar <$fh> );
 }
 
 # _write_collector_supervisor_state($state)
@@ -1876,7 +1876,7 @@ sub web_state {
     return if !-f $file;
     open my $fh, '<:raw', $file or die "Unable to read $file: $!";
     local $/;
-    return json_decode( scalar <$fh> );
+    return json_decode_state( scalar <$fh> );
 }
 
 # _shutdown_web($status)

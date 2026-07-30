@@ -11,7 +11,7 @@ use POSIX qw(strftime);
 use Time::HiRes qw(time);
 use Time::Local qw(timegm);
 
-use Developer::Dashboard::JSON qw(json_encode json_decode);
+use Developer::Dashboard::JSON qw(json_encode json_decode json_decode_state);
 
 # new(%args)
 # Constructs the collector storage manager.
@@ -74,7 +74,7 @@ sub read_job {
         next if !-f $file;
         open my $fh, '<:raw', $file or die "Unable to read $file: $!";
         local $/;
-        return json_decode(<$fh>);
+        return json_decode_state(<$fh>);
     }
     return;
 }
