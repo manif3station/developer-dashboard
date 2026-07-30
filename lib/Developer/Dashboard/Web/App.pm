@@ -53,6 +53,108 @@ sub new {
     }, $class;
 }
 
+# HTTP methods that can change server state. The cross-site request forgery
+# defense below applies to exactly these; safe methods (GET/HEAD) stay outside
+# the check because the ticket scope is state mutation, not reads.
+my %STATE_CHANGING_METHODS = map { $_ => 1 } qw(POST PUT DELETE PATCH);
+
+# _csrf_rejection_response(%args)
+# Cross-site request forgery choke point for every state-changing request.
+# Browsers unconditionally attach an Origin header to cross-site
+# state-changing requests (and legacy flows carry a Referer), so a foreign
+# Origin/Referer identifies an attack regardless of trust tier: the
+# loopback-admin shortcut, an ambient helper session cookie, and even valid
+# machine credentials must all refuse to act on it. Requests carrying neither
+# header are allowed because non-browser machine clients (curl, registered
+# x-dd-api-key consumers) send neither, while a hostile page cannot suppress
+# the Origin header on a cross-site state-changing request.
+# Input: normalized request method and headers (host, origin, referer).
+# Output: 403 empty-body response array reference when the browser context is
+# foreign, otherwise undef and the request proceeds to tier dispatch.
+sub _csrf_rejection_response {
+    my ( $self, %args ) = @_;
+    my $method = uc( $args{method} || 'GET' );
+    return undef if !$STATE_CHANGING_METHODS{$method};
+    my $headers = $args{headers} || {};
+    my $origin = defined $headers->{origin} && !ref( $headers->{origin} ) ? $headers->{origin} : '';
+    my $referer = defined $headers->{referer} && !ref( $headers->{referer} ) ? $headers->{referer} : '';
+    my $source = $origin ne '' ? $origin : $referer;
+    return undef if $source eq '';
+    return $self->_csrf_forbidden_response
+      if !$self->_request_source_is_same_site( source => $source, headers => $headers );
+    return undef;
+}
+
+# _request_source_is_same_site(%args)
+# Decides whether one Origin or Referer value names this dashboard itself.
+# The serialized authority (host[:port]) must equal the request's own Host
+# header, or the source host must be a trusted local alias — a numeric
+# loopback literal, the localhost family, or a configured
+# web.ssl_subject_alt_names entry — mirroring the exact alias semantics the
+# loopback-admin trust check applies to Host. The Host comparison also stays
+# correct behind the SSL front-proxy, because that proxy forwards TLS bytes
+# unmodified and the backend therefore sees the browser's own Host header.
+# An opaque "null" origin (sandboxed frame, data: URL) never matches.
+# Input: source header value (Origin value or full Referer URL) plus the
+# normalized request headers.
+# Output: boolean true when the source is this dashboard's own origin.
+sub _request_source_is_same_site {
+    my ( $self, %args ) = @_;
+    my $authority = _source_authority( $args{source} );
+    return 0 if !defined $authority;
+    my $headers = $args{headers} || {};
+    my $request_host = defined $headers->{host} && !ref( $headers->{host} ) ? lc $headers->{host} : '';
+    $request_host =~ s/^\s+//;
+    $request_host =~ s/\s+$//;
+    return 1 if $request_host ne '' && lc($authority) eq $request_host;
+    my $config_has_web_settings = blessed( $self->{config} ) && $self->{config}->can('web_settings');
+    return 1 if $self->{auth}->host_is_local_alias(
+        host                 => $authority,
+        extra_loopback_hosts => (
+            $config_has_web_settings
+            ? ( $self->{config}->web_settings->{ssl_subject_alt_names} || [] )
+            : []
+        ),
+    );
+    return 0;
+}
+
+# _source_authority($value)
+# Extracts the host[:port] authority from one Origin or Referer header value.
+# Origin is a serialized origin (scheme://host[:port]); Referer is a full URL,
+# so everything from the first path/query/fragment delimiter is dropped. The
+# opaque "null" origin and values that do not parse as a single clean
+# authority (embedded userinfo or whitespace only appear in crafted headers —
+# browsers serialize neither) are reported as unparsable, which callers treat
+# as foreign.
+# Input: raw header string.
+# Output: authority string, or undef when the value is opaque or unparsable.
+sub _source_authority {
+    my ($value) = @_;
+    return undef if !defined $value;
+    $value =~ s/^\s+//;
+    $value =~ s/\s+$//;
+    return undef if $value eq '' || lc($value) eq 'null';
+    return undef if $value !~ m{\A[A-Za-z][A-Za-z0-9+.-]*://([^/?#]+)}s;
+    my $authority = $1;
+    return undef if $authority =~ /[\@\s]/;
+    return $authority;
+}
+
+# _csrf_forbidden_response()
+# Builds the denial for a state-changing request arriving from a foreign
+# browser context. The body stays empty so a cross-site attacker page learns
+# nothing about the dashboard from the refusal.
+# Input: none.
+# Output: response array reference with a 403 empty plain-text body.
+sub _csrf_forbidden_response {
+    return [
+        403,
+        'text/plain; charset=utf-8',
+        '',
+    ];
+}
+
 # _transient_url_tokens_allowed()
 # Reports whether tokenized transient web execution is enabled by environment.
 # Input: none.
@@ -117,6 +219,12 @@ sub handle {
     my $path   = $args{path} || '/';
     my $method = uc( $args{method} || 'GET' );
 
+    # Cross-site defense first: even the pre-authorization special-case routes
+    # below (the login form POST in particular) must never act on a foreign
+    # browser context.
+    my $csrf_response = $self->_csrf_rejection_response(%args);
+    return $csrf_response if $csrf_response;
+
     if ( $path eq '/login' && $method eq 'POST' ) {
         return $self->login_response(%args);
     }
@@ -164,6 +272,14 @@ sub _request_trust_tier {
 sub authorize_request {
     my ( $self, %args ) = @_;
     my $headers = $args{headers} || {};
+
+    # The cross-site rejection sits before tier classification so one
+    # mechanism covers the loopback-admin shortcut, helper sessions, and the
+    # machine api tier alike; route adapters that call this method directly
+    # (bypassing handle) get the same defense.
+    my $csrf_response = $self->_csrf_rejection_response(%args);
+    return $csrf_response if $csrf_response;
+
     my $tier = $self->_request_trust_tier(%args);
     my $session;
     my $api_context;
@@ -401,11 +517,16 @@ sub _handle_login {
 }
 
 # login_response(%args)
-# Executes the helper login submission route.
-# Input: normalized request body and remote address.
+# Executes the helper login submission route. The route adapter calls this
+# without authorization (a login cannot require a session), so the cross-site
+# rejection runs here directly: a foreign page must not be able to log a
+# victim into an attacker-chosen helper account (login CSRF).
+# Input: normalized request method, headers, body, and remote address.
 # Output: response array reference.
 sub login_response {
     my ( $self, %args ) = @_;
+    my $csrf_response = $self->_csrf_rejection_response(%args);
+    return $csrf_response if $csrf_response;
     return $self->_handle_login(
         body        => defined $args{body} ? $args{body} : '',
         remote_addr => $args{remote_addr},
@@ -3278,6 +3399,22 @@ directory structure (~/.developer-dashboard/dashboard/public/{js,css,others}).
 The browser tab icon at C</favicon.ico> is served from the same layered
 C<others> roots with a bundled fallback, and resolves before the authorization
 gate because browsers request it implicitly on every page load.
+
+Cross-site request forgery defense: every state-changing request (POST, PUT,
+DELETE, PATCH) passes one origin check before any trust-tier dispatch. When
+the request carries an C<Origin> header (or, absent that, a C<Referer>), its
+authority must equal the request's own C<Host> header or name a trusted local
+alias — a numeric loopback literal, the localhost hostname family, or a
+configured C<web.ssl_subject_alt_names> entry, the same alias semantics the
+loopback-admin trust check applies. Anything else, including the opaque
+C<Origin: null>, is refused with an empty 403 on every tier: the
+loopback-admin shortcut, helper sessions, and the machine API tier alike,
+because browsers attach ambient credentials and loopback reachability to
+cross-site requests automatically. Requests with neither header keep working,
+since non-browser machine clients send neither while browsers always attach
+C<Origin> to cross-site state-changing requests. The check also holds behind
+the SSL front-proxy, which forwards TLS bytes unmodified, so the backend
+compares against the browser's own C<Host> header.
 
 =head1 METHODS
 

@@ -281,12 +281,33 @@ sub _request_is_loopback_admin {
     my ( $self, %args ) = @_;
     my $remote_addr = $args{remote_addr} || '';
     my $host = $args{host};
+    return 0 if !$self->_ip_is_loopback($remote_addr);
+    return 1 if !defined $host || $host eq '';
+    return $self->host_is_local_alias(
+        host                 => $host,
+        extra_loopback_hosts => $args{extra_loopback_hosts},
+    );
+}
+
+# host_is_local_alias(%args)
+# Reports whether one host value is an explicitly trusted name for this
+# machine: a numeric loopback literal, a configured local-only alias from
+# web.ssl_subject_alt_names, or a well-known localhost hostname. IPv6 brackets
+# and any :port suffix are stripped before comparison, so the loopback-admin
+# trust check and the web layer's cross-site Origin/Referer check apply one
+# shared alias semantics. Hostnames that merely resolve to loopback via DNS
+# are NOT accepted — that is the DNS-rebinding protection.
+# Input: host string (optionally host:port or [v6]:port) plus optional
+# extra_loopback_hosts array reference of configured local-only alias hosts.
+# Output: boolean true when the host names this machine itself.
+sub host_is_local_alias {
+    my ( $self, %args ) = @_;
+    my $host = $self->_canonical_host( $args{host} );
+    return 0 if !defined $host || $host eq '';
     my @extra_loopback_hosts = map { $self->_canonical_host($_) }
       grep { defined $_ && $_ ne '' }
       @{ ref( $args{extra_loopback_hosts} ) eq 'ARRAY' ? $args{extra_loopback_hosts} : [] };
-    return 0 if !$self->_ip_is_loopback($remote_addr);
-    return 1 if !defined $host || $host eq '';
-    return 1 if $self->_ip_is_loopback($host);
+    return 1 if $self->_ip_is_loopback( $self->_canonical_ip($host) );
     return 1 if grep { $_ eq $host } @extra_loopback_hosts;
     # Well-known system-local hostnames are implicitly trusted without
     # DNS resolution.  This list is intentionally small — arbitrary
@@ -295,7 +316,7 @@ sub _request_is_loopback_admin {
     return 1 if $host eq 'localhost';
     return 1 if $host eq 'localhost.localdomain';
     return 1 if $host eq 'localhost6' || $host eq 'localhost6.localdomain6';
-    return 0;    # Any other hostname is HELPER even when it resolves to loopback
+    return 0;    # Any other hostname is not local even when it resolves to loopback
 }
 
 # _host_resolves_only_to_loopback($host)
@@ -469,6 +490,14 @@ Construct an auth manager.
 =head2 trust_tier, add_user, verify_user, get_user, list_users, remove_user, login_page, helper_users_enabled
 
 Manage trust decisions, helper users, and login UI.
+
+=head2 host_is_local_alias
+
+Report whether one host value is an explicitly trusted local name for this
+machine: a numeric loopback literal, a configured local-only alias, or a
+well-known localhost hostname. The loopback-admin trust check and the web
+layer's cross-site Origin/Referer defense share this method so both apply
+identical alias semantics.
 
 =for comment FULL-POD-DOC START
 
