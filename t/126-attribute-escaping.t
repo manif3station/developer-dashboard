@@ -165,10 +165,11 @@ sub drain {
 
 # ---------------------------------------------------------------------------
 # 4. ATDD: the exploitable chain end to end over the real Dancer route table.
-#    There is no CSRF token and a loopback client is auto-admin, so a page the
-#    operator visits can auto-submit this POST from a foreign origin; the
-#    response document renders at the dashboard origin, which is where the
-#    injected script would run with admin trust.
+#    When DD-421 landed, a loopback client was auto-admin with no CSRF check,
+#    so a page the operator visits could auto-submit this POST from a foreign
+#    origin and the escaping alone had to keep the response inert. DD-422 then
+#    added the Origin/Referer defense, so today the same drive-by submission
+#    must die at the front door: an empty 403 before any save happens.
 # ---------------------------------------------------------------------------
 {
     my $psgi_app = Developer::Dashboard::Web::DancerApp->build_psgi_app( app => $app );
@@ -190,11 +191,11 @@ sub drain {
             Referer => 'http://evil.example/trap.html',
             Content => [ instruction => $instruction, mode => 'edit' ],
         );
-        is( $save->code, 200, 'the cross-origin save still answers 200 on the loopback admin tier' );
-        unlike(
+        is( $save->code, 403, 'the foreign-origin drive-by save is rejected outright since DD-422' );
+        is(
             $save->content,
-            $BREAKOUT,
-            'the save response does not return an executable tag built from the submitted bookmark id',
+            q{},
+            'the rejection body is empty, so nothing built from the submitted bookmark id can render',
         );
 
         my $render = $cb->( GET 'http://127.0.0.1/app/chrome-probe' );
@@ -260,13 +261,16 @@ F<lib/> may introduce a new raw attribute interpolation.
 DD-421 found that the shared top chrome emitted the play, source, and share
 URLs raw, and that the editor substituted the form action raw. A bookmark id
 containing a double quote closed the attribute and injected a live tag into
-both the rendered page and the editor. The chain was exploitable because the
-web layer has no CSRF or origin check and a loopback client is admin with no
-cookie: a page the operator visited could auto-submit the save request, and
-the response document renders at the dashboard origin, where injected script
-runs with admin trust and can reach every endpoint. The plain-text escaper
-leaves quotes alone by design, so the attribute sites needed their own
-escaper rather than the text one.
+both the rendered page and the editor. The chain was exploitable because, at
+the time, the web layer had no CSRF or origin check and a loopback client is
+admin with no cookie: a page the operator visited could auto-submit the save
+request, and the response document renders at the dashboard origin, where
+injected script runs with admin trust and can reach every endpoint. DD-422
+has since closed the submission channel itself with the Origin/Referer
+defense, so the end-to-end section now proves the drive-by save dies as an
+empty 403 while the escaping keeps protecting every rendered attribute. The
+plain-text escaper leaves quotes alone by design, so the attribute sites
+needed their own escaper rather than the text one.
 
 =head1 WHEN TO USE
 
