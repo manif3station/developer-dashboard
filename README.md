@@ -1087,16 +1087,21 @@ bootstrap, resets and refreshes the source catalog once before retrying when a
 `File::ShareDir::Install`, installs Developer Dashboard with `cpanm --notest`,
 sets the CurrentUser PowerShell execution policy to
 `RemoteSigned` when it is still too restrictive to load profile scripts,
-updates the current-user PowerShell profile with a self-contained
-private `~/perl5` PATH and Perl environment block plus
-`dashboard shell ps`, seeds `$env:HOME` from PowerShell's own `$HOME` inside
-that managed profile block when Windows did not export `HOME` itself, creates
-a stable user-space `make.cmd` shim that points at Strawberry Perl's GNU make
-provider so skill `Makefile` workflows keep working in later sessions, runs
-`dashboard init` first so the home helper runtime exists, and then activates
-that PowerShell bootstrap in the current shell when possible. Future
-PowerShell sessions do not rely on installer-only helper functions while
-loading that generated profile block. The generated bash, zsh,
+updates the current-user PowerShell profile with self-contained
+private `~/perl5` and runtime PATH setup, seeds `$env:HOME` from PowerShell's
+own `$HOME` when Windows did not export `HOME` itself, and dot-sources the
+generated `~/.developer-dashboard/cache/powershell-env.ps1` and
+`powershell-bootstrap.ps1` files instead of launching Perl at profile load.
+`dashboard shell ps` remains the explicit cache refresh command and writes
+both files atomically. The installer runs `dashboard init`, refreshes and
+syntax-checks both non-empty caches before writing the managed profile, and
+then activates the bootstrap in the current shell when possible. Missing,
+empty, or corrupt caches produce an actionable refresh warning rather than a
+silent Perl fallback. The installer also creates a stable user-space
+`make.cmd` shim that points at Strawberry Perl's GNU make provider so skill
+`Makefile` workflows keep working in later sessions. Future PowerShell
+sessions do not rely on installer-only helper functions while loading that
+generated profile block. The generated bash, zsh,
 POSIX sh, and PowerShell shell bootstraps all follow the same tmux-aware
 prompt rule: when the shell starts inside a `dashboard workspace` tmux session
 that carries `DEVELOPER_DASHBOARD_TMUX_STATUS=1`, indicator glyphs move to

@@ -49,6 +49,12 @@ if ( !defined $ENV{HOME} || $ENV{HOME} eq '' ) {
 }
 $ENV{DEVELOPER_DASHBOARD_RUNNING_HELPER} ||= File::Spec->catfile( $Bin, '_dashboard-core' );
 
+# The local::lib environment keys the PowerShell startup cache reproduces, in
+# emission order, and which of them hold separator-joined lists rather than
+# scalar option strings.
+my @POWERSHELL_ENV_KEYS = qw(PATH PERL5LIB PERL_LOCAL_LIB_ROOT PERL_MB_OPT PERL_MM_OPT);
+my %POWERSHELL_ENV_LIST_KEYS = map { $_ => 1 } qw(PATH PERL5LIB PERL_LOCAL_LIB_ROOT);
+
 my $cmd = shift @ARGV || die "Missing built-in dashboard command\n";
 $0 = join q{ }, 'developer-dashboard', $cmd, @ARGV;
 
@@ -1715,14 +1721,51 @@ POWERSHELL
     die "Unsupported shell '$shell'\n";
 }
 
+# _powershell_single_quoted($value)
+# Renders one value as a PowerShell single-quoted string literal.
+# Input: raw string value.
+# Output: quoted literal with embedded single quotes doubled.
+sub _powershell_single_quoted {
+    my ($value) = @_;
+    $value =~ s/'/''/g;
+    return "'$value'";
+}
+
+# _powershell_env_assignment($key, $value)
+# Renders one PowerShell assignment for a cached local::lib environment value.
+# List-valued keys are rebuilt by prepending the cached entries to whatever the
+# live session already carries, because the pre-cache profile derived them from
+# a perl subprocess that inherited the session environment - assigning a frozen
+# install-time snapshot would drop every entry added since the cache was
+# written, including the runtime directories the profile prepends just above.
+# Input: environment variable name and its cached value.
+# Output: one PowerShell statement string terminated by a newline.
+sub _powershell_env_assignment {
+    my ( $key, $value ) = @_;
+    return "\$env:$key=" . _powershell_single_quoted($value) . "\n"
+      unless $POWERSHELL_ENV_LIST_KEYS{$key};
+
+    my $separator = $Config::Config{path_sep};
+    my @entries   = grep { length } split /\Q$separator\E/, $value;
+    my $cached    = join ',', map { _powershell_single_quoted($_) } @entries;
+    return sprintf
+      "\$env:%s = ((@(%s) + @(\$env:%s -split %s)) | Where-Object { -not [string]::IsNullOrWhiteSpace(\$_) } | Select-Object -Unique) -join %s\n",
+      $key, $cached, $key,
+      _powershell_single_quoted($separator),
+      _powershell_single_quoted($separator);
+}
+
 # _cache_powershell_bootstrap($bootstrap)
-# Caches the PowerShell shell bootstrap and local::lib environment to the cache
-# directory so PowerShell startup does not need to launch Perl on every session.
+# Caches the PowerShell shell bootstrap and local::lib environment to the
+# home-layer cache directory so PowerShell startup does not need to launch Perl
+# on every session. The home layer is deliberate: the managed profile reads one
+# fixed path, so a refresh run from a deeper DD-OOP-LAYER must still land where
+# that profile looks.
 # Input: assembled PowerShell bootstrap script string.
 # Output: true after the cache files are written.
 sub _cache_powershell_bootstrap {
     my ($bootstrap) = @_;
-    my $cache_dir = $paths->cache_root;
+    my $cache_dir = $paths->home_cache_root;
 
     # Write the bootstrap script atomically (write .tmp, rename into place)
     my $bootstrap_file = File::Spec->catfile( $cache_dir, 'powershell-bootstrap.ps1' );
@@ -1741,11 +1784,9 @@ sub _cache_powershell_bootstrap {
     my $env_tmp    = sprintf '%s.%s.%s.pending', $env_file, $$, time;
     open my $efh, '>:raw', $env_tmp
       or die "Unable to write $env_tmp: $!";    # uncoverable branch true same guarantee as the bootstrap file above
-    for my $key (qw(PATH PERL5LIB PERL_LOCAL_LIB_ROOT PERL_MB_OPT PERL_MM_OPT)) {
+    for my $key (@POWERSHELL_ENV_KEYS) {
         next unless exists $ENV{$key};
-        my $value = $ENV{$key};
-        $value =~ s/'/''/g;    # escape single quotes for PowerShell single-quoted strings
-        print {$efh} "\$env:$key='$value'\n";
+        print {$efh} _powershell_env_assignment( $key, $ENV{$key} );
     }
     close $efh;
     rename( $env_tmp, $env_file )
