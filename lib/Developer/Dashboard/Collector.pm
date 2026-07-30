@@ -605,7 +605,7 @@ sub _trim_log_by_age {
 }
 
 # _trim_log_by_lines($text, $lines)
-# Keeps only the configured trailing number of lines from a collector log blob.
+# Keeps only the trailing whole log entries that fit the configured line count.
 # Input: log text string and non-negative line count.
 # Output: rotated log text string containing at most the requested number of lines.
 sub _trim_log_by_lines {
@@ -620,7 +620,25 @@ sub _trim_log_by_lines {
     pop @parts if $has_trailing_newline;
     return $text if @parts <= $lines;
     @parts = @parts[ @parts - $lines .. $#parts ];
-    return join( "\n", @parts ) . ( $has_trailing_newline ? "\n" : '' );
+    my $trimmed = join( "\n", @parts ) . ( $has_trailing_newline ? "\n" : '' );
+    return $self->_realign_to_entry_boundary( $text, $trimmed );
+}
+
+# _realign_to_entry_boundary($original, $trimmed)
+# Drops the orphaned entry body a line count cut can leave in front of a
+# collector log so the rotated transcript still starts at an entry header.
+# Input: the log text before the line cut and the line-cut log text.
+# Output: log text starting at an entry header, or an empty string when no whole entry survived the cut.
+sub _realign_to_entry_boundary {
+    my ( $self, $original, $trimmed ) = @_;
+    return $trimmed if $trimmed =~ /\A=== collector /;
+    # A log that already lacked a leading entry header was corrupted outside
+    # rotation. Keep its trailing lines verbatim so rotation never quietly
+    # deletes unrecognized content and the age trim still fails loudly on it.
+    return $trimmed if $original !~ /\A=== collector /;
+    my @entries = $self->_split_log_entries($trimmed);
+    shift @entries;
+    return join '', @entries;
 }
 
 # _split_log_entries($text)
@@ -782,7 +800,9 @@ Developer::Dashboard::Collector - file-backed collector storage
 This module owns the on-disk storage model for collector job definitions,
 status records, latest outputs, and persisted collector log transcripts. It
 also applies collector log retention rules when housekeeping asks it to rotate
-those transcripts.
+those transcripts. Both the age window and the line budget cut on entry
+boundaries, so a rotated transcript always starts at a complete entry header
+and stays parsable by the next rotation pass.
 
 =head1 METHODS
 
