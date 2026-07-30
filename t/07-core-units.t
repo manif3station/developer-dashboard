@@ -149,7 +149,13 @@ is( _mode_octal( File::Spec->catdir( $home, '.developer-dashboard', 'config', 'a
 {
     local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT};
     local $ENV{XDG_RUNTIME_DIR} = tempdir( CLEANUP => 1 );
-    my $state_user = $ENV{DD_STATE_ROOT_USER} || $ENV{USER} || $ENV{LOGNAME} || ( getpwuid($<) || 'user' );
+    my $state_user =
+         $ENV{DD_STATE_ROOT_USER}
+      || $ENV{USER}
+      || $ENV{LOGNAME}
+      || $ENV{USERNAME}
+      || Developer::Dashboard::Platform::passwd_user_name($<)
+      || 'user';
     $state_user =~ s{[^A-Za-z0-9._-]}{_}g;
     my $fallback_paths = Developer::Dashboard::PathRegistry->new(
         home            => $home,

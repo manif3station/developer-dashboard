@@ -14,6 +14,7 @@ use Capture::Tiny qw(capture);
 use lib 'lib';
 
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::Platform ();
 use Developer::Dashboard::SkillManager;
 
 # ---------------------------------------------------------------------------
@@ -69,10 +70,41 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     my $skip_default = Developer::Dashboard::SkillManager->new( skip_tests => 1 );
     is( $skip_default->{skip_tests}, 1, 'new() records the skip_tests flag' );
 
+    # HOME unset with USERPROFILE set is the Windows shape: the profile
+    # directory has to win before the passwd lookup is attempted at all.
     {
-        delete local $ENV{HOME};
+        local %ENV = %ENV;
+        delete $ENV{HOME};
+        my $profile_home = tempdir( CLEANUP => 1 );
+        $ENV{USERPROFILE} = $profile_home;
+        my $profile_manager = Developer::Dashboard::SkillManager->new();
+        is( $profile_manager->{paths}->home, $profile_home,
+            'new() resolves USERPROFILE as home when HOME is unset' );
+    }
+
+    # Neither home variable set: the passwd database answers on a runtime that
+    # has one.
+    {
+        local %ENV = %ENV;
+        delete $ENV{HOME};
+        delete $ENV{USERPROFILE};
         my $no_home = Developer::Dashboard::SkillManager->new();
-        isa_ok( $no_home, 'Developer::Dashboard::SkillManager', 'new() resolves HOME from the password database when HOME is unset' );
+        isa_ok( $no_home, 'Developer::Dashboard::SkillManager', 'new() resolves HOME from the password database when no home variable is set' );
+        is( $no_home->{paths}->home, ( getpwuid($>) )[7],
+            'new() uses the passwd home directory when no home variable is set' );
+    }
+
+    # Nothing can name a home, which is the non-interactive Windows case, so the
+    # constructor reports the explicit error instead of dying inside the passwd
+    # lookup.
+    {
+        local %ENV = %ENV;
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        delete $ENV{HOME};
+        delete $ENV{USERPROFILE};
+        my $unresolved = eval { Developer::Dashboard::SkillManager->new() };
+        is( $unresolved, undef, 'new() fails when no home directory is resolvable' );
+        like( $@, qr/Missing home directory/, 'new() names the missing home directory' );
     }
 }
 
