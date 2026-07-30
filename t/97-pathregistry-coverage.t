@@ -549,6 +549,23 @@ is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the 
     # skill_layers / skill_root argument guards.
     is_deeply( [ $mreg->skill_layers(undef) ], [], 'skill_layers undef name yields nothing' );
     is_deeply( [ $mreg->skill_layers('') ],    [], 'skill_layers empty name yields nothing' );
+
+    # DD-416: a skill name is joined straight onto the skills root, so a name
+    # that carries current/parent directory components, an absolute path, a
+    # Windows separator, or a NUL byte must resolve to no layer at all.
+    is_deeply( [ $mreg->skill_layers('..') ], [],
+        'skill_layers rejects a parent-directory skill name' );
+    is_deeply( [ $mreg->skill_layers('.') ], [],
+        'skill_layers rejects a current-directory skill name' );
+    is_deeply( [ $mreg->skill_layers('ms/../../..') ], [],
+        'skill_layers rejects a skill name with an embedded parent traversal' );
+    is_deeply( [ $mreg->skill_layers( File::Spec->catdir( $mhome, '.developer-dashboard' ) ) ], [],
+        'skill_layers rejects an absolute skill name' );
+    is_deeply( [ $mreg->skill_layers('..\\ms') ], [],
+        'skill_layers rejects a backslash-separated skill name' );
+    is_deeply( [ $mreg->skill_layers("ms\0/x") ], [],
+        'skill_layers rejects a NUL-truncated skill name' );
+
     eval { $mreg->skill_root(undef) };
     like( $@, qr/Missing skill name/, 'skill_root undef name dies' );
     eval { $mreg->skill_root('') };
@@ -565,6 +582,42 @@ is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the 
     my @docker = $mreg->installed_skill_docker_roots_for_runtime($proj_runtime);
     ok( ( grep { m{aaa} } @docker ), 'a skill under the runtime is included in its docker roots' );
     ok( !( grep { m{bbb} } @docker ), 'a skill from another layer is excluded from the runtime docker roots' );
+}
+
+# --------------------------------------------------------------------------
+# DD-416: validated_path_segments is the shared guard every layered resolver
+# uses before an untrusted route or skill name is joined onto a runtime root.
+# File::Spec->catfile/catdir do not collapse parent-directory components, so
+# each rejected shape here is a real escape from the tree it was anchored to.
+# --------------------------------------------------------------------------
+{
+    my $validate = \&Developer::Dashboard::PathRegistry::validated_path_segments;
+
+    is_deeply( [ $validate->('index') ], ['index'], 'a plain relative segment validates' );
+    is_deeply( [ $validate->('nav/index.tt') ], [ 'nav', 'index.tt' ],
+        'a nested relative path validates into its segments' );
+    is_deeply( [ $validate->('a//b') ], [ 'a', 'b' ],
+        'repeated separators collapse exactly as the previous split did' );
+    is_deeply( [ $validate->('..info') ], ['..info'],
+        'a leading-dot filename that is not a parent reference still validates' );
+
+    is_deeply( [ $validate->(undef) ], [], 'an undef path is rejected' );
+    is_deeply( [ $validate->('') ],    [], 'an empty path is rejected' );
+    is_deeply( [ $validate->("a\0b") ], [], 'a NUL byte in the path is rejected' );
+    is_deeply( [ $validate->('a\\b') ], [], 'a backslash separator in the path is rejected' );
+    is_deeply( [ $validate->('/etc/passwd') ], [], 'an absolute path is rejected' );
+    is_deeply( [ $validate->('C:/windows/win.ini') ], [],
+        'a drive-qualified Windows path is rejected' );
+    is_deeply( [ $validate->('..') ],        [], 'a bare parent reference is rejected' );
+    is_deeply( [ $validate->('a/../../b') ], [], 'an embedded parent reference is rejected' );
+    is_deeply( [ $validate->('.') ],         [], 'a bare current-directory reference is rejected' );
+    is_deeply( [ $validate->('a/./b') ],     [], 'an embedded current-directory reference is rejected' );
+    is_deeply( [ $validate->('a/') ],        [], 'a trailing separator leaves an empty segment and is rejected' );
+
+    is( scalar( $validate->('nav/index.tt') ), 2,
+        'the validator reports its segment count in scalar context' );
+    is( scalar( $validate->('..') ), undef,
+        'the validator is false in scalar context when the path is rejected' );
 }
 
 # --------------------------------------------------------------------------

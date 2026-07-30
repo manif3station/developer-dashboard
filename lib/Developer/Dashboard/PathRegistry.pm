@@ -398,6 +398,28 @@ sub skills_roots {
     return map { File::Spec->catdir( $_, 'skills' ) } $self->runtime_roots;
 }
 
+# validated_path_segments($path)
+# Splits one untrusted relative path into its separator-delimited segments and
+# rejects every shape that could escape the directory the caller joins it onto,
+# because File::Spec->catfile/catdir never collapse parent-directory components.
+# Input: candidate relative path string sourced from browser or CLI input.
+# Output: list of validated segments (segment count in scalar context), or an
+# empty list (undef in scalar context) when the path is missing, contains a NUL
+# or other control byte, a backslash separator, is absolute, carries a Windows
+# drive prefix, or holds any empty, current-directory, or parent-directory
+# segment.
+sub validated_path_segments {
+    my ($path) = @_;
+    return if !defined $path || $path eq '';
+    return if $path =~ /[\x00-\x1F\x7F]/;
+    return if $path =~ /\\/;
+    return if File::Spec->file_name_is_absolute($path);
+    return if $path =~ /\A[A-Za-z]:/;
+    my @segments = split m{/+}, $path, -1;
+    return if grep { $_ eq '' || $_ eq '.' || $_ eq '..' } @segments;
+    return @segments;
+}
+
 # skill_root($name)
 # Returns the isolated root directory for one installed skill.
 # Input: skill repository name string.
@@ -411,12 +433,16 @@ sub skill_root {
 # skill_layers($name)
 # Returns the installed roots for one skill in inheritance order from home to
 # the deepest participating layer. A disabled deepest layer masks the whole
-# skill from normal runtime lookup.
+# skill from normal runtime lookup. The name is joined straight onto each
+# skills root, so any name that is not exactly one validated path segment
+# resolves to no layer at all instead of escaping the skills tree.
 # Input: skill repository name string and optional include_disabled flag.
 # Output: ordered list of skill root directory path strings from home to leaf.
 sub skill_layers {
     my ( $self, $name, %args ) = @_;
     return () if !defined $name || $name eq '';
+    my @name_segments = validated_path_segments($name);
+    return () if @name_segments != 1;
 
     my @matches;
     my $saw_effective = 0;
@@ -1275,6 +1301,18 @@ Resolve and discover project-related directories.
 =head2 current_working_directory, cwd
 
 Report the effective working directory: the explicit constructor C<cwd> when one was supplied, otherwise a live in-process C<getcwd> lookup that follows later C<chdir> calls without forking an external C<pwd> process (undef when the directory is unavailable). C<cwd> is the public compatibility alias consumed by the file registry.
+
+=head2 validated_path_segments
+
+Package function that splits one untrusted relative path into its
+separator-delimited segments and rejects any shape able to escape the directory
+it will be joined onto: missing or empty paths, NUL or other control bytes,
+backslash separators, absolute paths, Windows drive prefixes, and empty,
+current-directory, or parent-directory segments. Returns the validated segment
+list (segment count in scalar context) or an empty list (undef in scalar
+context) on rejection. C<skill_layers> requires exactly one validated segment
+for a skill name, and the skill dispatcher and web layer reuse this guard for
+every skill-namespaced route, ajax, and static asset path.
 
 =head2 runtime_root, cache_root, home_runtime_root, home_cache_root
 

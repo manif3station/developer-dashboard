@@ -493,6 +493,45 @@ is( $disp->skill_static_file_path( 'runner', 'js', '' ), undef, 'skill_static_fi
 ok( -f $disp->skill_static_file_path( 'runner', 'js', 'app.js' ), 'skill_static_file_path resolves a layered static asset' );
 
 # ---------------------------------------------------------------------------
+# DD-416: every layered resolver joins untrusted browser input onto a skill
+# root with File::Spec, which does not collapse parent-directory components,
+# so each resolver has to reject unsafe segments instead of resolving them.
+# ---------------------------------------------------------------------------
+is( $disp->_page_location( 'runner', '../../../etc/passwd' ), undef,
+    '_page_location rejects a parent-directory route id' );
+is( $disp->_page_location( 'runner', 'nav/../../../index' ), undef,
+    '_page_location rejects an embedded parent-directory route id' );
+is( $disp->_page_location( 'runner', '/etc/passwd' ), undef,
+    '_page_location rejects an absolute route id' );
+is( $disp->skill_ajax_file_path( 'runner', '../../../foo' ), undef,
+    'skill_ajax_file_path rejects a parent-directory ajax file' );
+is( $disp->skill_static_file_path( 'runner', 'js', '../../../../app.js' ), undef,
+    'skill_static_file_path rejects a parent-directory asset path' );
+is( $disp->skill_static_file_path( 'runner', '..', 'app.js' ), undef,
+    'skill_static_file_path rejects a parent-directory asset type' );
+is( $disp->skill_static_file_path( 'runner', 'js/nested', 'app.js' ), undef,
+    'skill_static_file_path rejects a multi-segment asset type' );
+is_deeply( [ $disp->_skill_layers('..') ], [],
+    '_skill_layers rejects a parent-directory skill name' );
+is_deeply( [ $disp->_skill_layers('runner/..') ], [],
+    '_skill_layers rejects a parent-directory nested skill segment' );
+is_deeply( [ $disp->_skill_layers('runner/./child') ], [],
+    '_skill_layers rejects a current-directory nested skill segment' );
+is( $disp->resolve_route_segments( [ 'runner', '..', '..', 'passwd' ] )->{skill_name}, 'runner',
+    'route resolution stops at the installed skill and leaves traversal segments in the route tail' );
+
+# skill_static_roots exposes the layered public roots the web layer asserts
+# containment against before it opens a resolved skill asset.
+is_deeply(
+    [ $disp->skill_static_roots( 'runner', 'js' ) ],
+    [ map { File::Spec->catdir( $_, 'dashboards', 'public', 'js' ) } $disp->_skill_lookup_roots('runner') ],
+    'skill_static_roots lists every layered public root in lookup order'
+);
+is_deeply( [ $disp->skill_static_roots( '', 'js' ) ], [], 'skill_static_roots guards a missing skill name' );
+is_deeply( [ $disp->skill_static_roots( 'runner', '' ) ], [], 'skill_static_roots guards a missing asset type' );
+is_deeply( [ $disp->skill_static_roots( 'runner', '..' ) ], [], 'skill_static_roots rejects a parent-directory asset type' );
+
+# ---------------------------------------------------------------------------
 # _descendant_skill_names() and _relative_files() edge inputs.
 # ---------------------------------------------------------------------------
 is_deeply( [ $disp->_descendant_skill_names( '', $proj_runner ) ], [], '_descendant_skill_names guards a missing name' );
