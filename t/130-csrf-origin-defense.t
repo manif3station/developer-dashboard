@@ -504,7 +504,89 @@ my $admin_control_code;
 }
 
 # ---------------------------------------------------------------------------
-# 6. Source scan: the active defense lives in the web layer, so the audit
+# 6. Unit probes for the defense internals: header shapes an HTTP stack never
+#    produces (missing hashes, reference values) must fail safe, and the
+#    authority parser must treat every opaque or crafted value as foreign.
+# ---------------------------------------------------------------------------
+{
+    my $authority = Developer::Dashboard::Web::App->can('_source_authority');
+    ok( $authority, 'the web layer exposes the Origin/Referer authority parser' );
+    is( $authority->(undef), undef, 'an undefined source value is unparsable' );
+    is( $authority->(''), undef, 'an empty source value is unparsable' );
+    is( $authority->('   '), undef, 'a whitespace-only source value is unparsable' );
+    is( $authority->('NULL'), undef, 'the opaque null origin is unparsable in any case' );
+    is( $authority->('http://user@evil.example'), undef, 'an authority with userinfo is rejected as crafted' );
+    is( $authority->('https://a.example https://b.example'), undef, 'a multi-origin list is rejected as crafted' );
+    is( $authority->(' https://ok.example:8443/path?q=1#f '), 'ok.example:8443', 'a full Referer URL reduces to its authority' );
+    is( $authority->('custom+x.1://host'), 'host', 'any RFC-3986 scheme is accepted before the authority' );
+
+    is( $app->_csrf_rejection_response( method => 'POST' ), undef, 'a POST with no headers hash at all is treated as headerless' );
+    is(
+        $app->_csrf_rejection_response( method => 'POST', headers => { origin => [], referer => {} } ),
+        undef,
+        'reference-valued origin/referer headers are treated as absent, never dereferenced',
+    );
+    is( $app->_csrf_rejection_response( headers => { origin => 'http://evil.example' } ), undef, 'a request with no method defaults to GET and skips the check' );
+
+    ok(
+        $app->_request_source_is_same_site(
+            source  => 'http://127.0.0.1:7890',
+            headers => { host => "  127.0.0.1:7890  " },
+        ),
+        'the request host is trimmed before the authority comparison',
+    );
+    ok(
+        !$app->_request_source_is_same_site(
+            source  => 'http://evil.example',
+            headers => { host => ['127.0.0.1'] },
+        ),
+        'a reference-valued Host header cannot satisfy the comparison',
+    );
+
+    # Config objects without web_settings (or non-objects) contribute no extra
+    # aliases; the comparison itself must still work.
+    for my $bare_config ( {}, $paths ) {
+        my $bare_app = Developer::Dashboard::Web::App->new(
+            auth     => $auth,
+            config   => $bare_config,
+            pages    => $store,
+            sessions => $sessions,
+        );
+        ok(
+            !$bare_app->_request_source_is_same_site(
+                source  => 'http://evil.example',
+                headers => { host => $ADMIN_HOST },
+            ),
+            'a foreign source stays foreign when the config exposes no web settings',
+        );
+        ok(
+            $bare_app->_request_source_is_same_site(
+                source  => 'http://localhost',
+                headers => { host => 'external.example:7890' },
+            ),
+            'the localhost family stays a permitted alias without web settings',
+        );
+    }
+
+    ok( !$auth->host_is_local_alias( host => undef ), 'an undefined host is not a local alias' );
+    ok( !$auth->host_is_local_alias( host => '   ' ), 'a blank host is not a local alias' );
+    ok( $auth->host_is_local_alias( host => '[::1]:7890' ), 'a bracketed IPv6 loopback with port is a local alias' );
+    ok( $auth->host_is_local_alias( host => 'LOCALHOST:80' ), 'localhost matching is case-insensitive and port-blind' );
+    ok(
+        $auth->host_is_local_alias(
+            host                 => 'mybox.local:7890',
+            extra_loopback_hosts => [ undef, '', 'MyBox.Local' ],
+        ),
+        'configured alias entries are canonicalized and blank entries are skipped',
+    );
+    ok(
+        !$auth->host_is_local_alias( host => 'evil.example', extra_loopback_hosts => 'not-an-array' ),
+        'a non-array alias list is ignored rather than dereferenced',
+    );
+}
+
+# ---------------------------------------------------------------------------
+# 7. Source scan: the active defense lives in the web layer, so the audit
 #    greps for the control keep finding it.
 # ---------------------------------------------------------------------------
 {
