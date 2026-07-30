@@ -102,7 +102,9 @@ function Assert-True {
 
 # Purpose: list real guest processes whose command line carries a fragment.
 # Input: command-line fragment string.
-# Output: returns matching Win32_Process rows, never including this script's process.
+# Output: returns matching Win32_Process rows, never including this script's
+# process. Callers must wrap the call in @() because PowerShell unrolls a
+# returned empty array into nothing, which strict mode then treats as $null.
 function Get-ProcessesMatching {
     param([Parameter(Mandatory = $true)][string]$Fragment)
 
@@ -123,7 +125,7 @@ function Get-ProcessesMatching {
 # Output: returns nothing; logs and stops each stray process best-effort.
 function Stop-StrayDashboardProcesses {
     foreach ($fragment in @('dd-timeout-e2e-', '.developer-dashboard', 'dashboard collector')) {
-        foreach ($stray in Get-ProcessesMatching -Fragment $fragment) {
+        foreach ($stray in @( Get-ProcessesMatching -Fragment $fragment )) {
             Write-Host ("clean-slate: stopping stray pid {0}: {1}" -f $stray.ProcessId, $stray.CommandLine)
             Stop-Process -Id $stray.ProcessId -Force -ErrorAction SilentlyContinue
         }
@@ -142,7 +144,7 @@ function Assert-MarkerProcessesGone {
 
     $deadline = (Get-Date).AddSeconds($GraceSeconds)
     while ((Get-Date) -lt $deadline) {
-        $survivors = Get-ProcessesMatching -Fragment $MarkerText
+        $survivors = @( Get-ProcessesMatching -Fragment $MarkerText )
         if ($survivors.Count -eq 0) {
             Assert-True -Condition $true -Label "no process carrying marker $MarkerText survived the timeout"
             return
@@ -150,7 +152,7 @@ function Assert-MarkerProcessesGone {
         Start-Sleep -Milliseconds 500
     }
 
-    $survivors = Get-ProcessesMatching -Fragment $MarkerText
+    $survivors = @( Get-ProcessesMatching -Fragment $MarkerText )
     foreach ($survivor in $survivors) {
         Write-Host ("SURVIVOR pid {0}: {1}" -f $survivor.ProcessId, $survivor.CommandLine)
     }
@@ -202,6 +204,13 @@ New-Item -ItemType Directory -Force -Path (Join-Path $projectRoot ".git") | Out-
 
 $env:HOME = $homeRoot
 $env:USERPROFILE = $homeRoot
+# Runtime state roots are namespaced by a username the dashboard reads from
+# DD_STATE_ROOT_USER, USER, or LOGNAME before falling back to getpwuid, which
+# Windows does not implement. A non-interactive Windows session (a job runner,
+# an SSH command, a service) sets none of the first three, so pin the explicit
+# seam here: without it every dashboard invocation in the guest dies before it
+# can even reach the collector under test.
+$env:DD_STATE_ROOT_USER = 'dd-timeout-e2e'
 
 # The blocking collector command: a Perl blocker that first spawns an
 # asynchronous descendant (so taskkill's tree mode is really exercised), then
@@ -297,7 +306,7 @@ try {
 }
 finally {
     Pop-Location
-    foreach ($leftover in Get-ProcessesMatching -Fragment $Marker) {
+    foreach ($leftover in @( Get-ProcessesMatching -Fragment $Marker )) {
         Write-Host ("cleanup: stopping leftover pid {0}: {1}" -f $leftover.ProcessId, $leftover.CommandLine)
         Stop-Process -Id $leftover.ProcessId -Force -ErrorAction SilentlyContinue
     }
@@ -331,7 +340,9 @@ This in-guest End-to-End script validates the collector command timeout on a
 real QEMU Windows guest against an installed C<Developer::Dashboard>. It
 applies the persistent-guest clean-slate rule first (stray dashboard runtime
 processes are stopped), then provisions a hermetic temporary Windows home and
-project layer whose config defines one collector with a short timeout whose
+project layer, pins the C<DD_STATE_ROOT_USER> seam so a non-interactive Windows
+session never reaches the POSIX-only C<getpwuid> username fallback, and writes a
+config that defines one collector with a short timeout whose
 command blocks for an hour: a Perl blocker that spawns an asynchronous
 descendant process, records both pids, prints one line of output, and sleeps.
 Every process in that command subtree carries a unique per-run marker on its
@@ -349,7 +360,9 @@ collector agent itself survived without crashing.
 Run it over SSH on a prepared QEMU guest, through the C<windev> guest, or
 through the Dockur Windows guest's shared-folder job channel. The installed
 C<dashboard> and a Perl interpreter are resolved from PATH unless
-C<-DashboardBin> or C<-PerlBin> point at explicit executables.
+C<-DashboardBin> or C<-PerlBin> point at explicit executables. The companion
+host-side driver F<run-dockur-collector-timeout-e2e.sh> installs a freshly built
+tarball into the Dockur guest and runs this script there in one repeatable step.
 
 =cut
 #>
