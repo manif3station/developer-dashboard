@@ -102,6 +102,36 @@ like(
 }
 
 {
+    # With neither home variable set and a getpwuid that dies as unimplemented,
+    # the staging recipe must report its own explicit error instead of letting
+    # the passwd lookup abort the install or silently staging helpers into a
+    # relative directory inside the build tree.
+    my $makefile_text = _slurp( File::Spec->catfile( $root, 'Makefile.PL' ) );
+    my ($staging_code) = $makefile_text =~ /install-private-cli-tools :\n\t\$\(NOECHO\) \$\(PERL\) -e '([^']+)'/;
+    $staging_code =~ s/\$\$/\$/g;
+    my $windows_like_prelude = 'BEGIN { *CORE::GLOBAL::getpwuid = sub ($) { die "The getpwuid function is unimplemented" }; } ';
+    my $sandbox = tempdir( CLEANUP => 1 );
+    my ( $stdout, $stderr, $exit ) = capture {
+        local %ENV = %ENV;
+        delete $ENV{HOME};
+        delete $ENV{USERPROFILE};
+        my $previous_dir = Cwd::getcwd();
+        chdir $sandbox or die "Unable to chdir to $sandbox: $!";
+        system( $^X, '-e', $windows_like_prelude . $staging_code );
+        my $status = $?;
+        chdir $previous_dir or die "Unable to chdir back to $previous_dir: $!";
+        $status;
+    };
+    isnt( $exit >> 8, 0, 'the helper staging one-liner fails when no home directory is resolvable' );
+    like( $stderr, qr/Unable to resolve a home directory/,
+        'the staging one-liner reports its own missing-home error' );
+    unlike( $stderr, qr/unimplemented/,
+        'the staging one-liner never lets the unimplemented passwd lookup surface' );
+    ok( !-d File::Spec->catdir( $sandbox, '.developer-dashboard' ),
+        'the staging one-liner stages nothing into the build directory when home is unresolvable' );
+}
+
+{
     my ( $stdout, $stderr, $exit ) = capture {
         system( 'sh', '-n', $install_sh );
     };

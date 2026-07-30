@@ -17,21 +17,28 @@ use IO::Select;
 use IPC::Open3;
 use JSON::XS qw(decode_json encode_json);
 use Symbol qw(gensym);
-use Developer::Dashboard::Platform qw(command_in_path);
+use Developer::Dashboard::Platform qw(command_in_path passwd_home_directory);
 use Developer::Dashboard::PathRegistry;
 
 # new()
 # Creates a SkillManager instance to handle skill installation, updates, uninstalls.
+# The home chain reads HOME, then the Windows USERPROFILE variable, and only
+# then the guarded passwd lookup, so a Windows session with no HOME resolves its
+# profile directory instead of aborting inside an unimplemented passwd function.
 # Input: none.
 # Output: SkillManager object.
 sub new {
     my ( $class, %args ) = @_;
-    my $paths = $args{paths}
-      || Developer::Dashboard::PathRegistry->new(
-        home            => ( $ENV{HOME} || (getpwuid($>))[7] || $ENV{USERPROFILE} || die 'Missing home directory' ),    # uncoverable condition false
-        workspace_roots => [],
-        project_roots   => [],
-      );
+    my $paths = $args{paths};
+    if ( !$paths ) {
+        my $home = $ENV{HOME} || $ENV{USERPROFILE} || passwd_home_directory($>);
+        die 'Missing home directory' if !$home;
+        $paths = Developer::Dashboard::PathRegistry->new(
+            home            => $home,
+            workspace_roots => [],
+            project_roots   => [],
+        );
+    }
 
     return bless {
         paths      => $paths,

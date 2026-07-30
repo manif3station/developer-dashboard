@@ -12,6 +12,7 @@ use File::Path qw(make_path);
 use lib 'lib';
 
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::Platform ();
 
 # Hermetic runtime: isolated home + isolated state root, cwd anchored inside the
 # temp home so DD-OOP-LAYER discovery resolves from a controlled tree.
@@ -395,7 +396,28 @@ is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the 
         delete $ENV{DD_STATE_ROOT_USER};
         delete $ENV{USER};
         delete $ENV{LOGNAME};
-        ok( length $paths->_state_root_user, 'getpwuid provides a username as the final fallback' );
+        $ENV{USERNAME} = 'winuser';
+        is( $paths->_state_root_user, 'winuser', 'USERNAME is used when the Unix variables are absent' );
+    }
+    {
+        local %ENV = %ENV;
+        delete $ENV{DD_STATE_ROOT_USER};
+        delete $ENV{USER};
+        delete $ENV{LOGNAME};
+        delete $ENV{USERNAME};
+        ok( length $paths->_state_root_user, 'the passwd database provides a username as the next fallback' );
+    }
+
+    # No environment variable names the account and the passwd database cannot
+    # answer, which is the non-interactive Windows case, so the literal is used.
+    {
+        local %ENV = %ENV;
+        local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+        delete $ENV{DD_STATE_ROOT_USER};
+        delete $ENV{USER};
+        delete $ENV{LOGNAME};
+        delete $ENV{USERNAME};
+        is( $paths->_state_root_user, 'user', 'the literal fallback names the state root when nothing else can' );
     }
 }
 

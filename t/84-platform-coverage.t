@@ -18,6 +18,8 @@ use Developer::Dashboard::Platform qw(
   resolve_runnable_file
   command_argv_for_path
   shell_quote_for
+  passwd_user_name
+  passwd_home_directory
 );
 
 # ---------------------------------------------------------------------------
@@ -413,6 +415,33 @@ is(
     my $ok = eval { Developer::Dashboard::Platform::_exec_java_source($hello); 1 };
     ok( !$ok, '_exec_java_source dies when the java launcher fails (line 351 true)' );
     like( $@, qr/Unable to exec java/, 'java exec failure surfaced' );
+}
+
+# ---------------------------------------------------------------------------
+# _passwd_entry / passwd_user_name / passwd_home_directory : the Windows
+# short-circuit, the absent-record outcome, and the resolved record.
+# ---------------------------------------------------------------------------
+{
+    # A uid that owns no passwd record on the test host, so the "no record"
+    # outcome is exercised with the real lookup instead of a stub.
+    my $absent_uid = 4294967294;
+
+    my @real = getpwuid($<);
+    is( passwd_user_name($<),      $real[0], 'passwd_user_name resolves the account name' );
+    is( passwd_home_directory($<), $real[7], 'passwd_home_directory resolves the home directory' );
+
+    is( passwd_user_name($absent_uid),      undef, 'passwd_user_name reports undef for an absent record' );
+    is( passwd_home_directory($absent_uid), undef, 'passwd_home_directory reports undef for an absent record' );
+
+    # Windows perl leaves the passwd functions unimplemented, so the lookup is
+    # never attempted there.
+    {
+        local $Developer::Dashboard::Platform::OS_NAME = $win;
+        is_deeply( [ Developer::Dashboard::Platform::_passwd_entry($<) ], [],
+            '_passwd_entry skips the lookup entirely on Windows' );
+        is( passwd_user_name($<),      undef, 'passwd_user_name reports undef on Windows' );
+        is( passwd_home_directory($<), undef, 'passwd_home_directory reports undef on Windows' );
+    }
 }
 
 done_testing;

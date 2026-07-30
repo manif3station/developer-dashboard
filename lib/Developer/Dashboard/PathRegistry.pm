@@ -11,6 +11,7 @@ use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
 use Developer::Dashboard::JSON qw(json_encode);
+use Developer::Dashboard::Platform qw(passwd_user_name);
 
 # _resolved_home_from_env()
 # Resolves the current user home directory from the available process
@@ -570,13 +571,22 @@ sub _state_root_key {
 
 # _state_root_user()
 # Returns a sanitized username used to namespace runtime state roots in the shared temp area.
+# The chain reads the interactive Unix variables, then the Windows USERNAME
+# variable a non-interactive Windows session still carries, then the guarded
+# passwd lookup, so no runtime can abort here.
 # Input: none.
 # Output: username string.
 sub _state_root_user {
     my ($self) = @_;
-    my $raw = $ENV{DD_STATE_ROOT_USER} || $ENV{USER} || $ENV{LOGNAME} || getpwuid($<) || 'user';    # uncoverable condition right
+    my $raw =
+         $ENV{DD_STATE_ROOT_USER}
+      || $ENV{USER}
+      || $ENV{LOGNAME}
+      || $ENV{USERNAME}
+      || passwd_user_name($<);
+    $raw = 'user' if !$raw;
     $raw =~ s{[^A-Za-z0-9._-]}{_}g;
-    return $raw || 'user';    # uncoverable condition right
+    return $raw;
 }
 
 # _state_root_for_layer($runtime_root)
