@@ -4,7 +4,9 @@
 
 Developer Dashboard now applies these runtime protections in the active codebase:
 
-- exact `127.0.0.1` with numeric host `127.0.0.1` is the only automatic local-admin trust path
+- automatic local-admin trust requires the connection to arrive from a loopback address: any numeric `127.0.0.0/8` literal (the whole /8, not just `127.0.0.1`) or the IPv6 loopback forms `::1` / `0:0:0:0:0:0:0:1`
+- on such a loopback connection the request host must itself be trusted before admin is granted: a numeric loopback literal, an absent host, a well-known localhost alias (`localhost`, `localhost.localdomain`, `localhost6`, `localhost6.localdomain6`), or a host explicitly listed under `web.ssl_subject_alt_names`; any other hostname stays helper-tier even when it resolves to loopback, which blocks DNS-rebinding admin elevation
+- the loopback auto-admin shortcut is disabled entirely behind the built-in SSL front-proxy, where every backend connection arrives from the proxy's loopback socket and can no longer prove the real client is local; an explicit helper login is required instead
 - loopback detection validates each IPv4 octet against the real `0-255` range, so malformed literals such as `127.0.0.999` are never classified as loopback
 - home-runtime directories under `~/.developer-dashboard` are created and tightened to `0700`
 - home-runtime files under `~/.developer-dashboard` are written and tightened to `0600`, while owner-executable scripts stay at `0700`
