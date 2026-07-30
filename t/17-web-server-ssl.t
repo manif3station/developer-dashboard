@@ -496,6 +496,14 @@ OPENSSL_CONFIG
 
 # Test 11: Redirect helpers cover forwarded HTTPS and fallback URL rebuilding
 {
+    # The redirect helpers are methods because they need the server's own
+    # authority allowlist; a blessed hash is all they read from the object.
+    my $redirect_server = bless {
+        host                  => '0.0.0.0',
+        ssl                   => 1,
+        ssl_subject_alt_names => [],
+    }, 'Developer::Dashboard::Web::Server';
+
     ok(
         !Developer::Dashboard::Web::Server::_request_is_https(undef),
         'non-hash PSGI environments are treated as plain HTTP'
@@ -508,7 +516,7 @@ OPENSSL_CONFIG
     );
 
     is(
-        Developer::Dashboard::Web::Server::_https_redirect_location({
+        $redirect_server->_https_redirect_location({
             SERVER_NAME => 'redirect.local',
             SERVER_PORT => 443,
         }),
@@ -516,7 +524,7 @@ OPENSSL_CONFIG
         'fallback redirect location omits the default HTTPS port'
     );
     is(
-        Developer::Dashboard::Web::Server::_https_redirect_location({
+        $redirect_server->_https_redirect_location({
             SERVER_NAME  => 'redirect.local',
             SERVER_PORT  => 8443,
             SCRIPT_NAME  => '/dashboard',
@@ -527,7 +535,7 @@ OPENSSL_CONFIG
         'fallback redirect location rebuilds host, path, port, and query string'
     );
 
-    my $redirect_response = Developer::Dashboard::Web::Server::_ssl_redirect_response({
+    my $redirect_response = $redirect_server->_ssl_redirect_response({
         SERVER_NAME  => 'redirect.local',
         SERVER_PORT  => 8443,
         SCRIPT_NAME  => '/dashboard',
@@ -576,7 +584,7 @@ OPENSSL_CONFIG
         port => 443,
     );
     is(
-        Developer::Dashboard::Web::Server::_request_host_from_head("GET / HTTP/1.1\r\n\r\n", $default_port_daemon),
+        $redirect_server->_request_host_from_head("GET / HTTP/1.1\r\n\r\n", $default_port_daemon),
         'redirect.local',
         'request-host helper omits the default HTTPS port in fallback mode'
     );
@@ -585,7 +593,7 @@ OPENSSL_CONFIG
         port => 8443,
     );
     is(
-        Developer::Dashboard::Web::Server::_request_host_from_head(undef, $custom_port_daemon),
+        $redirect_server->_request_host_from_head(undef, $custom_port_daemon),
         'redirect.local:8443',
         'request-host helper rebuilds host and custom port when Host header is absent'
     );
@@ -1018,6 +1026,120 @@ OPENSSL_CONFIG
 
     kill 'TERM', $pid;
     waitpid( $pid, 0 );
+}
+
+# Test 16: The HTTPS-enforcement redirect never names a client-supplied authority
+{
+    # A blessed hash is enough here: none of the redirect helpers touch the app,
+    # the sockets, or the certificate, so this stays hermetic and fast.
+    my $server = bless {
+        host                  => '127.0.0.1',
+        port                  => 7890,
+        workers               => 1,
+        ssl                   => 1,
+        ssl_subject_alt_names => ['dashboard-alias.local'],
+    }, 'Developer::Dashboard::Web::Server';
+
+    my %hostile_env = (
+        HTTP_HOST   => 'evil.com',
+        SERVER_NAME => 'redirect.local',
+        SERVER_PORT => 8443,
+        PATH_INFO   => '/x',
+    );
+
+    my $hostile_location = $server->_https_redirect_location( {%hostile_env} );
+    unlike(
+        $hostile_location,
+        qr{evil\.com},
+        'PSGI redirect location never names an unallowlisted Host header authority'
+    );
+    is(
+        $hostile_location,
+        'https://redirect.local:8443/x',
+        'PSGI redirect location falls back to the server-derived authority for a hostile Host header'
+    );
+
+    my $hostile_response = $server->_ssl_redirect_response( {%hostile_env} );
+    is( $hostile_response->[0], 307, 'hostile Host header still gets a 307 redirect' );
+    my %hostile_headers = @{ $hostile_response->[1] };
+    unlike(
+        $hostile_headers{Location},
+        qr{evil\.com},
+        'PSGI redirect Location header never carries an unallowlisted Host header authority'
+    );
+
+    is(
+        $server->_https_redirect_location(
+            { HTTP_HOST => 'dashboard-alias.local:7890', PATH_INFO => '/x' }
+        ),
+        'https://dashboard-alias.local:7890/x',
+        'PSGI redirect location keeps a Host header listed in ssl_subject_alt_names'
+    );
+    is(
+        $server->_https_redirect_location( { HTTP_HOST => '127.0.0.5:7890', PATH_INFO => '/x' } ),
+        'https://127.0.0.5:7890/x',
+        'PSGI redirect location keeps a loopback literal Host header'
+    );
+    is(
+        $server->_https_redirect_location( { HTTP_HOST => '[::1]:7890', PATH_INFO => '/x' } ),
+        'https://[::1]:7890/x',
+        'PSGI redirect location keeps a bracketed IPv6 loopback Host header'
+    );
+
+    # The socket-level frontend is the path a real plain-HTTP client reaches on
+    # the public SSL port, so it needs the same allowlist.
+    my $daemon = Developer::Dashboard::Web::Server::Daemon->new(
+        host => '127.0.0.1',
+        port => 7890,
+    );
+    is(
+        $server->_request_host_from_head( "GET /x HTTP/1.1\r\nHost: evil.com\r\n\r\n", $daemon ),
+        '127.0.0.1:7890',
+        'frontend request-host helper rejects an unallowlisted Host header and uses the bound authority'
+    );
+    is(
+        $server->_request_host_from_head(
+            "GET /x HTTP/1.1\r\nHost: dashboard-alias.local:7890\r\n\r\n", $daemon
+        ),
+        'dashboard-alias.local:7890',
+        'frontend request-host helper keeps an allowlisted alias Host header'
+    );
+
+    # The request target is concatenated straight after the authority, so an
+    # authority-form target can push the real host into the userinfo slot.
+    is(
+        Developer::Dashboard::Web::Server::_request_target_from_head("GET \@evil.com/ HTTP/1.1\r\n\r\n"),
+        '/',
+        'frontend request-target helper rejects an authority-form target that would move the authority'
+    );
+
+    socketpair( my $redirect_client, my $redirect_peer, AF_UNIX, SOCK_STREAM, PF_UNSPEC )
+      or die "socketpair failed: $!";
+    my $hostile_head = "GET \@evil.com/x HTTP/1.1\r\nHost: evil.com\r\n\r\n";
+    my $written = syswrite( $redirect_peer, $hostile_head );
+    die "Unable to write hostile request head: $!"
+      if !defined $written || $written != length $hostile_head;
+    shutdown( $redirect_peer, 1 ) or die "Unable to half-close hostile request peer: $!";
+    is(
+        $server->_handle_ssl_frontend_client( client => $redirect_client, daemon => $daemon ),
+        1,
+        'frontend client handler answers a hostile plaintext request'
+    );
+    my $hostile_raw = '';
+    my $read_bytes = sysread( $redirect_peer, $hostile_raw, 4096 );
+    die "Unable to read hostile redirect response: $!" if !defined $read_bytes;
+    close $redirect_client;
+    close $redirect_peer;
+    unlike(
+        $hostile_raw,
+        qr{evil\.com},
+        'frontend redirect response never names a client-supplied authority'
+    );
+    like(
+        $hostile_raw,
+        qr{\r\nLocation: https://127\.0\.0\.1:7890/\r\n},
+        'frontend redirect response falls back to the bound authority and a safe target'
+    );
 }
 
 done_testing();

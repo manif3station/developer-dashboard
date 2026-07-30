@@ -174,6 +174,21 @@ sub _reset_client_socket {
     return ( $client, $listener );
 }
 
+# _redirect_server(@extra_subject_alt_names)
+# Returns a bare Web::Server instance carrying only the fields the redirect
+# helpers read, so the authority allowlist can be driven without generating a
+# certificate or binding a socket.
+sub _redirect_server {
+    my (@extra_subject_alt_names) = @_;
+    return bless {
+        host                  => '0.0.0.0',
+        port                  => 7890,
+        workers               => 1,
+        ssl                   => 1,
+        ssl_subject_alt_names => \@extra_subject_alt_names,
+    }, 'Developer::Dashboard::Web::Server';
+}
+
 # _profile_fixture_cert($cert_file, $key_file, $extensions)
 # Generates a self-signed certificate carrying only the requested v3
 # extensions, so the profile checker can be driven down each rejection arm.
@@ -463,9 +478,14 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
 
     my $blank_daemon = Developer::Dashboard::Web::Server::Daemon->new( host => '', port => 0 );
     is(
-        Developer::Dashboard::Web::Server::_request_host_from_head( undef, $blank_daemon ),
+        _redirect_server()->_request_host_from_head( undef, $blank_daemon ),
         '127.0.0.1',
         'request-host helper falls back to loopback and the default HTTPS port',
+    );
+    is(
+        _redirect_server()->_request_host_from_head( "GET / HTTP/1.1\r\nHost:\t \r\n\r\n", $blank_daemon ),
+        '127.0.0.1',
+        'request-host helper falls back when the Host header value is only whitespace',
     );
 
     like(
@@ -567,26 +587,26 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
 # --- _https_redirect_location(): host, port, and path rebuilding ------------
 {
     is(
-        Developer::Dashboard::Web::Server::_https_redirect_location(
+        _redirect_server('host.local')->_https_redirect_location(
             { HTTP_HOST => 'host.local:8443', PATH_INFO => '/x' }
         ),
         'https://host.local:8443/x',
-        'redirect location reuses an explicit Host header verbatim',
+        'redirect location reuses an allowlisted Host header',
     );
     is(
-        Developer::Dashboard::Web::Server::_https_redirect_location( {} ),
+        _redirect_server()->_https_redirect_location( {} ),
         'https://127.0.0.1/',
         'redirect location falls back to loopback, the default HTTPS port, and /',
     );
     is(
-        Developer::Dashboard::Web::Server::_https_redirect_location(
+        _redirect_server()->_https_redirect_location(
             { SERVER_NAME => 'n.local', SERVER_PORT => '', PATH_INFO => '/p' }
         ),
         'https://n.local/p',
         'redirect location omits an empty server port',
     );
     is(
-        Developer::Dashboard::Web::Server::_https_redirect_location(
+        _redirect_server()->_https_redirect_location(
             {
                 SERVER_NAME  => 'n.local',
                 SERVER_PORT  => 8443,
@@ -598,9 +618,175 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
         'redirect location keeps a non-default server port and the query string',
     );
     is(
-        Developer::Dashboard::Web::Server::_https_redirect_location( { PATH_INFO => '' } ),
+        _redirect_server()->_https_redirect_location( { PATH_INFO => '' } ),
         'https://127.0.0.1/',
         'redirect location falls back to / when the rebuilt path is empty',
+    );
+    is(
+        _redirect_server()->_https_redirect_location( { SERVER_NAME => '', PATH_INFO => '/p' } ),
+        'https://127.0.0.1/p',
+        'redirect location falls back to loopback when the server name is unusable',
+    );
+}
+
+# --- redirect authority allowlist: accept and reject arms -------------------
+{
+    my $server = _redirect_server('Alias.Local');
+
+    is(
+        $server->_allowlisted_redirect_authority('evil.com'),
+        '',
+        'authority allowlist rejects an unrelated host',
+    );
+    is(
+        $server->_allowlisted_redirect_authority(undef),
+        '',
+        'authority allowlist rejects a missing Host header',
+    );
+    is(
+        $server->_allowlisted_redirect_authority(''),
+        '',
+        'authority allowlist rejects an empty Host header',
+    );
+    is(
+        $server->_allowlisted_redirect_authority( 'a' x 256 ),
+        '',
+        'authority allowlist rejects an over-long Host header',
+    );
+    is(
+        $server->_allowlisted_redirect_authority('alias.local'),
+        'alias.local',
+        'authority allowlist accepts a configured SAN alias',
+    );
+    is(
+        $server->_allowlisted_redirect_authority('ALIAS.LOCAL:8443'),
+        'alias.local:8443',
+        'authority allowlist normalizes case and keeps a valid port',
+    );
+    is(
+        $server->_allowlisted_redirect_authority('localhost'),
+        'localhost',
+        'authority allowlist accepts the default localhost SAN',
+    );
+    is(
+        $server->_allowlisted_redirect_authority('127.0.0.9'),
+        '127.0.0.9',
+        'authority allowlist accepts any loopback literal',
+    );
+    is(
+        $server->_allowlisted_redirect_authority('[0:0:0:0:0:0:0:1]'),
+        '[0:0:0:0:0:0:0:1]',
+        'authority allowlist accepts the expanded IPv6 loopback literal',
+    );
+    is(
+        $server->_allowlisted_redirect_authority('127.0.0.999'),
+        '',
+        'authority allowlist rejects an out-of-range loopback-looking octet',
+    );
+    is(
+        $server->_allowlisted_redirect_authority('alias.local:0'),
+        '',
+        'authority allowlist rejects a zero port',
+    );
+    is(
+        $server->_allowlisted_redirect_authority('alias.local:99999'),
+        '',
+        'authority allowlist rejects an out-of-range port',
+    );
+    is(
+        $server->_allowlisted_redirect_authority('alias.local:'),
+        '',
+        'authority allowlist rejects a trailing empty port',
+    );
+    is(
+        $server->_allowlisted_redirect_authority('alias.local/@evil.com'),
+        '',
+        'authority allowlist rejects an authority carrying a path separator',
+    );
+    is(
+        $server->_allowlisted_redirect_authority('[not:an:address!]'),
+        '',
+        'authority allowlist rejects a malformed bracketed literal',
+    );
+    is(
+        $server->_allowlisted_redirect_authority('[::1]:7890'),
+        '[::1]:7890',
+        'authority allowlist re-brackets an accepted IPv6 literal with its port',
+    );
+
+    is(
+        Developer::Dashboard::Web::Server::_host_is_loopback_literal(undef),
+        0,
+        'loopback literal check rejects an undefined host',
+    );
+    is(
+        Developer::Dashboard::Web::Server::_host_is_loopback_literal(''),
+        0,
+        'loopback literal check rejects an empty host',
+    );
+    is(
+        Developer::Dashboard::Web::Server::_host_is_loopback_literal('128.0.0.1'),
+        0,
+        'loopback literal check rejects a non-loopback IPv4 literal',
+    );
+    is(
+        Developer::Dashboard::Web::Server::_host_is_loopback_literal('127.255.255.254'),
+        1,
+        'loopback literal check accepts the whole 127.0.0.0/8 range',
+    );
+
+    is(
+        Developer::Dashboard::Web::Server::_redirect_authority(undef),
+        '',
+        'authority rebuilder returns an empty string without a host',
+    );
+    is(
+        Developer::Dashboard::Web::Server::_redirect_authority(''),
+        '',
+        'authority rebuilder returns an empty string for an empty host',
+    );
+
+    is_deeply(
+        [ Developer::Dashboard::Web::Server::_split_request_authority( 'n.local:8443', 9443 ) ],
+        [ 'n.local', 9443 ],
+        'authority parser honors an explicit port override',
+    );
+    is_deeply(
+        [ Developer::Dashboard::Web::Server::_split_request_authority( 'n.local', 'bad' ) ],
+        [],
+        'authority parser rejects a non-numeric port override',
+    );
+}
+
+# --- _safe_redirect_target(): every rejection arm ---------------------------
+{
+    my %rejected = (
+        'an undefined target'    => undef,
+        'an empty target'        => '',
+        'a relative target'      => 'x',
+        'an authority-form target' => '@evil.com/',
+        'a protocol-relative target' => '//evil.com/',
+        'a backslash target'     => '/\\evil.com',
+        'a tab target'           => "/\t/evil.com",
+        'a newline target'       => "/x\nY",
+        'a delete-byte target'   => "/x\x7f",
+    );
+    for my $label ( sort keys %rejected ) {
+        is(
+            Developer::Dashboard::Web::Server::_safe_redirect_target( $rejected{$label} ),
+            '/',
+            "redirect target sanitizer rejects $label",
+        );
+    }
+    is(
+        Developer::Dashboard::Web::Server::_safe_redirect_target('/a/b?c=1&d=%2F'),
+        '/a/b?c=1&d=%2F',
+        'redirect target sanitizer keeps a normal origin-form path and query',
+    );
+    is(
+        Developer::Dashboard::Web::Server::_request_target_from_head("GET //evil.com/ HTTP/1.1\r\n\r\n"),
+        '/',
+        'request-target helper sanitizes a protocol-relative target from the request line',
     );
 }
 
