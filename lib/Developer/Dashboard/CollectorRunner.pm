@@ -1602,7 +1602,9 @@ sub _cron_match {
 
 # _run_command(%args)
 # Executes a collector command as an owned child process with captured
-# stdout/stderr, timeout handling, and complete subtree cleanup.
+# stdout/stderr, timeout handling, and complete subtree cleanup. POSIX hosts
+# interrupt the blocking wait with SIGALRM; Windows cannot dispatch that signal
+# while system() waits, so it spawns the command asynchronously and polls it.
 # Input: command string, cwd path, env hash, and timeout_ms.
 # Output: list of stdout, stderr, exit_code, and timed_out flag.
 sub _run_command {
@@ -1622,15 +1624,22 @@ sub _run_command {
     CORE::close $pid_fh or die "Unable to close collector command pid file $pidfile: $!";
     my ( $stdout, $stderr, $exit_code ) = capture {
         my @argv = shell_command_argv( $cmd, login => 0 );
-        my @launcher = $self->_command_launcher_argv( $pidfile, @argv );
 
         local $SIG{TERM} = sub { $self->_forward_command_signal( $pidfile, 'TERM', 15 ) };
         local $SIG{INT}  = sub { $self->_forward_command_signal( $pidfile, 'INT',  2 ) };
         local $SIG{HUP}  = sub { $self->_forward_command_signal( $pidfile, 'HUP',  1 ) };
-        local $SIG{ALRM} = sub { die "__COLLECTOR_TIMEOUT__\n" };
         local $ENV{PERL5OPT} = $ENV{PERL5OPT};
         local $ENV{HARNESS_PERL_SWITCHES} = $ENV{HARNESS_PERL_SWITCHES};
         delete @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)};
+
+        if ( is_windows() ) {
+            my ( $windows_exit, $expired ) = $self->_await_windows_command( $pidfile, $timeout_ms, @argv );
+            $timed_out = $expired;
+            return $windows_exit;
+        }
+
+        my @launcher = $self->_command_launcher_argv( $pidfile, @argv );
+        local $SIG{ALRM} = sub { die "__COLLECTOR_TIMEOUT__\n" };
         alarm( int( ( $timeout_ms + 999 ) / 1000 ) );
         my $ok = eval {
             system { $launcher[0] } @launcher;
@@ -1650,6 +1659,63 @@ sub _run_command {
     unlink $pidfile;
     chdir $old or die "Unable to restore cwd to $old: $!";
     return ( $stdout, $stderr, $exit_code, $timed_out );
+}
+
+# _await_windows_command($pidfile, $timeout_ms, @command_argv)
+# Runs one collector command on native Windows without ever blocking inside
+# system(). Windows dispatches Perl's alarm emulation only at operation
+# boundaries, so the SIGALRM timeout that guards the POSIX path never interrupts
+# a synchronous system() and a hung command outlives its timeout. The command
+# shell is therefore spawned asynchronously, published through the same pid file
+# the POSIX launcher writes so signal forwarding keeps one source of truth, and
+# polled against a deadline. Expiry terminates the whole command subtree.
+# Input: pid-file path, timeout in milliseconds, and the shell command argv.
+# Output: list of the collector exit code and the timed-out flag.
+sub _await_windows_command {
+    my ( $self, $pidfile, $timeout_ms, @argv ) = @_;
+    my $pid = $self->_spawn_windows_command(@argv);
+    die "Unable to spawn collector command '$argv[0]': $!\n" if $pid < 1;
+    $self->_record_command_pid( $pidfile, $pid );
+
+    my $deadline = time() + ( $timeout_ms / 1000 );
+    while (1) {
+        my $reaped = waitpid( $pid, 1 );
+        die "Unable to wait for collector command process $pid: $!\n" if $reaped < 0;
+        return ( _exit_code_from_status($?), 0 ) if $reaped > 0;
+        if ( time() >= $deadline ) {
+            $self->_terminate_command_process($pid);
+            return ( 124, 1 );
+        }
+        sleep 0.02;
+    }
+}
+
+# _spawn_windows_command(@command_argv)
+# Starts one collector command shell with the asynchronous form of system(),
+# which returns the new process designator immediately instead of waiting for
+# the command to exit. The command inherits the caller's already-redirected
+# stdout and stderr, so its output is still captured.
+# Input: shell command argv list.
+# Output: process designator integer, or a value below one when the spawn fails.
+sub _spawn_windows_command {
+    my ( $self, @argv ) = @_;
+    my $spawned = system 1, @argv;
+    return 0 + $spawned;
+}
+
+# _record_command_pid($pidfile, $pid)
+# Publishes an asynchronously spawned command pid through the same pid-file
+# contract the POSIX launcher writes for itself, so signal forwarding and
+# subtree termination read one source of truth on every platform.
+# Input: pid-file path and process id integer.
+# Output: true value.
+sub _record_command_pid {
+    my ( $self, $pidfile, $pid ) = @_;
+    open my $fh, '>', $pidfile or die "Unable to write collector command pid file $pidfile: $!";
+    print {$fh} $pid;
+    CORE::close($fh)
+      or die "Unable to close collector command pid file $pidfile: $!";    # uncoverable branch true a pid file holding one short buffered integer cannot fail to flush on the test host
+    return 1;
 }
 
 # _command_launcher_argv($pidfile, @command_argv)
