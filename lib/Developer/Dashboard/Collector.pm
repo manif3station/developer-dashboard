@@ -631,9 +631,9 @@ sub _split_log_entries {
     my ( $self, $text ) = @_;
     return () if !defined $text || $text eq '';
     # The split pattern is a bare lookahead with no capture group, so split can
-    # never hand back an undefined field: the defined() side that would skip one
-    # is unreachable.
-    return grep { defined && $_ ne '' } split /(?=^=== collector )/m, $text;    # uncoverable branch false
+    # never hand back an undefined field; only the leading empty field produced
+    # when the text starts at an entry header needs filtering out.
+    return grep { $_ ne '' } split /(?=^=== collector )/m, $text;
 }
 
 # _entry_timestamp_epoch($name, $entry)
