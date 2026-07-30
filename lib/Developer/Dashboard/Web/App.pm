@@ -2744,10 +2744,17 @@ sub _top_chrome_html {
       ? qq{<div><a href="$share" id="share-url">Right Click Copy &amp; Share or Bookmark This Page</a></div>}
       : q{};
     my $nav_html = $nav ne '' ? qq{<div style="margin-top:6px">$nav</div>} : q{};
+    # The colour-emoji families must trail the text families: they carry the
+    # keycap bases U+0030-U+0039 and U+002E, so leading with them paints plain
+    # ASCII host addresses and timestamps at emoji advance widths, producing an
+    # unbreakable token that overflowed 320px viewports. Trailing them still
+    # supplies the indicator icons, which no serif text font covers.
+    # min-width:0 plus overflow-wrap:anywhere keep this flex column shrinkable
+    # below its min-content width whatever the host name or status text says.
     my $right_html = $hide_indicators
       ? q{}
       : sprintf(
-        q{<div style="text-align:right;white-space:pre-wrap;font-family:'Segoe UI Emoji','Noto Color Emoji','Segoe UI Symbol',Georgia,'Times New Roman',serif">%s<span id="status-on-top">%s</span></div>},
+        q{<div style="text-align:right;white-space:pre-wrap;overflow-wrap:anywhere;min-width:0;font-family:Georgia,'Times New Roman',serif,'Segoe UI Emoji','Noto Color Emoji','Segoe UI Symbol'">%s<span id="status-on-top">%s</span></div>},
         $context,
         $status,
       );
@@ -2789,9 +2796,12 @@ sub _top_chrome_html {
 })();
 </script>
 HTML
+    # flex-wrap:wrap lets the two columns stack instead of being squeezed onto
+    # one line, and min-width:0 lets each of them shrink below its min-content
+    # width, so a narrow phone viewport never gains a horizontal scrollbar.
     return sprintf <<'HTML', $share_html, $nav_html, $right_html, $script_html;
-<div class="dd-top-chrome" style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #ddd3c2">
-  <div>
+<div class="dd-top-chrome" style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:16px;align-items:flex-start;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid #ddd3c2">
+  <div style="min-width:0">
     %s
     %s
   </div>
