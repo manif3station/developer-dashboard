@@ -1678,7 +1678,11 @@ also rotates collector log transcripts when a collector defines `rotation`
 or `rotations`. `lines` keeps the trailing line count, while `minute`,
 `minutes`, `hour`, `hours`, `day`, `days`, `week`, `weeks`,
 `month`, and `months` keep only log entries newer than the requested
-retention window. Run it on demand with:
+retention window. Both rules cut on entry boundaries, so a rotated
+transcript always starts at a complete entry header: a line budget drops
+whole entries rather than slicing one in half, and a budget smaller than
+the newest entry empties the transcript instead of leaving a headerless
+fragment behind. Run it on demand with:
 
     dashboard housekeeper
     dashboard collector run housekeeper
