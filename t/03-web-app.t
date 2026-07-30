@@ -36,6 +36,24 @@ sub drain_stream_body {
     return $output;
 }
 
+# decoded_attr_value($value)
+# Decodes one HTML attribute value the way a browser does before use.
+# URLs in attributes are HTML-escaped, so a query separator is markup-legal
+# only as &amp;; a browser resolves the entities when it reads the attribute,
+# and a scrape that feeds the value back into the app must do the same.
+# Input: raw attribute text captured from the response body.
+# Output: decoded attribute value.
+sub decoded_attr_value {
+    my ($value) = @_;
+    return $value if !defined $value;
+    $value =~ s/&lt;/</g;
+    $value =~ s/&gt;/>/g;
+    $value =~ s/&quot;/"/g;
+    $value =~ s/&#39;/'/g;
+    $value =~ s/&amp;/&/g;
+    return $value;
+}
+
 local $ENV{HOME} = tempdir(CLEANUP => 1);
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
@@ -327,6 +345,7 @@ unlike($body1b, qr/"instruction"\s*:/, 'posted instruction text is not folded ba
 unlike($body1b, qr/"request_host"\s*:/, 'posted instruction does not persist request metadata into stash');
 my ($play_url) = $body1b =~ m{<button type="button" class="chrome-button" id="play-button" data-play-url="([^"]+)">Play</button>};
 ok($play_url, 'play url extracted from root editor response');
+$play_url = decoded_attr_value($play_url);
 unlike($body1b, qr/id="view-source-url"/, 'edit mode does not render view source link');
 my ($play_query) = $play_url =~ /\?(.*)\z/;
 my ($code1c, undef, $body1c) = @{ $app->handle(
