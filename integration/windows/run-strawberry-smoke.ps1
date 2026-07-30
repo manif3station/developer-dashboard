@@ -577,11 +577,35 @@ Write-TraceLine "DASHBOARD_LOGS_END"
 
     $freshSessionScriptPath = Join-Path ([System.IO.Path]::GetTempPath()) "dd-fresh-session-bootstrap.ps1"
     $freshSessionLogPath = Join-Path ([System.IO.Path]::GetTempPath()) ("dd-fresh-session-bootstrap-" + [guid]::NewGuid().ToString("N") + ".log")
+    $processTraceSource = "dd-profile-load-" + [guid]::NewGuid().ToString("N")
     try {
         $env:DD_SMOKE_SKILL_SOURCE = $smokeSkillSource
         $env:DD_FRESH_SESSION_LOG = $freshSessionLogPath
         Set-Content -Path $freshSessionScriptPath -Value $freshSessionScript -Encoding UTF8
         Set-Content -Path $freshSessionLogPath -Value '' -Encoding UTF8
+
+        $null = Register-WmiEvent -Class Win32_ProcessStartTrace -SourceIdentifier $processTraceSource
+        $profileLoadStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $profileLoadProcess = Start-Process -FilePath powershell.exe -ArgumentList @('-NoLogo', '-Command', 'exit') -PassThru -Wait
+        $profileLoadStopwatch.Stop()
+        if ($profileLoadProcess.ExitCode -ne 0) {
+            throw "fresh profile-load timing check failed with exit code $($profileLoadProcess.ExitCode)"
+        }
+        $profileLoadMilliseconds = $profileLoadStopwatch.Elapsed.TotalMilliseconds
+        if ($profileLoadMilliseconds -gt 500) {
+            throw ("fresh PowerShell profile load took {0:N0} ms; expected at most 500 ms" -f $profileLoadMilliseconds)
+        }
+        $profilePerlStarts = @(
+            Get-Event -SourceIdentifier $processTraceSource -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.SourceEventArgs.NewEvent.ParentProcessID -eq $profileLoadProcess.Id -and
+                    $_.SourceEventArgs.NewEvent.ProcessName -match '^perl(?:\.exe)?$'
+                }
+        )
+        if ($profilePerlStarts.Count -gt 0) {
+            throw "fresh PowerShell profile load launched Perl"
+        }
+
         & powershell.exe @(
             '-NoLogo',
             '-File',
@@ -593,6 +617,8 @@ Write-TraceLine "DASHBOARD_LOGS_END"
         }
     }
     finally {
+        Unregister-Event -SourceIdentifier $processTraceSource -ErrorAction SilentlyContinue
+        Remove-Event -SourceIdentifier $processTraceSource -ErrorAction SilentlyContinue
         Remove-Item Env:DD_SMOKE_SKILL_SOURCE -ErrorAction SilentlyContinue
         Remove-Item Env:DD_FRESH_SESSION_LOG -ErrorAction SilentlyContinue
         Remove-Item $freshSessionScriptPath -ErrorAction SilentlyContinue

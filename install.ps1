@@ -880,6 +880,30 @@ function Ensure-ProfileContains {
     Set-Content -Path $TargetProfile -Value ($combined + [Environment]::NewLine) -Encoding UTF8
 }
 
+function Assert-ValidPowerShellCache {
+    # Purpose: reject a missing, empty, or syntactically invalid generated PowerShell startup cache.
+    # Input: cache file path and a human-readable cache label.
+    # Output: returns nothing when valid and throws with a refresh instruction otherwise.
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$Label
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf) -or (Get-Item -LiteralPath $Path).Length -le 0) {
+        throw "PowerShell startup cache generation failed: $Label is missing or empty at $Path. Run 'dashboard shell ps' to refresh the cache files."
+    }
+
+    $tokens = $null
+    $parseErrors = $null
+    $null = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$parseErrors)
+    if ($parseErrors.Count -gt 0) {
+        $messages = ($parseErrors | ForEach-Object { $_.Message }) -join '; '
+        throw "PowerShell startup cache generation failed: $Label is invalid at $Path ($messages). Run 'dashboard shell ps' to refresh the cache files."
+    }
+}
+
 function Ensure-CurrentUserPowerShellExecutionPolicy {
     # Purpose: make sure the current user can load the generated PowerShell profile script in future sessions.
     # Input: the current-user PowerShell execution policy state.
@@ -1017,9 +1041,7 @@ $profileExtraRuntimePathLines = ($profileExtraRuntimePaths | ForEach-Object { " 
 $profileBlock = @"
 # >>> Developer Dashboard bootstrap >>>
 `$ddInstallRoot = '$InstallRoot'
-`$ddInstallRootForward = `$ddInstallRoot -replace '\\', '/'
 `$ddPerlBin = Join-Path `$ddInstallRoot 'bin'
-`$ddPerlLib = Join-Path `$ddInstallRoot 'lib\perl5'
 if ([string]::IsNullOrWhiteSpace(`$env:HOME) -and -not [string]::IsNullOrWhiteSpace(`$HOME)) {
     `$env:HOME = `$HOME
 }
@@ -1029,7 +1051,9 @@ $profilePerlRuntimePathLines
 `$ddExtraRuntimePaths = @(
 $profileExtraRuntimePathLines
 )
-`$ddHomeHelper = Join-Path `$HOME '.developer-dashboard\cli\dd\_dashboard-core'
+`$ddCacheRoot = Join-Path `$HOME '.developer-dashboard\cache'
+`$ddEnvironmentCache = Join-Path `$ddCacheRoot 'powershell-env.ps1'
+`$ddBootstrapCache = Join-Path `$ddCacheRoot 'powershell-bootstrap.ps1'
 if (Test-Path `$ddPerlBin) {
     if (`$env:PATH -notlike "*`$ddPerlBin*") {
         `$env:PATH = "`$ddPerlBin;`$env:PATH"
@@ -1045,33 +1069,20 @@ foreach (`$ddExtraRuntimePath in `$ddExtraRuntimePaths) {
         `$env:PATH = "`$ddExtraRuntimePath;`$env:PATH"
     }
 }
-`$ddPerlCommand = Get-Command perl.exe -ErrorAction SilentlyContinue
-if (`$ddPerlCommand -and (Test-Path `$ddPerlLib)) {
-    `$ddLocalLibDump = & `$ddPerlCommand.Source "-I`$ddPerlLib" "-Mlocal::lib=`$ddInstallRootForward" '-e' 'for my `$key (qw(PATH PERL5LIB PERL_LOCAL_LIB_ROOT PERL_MB_OPT PERL_MM_OPT)) { next unless exists `$ENV{`$key}; print `$key, q(=), `$ENV{`$key}, chr(10); }'
-    foreach (`$ddLine in `$ddLocalLibDump) {
-        if (`$ddLine -match '^([^=]+)=(.*)$') {
-            Set-Item -Path ("Env:{0}" -f `$matches[1]) -Value `$matches[2]
-        }
+if ((Test-Path -LiteralPath `$ddEnvironmentCache -PathType Leaf) -and
+    (Test-Path -LiteralPath `$ddBootstrapCache -PathType Leaf) -and
+    ((Get-Item -LiteralPath `$ddEnvironmentCache).Length -gt 0) -and
+    ((Get-Item -LiteralPath `$ddBootstrapCache).Length -gt 0)) {
+    try {
+        . `$ddEnvironmentCache
+        . `$ddBootstrapCache
+    }
+    catch {
+        Write-Warning "Developer Dashboard PowerShell startup cache files could not be loaded. Run 'dashboard shell ps' to refresh them. `$(`$_.Exception.Message)"
     }
 }
-`$ddDashboardCommand = `$null
-foreach (`$ddDashboardCandidate in @(
-    (Join-Path `$ddPerlBin 'dashboard.bat'),
-    (Join-Path `$ddPerlBin 'dashboard.cmd'),
-    (Join-Path `$ddPerlBin 'dashboard'),
-    ((Get-Command dashboard -ErrorAction SilentlyContinue).Source)
-)) {
-    if (-not [string]::IsNullOrWhiteSpace(`$ddDashboardCandidate) -and (Test-Path `$ddDashboardCandidate)) {
-        `$ddDashboardCommand = `$ddDashboardCandidate
-        break
-    }
-}
-if (-not [string]::IsNullOrWhiteSpace(`$ddDashboardCommand) -and (Test-Path `$ddHomeHelper)) {
-    `$ddShellBootstrap = & `$ddPerlCommand.Source `$ddDashboardCommand shell ps
-    `$ddShellBootstrapText = ((@(`$ddShellBootstrap | Where-Object { `$null -ne `$_ } | ForEach-Object { [string]`$_ })) -join [Environment]::NewLine)
-    if (-not [string]::IsNullOrWhiteSpace(`$ddShellBootstrapText)) {
-        Invoke-Expression `$ddShellBootstrapText
-    }
+else {
+    Write-Warning "Developer Dashboard PowerShell startup cache files are missing or empty. Run 'dashboard shell ps' to refresh them."
 }
 # <<< Developer Dashboard bootstrap <<<
 "@
@@ -1118,13 +1129,22 @@ if ([string]::IsNullOrWhiteSpace($dashboardCommand)) {
     }
     $dashboardCommand = $candidate
 }
-Ensure-ProfileContains -TargetProfile $ProfilePath -Block $profileBlock -Marker 'Developer Dashboard bootstrap'
 Set-StepStatus -Id 'install_dashboard' -Status 'ok' -Detail ("target: {0}" -f $effectiveCpanTarget)
 
 Set-StepStatus -Id 'initialize_dashboard' -Status 'running'
 Invoke-NativeCommand -Label 'dashboard init' -FilePath $dashboardCommand -Arguments @('init')
 $dashboardShellBootstrap = & $perlPath $dashboardCommand shell ps
 $dashboardShellBootstrapText = Join-ScriptText -Value $dashboardShellBootstrap
+$powershellCacheRoot = Join-Path (Resolve-HomeDirectory) '.developer-dashboard\cache'
+$powershellEnvironmentCache = Join-Path $powershellCacheRoot 'powershell-env.ps1'
+$powershellBootstrapCache = Join-Path $powershellCacheRoot 'powershell-bootstrap.ps1'
+if (-not (Test-Path -LiteralPath $powershellEnvironmentCache -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $powershellBootstrapCache -PathType Leaf)) {
+    throw "PowerShell startup cache generation failed. Run 'dashboard shell ps' to refresh the cache files."
+}
+Assert-ValidPowerShellCache -Path $powershellEnvironmentCache -Label 'environment cache'
+Assert-ValidPowerShellCache -Path $powershellBootstrapCache -Label 'shell bootstrap cache'
+Ensure-ProfileContains -TargetProfile $ProfilePath -Block $profileBlock -Marker 'Developer Dashboard bootstrap'
 if (-not [string]::IsNullOrWhiteSpace($dashboardShellBootstrapText)) {
     Invoke-Expression $dashboardShellBootstrapText
 }
