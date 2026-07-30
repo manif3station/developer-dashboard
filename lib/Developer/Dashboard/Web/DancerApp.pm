@@ -208,6 +208,12 @@ get '/apps' => sub {
     return _run_authorized('apps_redirect_response');
 };
 
+# Browsers request the tab icon on their own for every page load, including on
+# the login page, so this route stays outside the authorization gate.
+get '/favicon.ico' => sub {
+    return _run_backend('favicon_response');
+};
+
 any [qw(get post)] => '/ajax' => sub {
     return _run_authorized('legacy_ajax_response');
 };
@@ -289,7 +295,10 @@ It normalizes each request, enforces authorization for protected routes, and
 delegates the page and action work to C<Developer::Dashboard::Web::App>. The
 route adapter intentionally hands the namespaced C</app>, C</ajax>, C</js>,
 C</css>, and C</others> surfaces back to the backend dispatcher so the
-installed PSGI server stays in lock-step with the backend smart router.
+installed PSGI server stays in lock-step with the backend smart router. The
+C</favicon.ico> route is deliberately registered without the authorization
+wrapper, because browsers request the tab icon implicitly on every page load,
+including on the login page itself.
 
 =head1 METHODS
 

@@ -123,6 +123,9 @@ sub handle {
     if ( $path eq '/logout' ) {
         return $self->logout_response(%args);
     }
+    if ( $path eq '/favicon.ico' ) {
+        return $self->favicon_response(%args);
+    }
 
     my $auth_response = $self->authorize_request(%args);
     return $auth_response if $auth_response;
@@ -701,6 +704,23 @@ sub marked_js_response {
 sub tiff_js_response {
     my ( $self, %args ) = @_;
     return [ 200, 'application/javascript; charset=utf-8', "window.Tiff=window.Tiff||function(){};\n" ];
+}
+
+# favicon_response(%args)
+# Serves the browser tab icon that every browser requests on its own for each
+# page load, preferring a layered `others/favicon.ico` override over the icon
+# bundled with the distribution.
+# Input: normalized request arguments.
+# Output: response array reference.
+sub favicon_response {
+    my ( $self, %args ) = @_;
+    my $override = $self->_serve_static_file( 'others', 'favicon.ico' );
+    return $override if $override->[0] == 200;
+    return $self->_serve_static_file_at_path(
+        'others',
+        'favicon.ico',
+        _bundled_public_asset_path( 'others', 'favicon.ico' ),
+    );
 }
 
 # loading_image_response(%args)
@@ -3108,6 +3128,9 @@ This module handles the browser-facing dashboard routes, helper login flow,
 page rendering modes, and page/action execution endpoints. It also provides
 static file serving for JavaScript, CSS, and other assets from the public
 directory structure (~/.developer-dashboard/dashboard/public/{js,css,others}).
+The browser tab icon at C</favicon.ico> is served from the same layered
+C<others> roots with a bundled fallback, and resolves before the authorization
+gate because browsers request it implicitly on every page load.
 
 =head1 METHODS
 
