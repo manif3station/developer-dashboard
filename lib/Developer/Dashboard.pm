@@ -883,7 +883,12 @@ runtime public tree first and then from the saved bookmark root. The web layer
 also provides a built-in bundled C</js/jquery.js> asset that serves the local
 copy of jQuery 4.0.0, with C</js/jquery-4.0.0.min.js> kept as a compatibility
 alias for the same shipped payload even when no runtime file has been copied
-into C<dashboard/public/js> yet. Skills can ship the same classes of assets
+into C<dashboard/public/js> yet. The bundled browser tab icon works the same
+way: browsers request C</favicon.ico> on their own for every page load, so that
+route is served outside the authorization gate, on every trust tier and before
+any helper login, from the bundled 16x16 icon. Dropping your own
+C<dashboard/public/others/favicon.ico> into any runtime layer overrides it.
+Skills can ship the same classes of assets
 under their own dashboard tree: C<dashboards/ajax/*> resolves at
 C</ajax/E<lt>repo-nameE<gt>/...> or
 C</ajax/E<lt>repo-nameE<gt>/E<lt>sub-skillE<gt>/...>, and
