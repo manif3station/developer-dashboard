@@ -298,7 +298,7 @@ for my $case (
 
 {
     my $ua = Developer::Dashboard::CLI::Upgrade::_user_agent();
-    is( $ua->agent, 'Developer-Dashboard/4.22 upgrade', 'the production downloader identifies the installed dashboard version' );
+    is( $ua->agent, 'Developer-Dashboard/4.23 upgrade', 'the production downloader identifies the installed dashboard version' );
     is( $ua->timeout, 60, 'the production downloader has a bounded timeout' );
     is( $ua->max_size, 512_000, 'the production downloader bounds installer size' );
     is( $ua->max_redirect, 3, 'the production downloader bounds redirects' );
@@ -316,6 +316,44 @@ for my $case (
     );
     close $out;
     like( $output, qr/^Platform: unix$/m, 'the active non-Windows host resolves to the Unix installer family' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
+    is(
+        Developer::Dashboard::CLI::Upgrade::_platform_name(),
+        'windows',
+        'a real Windows runtime resolves to the Windows installer family through the shared platform detector',
+    );
+
+    my $output = '';
+    open my $out, '>', \$output or die "Unable to open scalar output: $!";
+    my @urls;
+    my @commands;
+    is(
+        Developer::Dashboard::CLI::Upgrade::run_upgrade(
+            args   => ['--dry-run'],
+            out    => $out,
+            ua     => upgrade_ua( urls => \@urls, content => $windows_installer ),
+            runner => sub { push @commands, $_[0]; return 0 },
+        ),
+        0,
+        'Given a Windows runtime with no explicit platform override, when upgrade runs, then it plans without a network request',
+    );
+    close $out;
+    like( $output, qr/^Platform: windows$/m, 'the forced Windows runtime selects the Windows installer family end to end' );
+    like( $output, qr{^Installer: \Qhttps://raw.githubusercontent.com/manif3station/developer-dashboard/master/install.ps1\E$}m, 'the forced Windows runtime plans the canonical install.ps1 asset' );
+    is_deeply( \@urls, [], 'the Windows plan performs no network request' );
+    is_deeply( \@commands, [], 'the Windows plan executes no installer' );
+}
+
+{
+    local $Developer::Dashboard::Platform::OS_NAME = 'darwin';
+    is(
+        Developer::Dashboard::CLI::Upgrade::_platform_name(),
+        'unix',
+        'macOS resolves to the Unix installer family so upgrade uses install.sh through sh',
+    );
 }
 
 {
@@ -377,7 +415,7 @@ __END__
 
 =head1 NAME
 
-t/107-upgrade-cli.t - acceptance contract for dashboard and d2 self-upgrade
+t/122-upgrade-cli.t - acceptance contract for dashboard and d2 self-upgrade
 
 =head1 PURPOSE
 
@@ -400,7 +438,7 @@ installer URLs, or platform process invocation changes.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/107-upgrade-cli.t> during the RED-GREEN-REFACTOR loop, then
+Run C<prove -lv t/122-upgrade-cli.t> during the RED-GREEN-REFACTOR loop, then
 run the full test and coverage gates before shipping.
 
 =head1 WHAT USES IT
@@ -411,7 +449,7 @@ failures.
 
 =head1 EXAMPLES
 
-  prove -lv t/107-upgrade-cli.t
+  prove -lv t/122-upgrade-cli.t
   prove -lr t
 
 =cut
