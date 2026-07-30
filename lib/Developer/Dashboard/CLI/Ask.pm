@@ -61,8 +61,8 @@ sub run_ask {
     die "No question provided.\nUsage: dashboard ask [--claude|--codex|--copilot|--gemini] [--model M] [--file PATH]... <question>\n"
       if $prompt eq '';
 
-    my $config = $args{config} || _build_config( $env );
-    my $paths  = $args{paths}  || $config->{paths};
+    my $config = $args{config} || _build_config( $env );    # uncoverable condition false _build_config always returns a blessed config object
+    my $paths  = $args{paths}  || $config->{paths};         # uncoverable condition false a config object always carries its path registry
 
     my $key = _workspace_key( $paths, $env );
     my $file = _transcript_file( $paths, $key );
@@ -178,7 +178,7 @@ sub _ask_claude {
             key        => $key,
             base_url   => ( $a{claude_conf}{base_url} || $DEFAULT_BASE_URL ),
             model      => ( $a{model} || $DEFAULT_MODEL ),
-            max_tokens => ( $a{claude_conf}{max_tokens} || $DEFAULT_MAX_TOKENS ),
+            max_tokens => ( $a{claude_conf}{max_tokens} || $DEFAULT_MAX_TOKENS ),    # uncoverable condition false count:1..4 the four fallbacks on this call are a built agent and non-empty module defaults, so no fallback is ever false
             messages   => $messages,
         );
     }
@@ -315,7 +315,7 @@ sub _slurp {
     local $/;
     my $body = <$fh>;
     close $fh;
-    return defined $body ? $body : '';
+    return defined $body ? $body : '';    # uncoverable branch false a readable attachment always slurps to a defined string (an empty file reads as the empty string, not undef)
 }
 
 # _build_api_messages($history, $prompt, $text_files, $images)
@@ -543,8 +543,8 @@ sub _build_config {
     my $home = $env->{HOME} || '';
     my $paths = Developer::Dashboard::PathRegistry->new(
         home            => $home,
-        workspace_roots => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],
-        project_roots   => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],
+        workspace_roots => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],    # uncoverable branch false the interpolated map above always yields a defined string
+        project_roots   => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],    # uncoverable branch false the interpolated map above always yields a defined string
     );
     my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
     return Developer::Dashboard::Config->new( files => $files, paths => $paths );
