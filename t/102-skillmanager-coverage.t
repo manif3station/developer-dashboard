@@ -7,6 +7,7 @@ use utf8;
 use Test::More;
 use File::Temp qw(tempdir);
 use File::Path qw(make_path remove_tree);
+use File::Basename qw(dirname);
 use File::Spec;
 use Cwd qw(getcwd realpath);
 use Capture::Tiny qw(capture);
@@ -1788,6 +1789,117 @@ my $repos = tempdir( CLEANUP => 1 );
         chmod 0000, File::Spec->catfile( $sk, 'config', 'config.json' );
         is_deeply( $manager->_read_skill_config_file($sk), {}, 'config reader returns empty when the config cannot be opened' );
         chmod 0644, File::Spec->catfile( $sk, 'config', 'config.json' );
+    }
+}
+
+# ===========================================================================
+# DD-426: install must never join an unvalidated repo name onto a skills root.
+#
+# _extract_repo_name yields '..' for several ordinary-looking install sources,
+# and File::Spec->catdir never collapses a parent-directory component, so the
+# install destination used to resolve to the PARENT of the skills root - which
+# install then remove_tree'd, because install doubles as reinstall. The whole
+# runtime layer (config, bookmarks, installed skills) was emptied before the
+# operator saw a message that read like a benign install failure.
+# ===========================================================================
+{
+    my $traversal_home = tempdir( CLEANUP => 1 );
+    my $traversal_paths = Developer::Dashboard::PathRegistry->new( home => $traversal_home );
+    my $traversal_manager = Developer::Dashboard::SkillManager->new( paths => $traversal_paths );
+    my $traversal_root = $traversal_paths->skills_root;
+    $traversal_paths->ensure_dir($traversal_root);
+
+    # A canary in the runtime layer that owns the skills root: the traversal
+    # target. It must still be there after every refused install.
+    my $layer_root = dirname($traversal_root);
+    my $canary = File::Spec->catfile( $layer_root, 'canary.txt' );
+    _spew( $canary, "precious\n" );
+
+    # Every source form the hunter reproduced, plus the single-dot sibling that
+    # resolves to the skills root itself.
+    my @traversal_sources = (
+        'owner/..',
+        'file:///x/..',
+        'git@github.com:owner/..',
+        'https://github.com/owner/../..',
+        'owner/.',
+    );
+    for my $source (@traversal_sources) {
+        my $result = $traversal_manager->_install_to_skills_root( $source, $traversal_root );
+        like(
+            $result->{error},
+            qr/\ARefusing to install skill outside skills root/,
+            "install refuses the traversal source $source before touching the filesystem",
+        );
+        ok( -f $canary, "the runtime layer canary survives the traversal source $source" );
+    }
+    ok( -d $traversal_root, 'the skills root itself survives every refused traversal install' );
+
+    # The same refusal reaches the public install entrypoint.
+    like(
+        $traversal_manager->install('owner/..')->{error},
+        qr/\ARefusing to install skill outside skills root/,
+        'install() refuses a traversal source through the public entrypoint',
+    );
+    ok( -f $canary, 'the runtime layer canary survives the public install entrypoint' );
+
+    # _is_safe_skill_name whitelist: exactly one ordinary path segment.
+    ok( Developer::Dashboard::SkillManager::_is_safe_skill_name('alpha-skill'), 'a plain repo name is a safe skill name' );
+    ok( !Developer::Dashboard::SkillManager::_is_safe_skill_name(undef), 'an undefined repo name is not a safe skill name' );
+    ok( !Developer::Dashboard::SkillManager::_is_safe_skill_name(''), 'an empty repo name is not a safe skill name' );
+    ok( !Developer::Dashboard::SkillManager::_is_safe_skill_name('..'), 'a parent-directory repo name is not a safe skill name' );
+    ok( !Developer::Dashboard::SkillManager::_is_safe_skill_name('.'), 'a current-directory repo name is not a safe skill name' );
+    ok( !Developer::Dashboard::SkillManager::_is_safe_skill_name('a/b'), 'a multi-segment repo name is not a safe skill name' );
+    ok( !Developer::Dashboard::SkillManager::_is_safe_skill_name('a\\b'), 'a backslash-separated repo name is not a safe skill name' );
+    ok( !Developer::Dashboard::SkillManager::_is_safe_skill_name('/abs'), 'an absolute repo name is not a safe skill name' );
+    ok( !Developer::Dashboard::SkillManager::_is_safe_skill_name('C:name'), 'a drive-qualified repo name is not a safe skill name' );
+    ok( !Developer::Dashboard::SkillManager::_is_safe_skill_name("na\x00me"), 'a NUL-bearing repo name is not a safe skill name' );
+
+    # _install_path_contained: the second, independent guard. A validated name
+    # still has to resolve to somewhere strictly beneath the skills root.
+    ok(
+        $traversal_manager->_install_path_contained( File::Spec->catdir( $traversal_root, 'fresh' ), $traversal_root ),
+        'a not-yet-created destination under the skills root is contained',
+    );
+    my $real_child = File::Spec->catdir( $traversal_root, 'real-child' );
+    make_path($real_child);
+    ok(
+        $traversal_manager->_install_path_contained( $real_child, $traversal_root ),
+        'an existing real directory under the skills root is contained',
+    );
+    ok(
+        !$traversal_manager->_install_path_contained(
+            File::Spec->catdir( $traversal_root, 'no-such-root', 'deeper', 'fresh' ),
+            File::Spec->catdir( $traversal_root, 'no-such-root', 'deeper' )
+        ),
+        'an unresolvable skills root is refused instead of assumed safe',
+    );
+
+  SKIP: {
+        skip 'symlinks unavailable on this host', 4 if !eval { symlink q{}, q{}; 1 };
+
+        my $outside = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'outside-tree' );
+        make_path($outside);
+        my $escape_link = File::Spec->catdir( $traversal_root, 'escape-link' );
+        symlink( $outside, $escape_link ) or die "Unable to create escape symlink: $!";
+        ok(
+            !$traversal_manager->_install_path_contained( $escape_link, $traversal_root ),
+            'a planted symlink that resolves outside the skills root is refused',
+        );
+        like(
+            $traversal_manager->_install_to_skills_root( 'owner/escape-link', $traversal_root )->{error},
+            qr/\ARefusing to install skill outside skills root/,
+            'install refuses to replace a destination that resolves outside the skills root',
+        );
+        ok( -d $outside, 'the symlink target tree survives the refused install' );
+
+        my $dangling = File::Spec->catdir( $traversal_root, 'dangling-link' );
+        symlink( File::Spec->catdir( $outside, 'gone-parent', 'gone' ), $dangling )
+          or die "Unable to create dangling symlink: $!";
+        ok(
+            !$traversal_manager->_install_path_contained( $dangling, $traversal_root ),
+            'a destination whose resolved target cannot be established is refused',
+        );
     }
 }
 

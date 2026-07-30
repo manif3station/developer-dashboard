@@ -2868,6 +2868,25 @@ is( $manager->_normalize_install_source('foo bar?baz'), 'foo bar?baz', '_normali
 is( Developer::Dashboard::SkillManager::_extract_repo_name('bogus'), undef, '_extract_repo_name returns undef for strings without a repo path segment' );
 is( Developer::Dashboard::SkillManager::_extract_repo_name('https://example.invalid/owner/repo.git'), 'repo', '_extract_repo_name strips .git from repository URLs' );
 is( Developer::Dashboard::SkillManager::_extract_repo_name(''), undef, '_extract_repo_name returns undef for empty URLs' );
+
+# DD-426: _extract_repo_name is a parser, not a validator - it happily returns
+# '..' for these ordinary-looking sources. The install boundary is what has to
+# refuse them, so pin both halves of that contract here.
+for my $traversal_source ( 'https://github.com/owner/..', 'file:///x/..', 'git@github.com:owner/..' ) {
+    is(
+        Developer::Dashboard::SkillManager::_extract_repo_name($traversal_source),
+        '..',
+        "_extract_repo_name still yields the raw '..' segment for $traversal_source",
+    );
+    ok(
+        !Developer::Dashboard::SkillManager::_is_safe_skill_name(
+            Developer::Dashboard::SkillManager::_extract_repo_name($traversal_source)
+        ),
+        "the extracted repo name for $traversal_source is rejected as an unsafe skill name",
+    );
+}
+ok( Developer::Dashboard::SkillManager::_is_safe_skill_name('repo'), 'an ordinary extracted repo name passes the safe-skill-name whitelist' );
+
 is_deeply( $manager->install(''), { error => 'Missing skill source' }, 'install rejects an empty skill source' );
 {
     my $shorthand_home = tempdir( CLEANUP => 1 );
