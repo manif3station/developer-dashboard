@@ -189,6 +189,8 @@ if ($has_integration_assets) {
     like( $windows_smoke, qr/\& powershell\.exe \@\(\s*'-NoLogo',\s*'-File',\s*\$freshSessionScriptPath/s, 'Windows Strawberry smoke script re-enters a normal profile-loaded PowerShell session through a direct powershell.exe invocation without piping its stdout through an outer capture' );
     like( $windows_smoke, qr/DD_FRESH_SESSION_LOG/, 'Windows Strawberry smoke script passes a dedicated fresh-session marker log path into the child PowerShell process' );
     like( $windows_smoke, qr/Add-Content -Path \$env:DD_FRESH_SESSION_LOG -Value \$Line/, 'Windows Strawberry smoke script records fresh-session progress markers through a dedicated child-side log file instead of outer stdout capture' );
+    like( $windows_smoke, qr/Stopwatch\]::StartNew\(\).*?TotalMilliseconds.*?500/s, 'Windows Strawberry smoke script enforces the 500 ms fresh profile-load budget' );
+    like( $windows_smoke, qr/Win32_ProcessStartTrace.*?perl(?:\.exe)?/si, 'Windows Strawberry smoke script observes process-start events and rejects Perl launches during fresh profile loading' );
     like( $windows_smoke, qr/DASHBOARD_LOGS_START/, 'Windows Strawberry smoke script prints an explicit dashboard logs marker during the fresh PowerShell bootstrap proof' );
     like( $windows_smoke, qr/Get-Command dashboard -ErrorAction Stop/, 'Windows Strawberry smoke script requires a fresh PowerShell session to resolve dashboard through normal command discovery' );
     like( $windows_smoke, qr/DASHBOARD_RESTART_START/, 'Windows Strawberry smoke script prints an explicit dashboard restart marker during the fresh PowerShell bootstrap proof' );
