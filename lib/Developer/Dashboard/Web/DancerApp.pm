@@ -282,6 +282,8 @@ any [qw(get post)] => qr{.*} => sub {
 
 __END__
 
+=encoding UTF-8
+
 =head1 NAME
 
 Developer::Dashboard::Web::DancerApp - Dancer2 route layer for Developer Dashboard

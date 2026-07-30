@@ -3378,6 +3378,8 @@ sub _get_content_type {
 
 __END__
 
+=encoding UTF-8
+
 =head1 NAME
 
 Developer::Dashboard::Web::App - local web application for Developer Dashboard
