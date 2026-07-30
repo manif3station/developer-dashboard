@@ -51,6 +51,47 @@ sub _fork_reaped_child {
     return $pid;
 }
 
+# _exec_failure_in_child($command)
+# Drives the launcher's failed-exec path in a forked child and hands the
+# exception text back to the harness.
+# The exec attempt must never happen in the harness process. Devel::Cover
+# writes its run and stops recording the moment a process attempts an exec,
+# because it expects the process to be replaced; a failed exec leaves the
+# process running but blind, so every assertion after it in this file would
+# pass while contributing nothing to the coverage gate. The child is a
+# throwaway, so losing its recording after the exec attempt costs nothing.
+# Input: absolute path of a command that cannot be executed.
+# Output: exception text the launcher died with, or the empty string.
+sub _exec_failure_in_child {
+    my ($command) = @_;
+    pipe my $error_r, my $error_w or die "pipe: $!";
+    my $pid = fork();
+    die "fork failed: $!" if !defined $pid;
+    if ( !$pid ) {
+        close $error_r;
+
+        # Stub setpgid to success so the child reaches the exec itself; it is
+        # already its own group leader, so nothing is detached by saying so.
+        local $Developer::Dashboard::PageRuntime::SETPGID = sub { return '0 but true' };
+        my $error = '';
+
+        # capture swallows perl's mandatory failed-exec warning so the run
+        # stays output-clean.
+        capture {
+            eval { Developer::Dashboard::PageRuntime->_exec_saved_ajax_command($command); 1 };
+            $error = $@;
+        };
+        syswrite $error_w, $error;
+        close $error_w;
+        POSIX::_exit(0);
+    }
+    close $error_w;
+    my $error = do { local $/; <$error_r> } // '';
+    close $error_r;
+    waitpid( $pid, 0 );
+    return $error;
+}
+
 # ---- _saved_ajax_launch_command: guard, Windows identity, POSIX wrapper ------
 {
     eval { $runtime->_saved_ajax_launch_command(); 1 };
@@ -98,17 +139,7 @@ sub _fork_reaped_child {
     }
 
     my $missing = File::Spec->catfile( $home, 'dd396-no-such-binary' );
-    my $exec_error = '';
-    {
-        # Stub setpgid to success so the in-process call reaches exec without
-        # detaching this test from the harness process group; capture swallows
-        # perl's mandatory failed-exec warning so the run stays output-clean.
-        local $Developer::Dashboard::PageRuntime::SETPGID = sub { return '0 but true' };
-        capture {
-            eval { Developer::Dashboard::PageRuntime->_exec_saved_ajax_command($missing); 1 };
-            $exec_error = $@;
-        };
-    }
+    my $exec_error = _exec_failure_in_child($missing);
     like( $exec_error, qr/Unable to exec saved ajax command/, '_exec_saved_ajax_command dies when exec cannot start the command' );
 
     # The real injectable primitive: setpgid(0,0) succeeds in-process (it is a
@@ -227,6 +258,21 @@ sub _read_marker_pid {
         $Developer::Dashboard::PageRuntime::SAVED_AJAX_TERM_GRACE_SECONDS,
         'the grace-window poll interval is shorter than the window it polls',
     );
+}
+
+# The status reference threaded into the grace-window wait is documented as
+# optional, and both production callers do pass one. The omitted form is still a
+# supported call that the process-group scenarios above rely on, so pin it here
+# directly instead of leaving the contract to be inferred from them: a future
+# refactor that reads the guard as dead defensive code has to fail this first.
+{
+    my $orphan = fork();
+    die "fork failed: $!" if !defined $orphan;
+    if ( !$orphan ) { POSIX::_exit(0); }
+    push @cleanup_pids, $orphan;
+
+    is( $runtime->_await_saved_ajax_exit( $orphan, undef ), 1, '_await_saved_ajax_exit drains an exited worker with no status reference supplied' );
+    is( waitpid( $orphan, WNOHANG ), -1, '_await_saved_ajax_exit reaped the worker it drained without a status reference' );
 }
 
 # Scenario: a cooperative worker whose SIGTERM handler needs measurable time to
