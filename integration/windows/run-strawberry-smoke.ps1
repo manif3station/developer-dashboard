@@ -807,6 +807,63 @@ try {
     }
     Invoke-AssertContains -Text $collectorOutput -Fragment "collector-ok" -Label "collector output"
 
+    Write-PhaseStatus -Phase "run-collector-timeout-check"
+    $timeoutMarker = "DD389_TIMEOUT_" + [guid]::NewGuid().ToString("N")
+    $timeoutProbe = Join-Path $tempRoot "collector-timeout-probe.pl"
+    $timeoutProbeSource = @'
+use strict;
+use warnings;
+use File::Spec;
+use Time::HiRes qw(time);
+use Developer::Dashboard::Collector;
+use Developer::Dashboard::CollectorRunner;
+use Developer::Dashboard::FileRegistry;
+use Developer::Dashboard::PathRegistry;
+
+my ( $home, $marker ) = @ARGV;
+my $paths = Developer::Dashboard::PathRegistry->new(
+    home => $home,
+    workspace_roots => [ File::Spec->catdir( $home, 'workspace' ) ],
+);
+my $runner = Developer::Dashboard::CollectorRunner->new(
+    collectors => Developer::Dashboard::Collector->new( paths => $paths ),
+    files      => Developer::Dashboard::FileRegistry->new( paths => $paths ),
+    paths      => $paths,
+);
+my $started = time();
+my $result = $runner->run_once(
+    {
+        name       => 'windows.timeout.collector',
+        command    => q{Write-Output timeout-start; Start-Process powershell.exe -ArgumentList '-NoLogo','-NoProfile','-Command','Start-Sleep -Seconds 60 # } . $marker . q{' -Wait},
+        cwd        => $home,
+        timeout_ms => 1000,
+    }
+);
+printf "elapsed_ms=%.0f exit_code=%d timed_out=%d stdout=%s\n",
+  ( time() - $started ) * 1000,
+  $result->{exit_code},
+  $result->{timed_out},
+  $result->{stdout};
+exit( $result->{exit_code} == 124 && $result->{timed_out} ? 0 : 1 );
+'@
+    Set-Content -Path $timeoutProbe -Value $timeoutProbeSource -Encoding UTF8
+    $timeoutProof = & $Perl $timeoutProbe $homeRoot $timeoutMarker | Out-String
+    if ($LASTEXITCODE -ne 0) {
+        throw "Windows collector timeout probe failed with exit code $LASTEXITCODE`: $timeoutProof"
+    }
+    if ($timeoutProof -notmatch 'elapsed_ms=(\d+)\s+exit_code=124\s+timed_out=1') {
+        throw "Windows collector timeout proof was incomplete: $timeoutProof"
+    }
+    $timeoutElapsed = [int]$Matches[1]
+    if ($timeoutElapsed -gt 10000) {
+        throw "Windows collector timeout exceeded bounded cleanup grace: $timeoutElapsed ms"
+    }
+    $timeoutDescendants = @(Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*$timeoutMarker*" })
+    if ($timeoutDescendants.Count -ne 0) {
+        throw "Timed-out Windows collector left $($timeoutDescendants.Count) marked descendant process(es) alive"
+    }
+    Write-Host "Windows collector timeout $timeoutProof marker_processes=$($timeoutDescendants.Count)"
+
     Invoke-LoggedCommand -Label "dashboard auth add-user helper smoke-pass-123" -Command @($Dashboard, "auth", "add-user", "helper", "smoke-pass-123")
 
     Write-PhaseStatus -Phase "start-dashboard-server"
