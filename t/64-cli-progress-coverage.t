@@ -123,6 +123,60 @@ sub make_progress {
     );
 }
 
+# DD-394 characterization pin: render records the rendered line count so the
+# dynamic redraw can rewind exactly that many terminal lines. The count is
+# derived from splitting the rendered board on newlines, and the split-derived
+# list can never contain undef, so the count must include interior blank lines
+# and must exclude the single trailing newline that render_text always appends.
+# This block pins the exact count before and after the redundant definedness
+# filter is removed from that expression.
+{
+    my ( $progress, $buffer ) = make_progress( dynamic => 1 );
+    is(
+        $progress->{last_rendered_line_count},
+        2,
+        'render counts every rendered board line and ignores the trailing newline',
+    );
+
+    my $board = $progress->render_text;
+    is( scalar( () = $board =~ /\n/g ), 2, 'the rendered board carries one newline per counted line' );
+    like( $board, qr/\n\z/, 'render_text terminates the board with exactly one trailing newline' );
+
+    $progress->update( { task_id => 'task-a', status => 'running', detail_lines => [ 'one', 'two' ] } );
+    is(
+        $progress->{last_rendered_line_count},
+        4,
+        'render recounts the board after detail lines grow it',
+    );
+
+    my $rewinds = () = ${$buffer} =~ /\e\[1A\e\[2K/g;
+    is( $rewinds, 2, 'the dynamic redraw rewound exactly the previously counted line count' );
+}
+
+# DD-394 characterization pin: an interior blank line is a real rendered line
+# and must be counted, which is the one case where the removed defined() filter
+# could have looked load-bearing — split yields an empty string there, never
+# undef, so the count is unchanged by the simplification.
+{
+    my ($progress) = make_progress( title => "banner\n\ntrailer" );
+    is(
+        $progress->{last_rendered_line_count},
+        4,
+        'render counts interior blank lines produced by a multi-line title',
+    );
+}
+
+# DD-394 acceptance: the simplified filters keep excluding empty fields from
+# split-derived lists, which is the only filtering the removed defined() side
+# ever contributed to.
+{
+    is_deeply(
+        [ grep { $_ ne '' } split /:/, ':alpha::beta:' ],
+        [ 'alpha', 'beta' ],
+        'a split-derived non-empty filter still drops leading, interior, and trailing empty fields',
+    );
+}
+
 done_testing;
 
 __END__
