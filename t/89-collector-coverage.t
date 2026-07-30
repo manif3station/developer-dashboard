@@ -791,12 +791,31 @@ dies_like( sub { $collector->_format_log_entry( name => '' ) }, qr/Missing colle
 }
 
 # ---------------------------------------------------------------------------
-# _atomic_write_text surfaces a pending file it cannot open or write.
+# _pending_path stages every write under a per-writer temporary name so
+# concurrent collector workers cannot share one staging file.
+# ---------------------------------------------------------------------------
+{
+    my $file    = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'combined' );
+    my $pending = $collector->_pending_path($file);
+    like( $pending, qr/\A\Q$file\E\.\Q$$\E\.[0-9.]+\.pending\z/,
+        '_pending_path returns a "<file>.<pid>.<time>.pending" staging path' );
+    isnt( $pending, "$file.pending",
+        '_pending_path never returns the process-independent shared staging path' );
+}
+
+# ---------------------------------------------------------------------------
+# _atomic_write_text surfaces a pending file it cannot open or write. The
+# staging name is pinned through _pending_path for these two cases so the
+# blocking directory and the /dev/full symlink can occupy it; the per-writer
+# naming itself is asserted above.
 # ---------------------------------------------------------------------------
 {
     my $outside = tempdir( CLEANUP => 1 );
     my $target  = File::Spec->catfile( $outside, 'blocked' );
-    my $pending = "$target.pending";
+    my $pending = "$target.blocked-open.pending";
+    no warnings 'redefine';
+    local *Developer::Dashboard::Collector::_pending_path = sub { return $pending };
+    use warnings 'redefine';
     mkdir $pending or die "Unable to create $pending: $!";
     dies_like(
         sub { $collector->_atomic_write_text( $target, 'payload' ) },
@@ -812,7 +831,10 @@ SKIP: {
 
     my $outside = tempdir( CLEANUP => 1 );
     my $target  = File::Spec->catfile( $outside, 'nospace' );
-    my $pending = "$target.pending";
+    my $pending = "$target.forced-full.pending";
+    no warnings 'redefine';
+    local *Developer::Dashboard::Collector::_pending_path = sub { return $pending };
+    use warnings 'redefine';
 
     skip "unable to symlink /dev/full: $!", 3
       if !symlink( '/dev/full', $pending );
@@ -855,9 +877,10 @@ This test drives every decision point in
 C<Developer::Dashboard::Collector>: status-callback validation, the
 previous-status carry-over rules for run counters and success/failure stamps,
 layered collector-root listing, log formatting, log retention, ISO-8601
-timestamp parsing, and the failure paths of the atomic write and slurp helpers.
-It exists to hold the collector store at 100% on the branch and condition
-coverage metrics as well as statement and subroutine.
+timestamp parsing, the per-writer staging name every atomic write is built on,
+and the failure paths of the atomic write and slurp helpers. It exists to hold
+the collector store at 100% on the branch and condition coverage metrics as
+well as statement and subroutine.
 
 =head1 WHY IT EXISTS
 

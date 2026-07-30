@@ -687,18 +687,37 @@ sub _atomic_write_json {
     return $self->_atomic_write_text( $file, json_encode($data) );
 }
 
+# _pending_path($file)
+# Builds the per-writer temporary file name used to stage one atomic write.
+# The name has to be unique per writing process: collectors configured with
+# mode => 'multiple' run several worker processes against the same collector at
+# the same time, and every one of them writes the same stdout/stderr/combined/
+# last_run/job targets without holding a lock. A shared "<file>.pending" name let
+# one worker truncate and then rename away another worker's staged file, which
+# both lost that worker's output and made its rename fail, so the run died before
+# the active-run counter could be decremented and the collector stayed reported
+# as running forever. The process id plus the high-resolution timestamp is the
+# same uniquifier the other lock-free atomic writers in this distribution use.
+# Input: target file path string.
+# Output: pending temporary file path string.
+sub _pending_path {
+    my ( $self, $file ) = @_;
+    return sprintf '%s.%s.%s.pending', $file, $$, time;
+}
+
 # _atomic_write_text($file, $text)
-# Atomically writes raw text to a file by fully flushing a pending temporary
-# file and then renaming it over the target in a single step. The write and the
-# close are both checked so a short write or a failed flush is surfaced as an
-# error instead of being renamed into place, and the target is never removed
+# Atomically writes raw text to a file by fully flushing a per-writer pending
+# temporary file and then renaming it over the target in a single step. The write
+# and the close are both checked so a short write or a failed flush is surfaced as
+# an error instead of being renamed into place, and the target is never removed
 # before the rename so consumers only ever observe the old or the new file, never
-# a missing one.
+# a missing one. The pending name is unique per writing process so concurrent
+# collector workers cannot clobber each other's staged file.
 # Input: target file path and text string.
 # Output: written file path string.
 sub _atomic_write_text {
     my ( $self, $file, $text ) = @_;
-    my $tmp = "$file.pending";
+    my $tmp = $self->_pending_path($file);
     open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
     print {$fh} $text or die "Unable to write $tmp: $!";
     close $fh or die "Unable to close $tmp: $!";
