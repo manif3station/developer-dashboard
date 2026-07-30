@@ -1714,7 +1714,7 @@ sub _record_command_pid {
     open my $fh, '>', $pidfile or die "Unable to write collector command pid file $pidfile: $!";
     print {$fh} $pid;
     CORE::close($fh)
-      or die "Unable to close collector command pid file $pidfile: $!";    # uncoverable branch true a pid file holding one short buffered integer cannot fail to flush on the test host
+      or die "Unable to close collector command pid file $pidfile: $!";
     return 1;
 }
 
