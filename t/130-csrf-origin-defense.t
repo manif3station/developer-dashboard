@@ -655,6 +655,8 @@ __END__
 
 =pod
 
+=encoding UTF-8
+
 =head1 NAME
 
 t/130-csrf-origin-defense.t - cross-site requests cannot change dashboard state
