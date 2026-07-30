@@ -105,7 +105,7 @@ __END__
 
 =head1 NAME
 
-t/122-state-read-race.t - transient-empty state file tolerance for runtime readers
+t/135-state-read-race.t - transient-empty state file tolerance for runtime readers
 
 =head1 PURPOSE
 
@@ -132,7 +132,7 @@ path, the state readers, or any consumer that decodes cached runtime state.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/122-state-read-race.t> while iterating on state persistence,
+Run C<prove -lv t/135-state-read-race.t> while iterating on state persistence,
 and keep it green under C<prove -lr t> and the coverage gate before release.
 
 =head1 WHAT USES IT
@@ -144,7 +144,7 @@ file to keep runtime state reads race-tolerant.
 
 Example 1:
 
-  prove -lv t/122-state-read-race.t
+  prove -lv t/135-state-read-race.t
 
 Run the state-read race contract by itself.
 

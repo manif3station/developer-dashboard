@@ -189,7 +189,7 @@ __END__
 
 =head1 NAME
 
-t/126-editor-field-labels.t - every generated form control exposes an accessible name
+t/137-editor-field-labels.t - every generated form control exposes an accessible name
 
 =head1 PURPOSE
 
@@ -218,7 +218,7 @@ control to the web layer.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/126-editor-field-labels.t> while iterating on web-layer form
+Run C<prove -lv t/137-editor-field-labels.t> while iterating on web-layer form
 markup, then keep it green under C<prove -lr t>.
 
 =head1 WHAT USES IT
@@ -230,7 +230,7 @@ generated forms usable with assistive technology.
 
 Example 1:
 
-  prove -lv t/126-editor-field-labels.t
+  prove -lv t/137-editor-field-labels.t
 
 Run the accessible-name contract by itself.
 
