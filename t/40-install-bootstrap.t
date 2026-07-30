@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 use Capture::Tiny qw(capture);
+use Cwd ();
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -68,6 +69,36 @@ like(
         \@expected_helpers,
         'Makefile.PL checkout bootstrap seeds the full current private helper set into the home runtime',
     );
+}
+
+{
+    # Windows gmake runs the staging one-liner with no HOME in the process
+    # environment and a perl whose getpwuid dies as unimplemented, so the
+    # recipe must fall back to USERPROFILE exactly like bin/dashboard does.
+    my $makefile_text = _slurp( File::Spec->catfile( $root, 'Makefile.PL' ) );
+    my ($staging_code) = $makefile_text =~ /install-private-cli-tools :\n\t\$\(NOECHO\) \$\(PERL\) -e '([^']+)'/;
+    ok( defined $staging_code, 'Makefile.PL carries the single-quoted install-private-cli-tools staging one-liner' );
+    $staging_code =~ s/\$\$/\$/g;
+    my $windows_like_prelude = 'BEGIN { *CORE::GLOBAL::getpwuid = sub ($) { die "The getpwuid function is unimplemented" }; } ';
+    my $profile_home = tempdir( CLEANUP => 1 );
+    my ( $stdout, $stderr, $exit ) = capture {
+        local %ENV = %ENV;
+        delete $ENV{HOME};
+        $ENV{USERPROFILE} = $profile_home;
+        my $previous_dir = Cwd::getcwd();
+        chdir $root or die "Unable to chdir to $root: $!";
+        system( $^X, '-e', $windows_like_prelude . $staging_code );
+        my $status = $?;
+        chdir $previous_dir or die "Unable to chdir back to $previous_dir: $!";
+        $status;
+    };
+    is( $exit >> 8, 0, 'the helper staging one-liner succeeds on a Windows-like host with no HOME and an unimplemented getpwuid' )
+      or diag $stderr;
+    is( $stderr, '', 'the helper staging one-liner stays warning-clean without HOME' );
+    my $staged_core = File::Spec->catfile( $profile_home, '.developer-dashboard', 'cli', '_dashboard-core' );
+    my $staged_upgrade = File::Spec->catfile( $profile_home, '.developer-dashboard', 'cli', 'upgrade' );
+    ok( -f $staged_core, 'the staging one-liner resolves USERPROFILE as home and seeds _dashboard-core under it' );
+    ok( -f $staged_upgrade, 'the staging one-liner seeds the new upgrade helper under the USERPROFILE home' );
 }
 
 {
