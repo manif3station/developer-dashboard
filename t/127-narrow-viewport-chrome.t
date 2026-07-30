@@ -242,7 +242,7 @@ __END__
 
 =head1 NAME
 
-t/124-narrow-viewport-chrome.t - rendered page chrome fits a 320px phone viewport
+t/127-narrow-viewport-chrome.t - rendered page chrome fits a 320px phone viewport
 
 =head1 PURPOSE
 
@@ -276,7 +276,7 @@ scrollbar.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/124-narrow-viewport-chrome.t> while iterating on the chrome
+Run C<prove -lv t/127-narrow-viewport-chrome.t> while iterating on the chrome
 markup, then keep it green under C<prove -lr t>. For a visual re-check, serve a
 page with C<dashboard serve> and measure
 C<document.documentElement.scrollWidth> against C<window.innerWidth> in a
@@ -292,13 +292,13 @@ rendered page chrome usable on small phones.
 
 Example 1:
 
-  prove -lv t/124-narrow-viewport-chrome.t
+  prove -lv t/127-narrow-viewport-chrome.t
 
 Run the narrow-viewport chrome contract by itself.
 
 Example 2:
 
-  prove -lv t/124-narrow-viewport-chrome.t t/123-html-lang-attribute.t
+  prove -lv t/127-narrow-viewport-chrome.t t/123-html-lang-attribute.t
 
 Run it together with the other rendered-document contract from the same
 browser-QA pass.

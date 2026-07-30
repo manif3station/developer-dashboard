@@ -298,7 +298,7 @@ __END__
 
 =head1 NAME
 
-t/124-logout-login-tier-routing.t - tier-aware /logout and /login destinations
+t/125-logout-login-tier-routing.t - tier-aware /logout and /login destinations
 
 =head1 PURPOSE
 
@@ -331,8 +331,8 @@ web app.
 
 =head1 HOW TO USE
 
-Run C<perl -Ilib t/124-logout-login-tier-routing.t> or
-C<prove -lv t/124-logout-login-tier-routing.t> while iterating, and keep it
+Run C<perl -Ilib t/125-logout-login-tier-routing.t> or
+C<prove -lv t/125-logout-login-tier-routing.t> while iterating, and keep it
 green under C<prove -lr t> and the coverage gate. It is fully hermetic: HOME is
 a temporary directory, the process chdirs into it, and every helper user and
 session is created inside that throwaway runtime.
@@ -347,20 +347,20 @@ session-route destinations honest for both trust tiers.
 
 Example 1:
 
-  perl -Ilib t/124-logout-login-tier-routing.t
+  perl -Ilib t/125-logout-login-tier-routing.t
 
 Run the tier-routing pins standalone while changing the logout or login routes.
 
 Example 2:
 
-  prove -lv t/124-logout-login-tier-routing.t t/03-web-app.t
+  prove -lv t/125-logout-login-tier-routing.t t/03-web-app.t
 
 Run them together to confirm the new destinations and the older helper-session
 route behaviour agree.
 
 Example 3:
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/124-logout-login-tier-routing.t
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/125-logout-login-tier-routing.t
 
 Recheck the tier-decision helper and both redirect branches under the
 repository coverage gate.
