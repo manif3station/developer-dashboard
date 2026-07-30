@@ -567,6 +567,19 @@ like($body1e, qr/highlight\.style\.transform = 'translate\('/, 'editor route syn
 like($body1e, qr/function ddCreateEditorBlock\(/, 'editor route builds visible block editors dynamically from bookmark sections');
 like($body1e, qr/function ddRenderEditor\(editor, highlight\) \{\s*highlight\.innerHTML = ddOverlayHtml\(editor\.value\);\s*ddAutoResizeEditor\(editor\);\s*ddSyncEditorOverlay\(editor, highlight\);/s, 'editor route auto-resizes a block before syncing its overlay');
 like($body1e, qr/window\.addEventListener\('resize', function\(\) \{\s*Array\.prototype\.slice\.call\(ddBlocks\.querySelectorAll\('\.editor-block'\)\)\.forEach\(function\(block\) \{\s*const editor = block\.querySelector\('\.instruction-block-editor'\);\s*const highlight = block\.querySelector\('\.editor-overlay'\);\s*ddAutoResizeEditor\(editor\);\s*ddSyncEditorOverlay\(editor, highlight\);/s, 'editor route reapplies auto-resize when the window size changes');
+
+# DD-409: every editor form control must expose a programmatic accessible name.
+# Dogfooding flagged the mirrored source textarea plus each generated block
+# textarea as unnamed edit fields for assistive technology.
+my @editor_textarea_tags = $body1e =~ /(<textarea\b[^>]*>)/g;
+is(scalar(@editor_textarea_tags), 1, 'editor response ships exactly one static textarea (the mirrored source field)');
+for my $textarea_tag (@editor_textarea_tags) {
+    like($textarea_tag, qr/\baria-label="[^"]+"/, 'static editor textarea carries a non-empty accessible name');
+}
+like($body1e, qr/const labelId = 'editor-block-label-' \+ \(\+\+ddBlockSeq\);/, 'editor route mints a unique element id for every generated block label');
+like($body1e, qr/label\.id = labelId;/, 'editor route stamps that unique id onto the visible block label element');
+like($body1e, qr/editor\.setAttribute\('aria-labelledby', labelId\);/, 'each generated block textarea is programmatically named by its visible section label');
+unlike($body1e, qr/<textarea\b(?:(?!aria-label)[^>])*>/, 'editor response leaves no textarea without an accessible name');
 my $demo_overlay = $app->_editor_overlay_html($highlight_source);
 like($demo_overlay, qr/<span class="tok-directive">HTML:<\/span>/, 'editor overlay highlights bookmark directives');
 like($demo_overlay, qr/<span class="tok-tag">&lt;style<\/span>/, 'editor overlay highlights HTML tag names');
