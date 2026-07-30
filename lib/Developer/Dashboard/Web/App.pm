@@ -133,15 +133,19 @@ sub handle {
     return $self->dispatch_request(%args);
 }
 
-# authorize_request(%args)
-# Authenticates one browser request and seeds the per-request context.
-# Input: normalized request path, headers, and remote address.
-# Output: undef when authorized, otherwise an HTTP response array reference.
-sub authorize_request {
+# _request_trust_tier(%args)
+# Classifies one normalized request into its browser trust tier.
+# Every caller must go through here so the loopback-admin shortcut, the
+# DEVELOPER_DASHBOARD_SSL_PROXIED lockout, and the configured local-only alias
+# hosts are applied identically to authorization and to route decisions that
+# depend on the tier.
+# Input: normalized request headers and remote address.
+# Output: trust tier string, currently 'admin' or 'helper'.
+sub _request_trust_tier {
     my ( $self, %args ) = @_;
     my $headers = $args{headers} || {};
     my $config_has_web_settings = blessed( $self->{config} ) && $self->{config}->can('web_settings');
-    my $tier = $self->{auth}->trust_tier(
+    return $self->{auth}->trust_tier(
         remote_addr          => $args{remote_addr},
         host                 => $headers->{host},
         ssl_proxied          => ( $ENV{DEVELOPER_DASHBOARD_SSL_PROXIED} ? 1 : 0 ),
@@ -151,6 +155,16 @@ sub authorize_request {
             : []
         ),
     );
+}
+
+# authorize_request(%args)
+# Authenticates one browser request and seeds the per-request context.
+# Input: normalized request path, headers, and remote address.
+# Output: undef when authorized, otherwise an HTTP response array reference.
+sub authorize_request {
+    my ( $self, %args ) = @_;
+    my $headers = $args{headers} || {};
+    my $tier = $self->_request_trust_tier(%args);
     my $session;
     my $api_context;
 
@@ -204,6 +218,7 @@ sub dispatch_request {
     }
 
     return $self->root_response(%args) if $path eq '/';
+    return $self->authorized_login_redirect_response(%args) if $path eq '/login';
     return $self->apps_redirect_response(%args) if $path eq '/apps';
     return $self->legacy_ajax_response(%args) if $path eq '/ajax';
     return $self->ajax_singleton_stop_response(%args) if $path eq '/ajax/singleton/stop';
@@ -397,6 +412,20 @@ sub login_response {
     );
 }
 
+# _post_logout_location(%args)
+# Chooses the route one logged-out client is sent to next.
+# The loopback-admin tier is authorized without a session and therefore never
+# receives the helper login challenge, so /login is not a page it can use; send
+# it to the dashboard home route instead. Every challenged tier still goes to
+# /login, where the auth layer renders the login form. The target is derived
+# only from the trust tier, never from request-supplied input.
+# Input: normalized request headers and remote address.
+# Output: local redirect target path string.
+sub _post_logout_location {
+    my ( $self, %args ) = @_;
+    return $self->_request_trust_tier(%args) eq 'admin' ? '/' : '/login';
+}
+
 # logout_response(%args)
 # Executes the logout route and expires any active helper session.
 # Input: normalized request headers and remote address.
@@ -416,9 +445,28 @@ sub logout_response {
         'text/plain; charset=utf-8',
         "Redirecting\n",
         {
-            'Location'   => '/login',
+            'Location'   => $self->_post_logout_location(%args),
             'Set-Cookie' => _expired_session_cookie(),
         },
+    ];
+}
+
+# authorized_login_redirect_response(%args)
+# Executes the login route for a request that is already authorized.
+# handle() intercepts POST /login before authorization, and an unauthorized
+# client is answered by authorize_request with the 401 login challenge, so a
+# request that reaches this route has nothing left to log in to. Send it to the
+# dashboard home route rather than leaving /login without a GET handler, which
+# dead-ended the loopback-admin tier on a bare 404.
+# Input: normalized request arguments (unused; the target is a fixed local path).
+# Output: response array reference with a 302 to the dashboard home route.
+sub authorized_login_redirect_response {
+    my ( $self, %args ) = @_;
+    return [
+        302,
+        'text/plain; charset=utf-8',
+        "Redirecting\n",
+        { Location => '/' },
     ];
 }
 
