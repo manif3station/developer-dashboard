@@ -3,8 +3,9 @@ package Developer::Dashboard::CLI::Upgrade;
 use strict;
 use warnings;
 
-our $VERSION = '4.22';
+our $VERSION = '4.23';
 
+use Developer::Dashboard::Platform ();
 use File::Temp qw(tempfile);
 use LWP::UserAgent;
 
@@ -68,11 +69,12 @@ sub run_upgrade {
 }
 
 # _platform_name()
-# Maps the active Perl platform to the installer family used by self-upgrade.
-# Input: Perl's current $^O value.
-# Output: "windows" on MSWin32, otherwise "unix".
+# Maps the active runtime platform to the installer family used by self-upgrade.
+# Input: none; reads the shared Developer Dashboard platform detector so tests
+# and forced-platform runs resolve the same way the rest of the runtime does.
+# Output: "windows" on Windows runtimes, otherwise "unix" (Linux and macOS).
 sub _platform_name {
-    return $^O eq 'MSWin32' ? 'windows' : 'unix';    # uncoverable branch true
+    return Developer::Dashboard::Platform::is_windows() ? 'windows' : 'unix';
 }
 
 # _user_agent()
@@ -119,7 +121,6 @@ sub _validate_installer {
 # Input: current PATH.
 # Output: pwsh or powershell executable name; dies when neither is available.
 sub _powershell_command {
-    require Developer::Dashboard::Platform;
     return 'pwsh' if Developer::Dashboard::Platform::command_in_path('pwsh');
     return 'powershell' if Developer::Dashboard::Platform::command_in_path('powershell');
     die "Unable to upgrade on Windows: neither pwsh nor powershell is available\n";
