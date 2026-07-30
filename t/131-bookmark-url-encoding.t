@@ -274,6 +274,12 @@ must survive the encode-then-decode round trip unchanged. Fourth, the
 transient play URL keeps its raw query separators, with only the token value
 escaped.
 
+=head1 PURPOSE
+
+Keep every generated saved-bookmark link a valid, reachable URL whatever
+special characters the bookmark id carries, and keep the local test harness
+faithful to how production servers decode request paths.
+
 =head1 WHY IT EXISTS
 
 The web layer used to interpolate raw bookmark ids into C</app/> hyperlinks.
@@ -282,12 +288,12 @@ a literal C<%> was mis-decoded by the server, so the generated link either
 opened the wrong page or nothing at all. The harness hid this by forwarding
 encoded paths straight through, which no real server does.
 
-=head1 WHEN TO USE IT
+=head1 WHEN TO USE
 
 Run it whenever bookmark link generation, saved page routing, or the PSGI
 test harness changes.
 
-=head1 HOW TO USE IT
+=head1 HOW TO USE
 
     prove -lv t/131-bookmark-url-encoding.t
 
