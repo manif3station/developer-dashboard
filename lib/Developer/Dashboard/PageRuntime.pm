@@ -13,6 +13,7 @@ use IO::Select;
 use IPC::Open3 qw(open3);
 use POSIX qw(:sys_wait_h);
 use Symbol qw(gensym);
+use Time::HiRes ();
 use Developer::Dashboard::PageRuntime::StreamHandle;
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::PerlEnv ();
@@ -28,6 +29,14 @@ my $SANDPIT_SEQ = 0;
 # launcher subs) so tests can drive the setpgid failure path without needing a
 # session-leader process on the test host.
 our $SETPGID = sub { return POSIX::setpgid( 0, 0 ) };
+
+# Saved-Ajax disconnect cleanup timings, in seconds. The grace window is the
+# real elapsed time a signalled worker and its owned process group get to run
+# their own SIGTERM handlers before the SIGKILL escalation; the poll interval is
+# how often that wait re-checks. Both are package variables so tests can drive
+# the escalation deterministically without sleeping for a whole window.
+our $SAVED_AJAX_TERM_GRACE_SECONDS = 1;
+our $SAVED_AJAX_TERM_POLL_SECONDS  = 0.02;
 
 # new(%args)
 # Constructs the older-style page runtime used by browser-rendered bookmarks.
@@ -495,16 +504,20 @@ sub stream_saved_ajax_file {
 
     $self->_close_saved_ajax_streams( $select, $stdout, $stderr );
     my $fatal_error = '';
+    my $terminated_status;
     if ($disconnected) {
-        $self->_terminate_saved_ajax_process( $pid, $process_group );
+        $self->_terminate_saved_ajax_process( $pid, $process_group, \$terminated_status );
     }
     elsif ( $stream_error ne '' ) {
-        $self->_terminate_saved_ajax_process( $pid, $process_group );
+        $self->_terminate_saved_ajax_process( $pid, $process_group, \$terminated_status );
         $fatal_error = $stream_error if !$self->_looks_like_stream_disconnect_error($stream_error);
     }
     my $status;
     if ( defined $saved_status ) {
         $status = $saved_status;
+    }
+    elsif ( defined $terminated_status ) {
+        $status = $terminated_status;
     }
     else {
         waitpid( $pid, 0 );
@@ -646,25 +659,60 @@ sub _close_saved_ajax_streams {
     return 1;
 }
 
-# _terminate_saved_ajax_process($pid, $process_group)
+# _terminate_saved_ajax_process($pid, $process_group, $status_ref)
 # Stops one saved-Ajax worker and its owned POSIX process group after stream
 # cancellation or writer failure, retaining direct-pid behavior on Windows.
-# Input: child process id integer and optional positive POSIX process-group id.
+# Input: child process id integer, optional positive POSIX process-group id, and
+# an optional scalar reference that receives the worker wait status when the
+# worker exited inside the grace window.
 # Output: true value.
 sub _terminate_saved_ajax_process {
-    my ( $self, $pid, $process_group ) = @_;
+    my ( $self, $pid, $process_group, $status_ref ) = @_;
     return 1 if !$pid;
     my $owns_group = !is_windows() && defined $process_group && $process_group =~ /^\d+$/ && $process_group > 0;
     return 1 if !$owns_group && !kill 0, $pid;
     kill 15, -$process_group if $owns_group;
     kill 15, $pid;
-    for ( 1 .. 20 ) {
-        last if !kill 0, $pid;
-        sleep 0.05;
-    }
-    kill 9, -$process_group if $owns_group;
-    kill 9, $pid if kill 0, $pid;
+    my $drained = $self->_await_saved_ajax_exit( $pid, ( $owns_group ? $process_group : undef ), $status_ref );
+    kill 9, -$process_group if $owns_group && !$drained;
+
+    # Only signal the worker again when the window really expired: a drained
+    # wait has already reaped it, and a reaped pid can be reissued by the OS.
+    kill 9, $pid if !$drained && kill 0, $pid;
     return 1;
+}
+
+# _await_saved_ajax_exit($pid, $process_group, $status_ref)
+# Waits out the SIGTERM grace window after a saved-Ajax worker was signalled,
+# reaping the worker the moment it exits so its own TERM handler is never cut
+# short and the caller does not block on a second wait. Elapsed wall-clock time
+# bounds the wait, so the escalation is deterministic instead of depending on a
+# fixed number of poll iterations.
+# Input: worker pid, owned POSIX process-group id or undef for direct-pid
+# cleanup, and an optional scalar reference that receives the reaped wait status.
+# Output: true when the worker and any owned group went away inside the window,
+# false when the window expired with something still alive.
+sub _await_saved_ajax_exit {
+    my ( $self, $pid, $process_group, $status_ref ) = @_;
+    my $deadline = Time::HiRes::time() + $SAVED_AJAX_TERM_GRACE_SECONDS;
+    my $reaped   = 0;
+    while (1) {
+        if ( !$reaped ) {
+            my ( $exited, $status ) = $self->_saved_ajax_child_exited($pid);
+            if ($exited) {
+                $reaped = 1;
+                ${$status_ref} = $status if ref($status_ref) eq 'SCALAR';
+            }
+        }
+
+        # A reaped worker can still have live descendants in the group it led,
+        # and those descendants are exactly what the grace window exists for.
+        my $worker_gone = $reaped || !kill 0, $pid;
+        my $group_alive = defined $process_group && kill 0, -$process_group;
+        return 1 if $worker_gone && !$group_alive;
+        return 0 if Time::HiRes::time() >= $deadline;
+        Time::HiRes::sleep($SAVED_AJAX_TERM_POLL_SECONDS);
+    }
 }
 
 # _looks_like_stream_disconnect_error($error)
@@ -1137,6 +1185,10 @@ blocks, and stream saved Ajax files as real child processes. On POSIX systems
 each saved Ajax worker runs inside its own process group, and disconnect or
 stream-error cleanup signals that whole group so descendant processes forked by
 the worker terminate with it; Windows keeps direct child-process termination.
+Cleanup sends SIGTERM first and then waits a bounded, elapsed-time grace window
+for the worker and its group to exit on their own, so a worker that installs a
+SIGTERM handler can reap its children, remove scratch files, and flush partial
+output before the SIGKILL escalation clears whatever is left.
 
 =for comment FULL-POD-DOC START
 
