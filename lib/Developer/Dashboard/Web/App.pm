@@ -741,9 +741,7 @@ sub skill_ajax_file_response {
     if ( !exists $request_params{type} && ( $args{default_type} || '' ) ne '' ) {
         $request_params{type} = $args{default_type};
     }
-    # file is always non-empty here (skill_name is required and ajax_file is
-    # folded into it), so _legacy_ajax_allowed always returns true.
-    return _transient_url_forbidden_response() if !$self->_legacy_ajax_allowed( \%request_params );    # uncoverable branch true
+    return _transient_url_forbidden_response() if !$self->_legacy_ajax_allowed( \%request_params );
     return $self->_legacy_ajax_response(
         params          => \%request_params,
         saved_ajax_path => $saved_ajax_path,
@@ -2721,12 +2719,14 @@ sub _ajax_content_type {
 
 # _legacy_ajax_allowed($params)
 # Checks whether an older /ajax request is allowed under the transient token policy.
+# A file value must not soften this: _legacy_ajax_response gives the token strict
+# precedence over file and saved_ajax_path, so a request carrying a token reaches
+# tokenized code execution no matter what file value travels beside it.
 # Input: flat request parameter hash reference.
 # Output: boolean true when no token is present or transient token URLs are enabled.
 sub _legacy_ajax_allowed {
     my ( $self, $params ) = @_;
     return 1 if ref($params) ne 'HASH';
-    return 1 if ( $params->{file} || '' ) ne '';
     return 1 if ( $params->{token} || '' ) eq '';
     return _transient_url_tokens_allowed();
 }
