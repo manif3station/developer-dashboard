@@ -19,6 +19,7 @@ BEGIN {
 
 use Capture::Tiny qw(capture);
 use Errno qw(EINTR);
+use File::Basename qw(basename dirname);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir tempfile);
@@ -936,15 +937,56 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
     }
 }
 
-# --- generate_self_signed_cert(): missing HOME ------------------------------
+# --- generate_self_signed_cert(): the Windows home-resolution chain ---------
 {
-    local $ENV{HOME} = '';
+    # No HOME at all is the normal Windows shape, so the certificate directory
+    # has to come from the path registry's resolution order rather than from a
+    # bare HOME lookup that dies before the server can bind anything.
+    local %ENV = %ENV;
+    delete $ENV{HOME};
+    delete $ENV{HOMEDRIVE};
+    delete $ENV{HOMEPATH};
+
+    my $profile_home = tempdir( CLEANUP => 1 );
+    $ENV{USERPROFILE} = $profile_home;
+    is(
+        Developer::Dashboard::Web::Server::generate_self_signed_cert(),
+        File::Spec->catfile( $profile_home, '.developer-dashboard', 'certs', 'server.crt' ),
+        'certificate generation resolves USERPROFILE as home when HOME is unset',
+    );
+    ok(
+        -f File::Spec->catfile( $profile_home, '.developer-dashboard', 'certs', 'server.key' ),
+        'certificate generation writes the private key under the USERPROFILE home',
+    );
+
+    # Older Windows shells only export the drive and the path halves.
+    delete $ENV{USERPROFILE};
+    my $split_home = tempdir( CLEANUP => 1 );
+    $ENV{HOMEDRIVE} = dirname($split_home);
+    $ENV{HOMEPATH}  = basename($split_home);
+    is(
+        Developer::Dashboard::Web::Server::generate_self_signed_cert(),
+        File::Spec->catfile( $split_home, '.developer-dashboard', 'certs', 'server.crt' ),
+        'certificate generation resolves HOMEDRIVE and HOMEPATH when HOME and USERPROFILE are unset',
+    );
+}
+
+# --- generate_self_signed_cert(): no resolvable home at all -----------------
+{
+    # Nothing names a home: the failure has to stay explicit instead of writing
+    # certificates into an unrelated directory.
+    local %ENV = %ENV;
+    delete $ENV{HOME};
+    delete $ENV{USERPROFILE};
+    delete $ENV{HOMEDRIVE};
+    delete $ENV{HOMEPATH};
+
     my $ok = eval {
         Developer::Dashboard::Web::Server::generate_self_signed_cert();
         1;
     };
-    ok( !$ok, 'certificate generation fails without a HOME environment variable' );
-    like( $@, qr/Missing HOME environment variable/, 'certificate generation names the missing HOME variable' );
+    ok( !$ok, 'certificate generation fails when no home directory can be resolved' );
+    like( $@, qr/Missing home directory/, 'certificate generation names the unresolvable home directory' );
 }
 
 # --- generate_self_signed_cert(): certificate present without its key -------
@@ -1080,15 +1122,73 @@ my $ssl_daemon = Developer::Dashboard::Web::Server::Daemon->new(
     );
 }
 
-# --- get_ssl_cert_paths(): missing HOME and missing files -------------------
+# --- get_ssl_cert_paths(): the Windows home-resolution chain ----------------
 {
-    local $ENV{HOME} = '';
+    # The path lookup runs on every HTTPS start, so it has to resolve a Windows
+    # profile home exactly like the generator does.
+    local %ENV = %ENV;
+    delete $ENV{HOME};
+    delete $ENV{HOMEDRIVE};
+    delete $ENV{HOMEPATH};
+
+    my $profile_home = tempdir( CLEANUP => 1 );
+    $ENV{USERPROFILE} = $profile_home;
+    my $profile_cert_dir = File::Spec->catdir( $profile_home, '.developer-dashboard', 'certs' );
+    my $profile_cert = File::Spec->catfile( $profile_cert_dir, 'server.crt' );
+    my $profile_key  = File::Spec->catfile( $profile_cert_dir, 'server.key' );
+
+    my $unresolved = eval {
+        Developer::Dashboard::Web::Server::get_ssl_cert_paths();
+        1;
+    };
+    ok( !$unresolved, 'certificate path lookup still fails when the profile home holds no certificate' );
+    like(
+        $@,
+        qr/\QCertificate file not found: $profile_cert\E/,
+        'certificate path lookup names the USERPROFILE-resolved certificate path when HOME is unset',
+    );
+
+    make_path($profile_cert_dir);
+    _write_file( $profile_cert, "profile certificate placeholder\n" );
+    _write_file( $profile_key,  "profile key placeholder\n" );
+    is_deeply(
+        [ Developer::Dashboard::Web::Server::get_ssl_cert_paths() ],
+        [ $profile_cert, $profile_key ],
+        'certificate path lookup returns the USERPROFILE-resolved certificate and key when HOME is unset',
+    );
+
+    # Older Windows shells only export the drive and the path halves.
+    delete $ENV{USERPROFILE};
+    my $split_home = tempdir( CLEANUP => 1 );
+    $ENV{HOMEDRIVE} = dirname($split_home);
+    $ENV{HOMEPATH}  = basename($split_home);
+    my $split_cert_dir = File::Spec->catdir( $split_home, '.developer-dashboard', 'certs' );
+    my $split_cert = File::Spec->catfile( $split_cert_dir, 'server.crt' );
+    my $split_key  = File::Spec->catfile( $split_cert_dir, 'server.key' );
+    make_path($split_cert_dir);
+    _write_file( $split_cert, "split-home certificate placeholder\n" );
+    _write_file( $split_key,  "split-home key placeholder\n" );
+    is_deeply(
+        [ Developer::Dashboard::Web::Server::get_ssl_cert_paths() ],
+        [ $split_cert, $split_key ],
+        'certificate path lookup resolves HOMEDRIVE and HOMEPATH when HOME and USERPROFILE are unset',
+    );
+}
+
+# --- get_ssl_cert_paths(): no resolvable home at all ------------------------
+{
+    local %ENV = %ENV;
+    delete $ENV{HOME};
+    delete $ENV{USERPROFILE};
+    delete $ENV{HOMEDRIVE};
+    delete $ENV{HOMEPATH};
+
     my $ok = eval {
         Developer::Dashboard::Web::Server::get_ssl_cert_paths();
         1;
     };
-    ok( !$ok, 'certificate path lookup fails without a HOME environment variable' );
-    like( $@, qr/Missing HOME environment variable/, 'certificate path lookup names the missing HOME variable' );
+    ok( !$ok, 'certificate path lookup fails when no home directory can be resolved' );
+    like( $@, qr/Missing home directory/, 'certificate path lookup names the unresolvable home directory' );
 }
 
 {
@@ -1128,9 +1228,16 @@ This test is the executable contract for the failure and fallback arms of
 C<Developer::Dashboard::Web::Server>: worker-count validation, listen-socket
 reservation and close failures, the SSL frontend fork/accept loop, the raw
 HTTP-to-HTTPS redirect helpers, SAN normalization, self-signed certificate
-generation, and certificate profile verification. It drives every branch and
-condition those paths own, including the ones that only appear when a socket,
-a pipe, a fork, or openssl itself fails.
+generation, the certificate directory's home resolution order, and certificate
+profile verification. It drives every branch and condition those paths own,
+including the ones that only appear when a socket, a pipe, a fork, or openssl
+itself fails.
+
+The home resolution cases matter because Windows exports no HOME variable: the
+certificate helpers are driven here with HOME deleted and only USERPROFILE set,
+then with only HOMEDRIVE and HOMEPATH set, and finally with no home variable at
+all, where the failure must stay explicit instead of writing certificates into
+an unrelated directory.
 
 =head1 WHY IT EXISTS
 
