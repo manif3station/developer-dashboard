@@ -106,7 +106,10 @@ sub drain {
         my $body = drain( $res->[2] );
         is( $res->[0], 200, "hostile bookmark id still serves $route" );
         unlike( $body, $BREAKOUT, "$route does not break out of an HTML attribute into an executable tag" );
-        like( $body, qr/probe&quot;&gt;&lt;svg/, "$route carries the bookmark id as escaped attribute text" );
+        # The URL builders percent-encode the id before it ever reaches the
+        # attribute escaper, so the id survives as inert, valid-URL text
+        # instead of raw markup characters that only entity-escaping defuses.
+        like( $body, qr/probe%22%3E%3Csvg/, "$route carries the bookmark id percent-encoded in its URL attributes" );
     }
 }
 
