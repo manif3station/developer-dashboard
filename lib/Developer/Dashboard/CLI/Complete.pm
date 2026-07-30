@@ -115,7 +115,7 @@ sub _collector_names {
     my @names;
     for my $job ( @{ $config->collectors } ) {
         my $name = ref($job) eq 'HASH' ? $job->{name} : undef;
-        next if !defined $name || $name eq '' || $seen{$name}++;    # uncoverable condition right
+        next if !defined $name || $name eq '' || $seen{$name}++;
         push @names, $name;
     }
     for my $status ( $collector->list_collectors ) {

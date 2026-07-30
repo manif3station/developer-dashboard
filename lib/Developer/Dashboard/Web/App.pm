@@ -1136,7 +1136,7 @@ sub _edit_html {
     $source =~ s/>/&gt;/g;
 
     my $urls = $self->_page_route_urls($page);
-    my $form_action = $urls->{form_action} || '/';    # uncoverable condition false
+    my $form_action = $urls->{form_action} || '/';    # uncoverable condition right
 
     my $title = $page->as_hash->{title};
     $title =~ s/&/&amp;/g;
@@ -2738,7 +2738,7 @@ sub _top_context_html {
     my $ctx = $page->{meta}{request_context} || {};
     my $user = (
         ( $ctx->{tier} || '' ) eq 'helper' && ( $ctx->{username} || '' ) ne ''
-    ) ? $ctx->{username} : ( $ENV{USER} || eval { getpwuid($<) } || 'user' );    # uncoverable condition false
+    ) ? $ctx->{username} : ( $ENV{USER} || eval { getpwuid($<) } || 'user' );    # uncoverable condition right count:2
     my $host = $ctx->{host} || '';
     $host =~ s/^https?:\/\///;
     $host =~ s/\/.*$//;
@@ -2955,7 +2955,7 @@ sub _serve_static_file_from_roots {
     my $file_path = '';
     for my $public_dir (@public_roots) {
         my $candidate = File::Spec->catfile( $public_dir, $filename );
-        my $real_path = eval { File::Spec->rel2abs($candidate) } || '';    # uncoverable condition false
+        my $real_path = eval { File::Spec->rel2abs($candidate) } || '';    # uncoverable condition right
         my $quoted_public = quotemeta($public_dir);
         next if $real_path !~ /^$quoted_public(?:\/|\z)/;
         next if !-f $candidate || !-r $candidate;

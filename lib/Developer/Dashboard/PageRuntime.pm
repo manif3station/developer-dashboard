@@ -937,7 +937,12 @@ sub _exec_saved_ajax_command {
     defined $SETPGID->()
       or die "Unable to isolate saved ajax process $$: $!\n";
     exec { $command[0] } @command;
-    die "Unable to exec saved ajax command $command[0]: $!\n";
+
+    # Devel::Cover cannot attribute a statement that follows a failed exec: the
+    # count lands on the exec line itself, so this line always reports zero even
+    # though the page-runtime coverage tests drive a failing exec through here and
+    # assert this message.
+    die "Unable to exec saved ajax command $command[0]: $!\n";    # uncoverable statement
 }
 
 # _run_saved_ajax_perl_file($path)

@@ -340,8 +340,9 @@ sub _open_saved_page_at {
             POSIX::close($dir_fd);
             die 'Invalid page path' if $fd < 0;
             my $fh;
+            # uncoverable branch true count:2 reopening a live file descriptor as a Perl handle cannot fail
             open $fh, ( $args{flags} & O_WRONLY ? '>&=' : '<&=' ), $fd
-              or die 'Invalid page path';    # uncoverable branch true reopening a live file descriptor as a Perl handle cannot fail
+              or die 'Invalid page path';
             binmode $fh, ':raw' if !( $args{flags} & O_WRONLY );
             return $fh;
         }

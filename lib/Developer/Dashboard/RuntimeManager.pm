@@ -170,11 +170,11 @@ sub _start_web_windows_background {
         my $state = {
             %{$running},
             host         => $host,
-            pid          => $running->{pid} || $pid,    # uncoverable condition false the spawned Windows pid is always a positive integer when this state is built
+            pid          => $running->{pid} || $pid,
             port         => $port + 0,
             process_name => $running->{process_name},
             started_at   => $running->{started_at},
-            status       => 'running',
+            status       => 'running',    # uncoverable condition false the spawned Windows pid used by the pid fallback on this state is always a positive integer here
             workers      => $workers + 0,
             ssl          => $ssl + 0,
         };
