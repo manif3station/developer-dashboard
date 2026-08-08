@@ -247,6 +247,7 @@ my %runtime_prereq_minimum = (
     'Socket'                 => '2.041',
     'Starman'                => '0.4018',
     'Storable'               => '3.41',
+    'HTTP::Date'             => '6.08',
     'HTTP::Request'          => '0',
     'HTTP::Tiny'             => '0.095',
     'LWP::Protocol::https'   => '6.07',

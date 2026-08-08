@@ -47,6 +47,7 @@ WriteMakefile(
         'File::Temp'            => 0,
         'File::Find'            => 0,
         'Getopt::Long'          => 0,
+        'HTTP::Date'            => '6.08',
         'HTTP::Request'         => 0,
         'HTTP::Tiny'            => '0.095',
         'JSON::XS'              => '4.04',

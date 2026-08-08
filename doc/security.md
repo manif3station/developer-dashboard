@@ -93,6 +93,37 @@ The active tree outside the read-only older reference tree is kept free of:
 
 That older reference tree remains read-only reference material and is not modified or committed as part of the active runtime.
 
+## Dependency Advisory Floors
+
+Some dependencies are pinned to a minimum version purely because of a published
+advisory, not because the product needs a feature from that release. Those
+floors are declared in `cpanfile`, `Makefile.PL`, and `dist.ini` together, and
+both `t/108-cpan-security-metadata.t` and `t/15-release-metadata.t` assert all
+three copies so the declarations cannot drift apart.
+
+Two rules make this policy work:
+
+- A floor is declared even when the product never calls the module itself. The
+  declared dependency chain is what an installer resolves, so a module that is
+  only ever loaded transitively still has to carry its floor, or a vulnerable
+  version satisfies the distribution. The same applies to a module the coding
+  rules forbid the product from using directly: being unused in the source is
+  not a reason to let a vulnerable version resolve.
+- For a module the product does not call, raising the floor is the only control
+  available. There is no source-level fix to write and no call site to harden,
+  so the version boundary is the whole mitigation and has to be enforced by the
+  metadata rather than by code review.
+
+Each advisory-driven floor is backed by an executable proof rather than by a
+version string alone. `t/108-cpan-security-metadata.t` builds a fixture of the
+module at a genuinely affected version and requires `script/cpan-audit-project`
+to report that exact advisory identifier. A floor that drifted to a version with
+no real advisory behind it would fail that proof.
+
+When raising a floor, audit the newly resolved chain rather than assuming it is
+safe: a higher floor can pull in additional distributions, and a floor set above
+a module's newest release would make the distribution uninstallable.
+
 ## Verification
 
 Run these checks:
