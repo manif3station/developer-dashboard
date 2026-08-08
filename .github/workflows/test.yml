@@ -81,6 +81,26 @@ jobs:
 
       - name: Run tests
         run: |
+          # The job has died inside this step with no conclusion and no uploaded
+          # log at all, while every other workflow on the same commit passed
+          # (DD-484). "No log" is not "no output" - it means the runner itself
+          # stopped - so this samples the machine every ten seconds and prints
+          # it inline. Whatever exhausts the runner (process growth, memory,
+          # disk) is then visible in the streamed log even if the job never
+          # finishes to upload anything.
+          (
+            while true; do
+              printf '[watch] %s procs=%s load=%s mem=%s disk=%s\n' \
+                "$(date -u +%H:%M:%S)" \
+                "$(ps -e --no-headers | wc -l)" \
+                "$(cut -d' ' -f1-3 /proc/loadavg)" \
+                "$(free -m | awk '/Mem:/{print $3"/"$2"MB"}')" \
+                "$(df -Pm . | awk 'NR==2{print $4"MB free"}')"
+              sleep 10
+            done
+          ) &
+          watcher=$!
+          trap 'kill "$watcher" 2>/dev/null || true' EXIT
           prove -lr t
 
       - name: Verify all-metric lib coverage
