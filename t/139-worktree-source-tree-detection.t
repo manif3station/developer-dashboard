@@ -3,8 +3,9 @@ use warnings FATAL => 'all';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(abs_path);
+use File::Basename qw(dirname);
 use File::Copy qw(copy);
-use File::Path qw(remove_tree);
+use File::Path qw(make_path remove_tree);
 use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin qw($RealBin);
@@ -54,13 +55,67 @@ my $guardrail = File::Spec->catfile( $linked, 't', $guardrail_name );
 
 ok( -f $guardrail, "the linked worktree carries t/$guardrail_name" );
 
-# Grade the WORKING TREE copy, not the one git checked out. A linked worktree is
+# Grade the WORKING TREE, not the one git checked out. A linked worktree is
 # created from a commit, so without this the gate would only ever see the last
-# committed detection logic - it would pass while an uncommitted regression sat
-# in the file, and fail an otherwise correct fix until it was committed. Copying
-# the live file in makes this a pre-commit gate, which is the only useful kind.
+# committed state - it would pass while an uncommitted regression sat in the
+# tree, and fail an otherwise correct fix until it was committed. Staging the
+# live files in makes this a pre-commit gate, which is the only useful kind.
+#
+# Staging only the file under test is not enough, because t/34 is a guardrail
+# file ABOUT other repo files: it reads LICENSE, SECURITY.md, the Dependabot
+# config, four workflow files, the ClusterFuzzLite Dockerfile, package.json and
+# package-lock.json. Leaving those at their committed content broke the gate in
+# both directions - an uncommitted guardrail fix read as a failure, and, far
+# worse, an uncommitted guardrail REGRESSION read as a pass because the nested
+# run never saw it. Mirror every tracked path that differs from HEAD instead.
+#
+# Bounded to `git diff --name-only HEAD` on purpose: that covers tracked
+# modifications and staged additions, while an untracked sweep from the repo
+# root would drag in .worktrees/ and dogfood-output/, which are untracked but
+# deliberately NOT git-ignored. A brand-new file must therefore be `git add`ed
+# to be graded here, which is how it would join the change anyway.
+my ( $dirty_out, $dirty_err, $dirty_exit ) = capture {
+    system( 'git', '-C', $ROOT, 'diff', '--name-only', 'HEAD' );
+};
+is( $dirty_exit, 0, 'the working-tree difference against HEAD can be listed' )
+  or diag("git diff failed:\n$dirty_err");
+
+my @staged;
+for my $relative ( grep { length } split /\n/, ( $dirty_out // q{} ) ) {
+    my @parts = split m{/}, $relative;
+    my $source = File::Spec->catfile( $ROOT,   @parts );
+    my $target = File::Spec->catfile( $linked, @parts );
+
+    # A path can differ from HEAD by having been deleted in the working tree,
+    # in which case it must disappear from the nested run too rather than be
+    # copied.
+    if ( !-f $source ) {
+        unlink $target or die "Unable to unstage $relative from the linked worktree: $!"
+          if -e $target;
+        next;
+    }
+
+    my $target_dir = dirname($target);
+    make_path($target_dir) if !-d $target_dir;
+    copy( $source, $target )
+      or die "Unable to stage $relative into the linked worktree: $!";
+    push @staged, $relative;
+}
+
+# The file under test is staged explicitly as well, so the gate still grades the
+# live guardrail file even when it is the one thing that has not been modified.
 copy( File::Spec->catfile( $TEST_DIR, $guardrail_name ), $guardrail )
   or die "Unable to stage $guardrail_name into the linked worktree: $!";
+
+# Whenever the tree actually is mid-change, prove the mirror is byte-exact. On a
+# clean tree there is nothing to compare and this is vacuous - the load-bearing
+# proof in that case is the nested run below, which reads the real files.
+my @unmirrored =
+  grep { _slurp_path( File::Spec->catfile( $ROOT, split m{/}, $_ ) ) ne
+         _slurp_path( File::Spec->catfile( $linked, split m{/}, $_ ) ) } @staged;
+is_deeply( \@unmirrored, [],
+    'every working-tree modification is mirrored byte-for-byte into the linked worktree' )
+  or diag( "paths that did not mirror:\n" . join( "\n", @unmirrored ) );
 
 my ( $tap, $tap_err, $tap_exit ) = capture {
     local %ENV = %ENV;
@@ -176,6 +231,31 @@ dependency major-version floors was silently inert at the precise moment a
 change was being authored and first verified. It only woke up later, on a run
 from the primary checkout. A guardrail absent at authorship time is worse than
 a missing one, because a green worktree run reads as evidence it never was.
+
+=head1 WHAT IT GRADES
+
+The scratch worktree is created from a commit, so on its own it would only ever
+see committed content. Every tracked path that differs from C<HEAD> is therefore
+mirrored into it before the nested run, and the mirror is asserted to be
+byte-exact.
+
+That breadth is the point, and DD-438 exists because staging only the file under
+test was not enough. C<t/34-scorecard-guardrails.t> is a guardrail file I<about>
+other repository files - it reads the root licence and security policy, the
+Dependabot config, four workflow files, the ClusterFuzzLite Dockerfile,
+C<package.json> and C<package-lock.json>. While those stayed at their committed
+content the gate was
+wrong in both directions: an uncommitted guardrail fix was reported as a
+failure, and an uncommitted guardrail B<regression> was reported as a pass. The
+second is the dangerous one - an action SHA unpinned in the working tree, or a
+dependency floored back onto an abandoned major, passed here while the guardrail
+file itself failed on the same tree.
+
+The mirror is bounded to C<git diff --name-only HEAD>, which covers tracked
+modifications and staged additions. A brand-new file must be added to the index
+to be graded, because an untracked sweep from the repository root would pull in
+the per-ticket worktree and dogfood output directories, which are untracked but
+deliberately not ignored.
 
 =head1 WHEN TO USE
 
