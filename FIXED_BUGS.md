@@ -1,5 +1,74 @@
 # Fixed Bugs
 
+## 4.24
+
+- Login open-redirect class: the redirect sanitizer rejected only the single
+  reported byte sequence, so sibling encodings of an absolute off-site target
+  still escaped. The sanitizer now rejects the whole class, and the
+  Host-header variant on both HTTPS-enforcement redirect paths is closed too
+  (DD-415, DD-419).
+- Saved-page write traversal: PageStore accepted a page name that resolved
+  outside the dashboards root, allowing a write anywhere the server user
+  could reach. The resolved path is now required to stay inside the root
+  (DD-395).
+- Skill-route traversal: skill-namespaced web routes accepted
+  parent-directory segments, exposing files outside the skill tree; static
+  file serving is now containment-asserted (DD-416). The install path had the
+  same flaw - a repo name could escape the skills root - and now refuses
+  (DD-426).
+- Attribute-context XSS: page-derived values were HTML-escaped for element
+  text but interpolated raw into HTML attributes, so a crafted saved page
+  could break out of an attribute and execute script. Every attribute-context
+  insertion is now encoded for that context (DD-421), and saved bookmark link
+  segments are percent-encoded for URL context (DD-423).
+- Missing CSRF defense: state-changing requests were accepted regardless of
+  Origin or Referer, so a foreign page could drive an authenticated helper
+  session. Foreign-origin state-changing requests are now rejected on every
+  web tier (DD-422).
+- Transient-token 403 bypass: the denial for transient ?token= URLs was
+  conditioned on the absence of an accompanying file value, so sending one
+  bypassed the 403. The denial now depends on the token alone (DD-425).
+- Release tarball leaks: dzil gathers from disk, not from git, so dogfood QA
+  evidence and ticket worktrees shipped inside the distribution (DD-414), and
+  the Hermes runtime state root - which carries credentials - shipped with it
+  (DD-432). Both are excluded and the exclusion is asserted by the release
+  metadata gate.
+- Collector timeout leaked processes: a timed-out collector command left its
+  descendants running because only the direct child was signalled; the full
+  process subtree is now terminated (DD-388), and blocked Windows command
+  collectors are interrupted at their timeout instead of hanging (DD-389).
+- Concurrent collector writers clobbered each other: the atomic
+  write-and-rename used one shared pending filename, so two workers racing on
+  the same state file could interleave and publish a truncated document. The
+  pending name is now per-process (DD-418).
+- Collector log corruption: append and rotation were unsynchronised (DD-399),
+  and a combined lines+days rotation rule could cut mid-entry and orphan the
+  body. Rotation now cuts on entry boundaries under a shared per-log lock
+  (DD-427).
+- Saved-Ajax disconnect leaked children and killed them too early: descendant
+  processes survived a client disconnect (DD-396), and the SIGTERM grace
+  window collapsed to zero elapsed time so handlers were SIGKILLed without a
+  chance to clean up (DD-428).
+- Runtime state readers died on a transient empty state file mid-rename
+  (DD-411), and the web lifecycle acted on incomplete runtime state (DD-412).
+- Windows startup failures: the SSL certificate home was resolved outside
+  PathRegistry so the HTTPS server never started (DD-417); unguarded passwd
+  lookups died in non-interactive sessions instead of resolving a user and a
+  home (DD-413); PERL5LIB generation assumed POSIX separators (DD-397); and
+  the PowerShell startup env cache clobbered live PATH state (DD-390).
+- Collectors stopped when the updates directory was absent, treating a
+  missing optional directory as a fatal condition (DD-398).
+- Accessibility and layout: generated HTML documents carried no lang
+  attribute (DD-405), page-editor textareas had no programmatic accessible
+  name (DD-409), rendered page chrome overflowed 320px viewports (DD-410),
+  and logout dead-ended a loopback-admin browser on the login page (DD-408).
+- Gate blindness: the POD syntax gate graded a stale copy rather than the
+  source tree and was hiding three real reds (DD-429); the coverage gate
+  graded the stale build tree instead of lib/ (DD-431); and a failed exec in
+  the harness process silently blinded it (DD-428).
+- PathRegistry forked /bin/pwd on every working-directory lookup (DD-393),
+  and MakeMaker license metadata disagreed with the MIT licence (DD-400).
+
 ## 4.23
 
 - Host-trust DNS-rebinding vector: `_request_is_loopback_admin` trusted any
