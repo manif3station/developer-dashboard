@@ -177,6 +177,20 @@ sequence, the repository root must contain exactly one unpacked
 `Developer-Dashboard-X.XX/` build directory and exactly one matching
 `Developer-Dashboard-X.XX.tar.gz` tarball. If stale build directories remain,
 the tarball kwalitee gate must fail.
+Untracked runtime and operator state directories that live in the checkout
+root must be named explicitly in the `[GatherDir]` `exclude_match` list. `dzil`
+gathers from disk rather than from git, so `.gitignore` never protects the
+tarball, and a leading dot is not protection either — it only works because
+`GatherDir` defaults `include_dotfiles` to `0`, which is a default rather than
+a decision and disappears the moment a directory is renamed. The Hermes runtime
+root is excluded under both spellings (`^_hermes/` and `^\.hermes/`) because it
+carries `auth.json`, `config.yaml`, `.env`, and the kanban and state databases;
+`cover_db/`, `dogfood-output/`, `.worktrees/`, and `node_modules/` are excluded
+for the same reason. `t/15-release-metadata.t` gates this in three independent
+ways: the exclusion lines must be present in `dist.ini`, the parsed
+`exclude_match` patterns must actually match the hazardous paths while leaving
+every shipped path alone, and any built tarball must carry no member under
+those prefixes.
 After the source-tree `prove -lr t` and explicit `Devel::Cover` gates pass,
 verify the built tarball still installs in a blank Perl container with:
 

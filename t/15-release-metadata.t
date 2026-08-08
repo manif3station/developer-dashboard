@@ -309,6 +309,76 @@ my @operator_local_files = qw(
     }
 }
 
+# Untracked runtime-state roots in the repo checkout are the same leak class as
+# the operator files above, and the worst one: the Hermes runtime root holds
+# auth.json, config.yaml, .env and the kanban/state databases. It used to be
+# spelled .hermes/, where GatherDir's include_dotfiles = 0 default excluded it
+# by accident rather than by decision; renaming it to _hermes/ removed that
+# accidental protection with nothing in dist.ini to replace it. Both spellings
+# must be named explicitly so neither the dot form nor the underscore form can
+# ever be gathered.
+my @runtime_state_exclusions = (
+    [ '_hermes'  => qr/^exclude_match = \^_hermes\/$/m ],
+    [ '.hermes'  => qr/^exclude_match = \^\\\.hermes\/$/m ],
+);
+{
+    my $dist_ini = _slurp( _repo_path('dist.ini') );
+    for my $exclusion (@runtime_state_exclusions) {
+        my ( $state_root, $pattern ) = @{$exclusion};
+        like(
+            $dist_ini,
+            $pattern,
+            "dist.ini excludes the $state_root/ runtime state root so board databases and credentials cannot be gathered into a release tarball",
+        );
+    }
+    my $manifest_skip = _slurp( _repo_path('MANIFEST.SKIP') );
+    like( $manifest_skip, qr/^\^_hermes\/$/m, 'MANIFEST.SKIP also skips _hermes/ so a MANIFEST-driven build cannot ship the runtime state root' );
+    like( $manifest_skip, qr/^\^\\\.hermes\/$/m, 'MANIFEST.SKIP also skips .hermes/ so a MANIFEST-driven build cannot ship the runtime state root' );
+
+    my $gitignore = _slurp( _repo_path('.gitignore') );
+    like( $gitignore, qr{^_hermes/$}m, '.gitignore ignores _hermes/ so a stray git add -A cannot commit the runtime credentials and state databases either' );
+}
+
+# Text assertions alone only pin that the exclusion LINES exist; they cannot
+# catch a pattern that is present but does not actually match the paths it is
+# meant to stop. Compile every exclude_match out of dist.ini and apply it, so
+# the exclusions are gated by meaning and not by spelling.
+{
+    my $dist_ini = _slurp( _repo_path('dist.ini') );
+    my @exclude_match = map { qr/$_/ } ( $dist_ini =~ /^exclude_match = (.+)$/mg );
+    ok( scalar @exclude_match > 0, 'dist.ini declares gatherable exclude_match patterns to apply' );
+
+    my $excluded = sub {
+        my ($path) = @_;
+        return scalar grep { $path =~ $_ } @exclude_match;
+    };
+
+    my @must_be_excluded = qw(
+        _hermes/auth.json
+        _hermes/config.yaml
+        _hermes/kanban.db
+        _hermes/state.db
+        .hermes/auth.json
+        .hermes/kanban.db
+        cover_db/coverage.html
+        dogfood-output/screenshot.png
+        .worktrees/dd-432/lib/Developer/Dashboard.pm
+        node_modules/left-pad/index.js
+    );
+    ok( $excluded->($_), "dist.ini exclusions actually match $_ so it cannot be gathered" ) for @must_be_excluded;
+
+    my @must_be_shipped = qw(
+        lib/Developer/Dashboard.pm
+        bin/dashboard
+        t/15-release-metadata.t
+        share/public/js/jquery-4.0.0.min.js
+        integration/blank-env/run-integration.pl
+        doc/testing.md
+        install.sh
+    );
+    ok( !$excluded->($_), "dist.ini exclusions leave $_ in the release tarball" ) for @must_be_shipped;
+}
+
 my @required_tarball_paths = (
     "Developer-Dashboard-$version/install.sh",
     "Developer-Dashboard-$version/install.ps1",
@@ -329,7 +399,7 @@ my @required_tarball_paths = (
 my $matching_tarball = _repo_path("Developer-Dashboard-$version.tar.gz");
 SKIP: {
     skip "matching release tarball $matching_tarball has not been built yet",
-      6 + scalar(@required_tarball_paths) + scalar(@operator_local_files)
+      10 + scalar(@required_tarball_paths) + scalar(@operator_local_files)
       if !-f $matching_tarball;
 
     my $tar = Archive::Tar->new;
@@ -351,7 +421,7 @@ SKIP: {
     # the operator files above: GatherDir reads the disk, so .gitignore never
     # protects the tarball. dogfood-output/ in particular holds browser QA
     # evidence and screenshots of the operator's machine.
-    for my $leak_prefix (qw(dogfood-output .worktrees)) {
+    for my $leak_prefix (qw(dogfood-output .worktrees _hermes .hermes)) {
         my @leaked = grep { m{^Developer-Dashboard-\Q$version\E/\Q$leak_prefix\E/} } @files;
         is(
             scalar @leaked,

@@ -4,6 +4,8 @@
 ^ELLEN\.md$
 ^examples/
 ^\.developer-dashboard/
+^_hermes/
+^\.hermes/
 ~$
 \.swp$
 \.swo$
