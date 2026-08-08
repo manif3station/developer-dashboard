@@ -21,6 +21,7 @@ requires 'Plack', '1.0054';
 requires 'Socket', '2.041';
 requires 'Starman', '0.4018';
 requires 'Storable', '3.41';
+requires 'HTTP::Date', '6.08';
 requires 'HTTP::Request';
 requires 'HTTP::Tiny', '0.095';
 requires 'LWP::Protocol::https', '6.07';

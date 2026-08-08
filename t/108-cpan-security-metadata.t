@@ -26,6 +26,7 @@ my %secure_minimum = (
     'Dancer2'                => '0.206000',
     'Digest::MD5'            => '2.25',
     'Digest::SHA'            => '5.96',
+    'HTTP::Date'             => '6.08',
     'HTTP::Tiny'             => '0.095',
     'IO::Compress::Gzip'     => '2.220',
     'IO::Uncompress::Gunzip' => '2.220',
@@ -154,20 +155,40 @@ for my $case (
     remove_tree($scan_root);
 }
 
-# Executable proof: a real vulnerable installed module remains fatal when it is not excluded.
-{
+# Executable proof: a real vulnerable installed module remains fatal when it is
+# not excluded. One case per module that %secure_minimum floors purely because
+# of an advisory, so the declared pin is backed by a demonstrated detection at
+# the exact affected version rather than by a version string in three files.
+for my $case (
+    {
+        module   => 'HTTP::Tiny',
+        file     => [ 'HTTP', 'Tiny.pm' ],
+        dist     => 'HTTP-Tiny',
+        version  => '0.086',
+        advisory => 'CPANSA-HTTP-Tiny-2026-7017',
+    },
+    {
+        module   => 'HTTP::Date',
+        file     => [ 'HTTP', 'Date.pm' ],
+        dist     => 'HTTP-Date',
+        version  => '6.06',
+        advisory => 'CPANSA-HTTP-Date-2026-14741',
+    },
+) {
     my $bad = File::Spec->catdir( $ROOT, '.t107-bad-root' );
-    my $http_tiny = File::Spec->catfile( $bad, 'HTTP', 'Tiny.pm' );
-    make_path( File::Spec->catdir( $bad, 'HTTP' ) );
-    _write_file( $http_tiny, <<'PERL' );
-package HTTP::Tiny;
-our $VERSION = '0.086';
-1;
-PERL
+    my @file = @{ $case->{file} };
+    my $leaf = pop @file;
+    my $fixture = File::Spec->catfile( $bad, @file, $leaf );
+    make_path( File::Spec->catdir( $bad, @file ) );
+    _write_file( $fixture, "package $case->{module};\nour \$VERSION = '$case->{version}';\n1;\n" );
     my ( $bad_rc, $bad_out ) = _run_gate($bad);
-    isnt( $bad_rc, 0, 'audit gate is non-zero for a real vulnerable HTTP-Tiny fixture' );
-    like( $bad_out, qr/HTTP-Tiny.*0\.086.*advisor/is, 'audit output attributes failure to vulnerable HTTP-Tiny 0.086' );
-    like( $bad_out, qr/CPANSA-HTTP-Tiny-2026-7017/, 'vulnerable fixture reports the expected advisory ID' );
+    isnt( $bad_rc, 0, "audit gate is non-zero for a real vulnerable $case->{dist} fixture" );
+    like(
+        $bad_out,
+        qr/\Q$case->{dist}\E.*\Q$case->{version}\E.*advisor/is,
+        "audit output attributes failure to vulnerable $case->{dist} $case->{version}",
+    );
+    like( $bad_out, qr/\Q$case->{advisory}\E/, "vulnerable $case->{dist} fixture reports the expected advisory ID" );
     remove_tree($bad);
 }
 
