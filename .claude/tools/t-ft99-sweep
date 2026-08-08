@@ -1,0 +1,213 @@
+#!/usr/bin/env perl
+
+# t-ft99-sweep - the spec for the FT99 board sweep.
+#
+# WHY THIS FILE EXISTS (DD-495, 2026-08-08)
+#   ft99-sweep is the only automated statement this project makes about whether
+#   its board still describes reality, and until now nothing checked the checker.
+#   That is precisely the arrangement this project has already been bitten by
+#   twice: a guardrail whose clean report nobody had ever seen it earn (DD-493,
+#   where the sweep had never executed at all), and a rule that could only ever
+#   come back red (this ticket).
+#
+#   So the properties asserted here are deliberately about the sweep's VERDICTS,
+#   not its plumbing. Each rule is exercised in both directions - a case it must
+#   report and a case it must not - because a rule that only ever fires, and a
+#   rule that never fires, both look like working code and neither is a check.
+#
+# RUNNING IT
+#   PERL5LIB="$HOME/perl5/lib/perl5" prove -v .claude/tools/t-ft99-sweep
+
+use strict;
+use warnings;
+
+use Test::More;
+use FindBin;
+use File::Spec;
+use File::Temp qw(tempdir);
+use Capture::Tiny qw(capture);
+
+my $SWEEP = File::Spec->catfile( $FindBin::Bin, 'ft99-sweep' );
+
+# Requiring rather than running: the script ends `exit main() if !caller`, so a
+# require gives access to its subs without executing the sweep.
+require $SWEEP;
+
+# Purpose: build one board record with only the fields the sweep actually reads,
+#          so a test reads as the situation it describes rather than as a fixture.
+# Input:   %overrides - any record field, typically ref/column/assignee/linkage
+# Output:  hashref shaped like one d2 tira.<type>.list --full record
+sub card {
+    my (%overrides) = @_;
+    return {
+        ref      => 'DD-000',
+        column   => 'todo',
+        assignee => 'DD Bot',
+        linkage  => { links => [], ticket_refs => [], sub_epic_refs => [] },
+        %overrides,
+    };
+}
+
+# Purpose: run the sweep's rules over a single-ticket board.
+# Input:   $record, $decisions_page_text
+# Output:  arrayref of findings
+sub sweep_one {
+    my ( $record, $decisions ) = @_;
+    return main::sweep( { ticket => [$record] }, $decisions );
+}
+
+# Purpose: answer "did the sweep report this ref?", which is the only question
+#          any of these assertions actually cares about.
+# Input:   $findings arrayref, $ref
+# Output:  the matching finding's text, or undef
+sub reported {
+    my ( $findings, $ref ) = @_;
+    for my $finding ( @{$findings} ) {
+        return $finding->{why} if $finding->{ref} eq $ref;
+    }
+    return undef;
+}
+
+# --------------------------------------------------------------------------
+# AC-1 / AC-2 / AC-5: the blocked-by-michael rule decides for itself.
+# --------------------------------------------------------------------------
+
+my $PAGE_WITH_DDE001 = <<'PAGE';
+# Open decisions
+
+| # | Date | Question | Status | Answer |
+|---|------|----------|--------|--------|
+| 23 | 2026-08-08 | Do v4.23 and v4.24 both stand unpublished? | Open - blocking, DDE-001 is in `blocked-by-michael` | Recommendation: yes |
+PAGE
+
+{
+    my $findings = sweep_one( card( ref => 'DDE-001', column => 'blocked-by-michael' ), $PAGE_WITH_DDE001 );
+    is( reported( $findings, 'DDE-001' ), undef,
+        'AC-1 a parked card whose ref is on the decisions page is not reported' );
+}
+
+{
+    my $findings = sweep_one( card( ref => 'DD-777', column => 'blocked-by-michael' ), $PAGE_WITH_DDE001 );
+    my $why = reported( $findings, 'DD-777' );
+    ok( defined $why, 'AC-2 a parked card mentioned nowhere on the page is reported' );
+    like( $why // '', qr/DD-777|open-decisions/,
+        'AC-2 the finding names the ref or the page, so a reader can act on it without opening the board' );
+}
+
+{
+    # The page is append-only: an answered question was still asked, so its card
+    # must not be reported. Presence of the ref is the test, not open-ness.
+    my $answered = "| 7 | 2026-08-01 | Some settled question about DD-321 | Answered | B |\n";
+    my $findings = sweep_one( card( ref => 'DD-321', column => 'blocked-by-michael' ), $answered );
+    is( reported( $findings, 'DD-321' ), undef,
+        'a card named in an ANSWERED row is not reported - the question was asked and settled' );
+}
+
+{
+    # A substring match would let DD-49 ride on DD-495's row and silently pass a
+    # card whose question was never asked. This is the failure that makes a
+    # cheap check worse than none.
+    my $findings = sweep_one( card( ref => 'DD-49', column => 'blocked-by-michael' ), "row about DD-495 only\n" );
+    ok( defined reported( $findings, 'DD-49' ),
+        'AC-5 a ref is matched on a word boundary, so DD-49 is not satisfied by DD-495' );
+}
+
+{
+    # The rule must not leak onto cards in other columns.
+    my $findings = sweep_one( card( ref => 'DD-500', column => 'todo' ), '' );
+    is( reported( $findings, 'DD-500' ), undef,
+        'the decisions-page rule applies only to blocked-by-michael' );
+}
+
+# --------------------------------------------------------------------------
+# The five rules that were already there. Changing one rule must not quietly
+# alter another, and none of them had a test before this file existed.
+# --------------------------------------------------------------------------
+
+{
+    my $findings = sweep_one( card( ref => 'DD-496', column => 'git-gate', assignee => '' ), $PAGE_WITH_DDE001 );
+    like( reported( $findings, 'DD-496' ) // '', qr/no assignee/,
+        'a card in a working column with nobody on it is reported' );
+}
+
+{
+    my $findings = sweep_one( card( ref => 'DD-497', column => 'git-gate', assignee => 'DD Bot' ), $PAGE_WITH_DDE001 );
+    is( reported( $findings, 'DD-497' ), undef,
+        'a working card with an assignee is left alone' );
+}
+
+{
+    my $findings = sweep_one( card( ref => 'DD-498', column => 'blocked-by-dependency' ), $PAGE_WITH_DDE001 );
+    like( reported( $findings, 'DD-498' ) // '', qr/names no blocking link/,
+        'a dependency park naming no blocker is reported, because nothing can release it' );
+}
+
+{
+    my $blocked = card(
+        ref     => 'DD-499',
+        column  => 'blocked-by-dependency',
+        linkage => { links => [ { ref => 'DD-400', type => 'is-blocked-by' } ], ticket_refs => [], sub_epic_refs => [] },
+    );
+    my $done    = card( ref => 'DD-400', column => 'release-to-pause' );
+    my $open    = card( ref => 'DD-400', column => 'in-progress' );
+
+    my $cleared = main::sweep( { ticket => [ $blocked, $done ] }, $PAGE_WITH_DDE001 );
+    like( reported( $cleared, 'DD-499' ) // '', qr/the park has cleared/,
+        'a park whose blocker reached a terminal column is reported as released' );
+
+    my $still = main::sweep( { ticket => [ $blocked, $open ] }, $PAGE_WITH_DDE001 );
+    is( reported( $still, 'DD-499' ), undef,
+        'a park whose blocker is still open is left alone' );
+}
+
+{
+    my $parent = card(
+        ref     => 'DDE-900',
+        column  => 'backlog',
+        linkage => { links => [], ticket_refs => ['DD-901'], sub_epic_refs => [] },
+    );
+    my $child = card( ref => 'DD-901', column => 'in-progress' );
+    my $findings = main::sweep( { epic => [$parent], ticket => [$child] }, $PAGE_WITH_DDE001 );
+    like( reported( $findings, 'DDE-900' ) // '', qr/children have already started/,
+        'an epic parked while its children work is reported - the failure this board actually suffered' );
+}
+
+{
+    my $parent = card(
+        ref     => 'DDE-902',
+        column  => 'in-progress',
+        linkage => { links => [], ticket_refs => ['DD-903'], sub_epic_refs => [] },
+    );
+    my $child = card( ref => 'DD-903', column => 'release-to-pause' );
+    my $findings = main::sweep( { epic => [$parent], ticket => [$child] }, $PAGE_WITH_DDE001 );
+    like( reported( $findings, 'DDE-902' ) // '', qr/every one of its 1 children is terminal/,
+        'a parent still working while every child is finished is reported' );
+}
+
+# --------------------------------------------------------------------------
+# AC-3: an unreadable decisions page is "could not look", never "clean".
+#
+# Run as a subprocess, because the property under test is the process's EXIT
+# STATUS - the thing cron and any future CI step will actually read. Asserting
+# it in-process would test a return value nobody consumes.
+# --------------------------------------------------------------------------
+
+{
+    my $tmp     = tempdir( CLEANUP => 1 );
+    my $log     = File::Spec->catfile( $tmp, 'ft99.log' );
+    my $missing = File::Spec->catfile( $tmp, 'no-such-decisions-page.md' );
+
+    my ( $stdout, $stderr, $exit ) = capture {
+        local $ENV{DD_FT99_LOG}        = $log;
+        local $ENV{DD_DECISIONS_PAGE}  = $missing;
+        system( $^X, $SWEEP );
+    };
+
+    is( $exit >> 8, 3, 'AC-3 an unreadable decisions page exits 3' );
+    like( "$stdout$stderr", qr/UNUSABLE/,
+        'AC-3 it says UNUSABLE, so the failure cannot be mistaken for a finding' );
+    unlike( $stdout, qr/every card is in a column its evidence supports/,
+        'AC-3 it never prints a clean verdict it did not earn' );
+}
+
+done_testing();
