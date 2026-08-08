@@ -245,8 +245,24 @@ sub _run_gate {
         File::Spec->catdir( $ENV{HOME}, 'perl5', 'bin' ),
         qw(/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin),
         $ENV{PATH};
+    # cpan-audit needs its OWN dependencies, which live beside it rather than in
+    # the project's library tree. Once PATH found the tool on CI it then failed
+    # with "Can't locate IO/Interactive.pm", because audit-local/lib/perl5 is
+    # exported only for the two dedicated audit steps. Derive that directory from
+    # wherever the binary actually is, so this works for an audit-local install,
+    # a local::lib install, or a system one, without naming any of them.
+    my @audit_lib;
+    for my $dir ( split /:/, $ENV{PATH} ) {
+        my $bin = File::Spec->catfile( $dir, 'cpan-audit' );
+        next if !-x $bin;
+        my $lib = File::Spec->catdir( $dir, File::Spec->updir, 'lib', 'perl5' );
+        push @audit_lib, File::Spec->canonpath($lib) if -d $lib;
+        last;
+    }
+
     local $ENV{PERL5LIB} = join ':', grep { defined && length }
         File::Spec->catdir( $ENV{HOME}, 'perl5', 'perlbrew', 'perls', 'perl-5.44.0', 'local', 'lib', 'perl5' ),
+        @audit_lib,
         $ENV{PERL5LIB};
     my $out = `bash $gate $root 2>&1`;
     my $rc = ${^CHILD_ERROR_NATIVE} >> 8;
