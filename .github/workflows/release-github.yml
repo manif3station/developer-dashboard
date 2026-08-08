@@ -1,7 +1,23 @@
 name: GitHub Release
 
 on:
+  # A tag push runs this file AS FROZEN AT THAT TAG, so a fix landed on master is
+  # invisible to a tag that already exists. v4.23 and v4.24 both died at "Setup
+  # Perl" because each tag carries the pre-DD-449 node20 pin for
+  # actions-setup-perl v1.32.0 while the runner now forces node24, and since
+  # re-running that run and dispatching at the tag ref both replay the same
+  # frozen file, neither tag can ever reach its publish step. The platform keeps
+  # retiring runtimes and a tag never moves, so this recurs by construction.
+  #
+  # The `tag` input is the recovery path: it publishes an EXISTING tag under the
+  # current definition on master, while the checkout below still takes the
+  # artifact from that tag's own tree.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing vX.XX tag to build and publish. Leave empty when this runs from a tag push.'
+        required: false
+        type: string
   push:
     tags:
       - 'v*'
@@ -10,8 +26,26 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-github-${{ github.ref }}
+  group: release-github-${{ github.event.inputs.tag || github.ref_name }}
   cancel-in-progress: false
+
+# Resolved once, at workflow level, because both jobs need the same answer. The
+# provenance job previously read GITHUB_REF_NAME directly, which is the tag on a
+# push but the BRANCH on a dispatch - so under the recovery path it would have
+# downloaded and attested a release named after the branch. On a tag push the
+# input is absent and this is exactly github.ref_name, so the existing path is
+# unchanged.
+#
+# github.event.inputs rather than the newer inputs context, deliberately. The
+# inputs context is documented as available for workflow_dispatch and
+# workflow_call, and this workflow's main trigger is neither - an unavailable
+# context is a parse-time "Unrecognized named-value", which would break every
+# release rather than just the recovery path. github.event.inputs is readable
+# under any event and is simply null when no dispatch supplied it. There is no
+# runner available here to settle it by experiment, so the form with no failure
+# mode wins.
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:
   release:
@@ -24,8 +58,30 @@ jobs:
       NONINTERACTIVE_TESTING: 1
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
+      # Take the source from the resolved tag, not from the dispatch ref. The
+      # definition may come from master; the artifact must not. Publishing
+      # master's code under an old tag's name would be worse than not publishing
+      # at all, because it would look published. This also enforces existence
+      # for free: checkout fails outright if the ref does not exist.
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+      # First thing after checkout, so a bad dispatch costs seconds rather than
+      # failing after the suite, the coverage pass and dzil build have run. A
+      # dispatch names an arbitrary ref, so without this "master" would be
+      # accepted and published as a release. Every tag in this repository
+      # conforms to vX.XX, so this cannot refuse a tag that a push would accept.
+      - name: Verify the release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${RELEASE_TAG}" | grep -qE '^v[0-9]+\.[0-9]{2}$'; then
+            echo "Refusing to publish '${RELEASE_TAG}': a release tag must be vX.XX" >&2
+            exit 1
+          fi
+          echo "Publishing release tag ${RELEASE_TAG}"
 
       - name: Setup Perl
         uses: shogo82148/actions-setup-perl@53e33bb27be492a926eee378e8a5f7ff6618b061  # v1.43.1
@@ -110,7 +166,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          tag="${RELEASE_TAG}"
           if gh release view "${tag}" >/dev/null 2>&1; then
             gh release upload "${tag}" --clobber \
               "${{ steps.artifact.outputs.artifact }}" \
@@ -154,7 +210,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
+          tag="${RELEASE_TAG}"
           gh release download "${tag}" \
             --repo "${GITHUB_REPOSITORY}" \
             --pattern 'Developer-Dashboard-*.tar.gz' \
@@ -219,7 +275,7 @@ jobs:
           # as "no git remotes found" after the attestation has already been
           # minted, which is the one failure that would leave the release with
           # provenance recorded but not attached.
-          gh release upload "${GITHUB_REF_NAME}" --clobber \
+          gh release upload "${RELEASE_TAG}" --clobber \
             --repo "${GITHUB_REPOSITORY}" \
             "${{ steps.provenance.outputs.attestation }}" \
             "${{ steps.provenance.outputs.bundle }}"

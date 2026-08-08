@@ -50,6 +50,25 @@ checksum, generates a detached signature, and creates or updates the GitHub
 release for that tag. That workflow must also install `Devel::Cover` before
 it runs the numeric `cover` gate, or the release path will die before the
 tarball, checksum, and signature assets are published.
+
+A tag push runs that workflow **as frozen at the tag**, so a fix landed on
+`master` afterwards does nothing for a tag that already exists. Both `v4.23`
+and `v4.24` were lost that way: each tag carries the pre-DD-449 node20 pin for
+`shogo82148/actions-setup-perl`, the runner now forces node24, and re-running
+the failed run replays the same frozen file. For that case the workflow takes
+an optional `tag` input on `workflow_dispatch`: dispatch it from `master` with
+`tag=vX.XX` and it publishes that existing tag under the current definition,
+while still checking out the tag's own tree so the artifact comes from the
+tagged source rather than from `master`. The input is validated against the
+`vX.XX` shape before anything is created, so a dispatch cannot publish a
+branch as a release. Leave the input empty and an ordinary tag push behaves
+exactly as it always has.
+
+Recovering a tag this way still runs the full suite and the coverage gate
+against the tagged tree, so a tag whose code cannot pass those gates stays
+unpublishable by design — that is the second, separate reason `v4.24` cannot
+be recovered, and it is not something the dispatch path is meant to bypass.
+
 The GitHub-hosted CPAN upload workflow is deliberately manual-only. Do not
 wire tag pushes to automatic PAUSE uploads here; ordinary `vX.XX` tags are for
 the signed GitHub release path, while CPAN publication stays an explicit
