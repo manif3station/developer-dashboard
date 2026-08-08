@@ -60,6 +60,7 @@ WriteMakefile(
         'TOML::Parser'          => 0,
         'Capture::Tiny'         => '0.24',
         'Digest::MD5'           => '2.25',
+        'Crypt::URandom'        => '0.55',
         'Digest::SHA'           => '5.96',
         'Archive::Tar'          => '3.10',
         'Archive::Zip'          => '1.61',

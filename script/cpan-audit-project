@@ -33,4 +33,15 @@ if grep -R -n -E 'File::Temp[[:space:]]*(->|::)[[:space:]]*safe_level[[:space:]]
   exit 1
 fi
 
+# Dancer2 sessions are reached through the DSL keyword, not a method call, so an
+# arrow-anchored pattern would have missed every real use of them. The keyword
+# forms are anchored to statement position instead: unanchored `session '` also
+# matched POD prose and tmux session strings, which would have made this guard
+# fire on a tree that never touches Dancer2 sessions at all.
+if grep -R -n -E "Dancer2::Session|^[[:space:]]*session[[:space:]]*[('\"]|=[[:space:]]*session[[:space:]]*\(|^[[:space:]]*set[[:space:]]+'?session'?[[:space:]]" \
+  "$repo_root/app.psgi" "$repo_root/bin" "$repo_root/lib" "$repo_root/share"; then
+  printf '%s\n' 'CPANSA-Dancer2-2026-13577 exclusion invalid: Dancer2 session handling is activated by production code' >&2
+  exit 1
+fi
+
 cpan-audit installed "$perl5_root" --perl --exclude-file "$exclusions"
