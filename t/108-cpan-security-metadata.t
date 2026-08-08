@@ -78,12 +78,13 @@ like( $audit, qr/--perl/, 'audit gate includes the isolated Perl runtime in its 
 like( $audit, qr/--exclude-file/, 'audit gate consumes the reviewed advisory disposition file' );
 like( $audit, qr/Plack::Middleware::XSendfile/, 'audit gate guards against Plack XSendfile use before applying its disposition' );
 like( $audit, qr/File::Temp.*safe_level/s, 'audit gate guards activation of the vulnerable File::Temp safety checks before applying its disposition' );
+like( $audit, qr/Dancer2::Session/, 'audit gate guards activation of Dancer2 session handling before applying its disposition' );
 like( $audit, qr/\$repo_root\/app\.psgi/, 'audit gate scans the shipped PSGI activation surface' );
 
 my @exclusions = grep { /\S/ && !/^\s*#/ } split /\n/, $exclude;
 is_deeply(
     \@exclusions,
-    [ qw(CPANSA-Plack-2026-7381 CPANSA-File-Temp-2011-4116) ],
+    [ qw(CPANSA-Plack-2026-7381 CPANSA-File-Temp-2011-4116 CPANSA-Dancer2-2026-13577) ],
     'only exact reviewed no-fixed advisory IDs are excluded',
 );
 
