@@ -48,6 +48,19 @@ like( $package_workflow, qr/ghcr\.io/i, 'packaging workflow publishes to GHCR' )
 like( $package_workflow, qr/uses:\s*docker\/build-push-action\@[0-9a-f]{40}/, 'docker build-push action is pinned by full SHA' );
 like( $package_workflow, qr/uses:\s*docker\/login-action\@[0-9a-f]{40}/, 'docker login action is pinned by full SHA' );
 
+# The packaging job sets FORCE_JAVASCRIPT_ACTIONS_TO_NODE24, GitHub's transitional
+# shim that reroutes actions still declaring node20 onto the node24 runtime. The
+# login step is the only one in the pipeline that handles registry credentials, so
+# it must not owe its execution to that shim: the docker/login-action v3 line
+# declares node20 while the v4 line declares node24 natively. Keep the pin on v4+,
+# and keep an auditable vX.Y.Z comment beside the SHA so a reviewer can tell which
+# upstream release the 40-hex pin resolves to without a network round-trip.
+my ($login_pin_version) = $package_workflow =~ m{uses:\s*docker/login-action\@[0-9a-f]{40}\s+\#\s*v(\d+(?:\.\d+){2})\b};
+ok( defined $login_pin_version, 'docker login action pin carries an auditable vX.Y.Z comment beside its SHA' )
+  or diag('no "# vX.Y.Z" comment found beside the docker/login-action SHA pin');
+cmp_ok( ( split /\./, ( $login_pin_version // '0.0.0' ) )[0],
+    '>=', 4, 'docker login action is pinned on the node24-native v4 line, not the node20 v3 line' );
+
 my $github_release_workflow = _slurp('.github/workflows/release-github.yml');
 unlike( $github_release_workflow, qr/^permissions:\s*$(?:\n^[^\n]*:\s*write\s*$)+/ms, 'GitHub release workflow does not use top-level write permissions' );
 like( $github_release_workflow, qr/jobs:\n\s+release:\n(?:.+\n)*?\s+permissions:\n(?:.+\n)*?\s+contents:\s*write\b/ms, 'GitHub release workflow grants release-publish access only at the job level' );
