@@ -305,6 +305,23 @@ PAGE
             active_worker_pids => [ 2000000001, 2000000002 ],
         }
     );
+    # The child announces that its TERM handler is installed, and the parent waits
+    # for that announcement before stopping it (DD-489).
+    #
+    # This assertion is about the GRACE the parent gives a handler that takes
+    # three seconds. It can only measure that if the handler exists when the
+    # signal arrives. Nothing used to guarantee it did: the parent wrote the
+    # pidfile and called stop_loop straight after forking, so on a starved host
+    # TERM could reach the child before $SIG{TERM} was set, the default action
+    # killed it instantly, and the flag file was never written - reported as the
+    # parent failing to scale its grace, which is the opposite of what happened.
+    #
+    # Recognition helpers cannot cover this one. wait_for_managed_loop waits for
+    # the RUNNER to recognise the loop, and this fixture writes the loop state by
+    # hand, so recognition is already true while the handler still is not. Only
+    # the child knows when it is ready, so only the child can say so.
+    my $ready = "$flag.ready";
+    unlink $ready;
     my $bchild = fork();
     die "fork failed: $!" if !defined $bchild;
     if ( !$bchild ) {
@@ -316,9 +333,16 @@ PAGE
         };
         $0 = $runner->_process_title($bname);
         $ENV{DEVELOPER_DASHBOARD_LOOP_NAME} = $bname;
+        if ( open my $r, '>', $ready ) { print {$r} 'ready'; close $r; }
         select undef, undef, undef, 60;
         exit 0;
     }
+
+    # Bounded, and loud when it expires: a fixture that silently gave up waiting
+    # would turn this into the very flake it is meant to remove.
+    my $ready_deadline = time + 30;
+    until ( -f $ready || time > $ready_deadline ) { select undef, undef, undef, 0.02 }
+    ok( -f $ready, 'the grace fixture child installed its TERM handler before it was stopped' );
     my $bpidfile = $runner->_pidfile($bname);
     open my $bf, '>', $bpidfile or die $!;
     print {$bf} $bchild;
@@ -328,6 +352,7 @@ PAGE
     ok( -f $flag, 'stop_loop scales the loop TERM grace by worker count so the loop finishes its own worker cleanup before any KILL-9' );
     kill 9, $bchild; waitpid( $bchild, 0 ) if kill 0, $bchild;
     unlink $flag;
+    unlink "$flag.ready";
 }
 
 {
