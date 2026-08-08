@@ -48,7 +48,7 @@ my $FIXED      = '3.84';
 my $PERMITTED = '3.71';
 
 SKIP: {
-    skip 'CPAN::Audit is not installed in this runtime, so the gate cannot be executed', 17
+    skip 'CPAN::Audit is not installed in this runtime, so the gate cannot be executed', 20
         if !$have_audit_db;
 
     # Fail-closed contract: usage errors and unusable inputs never exit 0.
@@ -104,8 +104,13 @@ SKIP: {
         is( $rc, 0, 'a reviewed advisory disposition suppresses its own finding' );
     }
 
-    # A metadata file the gate cannot parse shrinks the closure, which could
-    # hide a finding, so the skip has to be said out loud rather than swallowed.
+    # A metadata file the gate cannot parse shrinks the closure, and a shrunken
+    # closure can hide a finding, so it is the fail-closed case - not a skip.
+    # Dropping Fixture-Agent's metadata is exactly what would hide the
+    # HTML-Parser finding this whole gate exists to catch, and reporting the
+    # drop on STDERR while still exiting 0 would leave every caller that checks
+    # the exit code - the continuous-integration step included - reading it as a
+    # clean chain.
     {
         my $damaged = _build_fixture_root();
         _write_file(
@@ -113,9 +118,24 @@ SKIP: {
             '{ this is not json',
         );
         my $cpanfile = _write_cpanfile( $damaged, "requires 'Fixture::Agent', '1.00';\n" );
-        my ( undef, $out ) = _run_gate( '--cpanfile', $cpanfile, $damaged );
-        like( $out, qr/skipping unparseable distribution metadata/, 'the gate reports a metadata file it could not parse instead of silently dropping it' );
-        like( $out, qr/Fixture-Agent-1\.00/, 'the reported skip names the metadata file that was dropped' );
+        my ( $rc, $out ) = _run_gate( '--cpanfile', $cpanfile, $damaged );
+        is( $rc, 2, 'distribution metadata the gate cannot parse makes the audit unusable rather than clean' );
+        like( $out, qr/closure would be incomplete/, 'the gate says the closure would be incomplete instead of reporting a clean chain' );
+        like( $out, qr/Fixture-Agent-1\.00.+unparseable/, 'the gate names the metadata file it could not parse and why' );
+    }
+
+    # Well-formed JSON that is not an object is the same defect with a different
+    # reason, and must reach the same fail-closed outcome.
+    {
+        my $damaged = _build_fixture_root();
+        _write_file(
+            File::Spec->catfile( $damaged, 'fixture-arch', '.meta', 'Fixture-Agent-1.00', 'install.json' ),
+            '[]',
+        );
+        my $cpanfile = _write_cpanfile( $damaged, "requires 'Fixture::Agent', '1.00';\n" );
+        my ( $rc, $out ) = _run_gate( '--cpanfile', $cpanfile, $damaged );
+        is( $rc, 2, 'distribution metadata that is valid JSON but not an object is unusable too' );
+        like( $out, qr/not a JSON object/, 'the gate names the reason the metadata was unusable' );
     }
 
     # A cpanfile with no runtime requirements is unusable, not clean.

@@ -199,8 +199,13 @@ the metadata that is written next to each installed distribution, resolves the
 lowest release each distribution's accumulated floor still permits, and reports
 any that falls inside a published advisory range. It shares the reviewed
 advisory disposition list with the installed-distribution gate, and it fails
-closed: a library root it cannot walk, or a missing advisory database, exits
-non-zero rather than reporting a clean chain it never established.
+closed: a library root it cannot walk, a missing advisory database, or a single
+distribution metadata file it cannot read or parse all exit non-zero rather than
+reporting a clean chain it never established. The last of those matters as much
+as the others, because a dropped metadata file shrinks the closure, and a
+smaller closure is precisely what hides a finding — a partial walk that reports
+"no distribution permits a vulnerable version" is the same false clean this gate
+was built to end.
 
 The gate runs as its own continuous-integration step against the isolated
 dependency root the build resolves, and

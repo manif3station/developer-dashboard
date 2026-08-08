@@ -58,6 +58,11 @@ sub main {
         if !%{$declared};
 
     my $metadata = _index_metadata($perl5_root);
+    return _unusable(
+        sprintf 'the closure would be incomplete - %d distribution metadata file(s) could not be read: %s',
+        scalar @{ $metadata->{unusable} },
+        join( '; ', @{ $metadata->{unusable} } )
+    ) if @{ $metadata->{unusable} };
     return _unusable("no distribution metadata (.meta) found under $perl5_root; the declared chain cannot be walked")
         if !%{ $metadata->{module_to_dist} };
 
@@ -153,16 +158,20 @@ sub _parse_cpanfile {
 #          root so the declared chain can be walked without network access.
 # Input: a Perl library root (the directory handed to cpanm's -L, plus its
 #        architecture subdirectories).
-# Output: a hash reference with three sub-indexes:
+# Output: a hash reference with four sub-indexes:
 #           module_to_dist   module name        => distribution name
 #           runtime_requires distribution name  => { module => minimum }
 #           releases         distribution name  => installed version string
+#           unusable         list of "path (reason)" for every metadata file
+#                            that could not be read, which the caller must
+#                            treat as fatal rather than walking a partial chain
 sub _index_metadata {
     my ($root) = @_;
 
     my %module_to_dist;
     my %runtime_requires;
     my %releases;
+    my @unusable;
 
     for my $meta_root ( _meta_roots($root) ) {
         opendir my $dh, $meta_root or next;
@@ -174,7 +183,11 @@ sub _index_metadata {
             my $mymeta  = File::Spec->catfile( $meta_root, $dist_dir, 'MYMETA.json' );
             next if !-f $install;
 
-            my $installed = _decode_json_file($install) or next;
+            my ( $installed, $install_error ) = _decode_json_file($install);
+            if ( defined $install_error ) {
+                push @unusable, "$install ($install_error)";
+                next;
+            }
             my $name = $installed->{dist};
             next if !defined $name;
             $name =~ s/-v?[0-9][0-9._]*\z//;
@@ -186,7 +199,11 @@ sub _index_metadata {
             }
 
             next if !-f $mymeta;
-            my $declared = _decode_json_file($mymeta) or next;
+            my ( $declared, $mymeta_error ) = _decode_json_file($mymeta);
+            if ( defined $mymeta_error ) {
+                push @unusable, "$mymeta ($mymeta_error)";
+                next;
+            }
             my $requires = $declared->{prereqs}{runtime}{requires} || {};
             $runtime_requires{$name} = $requires;
         }
@@ -196,6 +213,7 @@ sub _index_metadata {
         module_to_dist   => \%module_to_dist,
         runtime_requires => \%runtime_requires,
         releases         => \%releases,
+        unusable         => \@unusable,
     };
 }
 
@@ -217,19 +235,20 @@ sub _meta_roots {
     return grep { -d $_ } @candidates;
 }
 
-# Purpose: decode a JSON metadata file without letting one malformed file abort
-#          the whole audit, while still saying out loud that a file was skipped.
-#          A silently skipped metadata file would shrink the closure and could
-#          hide a finding, so every skip is reported on STDERR.
+# Purpose: decode a JSON metadata file, reporting why it was unusable instead of
+#          swallowing the failure. A dropped metadata file shrinks the closure,
+#          and a shrunken closure can hide exactly the finding this gate exists
+#          to make, so the caller is given the reason to fail closed on rather
+#          than an undef it could quietly skip.
 # Input: a file path.
-# Output: the decoded structure, or undef when the file cannot be read or parsed.
+# Output: a two element list of the decoded hash reference and a failure reason.
+#         Exactly one of the two is defined.
 sub _decode_json_file {
     my ($path) = @_;
 
     my $handle;
     if ( !open $handle, '<', $path ) {
-        printf {*STDERR} "skipping unreadable distribution metadata %s: %s\n", $path, $!;
-        return undef;    ## no critic
+        return ( undef, "unreadable: $!" );    ## no critic
     }
 
     my $content = do { local $/; <$handle> };
@@ -239,11 +258,10 @@ sub _decode_json_file {
     if ( !defined $decoded || ref $decoded ne 'HASH' ) {
         my $reason = $@ || 'metadata is not a JSON object';
         chomp $reason;
-        printf {*STDERR} "skipping unparseable distribution metadata %s: %s\n", $path, $reason;
-        return undef;    ## no critic
+        return ( undef, "unparseable: $reason" );    ## no critic
     }
 
-    return $decoded;
+    return ( $decoded, undef );    ## no critic
 }
 
 # Purpose: expand the declared requirements into the full transitive runtime
@@ -503,9 +521,11 @@ advisory range.
 
 =item * C<1> - at least one permitted vulnerable resolution was found.
 
-=item * C<2> - the gate could not audit anything (bad usage, missing
-C<CPAN::Audit>, or a library root with no distribution metadata). It never
-reports a clean chain it did not establish.
+=item * C<2> - the gate could not audit the whole chain (bad usage, missing
+C<CPAN::Audit>, a library root with no distribution metadata, or a distribution
+metadata file it could not read or parse). It never reports a clean chain it did
+not establish, and an unreadable metadata file is not established: dropping one
+shrinks the closure, and a smaller closure is exactly what hides a finding.
 
 =back
 
