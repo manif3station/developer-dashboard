@@ -5,7 +5,7 @@ use warnings;
 
 our $VERSION = '4.24';
 
-use Digest::SHA qw(sha256_hex);
+use Crypt::URandom qw(urandom);
 use File::Spec;
 use POSIX qw(strftime);
 
@@ -30,7 +30,14 @@ sub create {
     my $username = $args{username} || die 'Missing username';
     my $role     = $args{role}     || 'helper';
     my $ttl      = $args{ttl_seconds} || 43_200;
-    my $session_id = sha256_hex( join ':', $$, time, rand(), $username, $role );
+    # 256 bits straight from the operating system's CSPRNG. This used to hash the
+    # pid, the wall-clock second, rand(), the username and the role together,
+    # which is the construction CVE-2026-13577 describes: every term but rand()
+    # is attacker-observable, and rand() is drand48 seeded with thirty-two bits.
+    # Crypt::URandom is imported at compile time on purpose - there is
+    # deliberately no fallback, because a SILENT fallback to weak material is
+    # the vulnerability itself, not the remedy for it.
+    my $session_id = unpack 'H*', urandom(32);
     my $record = {
         session_id  => $session_id,
         username    => $username,
@@ -102,7 +109,7 @@ sub from_cookie {
 # _safe_session_id($session_id)
 # Neutralizes a caller-supplied session id before it is interpolated into an
 # on-disk path, mirroring the charset sanitization Auth applies to usernames.
-# Session ids created here are always sha256 hex, but get()/delete() accept the
+# Session ids created here are always CSPRNG-derived hex, but get()/delete() accept the
 # raw value from the request cookie; without this a value such as
 # "../../etc/passwd" would let the store read or unlink files outside the
 # session directory (path traversal). Stripping everything outside the safe
