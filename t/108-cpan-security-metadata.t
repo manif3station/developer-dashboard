@@ -23,9 +23,11 @@ my %secure_minimum = (
     'Archive::Zip'           => '1.61',
     'Capture::Tiny'          => '0.24',
     'Compress::Raw::Zlib'    => '2.220',
+    'Cpanel::JSON::XS'       => '4.41',
     'Dancer2'                => '0.206000',
     'Digest::MD5'            => '2.25',
     'Digest::SHA'            => '5.96',
+    'HTML::Parser'           => '3.84',
     'HTTP::Date'             => '6.08',
     'HTTP::Tiny'             => '0.095',
     'IO::Compress::Gzip'     => '2.220',
@@ -39,6 +41,7 @@ my %secure_minimum = (
     'Storable'               => '3.41',
     'Template'               => '3.103',
     'XML::Parser'            => '2.48',
+    'YAML'                   => '1.28',
     'YAML::XS'               => '0.903.0',
 );
 
@@ -87,6 +90,7 @@ is_deeply(
 like( $workflow, qr/perl-version:\s*'5\.44'/, 'CI exercises the hardened Perl baseline' );
 like( $workflow, qr/cpanm\s+--installdeps\s+--notest\s+-L\s+local\s+\./, 'CI installs project dependencies into an isolated local root' );
 like( $workflow, qr/script\/cpan-audit-project\s+local\/lib\/perl5/, 'CI executes the project audit gate against that isolated root' );
+like( $workflow, qr/script\/cpan-audit-declared-chain\s+local\/lib\/perl5/, 'CI audits the transitive closure of the declared chain, not only the modules cpanfile names' );
 like( $workflow, qr/echo\s+"\$GITHUB_WORKSPACE\/audit-local\/bin"\s+>>\s+"\$GITHUB_PATH"/, 'CI adds cpan-audit to the preserved runner PATH' );
 unlike( $workflow, qr/PATH:\s*\$\{\{\s*env\.PATH\s*\}\}/, 'CI does not replace the runner PATH with an unavailable env context value' );
 like( $installer, qr/PERLBREW_PERL="\$\{DD_INSTALL_PERLBREW_PERL:-perl-5\.44\.0\}"/, 'bootstrap fallback builds the hardened Perl 5.44 runtime' );
@@ -173,6 +177,27 @@ for my $case (
         dist     => 'HTTP-Date',
         version  => '6.06',
         advisory => 'CPANSA-HTTP-Date-2026-14741',
+    },
+    {
+        module   => 'HTML::Parser',
+        file     => [ 'HTML', 'Parser.pm' ],
+        dist     => 'HTML-Parser',
+        version  => '3.83',
+        advisory => 'CPANSA-HTML-Parser-2026-8829',
+    },
+    {
+        module   => 'Cpanel::JSON::XS',
+        file     => [ 'Cpanel', 'JSON', 'XS.pm' ],
+        dist     => 'Cpanel-JSON-XS',
+        version  => '4.38',
+        advisory => 'CPANSA-Cpanel-JSON-XS-2026-9334',
+    },
+    {
+        module   => 'YAML',
+        file     => ['YAML.pm'],
+        dist     => 'YAML',
+        version  => '0.86',
+        advisory => 'CPANSA-YAML-2019-01',
     },
 ) {
     my $bad = File::Spec->catdir( $ROOT, '.t107-bad-root' );

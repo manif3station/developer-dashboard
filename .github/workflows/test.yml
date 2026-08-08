@@ -44,6 +44,11 @@ jobs:
           PERL5LIB: ${{ github.workspace }}/audit-local/lib/perl5
         run: script/cpan-audit-project local/lib/perl5
 
+      - name: Audit the declared dependency chain
+        env:
+          PERL5LIB: ${{ github.workspace }}/audit-local/lib/perl5:${{ github.workspace }}/local/lib/perl5
+        run: script/cpan-audit-declared-chain local/lib/perl5
+
       - name: Install test tools and export project environment
         run: |
           cpanm --notest -L local Devel::Cover
