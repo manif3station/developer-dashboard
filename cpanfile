@@ -9,6 +9,7 @@ requires 'TOML::Parser';
 requires 'Capture::Tiny', '0.24';
 requires 'Getopt::Long';
 requires 'Digest::MD5', '2.25';
+requires 'Crypt::URandom', '0.55';
 requires 'Digest::SHA', '5.96';
 requires 'Archive::Tar', '3.10';
 requires 'Archive::Zip', '1.61';
