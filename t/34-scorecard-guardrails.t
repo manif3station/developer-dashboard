@@ -57,13 +57,15 @@ like( $package_workflow, qr/ghcr\.io/i, 'packaging workflow publishes to GHCR' )
 like( $package_workflow, qr/uses:\s*docker\/build-push-action\@[0-9a-f]{40}/, 'docker build-push action is pinned by full SHA' );
 like( $package_workflow, qr/uses:\s*docker\/login-action\@[0-9a-f]{40}/, 'docker login action is pinned by full SHA' );
 
-# The packaging job sets FORCE_JAVASCRIPT_ACTIONS_TO_NODE24, GitHub's transitional
-# shim that reroutes actions still declaring node20 onto the node24 runtime. The
-# login step is the only one in the pipeline that handles registry credentials, so
-# it must not owe its execution to that shim: the docker/login-action v3 line
-# declares node20 while the v4 line declares node24 natively. Keep the pin on v4+,
-# and keep an auditable vX.Y.Z comment beside the SHA so a reviewer can tell which
-# upstream release the 40-hex pin resolves to without a network round-trip.
+# The login step is the only one in the pipeline that handles registry
+# credentials, so its execution must not depend on GitHub rerouting a stale
+# runtime for it: the docker/login-action v3 line declares node20 while the v4
+# line declares node24 natively. Keep the pin on v4+, and keep an auditable
+# vX.Y.Z comment beside the SHA so a reviewer can tell which upstream release the
+# 40-hex pin resolves to without a network round-trip. DD-449 removed the
+# FORCE_JAVASCRIPT_ACTIONS_TO_NODE24 shim these jobs used to set, because it is
+# documented as removable once no pinned action still declares node20, and none
+# does - script/audit-action-pins is what keeps that true.
 my ($login_pin_version) = $package_workflow =~ m{uses:\s*docker/login-action\@[0-9a-f]{40}\s+\#\s*v(\d+(?:\.\d+){2})\b};
 ok( defined $login_pin_version, 'docker login action pin carries an auditable vX.Y.Z comment beside its SHA' )
   or diag('no "# vX.Y.Z" comment found beside the docker/login-action SHA pin');
@@ -218,17 +220,107 @@ ok( defined $locked_fast_check, 'package-lock.json records a resolved fast-check
 is( $locked_fast_check, $declared_fast_check,
     'package-lock.json resolves fast-check on the same major the manifest declares' );
 
-for my $workflow (
-    qw(
-    .github/workflows/test.yml
-    .github/workflows/release-cpan.yml
-    .github/workflows/codeql.yml
-    .github/workflows/package-ghcr.yml
-    .github/workflows/fuzz-js.yml
-    .github/workflows/release-github.yml
-    )
-  )
-{
+# DD-449. Every pin in this repository is an immutable 40-hex SHA, and the
+# node24-line floors above (docker/login-action, attest-build-provenance) are
+# asserted FROM THE `# vX.Y.Z` COMMENT beside that SHA. That made the comment
+# load-bearing while nothing ever verified it against the SHA it annotates, and
+# three pins turned out to carry comments written from INTENT rather than
+# resolved from the tag:
+#
+#   actions/checkout              said `# v5.2.2` - a tag that has never existed
+#                                 upstream - over a SHA that is really v4.2.2
+#   shogo82148/actions-setup-perl said `# v1.32.0` over a SHA that is v1.31.3
+#                                 (and v1.32.0 is itself still node20)
+#   actions/setup-node            carried no comment at all; it was v4.4.0
+#
+# All three declare node20. GitHub now force-runs node20 actions on node24;
+# checkout survives that, actions-setup-perl v1.31.3 does not - it dies with
+# "Error: unable to get latest version". So `Setup Perl` failed on every CI run
+# for ten days, skipping the suite, the coverage gate AND both dependency
+# audits, while this file certified the node24 migration as complete.
+#
+# Two lessons are encoded below. First, a floor read off a comment cannot catch
+# a comment that lies - the checkout floor would have passed on `# v5.2.2`
+# either way - so the authoritative check resolves each SHA against the upstream
+# API and lives in script/audit-action-pins, and what is asserted here is that
+# CI actually runs it. Second, the floors are still worth stating, because they
+# do catch a careless pin, and they must name the version where each action
+# really became node24-native rather than the major that merely sounds current:
+# checkout v5.0.0, setup-node v5.0.0, and actions-setup-perl v1.37.0 (v1.36.0 is
+# still node20 - verified against each action.yml's runs.using, not assumed).
+my %NODE24_PIN_FLOOR = (
+    'actions/checkout'              => [ 5, 0, 0 ],
+    'actions/setup-node'            => [ 5, 0, 0 ],
+    'shogo82148/actions-setup-perl' => [ 1, 37, 0 ],
+);
+
+my @ALL_WORKFLOWS = qw(
+  .github/workflows/test.yml
+  .github/workflows/release-cpan.yml
+  .github/workflows/codeql.yml
+  .github/workflows/package-ghcr.yml
+  .github/workflows/fuzz-js.yml
+  .github/workflows/release-github.yml
+);
+
+# Collect every SHA pin across the workflow set, with the version comment beside
+# it when one is present, so the assertions below can reason about the pin set as
+# a whole rather than one file at a time.
+my %pin_labels;    # "action\@sha" => { label => [workflows...] }
+for my $workflow (@ALL_WORKFLOWS) {
+    my $text = _slurp($workflow);
+    while ( $text =~ m{uses:\s*(\S+?)\@([0-9a-f]{40})(?:[^\S\n]+\#[^\S\n]*(v\d+(?:\.\d+){2}))?}g ) {
+        my ( $action, $sha, $label ) = ( $1, $2, $3 );
+        push @{ $pin_labels{"$action\@$sha"}{ $label // '(none)' } }, $workflow;
+    }
+}
+ok( scalar keys %pin_labels, 'the workflow set pins actions by full SHA' );
+
+# One action@sha must not be labelled two different ways across the workflows.
+# checkout is pinned in five files and actions-setup-perl in four, so a partial
+# edit that relabels some copies and not others is the most likely way for the
+# comments to start disagreeing with each other again.
+for my $pin ( sort keys %pin_labels ) {
+    my @labels = sort keys %{ $pin_labels{$pin} };
+    is( scalar @labels, 1, "$pin carries one consistent version comment across every workflow that pins it" )
+      or diag( "conflicting comments for $pin: " . join( ', ', @labels ) );
+}
+
+# The node24 floors, read from the comment. These cannot catch a false comment -
+# that is script/audit-action-pins' job - but they do catch a pin moved
+# backwards onto a node20 line by hand.
+for my $action ( sort keys %NODE24_PIN_FLOOR ) {
+    my ($pin) = grep { m{\A\Q$action\E\@} } sort keys %pin_labels;
+    ok( defined $pin, "$action is pinned by full SHA somewhere in the workflow set" )
+      or next;
+    my ($label) = sort keys %{ $pin_labels{$pin} };
+    isnt( $label, '(none)', "$action pin carries an auditable vX.Y.Z comment beside its SHA" )
+      or next;
+    my @have  = ( $label =~ m{\Av(\d+)\.(\d+)\.(\d+)\z} );
+    my @floor = @{ $NODE24_PIN_FLOOR{$action} };
+    my $ok    = 0;
+    for my $i ( 0 .. 2 ) {
+        next if $have[$i] == $floor[$i];
+        $ok = $have[$i] > $floor[$i];
+        last;
+    }
+    $ok = 1 if !$ok && "@have" eq "@floor";
+    ok( $ok, "$action is pinned on the node24-native $label line (floor v" . join( '.', @floor ) . ')' )
+      or diag("$action is pinned at $label, below the release where it became node24-native");
+}
+
+# The authoritative half: the comment is only trustworthy because something
+# resolves it against the SHA on every push. Assert the gate is wired into CI,
+# not merely present in script/. It runs after the dependency install because it
+# needs the project's own LWP::UserAgent and JSON::XS.
+my $pin_audit_gate = 'script/audit-action-pins';
+ok( -f File::Spec->catfile( $ROOT, split m{/}, $pin_audit_gate ), 'the action-pin provenance audit exists' );
+ok( _git_tracks($pin_audit_gate), 'the action-pin provenance audit is tracked in git' );
+my $test_workflow = _slurp('.github/workflows/test.yml');
+like( $test_workflow, qr/\Q$pin_audit_gate\E/,
+    'CI resolves every action pin against its upstream tag, so a version comment cannot stay false' );
+
+for my $workflow (@ALL_WORKFLOWS) {
     my $text = _slurp($workflow);
     like( $text, qr/^permissions:\s*$/m, "$workflow declares an explicit permissions block" );
     like( $text, qr/^concurrency:\s*$/m, "$workflow declares an explicit concurrency block" );

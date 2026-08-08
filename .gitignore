@@ -21,6 +21,8 @@ audit-local/
 Developer-Dashboard-0*
 *.md
 !SECURITY_CHECKS.md
+!docs/open-decisions.md
+!docs/gate-map.md
 !doc/owasp-compliance-sow.md
 !doc/security.md
 !doc/update-and-release.md
