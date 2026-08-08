@@ -65,6 +65,28 @@ sub locate_d2 {
     return -x $d2 ? $d2 : undef;
 }
 
+# Purpose: make the sweep survive an environment that has read no shell profile.
+#          d2 loads the product's dependencies from the operator's local library
+#          tree, and PERL5LIB is exported only by interactive shell init - so a
+#          scheduled sweep exited 3 on every run with "Can't locate
+#          Plack/Runner.pm" while an interactive one passed. A checker that only
+#          works in the environment nobody schedules it from is not a checker.
+# Input:   none
+# Output:  none; PERL5LIB is extended in place when the library root exists
+sub ensure_library_path {
+    my $home = $ENV{HOME};
+    return if !defined $home || $home eq '';
+
+    my $local_lib = File::Spec->catdir( $home, 'perl5', 'lib', 'perl5' );
+    return if !-d $local_lib;
+
+    my $current = $ENV{PERL5LIB};
+    return if defined $current && grep { $_ eq $local_lib } split /:/, $current;
+
+    $ENV{PERL5LIB} = defined $current && length $current ? "$local_lib:$current" : $local_lib;
+    return;
+}
+
 # Purpose: read one board as parsed records.
 # Input:   $d2 path, $type (sow|epic|ticket)
 # Output:  arrayref of records; dies with a readable reason on any failure, so a
@@ -162,6 +184,8 @@ sub main {
         say STDERR 'ft99-sweep: takes no arguments';
         return EXIT_USAGE;
     }
+
+    ensure_library_path();
 
     my $d2 = locate_d2();
     if ( !$d2 ) {
