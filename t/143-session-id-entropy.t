@@ -140,28 +140,64 @@ __END__
 
 =head1 PURPOSE
 
-This file exists because of CVE-2026-13577, which describes Dancer2 falling back
-to a session id derived from the built-in C<rand> when its CSPRNG modules are
-absent. Auditing that advisory showed this application never uses Dancer2's
-session factory at all - and had independently reimplemented the same
-construction for its own helper logins, hashing the process id, the wall-clock
-second, C<rand()>, the username and the role.
+Prove that a helper session id cannot be predicted: that it is not a function of
+the process id, the wall-clock second, the username, the role, or Perl's built-in
+C<rand>, and that the module issuing it draws from a cryptographically secure
+source with no fallback.
+
+=head1 WHY IT EXISTS
+
+CVE-2026-13577 describes Dancer2 falling back to a session id derived from the
+built-in C<rand> when its CSPRNG modules are absent. Auditing that advisory showed
+this application never uses Dancer2's session factory at all - and had
+independently reimplemented the same construction for its own helper logins,
+hashing the process id, the wall-clock second, C<rand()>, the username and the
+role.
 
 Only C<rand()> contributed anything an attacker does not already know, and
-C<rand()> is C<drand48> seeded with thirty-two bits. Holding the pid and the
-second fixed, two ids generated after the same C<srand> seed came out
-byte-identical. These are the sessions that admit a helper to the web interface.
+C<rand()> is C<drand48> seeded with thirty-two bits. Holding the pid and the second
+fixed, two ids generated after the same C<srand> seed came out byte-identical.
+These are the sessions that admit a helper to the web interface.
 
-=head1 WHAT IT ASSERTS
+=head1 WHEN TO USE
 
-Behaviourally, that seeding the built-in generator identically does not make the
-issued ids repeat, that a re-seeded batch replays none of a previous batch, that
-the id cannot be recomputed from the record's own visible fields, and that a
-run of two hundred ids collides zero times.
+Run it whenever anything touches session issuance, the session store, or the
+project's dependency floors. It is part of the ordinary suite and needs no special
+environment.
 
-Structurally, that the module calls C<rand> nowhere and draws from
-L<Crypt::URandom>. The structural check is not redundant: the advisory is about a
-I<silent> fallback, and a behavioural test only ever proves something about the
-path that happened to be taken during the run.
+=head1 HOW TO USE
+
+    prove -lv t/143-session-id-entropy.t
+
+It is hermetic: it roots a throwaway HOME, changes into it, and leaves nothing
+behind. The module path is resolved before that chdir, so the structural
+assertions read the file that was actually loaded rather than a checkout-relative
+guess.
+
+=head1 WHAT USES IT
+
+The full suite via C<prove -lr t>, the all-metric coverage gate, and the CI
+workflow that runs both. Nothing else consumes it.
+
+=head1 EXAMPLES
+
+Behavioural, that seeding the built-in generator identically does not make the
+issued ids repeat:
+
+    srand(42); my $first  = $store->create( username => 'helper', role => 'helper' );
+    srand(42); my $second = $store->create( username => 'helper', role => 'helper' );
+    isnt( $first->{session_id}, $second->{session_id}, '...' );
+
+Structural, that the weak path is not merely untaken but absent. Comments and POD
+are stripped before the assertion, because a check that cannot tell code from prose
+fails on its own rationale - this one did, against the very fix it was written to
+protect:
+
+    unlike( $code,   qr/rand/,           'the session store never calls it' );
+    like(   $source, qr/Crypt::URandom/, 'the session store draws from a CSPRNG' );
+
+The structural half is not redundant. The advisory is about a I<silent> fallback,
+and a behavioural test only ever proves something about the path taken during the
+run.
 
 =cut
