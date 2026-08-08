@@ -11,6 +11,9 @@ use Test::More;
 use URI::Escape qw(uri_escape);
 
 use lib 'lib';
+use lib 't/lib';
+
+use Local::CollectorFixture qw(wait_for_managed_loop);
 
 use Developer::Dashboard::ActionRunner;
 use Developer::Dashboard::Auth;
@@ -147,12 +150,16 @@ PAGE
     open my $fh, '>', $pidfile or die $!;
     print {$fh} $managed_child;
     close $fh;
-    my @loops;
-    for ( 1 .. 20 ) {
-        @loops = $runner->running_loops;
-        last if @loops == 1;
-        select undef, undef, undef, 0.1;
-    }
+    # Wait BEFORE the first running_loops call, not around it. This pidfile has
+    # no loop state, so the child's process title is the only evidence of its
+    # identity, and running_loops deletes the pidfile of any same-namespace pid it
+    # cannot recognize. A poll loop therefore destroys its own fixture on the
+    # first iteration and can never recover, however many iterations it is given.
+    ok(
+        wait_for_managed_loop( $runner, $managed_child, $loop_name ),
+        'managed loop child becomes identifiable before running_loops reads the collectors root',
+    );
+    my @loops = $runner->running_loops;
     is( scalar @loops, 1, 'running_loops lists active managed loop pids' );
     is( $loops[0]{name}, $loop_name, 'running_loops returns the managed loop name' );
 
@@ -466,12 +473,17 @@ PAGE
         print {$fh} $pid;
         close $fh;
     }
-    my @loops;
-    for ( 1 .. 10 ) {
-        @loops = $runner->running_loops;
-        last if @loops == @names;
-        select undef, undef, undef, 0.2;
+    # Same ordering rule as the listing fixture above: every child has to be
+    # recognizable before running_loops is called at all, because the first call
+    # sweeps away the pidfile of any child it does not recognize and the sort then
+    # has nothing left to order.
+    for my $index ( 0 .. $#names ) {
+        ok(
+            wait_for_managed_loop( $runner, $children[$index], $names[$index] ),
+            "managed loop child $names[$index] becomes identifiable before the sorted listing is read",
+        );
     }
+    my @loops = $runner->running_loops;
     is_deeply(
         [ map { $_->{name} } @loops ],
         [ sort @names ],
