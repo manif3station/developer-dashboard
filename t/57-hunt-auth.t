@@ -170,8 +170,8 @@ This test pins two authentication properties of
 C<Developer::Dashboard::Auth>. First, that helper passwords are stored stretched
 with PBKDF2-HMAC-SHA256 and that older single-round SHA-256 records still
 verify. Second, that the loopback admin-trust invariants (literal loopback,
-non-loopback clients, and configured aliases) behave correctly, while recording
-the DNS-rebinding gap that remains for arbitrary resolve-to-loopback hosts.
+non-loopback clients, and configured aliases) behave correctly, and that an
+arbitrary hostname which merely resolves to loopback is refused admin.
 
 =head1 WHY IT EXISTS
 
@@ -179,8 +179,8 @@ An adversarial review flagged that helper passwords used an unstretched
 SHA-256 with no work factor, and that a Host header which merely resolves to
 loopback could be granted admin from a loopback connection. This file exists so
 the password-stretching fix cannot silently regress to an unstretched hash or
-break existing stored logins, and so the residual DNS-rebinding trust decision
-is documented and testable rather than invisible.
+break existing stored logins, and so the DNS-rebinding fix that closed the
+Host-header hole stays pinned instead of quietly reopening.
 
 =head1 WHEN TO USE
 
@@ -196,7 +196,8 @@ it green under C<prove -lr t> and the coverage gate before calling the work
 complete. The PBKDF2 assertions cross-check the derivation against published
 vectors, the round-trip and legacy-record assertions guard backward
 compatibility, and the trust-tier assertions guard the loopback admin
-invariants. The TODO block records the still-open DNS-rebinding tightening.
+invariants, including the stubbed-resolver case that proves a hostname which
+only resolves to loopback is still denied admin.
 
 =head1 WHAT USES IT
 
