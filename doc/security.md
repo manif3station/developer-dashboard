@@ -18,8 +18,62 @@ Developer Dashboard now applies these runtime protections in the active codebase
 - helper sessions expire automatically after 12 hours
 - session cookies use `HttpOnly` and `SameSite=Strict`
 - HTTP responses add `Content-Security-Policy`, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, and `Cache-Control: no-store`
+- state-changing requests (`POST`, `PUT`, `DELETE`, `PATCH`) are refused with an empty-bodied `403` when `Origin` or `Referer` names anything other than this dashboard or a trusted local alias; the check runs before trust-tier classification, so it covers the loopback-admin shortcut, an ambient helper session cookie, and valid machine credentials alike, and a request carrying neither header is allowed because non-browser clients send neither
+- that `Origin` check cannot defend a `GET`, so the same choke point additionally refuses, **on every method**, any request the browser labelled `Sec-Fetch-Site: cross-site` or `same-site` unless the accompanying `Origin`/`Referer` names this dashboard or a trusted local alias
 - every page-derived value placed inside a quoted HTML attribute (the page chrome's play, source, and share URLs, the bookmark editor's form action, nav ids, and the host link) is escaped in attribute context, so both quote characters are neutralised and a bookmark id cannot terminate an attribute and inject markup
 - generated saved-bookmark links percent-encode every path segment of the bookmark id (URL-context output encoding, with `/` separators kept raw), so ids carrying `#`, `?`, `%`, spaces, or quote characters stay valid, reachable URLs and reach the attribute escaper already inert; the server decodes the path exactly once, keeping the encode/decode round trip symmetric
+
+## Cross-Site Request Defense
+
+The dashboard's automatic loopback-admin tier authorizes on the remote address
+alone. There is no cookie in that decision, so `SameSite=Strict` protects
+nothing there: any page the operator happens to visit can aim a request at
+`127.0.0.1` and it arrives already authorized. Two independent checks close
+that, and both sit at one choke point that runs *before* trust-tier
+classification, so no tier can be reached without passing them.
+
+The first is the `Origin`/`Referer` comparison, which covers the
+state-changing methods. Browsers unconditionally attach `Origin` to a
+cross-site state-changing request, so a foreign value there is proof of an
+attack.
+
+The second is fetch metadata, and it exists because the first one cannot
+defend a `GET`. Browsers omit `Origin` on same-origin GETs and an attacker
+page can drop its `Referer` with a referrer policy, so on a `GET` there is
+frequently nothing to compare. `GET` is not a safe method on this product:
+`/ajax/<file>` runs an operator-written saved handler as a child process, and
+the route accepts `GET`. Without the second check an `<img src="http://127.0.0.1:7890/ajax/deploy?...">`
+on any page the operator visits executes that handler blind, with
+attacker-chosen parameters.
+
+`Sec-Fetch-Site` is the header that closes it. The browser sets it itself and
+it is a forbidden header name, so page script can neither forge nor suppress
+it. The policy is:
+
+- `cross-site` and `same-site` are treated as foreign on **every** method
+- `same-origin` (the dashboard's own page) and `none` (a typed URL, a
+  bookmark, or browser start-up) pass
+- a foreign label is still served when the accompanying `Origin`/`Referer`
+  names this dashboard or a trusted local alias, which keeps the
+  `localhost`/`127.0.0.1` pair working — one host to the loopback trust model,
+  two sites to the browser
+- a request carrying no `Sec-Fetch-Site` at all is unaffected, which is what
+  keeps `curl`, registered `x-dd-api-key` machine consumers, and browsers too
+  old to send fetch metadata working exactly as before
+
+This is deliberately stricter than the usual Fetch Metadata Resource Isolation
+Policy, which carves out top-level cross-site navigations
+(`Sec-Fetch-Mode: navigate` with a `GET`). That carve-out is unsafe here,
+because a navigation is enough to execute a saved handler — `window.open` on
+an `/ajax` path is the same attack as the `<img>` tag. The cost of the
+stricter rule is that following a link into the dashboard *from another site*
+returns `403`; entering by typed URL or bookmark, which is how the dashboard is
+actually opened, reports `Sec-Fetch-Site: none` and is unaffected.
+
+The Dancer2 adapter has to forward `Sec-Fetch-Site` in its header normalizer
+alongside `Origin` and `Referer`. Without that forwarding the backend check is
+correct but never sees the header on an installed server, so the defense
+silently does nothing outside the unit tests.
 
 ## OWASP Gate
 

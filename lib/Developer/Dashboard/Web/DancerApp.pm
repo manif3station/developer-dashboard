@@ -36,15 +36,19 @@ sub _current_backend {
 # Normalizes the subset of inbound headers the backend service expects. The
 # Origin and Referer headers ride along so the backend's cross-site
 # request forgery check can compare the browser context against the request
-# host for every state-changing route.
+# host for every state-changing route, and Sec-Fetch-Site rides along with
+# them because it is the only one of the three a GET can rely on — the browser
+# sets it itself, and page script can neither forge nor suppress it.
 # Input: none.
-# Output: hash reference with host, cookie, api-key, origin, and referer values.
+# Output: hash reference with host, cookie, api-key, origin, referer, and
+# fetch-site values.
 sub _request_headers {
     return {
         host              => scalar( request->header('Host') // '' ),
         cookie            => scalar( request->header('Cookie') // '' ),
         origin            => scalar( request->header('Origin') // '' ),
         referer           => scalar( request->header('Referer') // '' ),
+        'sec-fetch-site'  => scalar( request->header('Sec-Fetch-Site') // '' ),
         'x-dd-api-key'    => scalar( request->header('X-DD-API-Key') // '' ),
         'x-dd-api-secret' => scalar( request->header('X-DD-API-Secret') // '' ),
     };
@@ -306,10 +310,14 @@ installed PSGI server stays in lock-step with the backend smart router. The
 C</favicon.ico> route is deliberately registered without the authorization
 wrapper, because browsers request the tab icon implicitly on every page load,
 including on the login page itself. The header normalizer forwards the
-C<Origin> and C<Referer> headers on every request so the backend's cross-site
-request forgery check can refuse state-changing requests that arrive from a
-foreign browser context — including the unauthorized C</login> POST route,
-whose backend handler applies the same check itself.
+C<Origin>, C<Referer>, and C<Sec-Fetch-Site> headers on every request so the
+backend's cross-site request forgery check can refuse requests that arrive
+from a foreign browser context — including the unauthorized C</login> POST
+route, whose backend handler applies the same check itself. C<Sec-Fetch-Site>
+has to ride along too because it is the only one of the three that defends a
+C<GET>: the browser sets it, and page script can neither forge nor suppress
+it, which is what stops a foreign page from executing a saved C</ajax> handler
+on the cookie-less loopback-admin tier.
 
 =head1 METHODS
 
