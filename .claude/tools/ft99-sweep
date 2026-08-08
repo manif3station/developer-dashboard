@@ -110,6 +110,55 @@ sub ensure_library_path {
     return;
 }
 
+# Purpose: read the open-decisions page, which is where a question waiting on the
+#          owner has to be written down to exist at all.
+#
+#          This is read once, up front, and passed into the rules rather than
+#          being reached for inside them: the rule needs the page for every card
+#          in the column, and a check that re-reads a file per card invites the
+#          two of them to disagree.
+#
+# Input:   none; DD_DECISIONS_PAGE overrides the path, mirroring DD_FT99_LOG, so
+#          the rule can be exercised without editing the real page
+# Output:  the page text; dies with a readable reason when it cannot be read,
+#          because "could not look" is not "clean" (AC-3)
+sub load_decisions_page {
+    my $path = $ENV{DD_DECISIONS_PAGE}
+      || File::Spec->catfile( project_root(), 'docs', 'open-decisions.md' );
+
+    open my $fh, '<', $path
+      or die "the open-decisions page $path could not be read: $!\n";
+    my $text = do { local $/; <$fh> };
+    close $fh;
+
+    die "the open-decisions page $path is empty, so no question can be on it\n"
+      if !defined $text || $text !~ /\S/;
+
+    return $text;
+}
+
+# Purpose: decide whether a card's question has actually been written onto the
+#          decisions page.
+#
+#          Presence of the ref is the whole test, deliberately. The page is
+#          append-only, so a question that was asked and then ANSWERED still has
+#          its row there; looking for an *unanswered* row would start reporting
+#          cards the moment their question was settled, which is the same defect
+#          in a new place.
+#
+#          The match is anchored on word boundaries because a substring test
+#          would let DD-49 ride on a row about DD-495 and silently pass a card
+#          whose question nobody ever asked - a cheap check returning a
+#          plausible answer, which is the exact shape of failure this project
+#          keeps paying for.
+#
+# Input:   $decisions = the page text, $ref = the card's reference
+# Output:  true when the ref appears on the page
+sub question_is_on_the_page {
+    my ( $decisions, $ref ) = @_;
+    return $decisions =~ /\b\Q$ref\E\b/;
+}
+
 # Purpose: read one board as parsed records.
 # Input:   $d2 path, $type (sow|epic|ticket)
 # Output:  arrayref of records; dies with a readable reason on any failure, so a
@@ -137,10 +186,12 @@ sub finding {
 }
 
 # Purpose: apply every column-correctness rule to one already-loaded board set.
-# Input:   hashref of type => arrayref of records
+# Input:   $boards = hashref of type => arrayref of records,
+#          $decisions = the open-decisions page text
 # Output:  arrayref of findings
 sub sweep {
-    my ($boards) = @_;
+    my ( $boards, $decisions ) = @_;
+    $decisions = '' if !defined $decisions;
     my @findings;
 
     my %by_ref;
@@ -175,8 +226,17 @@ sub sweep {
             }
 
             # A question that was never asked cannot be answered.
-            finding( \@findings, $ref, "waits in 'blocked-by-michael' — confirm a matching open row exists in docs/open-decisions.md, or it is a question nobody can see" )
-              if $column eq 'blocked-by-michael';
+            #
+            # This rule used to fire on the column alone and tell the reader to
+            # go and confirm the row themselves. That is a reminder wearing a
+            # finding's clothes: it reported every card in the column on every
+            # run regardless of the facts, so the sweep could never come back
+            # clean, and a guardrail that is always red teaches people to ignore
+            # it - worse than an absent one, because it still looks like it is
+            # working (DD-495). Every other rule here decides for itself; now so
+            # does this one.
+            finding( \@findings, $ref, "waits in 'blocked-by-michael' but no row on docs/open-decisions.md mentions $ref, so it is a question nobody can see" )
+              if $column eq 'blocked-by-michael' && !question_is_on_the_page( $decisions, $ref );
 
             # A parent out of step with its own children, in both directions.
             my @children = ( @{ $record->{linkage}{ticket_refs} // [] }, @{ $record->{linkage}{sub_epic_refs} // [] } );
@@ -276,6 +336,18 @@ sub main {
         return EXIT_UNUSABLE;
     };
 
+    # Read before the board, and before d2 is even located, on purpose: it is the
+    # cheapest input, it needs no subprocess, and failing here means the "could
+    # not look" case is unambiguous rather than sharing an exit code with a board
+    # that would not load (AC-3).
+    my $decisions = eval { load_decisions_page() };
+    if ( !defined $decisions ) {
+        my $error = $@ || 'unknown failure';
+        chomp $error;
+        say STDERR "ft99-sweep: UNUSABLE — $error";
+        return EXIT_UNUSABLE;
+    }
+
     my $d2 = locate_d2();
     if ( !$d2 ) {
         say STDERR 'ft99-sweep: UNUSABLE — cannot find bin/d2 relative to this script';
@@ -297,7 +369,7 @@ sub main {
     my $total = 0;
     $total += scalar @{ $boards{$_} } for keys %boards;
 
-    my $findings = sweep( \%boards );
+    my $findings = sweep( \%boards, $decisions );
     emit("ft99-sweep: swept $total cards across the sow, epic and ticket boards");
 
     if ( !@{$findings} ) {
@@ -346,8 +418,16 @@ nothing can ever release it.
 =item * A card parked on blockers that have all reached a terminal column, meaning
 the park has cleared and the card should have moved.
 
-=item * A card waiting in C<blocked-by-michael>, reported so the matching row on the
-open-decisions page can be confirmed to exist.
+=item * A card waiting in C<blocked-by-michael> whose reference appears nowhere on
+the open-decisions page, meaning the owner is recorded as blocking a decision
+nobody has actually put in front of them.
+
+The sweep reads the page and decides this itself. It deliberately tests only for
+the presence of the reference: the page is append-only, so a question that was
+asked and then answered still has its row, and looking for an I<unanswered> row
+would start reporting cards the moment their question was settled. The match is
+anchored on word boundaries, so a card C<DD-49> is not satisfied by a row about
+C<DD-495>.
 
 =item * A parent in a pre-work column while its children have already started or
 finished.
@@ -359,10 +439,24 @@ terminal.
 
 =head1 EXIT STATUS
 
-C<0> clean, C<1> findings, C<2> usage error, C<3> the board could not be swept.
-The last is deliberately non-zero: a sweep that dies quietly is indistinguishable
-from a sweep that found nothing, and that indistinguishability is how an audit runs
-its whole life reporting a clean board it never actually read.
+C<0> clean, C<1> findings, C<2> usage error, C<3> the sweep could not look - the
+board would not load, or the open-decisions page could not be read - and C<4> the
+sweep could not write its own log.
+
+The last two are deliberately non-zero, and deliberately distinct from C<1>: a
+sweep that dies quietly is indistinguishable from a sweep that found nothing, and
+that indistinguishability is how an audit runs its whole life reporting a clean
+board it never actually read.
+
+=head1 TESTS
+
+C<t-ft99-sweep>, beside this script:
+
+    PERL5LIB="$HOME/perl5/lib/perl5" prove -v .claude/tools/t-ft99-sweep
+
+It asserts every rule in both directions - a case each must report and a case
+each must not - because a rule that always fires and a rule that never fires both
+look like working code, and neither is a check.
 
 =head1 SCHEDULING
 
