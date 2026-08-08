@@ -186,6 +186,18 @@ The JavaScript fast-check wrapper is a source-tree fuzz gate. It runs when
 `node`, `npm`, `package.json`, and `package-lock.json` are all available, and
 it skips in packaged install-test trees that do not ship those checkout-only
 JavaScript manifests.
+That gate is only as good as the dependency behind it, so `fast-check` is held
+on its maintained major. Upstream ended the 3.x line at 3.23.2 in December 2024
+and now ships only 4.x, so a range floored on 3 pins the project's one
+property-based gate to a major that gets no new generators, no new shrinkers,
+and no upstream fixes while still reporting green.
+`t/34-scorecard-guardrails.t` enforces both halves of that: `package.json` must
+declare a major of 4 or higher, and the resolved `node_modules/fast-check`
+entry in `package-lock.json` must sit on the same major the manifest declares.
+The pair matters because `npm ci` — the command both the fuzz workflow and
+`t/35-js-fast-check.t` actually run — installs what the lock resolves, not what
+the manifest reads, so a manifest saying 4 over a lock resolving 3 would fuzz
+on the abandoned line while looking current.
 The contributor contract now lives here plus `AGENTS.override.md` and
 `agents.md`, not in the top-level product manual in `README.md` or
 `Developer::Dashboard.pm`. Those two files stay synced as user-facing product
