@@ -6,6 +6,7 @@ use Cwd qw(abs_path);
 use File::Spec;
 use FindBin qw($RealBin);
 use Test::More;
+use YAML::XS ();
 
 my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
 my $repo_workflow = File::Spec->catfile( $ROOT, '.github', 'workflows', 'test.yml' );
@@ -77,6 +78,71 @@ like( $github_release_workflow, qr/gh\s+release\s+upload\b/, 'GitHub release wor
 like( $github_release_workflow, qr/cpanm\s+--notest\s+Devel::Cover\b/, 'GitHub release workflow installs Devel::Cover before it runs the numeric coverage gate' );
 like( $github_release_workflow, qr/\.asc\b/, 'GitHub release workflow publishes a detached signature asset next to the release tarball' );
 like( $github_release_workflow, qr/Developer-Dashboard-\*\.tar\.gz/, 'GitHub release workflow locates built distribution tarballs from the repo root' );
+
+# Scorecard's Signed-Releases check scores a signed artifact 8 and reserves the
+# last 2 points for build provenance, so the signing half alone caps the check at
+# 8/10 (checks/evaluation/signed_releases.go sets releaseMap[release]=8 for
+# releasesAreSigned and =10 for releasesHaveProvenance). The decisive detail is
+# HOW the provenance probe looks: probes/releasesHaveProvenance/impl.go matches
+# release ASSETS by name against provenanceExtensions = {".intoto.jsonl"} and
+# nothing else. Recording the attestation in GitHub's attestation store is
+# therefore necessary but NOT sufficient - without an asset whose name ends
+# .intoto.jsonl the check stays at 8 no matter how the attestation was produced.
+# Pin the asset, the action, and the pin's auditability together, because losing
+# any one of them silently returns the check to 8 with the workflow still green.
+like( $github_release_workflow, qr/uses:\s*actions\/attest-build-provenance\@[0-9a-f]{40}/,
+    'GitHub release workflow generates a build-provenance attestation via a SHA-pinned first-party action' );
+like( $github_release_workflow, qr/\.intoto\.jsonl\b/,
+    'GitHub release workflow publishes the provenance as an .intoto.jsonl asset, the only name Scorecard scores as provenance' );
+my ($attest_pin_version) =
+  $github_release_workflow =~ m{uses:\s*actions/attest-build-provenance\@[0-9a-f]{40}\s+\#\s*v(\d+(?:\.\d+){2})\b};
+ok( defined $attest_pin_version, 'attest-build-provenance pin carries an auditable vX.Y.Z comment beside its SHA' )
+  or diag('no "# vX.Y.Z" comment found beside the actions/attest-build-provenance SHA pin');
+cmp_ok( ( split /\./, ( $attest_pin_version // '0.0.0' ) )[0],
+    '>=', 4, 'attest-build-provenance is pinned on the v4 line that ships the node24-native attest core' );
+
+# Least privilege across the split, asserted structurally rather than by regex:
+# minting an OIDC token is what lets this workflow speak as the repository, and
+# the `release` job is the one that runs the whole Perl suite, the coverage pass
+# and `dzil build` - thousands of lines of project code plus every CPAN
+# dependency they pull in. Handing OIDC to that job would put the repository's
+# identity behind the largest block of executable code in the pipeline. The
+# attestation therefore belongs in its own job that runs no project code, and
+# this pair of assertions is what stops a later edit from "simplifying" the two
+# jobs back into one.
+my $release_yaml = YAML::XS::LoadFile( File::Spec->catfile( $ROOT, '.github', 'workflows', 'release-github.yml' ) );
+is( ref $release_yaml, 'HASH', 'GitHub release workflow parses as YAML' );
+
+my $release_job    = $release_yaml->{jobs}{release}    // {};
+my $provenance_job = $release_yaml->{jobs}{provenance} // {};
+
+is( $release_job->{permissions}{'id-token'}, undef,
+    'the job that runs the test suite, coverage pass and dzil build is NOT granted OIDC token minting' );
+is( $release_job->{permissions}{'attestations'}, undef,
+    'the job that runs project code is NOT granted attestation write access' );
+is( $provenance_job->{permissions}{'id-token'}, 'write',
+    'the dedicated provenance job mints its OIDC token at the job level' );
+is( $provenance_job->{permissions}{'attestations'}, 'write',
+    'the dedicated provenance job holds attestation write access at the job level' );
+is( $provenance_job->{permissions}{'contents'}, 'write',
+    'the dedicated provenance job may attach its asset to the release' );
+is( $provenance_job->{needs}, 'release',
+    'the provenance job runs only after the release job has published the artifact it attests' );
+like( $provenance_job->{'timeout-minutes'} // '', qr/\A\d+\z/,
+    'the provenance job sets its own explicit timeout' );
+
+# The provenance job attests the bytes GitHub actually published, not a local
+# rebuild that merely ought to match, so it must prove the download is the
+# signed artifact before it puts its name to it.
+my $provenance_steps = join "\n", map { $_->{run} // '' } @{ $provenance_job->{steps} // [] };
+like( $provenance_steps, qr/sha256sum\s+(?:--check|-c)\b/,
+    'the provenance job verifies the published checksum before attesting the downloaded artifact' );
+unlike( $provenance_steps, qr/\bprove\b|\bdzil\b|\bcpanm\b/,
+    'the provenance job runs no project code, so its OIDC grant sits behind nothing executable from this repo' );
+like( $provenance_steps, qr/gh\s+release\s+upload\b/,
+    'the provenance job attaches its asset to the release instead of leaving it in the attestation store only' );
+like( $provenance_steps, qr/\.intoto\.jsonl\b/,
+    'the provenance job names its published asset .intoto.jsonl inside the job that produces it' );
 
 my $fuzz_workflow = _slurp('.github/workflows/fuzz-js.yml');
 like( $fuzz_workflow, qr/fast-check/, 'fuzz workflow runs the fast-check property-based suite' );
