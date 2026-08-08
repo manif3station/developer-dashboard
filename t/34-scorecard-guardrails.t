@@ -10,8 +10,16 @@ use Test::More;
 my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
 my $repo_workflow = File::Spec->catfile( $ROOT, '.github', 'workflows', 'test.yml' );
 
+# Detect the checkout by EXISTENCE, never by directory-ness. In the primary
+# checkout .git is a directory, but in a linked git worktree it is a regular file
+# holding a "gitdir:" pointer - and ticket work in this repository is done in
+# per-ticket worktrees. A -d test here therefore skipped this entire file exactly
+# where changes are authored, so every guardrail below (SHA pins, workflow
+# permission scoping, dependency floors) was inert at the one moment it was most
+# needed. An unpacked release tarball has neither shape, so the original intent -
+# do not run source-tree checks against an installed dist - is unchanged.
 plan skip_all => 'Scorecard guardrails are source-tree-only checks'
-  if !-d File::Spec->catdir( $ROOT, '.git' ) || !-f $repo_workflow;
+  if !-e File::Spec->catdir( $ROOT, '.git' ) || !-f $repo_workflow;
 
 ok( _git_tracks('LICENSE'), 'root LICENSE is tracked for Scorecard license detection' );
 ok( _git_tracks('SECURITY.md'), 'root SECURITY.md is tracked for Scorecard security-policy detection' );

@@ -68,6 +68,22 @@ singleton workers during `dashboard stop`, `dashboard restart`, and browser
 or `stream_value()` against a finite saved Ajax handler and assert the final
 DOM after incremental chunks land.
 
+### Source-tree gates and git worktrees
+
+Some test files only make sense against a checkout rather than an installed
+distribution, and they gate themselves on the presence of `.git`. Detect that
+by existence, never by directory-ness: in the primary checkout `.git` is a
+directory, but in a linked git worktree it is a regular file holding a
+`gitdir:` pointer. A `-d` gate is therefore false in every worktree, and a file
+that opens with `plan skip_all` on it deletes itself there entirely.
+
+This matters because per-ticket work happens in worktrees, so a directory-only
+gate switches the affected guardrails off at exactly the moment a change is
+authored and first verified, and they only wake up later on a run from the
+primary checkout. `t/139-worktree-source-tree-detection.t` proves the guardrail
+file really executes inside a real linked worktree and sweeps `t/` so the
+directory-only form cannot come back.
+
 ## Coverage
 
 Install Devel::Cover in a local Perl library and generate the coverage report:

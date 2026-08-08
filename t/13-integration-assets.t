@@ -8,7 +8,10 @@ use Test::More;
 my $has_source_tree_docs = -f 'dist.ini';
 my $has_integration_assets = -d 'integration';
 
-if ( $has_source_tree_docs && -d '.git' ) {
+# -e, not -d: a linked git worktree carries .git as a regular file holding a
+# "gitdir:" pointer, and a directory test silently dropped these tracking
+# assertions in every per-ticket worktree.
+if ( $has_source_tree_docs && -e '.git' ) {
     ok( _path_is_git_tracked('doc/integration-test-plan.md'), 'integration test plan document is tracked by git' );
     ok( _path_is_git_tracked('doc/testing.md'), 'testing workflow document is tracked by git' );
     ok( _path_is_git_tracked('doc/windows-testing.md'), 'Windows verification document is tracked by git' );
