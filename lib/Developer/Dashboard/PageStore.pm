@@ -8,11 +8,10 @@ use utf8;
 
 use Encode qw(decode FB_CROAK FB_DEFAULT);
 use Cwd qw(abs_path);
-use Fcntl qw(:DEFAULT O_DIRECTORY O_NOFOLLOW);
+use Fcntl qw(:DEFAULT O_NOFOLLOW);
 use File::Find ();
 use File::Spec;
 use File::Basename qw(basename dirname);
-use POSIX ();
 use URI::Escape qw(uri_escape);
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
@@ -303,50 +302,16 @@ sub _open_saved_page_for_write {
 }
 
 # _open_saved_page_at(%args)
-# Traverses a validated page id relative to an opened dashboards root, refusing
-# symlinks for every existing directory and final-file component.
+# Opens a validated page id beneath a dashboards root, asserting the resolved
+# path stays contained in that root and refusing to follow a symlinked leaf.
+# One path on every platform: a capability-dependent variant would mean two
+# installs of the same release protecting their users differently.
 # Input: root, id, open flags, and optional creation mode.
-# Output: Perl filehandle bound to the opened descriptor.
+# Output: Perl filehandle bound to the opened file.
 sub _open_saved_page_at {
     my ( $self, %args ) = @_;
     my $root = $args{root} || die 'Invalid page path';
     my $id = $self->_validated_page_id( $args{id} );
-
-    if ( !is_windows() ) {
-        my $loaded = eval { require 'syscall.ph'; 1 } && defined &SYS_openat && defined &SYS_mkdirat;
-        if ($loaded) {
-            my @parts = split m{[\\/]}, $id;
-            my $root_path = $root;
-            my $dir_fd = syscall( &SYS_openat, -100, $root_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW, 0 );
-            die 'Invalid page path' if $dir_fd < 0;
-
-            while ( @parts > 1 ) {
-                my $part = shift @parts;
-                my $part_path = $part;
-                my $next_fd = syscall( &SYS_openat, $dir_fd, $part_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW, 0 );
-                if ( $next_fd < 0 && $args{create_dirs} ) {
-                    my $mkdir_ok = syscall( &SYS_mkdirat, $dir_fd, $part_path, 0700 );
-                    die 'Invalid page path' if $mkdir_ok < 0 && !-d File::Spec->catdir( $root, $part );
-                    $next_fd = syscall( &SYS_openat, $dir_fd, $part_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW, 0 );
-                }
-                POSIX::close($dir_fd);
-                die 'Invalid page path' if $next_fd < 0;
-                $dir_fd = $next_fd;
-            }
-
-            my $leaf = $parts[0];
-            my $leaf_path = $leaf;
-            my $fd = syscall( &SYS_openat, $dir_fd, $leaf_path, $args{flags} | O_NOFOLLOW, $args{mode} || 0 );
-            POSIX::close($dir_fd);
-            die 'Invalid page path' if $fd < 0;
-            my $fh;
-            # uncoverable branch true count:2 reopening a live file descriptor as a Perl handle cannot fail
-            open $fh, ( $args{flags} & O_WRONLY ? '>&=' : '<&=' ), $fd
-              or die 'Invalid page path';
-            binmode $fh, ':raw' if !( $args{flags} & O_WRONLY );
-            return $fh;
-        }
-    }
 
     my $file = File::Spec->catfile( $root, $id );
     $self->_assert_page_path_contained( $file, root => $root, for_write => ( $args{flags} & O_WRONLY ? 1 : 0 ) );

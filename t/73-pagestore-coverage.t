@@ -17,6 +17,10 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::PageStore;
 use Developer::Dashboard::PageDocument;
 
+# Absolute path to the module under test, resolved before the hermetic chdir
+# below leaves the @INC-relative entry pointing at nothing.
+my $page_store_source = File::Spec->rel2abs( $INC{'Developer/Dashboard/PageStore.pm'} );
+
 # ---------------------------------------------------------------------------
 # Hermetic runtime: an isolated HOME and state root, with the current working
 # directory set to the temp home so DD-OOP-LAYER discovery resolves entirely
@@ -318,16 +322,37 @@ is( $reloaded_nested->{id}, 'team/status', 'a nested page reloads through existi
 }
 
 # ---------------------------------------------------------------------------
-# POSIX fallback without syscall.ph (e.g. minimal distributions): saved pages
-# still create nested directories, stay contained, and refuse symlink escapes.
+# One saved-page open path on every host. The former descriptor-relative fast
+# path was reachable only where an h2ph-generated header happened to be
+# installed: present on this box and on Fedora, absent on stock ubuntu:24.04,
+# on Alpine, on every official perl image and therefore on CI, and excluded on
+# Windows by construction. That made the symlink-refusing traversal a control
+# some installs received and others silently did not, and it left the
+# all-metric coverage gate unable to read 100.0 on a clean runner while
+# reading 100.0 here. Pin the single path so neither can drift back.
+# ---------------------------------------------------------------------------
+{
+    open my $source_fh, '<:encoding(UTF-8)', $page_store_source
+      or die "Unable to read $page_store_source: $!";
+    my $source = do { local $/; <$source_fh> };
+    close $source_fh or die "Unable to close $page_store_source: $!";
+
+    unlike( $source, qr/syscall/i,
+        'PageStore opens saved pages with no host-dependent raw kernel-call path' );
+    unlike( $source, qr/\bO_DIRECTORY\b/,
+        'PageStore imports no directory-descriptor flag that only the removed path needed' );
+}
+
+# ---------------------------------------------------------------------------
+# The portable containment path: saved pages still create nested directories,
+# stay contained, and refuse symlink escapes.
 # ---------------------------------------------------------------------------
 {
     my $bm = tempdir( CLEANUP => 1 );
     local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS} = $bm;
-    local $INC{'syscall.ph'} = undef;
 
     my $saved_ok = eval { $store->save_page( { id => 'fbdir/page', title => 'Fallback nested' } ); 1 };
-    ok( $saved_ok, 'fallback save creates a new nested page without syscall.ph' ) or diag($@);
+    ok( $saved_ok, 'a nested page is created inside the dashboards root' ) or diag($@);
     ok( -f File::Spec->catfile( $bm, 'fbdir', 'page' ), 'fallback nested save lands inside the dashboards root' );
 
     ok( eval { $store->save_page( { id => 'fb-flat', title => 'Fallback flat' } ); 1 },
@@ -361,29 +386,6 @@ is( $reloaded_nested->{id}, 'team/status', 'a nested page reloads through existi
     print {$nomode} "TITLE: No mode\n";
     close $nomode;
     ok( -f File::Spec->catfile( $bm, 'fb-nomode' ), 'fallback direct open applies the default create mode' );
-}
-
-# ---------------------------------------------------------------------------
-# syscall.ph claimed by a foreign package first: the SYS_* constants then live
-# outside this module, so descriptor opens must fall back instead of crashing.
-# ---------------------------------------------------------------------------
-{
-    my $bm = tempdir( CLEANUP => 1 );
-    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS} = $bm;
-    no warnings qw(once redefine);
-    local *Developer::Dashboard::PageStore::SYS_openat;
-    ok( eval { $store->save_page( { id => 'foreign/openat', title => 'Foreign openat' } ); 1 },
-        'saves fall back when SYS_openat is not defined in this package' ) or diag($@);
-    ok( -f File::Spec->catfile( $bm, 'foreign', 'openat' ),
-        'the foreign-openat fallback write stays inside the root' );
-}
-{
-    my $bm = tempdir( CLEANUP => 1 );
-    local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS} = $bm;
-    no warnings qw(once redefine);
-    local *Developer::Dashboard::PageStore::SYS_mkdirat;
-    ok( eval { $store->save_page( { id => 'foreign/mkdirat', title => 'Foreign mkdirat' } ); 1 },
-        'saves fall back when SYS_mkdirat is not defined in this package' ) or diag($@);
 }
 
 # ---------------------------------------------------------------------------
