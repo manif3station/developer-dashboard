@@ -18,21 +18,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       PERL_MM_USE_DEFAULT: 1
       NONINTERACTIVE_TESTING: 1
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v5.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Setup Perl
-        uses: shogo82148/actions-setup-perl@9c1eca9952ccc07f9ca4a2097b63df93d9d138e9  # v1.32.0
+        uses: shogo82148/actions-setup-perl@53e33bb27be492a926eee378e8a5f7ff6618b061  # v1.43.1
         with:
           perl-version: '5.44'
 
       - name: Install project dependencies
         run: cpanm --installdeps --notest -L local .
+
+      # Resolves every action pin above against its upstream tag and reads the
+      # runtime the pinned commit really declares. The version comment beside a
+      # 40-hex SHA is the only human-readable part of a pin and the guardrail
+      # test reads its node24 floors from it, so it has to be verified by
+      # something rather than trusted. Runs after the dependency install because
+      # it uses the project's own LWP::UserAgent and JSON::XS.
+      - name: Audit action pin provenance
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PERL5LIB: ${{ github.workspace }}/local/lib/perl5
+        run: script/audit-action-pins
 
       - name: Install the audit tool outside the scanned root
         run: |

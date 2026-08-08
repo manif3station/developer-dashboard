@@ -15,7 +15,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       PAUSE_USER: ${{ secrets.PAUSE_USER }}
       PAUSE_PASS: ${{ secrets.PAUSE_PASS }}
       PERL_MM_USE_DEFAULT: 1
@@ -23,10 +22,10 @@ jobs:
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v5.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Setup Perl
-        uses: shogo82148/actions-setup-perl@9c1eca9952ccc07f9ca4a2097b63df93d9d138e9  # v1.32.0
+        uses: shogo82148/actions-setup-perl@53e33bb27be492a926eee378e8a5f7ff6618b061  # v1.43.1
         with:
           perl-version: '5.44'
 
