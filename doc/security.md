@@ -124,6 +124,31 @@ When raising a floor, audit the newly resolved chain rather than assuming it is
 safe: a higher floor can pull in additional distributions, and a floor set above
 a module's newest release would make the distribution uninstallable.
 
+## CI Action Pinning
+
+Every third-party GitHub Action is pinned by full 40-character commit SHA, never
+by a floating tag, and each pin carries a trailing `# vX.Y.Z` comment naming the
+upstream release it resolves to. `t/34-scorecard-guardrails.t` asserts both
+halves: the SHA form for each action, and the absence of any floating tag across
+every workflow. The comment exists so a reviewer can tell what a 40-hex pin is
+without a network round-trip; because a comment can drift from the SHA beside it,
+the comment is documentation and the SHA is the control.
+
+A proposed bump is verified against the upstream tag before it is taken, rather
+than trusted because an automated dependency PR proposed it. Resolving the
+upstream `refs/tags/vX.Y.Z` must return exactly the SHA the bump introduces; a
+pin that does not resolve to the named release is rejected regardless of where
+the change came from.
+
+Runtime declarations are part of this review. The GHCR packaging job sets
+`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`, GitHub's transitional shim that reroutes
+actions still declaring `node20` onto the `node24` runtime. A step that handles
+registry credentials must not owe its execution to that shim, so the login action
+is held on the `node24`-native release line and `t/34-scorecard-guardrails.t`
+gates the major version rather than only the pin format. The shim itself stays
+while other pinned actions in that job still declare `node20`; it is removed only
+once none of them do.
+
 ## Verification
 
 Run these checks:
