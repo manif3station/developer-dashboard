@@ -442,7 +442,7 @@ and uploads the resulting tarball to PAUSE using:
 stored as GitHub Actions secrets.
 
 The release workflow bootstraps the C<App::Cmd> dependency chain explicitly before C<Dist::Zilla>, including modules such as C<Module::Pluggable::Object>, C<Getopt::Long::Descriptive>, C<Class::Load>, and C<IO::TieCombine>, so fresh GitHub runners do not fail during release dependency installation when C<Dist::Zilla> pulls in the C<App::Cmd::*> stack. It also installs C<Dist::Zilla::Plugin::MetaProvides::Package> so generated META files include an explicit C<provides> section.
-Both shipped GitHub workflows now pin C<actions/checkout@v5> and set C<FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true> so hosted runners do not rely on the deprecated Node 20 JavaScript-action runtime.
+Every shipped GitHub workflow pins its actions by full commit SHA on release lines that declare the C<node24> runtime natively, so hosted runners do not depend on GitHub rerouting the deprecated Node 20 JavaScript-action runtime. The claim that this had been achieved was previously recorded here while the pins were still C<node20>; C<script/audit-action-pins> now resolves each pin on every push, so the statement is checked rather than asserted.
 
 Generated release metadata should also include repository resources plus an
 explicit C<provides> section, and the repository root should ship
