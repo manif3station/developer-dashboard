@@ -18,6 +18,9 @@ use Test::More;
 use Time::HiRes qw(sleep);
 
 use lib 'lib';
+use lib 't/lib';
+
+use Local::CollectorFixture qw(wait_for_managed_loop);
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
 use Developer::Dashboard::Collector;
@@ -4342,6 +4345,18 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     open my $manual_pid, '>', $pidfile or die $!;
     print {$manual_pid} "$child\n";
     close $manual_pid;
+    # This pidfile carries no loop state, so the child's process title is the
+    # only evidence that it is a managed loop, and it adopts that title after the
+    # fork. Probing stop_loop first makes it take the unmanaged branch: the child
+    # is never signalled, so waitpid below reports 0 ("still there") instead of
+    # -1. Wait for the runner's own predicate to agree before asking it to stop
+    # the loop. Production is not exposed to this - start_loop writes loop state
+    # beside the pidfile and the state fallback confirms the loop regardless of
+    # the title.
+    ok(
+        wait_for_managed_loop( $runner, $child, 'manual' ),
+        'manual collector child becomes identifiable as a managed loop before shutdown',
+    );
     is( $runner->stop_loop('manual'), $child, 'stop_loop terminates manual pidfile processes' );
     is( waitpid( $child, 1 ), -1, 'stop_loop reaps manual collector children after shutdown' );
 }
