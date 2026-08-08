@@ -48,7 +48,7 @@ my $FIXED      = '3.84';
 my $PERMITTED = '3.71';
 
 SKIP: {
-    skip 'CPAN::Audit is not installed in this runtime, so the gate cannot be executed', 14
+    skip 'CPAN::Audit is not installed in this runtime, so the gate cannot be executed', 17
         if !$have_audit_db;
 
     # Fail-closed contract: usage errors and unusable inputs never exit 0.
@@ -102,6 +102,20 @@ SKIP: {
         _write_file( $exclude, "# reviewed for this fixture only\n$ADVISORY\n" );
         my ( $rc, undef ) = _run_gate( '--cpanfile', $cpanfile, '--exclude-file', $exclude, $fixture );
         is( $rc, 0, 'a reviewed advisory disposition suppresses its own finding' );
+    }
+
+    # A metadata file the gate cannot parse shrinks the closure, which could
+    # hide a finding, so the skip has to be said out loud rather than swallowed.
+    {
+        my $damaged = _build_fixture_root();
+        _write_file(
+            File::Spec->catfile( $damaged, 'fixture-arch', '.meta', 'Fixture-Agent-1.00', 'install.json' ),
+            '{ this is not json',
+        );
+        my $cpanfile = _write_cpanfile( $damaged, "requires 'Fixture::Agent', '1.00';\n" );
+        my ( undef, $out ) = _run_gate( '--cpanfile', $cpanfile, $damaged );
+        like( $out, qr/skipping unparseable distribution metadata/, 'the gate reports a metadata file it could not parse instead of silently dropping it' );
+        like( $out, qr/Fixture-Agent-1\.00/, 'the reported skip names the metadata file that was dropped' );
     }
 
     # A cpanfile with no runtime requirements is unusable, not clean.

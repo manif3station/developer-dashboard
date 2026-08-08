@@ -15,6 +15,7 @@ use warnings;
 use File::Basename qw(basename dirname);
 use File::Spec;
 use Getopt::Long qw(GetOptions);
+use JSON::XS ();
 
 use constant EXIT_CLEAN   => 0;
 use constant EXIT_FINDING => 1;
@@ -217,26 +218,31 @@ sub _meta_roots {
 }
 
 # Purpose: decode a JSON metadata file without letting one malformed file abort
-#          the whole audit.
+#          the whole audit, while still saying out loud that a file was skipped.
+#          A silently skipped metadata file would shrink the closure and could
+#          hide a finding, so every skip is reported on STDERR.
 # Input: a file path.
 # Output: the decoded structure, or undef when the file cannot be read or parsed.
 sub _decode_json_file {
     my ($path) = @_;
 
-    my $content = eval {
-        open my $fh, '<', $path or die "Unable to read $path: $!";
-        local $/;
-        my $raw = <$fh>;
-        close $fh or die "Unable to close $path: $!";
-        $raw;
-    };
-    return undef if !defined $content;    ## no critic
+    my $handle;
+    if ( !open $handle, '<', $path ) {
+        printf {*STDERR} "skipping unreadable distribution metadata %s: %s\n", $path, $!;
+        return undef;    ## no critic
+    }
 
-    my $decoded = eval {
-        require JSON::XS;
-        JSON::XS->new->decode($content);
-    };
-    return undef if !defined $decoded || ref $decoded ne 'HASH';    ## no critic
+    my $content = do { local $/; <$handle> };
+    close $handle or die "Unable to close $path: $!";
+
+    my $decoded = eval { JSON::XS->new->decode( defined $content ? $content : '' ) };
+    if ( !defined $decoded || ref $decoded ne 'HASH' ) {
+        my $reason = $@ || 'metadata is not a JSON object';
+        chomp $reason;
+        printf {*STDERR} "skipping unparseable distribution metadata %s: %s\n", $path, $reason;
+        return undef;    ## no critic
+    }
+
     return $decoded;
 }
 
