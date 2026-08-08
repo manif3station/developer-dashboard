@@ -13,6 +13,11 @@ Developer-Dashboard-*.tar.gz
 Developer-Dashboard-*/
 .developer-dashboard/
 _hermes/
+
+# Operational logs. Untracked is not enough: the automation rounds' park stages
+# and then resets untracked files, which deleted this directory and silently
+# disabled the hourly FT99 sweep for its whole life (DD-493).
+logs/
 .hermes/
 cover_db/
 .perl5/
