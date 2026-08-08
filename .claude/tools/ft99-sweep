@@ -60,9 +60,16 @@ my %IS_PRE_WORK = map { $_ => 1 } @PRE_WORK;
 # Input:   none
 # Output:  absolute path to the d2 executable, or undef when it is not there
 sub locate_d2 {
-    my $root = File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, File::Spec->updir, File::Spec->updir ) );
-    my $d2 = File::Spec->catfile( $root, 'bin', 'd2' );
+    my $d2 = File::Spec->catfile( project_root(), 'bin', 'd2' );
     return -x $d2 ? $d2 : undef;
+}
+
+# Purpose: the checkout this script lives in, derived from its own location
+#          rather than from the caller's working directory.
+# Input:   none
+# Output:  absolute path to the project root
+sub project_root {
+    return File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, File::Spec->updir, File::Spec->updir ) );
 }
 
 # Purpose: make the sweep survive an environment that has read no shell profile.
@@ -186,6 +193,18 @@ sub main {
     }
 
     ensure_library_path();
+
+    # Tira discovers its project by walking up from the WORKING DIRECTORY, and
+    # cron runs from $HOME, so a scheduled sweep asked the wrong tree and got
+    # "No Tira project found from '.'". This was NOT caught by running the script
+    # under env -i, because that fixes the environment and leaves the working
+    # directory alone - the very distinction the operating notes warn about, and
+    # it took a real scheduled firing to expose it.
+    my $root = project_root();
+    chdir $root or do {
+        say STDERR "ft99-sweep: UNUSABLE — cannot enter the project root $root: $!";
+        return EXIT_UNUSABLE;
+    };
 
     my $d2 = locate_d2();
     if ( !$d2 ) {
