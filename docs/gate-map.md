@@ -28,7 +28,7 @@ extra requirement is listed under "DD-only gates" below.
 
 | DD step | Board column | Why it is separate |
 |---|---|---|
-| **100% CVE FREE** | `vulnerability-scan` | `script/cpan-audit-project` against the pinned chain, plus the `SECURITY_CHECKS.md` three-tier protocol. A bare host-tree `cpan-audit` is **not** a blocker — judge the product, not the host interpreter |
+| **100% CVE FREE** | `vulnerability-scan` | `script/cpan-audit-declared-chain` against the declared runtime closure — that gate's subject **is** the product, so it is the one to trust on a shared machine. `script/cpan-audit-project` audits an *isolated* root only (CI builds one at `local/lib/perl5`) and refuses anything else with exit 3, so never point it at `$HOME/perl5/lib/perl5`. Plus the `SECURITY_CHECKS.md` three-tier protocol. A bare host-tree `cpan-audit` is **not** a blocker — judge the product, not the host interpreter (DD-499) |
 | **Operator-file containment** | `git-gate` | No operator/rule file may enter the tarball; `dist.ini` `exclude_filename`/`exclude_match` is the only real protection (`.gitignore` does not protect the tarball) |
 
 ## The two-stage publish
