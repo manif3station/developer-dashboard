@@ -63,7 +63,20 @@ jobs:
       - name: Install test tools and export project environment
         run: |
           cpanm --notest -L local Devel::Cover
-          echo "PERL5LIB=$(perl -Ilocal/lib/perl5 -Mlocal::lib=local -e 'print $ENV{PERL5LIB}')" >> "$GITHUB_ENV"
+          # Set the library path directly. This used to shell out to
+          # `perl -Mlocal::lib`, which is not installed in this job, so the inner
+          # perl died -- and because that death happened inside a command
+          # substitution, its status was discarded and the enclosing echo
+          # succeeded. The step reported success while exporting an EMPTY
+          # PERL5LIB, and the next step failed with nineteen "cannot load module"
+          # errors that named nothing. local::lib was never needed: prove only
+          # needs PERL5LIB, and the path is known.
+          perl5lib="$GITHUB_WORKSPACE/local/lib/perl5"
+          if [ ! -d "$perl5lib" ]; then
+            echo "dependency tree missing at $perl5lib - cpanm --installdeps did not populate it" >&2
+            exit 1
+          fi
+          echo "PERL5LIB=$perl5lib" >> "$GITHUB_ENV"
           echo "$GITHUB_WORKSPACE/local/bin" >> "$GITHUB_PATH"
 
       - name: Run tests
