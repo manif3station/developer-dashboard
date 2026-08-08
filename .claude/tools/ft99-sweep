@@ -1,0 +1,261 @@
+#!/usr/bin/env perl
+
+# FT99 — the sweep that checks every card is in the column its evidence supports.
+#
+# The failures this exists to catch never emit an event. A ticket sits in a
+# working column with nobody on it. A park waits on a dependency that closed
+# hours ago. An epic stays in Backlog while its children are built and shipped,
+# and is then asked to verify an assembled result it never saw. None of that is
+# announced; it is only ever found by looking.
+#
+# Exit codes follow the script/audit-action-pins precedent, because "the board
+# is clean" and "the board could not be read" are very different things to act
+# on and must never look alike:
+#     0  clean
+#     1  findings
+#     2  usage error
+#     3  could not sweep (board unreadable) — deliberately NOT zero
+
+use strict;
+use warnings;
+use feature 'say';
+
+use FindBin;
+use File::Spec;
+use JSON::XS;
+use Capture::Tiny qw(capture);
+
+use constant {
+    EXIT_CLEAN    => 0,
+    EXIT_FINDINGS => 1,
+    EXIT_USAGE    => 2,
+    EXIT_UNUSABLE => 3,
+};
+
+# Columns the board treats as "work is happening here". A card in one of these
+# is claimed by somebody and is expected to move.
+my @WORKING = qw(
+  planning documentation in-progress vulnerability-scan
+  unit-test platform-test final-check git-gate
+);
+
+# Terminal columns. A dependency parked on a card is released only when that
+# card reaches one of these — this is the list FT99's park logic depends on, so
+# it is stated once, here, rather than inferred from a column's name.
+my @TERMINAL = qw(release-to-pause discard);
+
+# Columns that mean "not started". A parent sitting here while its children are
+# already working or finished is the epic-in-Backlog failure.
+my @PRE_WORK = qw(
+  backlog buglist new-enhancements researching analysing
+  blocked-by-dependency blocked-by-michael todo
+);
+
+my %IS_WORKING  = map { $_ => 1 } @WORKING;
+my %IS_TERMINAL = map { $_ => 1 } @TERMINAL;
+my %IS_PRE_WORK = map { $_ => 1 } @PRE_WORK;
+
+# Purpose: resolve the d2 entrypoint without trusting the caller's PATH, because
+#          cron runs from $HOME with a minimal PATH and reads no shell profile.
+# Input:   none
+# Output:  absolute path to the d2 executable, or undef when it is not there
+sub locate_d2 {
+    my $root = File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, File::Spec->updir, File::Spec->updir ) );
+    my $d2 = File::Spec->catfile( $root, 'bin', 'd2' );
+    return -x $d2 ? $d2 : undef;
+}
+
+# Purpose: read one board as parsed records.
+# Input:   $d2 path, $type (sow|epic|ticket)
+# Output:  arrayref of records; dies with a readable reason on any failure, so a
+#          board that cannot be read is never mistaken for a board with no cards
+sub load_board {
+    my ( $d2, $type ) = @_;
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( $d2, "tira.$type.list", '--full', '-o', 'json' );
+    };
+    die "reading the $type board failed (exit $exit): " . ( $stderr || 'no diagnostic' ) . "\n"
+      if $exit != 0;
+    my $records = eval { decode_json($stdout) };
+    die "the $type board did not return usable JSON: $@\n" if !$records;
+    die "the $type board returned a non-list payload\n" if ref $records ne 'ARRAY';
+    return $records;
+}
+
+# Purpose: state one finding in the form a stranger can act on without context.
+# Input:   $findings arrayref, $ref, $why
+# Output:  none (appends)
+sub finding {
+    my ( $findings, $ref, $why ) = @_;
+    push @{$findings}, { ref => $ref, why => $why };
+    return;
+}
+
+# Purpose: apply every column-correctness rule to one already-loaded board set.
+# Input:   hashref of type => arrayref of records
+# Output:  arrayref of findings
+sub sweep {
+    my ($boards) = @_;
+    my @findings;
+
+    my %by_ref;
+    for my $type ( keys %{$boards} ) {
+        $by_ref{ $_->{ref} } = $_ for @{ $boards->{$type} };
+    }
+
+    for my $type ( sort keys %{$boards} ) {
+        for my $record ( @{ $boards->{$type} } ) {
+            my $ref    = $record->{ref}    // '(no ref)';
+            my $column = $record->{column} // '';
+
+            # Nobody is working a card that says work is happening.
+            finding( \@findings, $ref, "sits in '$column' with no assignee, so nothing is actually working it" )
+              if $IS_WORKING{$column} && !length( $record->{assignee} // '' );
+
+            # A park whose condition has already cleared.
+            if ( $column eq 'blocked-by-dependency' ) {
+                my @blockers = map { $_->{ref} }
+                  grep { ( $_->{type} // '' ) eq 'is-blocked-by' } @{ $record->{linkage}{links} // [] };
+                if ( !@blockers ) {
+                    finding( \@findings, $ref, "is parked in 'blocked-by-dependency' but names no blocking link, so nothing can ever release it" );
+                }
+                else {
+                    my @open = grep {
+                        my $blocker = $by_ref{$_};
+                        !$blocker || !$IS_TERMINAL{ $blocker->{column} // '' }
+                    } @blockers;
+                    finding( \@findings, $ref, 'is parked on ' . join( ', ', @blockers ) . ', all of which are terminal — the park has cleared' )
+                      if !@open;
+                }
+            }
+
+            # A question that was never asked cannot be answered.
+            finding( \@findings, $ref, "waits in 'blocked-by-michael' — confirm a matching open row exists in docs/open-decisions.md, or it is a question nobody can see" )
+              if $column eq 'blocked-by-michael';
+
+            # A parent out of step with its own children, in both directions.
+            my @children = ( @{ $record->{linkage}{ticket_refs} // [] }, @{ $record->{linkage}{sub_epic_refs} // [] } );
+            next if !@children;
+
+            my @known = grep { $_ } map { $by_ref{$_} } @children;
+            next if !@known;
+
+            my @moved = grep { !$IS_PRE_WORK{ $_->{column} // '' } } @known;
+            finding( \@findings, $ref, "sits in '$column' while " . scalar(@moved) . ' of its ' . scalar(@known) . ' children have already started or finished' )
+              if $IS_PRE_WORK{$column} && @moved && $column ne 'blocked-by-dependency' && $column ne 'blocked-by-michael';
+
+            my @unfinished = grep { !$IS_TERMINAL{ $_->{column} // '' } } @known;
+            finding( \@findings, $ref, "is still in '$column' although every one of its " . scalar(@known) . ' children is terminal' )
+              if $IS_WORKING{$column} && !@unfinished && $column ne 'final-check';
+        }
+    }
+
+    return \@findings;
+}
+
+# Purpose: run the sweep and report it loudly enough that a silent death cannot
+#          be mistaken for a clean board.
+# Input:   @ARGV (none accepted)
+# Output:  one of the EXIT_* codes
+sub main {
+    if (@ARGV) {
+        say STDERR 'ft99-sweep: takes no arguments';
+        return EXIT_USAGE;
+    }
+
+    my $d2 = locate_d2();
+    if ( !$d2 ) {
+        say STDERR 'ft99-sweep: UNUSABLE — cannot find bin/d2 relative to this script';
+        return EXIT_UNUSABLE;
+    }
+
+    my %boards;
+    for my $type (qw(sow epic ticket)) {
+        my $records = eval { load_board( $d2, $type ) };
+        if ( !$records ) {
+            my $error = $@ || 'unknown failure';
+            chomp $error;
+            say STDERR "ft99-sweep: UNUSABLE — $error";
+            return EXIT_UNUSABLE;
+        }
+        $boards{$type} = $records;
+    }
+
+    my $total = 0;
+    $total += scalar @{ $boards{$_} } for keys %boards;
+
+    my $findings = sweep( \%boards );
+    say "ft99-sweep: swept $total cards across the sow, epic and ticket boards";
+
+    if ( !@{$findings} ) {
+        say 'ft99-sweep: every card is in a column its evidence supports';
+        return EXIT_CLEAN;
+    }
+
+    say "ft99-sweep: $_->{ref} $_->{why}" for @{$findings};
+    say 'ft99-sweep: ' . scalar( @{$findings} ) . ' card(s) need moving or explaining';
+    return EXIT_FINDINGS;
+}
+
+exit main() if !caller;
+
+1;
+
+__END__
+
+=head1 NAME
+
+ft99-sweep - verify every Tira card sits in the column its evidence supports
+
+=head1 PURPOSE
+
+FT99 is the standing sweep over the Developer Dashboard board. It exists because
+the board is the only shared record of what is happening, and the ways it stops
+describing reality are all silent: a card left in a working column with no
+assignee, a dependency park whose blocker closed hours ago, a question waiting on
+the owner that was never written onto the decisions page, and — the one that has
+actually bitten this project's class of board — a parent record sitting in a
+pre-work column while its children were built and shipped, then asked to verify an
+assembled result it had never seen.
+
+None of those raise an error. They are only ever found by looking, which is what
+this script does.
+
+=head1 CHECKS
+
+=over 4
+
+=item * A card in a working column with no assignee.
+
+=item * A card parked in C<blocked-by-dependency> that names no blocking link, so
+nothing can ever release it.
+
+=item * A card parked on blockers that have all reached a terminal column, meaning
+the park has cleared and the card should have moved.
+
+=item * A card waiting in C<blocked-by-michael>, reported so the matching row on the
+open-decisions page can be confirmed to exist.
+
+=item * A parent in a pre-work column while its children have already started or
+finished.
+
+=item * A parent still in a working column although every one of its children is
+terminal.
+
+=back
+
+=head1 EXIT STATUS
+
+C<0> clean, C<1> findings, C<2> usage error, C<3> the board could not be swept.
+The last is deliberately non-zero: a sweep that dies quietly is indistinguishable
+from a sweep that found nothing, and that indistinguishability is how an audit runs
+its whole life reporting a clean board it never actually read.
+
+=head1 SCHEDULING
+
+Run it from the project root. If it is ever scheduled from cron, remember cron runs
+from C<$HOME> with a minimal C<PATH> and reads no shell profile: use an absolute
+path to the script, and test it the way cron will run it with C<env -i>, not from an
+interactive shell where the working directory and environment are already right.
+
+=cut
