@@ -15,12 +15,14 @@
 #     1  findings
 #     2  usage error
 #     3  could not sweep (board unreadable) — deliberately NOT zero
+#     4  could not write its own log — also NOT zero, for the same reason
 
 use strict;
 use warnings;
 use feature 'say';
 
 use FindBin;
+use File::Path qw(make_path);
 use File::Spec;
 use JSON::XS;
 use Capture::Tiny qw(capture);
@@ -30,7 +32,21 @@ use constant {
     EXIT_FINDINGS => 1,
     EXIT_USAGE    => 2,
     EXIT_UNUSABLE => 3,
+    EXIT_NO_LOG   => 4,
 };
+
+# The sweep writes its own log rather than being redirected into one by cron.
+#
+# The crontab line used to end `>> <repo>/logs/ft99.log 2>&1`, and logs/ is an
+# untracked directory that the automation rounds' end-of-round park removed with
+# the rest of the working tree. The SHELL then failed before this script was ever
+# executed -- "cannot create ...: Directory nonexistent" -- so the only automated
+# guarantee the board has produced nothing at all, silently, for its whole life
+# (DD-493). A redirect cannot report its own failure, and silence from a checker
+# reads exactly like a clean board.
+#
+# Owning the file means the failure has somewhere to be reported from.
+our $LOG_HANDLE;
 
 # Columns the board treats as "work is happening here". A card in one of these
 # is claimed by somebody and is expected to move.
@@ -182,6 +198,51 @@ sub sweep {
     return \@findings;
 }
 
+# Purpose: emit one line to the terminal AND to the sweep's own log, so a
+#          scheduled run leaves a record without depending on a shell redirect.
+# Input:   the line, without a trailing newline
+# Output:  none
+sub emit {
+    my ($line) = @_;
+    say $line;
+    say {$LOG_HANDLE} $line if $LOG_HANDLE;
+    return;
+}
+
+# Purpose: open the sweep's log, creating its directory, and say so loudly if it
+#          cannot. DD_FT99_LOG overrides the path, which is what makes the
+#          unwritable case testable without breaking the real one.
+# Input:   none
+# Output:  the path on success; undef after printing a diagnostic to STDERR
+sub open_log {
+    my $path = $ENV{DD_FT99_LOG} || File::Spec->catfile( project_root(), 'logs', 'ft99.log' );
+
+    my ( $volume, $dir ) = File::Spec->splitpath($path);
+    my $log_dir = File::Spec->catpath( $volume, $dir, '' );
+    if ( length $log_dir && !-d $log_dir ) {
+        # The round park deletes this directory along with the rest of the
+        # untracked tree, so it is recreated on every run rather than assumed.
+        make_path($log_dir);
+        if ( !-d $log_dir ) {
+            say STDERR "ft99-sweep: cannot create the log directory $log_dir: $!";
+            return;
+        }
+    }
+
+    if ( !open $LOG_HANDLE, '>>', $path ) {
+        say STDERR "ft99-sweep: cannot write the log $path: $!";
+        undef $LOG_HANDLE;
+        return;
+    }
+
+    # Line-buffered, so a run that is killed mid-sweep still leaves what it had.
+    my $previous = select $LOG_HANDLE;
+    $| = 1;
+    select $previous;
+
+    return $path;
+}
+
 # Purpose: run the sweep and report it loudly enough that a silent death cannot
 #          be mistaken for a clean board.
 # Input:   @ARGV (none accepted)
@@ -193,6 +254,15 @@ sub main {
     }
 
     ensure_library_path();
+
+    # Opened before anything else can fail, so every diagnostic below reaches the
+    # log too. An inability to log is fatal on purpose (AC-4): a sweep that runs
+    # but records nothing is indistinguishable from one that never ran, and the
+    # whole defect this ticket fixes was exactly that indistinguishability.
+    if ( !defined open_log() ) {
+        say STDERR 'ft99-sweep: refusing to sweep without a log - a sweep nobody can read is not a check';
+        return EXIT_NO_LOG;
+    }
 
     # Tira discovers its project by walking up from the WORKING DIRECTORY, and
     # cron runs from $HOME, so a scheduled sweep asked the wrong tree and got
@@ -228,15 +298,15 @@ sub main {
     $total += scalar @{ $boards{$_} } for keys %boards;
 
     my $findings = sweep( \%boards );
-    say "ft99-sweep: swept $total cards across the sow, epic and ticket boards";
+    emit("ft99-sweep: swept $total cards across the sow, epic and ticket boards");
 
     if ( !@{$findings} ) {
-        say 'ft99-sweep: every card is in a column its evidence supports';
+        emit('ft99-sweep: every card is in a column its evidence supports');
         return EXIT_CLEAN;
     }
 
-    say "ft99-sweep: $_->{ref} $_->{why}" for @{$findings};
-    say 'ft99-sweep: ' . scalar( @{$findings} ) . ' card(s) need moving or explaining';
+    emit("ft99-sweep: $_->{ref} $_->{why}") for @{$findings};
+    emit( 'ft99-sweep: ' . scalar( @{$findings} ) . ' card(s) need moving or explaining' );
     return EXIT_FINDINGS;
 }
 

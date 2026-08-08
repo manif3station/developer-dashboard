@@ -333,10 +333,28 @@ sub start_loop {
     die "Unable to fork collector '$name': $!" if !defined $pid;
 
     if ($pid) {
-        open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";
-        print {$fh} $pid;
-        close $fh;
-        $self->{paths}->secure_file_permissions($pidfile);
+        # The loop STATE is written before the pidfile, and the order is
+        # load-bearing rather than stylistic.
+        #
+        # running_loops keys on the pidfile: it lists pidfiles, and for each one
+        # decides whether that pid is a loop it manages. It recognises the pid
+        # either by its process title or by this recorded state. Written the other
+        # way round there is a window - pidfile present, state not yet written -
+        # in which a freshly forked child that has not yet adopted its title is
+        # unrecognisable by either route. A concurrent running_loops in any other
+        # process then treats a perfectly healthy loop as an orphan and unlinks
+        # its pidfile.
+        #
+        # The consequence is the exact failure the surrounding code exists to
+        # prevent: stop_loop returns early on a missing pidfile so the loop can no
+        # longer be stopped by name, and start_loop consults the loop-state
+        # fallback only inside its `-f $pidfile` branch, so the next supervisor
+        # start forks a DUPLICATE. The fallback that would have caught it cannot
+        # fire, because the sweep deleted the evidence it reads.
+        #
+        # Writing the state first closes the window instead of widening a wait:
+        # the pidfile - the thing the sweep keys on - never exists without the
+        # state that identifies it.
         $self->_write_loop_state(
             $name,
             {
@@ -353,6 +371,10 @@ sub start_loop {
                 heartbeat_at => _now_iso8601(),
             }
         );
+        open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";
+        print {$fh} $pid;
+        close $fh;
+        $self->{paths}->secure_file_permissions($pidfile);
         return $pid;
     }
 
