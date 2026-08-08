@@ -1972,8 +1972,29 @@ The browser security model follows the original local-first trust concept:
 - helper access requires a login backed by local file-based user and session records
 - helper sessions are file-backed, bound to the originating remote address, and expire automatically
 - helper passwords must be at least 8 characters long
+- state-changing requests are refused with an empty-bodied `403` when `Origin`
+or `Referer` names anything other than this dashboard or a trusted local
+alias, on every tier
+- requests the browser labelled `Sec-Fetch-Site: cross-site` or `same-site` are
+refused on **every** method, including `GET`, unless the accompanying
+`Origin`/`Referer` names this dashboard or a trusted local alias
 
 This keeps the fast path for loopback-local access while making non-loopback or shared access explicit.
+
+The two cross-site checks above sit at one choke point that runs before trust
+tier classification, because the loopback-admin tier authorizes on the remote
+address alone: there is no cookie in that decision, so `SameSite=Strict`
+protects nothing there and any page the operator visits would otherwise reach
+an already-authorized dashboard. The fetch-metadata half covers `GET` because
+`GET` is not a safe method on this product — `/ajax/<file>` runs an
+operator-written saved handler as a child process from a plain `GET` — while
+`Origin` is frequently absent on a `GET` and `Referer` can be suppressed by
+the attacking page. `Sec-Fetch-Site` is set by the browser and is a forbidden
+header name, so page script can neither forge nor suppress it. Opening the
+dashboard by typed URL or bookmark reports `Sec-Fetch-Site: none` and is
+unaffected, as are `curl` and registered `x-dd-api-key` machine consumers,
+which send no fetch metadata at all; following a link in from another site is
+refused, which is deliberate on a route that executes saved handlers.
 
 The editor and rendered pages also include a shared top chrome with share and
 source links on the left and the original status-plus-alias indicator strip on

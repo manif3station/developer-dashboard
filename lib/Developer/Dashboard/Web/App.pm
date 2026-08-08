@@ -53,36 +53,95 @@ sub new {
     }, $class;
 }
 
-# HTTP methods that can change server state. The cross-site request forgery
-# defense below applies to exactly these; safe methods (GET/HEAD) stay outside
-# the check because the ticket scope is state mutation, not reads.
+# HTTP methods that can change server state. The Origin/Referer half of the
+# cross-site request forgery defense applies to exactly these, because a
+# browser only guarantees an Origin header on a cross-site state-changing
+# request. The fetch-metadata half below carries no such limit and covers GET
+# too, which is what the code-executing saved-Ajax route needs.
 my %STATE_CHANGING_METHODS = map { $_ => 1 } qw(POST PUT DELETE PATCH);
 
+# Fetch-metadata values that mean the request was not issued by this
+# dashboard's own pages. The browser sets Sec-Fetch-Site itself and it is a
+# forbidden header name, so page script can neither forge nor suppress it.
+# `same-origin` is the dashboard's own page and `none` is a user-initiated load
+# (typed URL, bookmark, browser start-up), so both stay outside the check.
+my %FOREIGN_FETCH_SITES = map { $_ => 1 } qw(cross-site same-site);
+
 # _csrf_rejection_response(%args)
-# Cross-site request forgery choke point for every state-changing request.
-# Browsers unconditionally attach an Origin header to cross-site
-# state-changing requests (and legacy flows carry a Referer), so a foreign
-# Origin/Referer identifies an attack regardless of trust tier: the
-# loopback-admin shortcut, an ambient helper session cookie, and even valid
-# machine credentials must all refuse to act on it. Requests carrying neither
-# header are allowed because non-browser machine clients (curl, registered
-# x-dd-api-key consumers) send neither, while a hostile page cannot suppress
-# the Origin header on a cross-site state-changing request.
-# Input: normalized request method and headers (host, origin, referer).
+# Cross-site request forgery choke point for every request. Browsers
+# unconditionally attach an Origin header to cross-site state-changing
+# requests (and legacy flows carry a Referer), so a foreign Origin/Referer
+# identifies an attack regardless of trust tier: the loopback-admin shortcut,
+# an ambient helper session cookie, and even valid machine credentials must all
+# refuse to act on it. Requests carrying neither header are allowed because
+# non-browser machine clients (curl, registered x-dd-api-key consumers) send
+# neither, while a hostile page cannot suppress the Origin header on a
+# cross-site state-changing request. A GET needs the separate fetch-metadata
+# check, which runs first and on every method.
+# Input: normalized request method and headers (host, origin, referer,
+# sec-fetch-site).
 # Output: 403 empty-body response array reference when the browser context is
 # foreign, otherwise undef and the request proceeds to tier dispatch.
 sub _csrf_rejection_response {
     my ( $self, %args ) = @_;
+
+    # Fetch metadata is checked on every method, not just the state-changing
+    # ones: a saved-Ajax handler is an operator-written script that the
+    # `/ajax/<file>` route runs from a plain GET, so GET is not a safe method
+    # here. Origin cannot defend that route — browsers omit Origin on
+    # same-origin GETs, and a hostile page can drop its Referer with a referrer
+    # policy — but it cannot touch Sec-Fetch-Site.
+    return $self->_csrf_forbidden_response if $self->_fetch_site_is_foreign(%args);
+
     my $method = uc( $args{method} || 'GET' );
     return undef if !$STATE_CHANGING_METHODS{$method};
     my $headers = $args{headers} || {};
-    my $origin = defined $headers->{origin} && !ref( $headers->{origin} ) ? $headers->{origin} : '';
-    my $referer = defined $headers->{referer} && !ref( $headers->{referer} ) ? $headers->{referer} : '';
-    my $source = $origin ne '' ? $origin : $referer;
+    my $source = _browser_source_value($headers);
     return undef if $source eq '';
     return $self->_csrf_forbidden_response
       if !$self->_request_source_is_same_site( source => $source, headers => $headers );
     return undef;
+}
+
+# _fetch_site_is_foreign(%args)
+# Reports whether the browser itself labelled this request as coming from
+# another site. A request carrying no Sec-Fetch-Site is never foreign, which
+# keeps non-browser clients (curl, registered x-dd-api-key consumers) and
+# browsers too old to send fetch metadata working exactly as before; a hostile
+# page cannot reach that shape, because every browser that can be scripted into
+# making the request also sends the header. A cross-site or same-site label is
+# foreign unless the accompanying Origin/Referer names this dashboard or a
+# trusted local alias, which keeps the localhost/127.0.0.1 pair — one host to
+# the loopback trust model, two sites to the browser — serving normally.
+# Input: normalized request headers (sec-fetch-site, origin, referer, host).
+# Output: boolean true when the request comes from a foreign browser context.
+sub _fetch_site_is_foreign {
+    my ( $self, %args ) = @_;
+    my $headers = $args{headers} || {};
+    my $site =
+      defined $headers->{'sec-fetch-site'} && !ref( $headers->{'sec-fetch-site'} )
+      ? lc $headers->{'sec-fetch-site'}
+      : '';
+    $site =~ s/^\s+//;
+    $site =~ s/\s+$//;
+    return 0 if !$FOREIGN_FETCH_SITES{$site};
+    my $source = _browser_source_value($headers);
+    return 1 if $source eq '';
+    return $self->_request_source_is_same_site( source => $source, headers => $headers ) ? 0 : 1;
+}
+
+# _browser_source_value($headers)
+# Picks the header that names the browser context a request came from. Origin
+# wins when present and Referer is the legacy fallback; reference-valued header
+# values (a shape no HTTP stack produces) count as absent so the caller never
+# dereferences one.
+# Input: normalized request headers hash reference.
+# Output: raw source header string, empty when the request carries neither.
+sub _browser_source_value {
+    my ($headers) = @_;
+    my $origin = defined $headers->{origin} && !ref( $headers->{origin} ) ? $headers->{origin} : '';
+    return $origin if $origin ne '';
+    return defined $headers->{referer} && !ref( $headers->{referer} ) ? $headers->{referer} : '';
 }
 
 # _request_source_is_same_site(%args)
@@ -3417,6 +3476,19 @@ since non-browser machine clients send neither while browsers always attach
 C<Origin> to cross-site state-changing requests. The check also holds behind
 the SSL front-proxy, which forwards TLS bytes unmodified, so the backend
 compares against the browser's own C<Host> header.
+
+That origin check cannot defend a C<GET>, because browsers omit C<Origin> on
+same-origin GETs and a hostile page can drop its C<Referer> with a referrer
+policy — yet C</ajax/E<lt>fileE<gt>> runs an operator-written saved handler as
+a child process from a plain GET, on a tier that needs no cookie. So the same
+choke point additionally refuses, on B<every> method, any request the browser
+labelled C<Sec-Fetch-Site: cross-site> or C<same-site>, unless the
+accompanying C<Origin>/C<Referer> names this dashboard or a trusted local
+alias (the C<localhost>/C<127.0.0.1> pair is one host to the trust model and
+two sites to the browser). C<Sec-Fetch-Site> is set by the browser itself and
+is a forbidden header name, so page script can neither forge nor suppress it.
+Requests carrying no fetch metadata are unaffected, which keeps machine
+clients and browsers too old to send it working unchanged.
 
 =head1 METHODS
 

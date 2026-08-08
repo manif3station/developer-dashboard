@@ -229,6 +229,13 @@ my $admin_control_code;
     );
     is( $code, $admin_control_code, 'a same-origin Referer-only POST still works' );
 
+    # This GET is served, but NOT because GET is a safe method — it is not one
+    # on this product, where /ajax/<file> executes an operator-written handler
+    # from a plain GET. It is served because the request carries no
+    # Sec-Fetch-Site, which is the shape a non-browser client produces and a
+    # browser cannot. The fetch-metadata half of the same choke point refuses
+    # the browser-issued version of this request on every method; t/140 pins
+    # that. Do not restate this assertion as a GET exemption.
     ($code) = request(
         path        => '/',
         method      => 'GET',
@@ -236,7 +243,7 @@ my $admin_control_code;
         host        => $ADMIN_HOST,
         origin      => 'http://evil.example',
     );
-    is( $code, 200, 'a GET with a foreign Origin is unaffected (safe method)' );
+    is( $code, 200, 'a GET with a foreign Origin but no fetch metadata is unaffected' );
 }
 
 # ---------------------------------------------------------------------------
