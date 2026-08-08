@@ -201,6 +201,13 @@ recognises the container as something it may remove, so the leak is permanent.
 This helper makes the cleanup generational instead: each run collects its
 predecessors' leaks before creating its own container.
 
+=head1 PURPOSE
+
+Keep the post-build guard's docker footprint bounded by exactly one container,
+however violently the run that created it was terminated, by moving the cleanup
+decision from teardown time — which a killed run never reaches — to the start of
+the next run, where a live process can still make it.
+
 =head1 WHY IT EXISTS
 
 DD-448 found eight leaked containers on the build host, the oldest three weeks
