@@ -564,6 +564,26 @@ for my $path (@pod_paths) {
     unlike( $pod, qr/C<FORM\.TT:>|C<FORM:>|\bFORM\.TT\b/, "$path POD no longer documents removed FORM bookmark directives" );
 }
 
+# DD-434: the auth regression test's own POD is security documentation, so it
+# must describe the DNS-rebinding admin-trust invariant as enforced rather than
+# as an open gap, and must not advertise a TODO block the file does not carry.
+# DD-387 closed that gap; the POD went stale behind it and told readers a
+# loopback admin-elevation hole was merely "documented" and still open.
+{
+    my $auth_hunt      = _slurp( _repo_path( 't', '57-hunt-auth.t' ) );
+    my $auth_hunt_pod  = _extract_pod($auth_hunt);
+    my $auth_hunt_body = $auth_hunt;
+    $auth_hunt_body =~ s/\n__END__\n.*\z//s;
+
+    unlike( $auth_hunt_pod, qr/gap that remains/i, 'auth regression POD no longer calls the DNS-rebinding gap outstanding' );
+    unlike( $auth_hunt_pod, qr/\bresidual\b/i,     'auth regression POD no longer calls the DNS-rebinding trust decision residual' );
+    unlike( $auth_hunt_pod, qr/still[- ]open/i,    'auth regression POD no longer calls the DNS-rebinding tightening still open' );
+    unlike( $auth_hunt_pod, qr/\bTODO\b/,          'auth regression POD no longer cites a TODO block' );
+    unlike( $auth_hunt_body, qr/\bTODO\b/,         'auth regression test body carries no TODO block for its POD to cite' );
+    like( $auth_hunt_pod, qr/DNS-rebinding/,       'auth regression POD still names the DNS-rebinding invariant it guards' );
+    like( $auth_hunt_body, qr/DNS-rebinding admin-trust/, 'auth regression test body still pins the DNS-rebinding admin-trust invariant' );
+}
+
 for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
     like( $doc, qr/install\.sh/, 'README documents the repo bootstrap installer' );
     like( $doc, qr/cpanm --no-wget --notest Developer::Dashboard/, 'README documents the repo bootstrap installer cpanm contract' );
