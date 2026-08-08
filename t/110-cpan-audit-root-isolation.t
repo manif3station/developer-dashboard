@@ -38,6 +38,20 @@ sub _seed_root {
     return $dir;
 }
 
+# _slurp($path)
+# Purpose: read a repository documentation file whole, failing loudly if it is
+#          missing rather than letting an empty string satisfy an assertion.
+# Input:   $path = absolute path to the file.
+# Output:  the file's contents as a single string.
+sub _slurp {
+    my ($path) = @_;
+    open my $fh, '<', $path or die "cannot read $path: $!";
+    local $/ = undef;
+    my $contents = <$fh>;
+    close $fh or die "cannot close $path: $!";
+    return $contents;
+}
+
 # A root OUTSIDE the repository working tree is a shared library tree, not an
 # isolated product root. The gate must refuse it rather than reporting whatever
 # unrelated software happens to be installed there as this product's exposure.
@@ -83,6 +97,36 @@ sub _seed_root {
     remove_tree($inside);
 }
 
+# The refusal is only half the fix. What produced DD-499 was an operator
+# following the documentation, and the documentation named the invocation the
+# gate now rejects. Docs that instruct a refused command reproduce the original
+# failure with an extra step, so they are pinned here rather than left to drift
+# away from the script they describe.
+{
+    my $security  = _slurp( File::Spec->catfile( $ROOT, 'doc',  'security.md' ) );
+    my $gate_map  = _slurp( File::Spec->catfile( $ROOT, 'docs', 'gate-map.md' ) );
+    my ($cve_row) = $gate_map =~ /^(.*100% CVE FREE.*)$/m;
+
+    like( $security, qr/\bexit status 3\b/, 'security doc states the distinct refusal status the gate returns' );
+    like(
+        $security,
+        qr/DD_CPAN_AUDIT_ALLOW_EXTERNAL_ROOT/,
+        'security doc records the explicit opt-in, so the escape hatch is discoverable without reading the script'
+    );
+
+    ok( defined $cve_row, 'gate map still carries a CVE FREE row to check' );
+    like(
+        $cve_row // '',
+        qr/cpan-audit-declared-chain/,
+        'gate map sends a shared tree to the instrument whose subject is the product'
+    );
+    unlike(
+        $cve_row // '',
+        qr/cpan-audit-project` against the pinned chain/,
+        'gate map no longer instructs the invocation the gate refuses with exit 3'
+    );
+}
+
 done_testing();
 
 __END__
@@ -95,8 +139,11 @@ root that is not an isolated product root
 =head1 PURPOSE
 
 An executable guard over the isolation precondition in
-C<script/cpan-audit-project>. It runs the real gate as a subprocess against
-purpose-built library roots and asserts what it does with each one.
+C<script/cpan-audit-project>, covering both halves of that precondition: what
+the gate DOES, and what the repository TELLS an operator to do. It runs the real
+gate as a subprocess against purpose-built library roots and asserts the outcome
+of each, then asserts that the operator-facing documentation still describes the
+contract the gate actually implements.
 
 C<script/cpan-audit-project> asks "is the set of distributions installed in this
 root vulnerable?". That question is only meaningful about the product when the
@@ -120,11 +167,22 @@ what it had measured. A gate that reports its own environment as a product
 defect is a guardrail pointed the wrong way, and the cost is paid every time
 somebody believes it.
 
+The documentation assertions exist because the first attempt at that fix was
+incomplete. Hardening the gate while leaving the repository's gate map and its
+project rules naming the now-refused invocation would have turned exit 88 into
+exit 3 for the next operator who followed the instructions - a different
+unexplained red on the same gate, and a fresh ticket. Prose describing a tool's
+contract is part of that contract, so it is pinned here and cannot drift away
+from the script in silence.
+
 =head1 WHEN TO USE
 
 It runs with the suite. Extend it when the isolation precondition changes -
 particularly if the definition of an isolated root is tightened, since the
-in-tree case below is what stops such a change from red-lining CI.
+in-tree case below is what stops such a change from red-lining CI. A change to
+the gate's exit statuses or its opt-in variable must be made here and in the
+project's security documentation together, because the last block asserts that
+the two agree.
 
 =head1 HOW TO USE
 

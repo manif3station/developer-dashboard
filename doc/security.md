@@ -216,6 +216,54 @@ published advisory against any distribution in the closure is a real finding,
 and the answer is to raise that distribution's floor or record a reviewed
 disposition for the advisory.
 
+### Which library root each gate may be pointed at
+
+The two gates answer different questions, and pointing one of them at the wrong
+library root produces an answer that is entirely correct and entirely not about
+this product.
+
+`script/cpan-audit-project` inventories the distributions installed in a root
+and reports advisories against them. That is a statement about the product only
+when the root holds the product's dependencies and nothing else. Pointed at a
+shared CPAN tree — the one a developer machine accumulates across every project
+it has ever built — it reports that tree faithfully, and a reader takes it as
+product exposure because nothing in the output says otherwise.
+
+So the gate states the root it is auditing, and refuses a root outside the
+repository working tree with **exit status 3**, deliberately distinct from `0`
+clean, `1` a disposition guard fired, and `2` a usage error. Collapsing "wrong
+subject" into "finding" is what let the misreading spread: a red gate reads as a
+blocker regardless of what it measured. The refusal names the gate that does
+answer the question for a shared tree.
+
+`DD_CPAN_AUDIT_ALLOW_EXTERNAL_ROOT=1` is the explicit opt-in for a root that is
+genuinely isolated but lives outside the checkout, such as one built inside a
+container. The default has to be refusal rather than a warning, because a
+warning above two dozen advisory lines is not read.
+
+Isolation is tested as "inside the repository working tree" rather than as
+purity of the closure. The stricter-sounding rule — that the root may contain
+only distributions in the declared runtime closure — is wrong here: an isolated
+root built by `cpanm --installdeps --local-lib-contained` also carries toolchain
+and test distributions, so that rule would refuse the very root continuous
+integration audits. A guard that red-lines CI is worse than the misreading it
+set out to prevent.
+
+To judge the product against a shared tree, use
+`script/cpan-audit-declared-chain`, whose subject is the declared runtime
+closure and which ignores everything outside it. `t/110-cpan-audit-root-isolation.t`
+pins all three cases — refusal, opt-in, and the in-tree root CI uses — and pins
+this documentation against the script, because what produced the original
+misreading was an operator following instructions that named the refused
+invocation.
+
+The cost of not having this is measured: the gate was run against
+`$HOME/perl5/lib/perl5` and exited 88 with twenty-four advisories across seven
+distributions, not one of them a declared runtime dependency. Three separate
+rounds read that as a release blocker, and one filed it as a priority-2 security
+defect, while the product's own position was clean across the 81 distributions
+in its declared closure.
+
 ## CI Action Pinning
 
 Every third-party GitHub Action is pinned by full 40-character commit SHA, never
