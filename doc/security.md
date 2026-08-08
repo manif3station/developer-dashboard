@@ -232,14 +232,34 @@ upstream `refs/tags/vX.Y.Z` must return exactly the SHA the bump introduces; a
 pin that does not resolve to the named release is rejected regardless of where
 the change came from.
 
-Runtime declarations are part of this review. The GHCR packaging job sets
-`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`, GitHub's transitional shim that reroutes
-actions still declaring `node20` onto the `node24` runtime. A step that handles
-registry credentials must not owe its execution to that shim, so the login action
-is held on the `node24`-native release line and `t/34-scorecard-guardrails.t`
-gates the major version rather than only the pin format. The shim itself stays
-while other pinned actions in that job still declare `node20`; it is removed only
-once none of them do.
+That rule is enforced by `script/audit-action-pins`, which the test workflow runs
+on every push. For each pinned action it reads the `action.yml` the pinned commit
+actually carries and resolves the tag named in the comment, failing the build
+when a pin declares a runtime below `node24` or when its comment names a tag that
+resolves to a different commit. It separates "this pin is wrong" from "this run
+could not find out" and exits non-zero for both, so an audit that could not run
+never reads as an audit that passed. `t/142-action-pin-provenance.t` covers that
+decision logic against fixtures, without a network.
+
+The enforcement exists because the documentation above was already policy and
+was still violated. Three pins carried comments written from intent rather than
+resolved from the tag: `actions/checkout` was annotated `# v5.2.2` — a tag that
+has never existed upstream — over a commit that is really v4.2.2, and
+`shogo82148/actions-setup-perl` was annotated `# v1.32.0` over v1.31.3. All were
+`node20` actions. GitHub force-runs `node20` actions on `node24`, which
+`actions/checkout` survives and `actions-setup-perl` v1.31.3 does not: it fails
+with `Error: unable to get latest version`. The `Setup Perl` step therefore
+failed on every CI run for ten days, skipping the suite, the coverage gate and
+both dependency audits, while the guardrail test read the comments and certified
+the migration as complete. A version floor read from a comment cannot detect a
+comment that lies, which is why the resolving check is a separate gate.
+
+Runtime declarations are part of this review. Every pinned action now declares
+`node24`, so the jobs no longer set `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`,
+GitHub's transitional shim for rerouting `node20` actions. Steps that handle
+credentials — the GHCR login in particular — are held on `node24`-native release
+lines, and `t/34-scorecard-guardrails.t` gates those version floors rather than
+only the pin format.
 
 ## Release Provenance
 
