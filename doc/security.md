@@ -178,6 +178,44 @@ When raising a floor, audit the newly resolved chain rather than assuming it is
 safe: a higher floor can pull in additional distributions, and a floor set above
 a module's newest release would make the distribution uninstallable.
 
+### Auditing the transitive closure, not the named dependencies
+
+The floor list used to be derived from the modules `cpanfile` names, while the
+real exposure comes from the transitive closure of what those modules require in
+turn. Two distributions reached the resolved chain that way and were caught only
+by manual audit, both pulled in by `libwww-perl`'s own runtime requirements and
+neither named in `cpanfile`: `HTTP::Date`, and `HTML::Parser` under the names
+`HTML::Entities` and `HTML::HeadParser`.
+
+Scanning what happens to be installed cannot catch this class. A resolver always
+takes the newest release, so the installed versions look clean while the declared
+floors still permit a vulnerable one. The question that has to be asked is the
+one an installer answers: what is the *lowest* release the declared chain still
+allows?
+
+`script/cpan-audit-declared-chain` asks exactly that. It reads the declared
+runtime requirements, walks every runtime requirement reachable from them using
+the metadata that is written next to each installed distribution, resolves the
+lowest release each distribution's accumulated floor still permits, and reports
+any that falls inside a published advisory range. It shares the reviewed
+advisory disposition list with the installed-distribution gate, and it fails
+closed: a library root it cannot walk, a missing advisory database, or a single
+distribution metadata file it cannot read or parse all exit non-zero rather than
+reporting a clean chain it never established. The last of those matters as much
+as the others, because a dropped metadata file shrinks the closure, and a
+smaller closure is precisely what hides a finding — a partial walk that reports
+"no distribution permits a vulnerable version" is the same false clean this gate
+was built to end.
+
+The gate runs as its own continuous-integration step against the isolated
+dependency root the build resolves, and
+`t/109-declared-chain-advisory-closure.t` pins both its contracts and its
+detection behaviour against a synthetic chain built in the shape of the original
+defect. That gate is deliberately live: the advisory database moves, so a newly
+published advisory against any distribution in the closure is a real finding,
+and the answer is to raise that distribution's floor or record a reviewed
+disposition for the advisory.
+
 ## CI Action Pinning
 
 Every third-party GitHub Action is pinned by full 40-character commit SHA, never
