@@ -3,7 +3,7 @@ package Developer::Dashboard::Auth;
 use strict;
 use warnings;
 
-our $VERSION = '4.23';
+our $VERSION = '4.24';
 
 use Fcntl qw(:mode);
 use Digest::SHA qw(sha256_hex hmac_sha256);

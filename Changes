@@ -1,3 +1,58 @@
+4.24  2026-08-08
+
+  - Security: closed the open-redirect class in the login redirect sanitizer
+    and on both HTTPS-enforcement Host-header redirect paths (DD-415, DD-419),
+    rather than only the single reported byte.
+  - Security: closed three path-traversal classes - saved-page writes outside
+    the dashboards root (DD-395), parent-directory traversal in every
+    skill-namespaced web route with static-file containment asserted (DD-416),
+    and skill installs whose repo name escapes the skills root (DD-426).
+  - Security: every page-derived value the web layer places inside an HTML
+    attribute is now escaped for attribute context (DD-421), and saved
+    bookmark link segments are percent-encoded for URL context (DD-423).
+  - Security: state-changing requests are rejected when Origin or Referer is
+    foreign, on every web tier (DD-422).
+  - Security: the transient-token denial now depends on the token alone, so a
+    file value riding along can no longer bypass the 403 (DD-425).
+  - Security: release tarballs no longer carry dogfood QA evidence, ticket
+    worktrees (DD-414), or the Hermes runtime state root and its credentials
+    (DD-432).
+  - Feature: first-class self-upgrade - dashboard upgrade and d2 upgrade run
+    the canonical platform installer (DD-386).
+  - Feature: a real /favicon.ico is served instead of a 404 on every page
+    load (DD-407).
+  - Collectors: a timed-out command's full process subtree is terminated
+    (DD-388); blocked Windows command collectors are interrupted at their
+    timeout (DD-389); the atomic writer uses a per-process pending name so
+    concurrent workers stop clobbering each other (DD-418); log append and
+    rotation share a per-log lock (DD-399) and rotation cuts on entry
+    boundaries so a combined lines+days rule cannot orphan an entry body
+    (DD-427); collectors keep running when the updates directory is absent
+    (DD-398).
+  - Runtime: saved-Ajax disconnect cleanup terminates descendant processes
+    (DD-396) and gives them a real elapsed SIGTERM grace window (DD-428);
+    runtime state readers survive a transient empty state file (DD-411) and
+    the web lifecycle no longer acts on incomplete runtime state (DD-412).
+  - Windows: the SSL certificate home resolves through PathRegistry so the
+    HTTPS server starts (DD-417); every passwd lookup is guarded so
+    non-interactive sessions resolve a user and a home (DD-413); PERL5LIB
+    generation is cross-platform (DD-397); PowerShell startup caches are
+    anchored to the home layer and no longer clobber live PATH state
+    (DD-390).
+  - Web UI: every generated HTML document carries a lang attribute (DD-405);
+    logout and an authorized /login route by trust tier (DD-408); page-editor
+    textareas carry programmatic accessible names (DD-409); rendered page
+    chrome no longer overflows 320px phone viewports (DD-410).
+  - Performance: PathRegistry working-directory lookups no longer fork
+    /bin/pwd repeatedly (DD-393).
+  - Gates: the POD syntax gate reads the source tree instead of a stale copy
+    and the three reds it was hiding are fixed (DD-429); the coverage gate
+    grades lib/ instead of the stale build tree (DD-431) and a failed exec in
+    the harness process can no longer blind it (DD-428); the Windows
+    collector-timeout E2E is proven on a real QEMU Windows guest and made
+    repeatable (DD-404).
+  - Metadata: MakeMaker license metadata aligned with MIT (DD-400).
+
 4.23  2026-07-29
 
   - Coverage: every module under lib/ now reaches 100.0 on all four

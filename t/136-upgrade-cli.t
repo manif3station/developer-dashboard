@@ -298,7 +298,7 @@ for my $case (
 
 {
     my $ua = Developer::Dashboard::CLI::Upgrade::_user_agent();
-    is( $ua->agent, 'Developer-Dashboard/4.23 upgrade', 'the production downloader identifies the installed dashboard version' );
+    is( $ua->agent, 'Developer-Dashboard/4.24 upgrade', 'the production downloader identifies the installed dashboard version' );
     is( $ua->timeout, 60, 'the production downloader has a bounded timeout' );
     is( $ua->max_size, 512_000, 'the production downloader bounds installer size' );
     is( $ua->max_redirect, 3, 'the production downloader bounds redirects' );
