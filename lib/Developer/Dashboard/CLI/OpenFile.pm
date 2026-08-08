@@ -555,15 +555,25 @@ sub _extract_java_sources_from_archive {
     my @matches;
     for my $entry ( _matching_java_archive_entries( zip => $zip, relative => $relative ) ) {
         my $member = $zip->memberNamed($entry) || next;
+
+        # An archive member names its own destination, and archives reaching
+        # here are third-party artifacts, so a member whose name climbs out of
+        # the cache tree is dropped rather than written. Skipping keeps a
+        # poisoned member from also denying the archive's legitimate members.
         my $target = _cached_archive_source_path(
             paths   => $paths,
             archive => $archive,
             entry   => $entry,
-        );
+        ) or next;
         my ( $volume, $directories ) = File::Spec->splitpath($target);
         make_path( File::Spec->catpath( $volume, $directories, '' ) );
         open my $fh, '>', $target or die "Unable to write $target: $!";    # uncoverable branch true the target parent directory is created immediately above so the write cannot fail on the test host
-        print {$fh} $member->contents;
+
+        # contents() returns ($contents, $status) in list context, which print
+        # imposes, so the member body must be taken in scalar context or the
+        # status code is appended to every extracted source file.
+        my ($contents) = $member->contents;
+        print {$fh} $contents;
         close $fh;
         push @matches, $target;
     }
@@ -592,24 +602,46 @@ sub _matching_java_archive_entries {
     return @entries;
 }
 
+# _contained_cache_path($root, @segments)
+# Resolves untrusted path segments below one cache root and refuses any result
+# that escapes it. Segments arrive from archive member names and from remote
+# Maven search documents, so a parent-directory run in them would otherwise
+# steer a write to any location the user can reach. Resolution is lexical and
+# never consults the filesystem, so the decision cannot change between the
+# check and the write that follows it.
+# Input: intended root directory path string plus untrusted path segments.
+# Output: contained path string, or undef when the segments escape the root.
+sub _contained_cache_path {
+    my ( $root, @segments ) = @_;
+    my @resolved;
+
+    for my $part ( grep { $_ !~ m{\A\.?\z} } map { split m{[\\/]+}, $_ } @segments ) {
+        if ( $part eq '..' ) {
+            return if !@resolved;
+            pop @resolved;
+            next;
+        }
+        push @resolved, $part;
+    }
+
+    return if !@resolved;
+    return File::Spec->catfile( $root, @resolved );
+}
+
 # _cached_archive_source_path(%args)
 # Builds the stable cache location used for one extracted Java source member.
 # Input: path registry object, archive file path string, and archive member path string.
-# Output: extracted source file path string.
+# Output: extracted source file path string, or undef when the member escapes the cache.
 sub _cached_archive_source_path {
     my (%args) = @_;
     my $paths   = $args{paths}   || die 'Missing path registry';
     my $archive = $args{archive} || die 'Missing archive path';
     my $entry   = $args{entry}   || die 'Missing archive entry';
     my $digest  = md5_hex( join "\0", $archive, $entry );
-    my @parts   = grep { $_ ne '' } split m{/+}, $entry;
 
-    return File::Spec->catfile(
-        $paths->cache_root,
-        'open-file',
-        'java-sources',
-        $digest,
-        @parts,
+    return _contained_cache_path(
+        File::Spec->catdir( $paths->cache_root, 'open-file', 'java-sources', $digest ),
+        $entry,
     );
 }
 
@@ -672,15 +704,17 @@ sub _download_maven_source_jar {
 
     my $group_path = join '/', split /\./, $doc->{g};
     my $file       = "$doc->{a}-$doc->{v}-sources.jar";
-    my $target     = File::Spec->catfile(
-        $paths->cache_root,
-        'open-file',
-        'maven-sources',
-        split( /\//, $group_path ),
+
+    # The coordinates come from a remote search response, so the mirror target
+    # is contained the same way an archive member name is: refuse before any
+    # directory is created or any transfer is started.
+    my $target = _contained_cache_path(
+        File::Spec->catdir( $paths->cache_root, 'open-file', 'maven-sources' ),
+        $group_path,
         $doc->{a},
         $doc->{v},
         $file,
-    );
+    ) or return;
     return $target if -f $target;
 
     my ( $volume, $directories ) = File::Spec->splitpath($target);
