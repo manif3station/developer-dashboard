@@ -2777,7 +2777,18 @@ Do not treat Scorecard as a pre-commit local gate; run it only after the local
 gates, commit, and push are complete.
 When Scorecard needs a signed GitHub release, push a `vX.XX` tag so the
 tag-triggered GitHub release workflow can publish the tarball, checksum, and
-detached signature assets that back the `Signed-Releases` check.
+detached signature assets that back the `Signed-Releases` check. A signature
+alone caps that check at eight of ten, because the remaining points are scored
+only for a release that also carries build provenance, and provenance is
+recognised solely by a release asset whose name ends in `.intoto.jsonl` -
+recording an attestation in the GitHub attestation store does not count. So a
+second job in the same workflow re-downloads the published tarball, verifies it
+against the published checksum, attests it, and attaches the SLSA build
+provenance as `<tarball>.intoto.jsonl` together with the full Sigstore
+bundle that carries the material needed to verify that provenance offline. That
+job is deliberately separate: minting an OIDC token is what lets the workflow
+speak as the repository, and it is never granted to the job that runs the test
+suite, the coverage pass, and the tarball build.
 
 Skill fleet integration:
 
