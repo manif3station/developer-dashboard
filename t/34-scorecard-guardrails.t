@@ -182,6 +182,81 @@ for my $cmd (@gh_commands) {
       or diag("gh call without --repo/-R or GH_REPO in scope: $cmd->{line}");
 }
 
+# DD-492. A tag push runs the workflow file AS FROZEN AT THAT TAG, so a fix
+# landed on master is invisible to a tag that already exists. That is not a
+# hypothetical: v4.23 (run 30496507981) and v4.24 (run 31235774599) both died at
+# "Setup Perl" because each tag carries the pre-DD-449 node20 pin for
+# shogo82148/actions-setup-perl v1.32.0, and the runner now forces node24. Since
+# re-running that run, and dispatching at the tag ref, both replay the same
+# frozen file, neither tag can ever reach its publish step. A release pipeline
+# whose only trigger is frozen at the tag is therefore unrecoverable by
+# construction, and this recurs on every runtime retirement, because the
+# platform keeps moving while a tag does not.
+#
+# The recovery path is a dispatch that names an EXISTING tag and runs under the
+# current definition on master. Three properties make that safe rather than a
+# way to publish anything under any name, and each is asserted below because
+# losing any one of them republishes the bug in a quieter form.
+# Resolve the trigger block by hand rather than assuming a key name. YAML 1.1
+# reads a bare `on` as the boolean true, YAML 1.2 keeps it a string, and this
+# file is parsed by whichever YAML::XS the host happens to carry. If that lookup
+# ever came back empty the assertions below would all pass against nothing,
+# which is the "test aimed at an empty set" failure - so find the block, then
+# fail loudly when it cannot be found.
+my ($trigger_block) = grep { ref $_ eq 'HASH' && exists $_->{push} }
+  map { $release_yaml->{$_} } grep { m/\A(?:on|true|1)\z/ } keys %$release_yaml;
+ok( defined $trigger_block, 'the release workflow trigger block was located, so the trigger assertions have a subject' )
+  or diag( 'no trigger block among top-level keys: ' . join( ',', sort keys %$release_yaml ) );
+my $dispatch = ( $trigger_block // {} )->{workflow_dispatch};
+ok( ref $dispatch eq 'HASH' && ref $dispatch->{inputs} eq 'HASH' && exists $dispatch->{inputs}{tag},
+    'GitHub release workflow takes a tag input, so a tag whose frozen workflow cannot run is still publishable from master' )
+  or diag('no workflow_dispatch input named "tag" in release-github.yml');
+
+# The artifact must come from the TAGGED tree even though the definition comes
+# from master, or a dispatch would publish master's code under an old tag's
+# name - which is worse than not publishing at all, because it looks published.
+my @release_step_list = @{ $release_job->{steps} // [] };
+my ($release_checkout) = grep { ( $_->{uses} // '' ) =~ m{\bactions/checkout\b} } @release_step_list;
+ok( defined $release_checkout, 'the release job checks the repository out' );
+like( ( $release_checkout->{with} // {} )->{ref} // '', qr/\S/,
+    'the release job checks out the resolved release tag, so a dispatch builds the tagged tree and not master' );
+
+# One resolution, used by both jobs. The provenance job read GITHUB_REF_NAME
+# directly, which is the TAG on a push and the BRANCH on a dispatch - so under
+# the recovery path it would have downloaded and attested a release named
+# "master". Both jobs must therefore agree on one resolved value.
+my $release_tag_expr = ( $release_yaml->{env} // {} )->{RELEASE_TAG} // '';
+like( $release_tag_expr, qr/inputs\.tag/,
+    'the release tag resolves from the dispatch input at workflow level, where both jobs see the same value' );
+like( $release_tag_expr, qr/github\.ref_name/,
+    'the resolved release tag falls back to github.ref_name, so an ordinary tag push behaves exactly as before' );
+
+my $every_release_step = join "\n", map { $_->{run} // '' } ( @release_step_list, @provenance_step_list );
+unlike( $every_release_step, qr/\$\{?GITHUB_REF_NAME\b/,
+    'no step derives the release tag from GITHUB_REF_NAME directly, which is the branch when the workflow is dispatched' );
+like( $every_release_step, qr/\$\{?RELEASE_TAG\b/,
+    'the publish steps name the resolved release tag' );
+
+# A dispatch names an arbitrary ref, so without a shape guard "master" would be
+# accepted and published as a release. Every one of this repository's 21 v-tags
+# conforms to vN.NN, so the guard cannot break an existing path. It must also
+# run BEFORE anything is created: refusing after `gh release create` would leave
+# exactly the junk release it exists to prevent.
+my $release_runs = join "\n", map { $_->{run} // '' } @release_step_list;
+like( $release_runs, qr/v\[0-9\]|v\[\[:digit:\]\]|\[0-9\]\+\\\.\[0-9\]|\^v/,
+    'the release job validates the release tag shape before it publishes anything' );
+my $guard_index = -1;
+my $create_index = -1;
+for my $i ( 0 .. $#release_step_list ) {
+    my $run = $release_step_list[$i]{run} // '';
+    $guard_index  = $i if $guard_index < 0  && $run =~ /RELEASE_TAG/ && $run =~ /exit\s+1/;
+    $create_index = $i if $create_index < 0 && $run =~ /gh\s+release\s+(?:create|upload)/;
+}
+cmp_ok( $guard_index, '>=', 0, 'the release job has a step that refuses a malformed release tag' );
+cmp_ok( $create_index, '>=', 0, 'the release job has a step that creates or uploads the release' );
+cmp_ok( $guard_index, '<', $create_index,
+    'the tag guard runs before the release is created, so a refused tag cannot leave a junk release behind' );
+
 my $fuzz_workflow = _slurp('.github/workflows/fuzz-js.yml');
 like( $fuzz_workflow, qr/fast-check/, 'fuzz workflow runs the fast-check property-based suite' );
 like( $fuzz_workflow, qr/uses:\s*actions\/setup-node\@[0-9a-f]{40}/, 'setup-node action is pinned by full SHA in the fuzz workflow' );
