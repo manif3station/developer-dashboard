@@ -94,6 +94,28 @@ like( $package_json, qr/"fast-check"\s*:/, 'package.json declares fast-check for
 my $package_lock = _slurp('package-lock.json');
 like( $package_lock, qr/"fast-check"/, 'package-lock.json locks the fast-check dependency' );
 
+# fast-check is the whole of the project's property-based fuzzing, so Scorecard's
+# Fuzzing signal rests on it staying a maintained dependency rather than merely a
+# declared one. Upstream ended the 3.x line at 3.23.2 and ships only 4.x, so a
+# range still floored on 3 pins the one fuzz gate to an abandoned major and makes
+# the weekly Dependabot npm update a permanent no-op nobody drains. Keep both the
+# declared range and the resolved lock entry on 4+, and keep them on the SAME
+# major: a range that says 4 over a lock that resolves 3 would let `npm ci` - the
+# command both CI and the fuzz test actually run - install the abandoned line
+# while the manifest reads as current.
+my ($declared_fast_check) = $package_json =~ m{"fast-check"\s*:\s*"[^\d]*(\d+)};
+ok( defined $declared_fast_check, 'package.json fast-check range states a major version' )
+  or diag('no numeric major found in the package.json fast-check range');
+cmp_ok( $declared_fast_check // 0,
+    '>=', 4, 'package.json floors fast-check on the maintained 4.x line, not the abandoned 3.x line' );
+
+my ($locked_fast_check) =
+  $package_lock =~ m{"node_modules/fast-check"\s*:\s*\{[^{}]*?"version"\s*:\s*"(\d+)};
+ok( defined $locked_fast_check, 'package-lock.json records a resolved fast-check version' )
+  or diag('no resolved version found for the node_modules/fast-check lock entry');
+is( $locked_fast_check, $declared_fast_check,
+    'package-lock.json resolves fast-check on the same major the manifest declares' );
+
 for my $workflow (
     qw(
     .github/workflows/test.yml
