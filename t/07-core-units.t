@@ -4764,7 +4764,20 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     my ( $stdout, $stderr, $exit_code, $timed_out ) = $runner->_run_command(
         source     => q{printf collector-command},
         cwd        => $paths->home,
-        timeout_ms => 1_000,
+        # 30s, and the number is measured rather than picked (DD-489). These three
+        # assertions test what the command RETURNS - stdout, exit code, and that a
+        # successful command is not flagged as timed out - and say nothing about
+        # timing, so the budget only has to be comfortably more than the work
+        # needs. Measured: this command takes a median of 14ms on an idle host and
+        # up to 4.0s inside a 20%-of-one-core cgroup with eight competing spinners.
+        # The old budget was 1_000ms, which is also the smallest non-zero budget
+        # the implementation can express, because it rounds to whole seconds for
+        # alarm() - so it had no headroom at all and failed on any starved host,
+        # which is the shape of every CI runner.
+        #
+        # The genuine timeout assertion above keeps its 200ms budget on purpose: it
+        # runs `sleep 2`, so it still times out however slow the host is.
+        timeout_ms => 30_000,
     );
     is( $stdout, 'collector-command', '_run_command captures stdout from a successful shell command' );
     is( $stderr, '', '_run_command leaves stderr empty for a successful shell command' );
@@ -4777,7 +4790,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     my ( $stdout, $stderr, $exit_code, $timed_out ) = $runner->_run_command(
         source     => q{perl -e 'print $^X'},
         cwd        => $paths->home,
-        timeout_ms => 1_000,
+        timeout_ms => 30_000,    # see the measurement note above (DD-489)
     );
     is( $stdout, $^X, '_run_command keeps the current Perl interpreter available to child commands even when PATH would otherwise miss perl' );
     is( $stderr, '', '_run_command does not emit stderr when it repairs PATH for Perl child commands' );
@@ -4789,7 +4802,7 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
     my ( $stdout, $stderr, $exit_code, $timed_out ) = $runner->_run_code(
         source     => q{ die "collector code boom\n"; },
         cwd        => $paths->home,
-        timeout_ms => 1_000,
+        timeout_ms => 30_000,    # see the measurement note above (DD-489)
     );
     is( $stdout, '', '_run_code does not emit stdout for a dying code collector' );
     like( $stderr, qr/collector code boom/, '_run_code writes code evaluation errors to stderr explicitly' );
