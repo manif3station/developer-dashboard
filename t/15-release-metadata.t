@@ -508,6 +508,8 @@ for my $doc ( grep { defined && $_ ne '' } ( $readme, $pm ) ) {
     like( $doc, qr/vX\.XX\S*\s+tag\s+so\s+the\s+tag-triggered\s+GitHub\s+release\s+workflow/s, 'docs describe pushing a vX.XX tag as the trigger for the tag-driven GitHub release workflow' );
     like( $doc, qr/tarball,\s+checksum,\s+and\s+detached\s+signature\s+assets/s, 'docs name the tarball, checksum and detached signature assets that the release workflow publishes' );
     like( $doc, qr/Signed-Releases/, 'docs name the Signed-Releases Scorecard check that the published release assets back' );
+    like( $doc, qr/\.intoto\.jsonl/, 'docs name the provenance asset, because signing alone leaves Signed-Releases capped below full marks' );
+    like( $doc, qr/build\s+provenance/i, 'docs describe the release as carrying build provenance and not merely a signature' );
 }
 
 for my $doc (

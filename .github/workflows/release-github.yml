@@ -125,3 +125,102 @@ jobs:
               --generate-notes \
               --title "${tag}"
           fi
+
+  # Build provenance lives in its own job on purpose. `id-token: write` is what
+  # lets a job mint an OIDC token that speaks as this repository, and the release
+  # job above runs the whole Perl suite, the Devel::Cover pass and `dzil build` -
+  # the largest block of executable project code in the pipeline, plus every CPAN
+  # dependency it pulls in. Granting OIDC there would put the repository's
+  # identity behind all of it. This job runs no project code at all: it downloads
+  # the artifact that was actually published, proves it against the published
+  # checksum, attests it, and attaches the attestation to the release.
+  #
+  # The asset name is load-bearing, not cosmetic. Scorecard's Signed-Releases
+  # check scores provenance solely by matching a release asset name against
+  # ".intoto.jsonl" (probes/releasesHaveProvenance), so an attestation that only
+  # reaches GitHub's attestation store leaves the check capped at 8/10.
+  provenance:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Fetch the published artifact and verify it against its checksum
+        id: published
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          gh release download "${tag}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern 'Developer-Dashboard-*.tar.gz' \
+            --pattern 'Developer-Dashboard-*.tar.gz.sha256' \
+            --dir .
+          base="$(ls -1 Developer-Dashboard-*.tar.gz | head -n 1)"
+          if [ -z "${base}" ]; then
+            echo "The release published no distribution tarball to attest" >&2
+            exit 1
+          fi
+          # Attest the bytes GitHub is actually serving, not a local rebuild that
+          # merely ought to match. A mismatch here means the published tarball is
+          # not the one that was signed, which must stop the release, not warn.
+          sha256sum --check --strict "${base}.sha256"
+          echo "base=${base}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate the SLSA build provenance attestation
+        id: attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: ${{ steps.published.outputs.base }}
+
+      - name: Render the attestation as release assets
+        id: provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${{ steps.published.outputs.base }}"
+          bundle="${{ steps.attest.outputs.bundle-path }}"
+          if [ ! -s "${bundle}" ]; then
+            echo "The attestation step produced no bundle at '${bundle}'" >&2
+            exit 1
+          fi
+          # Two assets, because they answer different questions. The .intoto.jsonl
+          # is the bare DSSE envelope as JSON Lines - the shape SLSA tooling and
+          # Scorecard expect. The .sigstore.json is the full bundle, which is the
+          # only one of the two that still carries the certificate chain and
+          # transparency-log entry needed to verify the signature offline.
+          attestation="${base}.intoto.jsonl"
+          jq -c '.dsseEnvelope' "${bundle}" > "${attestation}"
+          # jq answers a missing key with `null` and exit status 0, so an
+          # unexpected bundle shape would otherwise publish a provenance asset
+          # containing the word "null" and still report success.
+          if [ ! -s "${attestation}" ] || grep -qx 'null' "${attestation}"; then
+            echo "No dsseEnvelope in the attestation bundle - refusing to publish an empty provenance asset" >&2
+            exit 1
+          fi
+          cp "${bundle}" "${base}.sigstore.json"
+          echo "attestation=${attestation}" >> "$GITHUB_OUTPUT"
+          echo "bundle=${base}.sigstore.json" >> "$GITHUB_OUTPUT"
+
+      - name: Attach the provenance to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # --repo is required, not decorative. This job checks nothing out, so
+          # its working directory has no git remotes, and gh resolves the base
+          # repository from --repo, then GH_REPO, and only then from remotes -
+          # it never reads GITHUB_REPOSITORY. Without this flag the upload dies
+          # as "no git remotes found" after the attestation has already been
+          # minted, which is the one failure that would leave the release with
+          # provenance recorded but not attached.
+          gh release upload "${GITHUB_REF_NAME}" --clobber \
+            --repo "${GITHUB_REPOSITORY}" \
+            "${{ steps.provenance.outputs.attestation }}" \
+            "${{ steps.provenance.outputs.bundle }}"
