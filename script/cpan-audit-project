@@ -21,6 +21,60 @@ repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 perl5_root="$(CDPATH= cd -- "$1" && pwd)"
 exclusions="$repo_root/cpan-audit-exclusions.txt"
 
+# ISOLATION PRECONDITION (DD-499).
+#
+# This gate asks "is the set of distributions installed in this root
+# vulnerable?" - a question that is only ABOUT THE PRODUCT when the root holds
+# the product's dependencies and nothing else. Pointed at a shared CPAN tree it
+# answers faithfully about the tree and misleadingly about the product: on
+# 2026-08-09 `$HOME/perl5/lib/perl5` produced exit 88 and twenty-four advisories
+# across seven distributions, not one of which was a declared runtime
+# dependency. Three rounds read that as a release blocker before anyone checked
+# what it had measured, and one filed a ticket against it.
+#
+# So the subject is stated out loud, and a root that is not an isolated product
+# root is REFUSED rather than audited. The refusal is deliberately a distinct
+# exit status: 0 clean, 1 a disposition guard fired, 2 the caller made a usage
+# error, 3 the gate was pointed at the wrong subject. Collapsing "wrong subject"
+# into "finding" is what made the original misreading so easy.
+#
+# "Inside the checkout" is the test because that is what an isolated root IS
+# here - CI builds one at local/lib/perl5 and audits it in place. It is a crisp
+# check with no false positive against that path, which matters: a guard that
+# red-lines CI would be worse than the misreading it prevents. A genuinely
+# isolated root built elsewhere stays auditable through the opt-in below, which
+# is explicit on purpose - the default has to be refusal, or the habit that
+# caused DD-499 simply continues.
+printf 'auditing library root: %s\n' "$perl5_root"
+if [ "${DD_CPAN_AUDIT_ALLOW_EXTERNAL_ROOT:-}" != '1' ] \
+  && [ "$perl5_root" != "$repo_root" ] \
+  && case "$perl5_root" in "$repo_root"/*) false ;; *) true ;; esac; then
+  cat >&2 <<EOF
+$perl5_root is not an isolated product library root: it lies outside the
+repository working tree $repo_root, so it is a shared CPAN tree carrying
+whatever else has been installed on this machine. Advisories found there are
+not this product's exposure, and reporting them as such is how DD-499 was
+filed against a product whose real CVE position was clean.
+
+To audit the product against a shared tree, use the gate built for that
+question, which walks the transitive runtime closure of the declared chain and
+ignores everything outside it:
+
+    script/cpan-audit-declared-chain "$perl5_root"
+
+To audit an isolated root, build one and point this gate at it, as CI does:
+
+    cpanm --installdeps --local-lib-contained local .
+    script/cpan-audit-project local/lib/perl5
+
+If this root really is isolated and merely lives outside the checkout, say so
+explicitly:
+
+    DD_CPAN_AUDIT_ALLOW_EXTERNAL_ROOT=1 script/cpan-audit-project "$perl5_root"
+EOF
+  exit 3
+fi
+
 if grep -R -n -E "Plack::Middleware::XSendfile|(enable|enable_if)[[:space:]\(]+(['\"](Plack::Middleware::)?XSendfile['\"]|XSendfile([[:space:];,)]+|$))|X-Sendfile-Type|X-Accel-Mapping" \
   "$repo_root/app.psgi" "$repo_root/bin" "$repo_root/lib" "$repo_root/share"; then
   printf '%s\n' 'CPANSA-Plack-2026-7381 exclusion invalid: XSendfile middleware is activated by production code' >&2
