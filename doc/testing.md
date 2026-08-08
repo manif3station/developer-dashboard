@@ -442,6 +442,55 @@ The host-side launcher now also runs `prove -lv t/44-smart-router-two-stage.t`
 immediately after `dzil build` and before the broader blank-environment
 container flow. Treat that smart-router two-stage guard as a managed
 post-build gate, not as an optional memory step.
+
+### Post-Build Guard Container Reclaim
+
+`t/44-smart-router-two-stage.t` creates a long-lived container named
+`dd-smart-router-two-stage-<pid>-<epoch>` and removes it from an `END` block.
+That teardown covers a normal exit and a trapped signal, but not `SIGKILL`, and
+every automation round in this repository runs under a `timeout` that kills the
+whole process tree when its budget expires. Because the container name embeds a
+pid and an epoch that are dead by then, no later run recognised the container as
+something it could remove, so a hard-killed run leaked its container
+permanently. The guard is not skipped in ordinary runs — it skips only when the
+release tarball is absent — so every `prove -lr t` on a host that has built a
+tarball could add another leak, and each leak holds a bound loopback port plus a
+full dashboard process tree whose in-container processes are root-owned and
+therefore out of reach of the host-side stray-collector cleanup.
+
+Better teardown cannot close this. `SIGKILL` cannot be trapped, and the
+container is long-lived and exec'd into, so `docker run --rm` does not apply.
+The cleanup is therefore generational: before choosing a port or creating its
+own container, the guard calls
+`Local::DockerGuard::reclaim_guard_containers` (`t/lib/Local/DockerGuard.pm`)
+and removes every guard container its predecessors leaked. Reclaiming first also
+releases the loopback ports those leaks were holding, which is what keeps the
+guard's free-port search from turning intermittent.
+
+A container is judged a leak when the pid embedded in its name no longer
+resolves to a running process, or when it is older than one hour. The pid check
+collects a fresh leak on the very next run; the age window exists only to
+backstop pid recycling, where a dead run's pid has been reissued to an unrelated
+live process that would otherwise vouch for the leak forever. A pid that exists
+but cannot be signalled from this uid counts as alive, because the leaked
+processes run as root and treating "permission denied" as "gone" would be
+exactly backwards. Names that do not match the
+`dd-smart-router-two-stage-<pid>-<epoch>` shape are never touched, so a sweep
+can only ever remove a container this guard created, and the removal is verified
+by re-reading the container inventory rather than by trusting `docker rm`'s exit
+status — which is non-zero both when removal genuinely failed and when the
+container had already gone.
+
+`t/141-smart-router-guard-container-reclaim.t` pins those rules. It drives the
+whole decision through an injected command runner and an injected pid probe, so
+it needs no docker daemon and runs on any host.
+
+The other docker-driven gates do not have this defect and need no reclaim of
+their own: `integration/blank-env/run-host-integration.sh` uses
+`docker compose run --rm`, and `integration/windows/run-qemu-windows-smoke.sh`
+names its container from a fixed `WINDOWS_DOCKUR_NAME`, which the next run finds
+and reuses or replaces by name. Any new gate that creates a long-lived,
+uniquely named container must reclaim generationally in the same way.
 That blank-container tarball install now assumes the normal `prove -lr t`
 suite and explicit numeric `Devel::Cover` gate already passed in the source
 tree. Its purpose is packaged dependency resolution and installed-runtime
