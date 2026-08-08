@@ -233,11 +233,21 @@ sub _slurp {
 
 sub _run_gate {
     my ($root) = @_;
-    local $ENV{PATH} = join ':',
+    # The developer-machine locations come first so the gate runs against the
+    # same tooling it does interactively, but the AMBIENT PATH and PERL5LIB are
+    # appended rather than discarded. Replacing them outright baked one machine's
+    # layout into the test: on CI the audit tool lives in audit-local/bin, HOME is
+    # /home/runner, none of the paths below exist, and the gate failed with
+    # "cpan-audit: command not found" - a tooling gap reported as an advisory
+    # detection failure (DD-485).
+    local $ENV{PATH} = join ':', grep { defined && length }
         File::Spec->catdir( $ENV{HOME}, 'perl5', 'perlbrew', 'perls', 'perl-5.44.0', 'bin' ),
         File::Spec->catdir( $ENV{HOME}, 'perl5', 'bin' ),
-        qw(/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin);
-    local $ENV{PERL5LIB} = File::Spec->catdir( $ENV{HOME}, 'perl5', 'perlbrew', 'perls', 'perl-5.44.0', 'local', 'lib', 'perl5' );
+        qw(/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin),
+        $ENV{PATH};
+    local $ENV{PERL5LIB} = join ':', grep { defined && length }
+        File::Spec->catdir( $ENV{HOME}, 'perl5', 'perlbrew', 'perls', 'perl-5.44.0', 'local', 'lib', 'perl5' ),
+        $ENV{PERL5LIB};
     my $out = `bash $gate $root 2>&1`;
     my $rc = ${^CHILD_ERROR_NATIVE} >> 8;
     return ( $rc, $out );

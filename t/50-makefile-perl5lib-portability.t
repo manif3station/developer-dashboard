@@ -43,13 +43,28 @@ _open_write( File::Spec->catfile( $active_version, 'DDVersionProbe.pm' ), "packa
 #   Then each absolute library path is preserved without a checkout prefix
 #   And the active platform path separator is used
 #   And configuration emits no postamble redefinition warning.
+# Locate the configure-time dependency in THIS process, where PERL5LIB is still
+# intact, so the fixture below can be given it explicitly.
+require File::ShareDir::Install;
+my $configure_lib = $INC{'File/ShareDir/Install.pm'};
+$configure_lib =~ s{[/\\]File[/\\]ShareDir[/\\]Install\.pm\z}{};
+
 my $original_cwd = getcwd();
 my ( $stdout, $stderr, $exit );
 {
     local $ENV{HOME} = $home;
     local $ENV{PERL5LIB};
     chdir $fixture or die "Unable to chdir to fixture: $!";
-    ( $stdout, $stderr, $exit ) = capture { system( $^X, 'Makefile.PL' ) };
+    # PERL5LIB is cleared so nothing from the caller's environment can leak into
+    # the generated PERL5LIB line - that is the whole claim of this file. But
+    # Makefile.PL needs File::ShareDir::Install at CONFIGURE time, and clearing
+    # PERL5LIB takes that away wherever it lives in a local-lib rather than
+    # system-wide. It is system-wide on this developer machine and local-lib-only
+    # on CI, so the test passed here by luck and died there (exit 2, no Makefile
+    # written, DD-485). Pass the module's own directory through -I: it restores
+    # exactly the one configure-time dependency without putting a search path
+    # back into the environment the generated file is built from.
+    ( $stdout, $stderr, $exit ) = capture { system( $^X, "-I$configure_lib", 'Makefile.PL' ) };
     chdir $original_cwd or die "Unable to restore cwd: $!";
 }
 
