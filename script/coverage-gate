@@ -127,6 +127,50 @@ sub main {
             . 'coverage database; install Devel::Cover or put it on PERL5LIB before running the gate'
     ) if !defined $instrument;
 
+    # The launch boundary. Everything above proves what THIS process loaded; the
+    # suite and the report run as CHILDREN, and they resolve Devel::Cover
+    # independently. On a host with two installs those resolutions can differ:
+    # running the gate directly with PERL5LIB set picks ~/perl5, while running the
+    # identical command through a login shell - which rebuilds PERL5LIB and PATH
+    # from the profile - picks /usr/local. Same command, same directory, same perl,
+    # two different serializers.
+    #
+    # That is not a cosmetic difference. One install writes the database and the
+    # other reads it, the formats disagree, and the gate reports a coverage failure
+    # that has nothing to do with the code. The card that produced this fix exists
+    # because two rounds were spent chasing exactly that ghost.
+    #
+    # So ask a child the same question and refuse if the answers differ.
+    my $child_instrument = _child_instrument_module();
+    if ( !defined $child_instrument ) {
+        return _unusable(
+            'a child process could not load Devel::Cover::DB::IO at all, though this process can. '
+                . 'The suite and the report run as children, so the chain would write or read nothing usable'
+        );
+    }
+    if ( $child_instrument ne $instrument ) {
+        return _unusable(
+            "this process and its children resolve different Devel::Cover installs, so the suite would "
+                . "write a database the report cannot read:\n"
+                . "  this process : $instrument\n"
+                . "  its children : $child_instrument"
+        );
+    }
+
+    # The database is what actually crosses the launch boundary. Within a single
+    # run the writer and the reader always agree, because they share one
+    # environment - which is why the existing checks pass and the failure still
+    # happened. What they cannot see is the PREVIOUS run: cover_db persists, and a
+    # gate launched through a login shell resolves /usr/local while the same gate
+    # launched with PERL5LIB set resolves ~/perl5. One writes the database, the
+    # other reads it, the formats disagree, and the resulting failure is
+    # indistinguishable from a real one.
+    #
+    # So the database carries a stamp of who wrote it, and a run that would read a
+    # database written by a different serializer refuses and says so, naming both.
+    my $stamp_failure = _check_database_stamp( $database, $instrument );
+    return $stamp_failure if defined $stamp_failure;
+
     my @delete = ( 'cover', $database, '-delete' );
     my @suite  = ( 'prove', '-lr', @tests );
     my @report = (
@@ -279,6 +323,70 @@ sub _instrument_module {
     return undef if !eval { require Devel::Cover::DB::IO; 1 };
     my $loaded = $INC{ File::Spec->catfile(qw(Devel Cover DB IO.pm)) };
     return defined $loaded ? $loaded : $INC{'Devel/Cover/DB/IO.pm'};
+}
+
+# Purpose: ask a child process which Devel::Cover serializer IT resolves, because
+#          the suite and the report are children and resolve it independently of
+#          this process.
+# Input:   none
+# Output:  the child's resolved path, or undef when the child cannot load it.
+sub _child_instrument_module {
+    my $path = qx{$^X -MDevel::Cover::DB::IO -e 'print \$INC{"Devel/Cover/DB/IO.pm"}' 2>/dev/null};
+    return undef if $? != 0 || !defined $path;
+    chomp $path;
+    return length $path ? $path : undef;
+}
+
+# Purpose: refuse to grade a database written by a different Devel::Cover than the
+#          one that will read it, and stamp the database for the next run.
+# Input:   the database directory and this run's resolved serializer path.
+# Output:  EXIT_UNUSABLE when the stamps disagree, undef when it is safe to go on.
+sub _check_database_stamp {
+    my ( $database, $instrument ) = @_;
+
+    my $stamp_file = File::Spec->catfile( $database, 'gate-serializer' );
+
+    if ( -d $database && -f $stamp_file ) {
+        my $previous = _slurp_stamp($stamp_file);
+        if ( defined $previous && $previous ne $instrument ) {
+            return _unusable(
+                "this database was written by a different Devel::Cover than the one that would read it "
+                    . "now, so any number it produced would be meaningless:\n"
+                    . "  written by : $previous\n"
+                    . "  reading as : $instrument\n"
+                    . 'This is the launch boundary: a login shell rebuilds PERL5LIB from the profile and '
+                    . 'selects the other install. Delete cover_db and run the whole chain in one environment'
+            );
+        }
+    }
+
+    # Stamp for whoever comes next. A failure to write it is not fatal - the run
+    # itself is still sound - but it is announced rather than hidden, because a
+    # missing stamp means the next run cannot make this check.
+    if ( -d $database ) {
+        if ( open my $fh, '>', $stamp_file ) {
+            print {$fh} "$instrument\n";
+            close $fh;
+        }
+        else {
+            _warn("could not stamp the coverage database at $stamp_file: $!");
+        }
+    }
+
+    return undef;
+}
+
+# Purpose: read a serializer stamp, tolerating an unreadable or empty file.
+# Input:   the stamp file path.
+# Output:  the recorded path, or undef.
+sub _slurp_stamp {
+    my ($path) = @_;
+    open my $fh, '<', $path or return undef;
+    my $line = <$fh>;
+    close $fh;
+    return undef if !defined $line;
+    chomp $line;
+    return length $line ? $line : undef;
 }
 
 # Purpose: print the one environment and the three commands, so the operator can
