@@ -26,6 +26,18 @@ sub _workflow_files {
     return map { File::Spec->catfile( $dir, $_ ) } @names;
 }
 
+# _harness_sources()
+# Lists every repository file that can start a Devel::Cover harness run. The
+# workflows used to hold that invocation directly; it now lives in the one
+# canonical entrypoint they all call, so the scan has to follow it there. A
+# scan whose subject has moved out from under it reports a clean pass over an
+# empty set, which is why the count assertion below is not decoration.
+# Input: none.
+# Output: list of absolute paths to scan.
+sub _harness_sources {
+    return ( _workflow_files(), File::Spec->catfile( $ROOT, 'script', 'coverage-gate' ) );
+}
+
 # _coverage_invocations($file)
 # Collects the lines of one workflow file that start a Devel::Cover harness run.
 # Input: absolute path to a workflow file.
@@ -46,7 +58,7 @@ sub _coverage_invocations {
 # @INC on its own, so an invocation without an explicit opt-out grades whatever
 # blib/ happens to be lying around instead of the source under lib/.
 my @invocations;
-for my $file ( _workflow_files() ) {
+for my $file ( _harness_sources() ) {
     my ($name) = ( File::Spec->splitpath($file) )[2];
     for my $hit ( _coverage_invocations($file) ) {
 

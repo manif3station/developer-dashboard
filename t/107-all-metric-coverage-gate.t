@@ -3,20 +3,36 @@ use warnings;
 
 use Capture::Tiny qw(capture);
 use File::Spec;
+use File::Temp qw(tempdir);
 use Test::More;
 
-my $gate = File::Spec->catfile( 'script', 'check-all-metric-coverage' );
+my $gate  = File::Spec->catfile( 'script', 'check-all-metric-coverage' );
+my $entry = File::Spec->catfile( 'script', 'coverage-gate' );
 
 sub run_gate {
-    my ($report) = @_;
+    my ( $report, @arguments ) = @_;
     my ( $stdout, $stderr, $exit );
     ( $stdout, $stderr ) = capture {
-        open my $input, '|-', $^X, $gate or die "cannot run $gate: $!";
+        open my $input, '|-', $^X, $gate, @arguments or die "cannot run $gate: $!";
         print {$input} $report;
         close $input;
         $exit = $? >> 8;
     };
     return ( $exit, $stdout, $stderr );
+}
+
+# Purpose: plant a single coverage-database file whose leading bytes decide
+#          which serialization format a sniffing reader will report.
+# Input: the raw magic bytes to plant.
+# Output: the temporary database directory holding them.
+sub database_written_as {
+    my ($magic) = @_;
+    my $directory = tempdir( CLEANUP => 1 );
+    my $file      = File::Spec->catfile( $directory, 'digests' );
+    open my $handle, '>:raw', $file or die "cannot write $file: $!";
+    print {$handle} $magic;
+    close $handle or die "cannot close $file: $!";
+    return $directory;
 }
 
 # Feature: enforce all four lib coverage metrics.
@@ -30,8 +46,8 @@ File              stmt   branch   cond    sub
 Total            100.0     99.9  100.0  100.0
 REPORT
 
-    isnt( $exit, 0, 'coverage gate rejects a branch total below 100' );
-    like( $stderr, qr/branch.*99\.9/i, 'coverage gate identifies the failing branch total' );
+    is( $exit, 1, 'coverage gate rejects a branch total below 100 with the shortfall status' );
+    like( $stderr, qr/below 100\.0: branch 99\.9/, 'coverage gate identifies the failing branch total' );
     unlike( $stdout, qr/coverage gate:/, 'failed coverage gate emits no success message' );
 }
 
@@ -68,9 +84,96 @@ REPORT
 {
     my ( $exit, $stdout, $stderr ) = run_gate("File stmt branch cond sub\n");
 
-    isnt( $exit, 0, 'coverage gate rejects a report with no Total row' );
+    is( $exit, 2, 'coverage gate rejects a report with no Total row as unreadable' );
     like( $stderr, qr/missing Total row/i, 'malformed report explains the missing Total row' );
     unlike( $stdout, qr/coverage gate:/, 'malformed report emits no success message' );
+}
+
+# Scenario: no report at all is could-not-look, not nothing-to-report.
+# Given entirely empty input, when checked, then the gate fails closed and says
+# the report was never produced, distinctly from a report it could parse.
+{
+    my ( $exit, $stdout, $stderr ) = run_gate('');
+
+    is( $exit, 2, 'coverage gate rejects an absent report as unreadable' );
+    like( $stderr, qr/no coverage report/i, 'an absent report is named as such rather than as a missing row' );
+    unlike( $stdout, qr/coverage gate:/, 'an absent report emits no success message' );
+}
+
+# Feature: a reader that cannot parse its own database says so.
+# Scenario: Sereal data read by a Storable reader.
+# Given the parse error Devel::Cover emits when the database was written by a
+# different serializer, when the gate sees it, then it reports an instrument
+# failure rather than a coverage verdict, and names both formats, the reader
+# module path, and the fact that re-running cannot help.
+{
+    my ( $exit, $stdout, $stderr ) = run_gate(
+        "Can't read /home/mv/projects/developer-dashboard/cover_db/digests: File is not a perl storable at /usr/share/perl5/Storable.pm line 411.\n"
+    );
+
+    is( $exit, 3, 'a serialization mismatch has its own exit status' );
+    like( $stderr, qr/INSTRUMENT FAILURE/,       'the verdict is named an instrument failure' );
+    like( $stderr, qr/Sereal/,                   'the verdict names the Sereal format' );
+    like( $stderr, qr/Storable/,                 'the verdict names the Storable format' );
+    like( $stderr, qr/Devel\/Cover\/DB\/IO\.pm/, 'the verdict names the reader module path' );
+    like( $stderr, qr/not a corrupt database/i,  'the verdict says re-running will fail identically' );
+    like( $stderr, qr/coverage-gate/,            'the verdict points at the canonical entrypoint' );
+    unlike( $stdout, qr/coverage gate: statement/, 'an instrument failure reports no coverage figure' );
+}
+
+# Scenario: Storable data read by a Sereal reader.
+# Given the mismatch in the opposite direction, when the gate sees it, then it
+# reaches the same instrument-failure verdict.
+{
+    my ( $exit, $stdout, $stderr ) = run_gate("Bad Sereal header: Not a valid Sereal document. at offset 1\n");
+
+    is( $exit, 3, 'the opposite mismatch direction also exits as an instrument failure' );
+    like( $stderr, qr/INSTRUMENT FAILURE/, 'the opposite direction is also named an instrument failure' );
+}
+
+# Scenario: an instrument failure is distinguishable from every other verdict.
+# Given the four verdicts the gate can reach, when their exit statuses are
+# compared, then all four differ, so a caller can tell a shortfall from an
+# unreadable report from an instrument failure without parsing prose.
+{
+    my ($pass)       = run_gate("File stmt bran cond sub total\nTotal 100.0 100.0 100.0 100.0 100.0\n");
+    my ($shortfall)  = run_gate("File stmt bran cond sub total\nTotal 100.0 99.9 100.0 100.0 99.9\n");
+    my ($unreadable) = run_gate("File stmt bran cond sub\n");
+    my ($instrument) = run_gate("File is not a perl storable at Storable.pm line 411.\n");
+
+    my %distinct = map { $_ => 1 } ( $pass, $shortfall, $unreadable, $instrument );
+    is( scalar keys %distinct, 4, 'pass, shortfall, unreadable and instrument failure all have distinct exit statuses' );
+    is( $pass, 0, 'only the passing verdict exits zero' );
+}
+
+# Scenario: the verdict names the format actually found on disk.
+# Given a coverage database whose leading bytes identify its serializer, when an
+# instrument failure is reported, then the written format is sniffed from the
+# database rather than guessed, and an unrecognisable database is admitted as
+# unknown instead of being invented.
+for my $case (
+    [ 'Sereal',   "=\xF3rl\x05\x00", qr/written as[^\n]*Sereal/i ],
+    [ 'Storable', "pst0\x05\x0b",    qr/written as[^\n]*Storable/i ],
+    [ 'JSON',     '{"runs":{}}',     qr/written as[^\n]*JSON/i ],
+    [ 'unknown',  "not a database\n", qr/written as[^\n]*unknown/i ],
+  )
+{
+    my ( $label, $magic, $expected ) = @{$case};
+    my $database = database_written_as($magic);
+    my ( $exit, $stdout, $stderr ) = run_gate( "File is not a perl storable\n", '--database', $database );
+
+    is( $exit, 3, "a $label database still reaches the instrument-failure verdict" );
+    like( $stderr, $expected, "the verdict reports the $label database format sniffed from disk" );
+}
+
+# Scenario: an unknown option is refused rather than silently ignored.
+# Given an argument the checker does not understand, when it is invoked, then it
+# exits as unusable and never reports a coverage figure.
+{
+    my ( $exit, $stdout, $stderr ) = run_gate( "File stmt bran cond sub total\nTotal 100.0 100.0 100.0 100.0 100.0\n", '--nonsense' );
+
+    is( $exit, 2, 'an unknown option exits with the unreadable status' );
+    unlike( $stdout, qr/coverage gate: statement/, 'an unknown option emits no success message' );
 }
 
 # Scenario: reject reports that omit an enforced metric.
@@ -118,25 +221,63 @@ for my $case (
     );
 }
 
-# Scenario: every CI path collects and checks all four required metrics.
-# Given the repository test and release workflows, when their coverage steps
-# are inspected, then every report command requests every metric and pipes its
-# output through this fail-closed gate.
-for my $workflow_name (qw(test.yml release-cpan.yml release-github.yml)) {
-    my $workflow = File::Spec->catfile( '.github', 'workflows', $workflow_name );
-    open my $handle, '<', $workflow or die "cannot read $workflow: $!";
+# Purpose: read a repository file in full, failing loudly when it cannot be read.
+# Input: a repository-relative path.
+# Output: the file content as one string.
+sub read_repository_file {
+    my ($path) = @_;
+    open my $handle, '<', $path or die "cannot read $path: $!";
     my $body = do { local $/; <$handle> };
-    close $handle or die "cannot close $workflow: $!";
+    close $handle or die "cannot close $path: $!";
+    return $body;
+}
+
+# Scenario: every CI path runs the one canonical coverage entrypoint.
+# Given the repository test and release workflows, when their coverage steps are
+# inspected, then each invokes the canonical entrypoint and none of them
+# open-codes the three-command chain, because an open-coded chain is what lets
+# one command of it run without the library path the others had.
+for my $workflow_name (qw(test.yml release-cpan.yml release-github.yml)) {
+    my $body = read_repository_file( File::Spec->catfile( '.github', 'workflows', $workflow_name ) );
 
     like(
         $body,
-        qr/cover -report text -select_re '\^lib\/' -coverage statement -coverage branch -coverage condition -coverage subroutine/,
-        "$workflow_name coverage report requests all four metrics",
+        qr/perl script\/coverage-gate/,
+        "$workflow_name runs the canonical coverage-gate entrypoint",
     );
-    like(
+    unlike(
         $body,
-        qr/\| perl script\/check-all-metric-coverage/,
-        "$workflow_name sends the report through the enforcing coverage gate",
+        qr/cover -delete/,
+        "$workflow_name does not open-code the coverage chain it could split",
+    );
+}
+
+# Scenario: the canonical entrypoint still enforces all four metrics.
+# Given the entrypoint the workflows now call, when it is inspected, then it
+# collects every enforced metric restricted to lib/ and hands the result to the
+# fail-closed checker, so relocating the chain did not weaken it.
+{
+    my $body = read_repository_file($entry);
+
+    for my $metric (qw(statement branch condition subroutine)) {
+        like( $body, qr/'\Q$metric\E'/, "the canonical entrypoint requests $metric coverage" );
+    }
+    like( $body, qr/\^lib\//,                     'the canonical entrypoint restricts the report to lib/' );
+    like( $body, qr/check-all-metric-coverage/,   'the canonical entrypoint enforces the report through the checker' );
+}
+
+# Scenario: the documented gate is the executed gate.
+# Given the contributor testing guide, when its coverage section is read, then
+# it tells the reader to run the canonical entrypoint rather than the split
+# chain the workflows no longer use.
+{
+    my $body = read_repository_file( File::Spec->catfile( 'doc', 'testing.md' ) );
+
+    like( $body, qr/script\/coverage-gate/, 'the testing guide documents the canonical coverage entrypoint' );
+    unlike(
+        $body,
+        qr/^cover -delete$/m,
+        'the testing guide no longer instructs the reader to type the splittable chain',
     );
 }
 

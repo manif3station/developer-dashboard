@@ -1,0 +1,326 @@
+#!/usr/bin/env perl
+
+# IMPORTANT: the whole point of this script is that it is ONE process. The
+# coverage chain is three commands - drop the database, run the instrumented
+# suite, read the report back - and each is a separate interpreter with its own
+# @INC. Devel::Cover::DB::IO picks its on-disk serialization format at BEGIN
+# from whatever @INC makes visible and records that choice nowhere, so a chain
+# typed as three shell lines can set the library path on one of them and omit it
+# from the next, leaving the reader unable to parse what the writer just wrote.
+# Running the three as children of one process makes that split impossible: they
+# inherit one environment because there is only one to inherit. Do not
+# reintroduce per-command environment overrides here.
+
+use strict;
+use warnings;
+
+use Capture::Tiny qw(capture);
+use File::Basename qw(dirname);
+use File::Spec;
+use Getopt::Long qw(GetOptions);
+
+use constant EXIT_CLEAN    => 0;
+use constant EXIT_UNUSABLE => 2;
+
+exit main(@ARGV);
+
+# Purpose: run the four-metric coverage gate end to end inside one environment.
+# Input: the raw @ARGV list - optional --database, --dry-run and --help, plus
+#        optional test paths which default to the whole t/ tree.
+# Output: an exit code - 0 every metric at 100.0, 1 a genuine shortfall, 2 the
+#         gate could not run or could not read its report, 3 the coverage
+#         instrument could not read its own database.
+sub main {
+    my @argv = @_;
+
+    my $database = 'cover_db';
+    my ( $dry_run, $help ) = ( 0, 0 );
+
+    local @ARGV = @argv;
+    GetOptions(
+        'database=s' => \$database,
+        'dry-run'    => \$dry_run,
+        'help'       => \$help,
+    ) or return _usage('unrecognized option');
+
+    if ($help) {
+        print _usage_text();
+        return EXIT_CLEAN;
+    }
+
+    my @tests = @ARGV ? @ARGV : ('t');
+
+    my $script_directory = dirname( File::Spec->rel2abs(__FILE__) );
+    my $repository       = File::Spec->catdir( $script_directory, File::Spec->updir );
+    my $checker          = File::Spec->catfile( $script_directory, 'check-all-metric-coverage' );
+    return _unusable("the coverage checker is missing: $checker") if !-f $checker;
+
+    chdir $repository or return _unusable("cannot enter the repository root $repository: $!");
+
+    my $instrument = _instrument_module();
+    return _unusable(
+        'Devel::Cover::DB::IO could not be loaded, so this chain could neither write nor read a '
+            . 'coverage database; install Devel::Cover or put it on PERL5LIB before running the gate'
+    ) if !defined $instrument;
+
+    my @delete = ( 'cover', $database, '-delete' );
+    my @suite  = ( 'prove', '-lr', @tests );
+    my @report = (
+        'cover', $database, '-report', 'text', '-select_re', '^lib/',
+        '-coverage', 'statement',
+        '-coverage', 'branch',
+        '-coverage', 'condition',
+        '-coverage', 'subroutine',
+    );
+
+    _announce( $instrument, $database, \@delete, \@suite, \@report );
+    return EXIT_CLEAN if $dry_run;
+
+    my $dropped = _run( 'coverage database drop', @delete );
+    return $dropped if $dropped != EXIT_CLEAN;
+
+    local $ENV{HARNESS_PERL_SWITCHES} = "-MDevel::Cover=-db,$database,-blib,0";
+    my $ran = _run( 'instrumented suite', @suite );
+    return $ran if $ran != EXIT_CLEAN;
+
+    my ( $stdout, $stderr, $status ) = capture {
+        system(@report);
+    };
+
+    _warn( sprintf 'the report command exited %d; its output is being judged anyway', $status >> 8 )
+        if $status != 0;
+
+    return _judge( $checker, $database, $stdout . $stderr );
+}
+
+# Purpose: resolve the Devel::Cover serializer module this chain will use, so an
+#          unusable instrument is reported before a host-exclusive suite slot is
+#          spent rather than after.
+# Input: none.
+# Output: the resolved module path, or undef when it cannot be loaded.
+sub _instrument_module {
+    return undef if !eval { require Devel::Cover::DB::IO; 1 };
+    my $loaded = $INC{ File::Spec->catfile(qw(Devel Cover DB IO.pm)) };
+    return defined $loaded ? $loaded : $INC{'Devel/Cover/DB/IO.pm'};
+}
+
+# Purpose: print the one environment and the three commands, so the operator can
+#          see what is about to run and confirm writer and reader agree.
+# Input: the resolved instrument path, the database, and the three command lists.
+# Output: nothing; writes to standard output.
+sub _announce {
+    my ( $instrument, $database, $delete, $suite, $report ) = @_;
+
+    print "coverage gate: one environment for the whole chain\n";
+    printf "coverage gate:   perl        : %s\n",       $^X;
+    printf "coverage gate:   PERL5LIB    : %s\n",       defined $ENV{PERL5LIB} ? $ENV{PERL5LIB} : '(unset)';
+    printf "coverage gate:   serializer  : %s\n",       $instrument;
+    printf "coverage gate:   database    : %s\n",       $database;
+    printf "coverage gate:   drop        : %s\n", join ' ', @{$delete};
+    printf "coverage gate:   suite       : %s\n", join ' ', @{$suite};
+    printf "coverage gate:   report      : %s\n", join ' ', @{$report};
+
+    return;
+}
+
+# Purpose: run one step of the chain with its output streamed, so a long suite
+#          never looks like a stalled one.
+# Input: a human name for the step, then the command and its arguments.
+# Output: EXIT_CLEAN when the step succeeded, EXIT_UNUSABLE otherwise.
+sub _run {
+    my ( $step, @command ) = @_;
+
+    my $status = system @command;
+    return EXIT_CLEAN if $status == 0;
+
+    return _unusable( sprintf 'the %s step failed (%s): %s', $step, _describe_status($status), join ' ', @command );
+}
+
+# Purpose: turn a wait status into a phrase that says which of the three
+#          different failures it was.
+# Input: the raw value returned by system().
+# Output: a short description.
+sub _describe_status {
+    my ($status) = @_;
+
+    return "could not be executed: $!" if $status == -1;
+    return sprintf 'killed by signal %d', $status & 127 if $status & 127;
+    return sprintf 'exit status %d', $status >> 8;
+}
+
+# Purpose: hand the collected report to the enforcing checker and adopt its
+#          verdict, so there is exactly one place that decides what a report
+#          means.
+# Input: the checker path, the coverage database, and the collected report text
+#        with the report command's diagnostics appended.
+# Output: the checker's exit status, or EXIT_UNUSABLE when it could not be run.
+sub _judge {
+    my ( $checker, $database, $report ) = @_;
+
+    open my $input, '|-', $^X, $checker, '--database', $database
+        or return _unusable("cannot run the coverage checker $checker: $!");
+    print {$input} $report;
+    close $input;
+    my $status = $?;
+
+    return _unusable( sprintf 'the coverage checker %s', _describe_status($status) )
+        if $status == -1 || ( $status & 127 );
+
+    return $status >> 8;
+}
+
+# Purpose: report a condition that stops the gate from reaching any verdict.
+# Input: the reason, without a trailing newline.
+# Output: EXIT_UNUSABLE, after writing the reason to standard error.
+sub _unusable {
+    my ($reason) = @_;
+    _warn($reason);
+    return EXIT_UNUSABLE;
+}
+
+# Purpose: write one diagnostic line in the gate's own voice.
+# Input: the message, without a trailing newline.
+# Output: nothing; writes to standard error.
+sub _warn {
+    my ($message) = @_;
+    print {*STDERR} "coverage gate: $message\n";
+    return;
+}
+
+# Purpose: refuse an invocation the gate does not understand, rather than
+#          running a several-minute chain on a guess about what was meant.
+# Input: the reason, without a trailing newline.
+# Output: EXIT_UNUSABLE, after writing the reason and the usage to standard
+#         error.
+sub _usage {
+    my ($reason) = @_;
+    _warn($reason);
+    print {*STDERR} _usage_text();
+    return EXIT_UNUSABLE;
+}
+
+# Purpose: describe the gate for a reader at the terminal.
+# Input: none.
+# Output: the usage text as one string.
+sub _usage_text {
+    return <<'USAGE';
+usage: perl script/coverage-gate [--database DIR] [--dry-run] [--help] [TEST_PATH...]
+
+Runs the whole four-metric coverage gate as one process, so every command in the
+chain inherits one environment:
+
+  1. drop the coverage database
+  2. run the instrumented suite (default: the whole t/ tree)
+  3. collect the lib/ report for statement, branch, condition and subroutine
+  4. enforce 100.0 on all four through script/check-all-metric-coverage
+
+  --database DIR  use DIR as the coverage database (default: cover_db)
+  --dry-run       print the resolved environment and the three commands, run none
+  --help          print this text
+
+Exit status: 0 all four metrics at 100.0, 1 a genuine shortfall, 2 the gate could
+not run or could not read its report, 3 the coverage instrument could not read
+its own database.
+USAGE
+}
+
+__END__
+
+=head1 NAME
+
+coverage-gate - run the whole four-metric coverage gate inside one environment
+
+=head1 WHAT IT IS
+
+The canonical entrypoint for the repository coverage gate. It drops the coverage
+database, runs the instrumented test suite, collects the C<lib/> report for
+statement, branch, condition and subroutine coverage, and enforces 100.0 on all
+four through C<script/check-all-metric-coverage>.
+
+=head1 WHAT IT IS FOR
+
+It is the one command a developer, an automated round, or a continuous
+integration job runs to answer "does C<lib/> still measure 100.0 on every
+metric?". The documented gate and the executed gate are the same thing because
+there is only one of them.
+
+=head1 WHY IT EXISTS
+
+The gate used to be three shell lines. Each is its own interpreter with its own
+C<@INC>, so the library path had to be repeated on all three, and
+C<Devel::Cover::DB::IO> chooses its on-disk serialization format at C<BEGIN>
+from whatever C<@INC> makes visible - Sereal, then JSON, then Storable - without
+recording the choice beside the data.
+
+On a host carrying two C<Devel::Cover> installations whose available serializers
+differ, omitting the library path from one line of the chain leaves the reader
+unable to parse what the writer produced moments earlier. It surfaces as C<File
+is not a perl storable> or C<Bad Sereal header>: both read as a corrupt
+database, and the obvious response - delete it and run again - fails
+identically, spending another host-exclusive multi-minute suite slot every time.
+Two automated rounds paid that cost inside two hours, and the second did not
+recognise the first.
+
+Documentation had already been written telling readers to repeat the library
+path, and it did not prevent the recurrence. Running the three commands as
+children of one process removes the hazard instead of warning about it: they
+inherit one environment because there is only one to inherit.
+
+=head1 WHEN TO USE
+
+Before claiming any change complete, and as the coverage step of every
+continuous integration workflow. Only one coverage run may be in flight on a
+host at a time, because instrumented timing-sensitive tests misread under
+contention.
+
+=head1 HOW TO USE
+
+Run it from anywhere; it enters the repository root itself. Give it test paths
+to narrow the instrumented run, C<--database> to keep the database somewhere
+other than C<cover_db>, and C<--dry-run> to see the resolved environment and the
+exact commands before spending a suite slot.
+
+Exit statuses are the interface:
+
+=over 4
+
+=item * B<0> - statement, branch, condition and subroutine are all 100.0.
+
+=item * B<1> - a genuine shortfall; the failing metrics are named.
+
+=item * B<2> - the gate could not run, or could not read its report.
+
+=item * B<3> - the coverage instrument could not read its own database.
+
+=back
+
+=head1 WHAT USES IT
+
+The C<test>, C<release-cpan> and C<release-github> workflows, the contributor
+testing guide, and C<t/148-coverage-gate-entrypoint.t>, which is its acceptance
+contract.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  perl script/coverage-gate
+
+Run the full gate over the whole suite.
+
+Example 2:
+
+  perl script/coverage-gate --dry-run
+
+Print the resolved interpreter, library path, serializer module and the three
+commands, and run none of them. Use this to confirm the instrument before
+committing a host-exclusive slot to it.
+
+Example 3:
+
+  perl script/coverage-gate --database /tmp/scratch-db t/107-all-metric-coverage-gate.t
+
+Collect coverage for a focused set of tests into a scratch database, leaving the
+repository's own C<cover_db> untouched.
+
+=cut
