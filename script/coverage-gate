@@ -15,7 +15,9 @@ use strict;
 use warnings;
 
 use Capture::Tiny qw(capture);
+use Digest::SHA qw(sha256_hex);
 use Fcntl qw(:flock);
+use File::Find ();
 use File::Basename qw(dirname);
 use File::Spec;
 use Getopt::Long qw(GetOptions);
@@ -23,6 +25,7 @@ use Getopt::Long qw(GetOptions);
 use constant EXIT_CLEAN    => 0;
 use constant EXIT_UNUSABLE => 2;
 use constant EXIT_BUSY     => 4;
+use constant EXIT_MOVED    => 5;
 
 # The lock lives beside the database rather than inside it, because the gate's
 # first act is to delete the database and a lock stored in there would be
@@ -88,7 +91,9 @@ exit main(@ARGV);
 # Output: an exit code - 0 every metric at 100.0, 1 a genuine shortfall, 2 the
 #         gate could not run or could not read its report, 3 the coverage
 #         instrument could not read its own database, 4 another gate already
-#         holds the database and this run refused rather than corrupt it.
+#         holds the database and this run refused rather than corrupt it, 5 the
+#         tree moved while the suite ran so the number describes no single state
+#         of it.
 sub main {
     my @argv = @_;
 
@@ -144,8 +149,20 @@ sub main {
     my $dropped = _run( 'coverage database drop', @delete );
     return $dropped if $dropped != EXIT_CLEAN;
 
+    my $before = _grading_identity();
+
     local $ENV{HARNESS_PERL_SWITCHES} = "-MDevel::Cover=-db,$database,-blib,0";
     my $ran = _run( 'instrumented suite', @suite );
+
+    my $after = _grading_identity();
+    if ( $before ne $after ) {
+        print "coverage gate: refusing to report - the code being graded changed while the suite ran\n";
+        print "coverage gate: t/ or lib/ is not what it was at the start, so this run describes no single "
+            . "state of the tree and its number would be unsafe to trust\n";
+        print "coverage gate: rerun it on a tree nobody is moving\n";
+        return EXIT_MOVED;
+    }
+
     return $ran if $ran != EXIT_CLEAN;
 
     my ( $stdout, $stderr, $status ) = capture {
@@ -156,6 +173,24 @@ sub main {
         if $status != 0;
 
     return _judge( $checker, $database, $stdout . $stderr );
+}
+
+sub _grading_identity {
+    my @facts;
+    File::Find::find(
+        {
+            no_chdir => 1,
+            wanted   => sub {
+                my $path = $File::Find::name;
+                return if !-f $path;
+                my @stat = stat $path;
+                push @facts, join '|', $path, $stat[7], $stat[9];
+            },
+        },
+        grep { -d } qw(t lib)
+    );
+    @facts = sort @facts;
+    return sha256_hex( join "\n", @facts );
 }
 
 # Purpose: take an exclusive, non-blocking lock so that only one gate at a time
