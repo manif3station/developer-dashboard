@@ -1,0 +1,196 @@
+#!/usr/bin/env perl
+
+# ticket-worktree — open, or re-open, the sandbox a ticket is worked in.
+#
+# THE RULE THIS ENFORCES (owner-stated, 2026-08-09)
+#   Every ticket gets its OWN worktree, cut from origin/master, with the worktree
+#   folder and the branch both named for the ticket reference. All of that
+#   ticket's work happens inside it. At the git gate it merges back to master.
+#   The sandboxes themselves must never reach master.
+#
+# WHY IT EXISTS RATHER THAN THREE GIT COMMANDS IN A COMMENT
+#   Two writers in one checkout destroy each other's work, and did: a ticket's
+#   edits were made, left uncommitted for minutes, and overwritten by other work
+#   in the same directory; a coverage pass had to be thrown away because the tree
+#   changed underneath it; commits landed mid-edit. Nobody misbehaved. A shared
+#   directory is simply not safe for concurrent work, and the convention that
+#   avoided it was remembered only sometimes.
+#
+#   Cutting from ORIGIN/master rather than the local branch matters too: a
+#   sandbox started from an unpushed local state inherits work nobody else has,
+#   and a merge back then carries changes the ticket never claimed.
+#
+# Exit codes are distinct so a caller can tell refusal from failure:
+#     0  the sandbox is ready; its path is printed on stdout
+#     2  usage error
+#     3  could not prepare it — git said no, and the reason is on stderr
+
+use strict;
+use warnings;
+use feature 'say';
+
+use Cwd qw(abs_path);
+use File::Spec;
+
+use constant {
+    EXIT_READY    => 0,
+    EXIT_USAGE    => 2,
+    EXIT_UNUSABLE => 3,
+};
+
+# Purpose: the checkout this script lives in, derived from its own location so
+#          the working directory of the caller is irrelevant.
+# Input:   none
+# Output:  absolute path to the repository root
+sub repo_root {
+    my $bin = ( abs_path($0) =~ m{^(.*)/[^/]+$} )[0];
+    return abs_path( File::Spec->catdir( $bin, File::Spec->updir, File::Spec->updir ) );
+}
+
+# Purpose: run a git command in the repository and return its output and status.
+# Input:   list of git arguments
+# Output:  (combined output, exit code)
+sub git {
+    my @args = @_;
+    my $root = repo_root();
+    my $out  = qx{git -C \Q$root\E @{[ join ' ', map { "\Q$_\E" } @args ]} 2>&1};
+    return ( $out, $? >> 8 );
+}
+
+# Purpose: turn a ticket reference into the one name used for both the branch and
+#          the sandbox directory, so neither can drift from the other.
+# Input:   ticket reference such as DD-530
+# Output:  lower-cased slug, or undef when the reference is not one
+sub slug_for {
+    my ($ref) = @_;
+    return if !defined $ref || $ref !~ /\A([A-Za-z]+)-(\d+)\z/;
+    return lc("$1-$2");
+}
+
+# Purpose: prepare the ticket's sandbox and report where it is.
+# Input:   @ARGV — one ticket reference
+# Output:  one of the EXIT_* codes
+sub main {
+    my ($ref) = @ARGV;
+    my $slug = slug_for($ref);
+    if ( !defined $slug ) {
+        say STDERR 'ticket-worktree: give it one ticket reference, e.g. DD-530';
+        return EXIT_USAGE;
+    }
+
+    my $root = repo_root();
+    my $path = File::Spec->catdir( $root, '.worktrees', $slug );
+
+    # Re-open rather than recreate. A ticket that was already started has work in
+    # its sandbox, and the standing instruction is to RESUME an existing worktree
+    # rather than begin again beside it.
+    my ( $existing, $listed ) = git( 'worktree', 'list', '--porcelain' );
+    if ( $listed == 0 && $existing =~ /^worktree \Q$path\E$/m ) {
+        say $path;
+        say STDERR "ticket-worktree: $ref already has a sandbox — resuming it, not starting again";
+        return EXIT_READY;
+    }
+
+    # Cut from origin/master so the sandbox starts from what everyone else can
+    # see, never from unpushed local state.
+    # Refresh origin/master if we can, and say plainly which of the two happened.
+    # A bare `git fetch` has no SSH identity in a non-interactive shell here — the
+    # push helper supplies it — so a failure is ordinary rather than alarming. What
+    # is NOT acceptable is swallowing it: this repo has already lost a session to a
+    # hidden fetch failure that left every remote-tracking ref stale while
+    # everything looked fine. So the fallback is announced, every time.
+    my ( undef, $fetched ) = git( 'fetch', 'origin', 'master' );
+    if ( $fetched != 0 ) {
+        say STDERR 'ticket-worktree: could not refresh origin/master (no fetch credentials in this shell)';
+        say STDERR '                 using the origin/master ref as it already stands - run ~/bin/git-push-mf if it may be stale';
+    }
+
+    my ( $base_out, $has_base ) = git( 'rev-parse', '--verify', 'refs/remotes/origin/master' );
+    if ( $has_base != 0 ) {
+        say STDERR 'ticket-worktree: there is no origin/master ref at all, so a sandbox cut from it is impossible';
+        return EXIT_UNUSABLE;
+    }
+
+    my ( $branch_out, $has_branch ) = git( 'rev-parse', '--verify', "refs/heads/$slug" );
+    my @create = $has_branch == 0
+      ? ( 'worktree', 'add', $path, $slug )
+      : ( 'worktree', 'add', '-b', $slug, $path, 'origin/master' );
+
+    my ( $add_out, $added ) = git(@create);
+    if ( $added != 0 ) {
+        say STDERR "ticket-worktree: git refused to create the sandbox for $ref:";
+        say STDERR $add_out;
+        return EXIT_UNUSABLE;
+    }
+
+    say $path;
+    say STDERR "ticket-worktree: $ref is sandboxed at $path on branch $slug, cut from origin/master";
+    return EXIT_READY;
+}
+
+exit main() if !caller;
+
+1;
+
+__END__
+
+=head1 NAME
+
+ticket-worktree - open the per-ticket sandbox a ticket must be worked in
+
+=head1 PURPOSE
+
+Prepare, or re-open, the git worktree belonging to one ticket, so that every
+ticket is worked in its own copy of the repository rather than in the shared
+checkout.
+
+=head1 WHY IT EXISTS
+
+Two writers in one checkout destroy each other's work, and did. A ticket's edits
+to five files were made, left uncommitted for a few minutes while a gate ran, and
+were simply gone afterwards because other work had touched the same tree. A
+coverage pass had to be discarded because the tree changed underneath it. Commits
+landed mid-edit. None of that was anyone misbehaving; a shared directory is not
+safe for concurrent work.
+
+The convention already existed — ticket work was supposed to live in
+C<.worktrees/dd-NNN> on a matching branch — and being a convention it was followed
+sometimes. This makes the correct thing the easy thing, and names the branch and
+the directory from the same reference so the two cannot drift apart.
+
+It cuts from C<origin/master> deliberately. A sandbox started from unpushed local
+state inherits work nobody else can see, and merging it back later carries changes
+the ticket never claimed.
+
+=head1 WHEN TO USE
+
+Before touching any file for a ticket. If the ticket already has a sandbox this
+resumes it rather than starting a second one beside it.
+
+=head1 HOW TO USE
+
+    cd "$(.claude/tools/ticket-worktree DD-530)"
+
+The path is printed on stdout and every explanation on stderr, so the command
+substitution above yields a directory and nothing else.
+
+=head1 WHAT USES IT
+
+Any agent working a ticket, and the automated rounds once they adopt it. Nothing
+in the shipped product depends on it: it is operator tooling and is excluded from
+the release tarball.
+
+=head1 EXAMPLES
+
+Start or resume the sandbox for a ticket:
+
+    $ .claude/tools/ticket-worktree DD-530
+    ticket-worktree: DD-530 is sandboxed at /.../.worktrees/dd-530 on branch dd-530, cut from origin/master
+    /home/mv/projects/developer-dashboard/.worktrees/dd-530
+
+Refuse a reference that is not one, rather than inventing a directory for it:
+
+    $ .claude/tools/ticket-worktree "not a ref"
+    ticket-worktree: give it one ticket reference, e.g. DD-530
+
+=cut
