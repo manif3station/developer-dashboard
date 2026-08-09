@@ -8,6 +8,7 @@ use Test::More;
 use Cwd qw(getcwd);
 use Fcntl qw(:flock);
 use File::Spec;
+use File::Copy ();
 use File::Temp qw(tempdir);
 
 # A lock is only a mutex if every contender agrees on its name. When the gate's
@@ -20,21 +21,43 @@ use File::Temp qw(tempdir);
 # holds only the old name, the way a pre-rename gate does, and requires the
 # current gate to refuse.
 
-my $repository = getcwd();
-my $gate       = File::Spec->catfile( $repository, 'script', 'coverage-gate' );
+my $source = File::Spec->catfile( getcwd(), 'script', 'coverage-gate' );
 
-plan skip_all => "the coverage gate is not present at $gate" if !-f $gate;
+plan skip_all => "the coverage gate is not present at $source" if !-f $source;
 
+# The behaviour under test is about the DEFAULT database - the only one that ever
+# had a legacy lock name - so the test cannot simply pass --database and step out
+# of the way. Instead it gives the gate a repository of its own: the script
+# resolves its root from its own location and chdirs there, so a copy under a
+# throwaway script/ makes 'cover_db', '.cover_db.lock' and '.coverage-gate.lock'
+# all resolve inside that directory.
+#
+# The earlier version contended for the real repository lock and skipped itself
+# whenever a gate was running. On this host that is almost always, so the one test
+# that proves the bridge works was silently absent precisely when gates were
+# running - which is the only time the bridge matters. A test that stands aside
+# whenever the situation it describes is happening is not a test.
+my $repository = tempdir( CLEANUP => 1 );
+my $script     = File::Spec->catdir( $repository, 'script' );
+mkdir $script or die "cannot create $script: $!";
+
+for my $name (qw(coverage-gate check-all-metric-coverage)) {
+    my $from = File::Spec->catfile( getcwd(), 'script', $name );
+    my $to   = File::Spec->catfile( $script,  $name );
+    File::Copy::copy( $from, $to ) or die "cannot copy $name: $!";
+    chmod 0755, $to or die "cannot make $to executable: $!";
+}
+
+my $gate   = File::Spec->catfile( $script,     'coverage-gate' );
 my $legacy = File::Spec->catfile( $repository, '.coverage-gate.lock' );
 
-# The real repository lock, not a private one: the behaviour under test is
-# specifically about the DEFAULT database, which is the only one that ever had a
-# legacy name. If a real gate is running here it already owns this, and the test
-# must not interfere with it.
-open my $held, '+>>', $legacy or plan skip_all => "cannot open $legacy: $!";
-if ( !flock $held, LOCK_EX | LOCK_NB ) {
-    plan skip_all => 'a real gate holds the legacy lock on this host';
-}
+open my $held, '+>>', $legacy or die "cannot open $legacy: $!";
+
+# Nothing else can hold this: it is inside a directory created moments ago. A
+# refusal here means the locking is broken, so it must be fatal rather than a
+# skip that would quietly report zero tests as success.
+flock $held, LOCK_EX | LOCK_NB
+    or die "cannot take a private legacy lock at $legacy: $!";
 
 plan tests => 5;
 
