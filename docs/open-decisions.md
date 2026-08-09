@@ -50,3 +50,4 @@ The one place a question waits for the person who must answer it.
 ## Asked by: Michael
 
 *(none outstanding)*
+| 26 | 2026-08-09 | **Twenty-seven finished cards are queued at `git-gate`**, all committed, pushed and gated at 100%. They cannot reach `release-to-pause` because that column means "has been released to PAUSE" and PAUSE upload fires only on your explicit `dashboard pause-release`. Once v4.25's GitHub release publishes: do you want the PAUSE upload, and shall I treat that as standing permission for future version gates, or ask every time? | Open — not blocking any work, but 27 cards rest at the gate until answered | Recommendation: answer it once as a standing rule. Asking per release is the safe default and it is what has left this queue sitting |
