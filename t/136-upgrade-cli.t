@@ -298,7 +298,16 @@ for my $case (
 
 {
     my $ua = Developer::Dashboard::CLI::Upgrade::_user_agent();
-    is( $ua->agent, 'Developer-Dashboard/4.24 upgrade', 'the production downloader identifies the installed dashboard version' );
+    # Derived, never hardcoded (DD-506). This literal said 4.24 while the module
+    # reported 4.25, so the suite failed on master at the exact commit v4.25 was
+    # tagged at. The bump procedure updates lib/** $VERSION, dist.ini, the main
+    # POD and t/15 - a version string anywhere else is invisible to it, and the
+    # only fix that survives the next bump is to ask the module what it is.
+    is(
+        $ua->agent,
+        "Developer-Dashboard/$Developer::Dashboard::CLI::Upgrade::VERSION upgrade",
+        'the production downloader identifies the installed dashboard version',
+    );
     is( $ua->timeout, 60, 'the production downloader has a bounded timeout' );
     is( $ua->max_size, 512_000, 'the production downloader bounds installer size' );
     is( $ua->max_redirect, 3, 'the production downloader bounds redirects' );
