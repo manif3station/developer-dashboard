@@ -69,6 +69,52 @@ Tira collapses publishing into G13; DD splits it across two levels, and the spli
   Only the owner's explicit `dashboard pause-release` puts a card there. An agent moving a
   card into that column on its own is a rule violation, not a status update.
 
+## Which columns the reminder watches (DD-510)
+
+The stale-card reminder is per-column, not per-board: each column carries a `watched`
+flag, and `dwell_list` skips an unwatched column however old its cards are. This
+project sets them as follows on all three boards, and the reasoning matters more than
+the values because **the board configuration is not versioned** — it lives in
+`$TIRA_HOME/.tira/<type>/config.yml`, outside any git repository, so if that file is
+lost this section is the only record of what it should say.
+
+| Column | Watched | Why |
+|---|---|---|
+| `backlog` | no | Holds work nobody has committed to yet; age there is not a fault |
+| `done-not-released` | no | Through every gate an agent can apply, waiting only on the owner |
+| `release-to-pause` | no | Terminal: already released, nothing left to act on |
+| `discard` | no | Terminal: abandoned on purpose |
+| everything else | **yes** | A card there is mid-flight, and age is a real signal |
+
+`blocked-by-michael` stays **watched** deliberately. It is the one resting column that
+is not terminal — a card there is waiting on a person, and going quiet about it would
+turn "blocked" into "forgotten". Restore it with
+`d2 tira.column.update --type ticket --name blocked-by-michael --watch`.
+
+No column pins its own `notify_after`; all inherit the project default (15 minutes),
+so the threshold is changed in one place.
+
+`.claude/tools/reminder-column-guard` asserts the table above hourly and fails loudly
+if it drifts, because the table describes **data**, and data has no test unless
+something asserts it. It checks both directions — a terminal column that has become
+watched, and `blocked-by-michael` that has stopped being — and also that a watched
+column actually has a limit: `dwell_list` only considers columns it has a
+`notify_after` for, so a watched column with no limit and no project default is
+skipped in silence and reads as correct in the config while chasing nobody. That last
+case is not hypothetical; it is how the guard's own first draft passed a board that
+sent no reminders at all.
+
+**A comment does not reset a card's clock — only a move does.** `_dwell_start` scans
+the card's journal for the last `"op":"move"` on the `column` field and ignores every
+other entry, so "leave a comment saying what it is waiting for" reads as activity to a
+human and as nothing at all to the reminder. Two consequences, and neither is
+cosmetic: a card can be under active discussion and still be reported as stalled, and
+a reminder cannot be answered in place — the only ways to quiet one are to move the
+card or to unwatch its column. Changing that behaviour would mean editing the shared
+skill at `~/.developer-dashboard/skills/tira/lib/Tira.pm`, which is read-only for this
+project (it backs every project on this machine), so it is recorded here rather than
+fixed. If it needs fixing it is a change to the skill upstream, requested explicitly.
+
 ## Direction of travel
 
 Forward only on evidence — a gate moves when its proof is attached, never because it
