@@ -35,8 +35,17 @@ exclusions="$repo_root/cpan-audit-exclusions.txt"
 # So the subject is stated out loud, and a root that is not an isolated product
 # root is REFUSED rather than audited. The refusal is deliberately a distinct
 # exit status: 0 clean, 1 a disposition guard fired, 2 the caller made a usage
-# error, 3 the gate was pointed at the wrong subject. Collapsing "wrong subject"
-# into "finding" is what made the original misreading so easy.
+# error, 3 the gate was pointed at the wrong subject, 4 the gate could not run at
+# all, 5 advisories were found. Collapsing "wrong subject" into "finding" is what
+# made the original misreading so easy.
+#
+# Status 4 exists because the opposite collapse was also live (DD-517). When
+# cpan-audit cannot start - a mixed-version library tree, a missing dependency -
+# perl dies with status 1 or 2, and 1 is this gate's OWN code for a disposition
+# guard. A tool that never ran was therefore indistinguishable from a real
+# finding and from a fired guard, and the suite's "gate is non-zero for a
+# vulnerable fixture" test passed on the strength of a crash. A gate that cannot
+# look must never be mistaken for a gate that looked and found something.
 #
 # "Inside the checkout" is the test because that is what an isolated root IS
 # here - CI builds one at local/lib/perl5 and audits it in place. It is a crisp
@@ -98,4 +107,51 @@ if grep -R -n -E "Dancer2::Session|^[[:space:]]*session[[:space:]]*[('\"]|=[[:sp
   exit 1
 fi
 
-cpan-audit installed "$perl5_root" --perl --exclude-file "$exclusions"
+if ! command -v cpan-audit >/dev/null 2>&1; then
+  printf '%s\n' 'cpan-audit is not on PATH, so this gate audited nothing. That is not a clean result.' >&2
+  exit 4
+fi
+
+# Captured rather than streamed, because the status alone cannot tell "found
+# advisories" from "died before it could look": cpan-audit exits non-zero for
+# both, and a Perl startup failure exits 1 or 2, which this gate already spends
+# on its own guards. The OUTPUT does distinguish them - a run that audited
+# anything names advisories, and a run that died prints a Perl diagnostic and no
+# advisory at all - so the decision is made on that and the output is passed
+# through unchanged either way.
+set +e
+audit_output="$(cpan-audit installed "$perl5_root" --perl --exclude-file "$exclusions" 2>&1)"
+audit_status=$?
+set -e
+
+printf '%s\n' "$audit_output"
+
+if [ "$audit_status" -eq 0 ]; then
+  exit 0
+fi
+
+if printf '%s' "$audit_output" | grep -q -E 'CPANSA-|[0-9]+ advisor'; then
+  # A real finding. Remapped to a single status of its own rather than passed
+  # through, because cpan-audit's own non-zero statuses vary with what it found
+  # (65 and 66 have both been seen) and could collide with the gate's 1, 2, 3
+  # and 4. A finding must not be able to impersonate a usage error.
+  exit 5
+fi
+
+cat >&2 <<EOF
+cpan-audit exited $audit_status without reporting a single advisory, which means
+it did not audit $perl5_root - it failed before it could. The output above is its
+diagnostic, not a security result.
+
+This gate is reporting UNUSABLE (4) rather than a finding on purpose. Treating
+the failure as a finding would be no safer: it would put a false advisory in
+front of whoever reads it, and the next person to see the gate go green after
+"fixing" it would have fixed nothing.
+
+The usual cause is a library tree built for a different Perl than the one running
+cpan-audit. Check that the interpreter and the tool come from the same install:
+
+    command -v perl cpan-audit
+    perl -e 'print "\$]\n"'
+EOF
+exit 4
