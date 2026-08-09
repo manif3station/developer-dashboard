@@ -86,23 +86,52 @@ directory-only form cannot come back.
 
 ## Coverage
 
-Install Devel::Cover in a local Perl library and generate the coverage report:
+Install Devel::Cover in a local Perl library, then run the gate as one command:
 
 ```bash
 cpanm --notest --local-lib-contained ./.perl5 Devel::Cover
 export PERL5LIB="$PWD/.perl5/lib/perl5${PERL5LIB:+:$PERL5LIB}"
 export PATH="$PWD/.perl5/bin:$PATH"
-cover -delete
-HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
-PERL5OPT=-MDevel::Cover prove -lr t
-cover -report text -select_re '^lib/' -coverage statement -coverage subroutine
+perl script/coverage-gate
 ```
 
-Developer Dashboard expects a reviewed `lib/` coverage report before release, and the current repository target is 100% statement and subroutine coverage for `lib/`.
-This is a standing QA gate for every change, not only releases. After the
-normal `prove -lr t` test gate passes, run the numeric `Devel::Cover` gate and
-do not treat the work as done until the `cover` summary still reports 100%
-statement and 100% subroutine coverage for `lib/`.
+`script/coverage-gate` is the canonical entrypoint and the one every CI
+workflow runs, so the documented gate and the executed gate are the same thing.
+It drops the coverage database, runs the instrumented suite, collects the
+`lib/` report for statement, branch, condition and subroutine, and enforces
+100.0 on all four through `script/check-all-metric-coverage`. Use
+`perl script/coverage-gate --dry-run` to see the resolved interpreter, library
+path, serializer module and the exact commands before spending a slot, and
+`perl script/coverage-gate --database DIR t/some-file.t` to collect a focused
+run into a scratch database.
+
+Its exit status is the interface: `0` all four metrics at 100.0, `1` a genuine
+shortfall with the failing metrics named, `2` the gate could not run or could
+not read its report, `3` the coverage instrument could not read its own
+database.
+
+That last status is why the chain is one command rather than three.
+`Devel::Cover::DB::IO` picks its on-disk serialization format at `BEGIN` from
+whatever `@INC` makes visible — Sereal, then JSON, then Storable — and records
+the choice nowhere. Typed as three shell lines, the library path has to be
+repeated on every one of them; omit it from a single line on a host carrying
+two Devel::Cover installations with different serializers available, and the
+reader cannot parse what the writer produced moments earlier. It surfaces as
+`File is not a perl storable` or `Bad Sereal header`, both of which read as a
+corrupt database and invite a re-run that fails identically, spending another
+host-exclusive multi-minute slot. Running the three commands as children of one
+process removes the split: they inherit one environment because there is only
+one to inherit. If the gate does report exit `3`, the fix is the environment,
+never a re-run.
+
+Developer Dashboard expects a reviewed `lib/` coverage report before release,
+and the repository target is 100.0 on **all four** metrics — statement, branch,
+condition and subroutine.
+This is a standing QA gate for every change, not only releases.
+After the normal `prove -lr t` test gate passes, run the numeric gate
+and do not treat the work as done until it exits `0`. Only one coverage run may
+be in flight on a host at a time; instrumented timing-sensitive tests misread
+under contention, and a contended run is not valid gate evidence.
 
 The coverage-closure suite includes managed collector loop start/stop paths under `Devel::Cover`, including wrapped fork coverage in `t/14-coverage-closure-extra.t`, so the covered run stays green without breaking TAP from daemon-style child processes.
 Managed collector children now scrub inherited `PERL5OPT` and `HARNESS_PERL_SWITCHES` coverage settings before their long-lived loop work begins, and the runtime manager widens its startup stability polls when the parent harness is running under `Devel::Cover`, so the full covered suite does not misclassify a slow instrumented startup as a dead runtime.
