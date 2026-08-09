@@ -31,6 +31,36 @@ extra requirement is listed under "DD-only gates" below.
 | **100% CVE FREE** | `vulnerability-scan` | `script/cpan-audit-declared-chain` against the declared runtime closure — that gate's subject **is** the product, so it is the one to trust on a shared machine. `script/cpan-audit-project` audits an *isolated* root only (CI builds one at `local/lib/perl5`) and refuses anything else with exit 3, so never point it at `$HOME/perl5/lib/perl5`. Plus the `SECURITY_CHECKS.md` three-tier protocol. A bare host-tree `cpan-audit` is **not** a blocker — judge the product, not the host interpreter (DD-499) |
 | **Operator-file containment** | `git-gate` | No operator/rule file may enter the tarball; `dist.ini` `exclude_filename`/`exclude_match` is the only real protection (`.gitignore` does not protect the tarball) |
 
+## The git gate for the operator repository
+
+**Cards whose work lands in `~/dd-tg` satisfy the git gate at COMMIT, not at push,
+because that repository has no remote to push to.**
+
+This is a statement of fact rather than a relaxation. `git remote -v` there returns
+nothing and `git rev-list @{u}..HEAD` cannot even be asked — it fails with "no
+upstream configured". So for those cards the gate map's "commit, tag and push"
+would otherwise assert a push that is not merely outstanding but impossible, and a
+column that asserts something impossible is worse than one that asserts nothing:
+it reads as satisfied.
+
+What stands in for the push, and what it is worth:
+
+- A complete `git bundle --all` is written to `~/dd-archive` daily by
+  `~/dd-tg/dd-tg-bundle.sh`, verified with `git bundle verify`, and kept for a
+  fortnight. A failed verify deletes the bundle and exits non-zero rather than
+  leaving a file that looks like a backup.
+- **That is protection against git-level accidents only** — a bad reset, a deleted
+  branch, a botched rebase. The bundles are on the same disk as the repository, so
+  it is not protection against the disk failing. Nothing here should be read as
+  equivalent to an off-machine push.
+
+**This is the current state, not a decision that it should stay this way.**
+Whether the operator repository gets a remote is open on `docs/open-decisions.md`
+row 24. If one is added, this section goes and those cards join the ordinary
+"commit, tag and push" rule with the rest.
+
+---
+
 ## The two-stage publish
 
 Tira collapses publishing into G13; DD splits it across two levels, and the split is binding:
