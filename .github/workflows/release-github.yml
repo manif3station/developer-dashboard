@@ -107,6 +107,21 @@ jobs:
           cpanm --notest Dist::Zilla::Plugin::ShareDir
           cpanm --notest File::ShareDir::Install
 
+      # The suite's CVE-gate fixtures shell out to cpan-audit, so the workflow
+      # that runs the suite has to provide it. It goes into its OWN library root,
+      # never into the tree being audited: the gate's whole point is to measure
+      # the product's dependencies, and installing the auditor beside them would
+      # make the auditor part of what it audits. test.yml does exactly this, and
+      # release-github.yml did not - so v4.25 was tagged from a commit test.yml
+      # had verified green and still failed here, at "Run tests", with
+      # "cpan-audit: command not found" (DD-508). Every step after it - build,
+      # sign, publish, provenance - was skipped, and the release published
+      # nothing.
+      - name: Install the audit tool outside the scanned root
+        run: |
+          cpanm --notest -L audit-local CPAN::Audit
+          echo "$GITHUB_WORKSPACE/audit-local/bin" >> "$GITHUB_PATH"
+
       - name: Run tests
         run: |
           prove -lr t
