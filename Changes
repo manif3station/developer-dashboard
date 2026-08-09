@@ -1,3 +1,40 @@
+4.25  2026-08-09
+
+  - CI: restored a pipeline that had certified nothing for ten days. Three
+    GitHub Action pins sat on the node20 line while their version comments
+    claimed node24, so every run died at Setup Perl and the suite, the coverage
+    gate and both CVE audits never executed (DD-449). The pin comments are now
+    resolved against the upstream tag rather than trusted (DD-449), the
+    environment export no longer swallows its own failure inside a command
+    substitution (DD-483), and two suite files no longer assume tools and
+    libraries CI installs elsewhere (DD-485).
+  - Security: helper session ids are drawn from the operating system CSPRNG
+    instead of a SHA over the pid, the wall-clock second and built-in rand -
+    the construction CVE-2026-13577 describes in Dancer2, reimplemented here in
+    the code guarding the web interface. Crypt::URandom is now a declared
+    dependency floored at 0.55, because CVE-2026-2474 affects earlier releases
+    (DD-452).
+  - Security: dispositioned CVE-2026-13577 for Dancer2, which has no fixed
+    release, behind a guard that fails the audit if any production code ever
+    activates a Dancer2 session (DD-451).
+  - Security: closed a Zip Slip in dashboard open-file, where a sources jar
+    could write attacker-controlled paths anywhere the user can write (DD-498).
+  - Security: corrected the CVE gate's subject so it judges the product's
+    declared chain rather than the host interpreter (DD-499).
+  - Fix: a collector's loop state is written before its pidfile, so a
+    concurrent running_loops can no longer delete the pidfile of a healthy loop
+    and leave it unstoppable by name while the supervisor forks a duplicate
+    (DD-488).
+  - Fix: Housekeeper's temp-file cleanup lists its directory instead of
+    globbing a pattern built from the path, so a directory whose path contains
+    a space stops hiding every real temp file and unlinking unrelated ones
+    (DD-502).
+  - Test reliability: the coverage gate, the empty-environ probe and several
+    collector lifecycle fixtures no longer fail purely because the host is
+    CPU-starved, which is the shape of every CI runner (DD-482, DD-486,
+    DD-489). Every timeout changed here is backed by a measurement rather than
+    by the fact that a larger number passes.
+
 4.24  2026-08-08
 
   - Security: closed the open-redirect class in the login redirect sanitizer

@@ -81,7 +81,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.24', 'repo version bumped for the security-hardening epic DD-386..DD-432' );
+is( $version, '4.25', 'repo version bumped for the CI-restoration and security epic DD-449..DD-506' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
