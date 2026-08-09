@@ -1,0 +1,150 @@
+#!/usr/bin/env perl
+
+# t-reminder-column-guard - the spec for the reminder column guard.
+#
+# WHY THIS FILE EXISTS (DD-510, 2026-08-09)
+#   The guard asserts a property of DATA - which columns the stale-card reminder
+#   watches - and it is the only thing that does. So the same question applies to
+#   it as to ft99-sweep: has anyone ever seen its clean report earned?
+#
+#   Every rule is exercised in BOTH directions, for the reason t-ft99-sweep gives
+#   and for one this ticket supplied first-hand. The guard's own first draft
+#   accepted a board whose `blocked-by-michael` was watched and which still sent
+#   no reminder at all, because `watched` decides nothing on its own - dwell_list
+#   only considers a column it has a `notify_after` for. A one-directional test
+#   would have passed that draft.
+#
+# RUNNING IT
+#   PERL5LIB="$HOME/perl5/lib/perl5" prove -v .claude/tools/t-reminder-column-guard
+
+use strict;
+use warnings;
+
+use Test::More;
+use FindBin;
+use File::Spec;
+
+my $GUARD = File::Spec->catfile( $FindBin::Bin, 'reminder-column-guard' );
+
+# Requiring rather than running: the script ends `exit main() if !caller`, so a
+# require gives access to its subs without touching a real board.
+require $GUARD;
+
+# Purpose: build one column as `d2 tira.column.list -o json` emits it.
+#
+#          `watched` is spelled out by every caller rather than defaulted here on
+#          purpose: the defect behind this ticket is precisely that an ABSENT
+#          watched key means watched, and a fixture that quietly supplied one
+#          would hide the case it exists to describe.
+# Input:   $name, %overrides - typically watched and notify_after
+# Output:  hashref shaped like one column record
+sub column {
+    my ( $name, %overrides ) = @_;
+    return { name => $name, label => $name, protected => 0, %overrides };
+}
+
+# Purpose: run the guard's rules over one board's columns.
+# Input:   arrayref of columns, optional project default limit
+# Output:  list of finding strings
+sub check {
+    my ( $columns, $default_limit ) = @_;
+    return main::findings_for( 'ticket', $columns, $default_limit );
+}
+
+# A board that is correct in every respect, used as the baseline every negative
+# case is a single mutation away from.
+sub good_board {
+    return [
+        column( 'discard',           watched => 0 ),
+        column( 'release-to-pause',  watched => 0 ),
+        column( 'done-not-released', watched => 0 ),
+        column( 'blocked-by-michael', watched => 1 ),
+    ];
+}
+
+# --- the baseline earns its silence ------------------------------------------
+
+is_deeply( [ check( good_board(), 15 ) ], [], 'a correctly configured board produces no findings' );
+
+# --- terminal columns must be silent (AC-1) ----------------------------------
+
+for my $terminal (qw(discard release-to-pause done-not-released)) {
+    my $board = [ map { $_->{name} eq $terminal ? column( $terminal, watched => 1 ) : $_ } @{ good_board() } ];
+    my @findings = check( $board, 15 );
+    is( scalar @findings, 1, "a watched $terminal is reported" );
+    like( $findings[0], qr/\Qticket\E\/\Q$terminal\E is WATCHED/, "...and the finding names $terminal" );
+}
+
+# The absent-key case, which is how a fresh board actually arrives: Tira resolves
+# a missing `watched` to 1, so the guard reads the resolved value and must treat
+# it exactly as an explicit true.
+{
+    my $board = [ map { $_->{name} eq 'discard' ? column( 'discard', watched => 1 ) : $_ } @{ good_board() } ];
+    my @findings = check( $board, 15 );
+    is( scalar @findings, 1, 'a fresh board, whose discard column Tira resolves to watched, is reported' );
+}
+
+# A board need not have every terminal column, and a column that is simply absent
+# is not a fault - only a present-and-watched one is.
+{
+    my $board = [ grep { $_->{name} ne 'release-to-pause' } @{ good_board() } ];
+    is_deeply( [ check( $board, 15 ) ], [], 'a board without a release-to-pause column is not faulted for it' );
+}
+
+# --- the column a person must act on stays loud (AC-2) -----------------------
+
+{
+    my $board = [ map { $_->{name} eq 'blocked-by-michael' ? column( 'blocked-by-michael', watched => 0 ) : $_ }
+          @{ good_board() } ];
+    my @findings = check( $board, 15 );
+    is( scalar @findings, 1, 'an unwatched blocked-by-michael is reported' );
+    like( $findings[0], qr/is NOT watched/, '...as the opposite failure, not as a terminal one' );
+}
+
+{
+    my $board = [ grep { $_->{name} ne 'blocked-by-michael' } @{ good_board() } ];
+    my @findings = check( $board, 15 );
+    is( scalar @findings, 1, 'a missing blocked-by-michael is reported' );
+    like( $findings[0], qr/is missing/, '...as missing rather than as unwatched' );
+}
+
+# --- watched is not enough: the column needs a limit too ---------------------
+
+# This is the case the guard's own first draft got wrong. Watched with no limit
+# anywhere reads as correct in the config and chases nobody.
+{
+    my @findings = check( good_board(), undef );
+    is( scalar @findings, 1, 'a watched column with no limit and no project default is reported' );
+    like( $findings[0], qr/watched but has NO limit/, '...naming the silence rather than the flag' );
+}
+
+{
+    my $board = [ map { $_->{name} eq 'blocked-by-michael' ? column( 'blocked-by-michael', watched => 1, notify_after => 5 ) : $_ }
+          @{ good_board() } ];
+    is_deeply( [ check( $board, undef ) ], [], 'a column with its own limit needs no project default' );
+}
+
+is_deeply( [ check( good_board(), 15 ) ], [], 'and a project default alone is enough' );
+
+# A limit of zero minutes is a limit. `//` is used rather than `||` in the guard
+# for exactly this reason, and a test that never passed 0 would not tell the two
+# apart.
+is_deeply( [ check( good_board(), 0 ) ], [], 'a project default of zero minutes counts as a limit, not as none' );
+
+{
+    my $board = [ map { $_->{name} eq 'blocked-by-michael' ? column( 'blocked-by-michael', watched => 1, notify_after => 0 ) : $_ }
+          @{ good_board() } ];
+    is_deeply( [ check( $board, undef ) ], [], 'and so does a column limit of zero' );
+}
+
+# --- findings accumulate rather than short-circuiting ------------------------
+
+# A board can be wrong in more than one way, and a guard that reported only the
+# first would send whoever fixed it back round for the next one.
+{
+    my $board = [ column( 'discard', watched => 1 ), column( 'release-to-pause', watched => 1 ) ];
+    my @findings = check( $board, 15 );
+    is( scalar @findings, 3, 'two watched terminal columns and a missing blocked-by-michael are all reported' );
+}
+
+done_testing();
