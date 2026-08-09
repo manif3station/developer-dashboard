@@ -153,20 +153,29 @@ sub _cleanup_temp_files {
 
 # _temp_file_candidates()
 # Returns the dashboard-owned temp file paths that housekeeper may remove.
+# This lists the system temp directory itself and keeps the entries whose names
+# carry a dashboard-owned prefix. It deliberately does NOT expand a shell-glob
+# pattern built from the temp path: Perl's built-in glob() is csh_glob, which
+# splits its argument on whitespace and honours backslash escapes, so a temp
+# directory whose path contains either (the ordinary shape of a Windows temp
+# path) yielded fragments instead of the intended pattern -- the genuine temp
+# files were never matched, and the trailing fragment was relative, so it
+# resolved against this process's working directory and offered up unrelated
+# files for deletion. Listing the directory confines every candidate to it by
+# construction. A temp directory that is absent is an empty scan; one that
+# exists but cannot be read is an error, because "could not look" must never be
+# reported as "there was nothing there".
 # Input: none.
-# Output: ordered list of candidate temp file path strings.
+# Output: name-sorted list of candidate temp file path strings.
 sub _temp_file_candidates {
     my ($self) = @_;
     my $tmpdir = File::Spec->tmpdir;
-    my @paths;
-    for my $pattern (
-        File::Spec->catfile( $tmpdir, 'developer-dashboard-ajax-*' ),
-        File::Spec->catfile( $tmpdir, 'dashboard-result-*' ),
-      )
-    {
-        push @paths, glob $pattern;
-    }
-    return @paths;
+    return () if !-d $tmpdir;
+    opendir my $dh, $tmpdir or die "Unable to read temp directory $tmpdir: $!";
+    my @entries = readdir $dh;
+    closedir $dh;
+    return map { File::Spec->catfile( $tmpdir, $_ ) }
+      sort grep { my ($kind) = $self->_temp_file_kind($_); defined $kind } @entries;
 }
 
 # _temp_file_kind($entry)
@@ -356,6 +365,17 @@ F</tmp/E<lt>userE<gt>/developer-dashboard/state/>, oversized Ajax payload temp
 files created under F</tmp/>, file-backed runtime result payloads created
 under F</tmp/dashboard-result-*>, and configured collector log transcripts
 that exceed their declared retention windows.
+
+Temp-file candidates are found by listing the system temp directory and keeping
+the entries whose names carry a dashboard-owned prefix. That listing is the
+containment boundary: no candidate can name a path outside the temp directory,
+whatever characters the temp path itself contains. A shell-glob pattern built
+from the temp path is deliberately not used, because the built-in C<glob> splits
+on whitespace and honours backslash escapes, so a temp path shaped like a
+typical Windows one both hid the real temp files and produced relative patterns
+that resolved against the process working directory. A temp directory that is
+absent yields an empty scan; one that exists and cannot be read raises an error
+rather than reporting an empty scan.
 
 =for comment FULL-POD-DOC START
 
