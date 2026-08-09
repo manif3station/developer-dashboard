@@ -91,8 +91,28 @@ is not terminal — a card there is waiting on a person, and going quiet about i
 turn "blocked" into "forgotten". Restore it with
 `d2 tira.column.update --type ticket --name blocked-by-michael --watch`.
 
-No column pins its own `notify_after`; all inherit the project default (15 minutes),
-so the threshold is changed in one place.
+`blocked-by-michael` is the one column that pins its own `notify_after`: **1440
+minutes**, a day, against a project default of 15. Every other column inherits the
+default, so the working threshold is still changed in one place.
+
+The day is not a rounder number chosen for tidiness. Fifteen minutes is a sensible
+limit for a card the agent itself is meant to be moving, and a nonsensical one for a
+question only a person can answer: it produces about ninety-six reminders a day about
+a decision that will reasonably take days, and it produced them for a card whose own
+text says it is **not blocking**. That is the same crying-wolf failure DD-510 was
+raised to fix, one column over — a reminder nobody can act on, arriving often enough
+to train the reader to ignore the ones they can.
+
+Two things follow, and both are the reason this is written down rather than just set:
+
+- A reminder **cannot be answered in place**. `_dwell_start` counts only moves, so the
+  reminder's own advice — "leave a comment saying what it is waiting for" — does not
+  quiet it. For a column that by definition waits on somebody else, the only honest
+  lever left is the threshold. Moving the card out and back would reset the clock and
+  would be a lie about its status.
+- The threshold is the whole escalation control here. Do not "fix" a noisy
+  `blocked-by-michael` by unwatching it: that is how a blocked card becomes a
+  forgotten one, and `reminder-column-guard` fails loudly if anyone tries.
 
 `.claude/tools/reminder-column-guard` asserts the table above hourly and fails loudly
 if it drifts, because the table describes **data**, and data has no test unless
