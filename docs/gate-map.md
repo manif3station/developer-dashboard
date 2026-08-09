@@ -58,14 +58,6 @@ Tira collapses publishing into G13; DD splits it across two levels, and the spli
   `docs/open-decisions.md` row 24, and if one is added these cards rejoin the
   ordinary rule above.
 
-  This is a statement of the current arrangement, not an endorsement of it. Sixteen
-  commits of automation live on exactly one disk. A daily verified `git bundle`
-  (`~/dd-tg/dd-tg-bundle.sh`, 04:17, retained a fortnight) protects against
-  git-level accidents — a bad reset, a deleted branch — and against **nothing else**:
-  the bundles sit on that same disk, so a disk failure takes them too. Whether that
-  repository should gain a remote is open-decisions row 24, and if the answer is yes
-  this clause should be deleted rather than amended.
-
 - **`release-to-pause` means "has been released to PAUSE"** (open-decisions row 4).
   Only the owner's explicit `dashboard pause-release` puts a card there. An agent moving a
   card into that column on its own is a rule violation, not a status update.
