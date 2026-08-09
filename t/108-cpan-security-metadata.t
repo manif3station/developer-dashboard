@@ -136,8 +136,15 @@ my $sh_rc = 0;
 
 # Executable proof: quoted and bareword Plack builder activation invalidate the XSendfile disposition.
 for my $activation ( q{enable 'XSendfile'}, q{enable XSendfile} ) {
-    my $fixture = File::Spec->catfile( $ROOT, 'lib', 'T107XSendfileFixture.pm' );
-    my $scan_root = File::Spec->catdir( $ROOT, '.t107-guard-root' );
+    # The fixture name carries this process's id. It is written into the shared
+    # lib/ tree, scanned, then unlinked - and the reminder can have several agents
+    # working this same checkout at once (DD-521). With a fixed name, one run's
+    # unlink deletes the file another run is about to scan, that run's gate finds
+    # nothing, and a SECURITY GATE REPORTS CLEAN because a different process
+    # removed the evidence. Observed three times while working DD-517, with a
+    # different case failing each time.
+    my $fixture = File::Spec->catfile( $ROOT, 'lib', "T107XSendfileFixture$$.pm" );
+    my $scan_root = File::Spec->catdir( $ROOT, ".t107-guard-root$$" );
     make_path($scan_root);
     _write_file( $fixture, "use Plack::Builder;\nbuilder { $activation; sub { [ 200, [], [] ] } };\n" );
     my ( $rc, $out ) = _run_gate($scan_root);
@@ -155,8 +162,8 @@ for my $case (
     [ HIGH   => 'tempdir' ],
 ) {
     my ( $level, $constructor ) = @$case;
-    my $fixture = File::Spec->catfile( $ROOT, 'lib', 'T107FileTempFixture.pm' );
-    my $scan_root = File::Spec->catdir( $ROOT, '.t107-guard-root' );
+    my $fixture = File::Spec->catfile( $ROOT, 'lib', "T107FileTempFixture$$.pm" );
+    my $scan_root = File::Spec->catdir( $ROOT, ".t107-guard-root$$" );
     make_path($scan_root);
     _write_file(
         $fixture,
@@ -212,17 +219,17 @@ for my $case (
         advisory => 'CPANSA-YAML-2019-01',
     },
 ) {
-    # One root per case, named after the distribution. Every case used to reuse
-    # the single path .t107-bad-root, and the results lagged: the HTTP-Tiny case
-    # reported HTML-Parser's advisory, and twice a genuinely vulnerable fixture
-    # was reported CLEAN - a false negative on a security gate, which is the one
-    # direction that must never be possible. Across three consecutive runs the
-    # same file failed 4, then 12, then 0 assertions.
+    # One root per case, named after the distribution, so a case that dies
+    # leaves evidence under its own name instead of a shared path the next case
+    # inherits.
     #
-    # Reusing a path means the audit can answer about the contents it saw last
-    # rather than the contents that are there now. Distinct roots remove the
-    # reuse rather than trying to time it.
-    my $bad = File::Spec->catdir( $ROOT, ".t107-bad-root-$case->{dist}" );
+    # This is hygiene, NOT the fix for the erratic results that were seen here -
+    # those were the buffered TAP described at the top of this file, and the
+    # distribution names in the mismatched failures were a symptom of that, not
+    # of the fixture path. A path-per-case was tried first on the theory that the
+    # audit was answering about contents it had seen before, and it did not
+    # help: the runs stayed erratic until STDOUT was unbuffered.
+    my $bad = File::Spec->catdir( $ROOT, ".t107-bad-root-$case->{dist}-$$" );
     my @file = @{ $case->{file} };
     my $leaf = pop @file;
     my $fixture = File::Spec->catfile( $bad, @file, $leaf );
@@ -249,8 +256,8 @@ for my $case (
 # the DISTINCTION testable anywhere: what the gate must key on is whether the
 # output names an advisory, not whether the status was non-zero.
 {
-    my $fake_bin  = File::Spec->catdir( $ROOT, '.t517-fake-bin' );
-    my $scan_root = File::Spec->catdir( $ROOT, '.t517-scan-root' );
+    my $fake_bin  = File::Spec->catdir( $ROOT, ".t517-fake-bin$$" );
+    my $scan_root = File::Spec->catdir( $ROOT, ".t517-scan-root$$" );
     make_path($fake_bin);
     make_path($scan_root);
     my $stub = File::Spec->catfile( $fake_bin, 'cpan-audit' );
