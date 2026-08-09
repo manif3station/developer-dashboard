@@ -55,10 +55,21 @@ my @WORKING = qw(
   unit-test platform-test final-check git-gate
 );
 
+# Finished at ticket level and waiting on the owner's release decision. NOT a
+# working column: nobody is working these, and flagging them as unassigned work
+# is what made the sweep shout about thirty-one completed cards for hours.
+my @DONE_NOT_RELEASED = qw(done-not-released);
+
 # Terminal columns. A dependency parked on a card is released only when that
 # card reaches one of these — this is the list FT99's park logic depends on, so
 # it is stated once, here, rather than inferred from a column's name.
-my @TERMINAL = qw(release-to-pause discard);
+#
+# done-not-released counts as terminal because the WORK is finished there: the
+# card is committed, pushed and gated, and only the owner's PAUSE decision stands
+# between it and release-to-pause. A dependent card waiting on it is waiting on
+# nothing, so the park must clear. Leaving it unclassified was a silent gap - the
+# column existed, cards sat in it, and no rule here said anything about them.
+my @TERMINAL = qw(done-not-released release-to-pause discard);
 
 # Columns that mean "not started". A parent sitting here while its children are
 # already working or finished is the epic-in-Backlog failure.
@@ -68,6 +79,7 @@ my @PRE_WORK = qw(
 );
 
 my %IS_WORKING  = map { $_ => 1 } @WORKING;
+my %IS_DONE_NOT_RELEASED = map { $_ => 1 } @DONE_NOT_RELEASED;
 my %IS_TERMINAL = map { $_ => 1 } @TERMINAL;
 my %IS_PRE_WORK = map { $_ => 1 } @PRE_WORK;
 

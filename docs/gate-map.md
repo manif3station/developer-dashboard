@@ -58,6 +58,13 @@ Tira collapses publishing into G13; DD splits it across two levels, and the spli
   `docs/open-decisions.md` row 24, and if one is added these cards rejoin the
   ordinary rule above.
 
+- **`done-not-released` is where finished ticket work rests.** A ticket that is
+  committed, pushed and gated has passed everything an agent can gate it against,
+  but it is not released until the owner says so. Without a column for that state
+  finished cards queued at `git-gate` and read as stalled, so the board could not
+  distinguish "waiting at a gate" from "through every gate, waiting on a person".
+  Added 2026-08-09 against open-decisions row 26, which the owner had not answered;
+  removable with `d2 tira.column.remove --type ticket --name done-not-released`.
 - **`release-to-pause` means "has been released to PAUSE"** (open-decisions row 4).
   Only the owner's explicit `dashboard pause-release` puts a card there. An agent moving a
   card into that column on its own is a rule violation, not a status update.
