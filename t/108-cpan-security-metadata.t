@@ -7,6 +7,17 @@ use File::Spec;
 use FindBin qw($RealBin);
 use Test::More;
 
+# Unbuffered, because this file forks a subprocess for almost every assertion.
+# Test::More's output is block-buffered when STDOUT is not a terminal, so each
+# backtick inherited a copy of the not-yet-flushed TAP buffer, the child flushed
+# it again on exit, and that text came back INSIDE the captured gate output. The
+# result was duplicated TAP lines (126 and 127 were emitted twice), test numbers
+# arriving out of order, and assertions matching against another case's report -
+# which reads exactly like the gate attributing an advisory to the wrong
+# distribution. Nothing was wrong with the gate.
+STDOUT->autoflush(1);
+STDERR->autoflush(1);
+
 my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
 my $makefile = _slurp('Makefile.PL');
 my $cpanfile = _slurp('cpanfile');
@@ -201,7 +212,17 @@ for my $case (
         advisory => 'CPANSA-YAML-2019-01',
     },
 ) {
-    my $bad = File::Spec->catdir( $ROOT, '.t107-bad-root' );
+    # One root per case, named after the distribution. Every case used to reuse
+    # the single path .t107-bad-root, and the results lagged: the HTTP-Tiny case
+    # reported HTML-Parser's advisory, and twice a genuinely vulnerable fixture
+    # was reported CLEAN - a false negative on a security gate, which is the one
+    # direction that must never be possible. Across three consecutive runs the
+    # same file failed 4, then 12, then 0 assertions.
+    #
+    # Reusing a path means the audit can answer about the contents it saw last
+    # rather than the contents that are there now. Distinct roots remove the
+    # reuse rather than trying to time it.
+    my $bad = File::Spec->catdir( $ROOT, ".t107-bad-root-$case->{dist}" );
     my @file = @{ $case->{file} };
     my $leaf = pop @file;
     my $fixture = File::Spec->catfile( $bad, @file, $leaf );
@@ -216,6 +237,82 @@ for my $case (
     );
     like( $bad_out, qr/\Q$case->{advisory}\E/, "vulnerable $case->{dist} fixture reports the expected advisory ID" );
     remove_tree($bad);
+}
+
+# Executable proof: an audit that could not run is reported as UNUSABLE (4) and
+# never as a finding (DD-517).
+#
+# Driven with a stub cpan-audit rather than by recreating the real breakage,
+# because the real one needs two Perl installations to exist on the machine and
+# would make this test pass on the developer box and skip on CI - the exact shape
+# of environment dependence the gate is being fixed for (AC-3). The stub makes
+# the DISTINCTION testable anywhere: what the gate must key on is whether the
+# output names an advisory, not whether the status was non-zero.
+{
+    my $fake_bin  = File::Spec->catdir( $ROOT, '.t517-fake-bin' );
+    my $scan_root = File::Spec->catdir( $ROOT, '.t517-scan-root' );
+    make_path($fake_bin);
+    make_path($scan_root);
+    my $stub = File::Spec->catfile( $fake_bin, 'cpan-audit' );
+
+    # A tool that died before auditing: non-zero, a Perl diagnostic, no advisory.
+    _write_file( $stub, "#!/bin/sh\nprintf '%s\\n' 'Perl API version v5.38.0 of encoding.c does not match v5.44.0' >&2\nexit 1\n" );
+    chmod 0755, $stub or die "chmod $stub: $!";
+    {
+        local $ENV{PATH} = join ':', $fake_bin, '/usr/local/bin', '/usr/bin', '/bin';
+        my $out = `bash $gate $scan_root 2>&1`;
+        my $rc  = ${^CHILD_ERROR_NATIVE} >> 8;
+        is( $rc, 4, 'a crashed cpan-audit is reported UNUSABLE (4), not as a finding' );
+        isnt( $rc, 5, 'and is never reported with the advisories-found status' );
+        isnt( $rc, 1, 'and never borrows the status the gate spends on its own disposition guards' );
+        like( $out, qr/did not audit/, 'the gate says plainly that it audited nothing' );
+        unlike( $out, qr/CPANSA-/, 'and invents no advisory to justify the non-zero exit' );
+    }
+
+    # A tool that ran and found something: also non-zero, but it names an
+    # advisory. Same status class, opposite meaning - this is the case that
+    # proves the gate is reading the output rather than just the exit code.
+    _write_file( $stub, "#!/bin/sh\nprintf '%s\\n' 'HTTP-Tiny (have ==0.086) has 1 advisory'\nprintf '%s\\n' '  * CPANSA-HTTP-Tiny-2026-7010'\nexit 1\n" );
+    chmod 0755, $stub or die "chmod $stub: $!";
+    {
+        local $ENV{PATH} = join ':', $fake_bin, '/usr/local/bin', '/usr/bin', '/bin';
+        my $out = `bash $gate $scan_root 2>&1`;
+        my $rc  = ${^CHILD_ERROR_NATIVE} >> 8;
+        is( $rc, 5, 'an audit that names an advisory is a finding (5), even exiting 1' );
+        like( $out, qr/CPANSA-HTTP-Tiny-2026-7010/, 'and its advisory reaches the reader unchanged' );
+    }
+
+    # A tool whose own dependencies are missing - the other way cpan-audit fails
+    # before auditing, and it exits 2, which is the gate's usage-error status.
+    _write_file( $stub, "#!/bin/sh\nprintf '%s\\n' \"Can't locate CPAN/DistnameInfo.pm in \\\@INC\" >&2\nexit 2\n" );
+    chmod 0755, $stub or die "chmod $stub: $!";
+    {
+        local $ENV{PATH} = join ':', $fake_bin, '/usr/local/bin', '/usr/bin', '/bin';
+        my $out = `bash $gate $scan_root 2>&1`;
+        my $rc  = ${^CHILD_ERROR_NATIVE} >> 8;
+        is( $rc, 4, 'a cpan-audit missing its own dependencies is UNUSABLE (4)' );
+        isnt( $rc, 2, 'and is not mistaken for the caller making a usage error' );
+    }
+
+    # No tool at all is not a clean result either.
+    #
+    # The stub directory is emptied but the ordinary system directories stay on
+    # PATH, because the subject is a missing cpan-audit and nothing else. Setting
+    # PATH to the stub directory alone also hid /bin/bash, so the gate never ran,
+    # the backtick returned undef, and the status came back as 72057594037927935
+    # - a test failing for a reason that had nothing to do with what it asserts.
+    unlink $stub or die "unlink $stub: $!";
+    {
+        local $ENV{PATH} = join ':', $fake_bin, '/usr/local/bin', '/usr/bin', '/bin';
+        my $out = `bash $gate $scan_root 2>&1`;
+        my $rc  = ${^CHILD_ERROR_NATIVE} >> 8;
+        isnt( $rc, 0, 'a missing cpan-audit never reports the product clean' );
+        is( $rc, 4, 'a missing cpan-audit is UNUSABLE (4) rather than a finding' );
+        like( $out, qr/audited nothing|not on PATH/, 'and says the tool was missing' );
+    }
+
+    remove_tree($fake_bin);
+    remove_tree($scan_root);
 }
 
 done_testing;
@@ -240,7 +337,17 @@ sub _run_gate {
     # /home/runner, none of the paths below exist, and the gate failed with
     # "cpan-audit: command not found" - a tooling gap reported as an advisory
     # detection failure (DD-485).
+    # The rescue Perl's OWN cpan-audit comes first, and it is listed before the
+    # interpreter's bin rather than after it. Listing only perl-5.44.0/bin put
+    # the 5.44 INTERPRETER on PATH while leaving its cpan-audit off it, so PATH
+    # fell through to $HOME/perl5/bin and ran the copy installed for the system
+    # Perl 5.38. A 5.44 interpreter then loaded 5.38 XS and died with "Perl API
+    # version v5.38.0 of encoding.c does not match v5.44.0" before it could audit
+    # anything - and died with status 1, which this gate already uses to mean a
+    # disposition guard fired, so a tool that could not run was indistinguishable
+    # from a real finding (DD-517). Pair the interpreter with its own tools.
     local $ENV{PATH} = join ':', grep { defined && length }
+        File::Spec->catdir( $ENV{HOME}, 'perl5', 'perlbrew', 'perls', 'perl-5.44.0', 'local', 'bin' ),
         File::Spec->catdir( $ENV{HOME}, 'perl5', 'perlbrew', 'perls', 'perl-5.44.0', 'bin' ),
         File::Spec->catdir( $ENV{HOME}, 'perl5', 'bin' ),
         qw(/usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin),
@@ -260,10 +367,58 @@ sub _run_gate {
         last;
     }
 
+    # Ask the interpreter that will actually run cpan-audit what version it is,
+    # then keep only ambient library entries that belong to THAT Perl.
+    #
+    # Appending the ambient PERL5LIB wholesale is what broke this gate (DD-517).
+    # On a developer machine the ambient tree is the system Perl's local::lib,
+    # and PERL5LIB entries are searched before core, so a 5.44 interpreter loaded
+    # 5.38 XS and died with "Perl API version v5.38.0 of encoding.c does not
+    # match v5.44.0". Pairing the executables was necessary but not sufficient -
+    # the paired tool still died on the mixed tree.
+    #
+    # Entries that name no version are kept: they are version-agnostic, and CI's
+    # audit-local/lib/perl5 is one of them. Only a tree that announces a
+    # DIFFERENT Perl is dropped, so this stays a fix for mixing rather than a
+    # quiet narrowing of what the gate can see.
+    my ($audit_perl) = grep { -x } map { File::Spec->catfile( $_, 'perl' ) } split /:/, $ENV{PATH};
+
+    # Both probes run with PERL5LIB CLEARED, which is not tidiness - it is the
+    # difference between the filter working and silently not working. Asking the
+    # 5.44 interpreter its own version while the mixed 5.38 tree is still on
+    # PERL5LIB makes it die on that tree before it can answer, so the probe
+    # returned nothing, the filter was skipped as "no target known", and the
+    # mixed tree survived. The first attempt at this fix failed exactly there,
+    # and the only visible difference was that the gate died on Storable.c
+    # instead of encoding.c.
+    my $target = '';
+    if ($audit_perl) {
+        local $ENV{PERL5LIB} = '';
+        $target = qx{$audit_perl -e 'printf "%vd", \$^V' 2>/dev/null};
+    }
+    my ($target_series) = $target =~ /\A(\d+\.\d+)/;
+
+    # A library tree belongs to one Perl AS A WHOLE, so the ambient one travels
+    # only when it is the audit interpreter's own.
+    #
+    # Filtering it entry by entry was tried and cannot work. Perl appends
+    # $archname to every PERL5LIB directory itself, so keeping .../lib/perl5
+    # silently keeps .../lib/perl5/x86_64-linux-gnu-thread-multi with it - and
+    # that is where the XS is. Dropping the arch entry while leaving its parent
+    # only changed which module died, from encoding.c to Storable.c.
+    #
+    # Same version as the Perl running this test means the ambient tree is that
+    # Perl's own and is safe to pass on. That is the CI case, and the case the
+    # append was added for (DD-485). A different version means it belongs to
+    # somebody else.
+    my ($running_series) = sprintf( '%vd', $^V ) =~ /\A(\d+\.\d+)/;
+    my $same_perl = defined $target_series && defined $running_series && $target_series eq $running_series;
+    my @ambient = $same_perl ? grep { defined && length } split /:/, ( $ENV{PERL5LIB} // '' ) : ();
+
     local $ENV{PERL5LIB} = join ':', grep { defined && length }
         File::Spec->catdir( $ENV{HOME}, 'perl5', 'perlbrew', 'perls', 'perl-5.44.0', 'local', 'lib', 'perl5' ),
         @audit_lib,
-        $ENV{PERL5LIB};
+        @ambient;
     my $out = `bash $gate $root 2>&1`;
     my $rc = ${^CHILD_ERROR_NATIVE} >> 8;
     return ( $rc, $out );
