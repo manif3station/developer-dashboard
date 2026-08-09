@@ -522,9 +522,15 @@ Before release, verify the library coverage target:
 
 ```bash
 eval "$(perl -I ~/perl5/lib/perl5 -Mlocal::lib=~/perl5)"
-cover -delete
-HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
-cover -report text -select_re '^lib/' -coverage statement -coverage subroutine
+perl script/coverage-gate
 ```
+
+`script/coverage-gate` is the canonical entrypoint: it drops the coverage
+database, runs the instrumented suite, collects the `lib/` report and enforces
+100.0 on statement, branch, condition and subroutine. It runs the whole chain
+inside one process, so no command of it can see a different library path from
+the others — the split that makes `Devel::Cover` unable to read the database it
+just wrote. Exit `3` means exactly that instrument failure and is never fixed by
+re-running.
 
 Release quality requires a reviewed coverage report for `lib/` alongside a green test suite.

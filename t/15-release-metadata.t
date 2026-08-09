@@ -593,7 +593,7 @@ for my $doc ( grep { defined && $_ ne '' } ($readme) ) {
     like( $doc, qr/Do not treat Scorecard as a pre-commit local gate/, 'README documents that live Scorecard runs happen after local gates and commit/push' );
     like( $doc, qr/after the\s+normal\s+`prove -lr t`\s+test gate|after the\s+normal\s+C<prove -lr t>\s+test gate/is, 'README documents the explicit post-test numeric coverage QA gate ordering' );
     like( $doc, qr/every change, not only releases|not only releases.*every change|every change.*not only releases/is, 'README documents the per-change numeric coverage QA gate scope' );
-    like( $doc, qr/do not treat the work as done until .*100%\s+statement\s+and\s+100%\s+subroutine|100%\s+statement\s+and\s+100%\s+subroutine.*do not treat the work as done/is, 'README documents numeric 100 percent library coverage as a completion gate' );
+    like( $doc, qr/target is 100\.0 on all four metrics/is, 'README documents numeric 100 percent library coverage as a completion gate on every metric' );
 }
 like( $release_doc, qr/dzil build/, 'release doc still documents the dzil build step' ) if $release_doc ne '';
 like( $release_doc, qr/OWASP ASVS 5\.0|ASVS 5\.0/, 'release doc references the current OWASP ASVS gate version' ) if $release_doc ne '';
@@ -615,7 +615,7 @@ like(
 like( $install_bootstrap_doc, qr/aptfile.*apkfile.*brewfile|aptfile.*brewfile.*apkfile|apkfile.*aptfile.*brewfile|apkfile.*brewfile.*aptfile|brewfile.*aptfile.*apkfile|brewfile.*apkfile.*aptfile/is, 'bootstrap install doc explains all bootstrap package manifests' ) if $install_bootstrap_doc ne '';
 like( $testing_doc, qr/after the\s+normal\s+`prove -lr t`\s+test gate/is, 'testing doc documents the explicit post-test numeric coverage QA gate ordering' ) if $testing_doc ne '';
 like( $testing_doc, qr/every change, not only releases|not only releases.*every change|every change.*not only releases/is, 'testing doc documents the per-change numeric coverage QA gate scope' ) if $testing_doc ne '';
-like( $testing_doc, qr/do not treat the work as done until .*100%\s+statement\s+and\s+100%\s+subroutine|100%\s+statement\s+and\s+100%\s+subroutine.*do not treat the work as done/is, 'testing doc documents numeric 100 percent library coverage as a completion gate' ) if $testing_doc ne '';
+like( $testing_doc, qr/target is 100\.0 on \*\*all four\*\* metrics/is, 'testing doc documents numeric 100 percent library coverage as a completion gate on every metric' ) if $testing_doc ne '';
 like( $security_checks_doc, qr/ASVS 5\.0|OWASP ASVS 5\.0/, 'security checks doc references the current OWASP ASVS gate version explicitly' ) if $security_checks_doc ne '';
 like( $security_checks_doc, qr/V1 .*Architecture|V14 .*Configuration/s, 'security checks doc covers the full OWASP ASVS chapter span instead of only a narrow baseline subset' ) if $security_checks_doc ne '';
 like( $security_checks_doc, qr/OWASP Top 10/i, 'security checks doc cross-maps the repo gate to the OWASP Top 10' ) if $security_checks_doc ne '';

@@ -409,7 +409,7 @@ like( $release_cpan_workflow, qr/Developer-Dashboard-\*\.tar\.gz/, 'PAUSE releas
 unlike( $release_cpan_workflow, qr/\.build\/\*\.tar\.gz/, 'PAUSE release workflow no longer looks for tarballs under a nonexistent .build directory' );
 like(
     $release_cpan_workflow,
-    qr/check-all-metric-coverage/,
+    qr/script\/coverage-gate/,
     'PAUSE release workflow enforces the same all-metric lib coverage gate as the main CI workflow',
 );
 
@@ -424,14 +424,31 @@ for my $coverage_workflow (
     my $text = _slurp($coverage_workflow);
     like(
         $text,
-        qr/-coverage statement -coverage branch -coverage condition -coverage subroutine[^\n]*\n[^\n]*check-all-metric-coverage/s,
-        "$coverage_workflow pipes the four-metric cover report through the coverage gate script",
+        qr/perl script\/coverage-gate/,
+        "$coverage_workflow runs the canonical coverage-gate entrypoint",
+    );
+    unlike(
+        $text,
+        qr/cover -delete/,
+        "$coverage_workflow does not open-code a coverage chain whose environment could be split",
     );
     unlike(
         $text,
         qr/grep [-A-Za-z]+ ['"]\^?Total/,
         "$coverage_workflow does not gate coverage on a brittle Total-line grep",
     );
+}
+
+# The metric set moved out of the workflows and into the one entrypoint they all
+# call, so the guarantee has to be re-pinned where it now lives: relocating a
+# gate must not be a way to quietly weaken it.
+{
+    my $entrypoint = _slurp('script/coverage-gate');
+    for my $metric (qw(statement branch condition subroutine)) {
+        like( $entrypoint, qr/'\Q$metric\E'/, "the canonical coverage entrypoint collects $metric coverage" );
+    }
+    like( $entrypoint, qr/\^lib\//,                   'the canonical coverage entrypoint restricts the report to lib/' );
+    like( $entrypoint, qr/check-all-metric-coverage/, 'the canonical coverage entrypoint enforces the report through the fail-closed checker' );
 }
 
 my $blank_env_dockerfile = _slurp('integration/blank-env/Dockerfile');

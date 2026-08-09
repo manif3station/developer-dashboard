@@ -2169,16 +2169,29 @@ Measure library coverage with Devel::Cover:
     cpanm --no-wget --notest --local-lib-contained ./.perl5 Devel::Cover
     export PERL5LIB="$PWD/.perl5/lib/perl5${PERL5LIB:+:$PERL5LIB}"
     export PATH="$PWD/.perl5/bin:$PATH"
-    cover -delete
-    HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lr t
-    PERL5OPT=-MDevel::Cover prove -lr t
-    cover -report text -select_re '^lib/' -coverage statement -coverage subroutine
+    perl script/coverage-gate
 
-The repository target is 100% statement and subroutine coverage for `lib/`.
+`script/coverage-gate` is the canonical entrypoint and the one every CI
+workflow runs. It drops the coverage database, runs the instrumented suite,
+collects the `lib/` report and enforces 100.0 on statement, branch, condition
+and subroutine. Its exit status is the interface: `0` all four metrics at
+100.0, `1` a genuine shortfall, `2` the gate could not run or could not read
+its report, `3` the coverage instrument could not read its own database.
+
+The chain is one command rather than three because
+`Devel::Cover::DB::IO` picks its on-disk serialization format at `BEGIN` from
+whatever `@INC` makes visible and records the choice nowhere. Typed as separate
+shell lines, a library path omitted from one of them leaves the reader unable to
+parse what the writer just produced; running them as children of one process
+removes that split by construction. An exit `3` is an environment fault and is
+never fixed by re-running.
+
+The repository target is 100.0 on all four metrics for `lib/`.
 This is a standing QA gate for every change, not only releases. After the
 normal `prove -lr t` test gate passes, run the numeric `Devel::Cover` gate
-and do not treat the work as done until the `cover` summary still reports
-100% statement and 100% subroutine coverage for `lib/`.
+and do not treat the work as done until it exits `0`. Only one coverage run may
+be in flight on a host at a time, because instrumented timing-sensitive tests
+misread under contention.
 GitHub workflow coverage gates must match the `Devel::Cover` `Total` summary
 line by regex rather than one fixed-width spacing layout, because runner or
 module upgrades can change column padding without changing the real
