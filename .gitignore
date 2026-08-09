@@ -36,9 +36,12 @@ Developer-Dashboard-0*
 !integration/browser/run-bookmark-browser-smoke.pl
 updates/
 
-# The coverage gate takes an advisory lock here so two gates cannot delete
-# each other's database mid-run (DD-526). It is per-checkout runtime state.
-.coverage-gate.lock
+# The coverage gate takes an advisory lock so two gates cannot delete each
+# other's database mid-run (DD-526). The lock is named after the database it
+# guards and sits beside it, so the default cover_db at the root gives
+# .cover_db.lock here, and a --database elsewhere locks beside itself.
+.cover_db.lock
+.*.lock
 
 # Gate transcripts, written per run by whoever launched one.
 .gate-logs/

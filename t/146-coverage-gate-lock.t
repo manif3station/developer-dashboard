@@ -27,19 +27,31 @@ my $gate       = File::Spec->catfile( $repository, 'script', 'coverage-gate' );
 
 plan skip_all => "the coverage gate is not present at $gate" if !-f $gate;
 
-my $lock_path = File::Spec->catfile( $repository, '.coverage-gate.lock' );
+# The staged conflict is over a database of this test's own, never the real
+# cover_db. That is not merely tidiness. The gate names its lock after the
+# database it intends to own, so a private database gives a private lock, and
+# this file cannot be blocked by - or block - a genuine gate running on the same
+# host. An earlier version contended for one fixed repository-wide lock, which
+# meant the suite could not be run BY the gate: the gate held that lock for the
+# whole run and then refused the tests that drive it.
+my $database = File::Temp::tempdir( CLEANUP => 1 );
+my $scratch  = File::Spec->catdir( $database, 'cover_db' );
+
+# Mirrors _gate_lock_path in the script: a dotfile named after the database and
+# sitting beside it, so deleting the database cannot delete its own lock.
+my $lock_path = File::Spec->catfile( $database, '.cover_db.lock' );
 
 my $held;
 if ( !open $held, '+>>', $lock_path ) {
     plan skip_all => "the lock file $lock_path could not be opened: $!";
 }
 
-# A gate genuinely running on this host owns the lock already. Refusing to take
-# it is then correct behaviour by the thing under test, not a failure, and the
-# test cannot proceed without interfering with a real run.
-if ( !flock $held, LOCK_EX | LOCK_NB ) {
-    plan skip_all => 'another coverage gate holds the lock on this host';
-}
+# Deliberately fatal rather than a skip. Nothing else can hold this lock - the
+# directory was created moments ago and its name is known only to this process -
+# so a refusal here means the locking itself is broken. Skipping on that would
+# turn the one file that tests the lock into zero tests, and report it as green.
+flock $held, LOCK_EX | LOCK_NB
+    or die "Unable to take a private lock at $lock_path, which nothing else can hold: $!";
 
 plan tests => 9;
 
@@ -51,13 +63,6 @@ truncate $held, 0;
 seek $held, 0, 0;
 print {$held} "$$\n";
 $held->flush if $held->can('flush');
-
-my $database = File::Temp::tempdir( CLEANUP => 1 );
-
-# A database path inside a throwaway directory, so that even a catastrophic
-# misbehaviour - the gate ignoring the lock entirely and proceeding to delete -
-# cannot reach the real cover_db this repository keeps at its root.
-my $scratch = File::Spec->catdir( $database, 'cover_db' );
 
 my ( $refused_output, $refused_status ) = _run_gate( '--database', $scratch, 't/00-load.t' );
 

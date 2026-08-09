@@ -109,6 +109,16 @@ sub build_stub_path {
 sub run_entry {
     my ( $stub, @args ) = @_;
 
+    # Every run gets a database of its own unless the caller named one. The gate
+    # takes an exclusive lock on whatever database it is about to own, so a run
+    # that defaulted to the repository's real cover_db would contend with any
+    # genuine gate on this host - including the one running this very suite,
+    # which holds that lock for its entire duration. These runs drive stubbed
+    # commands and never touch a real database, so the private path costs
+    # nothing and removes the conflict entirely.
+    unshift @args, '--database', File::Spec->catdir( $stub->{dir}, 'cover_db' )
+        if !grep { $_ eq '--database' } @args;
+
     my ( $stdout, $stderr, $status ) = capture {
         local $ENV{PATH}                   = $stub->{dir} . ':' . $ENV{PATH};
         local $ENV{DD_COVERAGE_GATE_PROBE} = 'one-environment';

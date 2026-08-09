@@ -28,7 +28,21 @@ use constant EXIT_BUSY     => 4;
 # first act is to delete the database and a lock stored in there would be
 # removed by the very run it is meant to protect. It is a dotfile so that
 # Dist::Zilla's gatherer, which skips dotfiles, cannot ship it.
-use constant GATE_LOCK => '.coverage-gate.lock';
+#
+# It is named AFTER the database instead of being one fixed path, because what
+# must not be shared is the database, not the script. A single repository-wide
+# lock also refuses runs that were never in conflict - a gate given its own
+# --database contends for nothing - and that is not a theoretical tidiness: the
+# suite's own tests drive this script, so a fixed lock meant the gate could never
+# pass the suite it was running. It held the lock for the whole run and then
+# refused its own tests (DD-526).
+sub _gate_lock_path {
+    my ($database) = @_;
+
+    my ( $volume, $directories, $file ) = File::Spec->splitpath( File::Spec->rel2abs($database) );
+
+    return File::Spec->catpath( $volume, $directories, ".$file.lock" );
+}
 
 exit main(@ARGV);
 
@@ -88,7 +102,7 @@ sub main {
     # Taken after the dry run returns, so describing the chain never blocks on a
     # run in flight, and held in a lexical for the rest of main: the handle must
     # outlive the suite, because closing it releases the lock.
-    my $lock = _hold_gate_lock();
+    my $lock = _hold_gate_lock($database);
     return EXIT_BUSY if !defined $lock;
 
     my $dropped = _run( 'coverage database drop', @delete );
@@ -114,12 +128,15 @@ sub main {
 #          the database, so a second start wipes the first's accumulated data
 #          mid-suite and both then report on whatever survived. A run that
 #          cannot own the database must refuse rather than produce a figure.
-# Input: none; the lock path is fixed relative to the repository root, which
-#        main has already entered.
+# Input: the database this run intends to own; the lock is named after it, so
+#        two gates conflict exactly when they would share a database and not
+#        merely when they run at the same time.
 # Output: the open handle on success - the caller must keep it, since closing it
 #         releases the lock - or undef, having explained who holds it.
 sub _hold_gate_lock {
-    my $path = GATE_LOCK;
+    my ($database) = @_;
+
+    my $path = _gate_lock_path($database);
 
     my $handle;
     if ( !open $handle, '+>>', $path ) {
