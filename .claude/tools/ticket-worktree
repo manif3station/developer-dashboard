@@ -6,7 +6,9 @@
 #   Every ticket gets its OWN worktree, cut from origin/master, with the worktree
 #   folder and the branch both named for the ticket reference. All of that
 #   ticket's work happens inside it. At the git gate it merges back to master.
-#   The sandboxes themselves must never reach master.
+#   The sandboxes themselves must never reach master — and they live OUTSIDE the
+#   checkout, under ~/dd-worktree-sandbox, so that is true by construction rather
+#   than by an ignore line somebody could delete.
 #
 # WHY IT EXISTS RATHER THAN THREE GIT COMMANDS IN A COMMENT
 #   Two writers in one checkout destroy each other's work, and did: a ticket's
@@ -79,7 +81,20 @@ sub main {
     }
 
     my $root = repo_root();
-    my $path = File::Spec->catdir( $root, '.worktrees', $slug );
+
+    # OUTSIDE the repository, at ~/dd-worktree-sandbox, by the owner's answer to
+    # Q-004 on DD-530. Sandboxes used to live in .worktrees/ inside the checkout,
+    # which meant the rule "sandboxes must never reach master" was enforced by an
+    # ignore line - one edit away from being false. Put them outside the tree and
+    # the rule holds by construction: git cannot commit what is not in the
+    # working tree at all.
+    my $home = $ENV{HOME};
+    if ( !defined $home || $home eq '' ) {
+        say STDERR 'ticket-worktree: HOME is unset, so the sandbox root cannot be resolved';
+        return EXIT_UNUSABLE;
+    }
+    my $sandbox_root = $ENV{DD_WORKTREE_SANDBOX} || File::Spec->catdir( $home, 'dd-worktree-sandbox' );
+    my $path = File::Spec->catdir( $sandbox_root, $slug );
 
     # Re-open rather than recreate. A ticket that was already started has work in
     # its sandbox, and the standing instruction is to RESUME an existing worktree
@@ -153,10 +168,18 @@ coverage pass had to be discarded because the tree changed underneath it. Commit
 landed mid-edit. None of that was anyone misbehaving; a shared directory is not
 safe for concurrent work.
 
-The convention already existed — ticket work was supposed to live in
-C<.worktrees/dd-NNN> on a matching branch — and being a convention it was followed
-sometimes. This makes the correct thing the easy thing, and names the branch and
-the directory from the same reference so the two cannot drift apart.
+The convention already existed — ticket work was supposed to live in a worktree on
+a matching branch — and being a convention it was followed sometimes. This makes
+the correct thing the easy thing, and names the branch and the directory from the
+same reference so the two cannot drift apart.
+
+The sandboxes live under C<~/dd-worktree-sandbox>, OUTSIDE the checkout, by the
+owner's instruction. That matters more than it looks: while they lived in
+C<.worktrees/> inside the repository, "a sandbox must never reach master" was
+enforced by an ignore line, which is one edit away from being false. Outside the
+tree it is true by construction — git cannot commit what is not in the working
+tree. C<DD_WORKTREE_SANDBOX> overrides the root, which is what makes this
+testable.
 
 It cuts from C<origin/master> deliberately. A sandbox started from unpushed local
 state inherits work nobody else can see, and merging it back later carries changes
@@ -185,8 +208,8 @@ the release tarball.
 Start or resume the sandbox for a ticket:
 
     $ .claude/tools/ticket-worktree DD-530
-    ticket-worktree: DD-530 is sandboxed at /.../.worktrees/dd-530 on branch dd-530, cut from origin/master
-    /home/mv/projects/developer-dashboard/.worktrees/dd-530
+    ticket-worktree: DD-530 is sandboxed at /home/mv/dd-worktree-sandbox/dd-530 on branch dd-530, cut from origin/master
+    /home/mv/dd-worktree-sandbox/dd-530
 
 Refuse a reference that is not one, rather than inventing a directory for it:
 
