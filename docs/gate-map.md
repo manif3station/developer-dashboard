@@ -40,6 +40,22 @@ Tira collapses publishing into G13; DD splits it across two levels, and the spli
 - **Epic level → version gate.** Only once *every* ticket in the epic is done: bump
   `lib/**` `$VERSION` + `dist.ini` + main POD + `t/15`, commit, tag `vX.XX`, push. The tag
   fires the signed GitHub Release.
+- **Operator-repo cards satisfy the git gate at COMMIT, not at push.** Most tickets
+  land in this checkout, which has a remote, so "commit, tag and push" means what it
+  says. A minority land in the operator repository at `~/dd-tg` — the round wrappers,
+  the park, the session guard, the Telegram bridge — and that repository has **no
+  remote configured at all**. For those cards the push half of the gate does not
+  exist, so requiring it would leave them permanently short of a bar nothing can
+  clear, and the column would imply a push that is never going to happen (DD-504).
+
+  This is a statement of the current arrangement, not an endorsement of it. Sixteen
+  commits of automation live on exactly one disk. A daily verified `git bundle`
+  (`~/dd-tg/dd-tg-bundle.sh`, 04:17, retained a fortnight) protects against
+  git-level accidents — a bad reset, a deleted branch — and against **nothing else**:
+  the bundles sit on that same disk, so a disk failure takes them too. Whether that
+  repository should gain a remote is open-decisions row 24, and if the answer is yes
+  this clause should be deleted rather than amended.
+
 - **`release-to-pause` means "has been released to PAUSE"** (open-decisions row 4).
   Only the owner's explicit `dashboard pause-release` puts a card there. An agent moving a
   card into that column on its own is a rule violation, not a status update.
