@@ -25,6 +25,18 @@ local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} = tempdir( CLEANUP => 1 );
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
 local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
+# Read the shipped implementation while the process is still in the repository
+# root. Everything below runs from a throwaway HOME, so a repo-relative path
+# stops resolving the moment the chdir happens.
+my $HOUSEKEEPER_SOURCE = do {
+    my $path = File::Spec->catfile( 'lib', 'Developer', 'Dashboard', 'Housekeeper.pm' );
+    open my $fh, '<', $path or die "Unable to read $path: $!";
+    local $/;
+    my $text = <$fh>;
+    close $fh or die "Unable to close $path: $!";
+    $text;
+};
+
 chdir $home or die "Unable to chdir to $home: $!";
 
 my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
@@ -286,6 +298,33 @@ sub _is_inside {
     return $parent eq $wanted ? 1 : 0;
 }
 
+# ---------------------------------------------------------------------------
+# Anti-drift guard on the mechanism itself.
+#
+# Every assertion above is about observable behaviour, and behaviour assertions
+# cannot see a rewrite that reintroduces the defect on a path they happen not to
+# exercise. That is not a hypothetical: this is exactly how the defect survived
+# in the first place, because the pre-existing housekeeper coverage was green
+# while only ever building space-free temp directories. So the mechanism is
+# pinned directly -- a future rewrite that goes back to expanding a pattern
+# fails here rather than failing an operator whose temp path contains a space.
+#
+# POD and comments are stripped before the check, because both deliberately
+# discuss the glob that must not come back.
+# ---------------------------------------------------------------------------
+{
+    my $code = $HOUSEKEEPER_SOURCE;
+    $code =~ s/^__END__.*\z//ms;    # the POD names glob on purpose
+    $code =~ s/#[^\n]*$//mg;        # so do the explanatory comments
+
+    unlike( $code, qr/\bglob\b/, 'no shell-glob expansion remains anywhere in the Housekeeper implementation' );
+    like(
+        $HOUSEKEEPER_SOURCE,
+        qr/opendir\s+my\s+\$dh,\s*\$tmpdir/,
+        'the temp directory is enumerated with opendir rather than an expanded pattern'
+    );
+}
+
 done_testing();
 
 __END__
@@ -320,6 +359,14 @@ is covered for the same reason, because that is the shape a Windows temp path
 takes. The final blocks are regression guards holding the pre-existing
 space-free behaviour and the empty/missing directory outcomes unchanged, so a
 future rewrite cannot trade one correctness property for another.
+
+A last block pins the mechanism rather than the behaviour, asserting that no
+shell-glob expansion remains in the implementation and that the temp directory
+is enumerated with C<opendir>. That guard exists because behaviour assertions
+cannot see a rewrite that reintroduces the defect on a path they do not happen
+to exercise, which is precisely how this defect survived: the pre-existing
+housekeeper coverage measured green while only ever building space-free temp
+directories.
 
 =head1 PURPOSE
 
