@@ -44,6 +44,42 @@ sub _gate_lock_path {
     return File::Spec->catpath( $volume, $directories, ".$file.lock" );
 }
 
+# The name this lock used to have, before it was named after its database. A gate
+# started from the older script guards THIS path, so a gate started from the newer
+# one must guard it too or the two do not exclude each other at all - which is not
+# hypothetical: four gates ran against one cover_db while this was being written,
+# in two groups that were each internally exclusive and mutually invisible.
+#
+# The general rule, which outlives this particular rename: a lock is only a mutex
+# if every contender agrees on its name, so renaming one is never a pure refactor.
+# The changeover has to hold BOTH names for one release, after which this can go.
+#
+# A second and nastier property was found the same afternoon and is worth writing
+# down here, where the next person to touch this will see it: an flock's identity
+# is an INODE, not a path. Deleting a lock file does not fail and does not warn -
+# it silently revokes exclusion for every process still holding it, because the
+# next arrival creates a fresh file at the same path and locks that instead. Do
+# not unlink these, ever, and do not let a cleanup rule match them.
+use constant LEGACY_GATE_LOCK => '.coverage-gate.lock';
+
+# Purpose: list every lock path this run must hold to be sure it is alone with its
+#          database - which during a rename means the new name and the old one.
+# Input: the database this run intends to own.
+# Output: the lock paths, most specific first.
+sub _gate_lock_paths {
+    my ($database) = @_;
+
+    my @paths = ( _gate_lock_path($database) );
+
+    # Only the default database ever had the legacy lock. A run with its own
+    # --database never contended for it, so demanding it here would refuse runs
+    # that conflict with nothing - the exact fault DD-526 was fixed to avoid.
+    push @paths, File::Spec->rel2abs(LEGACY_GATE_LOCK)
+        if File::Spec->rel2abs($database) eq File::Spec->rel2abs('cover_db');
+
+    return @paths;
+}
+
 exit main(@ARGV);
 
 # Purpose: run the four-metric coverage gate end to end inside one environment.
@@ -102,8 +138,8 @@ sub main {
     # Taken after the dry run returns, so describing the chain never blocks on a
     # run in flight, and held in a lexical for the rest of main: the handle must
     # outlive the suite, because closing it releases the lock.
-    my $lock = _hold_gate_lock($database);
-    return EXIT_BUSY if !defined $lock;
+    my $locks = _hold_gate_locks($database);
+    return EXIT_BUSY if !defined $locks;
 
     my $dropped = _run( 'coverage database drop', @delete );
     return $dropped if $dropped != EXIT_CLEAN;
@@ -133,10 +169,29 @@ sub main {
 #        merely when they run at the same time.
 # Output: the open handle on success - the caller must keep it, since closing it
 #         releases the lock - or undef, having explained who holds it.
-sub _hold_gate_lock {
+sub _hold_gate_locks {
     my ($database) = @_;
 
-    my $path = _gate_lock_path($database);
+    my @held;
+    for my $path ( _gate_lock_paths($database) ) {
+        my $handle = _hold_gate_lock($path);
+
+        # All or nothing. Holding one of two names is worse than holding neither,
+        # because it looks like exclusion and is not: the run would proceed while
+        # a gate guarding the other name proceeded alongside it.
+        return undef if !defined $handle;
+
+        push @held, $handle;
+    }
+
+    return \@held;
+}
+
+# Purpose: take one named lock, reporting who holds it if it cannot be had.
+# Input: the lock path.
+# Output: the open handle, or undef having explained itself.
+sub _hold_gate_lock {
+    my ($path) = @_;
 
     my $handle;
     if ( !open $handle, '+>>', $path ) {
