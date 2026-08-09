@@ -46,3 +46,14 @@ updates/
 # Gate transcripts, written per run by whoever launched one.
 .gate-logs/
 .gate-*.log
+
+# Per-ticket worktree sandboxes. Every ticket is worked in its own worktree cut
+# from origin/master, named for the ticket reference, and merged back at the git
+# gate. Those sandboxes hold whole checkouts and must never reach master, which
+# is what ignoring them guarantees. Leaving them merely untracked relied on
+# nobody ever running `git add -A` from the repo root - a rule that protects
+# nothing the moment somebody, or something, forgets it.
+.worktrees/
+
+# Build spew from the dogfood runs, same class: untracked was never protection.
+dogfood-output/

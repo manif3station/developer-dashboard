@@ -388,6 +388,30 @@ SKIP: {
             "release tarball does not leak operator-local $operator_file",
         );
     }
+# Per-ticket worktree sandboxes must be git-ignored, not merely untracked.
+#
+# Every ticket is worked in its own worktree cut from origin/master, named for
+# the ticket reference, and merged back at the git gate. Each sandbox therefore
+# holds an ENTIRE second checkout of this repository. Untracked was never
+# protection: it relied on nobody ever running `git add -A` from the repo root,
+# which is a convention rather than a guarantee, and one stray add would commit
+# a whole checkout into master. dogfood-output/ is the same class - build spew
+# and browser QA screenshots of the operator's machine.
+{
+    my $gitignore = _slurp( _repo_path('.gitignore') );
+    for my $sandbox (qw(.worktrees dogfood-output)) {
+        like(
+            $gitignore,
+            qr{^\Q$sandbox\E/$}m,
+            "$sandbox/ is git-ignored so a stray add cannot commit a sandbox into master",
+        );
+    }
+
+    my @tracked = grep { m{^\.worktrees/} || m{^dogfood-output/} }
+      split /\n/, `git -C @{[ _repo_path() ]} ls-files 2>/dev/null`;
+    is_deeply( \@tracked, [], 'no sandbox file is tracked in this repository' );
+}
+
     # Untracked-but-not-ignored working directories are the same leak class as
     # the operator files above: GatherDir reads the disk, so .gitignore never
     # protects the tarball. dogfood-output/ in particular holds browser QA
