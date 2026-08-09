@@ -330,6 +330,8 @@ my @operator_local_files = qw(
 
     my @must_be_excluded = qw(
         cover_db/coverage.html
+        local/lib/perl5/Net/SSLeay.pod
+        audit-local/lib/perl5/CPANSA/DB.pm
         dogfood-output/screenshot.png
         .worktrees/dd-432/lib/Developer/Dashboard.pm
         node_modules/left-pad/index.js
@@ -390,7 +392,15 @@ SKIP: {
     # the operator files above: GatherDir reads the disk, so .gitignore never
     # protects the tarball. dogfood-output/ in particular holds browser QA
     # evidence and screenshots of the operator's machine.
-    for my $leak_prefix (qw(dogfood-output .worktrees)) {
+    # local/ and audit-local/ are the CI's own dependency trees, created by
+    # `cpanm -L local` and `cpanm -L audit-local` in the workflow that then builds
+    # the tarball. dzil gathers from disk, so a build running after a dependency
+    # install ships the dependencies: the PUBLISHED v4.25 carried 1206 local/ and
+    # 47 audit-local/ members, including Net::SSLeay's compiled .so built for the
+    # runner, and weighed 5.7MB against v4.22's 1.0MB (DD-522). It had never
+    # shipped before only because no release since v4.22 ever reached the build
+    # step at all.
+    for my $leak_prefix (qw(dogfood-output .worktrees local audit-local)) {
         my @leaked = grep { m{^Developer-Dashboard-\Q$version\E/\Q$leak_prefix\E/} } @files;
         is(
             scalar @leaked,
