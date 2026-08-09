@@ -15,12 +15,20 @@ use strict;
 use warnings;
 
 use Capture::Tiny qw(capture);
+use Fcntl qw(:flock);
 use File::Basename qw(dirname);
 use File::Spec;
 use Getopt::Long qw(GetOptions);
 
 use constant EXIT_CLEAN    => 0;
 use constant EXIT_UNUSABLE => 2;
+use constant EXIT_BUSY     => 4;
+
+# The lock lives beside the database rather than inside it, because the gate's
+# first act is to delete the database and a lock stored in there would be
+# removed by the very run it is meant to protect. It is a dotfile so that
+# Dist::Zilla's gatherer, which skips dotfiles, cannot ship it.
+use constant GATE_LOCK => '.coverage-gate.lock';
 
 exit main(@ARGV);
 
@@ -29,7 +37,8 @@ exit main(@ARGV);
 #        optional test paths which default to the whole t/ tree.
 # Output: an exit code - 0 every metric at 100.0, 1 a genuine shortfall, 2 the
 #         gate could not run or could not read its report, 3 the coverage
-#         instrument could not read its own database.
+#         instrument could not read its own database, 4 another gate already
+#         holds the database and this run refused rather than corrupt it.
 sub main {
     my @argv = @_;
 
@@ -76,6 +85,12 @@ sub main {
     _announce( $instrument, $database, \@delete, \@suite, \@report );
     return EXIT_CLEAN if $dry_run;
 
+    # Taken after the dry run returns, so describing the chain never blocks on a
+    # run in flight, and held in a lexical for the rest of main: the handle must
+    # outlive the suite, because closing it releases the lock.
+    my $lock = _hold_gate_lock();
+    return EXIT_BUSY if !defined $lock;
+
     my $dropped = _run( 'coverage database drop', @delete );
     return $dropped if $dropped != EXIT_CLEAN;
 
@@ -91,6 +106,61 @@ sub main {
         if $status != 0;
 
     return _judge( $checker, $database, $stdout . $stderr );
+}
+
+# Purpose: take an exclusive, non-blocking lock so that only one gate at a time
+#          owns the coverage database. Two gates sharing one database is not a
+#          slow build, it is a false number: each one's first act is to delete
+#          the database, so a second start wipes the first's accumulated data
+#          mid-suite and both then report on whatever survived. A run that
+#          cannot own the database must refuse rather than produce a figure.
+# Input: none; the lock path is fixed relative to the repository root, which
+#        main has already entered.
+# Output: the open handle on success - the caller must keep it, since closing it
+#         releases the lock - or undef, having explained who holds it.
+sub _hold_gate_lock {
+    my $path = GATE_LOCK;
+
+    my $handle;
+    if ( !open $handle, '+>>', $path ) {
+        _warn("the gate lock $path could not be opened: $!");
+        return undef;
+    }
+
+    if ( flock $handle, LOCK_EX | LOCK_NB ) {
+        # Record who holds it, for the benefit of whoever is refused next. The
+        # truncate matters: the file is opened for append so a shorter pid would
+        # otherwise leave the tail of a longer one behind it.
+        truncate $handle, 0;
+        seek $handle, 0, 0;
+        print {$handle} "$$\n";
+        $handle->flush if $handle->can('flush');
+        return $handle;
+    }
+
+    my $holder = _lock_holder($path);
+    print "coverage gate: refusing to run - another gate holds $path"
+        . ( defined $holder ? " (pid $holder)" : '' ) . "\n";
+    print "coverage gate: two gates on one database delete each other's data, "
+        . "so this run would report a number that means nothing\n";
+    close $handle;
+    return undef;
+}
+
+# Purpose: read the pid recorded by whichever gate currently holds the lock, so
+#          a refusal can name it instead of leaving the operator to hunt.
+# Input: the lock path.
+# Output: the recorded pid, or undef when it cannot be read.
+sub _lock_holder {
+    my ($path) = @_;
+
+    open my $handle, '<', $path or return undef;
+    my $line = <$handle>;
+    close $handle;
+
+    return undef if !defined $line;
+    chomp $line;
+    return $line =~ /\A([0-9]+)\z/ ? $1 : undef;
 }
 
 # Purpose: resolve the Devel::Cover serializer module this chain will use, so an
