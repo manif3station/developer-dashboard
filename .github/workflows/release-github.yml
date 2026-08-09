@@ -128,10 +128,12 @@ jobs:
 
       - name: Verify all-metric lib coverage
         run: |
-          cover -delete
-          HARNESS_PERL_SWITCHES='-MDevel::Cover=-blib,0' prove -lr t
-          cover -report text -select_re '^lib/' -coverage statement -coverage branch -coverage condition -coverage subroutine \
-            | perl script/check-all-metric-coverage
+          # One process runs the whole chain, so the drop, the instrumented
+          # suite and the report cannot see different library paths. A split
+          # chain lets Devel::Cover write one serialization format and read
+          # another, which surfaces as a parse error that reads like a corrupt
+          # database (DD-503).
+          perl script/coverage-gate
 
       - name: Build distribution tarball
         run: |
