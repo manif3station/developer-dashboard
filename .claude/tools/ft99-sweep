@@ -78,6 +78,14 @@ my @PRE_WORK = qw(
   blocked-by-dependency blocked-by-michael todo
 );
 
+# How long a card may sit before the sweep says so. A card in a working column is
+# claimed by somebody and should move within a working stretch; a card in a
+# pre-work column is allowed to wait, but not indefinitely - "the backlog is not a
+# rubbish bin". Both are overridable so the rule can be exercised without waiting
+# real days for it.
+my $STALE_WORKING_HOURS = $ENV{DD_FT99_STALE_HOURS}      // 6;
+my $STALE_WAITING_DAYS  = $ENV{DD_FT99_STALE_WAIT_DAYS}  // 14;
+
 my %IS_WORKING  = map { $_ => 1 } @WORKING;
 my %IS_DONE_NOT_RELEASED = map { $_ => 1 } @DONE_NOT_RELEASED;
 my %IS_TERMINAL = map { $_ => 1 } @TERMINAL;
@@ -122,53 +130,57 @@ sub ensure_library_path {
     return;
 }
 
-# Purpose: read the open-decisions page, which is where a question waiting on the
-#          owner has to be written down to exist at all.
-#
-#          This is read once, up front, and passed into the rules rather than
-#          being reached for inside them: the rule needs the page for every card
-#          in the column, and a check that re-reads a file per card invites the
-#          two of them to disagree.
-#
-# Input:   none; DD_DECISIONS_PAGE overrides the path, mirroring DD_FT99_LOG, so
-#          the rule can be exercised without editing the real page
-# Output:  the page text; dies with a readable reason when it cannot be read,
-#          because "could not look" is not "clean" (AC-3)
-sub load_decisions_page {
-    my $path = $ENV{DD_DECISIONS_PAGE}
-      || File::Spec->catfile( project_root(), 'docs', 'open-decisions.md' );
+# Purpose: how many hours ago a card last changed, from the board's own stamp.
+# Input:   a card record
+# Output:  hours as a number, or undef when the card carries no usable stamp
+sub hours_since_change {
+    my ($record) = @_;
+    my $stamp = $record->{last_updated} || $record->{created_at} or return;
+    my ( $y, $mo, $d, $h, $mi, $sec ) = $stamp =~ /\A(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/
+      or return;
+    require Time::Local;
+    my $then = eval { Time::Local::timegm( $sec, $mi, $h, $d, $mo - 1, $y ) };
+    return if !defined $then;
 
-    open my $fh, '<', $path
-      or die "the open-decisions page $path could not be read: $!\n";
-    my $text = do { local $/; <$fh> };
-    close $fh;
-
-    die "the open-decisions page $path is empty, so no question can be on it\n"
-      if !defined $text || $text !~ /\S/;
-
-    return $text;
+    # The stamp carries its own offset (+0100), so honour it rather than assuming
+    # UTC - an hour's error either way would make a fresh card look stale or hide
+    # one that is.
+    if ( $stamp =~ /([+-])(\d{2}):?(\d{2})\z/ ) {
+        my $offset = ( $2 * 3600 + $3 * 60 ) * ( $1 eq '-' ? -1 : 1 );
+        $then -= $offset;
+    }
+    return ( time - $then ) / 3600;
 }
 
-# Purpose: decide whether a card's question has actually been written onto the
-#          decisions page.
+# Purpose: list the questions on a card that are genuinely still waiting on the
+#          owner.
 #
-#          Presence of the ref is the whole test, deliberately. The page is
-#          append-only, so a question that was asked and then ANSWERED still has
-#          its row there; looking for an *unanswered* row would start reporting
-#          cards the moment their question was settled, which is the same defect
-#          in a new place.
+#          A question is open when it has no answer AND has not been discarded.
+#          Both facts come from the card itself, which is the point: this rule
+#          used to ask whether docs/open-decisions.md mentioned the reference,
+#          and that page was retired the day questions moved onto the cards. Two
+#          cards then sat in blocked-by-michael with everything answered while
+#          the sweep reported a clean board over them all morning, because their
+#          refs still appeared in old rows on a file nobody maintains any more.
 #
-#          The match is anchored on word boundaries because a substring test
-#          would let DD-49 ride on a row about DD-495 and silently pass a card
-#          whose question nobody ever asked - a cheap check returning a
-#          plausible answer, which is the exact shape of failure this project
-#          keeps paying for.
+#          That was the SECOND time this rule was wrong in the same way. Before
+#          the page it reported every card in the column unconditionally. Both
+#          versions outsourced the judgement instead of making it. This one reads
+#          the board and decides.
 #
-# Input:   $decisions = the page text, $ref = the card's reference
-# Output:  true when the ref appears on the page
-sub question_is_on_the_page {
-    my ( $decisions, $ref ) = @_;
-    return $decisions =~ /\b\Q$ref\E\b/;
+# Input:   a card record as the board returns it
+# Output:  list of question references still awaiting an answer
+sub open_questions {
+    my ($record) = @_;
+    return grep { defined }
+      map {
+        my $question = $_;
+        my $answered  = ( $question->{answer} // {} )->{text};
+        my $discarded = $question->{discarded_at};
+        ( !defined $answered || $answered !~ /\S/ ) && !defined $discarded
+          ? ( $question->{id} // '(unnamed question)' )
+          : undef
+      } @{ $record->{questions} // [] };
 }
 
 # Purpose: read one board as parsed records.
@@ -199,11 +211,9 @@ sub finding {
 
 # Purpose: apply every column-correctness rule to one already-loaded board set.
 # Input:   $boards = hashref of type => arrayref of records,
-#          $decisions = the open-decisions page text
 # Output:  arrayref of findings
 sub sweep {
-    my ( $boards, $decisions ) = @_;
-    $decisions = '' if !defined $decisions;
+    my ($boards) = @_;
     my @findings;
 
     my %by_ref;
@@ -247,8 +257,34 @@ sub sweep {
             # it - worse than an absent one, because it still looks like it is
             # working (DD-495). Every other rule here decides for itself; now so
             # does this one.
-            finding( \@findings, $ref, "waits in 'blocked-by-michael' but no row on docs/open-decisions.md mentions $ref, so it is a question nobody can see" )
-              if $column eq 'blocked-by-michael' && !question_is_on_the_page( $decisions, $ref );
+            my @waiting = open_questions($record);
+
+            # Parked on the owner with nothing left for him to answer. Either the
+            # question was settled and the card was never moved on, or it was
+            # parked on a decision nobody ever asked for.
+            finding( \@findings, $ref, "waits in 'blocked-by-michael' but every question on it is answered or discarded, so nothing is actually waiting on him" )
+              if $column eq 'blocked-by-michael' && !@waiting;
+
+            # The mirror, and the one that hides work rather than stalling it: a
+            # card carrying an unanswered question anywhere else is waiting on the
+            # owner somewhere he will never think to look.
+            finding( \@findings, $ref, 'holds ' . join( ', ', @waiting ) . " unanswered but sits in '$column', so it is waiting on him where he will not look" )
+              if @waiting && $column ne 'blocked-by-michael';
+
+            # Sitting still. A card in a working column says somebody is working
+            # it right now, so hours of silence there is a claim that has stopped
+            # being true - the "card sitting in progress for hours" case. A card
+            # waiting its turn is allowed to wait, but not for ever.
+            my $idle = hours_since_change($record);
+            if ( defined $idle ) {
+                finding( \@findings, $ref,
+                    sprintf( "sits in '%s' but has not changed for %.0f hours, so nothing is actually moving it", $column, $idle ) )
+                  if $IS_WORKING{$column} && $idle > $STALE_WORKING_HOURS;
+
+                finding( \@findings, $ref,
+                    sprintf( "has waited in '%s' untouched for %.0f days - the backlog is not a rubbish bin", $column, $idle / 24 ) )
+                  if $IS_PRE_WORK{$column} && $idle > $STALE_WAITING_DAYS * 24;
+            }
 
             # A parent out of step with its own children, in both directions.
             my @children = ( @{ $record->{linkage}{ticket_refs} // [] }, @{ $record->{linkage}{sub_epic_refs} // [] } );
@@ -348,18 +384,6 @@ sub main {
         return EXIT_UNUSABLE;
     };
 
-    # Read before the board, and before d2 is even located, on purpose: it is the
-    # cheapest input, it needs no subprocess, and failing here means the "could
-    # not look" case is unambiguous rather than sharing an exit code with a board
-    # that would not load (AC-3).
-    my $decisions = eval { load_decisions_page() };
-    if ( !defined $decisions ) {
-        my $error = $@ || 'unknown failure';
-        chomp $error;
-        say STDERR "ft99-sweep: UNUSABLE — $error";
-        return EXIT_UNUSABLE;
-    }
-
     my $d2 = locate_d2();
     if ( !$d2 ) {
         say STDERR 'ft99-sweep: UNUSABLE — cannot find bin/d2 relative to this script';
@@ -381,7 +405,7 @@ sub main {
     my $total = 0;
     $total += scalar @{ $boards{$_} } for keys %boards;
 
-    my $findings = sweep( \%boards, $decisions );
+    my $findings = sweep( \%boards );
     emit("ft99-sweep: swept $total cards across the sow, epic and ticket boards");
 
     if ( !@{$findings} ) {

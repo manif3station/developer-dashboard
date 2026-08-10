@@ -48,7 +48,14 @@ sub _coverage_invocations {
     my @hits;
     while ( my $line = <$fh> ) {
         chomp $line;
-        push @hits, { line => $., text => $line } if $line =~ m{-MDevel::Cover};
+        # `-MDevel::Cover::DB::IO` LOADS a submodule to ask where it lives; it
+        # does not start a coverage run, so blib isolation means nothing to it.
+        # Matching -MDevel::Cover as a bare substring caught it and demanded a
+        # flag that would be meaningless there - a cheap check returning a
+        # plausible answer, which is the shape of failure this repo keeps paying
+        # for. A harness invocation is -MDevel::Cover followed by its options.
+        next if $line =~ m{-MDevel::Cover::};
+        push @hits, { line => $., text => $line } if $line =~ m{-MDevel::Cover\b};
     }
     close($fh);
     return @hits;

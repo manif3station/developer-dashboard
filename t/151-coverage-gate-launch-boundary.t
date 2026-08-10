@@ -225,3 +225,60 @@ subtest 'a stamp write failure is announced rather than hidden' => sub {
     like( $source, qr/could not stamp the coverage database/,
         'a missing stamp is reported, because it silently disables the next check' );
 };
+
+__END__
+
+=head1 NAME
+
+151-coverage-gate-launch-boundary.t - pin the coverage gate's refusal to grade a
+database written by a different Devel::Cover
+
+=head1 PURPOSE
+
+Prove that the gate detects a coverage database written by a I<different>
+Devel::Cover install from the one now reading it, refuses to grade it, and names
+both installs in the refusal.
+
+=head1 WHY IT EXISTS
+
+The gate already guaranteed one environment for the three commands inside a single
+run, which is precisely why every check it made passed while the failure kept
+happening. What it did not defend was the boundary I<between> runs. C<cover_db>
+persists, and this host carries two Devel::Cover installs: launched with PERL5LIB
+set, the gate resolves the one under the operator's local library tree; launched
+through a login shell, which rebuilds PERL5LIB and PATH from the profile, it
+resolves the system one. Same command, same directory, same perl, two serializers.
+One writes the database, the other reads it, the formats disagree, and the gate
+reports a coverage failure that has nothing to do with the code.
+
+Two rounds were spent chasing that ghost. Before this, the case exited 2 with no
+explanation, and an unexplained 2 is indistinguishable from a real failure - which
+is what made it expensive rather than merely wrong.
+
+=head1 WHEN TO USE
+
+Run it whenever C<script/coverage-gate>, its stamping, or the way the suite is
+launched changes. It is part of the ordinary suite and needs no special
+environment.
+
+=head1 HOW TO USE
+
+    prove -lv t/151-coverage-gate-launch-boundary.t
+
+It builds its own throwaway database and stamps, so it never touches the real
+C<cover_db>.
+
+=head1 WHAT USES IT
+
+The full suite via C<prove -lr t>, the all-metric coverage gate, and the CI
+workflow that runs both.
+
+=head1 EXAMPLES
+
+The load-bearing assertion is that a mismatch is REPORTED rather than merely
+detected, because a silent refusal was the original defect:
+
+    like( $source, qr/could not stamp the coverage database/,
+        'a missing stamp is reported, because it silently disables the next check' );
+
+=cut
