@@ -1,3 +1,22 @@
+4.26  2026-08-10
+
+  - Packaging: stopped the release tarball carrying two things it never should
+    have. logs/ shipped the board sweep's own runtime output - findings about
+    this project's cards - to anyone who installed the product, because dzil
+    gathers from disk and cron recreates that directory hourly. SECURITY_CHECKS.md
+    shipped the internal security-audit protocol, which belongs with the operator
+    files that are deliberately never released. Both are excluded now and t/15
+    fails if either exclusion is removed.
+  - Board tooling: the FT99 sweep decides from the cards themselves instead of a
+    retired markdown page, so a card parked on the owner with nothing left to
+    answer is reported rather than silently accepted, and a card holding an
+    unanswered question anywhere else is reported too. It also reports a card
+    claimed in a working column that has stopped moving, and one left untouched in
+    the backlog.
+  - Coverage gate: refuses to grade a database written by a different
+    Devel::Cover install, and says which two disagree, instead of exiting with an
+    unexplained status.
+
 4.25  2026-08-09
 
   - CI: restored a pipeline that had certified nothing for ten days. Three
