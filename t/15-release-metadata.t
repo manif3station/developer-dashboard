@@ -81,7 +81,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.25', 'repo version bumped for the CI-restoration and security epic DD-449..DD-506' );
+is( $version, '4.26', 'repo version bumped for the packaging-hygiene epic DD-507..DD-533' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
@@ -296,6 +296,7 @@ my @operator_local_files = qw(
     FIXED_BUGS.md
     MISTAKE.md
     SCORECARD_ACTIONS.md
+    SECURITY_CHECKS.md
     SKILL.md
     SKILLS.md
     SOFTWARE_SPEC.md
@@ -332,6 +333,8 @@ my @operator_local_files = qw(
         cover_db/coverage.html
         local/lib/perl5/Net/SSLeay.pod
         audit-local/lib/perl5/CPANSA/DB.pm
+        logs/ft99.log
+        Developer-Dashboard-9.99/lib/Developer/Dashboard.pm
         dogfood-output/screenshot.png
         .worktrees/dd-432/lib/Developer/Dashboard.pm
         node_modules/left-pad/index.js
