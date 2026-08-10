@@ -57,3 +57,4 @@ updates/
 
 # Build spew from the dogfood runs, same class: untracked was never protection.
 dogfood-output/
+__pycache__/
