@@ -232,6 +232,49 @@ sub reported {
         'a park whose blocker is still open is left alone' );
 }
 
+# Admin Done is terminal (owner's decision, 2026-08-10, answering Q-011 on
+# DD-535). It exists because done-not-released was holding two unrelated states
+# at once: product work waiting for a release, and work that can never have one.
+# The sweep has to know, or every card the owner just moved there becomes a card
+# it cannot account for - and a park waiting on one would never clear.
+{
+    my $blocked = card(
+        ref     => 'DD-905',
+        column  => 'blocked-by-dependency',
+        linkage => { links => [ { ref => 'DD-906', type => 'is-blocked-by' } ], ticket_refs => [], sub_epic_refs => [] },
+    );
+    my $admin = card( ref => 'DD-906', column => 'admin-done' );
+
+    my $cleared = main::sweep( { ticket => [ $blocked, $admin ] } );
+    like( reported( $cleared, 'DD-905' ) // '', qr/the park has cleared/,
+        'a park waiting on a card that reached Admin Done is released, because that work is finished' );
+}
+
+{
+    my $findings = sweep_one( card( ref => 'DD-907', column => 'admin-done', assignee => '' ) );
+    is( reported( $findings, 'DD-907' ), undef,
+        'a finished admin card is not chased for having nobody on it - terminal columns are not working columns' );
+}
+
+{
+    my $stale = card( ref => 'DD-908', column => 'admin-done', last_updated => stamp_hours_ago(24 * 30) );
+    my $findings = sweep_one($stale);
+    is( reported( $findings, 'DD-908' ), undef,
+        'a finished admin card is not reported as stale however long it sits there' );
+}
+
+{
+    my $parent = card(
+        ref     => 'DDE-904',
+        column  => 'in-progress',
+        linkage => { links => [], ticket_refs => ['DD-909'], sub_epic_refs => [] },
+    );
+    my $child = card( ref => 'DD-909', column => 'admin-done' );
+    my $findings = main::sweep( { epic => [$parent], ticket => [$child] } );
+    like( reported( $findings, 'DDE-904' ) // '', qr/every one of its 1 children is terminal/,
+        'an epic whose only child reached Admin Done is reported as finished, not left working for ever' );
+}
+
 {
     my $parent = card(
         ref     => 'DDE-900',
