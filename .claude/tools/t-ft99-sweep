@@ -44,16 +44,37 @@ sub card {
         column   => 'todo',
         assignee => 'DD Bot',
         linkage  => { links => [], ticket_refs => [], sub_epic_refs => [] },
+        questions => [],
+        last_updated => stamp_hours_ago(0),
         %overrides,
     };
 }
 
+# Purpose: an ISO stamp a given number of hours in the past, so a test can say
+#          "this card has not moved for a day" without sleeping for one.
+# Input:   hours
+# Output:  stamp string in the board's own format
+sub stamp_hours_ago {
+    my ($hours) = @_;
+    my @t = gmtime( time - $hours * 3600 );
+    return sprintf( '%04d-%02d-%02dT%02d:%02d:%02d+0000',
+        $t[5] + 1900, $t[4] + 1, $t[3], $t[2], $t[1], $t[0] );
+}
+
+# Purpose: a question as the board returns one.
+# Input:   %overrides - typically answer/discarded_at
+# Output:  hashref
+sub question {
+    my (%overrides) = @_;
+    return { id => 'Q-001', text => 'A question', %overrides };
+}
+
 # Purpose: run the sweep's rules over a single-ticket board.
-# Input:   $record, $decisions_page_text
+# Input:   $record
 # Output:  arrayref of findings
 sub sweep_one {
-    my ( $record, $decisions ) = @_;
-    return main::sweep( { ticket => [$record] }, $decisions );
+    my ($record) = @_;
+    return main::sweep( { ticket => [$record] } );
 }
 
 # Purpose: answer "did the sweep report this ref?", which is the only question
@@ -72,51 +93,102 @@ sub reported {
 # AC-1 / AC-2 / AC-5: the blocked-by-michael rule decides for itself.
 # --------------------------------------------------------------------------
 
-my $PAGE_WITH_DDE001 = <<'PAGE';
-# Open decisions
-
-| # | Date | Question | Status | Answer |
-|---|------|----------|--------|--------|
-| 23 | 2026-08-08 | Do v4.23 and v4.24 both stand unpublished? | Open - blocking, DDE-001 is in `blocked-by-michael` | Recommendation: yes |
-PAGE
-
 {
-    my $findings = sweep_one( card( ref => 'DDE-001', column => 'blocked-by-michael' ), $PAGE_WITH_DDE001 );
+    # Parked on him with a question he has not answered: legitimate, stays quiet.
+    my $findings = sweep_one( card(
+        ref => 'DDE-001', column => 'blocked-by-michael',
+        questions => [ question( id => 'Q-050' ) ],
+    ) );
     is( reported( $findings, 'DDE-001' ), undef,
-        'AC-1 a parked card whose ref is on the decisions page is not reported' );
+        'a card parked on him with an unanswered question is not reported' );
 }
 
 {
-    my $findings = sweep_one( card( ref => 'DD-777', column => 'blocked-by-michael' ), $PAGE_WITH_DDE001 );
-    my $why = reported( $findings, 'DD-777' );
-    ok( defined $why, 'AC-2 a parked card mentioned nowhere on the page is reported' );
-    like( $why // '', qr/DD-777|open-decisions/,
-        'AC-2 the finding names the ref or the page, so a reader can act on it without opening the board' );
+    # Parked on him with nothing left to answer. This is the case that sat on the
+    # real board all morning while the sweep called it clean, because the old rule
+    # asked a retired markdown page instead of the card.
+    my $findings = sweep_one( card(
+        ref => 'DD-516', column => 'blocked-by-michael',
+        questions => [ question( id => 'Q-051', answer => { text => 'settled' } ) ],
+    ) );
+    my $why = reported( $findings, 'DD-516' );
+    ok( defined $why, 'a card parked on him with every question answered is reported' );
+    like( $why // '', qr/nothing is actually waiting on him/,
+        'the finding says what is wrong, not merely that something is' );
 }
 
 {
-    # The page is append-only: an answered question was still asked, so its card
-    # must not be reported. Presence of the ref is the test, not open-ness.
-    my $answered = "| 7 | 2026-08-01 | Some settled question about DD-321 | Answered | B |\n";
-    my $findings = sweep_one( card( ref => 'DD-321', column => 'blocked-by-michael' ), $answered );
-    is( reported( $findings, 'DD-321' ), undef,
-        'a card named in an ANSWERED row is not reported - the question was asked and settled' );
+    # A discarded question is not waiting on anybody either.
+    my $findings = sweep_one( card(
+        ref => 'DD-517', column => 'blocked-by-michael',
+        questions => [ question( id => 'Q-052', discarded_at => '2026-08-09T00:00:00+0000' ) ],
+    ) );
+    ok( defined reported( $findings, 'DD-517' ),
+        'a card parked on him whose only question was discarded is reported' );
 }
 
 {
-    # A substring match would let DD-49 ride on DD-495's row and silently pass a
-    # card whose question was never asked. This is the failure that makes a
-    # cheap check worse than none.
-    my $findings = sweep_one( card( ref => 'DD-49', column => 'blocked-by-michael' ), "row about DD-495 only\n" );
-    ok( defined reported( $findings, 'DD-49' ),
-        'AC-5 a ref is matched on a word boundary, so DD-49 is not satisfied by DD-495' );
+    # The mirror, and the one that HIDES work rather than stalling it: an
+    # unanswered question anywhere else is waiting on him where he will not look.
+    # This was live on the real board - Q-002 sat on a DISCARDED card.
+    my $findings = sweep_one( card(
+        ref => 'DD-511', column => 'discard',
+        questions => [ question( id => 'Q-002' ) ],
+    ) );
+    my $why = reported( $findings, 'DD-511' );
+    ok( defined $why, 'an unanswered question outside blocked-by-michael is reported' );
+    like( $why // '', qr/Q-002/,
+        'the finding names the question, so he can go straight to it' );
 }
 
 {
-    # The rule must not leak onto cards in other columns.
-    my $findings = sweep_one( card( ref => 'DD-500', column => 'todo' ), '' );
+    # No questions at all, in an ordinary column: neither rule may fire.
+    my $findings = sweep_one( card( ref => 'DD-500', column => 'todo' ) );
     is( reported( $findings, 'DD-500' ), undef,
-        'the decisions-page rule applies only to blocked-by-michael' );
+        'the question rules leave an ordinary card alone' );
+}
+
+# --------------------------------------------------------------------------
+# Sitting still. The owner asked for this explicitly: "check all cards like in
+# backlog and the card sitting in progress for hours, everything".
+# --------------------------------------------------------------------------
+
+{
+    my $findings = sweep_one( card(
+        ref => 'DD-525', column => 'in-progress',
+        last_updated => stamp_hours_ago(16),
+    ) );
+    my $why = reported( $findings, 'DD-525' );
+    ok( defined $why, 'a card claimed but untouched for hours is reported' );
+    like( $why // '', qr/has not changed for/,
+        'the finding says it has stopped moving, not merely that it exists' );
+}
+
+{
+    my $findings = sweep_one( card(
+        ref => 'DD-526', column => 'in-progress',
+        last_updated => stamp_hours_ago(1),
+    ) );
+    is( reported( $findings, 'DD-526' ), undef,
+        'a card worked within the hour is left alone' );
+}
+
+{
+    # The backlog is not a rubbish bin, but it is allowed to hold work that is
+    # genuinely waiting - so the window is long, and a fresh card is silent.
+    my $findings = sweep_one( card(
+        ref => 'DD-527', column => 'backlog',
+        last_updated => stamp_hours_ago( 30 * 24 ),
+    ) );
+    ok( defined reported( $findings, 'DD-527' ),
+        'a card left untouched in the backlog for a month is reported' );
+
+    my $fresh = sweep_one( card(
+        ref => 'DD-528', column => 'backlog',
+        last_updated => stamp_hours_ago(24),
+    ) );
+    is( reported( $fresh, 'DD-528' ), undef,
+        'a card waiting a day in the backlog is left alone' );
 }
 
 # --------------------------------------------------------------------------
@@ -125,19 +197,19 @@ PAGE
 # --------------------------------------------------------------------------
 
 {
-    my $findings = sweep_one( card( ref => 'DD-496', column => 'git-gate', assignee => '' ), $PAGE_WITH_DDE001 );
+    my $findings = sweep_one( card( ref => 'DD-496', column => 'git-gate', assignee => '' ) );
     like( reported( $findings, 'DD-496' ) // '', qr/no assignee/,
         'a card in a working column with nobody on it is reported' );
 }
 
 {
-    my $findings = sweep_one( card( ref => 'DD-497', column => 'git-gate', assignee => 'DD Bot' ), $PAGE_WITH_DDE001 );
+    my $findings = sweep_one( card( ref => 'DD-497', column => 'git-gate', assignee => 'DD Bot' ) );
     is( reported( $findings, 'DD-497' ), undef,
         'a working card with an assignee is left alone' );
 }
 
 {
-    my $findings = sweep_one( card( ref => 'DD-498', column => 'blocked-by-dependency' ), $PAGE_WITH_DDE001 );
+    my $findings = sweep_one( card( ref => 'DD-498', column => 'blocked-by-dependency' ) );
     like( reported( $findings, 'DD-498' ) // '', qr/names no blocking link/,
         'a dependency park naming no blocker is reported, because nothing can release it' );
 }
@@ -151,11 +223,11 @@ PAGE
     my $done    = card( ref => 'DD-400', column => 'release-to-pause' );
     my $open    = card( ref => 'DD-400', column => 'in-progress' );
 
-    my $cleared = main::sweep( { ticket => [ $blocked, $done ] }, $PAGE_WITH_DDE001 );
+    my $cleared = main::sweep( { ticket => [ $blocked, $done ] } );
     like( reported( $cleared, 'DD-499' ) // '', qr/the park has cleared/,
         'a park whose blocker reached a terminal column is reported as released' );
 
-    my $still = main::sweep( { ticket => [ $blocked, $open ] }, $PAGE_WITH_DDE001 );
+    my $still = main::sweep( { ticket => [ $blocked, $open ] } );
     is( reported( $still, 'DD-499' ), undef,
         'a park whose blocker is still open is left alone' );
 }
@@ -167,7 +239,7 @@ PAGE
         linkage => { links => [], ticket_refs => ['DD-901'], sub_epic_refs => [] },
     );
     my $child = card( ref => 'DD-901', column => 'in-progress' );
-    my $findings = main::sweep( { epic => [$parent], ticket => [$child] }, $PAGE_WITH_DDE001 );
+    my $findings = main::sweep( { epic => [$parent], ticket => [$child] } );
     like( reported( $findings, 'DDE-900' ) // '', qr/children have already started/,
         'an epic parked while its children work is reported - the failure this board actually suffered' );
 }
@@ -179,13 +251,13 @@ PAGE
         linkage => { links => [], ticket_refs => ['DD-903'], sub_epic_refs => [] },
     );
     my $child = card( ref => 'DD-903', column => 'release-to-pause' );
-    my $findings = main::sweep( { epic => [$parent], ticket => [$child] }, $PAGE_WITH_DDE001 );
+    my $findings = main::sweep( { epic => [$parent], ticket => [$child] } );
     like( reported( $findings, 'DDE-902' ) // '', qr/every one of its 1 children is terminal/,
         'a parent still working while every child is finished is reported' );
 }
 
 # --------------------------------------------------------------------------
-# AC-3: an unreadable decisions page is "could not look", never "clean".
+# AC-3: "could not look" is never "clean".
 #
 # Run as a subprocess, because the property under test is the process's EXIT
 # STATUS - the thing cron and any future CI step will actually read. Asserting
@@ -195,15 +267,14 @@ PAGE
 {
     my $tmp     = tempdir( CLEANUP => 1 );
     my $log     = File::Spec->catfile( $tmp, 'ft99.log' );
-    my $missing = File::Spec->catfile( $tmp, 'no-such-decisions-page.md' );
-
+    # A HOME with no board under it: the sweep can run but cannot read anything.
     my ( $stdout, $stderr, $exit ) = capture {
-        local $ENV{DD_FT99_LOG}        = $log;
-        local $ENV{DD_DECISIONS_PAGE}  = $missing;
+        local $ENV{DD_FT99_LOG} = $log;
+        local $ENV{HOME}        = File::Spec->catdir( $tmp, 'no-such-home' );
         system( $^X, $SWEEP );
     };
 
-    is( $exit >> 8, 3, 'AC-3 an unreadable decisions page exits 3' );
+    is( $exit >> 8, 3, 'AC-3 a board that cannot be read exits 3' );
     like( "$stdout$stderr", qr/UNUSABLE/,
         'AC-3 it says UNUSABLE, so the failure cannot be mistaken for a finding' );
     unlike( $stdout, qr/every card is in a column its evidence supports/,
