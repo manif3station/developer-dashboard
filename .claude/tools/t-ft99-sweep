@@ -232,6 +232,78 @@ sub reported {
         'a park whose blocker is still open is left alone' );
 }
 
+# DD-536: the waiting room has to be read, not just classified.
+#
+# Splitting Admin Done out made done-not-released a queue that drains, so a card
+# still in it after a release has shipped is a card that missed one. Nothing
+# checked that, and on the first day an epic sat there with its work already on
+# CPAN — found by the owner from a phone screenshot, which is the sweep's job.
+#
+# The shipped-check is INJECTED rather than reached for, so these cases are about
+# the verdict and not about git. The resolver's own two-source rule is exercised
+# separately below, against this repository's real history.
+{
+    my $card = card( ref => 'DD-910', column => 'done-not-released' );
+    my $findings = main::sweep( { ticket => [$card] }, sub { 'v4.26 as 25de3b1' } );
+    like( reported( $findings, 'DD-910' ) // '', qr/already in v4\.26 as 25de3b1/,
+        'a card left in the waiting room after its work shipped is reported, naming the tag and the commit' );
+}
+
+{
+    my $card = card( ref => 'DD-911', column => 'done-not-released' );
+    my $findings = main::sweep( { ticket => [$card] }, sub { undef } );
+    is( reported( $findings, 'DD-911' ), undef,
+        'a card whose work is in no release is left alone - it is legitimately waiting' );
+}
+
+{
+    my $card = card( ref => 'DD-912', column => 'in-progress' );
+    my $findings = main::sweep( { ticket => [$card] }, sub { 'v4.26 as 25de3b1' } );
+    unlike( reported( $findings, 'DD-912' ) // '', qr/waiting room|already in v4/,
+        'the rule applies to the waiting room only, not to every card whose work has shipped' );
+}
+
+# The resolver itself, against real history. Its whole value is refusing to
+# believe one cheap signal: yesterday a bare hex match credited cards to commits
+# titled with a RANGE of refs they never carried, and matched strings that merely
+# looked like SHAs. So a hit requires two independent sources to agree.
+{
+    my $checker = main::shipped_checker('.');
+  SKIP: {
+        skip 'not a git checkout with release tags', 3 if !$checker;
+
+        my $real = card(
+            ref      => 'DD-488',
+            column   => 'done-not-released',
+            comments => [ { body => 'landed as 25de3b1 and pushed' } ],
+        );
+        like( $checker->($real) // '', qr/^v\d+\.\d+ as 25de3b1/,
+            'a card citing a commit that is in the newest release tag, and whose subject names the card, is resolved as shipped' );
+
+        my $stranger = card(
+            ref      => 'DD-000',
+            column   => 'done-not-released',
+            comments => [ { body => 'landed as 25de3b1 and pushed' } ],
+        );
+        is( $checker->($stranger), undef,
+            'a real shipped commit that does not name this card proves nothing about it - the range-title trap' );
+
+        my $invented = card(
+            ref      => 'DD-913',
+            column   => 'done-not-released',
+            comments => [ { body => 'see deadbeef1 for the fix' } ],
+        );
+        is( $checker->($invented), undef,
+            'a hex string that is not a commit is not evidence, however much it looks like one' );
+    }
+}
+
+{
+    my $elsewhere = tempdir( CLEANUP => 1 );
+    is( main::shipped_checker($elsewhere), undef,
+        'where git cannot be consulted the resolver refuses to answer, so the caller must report could-not-look rather than clean' );
+}
+
 # Admin Done is terminal (owner's decision, 2026-08-10, answering Q-011 on
 # DD-535). It exists because done-not-released was holding two unrelated states
 # at once: product work waiting for a release, and work that can never have one.
