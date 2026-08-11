@@ -211,6 +211,61 @@ sub load_board {
     return $records;
 }
 
+# Purpose: build a resolver that answers "has this card's work already shipped?",
+#          or refuse to build one at all.
+# Input:   $root - a directory to ask git about
+# Output:  coderef taking one record and returning "vX.YY as <sha>" when that
+#          card's own work is inside the newest release tag; undef otherwise.
+#          Returns UNDEF ENTIRELY when git cannot be consulted, so the caller is
+#          forced to distinguish "nothing has shipped" from "I could not look".
+#
+# WHY TWO SOURCES AND NOT ONE
+#   Every cheap version of this check was tried by hand on this board and every
+#   one produced a plausible wrong answer. Matching DD-NNN in commit titles
+#   credited cards to a commit titled with a RANGE (`DD-505..DD-531`) that had
+#   carried none of them. Matching bare hex picked up strings that merely looked
+#   like abbreviated SHAs. So a hit requires the commit to be an ancestor of the
+#   tag AND its message to name the card. Either alone is a guess.
+sub shipped_checker {
+    my ($root) = @_;
+
+    my ( $tags, undef, $exit ) = capture {
+        system( 'git', '-C', $root, 'tag', '--list', 'v[0-9]*', '--sort=-v:refname' );
+    };
+    return if $exit != 0;
+
+    my ($tag) = grep { length } split /\n/, ( $tags // '' );
+    return if !defined $tag;
+
+    return sub {
+        my ($record) = @_;
+        my $ref = $record->{ref} // return;
+
+        my %seen;
+        my @candidates =
+          grep { !$seen{$_}++ }
+          map  { $_ =~ /\b([0-9a-f]{7,40})\b/g }
+          map  { $_->{body} // '' } @{ $record->{comments} // [] };
+
+        for my $sha (@candidates) {
+            my ( undef, undef, $ancestor ) = capture {
+                system( 'git', '-C', $root, 'merge-base', '--is-ancestor', $sha, $tag );
+            };
+            next if $ancestor != 0;
+
+            my ( $message, undef, $read ) = capture {
+                system( 'git', '-C', $root, 'log', '-1', '--format=%s%n%b', $sha );
+            };
+            next if $read != 0;
+            next if $message !~ /\b\Q$ref\E\b/;
+
+            return "$tag as $sha";
+        }
+
+        return;
+    };
+}
+
 # Purpose: state one finding in the form a stranger can act on without context.
 # Input:   $findings arrayref, $ref, $why
 # Output:  none (appends)
@@ -224,7 +279,7 @@ sub finding {
 # Input:   $boards = hashref of type => arrayref of records,
 # Output:  arrayref of findings
 sub sweep {
-    my ($boards) = @_;
+    my ( $boards, $shipped ) = @_;
     my @findings;
 
     my %by_ref;
@@ -256,6 +311,19 @@ sub sweep {
                     finding( \@findings, $ref, 'is parked on ' . join( ', ', @blockers ) . ', all of which are terminal — the park has cleared' )
                       if !@open;
                 }
+            }
+
+            # The waiting room, read rather than merely classified. Terminal for
+            # dependency purposes — the work IS finished — but a card still here
+            # after its release has gone out is a card that missed the move, and
+            # that only became legible once Admin Done took the permanent
+            # residents away. The first one was found by the owner from a phone
+            # screenshot; that is the job this rule takes back.
+            if ( $column eq 'done-not-released' && $shipped ) {
+                my $where = $shipped->($record);
+                finding( \@findings, $ref,
+                    "waits in 'done-not-released' but its work is already in $where, so the release it was waiting for has already happened" )
+                  if $where;
             }
 
             # A question that was never asked cannot be answered.
@@ -416,8 +484,23 @@ sub main {
     my $total = 0;
     $total += scalar @{ $boards{$_} } for keys %boards;
 
-    my $findings = sweep( \%boards );
+    # Built before the sweep so its absence can be announced rather than
+    # silently degrading the run into one that checks less than it appears to.
+    # A card can only be left in the waiting room by mistake if something reads
+    # the waiting room; if git cannot answer, that rule did not run, and saying
+    # so is the difference between a clean board and an unexamined one.
+    my $shipped = shipped_checker($root);
+    my $waiting_room = scalar grep { ( $_->{column} // '' ) eq 'done-not-released' }
+      map { @{$_} } values %boards;
+
+    my $findings = sweep( \%boards, $shipped );
     emit("ft99-sweep: swept $total cards across the sow, epic and ticket boards");
+
+    if ( !$shipped && $waiting_room ) {
+        emit( "ft99-sweep: COULD NOT LOOK — git could not name a release tag, so the $waiting_room card(s) in "
+              . "'done-not-released' were NOT checked against it; this run is not a clean bill for that column" );
+        return EXIT_UNUSABLE;
+    }
 
     if ( !@{$findings} ) {
         emit('ft99-sweep: every card is in a column its evidence supports');
