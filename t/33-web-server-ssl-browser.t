@@ -11,8 +11,10 @@ use Test::More;
 use Time::HiRes qw(sleep);
 
 use lib 'lib';
+use lib 't/lib';
 
 use Developer::Dashboard::JSON qw(json_encode);
+use Local::BoundedCommand qw(run_bounded);
 
 my $repo_root     = abs_path('.');
 my $repo_lib      = File::Spec->catdir( $repo_root, 'lib' );
@@ -130,7 +132,16 @@ eval {
         dashboard_bin => $dashboard_bin,
         pid           => $dashboard_pid,
     ) if $dashboard_pid;
-    die $error;
+
+    # A failing assertion and a finished plan, rather than die. Dying here left
+    # the harness reporting "Dubious ... no plan was declared", which states that
+    # something went wrong without stating what, and reads almost exactly like the
+    # output of a test file that handed its process away. This file's whole
+    # subject is now making a bad outcome legible, so it should not report its own
+    # failures in the one shape that is hardest to read.
+    fail('SSL browser smoke');
+    done_testing;
+    exit 1;
 };
 
 _stop_dashboard_server(
@@ -202,17 +213,36 @@ sub _run_command {
     my $command = $args{command} || [];
     die "run_command requires a command array reference\n" if ref($command) ne 'ARRAY' || !@{$command};
 
+    my $label = $args{label} || 'command';
+
     my $cwd = getcwd();
-    my ( $stdout, $stderr, $exit ) = capture {
+    my ( $stdout, $stderr, $bounded ) = capture {
         local %ENV = ( %ENV, %{ $args{env} || {} } );
         if ( defined $args{cwd} && $args{cwd} ne '' ) {
             chdir $args{cwd} or die "Unable to chdir to $args{cwd}: $!";
         }
-        system( @{$command} );
+
+        # Bounded, not bare. This call used to be a plain system(), and on
+        # 11 August 2026 the browser it launched never returned: the suite sat on
+        # this line for one day and twenty hours, holding a web server, a starman
+        # master and worker and a whole Chrome tree, while producing no failure,
+        # no exit status and no last line. A log that has stopped growing looks
+        # exactly like a log between two slow tests, so the wedge was reported as
+        # healthy progress. The browser fault is its own ticket; the bound is what
+        # makes any future instance legible instead of silent.
+        run_bounded(
+            command => $command,
+            seconds => _external_command_timeout_seconds(),
+            label   => $label,
+        );
     };
     chdir $cwd or die "Unable to restore cwd $cwd: $!";
 
-    die( ( $args{label} || 'command' ) . " failed with exit $exit\nSTDOUT:\n$stdout\nSTDERR:\n$stderr" )
+    die("$label timed out\n$bounded->{message}\nSTDOUT:\n$stdout\nSTDERR:\n$stderr")
+      if $bounded->{timed_out};
+
+    my $exit = $bounded->{exit};
+    die("$label failed with exit $exit\nSTDOUT:\n$stdout\nSTDERR:\n$stderr")
       if $exit != 0;
 
     return {
@@ -275,6 +305,23 @@ sub _wait_for_tcp {
         sleep 0.25;
     }
     die "Timed out waiting for SSL browser smoke server on port $port\n";
+}
+
+# _external_command_timeout_seconds()
+# Purpose: the wall-clock bound for one external command, generous enough that a
+# slow but healthy browser finishes and short enough that a wedge is found in
+# minutes rather than days.
+# Input: none.
+# Output: integer seconds.
+#
+# The default is deliberately far larger than any observed healthy run: the point
+# is not to catch slowness, it is to make sure the suite always reaches a verdict.
+# DD_EXTERNAL_COMMAND_TIMEOUT_SECONDS overrides it, which is what lets the bound
+# be exercised without waiting for the real one.
+sub _external_command_timeout_seconds {
+    my $override = $ENV{DD_EXTERNAL_COMMAND_TIMEOUT_SECONDS};
+    return $override if defined $override && $override =~ /\A[0-9]+\z/ && $override > 0;
+    return _coverage_requested() ? 300 : 180;
 }
 
 sub _tcp_probe_timeout_seconds {
