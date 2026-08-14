@@ -90,30 +90,6 @@
     },
     {
       "action": "bridge-reminder",
-      "age": "7d",
-      "message": "The board has not been backed up. Retiring the previous tracker nearly lost the most consequential open finding in the project; the gate trails live in the comments, not in the commits.",
-      "rule": "board-unbacked"
-    },
-    {
-      "action": "log-only",
-      "message": "Terminal column: the work is finished, so nobody is meant to be on it.",
-      "on_column": "done-not-released",
-      "rule": "card-unassigned"
-    },
-    {
-      "action": "log-only",
-      "message": "Terminal column: the work is finished, so nobody is meant to be on it.",
-      "on_column": "admin-done",
-      "rule": "card-unassigned"
-    },
-    {
-      "action": "log-only",
-      "message": "Terminal column: the work is finished, so nobody is meant to be on it.",
-      "on_column": "release-to-pause",
-      "rule": "card-unassigned"
-    },
-    {
-      "action": "bridge-reminder",
       "enter": "in-progress",
       "rule": "card-sandbox-missing",
       "sandbox": "/home/mv/dd-worktree-sandbox"
@@ -195,6 +171,19 @@
       "message": "A card reached the released column without recording WHICH version shipped it. Reconstructing that for 45 cards took two-source git archaeology on 10 August; the field would have made it a lookup.",
       "require": "fix_version",
       "rule": "card-metrics"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "7d",
+      "message": "The board has not been backed up. Retiring the previous tracker nearly lost the most consequential open finding in the project; the gate trails live in the comments, not in the commits.",
+      "rule": "board-unbacked"
+    },
+    {
+      "action": "bridge-reminder",
+      "enter": "git-gate",
+      "message": "A card reached the git gate without passing through the gates this project's SDLC requires. CVE-free and a green suite are per-ticket gates here, not optional stages, and a card that arrives at the commit without them has skipped the evidence rather than the ceremony.",
+      "require": "in-progress, vulnerability-scan, unit-test",
+      "rule": "column-skipped"
     }
   ],
   "declined": [
