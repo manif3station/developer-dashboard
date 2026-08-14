@@ -12,8 +12,24 @@ out=""
 for col in $(./bin/d2 tira.column.list --type ticket -o json 2>/dev/null \
   | python3 -P -c "import json,sys; print(' '.join(c['name'] for c in json.load(sys.stdin)))"); do
   case " $SKIP " in *" $col "*) continue;; esac
-  refs=$(timeout 40 ./bin/d2 tira.ticket.list --column "$col" --refs-only -o json 2>/dev/null \
-    | python3 -P -c "import json,sys; d=json.load(sys.stdin); print(','.join(d if isinstance(d,list) else d.get('refs',[])))" 2>/dev/null)
+  # A column that cannot be read is NOT an empty column. Under load d2 can time
+  # out and return nothing, and json.load on nothing raises - which printed a
+  # traceback as the pulse's entire output, telling the reader neither the board
+  # state nor that it had failed to look.
+  raw=$(timeout 40 ./bin/d2 tira.ticket.list --column "$col" --refs-only -o json 2>/dev/null)
+  if [ -z "$raw" ]; then
+    out="$out $col=UNREADABLE"
+    continue
+  fi
+  refs=$(printf '%s' "$raw" \
+    | python3 -P -c "
+import json,sys
+try:
+    d=json.load(sys.stdin)
+    print(','.join(d if isinstance(d,list) else d.get('refs',[])))
+except Exception:
+    print('UNPARSEABLE')
+" 2>/dev/null)
   [ -n "$refs" ] && out="$out $col=$refs"
 done
 sweep=$(.claude/tools/ft99-sweep 2>&1 | tail -1)
