@@ -22,6 +22,7 @@ our @EXPORT_OK = qw(
   build_workspace_plan
   list_sessions
   registered_workspace_dir
+  resolve_attach_runner
   resolve_ticket_request
   resolve_workspace_request
   run_ticket_command
@@ -168,6 +169,37 @@ sub tmux_command {
         stderr    => $stderr,
         exit_code => $exit_code,
     };
+}
+
+# exec_workspace_attach(%args)
+# Hands this process over to tmux for the attach, replacing the process image so
+# no perl parent is left waiting behind an interactive session.
+# Input: args array reference for tmux.
+# Output: never returns on success; dies when the handoff itself fails.
+sub exec_workspace_attach {
+    my (%args) = @_;
+    my $argv = $args{args} || [];
+    die 'tmux args must be an array reference' if ref($argv) ne 'ARRAY';
+
+    if ( !exec 'tmux', @{$argv} ) {    # uncoverable branch false
+        die "Unable to exec tmux to attach the workspace session: $!\n";
+    }
+}
+
+# resolve_attach_runner(%args)
+# Chooses what performs the attach: an explicitly supplied runner, otherwise an
+# injected tmux runner, otherwise the real exec handoff.
+# Input: optional attach and tmux coderefs.
+# Output: coderef that performs the attach.
+#
+# The tmux fallback is deliberate rather than incidental. A caller that injects a
+# tmux runner is observing this command instead of running it, and an observer
+# that got a real exec would have its process replaced mid-test. Routing the
+# attach to the same injected runner makes that impossible by construction, which
+# is worth more than the symmetry of always execing.
+sub resolve_attach_runner {
+    my (%args) = @_;
+    return $args{attach} || $args{tmux} || \&exec_workspace_attach;
 }
 
 # _tmux_stdout(%args)
@@ -501,7 +533,11 @@ sub run_workspace_command {
         tmux    => $tmux,
     );
 
-    my $attached = $tmux->( args => $plan->{attach_argv} );
+    # The handoff. Every tmux call above is a query or a setup command whose
+    # output is read; this one is interactive and lasts as long as the session,
+    # so it is not captured. On a real run this never returns.
+    my $attach = resolve_attach_runner(%args);
+    my $attached = $attach->( args => $plan->{attach_argv} ) || {};
     die sprintf "Unable to attach tmux ticket session '%s': %s%s",
       $plan->{session},
       ( $attached->{stderr} || '' ),
