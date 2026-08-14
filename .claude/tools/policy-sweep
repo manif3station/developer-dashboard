@@ -147,10 +147,23 @@ sub reconcile {
     }
     my %want_declined = map { $_->{rule} => $_ } @{ $manifest->{declined} || [] };
 
-    my %plan = ( ok => [], restore => [], redecline => [], new => [], retired => [], total => 0 );
+    my %plan = ( ok => [], restore => [], redecline => [], new => [], retired => [], conflicts => [], total => 0 );
 
     for my $rule ( @{$catalogue} ) {
         $plan{total}++;
+
+        # A decline on the board outranks the manifest. It is a decision with a
+        # reason attached, made later than this file, and restoring over it makes
+        # the decision look as though it never happened - which this sweep did on
+        # 2026-08-14, putting back a rule declined an hour earlier and sending it
+        # back to urgent. The disagreement is reported so the manifest can be
+        # corrected deliberately rather than silently overridden either way.
+        if ( $is_declined{$rule} && $want_declared{$rule} ) {
+            push @{ $plan{ok} }, $rule;
+            push @{ $plan{conflicts} },
+              "$rule is declined on the board but the manifest lists it as declared - the decline stands; update the manifest";
+            next;
+        }
 
         if ( $want_declared{$rule} ) {
             # Every entry for this rule is wanted; a rule may legitimately be
@@ -332,6 +345,7 @@ sub main {
         scalar @{ $plan->{ok} }, scalar @{ $plan->{restore} }, scalar @{ $plan->{redecline} }, scalar @{ $plan->{new} } );
 
     emit("policy-sweep: $_") for @acted;
+    emit("policy-sweep: CONFLICT - $_") for @{ $plan->{conflicts} || [] };
     emit("policy-sweep: RETIRED - the manifest wants '$_' but Tira no longer ships it; correct the manifest by hand")
       for @{ $plan->{retired} };
 
@@ -342,7 +356,7 @@ sub main {
     }
 
     return EXIT_MATCHED
-      if !@acted && !@{ $plan->{new} } && !@{ $plan->{retired} };
+      if !@acted && !@{ $plan->{new} } && !@{ $plan->{retired} } && !@{ $plan->{conflicts} || [] };
     return EXIT_DRIFT;
 }
 

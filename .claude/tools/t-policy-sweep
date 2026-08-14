@@ -167,6 +167,29 @@ DOC
     ok( $died, 'a catalogue whose format has changed is a loud failure, not an empty rule list' );
 }
 
+# A rule DECLINED on the board must never be restored from the manifest. This is
+# not hypothetical: on 2026-08-14 card-sandbox-missing was declined with a written
+# reason at 17:26, and this sweep put it back within the hour because the manifest
+# still listed it as declared. The rule then escalated to urgent again.
+#
+# A decline is a decision with a reason attached, made later than the file. A
+# checker that silently reverses a recorded decision is worse than no checker: it
+# looks like the decision never happened.
+{
+    my ( $catalogue, $live, $manifest ) = inputs(
+        catalogue => ['card-unassigned'],
+        live      => [],
+        manifest  => { declared => [ { rule => 'card-unassigned' } ], declined => [] },
+    );
+    my $plan = main::reconcile( $catalogue, $live, $manifest, ['card-unassigned'] );
+
+    is( bucket_of( $plan, 'card-unassigned' ), 'ok',
+        'a rule the board has DECLINED is not restored from the manifest, however the manifest describes it' );
+    is( scalar @{ $plan->{restore} }, 0, 'and nothing is queued to re-declare it' );
+    like( join( ' ', @{ $plan->{conflicts} || [] } ), qr/card-unassigned/,
+        'the disagreement is reported, so the manifest can be corrected deliberately' );
+}
+
 done_testing;
 
 __END__
