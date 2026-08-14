@@ -1,0 +1,62 @@
+#!/bin/bash
+# next-action - print the ONE thing to do next, or say why there is nothing.
+#
+# WHY THIS EXISTS (DD-544)
+#   The agent stops working after writing a report. The turn ends when it stops
+#   calling tools, and composing a summary is what makes it stop: a finished
+#   report reads as a delivered artifact, and nothing sat between "report written"
+#   and "turn ends" to ask what came next. Six stalls in one day, every time with
+#   the next step already written on the card.
+#
+#   So the board is consulted BEFORE the summary rather than after, and the answer
+#   is mechanical rather than remembered.
+#
+# Exit codes: 0 there is a next action (printed), 1 nothing actionable (reason
+# printed), 3 could not read the board - never silently "nothing to do".
+cd /home/mv/projects/developer-dashboard || exit 3
+export PERL5LIB="$HOME/perl5/lib/perl5"
+
+# DD_NEXT_ACTION_D2 is the test seam: the guard's most important property is that
+# it never reports "nothing to do" when it could not look, and that cannot be
+# asserted without being able to hand it a board it cannot read.
+D2="${DD_NEXT_ACTION_D2:-./bin/d2}"
+
+col() {
+  timeout 40 "$D2" tira.ticket.list --column "$1" --refs-only -o json 2>/dev/null \
+    | python3 -P -c "import json,sys; d=json.load(sys.stdin); print(' '.join(d if isinstance(d,list) else d.get('refs',[])))" 2>/dev/null
+}
+
+probe=$(timeout 40 "$D2" tira.ticket.list --column in-progress --count -o json 2>/dev/null)
+[ -z "$probe" ] && { echo "next-action: COULD NOT READ THE BOARD - this is not 'nothing to do'"; exit 3; }
+
+# In progress first: never answer "start something new" while something is claimed.
+for ref in $(col in-progress); do
+  echo "NEXT: $ref is in progress. Continue it - its next step is on the card (d2 tira.ticket.show --ref $ref)."
+  exit 0
+done
+
+# Blocked on the owner is not free capacity; name what he owes.
+blocked=$(col blocked-by-michael)
+for ref in $(col todo) $(col ready) $(col planning); do
+  echo "NEXT: $ref is waiting to be started (d2 tira.ticket.show --ref $ref). Claim it and work it."
+  exit 0
+done
+
+for ref in $(col final-check) $(col git-gate) $(col done-not-released); do
+  echo "NEXT: $ref has finished work that has not been landed - gate it, record the gates, and move it."
+  exit 0
+done
+
+if [ -n "$blocked" ]; then
+  echo "NOTHING ACTIONABLE: everything open is waiting on the owner ($blocked). Check the questions are real and answerable, then stop."
+  exit 1
+fi
+
+back=$(col backlog)
+if [ -n "$back" ]; then
+  echo "NOTHING IN FLIGHT: only backlog cards remain ($back). Each is parked on a condition - check whether any condition has cleared."
+  exit 1
+fi
+
+echo "NOTHING ACTIONABLE: no open card in any working, waiting or backlog column."
+exit 1
