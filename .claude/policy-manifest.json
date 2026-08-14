@@ -90,12 +90,6 @@
     },
     {
       "action": "bridge-reminder",
-      "enter": "in-progress",
-      "rule": "card-sandbox-missing",
-      "sandbox": "/home/mv/dd-worktree-sandbox"
-    },
-    {
-      "action": "bridge-reminder",
       "message": "The card has been talked about since it was last written down. On this project the talking happens on Telegram and in this session, both of which vanish; only the card survives. Seven decisions were found settled and lost this way in a single sweep.",
       "rule": "conversation-not-folded"
     },
@@ -198,7 +192,11 @@
     {
       "reason": "Most cards here genuinely depend on nothing, so requiring a dependency link would manufacture false relationships to satisfy a checker - which is worse than no rule, because an invented link is indistinguishable from a real one afterwards. Real blocks are recorded when they exist, as DD-532 is on DD-534.",
       "rule": "card-unlinked"
+    },
+    {
+      "reason": "Police cannot read this repository from wherever it runs - it reports zero branches and no work trees at all, and says so itself. The rule is correct and caught a real omission, but while its subject is wrong it returns the same answer for every card, escalating to urgent, which teaches the reader to skim the channel. The check is not lost: it runs in .claude/tools/ft99-sweep, which executes inside the checkout and can read git. Re-declare the moment police can see this repository (TKT-178 asks for a project-level repository setting).",
+      "rule": "card-sandbox-missing"
     }
   ],
-  "note": "The policy set this project decided. .claude/tools/policy-sweep reconciles the live board against this hourly: a missing entry is restored, and a catalogue rule absent from both is reported as needing a decision rather than declared."
+  "note": "The policy set this project decided. policy-sweep reconciles the live board against this hourly. A rule DECLINED on the board is never restored from here: a decline is a decision with a reason attached and is more recent than this file."
 }
