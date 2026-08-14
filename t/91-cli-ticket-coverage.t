@@ -877,6 +877,27 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
     );
 }
 
+
+{
+    # The exec handoff, driven through a FAILING exec - which is how PageRuntime
+    # and SkillDispatcher cover their identical handoffs. With no tmux on PATH the
+    # exec returns instead of replacing this process, so the statement and the
+    # true branch are both recorded, and only a SUCCESSFUL exec stays unreachable.
+    local $ENV{PATH} = $empty_bin;
+
+    # Perl warns "Can't exec ..." when exec fails, which is the expected
+    # behaviour under test rather than a defect. Suppressed for this block ONLY -
+    # the suite-wide no-warnings assertion stays intact, because weakening it
+    # would hide every other warning this file exists to catch.
+    local $SIG{__WARN__} = sub { return };
+
+    like(
+        error_from( sub { Developer::Dashboard::CLI::Ticket::exec_workspace_attach( args => ['attach-session'] ) } ),
+        qr/Unable to exec tmux to attach the workspace session/,
+        'when the handoff cannot exec at all it says so, rather than failing silently',
+    );
+}
+
 is_deeply( \@warnings, [], 'no warnings were emitted during the CLI ticket coverage run' )
   or diag( "warnings:\n" . join( '', @warnings ) );
 
