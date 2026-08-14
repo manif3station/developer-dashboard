@@ -45,6 +45,10 @@ sub card {
         assignee => 'DD Bot',
         linkage  => { links => [], ticket_refs => [], sub_epic_refs => [] },
         questions => [],
+        # A well-formed card being worked records the work tree it is worked in,
+        # so the default fixture carries one and a test that cares about its
+        # absence says so explicitly.
+        sandbox      => $FindBin::Bin,
         last_updated => stamp_hours_ago(0),
         %overrides,
     };
@@ -425,6 +429,40 @@ sub reported {
         'AC-3 it says UNUSABLE, so the failure cannot be mistaken for a finding' );
     unlike( $stdout, qr/every card is in a column its evidence supports/,
         'AC-3 it never prints a clean verdict it did not earn' );
+}
+
+# The sandbox check, MOVED here from police (2026-08-14). The policy rule is
+# correct and caught a real omission - four sandboxes existed here and none was
+# recorded on its card. But police cannot read this repository from wherever it
+# runs: it reports zero branches and no work trees at all, and says so itself. The
+# rule therefore returned the same answer for every card whatever the truth was,
+# four times, escalating to urgent. A rule that can only come back red teaches its
+# reader to skim the channel - worse than no rule, because it still looks like one.
+#
+# The check is not abandoned. It is moved to the one place that CAN see the
+# repository: the checkout this sweep runs in.
+{
+    my $claimed = card( ref => 'DD-930', column => 'in-progress', sandbox => '/nowhere/that/exists' );
+    like( reported( sweep_one($claimed), 'DD-930' ) // '', qr/work tree/,
+        'a card being worked whose recorded work tree is not there is reported' );
+}
+
+{
+    my $none = card( ref => 'DD-931', column => 'in-progress', sandbox => '' );
+    like( reported( sweep_one($none), 'DD-931' ) // '', qr/work tree/,
+        'a card being worked that records no work tree at all is reported' );
+}
+
+{
+    my $fine = card( ref => 'DD-932', column => 'in-progress', sandbox => $FindBin::Bin );
+    is( reported( sweep_one($fine), 'DD-932' ), undef,
+        'a card whose recorded work tree exists is left alone' );
+}
+
+{
+    my $waiting = card( ref => 'DD-933', column => 'todo', sandbox => '/nowhere/that/exists' );
+    is( reported( sweep_one($waiting), 'DD-933' ), undef,
+        'a card that is not being worked is never asked for a work tree' );
 }
 
 done_testing();

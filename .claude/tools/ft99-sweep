@@ -326,6 +326,25 @@ sub sweep {
                   if $where;
             }
 
+            # The work tree a card claims must actually be there. This check
+            # lived in a Tira policy until 2026-08-14, where it was correct and
+            # useless: police reads git from wherever it runs, could see no
+            # repository at all, and so returned the same answer for every card
+            # four times until it escalated to urgent. It runs here instead
+            # because this sweep runs IN the checkout, which is the only place
+            # the question can be answered truthfully.
+            if ( $column eq 'in-progress' ) {
+                my $sandbox = $record->{sandbox};
+                if ( !defined $sandbox || $sandbox eq '' ) {
+                    finding( \@findings, $ref,
+                        "is being worked in '$column' but records no work tree - a tree on disk says nothing about which card owns it, so the card must claim one with tira.ticket.update --sandbox" );
+                }
+                elsif ( !-d $sandbox ) {
+                    finding( \@findings, $ref,
+                        "records a work tree at $sandbox that is not there, so either it was removed or the card is claiming somebody else's" );
+                }
+            }
+
             # A question that was never asked cannot be answered.
             #
             # This rule used to fire on the column alone and tell the reader to
