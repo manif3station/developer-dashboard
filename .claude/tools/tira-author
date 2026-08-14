@@ -1,0 +1,68 @@
+#!/usr/bin/env perl
+
+# Print the board author name for whatever is running right now.
+#
+# Every write to the board takes --author, and it is free text. On this project
+# every actor typed the same value into it, so the board could not tell them
+# apart. This resolves an actor name instead of leaving it to be remembered.
+#
+# Run: .claude/tools/tira-author
+#      d2 tira.comment.add --ref DD-1 --author "$(.claude/tools/tira-author)" --text "..."
+
+use strict;
+use warnings;
+use utf8;
+
+# The shared name that every actor used, and the whole reason this exists. It is
+# named here so it can be refused rather than merely avoided by habit.
+my $SHARED = 'DD Bot';
+
+# The identity for anything without a person at the keyboard: cron, the monitors,
+# the collectors, and any round they spawn.
+my $AUTOMATION = 'dd-hourly';
+
+# The identity for an interactive session.
+my $INTERACTIVE = 'dd-session';
+
+# Usable as an author without quoting at any call site.
+my $SAFE = qr/\A[A-Za-z0-9_-]+\z/;
+
+# Purpose: resolve the author name for the current process.
+# Input:   none; reads DD_TIRA_AUTHOR and whether stdin is a terminal
+# Output:  the name, or dies with a message naming what is wrong
+sub resolve_author {
+    my $declared = $ENV{DD_TIRA_AUTHOR};
+
+    if ( defined $declared && $declared ne '' ) {
+        # Trusted, but not blindly. A declared name that needs quoting would
+        # arrive on a card mangled by whichever call site quoted it wrongly, and
+        # a mangled author is the same failure as a shared one - two actors that
+        # a reader cannot separate.
+        die "DD_TIRA_AUTHOR is '$declared', which needs quoting to use as an author."
+          . " Use only letters, digits, hyphen and underscore.\n"
+          if $declared !~ $SAFE;
+
+        die "DD_TIRA_AUTHOR is set to '$SHARED', the shared name this exists to replace."
+          . " Name the actor instead.\n"
+          if $declared eq $SHARED;
+
+        return $declared;
+    }
+
+    # No declaration, so decide from the process itself. A controlling terminal
+    # means a person is driving; cron, the monitors and the collectors have none.
+    # This is deliberately a property of the process rather than an environment
+    # marker: a marker is inherited by every forked child, which is exactly how a
+    # collector's own worker was once counted as a second supervisor.
+    return -t STDIN ? $INTERACTIVE : $AUTOMATION;
+}
+
+my $author = resolve_author();
+
+# The one answer that must never come out of here. Reaching this would mean a
+# constant above had been edited to the shared name; the check costs nothing and
+# refuses the failure at its source rather than on a card.
+die "Resolved the shared author name, which defeats the purpose of this tool.\n"
+  if $author eq $SHARED;
+
+print "$author\n";
