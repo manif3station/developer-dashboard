@@ -62,16 +62,42 @@ sub run_with_env {
     }
 }
 
-# A process with no controlling terminal is not a person at a keyboard. Cron, the
-# monitors and the collectors all start that way, and that is exactly the actor
-# whose comments were indistinguishable from the session's.
-#
-# Note this is asserted through capture, which already redirects stdin - so the
-# environment here IS the non-interactive one, not a simulation of it.
+# Cron, the monitors and the collectors are started by the system and carry no
+# session identifier. Nothing declared and no session means automation.
 {
     my ( $out, $err, $exit ) = run_with_env( HOME => $ENV{HOME}, PATH => '/usr/bin:/bin' );
     is( $out, 'dd-hourly',
-        'with no terminal and no declared name the actor resolves to the automation identity' );
+        'a process with no declared name and no session resolves to the automation identity' );
+}
+
+# THE BUG THE FIRST VERSION OF THIS TOOL HAD, and it survived about one minute of
+# use. The resolver tested `-t STDIN`, on the reasoning that a person at a
+# keyboard has a terminal and cron does not. An agent tool-shell has no terminal
+# either, so the very session driving this project was told it was the hourly
+# automation - the exact collision this card exists to stop, reintroduced by the
+# fix for it.
+#
+# A session carries a session identifier; cron does not. That is a real
+# difference between the two, where the terminal was not.
+{
+    for my $marker (qw(CLAUDE_CODE_SESSION_ID CLAUDE_SESSION_ID)) {
+        my ( $out, $err, $exit ) = run_with_env(
+            HOME    => $ENV{HOME},
+            PATH    => '/usr/bin:/bin',
+            $marker => 'abc-123',
+        );
+        is( $out, 'dd-session',
+            "a session identified by $marker is not mistaken for the automation, terminal or not" );
+    }
+
+    # An empty marker is not a session. A variable that exists but says nothing is
+    # the shape of every instrument failure recorded on this project.
+    my ( $out, $err, $exit ) = run_with_env(
+        HOME                   => $ENV{HOME},
+        PATH                   => '/usr/bin:/bin',
+        CLAUDE_CODE_SESSION_ID => '',
+    );
+    is( $out, 'dd-hourly', 'an empty session identifier is not treated as a session' );
 }
 
 # The name has to be usable as an author on the board, which means no whitespace

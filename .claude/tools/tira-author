@@ -49,12 +49,26 @@ sub resolve_author {
         return $declared;
     }
 
-    # No declaration, so decide from the process itself. A controlling terminal
-    # means a person is driving; cron, the monitors and the collectors have none.
-    # This is deliberately a property of the process rather than an environment
-    # marker: a marker is inherited by every forked child, which is exactly how a
-    # collector's own worker was once counted as a second supervisor.
-    return -t STDIN ? $INTERACTIVE : $AUTOMATION;
+    # No declaration, so decide from the process itself.
+    #
+    # THE FIRST VERSION OF THIS ASKED THE WRONG QUESTION, and using it caught that
+    # within a minute: it tested `-t STDIN`, reasoning that a person at a keyboard
+    # has a terminal and cron does not. An agent tool-shell has no terminal either,
+    # so the interactive session driving this project was told it was the hourly
+    # automation - which is precisely the collision this whole card exists to stop.
+    #
+    # A session carries a session identifier in its environment; cron, the
+    # monitors and the collectors are started by the system and carry none. That
+    # is a real difference between the two, where the terminal was not.
+    #
+    # It is still only a default, and the reason is worth stating: an hourly round
+    # that is ITSELF an agent would carry a session id too. So automation declares
+    # itself explicitly - the cron line sets DD_TIRA_AUTHOR - and this fallback
+    # only has to be right about everything that has not been configured yet.
+    return $INTERACTIVE if grep { defined $ENV{$_} && $ENV{$_} ne '' }
+      qw(CLAUDE_CODE_SESSION_ID CLAUDE_SESSION_ID);
+
+    return $AUTOMATION;
 }
 
 my $author = resolve_author();
