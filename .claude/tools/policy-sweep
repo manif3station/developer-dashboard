@@ -36,6 +36,7 @@ use warnings;
 use feature 'say';
 
 use FindBin;
+use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
 use JSON::XS;
@@ -56,13 +57,32 @@ our $LOG_HANDLE;
 # Input:   none
 # Output:  absolute path to the project root
 sub project_root {
-    # DD_POLICY_SWEEP_ROOT is the testability seam, and it is needed rather than
-    # convenient: Tira discovers its project by walking up from the WORKING
-    # DIRECTORY, so a copy of this script running inside a ticket sandbox cannot
-    # resolve the board at all - it exits 3 saying so, correctly, which makes it
-    # untestable from the sandbox it is developed in without this override.
+    # DD_POLICY_SWEEP_ROOT stays as an explicit override for a test that wants to
+    # point this somewhere specific.
+    #
+    # It used to be REQUIRED from a ticket sandbox, and the comment here said so:
+    # a copy running inside a worktree could not resolve the board at all. That
+    # note described a real defect (DD-545) and quietly normalised it - the
+    # workaround made the tool testable while leaving every unattended run from a
+    # sandbox broken, and every card here is worked in a sandbox. A documented
+    # workaround is still a defect; it is just one nobody will report.
     return $ENV{DD_POLICY_SWEEP_ROOT} if defined $ENV{DD_POLICY_SWEEP_ROOT} && -d $ENV{DD_POLICY_SWEEP_ROOT};
-    return File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, File::Spec->updir, File::Spec->updir ) );
+
+    my $here = File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, File::Spec->updir, File::Spec->updir ) );
+
+    # git resolves the MAIN checkout from inside any linked worktree, which is
+    # what this needs: the layered runtime carrying the board's project selector
+    # exists only there.
+    my ( $common, undef, $exit ) = capture {
+        system( 'git', '-C', $here, 'rev-parse', '--path-format=absolute', '--git-common-dir' );
+    };
+    return $here if $exit != 0;
+
+    chomp $common;
+    return $here if $common eq '';
+
+    my $root = dirname($common);
+    return -d $root ? $root : $here;
 }
 
 # Purpose: extend PERL5LIB in place, because cron reads no shell profile and d2
