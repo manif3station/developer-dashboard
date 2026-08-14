@@ -846,6 +846,19 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
         'a refused attach still fails loudly when it comes back through an attach runner' );
 }
 
+
+# exec_workspace_attach's GUARD is reachable even though its handoff is not: it
+# rejects a bad argv before reaching exec. Covering it matters because the sub
+# was otherwise entirely unexercised, which read as a subroutine nobody calls
+# rather than as a handoff nobody can record.
+{
+    like(
+        error_from( sub { Developer::Dashboard::CLI::Ticket::exec_workspace_attach( args => 'not-an-array' ) } ),
+        qr/tmux args must be an array reference/,
+        'the exec handoff refuses a non-array argv before it hands the process away',
+    );
+}
+
 is_deeply( \@warnings, [], 'no warnings were emitted during the CLI ticket coverage run' )
   or diag( "warnings:\n" . join( '', @warnings ) );
 

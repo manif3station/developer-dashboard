@@ -181,8 +181,12 @@ sub exec_workspace_attach {
     my $argv = $args{args} || [];
     die 'tmux args must be an array reference' if ref($argv) ne 'ARRAY';
 
-    if ( !exec 'tmux', @{$argv} ) {    # uncoverable branch false
-        die "Unable to exec tmux to attach the workspace session: $!\n";
+    # Neither line below can be recorded by Devel::Cover: exec replaces the
+    # process image, so the coverage database is never written from here, and a
+    # forked child that execs successfully takes its record with it. The guard
+    # above IS reachable and is tested; only the handoff itself is not.
+    if ( !exec 'tmux', @{$argv} ) {    # uncoverable statement uncoverable branch false
+        die "Unable to exec tmux to attach the workspace session: $!\n";    # uncoverable statement
     }
 }
 
