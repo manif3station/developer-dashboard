@@ -194,8 +194,13 @@ sub exec_workspace_attach {
     # process image, so the coverage database is never written from here, and a
     # forked child that execs successfully takes its record with it. The guard
     # above IS reachable and is tested; only the handoff itself is not.
+    # Both criteria are needed here and only ONE fits per comment, so they use
+    # the two forms together: own-line above, and trailing. Both are honoured -
+    # ActionRunner has used the own-line form at 100.0 for months.
+    # uncoverable branch false
     if ( !exec 'tmux', @{$argv} ) {    # uncoverable statement
-        die "Unable to exec tmux to attach the workspace session: $!\n";      # uncoverable statement
+        # uncoverable statement
+        die "Unable to exec tmux to attach the workspace session: $!\n";
     }
 }
 
