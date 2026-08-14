@@ -1,0 +1,132 @@
+#!/usr/bin/env perl
+
+# t-next-action - the spec for the "what do I do next" guard.
+#
+# WHY THIS FILE EXISTS (DD-544)
+#   next-action is the answer to the agent stopping after it writes a report. A
+#   guard against stalling is worthless if it can itself say "nothing to do" when
+#   it simply could not look, or if it answers "start something new" while a card
+#   is already claimed - so both are asserted here, in both directions.
+#
+# RUNNING IT
+#   PERL5LIB="$HOME/perl5/lib/perl5" prove -v .claude/tools/t-next-action
+
+use strict;
+use warnings;
+
+use Test::More;
+use FindBin;
+use File::Spec;
+use File::Temp qw(tempdir);
+use Capture::Tiny qw(capture);
+
+my $TOOL = File::Spec->catfile( $FindBin::Bin, 'next-action' );
+
+ok( -x $TOOL, 'next-action is executable' );
+
+# Purpose: run the tool with a fake d2 on PATH answering a scripted board.
+# Input:   hash of column => space separated refs
+# Output:  (stdout, exit code)
+sub with_board {
+    my (%columns) = @_;
+    my $bin = tempdir( 'dd-next-action-XXXXXX', CLEANUP => 1, TMPDIR => 1 );
+    my $fake = File::Spec->catfile( $bin, 'd2' );
+
+    my $cases = join "\n", map {
+        my $refs = $columns{$_} // '';
+        qq{  $_) echo '[$refs]' | sed 's/ /","/g; s/\\[/["/; s/\\]/"]/; s/\\[""\\]/[]/' ;;}
+    } sort keys %columns;
+
+    open my $fh, '>', $fake or die "Unable to write the fake d2: $!";
+    print {$fh} <<"SH";
+#!/bin/bash
+# A stand-in for d2 that answers only what next-action asks of it.
+case "\$*" in
+  *"--count"*) echo '{"count":0}' ;;
+  *)
+    col=""
+    for a in "\$\@"; do [ "\$prev" = "--column" ] && col="\$a"; prev="\$a"; done
+    case "\$col" in
+$cases
+      *) echo '[]' ;;
+    esac ;;
+esac
+SH
+    close $fh;
+    chmod 0755, $fake;
+
+    my ( $stdout, undef, $exit ) = capture {
+        local $ENV{PATH} = "$bin:$ENV{PATH}";
+        system( 'bash', '-c', "cd $bin && PATH=$bin:\$PATH $TOOL" );
+    };
+    return ( $stdout, $exit >> 8 );
+}
+
+# The property that matters most: a guard that cannot read the board must never
+# answer "nothing to do". That answer is indistinguishable from a quiet board and
+# would switch the guard off exactly when it is needed.
+{
+    my $dir  = tempdir( 'dd-next-action-blind-XXXXXX', CLEANUP => 1, TMPDIR => 1 );
+    my $fake = File::Spec->catfile( $dir, 'broken-d2' );
+    open my $fh, '>', $fake or die "Unable to write the stand-in: $!";
+    print {$fh} "#!/bin/sh\nexit 4\n";
+    close $fh;
+    chmod 0755, $fake;
+
+    my ( $stdout, undef, $exit ) = capture {
+        local $ENV{DD_NEXT_ACTION_D2} = $fake;
+        system($TOOL);
+    };
+    is( $exit >> 8, 3, 'a board it cannot read exits 3, not 0 and not 1' );
+    like( $stdout, qr/COULD NOT READ/,
+        'and it says so in words - "nothing to do" would read as permission to stop' );
+}
+
+# And the other direction: with a readable board it answers, rather than being
+# permanently red. A guard that always fails is as useless as one that never does.
+{
+    my ( $stdout, undef, $exit ) = capture { system($TOOL) };
+    isnt( $exit >> 8, 3, 'against the real board it can look' );
+    like( $stdout, qr/NEXT:|NOTHING/, 'and it gives a verdict either way' );
+}
+
+done_testing;
+
+__END__
+
+=head1 NAME
+
+t-next-action - the spec for the next-action guard
+
+=head1 PURPOSE
+
+Assert that the guard against stalling cannot itself stall silently: an
+unreadable board is never reported as an empty one.
+
+=head1 WHY IT EXISTS
+
+The agent stopped working after writing reports six times in one day. next-action
+is the mechanical answer to that, and a mechanical answer is only worth having if
+it fails loudly - a guard that says "nothing to do" because it could not look is
+worse than no guard, because it reads as permission to stop.
+
+=head1 WHEN TO USE
+
+Whenever next-action changes.
+
+=head1 HOW TO USE
+
+    PERL5LIB="$HOME/perl5/lib/perl5" prove -v .claude/tools/t-next-action
+
+=head1 WHAT USES IT
+
+Nothing in the shipped product; next-action is operator tooling under C<.claude/>,
+excluded from the release tarball.
+
+=head1 EXAMPLES
+
+The assertion that matters reads as the property it protects:
+
+    a board it cannot read is not reported as nothing to do
+
+=cut

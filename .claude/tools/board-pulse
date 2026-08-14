@@ -1,0 +1,24 @@
+#!/bin/bash
+# board-pulse - one line naming every card that is not finished, wherever it sits.
+#
+# The owner's correction (2026-08-14): a heartbeat that watches two columns while
+# the board has twenty tells you nothing about the eighteen you did not look at.
+# Terminal columns are excluded because a finished card is not work; everything
+# else is reported whether or not I think it is mine.
+cd /home/mv/projects/developer-dashboard || exit 3
+export PERL5LIB="$HOME/perl5/lib/perl5"
+SKIP="discard release-to-pause admin-done"
+out=""
+for col in $(./bin/d2 tira.column.list --type ticket -o json 2>/dev/null \
+  | python3 -P -c "import json,sys; print(' '.join(c['name'] for c in json.load(sys.stdin)))"); do
+  case " $SKIP " in *" $col "*) continue;; esac
+  refs=$(timeout 40 ./bin/d2 tira.ticket.list --column "$col" --refs-only -o json 2>/dev/null \
+    | python3 -P -c "import json,sys; d=json.load(sys.stdin); print(','.join(d if isinstance(d,list) else d.get('refs',[])))" 2>/dev/null)
+  [ -n "$refs" ] && out="$out $col=$refs"
+done
+sweep=$(.claude/tools/ft99-sweep 2>&1 | tail -1)
+# The next action, not just the state. A pulse that only lists columns leaves the
+# reader to decide what to do with them, and the failure this guards against
+# (DD-544) is exactly the agent not deciding.
+next=$(.claude/tools/next-action 2>&1 | head -1)
+echo "BOARD $(date +%H:%M) |${out:- (no open cards)} | $sweep | $next"
