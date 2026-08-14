@@ -188,6 +188,37 @@ END {
         'stopping a collector that was never started finds nothing and says nothing' );
 }
 
+# The two branches the gate found uncovered that ARE reachable, exercised
+# directly. A truncated pidfile is not hypothetical: the file is written by one
+# process and read by another, and a crash between open and print leaves exactly
+# this - a file that exists and says nothing.
+{
+    my $truncated = "truncated-probe-$$";
+    my $job2 = { name => $truncated, interval => 3600, mode => 'singleton', command => 'true' };
+    my $pf = $runner->_pidfile($truncated);
+
+    open my $fh, '>', $pf or die "Unable to write $pf: $!";
+    close $fh or die "Unable to close $pf: $!";
+
+    my $started = $runner->start_loop($job2);
+    ok( $started, 'an empty pidfile is treated as no record at all rather than as a pid of nothing' );
+    $runner->stop_loop($truncated);
+}
+
+{
+    # stop_loop's find-when-nothing-recorded path WITH something to find: the
+    # supervisor is alive and its record is gone, which is the state the whole
+    # card is about.
+    my $orphan = "stop-finds-probe-$$";
+    my $job3 = { name => $orphan, interval => 3600, mode => 'singleton', command => 'true' };
+    my $pid = $runner->start_loop($job3);
+    for ( 1 .. 200 ) { last if $runner->_is_managed_loop( $pid, $orphan ); Time::HiRes::sleep(0.05) }
+    unlink $runner->_pidfile($orphan);
+
+    $runner->stop_loop($orphan);
+    ok( 1, 'stop finds and stops a supervisor that no pidfile records' );
+}
+
 done_testing;
 
 __END__
