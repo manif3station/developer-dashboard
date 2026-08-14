@@ -859,6 +859,24 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
     );
 }
 
+
+{
+    # An attach runner that returns nothing at all: the || {} guard exists so a
+    # runner which reports nothing is treated as success rather than crashing on
+    # an undefined hash.
+    my $tmux = tmux_stub( sub { return {} } );
+    my $plan = run_workspace_command( args => ['DD-14'], tmux => $tmux, attach => sub { return } );
+    is( $plan->{session}, 'DD-14', 'an attach runner that returns nothing is treated as a silent success' );
+}
+
+{
+    like(
+        error_from( sub { Developer::Dashboard::CLI::Ticket::exec_workspace_attach() } ),
+        qr/tmux args must be an array reference/,
+        'the exec handoff refuses to attach with no arguments at all, rather than execing a bare tmux',
+    );
+}
+
 is_deeply( \@warnings, [], 'no warnings were emitted during the CLI ticket coverage run' )
   or diag( "warnings:\n" . join( '', @warnings ) );
 
