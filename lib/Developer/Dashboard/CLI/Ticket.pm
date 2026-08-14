@@ -178,15 +178,22 @@ sub tmux_command {
 # Output: never returns on success; dies when the handoff itself fails.
 sub exec_workspace_attach {
     my (%args) = @_;
-    my $argv = $args{args} || [];
+
+    # No default. An argv of [] would exec a bare tmux, which is not an attach at
+    # all, and the fallback was a branch that could only be exercised by letting
+    # this replace the test process. Requiring the caller to say what it wants is
+    # both safer and testable.
+    my $argv = $args{args};
     die 'tmux args must be an array reference' if ref($argv) ne 'ARRAY';
 
     # Neither line below can be recorded by Devel::Cover: exec replaces the
     # process image, so the coverage database is never written from here, and a
     # forked child that execs successfully takes its record with it. The guard
     # above IS reachable and is tested; only the handoff itself is not.
-    if ( !exec 'tmux', @{$argv} ) {    # uncoverable statement uncoverable branch false
-        die "Unable to exec tmux to attach the workspace session: $!\n";    # uncoverable statement
+    # uncoverable statement
+    if ( !exec 'tmux', @{$argv} ) {    # uncoverable branch false
+        # uncoverable statement
+        die "Unable to exec tmux to attach the workspace session: $!\n";
     }
 }
 
@@ -541,7 +548,11 @@ sub run_workspace_command {
     # output is read; this one is interactive and lasts as long as the session,
     # so it is not captured. On a real run this never returns.
     my $attach = resolve_attach_runner(%args);
+    # A runner that reports nothing is a runner that raised nothing: treat a
+    # missing exit code as success rather than comparing undef, which warns - and
+    # warnings are errors here. Found by a test that returned nothing on purpose.
     my $attached = $attach->( args => $plan->{attach_argv} ) || {};
+    $attached->{exit_code} = 0 if !defined $attached->{exit_code};
     die sprintf "Unable to attach tmux ticket session '%s': %s%s",
       $plan->{session},
       ( $attached->{stderr} || '' ),
