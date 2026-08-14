@@ -1,0 +1,215 @@
+{
+  "declared": [
+    {
+      "action": "bridge-reminder",
+      "enter": "in-progress",
+      "message": "This card is being worked without the detail the ticket gate requires. SCOPE, PLAN, acceptance criteria, test steps, BDD and ATDD are written BEFORE implementation, because criteria written afterwards describe what was built instead of deciding whether it is right.",
+      "rule": "card-full-details"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "A working column claims somebody is working this. Assign it or move it out - this exact drift has been caught by the owner from a phone screenshot more than once.",
+      "rule": "card-unassigned"
+    },
+    {
+      "action": "bridge-reminder",
+      "column": "in-progress",
+      "max": "1",
+      "message": "Single-agent project, and full-suite verification is host-exclusive. One card in flight at a time; a second means one of them is not being carried.",
+      "rule": "wip-limit"
+    },
+    {
+      "action": "bridge-reminder",
+      "column": "git-gate",
+      "message": "A gate is not passed until its record exists. This card reached the git gate with no gate recorded, so there is nothing a stranger could check.",
+      "rule": "gate-missing"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "Every commit title carries its DD-NNN. A commit that names no card cannot be traced back to the work that justified it.",
+      "rule": "commit-without-card"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "2h",
+      "message": "Commits are pushed per finished ticket. Work that exists only on this machine is work nobody else can see and a machine failure can erase.",
+      "rule": "unpushed-work"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "30m",
+      "message": "No work starts without a ticket. The tree is changing while no card is at a working gate, so whatever is being done is unrecorded.",
+      "rule": "work-without-card"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "The owner has answered and I have not read it. He answers from his phone and then waits; an answer nobody acts on is the same to him as no answer.",
+      "rule": "answer-waiting"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "2h",
+      "message": "An answer was read and never marked ok or not-ok, so nobody can tell whether it settled the question.",
+      "rule": "answer-unjudged"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "30m",
+      "message": "Marked ok and nothing written down: settled in name only. The decision has to reach the card, or it is lost when this session ends.",
+      "rule": "answer-ok-not-folded"
+    },
+    {
+      "action": "print-reminder",
+      "age": "12h",
+      "message": "A question has been waiting on you. The grace is deliberately long so this never nags overnight.",
+      "rule": "question-unanswered"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "3h",
+      "message": "A suite run has been alive for hours. On 11 August one sat wedged for 1 day 20 hours holding seven processes, producing no failure and no last line, and was read as healthy progress.",
+      "pattern": "prove -lr t",
+      "rule": "leftover-process"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "1h",
+      "message": "A headless browser from a smoke test is still running. This is the exact process that wedged the 11 August gate; the pattern is narrowed to our own dump-dom smoke so another project's browsers are never implicated.",
+      "pattern": "--dump-dom",
+      "rule": "leftover-process"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "A parent is claiming to be finished above a child that is not. An epic once sat parked while eight of its children were built and six shipped, and was then asked to verify an assembled result it had never seen.",
+      "rule": "parent-ahead-of-children"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "Work set aside with no reason recorded. A discarded card with no explanation is indistinguishable from one abandoned by accident, and the next reader cannot tell which.",
+      "rule": "discard-unexplained"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "7d",
+      "message": "The board has not been backed up. Retiring the previous tracker nearly lost the most consequential open finding in the project; the gate trails live in the comments, not in the commits.",
+      "rule": "board-unbacked"
+    },
+    {
+      "action": "log-only",
+      "message": "Terminal column: the work is finished, so nobody is meant to be on it.",
+      "on_column": "done-not-released",
+      "rule": "card-unassigned"
+    },
+    {
+      "action": "log-only",
+      "message": "Terminal column: the work is finished, so nobody is meant to be on it.",
+      "on_column": "admin-done",
+      "rule": "card-unassigned"
+    },
+    {
+      "action": "log-only",
+      "message": "Terminal column: the work is finished, so nobody is meant to be on it.",
+      "on_column": "release-to-pause",
+      "rule": "card-unassigned"
+    },
+    {
+      "action": "bridge-reminder",
+      "enter": "in-progress",
+      "rule": "card-sandbox-missing",
+      "sandbox": "/home/mv/dd-worktree-sandbox"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "The card has been talked about since it was last written down. On this project the talking happens on Telegram and in this session, both of which vanish; only the card survives. Seven decisions were found settled and lost this way in a single sweep.",
+      "rule": "conversation-not-folded"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "2h",
+      "message": "An answer was marked not-ok and nothing was asked next. A cross settles nothing on its own: it records that the answer did not resolve the question, and leaves the question just as open as before.",
+      "rule": "answer-not-ok-no-followup"
+    },
+    {
+      "action": "log-only",
+      "on_column": "done-not-released",
+      "rule": "conversation-not-folded"
+    },
+    {
+      "action": "log-only",
+      "on_column": "admin-done",
+      "rule": "conversation-not-folded"
+    },
+    {
+      "action": "log-only",
+      "on_column": "release-to-pause",
+      "rule": "conversation-not-folded"
+    },
+    {
+      "action": "log-only",
+      "on_column": "discard",
+      "rule": "conversation-not-folded"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "6h",
+      "column": "in-progress",
+      "message": "A card claimed for hours with nothing moving. Say what it is waiting for ON THE CARD, or put it down.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "2d",
+      "column": "todo",
+      "message": "DD-534 sat here for three days because I had decided it was environmental and not ours. It was blocking every gate on the machine. Two days in the queue is long enough to re-examine that judgement rather than inherit it.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "2d",
+      "column": "blocked-by-dependency",
+      "message": "Parked on another card for two days. Check the blocker is still real - a park whose condition cleared is invisible until somebody looks.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "print-reminder",
+      "age": "2d",
+      "column": "blocked-by-michael",
+      "message": "A card has been parked on you for two days. If the question is stale or wrong, say so and I will re-ask it.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "The checklist on this card is finished and the card has not moved. Work that is done and still sitting in a working column is the board overstating nothing and understating progress.",
+      "rule": "card-stalled"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "6h",
+      "message": "The Windows QEMU E2E container is still running. It is a full Windows virtual machine started detached, so a leaked one holds real memory and CPU for as long as nobody looks. The pattern is our own container name so another project's containers are never implicated.",
+      "pattern": "dd-windows-smoke",
+      "rule": "leftover-container"
+    },
+    {
+      "action": "log-only",
+      "enter": "release-to-pause",
+      "message": "A card reached the released column without recording WHICH version shipped it. Reconstructing that for 45 cards took two-source git archaeology on 10 August; the field would have made it a lookup.",
+      "require": "fix_version",
+      "rule": "card-metrics"
+    }
+  ],
+  "declined": [
+    {
+      "reason": "This project does not use checklists. Its gate evidence lives in acceptance criteria, test steps and gate comments, and every card raised here has an empty checklist - so the rule would either never fire or fire on everything, and neither is a check. Revisit if checklists are ever adopted as the home for gate exit criteria.",
+      "rule": "checklist-idle"
+    },
+    {
+      "reason": "Standalone tickets are the norm here by design, not an accident. Epics exist only where a group of tickets shares one version gate, so most cards legitimately have no parent and this would fire on nearly the whole board. parent-ahead-of-children already covers the failure that actually bit us - a parent claiming to be finished above an unfinished child.",
+      "rule": "orphan-card"
+    },
+    {
+      "reason": "Most cards here genuinely depend on nothing, so requiring a dependency link would manufacture false relationships to satisfy a checker - which is worse than no rule, because an invented link is indistinguishable from a real one afterwards. Real blocks are recorded when they exist, as DD-532 is on DD-534.",
+      "rule": "card-unlinked"
+    }
+  ],
+  "note": "The policy set this project decided. .claude/tools/policy-sweep reconciles the live board against this hourly: a missing entry is restored, and a catalogue rule absent from both is reported as needing a decision rather than declared."
+}
