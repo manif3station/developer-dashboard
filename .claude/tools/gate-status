@@ -1,0 +1,33 @@
+#!/bin/bash
+# gate-status - is the coverage gate running, and is its verdict THIS run's?
+#
+# Written after both failure modes of a process check bit in one evening. A
+# pattern loose enough to match the searching command reported a finished gate as
+# running for 28 minutes; a pattern tight enough to match nothing reported a
+# running gate as finished. Both were confident and both were wrong.
+#
+# So this asks the ARTIFACTS, which cannot misidentify themselves: the log's own
+# growth, and whether the verdict file is newer than the log's first line. A
+# verdict older than the run is the previous run's - reading it as this one's is
+# how a stale 100.0 gets reported as a fresh pass.
+LOG=/tmp/dd-gate2.log
+VERDICT=/tmp/dd-gate2-verdict.txt
+[ -f "$LOG" ] || { echo "gate-status: no log at $LOG - the gate has never run here"; exit 3; }
+
+files=$(grep -c '^t/' "$LOG" 2>/dev/null)
+log_age=$(( $(date +%s) - $(stat -c %Y "$LOG") ))
+done_marker=$(grep -c 'SUITE_EXIT' "$LOG" 2>/dev/null)
+
+if [ "$done_marker" -eq 0 ]; then
+  echo "RUNNING: $files files, log written ${log_age}s ago"
+  [ "$log_age" -gt 900 ] && echo "  WARNING: the log has not grown for ${log_age}s - check the process tree, this is what a wedge looks like"
+  exit 1
+fi
+
+if [ ! -f "$VERDICT" ] || [ "$VERDICT" -ot "$LOG" ]; then
+  echo "FINISHED but the verdict file is OLDER than the log - it belongs to a previous run, do not read it"
+  exit 2
+fi
+
+echo "FINISHED: $(grep -E '^(Files=|Result:)' "$LOG" | tail -2 | tr '\n' ' ')"
+tail -2 "$VERDICT"
