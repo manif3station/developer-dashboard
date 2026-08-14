@@ -1,0 +1,94 @@
+#!/usr/bin/env perl
+
+# Spec for .claude/tools/tira-author.
+#
+# Run: perl .claude/tools/t-tira-author
+
+use strict;
+use warnings;
+use utf8;
+
+use Test::More;
+use Capture::Tiny qw(capture);
+use Cwd qw(abs_path);
+use File::Spec;
+
+my $tool = File::Spec->catfile( abs_path('.'), '.claude', 'tools', 'tira-author' );
+
+ok( -x $tool, 'the resolver is executable' );
+
+# Purpose: run the resolver with a named environment and nothing inherited, the
+#          way cron and the monitors will run it.
+# Input:   hash of environment variables
+# Output:  (stdout, stderr, exit code)
+sub run_with_env {
+    my (%env) = @_;
+    my @assignments = map { "$_=$env{$_}" } sort keys %env;
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( 'env', '-i', @assignments, $tool );
+    };
+    chomp $stdout;
+    return ( $stdout, $stderr, $exit >> 8 );
+}
+
+# An explicit name always wins. This is the case that matters most, because it is
+# how an actor that knows what it is - a named sweep, a named round - says so
+# rather than being guessed at.
+{
+    my ( $out, $err, $exit ) = run_with_env( DD_TIRA_AUTHOR => 'ft99-sweep' );
+    is( $out,  'ft99-sweep', 'a declared actor name is used exactly as given' );
+    is( $exit, 0,            'and that is not an error' );
+}
+
+# THE FAILURE THIS FILE EXISTS FOR. DD-526 collected three comments within
+# minutes, all authored 'DD Bot', about the same running gate - one of them
+# asserting a file count that no log on the machine ever reached. The board
+# showed nothing to separate them, so the contradiction was only findable by
+# leaving the board for ps and the logs. A shared author is not a cosmetic
+# problem: it makes a wrong record and a right record look identical.
+#
+# So the resolver must NEVER answer with the shared name. Whatever it cannot
+# work out, it must not resolve to the one value that hides the difference.
+{
+    for my $env (
+        { HOME => $ENV{HOME}, PATH => '/usr/bin:/bin' },
+        { HOME => $ENV{HOME}, PATH => '/usr/bin:/bin', DD_TIRA_AUTHOR => '' },
+      )
+    {
+        my ( $out, $err, $exit ) = run_with_env( %{$env} );
+        isnt( $out, 'DD Bot', 'the shared author is never what this resolves to' );
+        isnt( $out, '',       'and it always answers with something usable' );
+        is( $exit, 0, 'and reports success' );
+    }
+}
+
+# A process with no controlling terminal is not a person at a keyboard. Cron, the
+# monitors and the collectors all start that way, and that is exactly the actor
+# whose comments were indistinguishable from the session's.
+#
+# Note this is asserted through capture, which already redirects stdin - so the
+# environment here IS the non-interactive one, not a simulation of it.
+{
+    my ( $out, $err, $exit ) = run_with_env( HOME => $ENV{HOME}, PATH => '/usr/bin:/bin' );
+    is( $out, 'dd-hourly',
+        'with no terminal and no declared name the actor resolves to the automation identity' );
+}
+
+# The name has to be usable as an author on the board, which means no whitespace
+# or shell-significant characters to be quoted wrongly at some later call site.
+{
+    my ( $out, $err, $exit ) = run_with_env( HOME => $ENV{HOME}, PATH => '/usr/bin:/bin' );
+    like( $out, qr/\A[A-Za-z0-9_-]+\z/,
+        'the resolved name needs no quoting, so a caller cannot mangle it' );
+}
+
+# A declared name is trusted, but not blindly: a name that would need quoting is
+# refused loudly rather than passed on to become a confusing author on a card.
+{
+    my ( $out, $err, $exit ) = run_with_env( DD_TIRA_AUTHOR => 'two words' );
+    isnt( $exit, 0, 'a declared name that needs quoting is refused' );
+    like( $err, qr/DD_TIRA_AUTHOR/, 'and the refusal names the variable at fault' );
+    is( $out, '', 'and nothing is printed that a caller could use by accident' );
+}
+
+done_testing;
