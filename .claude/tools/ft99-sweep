@@ -102,6 +102,14 @@ my %IS_WORKING  = map { $_ => 1 } @WORKING;
 my %IS_TERMINAL = map { $_ => 1 } @TERMINAL;
 my %IS_PRE_WORK = map { $_ => 1 } @PRE_WORK;
 
+# The author name every actor on this project wrote under before distinct actors
+# were registered, and the moment they were. Comments older than this cannot be
+# re-attributed and are therefore not findings; comments newer than it should
+# carry the name of whoever actually wrote them. Overridable so the rule can be
+# exercised without editing the constant.
+my $SHARED_AUTHOR      = $ENV{DD_FT99_SHARED_AUTHOR} // 'DD Bot';
+my $ACTORS_REGISTERED  = $ENV{DD_FT99_ACTORS_FROM}   // '2026-08-14T23:50:00+0100';
+
 # Purpose: resolve the d2 entrypoint without trusting the caller's PATH, because
 #          cron runs from $HOME with a minimal PATH and reads no shell profile.
 # Input:   none
@@ -144,9 +152,9 @@ sub ensure_library_path {
 # Purpose: how many hours ago a card last changed, from the board's own stamp.
 # Input:   a card record
 # Output:  hours as a number, or undef when the card carries no usable stamp
-sub hours_since_change {
-    my ($record) = @_;
-    my $stamp = $record->{last_updated} || $record->{created_at} or return;
+sub stamp_epoch {
+    my ($stamp) = @_;
+    return if !defined $stamp;
     my ( $y, $mo, $d, $h, $mi, $sec ) = $stamp =~ /\A(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/
       or return;
     require Time::Local;
@@ -160,7 +168,54 @@ sub hours_since_change {
         my $offset = ( $2 * 3600 + $3 * 60 ) * ( $1 eq '-' ? -1 : 1 );
         $then -= $offset;
     }
+    return $then;
+}
+
+# Purpose: how long ago a card last changed.
+# Input:   a card record
+# Output:  hours as a float, or undef when the card carries no readable stamp
+sub hours_since_change {
+    my ($record) = @_;
+    my $stamp = $record->{last_updated} || $record->{created_at} or return;
+    my $then = stamp_epoch($stamp);
+    return if !defined $then;
     return ( time - $then ) / 3600;
+}
+
+# Purpose: name the comments on a card whose author cannot be determined.
+#
+#          DD-526 collected three comments within minutes, all authored 'DD Bot',
+#          about the same running gate - one asserting a file count no log on this
+#          machine ever reached, while exactly one gate was running. Nothing on the
+#          board separated the writers, so the contradiction was only findable by
+#          leaving the board for ps and the logs.
+#
+#          The defect is not the wrong number. It is that a wrong record and a
+#          right one look identical while both wear the same name, which makes the
+#          board's own currency worthless at the moment it matters most.
+#
+#          Distinct actors are registered on this project now (see the resolver at
+#          .claude/tools/tira-author), so a comment still written under the shared
+#          name is one whose author is unknowable. Comments written BEFORE those
+#          actors existed are left alone: they cannot be re-attributed, and a rule
+#          reporting hundreds of uncorrectable findings is one its reader learns to
+#          skim.
+#
+# Input:   a card record as the board returns it
+# Output:  count of comments written under the shared name since actors existed
+sub unattributed_comments {
+    my ($record) = @_;
+    my $cutoff = stamp_epoch($ACTORS_REGISTERED);
+    return 0 if !defined $cutoff;
+
+    my $count = 0;
+    for my $comment ( @{ $record->{comments} // [] } ) {
+        next if ( $comment->{author} // '' ) ne $SHARED_AUTHOR;
+        my $written = stamp_epoch( $comment->{created_at} );
+        next if !defined $written || $written < $cutoff;
+        $count++;
+    }
+    return $count;
 }
 
 # Purpose: list the questions on a card that are genuinely still waiting on the
@@ -295,6 +350,18 @@ sub sweep {
             # Nobody is working a card that says work is happening.
             finding( \@findings, $ref, "sits in '$column' with no assignee, so nothing is actually working it" )
               if $IS_WORKING{$column} && !length( $record->{assignee} // '' );
+
+            # Who wrote this? A comment under the shared name has no knowable
+            # author, so two accounts of the same event cannot be told apart.
+            my $unattributed = unattributed_comments($record);
+            finding( \@findings, $ref,
+                    "carries $unattributed comment"
+                  . ( $unattributed == 1 ? '' : 's' )
+                  . " written under the shared name '$SHARED_AUTHOR' since distinct actors existed"
+                  . " - nobody can tell who wrote them, so two accounts of the same event cannot be"
+                  . " reconciled without leaving the board."
+                  . " Use --author \"\$(.claude/tools/tira-author)\"" )
+              if $unattributed;
 
             # A park whose condition has already cleared.
             if ( $column eq 'blocked-by-dependency' ) {
