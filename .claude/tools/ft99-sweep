@@ -347,8 +347,22 @@ sub sweep {
             # The mirror, and the one that hides work rather than stalling it: a
             # card carrying an unanswered question anywhere else is waiting on the
             # owner somewhere he will never think to look.
+            #
+            # The backlog is excepted by the owner's own instruction (2026-08-14):
+            # "Group every question you have into ONE ticket in the backlog rather
+            # than asking them one at a time ... I will pick that ticket up and
+            # answer all of them together." The rule's premise is that he will not
+            # look there, and for that one card he told me he will - so the premise
+            # changed, not the wording. Reporting it anyway would be this sweep
+            # contradicting a standing instruction, which is the one thing a
+            # guardrail must never train its reader to ignore.
+            #
+            # The coverage did not leave with the exception: police carries
+            # question-unanswered with a twelve-hour grace and print-reminder to
+            # his own terminal, so a question left too long reaches him whatever
+            # column it sits in.
             finding( \@findings, $ref, 'holds ' . join( ', ', @waiting ) . " unanswered but sits in '$column', so it is waiting on him where he will not look" )
-              if @waiting && $column ne 'blocked-by-michael';
+              if @waiting && $column ne 'blocked-by-michael' && $column ne 'backlog';
 
             # Sitting still. A card in a working column says somebody is working
             # it right now, so hours of silence there is a claim that has stopped

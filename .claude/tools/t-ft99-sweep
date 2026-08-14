@@ -304,6 +304,37 @@ sub reported {
         'where git cannot be consulted the resolver refuses to answer, so the caller must report could-not-look rather than clean' );
 }
 
+# The owner's grouped-questions instruction (2026-08-14): "Group every question
+# you have into ONE ticket in the backlog rather than asking them one at a time
+# ... I will pick that ticket up and answer all of them together."
+#
+# That makes backlog a place he DOES look, for this one purpose, so the rule
+# below must not report it. The rule's premise is "waiting on him where he will
+# not look", and its premise is what changed - not its wording.
+#
+# The coverage did not disappear with it: police now carries
+# question-unanswered with a 12h grace and print-reminder straight to his own
+# terminal, so a question waiting too long reaches him regardless of column.
+{
+    my $grouped = card(
+        ref       => 'DD-920',
+        column    => 'backlog',
+        questions => [ question( id => 'Q-100' ) ],
+    );
+    is( reported( sweep_one($grouped), 'DD-920' ), undef,
+        'a questions card parked in the backlog is left alone - the owner asked for his questions grouped there' );
+}
+
+{
+    my $stranded = card(
+        ref       => 'DD-921',
+        column    => 'in-progress',
+        questions => [ question( id => 'Q-101' ) ],
+    );
+    like( reported( sweep_one($stranded), 'DD-921' ) // '', qr/waiting on him where he will not look/,
+        'a question stranded in a working column is still reported - the exception is the backlog, not everywhere' );
+}
+
 # Admin Done is terminal (owner's decision, 2026-08-10, answering Q-011 on
 # DD-535). It exists because done-not-released was holding two unrelated states
 # at once: product work waiting for a release, and work that can never have one.
