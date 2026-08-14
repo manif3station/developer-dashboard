@@ -15,6 +15,7 @@ use lib 't/lib';
 
 use Developer::Dashboard::JSON qw(json_encode);
 use Local::BoundedCommand qw(run_bounded);
+use Local::BrowserProbe qw(browser_can_fetch_loopback);
 
 my $repo_root     = abs_path('.');
 my $repo_lib      = File::Spec->catdir( $repo_root, 'lib' );
@@ -40,7 +41,11 @@ plan skip_all => 'SSL browser smoke requires Chromium on PATH'
 # A skip prints its reason, because a silent skip and a passing test look identical
 # in a summary, and this whole card exists because a run that had stopped looked
 # exactly like a run that was working.
-my ( $probe_ok, $probe_reason ) = _browser_can_fetch_loopback($chromium_bin);
+my ( $probe_ok, $probe_reason ) = browser_can_fetch_loopback(
+    browser => $chromium_bin,
+    args    => [ _chromium_base_args() ],
+    seconds => _probe_timeout_seconds(),
+);
 plan skip_all => $probe_reason if !$probe_ok;
 
 my $home_root    = tempdir( 'dd-ssl-browser-home-XXXXXX', CLEANUP => 1, TMPDIR => 1 );
@@ -206,70 +211,6 @@ sub _chromium_base_args {
     return @args;
 }
 
-
-# _browser_can_fetch_loopback($chromium_bin)
-# Purpose: establish whether this host's browser can fetch anything at all over
-# loopback, so a host that cannot is skipped with a reason rather than reported
-# as a failure of the code under test.
-# Input: path to the chromium/chrome binary.
-# Output: list of (boolean ok, reason string when not ok).
-sub _browser_can_fetch_loopback {
-    my ($browser) = @_;
-    my $port   = _reserve_port();
-    my $marker = 'dd-loopback-probe-ok';
-
-    # A minimal HTTP server, deliberately not the product: the probe must fail
-    # only when the BROWSER cannot fetch, never because the dashboard is broken.
-    my $pid = fork();
-    die "Unable to fork the loopback probe server: $!" if !defined $pid;
-    if ( !$pid ) {
-        my $listener = IO::Socket::INET->new(
-            LocalAddr => '127.0.0.1',
-            LocalPort => $port,
-            Proto     => 'tcp',
-            Listen    => 5,
-            ReuseAddr => 1,
-        );
-        exit 1 if !$listener;
-        my $body = "<html><body>$marker</body></html>";
-        while ( my $client = $listener->accept ) {
-            my $request = <$client>;
-            print {$client} "HTTP/1.0 200 OK\r\nContent-Type: text/html\r\n"
-              . 'Content-Length: ' . length($body) . "\r\nConnection: close\r\n\r\n$body";
-            close $client;
-        }
-        exit 0;
-    }
-
-    _wait_for_tcp($port);
-
-    my $url = "http://127.0.0.1:$port/";
-    my ( $stdout, $stderr, $result ) = capture {
-        run_bounded(
-            command => [ $browser, @chromium_base_args, '--dump-dom', $url ],
-            seconds => _probe_timeout_seconds(),
-            label   => "loopback probe fetch of $url",
-        );
-    };
-
-    kill 'TERM', $pid;
-    waitpid $pid, 0;
-
-    return ( 1, '' ) if !$result->{timed_out} && $result->{exit} == 0 && $stdout =~ /\Q$marker\E/;
-
-    my $why =
-        $result->{timed_out} ? "the fetch exceeded its bound: $result->{message}"
-      : $result->{exit} != 0 ? "the browser exited $result->{exit}"
-      :                        'the browser returned a page not containing the probe marker';
-
-    return (
-        0,
-        "SSL browser smoke SKIPPED: this host's browser cannot fetch a page that is definitely being served. "
-          . "Probed $url over plain HTTP with a minimal local server and $why. "
-          . 'The product is not implicated - a browser that cannot reach loopback at all cannot test anything here. '
-          . 'CI runs this test for real, and the release runner has passed this suite. See DD-534.'
-    );
-}
 
 # _probe_timeout_seconds()
 # Purpose: the bound for the pre-flight probe, short because a healthy browser
