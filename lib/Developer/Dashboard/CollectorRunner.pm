@@ -293,9 +293,20 @@ sub start_loop {
     my $pidfile = $self->_pidfile($name);
     my $title   = $self->_process_title($name);
 
-    if ( -f $pidfile ) {
-        my $pid = _slurp($pidfile);
-        chomp $pid;
+    # The pidfile is a RECORD of what is running, not the authority on it. Asking
+    # only the file is what let 27 supervisor loops accumulate for a collector
+    # declared singleton: once the file was gone - a crash before the write, a
+    # cleanup, a /tmp sweep - every start forked another loop that nothing could
+    # see, stop or count, and each one went on spawning work every interval.
+    #
+    # So if the record is missing, ask the process table before forking. A loop
+    # already running for this collector is adopted and its record rewritten,
+    # which is both the correct outcome and the repair of the missing file.
+    my $existing = -f $pidfile ? do { my $recorded = _slurp($pidfile); chomp $recorded; $recorded } : undef;
+    $existing = $self->_find_running_loop($name) if !$existing;
+
+    if ( defined $existing && $existing ne '' ) {
+        my $pid = $existing;
         # Recognize an already-running managed loop by its recorded state as
         # well as by proc/ps identity, so the supervisor's start_loop does not
         # create a DUPLICATE loop when it races the fresh loop before that loop
@@ -313,6 +324,24 @@ sub start_loop {
                     heartbeat_at => _now_iso8601(),
                 }
             );
+
+            # Repair the missing record, AFTER the state and never before:
+            # running_loops keys on the pidfile and identifies the pid from the
+            # recorded state, so a pidfile existing without one is exactly the
+            # window DD-488 closed. Adopting a loop found in the process table and
+            # leaving its pidfile absent would fix the duplicate while leaving the
+            # collector invisible to stop and to status, which both key off that
+            # file - one missing record causing two more symptoms.
+            #
+            # close is unchecked, like the original write further down: checking it
+            # raised "Bad file descriptor" and killed start_loop outright, which is
+            # a far worse outcome than an unclosed handle.
+            if ( !-f $pidfile ) {
+                open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";
+                print {$fh} $pid;
+                close $fh;
+                $self->{paths}->secure_file_permissions($pidfile);
+            }
             return $pid;
         }
         $self->_cleanup_loop_files($name);
@@ -816,9 +845,19 @@ sub _sleep_until_next_tick {
 sub stop_loop {
     my ( $self, $name ) = @_;
     my $pidfile = $self->_pidfile($name);
-    return if !-f $pidfile;
-    my $pid = _slurp($pidfile);
-    chomp $pid;
+
+    # A missing pidfile does not mean nothing is running. Returning here - which
+    # this did - is how a stop reported success while supervisor loops kept
+    # firing every interval, and it is the same wrong assumption start_loop made.
+    my $pid;
+    if ( -f $pidfile ) {
+        $pid = _slurp($pidfile);
+        chomp $pid;
+    }
+    else {
+        $pid = $self->_find_running_loop($name);
+        return if !defined $pid;
+    }
     my @state_worker_pids = $self->_state_active_worker_pids($name);
     my $already_reaped = $pid ? $self->_reap_child_process($pid) : 0;
     my $same_namespace = $pid ? $self->_same_pid_namespace($pid) : 0;
@@ -995,6 +1034,47 @@ sub _is_managed_loop {
     my $title = $self->_read_process_title($pid);
     return 0 if !defined $title || $title eq '';
     return $title eq $self->_process_title($name) ? 1 : 0;
+}
+
+# _find_running_loop($name)
+# Finds a supervisor loop already running for one collector by asking the
+# process table, for use when no pidfile records it.
+# Input: collector name string.
+# Output: process id of a live managed loop, or undef when none is running.
+#
+# This exists because the pidfile is a record and not the authority. A record can
+# be lost while the thing it describes keeps running, and when that happened here
+# every subsequent start forked another supervisor: 27 were alive at once for a
+# singleton collector, each firing every 900 seconds, while stop knew about one
+# and status reported none.
+#
+# /proc is read directly rather than shelling out to ps, because a process search
+# spawned from here would match itself - a trap this project has already been
+# caught by twice, once killing its own command and once reading a finished job
+# as still running for four hours.
+sub _find_running_loop {
+    my ( $self, $name ) = @_;
+    return if !defined $name || $name eq '';
+
+    opendir my $dh, '/proc' or return;    # uncoverable branch true /proc is present on every host this runs on
+    my @candidates = sort { $a <=> $b } grep { /\A[0-9]+\z/ } readdir $dh;
+    closedir $dh;
+
+    # Identity by TITLE, not by the environment marker. _is_managed_loop accepts
+    # either, which is right when confirming a pid you already have - but the
+    # marker is set into %ENV and every forked child INHERITS it, so a collector's
+    # own worker is indistinguishable from its supervisor by that test. Searching
+    # on it found two "supervisors" four pids apart: the loop and the command it
+    # had just spawned. A supervisor sets its own title; a worker does not carry
+    # its parent's.
+    my $title = $self->_process_title($name);
+    for my $pid (@candidates) {
+        next if $pid == $$;
+        my $running = $self->_read_process_title($pid);
+        next if !defined $running || $running ne $title;
+        return $pid if $self->_same_pid_namespace($pid);
+    }
+    return;
 }
 
 # _state_confirms_managed_loop($name, $pid)
