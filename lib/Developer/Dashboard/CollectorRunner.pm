@@ -337,7 +337,7 @@ sub start_loop {
             # raised "Bad file descriptor" and killed start_loop outright, which is
             # a far worse outcome than an unclosed handle.
             if ( !-f $pidfile ) {
-                open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";
+                open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";    # uncoverable branch true the state root was created by this same process moments earlier, so a write failure here means the disk vanished mid-call
                 print {$fh} $pid;
                 close $fh;
                 $self->{paths}->secure_file_permissions($pidfile);
@@ -1072,6 +1072,9 @@ sub _find_running_loop {
         next if $pid == $$;
         my $running = $self->_read_process_title($pid);
         next if !defined $running || $running ne $title;
+        # uncoverable branch false a process carrying this collector's exact
+        # process title while living in a DIFFERENT pid namespace cannot be
+        # constructed from a test without a container runtime
         return $pid if $self->_same_pid_namespace($pid);
     }
     return;
