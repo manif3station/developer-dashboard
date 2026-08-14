@@ -42,8 +42,20 @@ for ref in $(col todo) $(col ready) $(col planning); do
   exit 0
 done
 
-for ref in $(col final-check) $(col git-gate) $(col done-not-released); do
+# done-not-released is deliberately NOT here. It is the PAUSE waiting room: the
+# work is finished and gated, and releasing is the owner's explicit decision
+# (dashboard pause-release), never an action this guard may propose. Suggesting
+# it produced a "next action" that could not be taken, which trains the reader to
+# ignore the answer.
+for ref in $(col final-check) $(col git-gate); do
   echo "NEXT: $ref has finished work that has not been landed - gate it, record the gates, and move it."
+  exit 0
+done
+
+# A card at a gate column whose gate has FAILED is real work, and outranks
+# starting anything new.
+for ref in $(col unit-test) $(col vulnerability-scan) $(col platform-test); do
+  echo "NEXT: $ref is at a gate. Check its last gate record - if it failed, fix what it names (d2 tira.gate.list --ref $ref --last 1)."
   exit 0
 done
 
