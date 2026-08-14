@@ -24,6 +24,7 @@ use Developer::Dashboard::CLI::Ticket qw(
   resolve_ticket_request
   resolve_workspace_request
   run_ticket_command
+  resolve_attach_runner
   run_workspace_command
   session_exists
   split_workspace_change_dir_args
@@ -693,9 +694,17 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
 }
 
 {
+    # The attach is stubbed here and the tmux runner is not, which is the whole
+    # point: this case exercises the REAL tmux_command for the queries and the
+    # setup, while refusing the one call that would replace this process. Before
+    # DD-537 no stub was needed because the attach was captured like every other
+    # call; leaving it unstubbed now ends the test file at this line, silently
+    # and with a zero exit, because exec succeeds against the PATH tmux stub. A
+    # test that hands its process away does not fail - it stops, and the run
+    # looks like a pass with a missing plan.
     local $ENV{PATH} = "$fake_bin:$dash_bin";
-    my $plan = run_ticket_command( args => ['DD-3'] );
-    is( $plan->{session}, 'DD-3', 'run_ticket_command drives the real tmux runner when none is supplied' );
+    my $plan = run_ticket_command( args => ['DD-3'], attach => sub { return { exit_code => 0 } } );
+    is( $plan->{session}, 'DD-3', 'run_ticket_command drives the real tmux runner for every call it captures' );
 }
 
 {
@@ -778,6 +787,63 @@ is_deeply( [ list_sessions( tmux => tmux_stub( sub { return { exit_code => 1 } }
     );
     my $err = error_from( sub { run_ticket_command( args => ['DD-11'], tmux => $tmux ) } );
     like( $err, qr/Unable to attach tmux ticket session 'DD-11'/, 'run_ticket_command still fails loudly when a refused attach says nothing at all' );
+}
+
+# DD-537: attaching is a handoff, not a captured command.
+#
+# Every other tmux call this module makes is a query whose output is read. The
+# attach is the last thing the command does, it is interactive, and it lasts as
+# long as the session. Running it through the capturing runner funnelled a
+# full-screen terminal application through Capture::Tiny and left the perl
+# process parked underneath it for the life of the session doing nothing but
+# waiting for an exit code. It execs now, so tmux inherits the terminal and the
+# perl process is gone rather than idle.
+#
+# The RESOLUTION is a named sub precisely so it can be tested. The exec itself
+# cannot be: it replaces the process image, so Devel::Cover never gets to write
+# what it observed, and a forked child that execs successfully takes its
+# coverage with it. That one line is annotated uncoverable, exactly as the same
+# handoff is in SkillDispatcher and PageRuntime.
+{
+    my $explicit = sub { return { exit_code => 0 } };
+    my $runner   = sub { return { exit_code => 0 } };
+
+    is( resolve_attach_runner( attach => $explicit, tmux => $runner ),
+        $explicit, 'an explicit attach runner wins, so a test can observe the handoff' );
+
+    is( resolve_attach_runner( tmux => $runner ),
+        $runner, 'an injected tmux runner also takes the attach - injecting a runner means nothing real should happen' );
+
+    is( resolve_attach_runner(),
+        \&Developer::Dashboard::CLI::Ticket::exec_workspace_attach,
+        'with nothing injected the attach execs, replacing this process instead of parenting it' );
+}
+
+{
+    my @attached;
+    my $tmux = tmux_stub( sub { return {} } );
+    run_workspace_command(
+        args   => ['DD-12'],
+        tmux   => $tmux,
+        attach => sub { my (%args) = @_; push @attached, $args{args}; return { exit_code => 0 } },
+    );
+    is_deeply( \@attached, [ [ 'attach-session', '-t', 'DD-12' ] ],
+        'run_workspace_command hands the attach argv to the attach runner, not to the capturing runner' );
+}
+
+{
+    my $tmux = tmux_stub( sub { return {} } );
+    my $err  = error_from(
+        sub {
+            run_workspace_command(
+                args   => ['DD-13'],
+                tmux   => $tmux,
+                attach => sub { return { exit_code => 1, stderr => "refused\n" } },
+            );
+        }
+    );
+    like( $err, qr/Unable to attach tmux ticket session 'DD-13': refused/,
+        'a refused attach still fails loudly when it comes back through an attach runner' );
 }
 
 is_deeply( \@warnings, [], 'no warnings were emitted during the CLI ticket coverage run' )
