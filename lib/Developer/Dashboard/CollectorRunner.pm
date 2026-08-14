@@ -1998,6 +1998,24 @@ sub _shutdown_loop {
 # Input: none.
 # Output: never returns when a managed runner is active.
 sub _signal_stop {
+    my ($signal) = @_;
+
+    # Record WHICH signal stopped the loop. Perl hands the handler the signal
+    # name and this threw it away, so a collector that stopped left no trace of
+    # why - the state said 'stopped' and the pidfile was gone, which is
+    # indistinguishable from an orderly shutdown, a watchdog, and somebody's
+    # stray kill. That ambiguity cost hours on DD-532, where a supervisor was
+    # being signalled during batch test runs and every investigation started
+    # from "it died" rather than "it was told to stop".
+    eval {
+        $SIGNAL_RUNNER->{collectors}->append_log_entry(
+            $SIGNAL_LOOP_NAME,
+            happened_at => _now_iso8601(),
+            source      => 'loop stopped by signal',
+            error       => 'SIG' . ( $signal // 'unknown' ) . " received by pid $$",
+        );
+    };
+
     $SIGNAL_RUNNER->_shutdown_loop( $SIGNAL_LOOP_NAME, 'stopped', $SIGNAL_LOOP_WORKERS );
 }
 
