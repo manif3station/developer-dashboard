@@ -164,6 +164,30 @@ END {
     }
 }
 
+# Coverage for the paths this card added, exercised directly rather than only
+# through the scenario above - the gate on 14 August read CollectorRunner at
+# 97.7 / 94.6 / 96.6 / 96.2 because these branches were only reachable through a
+# race that does not happen every run.
+{
+    # _find_running_loop: a name nothing is running under must return undef, and
+    # that is the branch the scan takes for every process it rejects.
+    is( $runner->_find_running_loop("nothing-runs-under-this-$$"), undef,
+        'the process-table scan returns nothing when no supervisor carries that title' );
+
+    is( $runner->_find_running_loop(''), undef,
+        'and refuses an empty collector name rather than scanning for a title of nothing' );
+    is( $runner->_find_running_loop(undef), undef,
+        'and an undefined one' );
+}
+
+{
+    # stop_loop's find-when-nothing-recorded path, with nothing to find: it must
+    # return quietly rather than dying or claiming to have stopped something.
+    my $absent = "never-started-$$";
+    is( $runner->stop_loop($absent), undef,
+        'stopping a collector that was never started finds nothing and says nothing' );
+}
+
 done_testing;
 
 __END__

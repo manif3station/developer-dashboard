@@ -1056,7 +1056,7 @@ sub _find_running_loop {
     my ( $self, $name ) = @_;
     return if !defined $name || $name eq '';
 
-    opendir my $dh, '/proc' or return;    # uncoverable branch true /proc is present on every host this runs on
+    opendir my $dh, '/proc' or return;    # uncoverable branch true /proc is mounted on every host this runs on, and without it no collector could be identified at all
     my @candidates = sort { $a <=> $b } grep { /\A[0-9]+\z/ } readdir $dh;
     closedir $dh;
 
