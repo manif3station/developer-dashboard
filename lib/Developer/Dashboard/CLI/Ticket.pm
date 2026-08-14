@@ -184,16 +184,18 @@ sub exec_workspace_attach {
     # this replace the test process. Requiring the caller to say what it wants is
     # both safer and testable.
     my $argv = $args{args};
-    die 'tmux args must be an array reference' if ref($argv) ne 'ARRAY';
+
+    # The FALSE side of this guard cannot be recorded: passing it means reaching
+    # the exec below, which replaces the process image before Devel::Cover can
+    # write anything. The true side is tested.
+    die 'tmux args must be an array reference' if ref($argv) ne 'ARRAY';    # uncoverable branch false
 
     # Neither line below can be recorded by Devel::Cover: exec replaces the
     # process image, so the coverage database is never written from here, and a
     # forked child that execs successfully takes its record with it. The guard
     # above IS reachable and is tested; only the handoff itself is not.
-    # uncoverable statement
-    if ( !exec 'tmux', @{$argv} ) {    # uncoverable branch false
-        # uncoverable statement
-        die "Unable to exec tmux to attach the workspace session: $!\n";
+    if ( !exec 'tmux', @{$argv} ) {    # uncoverable statement
+        die "Unable to exec tmux to attach the workspace session: $!\n";      # uncoverable statement
     }
 }
 
