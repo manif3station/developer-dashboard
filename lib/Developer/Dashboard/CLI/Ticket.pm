@@ -194,13 +194,18 @@ sub exec_workspace_attach {
     # process image, so the coverage database is never written from here, and a
     # forked child that execs successfully takes its record with it. The guard
     # above IS reachable and is tested; only the handoff itself is not.
-    # Only a SUCCESSFUL exec is unreachable here. A failing one returns, and the
-    # spec drives exactly that with no tmux on PATH - which is how PageRuntime and
-    # SkillDispatcher cover their identical handoffs. Annotating the statement
-    # would have hidden a case that is genuinely testable.
-    if ( !exec 'tmux', @{$argv} ) {    # uncoverable branch false
-        die "Unable to exec tmux to attach the workspace session: $!\n";
-    }
+    # Shaped exactly like the handoffs in PageRuntime and SkillDispatcher, which
+    # both measure 100.0, because the wrapping `if` creates a branch Devel::Cover
+    # cannot measure: on a SUCCESSFUL exec the process is replaced before anything
+    # is recorded, and on a FAILING one the count lands on the exec line itself.
+    #
+    # The spec drives a failing exec (no tmux on PATH), so this statement IS
+    # executed and recorded. The die below is not: Devel::Cover cannot attribute a
+    # statement that follows a failed exec - the count lands on the exec - so it
+    # reports zero even though the test asserts its message. PageRuntime records
+    # exactly the same thing at its own handoff.
+    exec 'tmux', @{$argv};
+    die "Unable to exec tmux to attach the workspace session: $!\n";    # uncoverable statement
 }
 
 # resolve_attach_runner(%args)
