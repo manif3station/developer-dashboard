@@ -305,7 +305,7 @@ sub start_loop {
     my $existing = -f $pidfile ? do { my $recorded = _slurp($pidfile); chomp $recorded; $recorded } : undef;
     $existing = $self->_find_running_loop($name) if !$existing;
 
-    if ( defined $existing && $existing ne '' ) {
+    if ( defined $existing ) {
         my $pid = $existing;
         # Recognize an already-running managed loop by its recorded state as
         # well as by proc/ps identity, so the supervisor's start_loop does not
@@ -1072,10 +1072,10 @@ sub _find_running_loop {
         next if $pid == $$;
         my $running = $self->_read_process_title($pid);
         next if !defined $running || $running ne $title;
-        # uncoverable branch false a process carrying this collector's exact
-        # process title while living in a DIFFERENT pid namespace cannot be
-        # constructed from a test without a container runtime
-        return $pid if $self->_same_pid_namespace($pid);
+        # A process carrying this collector's exact title while living in a
+        # DIFFERENT pid namespace cannot be constructed from a test without a
+        # container runtime.
+        return $pid if $self->_same_pid_namespace($pid);    # uncoverable branch false
     }
     return;
 }
