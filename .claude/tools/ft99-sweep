@@ -22,6 +22,7 @@ use warnings;
 use feature 'say';
 
 use FindBin;
+use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
 use JSON::XS;
@@ -119,12 +120,34 @@ sub locate_d2 {
     return -x $d2 ? $d2 : undef;
 }
 
-# Purpose: the checkout this script lives in, derived from its own location
-#          rather than from the caller's working directory.
+# Purpose: the MAIN checkout, from wherever this script happens to be running.
+#
+#          Deriving it from this script's own location was wrong in the one case
+#          that matters most (DD-545): every card is worked in its own git
+#          worktree, so a sweep run from a sandbox found the SANDBOX - which is
+#          cut from origin/master and carries no .developer-dashboard layer. The
+#          project selector naming this board lives only in the main checkout, so
+#          the sweep died with "Cannot resolve project selector 'tira-ddd'".
+#
+#          It failed HONESTLY, reporting UNUSABLE rather than a clean board, which
+#          is the only reason it was noticed at all. git answers this from inside
+#          any linked worktree; the fallback keeps a plain copy working.
+#
 # Input:   none
-# Output:  absolute path to the project root
+# Output:  absolute path to the main checkout
 sub project_root {
-    return File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, File::Spec->updir, File::Spec->updir ) );
+    my $here = File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, File::Spec->updir, File::Spec->updir ) );
+
+    my ( $common, undef, $exit ) = capture {
+        system( 'git', '-C', $here, 'rev-parse', '--path-format=absolute', '--git-common-dir' );
+    };
+    return $here if $exit != 0;
+
+    chomp $common;
+    return $here if $common eq '';
+
+    my $root = dirname($common);
+    return -d $root ? $root : $here;
 }
 
 # Purpose: make the sweep survive an environment that has read no shell profile.
