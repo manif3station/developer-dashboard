@@ -219,6 +219,18 @@ END {
     ok( 1, 'stop finds and stops a supervisor that no pidfile records' );
 }
 
+# A job that carries its OWN cwd. Every other job in this file omits it, which
+# leaves the left side of 'my $cwd = $job->{cwd} || cwd()' unexercised - the
+# condition the gate reports at 66 percent. The annotation there covers only the
+# impossible case (cwd() returning empty); the two real cases still need using.
+{
+    my $with_cwd = "cwd-probe-$$";
+    my $pid = $runner->start_loop(
+        { name => $with_cwd, interval => 3600, mode => 'singleton', command => 'true', cwd => $home } );
+    ok( $pid, 'a collector whose job names its own working directory starts' );
+    $runner->stop_loop($with_cwd);
+}
+
 done_testing;
 
 __END__
