@@ -1,5 +1,40 @@
 # Fixed Bugs
 
+
+## 4.27
+
+- Browser smoke tests could hang indefinitely on a host whose browser cannot
+  complete a loopback fetch. One coverage run sat on such a fetch for one day
+  and twenty hours, holding a web server, a starman master and worker and a
+  whole browser process tree, producing no failure and no exit status - a
+  stalled run is indistinguishable from a slow one. External commands in those
+  tests are now bounded, and the bound signals the command's whole process
+  group rather than the single visible process (DD-538).
+- Those tests could also fail for an environmental fault and report it as a
+  product failure. They now probe first, over plain HTTP from a minimal local
+  server rather than through the product, and skip with the probe URL and the
+  browser's own behaviour printed when the browser cannot fetch at all - so a
+  broken host skips loudly instead of blocking every gate (DD-534).
+- The workspace command captured its final tmux attach through a pipe, funnelling
+  a full-screen interactive program through a capture buffer and leaving a perl
+  process alive as its parent for the whole life of the session. It now execs,
+  so tmux inherits the terminal and no process is left behind (DD-537).
+- A collector could accumulate supervisor loops without limit. Start, stop and
+  status all treated the pidfile as the authority on what was running, so once
+  that file was lost every start forked another loop that nothing could see,
+  stop or count; twenty-seven were alive at once for a collector declared
+  singleton, each firing on its own schedule. They now establish what is running
+  from the process table, adopt the existing loop, and repair the record
+  (DD-532).
+- A collector stopped by a signal recorded only that it had stopped, which is
+  identical to an orderly shutdown, a watchdog stop and a stray kill. It now
+  records which signal arrived and which process received it (DD-543).
+- The coverage gate failed on any launch that did not inherit a library path -
+  cron, a systemd unit, a non-interactive shell - and reported an installed,
+  declared dependency as missing, pointing the diagnosis at the product when the
+  fault was the launch. It resolves its own library tree now, and still fails
+  loudly when a dependency is genuinely absent (DD-523).
+
 ## 4.24
 
 - Login open-redirect class: the redirect sanitizer rejected only the single
