@@ -212,6 +212,11 @@
       "action": "bridge-reminder",
       "message": "A column work happens in that no column-scoped policy names. This board added admin-done this week, and a rule naming a column stops covering the board the moment another is added - silently. Declared when all 6 unwatched columns were terminal or parking, so it reports nothing until a working column is added without cover.",
       "rule": "column-unwatched"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "This card moved into a working column while its checklist stood still. Progress claimed by dragging is the failure this board exists to prevent - a column is a claim about what is true, and moving one without doing the work makes it a false one.",
+      "rule": "checklist-unmoved"
     }
   ],
   "declined": [
