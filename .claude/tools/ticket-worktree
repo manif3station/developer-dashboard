@@ -59,14 +59,39 @@ sub git {
     return ( $out, $? >> 8 );
 }
 
-# Purpose: turn a ticket reference into the one name used for both the branch and
-#          the sandbox directory, so neither can drift from the other.
+# Purpose: the DIRECTORY name for a ticket's sandbox.
 # Input:   ticket reference such as DD-530
 # Output:  lower-cased slug, or undef when the reference is not one
+#
+# Lower-cased on purpose and staying that way: every card that has ever recorded a
+# sandbox recorded THIS path, and renaming them would invalidate the sandbox field
+# on all of them for a cosmetic gain.
 sub slug_for {
     my ($ref) = @_;
     return if !defined $ref || $ref !~ /\A([A-Za-z]+)-(\d+)\z/;
     return lc("$1-$2");
+}
+
+# Purpose: the BRANCH name for a ticket's sandbox - the card's reference exactly.
+# Input:   ticket reference such as DD-530
+# Output:  the canonical reference, or undef when the reference is not one
+#
+# WHY THIS IS NOT slug_for (DD-560)
+#   Both names used to come from slug_for, on the reasoning that one cannot drift
+#   from the other. But they answer to different readers: the path is for the
+#   filesystem, and the branch is what the BOARD matches against.
+#   card-sandbox-missing looks for a branch named for the card, and reported - every
+#   day it was declared - "missing a branch named DD-559 - dd-559 differs from it
+#   only in case". The rule was right, and the convention written in CLAUDE.md, that
+#   the branch is named for the ticket reference, had never actually been followed.
+#
+#   That finding was invisible for a day because a custom policy message had replaced
+#   the default that carried it, so the rule was reported upstream as firing falsely
+#   and the report had to be withdrawn. The fix is one word; finding it cost a day.
+sub branch_for {
+    my ($ref) = @_;
+    return if !defined $ref || $ref !~ /\A([A-Za-z]+)-(\d+)\z/;
+    return uc($1) . '-' . $2;
 }
 
 # Purpose: prepare the ticket's sandbox and report where it is.
@@ -74,7 +99,8 @@ sub slug_for {
 # Output:  one of the EXIT_* codes
 sub main {
     my ($ref) = @ARGV;
-    my $slug = slug_for($ref);
+    my $slug   = slug_for($ref);
+    my $branch = branch_for($ref);
     if ( !defined $slug ) {
         say STDERR 'ticket-worktree: give it one ticket reference, e.g. DD-530';
         return EXIT_USAGE;
@@ -126,10 +152,15 @@ sub main {
         return EXIT_UNUSABLE;
     }
 
-    my ( $branch_out, $has_branch ) = git( 'rev-parse', '--verify', "refs/heads/$slug" );
-    my @create = $has_branch == 0
-      ? ( 'worktree', 'add', $path, $slug )
-      : ( 'worktree', 'add', '-b', $slug, $path, 'origin/master' );
+    # The BRANCH carries the card's exact reference and the PATH stays lower-cased.
+    # A sandbox cut before DD-560 has a lower-cased branch, so look for that too and
+    # reuse it rather than refusing to resume work that already exists.
+    my ( undef, $has_branch ) = git( 'rev-parse', '--verify', "refs/heads/$branch" );
+    my ( undef, $has_legacy ) = git( 'rev-parse', '--verify', "refs/heads/$slug" );
+    my @create =
+        $has_branch == 0 ? ( 'worktree', 'add', $path, $branch )
+      : $has_legacy == 0 ? ( 'worktree', 'add', $path, $slug )
+      :                    ( 'worktree', 'add', '-b', $branch, $path, 'origin/master' );
 
     my ( $add_out, $added ) = git(@create);
     if ( $added != 0 ) {
@@ -139,7 +170,7 @@ sub main {
     }
 
     say $path;
-    say STDERR "ticket-worktree: $ref is sandboxed at $path on branch $slug, cut from origin/master";
+    say STDERR "ticket-worktree: $ref is sandboxed at $path on branch $branch, cut from origin/master";
     return EXIT_READY;
 }
 
@@ -208,7 +239,7 @@ the release tarball.
 Start or resume the sandbox for a ticket:
 
     $ .claude/tools/ticket-worktree DD-530
-    ticket-worktree: DD-530 is sandboxed at /home/mv/dd-worktree-sandbox/dd-530 on branch dd-530, cut from origin/master
+    ticket-worktree: DD-530 is sandboxed at /home/mv/dd-worktree-sandbox/dd-530 on branch DD-530, cut from origin/master
     /home/mv/dd-worktree-sandbox/dd-530
 
 Refuse a reference that is not one, rather than inventing a directory for it:
