@@ -1,0 +1,91 @@
+#!/usr/bin/env perl
+
+# Spec for .claude/tools/ci-health.
+#
+# Run: PERL5LIB="$HOME/perl5/lib/perl5" perl .claude/tools/t-ci-health
+
+use strict;
+use warnings;
+use utf8;
+
+use Test::More;
+use FindBin;
+use File::Spec;
+
+my $TOOL = File::Spec->catfile( $FindBin::Bin, 'ci-health' );
+
+# Requiring rather than running: the script ends `exit main() if !caller`, so this
+# exercises its decisions without making a single API call.
+require $TOOL;
+
+ok( -x $TOOL, 'the checker is executable' );
+
+# Purpose: one run record with only the fields the checker reads.
+sub run_rec {
+    my (%o) = @_;
+    return { head_branch => 'master', status => 'completed', name => 'Test', id => 1, %o };
+}
+
+# THE FAILURE THIS FILE EXISTS FOR (DD-555): the Test workflow was red on master
+# for about twelve hours across 8 of 9 runs and nothing reported it, because every
+# checker on this project reads the board rather than CI.
+
+# Newest first is how the API returns runs, and the checker depends on it.
+{
+    my $latest = main::latest_completed(
+        [ run_rec( conclusion => 'failure', id => 2 ), run_rec( conclusion => 'success', id => 1 ) ] );
+    is( $latest->{Test}{id}, 2, 'the newest run with a verdict wins, not the first success found' );
+}
+
+# A run still going says nothing yet. Counting it as success would hide a failure
+# that is still true; counting it as failure would invent one.
+{
+    my $latest = main::latest_completed(
+        [ run_rec( status => 'in_progress', conclusion => undef, id => 3 ),
+          run_rec( conclusion => 'failure', id => 2 ) ] );
+    is( $latest->{Test}{id}, 2, 'an in-progress run does not mask the last real verdict' );
+}
+
+# THE FALSE ALARM THIS CHECKER HAD ON ITS FIRST RUN. The newest finished run was
+# CANCELLED - superseded by the push after it - and the checker called it red.
+# Cancelled means "we stopped asking", not "it is broken", and a rule that fires
+# on every rapid sequence of pushes is one its reader learns to skim.
+{
+    my $latest = main::latest_completed(
+        [ run_rec( conclusion => 'cancelled', id => 4 ), run_rec( conclusion => 'success', id => 1 ) ] );
+    is( $latest->{Test}{id}, 1, 'a cancelled run is not a verdict and does not hide the real one' );
+
+    for my $nonverdict (qw(skipped neutral stale)) {
+        my $l = main::latest_completed(
+            [ run_rec( conclusion => $nonverdict, id => 9 ), run_rec( conclusion => 'success', id => 1 ) ] );
+        is( $l->{Test}{id}, 1, "a $nonverdict run is not a verdict either" );
+    }
+}
+
+# Real failure shapes must all count, not just the word "failure".
+{
+    for my $bad (qw(failure timed_out startup_failure action_required)) {
+        my $l = main::latest_completed( [ run_rec( conclusion => $bad, id => 7 ) ] );
+        is( $l->{Test}{id}, 7, "$bad is treated as a verdict" );
+    }
+}
+
+# Another branch's run is not this branch's health.
+{
+    my $latest = main::latest_completed(
+        [ run_rec( head_branch => 'some-feature', conclusion => 'failure', id => 8 ),
+          run_rec( conclusion => 'success', id => 1 ) ] );
+    is( $latest->{Test}{id}, 1, 'a run on another branch is ignored' );
+}
+
+# "I could not look" must never be reportable as a green pipeline - the mistake
+# this project has now made three times in one day with empty credentials.
+{
+    my $source = do { open my $fh, '<', $TOOL or die $!; local $/; <$fh> };
+    like( $source, qr/EXIT_UNUSABLE\s*=>\s*3/, 'there is a distinct exit code for being unable to look' );
+    my @returns = $source =~ /return EXIT_UNUSABLE/g;
+    ok( @returns >= 2, 'and it is returned for both an unreadable answer and an empty one' );
+    like( $source, qr/bash -ic/, 'the credential is read through the shell that actually has it' );
+}
+
+done_testing;
