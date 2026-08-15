@@ -52,6 +52,24 @@ my $root = main_checkout();
 my $d2 = File::Spec->catfile( $root, 'bin', 'd2' );
 die "The board entrypoint is not at $d2.\n" if !-x $d2;
 
+# The product's dependencies live in the operator's local library tree, and
+# PERL5LIB is exported only by interactive shell init - so cron, systemd units and
+# agent tool-shells all start without it.
+#
+# THIS WAS MISSING WHEN THIS FILE SHIPPED (DD-545) and was found an hour later, by
+# running it the way cron runs it: under `env -i` it died with "Can't locate
+# Crypt/URandom.pm in @INC ... you may need to install the Crypt::URandom module".
+# That module is declared and installed - the environment was the fault, and the
+# error described the destination rather than the cause. It is the same failure
+# this project already fixed once in script/coverage-gate (DD-523), reintroduced
+# by a new entrypoint that never asked what environment it would be started from.
+# A wrapper that works only where a human types it is no use to the schedulers
+# that most need it.
+if ( -d ( my $local_lib = File::Spec->catdir( $ENV{HOME} // '', 'perl5', 'lib', 'perl5' ) ) ) {
+    my @path = grep { length && $_ ne $local_lib } split /:/, ( $ENV{PERL5LIB} // '' );
+    $ENV{PERL5LIB} = join ':', $local_lib, @path;
+}
+
 # The working directory is the whole point: the layered runtime resolves config
 # from the deepest .developer-dashboard above the CWD, and only the main checkout
 # has one. Running the main checkout's d2 from a worktree is not enough - it is
