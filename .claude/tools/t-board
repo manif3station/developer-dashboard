@@ -99,6 +99,27 @@ sub run_from {
     like( $stderr, qr/checkout|repository|git/i, 'and says what it could not find' );
 }
 
+# THE BUG THIS FILE MISSED WHEN IT SHIPPED (DD-545, found next morning by DD-549).
+#   Every case above runs in this shell's environment, which HAS PERL5LIB because
+#   an interactive profile exported it. Cron, systemd units and agent tool-shells
+#   have none - and under `env -i` the wrapper died at once with "Can't locate
+#   Crypt/URandom.pm in @INC", naming a dependency that is declared and installed.
+#
+#   So the spec was green while the tool was broken in the one environment that
+#   most needs it, because every case asked its question from the comfortable side.
+#   The error even described the destination rather than the cause, which is how it
+#   reads as a missing module instead of a missing path.
+{
+    my ( $out, $err, $exit ) = capture {
+        system( 'env', '-i', "HOME=$ENV{HOME}", 'PATH=/usr/bin:/bin',
+            $TOOL, 'tira.ticket.list', '--refs-only' );
+    };
+    unlike( $err, qr/Can't locate .*\.pm in \@INC/,
+        'with no PERL5LIB it resolves its declared dependencies instead of reporting one as missing' );
+    is( $exit >> 8, 0, 'and a scheduler can therefore actually use it' );
+    like( $out, qr/DD-\d+/, 'and it still reaches the right board from that environment' );
+}
+
 # It must hand the process over rather than sit behind it. A wrapper that waits
 # leaves a Perl process per board call, and on this project a long-running parent
 # holding a child is how a supervisor was left unreaped.
