@@ -178,6 +178,28 @@
       "message": "A card reached the git gate without passing through the gates this project's SDLC requires. CVE-free and a green suite are per-ticket gates here, not optional stages, and a card that arrives at the commit without them has skipped the evidence rather than the ceremony.",
       "require": "in-progress, vulnerability-scan, unit-test",
       "rule": "column-skipped"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "2h",
+      "message": "Police has been writing and nobody has read it. On 2026-08-15 two hundred violations had piled up across a full day, and the only thing that surfaced it was the owner asking whether the bridge was monitored. A channel nobody listens on is silent in exactly the way a quiet one is.",
+      "rule": "bridge-unread"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "A card set aside while it still carries a question nobody answered. The question leaves with the card and stops waiting, so it is never answered and never visibly abandoned either.",
+      "rule": "discard-with-open-questions"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "A lower-priority card is being worked while a higher-priority one waits untouched. Single agent here, so this is always a choice - and being passed over does not ripen, which is why the rule has no age.",
+      "rule": "priority-skipped"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "72h",
+      "message": "Nothing on this board has moved for three days. The age is deliberately generous: this board legitimately sits still while it is blocked on the owner, and a rule that fires while correctly blocked teaches its reader to skim - which is worse than not having the rule.",
+      "rule": "board-still"
     }
   ],
   "declined": [
