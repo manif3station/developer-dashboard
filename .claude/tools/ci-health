@@ -1,0 +1,138 @@
+#!/usr/bin/env perl
+
+# Is anything red on master right now?
+#
+# WHY THIS EXISTS (DD-555)
+#   The Test workflow failed 8 of its last 9 runs on master - every one the same
+#   three subtests - for about twelve hours, and nothing on this machine said so.
+#   Every sweep and monitor here reads the BOARD; none of them reads CI. The local
+#   suite passes, pushes succeed, and a job that fails at an early step makes every
+#   later step SKIP, so there is no failing artifact to trip over. It surfaced only
+#   because the owner asked an unrelated question.
+#
+#   This project has recorded the same shape before: CI failing at its third step
+#   for 23 consecutive runs across ten days, while every round truthfully reported
+#   a green local run. A local claim is not a remote result.
+#
+# Exit codes match the other guards here, because "green" and "I could not look"
+# must never be the same answer:
+#     0  every workflow's latest completed run on the default branch succeeded
+#     1  at least one is red
+#     2  usage error
+#     3  could not look - no credential, no network, unreadable answer
+
+use strict;
+use warnings;
+use feature 'say';
+
+use JSON::XS;
+
+use constant {
+    EXIT_GREEN    => 0,
+    EXIT_RED      => 1,
+    EXIT_USAGE    => 2,
+    EXIT_UNUSABLE => 3,
+};
+
+my $REPO   = 'manif3station/developer-dashboard';
+my $BRANCH = 'master';
+
+# How far back to look. Enough to find the latest COMPLETED run of each workflow
+# even when several are in flight, without paging.
+my $LOOK_BACK = 60;
+
+# Purpose: ask the API, through an interactive shell because credentials load only
+#          from the shell profile on this host. A non-interactive shell sends an
+#          EMPTY auth header, and an empty credential returns 401 - byte-identical
+#          to a revoked one. That has cost this project a day before, and cost an
+#          hour again today.
+# Input:   the URL
+# Output:  decoded structure, or undef when it could not be read
+sub api {
+    my ($url) = @_;
+    my $out = `bash -ic 'curl -sS -H "Authorization: Bearer \$GITHUB_AUTH_TOKEN" "$url"' 2>/dev/null`;
+    return if $? != 0 || !defined $out || $out !~ /\S/;
+    my $parsed = eval { decode_json($out) };
+    return if !$parsed || ref $parsed ne 'HASH';
+    return $parsed;
+}
+
+# Conclusions that are an actual VERDICT on the code. The others are not the
+# workflow saying anything about the commit:
+#   cancelled  - almost always superseded by a newer push under the concurrency
+#                group, so it means "we stopped asking", not "it is broken"
+#   skipped    - a condition excluded it
+#   neutral    - explicitly no opinion
+#   stale      - the answer expired
+# Reporting those as red would make this alarm on every rapid sequence of pushes,
+# and an alarm that fires on normal work is one its reader learns to skim. That
+# was measured on the first run of this checker: it reported Test as red when the
+# newest finished run had merely been cancelled by the push after it.
+my %IS_VERDICT = map { $_ => 1 } qw(success failure timed_out startup_failure action_required);
+
+# Purpose: the latest run of each workflow on the branch that actually reached a
+#          verdict.
+#
+#          Not merely "completed". A run still in progress says nothing yet, and a
+#          cancelled one says nothing either - treating either as a result is a
+#          lie in one direction or the other: counted as success it hides a failure
+#          that is still true, counted as failure it invents one.
+#
+# Input:   arrayref of run records, newest first
+# Output:  hashref of workflow name => run record
+sub latest_completed {
+    my ($runs) = @_;
+    my %latest;
+    for my $run ( @{$runs} ) {
+        next if ( $run->{head_branch} // '' ) ne $BRANCH;
+        next if ( $run->{status}      // '' ) ne 'completed';
+        next if !$IS_VERDICT{ $run->{conclusion} // '' };
+        my $name = $run->{name} // next;
+        $latest{$name} //= $run;    # the list arrives newest first
+    }
+    return \%latest;
+}
+
+# Purpose: a run's verdict in the form a reader can act on.
+# Input:   run record
+# Output:  one line
+sub describe {
+    my ($run) = @_;
+    return sprintf '%s is %s on %s (run %s, %s)',
+      $run->{name}, uc( $run->{conclusion} // 'unknown' ), $BRANCH,
+      $run->{id} // '?', $run->{html_url} // 'no url';
+}
+
+sub main {
+    return EXIT_USAGE if @ARGV;
+
+    my $payload = api("https://api.github.com/repos/$REPO/actions/runs?per_page=$LOOK_BACK");
+    if ( !$payload || ref $payload->{workflow_runs} ne 'ARRAY' ) {
+        say STDERR 'ci-health: UNUSABLE - could not read the Actions API. This is NOT a green pipeline: '
+          . 'an absent credential sends an empty auth header and gets a 401 that reads exactly like a revoked '
+          . 'token, and an unreadable answer and a clean one look identical from here.';
+        return EXIT_UNUSABLE;
+    }
+
+    my $latest = latest_completed( $payload->{workflow_runs} );
+    if ( !%{$latest} ) {
+        say STDERR "ci-health: UNUSABLE - no completed run found on $BRANCH in the last $LOOK_BACK runs, "
+          . 'so there is nothing to judge rather than nothing wrong.';
+        return EXIT_UNUSABLE;
+    }
+
+    my @red = grep { ( $latest->{$_}{conclusion} // '' ) ne 'success' } sort keys %{$latest};
+
+    if (@red) {
+        say STDERR 'ci-health: ' . describe( $latest->{$_} ) for @red;
+        say STDERR sprintf 'ci-health: %d of %d workflows are not green on %s',
+          scalar @red, scalar keys %{$latest}, $BRANCH;
+        return EXIT_RED;
+    }
+
+    say sprintf 'ci-health: all %d workflows are green on %s', scalar keys %{$latest}, $BRANCH;
+    return EXIT_GREEN;
+}
+
+exit main() if !caller;
+1;
