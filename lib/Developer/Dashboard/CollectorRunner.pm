@@ -308,13 +308,24 @@ sub start_loop {
     my $existing = -f $pidfile ? do { my $recorded = _slurp($pidfile); chomp $recorded; $recorded } : undef;
     $existing = $self->_find_running_loop($name) if !$existing;
 
-    if ( defined $existing ) {
+    # Truthy rather than merely defined, and that is the guarantee the line above
+    # already gives: an empty or zero pidfile leaves $existing false, and that case
+    # is REPLACED by _find_running_loop, which returns a real pid or undef. So a
+    # false-but-defined $existing cannot arrive here.
+    #
+    # This read `defined $existing` with a further `$pid &&` inside, and that inner
+    # test was the last genuinely uncovered condition in lib (DD-532): unreachable
+    # by construction, while looking reachable enough that three rounds of theories
+    # were spent on an unrelated line before anyone read the per-outcome counts.
+    # Deleting the dead test beats annotating it - the guarantee is now stated once,
+    # where it actually holds, rather than re-checked where it cannot fail.
+    if ($existing) {
         my $pid = $existing;
         # Recognize an already-running managed loop by its recorded state as
         # well as by proc/ps identity, so the supervisor's start_loop does not
         # create a DUPLICATE loop when it races the fresh loop before that loop
         # has set its process title.
-        if ( $pid && ( $self->_is_managed_loop( $pid, $name ) || $self->_state_confirms_managed_loop( $name, $pid ) ) ) {
+        if ( $self->_is_managed_loop( $pid, $name ) || $self->_state_confirms_managed_loop( $name, $pid ) ) {
             $self->_write_loop_state(
                 $name,
                 {
