@@ -217,6 +217,83 @@
       "action": "bridge-reminder",
       "message": "This card moved into a working column while its checklist stood still. Progress claimed by dragging is the failure this board exists to prevent - a column is a claim about what is true, and moving one without doing the work makes it a false one.",
       "rule": "checklist-unmoved"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "3d",
+      "column": "analysing",
+      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "7d",
+      "column": "buglist",
+      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "1d",
+      "column": "documentation",
+      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "1d",
+      "column": "final-check",
+      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "7d",
+      "column": "new-enhancements",
+      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "1d",
+      "column": "planning",
+      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "1d",
+      "column": "platform-test",
+      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "2d",
+      "column": "ready",
+      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "3d",
+      "column": "researching",
+      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "6h",
+      "column": "unit-test",
+      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "6h",
+      "column": "vulnerability-scan",
+      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "rule": "card-duration"
     }
   ],
   "declined": [
