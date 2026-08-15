@@ -1,0 +1,83 @@
+#!/usr/bin/env perl
+
+# Run a board command from anywhere in this project, including a ticket worktree.
+#
+# WHY THIS EXISTS (DD-545)
+#   Two standing rules govern every card here: work it in its own git worktree,
+#   and keep the board current AS the work happens. They could not both be
+#   obeyed. A worktree is cut from origin/master, which carries no
+#   .developer-dashboard layer, so the project selector naming this project's
+#   board lives only in the main checkout's untracked runtime state. Every
+#   d2 tira.* command run from a sandbox died with
+#   "Cannot resolve project selector 'tira-ddd'".
+#
+#   Nothing on the board was ever wrong because of it. The cost was pressure to
+#   BATCH board updates until returning to the main checkout - and batched
+#   updates are precisely what the always-current rule exists to prevent.
+#
+# Run: .claude/tools/board tira.ticket.show --ref DD-545 --brief
+
+use strict;
+use warnings;
+use utf8;
+
+use Cwd qw(abs_path);
+use File::Basename qw(dirname);
+use File::Spec;
+
+# Purpose: the MAIN checkout, even when this script is running from a worktree.
+#          git knows: --git-common-dir resolves to the main repository's .git
+#          from inside any linked worktree, where the script's own location only
+#          ever finds the tree it happens to sit in.
+# Input:   none
+# Output:  absolute path to the main checkout; dies with a readable reason
+sub main_checkout {
+    my $here = dirname( abs_path(__FILE__) );
+
+    my $common = `git -C "$here" rev-parse --path-format=absolute --git-common-dir 2>/dev/null`;
+    die "Not inside a git checkout of this project, so there is no board to talk to.\n"
+      if !defined $common || $? != 0;
+
+    chomp $common;
+    die "git named no common directory, so the main checkout cannot be located.\n"
+      if $common eq '';
+
+    my $root = dirname($common);
+    die "Resolved the main checkout to '$root', which is not a directory.\n" if !-d $root;
+    return $root;
+}
+
+my $root = main_checkout();
+
+my $d2 = File::Spec->catfile( $root, 'bin', 'd2' );
+die "The board entrypoint is not at $d2.\n" if !-x $d2;
+
+# The product's dependencies live in the operator's local library tree, and
+# PERL5LIB is exported only by interactive shell init - so cron, systemd units and
+# agent tool-shells all start without it.
+#
+# THIS WAS MISSING WHEN THIS FILE SHIPPED (DD-545) and was found an hour later, by
+# running it the way cron runs it: under `env -i` it died with "Can't locate
+# Crypt/URandom.pm in @INC ... you may need to install the Crypt::URandom module".
+# That module is declared and installed - the environment was the fault, and the
+# error described the destination rather than the cause. It is the same failure
+# this project already fixed once in script/coverage-gate (DD-523), reintroduced
+# by a new entrypoint that never asked what environment it would be started from.
+# A wrapper that works only where a human types it is no use to the schedulers
+# that most need it.
+if ( -d ( my $local_lib = File::Spec->catdir( $ENV{HOME} // '', 'perl5', 'lib', 'perl5' ) ) ) {
+    my @path = grep { length && $_ ne $local_lib } split /:/, ( $ENV{PERL5LIB} // '' );
+    $ENV{PERL5LIB} = join ':', $local_lib, @path;
+}
+
+# The working directory is the whole point: the layered runtime resolves config
+# from the deepest .developer-dashboard above the CWD, and only the main checkout
+# has one. Running the main checkout's d2 from a worktree is not enough - it is
+# the directory that decides, not the executable.
+chdir $root or die "Unable to enter the main checkout at $root: $!\n";
+
+# Hand the process over rather than waiting behind it. A wrapper that waits
+# leaves one Perl process per board call, and a parent holding a child is how a
+# supervisor was left unreaped on this project.
+exec { $d2 } $d2, @ARGV;
+die "Unable to run the board entrypoint at $d2: $!\n";

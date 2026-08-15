@@ -465,4 +465,75 @@ sub reported {
         'a card that is not being worked is never asked for a work tree' );
 }
 
+# WHO WROTE THIS? (DD-527)
+#   DD-526 collected three comments within minutes, all authored 'DD Bot', about
+#   the same running gate. One asserted a file count that no log on this machine
+#   ever reached. Exactly one gate was running. The board showed nothing to
+#   separate the writers, so the contradiction could only be found by leaving the
+#   board for ps and the logs - which defeats the point of keeping it current.
+#
+#   The failure is NOT the wrong number. It is that a wrong number and a right one
+#   look identical while both wear the same name. Distinct actors are registered
+#   on this project now, so a comment still wearing the shared name is one whose
+#   author is unknowable, and the sweep says so.
+{
+    my $shared = card(
+        ref      => 'DD-940',
+        # Written now, so after the moment distinct actors existed. An earlier
+        # version of this fixture used an hour ago, which on the night the rule
+        # was written fell BEFORE the cutoff - the rule was correct and the test
+        # was asking it the wrong question.
+        comments => [
+            { author => 'DD Bot', created_at => stamp_hours_ago(0) },
+            { author => 'DD Bot', created_at => stamp_hours_ago(0) },
+        ],
+    );
+    like( reported( sweep_one($shared), 'DD-940' ) // '', qr/who wrote|shared name|attribut/i,
+        'comments still written under the shared name are reported, because their author is unknowable' );
+}
+
+{
+    my $named = card(
+        ref      => 'DD-941',
+        comments => [
+            { author => 'dd-session', created_at => stamp_hours_ago(1) },
+            { author => 'dd-hourly',  created_at => stamp_hours_ago(1) },
+        ],
+    );
+    is( reported( sweep_one($named), 'DD-941' ), undef,
+        'two actors writing minutes apart are fine once each carries its own name - that IS the fix' );
+}
+
+# The rule must not rewrite history. Every comment written before the actors
+# existed carries the shared name and cannot be re-attributed; a rule reporting
+# those would produce hundreds of findings nobody can act on, which is exactly how
+# a sweep teaches its reader to skim.
+{
+    my $old = card(
+        ref      => 'DD-942',
+        comments => [ { author => 'DD Bot', created_at => '2026-08-01T09:00:00+0100' } ],
+    );
+    is( reported( sweep_one($old), 'DD-942' ), undef,
+        'comments written before distinct actors existed are left alone - they cannot be corrected' );
+}
+
+# An empty subject can only return the answer you hoped for, so a card with no
+# comments must not be accused of hiding its authors.
+{
+    my $silent = card( ref => 'DD-943', comments => [] );
+    is( reported( sweep_one($silent), 'DD-943' ), undef,
+        'a card nobody has commented on is not reported' );
+}
+
+# The owner writes as himself and always has. His comments are attributed by
+# definition and must never be caught by a rule aimed at the automation.
+{
+    my $owner = card(
+        ref      => 'DD-944',
+        comments => [ { author => 'Michael', created_at => stamp_hours_ago(1) } ],
+    );
+    is( reported( sweep_one($owner), 'DD-944' ), undef,
+        "the owner's own comments are never reported as unattributed" );
+}
+
 done_testing();
