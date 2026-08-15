@@ -210,7 +210,7 @@
     },
     {
       "action": "bridge-reminder",
-      "message": "A column work happens in that no column-scoped policy names. This board added admin-done this week, and a rule naming a column stops covering the board the moment another is added - silently. Declared when all 6 unwatched columns were terminal or parking, so it reports nothing until a working column is added without cover.",
+      "message": "{detail} - a column work happens in that no column-scoped policy names. A rule naming a column stops covering the board the moment another column is added, silently, and this board added admin-done this week.",
       "rule": "column-unwatched"
     },
     {
