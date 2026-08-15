@@ -200,6 +200,13 @@
       "age": "72h",
       "message": "Nothing on this board has moved for three days. The age is deliberately generous: this board legitimately sits still while it is blocked on the owner, and a rule that fires while correctly blocked teaches its reader to skim - which is worse than not having the rule.",
       "rule": "board-still"
+    },
+    {
+      "action": "bridge-reminder",
+      "enter": "in-progress",
+      "message": "A card being worked must record the work tree it is worked in, under /home/mv/dd-worktree-sandbox. Police reads this project's declared repository now, so a report of a missing branch or tree is about the card rather than about where police was started - which is exactly what made this rule unusable before and got it declined.",
+      "rule": "card-sandbox-missing",
+      "sandbox": "/home/mv/dd-worktree-sandbox"
     }
   ],
   "declined": [
@@ -214,10 +221,6 @@
     {
       "reason": "Most cards here genuinely depend on nothing, so requiring a dependency link would manufacture false relationships to satisfy a checker - which is worse than no rule, because an invented link is indistinguishable from a real one afterwards. Real blocks are recorded when they exist, as DD-532 is on DD-534.",
       "rule": "card-unlinked"
-    },
-    {
-      "reason": "Police cannot read this repository from wherever it runs - it reports zero branches and no work trees at all, and says so itself. The rule is correct and caught a real omission, but while its subject is wrong it returns the same answer for every card, escalating to urgent, which teaches the reader to skim the channel. The check is not lost: it runs in .claude/tools/ft99-sweep, which executes inside the checkout and can read git. Re-declare the moment police can see this repository (TKT-178 asks for a project-level repository setting).",
-      "rule": "card-sandbox-missing"
     }
   ],
   "note": "The policy set this project decided. policy-sweep reconciles the live board against this hourly. A rule DECLINED on the board is never restored from here: a decline is a decision with a reason attached and is more recent than this file."
