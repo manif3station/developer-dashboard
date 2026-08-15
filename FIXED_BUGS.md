@@ -1,6 +1,19 @@
 # Fixed Bugs
 
 
+## 4.28
+
+- The v4.27 signed release never published. Its workflow failed at the test step
+  because t/155-coverage-gate-library-path.t asserted that the operator's local
+  library tree exists on every host: it runs script/coverage-gate with PERL5LIB
+  stripped and expected the declared dependencies to resolve, which holds only
+  where those dependencies live in the single directory the gate adds. CI installs
+  them elsewhere, so the gate reported a missing module - the correct behaviour -
+  and the test failed the suite and blocked the release. The environment-dependent
+  cases now skip with their reason stated, and the guard still fails if the gate's
+  repair is removed (DD-552).
+
+
 ## 4.27
 
 - Browser smoke tests could hang indefinitely on a host whose browser cannot

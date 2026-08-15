@@ -1,3 +1,16 @@
+4.28  2026-08-15
+
+  - The coverage gate's own regression test no longer asserts that this machine's
+    library tree exists everywhere. It runs the gate in an environment stripped of
+    PERL5LIB and expected it to resolve its dependencies anyway, which is true only
+    where those dependencies sit in the one directory the gate repairs. Where they
+    do not, the gate correctly reports a missing module and the test called that a
+    failure. It now skips those two cases with the reason printed, keeps every
+    structural assertion, and still goes red if the repair is removed.
+  - 4.27 was tagged but never published: this test failed in the release workflow,
+    and a job that fails early makes every later step skip, so the tag exists with
+    no release behind it. Nothing in 4.27 is lost - it is all here.
+
 4.27  2026-08-15
 
   - Browser smoke tests no longer hang a machine whose browser cannot reach its
