@@ -3,100 +3,100 @@
     {
       "action": "bridge-reminder",
       "enter": "in-progress",
-      "message": "This card is being worked without the detail the ticket gate requires. SCOPE, PLAN, acceptance criteria, test steps, BDD and ATDD are written BEFORE implementation, because criteria written afterwards describe what was built instead of deciding whether it is right.",
+      "message": "{detail} - This card is being worked without the detail the ticket gate requires. SCOPE, PLAN, acceptance criteria, test steps, BDD and ATDD are written BEFORE implementation, because criteria written afterwards describe what was built instead of deciding whether it is right.",
       "rule": "card-full-details"
     },
     {
       "action": "bridge-reminder",
-      "message": "A working column claims somebody is working this. Assign it or move it out - this exact drift has been caught by the owner from a phone screenshot more than once.",
+      "message": "{detail} - A working column claims somebody is working this. Assign it or move it out - this exact drift has been caught by the owner from a phone screenshot more than once.",
       "rule": "card-unassigned"
     },
     {
       "action": "bridge-reminder",
       "column": "in-progress",
       "max": "1",
-      "message": "Single-agent project, and full-suite verification is host-exclusive. One card in flight at a time; a second means one of them is not being carried.",
+      "message": "{detail} - Single-agent project, and full-suite verification is host-exclusive. One card in flight at a time; a second means one of them is not being carried.",
       "rule": "wip-limit"
     },
     {
       "action": "bridge-reminder",
       "column": "git-gate",
-      "message": "A gate is not passed until its record exists. This card reached the git gate with no gate recorded, so there is nothing a stranger could check.",
+      "message": "{detail} - A gate is not passed until its record exists. This card reached the git gate with no gate recorded, so there is nothing a stranger could check.",
       "rule": "gate-missing"
     },
     {
       "action": "bridge-reminder",
-      "message": "Every commit title carries its DD-NNN. A commit that names no card cannot be traced back to the work that justified it.",
+      "message": "{detail} - Every commit title carries its DD-NNN. A commit that names no card cannot be traced back to the work that justified it.",
       "rule": "commit-without-card"
     },
     {
       "action": "bridge-reminder",
       "age": "2h",
-      "message": "Commits are pushed per finished ticket. Work that exists only on this machine is work nobody else can see and a machine failure can erase.",
+      "message": "{detail} - Commits are pushed per finished ticket. Work that exists only on this machine is work nobody else can see and a machine failure can erase.",
       "rule": "unpushed-work"
     },
     {
       "action": "bridge-reminder",
       "age": "30m",
-      "message": "No work starts without a ticket. The tree is changing while no card is at a working gate, so whatever is being done is unrecorded.",
+      "message": "{detail} - No work starts without a ticket. The tree is changing while no card is at a working gate, so whatever is being done is unrecorded.",
       "rule": "work-without-card"
     },
     {
       "action": "bridge-reminder",
-      "message": "The owner has answered and I have not read it. He answers from his phone and then waits; an answer nobody acts on is the same to him as no answer.",
+      "message": "{detail} - The owner has answered and I have not read it. He answers from his phone and then waits; an answer nobody acts on is the same to him as no answer.",
       "rule": "answer-waiting"
     },
     {
       "action": "bridge-reminder",
       "age": "2h",
-      "message": "An answer was read and never marked ok or not-ok, so nobody can tell whether it settled the question.",
+      "message": "{detail} - An answer was read and never marked ok or not-ok, so nobody can tell whether it settled the question.",
       "rule": "answer-unjudged"
     },
     {
       "action": "bridge-reminder",
       "age": "30m",
-      "message": "Marked ok and nothing written down: settled in name only. The decision has to reach the card, or it is lost when this session ends.",
+      "message": "{detail} - Marked ok and nothing written down: settled in name only. The decision has to reach the card, or it is lost when this session ends.",
       "rule": "answer-ok-not-folded"
     },
     {
       "action": "print-reminder",
       "age": "12h",
-      "message": "A question has been waiting on you. The grace is deliberately long so this never nags overnight.",
+      "message": "{detail} - A question has been waiting on you. The grace is deliberately long so this never nags overnight.",
       "rule": "question-unanswered"
     },
     {
       "action": "bridge-reminder",
       "age": "3h",
-      "message": "A suite run has been alive for hours. On 11 August one sat wedged for 1 day 20 hours holding seven processes, producing no failure and no last line, and was read as healthy progress.",
+      "message": "{detail} - A suite run has been alive for hours. On 11 August one sat wedged for 1 day 20 hours holding seven processes, producing no failure and no last line, and was read as healthy progress.",
       "pattern": "prove -lr t",
       "rule": "leftover-process"
     },
     {
       "action": "bridge-reminder",
       "age": "1h",
-      "message": "A headless browser from a smoke test is still running. This is the exact process that wedged the 11 August gate; the pattern is narrowed to our own dump-dom smoke so another project's browsers are never implicated.",
+      "message": "{detail} - A headless browser from a smoke test is still running. This is the exact process that wedged the 11 August gate; the pattern is narrowed to our own dump-dom smoke so another project's browsers are never implicated.",
       "pattern": "--dump-dom",
       "rule": "leftover-process"
     },
     {
       "action": "bridge-reminder",
-      "message": "A parent is claiming to be finished above a child that is not. An epic once sat parked while eight of its children were built and six shipped, and was then asked to verify an assembled result it had never seen.",
+      "message": "{detail} - A parent is claiming to be finished above a child that is not. An epic once sat parked while eight of its children were built and six shipped, and was then asked to verify an assembled result it had never seen.",
       "rule": "parent-ahead-of-children"
     },
     {
       "action": "bridge-reminder",
-      "message": "Work set aside with no reason recorded. A discarded card with no explanation is indistinguishable from one abandoned by accident, and the next reader cannot tell which.",
+      "message": "{detail} - Work set aside with no reason recorded. A discarded card with no explanation is indistinguishable from one abandoned by accident, and the next reader cannot tell which.",
       "rule": "discard-unexplained"
     },
     {
       "action": "bridge-reminder",
-      "message": "The card has been talked about since it was last written down. On this project the talking happens on Telegram and in this session, both of which vanish; only the card survives. Seven decisions were found settled and lost this way in a single sweep.",
+      "message": "{detail} - The card has been talked about since it was last written down. On this project the talking happens on Telegram and in this session, both of which vanish; only the card survives. Seven decisions were found settled and lost this way in a single sweep.",
       "rule": "conversation-not-folded"
     },
     {
       "action": "bridge-reminder",
       "age": "2h",
-      "message": "An answer was marked not-ok and nothing was asked next. A cross settles nothing on its own: it records that the answer did not resolve the question, and leaves the question just as open as before.",
+      "message": "{detail} - An answer was marked not-ok and nothing was asked next. A cross settles nothing on its own: it records that the answer did not resolve the question, and leaves the question just as open as before.",
       "rule": "answer-not-ok-no-followup"
     },
     {
@@ -123,88 +123,88 @@
       "action": "bridge-reminder",
       "age": "6h",
       "column": "in-progress",
-      "message": "A card claimed for hours with nothing moving. Say what it is waiting for ON THE CARD, or put it down.",
+      "message": "{detail} - A card claimed for hours with nothing moving. Say what it is waiting for ON THE CARD, or put it down.",
       "rule": "card-duration"
     },
     {
       "action": "bridge-reminder",
       "age": "2d",
       "column": "todo",
-      "message": "DD-534 sat here for three days because I had decided it was environmental and not ours. It was blocking every gate on the machine. Two days in the queue is long enough to re-examine that judgement rather than inherit it.",
+      "message": "{detail} - DD-534 sat here for three days because I had decided it was environmental and not ours. It was blocking every gate on the machine. Two days in the queue is long enough to re-examine that judgement rather than inherit it.",
       "rule": "card-duration"
     },
     {
       "action": "bridge-reminder",
       "age": "2d",
       "column": "blocked-by-dependency",
-      "message": "Parked on another card for two days. Check the blocker is still real - a park whose condition cleared is invisible until somebody looks.",
+      "message": "{detail} - Parked on another card for two days. Check the blocker is still real - a park whose condition cleared is invisible until somebody looks.",
       "rule": "card-duration"
     },
     {
       "action": "print-reminder",
       "age": "2d",
       "column": "blocked-by-michael",
-      "message": "A card has been parked on you for two days. If the question is stale or wrong, say so and I will re-ask it.",
+      "message": "{detail} - A card has been parked on you for two days. If the question is stale or wrong, say so and I will re-ask it.",
       "rule": "card-duration"
     },
     {
       "action": "bridge-reminder",
-      "message": "The checklist on this card is finished and the card has not moved. Work that is done and still sitting in a working column is the board overstating nothing and understating progress.",
+      "message": "{detail} - The checklist on this card is finished and the card has not moved. Work that is done and still sitting in a working column is the board overstating nothing and understating progress.",
       "rule": "card-stalled"
     },
     {
       "action": "bridge-reminder",
       "age": "6h",
-      "message": "The Windows QEMU E2E container is still running. It is a full Windows virtual machine started detached, so a leaked one holds real memory and CPU for as long as nobody looks. The pattern is our own container name so another project's containers are never implicated.",
+      "message": "{detail} - The Windows QEMU E2E container is still running. It is a full Windows virtual machine started detached, so a leaked one holds real memory and CPU for as long as nobody looks. The pattern is our own container name so another project's containers are never implicated.",
       "pattern": "dd-windows-smoke",
       "rule": "leftover-container"
     },
     {
       "action": "log-only",
       "enter": "release-to-pause",
-      "message": "A card reached the released column without recording WHICH version shipped it. Reconstructing that for 45 cards took two-source git archaeology on 10 August; the field would have made it a lookup.",
+      "message": "{detail} - A card reached the released column without recording WHICH version shipped it. Reconstructing that for 45 cards took two-source git archaeology on 10 August; the field would have made it a lookup.",
       "require": "fix_version",
       "rule": "card-metrics"
     },
     {
       "action": "bridge-reminder",
       "age": "7d",
-      "message": "The board has not been backed up. Retiring the previous tracker nearly lost the most consequential open finding in the project; the gate trails live in the comments, not in the commits.",
+      "message": "{detail} - The board has not been backed up. Retiring the previous tracker nearly lost the most consequential open finding in the project; the gate trails live in the comments, not in the commits.",
       "rule": "board-unbacked"
     },
     {
       "action": "bridge-reminder",
       "enter": "git-gate",
-      "message": "A card reached the git gate without passing through the gates this project's SDLC requires. CVE-free and a green suite are per-ticket gates here, not optional stages, and a card that arrives at the commit without them has skipped the evidence rather than the ceremony.",
+      "message": "{detail} - A card reached the git gate without passing through the gates this project's SDLC requires. CVE-free and a green suite are per-ticket gates here, not optional stages, and a card that arrives at the commit without them has skipped the evidence rather than the ceremony.",
       "require": "in-progress, vulnerability-scan, unit-test",
       "rule": "column-skipped"
     },
     {
       "action": "bridge-reminder",
       "age": "2h",
-      "message": "Police has been writing and nobody has read it. On 2026-08-15 two hundred violations had piled up across a full day, and the only thing that surfaced it was the owner asking whether the bridge was monitored. A channel nobody listens on is silent in exactly the way a quiet one is.",
+      "message": "{detail} - Police has been writing and nobody has read it. On 2026-08-15 two hundred violations had piled up across a full day, and the only thing that surfaced it was the owner asking whether the bridge was monitored. A channel nobody listens on is silent in exactly the way a quiet one is.",
       "rule": "bridge-unread"
     },
     {
       "action": "bridge-reminder",
-      "message": "A card set aside while it still carries a question nobody answered. The question leaves with the card and stops waiting, so it is never answered and never visibly abandoned either.",
+      "message": "{detail} - A card set aside while it still carries a question nobody answered. The question leaves with the card and stops waiting, so it is never answered and never visibly abandoned either.",
       "rule": "discard-with-open-questions"
     },
     {
       "action": "bridge-reminder",
-      "message": "A lower-priority card is being worked while a higher-priority one waits untouched. Single agent here, so this is always a choice - and being passed over does not ripen, which is why the rule has no age.",
+      "message": "{detail} - A lower-priority card is being worked while a higher-priority one waits untouched. Single agent here, so this is always a choice - and being passed over does not ripen, which is why the rule has no age.",
       "rule": "priority-skipped"
     },
     {
       "action": "bridge-reminder",
       "age": "72h",
-      "message": "Nothing on this board has moved for three days. The age is deliberately generous: this board legitimately sits still while it is blocked on the owner, and a rule that fires while correctly blocked teaches its reader to skim - which is worse than not having the rule.",
+      "message": "{detail} - Nothing on this board has moved for three days. The age is deliberately generous: this board legitimately sits still while it is blocked on the owner, and a rule that fires while correctly blocked teaches its reader to skim - which is worse than not having the rule.",
       "rule": "board-still"
     },
     {
       "action": "bridge-reminder",
       "enter": "in-progress",
-      "message": "A card being worked must record the work tree it is worked in, under /home/mv/dd-worktree-sandbox. Police reads this project's declared repository now, so a report of a missing branch or tree is about the card rather than about where police was started - which is exactly what made this rule unusable before and got it declined.",
+      "message": "{detail} - A card being worked must record the work tree it is worked in, under /home/mv/dd-worktree-sandbox. Police reads this project's declared repository now, so a report of a missing branch or tree is about the card rather than about where police was started - which is exactly what made this rule unusable before and got it declined.",
       "rule": "card-sandbox-missing",
       "sandbox": "/home/mv/dd-worktree-sandbox"
     },
@@ -215,84 +215,84 @@
     },
     {
       "action": "bridge-reminder",
-      "message": "This card moved into a working column while its checklist stood still. Progress claimed by dragging is the failure this board exists to prevent - a column is a claim about what is true, and moving one without doing the work makes it a false one.",
+      "message": "{detail} - This card moved into a working column while its checklist stood still. Progress claimed by dragging is the failure this board exists to prevent - a column is a claim about what is true, and moving one without doing the work makes it a false one.",
       "rule": "checklist-unmoved"
     },
     {
       "action": "bridge-reminder",
       "age": "3d",
       "column": "analysing",
-      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "message": "{detail} - {ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
       "rule": "card-duration"
     },
     {
       "action": "bridge-reminder",
       "age": "7d",
       "column": "buglist",
-      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "message": "{detail} - {ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
       "rule": "card-duration"
     },
     {
       "action": "bridge-reminder",
       "age": "1d",
       "column": "documentation",
-      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "message": "{detail} - {ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
       "rule": "card-duration"
     },
     {
       "action": "bridge-reminder",
       "age": "1d",
       "column": "final-check",
-      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "message": "{detail} - {ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
       "rule": "card-duration"
     },
     {
       "action": "bridge-reminder",
       "age": "7d",
       "column": "new-enhancements",
-      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "message": "{detail} - {ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
       "rule": "card-duration"
     },
     {
       "action": "bridge-reminder",
       "age": "1d",
       "column": "planning",
-      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "message": "{detail} - {ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
       "rule": "card-duration"
     },
     {
       "action": "bridge-reminder",
       "age": "1d",
       "column": "platform-test",
-      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "message": "{detail} - {ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
       "rule": "card-duration"
     },
     {
       "action": "bridge-reminder",
       "age": "2d",
       "column": "ready",
-      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "message": "{detail} - {ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
       "rule": "card-duration"
     },
     {
       "action": "bridge-reminder",
       "age": "3d",
       "column": "researching",
-      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "message": "{detail} - {ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
       "rule": "card-duration"
     },
     {
       "action": "bridge-reminder",
       "age": "6h",
       "column": "unit-test",
-      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "message": "{detail} - {ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
       "rule": "card-duration"
     },
     {
       "action": "bridge-reminder",
       "age": "6h",
       "column": "vulnerability-scan",
-      "message": "{ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
+      "message": "{detail} - {ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
       "rule": "card-duration"
     }
   ],
