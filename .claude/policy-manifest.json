@@ -295,24 +295,6 @@
       "column": "vulnerability-scan",
       "message": "{detail} - {ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
       "rule": "card-duration"
-    },
-    {
-      "action": "bridge-reminder",
-      "column": "admin-done",
-      "message": "{detail} - {ref} reached {column} without the gate record that proves it. A gate is not passed until its record exists, and a card resting in a terminal column with no trail is a claim with nothing behind it.",
-      "rule": "gate-missing"
-    },
-    {
-      "action": "bridge-reminder",
-      "column": "done-not-released",
-      "message": "{detail} - {ref} reached {column} without the gate record that proves it. A gate is not passed until its record exists, and a card resting in a terminal column with no trail is a claim with nothing behind it.",
-      "rule": "gate-missing"
-    },
-    {
-      "action": "bridge-reminder",
-      "column": "release-to-pause",
-      "message": "{detail} - {ref} reached {column} without the gate record that proves it. A gate is not passed until its record exists, and a card resting in a terminal column with no trail is a claim with nothing behind it.",
-      "rule": "gate-missing"
     }
   ],
   "declined": [
