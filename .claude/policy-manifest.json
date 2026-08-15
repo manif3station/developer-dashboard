@@ -207,6 +207,11 @@
       "message": "A card being worked must record the work tree it is worked in, under /home/mv/dd-worktree-sandbox. Police reads this project's declared repository now, so a report of a missing branch or tree is about the card rather than about where police was started - which is exactly what made this rule unusable before and got it declined.",
       "rule": "card-sandbox-missing",
       "sandbox": "/home/mv/dd-worktree-sandbox"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "A column work happens in that no column-scoped policy names. This board added admin-done this week, and a rule naming a column stops covering the board the moment another is added - silently. Declared when all 6 unwatched columns were terminal or parking, so it reports nothing until a working column is added without cover.",
+      "rule": "column-unwatched"
     }
   ],
   "declined": [
