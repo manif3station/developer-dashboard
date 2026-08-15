@@ -1,0 +1,75 @@
+#!/usr/bin/env perl
+
+# Spec for .claude/tools/release-published.
+#
+# Run: PERL5LIB="$HOME/perl5/lib/perl5" perl .claude/tools/t-release-published
+
+use strict;
+use warnings;
+use utf8;
+
+use Test::More;
+use FindBin;
+use File::Spec;
+
+my $TOOL = File::Spec->catfile( $FindBin::Bin, 'release-published' );
+
+# Requiring rather than running: the script ends `exit main() if !caller`, so a
+# require gives access to its subs without making a single network call.
+require $TOOL;
+
+ok( -x $TOOL, 'the checker is executable' );
+
+# WHY THIS FILE EXISTS (DD-553)
+#   Three version tags - v4.23, v4.24 and v4.27 - were pushed and published no
+#   release at all, and nothing reported it. A tag push succeeds whether or not
+#   the workflow it triggers then fails, and a workflow that fails early makes
+#   every later step SKIP, so there is no failing signal anywhere. v4.27 was
+#   reported to the owner as released thirty minutes after it had already failed.
+
+# Versions must order numerically. A string sort puts v4.9 after v4.10, which
+# would move the era boundary and silently drop tags out of the check.
+{
+    is( main::version_key('v4.28'), 4028, 'a version becomes a sortable number' );
+    ok( main::version_key('v4.9') < main::version_key('v4.10'),
+        'v4.9 sorts before v4.10 - the string comparison that gets this wrong would move the era boundary' );
+    is( main::version_key('not-a-tag'), 0, 'an unparseable tag sorts to the bottom rather than dying' );
+}
+
+# A release is not "published" because something is attached to it. The tarball
+# alone is not a signed release, and counting it as one would let exactly the
+# regression this guards against through.
+{
+    my @complete = qw(Developer-Dashboard-4.28.tar.gz Developer-Dashboard-4.28.tar.gz.asc
+      Developer-Dashboard-4.28.tar.gz.sha256);
+    is_deeply( [ main::missing_artifacts( \@complete ) ], [],
+        'a release with tarball, signature and checksum is complete' );
+
+    is_deeply( [ main::missing_artifacts( ['Developer-Dashboard-4.28.tar.gz'] ) ],
+        [ 'the .asc signature', 'the checksum' ],
+        'a bare tarball is reported as missing its signature and checksum, not counted as published' );
+
+    is_deeply( [ main::missing_artifacts( [] ) ],
+        [ 'the tarball', 'the .asc signature', 'the checksum' ],
+        'a release with no assets at all is missing everything' );
+}
+
+# THE PROPERTY THAT MATTERS MOST, and the one this project has been bitten by
+# repeatedly: "I could not look" must never be reportable as "everything is fine".
+# Ninety minutes before this file was written, a `git ls-remote` that failed on a
+# missing ssh key was read as "the remote has no release tags" and said aloud.
+{
+    my $source = do { open my $fh, '<', $TOOL or die $!; local $/; <$fh> };
+
+    like( $source, qr/EXIT_UNUSABLE\s*=>\s*3/, 'there is a distinct exit code for being unable to look' );
+    like( $source, qr/return EXIT_UNUSABLE/, 'and it is actually returned rather than merely defined' );
+    unlike( $source, qr/return EXIT_OK[^;]*unless/, 'success is never the fallback path' );
+
+    # Both halves are read through the same credential on purpose: comparing a
+    # real tag list against a release list emptied by an auth error would invent
+    # findings, which is the mirror of the same mistake.
+    my @api = $source =~ /api\.github\.com/g;
+    ok( @api >= 2, 'tags and releases are both read from the API, so one credential and one failure mode' );
+}
+
+done_testing;
