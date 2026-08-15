@@ -1,0 +1,190 @@
+#!/usr/bin/env perl
+
+# Every version tag on the remote must have a published release behind it.
+#
+# WHY THIS EXISTS (DD-553)
+#   Pushing a tag and publishing a release are two different systems, and only
+#   the first reports back. `git push` succeeds whether or not the workflow it
+#   triggers then fails - and a workflow that fails early makes every later step
+#   SKIP, so nothing is emitted that looks like a failure.
+#
+#   Measured on 2026-08-15: v4.23, v4.24 and v4.27 all exist as tags with no
+#   release. v4.27 had failed thirty minutes before it was reported as released,
+#   and was found only because the owner pushed back. Counting gaps in a release
+#   list by eye is not a check.
+#
+# Exit codes follow ft99-sweep and audit-action-pins, because "every tag has its
+# release" and "I could not look" must never be the same answer:
+#     0  every version tag has a complete published release
+#     1  one or more tags have no release, or an incomplete one
+#     2  usage error
+#     3  could not look - no credential, no network, unreadable answer
+
+use strict;
+use warnings;
+use feature 'say';
+
+use JSON::XS;
+
+use constant {
+    EXIT_OK       => 0,
+    EXIT_MISSING  => 1,
+    EXIT_USAGE    => 2,
+    EXIT_UNUSABLE => 3,
+};
+
+my $REPO = 'manif3station/developer-dashboard';
+
+# What a complete release carries. A tarball on its own is not a signed release,
+# and counting it as one would let the exact regression this guards against
+# through: the tag exists, something is attached, nobody checks what.
+my @REQUIRED = ( qr/\.tar\.gz\z/, qr/\.tar\.gz\.asc\z/, qr/\.(?:sha256|checksums?(?:\.txt)?)\z/ );
+
+# Purpose: run a command and return its stdout, or undef when it could not run.
+#          Credentials on this host load only through the interactive shell, so
+#          the API call is made through one - a non-interactive shell sends an
+#          EMPTY auth header, and an empty credential returns 401, which is
+#          byte-identical to a revoked one. That mistake has cost this project a
+#          day before.
+# Input:   the shell command
+# Output:  (stdout, ok) - ok is false when the command itself failed
+sub shell_out {
+    my ($command) = @_;
+    my $out = `bash -ic '$command' 2>/dev/null`;
+    return ( $out, $? == 0 );
+}
+
+# Purpose: every vX.XX tag the remote actually has.
+#
+#          Read through the API rather than `git ls-remote`, deliberately. The ssh
+#          key on this host is not available to a non-interactive tool shell, so
+#          ls-remote answers "Permission denied (publickey)" - and that failure was
+#          read as "the remote has no tags" earlier the same day this file was
+#          written. Using the token for BOTH halves means one credential, one
+#          failure mode, and no chance of comparing a real list against an empty
+#          one produced by an auth error.
+#
+# Input:   none
+# Output:  arrayref of tag names; undef when the remote could not be read at all
+sub remote_tags {
+    my ( $out, $ok ) =
+      shell_out( q{curl -sS -H "Authorization: Bearer $GITHUB_AUTH_TOKEN" }
+          . qq{"https://api.github.com/repos/$REPO/tags?per_page=100"} );
+    return if !$ok || !defined $out || $out !~ /\S/;
+
+    my $parsed = eval { decode_json($out) };
+    return if !$parsed || ref $parsed ne 'ARRAY';
+
+    my %seen;
+    my @tags = grep { !$seen{$_}++ } grep { /\Av[0-9]+\.[0-9]+\z/ }
+      map { $_->{name} // '' } @{$parsed};
+    return \@tags;
+}
+
+# Purpose: the published releases, as tag => list of asset names.
+# Input:   none
+# Output:  hashref; undef when the API could not be read
+sub published_releases {
+    my ( $out, $ok ) =
+      shell_out( q{curl -sS -H "Authorization: Bearer $GITHUB_AUTH_TOKEN" }
+          . qq{"https://api.github.com/repos/$REPO/releases?per_page=100"} );
+    return if !$ok || !defined $out || $out !~ /\S/;
+
+    my $parsed = eval { decode_json($out) };
+    return if !$parsed || ref $parsed ne 'ARRAY';
+
+    my %release;
+    for my $entry ( @{$parsed} ) {
+        next if ref $entry ne 'HASH' || !defined $entry->{tag_name};
+        next if $entry->{draft};
+        $release{ $entry->{tag_name} } = [ map { $_->{name} // '' } @{ $entry->{assets} || [] } ];
+    }
+    return \%release;
+}
+
+# Purpose: order version tags numerically rather than as strings, so v4.9 sorts
+#          before v4.10 - a string comparison puts them the other way round and
+#          would silently move the era boundary.
+# Input:   a tag name like v4.28
+# Output:  a sortable number
+sub version_key {
+    my ($tag) = @_;
+    my ( $major, $minor ) = ( $tag // '' ) =~ /\Av([0-9]+)\.([0-9]+)\z/ or return 0;
+    return $major * 1_000 + $minor;
+}
+
+# Purpose: which required artifacts a release is missing.
+# Input:   arrayref of asset names
+# Output:  list of human descriptions of what is absent
+sub missing_artifacts {
+    my ($assets) = @_;
+    my @missing;
+    my %label = ( 0 => 'the tarball', 1 => 'the .asc signature', 2 => 'the checksum' );
+    for my $i ( 0 .. $#REQUIRED ) {
+        push @missing, $label{$i} if !grep { $_ =~ $REQUIRED[$i] } @{$assets};
+    }
+    return @missing;
+}
+
+# Purpose: compare the tags against the releases and report.
+# Input:   none
+# Output:  exit code
+sub main {
+    return EXIT_USAGE if @ARGV;
+
+    my $tags = remote_tags();
+    if ( !$tags ) {
+        say STDERR 'release-published: UNUSABLE - could not read the tags from the remote. '
+          . 'This is NOT a clean result: an unreadable remote and a remote with no tags look identical, '
+          . 'and reading one as the other has already misled this project once.';
+        return EXIT_UNUSABLE;
+    }
+
+    my $releases = published_releases();
+    if ( !$releases ) {
+        say STDERR 'release-published: UNUSABLE - could not read the releases API. '
+          . 'An absent credential sends an empty auth header and gets a 401 that reads exactly like a revoked token.';
+        return EXIT_UNUSABLE;
+    }
+
+    # Only tags from the era in which this project publishes releases at all.
+    #
+    # Without this the check reports 84 of 95 tags, because releasing is far newer
+    # than tagging - and a report that is mostly uncorrectable history is one its
+    # reader learns to skim, which is the same failure the board's attribution rule
+    # was scoped to avoid. The boundary is not a hand-picked version: it is the
+    # OLDEST tag that does have a release, so the check calibrates itself and needs
+    # no editing when the history moves.
+    my ($earliest) = sort { version_key($a) <=> version_key($b) } keys %{$releases};
+    if ( !defined $earliest ) {
+        say STDERR 'release-published: UNUSABLE - no published release exists at all, '
+          . 'so there is no era boundary to judge tags against.';
+        return EXIT_UNUSABLE;
+    }
+    my $floor = version_key($earliest);
+
+    my @findings;
+    for my $tag ( grep { version_key($_) >= $floor } sort @{$tags} ) {
+        if ( !exists $releases->{$tag} ) {
+            push @findings, "$tag is tagged on the remote and has NO published release - "
+              . 'the tag push succeeded and whatever it triggered did not';
+            next;
+        }
+        my @missing = missing_artifacts( $releases->{$tag} );
+        push @findings, "$tag has a release but it is incomplete: missing " . join( ', ', @missing )
+          if @missing;
+    }
+
+    if (@findings) {
+        say STDERR "release-published: $_" for @findings;
+        say STDERR sprintf 'release-published: %d of %d version tags do not have a complete release',
+          scalar @findings, scalar @{$tags};
+        return EXIT_MISSING;
+    }
+
+    say sprintf 'release-published: all %d version tags have a complete published release', scalar @{$tags};
+    return EXIT_OK;
+}
+
+exit main() if !caller;
+1;
