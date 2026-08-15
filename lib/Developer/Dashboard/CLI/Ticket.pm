@@ -185,10 +185,15 @@ sub exec_workspace_attach {
     # both safer and testable.
     my $argv = $args{args};
 
-    # The FALSE side of this guard cannot be recorded: passing it means reaching
-    # the exec below, which replaces the process image before Devel::Cover can
-    # write anything. The true side is tested.
-    die 'tmux args must be an array reference' if ref($argv) ne 'ARRAY';    # uncoverable branch false
+    # Both sides of this guard ARE recorded, and the annotation that used to sit
+    # here claimed otherwise (DD-537, corrected under DD-532). It reasoned that
+    # passing the guard means reaching the exec below, which replaces the process
+    # image before Devel::Cover can write anything. That is true of the exec and
+    # false of the guard: a child that reaches the guard and is then replaced has
+    # already recorded this line, so the false side is covered - Devel::Cover
+    # flagged it as "marked uncoverable but covered", which is an error rather
+    # than a gap, and it was the whole of this file's missing branch coverage.
+    die 'tmux args must be an array reference' if ref($argv) ne 'ARRAY';
 
     # Neither line below can be recorded by Devel::Cover: exec replaces the
     # process image, so the coverage database is never written from here, and a
