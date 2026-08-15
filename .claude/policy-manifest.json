@@ -149,7 +149,8 @@
     },
     {
       "action": "bridge-reminder",
-      "message": "{detail} - The checklist on this card is finished and the card has not moved. Work that is done and still sitting in a working column is the board overstating nothing and understating progress.",
+      "before": "git-gate",
+      "message": "{detail} - a finished checklist on a card that has not moved. The work is done and the column still says otherwise, which is the drift that makes a board stop describing reality.",
       "rule": "card-stalled"
     },
     {
