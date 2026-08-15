@@ -40,7 +40,27 @@ sub run_gate_with_env {
 # PERL5LIB is exported only by the interactive shell profile, so cron, systemd
 # units and agent tool-shells all start without it. A gate that only works in the
 # environment nobody schedules it from is not a gate.
-{
+# WHERE THIS PROPERTY CAN BE ASSERTED AT ALL, and the reason it is a skip rather
+# than an unconditional check (DD-552).
+#
+# The repair adds ONE directory, $HOME/perl5/lib/perl5, and only when it exists.
+# So "the gate resolves its dependencies with no PERL5LIB" can only be true on a
+# host where the dependencies actually live there. On this operator's machine they
+# do. On CI they do not - they are installed into a local::lib reached through
+# PERL5LIB - so under env -i nothing can resolve, the gate correctly reports a
+# missing module, and asserting otherwise tests the host rather than the product.
+#
+# That is not hypothetical: this file failed exactly that way in CI and took the
+# v4.27 signed release down with it. The suite passed here and the release step
+# never ran, which is this project's oldest CI trap - a job that fails early makes
+# every later step SKIP, and local green says nothing about it.
+my $LOCAL_LIB = File::Spec->catdir( $ENV{HOME} // '', 'perl5', 'lib', 'perl5' );
+
+SKIP: {
+    skip "this host keeps no library tree at $LOCAL_LIB, so there is nothing for the repair to find "
+      . 'and the gate is not expected to resolve anything without PERL5LIB', 2
+      if !-d $LOCAL_LIB;
+
     my ( $stdout, $stderr, $exit ) = run_gate_with_env(
         HOME => $ENV{HOME},
         PATH => '/usr/bin:/bin',
@@ -67,7 +87,21 @@ sub run_gate_with_env {
         PATH => '/usr/bin:/bin',
     );
 
-    is( $exit, 0, 'a HOME with no library tree is not itself an error - nothing is invented' );
+    # The exit code is only meaningful where the dependencies are reachable
+    # without PERL5LIB at all. Where they are not - CI installs them into a
+    # local::lib - the gate exits non-zero naming a missing module, which is the
+    # CORRECT behaviour being asserted two blocks below: an absent module stays
+    # absent. Asserting 0 there was asserting the host.
+    SKIP: {
+        skip 'the dependencies are not reachable on this host without PERL5LIB, so a non-zero exit here is the '
+          . 'missing-module behaviour this file asserts elsewhere rather than a fault', 1
+          if $stderr =~ /Can't locate .*\.pm in \@INC/;
+
+        is( $exit, 0, 'a HOME with no library tree is not itself an error - nothing is invented' );
+    }
+
+    # This one holds everywhere and stays unconditional: whatever the gate does
+    # about a missing module, it must never have added the non-existent tree.
     unlike( $stderr, qr/\Q$empty\E/,
         'and the non-existent tree is never added to the path, so it cannot mask or misdirect a later failure' );
 
