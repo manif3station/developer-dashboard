@@ -211,11 +211,6 @@
     },
     {
       "action": "bridge-reminder",
-      "message": "{detail} - a column work happens in that no column-scoped policy names. A rule naming a column stops covering the board the moment another column is added, silently, and this board added admin-done this week.",
-      "rule": "column-unwatched"
-    },
-    {
-      "action": "bridge-reminder",
       "message": "{detail} - This card moved into a working column while its checklist stood still. Progress claimed by dragging is the failure this board exists to prevent - a column is a claim about what is true, and moving one without doing the work makes it a false one.",
       "rule": "checklist-unmoved"
     },
@@ -309,6 +304,10 @@
     {
       "reason": "Most cards here genuinely depend on nothing, so requiring a dependency link would manufacture false relationships to satisfy a checker - which is worse than no rule, because an invented link is indistinguishable from a real one afterwards. Real blocks are recorded when they exist, as DD-532 is on DD-534.",
       "rule": "card-unlinked"
+    },
+    {
+      "reason": "Declined after it did its job: it found eleven working columns with no column-scoped policy, including all four gate columns, and all eleven are now covered. It still names three TERMINAL columns, and nothing truthful can be declared for a column where work ends - card-duration reports resting as rot, gate-missing reports an uncorrectable past (tried, reverted 00dddbc). Decline takes no column scope, so this is the action its own message offers. RE-DECLARE when upstream narrows it (TKT-239) or when a new WORKING column is added.",
+      "rule": "column-unwatched"
     }
   ],
   "note": "The policy set this project decided. policy-sweep reconciles the live board against this hourly. A rule DECLINED on the board is never restored from here: a decline is a decision with a reason attached and is more recent than this file."
