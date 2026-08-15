@@ -31,3 +31,22 @@ fi
 
 echo "FINISHED: $(grep -E '^(Files=|Result:)' "$LOG" | tail -2 | tr '\n' ' ')"
 tail -2 "$VERDICT"
+
+# A run whose files changed underneath it did not measure what it appears to.
+# On 14 August a tree edited mid-run produced 39 "Deleting old coverage for
+# changed file" lines and a figure that read as a catastrophic regression -
+# 100 down to 50 - when nothing had regressed at all. Devel::Cover says so
+# plainly in the report; nothing else does.
+# ...and only if the report belongs to THIS run. During a run the report file on
+# disk is the PREVIOUS run's, so reading it unconditionally would report a stale
+# discard count - the identical stale-artifact trap already guarded against for
+# the verdict file two lines above, which I failed to carry over when adding this.
+REPORT=/tmp/dd-gate2-report.txt
+if [ -f "$REPORT" ] && [ ! "$REPORT" -ot "$LOG" ]; then
+  discarded=$(grep -c "Deleting old coverage for changed file" "$REPORT" 2>/dev/null)
+  if [ "${discarded:-0}" -gt 0 ]; then
+    echo "  INVALID: $discarded files had their coverage DISCARDED because they changed while the gate ran."
+    echo "  This figure did not measure the tree it reports on. Re-run on a stable tree; do not act on it."
+    exit 2
+  fi
+fi
