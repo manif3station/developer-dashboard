@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# t-board-pulse - the spec for the pulse's GATE field.
+#
+# WHY THIS FILE EXISTS (DD-569)
+#   board-pulse is the line I actually read to know where things stand, and on
+#   2026-08-16 it reported "Result: PASS" all night while gate-status was
+#   reporting a coverage failure and master was red across five consecutive
+#   pushes. It built the field with `gate-status 2>&1 | head -1`: line 1 is the
+#   test summary, and the failing verdict was on lines 2 and 3.
+#
+#   The general fault is worth naming, because it will recur in another tool
+#   otherwise: ANY summary that selects one line from a multi-line verdict will
+#   eventually select the wrong one, and it will select it precisely when the
+#   verdict stops being uniform - which is exactly when the summary matters most.
+#   The exit status is the only field truncation cannot mangle.
+#
+# WHAT IT DOES NOT TEST
+#   The rest of the pulse - the columns, the sweep, the stranded count - needs a
+#   live board. Only the gate field is specified here, because only the gate field
+#   had the defect and a spec that needs a board would not be run.
+#
+# RUNNING IT
+#   bash .claude/tools/t-board-pulse
+
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+PULSE="$HERE/board-pulse"
+pass=0; fail=0
+
+has()   { if printf '%s' "$1" | grep -qE "$2"; then pass=$((pass+1)); echo "ok - $3"; else fail=$((fail+1)); echo "NOT OK - $3"; fi; }
+hasnt() { if printf '%s' "$1" | grep -qE "$2"; then fail=$((fail+1)); echo "NOT OK - $3"; else pass=$((pass+1)); echo "ok - $3"; fi; }
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+# A stub gate-status whose OUTPUT looks like a pass and whose STATUS is a failure.
+# That combination is the whole point: it is the shape the real tool had, and the
+# shape that made the old `head -1` read green.
+stub() {
+  local rc="$1"
+  local file="$WORK/stub-$rc"
+  cat > "$file" <<STUB
+#!/bin/bash
+echo "FINISHED: Files=156, Tests=16863 Result: PASS"
+echo "coverage gate: below 100.0: branch 99.9, condition 99.9"
+echo "GATE_EXIT=1"
+exit $rc
+STUB
+  chmod +x "$file"
+  printf '%s' "$file"
+}
+
+# THE DEFECT: a failing gate must never be summarised as passing, no matter how
+# reassuring its first line is.
+out="$(DD_PULSE_GATE_STATUS="$(stub 1)" bash "$PULSE" 2>&1 | head -1)"
+has   "$out" 'NOT PASSING' 'a gate-status that exits non-zero is reported as NOT PASSING'
+hasnt "$out" 'GATE: PASS'  'and is never reported as a pass, however its first line reads'
+has   "$out" 'below 100'   'the reason is carried into the line, not just the fact of failure'
+
+# A real pass must still read as a pass, or the line cries wolf and stops being read.
+out_ok="$(DD_PULSE_GATE_STATUS="$(stub 0)" bash "$PULSE" 2>&1 | head -1)"
+has   "$out_ok" 'GATE: PASS'   'a gate-status that exits 0 is reported as a pass'
+hasnt "$out_ok" 'NOT PASSING'  'and is not muddied with a failure note'
+
+# The mechanism, asserted directly so a future tidy-up cannot quietly restore it.
+# Comments stripped before matching. The first version of this assertion failed
+# against the fix that had already been made, because the explanatory comment in
+# board-pulse QUOTES the old truncating pipe in order to explain why it is wrong.
+# A source-text assertion that reads documentation as if it were code will fail on
+# a correct tree and, worse, would pass on a broken one whose comment happened not
+# to mention it.
+src="$(grep -vE '^[[:space:]]*#' "$PULSE")"
+hasnt "$src" 'gate-status 2>&1 \| head -1' 'the truncating pipe is gone from the CODE and stays gone'
+has   "$src" 'gate_rc'                      'the summary branches on the exit status'
+
+echo "1..$((pass+fail))"
+[ "$fail" -eq 0 ] && echo "PASS ($pass assertions)" || { echo "FAIL ($fail of $((pass+fail)))"; exit 1; }

@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# t-gate-status - the spec for gate-status.
+#
+# WHY THIS FILE EXISTS (DD-569)
+#   gate-status had no spec, and on 2026-08-16 it reported figures from a cover_db
+#   written forty hours earlier - predating HEAD and six merges - with no age
+#   anywhere in its output. Its own header says it exists partly to stop "a stale
+#   100.0 being reported as a fresh pass", and it does guard that DURING a run,
+#   when the verdict file is older than the log. What it never did was say how old
+#   a FINISHED verdict is once no run is active, which is almost always.
+#
+#   A reporting tool with no spec is how a line like that drifts: nothing fails
+#   when its meaning quietly changes.
+#
+# RUNNING IT
+#   bash .claude/tools/t-gate-status
+
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+TOOL="$HERE/gate-status"
+pass=0; fail=0
+
+ok() { if [ "$1" = "$2" ]; then pass=$((pass+1)); echo "ok - $3"; else fail=$((fail+1)); echo "NOT OK - $3 (got '$1', wanted '$2')"; fi; }
+has() { if printf '%s' "$1" | grep -qE "$2"; then pass=$((pass+1)); echo "ok - $3"; else fail=$((fail+1)); echo "NOT OK - $3 (output did not match /$2/)"; fi; }
+hasnt() { if printf '%s' "$1" | grep -qE "$2"; then fail=$((fail+1)); echo "NOT OK - $3 (output matched /$2/ and should not)"; else pass=$((pass+1)); echo "ok - $3"; fi; }
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+# run_with <log-age-seconds> <verdict-body> ... builds a finished-gate fixture and
+# runs the tool against it. The tool reads fixed paths, so they are overridden
+# through the environment - which is also what makes it testable at all.
+run_with() {
+  local age="$1" verdict="$2"
+  local log="$WORK/log" vfile="$WORK/verdict"
+  {
+    echo "t/01-a.t .. ok"
+    echo "Files=156, Tests=16863,  1397 wallclock secs"
+    echo "Result: PASS"
+    echo "SUITE_EXIT=0"
+  } > "$log"
+  printf '%s\n' "$verdict" > "$vfile"
+  # The verdict must be NEWER than the log or the tool correctly refuses it as a
+  # previous run's - but for the STALE case both must still be older than HEAD.
+  # An earlier version of this fixture aged only the log and touched the verdict
+  # to now, which made the verdict newer than HEAD and correctly not stale: the
+  # assertion failed and the TOOL was right. Ageing one artifact of a pair whose
+  # relative order is itself load-bearing is how a fixture tests something other
+  # than what it names.
+  touch -d "@$(( $(date +%s) - age ))" "$log"
+  touch -d "@$(( $(date +%s) - age + 30 ))" "$vfile"
+  DD_GATE_LOG="$log" DD_GATE_VERDICT="$vfile" DD_GATE_REPORT="$WORK/none" bash "$TOOL" 2>&1
+}
+
+# THE DEFECT THIS FILE WAS WRITTEN FOR: a finished verdict must say how old it is.
+out="$(run_with 144000 'coverage gate: 100.0 everywhere
+GATE_EXIT=0')"
+has "$out" 'AGE|ago|STALE' 'a finished verdict states how old its figures are'
+
+# And a figure older than the current HEAD commit must be called STALE outright,
+# because a measurement of a tree that no longer exists is not a verdict on this one.
+has "$out" 'STALE' 'figures older than HEAD are marked STALE, not presented as current'
+
+# A genuinely fresh pass must still read as a pass, or the line cries wolf and
+# stops being read - which is the failure mode that makes a guardrail worthless.
+fresh="$(run_with 5 'coverage gate: 100.0 everywhere
+GATE_EXIT=0')"
+hasnt "$fresh" 'STALE' 'a fresh verdict is not marked stale'
+
+# The exit status must remain usable by a caller: that is the field a summary
+# cannot mangle by truncation.
+run_with 5 'coverage gate: 100.0 everywhere
+GATE_EXIT=0' >/dev/null 2>&1
+ok "$?" "0" 'a fresh passing gate exits 0'
+
+echo "1..$((pass+fail))"
+[ "$fail" -eq 0 ] && echo "PASS ($pass assertions)" || { echo "FAIL ($fail of $((pass+fail)))"; exit 1; }
