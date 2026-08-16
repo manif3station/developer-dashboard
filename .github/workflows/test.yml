@@ -79,7 +79,27 @@ jobs:
           echo "PERL5LIB=$perl5lib" >> "$GITHUB_ENV"
           echo "$GITHUB_WORKSPACE/local/bin" >> "$GITHUB_PATH"
 
+      # ALWAYS RUN THIS, EVEN IF AN EARLIER STEP FAILED (DD-568).
+      #
+      # Steps run in sequence, so any failure before this one SKIPS both the test
+      # run and the coverage gate, and the run then reports only the early
+      # failure. That has destroyed the verdicts this job mostly exists to
+      # produce, twice: 23 consecutive runs across ten days where tests, coverage
+      # and both CVE audits executed zero times, and five consecutive merges on
+      # 2026-08-16 blocked by a perl-interpreter advisory. Both times every local
+      # run truthfully reported PASS, so nothing looked wrong from outside.
+      #
+      # A skipped step is not a passed step, but it READS like silence, and
+      # silence from a checker is indistinguishable from a checker that found
+      # nothing. Nothing here is weakened: a failing step still fails the job.
+      # What changes is that one broken gate stops hiding every gate behind it.
+      #
+      # Deliberately NOT applied to the setup or dependency-install steps. Running
+      # the suite against a half-built tree produces failures that look real and
+      # mean nothing, and this project has already lost time to a gate that
+      # measured a tree it could not attribute.
       - name: Run tests
+        if: always()
         run: |
           # The job has died inside this step with no conclusion and no uploaded
           # log at all, while every other workflow on the same commit passed
@@ -103,7 +123,27 @@ jobs:
           trap 'kill "$watcher" 2>/dev/null || true' EXIT
           prove -lr t
 
+      # ALWAYS RUN THIS, EVEN IF AN EARLIER STEP FAILED (DD-568).
+      #
+      # Steps run in sequence, so any failure before this one SKIPS both the test
+      # run and the coverage gate, and the run then reports only the early
+      # failure. That has destroyed the verdicts this job mostly exists to
+      # produce, twice: 23 consecutive runs across ten days where tests, coverage
+      # and both CVE audits executed zero times, and five consecutive merges on
+      # 2026-08-16 blocked by a perl-interpreter advisory. Both times every local
+      # run truthfully reported PASS, so nothing looked wrong from outside.
+      #
+      # A skipped step is not a passed step, but it READS like silence, and
+      # silence from a checker is indistinguishable from a checker that found
+      # nothing. Nothing here is weakened: a failing step still fails the job.
+      # What changes is that one broken gate stops hiding every gate behind it.
+      #
+      # Deliberately NOT applied to the setup or dependency-install steps. Running
+      # the suite against a half-built tree produces failures that look real and
+      # mean nothing, and this project has already lost time to a gate that
+      # measured a tree it could not attribute.
       - name: Verify all-metric lib coverage
+        if: always()
         run: |
           # One process runs the whole chain, so the drop, the instrumented
           # suite and the report cannot see different library paths. A split
