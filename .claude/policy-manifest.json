@@ -2,49 +2,15 @@
   "declared": [
     {
       "action": "bridge-reminder",
-      "enter": "in-progress",
-      "message": "{detail} - This card is being worked without the detail the ticket gate requires. SCOPE, PLAN, acceptance criteria, test steps, BDD and ATDD are written BEFORE implementation, because criteria written afterwards describe what was built instead of deciding whether it is right.",
-      "rule": "card-full-details"
-    },
-    {
-      "action": "bridge-reminder",
-      "message": "{detail} - A working column claims somebody is working this. Assign it or move it out - this exact drift has been caught by the owner from a phone screenshot more than once.",
-      "rule": "card-unassigned"
-    },
-    {
-      "action": "bridge-reminder",
-      "column": "in-progress",
-      "max": "1",
-      "message": "{detail} - Single-agent project, and full-suite verification is host-exclusive. One card in flight at a time; a second means one of them is not being carried.",
-      "rule": "wip-limit"
-    },
-    {
-      "action": "bridge-reminder",
-      "column": "git-gate",
-      "message": "{detail} - A gate is not passed until its record exists. This card reached the git gate with no gate recorded, so there is nothing a stranger could check.",
-      "rule": "gate-missing"
-    },
-    {
-      "action": "bridge-reminder",
-      "message": "{detail} - Every commit title carries its DD-NNN. A commit that names no card cannot be traced back to the work that justified it.",
-      "rule": "commit-without-card"
-    },
-    {
-      "action": "bridge-reminder",
       "age": "2h",
-      "message": "{detail} - Commits are pushed per finished ticket. Work that exists only on this machine is work nobody else can see and a machine failure can erase.",
-      "rule": "unpushed-work"
+      "message": "{detail} - An answer was marked not-ok and nothing was asked next. A cross settles nothing on its own: it records that the answer did not resolve the question, and leaves the question just as open as before.",
+      "rule": "answer-not-ok-no-followup"
     },
     {
       "action": "bridge-reminder",
       "age": "30m",
-      "message": "{detail} - No work starts without a ticket. The tree is changing while no card is at a working gate, so whatever is being done is unrecorded.",
-      "rule": "work-without-card"
-    },
-    {
-      "action": "bridge-reminder",
-      "message": "{detail} - The owner has answered and I have not read it. He answers from his phone and then waits; an answer nobody acts on is the same to him as no answer.",
-      "rule": "answer-waiting"
+      "message": "{detail} - Marked ok and nothing written down: settled in name only. The decision has to reach the card, or it is lost when this session ends.",
+      "rule": "answer-ok-not-folded"
     },
     {
       "action": "bridge-reminder",
@@ -54,70 +20,26 @@
     },
     {
       "action": "bridge-reminder",
-      "age": "30m",
-      "message": "{detail} - Marked ok and nothing written down: settled in name only. The decision has to reach the card, or it is lost when this session ends.",
-      "rule": "answer-ok-not-folded"
-    },
-    {
-      "action": "print-reminder",
-      "age": "12h",
-      "message": "{detail} - A question has been waiting on you. The grace is deliberately long so this never nags overnight.",
-      "rule": "question-unanswered"
+      "message": "{detail} - The owner has answered and I have not read it. He answers from his phone and then waits; an answer nobody acts on is the same to him as no answer.",
+      "rule": "answer-waiting"
     },
     {
       "action": "bridge-reminder",
-      "age": "3h",
-      "message": "{detail} - A suite run has been alive for hours. On 11 August one sat wedged for 1 day 20 hours holding seven processes, producing no failure and no last line, and was read as healthy progress.",
-      "pattern": "prove -lr t",
-      "rule": "leftover-process"
+      "age": "72h",
+      "message": "{detail} - Nothing on this board has moved for three days. The age is deliberately generous: this board legitimately sits still while it is blocked on the owner, and a rule that fires while correctly blocked teaches its reader to skim - which is worse than not having the rule.",
+      "rule": "board-still"
     },
     {
       "action": "bridge-reminder",
-      "age": "1h",
-      "message": "{detail} - A headless browser from a smoke test is still running. This is the exact process that wedged the 11 August gate; the pattern is narrowed to our own dump-dom smoke so another project's browsers are never implicated.",
-      "pattern": "--dump-dom",
-      "rule": "leftover-process"
-    },
-    {
-      "action": "bridge-reminder",
-      "message": "{detail} - A parent is claiming to be finished above a child that is not. An epic once sat parked while eight of its children were built and six shipped, and was then asked to verify an assembled result it had never seen.",
-      "rule": "parent-ahead-of-children"
-    },
-    {
-      "action": "bridge-reminder",
-      "message": "{detail} - Work set aside with no reason recorded. A discarded card with no explanation is indistinguishable from one abandoned by accident, and the next reader cannot tell which.",
-      "rule": "discard-unexplained"
-    },
-    {
-      "action": "bridge-reminder",
-      "message": "{detail} - The card has been talked about since it was last written down. On this project the talking happens on Telegram and in this session, both of which vanish; only the card survives. Seven decisions were found settled and lost this way in a single sweep.",
-      "rule": "conversation-not-folded"
+      "age": "7d",
+      "message": "{detail} - The board has not been backed up. Retiring the previous tracker nearly lost the most consequential open finding in the project; the gate trails live in the comments, not in the commits.",
+      "rule": "board-unbacked"
     },
     {
       "action": "bridge-reminder",
       "age": "2h",
-      "message": "{detail} - An answer was marked not-ok and nothing was asked next. A cross settles nothing on its own: it records that the answer did not resolve the question, and leaves the question just as open as before.",
-      "rule": "answer-not-ok-no-followup"
-    },
-    {
-      "action": "log-only",
-      "on_column": "done-not-released",
-      "rule": "conversation-not-folded"
-    },
-    {
-      "action": "log-only",
-      "on_column": "admin-done",
-      "rule": "conversation-not-folded"
-    },
-    {
-      "action": "log-only",
-      "on_column": "release-to-pause",
-      "rule": "conversation-not-folded"
-    },
-    {
-      "action": "log-only",
-      "on_column": "discard",
-      "rule": "conversation-not-folded"
+      "message": "{detail} - Police has been writing and nobody has read it. On 2026-08-15 two hundred violations had piled up across a full day, and the only thing that surfaced it was the owner asking whether the bridge was monitored. A channel nobody listens on is silent in exactly the way a quiet one is.",
+      "rule": "bridge-unread"
     },
     {
       "action": "bridge-reminder",
@@ -146,73 +68,6 @@
       "column": "blocked-by-michael",
       "message": "{detail} - A card has been parked on you for two days. If the question is stale or wrong, say so and I will re-ask it.",
       "rule": "card-duration"
-    },
-    {
-      "action": "bridge-reminder",
-      "before": "git-gate",
-      "message": "{detail} - a finished checklist on a card that has not moved. The work is done and the column still says otherwise, which is the drift that makes a board stop describing reality.",
-      "rule": "card-stalled"
-    },
-    {
-      "action": "bridge-reminder",
-      "age": "6h",
-      "message": "{detail} - The Windows QEMU E2E container is still running. It is a full Windows virtual machine started detached, so a leaked one holds real memory and CPU for as long as nobody looks. The pattern is our own container name so another project's containers are never implicated.",
-      "pattern": "dd-windows-smoke",
-      "rule": "leftover-container"
-    },
-    {
-      "action": "log-only",
-      "enter": "release-to-pause",
-      "message": "{detail} - A card reached the released column without recording WHICH version shipped it. Reconstructing that for 45 cards took two-source git archaeology on 10 August; the field would have made it a lookup.",
-      "require": "fix_version",
-      "rule": "card-metrics"
-    },
-    {
-      "action": "bridge-reminder",
-      "age": "7d",
-      "message": "{detail} - The board has not been backed up. Retiring the previous tracker nearly lost the most consequential open finding in the project; the gate trails live in the comments, not in the commits.",
-      "rule": "board-unbacked"
-    },
-    {
-      "action": "bridge-reminder",
-      "enter": "git-gate",
-      "message": "{detail} - A card reached the git gate without passing through the gates this project's SDLC requires. CVE-free and a green suite are per-ticket gates here, not optional stages, and a card that arrives at the commit without them has skipped the evidence rather than the ceremony.",
-      "require": "in-progress, vulnerability-scan, unit-test",
-      "rule": "column-skipped"
-    },
-    {
-      "action": "bridge-reminder",
-      "age": "2h",
-      "message": "{detail} - Police has been writing and nobody has read it. On 2026-08-15 two hundred violations had piled up across a full day, and the only thing that surfaced it was the owner asking whether the bridge was monitored. A channel nobody listens on is silent in exactly the way a quiet one is.",
-      "rule": "bridge-unread"
-    },
-    {
-      "action": "bridge-reminder",
-      "message": "{detail} - A card set aside while it still carries a question nobody answered. The question leaves with the card and stops waiting, so it is never answered and never visibly abandoned either.",
-      "rule": "discard-with-open-questions"
-    },
-    {
-      "action": "bridge-reminder",
-      "message": "{detail} - A lower-priority card is being worked while a higher-priority one waits untouched. Single agent here, so this is always a choice - and being passed over does not ripen, which is why the rule has no age.",
-      "rule": "priority-skipped"
-    },
-    {
-      "action": "bridge-reminder",
-      "age": "72h",
-      "message": "{detail} - Nothing on this board has moved for three days. The age is deliberately generous: this board legitimately sits still while it is blocked on the owner, and a rule that fires while correctly blocked teaches its reader to skim - which is worse than not having the rule.",
-      "rule": "board-still"
-    },
-    {
-      "action": "bridge-reminder",
-      "enter": "in-progress",
-      "message": "{detail} - A card being worked must record the work tree it is worked in, under /home/mv/dd-worktree-sandbox. Police reads this project's declared repository now, so a report of a missing branch or tree is about the card rather than about where police was started - which is exactly what made this rule unusable before and got it declined.",
-      "rule": "card-sandbox-missing",
-      "sandbox": "/home/mv/dd-worktree-sandbox"
-    },
-    {
-      "action": "bridge-reminder",
-      "message": "{detail} - This card moved into a working column while its checklist stood still. Progress claimed by dragging is the failure this board exists to prevent - a column is a claim about what is true, and moving one without doing the work makes it a false one.",
-      "rule": "checklist-unmoved"
     },
     {
       "action": "bridge-reminder",
@@ -290,6 +145,157 @@
       "column": "vulnerability-scan",
       "message": "{detail} - {ref} has sat in {column} for over {age} - {title}. A column is a claim about what is true right now; a card resting in a working column has stopped being worked without anybody saying so.",
       "rule": "card-duration"
+    },
+    {
+      "action": "bridge-reminder",
+      "enter": "in-progress",
+      "message": "{detail} - This card is being worked without the detail the ticket gate requires. SCOPE, PLAN, acceptance criteria, test steps, BDD and ATDD are written BEFORE implementation, because criteria written afterwards describe what was built instead of deciding whether it is right.",
+      "rule": "card-full-details"
+    },
+    {
+      "action": "log-only",
+      "enter": "release-to-pause",
+      "message": "{detail} - A card reached the released column without recording WHICH version shipped it. Reconstructing that for 45 cards took two-source git archaeology on 10 August; the field would have made it a lookup.",
+      "require": "fix_version",
+      "rule": "card-metrics"
+    },
+    {
+      "action": "bridge-reminder",
+      "enter": "in-progress",
+      "message": "{detail} - A card being worked must record the work tree it is worked in, under /home/mv/dd-worktree-sandbox. Police reads this project's declared repository now, so a report of a missing branch or tree is about the card rather than about where police was started - which is exactly what made this rule unusable before and got it declined.",
+      "rule": "card-sandbox-missing",
+      "sandbox": "/home/mv/dd-worktree-sandbox"
+    },
+    {
+      "action": "bridge-reminder",
+      "before": "git-gate",
+      "message": "{detail} - a finished checklist on a card that has not moved. The work is done and the column still says otherwise, which is the drift that makes a board stop describing reality.",
+      "rule": "card-stalled"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "{detail} - A working column claims somebody is working this. Assign it or move it out - this exact drift has been caught by the owner from a phone screenshot more than once.",
+      "rule": "card-unassigned"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "{detail} - This card moved into a working column while its checklist stood still. Progress claimed by dragging is the failure this board exists to prevent - a column is a claim about what is true, and moving one without doing the work makes it a false one.",
+      "rule": "checklist-unmoved"
+    },
+    {
+      "action": "bridge-reminder",
+      "enter": "git-gate",
+      "message": "{detail} - A card reached the git gate without passing through the gates this project's SDLC requires. CVE-free and a green suite are per-ticket gates here, not optional stages, and a card that arrives at the commit without them has skipped the evidence rather than the ceremony.",
+      "require": "in-progress, vulnerability-scan, unit-test",
+      "rule": "column-skipped"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "{detail} - A working column with no rule scoped to it is a column where a card can rest indefinitely with nothing to say so. This rule found eleven such columns here, including all four gate columns. It was declined for one day because it also named the three columns where work ENDS; upstream narrowed it in 2.34 (TKT-239) and it is declared again.",
+      "rule": "column-unwatched",
+      "was_declined": "Declined 2026-08-15 because it named this board three TERMINAL columns, where nothing truthful can be declared. Restored 2026-08-16 when Tira 2.34 landed TKT-239. Upstream records that the rule DID already check for endings and got the arithmetic wrong across three boards - so the original report, that it did not skip them, was right about the symptom and wrong about the cause."
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "{detail} - Every commit title carries its DD-NNN. A commit that names no card cannot be traced back to the work that justified it.",
+      "rule": "commit-without-card"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "{detail} - The card has been talked about since it was last written down. On this project the talking happens on Telegram and in this session, both of which vanish; only the card survives. Seven decisions were found settled and lost this way in a single sweep.",
+      "rule": "conversation-not-folded"
+    },
+    {
+      "action": "log-only",
+      "on_column": "done-not-released",
+      "rule": "conversation-not-folded"
+    },
+    {
+      "action": "log-only",
+      "on_column": "admin-done",
+      "rule": "conversation-not-folded"
+    },
+    {
+      "action": "log-only",
+      "on_column": "release-to-pause",
+      "rule": "conversation-not-folded"
+    },
+    {
+      "action": "log-only",
+      "on_column": "discard",
+      "rule": "conversation-not-folded"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "{detail} - Work set aside with no reason recorded. A discarded card with no explanation is indistinguishable from one abandoned by accident, and the next reader cannot tell which.",
+      "rule": "discard-unexplained"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "{detail} - A card set aside while it still carries a question nobody answered. The question leaves with the card and stops waiting, so it is never answered and never visibly abandoned either.",
+      "rule": "discard-with-open-questions"
+    },
+    {
+      "action": "bridge-reminder",
+      "column": "git-gate",
+      "message": "{detail} - A gate is not passed until its record exists. This card reached the git gate with no gate recorded, so there is nothing a stranger could check.",
+      "rule": "gate-missing"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "6h",
+      "message": "{detail} - The Windows QEMU E2E container is still running. It is a full Windows virtual machine started detached, so a leaked one holds real memory and CPU for as long as nobody looks. The pattern is our own container name so another project's containers are never implicated.",
+      "pattern": "dd-windows-smoke",
+      "rule": "leftover-container"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "3h",
+      "message": "{detail} - A suite run has been alive for hours. On 11 August one sat wedged for 1 day 20 hours holding seven processes, producing no failure and no last line, and was read as healthy progress.",
+      "pattern": "prove -lr t",
+      "rule": "leftover-process"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "1h",
+      "message": "{detail} - A headless browser from a smoke test is still running. This is the exact process that wedged the 11 August gate; the pattern is narrowed to our own dump-dom smoke so another project's browsers are never implicated.",
+      "pattern": "--dump-dom",
+      "rule": "leftover-process"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "{detail} - A parent is claiming to be finished above a child that is not. An epic once sat parked while eight of its children were built and six shipped, and was then asked to verify an assembled result it had never seen.",
+      "rule": "parent-ahead-of-children"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "{detail} - A lower-priority card is being worked while a higher-priority one waits untouched. Single agent here, so this is always a choice - and being passed over does not ripen, which is why the rule has no age.",
+      "rule": "priority-skipped"
+    },
+    {
+      "action": "print-reminder",
+      "age": "12h",
+      "message": "{detail} - A question has been waiting on you. The grace is deliberately long so this never nags overnight.",
+      "rule": "question-unanswered"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "2h",
+      "message": "{detail} - Commits are pushed per finished ticket. Work that exists only on this machine is work nobody else can see and a machine failure can erase.",
+      "rule": "unpushed-work"
+    },
+    {
+      "action": "bridge-reminder",
+      "column": "in-progress",
+      "max": "1",
+      "message": "{detail} - Single-agent project, and full-suite verification is host-exclusive. One card in flight at a time; a second means one of them is not being carried.",
+      "rule": "wip-limit"
+    },
+    {
+      "action": "bridge-reminder",
+      "age": "30m",
+      "message": "{detail} - No work starts without a ticket. The tree is changing while no card is at a working gate, so whatever is being done is unrecorded.",
+      "rule": "work-without-card"
     }
   ],
   "declined": [
@@ -304,10 +310,6 @@
     {
       "reason": "Most cards here genuinely depend on nothing, so requiring a dependency link would manufacture false relationships to satisfy a checker - which is worse than no rule, because an invented link is indistinguishable from a real one afterwards. Real blocks are recorded when they exist, as DD-532 is on DD-534.",
       "rule": "card-unlinked"
-    },
-    {
-      "reason": "Declined after it did its job: it found eleven working columns with no column-scoped policy, including all four gate columns, and all eleven are now covered. It still names three TERMINAL columns, and nothing truthful can be declared for a column where work ends - card-duration reports resting as rot, gate-missing reports an uncorrectable past (tried, reverted 00dddbc). Decline takes no column scope, so this is the action its own message offers. RE-DECLARE when upstream narrows it (TKT-239) or when a new WORKING column is added.",
-      "rule": "column-unwatched"
     }
   ],
   "note": "The policy set this project decided. policy-sweep reconciles the live board against this hourly. A rule DECLINED on the board is never restored from here: a decline is a decision with a reason attached and is more recent than this file."
