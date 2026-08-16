@@ -58,6 +58,23 @@ sub project_root {
     return -d $root ? $root : $here;
 }
 
+# Purpose: make this work in the environment a SCHEDULE actually runs it in.
+#          PERL5LIB is exported only by interactive shell init, so d2 cannot load
+#          the product's dependencies from a cron shell. Caught by running this
+#          under `env -i` before it went live: the gate returned 3, "could not
+#          read the board", which is exactly what that exit code exists to say -
+#          and would have meant a half-hourly job that never once looked, while
+#          its log filled with a message that reads like diligence.
+# Input:   none
+# Output:  none; PERL5LIB is extended in place
+sub ensure_library_path {
+    my $lib = File::Spec->catdir( $ENV{HOME} // '', 'perl5', 'lib', 'perl5' );
+    return if !-d $lib;                                  # uncoverable branch true
+    return if ( $ENV{PERL5LIB} // '' ) =~ /\Q$lib\E/;
+    $ENV{PERL5LIB} = $ENV{PERL5LIB} ? "$lib:$ENV{PERL5LIB}" : $lib;
+    return;
+}
+
 # Purpose: the outstanding violations, as the board reports them.
 # Input:   none
 # Output:  arrayref, or undef when the board could not be read
@@ -112,6 +129,7 @@ sub by_rule {
 
 sub main {
     return EXIT_USAGE if @ARGV;
+    ensure_library_path();
 
     my $records = outstanding();
     if ( !defined $records ) {
