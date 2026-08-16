@@ -536,4 +536,77 @@ sub reported {
         "the owner's own comments are never reported as unattributed" );
 }
 
+
+# --------------------------------------------------------------------------
+# DD-563: a park can be justified by a checkable TRIGGER, not only by an open
+# question.
+#
+# WHY THIS EXISTS. DD-554 sat in blocked-by-michael genuinely waiting on the
+# owner while this sweep reported that nothing was waiting on him. Every
+# question on it was answered - and the ANSWER had created an owner ACTION
+# rather than resolving the card. The sweep could only see one shape of park.
+#
+# The trigger is named, never a command stored on the card. A card is data, and
+# a sweep that executes text out of its data store is a far worse defect than
+# the one being fixed here. %TRIGGERS is the allowlist, which is also what makes
+# these cases testable without the network.
+# --------------------------------------------------------------------------
+
+# AC-1: a park whose trigger has NOT fired is a real park, and is left alone.
+{
+    local %main::TRIGGERS = ( 'test-trigger' => sub { return 0 } );
+    my $parked = card(
+        ref         => 'DD-901',
+        column      => 'blocked-by-michael',
+        questions   => [ question( answer => { text => 'A - you run them' } ) ],
+        key_details => ['RELEASE TRIGGER: test-trigger'],
+    );
+    is( reported( sweep_one($parked), 'DD-901' ), undef,
+        'a park on an owner ACTION with an unfired trigger is not reported' );
+}
+
+# AC-2: the moment it fires the card must move, and the sweep must say so. This
+# is the case the sweep exists for - a park whose condition has quietly cleared.
+{
+    local %main::TRIGGERS = ( 'test-trigger' => sub { return 1 } );
+    my $released = card(
+        ref         => 'DD-902',
+        column      => 'blocked-by-michael',
+        questions   => [ question( answer => { text => 'A - you run them' } ) ],
+        key_details => ['RELEASE TRIGGER: test-trigger'],
+    );
+    like( reported( sweep_one($released), 'DD-902' ), qr/trigger/i,
+        'a park whose trigger has ALREADY FIRED is reported as needing to move' );
+}
+
+# AC-3: the teeth stay in. No question and no trigger is still an unexplained
+# park, which is the original rule and must not be weakened by this change.
+{
+    my $bare = card(
+        ref       => 'DD-903',
+        column    => 'blocked-by-michael',
+        questions => [ question( answer => { text => 'answered' } ) ],
+    );
+    like( reported( sweep_one($bare), 'DD-903' ), qr/nothing is actually waiting/,
+        'a park with neither an open question nor a trigger is still reported' );
+}
+
+# AC-4: unevaluable is its OWN answer. A trigger the sweep cannot check must
+# never be counted as satisfied - that is how a park becomes permanent while
+# every check that asks whether a trigger exists is happy.
+{
+    local %main::TRIGGERS = ();
+    my $unknown = card(
+        ref         => 'DD-904',
+        column      => 'blocked-by-michael',
+        questions   => [ question( answer => { text => 'answered' } ) ],
+        key_details => ['RELEASE TRIGGER: nobody-knows-this-one'],
+    );
+    my $why = reported( sweep_one($unknown), 'DD-904' );
+    like( $why, qr/cannot be (evaluated|checked)/i,
+        'a trigger the sweep cannot evaluate is reported as unusable' );
+    unlike( $why // '', qr/nothing is actually waiting/,
+        'and is NOT silently treated as a satisfied park' );
+}
+
 done_testing();
