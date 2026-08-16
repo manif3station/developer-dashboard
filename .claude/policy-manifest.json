@@ -304,7 +304,7 @@
       "rule": "checklist-idle"
     },
     {
-      "reason": "Standalone tickets are the norm here by design, not an accident. Epics exist only where a group of tickets shares one version gate, so most cards legitimately have no parent and this would fire on nearly the whole board. parent-ahead-of-children already covers the failure that actually bit us - a parent claiming to be finished above an unfinished child.",
+      "reason": "Still declined, but NOT for the reason first recorded - that one has been overtaken. It was declined on 2026-08-14 because the rule reported any parentless card and standalone tickets are the norm here by design. TKT-269 (Tira 2.35) fixed precisely that: orphan-card now honours the standalone label, which the command reference defines as saying somebody meant the card to have none. So the original objection no longer applies. It stays declined for a NEW and measured reason: 191 cards on this board, 156 parentless, 3 carrying the label - so re-declaring today reports 153 historical cards. That is the gate-missing flood again, reverted as 00dddbc. Deliberately NOT fixed by bulk-labelling those 153: the label asserts somebody MEANT a card to be parentless, and applying it to cards nobody has judged would be a bulk claim dressed as a fact. RE-DECLARE WHEN the count of parentless cards WITHOUT the label falls to roughly the cards raised since this decision - countable with tira.export --fields ref,parent,labels.",
       "rule": "orphan-card"
     },
     {
