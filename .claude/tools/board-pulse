@@ -50,7 +50,27 @@ next=$(.claude/tools/next-action 2>&1 | head -1)
 # The gate's state, from the artifacts rather than from a process query - a card
 # sitting at a gate reads as stalled unless the pulse says whether the machine is
 # still working on it.
-gate=$(.claude/tools/gate-status 2>&1 | head -1)
+# THE GATE FIELD IS DRIVEN BY THE EXIT STATUS, NOT BY A CHOSEN LINE (DD-569).
+#
+# This was `gate-status 2>&1 | head -1`. Line 1 is the test summary and reads
+# "Result: PASS"; line 2 read "coverage gate: below 100.0" and line 3 "GATE_EXIT=1".
+# So the pulse printed the line that looked best and dropped the verdict - it
+# reported PASS all night on 2026-08-16 while master was red across five
+# consecutive pushes. Any summary that picks one line out of a multi-line verdict
+# will eventually pick the wrong one; the exit status is the only field that
+# truncation cannot mangle, so the status decides what this says.
+#
+# Captured before being inspected, because a pipe reports the PIPE's status and
+# this project has already had a gate result laundered in exactly that way.
+GATE_STATUS=${DD_PULSE_GATE_STATUS:-.claude/tools/gate-status}
+gate_out=$("$GATE_STATUS" 2>&1)
+gate_rc=$?
+if [ "$gate_rc" -eq 0 ]; then
+  gate="PASS - $(printf '%s' "$gate_out" | head -1)"
+else
+  gate_why=$(printf '%s' "$gate_out" | grep -E 'below 100|STALE|INVALID|WARNING|RUNNING|older than the log' | head -2 | tr '\n' ';')
+  gate="NOT PASSING (gate-status exit $gate_rc) ${gate_why:-see .claude/tools/gate-status}"
+fi
 echo "BOARD $(date +%H:%M) |${out:- (no open cards)} | $sweep | GATE: $gate$stranded | $next"
 # The owner's words, 2026-08-14, after the agent stalled once too often. Kept
 # verbatim: a reminder softened into the agent's own voice is one it can read

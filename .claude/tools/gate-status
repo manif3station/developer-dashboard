@@ -10,8 +10,12 @@
 # growth, and whether the verdict file is newer than the log's first line. A
 # verdict older than the run is the previous run's - reading it as this one's is
 # how a stale 100.0 gets reported as a fresh pass.
-LOG=/tmp/dd-gate2.log
-VERDICT=/tmp/dd-gate2-verdict.txt
+# Overridable so the spec can control its own inputs (DD-569). Without this the
+# spec's fixtures were silently ignored and two of its assertions passed against
+# the real files - a check aimed at the wrong subject can only return the answer
+# it hoped for, which is the fault this tool exists to catch in others.
+LOG=${DD_GATE_LOG:-/tmp/dd-gate2.log}
+VERDICT=${DD_GATE_VERDICT:-/tmp/dd-gate2-verdict.txt}
 [ -f "$LOG" ] || { echo "gate-status: no log at $LOG - the gate has never run here"; exit 3; }
 
 files=$(grep -c '^t/' "$LOG" 2>/dev/null)
@@ -32,6 +36,23 @@ fi
 echo "FINISHED: $(grep -E '^(Files=|Result:)' "$LOG" | tail -2 | tr '\n' ' ')"
 tail -2 "$VERDICT"
 
+# HOW OLD IS THIS, AND DOES IT DESCRIBE THE CURRENT TREE? (DD-569)
+#
+# On 2026-08-16 this tool reported a verdict from a cover_db written forty hours
+# earlier, predating HEAD and six merges, with no age anywhere in its output. The
+# header above says it exists partly to stop a stale 100.0 reading as a fresh
+# pass - and it does guard that DURING a run, when the verdict is older than the
+# log. Once no run is active it was reporting history as though it were now.
+#
+# A measurement of a tree that no longer exists is not a verdict on this one.
+verdict_epoch=$(stat -c %Y "$VERDICT" 2>/dev/null || echo 0)
+verdict_age=$(( $(date +%s) - verdict_epoch ))
+head_epoch=$(git log -1 --format=%ct 2>/dev/null || echo 0)
+printf '  AGE: this verdict was written %dh%02dm ago\n' $(( verdict_age / 3600 )) $(( (verdict_age % 3600) / 60 ))
+if [ "$head_epoch" -gt 0 ] && [ "$verdict_epoch" -lt "$head_epoch" ]; then
+  echo "  STALE: it predates HEAD ($(git log -1 --format=%h 2>/dev/null)), so it measured a tree that is no longer checked out. It is not a verdict on the current code."
+fi
+
 # A run whose files changed underneath it did not measure what it appears to.
 # On 14 August a tree edited mid-run produced 39 "Deleting old coverage for
 # changed file" lines and a figure that read as a catastrophic regression -
@@ -41,7 +62,7 @@ tail -2 "$VERDICT"
 # disk is the PREVIOUS run's, so reading it unconditionally would report a stale
 # discard count - the identical stale-artifact trap already guarded against for
 # the verdict file two lines above, which I failed to carry over when adding this.
-REPORT=/tmp/dd-gate2-report.txt
+REPORT=${DD_GATE_REPORT:-/tmp/dd-gate2-report.txt}
 if [ -f "$REPORT" ] && [ ! "$REPORT" -ot "$LOG" ]; then
   discarded=$(grep -c "Deleting old coverage for changed file" "$REPORT" 2>/dev/null)
   if [ "${discarded:-0}" -gt 0 ]; then
@@ -50,3 +71,24 @@ if [ -f "$REPORT" ] && [ ! "$REPORT" -ot "$LOG" ]; then
     exit 2
   fi
 fi
+
+# THE EXIT STATUS MUST AGREE WITH THE VERDICT (DD-569).
+#
+# Until now this script's last statement was `tail -2 "$VERDICT"`, so it fell off
+# the end and exited with TAIL's success - 0 - while printing GATE_EXIT=1. The one
+# field a caller cannot mangle by truncation was contradicting the tool's own
+# printed answer, and board-pulse read PASS from a failing gate all night. A
+# summary can be misread; an exit status that is simply wrong cannot be recovered
+# from by any caller, however careful.
+gate_exit=$(grep -oE 'GATE_EXIT=[0-9]+' "$VERDICT" 2>/dev/null | tail -1 | cut -d= -f2)
+if [ -n "${gate_exit:-}" ] && [ "$gate_exit" -ne 0 ]; then
+  exit 1
+fi
+
+# Stale is not passing either. Exiting 0 here would let a forty-hour-old 100.0
+# stand in for a verdict on the current tree, which is the whole defect.
+if [ "$head_epoch" -gt 0 ] && [ "$verdict_epoch" -lt "$head_epoch" ]; then
+  exit 2
+fi
+
+exit 0
