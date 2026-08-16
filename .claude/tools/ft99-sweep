@@ -283,6 +283,21 @@ sub open_questions {
 # undef when it could not look. Those are three different answers and collapsing
 # the third into either of the others is how a park becomes permanent.
 our %TRIGGERS = (
+    # The host-exclusive suite slot. Full-suite and coverage runs are serialised
+    # on this machine, and a card whose work is finished but whose GATE cannot run
+    # is genuinely blocked - on a resource rather than on another card (DD-571).
+    # Checked by asking the process table, not by trusting a note on the card.
+    'host-suite-slot-free' => sub {
+        my $busy = 0;
+        for my $pattern ( 'prove', 'Devel::Cover' ) {
+            my ( $out, undef, undef ) = capture {
+                system( 'sh', '-c', "ps -eo args= | grep -F -- '$pattern' | grep -v -F -- 'grep'" );
+            };
+            $busy = 1 if defined $out && $out =~ /\S/;
+        }
+        return $busy ? 0 : 1;
+    },
+
     'release-published' => sub {
         my $tool = File::Spec->catfile( $FindBin::Bin, 'release-published' );
         return undef if !-x $tool;    # uncoverable branch true
@@ -303,11 +318,28 @@ our %TRIGGERS = (
 # stream is found by whoever reads all of them, which is nobody five days later.
 sub park_trigger {
     my ($record) = @_;
+
+    # Collect EVERY candidate, then prefer one this sweep can actually evaluate.
+    #
+    # Taking the first match was wrong the moment it met real cards (DD-571).
+    # DD-567 and DD-568 each carried an earlier key detail that explained the park
+    # in prose beginning "RELEASE TRIGGER: the host-exclusive suite slot..." and
+    # "RELEASE TRIGGER: no prove and no Devel::Cover...", so the parser dutifully
+    # returned the trigger names 'the' and 'no' and reported both parks as
+    # unverifiable. A convention that doubles as prose will be written as prose.
+    #
+    # An unknown candidate is still returned when nothing better exists, so a
+    # genuine typo is reported as UNVERIFIED rather than silently ignored - losing
+    # that signal would be a worse bug than the one being fixed.
+    my @candidates;
     for my $detail ( @{ $record->{key_details} // [] } ) {
         next if !defined $detail;
-        return $1 if $detail =~ /RELEASE\s+TRIGGER:\s*([A-Za-z0-9_-]+)/;
+        push @candidates, $1 while $detail =~ /RELEASE\s+TRIGGER:\s*([A-Za-z0-9_-]+)/g;
     }
-    return undef;
+    for my $candidate (@candidates) {
+        return $candidate if exists $TRIGGERS{$candidate};
+    }
+    return $candidates[0];
 }
 
 # Purpose: has a named trigger fired?
@@ -438,8 +470,25 @@ sub sweep {
             if ( $column eq 'blocked-by-dependency' ) {
                 my @blockers = map { $_->{ref} }
                   grep { ( $_->{type} // '' ) eq 'is-blocked-by' } @{ $record->{linkage}{links} // [] };
-                if ( !@blockers ) {
-                    finding( \@findings, $ref, "is parked in 'blocked-by-dependency' but names no blocking link, so nothing can ever release it" );
+                # DD-571: a dependency need not be another CARD. DD-567 and
+                # DD-568 were both blocked on the host-exclusive suite slot, held
+                # by another project - a real dependency whose release condition
+                # is more checkable than most card links, and which this rule
+                # could not express, so it reported two correctly-parked cards as
+                # unreleasable. The trigger mechanism from DD-563 answers it, and
+                # keeps the same three outcomes distinct.
+                my $trigger = !@blockers ? park_trigger($record) : undef;
+                if ( !@blockers && !defined $trigger ) {
+                    finding( \@findings, $ref, "is parked in 'blocked-by-dependency' but names neither a blocking link nor a RELEASE TRIGGER, so nothing can ever release it" );
+                }
+                elsif ( !@blockers ) {
+                    my $state = trigger_state($trigger);
+                    if ( !defined $state ) {
+                        finding( \@findings, $ref, "is parked in 'blocked-by-dependency' on a trigger '$trigger' that cannot be evaluated - the park is UNVERIFIED rather than standing" );
+                    }
+                    elsif ($state) {
+                        finding( \@findings, $ref, "is parked in 'blocked-by-dependency' but its release trigger '$trigger' has ALREADY FIRED - the resource it waited on is free, so the card is released and must move" );
+                    }
                 }
                 else {
                     my @open = grep {

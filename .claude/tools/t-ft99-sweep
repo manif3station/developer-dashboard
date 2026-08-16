@@ -214,8 +214,15 @@ sub reported {
 
 {
     my $findings = sweep_one( card( ref => 'DD-498', column => 'blocked-by-dependency' ) );
-    like( reported( $findings, 'DD-498' ) // '', qr/names no blocking link/,
+    # The wording widened in DD-571 - a park here may now be justified by a
+    # RELEASE TRIGGER as well as by a link - but the BEHAVIOUR asserted is
+    # unchanged: a park with neither is still reported. Matching the part of the
+    # message that carries the meaning rather than the whole sentence, so a future
+    # rewording does not fail a test about behaviour.
+    like( reported( $findings, 'DD-498' ) // '', qr/blocking link/,
         'a dependency park naming no blocker is reported, because nothing can release it' );
+    like( reported( $findings, 'DD-498' ) // '', qr/nothing can ever release it/,
+        'and says why, which is what makes it actionable' );
 }
 
 {
@@ -607,6 +614,91 @@ sub reported {
         'a trigger the sweep cannot evaluate is reported as unusable' );
     unlike( $why // '', qr/nothing is actually waiting/,
         'and is NOT silently treated as a satisfied park' );
+}
+
+
+# --------------------------------------------------------------------------
+# DD-571: a dependency need not be another CARD.
+#
+# DD-567 and DD-568 were both genuinely blocked - on the host-exclusive suite
+# slot, held by another project's coverage run. That is a real dependency whose
+# release condition is MORE checkable than most card links, and the rule could
+# not express it, so it reported two correctly-parked cards as unreleasable.
+#
+# The teeth stay in: a park with neither a link nor a trigger is still reported,
+# and a trigger that has fired is still reported, because a park whose condition
+# has cleared is the failure this sweep exists to catch.
+# --------------------------------------------------------------------------
+
+{
+    local %main::TRIGGERS = ( 'slot-free' => sub { return 0 } );
+    my $parked = card(
+        ref         => 'DD-910',
+        column      => 'blocked-by-dependency',
+        key_details => ['RELEASE TRIGGER: slot-free'],
+    );
+    is( reported( sweep_one($parked), 'DD-910' ), undef,
+        'a park on a RESOURCE with an unfired trigger is not reported' );
+}
+
+{
+    local %main::TRIGGERS = ( 'slot-free' => sub { return 1 } );
+    my $released = card(
+        ref         => 'DD-911',
+        column      => 'blocked-by-dependency',
+        key_details => ['RELEASE TRIGGER: slot-free'],
+    );
+    like( reported( sweep_one($released), 'DD-911' ), qr/ALREADY FIRED/,
+        'and is reported the moment the resource frees' );
+}
+
+{
+    my $bare = card( ref => 'DD-912', column => 'blocked-by-dependency' );
+    like( reported( sweep_one($bare), 'DD-912' ), qr/neither a blocking link nor a RELEASE TRIGGER/,
+        'a park with neither a link nor a trigger is still reported - the teeth stay in' );
+}
+
+{
+    local %main::TRIGGERS = ();
+    my $unknown = card(
+        ref         => 'DD-913',
+        column      => 'blocked-by-dependency',
+        key_details => ['RELEASE TRIGGER: nobody-knows'],
+    );
+    like( reported( sweep_one($unknown), 'DD-913' ), qr/UNVERIFIED/,
+        'a trigger that cannot be evaluated leaves the park UNVERIFIED, never standing' );
+}
+
+
+# A convention that doubles as prose WILL be written as prose (DD-571). Both
+# DD-567 and DD-568 carried an earlier key detail explaining the park in a
+# sentence starting "RELEASE TRIGGER: the host-exclusive suite slot...", so a
+# first-match parser returned the trigger name 'the'.
+{
+    local %main::TRIGGERS = ( 'slot-free' => sub { return 0 } );
+    my $prose = card(
+        ref         => 'DD-914',
+        column      => 'blocked-by-dependency',
+        key_details => [
+            'RELEASE TRIGGER: the host-exclusive suite slot, i.e. no prove running',
+            'RELEASE TRIGGER: slot-free',
+        ],
+    );
+    is( reported( sweep_one($prose), 'DD-914' ), undef,
+        'a real trigger is found even when an earlier detail used the words as prose' );
+}
+
+# But a genuine typo must still be visible: an unknown name is reported as
+# UNVERIFIED rather than skipped, or a misspelt trigger would park a card for ever.
+{
+    local %main::TRIGGERS = ( 'slot-free' => sub { return 0 } );
+    my $typo = card(
+        ref         => 'DD-915',
+        column      => 'blocked-by-dependency',
+        key_details => ['RELEASE TRIGGER: slot-freee'],
+    );
+    like( reported( sweep_one($typo), 'DD-915' ), qr/UNVERIFIED/,
+        'a misspelt trigger is still reported, not silently skipped' );
 }
 
 done_testing();
