@@ -1,0 +1,239 @@
+#!/usr/bin/env perl
+
+# decline-watch - is a rule this project declined still rightly declined?
+#
+# WHY THIS EXISTS (DD-565)
+#   A declined policy is the one kind of park nothing on this board watches.
+#   FT99 sweeps parked CARDS. Police deliberately stops mentioning a rule once it
+#   is declined - that is what declining means. policy-sweep checks only that the
+#   board and the manifest agree about WHICH rules are declined, never whether a
+#   decline is still true. Three checkers, each correct about its own subject, and
+#   none whose subject is the decline's release condition.
+#
+#   It failed twice within one hour on 2026-08-16. column-unwatched had been
+#   declined pending an upstream fix; the fix shipped and was noticed only because
+#   an upgrade banner happened to mention it. orphan-card was declined for a reason
+#   TKT-269 then made obsolete, found by reading a changelog. Both were caught by
+#   luck, and luck is not a control.
+#
+# THE FAILURE THIS IS DESIGNED AGAINST
+#   A checker that always fires is worse than no checker, because it still looks
+#   like one while training its reader to skim. Every decline here narrates its own
+#   history, so scanning reasons for a ticket number would report all of them for
+#   ever. A trigger is therefore something a decline DECLARES, in a form meant for
+#   a machine, and a reason that merely mentions a ticket is not one:
+#
+#       RE-DECLARE TRIGGER: <name>   evaluated against the allowlist below
+#       RE-DECLARE TRIGGER: none     a deliberately permanent decline; stays quiet
+#       (neither)                    UNVERIFIED - reported, because an unclassified
+#                                    decline is exactly the state that hid the two
+#                                    failures above
+#
+#   "none" has to be written down rather than assumed. A decline with no trigger
+#   and a decline nobody has thought about are indistinguishable from here, and
+#   treating the second as the first is how this gap opened in the first place.
+#
+# Exit codes match the other guards here, because "still rightly declined" and
+# "I could not look" must never be the same answer:
+#     0  every decline is accounted for and none is due for revisit
+#     1  at least one decline is due for revisit, or is unclassified
+#     2  usage error
+#     3  could not look - the board would not answer
+
+use strict;
+use warnings;
+use feature 'say';
+
+use FindBin;
+use File::Basename qw(dirname);
+use File::Spec;
+use JSON::XS;
+use Capture::Tiny qw(capture);
+
+use constant {
+    EXIT_CLEAN    => 0,
+    EXIT_FINDINGS => 1,
+    EXIT_USAGE    => 2,
+    EXIT_UNUSABLE => 3,
+};
+
+# Purpose: the MAIN checkout, from wherever this runs. Every card is worked in its
+#          own worktree, and a worktree carries no .developer-dashboard layer, so
+#          the project selector naming this board exists only in the main checkout
+#          (DD-545). git answers this from inside a linked worktree.
+# Input:   none
+# Output:  absolute path to the main checkout
+sub project_root {
+    my $here = File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, File::Spec->updir, File::Spec->updir ) );
+    my ( $common, undef, $exit ) = capture {
+        system( 'git', '-C', $here, 'rev-parse', '--path-format=absolute', '--git-common-dir' );
+    };
+    return $here if $exit != 0;
+    chomp $common;
+    return $here if $common eq '';
+    my $root = dirname($common);
+    return -d $root ? $root : $here;
+}
+
+# Purpose: make this work in the environment a schedule actually runs it in.
+#          PERL5LIB is exported only by interactive shell init, so a scheduled run
+#          died on "Can't locate Plack/Runner.pm" while an interactive one passed.
+# Input:   none
+# Output:  none; PERL5LIB is extended in place
+sub ensure_library_path {
+    my $lib = File::Spec->catdir( $ENV{HOME} // '', 'perl5', 'lib', 'perl5' );
+    return if !-d $lib;                                            # uncoverable branch true
+    return if ( $ENV{PERL5LIB} // '' ) =~ /\Q$lib\E/;
+    $ENV{PERL5LIB} = $ENV{PERL5LIB} ? "$lib:$ENV{PERL5LIB}" : $lib;
+    return;
+}
+
+# Purpose: ask the board something and parse the answer.
+# Input:   list of d2 arguments
+# Output:  decoded structure, or undef when it could not be read
+sub board {
+    my (@args) = @_;
+    my $root = project_root();
+    my $d2   = File::Spec->catfile( $root, 'bin', 'd2' );
+    return undef if !-x $d2;                                       # uncoverable branch true
+    my ( $out, undef, $exit ) = capture {
+        system( 'sh', '-c', "cd \Q$root\E && \Q$d2\E @{[ join ' ', map { qq('$_') } @args ]} -o json 2>/dev/null" );
+    };
+    return undef if $exit != 0 || !defined $out || $out !~ /\S/;
+    my $parsed = eval { decode_json($out) };
+    return $parsed;
+}
+
+# The triggers this checker knows how to evaluate, by NAME.
+#
+# Each returns 1 when the condition has FIRED (the decline is due for revisit),
+# 0 when it has not, and undef when it could not be evaluated. Those are three
+# different answers; collapsing the third into either of the others is how a
+# decline becomes permanent without anybody deciding that it should be.
+our %TRIGGERS = (
+
+    # checklist-idle was declined because "this project does not use checklists"
+    # and every card had an empty one, so the rule would either never fire or
+    # fire on everything. That stops being true the moment cards carry them.
+    'checklists-adopted' => sub {
+        my $cards = board( 'tira.export', '--fields', 'ref,checklist' );
+        return undef if ref $cards ne 'HASH' && ref $cards ne 'ARRAY';
+        my $records = ref $cards eq 'ARRAY' ? $cards : ( $cards->{records} // [] );
+        my $with = grep { ref $_->{checklist} eq 'ARRAY' && @{ $_->{checklist} } } @{$records};
+        return $with >= 3 ? 1 : 0;
+    },
+
+    # orphan-card stays declined only while the historical backlog is unlabelled.
+    # Re-declaring with 153 unlabelled parentless cards would flood the bridge.
+    'standalone-labelling-caught-up' => sub {
+        my $cards = board( 'tira.export', '--fields', 'ref,parent,labels' );
+        return undef if ref $cards ne 'HASH' && ref $cards ne 'ARRAY';
+        my $records = ref $cards eq 'ARRAY' ? $cards : ( $cards->{records} // [] );
+        my $unlabelled = grep {
+            !( $_->{parent} // '' )
+              && !grep { ( $_ // '' ) eq 'standalone' } @{ $_->{labels} // [] }
+        } @{$records};
+        return $unlabelled <= 20 ? 1 : 0;
+    },
+);
+
+# Purpose: the trigger a decline has declared for itself.
+# Input:   the decline's reason text
+# Output:  the trigger's name, the string 'none', or undef when it declares neither
+sub declared_trigger {
+    my ($reason) = @_;
+    return undef if !defined $reason;
+    return $1 if $reason =~ /RE-DECLARE\s+TRIGGER:\s*([A-Za-z0-9_-]+)/;
+    return undef;
+}
+
+# Purpose: judge one decline.
+# Input:   a decline record
+# Output:  a finding string, or undef when the decline is still rightly standing
+sub judge {
+    my ($decline) = @_;
+    my $rule    = $decline->{rule} // '(unnamed rule)';
+    my $trigger = declared_trigger( $decline->{reason} );
+
+    if ( !defined $trigger ) {
+        return
+            "$rule is declined with no re-declare trigger declared, so nothing can tell a decision that is "
+          . "still right from one nobody has revisited. Add 'RE-DECLARE TRIGGER: <name>' to its reason, or "
+          . "'RE-DECLARE TRIGGER: none' if the decline is meant to be permanent";
+    }
+
+    return undef if lc($trigger) eq 'none';
+
+    my $check = $TRIGGERS{$trigger};
+    return "$rule declares the trigger '$trigger', which this checker does not know how to evaluate - so the "
+      . "decline is UNVERIFIED rather than standing"
+      if !$check;
+
+    my $state = $check->();
+    return "$rule declares the trigger '$trigger', which could not be evaluated - treat the decline as "
+      . "UNVERIFIED, never as still-true"
+      if !defined $state;
+
+    return "$rule was declined on a condition that has now FIRED ('$trigger') - revisit the decline"
+      if $state;
+
+    return undef;
+}
+
+sub main {
+    return EXIT_USAGE if @ARGV;
+    ensure_library_path();
+
+    my $declines = board('tira.policy.declined');
+    if ( ref $declines ne 'ARRAY' ) {
+        say STDERR 'decline-watch: UNUSABLE - could not read the declined policies. This is NOT a clean '
+          . 'result: a board that will not answer and a board with nothing to report look identical from here.';
+        return EXIT_UNUSABLE;
+    }
+
+    my @findings = grep { defined } map { judge($_) } @{$declines};
+
+    # Say N of N out loud. A checker that quietly drops one of its subjects reads
+    # exactly like a checker that found nothing wrong with it.
+    say STDERR "decline-watch: $_" for @findings;
+    say sprintf 'decline-watch: accounted for %d of %d declined rules, %d due for revisit',
+      scalar @{$declines}, scalar @{$declines}, scalar @findings;
+
+    return @findings ? EXIT_FINDINGS : EXIT_CLEAN;
+}
+
+exit main() if !caller;
+1;
+
+__END__
+
+=head1 NAME
+
+decline-watch - watch the rules this project declined for the conditions that would bring them back
+
+=head1 PURPOSE
+
+Evaluate each declined policy's declared re-declare trigger and report the ones
+that have fired, plus any decline that has not declared a trigger at all.
+
+=head1 WHY IT EXISTS
+
+Declining a rule is a park, and every other kind of park on this board is
+watched. This one was not, and it failed twice inside an hour: one decline whose
+upstream fix had already shipped, and one whose stated reason upstream had made
+obsolete. Both were found by chance while reading something else.
+
+=head1 WHEN TO USE
+
+Hourly, beside C<policy-sweep>, and after any Tira upgrade.
+
+=head1 HOW TO USE
+
+    .claude/tools/decline-watch
+
+=head1 EXAMPLES
+
+    $ .claude/tools/decline-watch
+    decline-watch: accounted for 3 of 3 declined rules, 0 due for revisit
+
+=cut
