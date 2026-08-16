@@ -231,6 +231,38 @@ END {
     $runner->stop_loop($with_cwd);
 }
 
+# THE BRANCH THAT WAS COVERED BY LUCK (DD-562).
+#   _find_running_loop skips a candidate whose title cannot be read:
+#
+#       next if !defined $running || $running ne $title;
+#
+#   The !defined case is a process disappearing between the moment /proc is
+#   listed and the moment its title is read. On this operator's machine that race
+#   fires constantly - the neighbouring outcome takes over thirteen thousand hits
+#   in a suite run - so the branch was covered here by accident of a busy host.
+#   CI is quiet and orderly and never produced it, so lib measured 100.0 locally
+#   and 99.9 there, and master sat red at the coverage gate while every local run
+#   reported success.
+#
+#   Covering it by overriding the read, so it holds on any machine at any load.
+#   A coverage figure earned by machine noise is not a coverage figure.
+{
+    my $vanishing = "vanish-probe-$$";
+    no warnings 'redefine';
+    my $real = \&Developer::Dashboard::CollectorRunner::_read_process_title;
+    local *Developer::Dashboard::CollectorRunner::_read_process_title = sub { return };
+
+    is( $runner->_find_running_loop($vanishing), undef,
+        'a candidate whose title cannot be read is skipped rather than matched or fatal' );
+
+    # And the same scan with the real reader still returns nothing for a name
+    # nothing runs under, so the override above proved the branch and not merely
+    # that a stubbed method returns undef.
+    local *Developer::Dashboard::CollectorRunner::_read_process_title = $real;
+    is( $runner->_find_running_loop($vanishing), undef,
+        'and with the real reader restored the answer is unchanged' );
+}
+
 done_testing;
 
 __END__
