@@ -1,0 +1,99 @@
+#!/usr/bin/env perl
+
+# t-police-outstanding - the spec for the half-hourly outstanding-violations gate.
+#
+# WHY THIS FILE EXISTS (DD-570)
+#   The gate's whole value is that it stays RED until the board is clear. A gate
+#   that cannot go red, or that reports "clear" when it simply failed to look, is
+#   worse than no gate: it is a green light nobody has to earn.
+#
+#   So each of the three outcomes is asserted, and the one that matters most is
+#   the third. Every checker on this project has at some point reported "nothing
+#   wrong" when the truth was "I could not look" - an absent credential returning
+#   401 that reads like a revoked token, a sweep whose cron line failed before the
+#   script ran, a board query that timed out and returned nothing.
+#
+# RUNNING IT
+#   PERL5LIB="$HOME/perl5/lib/perl5" perl .claude/tools/t-police-outstanding
+
+use strict;
+use warnings;
+
+use Test::More;
+use FindBin;
+use File::Spec;
+use File::Temp qw(tempdir);
+use JSON::XS;
+
+my $TOOL = File::Spec->catfile( $FindBin::Bin, 'police-outstanding' );
+
+require $TOOL;
+
+ok( -x $TOOL, 'the gate is executable' );
+
+my $DIR = tempdir( CLEANUP => 1 );
+
+# Purpose: write a fixture the tool will read instead of the board.
+sub fixture {
+    my ($data) = @_;
+    my $path = File::Spec->catfile( $DIR, 'fix-' . scalar( @{ [ glob "$DIR/*" ] } ) . '.json' );
+    open my $fh, '>', $path or die $!;
+    print {$fh} encode_json($data);
+    close $fh;
+    return $path;
+}
+
+# Purpose: run the gate against a fixture and return its exit status, WITHOUT a
+#          pipe - a pipe reports the pipe's status, which has laundered a gate
+#          result on this project before.
+sub run {
+    my ($path) = @_;
+    local $ENV{DD_POLICE_JSON} = $path // '/nonexistent/definitely-not-here.json';
+    system("$^X \Q$TOOL\E >/dev/null 2>&1");
+    return $? >> 8;
+}
+
+# AC-2: a clear board is the only thing that may exit 0.
+is( run( fixture( [] ) ), 0, 'a clear board exits 0' );
+
+# AC-1: anything outstanding keeps the gate red. This is the case that had been
+# silently true for two days before the gate existed.
+is( run( fixture( [ { rule => 'card-metrics', ref => 'DD-384' } ] ) ),
+    1, 'one outstanding violation exits 1' );
+is(
+    run(
+        fixture(
+            [   { rule => 'card-metrics', ref => 'DD-384' },
+                { rule => 'card-metrics', ref => 'DD-385' },
+                { rule => 'conversation-not-folded', ref => 'DDE-384' },
+            ]
+        )
+    ),
+    1,
+    'several across rules still exit 1'
+);
+
+# AC-3: could-not-look must never be reportable as clear.
+is( run(undef), 3, 'an unreadable board exits 3, NOT 0' );
+
+# The work list itself must name the rule and the refs, or it is a number rather
+# than an action plan - which is the correction this card was raised for.
+{
+    local $ENV{DD_POLICE_JSON} = fixture(
+        [ { rule => 'card-metrics', ref => 'DD-384' }, { rule => 'card-metrics', ref => 'DD-385' } ] );
+    my $err = `$^X \Q$TOOL\E 2>&1 >/dev/null`;
+    like( $err, qr/card-metrics/, 'the breakdown names the rule' );
+    like( $err, qr/DD-384/,       'and the refs, so the work is visible without a second command' );
+    like( $err, qr/log-only/,     'and states that log-only does not mean ignorable - the correction that caused this' );
+}
+
+# Duplicate refs within a rule are collapsed: police reports a violation per
+# sighting, and a work list that repeats the same card twelve times is a data
+# dump wearing a work list's clothes.
+{
+    my $rules = main::by_rule(
+        [ { rule => 'r', ref => 'DD-1' }, { rule => 'r', ref => 'DD-1' }, { rule => 'r', ref => 'DD-2' } ] );
+    is_deeply( $rules->{r}, [ 'DD-1', 'DD-2' ], 'repeated sightings of one card appear once' );
+}
+
+done_testing;

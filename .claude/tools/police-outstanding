@@ -1,0 +1,182 @@
+#!/usr/bin/env perl
+
+# police-outstanding - are there violations nobody has cleared?
+#
+# WHY THIS EXISTS (DD-570)
+#   The owner asked for a half-hourly `d2 tira.police.outstanding`, and the first
+#   run found 154 violations that had been accumulating since 2026-08-15, seen
+#   fifteen times each. None had reached the bridge, because 153 of them carry
+#   action "log-only" - and I had read that as "not actionable". It is not:
+#   log-only describes how a violation is DELIVERED, not whether it matters.
+#   Follow-up continues until every one is cleared.
+#
+#   The raw command is the wrong shape for a recurring job. It prints 1387 lines
+#   of records and always exits 0, so a run with 154 outstanding and a run with
+#   none are indistinguishable to anything reading a status - which is precisely
+#   the property that let them pile up unseen while a log grew in a directory
+#   nobody opened.
+#
+#   So this is a GATE, not a report. It stays red until the board is clear, and
+#   what it prints is a work list rather than a data dump.
+#
+# Exit codes, kept distinct because "clear" and "I could not look" must never be
+# the same answer - every checker on this project has been bitten by that:
+#     0  nothing outstanding
+#     1  violations outstanding; they are listed, by rule, with their refs
+#     2  usage error
+#     3  could not look - the board would not answer
+
+use strict;
+use warnings;
+use feature 'say';
+
+use FindBin;
+use File::Basename qw(dirname);
+use File::Spec;
+use JSON::XS;
+use Capture::Tiny qw(capture);
+
+use constant {
+    EXIT_CLEAR    => 0,
+    EXIT_OUTSTAND => 1,
+    EXIT_USAGE    => 2,
+    EXIT_UNUSABLE => 3,
+};
+
+# Purpose: the MAIN checkout. Every card is worked in its own worktree, and the
+#          project selector naming this board lives only in the main checkout
+#          (DD-545), so a run from a sandbox must resolve back to it.
+sub project_root {
+    my $here = File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, File::Spec->updir, File::Spec->updir ) );
+    my ( $common, undef, $exit ) = capture {
+        system( 'git', '-C', $here, 'rev-parse', '--path-format=absolute', '--git-common-dir' );
+    };
+    return $here if $exit != 0;
+    chomp $common;
+    return $here if $common eq '';
+    my $root = dirname($common);
+    return -d $root ? $root : $here;
+}
+
+# Purpose: the outstanding violations, as the board reports them.
+# Input:   none
+# Output:  arrayref, or undef when the board could not be read
+#
+# DD_POLICE_JSON points at a fixture instead, which is what makes the three
+# outcomes testable without a board. Without an injection point a spec cannot
+# control its own subject, and a check aimed at the wrong subject can only return
+# the answer it hoped for - a fault already met twice on this project tonight.
+sub outstanding {
+    my $raw;
+    if ( my $fixture = $ENV{DD_POLICE_JSON} ) {
+        return undef if !-f $fixture;
+        open my $fh, '<', $fixture or return undef;
+        local $/;
+        $raw = <$fh>;
+    }
+    else {
+        my $root = project_root();
+        my $d2   = File::Spec->catfile( $root, 'bin', 'd2' );
+        return undef if !-x $d2;    # uncoverable branch true
+        my ( $out, undef, $exit ) = capture {
+            system( 'sh', '-c', "cd \Q$root\E && \Q$d2\E tira.police.outstanding -o json 2>/dev/null" );
+        };
+        return undef if $exit != 0;
+        $raw = $out;
+    }
+    return undef if !defined $raw || $raw !~ /\S/;
+    my $parsed = eval { decode_json($raw) };
+    return undef if !$parsed;
+    return $parsed if ref $parsed eq 'ARRAY';
+    return $parsed->{outstanding} if ref $parsed->{outstanding} eq 'ARRAY';    # uncoverable branch false
+    return undef;
+}
+
+# Purpose: group the violations into the shortest thing a reader can act on.
+# Input:   arrayref of violation records
+# Output:  hashref of rule => arrayref of refs
+sub by_rule {
+    my ($records) = @_;
+    my %rules;
+    for my $record ( @{$records} ) {
+        my $rule = $record->{rule} // '(unnamed rule)';
+        my $ref  = $record->{ref}  // '(no ref)';
+        push @{ $rules{$rule} }, $ref;
+    }
+    for my $rule ( keys %rules ) {
+        my %seen;
+        $rules{$rule} = [ grep { !$seen{$_}++ } @{ $rules{$rule} } ];
+    }
+    return \%rules;
+}
+
+sub main {
+    return EXIT_USAGE if @ARGV;
+
+    my $records = outstanding();
+    if ( !defined $records ) {
+        say STDERR 'police-outstanding: UNUSABLE - could not read the board. This is NOT a clear board: '
+          . 'a board that will not answer and a board with nothing to report look identical from here.';
+        return EXIT_UNUSABLE;
+    }
+
+    if ( !@{$records} ) {
+        say 'police-outstanding: CLEAR - no outstanding violations on the board.';
+        return EXIT_CLEAR;
+    }
+
+    my $rules = by_rule($records);
+    say STDERR sprintf 'police-outstanding: %d OUTSTANDING violation(s) across %d rule(s). Every one of these '
+      . 'needs following up until it is cleared - "log-only" is how it is delivered, not whether it matters.',
+      scalar @{$records}, scalar keys %{$rules};
+    for my $rule ( sort { @{ $rules->{$b} } <=> @{ $rules->{$a} } || $a cmp $b } keys %{$rules} ) {
+        my @refs = @{ $rules->{$rule} };
+        my $show = join ' ', @refs[ 0 .. ( @refs > 12 ? 11 : $#refs ) ];
+        $show .= sprintf ' ...and %d more', @refs - 12 if @refs > 12;
+        say STDERR sprintf '  %4d  %-24s %s', scalar @refs, $rule, $show;
+    }
+    return EXIT_OUTSTAND;
+}
+
+exit main() if !caller;
+1;
+
+__END__
+
+=head1 NAME
+
+police-outstanding - the half-hourly gate that keeps outstanding violations
+visible until they are cleared
+
+=head1 PURPOSE
+
+Report every violation the board still considers outstanding, grouped by rule,
+and fail while any remain.
+
+=head1 WHY IT EXISTS
+
+The owner asked for a recurring C<d2 tira.police.outstanding>, and the first run
+found 154 violations dating back two days, seen fifteen times each and never
+acted on. None had reached the bridge, because almost all of them carry the
+action C<log-only> - which describes how a violation is delivered, not whether it
+matters.
+
+The raw command is the wrong shape for a recurring job: it prints well over a
+thousand lines and always exits zero, so a board with 154 outstanding violations
+and a clear one produce the same status. This makes the recurring job an action
+plan instead: short enough to read, and red until the work is done.
+
+=head1 WHEN TO USE
+
+Every thirty minutes from cron, and by hand after clearing anything.
+
+=head1 HOW TO USE
+
+    .claude/tools/police-outstanding
+
+=head1 EXAMPLES
+
+    $ .claude/tools/police-outstanding
+    police-outstanding: CLEAR - no outstanding violations on the board.
+
+=cut
