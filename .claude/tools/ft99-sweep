@@ -272,6 +272,54 @@ sub open_questions {
       } @{ $record->{questions} // [] };
 }
 
+# The triggers this sweep knows how to evaluate, by NAME (DD-563).
+#
+# A card names its release condition; it never supplies a command. The card is
+# data, and a sweep that executes text out of its own data store would be a much
+# worse defect than the one this fixes. Anything not on this list is UNEVALUABLE
+# and is reported as such - never quietly treated as a park still standing.
+#
+# Each check returns 1 when the condition has FIRED, 0 when it has not, and
+# undef when it could not look. Those are three different answers and collapsing
+# the third into either of the others is how a park becomes permanent.
+our %TRIGGERS = (
+    'release-published' => sub {
+        my $tool = File::Spec->catfile( $FindBin::Bin, 'release-published' );
+        return undef if !-x $tool;    # uncoverable branch true
+        system("$tool >/dev/null 2>&1");
+        my $status = $? >> 8;
+        return 1 if $status == 0;     # every version tag has a published release
+        return 0 if $status == 1;     # at least one has not - the park stands
+        return undef;                 # 3 means it could not look, and so cannot we
+    },
+);
+
+# Purpose: the release trigger a card has recorded for its park, if any.
+# Input:   a card record as the board returns it
+# Output:  the trigger's name, or undef when the card names none
+#
+# The convention is one key detail reading "RELEASE TRIGGER: <name>". It lives in
+# the FIELDS rather than the comments on purpose: a decision in the comment
+# stream is found by whoever reads all of them, which is nobody five days later.
+sub park_trigger {
+    my ($record) = @_;
+    for my $detail ( @{ $record->{key_details} // [] } ) {
+        next if !defined $detail;
+        return $1 if $detail =~ /RELEASE\s+TRIGGER:\s*([A-Za-z0-9_-]+)/;
+    }
+    return undef;
+}
+
+# Purpose: has a named trigger fired?
+# Input:   the trigger's name
+# Output:  1 fired, 0 not fired, undef could not be evaluated
+sub trigger_state {
+    my ($name) = @_;
+    my $check = $TRIGGERS{ $name // '' };
+    return undef if !$check;
+    return $check->();
+}
+
 # Purpose: read one board as parsed records.
 # Input:   $d2 path, $type (sow|epic|ticket)
 # Output:  arrayref of records; dies with a readable reason on any failure, so a
@@ -450,8 +498,27 @@ sub sweep {
             # Parked on the owner with nothing left for him to answer. Either the
             # question was settled and the card was never moved on, or it was
             # parked on a decision nobody ever asked for.
-            finding( \@findings, $ref, "waits in 'blocked-by-michael' but every question on it is answered or discarded, so nothing is actually waiting on him" )
-              if $column eq 'blocked-by-michael' && !@waiting;
+            #
+            # DD-563: unless the card names a checkable RELEASE TRIGGER. A park
+            # can rest on an owner ACTION rather than an owner ANSWER - DD-554
+            # waited on four dispatches while every question on it was answered,
+            # and this rule called that "nothing is actually waiting on him".
+            # An answer can CREATE an action instead of resolving the card.
+            if ( $column eq 'blocked-by-michael' && !@waiting ) {
+                my $trigger = park_trigger($record);
+                if ( !defined $trigger ) {
+                    finding( \@findings, $ref, "waits in 'blocked-by-michael' but every question on it is answered or discarded, so nothing is actually waiting on him" );
+                }
+                else {
+                    my $state = trigger_state($trigger);
+                    if ( !defined $state ) {
+                        finding( \@findings, $ref, "waits in 'blocked-by-michael' on a trigger '$trigger' that cannot be evaluated - it is not one of the triggers this sweep knows how to check, so the park is UNVERIFIED rather than standing" );
+                    }
+                    elsif ($state) {
+                        finding( \@findings, $ref, "waits in 'blocked-by-michael' but its release trigger '$trigger' has ALREADY FIRED - the condition it was parked on is met, so the card is released and must move" );
+                    }
+                }
+            }
 
             # The mirror, and the one that hides work rather than stalling it: a
             # card carrying an unanswered question anywhere else is waiting on the
