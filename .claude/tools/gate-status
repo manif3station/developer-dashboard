@@ -77,10 +77,20 @@ if [ ! -f "$VERDICT" ] || [ "$VERDICT" -ot "$LOG" ]; then
     head_epoch=$(git log -1 --format=%ct 2>/dev/null || echo 0)
     cov_age=$(( $(date +%s) - cov_epoch ))
     printf '  COVERAGE RAN %dh%02dm ago' $(( cov_age / 3600 )) $(( (cov_age % 3600) / 60 ))
+    # THE SAME UNEARNED CLAIM, ONE BLOCK UP (DD-582, found minutes after fixing the
+    # verdict path in this same file). This said "so it measured this tree" or "so
+    # it did not measure this tree" from a timestamp ordering alone. A commit made
+    # after a coverage run does not mean the files changed - a merge changes none -
+    # and one made before it does not mean they did.
+    #
+    # Unlike the verdict, cover_db is written by Devel::Cover and records no tree,
+    # so this genuinely CANNOT be known here. The honest report is the age plus the
+    # absence, and it is worth more than a confident guess: a reader told the tree
+    # is unknown goes and checks, a reader told it did not measure this tree does not.
     if [ "$head_epoch" -gt 0 ] && [ "$cov_epoch" -gt "$head_epoch" ]; then
-      echo " - AFTER the current HEAD, so it measured this tree; but no verdict was recorded, so whether it PASSED is unknown from here"
+      echo " - after the newest commit, though cover_db records no tree, so whether it graded THIS one is unknown from here; and no verdict was recorded, so whether it PASSED is unknown too"
     else
-      echo " - and BEFORE the current HEAD, so it did not measure this tree"
+      echo " - before the newest commit, and cover_db records no tree, so whether it graded this one is unknown from here"
     fi
   fi
   exit 2
