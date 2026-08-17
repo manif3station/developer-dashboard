@@ -45,7 +45,20 @@ log_age=$(( $(date +%s) - $(stat -c %Y "$LOG") ))
 done_marker=$(grep -c 'SUITE_EXIT' "$LOG" 2>/dev/null)
 
 if [ "$done_marker" -eq 0 ]; then
-  echo "RUNNING: $files files, log written ${log_age}s ago"
+  # NO LIVENESS CLAIM (DD-582). This said "RUNNING", decided from one fact: the
+  # log carries no SUITE_EXIT marker. That is a claim about a PROCESS made by
+  # looking only at a FILE, and marker-absence has several causes of which only
+  # one is "still running" - a hand-typed `prove -lr t`, the command CLAUDE.md
+  # documents as standard, marks nothing, and neither does SIGKILL or a crash.
+  # After an orphaned coverage tree was killed on 2026-08-17 this read
+  # "RUNNING: 139 files, log written 287s ago" for processes that no longer
+  # existed, and would have said it for ever.
+  #
+  # Deliberately NOT a staleness threshold instead: this file's own header records
+  # that process-based liveness detection failed in BOTH directions in a single
+  # evening, and an age cutoff is that same inference with arithmetic in front of
+  # it. The age is already measured and is the real discriminator.
+  echo "NO VERDICT: $files files logged, last written ${log_age}s ago - no end marker, so whether a run is still going cannot be told from here"
   [ "$log_age" -gt 900 ] && echo "  WARNING: the log has not grown for ${log_age}s - check the process tree, this is what a wedge looks like"
   exit 1
 fi
@@ -74,7 +87,12 @@ if [ ! -f "$VERDICT" ] || [ "$VERDICT" -ot "$LOG" ]; then
 fi
 
 echo "FINISHED: $(grep -E '^(Files=|Result:)' "$LOG" | tail -2 | tr '\n' ' ')"
-tail -2 "$VERDICT"
+# TREE= is bookkeeping for the comparison below, not a line for a reader - and it
+# must be excluded BEFORE the tail, or it pushes the gate's own summary line off
+# the end. Adding it did exactly that: the display showed GATE_EXIT and a tree
+# hash while "totals are 100.0" - the whole reason DD-581 made the verdict carry
+# the gate's own words - silently vanished.
+grep -v '^TREE=' "$VERDICT" | tail -2
 
 # HOW OLD IS THIS, AND DOES IT DESCRIBE THE CURRENT TREE? (DD-569)
 #
@@ -89,8 +107,37 @@ verdict_epoch=$(stat -c %Y "$VERDICT" 2>/dev/null || echo 0)
 verdict_age=$(( $(date +%s) - verdict_epoch ))
 head_epoch=$(git log -1 --format=%ct 2>/dev/null || echo 0)
 printf '  AGE: this verdict was written %dh%02dm ago\n' $(( verdict_age / 3600 )) $(( (verdict_age % 3600) / 60 ))
-if [ "$head_epoch" -gt 0 ] && [ "$verdict_epoch" -lt "$head_epoch" ]; then
-  echo "  STALE: it predates HEAD ($(git log -1 --format=%h 2>/dev/null)), so it measured a tree that is no longer checked out. It is not a verdict on the current code."
+
+# THE TREE, NOT THE CLOCK (DD-582). This compared the verdict FILE's mtime with
+# HEAD's COMMIT TIME and then stated, as fact, that the tree had changed - a thing
+# it never looked at. Shown false on 2026-08-17: merging DD-581 produced 0a57e42,
+# the merge commit for 66763ee, which changed no files. Both carried tree
+# 5e8861d4..., `git diff` between them was empty, and the headline read "It is not
+# a verdict on the current code" about a figure describing HEAD byte for byte.
+#
+# A warning that fires after every merge is one people learn to scroll past, which
+# is how the stale verdict this guard exists to catch got through in the first
+# place. So it is made ACCURATE rather than louder: the verdict records the tree
+# it measured and that is what is compared.
+#
+# COMPUTED ONCE, used by the message AND the exit below. They were separate tests
+# of the same condition, and patching one would have left the exit contradicting
+# the words - this project has a codename for fixing the instance and not the class.
+measured_tree=$(sed -n 's/^TREE=//p' "$VERDICT" 2>/dev/null | tail -1)
+head_tree=$(git rev-parse 'HEAD^{tree}' 2>/dev/null || true)
+tree_stale=0
+tree_unknown=0
+if [ -n "$measured_tree" ] && [ -n "$head_tree" ]; then
+  [ "$measured_tree" != "$head_tree" ] && tree_stale=1
+elif [ "$head_epoch" -gt 0 ] && [ "$verdict_epoch" -lt "$head_epoch" ]; then
+  # No tree recorded and a commit came after it. An honest unknown is the one
+  # answer that is never wrong; asserting either way would be guessing.
+  tree_unknown=1
+fi
+if [ "$tree_stale" -eq 1 ]; then
+  echo "  STALE: it measured tree $(printf '%.10s' "$measured_tree") and HEAD is tree $(printf '%.10s' "$head_tree") - the files differ, so it is not a verdict on the current code."
+elif [ "$tree_unknown" -eq 1 ]; then
+  echo "  This verdict does not record which tree it measured, and a commit was made after it was written, so whether it describes the current code is unknown from here."
 fi
 
 # A run whose files changed underneath it did not measure what it appears to.
@@ -127,7 +174,7 @@ fi
 
 # Stale is not passing either. Exiting 0 here would let a forty-hour-old 100.0
 # stand in for a verdict on the current tree, which is the whole defect.
-if [ "$head_epoch" -gt 0 ] && [ "$verdict_epoch" -lt "$head_epoch" ]; then
+if [ "$tree_stale" -eq 1 ] || [ "$tree_unknown" -eq 1 ]; then
   exit 2
 fi
 

@@ -61,6 +61,14 @@ mark() {
   {
     printf '%s\n' "${2:-coverage gate: no summary line was produced}"
     printf 'GATE_EXIT=%s\n' "$1"
+    # RECORD THE TREE THIS MEASURED (DD-582). gate-status used to decide staleness
+    # by comparing this file's mtime with HEAD's commit time, and then stated that
+    # the tree had changed - something it had never looked at. A merge commit
+    # changes no files, so every merge produced "it is not a verdict on the current
+    # code" about a figure that still described HEAD exactly. Recording the tree
+    # here is what lets the reader compare the thing that actually matters.
+    tree=$(git rev-parse 'HEAD^{tree}' 2>/dev/null || true)
+    [ -n "$tree" ] && printf 'TREE=%s\n' "$tree"
   } > "$VERDICT"
   # THE LOG GETS A MARKER TOO (DD-581, found in production minutes after this was
   # written). gate-status decides a run is in progress from the LOG lacking a
