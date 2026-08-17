@@ -298,6 +298,21 @@ our %TRIGGERS = (
         return $busy ? 0 : 1;
     },
 
+    # A card whose only remaining criterion is a CI verdict is waiting on a run,
+    # not on a person and not on this machine (DD-568). ci-health already answers
+    # it: 0 every workflow green on the default branch, 1 at least one red, 3
+    # could not look - and 3 must NOT read as fired, or a card parks for ever on
+    # an unreachable API.
+    'ci-green-on-default-branch' => sub {
+        my $tool = File::Spec->catfile( $FindBin::Bin, 'ci-health' );
+        return undef if !-x $tool;    # uncoverable branch true
+        system("$tool >/dev/null 2>&1");
+        my $status = $? >> 8;
+        return 1 if $status == 0;
+        return 0 if $status == 1;
+        return undef;
+    },
+
     'release-published' => sub {
         my $tool = File::Spec->catfile( $FindBin::Bin, 'release-published' );
         return undef if !-x $tool;    # uncoverable branch true
