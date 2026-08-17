@@ -27,6 +27,22 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 PULSE="$HERE/board-pulse"
 pass=0; fail=0
 
+# THIS SPEC NEEDS A LIVE BOARD (DD-573, found by CI). board-pulse reads the board
+# to build its line, so in CI - where no project selector exists - its output has
+# none of the content these assertions look for, and they correctly fail. A red
+# result there says nothing about the tool.
+#
+# Missed in the first pass because I grepped the SPEC for board references rather
+# than asking what the TOOL it runs does. The spec mentions no board; the pulse
+# reads one.
+MAIN="$(git -C "$HERE" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+MAIN="$(dirname "${MAIN:-/nonexistent}")"
+if ! ( cd "$MAIN" 2>/dev/null && ./bin/d2 tira.ticket.list --refs-only >/dev/null 2>&1 ); then
+  echo "1..0 # SKIP no reachable Tira board (expected in CI); board-pulse cannot be exercised without one"
+  exit 0
+fi
+
+
 has()   { if printf '%s' "$1" | grep -qE "$2"; then pass=$((pass+1)); echo "ok - $3"; else fail=$((fail+1)); echo "NOT OK - $3"; fi; }
 hasnt() { if printf '%s' "$1" | grep -qE "$2"; then fail=$((fail+1)); echo "NOT OK - $3"; else pass=$((pass+1)); echo "ok - $3"; fi; }
 
