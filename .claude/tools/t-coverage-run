@@ -104,6 +104,26 @@ make_gate() {
   fi
 }
 
+# THE NEW DEPENDENCY. The process-group fix made this tool need setsid, which it
+# never needed before. A tool that silently stops working when a dependency goes
+# missing is worse than one that never had it, so the question is not whether
+# setsid is present but whether its ABSENCE is loud.
+#
+# Checked by hand first with an empty PATH, which was a bad test: it removed
+# grep, touch and stdbuf too, so the run failed for four reasons and could not
+# answer the question. A shim that fails only setsid is the isolating version.
+{
+  shim="$WORK/shim"; mkdir -p "$shim"
+  printf '#!/bin/sh\nexit 127\n' > "$shim/setsid"; chmod +x "$shim/setsid"
+  log="$WORK/l5"; v="$WORK/v5"
+  PATH="$shim:$PATH" DD_COV_LOG="$log" DD_COV_VERDICT="$v" DD_COV_GATE="$(make_gate pass)" bash "$TOOL" >/dev/null 2>&1
+  ok "$?" "127" 'a setsid that fails is reported, not worked around silently'
+  body="$(cat "$v" 2>/dev/null)"
+  hasnt "$body" 'GATE_EXIT=0'      'and NO pass is recorded - the gate never ran, so there is nothing to pass'
+  has   "$body" 'no summary line'  'the verdict says plainly that no summary was produced'
+  has   "$(cat "$log")" 'SUITE_EXIT=127' 'and the log is marked too, so nothing reads as still running'
+}
+
 # AC-4: the shipped gate is not modified by this tool.
 {
   src="$(grep -vE '^[[:space:]]*#' "$TOOL")"
