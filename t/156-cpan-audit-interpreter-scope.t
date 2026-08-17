@@ -48,9 +48,14 @@ sub _shim {
 
     # The shim answers the two runs differently, which is the behaviour being
     # specified: the interpreter is in scope only when --perl is passed.
+    # THE INTERPRETER APPEARS IN BOTH RUNS. The first version of this shim
+    # emitted it only under --perl, which encoded the assumption under test:
+    # the tests passed and the fix was void, because the real cpan-audit reports
+    # perl either way (counted on 2026-08-17 - one perl line with the flag, one
+    # without). A shim built from what I expected could only confirm it.
     my $perl_line = $behaviour{perl_advisory}
-      ? q{  echo "perl (have ==5.044000) has 1 advisory"; echo "    CVEs: CVE-2026-15534"; found=1}
-      : q{  :};
+      ? q{echo "perl (have 5.044000) has 1 advisory"; echo "    CVEs: CVE-2026-15534"; found=1}
+      : q{:};
     my $dist_line = $behaviour{dist_advisory}
       ? q{echo "Some-Dist (have ==1.00) has 1 advisory"; echo "    CPANSA-Some-Dist-2026-0001"; found=1}
       : q{:};
@@ -60,11 +65,7 @@ sub _shim {
 #!/bin/sh
 found=0
 $dist_line
-case " \$* " in
-  *" --perl "*)
 $perl_line
-  ;;
-esac
 [ "\$found" = 1 ] && exit 65
 exit 0
 SHIM
@@ -155,6 +156,36 @@ my $root = _seed($tmp);
     my ( $status, undef ) = _run( $root, $dir );
     isnt( $status, 0, 'a cpan-audit that died before auditing is never reported as clean' );
     isnt( $status, 5, 'and is not reported as a finding either - it is its own answer' );
+}
+
+
+# CI OUTPUT IS COLOURED AND THE LOCAL SHIM IS NOT (DD-567).
+#
+# The real log shows ESC[31mperl (have 5.044000) - so a matcher written against
+# the plain form would pass every assertion in this file and fail in the only
+# place that matters, which is precisely how the first version of this fix
+# survived to be pushed. These two cases run the same decisions through coloured
+# output.
+{
+    my $dir = tempdir( CLEANUP => 1 );
+    my $bin = File::Spec->catfile( $dir, 'cpan-audit' );
+    open my $fh, '>', $bin or die $!;
+    print {$fh} qq{#!/bin/sh\nprintf '\\033[31mperl (have 5.044000) has 1 advisory\\033[0m\\n'\nexit 65\n};
+    close $fh;
+    chmod 0755, $bin;
+    my ( $status, undef ) = _run( $root, $dir );
+    is( $status, 0, 'a COLOURED interpreter-only advisory still passes - ANSI is stripped before matching' );
+}
+
+{
+    my $dir = tempdir( CLEANUP => 1 );
+    my $bin = File::Spec->catfile( $dir, 'cpan-audit' );
+    open my $fh, '>', $bin or die $!;
+    print {$fh} qq{#!/bin/sh\nprintf '\\033[31mSome-Dist (have ==1.00) has 1 advisory\\033[0m\\n'\nexit 65\n};
+    close $fh;
+    chmod 0755, $bin;
+    my ( $status, undef ) = _run( $root, $dir );
+    is( $status, 5, 'and a COLOURED distribution advisory still fails' );
 }
 
 done_testing;
