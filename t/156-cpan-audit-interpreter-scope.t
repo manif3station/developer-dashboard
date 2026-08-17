@@ -112,6 +112,22 @@ my $root = _seed($tmp);
     is( $status, 5, 'a distribution advisory in the isolated root still fails the gate' );
 }
 
+# DD-574: a gate that fails must NAME what failed it. The first version of this
+# change printed only the interpreter run and decided on a second, unprinted one -
+# so CI showed a perl advisory and exit 5, and a reader concluded the interpreter
+# had failed the gate, which is the single thing this file exists to disprove.
+{
+    my ( $status, $out ) = _run( $root, _shim( dist_advisory => 1 ) );
+    is( $status, 5, 'a distribution advisory fails the gate' );
+    # Assert on the LABEL, not on the advisory text. The first version of this
+    # assertion looked for the distribution name and PASSED with the print
+    # removed - because the interpreter run prints that name too, so the check
+    # could not tell the two runs apart. A check that cannot fail is not a check,
+    # and it was caught only by trying to falsify it.
+    like( $out, qr/advisories that decided this gate/,
+        'the run that DECIDED the exit is printed, labelled as such' );
+}
+
 # Both at once must still fail - the interpreter finding must not become a way for
 # a real advisory to ride along unnoticed.
 {
