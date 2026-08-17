@@ -89,5 +89,30 @@ src="$(grep -vE '^[[:space:]]*#' "$PULSE")"
 hasnt "$src" 'gate-status 2>&1 \| head -1' 'the truncating pipe is gone from the CODE and stays gone'
 has   "$src" 'gate_rc'                      'the summary branches on the exit status'
 
+# DD-582: WHEN THE GATE FAILS, THE PULSE MUST SAY WHY - and this asserts the
+# PROPERTY, not a word.
+#
+# The reason line is built by grepping gate-status's prose for a fixed set of
+# words. Rewording gate-status's headline to "NO VERDICT: ..." matched none of
+# them, so the pulse silently fell back to "see .claude/tools/gate-status" - the
+# verdict was still right, driven by the exit status, but the explanation vanished
+# from the board's headline and nothing failed.
+#
+# Asserting a specific new word would rebuild the same trap for the next person to
+# reword it. What must hold is that a failing gate is never reported without a
+# reason, whatever the reason happens to say.
+{
+  fake="$WORK/gs-nover"
+  printf '#!/bin/sh\necho "NO VERDICT: 7 files logged, last written 12s ago - no end marker, so whether a run is still going cannot be told from here"\nexit 1\n' > "$fake"
+  chmod +x "$fake"
+  # $PULSE, not $TOOL - this spec names it $PULSE, and referencing an unbound
+  # variable under `set -u` left $out EMPTY, so the "no fallback" assertion passed
+  # against nothing at all while the real pulse was printing the fallback happily.
+  # A test aimed at an empty string can only return the answer you hoped for.
+  out="$(DD_PULSE_GATE_STATUS="$fake" bash "$PULSE" 2>&1)"
+  hasnt "$out" 'see \.claude/tools/gate-status' 'a failing gate is never reported with the bare fallback instead of a reason'
+  has   "$out" 'NO VERDICT|no end marker'        'the pulse carries the reason gate-status actually gave'
+}
+
 echo "1..$((pass+fail))"
 [ "$fail" -eq 0 ] && echo "PASS ($pass assertions)" || { echo "FAIL ($fail of $((pass+fail)))"; exit 1; }

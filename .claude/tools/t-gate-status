@@ -118,6 +118,32 @@ done
   out="$(DD_GATE_LOG="$log" DD_GATE_VERDICT="$vfile" DD_GATE_COVER_DB="$covdb" DD_GATE_REPORT="$WORK/none" bash "$TOOL" 2>&1)"
   has   "$out" 'no verdict was recorded'  'an unrecorded verdict is described as such, not blamed on a previous run'
   has   "$out" 'COVERAGE RAN'             'and the tool reports WHEN coverage last ran, from cover_db'
+  # AND MAKES NO CLAIM ABOUT WHICH TREE IT GRADED. cover_db is Devel::Cover's and
+  # records no tree, so "it measured this tree" and "it did not measure this tree"
+  # were both inferred from a timestamp - the same fault as the verdict path, one
+  # block up in the same file, found minutes after fixing that one and only because
+  # the tool was pointed at its own board.
+  hasnt "$out" 'so it measured this tree|so it did not measure this tree' 'and claims nothing about WHICH tree cover_db graded, which it cannot know'
+  has   "$out" 'unknown from here'        'saying plainly that it is unknown'
+}
+
+# THE OTHER BRANCH. The case above touches cover_db to "now", so it only ever
+# exercises the newer-than-HEAD path. Mutating the older-than-HEAD line changed
+# nothing and the spec still passed 24/24 - which is how I learned that half this
+# block had no test at all. An assertion that cannot fail is not an assertion, and
+# pinning one branch while leaving its twin free to regress is the shape this file
+# already has a comment about.
+{
+  log="$WORK/oldcov.log"; vfile="$WORK/oldcov.verdict"; covdb="$WORK/oldcov_db"
+  mkdir -p "$covdb"
+  { echo "t/01-a.t .. ok"; echo "Result: PASS"; echo "SUITE_EXIT=0"; } > "$log"
+  printf 'coverage gate: 100.0 everywhere\nGATE_EXIT=0\n' > "$vfile"
+  touch -d "@$(( $(date +%s) - 7200 ))" "$vfile"
+  touch "$log"
+  touch -d "@$(( $(date +%s) - 7200 ))" "$covdb"     # coverage ran BEFORE the newest commit
+  out="$(DD_GATE_LOG="$log" DD_GATE_VERDICT="$vfile" DD_GATE_COVER_DB="$covdb" DD_GATE_REPORT="$WORK/none" bash "$TOOL" 2>&1)"
+  has   "$out" 'COVERAGE RAN' 'an OLD cover_db is still reported with its age'
+  hasnt "$out" 'so it measured this tree|so it did not measure this tree' 'and the older-than-HEAD branch claims nothing about the tree either'
   hasnt "$out" 'GATE: PASS|totals are 100' 'but never reports a PASS - a database proves a run happened, not that it succeeded'
 }
 
