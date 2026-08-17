@@ -1636,6 +1636,42 @@ ok( !defined $runner->stop_loop('stop.missing'), 'stop_loop returns undef with n
     is( $? >> 8, 0, '_shutdown_loop honors an explicit status and terminates the worker set' );
 }
 
+# ---------------------------------------------------------------------------
+# DD-585: a QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS.
+#
+# _read_process_title falls back to `system 'ps' -p $pid` when /proc/$pid/cmdline
+# is unreadable, which is the normal case for a process that vanished between
+# readdir and the read. ps then exits 1 and leaves $? at 256, and the function
+# returns without restoring it.
+#
+# That poisoned $? decided whether a whole test file passed. t/153's END block
+# walks every entry in /proc; END blocks run last-in-first-out, so it ran before
+# Test::Builder's, which then read $?, printed "Looks like your test exited with
+# 256 just after 15" and failed the file with exit 255 - while all 15 of its
+# subtests had passed. CI run 32011417394 on 07babd9 died exactly that way, and
+# it is load-sensitive rather than random: a busy runner churns processes, so the
+# vanish-window is hit far more often than on a quiet box.
+#
+# Proven three ways before this assertion was written: an END with a failing
+# system exits 255, the same call with `local $?` exits 0, and no END exits 0.
+{
+    local $? = 0;
+    my $missing_pid = 999_999;
+    $missing_pid++ while kill( 0, $missing_pid ) && $missing_pid < 4_000_000;
+    my $title = $runner->_read_process_title($missing_pid);
+    is( $?, 0,
+        'reading the title of a vanished process leaves $? alone, so a caller in an END block does not inherit a false exit status' );
+    is( $title, undef, 'and it reports no title for a process that is not there' );
+
+    # THE SIBLING, because the same shape is the same defect. _read_process_state
+    # has an identical ps fallback and leaked identically; fixing only the function
+    # that happened to be noticed is how the next caller inherits it.
+    local $? = 0;
+    my $state = $runner->_read_process_state($missing_pid);
+    is( $?, 0, 'and reading the STATE of a vanished process leaves $? alone too' );
+    is( $state, undef, 'reporting no state for a process that is not there' );
+}
+
 done_testing;
 
 __END__
