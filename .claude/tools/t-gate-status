@@ -57,9 +57,24 @@ out="$(run_with 144000 'coverage gate: 100.0 everywhere
 GATE_EXIT=0')"
 has "$out" 'AGE|ago|STALE' 'a finished verdict states how old its figures are'
 
-# And a figure older than the current HEAD commit must be called STALE outright,
-# because a measurement of a tree that no longer exists is not a verdict on this one.
-has "$out" 'STALE' 'figures older than HEAD are marked STALE, not presented as current'
+# CONTRACT DELIBERATELY MOVED (DD-582), and this assertion changed with it rather
+# than being deleted or quietly edited to pass.
+#
+# It used to read: `has "$out" 'STALE'`, justified as "a measurement of a tree that
+# no longer exists is not a verdict on this one". That justification is the defect.
+# Being older than HEAD does NOT mean the tree changed - a merge commit changes no
+# files, and on 2026-08-17 exactly that produced a "not a verdict on the current
+# code" headline about a figure describing HEAD byte for byte.
+#
+# What SURVIVES is the purpose: an old figure must never be presented as current,
+# and must not exit 0. That is what is asserted now. The word STALE is reserved for
+# the case where the trees are known to differ, which this fixture cannot claim -
+# its verdict records no tree at all.
+has "$out" 'STALE|does not record which tree|unknown' 'an old figure is flagged, never presented as current'
+run_with 144000 'coverage gate: 100.0 everywhere
+GATE_EXIT=0' >/dev/null 2>&1
+stale_exit=$?
+ok "$stale_exit" "2" 'and it does not exit 0 - the load-bearing half, which no wording can satisfy by accident'
 
 # A genuinely fresh pass must still read as a pass, or the line cries wolf and
 # stops being read - which is the failure mode that makes a guardrail worthless.
@@ -105,6 +120,118 @@ done
   has   "$out" 'COVERAGE RAN'             'and the tool reports WHEN coverage last ran, from cover_db'
   hasnt "$out" 'GATE: PASS|totals are 100' 'but never reports a PASS - a database proves a run happened, not that it succeeded'
 }
+
+# DD-582: AN UNMARKED LOG IS NOT EVIDENCE THAT ANYTHING IS RUNNING.
+#
+# The tool decided this from ONE fact - the log carries no SUITE_EXIT marker -
+# and then printed "RUNNING", which is a claim about a PROCESS made by looking
+# only at a FILE. Observed on 2026-08-17: after an orphaned coverage tree was
+# killed, this read "RUNNING: 139 files, log written 287s ago" for processes
+# that no longer existed, and would have read it for ever, because nothing was
+# left to write a marker.
+#
+# Marker-absence has several causes and only one of them is "still running": a
+# hand-typed prove (the command CLAUDE.md documents) marks nothing, and neither
+# does SIGKILL or a crash.
+#
+# DELIBERATELY NOT a staleness threshold. This tool's own header records that
+# process-based liveness detection failed in BOTH directions in one evening; an
+# age cutoff is the same inference with arithmetic in front of it. The age is
+# already measured and is the real discriminator - the headline must simply stop
+# overstating it.
+{
+  log="$WORK/unmarked.log"; vfile="$WORK/unmarked.verdict"
+  printf 't/01-one.t .. ok
+t/02-two.t .. ok
+' > "$log"
+  : > "$vfile"
+  touch -d '5 minutes ago' "$log"
+  out="$(DD_GATE_LOG="$log" DD_GATE_VERDICT="$vfile" DD_GATE_REPORT="$WORK/none" bash "$TOOL" 2>&1)"
+  hasnt "$out" 'RUNNING'          'an unmarked log makes NO claim that a run is in progress'
+  has   "$out" 'NO VERDICT'       'it reports what it actually knows - that no verdict was recorded'
+  has   "$out" '[0-9]+s ago'      'and states the age, which is the real discriminator'
+  has   "$out" '2 files'          'while keeping the useful detail it already had'
+}
+
+
+# REGRESSION GUARD (DD-582). Recording TREE= in the verdict pushed the gate's own
+# summary line out of a `tail -2` display, so the headline showed GATE_EXIT and a
+# tree hash while "totals are 100.0" disappeared. Caught by looking at the output,
+# not by any assertion - so here is the assertion.
+{
+  log="$WORK/dlog"; vfile="$WORK/dverdict"
+  { echo "t/01-a.t .. ok"; echo "Result: PASS"; echo "SUITE_EXIT=0"; } > "$log"
+  printf 'coverage gate: statement, branch, condition, and subroutine totals are 100.0\nGATE_EXIT=0\nTREE=deadbeefdeadbeefdeadbeefdeadbeefdeadbeef\n' > "$vfile"
+  out="$(DD_GATE_LOG="$log" DD_GATE_VERDICT="$vfile" DD_GATE_REPORT="$WORK/none" bash "$TOOL" 2>&1)"
+  has   "$out" 'totals are 100\.0' "the gate's OWN summary line is still shown once the tree is recorded"
+  hasnt "$out" '^TREE=' 'and the tree hash is not printed at the reader'
+}
+
+# DD-582 AC-5: STALENESS IS ABOUT THE TREE, NOT ABOUT THE CLOCK.
+#
+# The tool decides staleness with `verdict_epoch -lt head_epoch` - the verdict
+# FILE's mtime against HEAD's COMMIT TIME - and never looks at a tree. It then
+# states, as fact, "it measured a tree that is no longer checked out".
+#
+# Observed false on 2026-08-17. Merging DD-581 produced 0a57e42, the merge commit
+# for 66763ee, which introduced no file changes at all:
+#
+#     verdict measured at 66763ee   tree 5e8861d40206fbd337ee2b0233d8c2e29f9f3435
+#     HEAD now      0a57e42          tree 5e8861d40206fbd337ee2b0233d8c2e29f9f3435
+#     git diff between them          EMPTY
+#
+# The coverage figure applied to HEAD byte for byte and the board's headline read
+# "It is not a verdict on the current code."
+#
+# That is the same fault as the RUNNING headline above: a cheap adjacent proxy - a
+# timestamp ordering - standing in for the real question, which is whether the
+# FILES changed. And the cost is not cosmetic. Every merge now cries wolf, and a
+# warning that fires after every merge is one people learn to scroll past, which
+# is how the stale verdict this guard exists to catch got through in the first
+# place.
+#
+# Fixture is a real git repository, because the subject is real git objects.
+{
+  repo="$WORK/repo"; mkdir -p "$repo"
+  ( cd "$repo"
+    git init -q .
+    git config user.email t@example.com; git config user.name t
+    echo one > file.txt
+    git add file.txt; git commit -qm first
+  ) >/dev/null 2>&1
+  measured_tree=$(cd "$repo" && git rev-parse HEAD^{tree})
+
+  log="$WORK/rlog"; vfile="$WORK/rverdict"
+  {
+    echo "t/01-a.t .. ok"
+    echo "Result: PASS"
+    echo "SUITE_EXIT=0"
+  } > "$log"
+  printf 'coverage gate: 100.0 everywhere\nGATE_EXIT=0\nTREE=%s\n' "$measured_tree" > "$vfile"
+  touch -d '2 hours ago' "$log"
+  touch -d '2 hours ago' "$vfile"
+
+  # A commit AFTER the verdict that changes no files - exactly a merge's shape.
+  ( cd "$repo" && git commit -q --allow-empty -m "merge-shaped, no file changes" ) >/dev/null 2>&1
+
+  out="$(cd "$repo" && DD_GATE_LOG="$log" DD_GATE_VERDICT="$vfile" DD_GATE_REPORT="$WORK/none" bash "$TOOL" 2>&1)"
+  hasnt "$out" 'no longer checked out' 'a commit that changed NO files does not invalidate the verdict'
+  hasnt "$out" 'not a verdict on the current code' 'and the tool does not deny a verdict it demonstrably still describes'
+
+  # Now genuinely change the tree. The guard must still fire - the point is to make
+  # it accurate, never to weaken it.
+  ( cd "$repo" && echo two > file.txt && git add file.txt && git commit -qm "a real change" ) >/dev/null 2>&1
+  out2="$(cd "$repo" && DD_GATE_LOG="$log" DD_GATE_VERDICT="$vfile" DD_GATE_REPORT="$WORK/none" bash "$TOOL" 2>&1)"
+  has "$out2" 'STALE' 'a commit that DID change files is still reported stale'
+
+  # A verdict that never recorded its tree must say it cannot tell, rather than
+  # assert either way. An honest unknown is the one answer that is never wrong.
+  printf 'coverage gate: 100.0 everywhere\nGATE_EXIT=0\n' > "$vfile"
+  touch -d '2 hours ago' "$vfile"
+  out3="$(cd "$repo" && DD_GATE_LOG="$log" DD_GATE_VERDICT="$vfile" DD_GATE_REPORT="$WORK/none" bash "$TOOL" 2>&1)"
+  has "$out3" 'does not record|cannot tell|unknown' 'a verdict with no recorded tree says so instead of guessing'
+}
+
 
 echo "1..$((pass+fail))"
 [ "$fail" -eq 0 ] && echo "PASS ($pass assertions)" || { echo "FAIL ($fail of $((pass+fail)))"; exit 1; }
