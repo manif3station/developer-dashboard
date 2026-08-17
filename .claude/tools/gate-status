@@ -26,6 +26,15 @@
 #        previous run, or it predates HEAD, or the run discarded coverage because
 #        the tree moved under it. NOT a pass and NOT a failure: a non-answer.
 #     3  no log at all - the gate has never run here
+#
+# WHAT THIS TOOL DOES NOT WATCH (DD-578), stated because a blind spot nobody
+# declared is indistinguishable from one nobody has. A PASS/FAIL verdict is
+# written only by the dd-tg integrator harness, which last ran on 2026-08-14.
+# script/coverage-gate - the project's real four-metric gate - writes none of
+# these files, so running it directly cannot turn this green however well it
+# does. What that run DOES leave behind is cover_db, and its timestamp is
+# reported below: it says WHEN coverage last ran, never WHETHER it passed. Those
+# are different questions and this tool keeps them apart.
 
 LOG=${DD_GATE_LOG:-/tmp/dd-gate2.log}
 VERDICT=${DD_GATE_VERDICT:-/tmp/dd-gate2-verdict.txt}
@@ -42,7 +51,25 @@ if [ "$done_marker" -eq 0 ]; then
 fi
 
 if [ ! -f "$VERDICT" ] || [ "$VERDICT" -ot "$LOG" ]; then
-  echo "FINISHED but the verdict file is OLDER than the log - it belongs to a previous run, do not read it"
+  echo "FINISHED but no verdict was recorded for this run - the file present is older than the log"
+
+  # cover_db is what a direct script/coverage-gate run actually leaves behind, so
+  # it can answer WHEN even when nothing answered WHETHER. Deliberately not
+  # treated as a pass: a database proves a run happened, never that it succeeded,
+  # and this project has already acted on a figure that measured a tree it could
+  # not attribute.
+  COVER_DB=${DD_GATE_COVER_DB:-$(dirname "$0")/../../cover_db}
+  if [ -d "$COVER_DB" ]; then
+    cov_epoch=$(stat -c %Y "$COVER_DB" 2>/dev/null || echo 0)
+    head_epoch=$(git log -1 --format=%ct 2>/dev/null || echo 0)
+    cov_age=$(( $(date +%s) - cov_epoch ))
+    printf '  COVERAGE RAN %dh%02dm ago' $(( cov_age / 3600 )) $(( (cov_age % 3600) / 60 ))
+    if [ "$head_epoch" -gt 0 ] && [ "$cov_epoch" -gt "$head_epoch" ]; then
+      echo " - AFTER the current HEAD, so it measured this tree; but no verdict was recorded, so whether it PASSED is unknown from here"
+    else
+      echo " - and BEFORE the current HEAD, so it did not measure this tree"
+    fi
+  fi
   exit 2
 fi
 
