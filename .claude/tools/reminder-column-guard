@@ -35,6 +35,12 @@ use File::Spec;
 use JSON::XS;
 use Capture::Tiny qw(capture);
 
+# Exit codes, stated because this is a GUARD and a guard whose contract is
+# unwritten is one a caller has to guess at (DD-576):
+#     0  every watched column carries a reminder limit
+#     1  at least one does not - the finding names them
+#     3  could not look: the board would not answer. NOT a clean result.
+
 use constant {
     EXIT_CLEAN    => 0,
     EXIT_FINDINGS => 1,
