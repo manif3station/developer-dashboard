@@ -87,5 +87,24 @@ for code in 0 1 2 3; do
   fi
 done
 
+
+# DD-578: when nothing recorded a verdict, say so and say WHEN coverage ran -
+# never infer that it passed. The old message blamed "a previous run", which was
+# wrong in the case that actually happens here: the run was tonight's, and what
+# is missing is the harness that would have recorded its result.
+{
+  covdb="$WORK/cover_db"; mkdir -p "$covdb"
+  log="$WORK/l2"; vfile="$WORK/v2"
+  { echo "t/01-a.t .. ok"; echo "Files=1, Tests=1"; echo "Result: PASS"; echo "SUITE_EXIT=0"; } > "$log"
+  echo 'stale' > "$vfile"
+  touch -d "@$(( $(date +%s) - 7200 ))" "$vfile"   # verdict older than the log
+  touch "$log"
+  touch "$covdb"                                    # coverage ran just now
+  out="$(DD_GATE_LOG="$log" DD_GATE_VERDICT="$vfile" DD_GATE_COVER_DB="$covdb" DD_GATE_REPORT="$WORK/none" bash "$TOOL" 2>&1)"
+  has   "$out" 'no verdict was recorded'  'an unrecorded verdict is described as such, not blamed on a previous run'
+  has   "$out" 'COVERAGE RAN'             'and the tool reports WHEN coverage last ran, from cover_db'
+  hasnt "$out" 'GATE: PASS|totals are 100' 'but never reports a PASS - a database proves a run happened, not that it succeeded'
+}
+
 echo "1..$((pass+fail))"
 [ "$fail" -eq 0 ] && echo "PASS ($pass assertions)" || { echo "FAIL ($fail of $((pass+fail)))"; exit 1; }
