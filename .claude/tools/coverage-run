@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# coverage-run - run the four-metric coverage gate and RECORD its verdict.
+#
+# WHY THIS EXISTS (DD-581)
+#   script/coverage-gate passes and writes no verdict anywhere gate-status looks,
+#   so the board's headline indicator could not read green however often the real
+#   gate succeeded. On 2026-08-17 the gate reported 100.0 on all four metrics and
+#   the indicator still said "no verdict was recorded" - correctly, because none
+#   was. The harness that used to record it last ran on 2026-08-14.
+#
+#   The shipped script is deliberately not touched. It is part of the
+#   distribution and has no business writing /tmp paths for a local dashboard.
+#   The missing piece was always a harness, and this is it - the same shape
+#   DD-579 established for the suite.
+#
+# WHAT IT MUST NEVER DO
+#   Write a result the gate did not produce. A wrapper that recorded success
+#   because it reached the end would turn an honest "unknown" into a confident
+#   wrong answer, which is the trade this project keeps paying for: gate-status
+#   was built precisely so a stale 100.0 could not read as a fresh pass. A
+#   failing coverage run records a failure here.
+#
+# Exit codes mirror the gate's own, because this wrapper adds recording and no
+# judgement of its own:
+#     0  the coverage gate passed - verdict recorded with GATE_EXIT=0
+#     1  the coverage gate failed - verdict recorded with its real status
+#     2  usage error
+#   130  interrupted, 143 terminated - the verdict says the run did not finish
+
+set -uo pipefail
+
+LOG=${DD_COV_LOG:-/tmp/dd-gate2.log}
+VERDICT=${DD_COV_VERDICT:-/tmp/dd-gate2-verdict.txt}
+GATE=${DD_COV_GATE:-}
+
+if [ "$#" -gt 0 ]; then
+  printf 'Usage: %s   (configure via DD_COV_LOG, DD_COV_VERDICT, DD_COV_GATE)\n' "$0" >&2
+  exit 2
+fi
+
+if [ -z "$GATE" ]; then
+  root="$(cd "$(dirname "$0")/../.." && pwd)"
+  GATE="perl $root/script/coverage-gate"
+fi
+
+if [ -d "$HOME/perl5/lib/perl5" ]; then
+  case "${PERL5LIB:-}" in
+    *"$HOME/perl5/lib/perl5"*) : ;;
+    *) PERL5LIB="$HOME/perl5/lib/perl5${PERL5LIB:+:$PERL5LIB}"; export PERL5LIB ;;
+  esac
+fi
+
+marked=0
+
+# Purpose: record the gate's verdict exactly once, whatever ended the run.
+# Input:   the status the gate returned, and the summary line it printed
+# Output:  none; the verdict file is written
+mark() {
+  [ "$marked" -eq 1 ] && return 0
+  marked=1
+  {
+    printf '%s\n' "${2:-coverage gate: no summary line was produced}"
+    printf 'GATE_EXIT=%s\n' "$1"
+  } > "$VERDICT"
+  # The verdict must be NEWER than the log or gate-status correctly refuses it as
+  # belonging to a previous run - the stale-artifact guard it has carried since
+  # before this wrapper existed.
+  touch "$VERDICT"
+}
+
+on_signal() {
+  local sig="$1" code="$2"
+  [ -n "${child:-}" ] && kill -TERM "$child" 2>/dev/null
+  mark "$code" "coverage gate: killed by $sig before it finished - this is NOT a verdict"
+  exit "$code"
+}
+
+trap 'on_signal INT 130' INT
+trap 'on_signal TERM 143' TERM
+trap 'on_signal HUP 129' HUP
+
+: > "$LOG"
+stdbuf -oL $GATE >> "$LOG" 2>&1 &
+child=$!
+wait "$child"
+status=$?
+
+# The gate's OWN summary, taken from its output rather than composed here. If it
+# printed none, mark() says so rather than inventing one.
+summary="$(grep -E 'coverage gate: (statement|below 100)' "$LOG" | tail -1)"
+mark "$status" "$summary"
+exit "$status"
