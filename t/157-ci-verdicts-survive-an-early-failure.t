@@ -42,7 +42,16 @@ sub step_block {
     return $block;
 }
 
-for my $step ( 'Run tests', 'Verify all-metric lib coverage' ) {
+# 'Install test tools and export project environment' is in this list for a
+# reason found the hard way (DD-568): it installs Devel::Cover and exports
+# PERL5LIB, and it sits AFTER the audits. Marking only the two verification steps
+# would mean that when an audit fails - the exact case this guards - that step is
+# skipped and the tests fire into an environment nobody prepared, failing for want
+# of PERL5LIB rather than for want of correctness. That converts "no verdict" into
+# a FALSE FAILING verdict, which is worse than the skip it replaced. The first
+# version of this guard asserted only the two verification steps and would not
+# have caught it.
+for my $step ( 'Install test tools and export project environment', 'Run tests', 'Verify all-metric lib coverage' ) {
     my $block = step_block($step);
     ok( defined $block, "the '$step' step is still in the workflow" );
 
@@ -92,6 +101,12 @@ and the run reports only the early failure. This project has lost its test and
 coverage verdicts to that twice - once for 23 consecutive runs over ten days, and
 once for five consecutive merges - while every local run reported PASS.
 
+=head1 WHEN TO USE
+
+Whenever the Test workflow's steps are reordered or added to, and before
+believing a CI run that reports only an early failure - a skipped verification
+step is a verdict you did not get, not a verdict that passed.
+
 =head1 WHAT IT DOES NOT DO
 
 It does not make CI more permissive. A failing step still fails the job. The
@@ -102,6 +117,11 @@ is asserted here too.
 =head1 HOW TO USE
 
   PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/157-ci-verdicts-survive-an-early-failure.t
+
+=head1 WHAT USES IT
+
+The suite, through C<prove -lr t>. Its subject is F<.github/workflows/test.yml>,
+the workflow that produces this project's remote test and coverage verdicts.
 
 =head1 EXAMPLES
 
