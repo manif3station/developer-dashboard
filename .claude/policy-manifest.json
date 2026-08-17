@@ -174,6 +174,12 @@
     },
     {
       "action": "bridge-reminder",
+      "age": "6h",
+      "message": "{detail} - Nothing has happened to this card for longer than its column allows. On a single-agent board the failure this catches is mine: a card claimed, worked for a while, and left behind when something louder arrived. The column sets its own limit where it has one; 6h is the fallback, matching the threshold FT99 already uses for a card in a working column.",
+      "rule": "card-still"
+    },
+    {
+      "action": "bridge-reminder",
       "message": "{detail} - A working column claims somebody is working this. Assign it or move it out - this exact drift has been caught by the owner from a phone screenshot more than once.",
       "rule": "card-unassigned"
     },
@@ -285,6 +291,11 @@
       "age": "12h",
       "message": "{detail} - A question has been waiting on you. The grace is deliberately long so this never nags overnight.",
       "rule": "question-unanswered"
+    },
+    {
+      "action": "bridge-reminder",
+      "message": "{detail} - A rule nobody has decided on is a rule nobody is applying, and this board has proved it: four upgrade notices arrived in one day and none was acted on, while a rule sat undeclared the whole time. Declining counts as deciding - what is not allowed is leaving it unconsidered.",
+      "rule": "rules-undeclared"
     },
     {
       "action": "bridge-reminder",
