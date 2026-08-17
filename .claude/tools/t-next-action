@@ -19,6 +19,34 @@ use FindBin;
 use File::Spec;
 use File::Temp qw(tempdir);
 use Capture::Tiny qw(capture);
+use File::Basename ();
+
+# THIS SPEC NEEDS A LIVE BOARD (DD-573, found by CI). next-action reads the board
+# to decide what to do next, so in CI - where no project selector for this board
+# exists - it correctly exits 3 and these assertions correctly fail. A red result
+# there says nothing about the tool.
+#
+# I had classified this spec as hermetic by grepping the SPEC for board references
+# and finding none. The spec does not mention the board; the TOOL IT INVOKES reads
+# it. That is measuring the text of a test instead of the behaviour of what it runs.
+my $BOARD_REACHABLE = do {
+    my ( $common, undef, $git_exit ) = capture {
+        system( 'git', '-C', $FindBin::Bin, 'rev-parse', '--path-format=absolute', '--git-common-dir' );
+    };
+    chomp $common;
+    my $main = $git_exit == 0 && $common ne '' ? File::Basename::dirname($common) : undef;
+    my $ok = 0;
+    if ( defined $main && -x File::Spec->catfile( $main, 'bin', 'd2' ) ) {
+        my ( undef, undef, $e ) = capture {
+            system( 'sh', '-c', "cd \Q$main\E && ./bin/d2 tira.ticket.list --refs-only >/dev/null 2>&1" );
+        };
+        $ok = $e == 0;
+    }
+    $ok;
+};
+plan skip_all => 'no reachable Tira board (expected in CI); next-action cannot be exercised without one'
+  if !$BOARD_REACHABLE;
+
 
 my $TOOL = File::Spec->catfile( $FindBin::Bin, 'next-action' );
 
