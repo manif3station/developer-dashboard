@@ -62,6 +62,14 @@ mark() {
     printf '%s\n' "${2:-coverage gate: no summary line was produced}"
     printf 'GATE_EXIT=%s\n' "$1"
   } > "$VERDICT"
+  # THE LOG GETS A MARKER TOO (DD-581, found in production minutes after this was
+  # written). gate-status decides a run is in progress from the LOG lacking a
+  # SUITE_EXIT marker - it does not read the verdict to make that call. Marking
+  # only the verdict left the board reporting "RUNNING: 73 files" for a run that
+  # had already been killed, which is precisely the defect DD-579 exists to
+  # prevent, reappearing in the second harness because I fixed the instance
+  # rather than the class.
+  printf 'SUITE_EXIT=%s\n' "$1" >> "$LOG"
   # The verdict must be NEWER than the log or gate-status correctly refuses it as
   # belonging to a previous run - the stale-artifact guard it has carried since
   # before this wrapper existed.
@@ -70,7 +78,19 @@ mark() {
 
 on_signal() {
   local sig="$1" code="$2"
-  [ -n "${child:-}" ] && kill -TERM "$child" 2>/dev/null
+  # THE WHOLE PROCESS GROUP, NOT JUST THE CHILD (DD-581, found in
+  # production). `kill -TERM "$child"` reaches the direct child and nothing
+  # beneath it. prove spawns a test process per file, so a TERM killed the
+  # wrapper, wrote a verdict saying the run had stopped, and left the
+  # instrumented suite running for ten more minutes - consuming the host while
+  # the board reported the run as finished. A leftover process that nobody
+  # believes is running is worse than one nobody stopped.
+  #
+  # The child is started with setsid so it leads its own group, and the negative
+  # PID signals that whole group. The spec spawns a GRANDCHILD to prove it: the
+  # earlier stand-in was a bare sleep, which IS the direct child, so it could
+  # never have caught this.
+  [ -n "${child:-}" ] && { kill -TERM "-$child" 2>/dev/null || kill -TERM "$child" 2>/dev/null; }
   mark "$code" "coverage gate: killed by $sig before it finished - this is NOT a verdict"
   exit "$code"
 }
@@ -80,7 +100,7 @@ trap 'on_signal TERM 143' TERM
 trap 'on_signal HUP 129' HUP
 
 : > "$LOG"
-stdbuf -oL $GATE >> "$LOG" 2>&1 &
+setsid stdbuf -oL $GATE >> "$LOG" 2>&1 &
 child=$!
 wait "$child"
 status=$?
