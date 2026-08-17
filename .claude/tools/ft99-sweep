@@ -351,10 +351,22 @@ sub park_trigger {
         next if !defined $detail;
         push @candidates, $1 while $detail =~ /RELEASE\s+TRIGGER:\s*([A-Za-z0-9_-]+)/g;
     }
-    for my $candidate (@candidates) {
+    # The LAST known candidate wins, not the first (DD-571, second defect).
+    #
+    # Preferring a known trigger over prose was right and insufficient. A card
+    # that has been re-parked carries BOTH triggers - DD-568 held
+    # host-suite-slot-free from an earlier park and ci-green-on-default-branch
+    # from its current one, and taking the first reported the superseded trigger
+    # as fired and demanded the card move. Half the problem solved, and the
+    # half-solution read as complete.
+    #
+    # key_details are appended, so the most recent statement of intent is the
+    # operative one. Same reasoning for the fallback: an unknown name should be
+    # the newest typo, not the oldest.
+    for my $candidate ( reverse @candidates ) {
         return $candidate if exists $TRIGGERS{$candidate};
     }
-    return $candidates[0];
+    return $candidates[-1];
 }
 
 # Purpose: has a named trigger fired?
