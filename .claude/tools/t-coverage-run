@@ -34,7 +34,11 @@ make_gate() {
     pass) printf '#!/bin/sh\necho "coverage gate: statement, branch, condition, and subroutine totals are 100.0"\nexit 0\n' > "$f" ;;
     fail) printf '#!/bin/sh\necho "coverage gate: below 100.0: branch 99.9, condition 99.9"\nexit 1\n' > "$f" ;;
     mute) printf '#!/bin/sh\necho "something unexpected"\nexit 1\n' > "$f" ;;
-    hang) printf '#!/bin/sh\necho "running"\nsleep 30\n' > "$f" ;;
+    # A stand-in that spawns a GRANDCHILD, because the earlier one was a bare
+    # sleep - which IS the direct child, so it could never catch a kill that
+    # failed to reach the tree. In production that gap left an instrumented
+    # suite running for ten minutes after its wrapper reported it stopped.
+    hang) printf '#!/bin/sh\necho "running"\nsleep 30 &\ngrandchild=$!\necho "grandchild=$grandchild" >> "$DD_COV_GRANDPID"\nwait $grandchild\n' > "$f" ;;
   esac
   chmod +x "$f"; printf '%s' "$f"
 }
@@ -44,6 +48,7 @@ make_gate() {
   log="$WORK/l1"; v="$WORK/v1"
   DD_COV_LOG="$log" DD_COV_VERDICT="$v" DD_COV_GATE="$(make_gate pass)" bash "$TOOL" >/dev/null 2>&1
   ok "$?" "0" 'a passing gate exits 0'
+  has "$(cat "$log")" 'SUITE_EXIT=0' 'and the LOG is marked too, so gate-status stops calling the run in progress'
   has "$(cat "$v")" 'GATE_EXIT=0'          'and the verdict records the pass'
   has "$(cat "$v")" 'totals are 100\.0'    'carrying the gate OWN summary line, not one composed here'
 }
@@ -71,7 +76,8 @@ make_gate() {
 # AC-3: a signalled run marks the verdict without claiming a result.
 {
   log="$WORK/l4"; v="$WORK/v4"
-  DD_COV_LOG="$log" DD_COV_VERDICT="$v" DD_COV_GATE="$(make_gate hang)" bash "$TOOL" >/dev/null 2>&1 &
+  : > "$WORK/gpid"
+  DD_COV_GRANDPID="$WORK/gpid" DD_COV_LOG="$log" DD_COV_VERDICT="$v" DD_COV_GATE="$(make_gate hang)" bash "$TOOL" >/dev/null 2>&1 &
   runner=$!
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$log" ] && break; sleep 0.3; done
   t0=$(date +%s)
@@ -79,6 +85,16 @@ make_gate() {
   wait "$runner" 2>/dev/null
   elapsed=$(( $(date +%s) - t0 ))
   body="$(cat "$v" 2>/dev/null)"
+  # THE ASSERTION THIS CASE EXISTS FOR: the grandchild must be gone. A wrapper
+  # that kills only its direct child leaves the real work running while
+  # truthfully reporting that it stopped.
+  gpid="$(sed -n 's/^grandchild=//p' "$WORK/gpid" 2>/dev/null | tail -1)"
+  if [ -n "$gpid" ] && kill -0 "$gpid" 2>/dev/null; then
+    fail=$((fail+1)); echo "NOT OK - the grandchild ($gpid) SURVIVED the kill - the process tree was not signalled"
+    kill -TERM "$gpid" 2>/dev/null
+  else
+    pass=$((pass+1)); echo "ok - the whole process tree dies, grandchild included"
+  fi
   has   "$body" 'killed by TERM'  'a killed run records that it was killed'
   hasnt "$body" 'GATE_EXIT=0'     'and never records a pass it did not earn'
   if [ "$elapsed" -le 5 ]; then
