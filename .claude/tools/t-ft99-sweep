@@ -732,4 +732,106 @@ sub reported {
         'and when the LATEST one fires, the card is still released' );
 }
 
+
+# DD-580: the gate FIELD must agree with the gate LOG.
+#
+# Six of seven open cards disagreed on the night this was written - each claimed
+# with G6, each accumulating G8 and G11 passes, none updated - so cards whose
+# logs recorded a passed suite and a passed CI run advertised the coding stage.
+# The field is what a stranger reads; the log is what nobody scrolls to. Every
+# other drift on this board is watched and this one was described in the rules
+# and enforced by nobody.
+{
+    my $lagging = card(
+        ref              => 'DD-920',
+        column           => 'unit-test',
+        sdlc_gate        => 'G6',
+        gate_passing_log => [ { gate => 'G6', result => 'pass' }, { gate => 'G8', result => 'pass' } ],
+    );
+    my $why = reported( sweep_one($lagging), 'DD-920' );
+    like( $why, qr/G6/, 'a field lagging its gate log is reported, naming the field' );
+    like( $why, qr/G8/, 'and naming the gate the log actually reached' );
+}
+
+{
+    my $matching = card(
+        ref              => 'DD-921',
+        column           => 'unit-test',
+        sdlc_gate        => 'G8',
+        gate_passing_log => [ { gate => 'G8', result => 'pass' } ],
+    );
+    is( reported( sweep_one($matching), 'DD-921' ), undef, 'a field that matches is not reported' );
+}
+
+# A newly claimed card legitimately has a field and no log. Reporting those would
+# fire on every card at the moment of creation, and a rule that fires on normal
+# work is one its reader learns to skim.
+{
+    my $fresh = card( ref => 'DD-922', column => 'planning', sdlc_gate => 'G0', gate_passing_log => [] );
+    is( reported( sweep_one($fresh), 'DD-922' ), undef, 'a card with no gate entries is never reported' );
+}
+
+# THE TRAP THIS ALMOST FELL INTO. DD-573 carried a G13 pass from before it was
+# reopened and re-gated at G8. A checker comparing against the HIGHEST gate would
+# demand the field be set to G13 - re-asserting a completion that had been
+# retracted. Gates are append-only observations: the last is the current state,
+# the highest is merely the best thing that ever happened.
+{
+    my $reopened = card(
+        ref              => 'DD-923',
+        column           => 'unit-test',
+        sdlc_gate        => 'G8',
+        gate_passing_log => [ { gate => 'G13', result => 'pass' }, { gate => 'G8', result => 'pass' } ],
+    );
+    is( reported( sweep_one($reopened), 'DD-923' ), undef,
+        'a reopened card is judged by the LATEST entry, not the highest, so no retracted completion is re-asserted' );
+}
+
+
+# THE TWO SHAPES THE FIXTURES DID NOT HAVE (DD-580). This spec was green at 63
+# assertions while the rule was wrong about fourteen live cards, twice over -
+# fixtures test the shapes you thought of, and a real board holds the ones you
+# did not. Both are pinned now.
+
+# A FAILED gate does not advance a card. DD-571 carried a G11 fail recorded when
+# it was reopened, and comparing against the bare last entry demanded its field be
+# set to the gate it had just failed.
+{
+    my $failed_last = card(
+        ref              => 'DD-924',
+        column           => 'unit-test',
+        sdlc_gate        => 'G8',
+        gate_passing_log => [ { gate => 'G8', result => 'pass' }, { gate => 'G11', result => 'fail' } ],
+    );
+    is( reported( sweep_one($failed_last), 'DD-924' ), undef,
+        'a failed gate does not advance the field, so a card whose last entry FAILED is not reported' );
+}
+
+# The FIELD and the LOG do not share a vocabulary. This board records passed gates
+# under names of its own - CVE, TESTED - which are real observations that cannot
+# be expressed in an sdlc_gate holding G0..G13.
+{
+    my $named = card(
+        ref              => 'DD-925',
+        column           => 'unit-test',
+        sdlc_gate        => 'G13',
+        gate_passing_log => [ { gate => 'G13', result => 'pass' }, { gate => 'CVE', result => 'pass' } ],
+    );
+    is( reported( sweep_one($named), 'DD-925' ), undef,
+        'a gate recorded under a name outside the G-ladder does not advance it, and is not a finding' );
+}
+
+# ...but a G-ladder gate behind a named one still counts, or the rule would go
+# blind on any card whose most recent entry happens to be a named gate.
+{
+    my $behind = card(
+        ref              => 'DD-926',
+        column           => 'unit-test',
+        sdlc_gate        => 'G6',
+        gate_passing_log => [ { gate => 'G11', result => 'pass' }, { gate => 'CVE', result => 'pass' } ],
+    );
+    like( reported( sweep_one($behind), 'DD-926' ), qr/G11/,
+        'and a G-ladder gate sitting behind a named one is still found' );
+}
+
 done_testing();
