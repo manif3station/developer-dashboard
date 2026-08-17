@@ -701,4 +701,35 @@ sub reported {
         'a misspelt trigger is still reported, not silently skipped' );
 }
 
+
+# A RE-PARKED CARD CARRIES BOTH TRIGGERS (DD-571, found in production). DD-568
+# held host-suite-slot-free from an earlier park and ci-green-on-default-branch
+# from its current one; taking the first known candidate reported the superseded
+# trigger as fired and demanded the card move.
+{
+    local %main::TRIGGERS = ( 'old-trigger' => sub { return 1 }, 'new-trigger' => sub { return 0 } );
+    my $reparked = card(
+        ref         => 'DD-916',
+        column      => 'blocked-by-dependency',
+        key_details => [
+            'RELEASE TRIGGER: no prove running',      # prose, must still be skipped
+            'RELEASE TRIGGER: old-trigger',           # superseded, and it HAS fired
+            'RELEASE TRIGGER: new-trigger',           # current, and it has NOT
+        ],
+    );
+    is( reported( sweep_one($reparked), 'DD-916' ), undef,
+        'the LATEST known trigger governs, so a superseded fired one does not release the card' );
+}
+
+{
+    local %main::TRIGGERS = ( 'old-trigger' => sub { return 0 }, 'new-trigger' => sub { return 1 } );
+    my $released = card(
+        ref         => 'DD-917',
+        column      => 'blocked-by-dependency',
+        key_details => [ 'RELEASE TRIGGER: old-trigger', 'RELEASE TRIGGER: new-trigger' ],
+    );
+    like( reported( sweep_one($released), 'DD-917' ), qr/ALREADY FIRED/,
+        'and when the LATEST one fires, the card is still released' );
+}
+
 done_testing();
