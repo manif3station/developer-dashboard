@@ -14,6 +14,19 @@
 # spec's fixtures were silently ignored and two of its assertions passed against
 # the real files - a check aimed at the wrong subject can only return the answer
 # it hoped for, which is the fault this tool exists to catch in others.
+# Exit codes, documented because board-pulse BRANCHES on them (DD-576). They were
+# introduced by DD-569 and left unstated, so the contract driving the board's
+# headline indicator lived only in the two files that shared it - and a change
+# here could silently make the pulse misreport, which is the failure DD-569
+# existed to end. t-gate-status asserts every code below appears here, so adding
+# one without documenting it fails rather than merely being untidy:
+#     0  finished, and the verdict says the gate passed
+#     1  running, or finished with a verdict that says it failed
+#     2  the figures do not describe the current tree - the verdict belongs to a
+#        previous run, or it predates HEAD, or the run discarded coverage because
+#        the tree moved under it. NOT a pass and NOT a failure: a non-answer.
+#     3  no log at all - the gate has never run here
+
 LOG=${DD_GATE_LOG:-/tmp/dd-gate2.log}
 VERDICT=${DD_GATE_VERDICT:-/tmp/dd-gate2-verdict.txt}
 [ -f "$LOG" ] || { echo "gate-status: no log at $LOG - the gate has never run here"; exit 3; }

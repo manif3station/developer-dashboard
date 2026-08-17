@@ -73,5 +73,19 @@ run_with 5 'coverage gate: 100.0 everywhere
 GATE_EXIT=0' >/dev/null 2>&1
 ok "$?" "0" 'a fresh passing gate exits 0'
 
+
+# THE DOCUMENTATION IS LOAD-BEARING (DD-576). board-pulse branches on this tool's
+# exit status, so the contract is not a nicety - and it went undocumented for the
+# whole night after DD-569 introduced it, because nothing failed when it was
+# missing. Now something does.
+header="$(sed -n '1,/^LOG=/p' "$TOOL")"
+for code in 0 1 2 3; do
+  if printf '%s' "$header" | grep -qE "^#[[:space:]]+$code[[:space:]]+[a-z]"; then
+    pass=$((pass+1)); echo "ok - exit code $code is documented in the header"
+  else
+    fail=$((fail+1)); echo "NOT OK - exit code $code is returnable but undocumented"
+  fi
+done
+
 echo "1..$((pass+fail))"
 [ "$fail" -eq 0 ] && echo "PASS ($pass assertions)" || { echo "FAIL ($fail of $((pass+fail)))"; exit 1; }
