@@ -493,6 +493,48 @@ sub sweep {
                   . " Use --author \"\$(.claude/tools/tira-author)\"" )
               if $unattributed;
 
+            # THE GATE FIELD MUST AGREE WITH THE GATE LOG (DD-580).
+            #
+            # Six of seven open cards disagreed on the night this was written:
+            # each claimed with G6, each accumulating G8 and G11 passes, none
+            # updated. Cards whose logs recorded a passed suite and a passed CI
+            # run advertised the coding stage, and no rule here noticed - every
+            # other drift on this board is watched, and this one was in the rules
+            # and enforced by nobody.
+            #
+            # Compared against the LATEST entry, never the highest. A reopened
+            # card carries a pass from before it was reopened - DD-573 held a G13
+            # from a completion that was later retracted - and demanding the
+            # field match the highest would re-assert it. Gates are append-only
+            # observations: the last is the current state.
+            #
+            # A card with no entries is silent, not a finding: a newly claimed
+            # card legitimately has a field and an empty log, and a rule that
+            # fires on normal work is one its reader learns to skim.
+            my @gate_log = @{ $record->{gate_passing_log} // [] };
+            if (@gate_log) {
+                # The latest PASSED entry, not the latest entry. A failed gate
+                # does not advance a card: DD-571 carried a G11 FAIL recorded when
+                # it was reopened, and comparing against the bare last entry
+                # demanded its field be set to the gate it had just failed. Run
+                # against the live board, the naive form produced 18 findings, most
+                # of them the rule being wrong rather than the board - which is how
+                # an always-red guardrail is born.
+                # Only entries on the G-ladder, because the FIELD and the LOG do
+                # not share a vocabulary. This board records passed gates under
+                # names of its own too - CVE, TESTED - which are real observations
+                # but cannot be expressed in an sdlc_gate field that holds G0..G13.
+                # Comparing the two produced 18 findings on the live board, nearly
+                # all of them the rule confusing two vocabularies rather than the
+                # board being wrong. A named gate does not advance the ladder.
+                my ($latest) = grep { defined && /\AG\d+\z/ }
+                  map { $_->{gate} } grep { ( $_->{result} // '' ) eq 'pass' } reverse @gate_log;
+                my $field  = $record->{sdlc_gate};
+                finding( \@findings, $ref,
+                    "records gate $field but its own gate log last reached $latest - the field is what a stranger reads and it disagrees with the evidence beneath it" )
+                  if defined $latest && defined $field && $field ne $latest;
+            }
+
             # A park whose condition has already cleared.
             if ( $column eq 'blocked-by-dependency' ) {
                 my @blockers = map { $_->{ref} }
