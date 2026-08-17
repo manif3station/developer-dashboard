@@ -60,7 +60,24 @@ jobs:
           PERL5LIB: ${{ github.workspace }}/audit-local/lib/perl5:${{ github.workspace }}/local/lib/perl5
         run: script/cpan-audit-declared-chain local/lib/perl5
 
+      # ALWAYS RUN THIS TOO, AND THIS IS THE SUBTLE HALF (DD-568).
+      #
+      # This step installs Devel::Cover and exports PERL5LIB, and it sits AFTER
+      # the audits. Marking only "Run tests" and the coverage step as always()
+      # would mean that when an audit fails - the exact case this change exists
+      # for - THIS step is skipped and the tests then fire into an environment
+      # that was never prepared. The suite would fail for want of PERL5LIB rather
+      # than for want of correctness, turning "no verdict" into a FALSE FAILING
+      # verdict, which is worse than the skip it replaced: a skip is visibly
+      # absent, a spurious red is believed and chased.
+      #
+      # The line to draw is not setup-versus-verification. It is between what
+      # builds the TREE - Checkout and Install project dependencies, which must
+      # still fail fast, because a suite run against a half-built tree is
+      # meaningless - and what prepares the RUN, which must survive an audit
+      # failure exactly as the steps depending on it do.
       - name: Install test tools and export project environment
+        if: always()
         run: |
           cpanm --notest -L local Devel::Cover
           # Set the library path directly. This used to shell out to
