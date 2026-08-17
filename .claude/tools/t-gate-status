@@ -106,5 +106,38 @@ done
   hasnt "$out" 'GATE: PASS|totals are 100' 'but never reports a PASS - a database proves a run happened, not that it succeeded'
 }
 
+# DD-582: AN UNMARKED LOG IS NOT EVIDENCE THAT ANYTHING IS RUNNING.
+#
+# The tool decided this from ONE fact - the log carries no SUITE_EXIT marker -
+# and then printed "RUNNING", which is a claim about a PROCESS made by looking
+# only at a FILE. Observed on 2026-08-17: after an orphaned coverage tree was
+# killed, this read "RUNNING: 139 files, log written 287s ago" for processes
+# that no longer existed, and would have read it for ever, because nothing was
+# left to write a marker.
+#
+# Marker-absence has several causes and only one of them is "still running": a
+# hand-typed prove (the command CLAUDE.md documents) marks nothing, and neither
+# does SIGKILL or a crash.
+#
+# DELIBERATELY NOT a staleness threshold. This tool's own header records that
+# process-based liveness detection failed in BOTH directions in one evening; an
+# age cutoff is the same inference with arithmetic in front of it. The age is
+# already measured and is the real discriminator - the headline must simply stop
+# overstating it.
+{
+  log="$WORK/unmarked.log"; vfile="$WORK/unmarked.verdict"
+  printf 't/01-one.t .. ok
+t/02-two.t .. ok
+' > "$log"
+  : > "$vfile"
+  touch -d '5 minutes ago' "$log"
+  out="$(DD_GATE_LOG="$log" DD_GATE_VERDICT="$vfile" DD_GATE_REPORT="$WORK/none" bash "$TOOL" 2>&1)"
+  hasnt "$out" 'RUNNING'          'an unmarked log makes NO claim that a run is in progress'
+  has   "$out" 'NO VERDICT'       'it reports what it actually knows - that no verdict was recorded'
+  has   "$out" '[0-9]+s ago'      'and states the age, which is the real discriminator'
+  has   "$out" '2 files'          'while keeping the useful detail it already had'
+}
+
+
 echo "1..$((pass+fail))"
 [ "$fail" -eq 0 ] && echo "PASS ($pass assertions)" || { echo "FAIL ($fail of $((pass+fail)))"; exit 1; }
