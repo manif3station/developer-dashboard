@@ -158,6 +158,18 @@ if [ "$audit_status" -eq 0 ]; then
 fi
 
 if printf '%s' "$verdict_output" | grep -q -E 'CPANSA-|[0-9]+ advisor'; then
+  # PRINT THE RUN THAT DECIDED (DD-574). The block above prints the run that
+  # INCLUDES the interpreter, for visibility; this is the run whose subject is
+  # the isolated root alone, and it is the one that just failed the gate.
+  #
+  # Without this the gate exits 5 having shown only the interpreter advisory,
+  # so a reader concludes the interpreter failed it - which is precisely the
+  # thing DD-567 exists to prevent. CI run 31982450230 did exactly that, and it
+  # is worse than the bug DD-567 fixed: a gate that fails for a STATED wrong
+  # reason at least tells you where to look.
+  printf '%s\n' '--- the advisories that decided this gate (isolated root, interpreter excluded) ---'
+  printf '%s\n' "$verdict_output"
+
   # A real finding. Remapped to a single status of its own rather than passed
   # through, because cpan-audit's own non-zero statuses vary with what it found
   # (65 and 66 have both been seen) and could collide with the gate's 1, 2, 3
