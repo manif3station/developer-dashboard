@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# t-run-suite - the spec for the suite runner that always marks its log.
+#
+# WHY THIS FILE EXISTS (DD-579)
+#   The whole value of run-suite is one property: the log says the run ended,
+#   whatever ended it. A runner that marks the log only on a clean exit is
+#   indistinguishable from the ad-hoc command it replaced, and the board's
+#   headline indicator would go on calling a dead run "RUNNING".
+#
+#   So the signalled case is asserted, not just the happy one. It is the only
+#   case that motivated the tool.
+#
+# RUNNING IT
+#   bash .claude/tools/t-run-suite
+
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+TOOL="$HERE/run-suite"
+pass=0; fail=0
+
+ok()    { if [ "$1" = "$2" ]; then pass=$((pass+1)); echo "ok - $3"; else fail=$((fail+1)); echo "NOT OK - $3 (got '$1', wanted '$2')"; fi; }
+has()   { if printf '%s' "$1" | grep -qE "$2"; then pass=$((pass+1)); echo "ok - $3"; else fail=$((fail+1)); echo "NOT OK - $3"; fi; }
+hasnt() { if printf '%s' "$1" | grep -qE "$2"; then fail=$((fail+1)); echo "NOT OK - $3"; else pass=$((pass+1)); echo "ok - $3"; fi; }
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+# A stand-in prove, so this spec tests the RUNNER rather than the test suite.
+# Running the real suite here would take thirteen minutes and tell us nothing
+# about the property under test.
+make_prove() {
+  # Split deliberately: a single `local a=... b=...$a` references a variable in
+  # the same statement that declares it, and under `set -u` that dies. I made
+  # this exact mistake earlier tonight in t-board-pulse, fixed it there, and then
+  # wrote it again here - which is why it is called out rather than quietly
+  # corrected.
+  local behaviour="$1"
+  local f="$WORK/prove-$behaviour"
+  case "$behaviour" in
+    pass) printf '#!/bin/sh\necho "t/01.t .. ok"\nexit 0\n' > "$f" ;;
+    fail) printf '#!/bin/sh\necho "t/01.t .. not ok"\nexit 1\n' > "$f" ;;
+    hang) printf '#!/bin/sh\necho "t/01.t .. running"\nsleep 30\n'  > "$f" ;;
+  esac
+  chmod +x "$f"; printf '%s' "$f"
+}
+
+# AC-1: a normal completion records the suite's REAL status, not merely zero.
+{
+  log="$WORK/log-pass"
+  DD_SUITE_LOG="$log" DD_SUITE_PROVE="$(make_prove pass)" DD_SUITE_ARGS="" bash "$TOOL" >/dev/null 2>&1
+  ok "$?" "0" 'a passing suite exits 0'
+  has "$(cat "$log")" 'SUITE_EXIT=0' 'and the log records the pass'
+}
+
+{
+  log="$WORK/log-fail"
+  DD_SUITE_LOG="$log" DD_SUITE_PROVE="$(make_prove fail)" DD_SUITE_ARGS="" bash "$TOOL" >/dev/null 2>&1
+  ok "$?" "1" 'a failing suite exits 1'
+  has "$(cat "$log")" 'SUITE_EXIT=1' 'and the log records the real status, not a zero'
+}
+
+# AC-2: THE CASE THAT MOTIVATED THE TOOL. A killed run must still mark its log,
+# or gate-status goes on reporting it as RUNNING - which is exactly what happened
+# on 2026-08-17 and is the whole reason this file exists.
+{
+  log="$WORK/log-kill"
+  DD_SUITE_LOG="$log" DD_SUITE_PROVE="$(make_prove hang)" DD_SUITE_ARGS="" bash "$TOOL" >/dev/null 2>&1 &
+  runner=$!
+  # wait for the log to exist so the kill lands mid-run rather than before it
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$log" ] && break; sleep 0.3; done
+  t0=$(date +%s)
+  kill -TERM "$runner" 2>/dev/null
+  wait "$runner" 2>/dev/null
+  elapsed=$(( $(date +%s) - t0 ))
+  body="$(cat "$log" 2>/dev/null)"
+  has "$body" 'SUITE_EXIT='       'a run killed by TERM STILL marks its log - the defect this tool exists for'
+  has "$body" 'did NOT finish'    'and says plainly that the log is not a verdict'
+
+  # AND IT MUST BE PROMPT, which the marker alone does not prove. The first
+  # version of this tool ran prove in the FOREGROUND, so bash deferred the trap
+  # until the child returned: the marker was written correctly and the runner
+  # took 19 seconds to honour a TERM against a 20-second stand-in. Against the
+  # real 13-minute suite that is a 13-minute TERM - a tool whose purpose is to
+  # let a run be stopped, making stopping exactly as slow as not stopping.
+  # Asserting only that the marker appears passes the broken version.
+  if [ "$elapsed" -le 5 ]; then
+    pass=$((pass+1)); echo "ok - and it honours TERM promptly (${elapsed}s), not after the child finishes"
+  else
+    fail=$((fail+1)); echo "NOT OK - TERM took ${elapsed}s; the trap is deferred behind a foreground child"
+  fi
+}
+
+# AC-3: no process check, anywhere. gate-status records that both directions of
+# that approach failed in one evening; fixing a smaller fault by reviving a
+# larger one is not a fix.
+{
+  src="$(grep -vE '^[[:space:]]*#' "$TOOL")"
+  hasnt "$src" 'pgrep|pkill|ps -ef|ps -eo' 'the runner introduces no process check'
+}
+
+echo "1..$((pass+fail))"
+[ "$fail" -eq 0 ] && echo "PASS ($pass assertions)" || { echo "FAIL ($fail of $((pass+fail)))"; exit 1; }
