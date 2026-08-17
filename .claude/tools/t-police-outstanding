@@ -24,6 +24,8 @@ use FindBin;
 use File::Spec;
 use File::Temp qw(tempdir);
 use JSON::XS;
+use Capture::Tiny qw(capture);
+use Cwd ();
 
 my $TOOL = File::Spec->catfile( $FindBin::Bin, 'police-outstanding' );
 
@@ -32,6 +34,72 @@ require $TOOL;
 ok( -x $TOOL, 'the gate is executable' );
 
 my $DIR = tempdir( CLEANUP => 1 );
+
+# Purpose: a genuinely isolated Tira project, one declared policy, and one card
+#          that trips it - built to prove the LIVE path (not the fixture path)
+#          correctly reports OUTSTANDING via a real --exit-nonzero-if-any exit
+#          status. Without this, dropping the flag from the live invocation
+#          entirely produces NO test failure: the only other live-path case
+#          (DD_POLICE_ROOT=/tmp) fails via project-RESOLUTION, a different
+#          mechanism that does not need the flag at all - so removing the flag
+#          silently passed every existing assertion the first time it was tried.
+# Input:   none
+# Output:  the sandbox's root directory, or undef if any setup step failed -
+#          callers must SKIP rather than fail outright, since this depends on
+#          the real d2 binary and a project.new/policy/police round-trip that
+#          nothing else in this file needs.
+sub build_outstanding_sandbox {
+    my $root = tempdir( CLEANUP => 1 );
+    my $repo_bin = File::Spec->catdir( $FindBin::Bin, File::Spec->updir, File::Spec->updir );
+    symlink( File::Spec->rel2abs( File::Spec->catdir( $repo_bin, 'bin' ) ), File::Spec->catdir( $root, 'bin' ) )
+      or return undef;
+    my $d2 = File::Spec->catfile( $root, 'bin', 'd2' );
+    return undef if !-x $d2;
+
+    local $ENV{TIRA_HOME};
+    delete $ENV{TIRA_HOME};    # the ambient export for the REAL board must not leak in (DD-584)
+    local $ENV{PERL5LIB} = ( $ENV{HOME} // '' ) . '/perl5/lib/perl5';
+
+    # d2 resolves its project from CWD, exactly like every other Tira call in
+    # this project's tooling - so every call below must run WITH $root as the
+    # working directory. Saved and restored around the whole block, in an eval,
+    # so a failing step here can never leave the rest of this spec running from
+    # inside a throwaway sandbox.
+    my $orig_cwd = Cwd::getcwd();
+    my $ref;
+    my $ok = eval {
+        chdir $root or die "chdir $root: $!";
+
+        my $run = sub {
+            my (@args) = @_;
+            my ( undef, undef, $exit ) = capture {
+                system( $d2, @args );
+            };
+            return $exit;
+        };
+
+        $run->(
+            'tira.project.new', '--name', 'POSpec', '--dir', $root, '--members', 'DD Bot',
+            '--columns', 'Backlog, Todo, In Progress, Discard', '--ticket-prefix', 'POS',
+        ) == 0 or die 'project.new failed';
+        $run->( 'tira.policy.add', '--rule', 'card-unassigned', '--action', 'bridge-reminder' ) == 0
+          or die 'policy.add failed';
+
+        my ($create_out) = capture { system( $d2, 'tira.ticket.create', '--title', 'trip the rule' ) };
+        ($ref) = $create_out =~ /^ref:\s*"?([A-Z]+-\d+)/m;
+        defined $ref or die 'ticket.create produced no ref';
+        $run->( 'tira.ticket.move', '--ref', $ref, '--column', 'in-progress' ) == 0
+          or die 'ticket.move failed';
+
+        # tira.police evaluates policies and writes the enforcement log; it runs
+        # until stopped, so this bounds it to one short pass rather than leaving
+        # it attached - a process this spec started must not outlive it.
+        system("$d2 tira.police >/dev/null 2>&1 & pid=\$!; sleep 2; kill -TERM \$pid 2>/dev/null; wait \$pid 2>/dev/null");
+        1;
+    };
+    chdir $orig_cwd;
+    return $ok ? $root : undef;
+}
 
 # Purpose: write a fixture the tool will read instead of the board.
 sub fixture {
@@ -46,9 +114,15 @@ sub fixture {
 # Purpose: run the gate against a fixture and return its exit status, WITHOUT a
 #          pipe - a pipe reports the pipe's status, which has laundered a gate
 #          result on this project before.
+# Input:   $path = the fixture file; $fake_exit = an optional simulated NATIVE
+#          exit status (DD-577), for cases that must prove the tool trusts the
+#          status over the content rather than merely agreeing with it by
+#          coincidence. Unset, the tool computes a sensible default from
+#          content, so every case above DD-577's own kept passing unmodified.
 sub run {
-    my ($path) = @_;
+    my ( $path, $fake_exit ) = @_;
     local $ENV{DD_POLICE_JSON} = $path // '/nonexistent/definitely-not-here.json';
+    local $ENV{DD_POLICE_EXIT} = $fake_exit if defined $fake_exit;
     system("$^X \Q$TOOL\E >/dev/null 2>&1");
     return $? >> 8;
 }
@@ -94,6 +168,60 @@ is( run(undef), 3, 'an unreadable board exits 3, NOT 0' );
     my $rules = main::by_rule(
         [ { rule => 'r', ref => 'DD-1' }, { rule => 'r', ref => 'DD-1' }, { rule => 'r', ref => 'DD-2' } ] );
     is_deeply( $rules->{r}, [ 'DD-1', 'DD-2' ], 'repeated sightings of one card appear once' );
+}
+
+# DD-577: Tira 2.40 shipped --exit-nonzero-if-any, doing natively what this
+# tool's exit-code logic used to derive by counting records itself. The
+# rewrite must TRUST the native exit status rather than re-deriving
+# clear/outstanding from whether the array is empty - so these cases pair a
+# fixture's CONTENT with an EXPLICIT, independently-set exit status, proving
+# the status decides rather than the content. Without $DD_POLICE_EXIT set, the
+# five cases above still compute a sensible default from content, so nothing
+# above this line needed to change.
+#
+# The case that matters: content says "nothing outstanding" while the exit
+# status says otherwise. A tool that still derived clear/outstanding from
+# @{$records} would get this ONE case wrong even though every case above it
+# happened to agree - proving the assertion actually distinguishes the two
+# mechanisms rather than merely observing an implementation that satisfies
+# both by coincidence.
+is( run( fixture( [] ), 1 ), 1,
+    'an EMPTY array paired with a native exit of 1 still exits 1 - the status decides, not the count' );
+is( run( fixture( [ { rule => 'r', ref => 'DD-9' } ] ), 0 ), 0,
+    'a NON-EMPTY array paired with a native exit of 0 still exits 0 - trusting status over content in both directions' );
+
+# AC-3, via the REAL d2 invocation rather than the fixture path: a native exit
+# of 2 - which Tira uses for BOTH "could not resolve the project" and "usage
+# error", verified as genuinely the same code by probing both directly - must
+# collapse onto this tool's own EXIT_UNUSABLE (3), the one meaning it has
+# always had, so no caller's existing contract (this tool's own cron entry,
+# CLAUDE.md, MISTAKE.md) changes underneath it.
+{
+    local $ENV{DD_POLICE_JSON};
+    delete $ENV{DD_POLICE_JSON};
+    local $ENV{DD_POLICE_ROOT} = '/tmp';
+    system("$^X \Q$TOOL\E >/dev/null 2>&1");
+    is( $? >> 8, 3, "a real d2 call that cannot resolve its project (native exit 2) still exits 3, not 2 or 0" );
+}
+
+# THE CASE THAT MATTERS MOST FOR --exit-nonzero-if-any SPECIFICALLY. Every other
+# live-path case either bypasses d2 (the fixture cases) or fails via project
+# RESOLUTION (the /tmp case above), neither of which needs the flag at all - so
+# dropping it from the live invocation entirely passed every assertion above the
+# first time this was tried. Only a REAL, RESOLVABLE board with a REAL
+# outstanding violation, read through the LIVE path, can prove the flag is what
+# makes exit 1 happen rather than the pre-2.40 native default of always exiting
+# 0 regardless of content.
+SKIP: {
+    my $sandbox = build_outstanding_sandbox();
+    skip( 'could not build an isolated Tira sandbox (real d2 binary and a project/policy/police round-trip needed)', 1 )
+      if !defined $sandbox;
+
+    local $ENV{DD_POLICE_JSON};
+    delete $ENV{DD_POLICE_JSON};
+    local $ENV{DD_POLICE_ROOT} = $sandbox;
+    system("$^X \Q$TOOL\E >/dev/null 2>&1");
+    is( $? >> 8, 1, 'a REAL outstanding violation on a resolvable sandbox board exits 1 via the live --exit-nonzero-if-any path' );
 }
 
 done_testing;

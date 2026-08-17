@@ -46,7 +46,12 @@ use constant {
 # Purpose: the MAIN checkout. Every card is worked in its own worktree, and the
 #          project selector naming this board lives only in the main checkout
 #          (DD-545), so a run from a sandbox must resolve back to it.
+#
+# DD_POLICE_ROOT overrides it outright (DD-577), which is what lets the spec
+# exercise the REAL d2 invocation against a directory Tira genuinely cannot
+# resolve a project from, rather than only the fixture path.
 sub project_root {
+    return $ENV{DD_POLICE_ROOT} if defined $ENV{DD_POLICE_ROOT};    # uncoverable branch false
     my $here = File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, File::Spec->updir, File::Spec->updir ) );
     my ( $common, undef, $exit ) = capture {
         system( 'git', '-C', $here, 'rev-parse', '--path-format=absolute', '--git-common-dir' );
@@ -75,38 +80,93 @@ sub ensure_library_path {
     return;
 }
 
-# Purpose: the outstanding violations, as the board reports them.
+# Purpose: the outstanding violations, as the board reports them, AND the
+#          status that decides clear/outstanding/unusable.
 # Input:   none
-# Output:  arrayref, or undef when the board could not be read
+# Output:  ($records, $status) - $records is an arrayref (possibly empty) or
+#          undef when there is none to trust; $status is EXIT_CLEAR,
+#          EXIT_OUTSTAND, or undef when nothing could be established.
+#
+# DD-577: Tira 2.40 shipped --exit-nonzero-if-any, so the LIVE path now trusts
+# the native exit status as the decision rather than re-deriving clear versus
+# outstanding by counting @{$records} itself - the thing this tool existed to
+# supply before the upstream fix landed (DD-570/TKT-279). Probed against 2.49
+# before this was written: on exit 0 or 1 the JSON body is on STDOUT exactly as
+# before; on any OTHER exit (2 in every case observed, whether the cause was an
+# unresolvable project or a plain usage error) STDOUT is completely EMPTY, so
+# the body is never decoded for those - there is nothing there to decode, and
+# decoding stderr would mean parsing a stream that mixes plain text with JSON
+# on the usage-error path specifically.
 #
 # DD_POLICE_JSON points at a fixture instead, which is what makes the three
 # outcomes testable without a board. Without an injection point a spec cannot
 # control its own subject, and a check aimed at the wrong subject can only return
 # the answer it hoped for - a fault already met twice on this project tonight.
+# DD_POLICE_EXIT pairs with it to simulate the native exit status independently
+# of the fixture's content, proving this code TRUSTS the status rather than
+# merely agreeing with it by coincidence; left unset, a sensible default is
+# computed from content so every case written before DD-577 still passes
+# unmodified.
 sub outstanding {
     my $raw;
+    my $status;
     if ( my $fixture = $ENV{DD_POLICE_JSON} ) {
-        return undef if !-f $fixture;
-        open my $fh, '<', $fixture or return undef;
+        return ( undef, undef ) if !-f $fixture;
+        open my $fh, '<', $fixture or return ( undef, undef );
         local $/;
         $raw = <$fh>;
+        $status = $ENV{DD_POLICE_EXIT};
     }
     else {
         my $root = project_root();
         my $d2   = File::Spec->catfile( $root, 'bin', 'd2' );
-        return undef if !-x $d2;    # uncoverable branch true
+        return ( undef, undef ) if !-x $d2;    # uncoverable branch true
+        # TIRA_HOME MUST BE STRIPPED, not merely left alone (same class of bug as
+        # DD-584: an interactive shell's TIRA_HOME=tira-ddd, exported for its own
+        # convenience, resolves a project ahead of CWD - so a caller pointing this
+        # at a DIFFERENT project via DD_POLICE_ROOT would silently read the wrong
+        # board instead, or fail to resolve at all if that selector means nothing
+        # from the target directory. Invisible in normal use, because TIRA_HOME
+        # happens to already name the real board - it only bites the moment
+        # project_root() resolves somewhere else, which is exactly what this
+        # tool's own test does to prove the live path without touching production.
         my ( $out, undef, $exit ) = capture {
-            system( 'sh', '-c', "cd \Q$root\E && \Q$d2\E tira.police.outstanding -o json 2>/dev/null" );
+            system( 'sh', '-c',
+                "cd \Q$root\E && env -u TIRA_HOME \Q$d2\E tira.police.outstanding -o json --exit-nonzero-if-any 2>/dev/null"
+            );
         };
-        return undef if $exit != 0;
+        # >> 8: Capture::Tiny's third value is the raw wait status, not the exit
+        # code - this exact omission was ALREADY here before DD-577 and was
+        # invisible, because the pre-2.40 native command always exited 0
+        # regardless of content (0 raw and 0>>8 are identically 0). Adding
+        # --exit-nonzero-if-any is what exposed it: a real "outstanding" exit of
+        # 1 arrives as raw 256, which is neither EXIT_CLEAR nor EXIT_OUTSTAND
+        # unshifted, so every outstanding board was silently reported UNUSABLE
+        # until this line existed. Found only because the sandbox-based live
+        # test (DD-577) exercises a real, resolvable board with a real
+        # violation - every fixture-based case and the /tmp unresolvable case
+        # happened to need no shift (0 stays 0; a genuine spawn failure from
+        # system() itself is -1, unaffected by >>8) and so could not catch it.
+        $status = $exit >> 8;
+        return ( undef, $status ) if $status != EXIT_CLEAR && $status != EXIT_OUTSTAND;
         $raw = $out;
     }
-    return undef if !defined $raw || $raw !~ /\S/;
+    return ( undef, $status ) if !defined $raw || $raw !~ /\S/;
     my $parsed = eval { decode_json($raw) };
-    return undef if !$parsed;
-    return $parsed if ref $parsed eq 'ARRAY';
-    return $parsed->{outstanding} if ref $parsed->{outstanding} eq 'ARRAY';    # uncoverable branch false
-    return undef;
+    return ( undef, $status ) if !$parsed;
+    my $records =
+        ref $parsed eq 'ARRAY'                        ? $parsed
+      : ref $parsed->{outstanding} eq 'ARRAY'          ? $parsed->{outstanding}    # uncoverable branch false
+      :                                                  undef;
+    return ( undef, $status ) if !defined $records;
+
+    # Fixture default, computed from the DECODED array's emptiness rather than
+    # the raw text's - "[]" is non-empty TEXT but an empty ARRAY, and checking
+    # the text would have called every clear-board fixture "outstanding".
+    # Unset only in fixture mode; the live path always supplies a real status.
+    $status = @{$records} ? EXIT_OUTSTAND : EXIT_CLEAR if !defined $status;    # uncoverable branch false
+
+    return ( $records, $status );
 }
 
 # Purpose: group the violations into the shortest thing a reader can act on.
@@ -131,14 +191,26 @@ sub main {
     return EXIT_USAGE if @ARGV;
     ensure_library_path();
 
-    my $records = outstanding();
-    if ( !defined $records ) {
+    my ( $records, $status ) = outstanding();
+
+    # DD-577: the DECISION is $status - trusted from the native tool's own exit
+    # code on the live path - never re-derived from whether $records is empty.
+    # Native's exit 2 doubles as BOTH "could not resolve the project" and "usage
+    # error" (verified identical by probing both directly); either collapses
+    # onto EXIT_UNUSABLE here, which is this tool's own long-standing meaning
+    # for exit 3, so no existing caller's contract changes. A status claiming
+    # OUTSTAND with no records to show (decode genuinely failed) is treated the
+    # same way, because a work list with nothing to list is not a real answer.
+    if ( !defined $status
+        || ( $status != EXIT_CLEAR && $status != EXIT_OUTSTAND )
+        || ( $status == EXIT_OUTSTAND && !defined $records ) )
+    {
         say STDERR 'police-outstanding: UNUSABLE - could not read the board. This is NOT a clear board: '
           . 'a board that will not answer and a board with nothing to report look identical from here.';
         return EXIT_UNUSABLE;
     }
 
-    if ( !@{$records} ) {
+    if ( $status == EXIT_CLEAR ) {
         say 'police-outstanding: CLEAR - no outstanding violations on the board.';
         return EXIT_CLEAR;
     }
