@@ -39,7 +39,16 @@ make_prove() {
   case "$behaviour" in
     pass) printf '#!/bin/sh\necho "t/01.t .. ok"\nexit 0\n' > "$f" ;;
     fail) printf '#!/bin/sh\necho "t/01.t .. not ok"\nexit 1\n' > "$f" ;;
-    hang) printf '#!/bin/sh\necho "t/01.t .. running"\nsleep 30\n'  > "$f" ;;
+    # SPAWNS A GRANDCHILD, and that is the entire point of this stand-in. The
+    # first version was a bare `sleep 30` - which IS the direct child, so
+    # `kill -TERM "$child"` reached it and the case passed. prove is nothing like
+    # that shape: it forks a process per test file. The gap let an identical
+    # defect ship in the second harness, where a TERM killed the wrapper, the log
+    # was marked "did NOT finish", and the instrumented suite underneath ran for
+    # ten more minutes - the board reporting a stopped run while the host was
+    # still doing the work. A stand-in must have the SHAPE of the thing it
+    # stands in for, not merely its duration.
+    hang) printf '#!/bin/sh\necho "t/01.t .. running"\nsleep 30 &\ngrandchild=$!\necho "grandchild=$grandchild" >> "$DD_SUITE_GRANDPID"\nwait $grandchild\n'  > "$f" ;;
   esac
   chmod +x "$f"; printf '%s' "$f"
 }
@@ -64,7 +73,8 @@ make_prove() {
 # on 2026-08-17 and is the whole reason this file exists.
 {
   log="$WORK/log-kill"
-  DD_SUITE_LOG="$log" DD_SUITE_PROVE="$(make_prove hang)" DD_SUITE_ARGS="" bash "$TOOL" >/dev/null 2>&1 &
+  : > "$WORK/gpid"
+  DD_SUITE_GRANDPID="$WORK/gpid" DD_SUITE_LOG="$log" DD_SUITE_PROVE="$(make_prove hang)" DD_SUITE_ARGS="" bash "$TOOL" >/dev/null 2>&1 &
   runner=$!
   # wait for the log to exist so the kill lands mid-run rather than before it
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$log" ] && break; sleep 0.3; done
@@ -73,6 +83,15 @@ make_prove() {
   wait "$runner" 2>/dev/null
   elapsed=$(( $(date +%s) - t0 ))
   body="$(cat "$log" 2>/dev/null)"
+  # THE TREE, NOT THE CHILD. Marking the log is worth nothing if the work it
+  # describes is still running underneath.
+  gpid="$(sed -n 's/^grandchild=//p' "$WORK/gpid" 2>/dev/null | tail -1)"
+  if [ -n "$gpid" ] && kill -0 "$gpid" 2>/dev/null; then
+    fail=$((fail+1)); echo "NOT OK - the grandchild ($gpid) SURVIVED - the log says stopped while the work runs on"
+    kill -TERM "$gpid" 2>/dev/null
+  else
+    pass=$((pass+1)); echo "ok - the whole process tree dies, grandchild included"
+  fi
   has "$body" 'SUITE_EXIT='       'a run killed by TERM STILL marks its log - the defect this tool exists for'
   has "$body" 'did NOT finish'    'and says plainly that the log is not a verdict'
 

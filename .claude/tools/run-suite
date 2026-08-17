@@ -71,7 +71,19 @@ mark() {
 # waited on, because `wait` IS interruptible.
 on_signal() {
   local sig="$1" code="$2"
-  [ -n "${child:-}" ] && kill -TERM "$child" 2>/dev/null
+  # THE WHOLE PROCESS GROUP, NOT JUST THE CHILD (DD-581, found in
+  # production). `kill -TERM "$child"` reaches the direct child and nothing
+  # beneath it. prove spawns a test process per file, so a TERM killed the
+  # wrapper, wrote a verdict saying the run had stopped, and left the
+  # instrumented suite running for ten more minutes - consuming the host while
+  # the board reported the run as finished. A leftover process that nobody
+  # believes is running is worse than one nobody stopped.
+  #
+  # The child is started with setsid so it leads its own group, and the negative
+  # PID signals that whole group. The spec spawns a GRANDCHILD to prove it: the
+  # earlier stand-in was a bare sleep, which IS the direct child, so it could
+  # never have caught this.
+  [ -n "${child:-}" ] && { kill -TERM "-$child" 2>/dev/null || kill -TERM "$child" 2>/dev/null; }
   printf '\n--- run-suite: killed by %s; the suite did NOT finish and this log is not a verdict ---\n' "$sig" >> "$LOG"
   mark "$code"
   exit "$code"
@@ -85,7 +97,7 @@ trap 'on_signal HUP 129' HUP
 # stdbuf keeps the log growing line by line. Without it a redirected prove buffers
 # in blocks, and a log frozen at five files while the suite is at forty-four reads
 # exactly like a stall - which nearly killed a healthy run on this project once.
-stdbuf -oL "$PROVE" $ARGS >> "$LOG" 2>&1 &
+setsid stdbuf -oL "$PROVE" $ARGS >> "$LOG" 2>&1 &
 child=$!
 wait "$child"
 status=$?
