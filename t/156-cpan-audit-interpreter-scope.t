@@ -169,6 +169,12 @@ this project treats as authoritative for release decisions, already skips the
 interpreter explicitly. This file makes the two gates agree, and makes the
 agreement fail loudly if anybody widens the scope again.
 
+=head1 WHEN TO USE
+
+Whenever C<script/cpan-audit-project> or the CI step that calls it is changed,
+and whenever an advisory against the interpreter appears and somebody is tempted
+to widen this gate's scope to cover it.
+
 =head1 WHAT IT DOES NOT DO
 
 It does not relax the gate. A distribution advisory in the isolated root still
@@ -179,6 +185,12 @@ result.
 =head1 HOW TO USE
 
   PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/156-cpan-audit-interpreter-scope.t
+
+=head1 WHAT USES IT
+
+The suite, through C<prove -lr t>. It exercises C<script/cpan-audit-project>,
+which CI runs as the "Audit isolated Perl dependencies" step of the Test
+workflow.
 
 =head1 EXAMPLES
 
