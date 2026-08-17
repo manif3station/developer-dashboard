@@ -1152,6 +1152,17 @@ sub _read_process_env_marker {
 # Output: process title string or undef.
 sub _read_process_title {
     my ( $self, $pid ) = @_;
+    # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS (DD-585). The ps fallback
+    # below runs whenever /proc is unreadable for this pid, which is the ordinary
+    # case for a process that vanished between readdir and the read. ps then exits
+    # 1 and leaves $? at 256 - and Perl's exit status is whatever $? holds at exit.
+    # A caller doing this inside an END block therefore inherits a false failure:
+    # t/153 walked /proc in its END, one vanished pid poisoned $?, and Test::Builder
+    # (whose END runs after, since END blocks are last-in-first-out) turned it into
+    # "exited with 256" and failed the file at 255 with all 15 subtests passing.
+    # CI run 32011417394 died exactly that way. Containing $? here fixes it for
+    # every caller rather than for the one test that noticed.
+    local $?;
     my $proc = "/proc/$pid/cmdline";
     my $cmdline = $self->_read_proc_file($proc);
     if ( defined $cmdline && $cmdline ne '' ) {
@@ -1176,6 +1187,17 @@ sub _read_process_title {
 # Output: one-letter process state string or undef.
 sub _read_process_state {
     my ( $self, $pid ) = @_;
+    # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS (DD-585). The ps fallback
+    # below runs whenever /proc is unreadable for this pid, which is the ordinary
+    # case for a process that vanished between readdir and the read. ps then exits
+    # 1 and leaves $? at 256 - and Perl's exit status is whatever $? holds at exit.
+    # A caller doing this inside an END block therefore inherits a false failure:
+    # t/153 walked /proc in its END, one vanished pid poisoned $?, and Test::Builder
+    # (whose END runs after, since END blocks are last-in-first-out) turned it into
+    # "exited with 256" and failed the file at 255 with all 15 subtests passing.
+    # CI run 32011417394 died exactly that way. Containing $? here fixes it for
+    # every caller rather than for the one test that noticed.
+    local $?;
     my $proc = "/proc/$pid/stat";
     my $stat = $self->_read_proc_file($proc);
     if ( defined $stat && $stat ne '' && $stat =~ /^\d+\s+\(.*\)\s+(\S)/s ) {
