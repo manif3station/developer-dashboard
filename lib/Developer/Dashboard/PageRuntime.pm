@@ -424,6 +424,13 @@ sub stream_code_block {
 # Output: hash reference with exit_code and process status word.
 sub stream_saved_ajax_file {
     my ( $self, %args ) = @_;
+    # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS (DD-593, same shape as
+    # DD-585/589/590/591/592). The direct waitpid($pid,0) fallback below reads
+    # $? into $status when the worker exits cleanly, but without this guard
+    # the raw $? from that reap stays set in the caller's process after this
+    # sub returns. `local` restores the caller's $? on return regardless of
+    # what runs inside.
+    local $?;
     my $path          = $args{path} || die 'Missing saved ajax file path';
     my $params        = $args{params} || {};
     my $stdout_writer = $args{stdout_writer} || \&_noop_writer;
@@ -591,6 +598,12 @@ sub _drain_saved_ajax_post_exit_handles {
 # Output: list of boolean child-exited flag and optional wait status word.
 sub _saved_ajax_child_exited {
     my ( $self, $pid ) = @_;
+    # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS (DD-593, same shape as
+    # DD-585/589/590/591/592). waitpid(WNOHANG) below reads $? into the
+    # returned status word, but without this guard the raw $? from that reap
+    # stays set in the caller's process after this sub returns. `local`
+    # restores the caller's $? on return regardless of what runs inside.
+    local $?;
     return ( 1, 0 ) if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
     my $waited = waitpid( $pid, WNOHANG );
     return $waited == $pid ? ( 1, $? ) : ( 0, undef );
