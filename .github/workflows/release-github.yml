@@ -63,10 +63,19 @@ jobs:
       # master's code under an old tag's name would be worse than not publishing
       # at all, because it would look published. This also enforces existence
       # for free: checkout fails outright if the ref does not exist.
+      # Full history and tags, not the default shallow/tagless checkout: this
+      # job's own test suite (t/158, over .claude/tools/t-ft99-sweep) exercises
+      # shipped_checker()'s real git-ancestry lookups (git tag, git merge-base
+      # --is-ancestor) against this exact checkout. A shallow, single-tag clone
+      # leaves that checker's own SKIP guard unable to fire (one tag - the
+      # release tag itself - IS present) while ancestry checks against older
+      # commits fail silently, so the suite fails for real (DD-595).
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
+          fetch-tags: true
 
       # First thing after checkout, so a bad dispatch costs seconds rather than
       # failing after the suite, the coverage pass and dzil build have run. A
