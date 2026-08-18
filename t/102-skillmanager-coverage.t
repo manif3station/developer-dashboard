@@ -1441,6 +1441,32 @@ my $repos = tempdir( CLEANUP => 1 );
     is( $manager->_apt_package_is_installed('nope'), 0, 'apt detection rejects an unmatched dpkg status' );
 }
 
+# DD-592: same bug class DD-585/589/590/591 fixed elsewhere - a query must not
+# leave the caller's global $? holding its own last subprocess's status. None
+# of these three explicitly reads $? (unlike the earlier fixes), but
+# Capture::Tiny::capture returns system()'s own return value automatically,
+# and system() ALSO mutates the GLOBAL $? as an unavoidable side effect
+# regardless of what the block returns - confirmed with a standalone repro
+# before writing this test. A fake binary that exits non-zero (not mocked
+# capture) proves the real subprocess is what pollutes $?.
+{
+    for my $spec (
+        [ '_apt_package_is_installed', 'dpkg-query' ],
+        [ '_apk_package_is_installed', 'apk' ],
+        [ '_dnf_package_is_installed', 'rpm' ],
+    )
+    {
+        my ( $method, $bin_name ) = @$spec;
+        my $bin = tempdir( CLEANUP => 1 );
+        _spew( File::Spec->catfile( $bin, $bin_name ), "#!/bin/sh\nexit 1\n" );
+        chmod 0755, File::Spec->catfile( $bin, $bin_name );
+        local $ENV{PATH} = "$bin:$ENV{PATH}";
+        $? = 19 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+        $manager->$method('not-a-real-package');
+        is( $? >> 8, 19, "$method does not leak its own $bin_name subprocess status into the caller global \$?" );
+    }
+}
+
 # ===========================================================================
 # _install_skill_dependencies: success with output, and failures with the
 # progress task visible and hidden.
