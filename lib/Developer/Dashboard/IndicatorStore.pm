@@ -355,6 +355,15 @@ sub is_stale {
 # Output: array reference of updated indicator records.
 sub refresh_core_indicators {
     my ( $self, %args ) = @_;
+    # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS (DD-589, same shape as
+    # DD-585's fix in CollectorRunner.pm). The git rev-parse/diff calls below
+    # read $? into their own return values, but without this guard the raw,
+    # unshifted $? from whichever ran last stays set in the caller's process
+    # after this sub returns - and this sub is called from share/private-cli/ps1
+    # and _dashboard-core, so that pollution is live in the 'dashboard ps1'
+    # process, not merely theoretical. `local` restores the caller's $? on
+    # return regardless of how many system() calls run inside.
+    local $?;
     my $prompt_only = $args{prompt_only} ? 1 : 0;
     my $cwd   = $args{cwd} || $self->{paths}->current_project_root || $self->{paths}->home;    # uncoverable condition false
     my $items = [];
