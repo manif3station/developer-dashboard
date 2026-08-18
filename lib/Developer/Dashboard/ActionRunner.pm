@@ -294,6 +294,11 @@ sub _reap_child_process {
 # Output: one-letter process state string or undef.
 sub _read_process_state {
     my ( $self, $pid ) = @_;
+    # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS (DD-591, same shape as
+    # DD-585/DD-589/DD-590). The ps fallback below runs whenever /proc is
+    # unreadable for this pid; without this guard its raw $? stays set in the
+    # caller's process after this sub returns.
+    local $?;
     my $proc = "/proc/$pid/stat";
     if ( -r $proc ) {
         open my $fh, '<', $proc or return;    # uncoverable branch true
