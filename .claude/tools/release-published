@@ -35,6 +35,24 @@ use constant {
 
 my $REPO = 'manif3station/developer-dashboard';
 
+# Gaps the owner has explicitly decided to ACCEPT rather than chase (DD-554,
+# 2026-08-18). Each tag predates a specific fix that only landed on master
+# afterward, so the CURRENT workflow can never pass against that FROZEN tree -
+# re-dispatched three times, confirmed by exact fix commit, not a defect in
+# what any of these versions actually do. v4.28 shipped two days after v4.27
+# and functionally supersedes all four; re-cutting any would only be for
+# release-history tidiness.
+#
+# Named and reasoned rather than silently skipped, because a narrowing filter
+# that hides what it excluded is exactly the failure this project's rules warn
+# against - "state the filter with the number, every time".
+our %ACCEPTED_GAP = (
+    'v4.17' => 'predates DD-503 (script/coverage-gate did not exist at this tag)',
+    'v4.23' => q{predates DD-485/b20384d (t/108 baked one machine's PATH into the test)},
+    'v4.24' => q{predates DD-485/b20384d (t/108 baked one machine's PATH into the test)},
+    'v4.27' => 'predates DD-552 (t/155 asserted a host-specific library path)',
+);
+
 # What a complete release carries. A tarball on its own is not a signed release,
 # and counting it as one would let the exact regression this guards against
 # through: the tag exists, something is attached, nobody checks what.
@@ -164,8 +182,13 @@ sub main {
     my $floor = version_key($earliest);
 
     my @findings;
+    my @accepted;
     for my $tag ( grep { version_key($_) >= $floor } sort @{$tags} ) {
         if ( !exists $releases->{$tag} ) {
+            if ( $ACCEPTED_GAP{$tag} ) {
+                push @accepted, "$tag has no published release - KNOWN ACCEPTED GAP: $ACCEPTED_GAP{$tag}";
+                next;
+            }
             push @findings, "$tag is tagged on the remote and has NO published release - "
               . 'the tag push succeeded and whatever it triggered did not';
             next;
@@ -175,6 +198,8 @@ sub main {
           if @missing;
     }
 
+    say STDERR "release-published: $_" for @accepted;
+
     if (@findings) {
         say STDERR "release-published: $_" for @findings;
         say STDERR sprintf 'release-published: %d of %d version tags do not have a complete release',
@@ -182,7 +207,10 @@ sub main {
         return EXIT_MISSING;
     }
 
-    say sprintf 'release-published: all %d version tags have a complete published release', scalar @{$tags};
+    say @accepted
+      ? sprintf 'release-published: all %d version tags have a complete published release or a named accepted gap (%d accepted)',
+          scalar @{$tags}, scalar @accepted
+      : sprintf 'release-published: all %d version tags have a complete published release', scalar @{$tags};
     return EXIT_OK;
 }
 

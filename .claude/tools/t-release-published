@@ -72,4 +72,23 @@ ok( -x $TOOL, 'the checker is executable' );
     ok( @api >= 2, 'tags and releases are both read from the API, so one credential and one failure mode' );
 }
 
+# DD-554: four tags predate a fix that only landed on master later, so the
+# CURRENT workflow can never pass against their FROZEN tree - not a defect,
+# not fixable by retrying. Owner decision: accept the gap rather than chase it.
+{
+    my @accepted = qw(v4.17 v4.23 v4.24 v4.27);
+    for my $tag (@accepted) {
+        ok( exists $main::ACCEPTED_GAP{$tag}, "$tag is a named, reasoned accepted gap" );
+        ok( length $main::ACCEPTED_GAP{$tag} > 10, "$tag - acceptance reason is not a placeholder" );
+    }
+
+    # An accepted gap must still be SAID, never silently dropped from the count
+    # - a narrowing filter that hides what it excluded is exactly the failure
+    # this project's own rules warn against.
+    my $source = do { open my $fh, '<', $TOOL or die $!; local $/; <$fh> };
+    like( $source, qr/ACCEPTED_GAP/, 'accepted gaps are reported, not filtered out silently' );
+    unlike( $source, qr/next\s+if\s+\$ACCEPTED_GAP\{\$tag\}\s*;\s*\}/,
+        'the skip does not fall straight through with nothing said' );
+}
+
 done_testing;
