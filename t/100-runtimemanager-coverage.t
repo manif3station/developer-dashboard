@@ -673,6 +673,26 @@ ok( defined $manager->_read_process_state($$), '_read_process_state reads the cu
 }
 ok( defined $manager->_read_process_title($$), '_read_process_title reads the current process title via procfs' );
 
+# DD-590: same bug class DD-585 fixed in CollectorRunner.pm and DD-589 fixed in
+# IndicatorStore.pm - a query function must not leave the caller's global $?
+# holding its own last subprocess's status. The ps fallback below runs a real
+# system('ps', ...) call (capture is NOT mocked here, unlike the blocks above,
+# so the real subprocess actually sets $?); a caller reading bare $? afterward
+# for an unrelated reason (an END block, exactly as DD-585's own bug was found)
+# must see it unchanged, not the last ps subprocess's exit.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_procfs_available = sub { return 0 };
+    $? = 12 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    $manager->_read_process_state($$);
+    is( $? >> 8, 12,
+        '_read_process_state ps fallback does not leak into the caller global $?' );
+    $? = 34 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    $manager->_read_process_title($$);
+    is( $? >> 8, 34,
+        '_read_process_title ps fallback does not leak into the caller global $?' );
+}
+
 # --- _send_signal Windows path -----------------------------------------------
 is( $manager->_send_signal( 'TERM', undef, 0, 'nope' ), 0, '_send_signal ignores invalid pids' );
 {
