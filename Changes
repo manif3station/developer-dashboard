@@ -1,3 +1,57 @@
+4.29  2026-08-18
+
+  - DD-585/589/590/591/592/593: six query functions across CollectorRunner.pm,
+    IndicatorStore.pm, RuntimeManager.pm, ActionRunner.pm, SkillManager.pm
+    (three functions) and PageRuntime.pm each shelled out (via system(),
+    Capture::Tiny, or a waitpid reap) and left Perl's global $? holding their
+    own last subprocess's exit status after returning, without ever
+    localizing $? at sub entry. A caller reading bare $? afterward for an
+    unrelated reason - the shape that first surfaced this in DD-585, an END
+    block in a test file - silently inherits the wrong value. Found by a
+    systematic sweep of lib/ once the first instance was fixed, and
+    independently by the autonomous hourly bug-hunt round, which found and
+    fixed DD-590 and DD-593 on its own (both resumed here after the round's
+    own session ended mid-verification, with nothing lost either time - its
+    park mechanism correctly left the tree untouched while a suite was live).
+    Fixed uniformly with `local $?;` at each sub's entry. One subtlety
+    verified rather than assumed: SkillManager's three functions never read
+    $? explicitly, but Capture::Tiny returns system()'s own return value
+    automatically while system() ALSO mutates the global $? as an
+    unavoidable side effect - confirmed with a standalone repro before
+    writing any fix. A fourth possible instance (ActionRunner's own sibling
+    query pattern) was checked and is genuinely absent.
+  - DD-594: dd-round-park.sh's automatic end-of-round park comment defaults
+    to the shared, retired 'DD Bot' identity (DD-527 retired it project-wide)
+    because nothing in the automation chain ever sets DD_TIRA_PARK_AUTHOR.
+    Found by the autonomous round tracing the root cause of a finding that
+    had been recurring on every card it touched.
+  - DD-586: t-dd-round-park.sh's specs-guard timeout (600s) was too tight for
+    a spec that deliberately spawns real long-lived background processes to
+    model a genuinely-alive concurrent round; raised to 1200s.
+  - DD-587: the hourly bug-hunt and 10-minute blocked-resolver systemd
+    timers had been silently disabled for 9 days. Re-enabled and verified
+    both correctly defer to an active interactive session before doing real
+    work.
+  - DD-562: master's coverage gate read 100.0 locally but 99.9 on CI.
+  - DD-567: a perl-interpreter CVE advisory blocked the CI step immediately
+    before tests and coverage, on 5 consecutive pushes.
+  - DD-568: an early CI step failing silently skipped the test and coverage
+    steps that followed it; those steps now run with if: always().
+  - DD-572: the pre-push security grep matched 'brewfile' against the
+    retired-system marker pattern 'ewf', making a required gate return
+    permanent noise.
+  - DD-573: 13 operator-tool specs existed under dd-tg with nothing ever
+    running them, so a broken spec could never fail loudly.
+  - DD-574: the audit gate could fail without ever saying which check failed
+    it, a defect DD-567's own fix left behind.
+  - DD-581: nothing recorded a coverage verdict anywhere the board's own gate
+    indicator could read, so it could never show green even on a clean pass.
+  - DD-582: gate-status reported RUNNING for a log file it had no way to know
+    was actually still being written.
+  - DD-583: the Telegram ack watcher answered a direct question about its own
+    silence with more silence.
+  - DD-584: two dd-tg operator specs had been failing with nobody told.
+
 4.28  2026-08-15
 
   - The coverage gate's own regression test no longer asserts that this machine's

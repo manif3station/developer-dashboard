@@ -1,6 +1,45 @@
 # Fixed Bugs
 
 
+## 4.29
+
+- **DD-585/589/590/591/592/593**: six query functions across
+  CollectorRunner.pm, IndicatorStore.pm, RuntimeManager.pm, ActionRunner.pm,
+  SkillManager.pm (three functions) and PageRuntime.pm shelled out to check
+  or reap a process and left Perl's global `$?` holding their own last
+  subprocess's exit status after returning, without localizing `$?` at sub
+  entry. A caller reading bare `$?` afterward for an unrelated reason
+  silently inherits the wrong value - DD-585's own discovery was exactly
+  this shape, in a test file's END block. Fixed uniformly with `local $?;`.
+  Half of these instances (DD-590, DD-593) were found and largely fixed by
+  the project's own autonomous hourly bug-hunt round; both were resumed
+  after the round's own session ended mid-verification, with nothing lost
+  either time.
+- **DD-594**: the automation's end-of-round park comment silently defaulted
+  to the retired shared 'DD Bot' identity because nothing ever set
+  `DD_TIRA_PARK_AUTHOR`.
+- **DD-586**: an operator-tool spec's timeout was too tight for its own
+  deliberately long-running fixture, causing intermittent false failures.
+- **DD-587**: the hourly bug-hunt and 10-minute blocked-resolver automation
+  had been silently disabled for 9 days; re-enabled and verified working.
+- **DD-562**: master's coverage gate read 100.0 locally but 99.9 on CI.
+- **DD-567**: a perl-interpreter CVE advisory blocked CI immediately before
+  the test/coverage steps, on 5 consecutive pushes.
+- **DD-568**: an early CI step failing silently skipped the test and
+  coverage steps after it; they now run with `if: always()`.
+- **DD-572**: the pre-push security grep matched 'brewfile' against the
+  retired-system marker 'ewf', making a required gate return permanent
+  noise.
+- **DD-573**: 13 operator-tool specs existed with nothing ever running them.
+- **DD-574**: the audit gate could fail without saying which check failed.
+- **DD-581**: nothing recorded a coverage verdict the board's gate
+  indicator could read, so it could never show green.
+- **DD-582**: gate-status reported RUNNING for a log it had no way to know
+  was still being written.
+- **DD-583**: the Telegram ack watcher answered a question about its own
+  silence with silence.
+- **DD-584**: two dd-tg operator specs had been failing with nobody told.
+
 ## 4.28
 
 - The v4.27 signed release never published. Its workflow failed at the test step

@@ -81,7 +81,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.28', 'repo version bumped for the packaging-hygiene epic DD-507..DD-533' );
+is( $version, '4.29', 'repo version bumped for DD-562..DD-594, dominated by the $?-exit-status-leak bug class (DD-585, DD-589..DD-593) plus DD-594' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
