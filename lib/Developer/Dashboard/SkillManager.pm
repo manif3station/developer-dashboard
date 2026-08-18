@@ -1436,6 +1436,12 @@ sub _is_windows {
 # Output: boolean true when the package is already installed.
 sub _apt_package_is_installed {
     my ( $self, $package ) = @_;
+    # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS (DD-592, same shape as
+    # DD-585/589/590/591). Neither this sub nor Capture::Tiny explicitly reads
+    # $?, but system() mutates the GLOBAL $? as an unavoidable side effect
+    # regardless of what the capture block returns - confirmed with a
+    # standalone repro before this fix.
+    local $?;
     my ( $stdout, undef, $exit ) = capture {
         system( 'dpkg-query', '-W', '--showformat=${Status}', '--', $package );
     };
@@ -1449,6 +1455,7 @@ sub _apt_package_is_installed {
 # Output: boolean true when the package is already installed.
 sub _apk_package_is_installed {
     my ( $self, $package ) = @_;
+    local $?;    # DD-592: see _apt_package_is_installed for why this is needed
     my ( undef, undef, $exit ) = capture {
         system( 'apk', 'info', '-e', $package );
     };
@@ -1461,6 +1468,7 @@ sub _apk_package_is_installed {
 # Output: boolean true when the package is already installed.
 sub _dnf_package_is_installed {
     my ( $self, $package ) = @_;
+    local $?;    # DD-592: see _apt_package_is_installed for why this is needed
     my ( undef, undef, $exit ) = capture {
         system( 'rpm', '-q', '--quiet', $package );
     };
