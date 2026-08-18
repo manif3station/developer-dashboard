@@ -3,7 +3,7 @@ package Developer::Dashboard::Collector;
 use strict;
 use warnings;
 
-our $VERSION = '4.28';
+our $VERSION = '4.29';
 
 use Fcntl qw(:flock);
 use File::Spec;
