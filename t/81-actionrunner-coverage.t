@@ -428,6 +428,19 @@ my $source_page = Developer::Dashboard::PageDocument->new(
     is( scalar $runner->_read_process_state(999995), undef, '_read_process_state() returns undef when ps exits non-zero' );
 }
 
+# DD-591: same bug class DD-585/DD-589 fixed in CollectorRunner.pm and
+# IndicatorStore.pm - a query must not leave the caller's global $? holding
+# its own last subprocess's status. Unlike the mocked-capture cases above,
+# this exercises the REAL system('ps', ...) call (a genuinely nonexistent
+# pid forces the real ps fallback, not a stubbed one), because a mocked
+# capture never touches the real $? this bug is about.
+{
+    $? = 7 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    $runner->_read_process_state(999994);
+    is( $? >> 8, 7,
+        '_read_process_state() does not leak its own ps subprocess status into the caller global $?' );
+}
+
 # ---------------------------------------------------------------------------
 # Background actions: the successful fork/detach path plus its deadline,
 # supervisor-exit, timeout, forced-kill, and boot-failure branches
