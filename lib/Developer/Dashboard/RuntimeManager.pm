@@ -3336,10 +3336,13 @@ sub _read_process_env_marker {
     my ( $self, $pid, $key ) = @_;
     my $proc = "/proc/$pid/environ";
     return if !-r $proc;
-    open my $fh, '<', $proc or return;    # uncoverable branch true the readability guard above already excluded unreadable environ files
+    # The readability guard above already excluded an unreadable environ file,
+    # so open() failing here cannot be reached on this test host.
+    open my $fh, '<', $proc or return;    # uncoverable branch true
     local $/;
     my $env = scalar <$fh>;
-    return if !defined $env || $env eq '';    # uncoverable condition left a readable environ file always slurps back a defined string
+    # A readable environ file always slurps back a defined, non-empty string.
+    return if !defined $env || $env eq '';    # uncoverable condition left
     for my $pair ( split /\0/, $env ) {
         next if $pair !~ /^([^=]+)=(.*)$/s;
         return $2 if $1 eq $key;
@@ -3390,6 +3393,14 @@ sub _pid_namespace_id {
 # Output: command line string or undef.
 sub _read_process_title {
     my ( $self, $pid ) = @_;
+    # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS (DD-590, same shape as
+    # DD-585's fix in CollectorRunner.pm and DD-589's fix in IndicatorStore.pm).
+    # The ps fallback below runs whenever /proc is unavailable and reads $?
+    # into its own return value, but without this guard the raw, unshifted $?
+    # from that subprocess stays set in the caller's process after this sub
+    # returns. `local` restores the caller's $? on return regardless of how
+    # many system() calls run inside.
+    local $?;
     my $proc = "/proc/$pid/cmdline";
     if ( $self->_procfs_available ) {
         my $cmdline = $self->_slurp_proc_file($proc);
@@ -3418,6 +3429,14 @@ sub _read_process_title {
 # Output: one-letter process state string or undef.
 sub _read_process_state {
     my ( $self, $pid ) = @_;
+    # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS (DD-590, same shape as
+    # DD-585's fix in CollectorRunner.pm and DD-589's fix in IndicatorStore.pm).
+    # The ps fallback below runs whenever /proc is unavailable and reads $?
+    # into its own return value, but without this guard the raw, unshifted $?
+    # from that subprocess stays set in the caller's process after this sub
+    # returns. `local` restores the caller's $? on return regardless of how
+    # many system() calls run inside.
+    local $?;
     my $proc = "/proc/$pid/stat";
     if ( $self->_procfs_available ) {
         my $stat = $self->_slurp_proc_file($proc);
