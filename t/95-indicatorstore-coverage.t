@@ -803,6 +803,22 @@ sub run_plan {
         ok( exists $by{git}, 'refresh_core_indicators emits a git indicator for a real work tree' );
     }
 
+    # DD-589: same bug class DD-585 fixed in CollectorRunner.pm - a query
+    # function must not leave the caller's global $? holding its own last
+    # subprocess's status. Two real git queries run inside this call
+    # (rev-parse --is-inside-work-tree, diff --quiet); a caller reading $?
+    # afterward for an unrelated reason (an END block, exactly as DD-585's own
+    # bug was found) must see it unchanged, not the last git subprocess's exit.
+    {
+        my ($s) = fresh_store();
+        no warnings 'redefine';
+        local *Developer::Dashboard::PathRegistry::project_root_for = sub { return $gitproj };
+        $? = 12 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+        $s->refresh_core_indicators;
+        is( $? >> 8, 12,
+            'refresh_core_indicators does not leak its own git queries into the caller global $?' );
+    }
+
     # S4: no project (359 A-false-B-false-C home, 376 fallback, 386 false)
     {
         my ($s) = fresh_store();
