@@ -1647,6 +1647,30 @@ my $repos = tempdir( CLEANUP => 1 );
     _spew( $nullver, '{"dependencies":{"n":null,"v":"^1.0.0"}}' );
     is_deeply( [ $manager->_package_json_dependency_specs($nullver) ], [ 'n', 'v@^1.0.0' ], 'package.json specs handles a null version as a bare name' );
 
+    # DD-606: a dependency NAME starting with '-' is never a real npm package
+    # name but IS a shape npm's own CLI parses as a flag when it reaches argv
+    # as a bare element - reject it loudly before it can ever get there,
+    # rather than silently forward it.
+    {
+        my $flaglike = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'flaglike.json' );
+        _spew( $flaglike, '{"dependencies":{"--registry":"http://evil.example"}}' );
+        my $err = eval { $manager->_package_json_dependency_specs($flaglike); 1 } ? '' : $@;
+        like( $err, qr/Refusing to install dependency '--registry'/,
+            'DD-606: a dependency name starting with - is refused before it can reach the npm install argv as a flag' );
+    }
+
+    # DD-606: a single flag-like name anywhere among otherwise-legitimate
+    # dependencies must still refuse the whole call - a partial spec list
+    # that silently drops the dangerous entry could still be misread as
+    # success by a caller that doesn't inspect what came back.
+    {
+        my $mixed = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'mixed.json' );
+        _spew( $mixed, '{"dependencies":{"left-pad":"^1.0.0"},"devDependencies":{"-g":"true"}}' );
+        my $err = eval { $manager->_package_json_dependency_specs($mixed); 1 } ? '' : $@;
+        like( $err, qr/Refusing to install dependency '-g'/,
+            'DD-606: a flag-like name in devDependencies is refused even when other sections are legitimate' );
+    }
+
   SKIP: {
         skip 'cannot deny read to root', 1 if $> == 0;
         my $locked = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'locked.json' );
