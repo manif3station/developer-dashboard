@@ -486,19 +486,7 @@ sub _load_transcript {
 sub _save_transcript {
     my ( $file, $data, $paths ) = @_;
     my $tmp = "$file.$$.tmp";
-    open my $fh, '>:raw', $tmp or die "Unable to write transcript $tmp: $!\n";
-    print {$fh} json_encode($data);
-    close $fh or die "Unable to close transcript $tmp: $!\n";
-    # DD-602: secure the TEMP file BEFORE the atomic rename into the final,
-    # predictable path - never rename into place and secure it afterward.
-    # A transcript may hold sensitive content the user asked about and API
-    # responses, so a window where it exists at its final path with loose
-    # (umask-determined) permissions is a real exposure. Matches
-    # Auth.pm/SessionStore.pm/Zipper.pm's DD-599/600/601 fix and
-    # Collector.pm's own correct _atomic_write_text ordering.
-    $paths->secure_file_permissions($tmp);
-    rename $tmp, $file or die "Unable to install transcript $file: $!\n";
-    return $file;
+    return $paths->atomic_write_secure( $tmp, $file, json_encode($data) );
 }
 
 # _emit($out, $answer)

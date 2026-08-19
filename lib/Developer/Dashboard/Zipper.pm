@@ -13,6 +13,7 @@ use Scalar::Util qw(blessed);
 use URI::Escape qw(uri_escape);
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
+use Developer::Dashboard::PathRegistry ();
 
 our @EXPORT = qw(zip unzip _cmdx _cmdp __cmdx acmdx Ajax);
 our $AJAX_CONTEXT = {};
@@ -233,11 +234,10 @@ sub _saved_ajax_url_and_store {
     # DD-599/DD-600 fix and Collector.pm's own correct _atomic_write_text
     # ordering.
     my $tmp = _pending_ajax_file($path);
-    open my $fh, '>', $tmp or die "Unable to write $tmp: $!";
-    print {$fh} defined $args{code} ? $args{code} : '';
-    close $fh or die "Unable to close $tmp: $!";
-    chmod 0700, $tmp or die "Unable to chmod $tmp: $!";
-    rename $tmp, $path or die "Unable to rename $tmp to $path: $!";
+    Developer::Dashboard::PathRegistry->atomic_write_secure(
+        $tmp, $path, ( defined $args{code} ? $args{code} : '' ),
+        executable => 1,
+    );
     return {
         path => $path,
         %{ _saved_ajax_url(%args) },
