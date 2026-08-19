@@ -2807,6 +2807,13 @@ sub _legacy_ajax_allowed {
 # Terminates one saved-Ajax singleton worker on explicit browser page-lifecycle cleanup.
 # Input: normalized request params containing one singleton name.
 # Output: response array reference with a no-content status.
+# Trust note (DD-626, Q-028): any caller who passes the normal auth gate -
+# helper, admin, or API tier alike - may stop ANY singleton by name, including
+# one a different user started. Singleton names are page-defined identifiers,
+# not per-user secrets, so this is a deliberate design choice rather than an
+# oversight: within this tool's local-first, small-trusted-circle trust model,
+# cross-user interference between authenticated helpers is accepted and no
+# per-user ownership tracking is added.
 sub ajax_singleton_stop_response {
     my ( $self, %args ) = @_;
     my ($params) = $self->_request_params(%args);
