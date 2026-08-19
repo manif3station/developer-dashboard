@@ -86,11 +86,35 @@ sub add_user {
         updated_at      => _now_iso8601(),
     };
     my $file = $self->_user_file($username);
-    open my $fh, '>:raw', $file or die "Unable to write $file: $!";
+    # DD-599: write to a per-writer temp file with an unpredictable name and
+    # secure it BEFORE the atomic rename into the final, predictable path -
+    # never open the final path directly and secure it afterward. The final
+    # path is a guessable username.json, so a window where it exists there
+    # with loose (umask-determined) permissions is a real exposure for the
+    # credential record it holds; the temp name is unpredictable, so an
+    # equivalent brief window on it is not. Matches Collector.pm's own
+    # correct _atomic_write_text ordering.
+    my $tmp = $self->_pending_user_file($file);
+    open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode($record);
-    close $fh;
-    chmod 0600, $file;
+    close $fh or die "Unable to close $tmp: $!";
+    chmod 0600, $tmp or die "Unable to chmod $tmp: $!";    # uncoverable branch true
+    rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
     return $record;
+}
+
+# _pending_user_file($file)
+# Builds the per-writer staging path add_user writes to before the atomic
+# rename into $file. Its own sub (rather than an inline sprintf) exists so a
+# coverage test can override it to a fixed, predictable path when it needs to
+# pre-stage that exact location to force a write failure - the real path is
+# deliberately unpredictable (mixing pid and wall-clock time) so two writers
+# can never collide on it.
+# Input: final destination file path string.
+# Output: staging file path string.
+sub _pending_user_file {
+    my ( $self, $file ) = @_;
+    return sprintf '%s.%s.%s.pending', $file, $$, time;
 }
 
 # verify_user(%args)
