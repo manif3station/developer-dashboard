@@ -5840,19 +5840,32 @@ dies_like(
         utime time - 7200, time - 7200, $aged_path or die "Unable to age $aged_path: $!";
     }
 
-    my @removed = $branch_keeper->_cleanup_state_roots(
-        min_age_seconds => 60,
-        scanned         => { state_roots => 0, ajax_temp_files => 0 },
-    );
-    ok( !-d $stale_dir, 'cleanup_state_roots removes stale state roots with invalid metadata payloads' );
-    ok( -d $live_dir, 'cleanup_state_roots keeps state roots whose collector pidfile points at a live process' );
-    ok( -d $preserved_dir, 'cleanup_state_roots keeps old state roots whose runtime metadata still points at an existing runtime root' );
-    ok(
-        grep( { $_->{path} eq $stale_dir } @removed ),
-        'cleanup_state_roots reports stale invalid-metadata roots as removed',
-    );
-    ok( !$branch_keeper->_state_root_is_stale( $preserved_dir, 60 ), '_state_root_is_stale keeps roots whose runtime metadata still resolves to a live runtime root' );
-    ok( $branch_keeper->_state_root_has_live_collectors($live_dir), '_state_root_has_live_collectors returns true for live collector pidfiles' );
+    # DD-598: _state_root_has_live_collectors now confirms identity (pid
+    # namespace + env marker/process-title match via CollectorRunner's
+    # established _is_managed_loop) rather than trusting a bare kill(0,$$) -
+    # this test process is not really the "housekeeper" collector loop, so
+    # its own pid must be treated as identity-confirmed here to keep testing
+    # what this block exists to test (state-root retention), not identity
+    # matching itself (which is exhaustively covered in
+    # t/103-collectorrunner-coverage.t and t/77-housekeeper-coverage.t).
+    my @removed;
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::CollectorRunner::_is_managed_loop = sub { return 1 };
+        @removed = $branch_keeper->_cleanup_state_roots(
+            min_age_seconds => 60,
+            scanned         => { state_roots => 0, ajax_temp_files => 0 },
+        );
+        ok( !-d $stale_dir, 'cleanup_state_roots removes stale state roots with invalid metadata payloads' );
+        ok( -d $live_dir, 'cleanup_state_roots keeps state roots whose collector pidfile points at a live process' );
+        ok( -d $preserved_dir, 'cleanup_state_roots keeps old state roots whose runtime metadata still points at an existing runtime root' );
+        ok(
+            grep( { $_->{path} eq $stale_dir } @removed ),
+            'cleanup_state_roots reports stale invalid-metadata roots as removed',
+        );
+        ok( !$branch_keeper->_state_root_is_stale( $preserved_dir, 60 ), '_state_root_is_stale keeps roots whose runtime metadata still resolves to a live runtime root' );
+        ok( $branch_keeper->_state_root_has_live_collectors($live_dir), '_state_root_has_live_collectors returns true for live collector pidfiles' );
+    }
 
     my $blank_runtime_meta_dir = File::Spec->catdir( $state_base, 'blank-runtime-root' );
     make_path($blank_runtime_meta_dir);

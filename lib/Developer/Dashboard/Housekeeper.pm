@@ -11,6 +11,7 @@ use POSIX qw(strftime);
 use Time::HiRes qw(time);
 
 use Developer::Dashboard::Collector;
+use Developer::Dashboard::CollectorRunner;
 use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::JSON qw(json_decode);
@@ -243,7 +244,15 @@ sub _state_root_has_live_collectors {
         close $fh or die "Unable to close $pidfile: $!";    # uncoverable branch true
         chomp $pid if defined $pid;
         next if !defined $pid || $pid !~ /\A\d+\z/;
-        if ( kill 0, $pid ) {
+        # DD-598: a bare kill(0,$pid) only proves SOME process holds this pid,
+        # not that it is still the collector that recorded it - low pids are
+        # reused quickly after a reboot, and an unrelated process inheriting a
+        # dead collector's old pid made this return a false "still alive"
+        # forever. Reuse CollectorRunner's already-established identity check
+        # (pid namespace + env marker/process-title match) instead of
+        # duplicating it, keyed off the collector name the pidfile is named for.
+        my ($name) = $entry =~ /\A(.*)\.pid\z/;
+        if ( $name ne '' && $self->_collector_runner->_is_managed_loop( $pid, $name ) ) {
             closedir $dh;
             return 1;
         }
@@ -318,6 +327,21 @@ sub _only_missing_tree_errors {
 sub _collector_store {
     my ($self) = @_;
     return $self->{collector_store} ||= Developer::Dashboard::Collector->new( paths => $self->{paths} );    # uncoverable condition false
+}
+
+# _collector_runner()
+# Lazily constructs the collector runner used only for its established
+# managed-process identity check, so this class does not duplicate
+# _same_pid_namespace/marker/title matching (DD-598).
+# Input: none.
+# Output: Developer::Dashboard::CollectorRunner object.
+sub _collector_runner {
+    my ($self) = @_;
+    return $self->{collector_runner} ||= Developer::Dashboard::CollectorRunner->new(
+        paths      => $self->{paths},
+        collectors => $self->_collector_store,
+        files      => Developer::Dashboard::FileRegistry->new( paths => $self->{paths} ),    # uncoverable condition false
+    );
 }
 
 # _config()

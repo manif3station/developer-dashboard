@@ -209,10 +209,35 @@ my $is_root = ( $> == 0 );
 {
     my $keeper = Developer::Dashboard::Housekeeper->new( paths => $paths );
 
+    # DD-598: the PID-reuse regression this ticket exists to fix. This test
+    # process's own pid is a REAL, live pid - but it is not the "live"
+    # collector loop (no DEVELOPER_DASHBOARD_LOOP_NAME=live marker, no
+    # "dashboard collector: live" process title). A bare kill(0,$$) used to
+    # be trusted as "still alive"; the fix must reject it on identity.
     my $live_root = File::Spec->catdir( $home, 'live-root' );
     make_path( File::Spec->catdir( $live_root, 'collectors' ) );
     _write_file( File::Spec->catfile( $live_root, 'collectors', 'live.pid' ), "$$\n" );
-    ok( $keeper->_state_root_has_live_collectors($live_root), '_state_root_has_live_collectors returns true when a pidfile points at a live process' );
+    ok( !$keeper->_state_root_has_live_collectors($live_root),
+        '_state_root_has_live_collectors returns false for a live-but-unrelated pid (DD-598 PID-reuse regression)' );
+
+    # Identity confirmed: exercise the wiring (Housekeeper reuses
+    # CollectorRunner's own established identity check rather than
+    # duplicating it - that check's own logic is exhaustively unit-tested in
+    # t/103-collectorrunner-coverage.t) by mocking it to confirm the pid, and
+    # assert Housekeeper passes it the pidfile-basename-derived collector name.
+    {
+        no warnings 'redefine';
+        my @seen_args;
+        local *Developer::Dashboard::CollectorRunner::_is_managed_loop = sub {
+            my ( undef, $pid, $name ) = @_;
+            push @seen_args, [ $pid, $name ];
+            return 1;
+        };
+        ok( $keeper->_state_root_has_live_collectors($live_root),
+            '_state_root_has_live_collectors returns true once identity is confirmed' );
+        is_deeply( \@seen_args, [ [ $$, 'live' ] ],
+            '_state_root_has_live_collectors derives the collector name from the pidfile basename and checks identity via CollectorRunner' );
+    }
 
     my $dead_pid = fork();
     die "fork failed: $!" if !defined $dead_pid;
@@ -226,6 +251,7 @@ my $is_root = ( $> == 0 );
     _write_file( File::Spec->catfile( $mixed_collectors, 'empty.pid' ), '' );  # empty -> undef pid
     _write_file( File::Spec->catfile( $mixed_collectors, 'bad.pid' ), "abc\n" );
     _write_file( File::Spec->catfile( $mixed_collectors, 'dead.pid' ), "$dead_pid\n" );
+    _write_file( File::Spec->catfile( $mixed_collectors, '.pid' ), "$$\n" );   # basename-only "" name, must not crash
     ok( !$keeper->_state_root_has_live_collectors($mixed_root), '_state_root_has_live_collectors returns false when no pidfile resolves to a live process' );
 }
 
