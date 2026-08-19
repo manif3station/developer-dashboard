@@ -17,41 +17,12 @@ sub _repo_path {
     return File::Spec->rel2abs( File::Spec->catfile( $RealBin, File::Spec->updir, @_ ) );
 }
 
-# DD-611: this baseline is DD-597's own still-open findings (verified against
-# the live sweep at the time this gate was written: 25 hits, matching that
-# card's own recorded count). DD-597 remains open and owned separately -
-# fixing any of these subs is that ticket's work, not this gate's. Whoever
-# fixes one removes it from this list as proof of the fix; anything left in
-# the list that the sweep no longer finds is a stale entry, and this test
-# fails on that mismatch exactly as loudly as it fails on a genuinely new,
-# unguarded sub.
-my %BASELINE = map { $_ => 1 } (
-    'Developer/Dashboard/ActionRunner.pm::_background_child_exit_status',
-    'Developer/Dashboard/ActionRunner.pm::_run_command',
-    'Developer/Dashboard/CLI/Ticket.pm::tmux_command',
-    'Developer/Dashboard/CLI/Upgrade.pm::_run_command',
-    'Developer/Dashboard/CollectorRunner.pm::_replace_path_via_powershell',
-    'Developer/Dashboard/CollectorRunner.pm::_spawn_windows_background_command',
-    'Developer/Dashboard/CollectorRunner.pm::_run_command',
-    'Developer/Dashboard/CollectorRunner.pm::_await_windows_command',
-    'Developer/Dashboard/DockerCompose.pm::run',
-    'Developer/Dashboard/PageRuntime.pm::_run_single_block',
-    'Developer/Dashboard/Platform.pm::_exec_java_source',
-    'Developer/Dashboard/RuntimeManager.pm::_replace_path_via_powershell',
-    'Developer/Dashboard/RuntimeManager.pm::_send_signal',
-    'Developer/Dashboard/RuntimeManager.pm::_spawn_windows_background_command',
-    'Developer/Dashboard/RuntimeManager.pm::_pkill_perl',
-    'Developer/Dashboard/RuntimeManager.pm::_ps_processes',
-    'Developer/Dashboard/RuntimeManager.pm::_listener_pids_for_port',
-    'Developer/Dashboard/RuntimeManager.pm::_listener_pids_for_port_via_lsof',
-    'Developer/Dashboard/RuntimeManager.pm::_listener_pids_for_port_via_netstat',
-    'Developer/Dashboard/SkillDispatcher.pm::_run_child_command_streaming',
-    'Developer/Dashboard/SkillManager.pm::_run_streaming_command',
-    'Developer/Dashboard/UpdateManager.pm::run',
-    'Developer/Dashboard/Web/App.pm::_ip_pairs_from_ip',
-    'Developer/Dashboard/Web/App.pm::_ip_pairs_from_ipconfig',
-    'Developer/Dashboard/Web/App.pm::_ip_pairs_from_ifconfig',
-);
+# DD-611: this baseline was DD-597's own still-open findings (25 hits at the
+# time this gate was written). DD-597 has now guarded every one of them with
+# "local $?;", so the sweep finds zero hits and the baseline is empty - any
+# future hit is a genuinely new, unguarded sub and fails the suite on its
+# own.
+my %BASELINE = map { $_ => 1 } ();
 
 # _subs_in_file($path)
 # Extracts every top-level named sub's source text from one Perl module,
