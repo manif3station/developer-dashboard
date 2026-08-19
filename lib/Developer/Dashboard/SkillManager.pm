@@ -1240,7 +1240,9 @@ sub _progress_detail_line {
 # _run_streaming_command(%args)
 # Runs one external dependency command while streaming a rolling output
 # snapshot into the active progress task and collecting the full transcript.
-# Input: command array reference plus optional cwd and banner line.
+# Input: command array reference plus optional cwd, banner line, and
+# timeout_ms (milliseconds; omitted or zero means unbounded, preserving prior
+# behavior for callers that do not opt in).
 # Output: hash reference with stdout, stderr, and exit fields.
 sub _run_streaming_command {
     my ( $self, %args ) = @_;
@@ -1250,6 +1252,7 @@ sub _run_streaming_command {
     my $banner = $args{banner};
     my $env = $args{env};
     die "Streaming command env must be a hash reference\n" if defined $env && ref($env) ne 'HASH';
+    my $timeout_ms = $args{timeout_ms} || 0;
     $self->_progress_detail_line($banner) if defined $banner && $banner ne '';
 
     my $stdout_handle;
@@ -1286,29 +1289,76 @@ sub _run_streaming_command {
     my $selector = IO::Select->new();
     $selector->add($stdout_handle) if $stdout_handle;    # uncoverable branch false
     $selector->add($stderr_handle) if $stderr_handle;    # uncoverable branch false
-    while ( my @ready = $selector->can_read ) {
-        for my $handle (@ready) {
-            my $chunk = '';
-            my $read = sysread( $handle, $chunk, 8192 );
-            if ( !defined $read || $read == 0 ) {    # uncoverable condition left
-                $selector->remove($handle);
-                close $handle;
-                next;
-            }
-            my $slot = $target_for{ fileno($handle) };
-            ${$slot} .= $chunk if $slot;    # uncoverable branch false
-            for my $line ( split /\n/, $chunk ) {
-                $self->_progress_detail_line($line);
+
+    my $timed_out = 0;
+    my $read_loop = sub {
+        while ( my @ready = $selector->can_read ) {
+            for my $handle (@ready) {
+                my $chunk = '';
+                my $read = sysread( $handle, $chunk, 8192 );
+                if ( !defined $read || $read == 0 ) {    # uncoverable condition left
+                    $selector->remove($handle);
+                    close $handle;
+                    next;
+                }
+                my $slot = $target_for{ fileno($handle) };
+                ${$slot} .= $chunk if $slot;    # uncoverable branch false
+                for my $line ( split /\n/, $chunk ) {
+                    $self->_progress_detail_line($line);
+                }
             }
         }
+        waitpid $pid, 0;
+    };
+
+    if ($timeout_ms) {
+        local $SIG{ALRM} = sub { die "__STREAMING_COMMAND_TIMEOUT__\n" };
+        alarm( int( ( $timeout_ms + 999 ) / 1000 ) );
+        my $ok = eval { $read_loop->(); 1 };
+        alarm(0);
+        if ( !$ok ) {
+            die $@ if $@ !~ /__STREAMING_COMMAND_TIMEOUT__/;    # uncoverable branch true
+            $self->_terminate_streaming_command($pid);
+            $timed_out = 1;
+        }
+    }
+    else {
+        $read_loop->();
     }
 
-    waitpid $pid, 0;
     return {
-        stdout => $stdout,
-        stderr => $stderr,
-        exit   => $? >> 8,
+        stdout    => $stdout,
+        stderr    => $stderr,
+        exit      => $timed_out ? -1 : $? >> 8,
+        timed_out => $timed_out,
     };
+}
+
+# _terminate_streaming_command($pid)
+# Terminates a timed-out _run_streaming_command child with a bounded
+# TERM-then-KILL sequence, matching this project's established
+# CollectorRunner::_terminate_command_process discipline.
+# Input: direct command child pid integer.
+# Output: true value after bounded TERM/KILL cleanup or a no-op skip.
+sub _terminate_streaming_command {
+    my ( $self, $pid ) = @_;
+    return 1 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+
+    kill 'TERM', $pid;
+    my $reaped = 0;
+    for ( 1 .. 20 ) {
+        my $waited = waitpid( $pid, 1 );
+        if ( $waited == $pid || $waited == -1 ) {
+            $reaped = 1;
+            last;
+        }
+        select( undef, undef, undef, 0.01 );    # uncoverable branch true
+    }
+    if ( !$reaped ) {
+        kill 'KILL', $pid;
+        waitpid( $pid, 0 );
+    }
+    return 1;
 }
 
 # _skill_install_root($skill_path)
@@ -1614,11 +1664,15 @@ sub _install_skill_package_json {
     close $workspace_fh;
 
     my $run = $self->_run_streaming_command(
-        command => [ 'npx', '--yes', 'npm', 'install', @specs ],
-        cwd     => $workspace,
-        banner  => "Installing Node dependencies for " . basename($skill_path) . " from $package_json: " . join( ' ', @specs ),
+        command    => [ 'npx', '--yes', 'npm', 'install', @specs ],
+        cwd        => $workspace,
+        banner     => "Installing Node dependencies for " . basename($skill_path) . " from $package_json: " . join( ' ', @specs ),
+        timeout_ms => $self->_skill_install_timeout_ms,
     );
-    my ( $npm_stdout, $npm_stderr, $npm_exit ) = @{$run}{qw(stdout stderr exit)};
+    my ( $npm_stdout, $npm_stderr, $npm_exit, $npm_timed_out ) = @{$run}{qw(stdout stderr exit timed_out)};
+    return {
+        error => "Timed out installing skill Node dependencies for $skill_path after " . $self->_skill_install_timeout_ms . "ms",
+    } if $npm_timed_out;
     return {
         error => "Failed to install skill Node dependencies for $skill_path: $npm_stderr",
     } if $npm_exit != 0;
@@ -1654,11 +1708,15 @@ sub _install_skill_requirements_txt {
     return { success => 1, skipped => 1 } if !-f $requirements;
 
     my $run = $self->_run_streaming_command(
-        command => [ $self->_python_dependency_command, '-m', 'pip', 'install', '--user', '--requirement', $requirements ],
-        cwd     => $skill_path,
-        banner  => "Installing Python dependencies for " . basename($skill_path) . " from $requirements",
+        command    => [ $self->_python_dependency_command, '-m', 'pip', 'install', '--user', '--requirement', $requirements ],
+        cwd        => $skill_path,
+        banner     => "Installing Python dependencies for " . basename($skill_path) . " from $requirements",
+        timeout_ms => $self->_skill_install_timeout_ms,
     );
-    my ( $stdout, $stderr, $exit ) = @{$run}{qw(stdout stderr exit)};
+    my ( $stdout, $stderr, $exit, $timed_out ) = @{$run}{qw(stdout stderr exit timed_out)};
+    return {
+        error => "Timed out installing skill Python dependencies for $skill_path after " . $self->_skill_install_timeout_ms . "ms",
+    } if $timed_out;
     return {
         error => "Failed to install skill Python dependencies for $skill_path: $stderr",
     } if $exit != 0;
@@ -1676,6 +1734,21 @@ sub _install_skill_requirements_txt {
 # Output: executable path or command name string.
 sub _python_dependency_command {
     return command_in_path('python') || command_in_path('python3') || 'python';
+}
+
+# _skill_install_timeout_ms()
+# Returns the bound applied to skill package.json/requirements.txt dependency
+# installs, matching the env-override-with-default pattern this codebase
+# already uses for other numeric tunables (e.g.
+# RuntimeManager::_collector_restart_limit). Installs legitimately take
+# longer than a typical action command, so the default is generous compared
+# to ActionRunner's 30s convention.
+# Input: none.
+# Output: positive integer milliseconds.
+sub _skill_install_timeout_ms {
+    my $value = $ENV{DEVELOPER_DASHBOARD_SKILL_INSTALL_TIMEOUT_MS};
+    return $value if defined $value && $value =~ /^\d+$/ && $value > 0;
+    return 300_000;
 }
 
 # _package_json_dependency_specs($package_json)
