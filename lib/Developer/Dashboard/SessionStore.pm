@@ -173,10 +173,11 @@ sub _session_file_candidates {
 # never touches inherited or shared parent-layer session stores. Files it cannot
 # read or parse as a session record are left untouched on purpose: the sweep only
 # removes records it can positively confirm are expired.
-# Input: none.
-# Output: number of expired session files removed.
+# Input: optional dry_run boolean - when true, counts what would be removed
+# without unlinking anything (DD-613, for Housekeeper's preview mode).
+# Output: number of expired session files removed (or that would be removed).
 sub sweep_expired {
-    my ($self) = @_;
+    my ( $self, %args ) = @_;
     my $root = $self->{paths}->sessions_root;
     opendir my $dh, $root or die "Unable to read sessions root $root: $!";
     my @entries = readdir $dh;
@@ -195,7 +196,7 @@ sub sweep_expired {
         my $expires_at = $record->{expires_at};
         next if !defined $expires_at || $expires_at eq '';
         next if _iso8601_to_epoch($expires_at) > $now;
-        $removed++ if unlink $file;
+        $removed++ if $args{dry_run} || unlink $file;
     }
     return $removed;
 }

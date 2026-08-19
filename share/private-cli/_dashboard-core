@@ -622,7 +622,11 @@ elsif ( $cmd eq 'config' ) {
     }
 }
 elsif ( $cmd eq 'housekeeper' ) {
-    print json_encode( $housekeeper->run );
+    my $dry_run = 0;
+    Getopt::Long::Configure(qw(pass_through no_getopt_compat no_auto_abbrev));
+    GetOptionsFromArray( \@ARGV, 'dry-run!' => \$dry_run );
+    Getopt::Long::Configure(qw(no_pass_through getopt_compat auto_abbrev));
+    print json_encode( $housekeeper->run( dry_run => $dry_run ) );
     exit 0;
 }
 elsif ( $cmd eq 'auth' ) {

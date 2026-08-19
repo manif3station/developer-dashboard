@@ -299,6 +299,24 @@ SKIP: {
     is( $store->sweep_expired, 0, 'sweep_expired leaves a record whose expiry is the empty string untouched' );
 }
 
+# --- sweep_expired: dry_run counts an expired file without unlinking it -
+# (DD-613, for Housekeeper's preview mode)
+{
+    my $dir = File::Spec->catdir( $home, 'sweep-dry-run' );
+    make_path($dir);
+    my $file = File::Spec->catfile( $dir, 'expired.json' );
+    open my $fh, '>:raw', $file or die "Unable to write $file: $!";
+    print {$fh} json_encode( { session_id => 'expired', expires_at => '2000-01-01T00:00:00Z' } );
+    close $fh;
+
+    no warnings qw(redefine once);
+    local *Developer::Dashboard::PathRegistry::sessions_root = sub { return $dir };
+    is( $store->sweep_expired( dry_run => 1 ), 1, 'sweep_expired counts an expired file as removed under dry_run' );
+    ok( -f $file, 'sweep_expired leaves the expired file on disk under dry_run' );
+    is( $store->sweep_expired, 1, 'a real (non-dry-run) sweep_expired against the same fixture actually removes it' );
+    ok( !-f $file, 'the real sweep_expired call removed the file this time' );
+}
+
 # --- sweep_expired: an expired file that cannot be unlinked is not counted
 {
     my $dir = File::Spec->catdir( $home, 'sweep-readonly-dir' );

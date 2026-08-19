@@ -31,13 +31,17 @@ sub new {
 
 # run(%args)
 # Removes stale dashboard temp state and dashboard-owned temp files.
-# Input: optional min_age_seconds integer and optional now_epoch integer for deterministic testing.
+# Input: optional min_age_seconds integer, optional now_epoch integer for
+# deterministic testing, and optional dry_run boolean (DD-613) - when true,
+# reports exactly what a real run would scan/remove/rotate without touching
+# any file, directory, collector log, or session record on disk.
 # Output: hash reference summary with scan counts and removed item details.
 sub run {
     my ( $self, %args ) = @_;
     my $min_age_seconds = defined $args{min_age_seconds} ? $args{min_age_seconds} : 3600;
     die "min_age_seconds must be a non-negative integer\n"
       if $min_age_seconds !~ /\A\d+\z/;
+    my $dry_run = $args{dry_run} ? 1 : 0;
 
     my $removed = [];
     my $scanned = {
@@ -48,35 +52,36 @@ sub run {
         expired_sessions  => 0,
     };
 
-    push @{$removed}, $self->_cleanup_state_roots( min_age_seconds => $min_age_seconds, scanned => $scanned );
-    push @{$removed}, $self->_cleanup_temp_files( min_age_seconds => $min_age_seconds, scanned => $scanned );
-    push @{$removed}, $self->_rotate_collector_logs( scanned => $scanned, now_epoch => $args{now_epoch} );
-    $scanned->{expired_sessions} = $self->_sweep_expired_sessions;
+    push @{$removed}, $self->_cleanup_state_roots( min_age_seconds => $min_age_seconds, scanned => $scanned, dry_run => $dry_run );
+    push @{$removed}, $self->_cleanup_temp_files( min_age_seconds => $min_age_seconds, scanned => $scanned, dry_run => $dry_run );
+    push @{$removed}, $self->_rotate_collector_logs( scanned => $scanned, now_epoch => $args{now_epoch}, dry_run => $dry_run );
+    $scanned->{expired_sessions} = $self->_sweep_expired_sessions( dry_run => $dry_run );
 
     return {
         ok               => 1,
         happened_at      => _now_iso8601(),
         min_age_seconds  => $min_age_seconds + 0,
+        dry_run          => $dry_run,
         scanned          => $scanned,
         removed          => $removed,
         removed_count    => scalar @{$removed},
     };
 }
 
-# _sweep_expired_sessions()
+# _sweep_expired_sessions(%args)
 # Removes expired helper-session records through the session store so stale
 # session files cannot accumulate unbounded between logins.
-# Input: none.
-# Output: count of expired session files removed.
+# Input: optional dry_run boolean.
+# Output: count of expired session files removed (or that would be removed).
 sub _sweep_expired_sessions {
-    my ($self) = @_;
+    my ( $self, %args ) = @_;
     my $sessions = Developer::Dashboard::SessionStore->new( paths => $self->{paths} );
-    return $sessions->sweep_expired;
+    return $sessions->sweep_expired( dry_run => $args{dry_run} );
 }
 
 # _rotate_collector_logs(%args)
 # Applies configured collector log retention rules through the collector storage layer.
-# Input: scanned hash reference and optional now_epoch integer.
+# Input: scanned hash reference, optional now_epoch integer, and optional dry_run boolean.
 # Output: list of collector-log rotation summary hash references.
 sub _rotate_collector_logs {
     my ( $self, %args ) = @_;
@@ -91,6 +96,7 @@ sub _rotate_collector_logs {
             $name,
             $rotation,
             now_epoch => $args{now_epoch},
+            dry_run   => $args{dry_run},
         );
         push @rotated, $result if $result;
     }
@@ -99,8 +105,8 @@ sub _rotate_collector_logs {
 
 # _cleanup_state_roots(%args)
 # Removes stale hashed runtime state roots from the shared temp state tree.
-# Input: min_age_seconds integer and scanned hash reference.
-# Output: list of removed item hash references.
+# Input: min_age_seconds integer, scanned hash reference, and optional dry_run boolean.
+# Output: list of removed (or would-be-removed) item hash references.
 sub _cleanup_state_roots {
     my ( $self, %args ) = @_;
     my $base = $self->{paths}->state_base_root;
@@ -119,7 +125,7 @@ sub _cleanup_state_roots {
         $args{scanned}{state_roots}++;
         next if $active_roots{$dir};
         next if !$self->_state_root_is_stale( $dir, $args{min_age_seconds} );
-        push @removed, $self->_remove_tree( $dir, 'state-root' );
+        push @removed, $self->_remove_tree( $dir, 'state-root', dry_run => $args{dry_run} );
     }
     closedir $dh;
     return @removed;
@@ -139,7 +145,7 @@ sub _cleanup_temp_files {
         next if !$kind;    # uncoverable branch true
         $args{scanned}{$scan_key}++;
         next if !$self->_path_is_old_enough( $path, $args{min_age_seconds} );
-        if ( !unlink $path ) {
+        if ( !$args{dry_run} && !unlink $path ) {
             next if !-e $path;    # uncoverable branch true
             my $label = $kind eq 'ajax-temp-file' ? 'Ajax temp file' : 'runtime result temp file';
             die "Unable to remove stale $label $path: $!";
@@ -289,16 +295,19 @@ sub _path_is_old_enough {
     return ( time - $stat[9] ) >= $min_age_seconds ? 1 : 0;
 }
 
-# _remove_tree($path, $kind)
+# _remove_tree($path, $kind, %args)
 # Removes one stale directory tree and returns the summary payload.
-# Input: directory path and removal kind string.
-# Output: hash reference describing the removed path.
+# Input: directory path, removal kind string, and optional dry_run boolean
+# (DD-613) - when true, reports what would be removed without touching it.
+# Output: hash reference describing the removed (or would-be-removed) path.
 sub _remove_tree {
-    my ( $self, $path, $kind ) = @_;
-    my $errors = [];
-    remove_tree( $path, { error => \$errors } );
-    if ( @{$errors} && !$self->_only_missing_tree_errors($errors) ) {
-        die "Unable to remove stale $kind $path\n";
+    my ( $self, $path, $kind, %args ) = @_;
+    if ( !$args{dry_run} ) {
+        my $errors = [];
+        remove_tree( $path, { error => \$errors } );
+        if ( @{$errors} && !$self->_only_missing_tree_errors($errors) ) {
+            die "Unable to remove stale $kind $path\n";
+        }
     }
     return {
         kind => $kind,
@@ -433,7 +442,9 @@ hash reference that reports what was scanned and what was removed. Collector
 definitions can add C<rotation> or C<rotations> with C<lines>,
 C<minutes>/C<minute>, C<hours>/C<hour>, C<days>/C<day>, C<weeks>/C<week>, and
 C<months>/C<month> retention values for housekeeper-managed transcript
-rotation.
+rotation. Pass C<< dry_run => 1 >> to C<run> to get the same summary shape
+back - the same items reported as scanned/removed/rotated - without anything
+actually being removed, rotated, or unlinked on disk.
 
 =head1 WHAT USES IT
 
