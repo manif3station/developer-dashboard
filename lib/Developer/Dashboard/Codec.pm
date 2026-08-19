@@ -29,14 +29,16 @@ sub encode_payload {
 # decode_payload($token)
 # Decodes and inflates a previously encoded payload token.
 # Input: base64 token scalar.
-# Output: decoded text scalar or undef for undefined/empty input.
+# Output: decoded text scalar, or undef for undefined/empty input or a
+# malformed/tampered token that fails to inflate.
 sub decode_payload {
     my ($token) = @_;
     return if !defined $token || $token eq '';
 
     my $zipped = decode_base64($token);
-    gunzip \$zipped => \my $text
-      or die "gunzip failed: $GunzipError";
+    my $text;
+    my $ok = eval { gunzip \$zipped => \$text or die "gunzip failed: $GunzipError"; 1 };
+    return if !$ok;
 
     return $text;
 }
