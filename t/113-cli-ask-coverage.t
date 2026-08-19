@@ -380,7 +380,8 @@ subtest 'transcript load and save edge cases' => sub {
           if !symlink( '/dev/full', $pending_path );
 
         my $write_fail = eval { $save->( $write_target, { backend => 'claude', messages => [] }, $paths ); 1 } ? '' : $@;
-        like( $write_fail, qr/\AUnable to close transcript \Q$pending_path\E/, '_save_transcript dies when the pending write cannot be flushed to the device at close' );
+        like( $write_fail, qr/\AUnable to close \Q$pending_path\E/,
+            '_save_transcript dies when the pending write cannot be flushed to the device at close (via the shared atomic_write_secure helper, DD-610)' );
         unlink $pending_path;
     }
 
@@ -389,14 +390,14 @@ subtest 'transcript load and save edge cases' => sub {
     chmod 0500, $readonly or die "Unable to chmod $readonly: $!";
     my $err = '';
     eval { $save->( File::Spec->catfile( $readonly, 'blocked.json' ), { backend => 'claude', messages => [] }, $paths ); 1 } or $err = $@;
-    like( $err, qr/\AUnable to write transcript /, 'an unwritable state directory is a user-facing error' );
+    like( $err, qr/\AUnable to write /, 'an unwritable state directory is a user-facing error' );
     chmod 0700, $readonly or die "Unable to restore $readonly: $!";
 
     my $blocked_target = File::Spec->catdir( $dir, 'target-is-a-directory.json' );
     mkdir $blocked_target or die "Unable to create $blocked_target: $!";
     $err = '';
     eval { $save->( $blocked_target, { backend => 'claude', messages => [] }, $paths ); 1 } or $err = $@;
-    like( $err, qr/\AUnable to install transcript /, 'a rename that cannot land is a user-facing error' );
+    like( $err, qr/\AUnable to rename /, 'a rename that cannot land is a user-facing error (via the shared atomic_write_secure helper, DD-610)' );
     unlink glob( File::Spec->catfile( $dir, 'target-is-a-directory.json.*.tmp' ) );
 };
 

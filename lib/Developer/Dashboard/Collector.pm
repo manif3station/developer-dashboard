@@ -745,13 +745,7 @@ sub _pending_path {
 sub _atomic_write_text {
     my ( $self, $file, $text ) = @_;
     my $tmp = $self->_pending_path($file);
-    open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
-    print {$fh} $text or die "Unable to write $tmp: $!";
-    close $fh or die "Unable to close $tmp: $!";
-    $self->{paths}->secure_file_permissions($tmp);
-    rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
-    $self->{paths}->secure_file_permissions($file);
-    return $file;
+    return $self->{paths}->atomic_write_secure( $tmp, $file, $text );
 }
 
 # _read_status_file($file)

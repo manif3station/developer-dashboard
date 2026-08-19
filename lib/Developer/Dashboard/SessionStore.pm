@@ -57,11 +57,7 @@ sub create {
     # advance. Matches Auth.pm::add_user's DD-599 fix and Collector.pm's own
     # correct _atomic_write_text ordering.
     my $tmp = $self->_pending_session_file($file);
-    open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
-    print {$fh} json_encode($record);
-    close $fh or die "Unable to close $tmp: $!";
-    chmod 0600, $tmp or die "Unable to chmod $tmp: $!";    # uncoverable branch true
-    rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
+    $self->{paths}->atomic_write_secure( $tmp, $file, json_encode($record) );
     return $record;
 }
 
