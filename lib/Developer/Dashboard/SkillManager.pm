@@ -1700,6 +1700,17 @@ sub _package_json_dependency_specs {
         my $entries = $decoded->{$section};
         next if ref($entries) ne 'HASH';
         for my $name ( sort keys %{$entries} ) {
+            # DD-606: a dependency NAME starting with '-' is never a real npm
+            # package name, but it IS a shape npm's own CLI parser accepts as
+            # a flag when it appears as a bare argv element - list-form exec
+            # avoids shell injection, but does nothing to stop npm itself from
+            # reinterpreting an argv element that looks like "--registry" as
+            # a flag rather than a package spec. Reject loudly here, before
+            # any such name can reach the npm install argv, rather than
+            # silently skip it and leave the operator guessing why an install
+            # came up short.
+            die "Refusing to install dependency '$name' from $package_json: dependency names starting with '-' are never real npm package names and would be misread as an npm CLI flag\n"
+              if $name =~ /\A-/;
             my $version = $entries->{$name};
             push @specs, defined $version && $version ne '' ? "$name\@$version" : $name;
         }
