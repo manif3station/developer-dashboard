@@ -338,6 +338,28 @@ is( $app->handle( path => '/js/route-skill/fallback.js', remote_addr => '127.0.0
     is( $app_api->handle( path => '/ajax/demo.json', query => 'type=json', remote_addr => '203.0.113.7', headers => { host => $ah, cookie => $cookie } )->[0], 200, 'session cookie keeps ajax access' );
     # unregistered route WITH session cookie -> authorized
     ok( $app_api->handle( path => '/app/welcome', query => '', remote_addr => '203.0.113.7', headers => { host => $ah, cookie => $cookie } )->[0], 'session cookie authorizes app route' );
+    # DD-605: Web::App::handle() applies the CSRF fetch-metadata check before
+    # dispatching to /logout, but Web::DancerApp's actual route for GET
+    # /logout calls logout_response() DIRECTLY via _run_backend, bypassing
+    # handle() (and its CSRF check) entirely - the same architectural shape
+    # POST /login has, which login_response() correctly compensates for by
+    # calling _csrf_rejection_response itself. This test calls
+    # logout_response() directly, matching exactly what the real Dancer2
+    # route does, so it actually exercises the vulnerable path rather than
+    # handle()'s already-protected one. For a helper session this isn't just
+    # an unwanted logout, it permanently deletes the account (the "throwaway
+    # helper account" design, t/125).
+    my ($cookie_session_id) = $cookie =~ /dashboard_session=([^;]+)/;
+    ok( $sessions->get($cookie_session_id), 'helper session exists before the cross-site logout attempt' );
+    ok( $auth->get_user('helper'), 'helper account exists before the cross-site logout attempt' );
+    my $foreign_logout = $app_api->logout_response(
+        remote_addr => '203.0.113.7',
+        headers     => { host => $ah, cookie => $cookie, 'sec-fetch-site' => 'cross-site' },
+    );
+    is( $foreign_logout->[0], 403, 'cross-site GET /logout (direct logout_response call, matching the real Dancer2 route) is rejected, not silently actioned' );
+    ok( $sessions->get($cookie_session_id), 'helper session still exists after the rejected cross-site logout' );
+    ok( $auth->get_user('helper'), 'helper account still exists after the rejected cross-site logout' );
+
     # logout removes the helper user (role helper + username set)
     is( $app_api->handle( path => '/logout', remote_addr => '203.0.113.7', headers => { host => $ah, cookie => $cookie } )->[0], 302, 'logout with helper session' );
     # logout with no session

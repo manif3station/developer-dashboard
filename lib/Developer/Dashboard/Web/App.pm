@@ -612,6 +612,14 @@ sub _post_logout_location {
 # Output: response array reference.
 sub logout_response {
     my ( $self, %args ) = @_;
+    # DD-605: the Dancer2 route for GET /logout calls this method directly
+    # via _run_backend, bypassing handle() and its CSRF fetch-metadata check
+    # entirely - the same architectural exposure POST /login has, which
+    # login_response() already compensates for with this exact guard. For a
+    # helper session, a foreign-origin GET here doesn't just log the victim
+    # out, it permanently deletes their account (Auth->remove_user below).
+    my $csrf_response = $self->_csrf_rejection_response(%args);
+    return $csrf_response if $csrf_response;
     my $headers = $args{headers} || {};
     my $session = $self->{sessions}->from_cookie( $headers->{cookie}, remote_addr => $args{remote_addr} );
     if ($session) {
