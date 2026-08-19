@@ -697,6 +697,20 @@ dies_like( sub { $collector->_format_log_entry( name => '' ) }, qr/Missing colle
     is( $collector->read_log($name), "l3\nl4\n", 'a line rotation keeps only the trailing lines' );
 }
 
+# DD-613: dry_run computes and reports the rotation without writing it, so
+# Housekeeper's preview mode can report what rotate_log would do.
+{
+    my $name = 'rot-dry-run';
+    seed_collector( $name, 'log' => "l1\nl2\nl3\nl4\n" );
+    my $rotated = $collector->rotate_log( $name, { lines => 2 }, dry_run => 1 );
+    is( $rotated->{kind}, 'collector-log-rotation', 'a dry-run rotation still reports a collector log rotation' );
+    is( $rotated->{strategy}, 'lines=2', 'a dry-run rotation still reports its strategy' );
+    is( $rotated->{before_bytes}, 12, 'a dry-run rotation still reports the original size' );
+    is( $rotated->{after_bytes}, 6, 'a dry-run rotation still reports the would-be rotated size' );
+    ok( $rotated->{dry_run}, 'a dry-run rotation flags itself as dry_run in the summary' );
+    is( $collector->read_log($name), "l1\nl2\nl3\nl4\n", 'a dry-run rotation leaves the log file completely untouched' );
+}
+
 # A time-based rotation with an explicit clock keeps only recent entries.
 {
     my $name = 'rot-age-fixed';

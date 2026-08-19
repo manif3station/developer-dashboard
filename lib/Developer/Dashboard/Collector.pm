@@ -329,8 +329,11 @@ sub append_log_entry {
 
 # rotate_log($name, $rotation, %args)
 # Applies configured retention rules to one collector log file.
-# Input: collector name string, rotation hash reference, and optional now_epoch.
-# Output: hash reference describing the applied rotation, or undef when nothing changed.
+# Input: collector name string, rotation hash reference, and optional
+# now_epoch and dry_run booleans - dry_run computes and reports the rotation
+# without writing it (DD-613, for Housekeeper's preview mode).
+# Output: hash reference describing the applied (or, under dry_run, the
+# would-be) rotation, or undef when nothing changed.
 sub rotate_log {
     my ( $self, $name, $rotation, %args ) = @_;
     die 'Missing collector name' if !defined $name || $name eq '';
@@ -352,7 +355,7 @@ sub rotate_log {
             );
             return if $rotated eq $original;
 
-            $self->_atomic_write_text( $paths->{log}, $rotated );
+            $self->_atomic_write_text( $paths->{log}, $rotated ) if !$args{dry_run};
             return {
                 kind         => 'collector-log-rotation',
                 name         => $name,
@@ -360,6 +363,7 @@ sub rotate_log {
                 strategy     => join( ',', map { $_ . '=' . $normalized->{$_} } sort keys %{$normalized} ),
                 before_bytes => length $original,
                 after_bytes  => length $rotated,
+                ( $args{dry_run} ? ( dry_run => 1 ) : () ),
             };
         }
     );
