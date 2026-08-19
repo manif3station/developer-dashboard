@@ -10,6 +10,7 @@ use Digest::SHA qw(sha256_hex hmac_sha256);
 use File::Spec;
 use POSIX qw(strftime);
 use Socket qw(AF_INET AF_INET6 SOCK_STREAM getaddrinfo inet_ntoa inet_ntop unpack_sockaddr_in unpack_sockaddr_in6);
+use String::Compare::ConstantTime ();
 
 use Developer::Dashboard::JSON qw(json_encode json_decode);
 
@@ -447,17 +448,16 @@ sub _pbkdf2_hmac_sha256_hex {
 
 # _secure_compare($left, $right)
 # Compares two strings in length-constant time so password-hash verification
-# does not leak how many leading characters matched through timing.
+# does not leak how many leading characters matched through timing. Delegates
+# to the CPAN-audited String::Compare::ConstantTime rather than hand-rolling
+# the XOR loop (DD-614), reducing the custom security-sensitive surface this
+# project has to maintain and re-verify itself.
 # Input: two strings (either may be undef).
 # Output: boolean true only when both are defined, equal length, and identical.
 sub _secure_compare {
     my ( $left, $right ) = @_;
     return 0 if !defined $left || !defined $right;
-    return 0 if length($left) != length($right);
-    my $diff = 0;
-    $diff |= ord( substr( $left, $_, 1 ) ) ^ ord( substr( $right, $_, 1 ) )
-      for 0 .. length($left) - 1;
-    return $diff == 0 ? 1 : 0;
+    return String::Compare::ConstantTime::equals( $left, $right ) ? 1 : 0;
 }
 
 # _now_iso8601()
