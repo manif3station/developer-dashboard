@@ -390,6 +390,22 @@ is( $app->handle( path => '/js/route-skill/fallback.js', remote_addr => '127.0.0
     ok( !$app_api->_authorize_api_request( headers => {} ), 'api auth empty headers' );
     ok( !$app_api->_authorize_api_request( headers => { 'x-dd-api-key' => [], 'x-dd-api-secret' => [] } ), 'api auth ref headers' );
     ok( !$app_api->_authorize_api_request(), 'api auth no headers' );
+
+    # DD-604: the secret-hash comparison must go through the same
+    # constant-time helper Auth.pm::verify_user uses, not a bare `ne` that
+    # leaks a partial match through response timing.
+    {
+        my $calls = 0;
+        no warnings 'redefine';
+        local *Developer::Dashboard::Auth::_secure_compare = sub {
+            $calls++;
+            return $_[0] eq $_[1] ? 1 : 0;
+        };
+        use warnings 'redefine';
+        ok( $app_api->_authorize_api_request( path => '/ajax/demo.json', headers => { 'x-dd-api-key' => 'good', 'x-dd-api-secret' => 'sekret' } ),
+            'DD-604: api auth still succeeds through the constant-time helper' );
+        is( $calls, 1, 'DD-604: _authorize_api_request calls Auth::_secure_compare exactly once for a checked secret' );
+    }
     is( ref( $app_api->_api_keys ), 'HASH', 'api keys hash' );
 }
 

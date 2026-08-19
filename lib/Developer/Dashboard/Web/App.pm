@@ -23,6 +23,7 @@ use Developer::Dashboard::PageRuntime;
 use Developer::Dashboard::Codec qw(decode_payload);
 use Developer::Dashboard::Zipper ();
 use Developer::Dashboard::SkillDispatcher ();
+use Developer::Dashboard::Auth ();
 our $MODULE_SOURCE_PATH = File::Spec->rel2abs(__FILE__);
 our $ORIG_CWD = cwd();    # compile-time CWD so rel2abs resolves correctly even after chdir
 
@@ -517,7 +518,11 @@ sub _authorize_api_request {
     return undef if ref($entry) ne 'HASH';
     return undef if ref( $entry->{ajax} ) ne 'ARRAY';
     return undef if !( scalar grep { $_ eq ( $args{path} || '' ) } @{ $entry->{ajax} } );
-    return undef if sha256_hex($api_secret) ne ( $entry->{secret} || '' );
+    # DD-604: compare via the same constant-time helper Auth.pm::verify_user
+    # already uses for password-hash verification - a bare `ne` short-circuits
+    # at the first differing byte, leaking how many leading characters of the
+    # client-supplied secret matched through response timing.
+    return undef if !Developer::Dashboard::Auth::_secure_compare( sha256_hex($api_secret), $entry->{secret} || '' );
     return { api_key => $api_key };
 }
 
