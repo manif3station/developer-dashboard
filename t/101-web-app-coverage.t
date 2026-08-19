@@ -892,6 +892,17 @@ is( $m->_missing_named_page_response('x')->[0], 200, 'missing page editor -> 200
     is_deeply( [ $m->_ip_pairs_from_ifconfig ], [], 'ifconfig parser returns nothing on a failed command' );
 }
 
+# DD-597: _ip_pairs_from_ip's own system() call mutates the caller's global
+# $? as a side effect; without a guard at the sub's entry that stays set in
+# the caller's process after this sub returns - a query function must not
+# decide its caller's exit status. Runs the real 'ip' binary (unmocked) to
+# prove the guard, not just this sub's own return value.
+{
+    $? = 12 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    $m->_ip_pairs_from_ip;
+    is( $? >> 8, 12, '_ip_pairs_from_ip does not leak its own subprocess status into the caller global $?' );
+}
+
 # =====================================================================
 # 19. Static file serving edge cases.
 # =====================================================================

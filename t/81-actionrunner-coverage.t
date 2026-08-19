@@ -554,6 +554,18 @@ my $source_page = Developer::Dashboard::PageDocument->new(
     like( $@, qr/Unable to detach background action session/, 'detach failure explains itself' );
 }
 
+# DD-597: same bug class DD-585/589-593 fixed elsewhere - _run_command's own
+# system() call mutates the global $?, and without a guard that stays set in
+# the caller's process after this sub returns. A real (unmocked) command runs
+# here specifically to prove the guard, not just its return value.
+{
+    my $home = tempdir( CLEANUP => 1 );
+    $? = 12 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    $runner->_run_command( cmd => 'true', cwd => $home, env => {} );
+    is( $? >> 8, 12,
+        '_run_command does not leak its own subprocess status into the caller global $?' );
+}
+
 done_testing;
 
 {

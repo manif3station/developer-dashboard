@@ -2953,6 +2953,16 @@ is( Developer::Dashboard::RuntimeManager::_portable_signal(15), 15, '_portable_s
     is( $kd_manager->_collector_runtime_ready( 'crr.dead', 999999 ), 0, '_collector_runtime_ready rejects a state whose matching pid is dead' );
 }
 
+# DD-597: _ps_processes shells out to a real 'ps' via Capture::Tiny, and reads
+# $? inside the block to compute its own exit_code - without a guard at the
+# sub's entry that raw $? stays set in the caller's process on return.
+{
+    $? = 12 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    $manager->_ps_processes;
+    is( $? >> 8, 12,
+        '_ps_processes does not leak its own subprocess status into the caller global $?' );
+}
+
 done_testing;
 
 __END__

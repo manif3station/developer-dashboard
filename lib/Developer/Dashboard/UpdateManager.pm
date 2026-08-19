@@ -47,6 +47,12 @@ sub updates_dir {
 sub run {
     my ($self) = @_;
 
+    # DD-597: system() below mutates the caller's global $? as a side
+    # effect; without this guard that stays set in the caller's process
+    # after this sub returns, regardless of the exit code already captured
+    # per-file in this sub's own results.
+    local $?;
+
     my @results;
     my $dir = $self->updates_dir;
 

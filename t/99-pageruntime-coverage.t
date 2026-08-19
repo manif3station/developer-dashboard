@@ -169,6 +169,13 @@ sub write_file {
     my $op = $runtime->_run_single_block( code => '1;', page => $obj_page );
     is( $op->{stderr}, '', '_run_single_block accepts a page object without a skill source' );
 
+    # DD-597: the block's own executed code can run system(), which mutates
+    # the caller's global $? as a side effect; without a guard at the sub's
+    # entry that stays set in the caller's process on return.
+    $? = 12 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    $runtime->_run_single_block( code => 'system("sh", "-c", "exit 5");' );
+    is( $? >> 8, 12, '_run_single_block does not leak its executed code\'s subprocess status into the caller global $?' );
+
     # Skill source + skill page -> runtime_root / skill_name chain fully true.
     my $skill_page = Developer::Dashboard::PageDocument->new(
         id   => 'skill-page',

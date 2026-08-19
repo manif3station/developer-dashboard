@@ -629,6 +629,12 @@ sub list_services {
 # Output: resolution hash reference with stdout/stderr/exit_code when executed.
 sub run {
     my ( $self, %args ) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side effect;
+    # without this guard that stays set in the caller's process after this
+    # sub returns, regardless of the exit code already captured in this
+    # sub's own return value.
+    local $?;
     my $resolved = $self->resolve(%args);
     return $resolved if $args{dry_run};
 

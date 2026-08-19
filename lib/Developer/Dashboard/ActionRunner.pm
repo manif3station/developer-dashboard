@@ -270,6 +270,12 @@ sub _wait_status_exit_code {
 # Output: normalized exit status integer when reaped, otherwise undef.
 sub _background_child_exit_status {
     my ( $self, $command_pid ) = @_;
+
+    # DD-597: waitpid below reads $? into this sub's own return value, but
+    # without this guard the raw $? from that reap stays set in the caller's
+    # process after this sub returns. `local` restores the caller's $? on
+    # return regardless of what runs inside.
+    local $?;
     my $reaped = waitpid( $command_pid, WNOHANG );
     return if $reaped != $command_pid;
     return $self->_wait_status_exit_code($?);
@@ -404,6 +410,12 @@ sub _is_action_trusted {
 # Output: structured result hash reference.
 sub _run_command {
     my ( $self, %args ) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side effect;
+    # without this guard that stays set in the caller's process after this
+    # sub returns, regardless of the exit code already captured in this sub's
+    # own return value.
+    local $?;
     my $cmd        = $args{cmd};
     my $cwd        = $args{cwd};
     my $env        = $args{env} || {};
