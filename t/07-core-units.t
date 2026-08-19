@@ -6136,6 +6136,56 @@ EOF
     chdir $previous_cwd or die "Unable to chdir back to $previous_cwd: $!";
 }
 {
+    # DD-608: EnvAudit's cross-process channel (DEVELOPER_DASHBOARD_ENV_AUDIT)
+    # must carry provenance (which file supplied a key) but never the literal
+    # secret VALUE that key was loaded with - a value already inherited by an
+    # exec'd child through the ordinary %ENV{$key} it received (or correctly
+    # absent if that child's environment was deliberately narrowed), so the
+    # audit channel duplicating it independently only ever adds exposure, not
+    # capability.
+    local $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT};
+    local $ENV{DD608_SECRET_KEY} = 'dd608-super-secret-value';
+    Developer::Dashboard::EnvAudit->clear();
+    Developer::Dashboard::EnvAudit->record( 'DD608_SECRET_KEY', $ENV{DD608_SECRET_KEY}, '/tmp/dd608-fake.env' );
+
+    my $exported = $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT} // '';
+    unlike( $exported, qr/dd608-super-secret-value/,
+        'DD-608: the exported cross-process audit blob never contains the recorded secret value' );
+    like( $exported, qr/dd608-fake\.env/,
+        'DD-608: the exported cross-process audit blob still carries the source file (provenance)' );
+
+    # Same-process callers still see the correct value (in-memory %AUDIT is
+    # untouched by what gets serialized for export).
+    is_deeply(
+        Developer::Dashboard::EnvAudit->key('DD608_SECRET_KEY'),
+        { value => 'dd608-super-secret-value', envfile => '/tmp/dd608-fake.env' },
+        'DD-608: same-process key() still returns the real value and envfile',
+    );
+
+    # A fresh process rehydrating from the exported blob (empty %AUDIT, only
+    # DEVELOPER_DASHBOARD_ENV_AUDIT plus its own inherited %ENV) reconstructs
+    # the value from its OWN live environment, not from the stripped blob -
+    # so it sees exactly what it actually inherited, never more.
+    {
+        local %Developer::Dashboard::EnvAudit::AUDIT;
+        is_deeply(
+            Developer::Dashboard::EnvAudit->key('DD608_SECRET_KEY'),
+            { value => 'dd608-super-secret-value', envfile => '/tmp/dd608-fake.env' },
+            'DD-608: a fresh process that DID inherit the key reconstructs the correct value from its own %ENV',
+        );
+    }
+    {
+        local $ENV{DD608_SECRET_KEY};
+        local %Developer::Dashboard::EnvAudit::AUDIT;
+        is_deeply(
+            Developer::Dashboard::EnvAudit->key('DD608_SECRET_KEY'),
+            { value => undef, envfile => '/tmp/dd608-fake.env' },
+            'DD-608: a fresh process whose own environment was narrowed (key absent) reports no value, not a smuggled-back one',
+        );
+    }
+    Developer::Dashboard::EnvAudit->clear();
+}
+{
     my $env_home = tempdir( CLEANUP => 1 );
     my $project_root = File::Spec->catdir( $env_home, 'projects', 'cached-cwd-env-project' );
     my $child_root = File::Spec->catdir( $project_root, 'child' );
@@ -6300,19 +6350,18 @@ EOF
     is_deeply(
         $overlay->{env},
         {
+            # DD-608: the exported audit channel is provenance-only (source
+            # file per key), never the value itself - see EnvAudit::_sync_to_env.
             DEVELOPER_DASHBOARD_ENV_AUDIT => json_encode(
                 {
                     NEW_ONLY => {
                         envfile => $env_file,
-                        value   => 'from-file',
                     },
                     PL_ONLY => {
                         envfile => $env_pl_file,
-                        value   => 'leaf-pl',
                     },
                     VERSION => {
                         envfile => $env_file,
-                        value   => 'leaf',
                     },
                 }
             ),
@@ -6363,11 +6412,15 @@ EOF
 }
 
 {
+    # DD-608: the exported blob is provenance-only (no value - see EnvAudit's
+    # _sync_to_env). A real child process reconstructs the value from its own
+    # inherited %ENV{FOO}, which this test sets directly to simulate that
+    # ordinary inheritance, rather than from the (now value-less) blob.
     Developer::Dashboard::EnvAudit->clear();
+    local $ENV{FOO} = 'bar';
     local $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT} = json_encode(
         {
             FOO => {
-                value   => 'bar',
                 envfile => '/tmp/runtime.env',
             },
         }
@@ -6381,7 +6434,7 @@ EOF
                 envfile => '/tmp/runtime.env',
             },
         },
-        'EnvAudit rehydrates its audit inventory from DEVELOPER_DASHBOARD_ENV_AUDIT when a child process inherits it',
+        'EnvAudit rehydrates its audit inventory from DEVELOPER_DASHBOARD_ENV_AUDIT when a child process inherits it, reconstructing value from its own %ENV',
     );
     is_deeply(
         Developer::Dashboard::EnvAudit->key('FOO'),
