@@ -2336,6 +2336,11 @@ sub _unlink_path {
 # Output: boolean success flag and optional failure text string.
 sub _replace_path_via_powershell {
     my ( $self, $source, $target ) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side effect;
+    # without this guard that stays set in the caller's process after this
+    # sub returns.
+    local $?;
     return ( 0, '' ) if !is_windows();
     my @script = (
         q{$ErrorActionPreference = 'Stop'},
@@ -2481,6 +2486,11 @@ sub _portable_signal {
 # Output: number of process ids signalled by Perl kill.
 sub _send_signal {
     my ( $self, $signal, @pids ) = @_;
+
+    # DD-597: system() below (Windows taskkill path) mutates the caller's
+    # global $? as a side effect; without this guard that stays set in the
+    # caller's process after this sub returns.
+    local $?;
     my @targets = grep { defined $_ && /^\d+$/ && $_ > 0 } @pids;
     return 0 if !@targets;
     if (is_windows()) {
@@ -2624,6 +2634,11 @@ sub _helper_file_supports_internal_command {
 # Output: spawned pid integer or undef when the command could not be launched.
 sub _spawn_windows_background_command {
     my ( $self, @command ) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side effect;
+    # without this guard that stays set in the caller's process after this
+    # sub returns.
+    local $?;
     my $stdout_log = $self->{files}->dashboard_log;
     my $stderr_log = $stdout_log . '.stderr';
     my @script = (
@@ -2665,6 +2680,11 @@ sub _powershell_single_quote {
 # Output: true value.
 sub _pkill_perl {
     my ( $self, $pattern ) = @_;
+
+    # DD-597: system() below (the pkill path) mutates the caller's global $?
+    # as a side effect; without this guard that stays set in the caller's
+    # process after this sub returns.
+    local $?;
     if (is_windows()) {
         for my $proc ( $self->_ps_processes ) {
             next if !$self->_proc_owned_by_current_user($proc);
@@ -2787,6 +2807,12 @@ sub _looks_like_web_process {
 # Output: list of process hash references.
 sub _ps_processes {
     my ($self) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side effect;
+    # without this guard that stays set in the caller's process after this
+    # sub returns - a query function must not decide its caller's exit
+    # status.
+    local $?;
     if (is_windows()) {
         my ( $stdout, undef, $exit_code ) = capture {
             system(
@@ -2841,6 +2867,12 @@ sub _managed_listener_pids_for_port {
 # Output: list of process ids.
 sub _listener_pids_for_port {
     my ( $self, $port ) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side effect;
+    # without this guard that stays set in the caller's process after this
+    # sub returns - a query function must not decide its caller's exit
+    # status.
+    local $?;
     return () if !$port;
     if (is_windows()) {
         my ( $stdout, undef, $exit_code ) = capture {
@@ -2897,6 +2929,12 @@ sub _listener_pids_for_port {
 # Output: list of process ids.
 sub _listener_pids_for_port_via_lsof {
     my ( $self, $port ) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side effect;
+    # without this guard that stays set in the caller's process after this
+    # sub returns - a query function must not decide its caller's exit
+    # status.
+    local $?;
     return () if !$port;
     my ( $stdout, $stderr, $exit_code ) = capture {
         system 'lsof', '-nP', "-iTCP:$port", '-sTCP:LISTEN', '-Fp';
@@ -2920,6 +2958,12 @@ sub _listener_pids_for_port_via_lsof {
 # Output: list of process ids.
 sub _listener_pids_for_port_via_netstat {
     my ( $self, $port ) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side effect;
+    # without this guard that stays set in the caller's process after this
+    # sub returns - a query function must not decide its caller's exit
+    # status.
+    local $?;
     return () if !$port;
     my ( $stdout, undef, $exit_code ) = capture {
         system 'netstat', '-ano', '-p', 'tcp';

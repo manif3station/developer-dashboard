@@ -180,6 +180,14 @@ chmod 0755, File::Spec->catfile( $stubbin, 'docker' );
 
     my $executed = $docker->run( args => ['config'] );
     is( $executed->{exit_code}, 0, 'run executes docker stub and captures exit code' );
+
+    # DD-597: run()'s system() call mutates the caller's global $? as a side
+    # effect; without a guard at the sub's entry that stays set in the
+    # caller's process after this sub returns.
+    $? = 12 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    $docker->run( args => ['config'] );
+    is( $? >> 8, 12, 'run does not leak its own subprocess status into the caller global $?' );
+
     chdir $old or die $!;
 }
 

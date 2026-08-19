@@ -287,6 +287,11 @@ sub _system_context {
 # Output: hash reference with stdout, stderr, returns, and merged stash.
 sub _run_single_block {
     my ( $self, %args ) = @_;
+
+    # DD-597: the executed sandpit code may itself run system()/backticks,
+    # which mutates the caller's global $? as a side effect; without this
+    # guard that stays set in the caller's process after this sub returns.
+    local $?;
     my $code            = $args{code} // '';
     my $state           = $args{state} || {};
     my $runtime         = $args{runtime_context} || {};

@@ -3132,6 +3132,12 @@ sub _ip_interface_pairs {
 # Output: list of hashes with iface and ip keys.
 sub _ip_pairs_from_ip {
     my ($self) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side
+    # effect; without this guard that stays set in the caller's process
+    # after this sub returns - a query function must not decide its
+    # caller's exit status.
+    local $?;
     return () if !command_in_path('ip');
     my ( $stdout, undef, $exit_code ) = capture {
         system 'ip', '-o', '-4', 'addr', 'show', 'up', 'scope', 'global';
@@ -3152,6 +3158,12 @@ sub _ip_pairs_from_ip {
 # Output: list of hashes with iface and ip keys.
 sub _ip_pairs_from_ipconfig {
     my ($self) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side
+    # effect; without this guard that stays set in the caller's process
+    # after this sub returns - a query function must not decide its
+    # caller's exit status.
+    local $?;
     return () if !command_in_path('ipconfig');
     my ( $stdout, undef, $exit_code ) = capture {
         system 'ipconfig';
@@ -3180,6 +3192,12 @@ sub _ip_pairs_from_ipconfig {
 # Output: list of hashes with iface and ip keys.
 sub _ip_pairs_from_ifconfig {
     my ($self) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side
+    # effect; without this guard that stays set in the caller's process
+    # after this sub returns - a query function must not decide its
+    # caller's exit status.
+    local $?;
     return () if !command_in_path('ifconfig');
     my ( $stdout, undef, $exit_code ) = capture {
         system 'ifconfig';

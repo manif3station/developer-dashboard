@@ -358,6 +358,16 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     is( $run->{stdout}, 'out', 'streaming command captures stdout' );
     is( $run->{stderr}, 'err', 'streaming command captures stderr' );
 
+    # DD-597: _run_streaming_command reaps its child via waitpid and reads $?
+    # into its own return value, but without a guard at the sub's entry that
+    # raw $? stays set in the caller's process on return.
+    {
+        $? = 12 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+        $manager->_run_streaming_command( command => [ 'sh', '-c', 'exit 0' ] );
+        is( $? >> 8, 12,
+            '_run_streaming_command does not leak its own child status into the caller global $?' );
+    }
+
     # Empty cwd string takes the no-chdir path; empty banner is skipped.
     my $empty_cwd = $manager->_run_streaming_command( command => ['true'], cwd => '', banner => '' );
     is( $empty_cwd->{exit}, 0, 'streaming command treats an empty cwd as no cwd' );

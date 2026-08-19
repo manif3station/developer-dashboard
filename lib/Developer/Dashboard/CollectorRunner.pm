@@ -1352,6 +1352,11 @@ sub _unlink_path {
 # Output: boolean success flag and optional failure text string.
 sub _replace_path_via_powershell {
     my ( $self, $source, $target ) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side effect;
+    # without this guard that stays set in the caller's process after this
+    # sub returns.
+    local $?;
     return ( 0, '' ) if !is_windows();
     my $powershell = $self->_powershell_command;
     return ( 0, 'Unable to resolve a PowerShell executable for Windows state-file replacement' )
@@ -1494,6 +1499,11 @@ sub _helper_file_supports_internal_command {
 # Output: spawned pid integer.
 sub _spawn_windows_background_command {
     my ( $self, @command ) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side effect;
+    # without this guard that stays set in the caller's process after this
+    # sub returns.
+    local $?;
     my $powershell = $self->_powershell_command;
     die "Unable to launch detached Windows collector process: powershell is unavailable\n"
       if !defined $powershell || $powershell eq '';
@@ -1767,6 +1777,12 @@ sub _cron_match {
 # Output: list of stdout, stderr, exit_code, and timed_out flag.
 sub _run_command {
     my ( $self, %args ) = @_;
+
+    # DD-597: system() below mutates the caller's global $? as a side effect;
+    # without this guard that stays set in the caller's process after this
+    # sub returns, regardless of the exit code already captured in this sub's
+    # own return value.
+    local $?;
     my $cmd        = $args{source};
     my $cwd        = $args{cwd};
     my $env        = ref( $args{env} ) eq 'HASH' ? $args{env} : {};
@@ -1831,6 +1847,11 @@ sub _run_command {
 # Output: list of the collector exit code and the timed-out flag.
 sub _await_windows_command {
     my ( $self, $pidfile, $timeout_ms, @argv ) = @_;
+
+    # DD-597: waitpid below reads $? into this sub's own return value, but
+    # without this guard the raw $? from that reap stays set in the caller's
+    # process after this sub returns.
+    local $?;
     my $pid = $self->_spawn_windows_command(@argv);
     die "Unable to spawn collector command '$argv[0]': $!\n" if $pid < 1;
     $self->_record_command_pid( $pidfile, $pid );

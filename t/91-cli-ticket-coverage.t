@@ -302,6 +302,14 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
 
     my $versioned = tmux_command( args => ['-V'] );
     is( $versioned->{exit_code}, 0, 'tmux_command reports the exit status of an explicit tmux argv' );
+
+    # DD-597: system() above mutates the caller's global $? as a side effect;
+    # without a guard at the sub's entry that stays set in the caller's
+    # process after this sub returns, regardless of the exit code already
+    # captured in this sub's own return value.
+    $? = 12 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    tmux_command();
+    is( $? >> 8, 12, 'tmux_command does not leak its own subprocess status into the caller global $?' );
 }
 
 # --- _tmux_stdout -----------------------------------------------------------

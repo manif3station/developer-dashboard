@@ -1246,6 +1246,11 @@ sub _progress_detail_line {
 # Output: hash reference with stdout, stderr, and exit fields.
 sub _run_streaming_command {
     my ( $self, %args ) = @_;
+
+    # DD-597: waitpid below reads $? into this sub's own return value, but
+    # without this guard the raw $? from that reap stays set in the caller's
+    # process after this sub returns.
+    local $?;
     my $command = $args{command} || die "Missing command for streaming execution\n";
     die "Streaming command must be an array reference\n" if ref($command) ne 'ARRAY' || !@{$command};
     my $cwd = $args{cwd};

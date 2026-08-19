@@ -1672,6 +1672,17 @@ ok( !defined $runner->stop_loop('stop.missing'), 'stop_loop returns undef with n
     is( $state, undef, 'reporting no state for a process that is not there' );
 }
 
+# DD-597: same bug class as the ps-fallback readers above - _run_command's own
+# system() call mutates the global $?, and without a guard that stays set in
+# the caller's process after this sub returns. A real (unmocked) command runs
+# here specifically to prove the guard, not just this sub's own return value.
+{
+    $? = 12 << 8;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    $runner->_run_command( source => 'true', cwd => $home, timeout_ms => 2000 );
+    is( $? >> 8, 12,
+        '_run_command does not leak its own subprocess status into the caller global $?' );
+}
+
 done_testing;
 
 __END__

@@ -291,6 +291,11 @@ sub _execute_hooks_streaming {
 # Output: hash reference containing stdout, stderr, and exit_code.
 sub _run_child_command_streaming {
     my ( $self, %args ) = @_;
+
+    # DD-597: waitpid below reads $? into this sub's own return value, but
+    # without this guard the raw $? from that reap stays set in the caller's
+    # process after this sub returns.
+    local $?;
     my @command = @{ $self->_arrayref_or_empty( $args{command} ) };
     my @argv = @{ $self->_arrayref_or_empty( $args{args} ) };
     my %env = %{ $self->_hashref_or_empty( $args{env} ) };
