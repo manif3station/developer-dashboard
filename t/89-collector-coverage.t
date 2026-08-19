@@ -110,6 +110,27 @@ sub dies_like {
         'write_result rejects a status callback that is not a code reference',
     );
 
+    # DD-609: last_success/last_success_at/last_failure_at are derived from
+    # $result{exit_code} with truthy ternaries, so an undef or non-numeric
+    # exit_code must be rejected explicitly rather than silently read as a
+    # falsy "success".
+    dies_like(
+        sub { $collector->write_result( $name, stdout => "ok\n" ) },
+        qr/write_result requires a defined integer exit_code.*undef/,
+        'write_result dies when exit_code is omitted entirely',
+    );
+    dies_like(
+        sub { $collector->write_result( $name, exit_code => undef, stdout => "ok\n" ) },
+        qr/write_result requires a defined integer exit_code.*undef/,
+        'write_result dies when exit_code is explicitly undef',
+    );
+    dies_like(
+        sub { $collector->write_result( $name, exit_code => 'abc' ) },
+        qr/write_result requires a defined integer exit_code.*'abc'/,
+        'write_result dies when exit_code is not numeric',
+    );
+    ok( !defined $collector->read_status($name), 'none of the rejected exit_code calls left any status behind' );
+
     # Fresh collector: no previous status at all.
     $collector->write_result( $name, exit_code => 0, stdout => "ok\n" );
     my $first = $collector->read_status($name);

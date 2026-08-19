@@ -89,6 +89,15 @@ sub write_result {
     my $status_callback = delete $result{status_callback};
     die 'Collector status callback must be a code reference'
       if defined $status_callback && ref($status_callback) ne 'CODE';
+    # DD-609: last_success/last_success_at/last_failure_at below are derived
+    # from $result{exit_code} with truthy ternaries, so an undef (or
+    # non-numeric) exit_code is falsy and would be silently recorded as a
+    # SUCCESS for a run of unknown outcome. CollectorRunner.pm's own caller
+    # always passes a defined integer, but this is the only guard write_result
+    # itself has, so any future direct caller gets the contract enforced here.
+    die "Collector '$name' write_result requires a defined integer exit_code, got "
+      . ( defined $result{exit_code} ? "'$result{exit_code}'" : 'undef' ) . "\n"
+      if !defined $result{exit_code} || $result{exit_code} !~ /\A-?\d+\z/;
 
     $self->_atomic_write_text( $paths->{stdout}, defined $result{stdout} ? $result{stdout} : '' );
     $self->_atomic_write_text( $paths->{stderr}, defined $result{stderr} ? $result{stderr} : '' );
