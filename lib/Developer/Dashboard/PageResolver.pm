@@ -51,6 +51,19 @@ sub load_named_page {
         $saved->{meta}{source_kind} = 'saved';
         return $saved;
     }
+    # DD-603: load_saved_page dies for three distinct reasons - genuine
+    # "not found", a file-read failure, or a parse/validation failure - and
+    # only the first one means "fall through to provider lookup". Collapsing
+    # all three into a silent fallthrough turns a real read/parse error into
+    # a misleading generic "not found" once provider lookup also fails to
+    # match. Only the exact not-found die falls through; anything else is
+    # the real diagnostic and must surface as-is. $@ is always a truthy,
+    # eval-set error string here: this line is reached only when $saved is
+    # falsy, and load_saved_page's own contract is to always either die or
+    # return a truthy page hashref, never return falsy without dying.
+    if ( $@ !~ /\APage '\Q$id\E' not found/ ) {
+        die $@;
+    }
     return $self->load_provider_page($id);
 }
 
