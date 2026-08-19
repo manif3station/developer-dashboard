@@ -48,11 +48,35 @@ sub create {
         updated_at  => _now_iso8601(),
     };
     my $file = $self->_session_file($session_id);
-    open my $fh, '>:raw', $file or die "Unable to write $file: $!";
+    # DD-600: write to a per-writer temp file with an unpredictable name and
+    # secure it BEFORE the atomic rename into the final path - never open the
+    # final path directly and secure it afterward. The session_id IS the
+    # bearer credential for an authenticated session, so a local reader
+    # watching the sessions directory for new files could read and reuse it
+    # during the window this closed, even without knowing the session_id in
+    # advance. Matches Auth.pm::add_user's DD-599 fix and Collector.pm's own
+    # correct _atomic_write_text ordering.
+    my $tmp = $self->_pending_session_file($file);
+    open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode($record);
-    close $fh;
-    chmod 0600, $file;
+    close $fh or die "Unable to close $tmp: $!";
+    chmod 0600, $tmp or die "Unable to chmod $tmp: $!";    # uncoverable branch true
+    rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
     return $record;
+}
+
+# _pending_session_file($file)
+# Builds the per-writer staging path create() writes to before the atomic
+# rename into $file. Its own sub (rather than an inline sprintf) exists so a
+# coverage test can override it to a fixed, predictable path when it needs to
+# pre-stage that exact location to force a write failure - the real path is
+# deliberately unpredictable (mixing pid and wall-clock time) so two writers
+# can never collide on it.
+# Input: final destination file path string.
+# Output: staging file path string.
+sub _pending_session_file {
+    my ( $self, $file ) = @_;
+    return sprintf '%s.%s.%s.pending', $file, $$, time;
 }
 
 # get($session_id)
