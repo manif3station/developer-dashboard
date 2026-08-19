@@ -873,6 +873,24 @@ sub run_plan {
         like( $err, qr/Unable to restore cwd/, 'refresh_core_indicators dies when it cannot restore the original directory' );
         chdir $home or die "Unable to restore test cwd: $!";
     }
+
+    # DD-607: a die inside the git status probe itself (not a chdir failure)
+    # must still restore the caller's original cwd before propagating, rather
+    # than leaving the process stuck inside the project directory it chdir'd
+    # into. Mirrors the eval-wrapped chdir/restore pairs already proven safe
+    # in CollectorRunner.pm's _run_command and _run_code.
+    {
+        my ($s) = fresh_store();
+        no warnings 'redefine';
+        local *Developer::Dashboard::PathRegistry::project_root_for = sub { return $gitproj };
+        local *Developer::Dashboard::IndicatorStore::capture = sub (&) { die "boom: simulated capture failure\n" };
+        my $before = Cwd::cwd();
+        my $err = eval { $s->refresh_core_indicators; 1 } ? '' : $@;
+        like( $err, qr/boom: simulated capture failure/,
+            'refresh_core_indicators propagates a die raised inside the git status probe' );
+        is( Cwd::cwd(), $before,
+            'refresh_core_indicators restores the original cwd even when the git status probe dies' );
+    }
 }
 
 # ---------------------------------------------------------------------------
