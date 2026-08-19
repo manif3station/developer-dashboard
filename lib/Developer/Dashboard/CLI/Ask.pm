@@ -25,6 +25,7 @@ my %BACKEND_FLAG = map { ( $_ => $_ ) } @BACKENDS;
 my $DEFAULT_MODEL    = 'claude-opus-4-8';
 my $DEFAULT_BASE_URL = 'https://api.anthropic.com';
 my $DEFAULT_MAX_TOKENS = 4096;
+my $MAX_BACKEND_ERROR_DETAIL_BYTES = 4000;
 
 # Filename extensions treated as image attachments (everything else is inlined
 # as text). Maps the lowercased extension to the API media type.
@@ -253,6 +254,14 @@ sub _capture_backend {
         my $detail = $stderr;
         $detail =~ s/\s+\z// if defined $detail;
         $detail = defined $detail && $detail ne '' ? $detail : "exit status $exit";
+        # DD-620: a runaway or misbehaving backend producing megabytes of
+        # stderr must not turn into an equally huge, unwieldy exception
+        # message - cap it and say how much was dropped.
+        if ( length($detail) > $MAX_BACKEND_ERROR_DETAIL_BYTES ) {
+            my $omitted = length($detail) - $MAX_BACKEND_ERROR_DETAIL_BYTES;
+            $detail = substr( $detail, 0, $MAX_BACKEND_ERROR_DETAIL_BYTES )
+              . " ... (truncated, $omitted more byte" . ( $omitted == 1 ? '' : 's' ) . ' omitted)';
+        }
         die "$name backend failed: $detail\n";
     }
     $stdout = '' if !defined $stdout;

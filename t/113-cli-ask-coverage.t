@@ -225,6 +225,28 @@ subtest '_capture_backend failure detail and silent-answer handling' => sub {
     like( $err, qr/\Acopilot backend returned no answer\.\n\z/, 'an undefined stdout counts as a silent backend' );
 
     is( $capture->( 'copilot', ['argv'], sub { return ( "  trimmed  \n", '', 0 ); } ), '  trimmed', 'a successful run returns the trimmed answer' );
+
+    # DD-620: a runaway backend's megabytes of stderr must not turn into an
+    # equally huge exception message.
+    $err = '';
+    my $huge_stderr = ( 'x' x 100_000 ) . "\n";
+    eval { $capture->( 'claude', ['argv'], sub { return ( '', $huge_stderr, 1 ); } ); 1 } or $err = $@;
+    like( $err, qr/\Aclaude backend failed: x{4000} \.\.\. \(truncated, \d+ more bytes omitted\)\n\z/,
+        'oversized stderr is capped with a truncation marker naming the omitted byte count' );
+    ok( length($err) < length($huge_stderr), 'the capped error message is genuinely smaller than the raw stderr' );
+
+    $err = '';
+    my $small_stderr = 'x' x 100 . "\n";
+    eval { $capture->( 'claude', ['argv'], sub { return ( '', $small_stderr, 1 ); } ); 1 } or $err = $@;
+    like( $err, qr/\Aclaude backend failed: x{100}\n\z/, 'stderr under the cap is reported verbatim with no truncation marker' );
+
+    $err = '';
+    # DD-620's cap is 4000 bytes (private $MAX_BACKEND_ERROR_DETAIL_BYTES in
+    # CLI/Ask.pm - not accessible from here, so the boundary is duplicated).
+    my $one_over_stderr = 'x' x 4001;
+    eval { $capture->( 'claude', ['argv'], sub { return ( '', $one_over_stderr, 1 ); } ); 1 } or $err = $@;
+    like( $err, qr/\Aclaude backend failed: x{4000} \.\.\. \(truncated, 1 more byte omitted\)\n\z/,
+        'exactly one omitted byte uses the singular "byte" wording' );
 };
 
 # ------------------------------------------------------------------
