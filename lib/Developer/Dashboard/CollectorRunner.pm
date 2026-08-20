@@ -1740,13 +1740,27 @@ sub _cron_due {
     return 0 if !_cron_match( $hour, $now[2] );
     return 0 if !_cron_match( $mday, $now[3] );
     return 0 if !_cron_match( $mon,  $now[4] + 1 );
-    return 0 if !_cron_match( $wday, $now[6] );
+    return 0 if !_cron_match( _cron_wday_normalize($wday), $now[6] );
 
     my $state = $self->loop_state($name) || {};
     my $stamp = strftime( '%Y-%m-%dT%H:%M%z', @now );
     return 0 if ( $state->{last_cron_slot} || '' ) eq $stamp;
     $self->_write_loop_state( $name, { last_cron_slot => $stamp } );
     return 1;
+}
+
+# _cron_wday_normalize($spec)
+# Aliases the crontab(5) weekday token '7' to '0' - both mean Sunday, but
+# localtime's wday (used as _cron_due's match value) is always 0..6, so a
+# literal '7' can never equal it without this. Kept separate from the
+# generic _cron_match, which the other four cron fields also use and where
+# a bare '7' has no such alias.
+# Input: weekday field spec string (may be undef).
+# Output: normalized weekday field spec string (undef stays undef).
+sub _cron_wday_normalize {
+    my ($spec) = @_;
+    return $spec if !defined $spec;
+    return join( ',', map { $_ eq '7' ? '0' : $_ } split /,/, $spec );
 }
 
 # _cron_match($spec, $value)

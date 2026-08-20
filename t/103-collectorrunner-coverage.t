@@ -833,6 +833,19 @@ is( Developer::Dashboard::CollectorRunner::_cron_match( '10-20', 5 ),  0, '_cron
 is( Developer::Dashboard::CollectorRunner::_cron_match( '10-20', 25 ), 0, '_cron_match rejects a value above a range' );
 is( Developer::Dashboard::CollectorRunner::_cron_match( '10-20', 15 ), 1, '_cron_match accepts a value inside a range' );
 
+# DD-631: crontab(5) allows weekday 0-7 where BOTH 0 and 7 mean Sunday, but
+# localtime's wday is always 0..6 - a literal '7' token must alias to Sunday(0)
+# before the field reaches the generic _cron_match (which must NOT treat 7 as
+# an alias for other fields - hour/mday/mon have no such convention).
+is( Developer::Dashboard::CollectorRunner::_cron_wday_normalize( '7' ),     '0',   '_cron_wday_normalize aliases a bare weekday 7 to Sunday(0)' );
+is( Developer::Dashboard::CollectorRunner::_cron_wday_normalize( '1,7' ),   '1,0', '_cron_wday_normalize aliases weekday 7 inside a comma list' );
+is( Developer::Dashboard::CollectorRunner::_cron_wday_normalize( '8' ),     '8',   '_cron_wday_normalize leaves an already-invalid weekday untouched' );
+is( Developer::Dashboard::CollectorRunner::_cron_wday_normalize( '*' ),     '*',   '_cron_wday_normalize leaves a wildcard weekday untouched' );
+is( Developer::Dashboard::CollectorRunner::_cron_wday_normalize( '*/7' ),   '*/7', '_cron_wday_normalize leaves a step weekday spec untouched' );
+is( Developer::Dashboard::CollectorRunner::_cron_wday_normalize( undef ), undef,   '_cron_wday_normalize passes an undef spec through unchanged' );
+is( $runner->_cron_due( '* * * * 7', 'cron.wday7' ), $runner->_cron_due( '* * * * 0', 'cron.wday0' ),
+    '_cron_due treats weekday 7 identically to weekday 0 for the current day' );
+
 # ===========================================================================
 # _run_command / _run_code: chdir failures, timeout, error propagation, env.
 # ===========================================================================
