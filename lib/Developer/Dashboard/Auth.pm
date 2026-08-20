@@ -17,6 +17,13 @@ use Developer::Dashboard::JSON qw(json_encode json_decode);
 # Work factor for the PBKDF2-HMAC-SHA256 helper-password scheme. This is the
 # iteration count new helper passwords are stretched with; it is also recorded
 # per-record so each stored hash is always verified with its own work factor.
+# Performance budget (DD-628): a single derivation at this iteration count is
+# expected to complete in well under a second on a reference host - the
+# deliberate security/usability tradeoff is stretching enough to resist
+# offline brute force without making every login noticeably slow.
+# t/82-auth-coverage.t's PBKDF2 timing test guards against a regression here
+# (an accidental iteration-count change, or an unexpectedly slow crypto
+# backend) going unnoticed until users complain.
 my $PBKDF2_ITERATIONS = 210_000;
 
 # Scheme label stored in a helper-user record so verify_user knows which

@@ -27,6 +27,7 @@ use Test::More;
 use File::Spec;
 use File::Temp qw(tempdir);
 use Socket qw(AF_INET6);
+use Time::HiRes qw(time);
 
 use lib 'lib';
 
@@ -175,6 +176,18 @@ isa_ok( $auth, 'Developer::Dashboard::Auth', 'constructed auth manager' );
         $auth->verify_user( username => 'noiter', password => 'password123' ),
         'verify_user falls back to the default work factor when a record omits its iteration count',
     );
+}
+
+# DD-628: performance budget for the PBKDF2 work factor. The bound is
+# deliberately generous (not a tight benchmark) so a contended host does not
+# flake this test; it exists to catch a gross regression (e.g. an accidental
+# 10x iteration-count change, or a genuinely broken/slow crypto backend), not
+# to police normal timing variance.
+{
+    my $start = time();
+    Developer::Dashboard::Auth::_pbkdf2_hmac_sha256_hex( 'password123', 'budget-salt', 210_000 );
+    my $elapsed = time() - $start;
+    ok( $elapsed < 5, "PBKDF2 at the current work factor completes within the documented performance budget (took ${elapsed}s)" );
 }
 
 # get_user must surface an open failure on a record that exists but is
