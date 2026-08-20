@@ -3337,25 +3337,35 @@ sub _skill_static_file_path {
 
 # _static_file_roots($type)
 # Returns candidate public directories for static file serving in lookup order.
+# Cached per instance and type (DD-622): a cheap key is recomputed on every
+# call from the same inputs the root list depends on, and the expensive
+# root-building walk only reruns when that key changes - matching the
+# cache-key pattern File.pm/Folder.pm use for their config-alias caches.
 # Input: asset type string such as js, css, or others.
 # Output: ordered list of directory path strings.
 sub _static_file_roots {
     my ( $self, $type ) = @_;
-    my @roots;
-    my %seen;
 
     my $paths = $self->{pages} && ref( $self->{pages} ) eq 'Developer::Dashboard::PageStore'
       ? $self->{pages}{paths}
       : undef;
-    if ($paths) {
-        for my $runtime_root ( $paths->runtime_roots ) {
-            my $root = File::Spec->catdir( $runtime_root, 'dashboard', 'public', $type );
-            push @roots, $root if !$seen{$root}++;
-        }
-        for my $dashboards_root ( $paths->dashboards_roots ) {
-            my $root = File::Spec->catdir( $dashboards_root, 'public', $type );
-            push @roots, $root if !$seen{$root}++;
-        }
+    my @runtime_roots    = $paths ? $paths->runtime_roots    : ();
+    my @dashboards_roots = $paths ? $paths->dashboards_roots : ();
+    my $cache_key = join "\n", $type, ( $ENV{HOME} || $ENV{USERPROFILE} || '' ), @runtime_roots, @dashboards_roots;
+
+    my $cache = $self->{_static_file_roots_cache} ||= {};
+    return @{ $cache->{$type}{roots} }
+      if $cache->{$type} && $cache->{$type}{key} eq $cache_key;
+
+    my @roots;
+    my %seen;
+    for my $runtime_root (@runtime_roots) {
+        my $root = File::Spec->catdir( $runtime_root, 'dashboard', 'public', $type );
+        push @roots, $root if !$seen{$root}++;
+    }
+    for my $dashboards_root (@dashboards_roots) {
+        my $root = File::Spec->catdir( $dashboards_root, 'public', $type );
+        push @roots, $root if !$seen{$root}++;
     }
 
     my $home_root = File::Spec->catdir(
@@ -3366,6 +3376,8 @@ sub _static_file_roots {
         $type
     );
     push @roots, $home_root if !$seen{$home_root}++;
+
+    $cache->{$type} = { key => $cache_key, roots => \@roots };
     return @roots;
 }
 
