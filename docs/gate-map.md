@@ -65,6 +65,13 @@ Tira collapses publishing into G13; DD splits it across two levels, and the spli
   distinguish "waiting at a gate" from "through every gate, waiting on a person".
   Added 2026-08-09 against open-decisions row 26, which the owner had not answered;
   removable with `d2 tira.column.remove --type ticket --name done-not-released`.
+  **The move from `git-gate` is not direct.** Tira's own column sequencing
+  requires passing through `admin-done` first — `tira.ticket.move` rejects a
+  direct `git-gate` → `done-not-released` move with `Cannot move ... - the next
+  column should be admin-done`. Reconciling a card stalled at `git-gate` is
+  therefore two moves: `git-gate` → `admin-done` → `done-not-released` (found
+  2026-08-20 when DD-612 and DD-631 sat at `git-gate` for hours under an
+  unrelated invented rationale rather than this undocumented hop).
 - **`release-to-pause` means "has been released to PAUSE"** (open-decisions row 4).
   Only the owner's explicit `dashboard pause-release` puts a card there. An agent moving a
   card into that column on its own is a rule violation, not a status update.
