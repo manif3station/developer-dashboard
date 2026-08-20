@@ -446,6 +446,14 @@ sub _extract_api_text {
 
 # _workspace_key($paths, $env)
 # Derives a filesystem-safe key identifying the active workspace conversation.
+# Known limitation (DD-619, Q-029): collapsing every run of non-safe
+# characters to a single '-' means two genuinely different refs that differ
+# only in the characters being collapsed (e.g. "foo/bar" and "foo bar") can
+# sanitize to the identical key and silently share transcript history. This
+# is accepted as-is, deliberately: the collision is narrow (only refs
+# differing exclusively in already-illegal characters) and the impact is
+# shared conversation history, not data loss or a security issue. No
+# collision-proofing (e.g. a hash suffix) or migration is planned.
 # Input: PathRegistry object and environment hash ref.
 # Output: sanitized key string.
 sub _workspace_key {
