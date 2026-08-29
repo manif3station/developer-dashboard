@@ -27,6 +27,7 @@ Developer-Dashboard-0*
 !docs/open-decisions.md
 !docs/gate-map.md
 !docs/path-containment.md
+!docs/collector-watchdog-configuration.md
 !doc/owasp-compliance-sow.md
 !doc/security.md
 !doc/update-and-release.md
