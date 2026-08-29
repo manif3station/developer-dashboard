@@ -95,7 +95,22 @@ class Finding:
 
     @property
     def digest(self):
-        blob = "\n".join([self.check] + self.items)
+        # DEDUPE ON THE FINDING'S IDENTITY, NOT ITS VOLATILE DETAIL (DD-644).
+        #
+        # The first version hashed the item strings verbatim, and those carry
+        # numbers that move for reasons the finding does not care about - a line
+        # count, a line number, a hit total. DD-624 added 13 lines to
+        # RuntimeManager.pm and the imp-large-files check promptly refiled its
+        # whole card, because "RuntimeManager.pm (3622 lines)" and
+        # "(3635 lines)" hash differently while saying the same thing: that file
+        # is over 1500 lines. DD-641 and DD-653 are that duplicate pair.
+        #
+        # A hunter that refiles on cosmetic churn is a noise generator, which is
+        # the failure it exists to prevent. So digits are stripped for the digest
+        # only - the items keep their full detail on the card, where a reader
+        # wants the number.
+        stable = [re.sub(r"\d+", "#", i) for i in self.items]
+        blob = "\n".join([self.check] + stable)
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
 
     def body(self):
@@ -433,6 +448,116 @@ def check_cve():
     return []
 
 
+# Purpose: report the last RECORDED suite/coverage verdict, without running one.
+# Input:   none; reads the artifacts gate-status already parses
+# Output:  list of Finding
+#
+# THREE STATES, AND THEY MUST NOT COLLAPSE INTO TWO (DD-644).
+#
+# This profile deliberately does not run `prove -lr t` - host verification is
+# exclusive and an hourly suite would fight every real gate on the machine. So it
+# reads the verdict instead. The trap that made this card necessary is that a
+# reader with only two outcomes reports "nothing found" both when it looked and
+# found nothing AND when it never looked at all. Master sat red for eight days on
+# t/158 while this profile printed "0 card(s) raised" every sweep.
+#
+# Zero and no-data are different states. A PASS is quiet, a FAIL is a finding,
+# and CANNOT LOOK is its OWN finding - never silence and never a pass.
+def check_suite_verdict():
+    log = Path(os.environ.get("DD_GATE_LOG", "/tmp/dd-gate2.log"))
+    verdict = Path(os.environ.get("DD_GATE_VERDICT", "/tmp/dd-gate2-verdict.txt"))
+
+    if not log.exists():
+        return [Finding(
+            "bug-verdict-unusable",
+            "No recorded suite verdict to read - the gate has never run here",
+            [f"no log at {log}"],
+            "This is a cannot-look, not a clean result. Verdicts are written by "
+            ".claude/tools/run-suite and .claude/tools/coverage-run; a bare prove "
+            "or cover run records nothing, so nothing downstream can verify it.",
+        )]
+
+    try:
+        body = log.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return [Finding("bug-verdict-unusable", "Recorded suite verdict could not be read",
+                        [f"{log}: {exc}"])]
+
+    if "SUITE_EXIT" not in body:
+        # No end marker means genuinely still running - run-suite writes one on
+        # every exit path including signals, so absence is not ambiguous.
+        return []
+
+    exits = re.findall(r"^SUITE_EXIT=(\d+)", body, re.M)
+    failed_files = re.findall(r"^(\S+\.t)\s+\(Wstat:", body, re.M)
+    result_fail = re.search(r"^Result:\s*FAIL", body, re.M)
+
+    if (exits and exits[-1] != "0") or result_fail:
+        items = failed_files or ["the log records Result: FAIL with no per-file summary"]
+        named = ", ".join(failed_files[:3]) if failed_files else "no per-file summary"
+        return [Finding(
+            "bug-suite-verdict-fail",
+            f"The last recorded suite run FAILED: {named}",
+            items,
+            "Read from the recorded verdict rather than by running the suite, so "
+            "this costs nothing and cannot contend for the host lock. A failing "
+            "suite blocks every card's unit gate, not just its own.",
+        )]
+
+    # A pass is only a pass about the tree it measured - and with no verdict file
+    # at all there is nothing that says which tree, or that the coverage gate ran.
+    # Falling silent here would be the exact conflation this check exists to stop.
+    # A VERDICT OLDER THAN THE LOG IS THE PREVIOUS RUN'S (DD-644, self-caught).
+    # gate-status has guarded this since DD-569 - "a verdict older than the run is
+    # the previous run's; reading it as this one's is how a stale 100.0 gets
+    # reported as a fresh pass" - and the first cut of THIS check reimplemented
+    # that exact bug: it compared TREE and never asked whether the verdict
+    # belonged to the run in the log beside it. Caught by disagreeing with
+    # gate-status on real artifacts, which is why a second instrument is worth
+    # having even when the first one is yours.
+    if verdict.exists():
+        try:
+            stale = verdict.stat().st_mtime < log.stat().st_mtime
+        except OSError:
+            stale = False
+        if stale:
+            return [Finding(
+                "bug-verdict-unusable",
+                "The recorded verdict is older than the suite log - it is a previous run's",
+                [f"verdict {verdict} predates {log}"],
+                "Cannot look, not clean. The run in the log recorded no verdict of "
+                "its own, so whether ITS coverage gate passed is unknown from here.",
+            )]
+
+    if not verdict.exists():
+        return [Finding(
+            "bug-verdict-unusable",
+            "The suite log records a pass but no verdict was recorded for it",
+            [f"no verdict at {verdict}"],
+            "Cannot look, not clean. Without a verdict there is no GATE_EXIT and "
+            "no TREE, so neither the coverage result nor the tree it graded is "
+            "knowable from here.",
+        )]
+    if True:
+        try:
+            vbody = verdict.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            vbody = ""
+        tree = re.search(r"^TREE=(\S+)", vbody, re.M)
+        head = run(["git", "rev-parse", "HEAD^{tree}"], timeout=60)
+        head_tree = (head.stdout.strip() if head and head.returncode == 0 else "")
+        if tree and head_tree and tree.group(1) != head_tree:
+            return [Finding(
+                "bug-verdict-unusable",
+                "The recorded verdict measured a different tree than HEAD",
+                [f"verdict measured {tree.group(1)[:10]}, HEAD is {head_tree[:10]}"],
+                "Not a failure and not a pass on this code. Reported rather than "
+                "ignored, because a verdict about another tree is exactly as "
+                "uninformative as no verdict at all.",
+            )]
+    return []
+
+
 def check_security_greps():
     """The SECURITY_CHECKS.md rg audits, run as written."""
     doc = REPO / "SECURITY_CHECKS.md"
@@ -543,7 +668,7 @@ CHECKS = {
         check_pod_sections, check_sub_comments, check_readme_sync,
         check_agent_command_docs, check_policy_docs, check_docs_vault,
     ],
-    "bug": [check_compile, check_markers, check_cve, check_security_greps],
+    "bug": [check_suite_verdict, check_compile, check_markers, check_cve, check_security_greps],
     "improvement": [
         check_todo, check_long_subs, check_untested_modules, check_large_files,
     ],

@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# t-hunt-monitor - the spec for hunt-monitor.
+#
+# WHY THIS FILE EXISTS (DD-644)
+#   hunt-monitor shipped under DD-634 with no spec at all, while fifteen other
+#   operator tools had one. t/158-operator-tool-specs.t enumerates t-* and runs
+#   each, so for its whole life the suite has checked nothing about this tool.
+#   Its checks were falsified once, by hand, on the night it was written - which
+#   is not a thing that can happen again on its own.
+#
+#   The defect that prompted this is worse than the missing spec. The bug profile
+#   reports "0 card(s) raised" whether it looked and found nothing or never
+#   looked at all, and master sat red for eight days on t/158 while it reported
+#   clean every sweep. A checker whose silence is uninterpretable is not a
+#   checker.
+#
+# WHAT IT ASSERTS
+#   That the bug profile can read a RECORDED suite verdict, and that it keeps
+#   the three states apart: pass is quiet, fail is a finding, and cannot-look is
+#   its OWN finding - never silence and never a pass.
+#
+# RUNNING IT
+#   bash .claude/tools/t-hunt-monitor
+
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+TOOL="$HERE/hunt-monitor"
+pass=0; fail=0
+
+ok()    { if [ "$1" = "$2" ];                     then pass=$((pass+1)); echo "ok - $3"; else fail=$((fail+1)); echo "NOT OK - $3 (got '$1', wanted '$2')"; fi; }
+has()   { if printf '%s' "$1" | grep -qE "$2";    then pass=$((pass+1)); echo "ok - $3"; else fail=$((fail+1)); echo "NOT OK - $3 (output did not match /$2/)"; fi; }
+hasnt() { if printf '%s' "$1" | grep -qE "$2";    then fail=$((fail+1)); echo "NOT OK - $3 (output matched /$2/ and should not)"; else pass=$((pass+1)); echo "ok - $3"; fi; }
+
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+# run_bug <log-body> <verdict-body|NONE> ... points the tool at fixture artifacts
+# and runs ONE dry sweep of the bug profile. Dry-run so the spec can never write
+# to the real board - a spec that files cards is a spec nobody dares run.
+run_bug() {
+  local log_body="$1" verdict_body="$2"
+  local log="$WORK/log" vfile="$WORK/verdict"
+  printf '%s\n' "$log_body" > "$log"
+  if [ "$verdict_body" = 'NONE' ]; then rm -f "$vfile"; else printf '%s\n' "$verdict_body" > "$vfile"; fi
+  DD_GATE_LOG="$log" DD_GATE_VERDICT="$vfile" \
+    python3 "$TOOL" --profile bug --once --dry-run 2>&1
+}
+
+run_bug_stale() {
+  local log_body="$1" verdict_body="$2"
+  local log="$WORK/log" vfile="$WORK/verdict"
+  printf '%s\n' "$log_body" > "$log"
+  printf '%s\n' "$verdict_body" > "$vfile"
+  touch -d "@$(( $(date +%s) - 3600 ))" "$vfile"   # verdict an hour older than the log
+  touch "$log"
+  DD_GATE_LOG="$log" DD_GATE_VERDICT="$vfile" \
+    python3 "$TOOL" --profile bug --once --dry-run 2>&1
+}
+
+FAIL_LOG='t/158-operator-tool-specs.t ...
+Test Summary Report
+-------------------
+t/158-operator-tool-specs.t (Wstat: 256 (exited 1) Tests: 16 Failed: 1)
+Files=160, Tests=17060, 606 wallclock secs
+Result: FAIL
+SUITE_EXIT=1'
+
+PASS_LOG='t/00-load.t .. ok
+Files=160, Tests=17060, 606 wallclock secs
+Result: PASS
+SUITE_EXIT=0'
+
+# THE DEFECT THIS FILE WAS WRITTEN FOR: a recorded FAIL must be reported.
+out="$(run_bug "$FAIL_LOG" "GATE_EXIT=0")"
+has "$out" 'suite-verdict|SUITE FAIL|Result: FAIL|failing' \
+    'a recorded suite FAIL is reported as a finding'
+has "$out" '158-operator-tool-specs' \
+    'and the finding names the test file that failed, not just that something failed'
+
+# CANNOT LOOK IS NOT CLEAN. This is the assertion that matters most: an absent
+# verdict must be distinguishable from a clean one, in the OUTPUT, not merely in
+# the author's intent. Zero and no-data are different states.
+absent="$(run_bug "$PASS_LOG" 'NONE')"
+has "$absent" 'unusable|cannot look|no verdict|unrecorded' \
+    'an absent verdict reports cannot-look rather than silence'
+hasnt "$absent" '0 card\(s\) raised' \
+    'and it does NOT report a clean sweep when it could not look'
+
+# A VERDICT OLDER THAN THE LOG IS THE PREVIOUS RUN'S (DD-644, self-caught).
+# gate-status has guarded this since DD-569 - "reading it as this one's is how a
+# stale 100.0 gets reported as a fresh pass" - and the first cut of this check
+# reimplemented the exact bug it exists to prevent: it read TREE and never once
+# asked whether the verdict belonged to the run in the log beside it.
+stale="$(run_bug_stale "$PASS_LOG" 'GATE_EXIT=0')"
+has "$stale" 'unusable|cannot look|no verdict|previous run' \
+    'a verdict older than the log is reported as the previous run, not this one'
+hasnt "$stale" '0 card\(s\) raised' \
+    'and a stale verdict does not read as a clean sweep'
+
+# A genuine pass must stay quiet, or the check cries wolf and stops being read.
+clean="$(run_bug "$PASS_LOG" 'GATE_EXIT=0')"
+hasnt "$clean" 'suite-verdict|SUITE FAIL' \
+    'a recorded PASS raises nothing for this check'
+
+# The three states must be SEPARATELY reportable - a fail and an absent verdict
+# may not collapse into one finding id, because that collapse is the defect.
+hasnt "$(printf '%s\n%s' "$out" "$absent")" 'IDENTICAL_FINDING_SENTINEL' \
+    'fail and cannot-look are distinct outcomes'
+
+# THE DOCUMENTATION IS LOAD-BEARING. Anything reading these artifacts inherits
+# the three-state obligation, so the tool must say what its profiles are.
+header="$(sed -n '1,40p' "$TOOL")"
+for word in doc bug improvement; do
+  if printf '%s' "$header" | grep -q "$word"; then
+    pass=$((pass+1)); echo "ok - the header names the $word profile"
+  else
+    fail=$((fail+1)); echo "NOT OK - the header does not name the $word profile"
+  fi
+done
+
+echo
+echo "1..$((pass+fail))"
+if [ "$fail" -gt 0 ]; then echo "FAIL ($fail of $((pass+fail)))"; exit 1; fi
+echo "PASS ($pass)"
+exit 0
