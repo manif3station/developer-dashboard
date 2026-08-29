@@ -30,7 +30,30 @@
 
 set -uo pipefail
 
-LOG=${DD_SUITE_LOG:-/tmp/dd-gate2.log}
+# ARTIFACT PATHS ARE PER-CHECKOUT, NOT PER-MACHINE (DD-652).
+#
+# These defaulted to a fixed /tmp name shared by every sandbox, worktree and
+# session on the host. Measured: a coverage run in one sandbox completed with
+# GATE_EXIT=0 and its verdict was already gone, overwritten by another sandbox's
+# run seven minutes earlier - and the two were indistinguishable by content,
+# because TREE records HEAD's tree and two sandboxes on the same commit produce
+# the same hash while carrying different uncommitted work, which is what a
+# sandbox gate actually grades.
+#
+# Deriving from this script's own location makes each checkout independent with
+# no git call and no configuration - the same shape gate-status already uses for
+# cover_db. The DD_* environment overrides still win, so anything that set them
+# explicitly is unaffected.
+_dd_here="$(cd "$(dirname "$0")" && pwd)" || {
+  echo "$(basename "$0"): cannot resolve my own location; refusing to guess a state directory" >&2
+  exit 3
+}
+DD_STATE_DIR="$(dirname "$_dd_here")/state"
+mkdir -p "$DD_STATE_DIR" || {
+  echo "$(basename "$0"): cannot create $DD_STATE_DIR" >&2
+  exit 3
+}
+LOG=${DD_SUITE_LOG:-$DD_STATE_DIR/gate2.log}
 PROVE=${DD_SUITE_PROVE:-prove}
 ARGS=${DD_SUITE_ARGS:--lr t}
 

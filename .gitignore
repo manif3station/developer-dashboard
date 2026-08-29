@@ -31,6 +31,7 @@ Developer-Dashboard-0*
 !docs/path-containment.md
 !docs/collector-watchdog-configuration.md
 !docs/https-and-certificates.md
+!docs/gate-verdicts.md
 !doc/owasp-compliance-sow.md
 !doc/security.md
 !doc/update-and-release.md
@@ -64,3 +65,7 @@ updates/
 dogfood-output/
 __pycache__/
 !docs/process-supervision.md
+
+# Gate artifacts: run-suite/coverage-run/gate-status write per-checkout state
+# here (DD-652). Runtime output, never committed.
+.claude/state/

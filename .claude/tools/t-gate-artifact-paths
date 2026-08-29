@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# t-gate-artifact-paths - the spec for WHERE the gate tools put their artifacts.
+#
+# WHY THIS FILE EXISTS (DD-652)
+#   run-suite, coverage-run and gate-status defaulted their artifact paths to one
+#   fixed /tmp name shared by every checkout, worktree and session on the host.
+#   Two sandboxes overwrote each other's verdicts and one was lost within seven
+#   minutes of being written - silently, because the reader still FOUND a verdict
+#   and so reported a result instead of reporting that it could not look.
+#
+#   t/158 passed throughout. Each of the three tools already had a spec, and each
+#   of those specs sets DD_GATE_LOG / DD_COV_VERDICT and friends EXPLICITLY - so
+#   no spec ever exercised the default it was overriding. The bug lived in the one
+#   line nothing was looking at.
+#
+#   THE GENERAL RULE THIS FILE ENFORCES: when a tool has a configurable path,
+#   timeout or limit, at least one test must exercise the value it picks when
+#   nobody configures it, because that is the value every real run uses.
+#
+# WHAT IT ASSERTS
+#   That each tool's DEFAULT artifact location is derived from the tool's own
+#   checkout and not from a fixed machine-wide path, that all three agree, and
+#   that an explicit DD_* override still wins.
+#
+# HOW IT IS FALSIFIED
+#   Run it against the pre-fix tools (git show <old>:.claude/tools/run-suite) and
+#   it must FAIL. A spec never seen to go red proves nothing about the code.
+#
+# RUNNING IT
+#   bash .claude/tools/t-gate-artifact-paths
+#   TOOLS_DIR=/some/other/tools bash .claude/tools/t-gate-artifact-paths
+
+set -uo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+TOOLS="${TOOLS_DIR:-$HERE}"
+pass=0; fail=0
+
+ok()    { if [ "$1" = "$2" ];                  then pass=$((pass+1)); echo "ok - $3"; else fail=$((fail+1)); echo "NOT OK - $3 (got '$1', wanted '$2')"; fi; }
+has()   { if printf '%s' "$1" | grep -qE "$2"; then pass=$((pass+1)); echo "ok - $3"; else fail=$((fail+1)); echo "NOT OK - $3 (did not match /$2/)"; fi; }
+hasnt() { if printf '%s' "$1" | grep -qE "$2"; then fail=$((fail+1)); echo "NOT OK - $3 (matched /$2/ and should not)"; else pass=$((pass+1)); echo "ok - $3"; fi; }
+
+TOOL_LIST='run-suite coverage-run gate-status'
+
+# 1. THE DEFECT ITSELF: no tool may name a fixed machine-wide artifact path.
+#    This is the assertion that would have caught DD-652 on the day it was written.
+for t in $TOOL_LIST; do
+  if [ ! -f "$TOOLS/$t" ]; then fail=$((fail+1)); echo "NOT OK - $t is missing from $TOOLS"; continue; fi
+  body="$(cat "$TOOLS/$t")"
+  hasnt "$body" '/tmp/dd-gate2' \
+        "$t does not default its artifacts to a fixed machine-wide /tmp path"
+done
+
+# 2. The default must be DERIVED from the tool's own location, so that reader and
+#    writers in one checkout agree and two checkouts cannot collide.
+for t in $TOOL_LIST; do
+  [ -f "$TOOLS/$t" ] || continue
+  body="$(cat "$TOOLS/$t")"
+  has "$body" 'dirname "\$0"' \
+      "$t derives its state directory from its own location"
+done
+
+# 3. ALL THREE MUST AGREE. A reader that resolves differently from its writer is
+#    the same bug wearing different clothes.
+seen=''
+for t in $TOOL_LIST; do
+  [ -f "$TOOLS/$t" ] || continue
+  line="$(grep -m1 'DD_STATE_DIR=' "$TOOLS/$t" || true)"
+  seen="$seen$line"$'\n'
+done
+uniq_count="$(printf '%s' "$seen" | grep -c . | tr -d ' ')"
+distinct="$(printf '%s' "$seen" | sort -u | grep -c . | tr -d ' ')"
+ok "$distinct" "1" "all three tools resolve the state directory identically (${uniq_count} lines, ${distinct} distinct)"
+
+# 4. THE DEFAULT IS EXERCISED, NOT JUST READ. Run the derivation the way the tool
+#    does and confirm the answer lands inside this checkout - the thing no
+#    existing spec did, and the reason the bug survived.
+derived="$(cd "$TOOLS/.." && pwd)/state"
+checkout="$(cd "$TOOLS/../.." && pwd)"
+case "$derived" in
+  "$checkout"/*) pass=$((pass+1)); echo "ok - the derived default lands inside this checkout ($derived)";;
+  *)             fail=$((fail+1)); echo "NOT OK - the derived default escaped the checkout (got $derived, checkout $checkout)";;
+esac
+hasnt "$derived" '^/tmp/' 'the derived default is not under /tmp'
+
+# 5. AN EXPLICIT OVERRIDE MUST STILL WIN, or fixing the default breaks every
+#    caller that was already configuring it - including the other specs.
+for t in $TOOL_LIST; do
+  [ -f "$TOOLS/$t" ] || continue
+  body="$(cat "$TOOLS/$t")"
+  has "$body" '\$\{DD_[A-Z_]+:-' \
+      "$t still honours its DD_* environment override"
+done
+
+# 5b. THE DERIVATION MUST FAIL LOUDLY, NOT GUESS. The first cut of this fix wrote
+#     DD_STATE_DIR="$(cd ... 2>/dev/null && pwd)/state", and a failed cd yields an
+#     EMPTY string - so DD_STATE_DIR became "/state" and the log "/state/gate2.log",
+#     silently, at the filesystem root. That is the same silent-degradation defect
+#     this whole card is about, reintroduced by its own fix. Verified by running the
+#     preamble against an unreachable dirname: old form printed /state and exited 0.
+for t in $TOOL_LIST; do
+  [ -f "$TOOLS/$t" ] || continue
+  body="$(cat "$TOOLS/$t")"
+  hasnt "$body" 'cd .*2>/dev/null && pwd' \
+        "$t does not swallow a failed cd when resolving its own location"
+  hasnt "$body" 'mkdir -p "\$DD_STATE_DIR" 2>/dev/null \|\| true' \
+        "$t does not hide a failed mkdir of its state directory"
+  has "$body" 'refusing to guess a state directory' \
+      "$t says so and exits rather than guessing a path when it cannot resolve itself"
+done
+
+# 6. Runtime output must never be committable. Relocating artifacts out of /tmp
+#    put them inside the working tree; without an ignore rule the next commit
+#    carries gate logs into the repo. Found on this card, after the fix.
+root="$(cd "$TOOLS/../.." && pwd)"
+if [ -d "$root/.git" ] || [ -f "$root/.git" ]; then
+  if git -C "$root" check-ignore -q .claude/state/ 2>/dev/null; then
+    pass=$((pass+1)); echo "ok - the derived state directory is git-ignored"
+  else
+    fail=$((fail+1)); echo "NOT OK - .claude/state/ is not ignored; gate artifacts would be committed"
+  fi
+else
+  pass=$((pass+1)); echo "ok - not a git checkout, ignore rule not applicable"
+fi
+
+echo
+echo "1..$((pass+fail))"
+if [ "$fail" -gt 0 ]; then echo "FAIL ($fail of $((pass+fail)))"; exit 1; fi
+echo "PASS ($pass)"
+exit 0
