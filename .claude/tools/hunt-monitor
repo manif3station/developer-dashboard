@@ -1,0 +1,693 @@
+#!/usr/bin/env python3
+"""Standing gap-hunter for the Developer Dashboard, driven by Monitor rather than cron.
+
+Three profiles share one engine because they differ only in what they look at and
+what they label the card they raise:
+
+    doc          documentation gaps        -> label "Routine Doc Check"
+    bug          defects                   -> label "Hourly Bugfix"       (60m)
+    improvement  room for improvement      -> label "Hourly Improvement"  (120m)
+
+Each run scans, compares what it found against a ledger of what it has already
+filed, and raises a Tira card in `backlog` for anything genuinely new. One line
+goes to stdout per card raised, which is what makes this a Monitor: the session
+is notified as findings appear instead of discovering them in a log nobody opens.
+
+Three properties are deliberate, and each is paid for by a failure recorded in
+this project's rules:
+
+* **Board writes go through argv, never a shell string.** DD-442: a card body
+  containing backticks was executed by the shell that was quoting it, staging 85
+  paths into the real index. Every d2 call here is a list.
+* **A checker that cannot look exits differently from a checker that found
+  nothing.** `scan` failures are reported as findings in their own right rather
+  than being swallowed, because silence from a checker reads exactly like a
+  clean board.
+* **Findings are aggregated per check, not per file.** A POD sweep that raised
+  one card per file would raise fifty and bury the board it is meant to protect.
+
+Usage:
+    .claude/tools/hunt-monitor --profile doc --once --dry-run
+    .claude/tools/hunt-monitor --profile bug --interval 3600
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parents[2]
+STATE_DIR = REPO / ".claude" / "state"
+PERL5LIB = os.path.expanduser("~/perl5/lib/perl5")
+
+# The seven =head1 sections t/15-release-metadata.t requires of every Perl file.
+POD_SECTIONS = [
+    "NAME",
+    "PURPOSE",
+    "WHY IT EXISTS",
+    "WHEN TO USE",
+    "HOW TO USE",
+    "WHAT USES IT",
+    "EXAMPLES",
+]
+
+PROFILES = {
+    "doc": {
+        "label": "Routine Doc Check",
+        "author": "dd-doccheck",
+        "interval": 3600,
+        "priority": 2,
+    },
+    "bug": {
+        "label": "Hourly Bugfix",
+        "author": "dd-bughunt",
+        "interval": 3600,
+        "priority": 4,
+    },
+    "improvement": {
+        "label": "Hourly Improvement",
+        "author": "dd-improve",
+        "interval": 7200,
+        "priority": 2,
+    },
+}
+
+
+class Finding:
+    """One aggregated gap: a stable id, a card title, and the items behind it.
+
+    Input:  check id, human title, list of item strings, optional guidance text
+    Output: an object whose `digest` changes only when the item set changes
+    """
+
+    def __init__(self, check, title, items, guidance=""):
+        self.check = check
+        self.title = title
+        self.items = sorted(set(items))
+        self.guidance = guidance
+
+    @property
+    def digest(self):
+        blob = "\n".join([self.check] + self.items)
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+    def body(self):
+        head = f"{len(self.items)} item(s) found by check `{self.check}`."
+        listing = "\n".join(f"- {i}" for i in self.items[:200])
+        more = ""
+        if len(self.items) > 200:
+            more = f"\n\n...and {len(self.items) - 200} more not listed here."
+        tail = f"\n\n{self.guidance}" if self.guidance else ""
+        return f"{head}\n\n{listing}{more}{tail}"
+
+
+# Purpose: run a d2 subcommand with the environment d2 needs, never through a shell.
+# Input:   argv fragments after the `d2` itself
+# Output:  CompletedProcess; callers decide what a non-zero return means
+def d2(*args, timeout=300):
+    env = dict(os.environ)
+    env["PERL5LIB"] = PERL5LIB
+    env["HOME"] = os.path.expanduser("~")
+    return subprocess.run(
+        [str(REPO / "bin" / "d2"), *args],
+        cwd=str(REPO),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+# Purpose: run an arbitrary command list in the repo, capturing output.
+# Input:   argv list, optional timeout
+# Output:  CompletedProcess, or None when the executable is absent
+def run(argv, timeout=300):
+    try:
+        return subprocess.run(
+            argv, cwd=str(REPO), capture_output=True, text=True, timeout=timeout
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+
+# The one file t/15 exempts from the six extra sections: it is the product
+# manual and the source README.md is generated from, not a module contract.
+MAIN_MODULE = "lib/Developer/Dashboard.pm"
+
+
+# Purpose: list exactly the Perl files t/15's POD contract applies to.
+# Input:   none
+# Output:  sorted list of repo-relative paths
+#
+# This mirrors t/15-release-metadata.t's own `_perl_doc_paths` deliberately. An
+# earlier version of this checker invented its own file set - it swept `script/`,
+# which t/15 does not cover, and flagged the main module, which t/15 explicitly
+# exempts - and every one of its five findings was a false positive. A checker
+# whose subject differs from the gate it claims to speak for reports gaps nobody
+# owes, which is worse than reporting none.
+def perl_files():
+    out = []
+    for rel in ("app.psgi", "bin/dashboard"):
+        if (REPO / rel).is_file():
+            out.append(rel)
+    for root in ("lib", "t", "share/private-cli", "updates", "integration"):
+        base = REPO / root
+        if not base.is_dir():
+            continue
+        for p in base.rglob("*"):
+            if not p.is_file() or "/OLD_CODE/" in str(p):
+                continue
+            rel = str(p.relative_to(REPO))
+            if p.suffix in (".pm", ".pl", ".t") or p.parent == REPO / "share" / "private-cli":
+                out.append(rel)
+    return sorted(set(out))
+
+
+# ---------------------------------------------------------------- doc checks
+
+
+def check_pod_sections():
+    missing = []
+    for rel in perl_files():
+        try:
+            text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        # t/15 asks every file for NAME and for POD after __END__; the other six
+        # sections are asked of every file except the main product manual.
+        wanted = ["NAME"] if rel == MAIN_MODULE else POD_SECTIONS
+        gaps = [s for s in wanted if not re.search(rf"^=head1 {re.escape(s)}$", text, re.M)]
+        if not re.search(r"^__END__$", text, re.M):
+            gaps.append("POD after __END__")
+        if gaps:
+            missing.append(f"{rel} - missing: {', '.join(gaps)}")
+    return [
+        Finding(
+            "doc-pod-sections",
+            "Perl files missing required POD sections",
+            missing,
+            "t/15-release-metadata.t requires every Perl file to carry "
+            "NAME, PURPOSE, WHY IT EXISTS, WHEN TO USE, HOW TO USE, WHAT USES IT "
+            "and EXAMPLES. A focused test run cannot see this: t/15 is the file "
+            "that reads every other file.",
+        )
+    ] if missing else []
+
+
+def check_sub_comments():
+    """Every function carries a purpose/input/output comment (CLAUDE.md convention)."""
+    bad = []
+    for rel in perl_files():
+        if not rel.startswith("lib/"):
+            continue
+        try:
+            lines = (REPO / rel).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for i, line in enumerate(lines):
+            m = re.match(r"^\s*sub\s+([A-Za-z_][A-Za-z0-9_]*)", line)
+            if not m:
+                continue
+            # Walk back over blank lines to the nearest preceding non-blank line.
+            j = i - 1
+            while j >= 0 and not lines[j].strip():
+                j -= 1
+            if j < 0 or not lines[j].lstrip().startswith("#"):
+                bad.append(f"{rel}:{i + 1} sub {m.group(1)}")
+    return [
+        Finding(
+            "doc-sub-comments",
+            "Subroutines with no purpose/input/output comment",
+            bad,
+            "CLAUDE.md, Perl conventions: every function carries a "
+            "purpose/input/output comment directly above it.",
+        )
+    ] if bad else []
+
+
+def check_readme_sync():
+    script = REPO / "script" / "sync-readme-from-pod"
+    readme = REPO / "README.md"
+    if not script.exists() or not readme.exists():
+        return [
+            Finding(
+                "doc-readme-sync",
+                "README generator or README.md is missing",
+                [f"missing: {p}" for p in (script, readme) if not p.exists()],
+                "README.md is generated from the POD in lib/Developer/Dashboard.pm.",
+            )
+        ]
+    before = readme.read_text(encoding="utf-8", errors="replace")
+    backup = tempfile.NamedTemporaryFile("w", delete=False, suffix=".md")
+    backup.write(before)
+    backup.close()
+    try:
+        env = dict(os.environ)
+        env["PERL5LIB"] = PERL5LIB
+        p = subprocess.run(
+            ["perl", str(script)], cwd=str(REPO), env=env,
+            capture_output=True, text=True, timeout=180,
+        )
+        after = readme.read_text(encoding="utf-8", errors="replace")
+        if p.returncode != 0:
+            return [Finding("doc-readme-sync", "README generator fails to run",
+                            [(p.stderr or p.stdout).strip()[:500]])]
+        if after != before:
+            return [
+                Finding(
+                    "doc-readme-sync",
+                    "README.md is out of sync with its source POD",
+                    ["README.md differs from the output of script/sync-readme-from-pod"],
+                    "Edit the POD in lib/Developer/Dashboard.pm and regenerate; "
+                    "never hand-edit README.md.",
+                )
+            ]
+        return []
+    finally:
+        # Always put the tree back exactly as found - a hunter must not edit the repo.
+        shutil.copyfile(backup.name, readme)
+        os.unlink(backup.name)
+
+
+def check_agent_command_docs():
+    """Commands an agent is told to follow must exist and be documented."""
+    gaps = []
+    cli_dir = REPO / "share" / "private-cli"
+    if cli_dir.is_dir():
+        for p in sorted(cli_dir.iterdir()):
+            if not p.is_file() or p.name.startswith("_"):
+                continue
+            text = p.read_text(encoding="utf-8", errors="replace")
+            if "=head1" not in text:
+                gaps.append(f"share/private-cli/{p.name} - no POD at all")
+    # Every tool CLAUDE.md tells an agent to run must actually be there.
+    claude_md = REPO / "CLAUDE.md"
+    if claude_md.exists():
+        text = claude_md.read_text(encoding="utf-8", errors="replace")
+        for m in re.finditer(r"`(\.claude/tools/[a-z0-9-]+|script/[a-z0-9-]+)`", text):
+            rel = m.group(1)
+            if not (REPO / rel).exists():
+                gaps.append(f"CLAUDE.md names `{rel}`, which does not exist")
+    return [
+        Finding(
+            "doc-agent-commands",
+            "Agent-facing commands undocumented or missing",
+            gaps,
+            "A command an agent is instructed to run must exist and say what it "
+            "does; a named-but-absent tool is a rule nobody can follow.",
+        )
+    ] if gaps else []
+
+
+def check_policy_docs():
+    """Rules this board has neither declared nor declined are undocumented policy."""
+    p = d2("tira.policy.undeclared", "-o", "json")
+    if p.returncode != 0:
+        return [Finding("doc-policy-undeclared", "Could not read undeclared policies",
+                        [(p.stderr or p.stdout).strip()[:400]])]
+    try:
+        rows = json.loads(p.stdout or "[]")
+    except json.JSONDecodeError:
+        return [Finding("doc-policy-undeclared", "Undeclared-policy read was not JSON",
+                        [(p.stdout or "").strip()[:400]])]
+    names = []
+    for r in rows:
+        if isinstance(r, dict):
+            names.append(str(r.get("rule") or r.get("name") or r))
+        else:
+            names.append(str(r))
+    return [
+        Finding(
+            "doc-policy-undeclared",
+            "Tira rules this board has neither declared nor declined",
+            names,
+            "Every rule is answered - declared with the columns it covers, or "
+            "declined with a written reason. An unanswered rule is a policy "
+            "decision nobody has recorded.",
+        )
+    ] if names else []
+
+
+def check_docs_vault():
+    """The column chain requires a SYSTEM-scoped docs vault page per change."""
+    gaps = []
+    docs = REPO / "docs"
+    if not docs.is_dir():
+        gaps.append("docs/ vault does not exist")
+    else:
+        pages = [p.name for p in docs.glob("*.md")]
+        if not pages:
+            gaps.append("docs/ vault holds no pages")
+    if not (REPO / "SKILLS.md").exists():
+        gaps.append(
+            "SKILLS.md is absent - Tira's own guidance and the documentation "
+            "column both refer to a skills document for this project"
+        )
+    return [
+        Finding("doc-vault", "Documentation vault gaps", gaps,
+                "The `documentation` column requires a real, SYSTEM-scoped page "
+                "in the docs/ vault - never per-ticket.")
+    ] if gaps else []
+
+
+# ---------------------------------------------------------------- bug checks
+
+
+def check_compile():
+    bad = []
+    for rel in sorted(str(p.relative_to(REPO)) for p in REPO.glob("lib/**/*.pm")):
+        p = run(["perl", "-I", "lib", "-I", PERL5LIB, "-c", rel], timeout=120)
+        if p is None:
+            bad.append(f"{rel} - perl not runnable")
+        elif p.returncode != 0:
+            first = (p.stderr or "").strip().splitlines()
+            bad.append(f"{rel} - {first[0] if first else 'compile failed'}")
+        elif "warning" in (p.stderr or "").lower():
+            bad.append(f"{rel} - warns at compile time")
+    return [
+        Finding("bug-compile", "Modules that do not compile cleanly", bad,
+                "Warnings are errors on this project.")
+    ] if bad else []
+
+
+def check_markers():
+    hits = []
+    pat = re.compile(r"\b(FIXME|XXX|HACK|BUG)\b")
+    for sub in ("lib", "bin", "script"):
+        base = REPO / sub
+        if not base.is_dir():
+            continue
+        for p in base.rglob("*"):
+            if not p.is_file() or p.suffix in (".png", ".gz", ".jpg"):
+                continue
+            try:
+                for n, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+                    if pat.search(line):
+                        hits.append(f"{p.relative_to(REPO)}:{n} {line.strip()[:120]}")
+            except OSError:
+                continue
+    return [
+        Finding("bug-markers", "Defect markers left in shipped code", hits,
+                "FIXME/XXX/HACK/BUG in lib, bin or script is a known defect "
+                "nobody filed.")
+    ] if hits else []
+
+
+def check_cve():
+    script = REPO / "script" / "cpan-audit-declared-chain"
+    if not script.exists():
+        return [Finding("bug-cve", "Declared-chain CVE gate is missing",
+                        [f"missing: {script.relative_to(REPO)}"])]
+    # The gate takes exactly one Perl library root and exits 2 without it. An
+    # earlier version of this check omitted the argument, so the gate answered
+    # with its own usage text and a non-zero status - which this code read as
+    # "4 CVE advisories found" and would have filed as a card. A tool's failure
+    # to RUN and a tool's finding are different facts and must never share an
+    # exit path (DD-499 is the same lesson from the other direction).
+    root = os.path.expanduser("~/perl5/lib/perl5")
+    p = run(["bash", "-ic", f"PERL5LIB={PERL5LIB} {script} {root}"], timeout=900)
+    if p is None:
+        return [Finding("bug-cve", "Could not run the declared-chain CVE gate",
+                        ["cpan-audit-declared-chain did not run at all"])]
+    body = ((p.stdout or "") + (p.stderr or "")).strip()
+    if p.returncode == 2 or "Usage:" in body:
+        return [Finding("bug-cve-unusable", "Declared-chain CVE gate could not look",
+                        [l for l in body.splitlines() if l.strip()][:20],
+                        "This is an instrument failure, not a clean result and not "
+                        "an advisory. It is reported separately so silence from a "
+                        "broken gate can never read as a clean one.")]
+    if p.returncode != 0:
+        return [
+            Finding("bug-cve", "CVE advisories against the declared runtime chain",
+                    [l for l in body.splitlines() if l.strip()][:80],
+                    "Judged by script/cpan-audit-declared-chain, whose subject is "
+                    "the declared runtime closure - not a bare host-tree audit.")
+        ]
+    return []
+
+
+def check_security_greps():
+    """The SECURITY_CHECKS.md rg audits, run as written."""
+    doc = REPO / "SECURITY_CHECKS.md"
+    if not doc.exists():
+        return [Finding("bug-security-doc", "SECURITY_CHECKS.md is missing",
+                        ["SECURITY_CHECKS.md"])]
+    hits = []
+    text = doc.read_text(encoding="utf-8", errors="replace")
+    for m in re.finditer(r"^\s*(rg [^\n]+)$", text, re.M):
+        cmd = m.group(1).strip()
+        if "|" in cmd or ">" in cmd:
+            continue
+        p = run(["bash", "-c", cmd], timeout=120)
+        if p is not None and p.returncode == 0 and (p.stdout or "").strip():
+            first = (p.stdout or "").strip().splitlines()[:5]
+            hits.append(f"{cmd} -> {len(p.stdout.strip().splitlines())} hit(s); e.g. {first[0][:120]}")
+    return [
+        Finding("bug-security-greps", "SECURITY_CHECKS.md audit greps returned hits", hits,
+                "Raw SQL, missing auth gates, unsafe redirects, traversal and "
+                "secret leaks are stop-and-fix defects.")
+    ] if hits else []
+
+
+# -------------------------------------------------------- improvement checks
+
+
+def check_todo():
+    hits = []
+    for sub in ("lib", "bin", "script", "t"):
+        base = REPO / sub
+        if not base.is_dir():
+            continue
+        for p in base.rglob("*"):
+            if not p.is_file():
+                continue
+            try:
+                for n, line in enumerate(p.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+                    if re.search(r"\bTODO\b", line):
+                        hits.append(f"{p.relative_to(REPO)}:{n} {line.strip()[:120]}")
+            except OSError:
+                continue
+    return [Finding("imp-todo", "TODO markers awaiting a decision", hits)] if hits else []
+
+
+def check_long_subs():
+    long_subs = []
+    for rel in sorted(str(p.relative_to(REPO)) for p in REPO.glob("lib/**/*.pm")):
+        try:
+            lines = (REPO / rel).read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        start = name = None
+        depth = 0
+        for i, line in enumerate(lines):
+            m = re.match(r"^\s*sub\s+([A-Za-z_][A-Za-z0-9_]*)", line)
+            if m and start is None:
+                start, name, depth = i, m.group(1), 0
+            if start is not None:
+                depth += line.count("{") - line.count("}")
+                if depth <= 0 and i > start:
+                    if i - start > 120:
+                        long_subs.append(f"{rel}:{start + 1} sub {name} ({i - start} lines)")
+                    start = None
+    return [
+        Finding("imp-long-subs", "Subroutines over 120 lines", long_subs,
+                "A sub this long usually hides a second responsibility that "
+                "wants its own name and its own test.")
+    ] if long_subs else []
+
+
+def check_untested_modules():
+    tests = ""
+    for p in REPO.glob("t/*.t"):
+        try:
+            tests += p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+    missing = []
+    for p in sorted(REPO.glob("lib/**/*.pm")):
+        pkg = str(p.relative_to(REPO / "lib")).replace("/", "::")[:-3]
+        if pkg not in tests:
+            missing.append(f"{p.relative_to(REPO)} ({pkg}) is named by no test file")
+    return [
+        Finding("imp-untested-modules", "Modules no test file mentions", missing,
+                "lib/ must reach 100.0 on all four Devel::Cover metrics; a module "
+                "no test names cannot be carrying its own coverage.")
+    ] if missing else []
+
+
+def check_large_files():
+    big = []
+    for p in sorted(REPO.glob("lib/**/*.pm")):
+        try:
+            n = len(p.read_text(encoding="utf-8", errors="replace").splitlines())
+        except OSError:
+            continue
+        if n > 1500:
+            big.append(f"{p.relative_to(REPO)} ({n} lines)")
+    return [
+        Finding("imp-large-files", "Modules over 1500 lines", big,
+                "A module this size is usually several modules that have not "
+                "been separated yet.")
+    ] if big else []
+
+
+CHECKS = {
+    "doc": [
+        check_pod_sections, check_sub_comments, check_readme_sync,
+        check_agent_command_docs, check_policy_docs, check_docs_vault,
+    ],
+    "bug": [check_compile, check_markers, check_cve, check_security_greps],
+    "improvement": [
+        check_todo, check_long_subs, check_untested_modules, check_large_files,
+    ],
+}
+
+
+# Purpose: read the ledger of what this profile has already filed.
+# Input:   profile name
+# Output:  dict check-id -> {digest, ref}
+def load_ledger(profile):
+    path = STATE_DIR / f"hunt-{profile}.json"
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def save_ledger(profile, ledger):
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    (STATE_DIR / f"hunt-{profile}.json").write_text(json.dumps(ledger, indent=2, sort_keys=True))
+
+
+# Purpose: raise one Tira card in backlog for a finding.
+# Input:   Finding, profile config, dry_run flag
+# Output:  the new ref, or None when nothing was written
+def file_card(finding, cfg, dry_run):
+    title = f"{finding.title} ({len(finding.items)})"
+    argv = [
+        "tira.ticket.create",
+        "--title", title,
+        "--column", "backlog",
+        "--label", cfg["label"],
+        "--description", finding.body(),
+        "--priority", str(cfg["priority"]),
+        "--reporter", cfg["author"],
+        "--problem", finding.title,
+        "--acceptance", f"Every item listed under check `{finding.check}` is either fixed or explicitly declined with a written reason.",
+        "--test-step", f"Re-run: .claude/tools/hunt-monitor --profile {cfg['profile']} --once --dry-run and confirm check `{finding.check}` reports nothing.",
+    ]
+    if dry_run:
+        return f"DRY-RUN would file: {title}"
+    p = d2(*argv, "-o", "json")
+    if p.returncode != 0:
+        return None
+    try:
+        ref = json.loads(p.stdout).get("ref")
+    except (json.JSONDecodeError, AttributeError):
+        return None
+    if ref:
+        _seed_checklist(ref, finding, cfg)
+    return ref
+
+
+# Purpose: give a freshly-filed card the checklist its own board rules require.
+# Input:   card ref, the Finding behind it, profile config
+# Output:  none; failures are reported on the event stream rather than raised
+#
+# A card with no checklist is reported by `card-full-details` the moment anybody
+# works it, and an EMPTY checklist also reads to `card-stalled` as "every item is
+# done" - so a monitor that files cards without one manufactures two findings per
+# card it raises. Items are seeded as To Do and never pre-ticked: a checklist
+# stamped done at creation is a narrative, not a record.
+def _seed_checklist(ref, finding, cfg):
+    items = [
+        f"Confirm each item under check `{finding.check}` is a real gap, not a false positive",
+        "Fix, or decline with a written reason naming why the project does not owe it",
+        f"Re-run: .claude/tools/hunt-monitor --profile {cfg['profile']} --once --dry-run "
+        f"and confirm `{finding.check}` reports nothing",
+    ]
+    for item in items:
+        r = d2("tira.checklist.add", "--ref", ref, "--author", cfg["author"],
+               "--item", item, "--status", "To Do", timeout=120)
+        if r.returncode != 0:
+            print(f"[{cfg['profile']}] WARNING: could not seed checklist on {ref}: "
+                  f"{(r.stderr or r.stdout).strip()[:160]}", flush=True)
+            return
+
+
+# Purpose: run every check for a profile once, filing what is new.
+# Input:   profile name, dry_run flag
+# Output:  number of cards raised; emits one stdout line per card
+def sweep(profile, dry_run):
+    cfg = dict(PROFILES[profile])
+    cfg["profile"] = profile
+    ledger = load_ledger(profile)
+    raised = 0
+    for check in CHECKS[profile]:
+        try:
+            findings = check()
+        except Exception as exc:  # a check that dies must say so, not vanish
+            findings = [Finding(f"{check.__name__}-crashed",
+                                f"Check {check.__name__} could not run",
+                                [f"{type(exc).__name__}: {exc}"])]
+        for f in findings:
+            prev = ledger.get(f.check)
+            if prev and prev.get("digest") == f.digest:
+                continue
+            ref = file_card(f, cfg, dry_run)
+            if ref is None:
+                print(f"[{profile}] FAILED to file card for {f.check} "
+                      f"({len(f.items)} items)", flush=True)
+                continue
+            raised += 1
+            print(f"[{profile}] {cfg['label']}: {ref} - {f.title} "
+                  f"({len(f.items)} items, check {f.check})", flush=True)
+            if not dry_run:
+                ledger[f.check] = {"digest": f.digest, "ref": ref,
+                                   "filed_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+    if not dry_run:
+        save_ledger(profile, ledger)
+    return raised
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--profile", required=True, choices=sorted(PROFILES))
+    ap.add_argument("--interval", type=int, default=None,
+                    help="seconds between sweeps; profile default when omitted")
+    ap.add_argument("--once", action="store_true", help="one sweep, then exit")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="scan and report without writing to the board")
+    args = ap.parse_args()
+
+    if not (REPO / "bin" / "d2").exists():
+        print(f"[{args.profile}] UNUSABLE: no bin/d2 under {REPO}", flush=True)
+        return 3
+
+    interval = args.interval or PROFILES[args.profile]["interval"]
+    while True:
+        started = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+        try:
+            n = sweep(args.profile, args.dry_run)
+        except Exception as exc:
+            print(f"[{args.profile}] SWEEP FAILED at {started}: "
+                  f"{type(exc).__name__}: {exc}", flush=True)
+            n = 0
+        if args.once:
+            print(f"[{args.profile}] sweep complete at {started}: {n} card(s) raised",
+                  flush=True)
+            return 0
+        time.sleep(interval)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
