@@ -108,6 +108,22 @@ sub main {
     my $lock = _hold_gate_lock($database);
     return EXIT_BUSY if !defined $lock;
 
+    # Bridge for the lock's rename (DD-529). A lock is only a mutex if every
+    # contender agrees on its name, so changing the name is never a pure
+    # refactor: for as long as any process started before the change is still
+    # running, it is guarding the OLD file and excludes nobody. That window was
+    # not theoretical - three gates ran against one cover_db across it.
+    #
+    # Only the default database takes this. A run given its own --database was
+    # never in conflict with anything, and making it contend for one
+    # repository-wide file is precisely the bug that stopped the gate passing
+    # its own suite. Delete this once no pre-rename gate can still be alive.
+    my $legacy;
+    if ( $database eq 'cover_db' ) {
+        $legacy = _hold_legacy_lock();
+        return EXIT_BUSY if !defined $legacy;
+    }
+
     my $dropped = _run( 'coverage database drop', @delete );
     return $dropped if $dropped != EXIT_CLEAN;
 
@@ -193,6 +209,38 @@ sub _hold_gate_lock {
         . ( defined $holder ? " (pid $holder)" : '' ) . "\n";
     print "coverage gate: two gates on one database delete each other's data, "
         . "so this run would report a number that means nothing\n";
+    close $handle;
+    return undef;
+}
+
+# Purpose: also hold the lock name used before DD-526's rename, so a gate that
+#          started before the change and one that started after cannot both run
+#          against the default database.
+# Input: none.
+# Output: the open handle on success - the caller must keep it - or undef, having
+#         said which run it is standing behind.
+sub _hold_legacy_lock {
+    my $path = '.coverage-gate.lock';
+
+    my $handle;
+    if ( !open $handle, '+>>', $path ) {
+        _warn("the previous gate lock $path could not be opened: $!");
+        return undef;
+    }
+
+    if ( flock $handle, LOCK_EX | LOCK_NB ) {
+        truncate $handle, 0;
+        seek $handle, 0, 0;
+        print {$handle} "$$\n";
+        $handle->flush if $handle->can('flush');
+        return $handle;
+    }
+
+    my $holder = _lock_holder($path);
+    print "coverage gate: refusing to run - a gate from before the lock was renamed holds $path"
+        . ( defined $holder ? " (pid $holder)" : '' ) . "\n";
+    print "coverage gate: it is guarding a different filename from this one, so nothing would stop the "
+        . "two of us deleting each other's database\n";
     close $handle;
     return undef;
 }
