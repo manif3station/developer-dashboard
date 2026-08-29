@@ -121,7 +121,7 @@ sub _replace_state_file {
         }
     }
 
-    $self->_unlink_path($source) if -e $source;    # uncoverable branch false the source pending file still exists whenever every rename and fallback attempt has failed
+    $self->_unlink_path($source) if -e $source;
     die "Unable to rename $source to $target: $rename_error";
 }
 
@@ -154,12 +154,12 @@ sub _unlink_path {
 sub _overwrite_state_file_in_place {
     my ( $self, $source, $target ) = @_;
     return ( 0, '' ) if !$self->is_windows;
-    open my $source_fh, '<', $source or return ( 0, "Unable to read $source for in-place overwrite: $!" );    # uncoverable branch true the caller only reaches the overwrite path with an existing readable source pending file
+    open my $source_fh, '<', $source or return ( 0, "Unable to read $source for in-place overwrite: $!" );
     local $/;
     my $content = <$source_fh>;
     close $source_fh;
-    open my $target_fh, '>', $target or return ( 0, "Unable to open $target for in-place overwrite: $!" );    # uncoverable branch true the target directory exists and is writable on the test host
-    print {$target_fh} $content    # uncoverable branch true writing the small in-memory payload to the open target does not fail on the test host
+    open my $target_fh, '>', $target or return ( 0, "Unable to open $target for in-place overwrite: $!" );
+    print {$target_fh} $content
       or return ( 0, "Unable to write $target during in-place overwrite: $!" );
     close $target_fh;
     if ( -e $source ) {    # uncoverable branch false the source pending file still exists when the overwrite path reaches this cleanup
