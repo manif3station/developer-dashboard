@@ -27,7 +27,7 @@ hasnt() { if printf '%s' "$1" | grep -qE "$2"; then fail=$((fail+1)); echo "NOT 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# run_with <log-age-seconds> <verdict-body> ... builds a finished-gate fixture and
+# run_with <log-age-seconds|older-than-head> <verdict-body> ... builds a finished-gate fixture and
 # runs the tool against it. The tool reads fixed paths, so they are overridden
 # through the environment - which is also what makes it testable at all.
 run_with() {
@@ -47,13 +47,36 @@ run_with() {
   # assertion failed and the TOOL was right. Ageing one artifact of a pair whose
   # relative order is itself load-bearing is how a fixture tests something other
   # than what it names.
-  touch -d "@$(( $(date +%s) - age ))" "$log"
-  touch -d "@$(( $(date +%s) - age + 30 ))" "$vfile"
+  # AGE IS MEANINGLESS AGAINST A MOVING REFERENCE (DD-643).
+  #
+  # The tool decides staleness with `verdict_epoch -lt head_epoch`, so an artifact
+  # meant to read as OLD must be older than HEAD's COMMIT - not merely old by the
+  # wall clock. This fixture used a fixed 144000s (~40h) for that case, which is
+  # only older than HEAD while the repo has been committed to within the last 40
+  # hours. Master sat idle from 2026-08-20 to 2026-08-29; the fixture's "old"
+  # verdict became NEWER than HEAD, the tool correctly declined to call it stale,
+  # and this spec reddened master for eight days while the code it tests was right.
+  #
+  # The caller now says which it means. `older-than-head` is computed from HEAD and
+  # cannot rot; a plain number still means "this many seconds before now", which is
+  # what the fresh cases want and what they have always meant.
+  local base
+  if [ "$age" = 'older-than-head' ]; then
+    local head_ct
+    head_ct=$(git log -1 --format=%ct 2>/dev/null || echo 0)
+    # No git, no HEAD to be older than - fall back to a large clock age so the
+    # fixture still builds something old rather than silently building something new.
+    if [ "$head_ct" -gt 0 ]; then base=$(( head_ct - 3600 )); else base=$(( $(date +%s) - 144000 )); fi
+  else
+    base=$(( $(date +%s) - age ))
+  fi
+  touch -d "@$base" "$log"
+  touch -d "@$(( base + 30 ))" "$vfile"
   DD_GATE_LOG="$log" DD_GATE_VERDICT="$vfile" DD_GATE_REPORT="$WORK/none" bash "$TOOL" 2>&1
 }
 
 # THE DEFECT THIS FILE WAS WRITTEN FOR: a finished verdict must say how old it is.
-out="$(run_with 144000 'coverage gate: 100.0 everywhere
+out="$(run_with older-than-head 'coverage gate: 100.0 everywhere
 GATE_EXIT=0')"
 has "$out" 'AGE|ago|STALE' 'a finished verdict states how old its figures are'
 
@@ -71,7 +94,7 @@ has "$out" 'AGE|ago|STALE' 'a finished verdict states how old its figures are'
 # the case where the trees are known to differ, which this fixture cannot claim -
 # its verdict records no tree at all.
 has "$out" 'STALE|does not record which tree|unknown' 'an old figure is flagged, never presented as current'
-run_with 144000 'coverage gate: 100.0 everywhere
+run_with older-than-head 'coverage gate: 100.0 everywhere
 GATE_EXIT=0' >/dev/null 2>&1
 stale_exit=$?
 ok "$stale_exit" "2" 'and it does not exit 0 - the load-bearing half, which no wording can satisfy by accident'
