@@ -337,6 +337,55 @@ sub global_file_aliases {
     return $self->_expand_path_aliases( $cfg->{file_aliases} );
 }
 
+# watchdog_restart_limit()
+# Returns the configured collector-watchdog restart limit, or undef if unset.
+# DD-624: makes the tunable discoverable via config.json's "watchdog" section
+# (key "restart_limit") rather than only the
+# DEVELOPER_DASHBOARD_COLLECTOR_RESTART_LIMIT env var, which RuntimeManager's
+# own _collector_restart_limit still checks first and takes precedence over
+# this value when both are set.
+# Input: none.
+# Output: positive integer restart limit, or undef if unset/invalid.
+sub watchdog_restart_limit {
+    my ($self) = @_;
+    my $cfg = $self->merged;
+    my $value = $cfg->{watchdog}{restart_limit};
+    return undef if !defined $value;
+    return undef if $value !~ /^\d+$/;
+    return undef if $value < 1;
+    return $value + 0;
+}
+
+# watchdog_restart_window_seconds()
+# Returns the configured collector-watchdog restart-tracking window, or undef
+# if unset. See watchdog_restart_limit for the config-key/env-var precedence.
+# Input: none.
+# Output: positive integer number of seconds, or undef if unset/invalid.
+sub watchdog_restart_window_seconds {
+    my ($self) = @_;
+    my $cfg = $self->merged;
+    my $value = $cfg->{watchdog}{restart_window_seconds};
+    return undef if !defined $value;
+    return undef if $value !~ /^\d+$/;
+    return undef if $value < 1;
+    return $value + 0;
+}
+
+# watchdog_stall_grace_seconds()
+# Returns the configured collector-watchdog stall grace period, or undef if
+# unset. See watchdog_restart_limit for the config-key/env-var precedence.
+# Input: none.
+# Output: positive integer number of seconds, or undef if unset/invalid.
+sub watchdog_stall_grace_seconds {
+    my ($self) = @_;
+    my $cfg = $self->merged;
+    my $value = $cfg->{watchdog}{stall_grace_seconds};
+    return undef if !defined $value;
+    return undef if $value !~ /^\d+$/;
+    return undef if $value < 1;
+    return $value + 0;
+}
+
 # web_workers()
 # Returns the configured default Starman worker count.
 # Input: none.
@@ -1001,9 +1050,23 @@ C<indicator> metadata without discarding inherited defaults.
 
 =head1 METHODS
 
-=head2 new, load_global, save_global, load_repo, merged, collectors, path_aliases, global_path_aliases, web_workers, save_global_web_workers, web_settings, save_global_web_settings, save_global_path_alias, remove_global_path_alias, docker_config, api_keys, api_registry, writable_api_registry, save_writable_api_registry, providers
+=head2 new, load_global, save_global, load_repo, merged, collectors, path_aliases, global_path_aliases, watchdog_restart_limit, watchdog_restart_window_seconds, watchdog_stall_grace_seconds, web_workers, save_global_web_workers, web_settings, save_global_web_settings, save_global_path_alias, remove_global_path_alias, docker_config, api_keys, api_registry, writable_api_registry, save_writable_api_registry, providers
 
 Load and expose configuration domains used by the runtime.
+
+The watchdog_restart_limit(), watchdog_restart_window_seconds(), and
+watchdog_stall_grace_seconds() methods (DD-624) expose the collector
+watchdog's restart-limit/window/stall-grace tunables via config.json's
+C<watchdog> section (keys C<restart_limit>, C<restart_window_seconds>, and
+C<stall_grace_seconds>), so they no longer require reading source or setting
+an env var to discover or change:
+
+  { "watchdog": { "restart_limit": 5, "restart_window_seconds": 600, "stall_grace_seconds": 20 } }
+
+Each returns C<undef> when unset or invalid so
+L<Developer::Dashboard::RuntimeManager>'s own tunable getters can fall through
+to their env-var check (still the top-precedence override) and then their
+hardcoded default.
 
 The web_settings() and save_global_web_settings() methods manage web service settings
 including host, port, workers, ssl flag, the persisted C<no_editor> read-only

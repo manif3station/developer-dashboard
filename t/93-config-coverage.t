@@ -301,6 +301,34 @@ sub dies_like {
     clear_config();
     is( $config->web_workers, 1, 'web_workers defaults a missing worker count' );
 
+    # DD-624: watchdog_restart_limit / watchdog_restart_window_seconds / watchdog_stall_grace_seconds.
+    # Each getter has three independent guard clauses (missing/non-numeric/below-one);
+    # exercise all three separately per getter, matching web_workers' own test style above.
+    set_config( { watchdog => {} } );
+    is( $config->watchdog_restart_limit,          undef, 'watchdog_restart_limit is undef for a missing value' );
+    is( $config->watchdog_restart_window_seconds, undef, 'watchdog_restart_window_seconds is undef for a missing value' );
+    is( $config->watchdog_stall_grace_seconds,    undef, 'watchdog_stall_grace_seconds is undef for a missing value' );
+
+    set_config( { watchdog => { restart_limit => 'abc', restart_window_seconds => 'xyz', stall_grace_seconds => 'qrs' } } );
+    is( $config->watchdog_restart_limit,          undef, 'watchdog_restart_limit is undef for a non-numeric value' );
+    is( $config->watchdog_restart_window_seconds, undef, 'watchdog_restart_window_seconds is undef for a non-numeric value' );
+    is( $config->watchdog_stall_grace_seconds,    undef, 'watchdog_stall_grace_seconds is undef for a non-numeric value' );
+
+    set_config( { watchdog => { restart_limit => '0', restart_window_seconds => '0', stall_grace_seconds => '0' } } );
+    is( $config->watchdog_restart_limit,          undef, 'watchdog_restart_limit is undef for a zero value' );
+    is( $config->watchdog_restart_window_seconds, undef, 'watchdog_restart_window_seconds is undef for a zero value' );
+    is( $config->watchdog_stall_grace_seconds,    undef, 'watchdog_stall_grace_seconds is undef for a zero value' );
+
+    set_config( { watchdog => { restart_limit => '6', restart_window_seconds => '900', stall_grace_seconds => '25' } } );
+    is( $config->watchdog_restart_limit,          6,   'watchdog_restart_limit reads a configured value' );
+    is( $config->watchdog_restart_window_seconds, 900, 'watchdog_restart_window_seconds reads a configured value' );
+    is( $config->watchdog_stall_grace_seconds,    25,  'watchdog_stall_grace_seconds reads a configured value' );
+
+    clear_config();
+    is( $config->watchdog_restart_limit,          undef, 'watchdog_restart_limit is undef when unset' );
+    is( $config->watchdog_restart_window_seconds, undef, 'watchdog_restart_window_seconds is undef when unset' );
+    is( $config->watchdog_stall_grace_seconds,    undef, 'watchdog_stall_grace_seconds is undef when unset' );
+
     # 603: docker_config presence/absence.
     set_config( { docker => { compose => 'x' } } );
     is_deeply( $config->docker_config, { compose => 'x' }, 'docker_config returns configured docker settings' );

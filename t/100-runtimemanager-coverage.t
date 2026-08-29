@@ -347,6 +347,47 @@ is_deeply( [ $manager->_normalized_collector_watch_names('scalar') ],    [], '_n
     is( $manager->_collector_supervisor_poll_interval, 5,   '_collector_supervisor_poll_interval ignores a non-numeric override' );
 }
 
+# --- restart-limit / window / grace: config-key tier (DD-624) ---------------
+{
+    my $original_collectors = [
+        { name => 'alpha.collector', command => 'true', cwd => 'home', interval => 1 },
+        { name => 'beta.collector',  command => 'true', cwd => 'home', interval => 1 },
+    ];
+
+    local $ENV{DEVELOPER_DASHBOARD_COLLECTOR_RESTART_LIMIT};
+    local $ENV{DEVELOPER_DASHBOARD_COLLECTOR_RESTART_WINDOW_SECONDS};
+    local $ENV{DEVELOPER_DASHBOARD_COLLECTOR_STALL_GRACE_SECONDS};
+
+    $config->save_global(
+        {
+            collectors => $original_collectors,
+            watchdog   => { restart_limit => 6, restart_window_seconds => 900, stall_grace_seconds => 25 },
+        }
+    );
+    is( $manager->_collector_restart_limit,          6,   '_collector_restart_limit reads the config-only tier when no env var is set' );
+    is( $manager->_collector_restart_window_seconds, 900, '_collector_restart_window_seconds reads the config-only tier' );
+    is( $manager->_collector_stall_grace_seconds,    25,  '_collector_stall_grace_seconds reads the config-only tier' );
+
+    local $ENV{DEVELOPER_DASHBOARD_COLLECTOR_RESTART_LIMIT}          = 11;
+    local $ENV{DEVELOPER_DASHBOARD_COLLECTOR_RESTART_WINDOW_SECONDS} = 111;
+    local $ENV{DEVELOPER_DASHBOARD_COLLECTOR_STALL_GRACE_SECONDS}    = 12;
+    is( $manager->_collector_restart_limit,          11,  '_collector_restart_limit: the env var still wins over the config-key tier' );
+    is( $manager->_collector_restart_window_seconds, 111, '_collector_restart_window_seconds: the env var still wins over the config-key tier' );
+    is( $manager->_collector_stall_grace_seconds,    12,  '_collector_stall_grace_seconds: the env var still wins over the config-key tier' );
+
+    $config->save_global( { collectors => $original_collectors, watchdog => { restart_limit => 'x', restart_window_seconds => 0, stall_grace_seconds => -1 } } );
+    {
+        local $ENV{DEVELOPER_DASHBOARD_COLLECTOR_RESTART_LIMIT};
+        local $ENV{DEVELOPER_DASHBOARD_COLLECTOR_RESTART_WINDOW_SECONDS};
+        local $ENV{DEVELOPER_DASHBOARD_COLLECTOR_STALL_GRACE_SECONDS};
+        is( $manager->_collector_restart_limit,          3,   '_collector_restart_limit falls through an invalid config value to the hardcoded default' );
+        is( $manager->_collector_restart_window_seconds, 300, '_collector_restart_window_seconds falls through an invalid config value to the hardcoded default' );
+        is( $manager->_collector_stall_grace_seconds,    10,  '_collector_stall_grace_seconds falls through an invalid config value to the hardcoded default' );
+    }
+
+    $config->save_global( { collectors => $original_collectors } );
+}
+
 # --- _runtime_confirmation_polls override ------------------------------------
 {
     local $ENV{DEVELOPER_DASHBOARD_RUNTIME_CONFIRMATION_POLLS} = 4;

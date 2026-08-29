@@ -1835,35 +1835,48 @@ sub _normalized_collector_watch_names {
 # _collector_restart_limit()
 # Returns how many unexpected collector restarts are allowed within the active
 # watchdog window before human attention is required.
+# DD-624: the env var takes precedence (unchanged), then config.json's
+# watchdog.restart_limit, then the hardcoded default - see
+# Config::watchdog_restart_limit for the config-key documentation.
 # Input: none.
 # Output: positive integer restart limit.
 sub _collector_restart_limit {
     my ($self) = @_;
     my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_RESTART_LIMIT};
     return $value if defined $value && $value =~ /^\d+$/ && $value > 0;
+    $value = $self->{config}->watchdog_restart_limit;
+    return $value if defined $value;
     return 3;
 }
 
 # _collector_restart_window_seconds()
 # Returns the rolling time window used for watchdog restart-threshold tracking.
+# DD-624: env var, then config.json's watchdog.restart_window_seconds, then
+# the hardcoded default - see Config::watchdog_restart_window_seconds.
 # Input: none.
 # Output: positive integer number of seconds.
 sub _collector_restart_window_seconds {
     my ($self) = @_;
     my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_RESTART_WINDOW_SECONDS};
     return $value if defined $value && $value =~ /^\d+$/ && $value > 0;
+    $value = $self->{config}->watchdog_restart_window_seconds;
+    return $value if defined $value;
     return 300;
 }
 
 # _collector_stall_grace_seconds()
 # Returns the extra grace period added to collector timeout-plus-interval
 # windows before the watchdog treats a managed scheduled collector as stalled.
+# DD-624: env var, then config.json's watchdog.stall_grace_seconds, then the
+# hardcoded default - see Config::watchdog_stall_grace_seconds.
 # Input: none.
 # Output: positive integer number of seconds.
 sub _collector_stall_grace_seconds {
     my ($self) = @_;
     my $value = $ENV{DEVELOPER_DASHBOARD_COLLECTOR_STALL_GRACE_SECONDS};
     return $value if defined $value && $value =~ /^\d+$/ && $value > 0;
+    $value = $self->{config}->watchdog_stall_grace_seconds;
+    return $value if defined $value;
     return 10;
 }
 
