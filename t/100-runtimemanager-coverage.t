@@ -696,6 +696,15 @@ ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the c
     # its coverage database before exec: measured at ~678 polls against 2 for
     # an uninstrumented run (DD-482).
   SKIP: {
+        # Skip only for GENUINE environmental absence, and name which is
+        # missing. procfs is checked as well as the binary: macOS has
+        # /bin/sleep but no /proc, so a binary-only guard does not fire there
+        # and the probe then fails for a reason that is not a defect. Found by
+        # running this against the macOS guest (Darwin: /proc absent,
+        # /bin/sleep present) - a binary-only check turned a test that used to
+        # pass falsely on that platform into one that fails environmentally.
+        skip 'no procfs on this platform, so an empty environ cannot be observed', 2
+          if !-d '/proc';
         my ($sleep_bin) = grep { -x } qw(/bin/sleep /usr/bin/sleep);
         skip 'no sleep binary available to hold an empty environment open', 2
           if !defined $sleep_bin;
