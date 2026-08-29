@@ -542,25 +542,25 @@ is( $runner->_descriptor_is_inherited_pipe(999999999), 0, '_descriptor_is_inheri
 # _current_perl_command: Windows branch and the $^X shape guards on Linux.
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
+    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     {
-        local *Developer::Dashboard::CollectorRunner::command_in_path = sub { return '/win/perl' };
+        local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { return '/win/perl' };
         is( $runner->_current_perl_command, '/win/perl', '_current_perl_command prefers perl on Windows when present' );
     }
     {
         my %answers = ( 'perl' => undef, 'perl.exe' => '/win/perl.exe' );
-        local *Developer::Dashboard::CollectorRunner::command_in_path = sub { return $answers{ $_[0] } };
+        local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { return $answers{ $_[0] } };
         is( $runner->_current_perl_command, '/win/perl.exe', '_current_perl_command falls back to perl.exe on Windows' );
     }
     {
-        local *Developer::Dashboard::CollectorRunner::command_in_path = sub { return undef };
+        local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { return undef };
         local $^X = 'x';
         is( $runner->_current_perl_command, 'x', '_current_perl_command falls through to $^X when no Windows perl is resolvable' );
     }
 }
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::command_in_path = sub { return '/usr/bin/perl' };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { return '/usr/bin/perl' };
     is( $runner->_current_perl_command, $^X, '_current_perl_command returns a runnable $^X on Linux' );
     {
         local $^X = '';
@@ -611,7 +611,9 @@ is( Developer::Dashboard::CollectorRunner::_powershell_single_quote(undef), q{''
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows      = sub { return 1 };
+    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::CollectorRunner::command_in_path = sub { return undef };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { return undef };
     {
         local $ENV{SystemRoot} = '/tmp/win-system-root';
         is( $runner->_powershell_command, '', '_powershell_command falls back through SystemRoot and returns empty when no binary exists' );
@@ -629,6 +631,7 @@ is_deeply( [ $runner->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, '' ], '_r
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
+    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     {
         local *Developer::Dashboard::CollectorRunner::_powershell_command = sub { return '' };
         my ( $ok, $err ) = $runner->_replace_path_via_powershell( 'a', 'b' );
@@ -665,7 +668,7 @@ is_deeply( [ $runner->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, '' ], '_r
 is_deeply( [ $runner->_overwrite_state_file_in_place( 'a', 'b' ) ], [ 0, '' ], '_overwrite_state_file_in_place no-ops on a non-Windows host' );
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
+    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     my $src = File::Spec->catfile( $home, 'ovr-src' );
     my $tgt = File::Spec->catfile( $home, 'ovr-tgt' );
 
@@ -756,7 +759,7 @@ like( ( eval { $runner->_spawn_windows_background_command( 'perl', 'x' ); 1 } ? 
 }
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::is_windows   = sub { return 1 };
+    local *Developer::Dashboard::ProcessSupervision::is_windows   = sub { return 1 };
     local *Developer::Dashboard::CollectorRunner::sleep        = sub { return 0 };
     local *Developer::Dashboard::CollectorRunner::_unlink_path = sub { return 0 };
 
@@ -774,6 +777,7 @@ like( ( eval { $runner->_spawn_windows_background_command( 'perl', 'x' ); 1 } ? 
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows                  = sub { return 1 };
+    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::CollectorRunner::sleep                       = sub { return 0 };
     local *Developer::Dashboard::CollectorRunner::_replace_path_via_powershell = sub { return ( 0, undef ) };
     local *Developer::Dashboard::CollectorRunner::_overwrite_state_file_in_place = sub { return ( 0, undef ) };
@@ -784,6 +788,7 @@ like( ( eval { $runner->_spawn_windows_background_command( 'perl', 'x' ); 1 } ? 
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows                  = sub { return 1 };
+    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::CollectorRunner::sleep                       = sub { return 0 };
     local *Developer::Dashboard::CollectorRunner::_rename_path                = sub { return 0 };
     local *Developer::Dashboard::CollectorRunner::_replace_path_via_powershell = sub { return ( 0, '' ) };
@@ -798,6 +803,7 @@ like( ( eval { $runner->_spawn_windows_background_command( 'perl', 'x' ); 1 } ? 
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows                  = sub { return 1 };
+    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::CollectorRunner::sleep                       = sub { return 0 };
     local *Developer::Dashboard::CollectorRunner::_rename_path                = sub { return 0 };
     local *Developer::Dashboard::CollectorRunner::_replace_path_via_powershell = sub { return ( 0, "psh error\n" ) };
@@ -913,6 +919,7 @@ ok( $runner->_terminate_command_process(0), '_terminate_command_process tolerate
     local $ENV{PATH} = "$fake_bin:$ENV{PATH}";
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
+    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     ok( $runner->_terminate_command_process(999999999),
         '_terminate_command_process invokes the Windows taskkill tree path' );
 }
@@ -941,6 +948,7 @@ SKIP: {
     if ( !$child ) {
         no warnings 'redefine';
         local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
+        local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
         local *Developer::Dashboard::CollectorRunner::_await_command_pid = sub { return 4242 };
         local *Developer::Dashboard::CollectorRunner::_terminate_command_process = sub { return 1 };
         $runner->_forward_command_signal( $pidfile, 'TERM', 15 );
@@ -1339,6 +1347,7 @@ like( ( eval { $runner->_run_loop_child( job => {} ); 1 } ? '' : $@ ), qr/Missin
     my @spawned;
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows                     = sub { return 1 };
+    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::CollectorRunner::_windows_background_worker_command = sub { my ( undef, $name, $loop ) = @_; return ( 'perl.exe', $name, $loop ) };
     local *Developer::Dashboard::CollectorRunner::_spawn_windows_background_command = sub { shift; @spawned = @_; return 6262 };
     is( $runner->_start_loop_worker( { command => 'true' }, 'win.worker', 'title' ), 6262, '_start_loop_worker returns the detached Windows worker pid' );
@@ -1392,6 +1401,7 @@ like( ( eval { $runner->_run_loop_child( job => {} ); 1 } ? '' : $@ ), qr/Missin
         open STDERR, '>', File::Spec->devnull();
         no warnings 'redefine';
         local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
+        local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
         local *Developer::Dashboard::CollectorRunner::run_once   = sub { return {} };
         $runner->_run_loop_worker( { command => 'x' }, 'worker.windows', 'title', 5 );
         CORE::exit(9);
@@ -1408,6 +1418,7 @@ ok( $runner->_terminate_loop_workers(undef), '_terminate_loop_workers tolerates 
 {
     no warnings 'redefine';
     local *Developer::Dashboard::CollectorRunner::is_windows        = sub { return 1 };
+    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::CollectorRunner::_pid_is_running   = sub { return 1 };
     local *Developer::Dashboard::CollectorRunner::_reap_child_process = sub { return 1 };
     local *Developer::Dashboard::CollectorRunner::sleep             = sub { return 0 };
@@ -1492,6 +1503,7 @@ ok( !defined $runner->stop_loop('stop.missing'), 'stop_loop returns undef with n
     {
         no warnings 'redefine';
         local *Developer::Dashboard::CollectorRunner::is_windows               = sub { return 1 };
+        local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
         local *Developer::Dashboard::CollectorRunner::_read_process_env_marker = sub { return $name };
         is( $runner->stop_loop($name), $child, 'stop_loop returns the managed loop pid on the Windows branch' );
     }
