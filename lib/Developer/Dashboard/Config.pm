@@ -400,6 +400,31 @@ sub web_workers {
     return $workers + 0;
 }
 
+# ssl_validity_days()
+# The lifetime, in days, of a generated self-signed certificate.
+# Input: none.
+# Output: positive integer; 365 when unset or unusable.
+#
+# Guards are one per clause rather than one compound condition, matching
+# web_workers above. That is not style: a single `||` chain leaves Devel::Cover's
+# CONDITION metric with gaps that statement and branch coverage do not reveal, so
+# the line reads as covered while one clause has never been observed (DD-624).
+#
+# The value is deliberately NOT capped. Browsers reject publicly-trusted
+# certificates valid beyond 398 days, but that rule covers certificates issued by
+# publicly trusted CAs and explicitly not locally-operated ones - so it does not
+# reach a self-signed localhost certificate. Clamping here would enforce a rule
+# that does not govern this certificate, silently, over a deliberate choice.
+sub ssl_validity_days {
+    my ($self) = @_;
+    my $cfg  = $self->merged;
+    my $days = $cfg->{web}{ssl_validity_days};
+    return 365 if !defined $days;
+    return 365 if $days !~ /^\d+$/;
+    return 365 if $days < 1;
+    return $days + 0;
+}
+
 # save_global_web_workers($workers)
 # Persists the default Starman worker count in the writable runtime config.
 # Input: positive integer worker count.
@@ -423,7 +448,7 @@ sub save_global_web_workers {
 # Returns the current web service settings (host, port, workers, ssl, no_editor, no_indicators, and optional SSL SAN aliases).
 # Loads from global config with sensible defaults if not configured.
 # Input: none.
-# Output: hash reference with host, port, workers, ssl, no_editor, no_indicators, and ssl_subject_alt_names keys.
+# Output: hash reference with host, port, workers, ssl, no_editor, no_indicators, ssl_subject_alt_names, and ssl_validity_days keys.
 sub web_settings {
     my ($self) = @_;
     my $cfg = $self->merged;
@@ -437,6 +462,7 @@ sub web_settings {
         no_editor             => $web->{no_editor} ? 1 : 0,
         no_indicators         => $web->{no_indicators} ? 1 : 0,
         ssl_subject_alt_names => $self->_normalize_ssl_subject_alt_names( $web->{ssl_subject_alt_names} ),
+        ssl_validity_days     => $self->ssl_validity_days,
     };
 }
 
@@ -1050,7 +1076,7 @@ C<indicator> metadata without discarding inherited defaults.
 
 =head1 METHODS
 
-=head2 new, load_global, save_global, load_repo, merged, collectors, path_aliases, global_path_aliases, watchdog_restart_limit, watchdog_restart_window_seconds, watchdog_stall_grace_seconds, web_workers, save_global_web_workers, web_settings, save_global_web_settings, save_global_path_alias, remove_global_path_alias, docker_config, api_keys, api_registry, writable_api_registry, save_writable_api_registry, providers
+=head2 new, load_global, save_global, load_repo, merged, collectors, path_aliases, global_path_aliases, watchdog_restart_limit, watchdog_restart_window_seconds, watchdog_stall_grace_seconds, web_workers, save_global_web_workers, ssl_validity_days, web_settings, save_global_web_settings, save_global_path_alias, remove_global_path_alias, docker_config, api_keys, api_registry, writable_api_registry, save_writable_api_registry, providers
 
 Load and expose configuration domains used by the runtime.
 
@@ -1071,7 +1097,11 @@ hardcoded default.
 The web_settings() and save_global_web_settings() methods manage web service settings
 including host, port, workers, ssl flag, the persisted C<no_editor> read-only
 browser flag, and optional C<ssl_subject_alt_names> entries used to extend the
-generated HTTPS certificate. These settings persist across restart, so
+generated HTTPS certificate. C<ssl_validity_days> sets how long a generated
+self-signed certificate is valid, defaulting to 365 when unset or unusable; it
+is deliberately not capped, because the 398-day ceiling browsers enforce applies
+to certificates issued by publicly trusted CAs and not to a self-signed
+localhost certificate. These settings persist across restart, so
 dashboard restart inherits the previous serve session configuration.
 The api_keys() and api_registry() methods merge layered runtime and installed-skill
 F<config/api.json> files into the exact saved C</ajax/...> machine-auth

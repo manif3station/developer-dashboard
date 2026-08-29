@@ -172,6 +172,7 @@ my $runtime = Developer::Dashboard::RuntimeManager->new(
             workers => $args{workers},
             ssl     => $args{ssl},
             ssl_subject_alt_names => $web_settings->{ssl_subject_alt_names},
+            ssl_validity_days     => $web_settings->{ssl_validity_days},
         );
     },
     config => $config,
