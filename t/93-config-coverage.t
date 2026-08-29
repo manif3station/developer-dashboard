@@ -328,6 +328,36 @@ sub dies_like {
     is( $config->watchdog_restart_limit,          undef, 'watchdog_restart_limit is undef when unset' );
     is( $config->watchdog_restart_window_seconds, undef, 'watchdog_restart_window_seconds is undef when unset' );
     is( $config->watchdog_stall_grace_seconds,    undef, 'watchdog_stall_grace_seconds is undef when unset' );
+    # DD-623: ssl_validity_days validation.
+    #
+    # One set_config per clause, deliberately. A single block exercising every
+    # bad value at once leaves Devel::Cover's CONDITION metric with gaps that
+    # the statement and branch metrics do not show - the failure DD-624 paid a
+    # gate cycle for. Each guard gets its own observation.
+    set_config( { web => { ssl_validity_days => 'abc' } } );
+    is( $config->ssl_validity_days, 365, 'ssl_validity_days defaults a non-numeric validity' );
+    set_config( { web => { ssl_validity_days => '' } } );
+    is( $config->ssl_validity_days, 365, 'ssl_validity_days defaults an empty validity' );
+    set_config( { web => { ssl_validity_days => '0' } } );
+    is( $config->ssl_validity_days, 365, 'ssl_validity_days defaults a zero validity' );
+    set_config( { web => { ssl_validity_days => '-1' } } );
+    is( $config->ssl_validity_days, 365, 'ssl_validity_days defaults a negative validity' );
+    set_config( { web => { ssl_validity_days => '3.5' } } );
+    is( $config->ssl_validity_days, 365, 'ssl_validity_days defaults a fractional validity' );
+    set_config( { web => { ssl_validity_days => '730' } } );
+    is( $config->ssl_validity_days, 730, 'ssl_validity_days keeps a positive validity' );
+
+    # AC-5: a value beyond the 398-day public-CA limit is HONOURED, not clamped.
+    # The browser rule applies to publicly-trusted certificates and explicitly
+    # not to locally-operated ones, so clamping here would enforce a rule that
+    # does not govern a self-signed localhost cert - silently, and against a
+    # deliberate operator choice. Asserting the value comes back intact is what
+    # makes a clamping implementation fail this file.
+    set_config( { web => { ssl_validity_days => '3650' } } );
+    is( $config->ssl_validity_days, 3650, 'ssl_validity_days does NOT clamp a value above 398' );
+
+    clear_config();
+    is( $config->ssl_validity_days, 365, 'ssl_validity_days defaults a missing validity' );
 
     # 603: docker_config presence/absence.
     set_config( { docker => { compose => 'x' } } );
