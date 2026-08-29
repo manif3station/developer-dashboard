@@ -1,0 +1,274 @@
+#!/usr/bin/env perl
+
+# gap-hunter - the three standing hunters: doc gaps, defects, improvements.
+#
+# WHY THIS EXISTS (DD-634)
+#   Doc gaps, defects and improvement opportunities were only ever found when
+#   somebody happened to look - or by two systemd timers, dd-bughunt.timer and
+#   dd-blocked-resolver.timer, which were disabled for NINE DAYS while their
+#   logs stayed quiet (DD-587). Nothing reported it. A quiet log and a dead
+#   scheduler are byte-identical from outside, which is why the gap was found
+#   by asking "is this loop actually still scheduled?" rather than by any
+#   instrument.
+#
+#   So the owner asked for these to run as Monitors in the live session
+#   INSTEAD of as cronjobs. That is not a preference about tooling; it is the
+#   fix. A Monitor cannot be silently disabled - if the session is gone, every
+#   Monitor is visibly gone with it, and if a Monitor dies its absence is in
+#   the session's own task list. A timer that is off looks exactly like a timer
+#   that has nothing to report.
+#
+# WHAT IT DOES, AND DELIBERATELY DOES NOT DO
+#   This engine SCHEDULES and INSTRUCTS. It does not hunt, and it does not
+#   create cards.
+#
+#   That split is deliberate and is recorded on DD-634 as an assumption so it
+#   can be overruled in one line. The hunting worth having on this project is a
+#   judgement - it is what found DD-590, DD-631, DD-632 and DD-633 - and a
+#   deterministic grep would have found none of them. So the engine emits a
+#   directive naming what to scan and exactly how to file what is found, the
+#   Monitor surfaces that directive as an event in the live session, and the
+#   session does the hunting and files the card. The findings still land on the
+#   board as backlog cards, which is what the owner asked for; only the
+#   judgement stays where judgement can happen.
+#
+# EXIT CODES, kept distinct because "clean" and "I could not look" must never
+# be the same answer - every checker on this project has been bitten by that:
+#     0  ran as asked (a --once tick, or a loop ended by a signal)
+#     2  usage - no hunter named, or a name that is not one of the three.
+#        A typo must REFUSE, because an engine that shrugs and emits nothing
+#        is a hunter that looks armed and hunts nothing, forever.
+#     3  could not look - the project root would not resolve
+#
+#   There is deliberately no exit 1. Exit 1 conventionally means "found
+#   something", and this engine never judges: it has nothing to find.
+
+use strict;
+use warnings;
+use feature 'say';
+
+package GapHunter;
+
+use FindBin;
+use File::Basename qw(dirname);
+use File::Spec;
+use POSIX qw(strftime);
+use Capture::Tiny qw(capture);
+
+use constant {
+    EXIT_OK       => 0,
+    EXIT_USAGE    => 2,
+    EXIT_UNUSABLE => 3,
+};
+
+# A Monitor turns each stdout line into an event. Block buffering would hold a
+# directive until 4k of them accumulated - which, at one every 60 to 180
+# minutes, is days. The first hunter would appear to have never ticked.
+$| = 1;
+
+# Purpose: the three hunters the owner asked for, with the labels and intervals
+#          he named. The doc interval is the one value he did not give; 180m is
+#          chosen as the continuation of 60m/120m and is flagged on DD-634 as an
+#          assumption rather than presented as his instruction.
+# Input:   none
+# Output:  hashref keyed by hunter name
+sub hunters {
+    return {
+        doc => {
+            label   => 'Routine Doc Check',
+            minutes => 180,
+            scope   => 'POD missing any of the seven required headings (NAME, PURPOSE, WHY IT EXISTS, '
+              . 'WHEN TO USE, HOW TO USE, WHAT USES IT, EXAMPLES); README.md drifted from the POD in '
+              . 'lib/Developer/Dashboard.pm that generates it (script/sync-readme-from-pod - README is '
+              . 'never hand-edited); commands under share/private-cli/ with no documentation; a .md '
+              . 'filename mentioned inside POD, which is forbidden; a shipped fix with no Changes or '
+              . 'FIXED_BUGS entry; documentation that describes behaviour the code no longer has.',
+            priority => 2,
+        },
+        bug => {
+            label   => 'Hourly Bugfix',
+            minutes => 60,
+            scope   => 'Defects in behaviour: a system()/exec return value nobody checks; an error path '
+              . 'that swallows a failure or falls back silently; a checker that cannot tell "clean" from '
+              . '"could not look"; a pipe that launders an exit status; process and resource leaks in the '
+              . 'collector and runtime lifecycle; a narrowing filter reporting a floor as though it were a '
+              . 'total; and the SECURITY_CHECKS audits - raw SQL, missing auth gates, unsafe redirects, '
+              . 'path traversal, secret leaks.',
+            priority => 4,
+        },
+        improvement => {
+            label   => 'Hourly Improvement',
+            minutes => 120,
+            scope   => 'Duplication and simplification: near-identical logic in two modules (the exact '
+              . 'shape of DD-615, DD-616 and DD-617); hand-rolled code where this project already depends '
+              . 'on something that does it; a function that has outgrown its own purpose comment; a branch '
+              . 'no test reaches; an abstraction that is correct by coincidence rather than by '
+              . 'construction.',
+            priority => 1,
+        },
+    };
+}
+
+# Purpose: the MAIN checkout. Every card is worked in its own worktree, and the
+#          project selector naming this board lives only in the main checkout
+#          (DD-545), so a run from a sandbox must resolve back to it - otherwise
+#          the d2 command inside the directive dies with "Cannot resolve project
+#          selector" for whoever follows it.
+#
+# DD_GAP_HUNTER_ROOT overrides it outright, which is what lets the spec point
+# the engine at a directory that genuinely does not exist and prove exit 3 is
+# reached on the real path rather than only on a fixture.
+# Input:   none
+# Output:  the absolute root, or undef when it cannot be established - undef is
+#          the whole point, and must never be silently substituted with a guess
+sub project_root {
+    my $override = $ENV{DD_GAP_HUNTER_ROOT};
+    if ( defined $override ) {
+        return -d $override ? $override : undef;
+    }
+    my $here = File::Spec->rel2abs(
+        File::Spec->catdir( $FindBin::Bin, File::Spec->updir, File::Spec->updir ) );
+    my ( $common, undef, $exit ) = capture {
+        system( 'git', '-C', $here, 'rev-parse', '--path-format=absolute', '--git-common-dir' );
+    };
+    return -d $here ? $here : undef if $exit != 0;    # uncoverable branch true
+    chomp $common;
+    return -d $here ? $here : undef if $common eq '';    # uncoverable branch true
+    my $root = dirname($common);
+    return -d $root ? $root : ( -d $here ? $here : undef );
+}
+
+# Purpose: one hunt directive - everything the reader needs to run the hunt and
+#          file what it finds, without looking anything else up. A directive
+#          that says "go and check the docs" is a reminder; this is an
+#          instruction.
+# Input:   the hunter name
+# Output:  the directive text, or undef for a name that is not configured
+sub directive {
+    my ($name) = @_;
+    my $h = hunters()->{$name} or return undef;
+    my $when = POSIX::strftime( '%Y-%m-%dT%H:%M:%S%z', localtime );
+
+    return <<"DIRECTIVE";
+GAP-HUNT $h->{label} | $name | every $h->{minutes}m | $when
+  SCAN: $h->{scope}
+  FIRST: do not file what is already filed. Check with
+      d2 tira.ticket.list --refs-only
+    and read any card that looks like the same finding before adding another.
+  THEN file each NEW finding as a backlog card:
+      d2 tira.ticket.create \\
+        --title "<one line naming the defect, not the area>" \\
+        --column backlog --priority $h->{priority} --label standalone \\
+        --author "\$(.claude/tools/tira-author)" \\
+        --problem "what is actually wrong, and how it was found" \\
+        --solution "what would fix it, in one or two sentences"
+    --label standalone is required: every card these hunters file is parentless
+    by construction, and an unlabelled parentless card is reported as
+    'missing: parent' by card-full-details. Never invent a parent to quiet it.
+  IF NOTHING IS FOUND: say so and file nothing. A card filed to look busy costs
+    more than the silence it replaces.
+DIRECTIVE
+}
+
+# Purpose: run one hunter - emit its directive now, then once per interval.
+# Input:   @ARGV
+# Output:  an exit code
+sub main {
+    my @argv = @_;
+    my $once = 0;
+    my @names;
+    for my $arg (@argv) {
+        if   ( $arg eq '--once' ) { $once = 1 }
+        else                      { push @names, $arg }
+    }
+
+    my $valid = join ', ', sort keys %{ hunters() };
+
+    if ( @names != 1 || !exists hunters()->{ $names[0] } ) {
+        say STDERR "gap-hunter: name exactly one hunter. Valid hunters: $valid.";
+        say STDERR '  usage: gap-hunter <' . join( '|', sort keys %{ hunters() } ) . '> [--once]';
+        say STDERR '  Refusing rather than running silently: a hunter that emits nothing looks '
+          . 'exactly like one that has found nothing.';
+        return EXIT_USAGE;
+    }
+
+    my $name = $names[0];
+
+    # Resolved BEFORE the first directive, not lazily, so a broken root fails
+    # immediately and loudly instead of producing hours of directives carrying
+    # a d2 command that cannot work.
+    my $root = project_root();
+    if ( !defined $root ) {
+        say STDERR 'gap-hunter: UNUSABLE - could not resolve the project root, so the commands in the '
+          . 'directive would not run. This is NOT "nothing to hunt".';
+        return EXIT_UNUSABLE;
+    }
+
+    while (1) {
+        print directive($name);
+        return EXIT_OK if $once;
+        sleep( hunters()->{$name}{minutes} * 60 );    # uncoverable statement
+    }
+
+    return EXIT_OK;                                   # uncoverable statement
+}
+
+exit main(@ARGV) if !caller;
+1;
+
+__END__
+
+=head1 NAME
+
+gap-hunter - the three standing hunters for doc gaps, defects and improvements
+
+=head1 PURPOSE
+
+Emit a labelled hunt directive on a fixed interval, so that documentation gaps,
+defects and improvement opportunities are looked for on a schedule rather than
+whenever somebody happens to think of it, and so that what is found becomes a
+backlog card rather than a remark in a transcript that vanishes.
+
+=head1 WHY IT EXISTS
+
+The previous instruments for this job were two systemd timers, and both were
+disabled for nine days before anyone noticed, because a disabled timer and a
+timer with nothing to report produce exactly the same silence. Running the
+hunters as Monitors in the live session removes that failure mode: a Monitor
+that is not running is visibly not running.
+
+The engine deliberately does not hunt or file cards itself. The judgement that
+makes a hunt worth running cannot be expressed as a grep, and reducing it to one
+would trade the findings that matter for findings that are easy to compute.
+
+=head1 WHEN TO USE
+
+Arm all three at the start of a working session, one Monitor each. Run with
+C<--once> to see a single directive - useful when checking what a hunter will
+ask for without waiting for its interval.
+
+=head1 HOW TO USE
+
+  .claude/tools/gap-hunter doc            # every 180 minutes
+  .claude/tools/gap-hunter bug            # every 60 minutes
+  .claude/tools/gap-hunter improvement    # every 120 minutes
+  .claude/tools/gap-hunter bug --once     # one directive, then exit
+
+Exit codes: 0 ran as asked, 2 usage, 3 could not resolve the project root.
+There is no exit 1, because this engine never judges and so can never find.
+
+=head1 WHAT USES IT
+
+The live Claude Code session, as three persistent Monitors. Its spec is
+C<.claude/tools/t-gap-hunter>, which the suite runs through
+F<t/158-operator-tool-specs.t>.
+
+=head1 EXAMPLES
+
+Confirm a hunter refuses a name it does not know, rather than running silently:
+
+  .claude/tools/gap-hunter documentation --once ; echo $?
+  # gap-hunter: name exactly one hunter. Valid hunters: bug, doc, improvement.
+  # 2
+
+=cut

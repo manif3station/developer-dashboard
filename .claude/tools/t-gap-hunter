@@ -1,0 +1,191 @@
+#!/usr/bin/env perl
+
+# t-gap-hunter - the spec for the three standing gap hunters.
+#
+# WHY THIS FILE EXISTS (DD-634)
+#   The hunters exist because the previous instruments for this job were two
+#   systemd timers, and both were disabled for nine days without anyone
+#   noticing (DD-587). A quiet log read exactly like a healthy one. The whole
+#   point of moving the hunters into the live session as Monitors is that a
+#   dead Monitor is visibly absent, whereas a dead timer is invisible.
+#
+#   That property is worth nothing if the engine itself can fail quietly, so
+#   the assertions that matter most here are the negative ones:
+#
+#     - an unknown hunter name must REFUSE, loudly, naming the valid ones.
+#       An engine that shrugs and emits nothing is a hunter that looks armed
+#       and hunts nothing - precisely the failure being replaced.
+#
+#     - an unresolvable project root must exit 3, never 0. "I could not look"
+#       and "I looked and found nothing" have been confused by every checker
+#       on this project at least once, and the confusion is only ever found
+#       later, by someone trusting the wrong one.
+#
+#   The positive assertions - labels, intervals, directive contents - are the
+#   easy half and are here for completeness.
+#
+# RUNNING IT
+#   PERL5LIB="$HOME/perl5/lib/perl5" perl .claude/tools/t-gap-hunter
+
+use strict;
+use warnings;
+
+use Test::More;
+use FindBin;
+use File::Spec;
+use File::Temp qw(tempdir);
+use Capture::Tiny qw(capture);
+
+my $TOOL = File::Spec->catfile( $FindBin::Bin, 'gap-hunter' );
+
+ok( -e $TOOL, 'the engine exists' );
+ok( -x $TOOL, 'the engine is executable' );
+
+require $TOOL;
+
+# ---------------------------------------------------------------------------
+# AC-1 / AC-2 / AC-3 - the three hunters, their labels and their intervals.
+#
+# Asserted against the config sub rather than by waiting, because a spec that
+# actually waited 180 minutes to prove the doc interval would never be run,
+# and a spec nobody runs protects nothing (DD-573).
+# ---------------------------------------------------------------------------
+my $H = GapHunter::hunters();
+
+is( ref $H, 'HASH', 'hunters() returns a table' );
+is( scalar keys %{$H}, 3, 'there are exactly three hunters, no more and no fewer' );
+
+my %EXPECTED = (
+    doc         => { label => 'Routine Doc Check',  minutes => 180 },
+    bug         => { label => 'Hourly Bugfix',      minutes => 60 },
+    improvement => { label => 'Hourly Improvement', minutes => 120 },
+);
+
+for my $name ( sort keys %EXPECTED ) {
+    ok( exists $H->{$name}, "hunter '$name' is configured" );
+    is( $H->{$name}{label}, $EXPECTED{$name}{label},
+        "hunter '$name' carries the label the owner asked for" );
+    is( $H->{$name}{minutes}, $EXPECTED{$name}{minutes},
+        "hunter '$name' ticks every $EXPECTED{$name}{minutes} minutes" );
+    ok( length( $H->{$name}{scope} // '' ) > 40,
+        "hunter '$name' says what to scan, in enough detail to act on" );
+}
+
+# ---------------------------------------------------------------------------
+# AC-6 - a directive must be actionable without looking anything else up.
+#
+# The card-filing command is asserted PART BY PART rather than as one string,
+# so that dropping any single required flag fails a named assertion instead of
+# one opaque "does not match" - and so a reader of a failure knows which flag
+# went missing.
+# ---------------------------------------------------------------------------
+for my $name ( sort keys %EXPECTED ) {
+    my $d = GapHunter::directive($name);
+
+    like( $d, qr/\Q$EXPECTED{$name}{label}\E/, "$name directive carries its label" );
+    like( $d, qr/tira\.ticket\.create/,        "$name directive carries the create command" );
+    like( $d, qr/--column\s+backlog/,          "$name directive files into backlog" );
+
+    # The project's own rule: an unlabelled parentless card is reported
+    # 'missing: parent' by card-full-details, and inventing a parent to quiet
+    # that is the one thing worse than the finding. Every card these hunters
+    # file is parentless by construction, so the directive must say so.
+    like( $d, qr/--label\s+standalone/,
+        "$name directive labels the filed card standalone, as parentless cards must be" );
+
+    # card-full-details is the engine's definition of a complete card. A
+    # directive that files a title and nothing else manufactures a violation
+    # on every finding.
+    like( $d, qr/--problem/,  "$name directive fills problem_or_feature" );
+    like( $d, qr/--solution/, "$name directive fills solution_needed" );
+    like( $d, qr/--author/,   "$name directive passes an author, which every board write requires" );
+}
+
+# The three directives must not be interchangeable: an engine that emits the
+# same text under three labels is one hunter wearing three hats.
+my %seen;
+$seen{ GapHunter::directive($_) }++ for keys %EXPECTED;
+is( scalar keys %seen, 3, 'each hunter emits a genuinely different directive' );
+
+# ---------------------------------------------------------------------------
+# AC-1..AC-3, live path - --once emits exactly one directive and exits 0.
+# ---------------------------------------------------------------------------
+for my $name ( sort keys %EXPECTED ) {
+    my ( $out, $err, $exit ) = capture {
+        system( $^X, $TOOL, $name, '--once' );
+    };
+    is( $exit >> 8, 0, "gap-hunter $name --once exits 0" );
+    like( $out, qr/\Q$EXPECTED{$name}{label}\E/,
+        "gap-hunter $name --once emits its directive on stdout" );
+    is( scalar( () = $out =~ /^GAP-HUNT /mg ), 1,
+        "gap-hunter $name --once emits exactly one directive, not zero and not two" );
+    is( $err, '', "gap-hunter $name --once is quiet on stderr when it succeeds" );
+}
+
+# ---------------------------------------------------------------------------
+# AC-4 - an unknown hunter REFUSES and names the valid ones.
+#
+# This is the assertion the whole file is for. A silent exit 0 here would mean
+# a typo in a Monitor command produces an armed-looking, permanently silent
+# hunter, which is indistinguishable from a working one that has found nothing.
+# ---------------------------------------------------------------------------
+{
+    my ( $out, $err, $exit ) = capture {
+        system( $^X, $TOOL, 'nonsense', '--once' );
+    };
+    isnt( $exit >> 8, 0, 'an unknown hunter name does NOT exit 0' );
+    is( $exit >> 8, 2, 'an unknown hunter name exits 2 (usage)' );
+    is( $out, '', 'an unknown hunter emits no directive at all' );
+    like( $err, qr/\bdoc\b/,         'the refusal names the doc hunter' );
+    like( $err, qr/\bbug\b/,         'the refusal names the bug hunter' );
+    like( $err, qr/\bimprovement\b/, 'the refusal names the improvement hunter' );
+}
+
+# No hunter named at all is the same class of mistake.
+{
+    my ( $out, $err, $exit ) = capture { system( $^X, $TOOL ); };
+    is( $exit >> 8, 2, 'no hunter name exits 2 (usage)' );
+    is( $out, '', 'no hunter name emits no directive' );
+    like( $err, qr/\bdoc\b/, 'the bare-usage refusal still names the valid hunters' );
+}
+
+# ---------------------------------------------------------------------------
+# AC-5 - "could not look" is exit 3, and is never confused with success.
+# ---------------------------------------------------------------------------
+{
+    my $nowhere = tempdir( CLEANUP => 1 );
+    my ( $out, $err, $exit ) = capture {
+        local $ENV{DD_GAP_HUNTER_ROOT} = File::Spec->catdir( $nowhere, 'does-not-exist' );
+        system( $^X, $TOOL, 'bug', '--once' );
+    };
+    is( $exit >> 8, 3, 'an unresolvable project root exits 3, not 0 and not 2' );
+    is( $out, '', 'an unresolvable project root emits no directive' );
+    like( $err, qr/could not/i, 'it says it could not look, rather than staying quiet' );
+}
+
+# ---------------------------------------------------------------------------
+# AC-7 - stdout is unbuffered, so a Monitor surfaces a tick when it happens
+# rather than when a 4k block fills. A hunter whose first directive appears
+# three hours late is a hunter nobody trusts.
+# ---------------------------------------------------------------------------
+{
+    open my $fh, '<', $TOOL or die "cannot read $TOOL: $!";
+    my $src = do { local $/; <$fh> };
+    close $fh;
+    like( $src, qr/\$\|\s*=\s*1/, 'the engine sets autoflush on stdout' );
+    like( $src, qr/^__END__$/m,   'the engine carries POD under __END__' );
+    # A real list, NOT qw() - qw splits on whitespace, so 'WHY IT EXISTS'
+    # silently becomes three separate one-word headings and the assertion
+    # checks for sections that were never meant to exist. Caught by this spec
+    # on its first green run against a POD that was in fact complete: nine
+    # failures, none of them the engine's.
+    for my $head (
+        'NAME', 'PURPOSE', 'WHY IT EXISTS', 'WHEN TO USE',
+        'HOW TO USE', 'WHAT USES IT', 'EXAMPLES'
+      )
+    {
+        like( $src, qr/^=head1 \Q$head\E$/m, "the engine's POD has a '$head' section" );
+    }
+}
+
+done_testing;
