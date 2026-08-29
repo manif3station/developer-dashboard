@@ -64,7 +64,40 @@ VERDICT=${DD_GATE_VERDICT:-$DD_STATE_DIR/gate2-verdict.txt}
 [ -f "$LOG" ] || { echo "gate-status: no log at $LOG - the gate has never run here"; exit 3; }
 
 files=$(grep -c '^t/' "$LOG" 2>/dev/null)
-log_age=$(( $(date +%s) - $(stat -c %Y "$LOG") ))
+# _dd_mtime FILE - print FILE's modification time as a unix epoch, or print
+# nothing and return non-zero if it cannot be read.
+#
+# WHY THIS EXISTS AND WHY IT IS PERL (DD-657). This was three separate
+# 'stat -c %Y' call sites. -c is GNU coreutils; BSD stat, which macOS ships,
+# rejects it - so on a Mac the tool printed "stat: illegal option -- c", threw a
+# shell syntax error from the unguarded site, and reported an age of 496664 hours
+# from the two guarded ones, WHILE EXITING 0.
+#
+# The obvious repair is worse than it looks. 'stat -c %Y || stat -f %m' reads as
+# "try GNU, fall back to BSD", but on GNU '-f' means FILE SYSTEM information - a
+# different operation, not the other spelling of the same one. If the first branch
+# fails for any unrelated reason the second runs and answers a question nobody
+# asked, and its output would then be treated as a modification time. That is the
+# same shape as the bug being fixed.
+#
+# perl means the same thing on every platform and is already a hard dependency of
+# this product. Measured on the same probe file: 1787993576 on Linux from both
+# stat -c and perl, 1787993592 on Darwin from both stat -f and perl.
+#
+# AND IT NEVER SUBSTITUTES A VALUE. Two of the three original call sites carried
+# '|| echo 0', which is exactly why a Mac produced 496664h instead of failing: the
+# guard turned an error into a plausible number, and a plausible number is
+# believed. A caller that cannot get an mtime must say so, not compute an age from
+# a fabricated epoch.
+_dd_mtime() {
+  perl -e 'my $m = (stat shift)[9]; defined $m or exit 1; print $m' "$1" 2>/dev/null
+}
+
+log_epoch=$(_dd_mtime "$LOG") || {
+  echo "gate-status: cannot read the modification time of $LOG - refusing to report an age I did not measure"
+  exit 3
+}
+log_age=$(( $(date +%s) - log_epoch ))
 done_marker=$(grep -c 'SUITE_EXIT' "$LOG" 2>/dev/null)
 
 if [ "$done_marker" -eq 0 ]; then
@@ -96,10 +129,15 @@ if [ ! -f "$VERDICT" ] || [ "$VERDICT" -ot "$LOG" ]; then
   # not attribute.
   COVER_DB=${DD_GATE_COVER_DB:-$(dirname "$0")/../../cover_db}
   if [ -d "$COVER_DB" ]; then
-    cov_epoch=$(stat -c %Y "$COVER_DB" 2>/dev/null || echo 0)
+    cov_epoch=$(_dd_mtime "$COVER_DB") || {
+      echo "  COVERAGE: a database exists but its modification time could not be read"
+      cov_epoch=""
+    }
+    if [ -n "$cov_epoch" ]; then
     head_epoch=$(git log -1 --format=%ct 2>/dev/null || echo 0)
     cov_age=$(( $(date +%s) - cov_epoch ))
     printf '  COVERAGE RAN %dh%02dm ago' $(( cov_age / 3600 )) $(( (cov_age % 3600) / 60 ))
+    fi
     # THE SAME UNEARNED CLAIM, ONE BLOCK UP (DD-582, found minutes after fixing the
     # verdict path in this same file). This said "so it measured this tree" or "so
     # it did not measure this tree" from a timestamp ordering alone. A commit made
@@ -136,10 +174,17 @@ grep -v '^TREE=' "$VERDICT" | tail -2
 # log. Once no run is active it was reporting history as though it were now.
 #
 # A measurement of a tree that no longer exists is not a verdict on this one.
-verdict_epoch=$(stat -c %Y "$VERDICT" 2>/dev/null || echo 0)
-verdict_age=$(( $(date +%s) - verdict_epoch ))
+verdict_epoch=$(_dd_mtime "$VERDICT") || {
+  echo "  AGE: the verdict's modification time could not be read - not reporting an age"
+  verdict_epoch=""
+}
 head_epoch=$(git log -1 --format=%ct 2>/dev/null || echo 0)
-printf '  AGE: this verdict was written %dh%02dm ago\n' $(( verdict_age / 3600 )) $(( (verdict_age % 3600) / 60 ))
+if [ -n "$verdict_epoch" ]; then
+  verdict_age=$(( $(date +%s) - verdict_epoch ))
+  printf '  AGE: this verdict was written %dh%02dm ago\n' $(( verdict_age / 3600 )) $(( (verdict_age % 3600) / 60 ))
+else
+  verdict_age=""
+fi
 
 # THE TREE, NOT THE CLOCK (DD-582). This compared the verdict FILE's mtime with
 # HEAD's COMMIT TIME and then stated, as fact, that the tree had changed - a thing
