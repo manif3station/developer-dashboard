@@ -101,6 +101,48 @@ within a filesystem: a reader sees either the whole old file or the whole new on
 never a partial write. On Windows, where rename-over-existing behaves differently,
 there is a PowerShell replacement path for the same guarantee.
 
+## A fractional sleep is a silent no-op without `Time::HiRes`
+
+The Windows branch of `_replace_state_file` retries a rename up to ten times,
+backing off between attempts, to wait out a transient lock — an antivirus
+scanner, a search indexer, another reader still holding the handle:
+
+```perl
+sleep 0.05;
+```
+
+`CORE::sleep` takes **integer seconds**. Handed `0.05` it truncates to zero,
+sleeps for no time at all, and returns 0. It does not warn and it does not die.
+The line still reads as a delay, so the loop looks correct while burning all ten
+retries in microseconds — the backoff that is the entire point of the loop is
+gone, and the state file the prompt renderer and web status strip depend on
+fails to publish under exactly the contention the retry was written for.
+
+The delay only exists if the module imports the faster one:
+
+```perl
+use Time::HiRes qw(sleep);
+```
+
+**Why this is worth a section rather than a comment.** The failure is invisible
+three ways at once. It produces no warning; the source still says `sleep 0.05`;
+and the code path sits behind an `is_windows` guard, so every assertion about it
+runs on Linux with that mocked — exercising the control flow without ever
+measuring elapsed time. The suite can be entirely green on a tree where the
+backoff does not exist. That is not a weak assertion but a subtler thing: an
+assertion whose subject is unreachable on the machine running it.
+
+This has been shipped twice here. Once a flaky test was "fixed" by widening a
+poll loop from 60 to 150 iterations in a file that never imported `Time::HiRes`,
+so the change bought exactly zero seconds and was found much later. Again when
+these shared helpers were extracted into their own module and the import did not
+come with them — a refactor advertised as behaviour-preserving that did not
+preserve behaviour.
+
+`t/161-fractional-sleep-guard-sweep.t` now fails the build for any fractional
+sleep in a file that cannot reach `Time::HiRes`. A fully-qualified
+`Time::HiRes::sleep(0.05)` is fine and is not reported.
+
 ## Where this lives
 
 | concern | location |
@@ -111,7 +153,14 @@ there is a PowerShell replacement path for the same guarantee.
 | page and ajax child processes | `PageRuntime` |
 | cleanup of stale state, logs and sessions | `Housekeeper` |
 
-**The liveness and state-file primitives described above currently exist in more
-than one of those modules.** A reader should not assume that a helper of a given
-name behaves identically in each — some pairs are byte-identical and some have
-diverged. Check the module you are actually in.
+**The liveness and state-file primitives described above now live in ONE place:
+`ProcessSupervision`**, which both `RuntimeManager` and `CollectorRunner` import.
+Fourteen helpers whose bodies were byte-identical were extracted there; the nine
+that genuinely differ between the two classes were deliberately left where they
+were, because sharing one of those would impose a single behaviour on both and
+every existing test would still pass — each version satisfies its own module's
+tests today.
+
+So a reader should still not assume a helper of a given name is shared. Check
+whether it is imported or defined locally; `t/160` pins which are which, and
+fails by design if a divergent one is moved into the shared module.
