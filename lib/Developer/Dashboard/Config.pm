@@ -415,6 +415,17 @@ sub web_workers {
 # publicly trusted CAs and explicitly not locally-operated ones - so it does not
 # reach a self-signed localhost certificate. Clamping here would enforce a rule
 # that does not govern this certificate, silently, over a deliberate choice.
+#
+# That is not the whole story, and a caller warning about large values should say
+# both halves. Apple's own guidance confirms the 398-day maximum applies to certs
+# from PREINSTALLED roots and not to user- or administrator-added ones. But Safari
+# still refuses a long enough certificate even from a user-added root - measured
+# externally at roughly 825 days, accepting 398 and 800 and rejecting 1592. So a
+# very large value here is honoured by this accessor and may still be rejected by
+# the browser, and telling an operator only that the 398 limit does not apply to
+# them is true, reassuring, and would leave them puzzled. The 825 figure is
+# somebody else's measurement, not a published limit, and is not reproduced here.
+# See docs/https-and-certificates.md.
 sub ssl_validity_days {
     my ($self) = @_;
     my $cfg  = $self->merged;
