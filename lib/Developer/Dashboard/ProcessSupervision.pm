@@ -8,6 +8,7 @@ our $VERSION = '4.29';
 use Exporter 'import';
 
 use Capture::Tiny qw(capture);
+use Time::HiRes qw(sleep);
 
 use Developer::Dashboard::Platform qw(command_in_path is_windows);
 
