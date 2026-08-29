@@ -14,6 +14,7 @@ use Capture::Tiny qw(capture);
 use File::Basename qw(dirname basename);
 use Symbol qw(gensym);
 use Developer::Dashboard::CLI::Suggest;
+use Developer::Dashboard::StreamDrain qw(_drain_ready_handle);
 use Developer::Dashboard::EnvLoader;
 use Developer::Dashboard::PathRegistry ();
 use Developer::Dashboard::PerlEnv ();
@@ -337,23 +338,17 @@ sub _run_child_command_streaming {
 
     while ( my @ready = $selector->can_read ) {
         for my $fh (@ready) {
-            my $buffer = '';
-            my $read = sysread( $fh, $buffer, 8192 );
-            if ( !defined $read || $read == 0 ) {    # uncoverable condition left
-                $selector->remove($fh);
-                close $fh;
-                next;
-            }
+            my $chunk_ref = $self->_drain_ready_handle( $selector, $fh ) or next;
 
             if ( fileno($fh) == $stdout_fd ) {
-                print STDOUT $buffer;
-                $stdout_text .= $buffer;
+                print STDOUT ${$chunk_ref};
+                $stdout_text .= ${$chunk_ref};
                 next;
             }
 
             if ( fileno($fh) == $stderr_fd ) {    # uncoverable branch false
-                print STDERR $buffer;
-                $stderr_text .= $buffer;
+                print STDERR ${$chunk_ref};
+                $stderr_text .= ${$chunk_ref};
                 next;
             }
         }

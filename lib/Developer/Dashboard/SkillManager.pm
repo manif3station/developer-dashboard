@@ -19,6 +19,7 @@ use JSON::XS qw(decode_json encode_json);
 use Symbol qw(gensym);
 use Developer::Dashboard::Platform qw(command_in_path passwd_home_directory);
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::StreamDrain qw(_drain_ready_handle);
 
 # new()
 # Creates a SkillManager instance to handle skill installation, updates, uninstalls.
@@ -1299,14 +1300,9 @@ sub _run_streaming_command {
     my $read_loop = sub {
         while ( my @ready = $selector->can_read ) {
             for my $handle (@ready) {
-                my $chunk = '';
-                my $read = sysread( $handle, $chunk, 8192 );
-                if ( !defined $read || $read == 0 ) {    # uncoverable condition left
-                    $selector->remove($handle);
-                    close $handle;
-                    next;
-                }
-                my $slot = $target_for{ fileno($handle) };
+                my $chunk_ref = $self->_drain_ready_handle( $selector, $handle ) or next;
+                my $chunk = ${$chunk_ref};
+                my $slot  = $target_for{ fileno($handle) };
                 ${$slot} .= $chunk if $slot;    # uncoverable branch false
                 for my $line ( split /\n/, $chunk ) {
                     $self->_progress_detail_line($line);
