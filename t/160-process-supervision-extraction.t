@@ -70,10 +70,18 @@ require_ok($_) for @CONSUMERS;
 
 # 1. Defined in exactly one place.
 #
-# `defined &Pkg::name` is deliberate rather than ->can(): can() follows the
-# method-resolution path and would answer true for an imported sub, which is
-# precisely what we are trying to distinguish from a local definition. This asks
-# whether the symbol table entry has a body of its own.
+# CORRECTED: an earlier version of this comment claimed `defined &Pkg::name`
+# asks "whether the symbol table entry has a body of its own", and so tells an
+# import apart from a local definition. IT DOES NOT. Exporter installs the sub
+# directly into the importing package's symbol table - which is exactly what
+# makes `$self->_helper(...)` resolve through the consumer - so `defined &` is
+# true for an import too. Measured:
+#
+#   defined &Developer::Dashboard::CollectorRunner::_pid_is_running  -> TRUE
+#
+# even though CollectorRunner imports it. What DOES discriminate is CODEREF
+# IDENTITY: a shared sub and its importer are the same coderef, a surviving
+# local copy is a different one. Both checks are made below.
 for my $sub (@EXTRACTED) {
     no strict 'refs';
     ok( defined &{"Developer::Dashboard::ProcessSupervision::$sub"},
@@ -88,6 +96,15 @@ for my $sub (@EXTRACTED) {
 for my $pkg (@CONSUMERS) {
     for my $sub (@EXTRACTED) {
         ok( $pkg->can($sub), "$pkg can still reach $sub" );
+
+        # The check that actually proves the consumer uses the SHARED body
+        # rather than having kept a copy of its own. Without this, a stale
+        # duplicate left behind in the consumer would satisfy every other
+        # assertion in this file - which is precisely the outcome the
+        # extraction exists to prevent.
+        no strict 'refs';
+        is( \&{"${pkg}::${sub}"}, \&{"Developer::Dashboard::ProcessSupervision::${sub}"},
+            "$pkg\'s $sub IS the shared body, not a surviving local copy" );
     }
 }
 
