@@ -662,24 +662,85 @@ ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the c
     is( $manager->_read_process_env_marker( 999999, 'HOME' ), undef, '_read_process_env_marker returns undef for an unreadable process' );
 }
 {
-    # A process launched with an empty environment exercises the empty-environ guard.
-    my $child = fork();
-    die "fork failed: $!" if !defined $child;
-    if ( !$child ) {
-        exec 'env', '-i', 'sleep', '120' or POSIX::_exit(1);
+    # A process launched with an empty environment exercises the empty-environ
+    # guard - the `$env eq ''` operand of the `!defined $env || $env eq ''`
+    # return.
+    #
+    # DD-646: THIS TEST USED TO BE INCAPABLE OF FAILING, and that made the
+    # project's four-metric coverage gate nondeterministic. It read:
+    #
+    #     my $marker = $ready ? $manager->_read_process_env_marker(...) : undef;
+    #     is( $marker, undef, '...when the process environment is empty' );
+    #
+    # When the poll timed out, $ready was false, THE FUNCTION WAS NEVER CALLED,
+    # $marker was assigned undef directly - and the assertion passed anyway.
+    # So on any run where the child did not reach its exec in time, the
+    # empty-environ operand went uncovered and nothing said so. Two four-metric
+    # passes over the same unedited tree returned Total 99.9 with the gate
+    # exiting 1, then Total 100.0 passing. Verified by forcing the poll to
+    # `for ( 1 .. 0 )`: all 527 tests in this file still passed.
+    #
+    # Three changes, each mirroring the equivalent test in
+    # t/103-collectorrunner-coverage.t, whose copy of this routine never had
+    # the flaw:
+    #   1. %ENV is cleared IN THIS FORK rather than by exec'ing `env -i`. The
+    #      intermediate env process satisfies a cmdline poll with its own argv
+    #      before it has exec'd and installed the empty environment.
+    #   2. The precondition is PINNED by its own assertion. is($marker, undef)
+    #      is satisfied just as well by a populated environ that lacks the key,
+    #      so without this the leg can stop being exercised silently.
+    #   3. A probe that cannot be set up SKIPs with a diagnostic naming what it
+    #      saw. It never substitutes undef for a call that did not happen.
+    #
+    # The poll bound is 30s because a Devel::Cover-instrumented child flushes
+    # its coverage database before exec: measured at ~678 polls against 2 for
+    # an uninstrumented run (DD-482).
+  SKIP: {
+        my ($sleep_bin) = grep { -x } qw(/bin/sleep /usr/bin/sleep);
+        skip 'no sleep binary available to hold an empty environment open', 2
+          if !defined $sleep_bin;
+
+        my $probe_title = 'dd-rm-empty-environ-probe';
+        my $child       = fork();
+        die "fork failed: $!" if !defined $child;
+        if ( !$child ) {
+            %ENV = ();
+            exec { $sleep_bin } $probe_title, '30' or POSIX::_exit(127);
+        }
+
+        my $probe_environ;
+        my $probe_polls = 0;
+        for ( 1 .. 3000 ) {
+            $probe_polls = $_;
+            my $cmdline = '';
+            if ( open my $cf, '<', "/proc/$child/cmdline" ) { local $/; $cmdline = <$cf>; close $cf; }
+            if ( defined $cmdline && index( $cmdline, $probe_title ) == 0 ) {
+                if ( open my $ef, '<', "/proc/$child/environ" ) { local $/; $probe_environ = <$ef>; close $ef; }
+                last;
+            }
+            select undef, undef, undef, 0.01;
+        }
+
+        # A probe that could not be established FAILS, it does not skip. This
+        # card exists because an assertion that could not fail let an uncovered
+        # branch through; replacing a silent pass with a silent skip would keep
+        # that property and only change its spelling. The diagnostic names
+        # which of the two failures happened - the child never reached its
+        # exec, or its environ could not be read - because a bare "got undef"
+        # distinguishes neither. Note undef never means "the environ was
+        # empty": a genuinely empty /proc/<pid>/environ reads back as '' with
+        # length 0, which is exactly what the assertion below demands.
+        if ( !defined $probe_environ ) {
+            my $alive = -e "/proc/$child" ? 'alive' : 'gone';
+            diag("empty-environ probe gave up after $probe_polls polls; child is $alive and never exposed its exec'd argv[0]");
+        }
+
+        is( $probe_environ, '', 'the probe child exposes a readable zero-length environ' );
+        is( $manager->_read_process_env_marker( $child, 'HOME' ), undef,
+            '_read_process_env_marker returns undef when the process environment is empty' );
+        kill 'KILL', $child;
+        waitpid( $child, 0 );
     }
-    my $ready = 0;
-    for ( 1 .. 2000 ) {
-        my $comm = '';
-        if ( open my $c, '<', "/proc/$child/comm" ) { $comm = <$c>; close $c; }
-        my $size = -s "/proc/$child/environ";
-        if ( defined $comm && $comm =~ /^sleep/ && defined $size && $size == 0 ) { $ready = 1; last; }
-        select undef, undef, undef, 0.02;
-    }
-    my $marker = $ready ? $manager->_read_process_env_marker( $child, 'HOME' ) : undef;
-    is( $marker, undef, '_read_process_env_marker returns undef when the process environment is empty' );
-    kill 'KILL', $child;
-    waitpid( $child, 0 );
 }
 
 # --- _read_process_state ps fallback -----------------------------------------
