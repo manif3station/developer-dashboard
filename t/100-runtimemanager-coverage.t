@@ -809,7 +809,6 @@ is( $manager->_send_signal( 'TERM', undef, 0, 'nope' ), 0, '_send_signal ignores
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
     @cap = ( '', '', 0 );
@@ -830,7 +829,6 @@ is( $manager->_send_signal( 'TERM', undef, 0, 'nope' ), 0, '_send_signal ignores
     no warnings 'redefine';
     my @sent;
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_ps_processes = sub {
         return (
             { pid => 1, args => 'perl match-me' },
@@ -848,7 +846,6 @@ is( $manager->_send_signal( 'TERM', undef, 0, 'nope' ), 0, '_send_signal ignores
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
     @cap = ( '', '', 0 );
@@ -931,7 +928,6 @@ ok( $manager->_looks_like_web_process( { pid => 1, args => '/usr/lib/_dashboard-
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( "bad-line\n  123  1000  the args\n", '', 0 ) };
     my @procs = $manager->_ps_processes;
     is_deeply( \@procs, [ { pid => 123, uid => 1000, args => 'the args' } ], '_ps_processes skips lines that do not parse' );
@@ -939,7 +935,6 @@ ok( $manager->_looks_like_web_process( { pid => 1, args => '/usr/lib/_dashboard-
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', '', 1 ) };
     is_deeply( [ $manager->_ps_processes ], [], '_ps_processes returns empty when ps fails' );
 }
@@ -980,9 +975,8 @@ ok( $manager->_looks_like_web_process( { pid => 1, args => '/usr/lib/_dashboard-
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::command_in_path = sub { my ($n) = @_; return $n eq 'ss' ? '/usr/bin/ss' : undef };
-    local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { my ($n) = @_; return $n eq 'ss' ? '/usr/bin/ss' : undef };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
 
@@ -1008,9 +1002,8 @@ is_deeply( [ $manager->_listener_pids_for_port(0) ], [], '_listener_pids_for_por
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::command_in_path = sub { return undef };
-    local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { return undef };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_lsof = sub { return (7) };
     is_deeply( [ $manager->_listener_pids_for_port(7890) ], [7], '_listener_pids_for_port uses lsof when ss is absent' );
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_lsof = sub { return () };
@@ -1022,7 +1015,6 @@ is_deeply( [ $manager->_listener_pids_for_port(0) ], [], '_listener_pids_for_por
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
     @cap = ( "  4321  \n 4321 \n", '', 0 );
@@ -1112,16 +1104,19 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
 {
     ok( length $manager->_current_perl_command, '_current_perl_command resolves a perl interpreter on POSIX hosts' );
     no warnings 'redefine';
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { my ($n) = @_; return $n eq 'perl' ? '/win/perl.exe' : undef };
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::command_in_path = sub { my ($n) = @_; return $n eq 'perl' ? '/win/perl.exe' : undef };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     is( $manager->_current_perl_command, '/win/perl.exe', '_current_perl_command prefers perl in PATH on Windows' );
-    local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { my ($n) = @_; return $n eq 'perl.exe' ? '/win/perl.exe' : undef };
+    local *Developer::Dashboard::RuntimeManager::command_in_path = sub { my ($n) = @_; return $n eq 'perl.exe' ? '/win/perl.exe' : undef };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     is( $manager->_current_perl_command, '/win/perl.exe', '_current_perl_command falls back to perl.exe in PATH on Windows' );
 }
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { my ($n) = @_; return $n eq 'perl' ? '/some/perl' : undef };
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
+    local *Developer::Dashboard::RuntimeManager::command_in_path = sub { my ($n) = @_; return $n eq 'perl' ? '/some/perl' : undef };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     local $^X = '';
     is( $manager->_current_perl_command, '/some/perl', '_current_perl_command falls back to PATH perl when $^X is empty' );
 }
@@ -1166,7 +1161,6 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
     no warnings 'redefine';
     is_deeply( [ $manager->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, '' ], '_replace_path_via_powershell is a no-op off Windows' );
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
     @cap = ( '', '', 0 );
@@ -1179,7 +1173,7 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
 {
     no warnings 'redefine';
     is_deeply( [ $manager->_overwrite_state_file_in_place( 'a', 'b' ) ], [ 0, '' ], '_overwrite_state_file_in_place is a no-op off Windows' );
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
     my $src = File::Spec->catfile( $home, 'overwrite-src' );
     my $tgt = File::Spec->catfile( $home, 'overwrite-tgt' );
     open my $sfh, '>', $src or die $!;
@@ -1195,7 +1189,7 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
 }
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
     my $src = File::Spec->catfile( $home, 'overwrite-src2' );
     my $tgt = File::Spec->catfile( $home, 'overwrite-tgt2' );
     open my $sfh, '>', $src or die $!;
@@ -1211,7 +1205,6 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
 
     # Target exists: unlink then a successful rename retry.
     {
@@ -1284,7 +1277,6 @@ is( $manager->_web_runtime_matches_pid( { pid => 9 }, 5, 0 ), 0, '_web_runtime_m
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     is( $manager->_web_runtime_matches_pid( { pid => 9, port => 7890 }, 5, 7890 ), 1, '_web_runtime_matches_pid matches on Windows when the port lines up' );
     is( $manager->_web_runtime_matches_pid( { pid => 9, port => 1000 }, 5, 7890 ), 0, '_web_runtime_matches_pid rejects a Windows port mismatch' );
     is( $manager->_web_runtime_matches_pid( { pid => 9 },               5, 7890 ), 0, '_web_runtime_matches_pid rejects a Windows runtime with no port' );
@@ -1334,7 +1326,6 @@ is( $manager->_web_runtime_ready( 5,     0 ),    0, '_web_runtime_ready rejects 
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return (4321) };
     is( $manager->_web_runtime_ready( 5, 7890 ), 1, '_web_runtime_ready Windows confirms a bound listener' );
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
@@ -1346,7 +1337,6 @@ is( $manager->_web_runtime_ready( 5,     0 ),    0, '_web_runtime_ready rejects 
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return { pid => 10, port => 7890 } };
     local *Developer::Dashboard::RuntimeManager::_web_runtime_matches_pid = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { return 1 };
@@ -1359,7 +1349,6 @@ is( $manager->_web_runtime_ready( 5,     0 ),    0, '_web_runtime_ready rejects 
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return { pid => 10, port => 7890 } };
     local *Developer::Dashboard::RuntimeManager::_web_runtime_matches_pid = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { my ( undef, $p ) = @_; return $p == 1234 ? 1 : 0 };
@@ -1465,13 +1454,11 @@ is( $manager->_is_managed_web(999999), 0, '_is_managed_web rejects a dead pid' )
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     is( $manager->_detach_web_process_session, 1, '_detach_web_process_session is a no-op on Windows' );
 }
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::setsid = sub { return 1 };
     is( $manager->_detach_web_process_session, 1, '_detach_web_process_session detaches with setsid on POSIX hosts' );
     local *Developer::Dashboard::RuntimeManager::setsid = sub { $! = 1; return 0 };
@@ -1556,7 +1543,6 @@ $manager->_cleanup_web_files;
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_progress_emit = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_from_state = sub { return () };
@@ -1589,7 +1575,6 @@ $manager->_cleanup_web_files;
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_progress_emit = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_from_state = sub { return () };
@@ -1632,7 +1617,6 @@ $manager->_cleanup_web_files;
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
     {
         local *Developer::Dashboard::RuntimeManager::_fork_process = sub { return undef };
@@ -1645,7 +1629,6 @@ $manager->_cleanup_web_files;
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_windows_background_web_command = sub { return ('perl.exe') };
     local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 1 };
@@ -2129,7 +2112,6 @@ is( $manager->_looks_like_collector_supervisor_process( {} ),  0, '_looks_like_c
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_start_web_windows_background = sub { return 999 };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
     {
@@ -2155,7 +2137,6 @@ is( $manager->_looks_like_collector_supervisor_process( {} ),  0, '_looks_like_c
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_run_web_child = sub {
         my ( undef, $writer ) = @_;
         syswrite( $writer, "ok|4242|0.0.0.0|7890\n" );
@@ -2172,7 +2153,6 @@ $manager->_cleanup_web_files;
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_windows_background_web_command = sub { return ('perl.exe') };
     local *Developer::Dashboard::RuntimeManager::_spawn_windows_background_command = sub { return 7000 };
@@ -2223,7 +2203,6 @@ $manager->_cleanup_web_files;
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_progress_emit = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_from_state = sub { return () };
@@ -2310,7 +2289,6 @@ $manager->_cleanup_web_files;
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_collector_supervisor_running = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::_run_collector_supervisor_child = sub { POSIX::_exit(0) };
     $manager->_write_collector_supervisor_state( { watched_names => ['a'] } );
@@ -2324,7 +2302,6 @@ $manager->_cleanup_web_files;
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_collector_supervisor_running = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::_current_perl_command = sub { return 'perl.exe' };
     local *Developer::Dashboard::RuntimeManager::_dashboard_core_helper_path = sub { return "C:/dd/$_[1]" };
@@ -2494,7 +2471,6 @@ ok( $manager->_looks_like_collector_supervisor_process( { args => 'dashboard col
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     my $src = File::Spec->catfile( $home, 'rsf-undef-src' );
     my $tgt = File::Spec->catfile( $home, 'rsf-undef-tgt' );
     open my $fh, '>', $src or die $!;
@@ -2519,9 +2495,8 @@ ok( $manager->_looks_like_collector_supervisor_process( { args => 'dashboard col
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::command_in_path = sub { my ($n) = @_; return $n eq 'perl' ? '/some/perl' : undef };
-    local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { my ($n) = @_; return $n eq 'perl' ? '/some/perl' : undef };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     local $^X = undef;
     is( $manager->_current_perl_command, '/some/perl', '_current_perl_command falls back to PATH perl when $^X is undef' );
 }
@@ -2550,7 +2525,6 @@ ok( $manager->_looks_like_collector_supervisor_process( { args => 'dashboard col
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( '', undef, 5 ) };
     is( $manager->_pkill_perl('x'), undef, '_pkill_perl Unix returns undef when stderr is undef and the exit code is unexpected' );
 }
@@ -2568,7 +2542,6 @@ ok( $manager->_looks_like_collector_supervisor_process( { args => 'dashboard col
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( undef, '', 0 ) };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_netstat = sub { return (61) };
     is_deeply( [ $manager->_listener_pids_for_port(7890) ], [61], '_listener_pids_for_port Windows falls back to netstat for undef ss stdout' );
@@ -2578,9 +2551,8 @@ ok( $manager->_looks_like_collector_supervisor_process( { args => 'dashboard col
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::command_in_path = sub { my ($n) = @_; return $n eq 'ss' ? '/usr/bin/ss' : undef };
-    local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { my ($n) = @_; return $n eq 'ss' ? '/usr/bin/ss' : undef };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_lsof = sub { return () };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_proc = sub { return (71) };
     my @cap;
@@ -2644,7 +2616,6 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
     is( $manager->_web_runtime_ready( 5, undef ), 0, '_web_runtime_ready under Windows with no port falls through to the shared loop' );
@@ -2802,7 +2773,6 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     my $src = File::Spec->catfile( $home, 'rsf-2191-src' );
     my $tgt = File::Spec->catfile( $home, 'rsf-2191-tgt' );
     for my $p ( $src, $tgt ) { open my $fh, '>', $p or die $!; print {$fh} "x"; close $fh; }
@@ -2816,7 +2786,6 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     my $src = File::Spec->catfile( $home, 'rsf-2203-src' );
     my $tgt = File::Spec->catfile( $home, 'rsf-2203-tgt' );
     open my $fh, '>', $src or die $!;
@@ -2833,7 +2802,6 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( undef, 'err-only', 1 ) };
     is_deeply( [ $manager->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, 'err-only' ], '_replace_path_via_powershell skips undef output in the failure text' );
 }
@@ -2842,9 +2810,8 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::command_in_path = sub { return undef };
-    local *Developer::Dashboard::ProcessSupervision::command_in_path = sub { return undef };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     ok( length $manager->_current_perl_command, '_current_perl_command falls back past perl.exe when nothing is in PATH on Windows' );
 }
 
@@ -2855,7 +2822,6 @@ is( Developer::Dashboard::RuntimeManager::_powershell_single_quote(undef), q{''}
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( "header\n  4321  \n", '', 0 ) };
     is_deeply( [ $manager->_listener_pids_for_port(7890) ], [4321], '_listener_pids_for_port skips non-numeric Windows owning-process lines' );
 }
@@ -2907,7 +2873,6 @@ is( $manager->_port_accepting_connections(1),     0, '_port_accepting_connection
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
     is( $manager->_web_runtime_ready( 5, undef ), 0, '_web_runtime_ready returns zero when no runtime and no listener are found' );
@@ -2917,7 +2882,6 @@ is( $manager->_port_accepting_connections(1),     0, '_port_accepting_connection
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return { pid => 5, port => 7890 } };
     local *Developer::Dashboard::RuntimeManager::_web_runtime_matches_pid = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { my ( undef, $p ) = @_; return $p == 5 ? 1 : 0 };
@@ -3037,7 +3001,6 @@ is( Developer::Dashboard::RuntimeManager::_portable_signal(15), 15, '_portable_s
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return { pid => 5 } };
     local *Developer::Dashboard::RuntimeManager::_web_runtime_matches_pid = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
@@ -3048,7 +3011,6 @@ is( Developer::Dashboard::RuntimeManager::_portable_signal(15), 15, '_portable_s
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::_web_runtime_matches_pid = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { return 1 };
@@ -3060,7 +3022,6 @@ is( Developer::Dashboard::RuntimeManager::_portable_signal(15), 15, '_portable_s
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 0 };
-    local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 0 };
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return { pid => 1234, port => 7890 } };
     local *Developer::Dashboard::RuntimeManager::_web_runtime_matches_pid = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { return 1 };

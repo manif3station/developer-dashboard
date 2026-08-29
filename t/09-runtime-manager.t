@@ -254,6 +254,7 @@ my $pid;
         return 'C:\\Strawberry\\perl\\bin\\perl.exe' if $name eq 'perl' || $name eq 'perl.exe';
         return;
     };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     local *Developer::Dashboard::RuntimeManager::_spawn_windows_background_command = sub {
         my ( undef, @command ) = @_;
         @spawned = @command;
@@ -3759,6 +3760,7 @@ SCRIPT
         return 0 if $name eq 'ss';
         return 1;
     };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_lsof = sub { return ( 61530, 61616, 61617 ) };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_proc = sub { die "_listener_pids_for_port_via_proc should not run when lsof already found listener pids\n" };
     is_deeply(
@@ -3775,6 +3777,7 @@ SCRIPT
         return 0 if $name eq 'ss';
         return 1;
     };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_lsof = sub { return () };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_proc = sub {
         my ( undef, $port ) = @_;
@@ -3930,6 +3933,7 @@ SCRIPT
         return 'C:\\Perl\\perl.exe' if $name eq 'perl.exe';
         return;
     };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     is( $manager->_current_perl_command, 'C:\\Perl\\perl.exe', '_current_perl_command prefers perl.exe on Windows when plain perl is absent' );
 }
 
@@ -3943,6 +3947,7 @@ SCRIPT
         return '/usr/local/bin/perl.exe' if $name eq 'perl.exe';
         return;
     };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     is( $manager->_current_perl_command, '/usr/local/bin/perl', '_current_perl_command falls back to perl from PATH when the current interpreter path is missing' );
 
     local *Developer::Dashboard::RuntimeManager::command_in_path = sub {
@@ -3951,9 +3956,11 @@ SCRIPT
         return '/usr/local/bin/perl.exe' if $name eq 'perl.exe';
         return;
     };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     is( $manager->_current_perl_command, '/usr/local/bin/perl.exe', '_current_perl_command falls back to perl.exe from PATH when plain perl is unavailable' );
 
     local *Developer::Dashboard::RuntimeManager::command_in_path = sub { return };
+    local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     is( $manager->_current_perl_command, '/tmp/nonexistent-perl', '_current_perl_command finally returns the current interpreter path when no PATH fallback exists' );
 }
 

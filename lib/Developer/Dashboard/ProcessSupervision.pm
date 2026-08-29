@@ -92,7 +92,7 @@ sub _replace_state_file {
     return 1 if $self->_rename_path( $source, $target );
 
     my $rename_error = $!;
-    if ( is_windows() ) {
+    if ( $self->is_windows ) {
         for my $attempt ( 1 .. 10 ) {
             if ( -e $target ) {
                 $self->_unlink_path($target)
@@ -152,7 +152,7 @@ sub _unlink_path {
 # Output: boolean success flag and optional failure text string.
 sub _overwrite_state_file_in_place {
     my ( $self, $source, $target ) = @_;
-    return ( 0, '' ) if !is_windows();
+    return ( 0, '' ) if !$self->is_windows;
     open my $source_fh, '<', $source or return ( 0, "Unable to read $source for in-place overwrite: $!" );    # uncoverable branch true the caller only reaches the overwrite path with an existing readable source pending file
     local $/;
     my $content = <$source_fh>;
@@ -212,7 +212,7 @@ sub _descriptor_is_inherited_pipe {
 # Output: executable path string for the current Perl interpreter.
 sub _current_perl_command {
     my ($self) = @_;
-    if (is_windows()) {
+    if ($self->is_windows) {
         return command_in_path('perl')     if command_in_path('perl');
         return command_in_path('perl.exe') if command_in_path('perl.exe');
     }
