@@ -67,5 +67,11 @@ __pycache__/
 !docs/process-supervision.md
 
 # Gate artifacts: run-suite/coverage-run/gate-status write per-checkout state
-# here (DD-652). Runtime output, never committed.
+# here (DD-652). Runtime output, never committed. Redundant with the blanket
+# .claude/ rule below (DD-644), kept because it names the specific reason this
+# one subdirectory is gitignored, which the blanket rule alone would not say.
 .claude/state/
+
+# Operator tooling is never part of the repo (owner, 2026-08-29):
+# "no claude tool allows to be part of the repo. add to gitignore"
+.claude/
