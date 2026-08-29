@@ -111,8 +111,9 @@ into zero hides collector failures, vanished targets and misconfiguration.
 0  a fresh verdict, and it passed
 1  a run is in progress, or finished with no verdict recorded for it
 2  a verdict exists but is not about this tree, or the run was invalidated
-3  unusable - the tool could not resolve its own state directory, or
-   there is no log at all and the gate has never run here
+3  unusable - the tool could not resolve its own state directory, could
+   not read an artifact's modification time, or there is no log at all
+   and the gate has never run here
 ```
 
 **A checker with no distinct "could not look" exit is a checker whose silence is
@@ -134,6 +135,37 @@ resolve one has converted "I could not look" into "here is an answer", which is
 the single failure this page exists to prevent, occurring before the tool has
 read anything at all.
 
+## Ages are read portably, and an unreadable one is not zero
+
+The verdict's age is part of how a reader decides whether to believe it, so the
+mtime lookup carries the same obligations as everything else on this page.
+
+**It must mean the same thing on every platform.** `stat -c %Y` is GNU coreutils;
+BSD `stat`, which is what macOS ships, rejects `-c` outright. Run on a Mac, the
+tool printed `stat: illegal option -- c`, threw a shell syntax error, and reported
+an age of **496664 hours** — while exiting 0.
+
+The obvious repair is worse than it looks. `stat -c %Y || stat -f %m` reads as
+"try GNU, fall back to BSD", but on GNU `-f` means **file system** information —
+a different operation, not the other spelling of the same one. If the first branch
+fails for any unrelated reason, the second runs and answers a question nobody
+asked, and its output is then treated as a modification time. So the lookup uses
+Perl, which means the same thing everywhere and is already a hard dependency:
+
+```sh
+perl -e 'print((stat shift)[9])' "$file"
+```
+
+**And an unreadable mtime is not zero.** Two of the three original call sites
+carried `2>/dev/null || echo 0`, which is precisely why a Mac reported 496664
+hours rather than failing: the guard converted an error into a number, and a
+number gets believed. Substituting an epoch is the same mistake as substituting a
+verdict — it turns *could not look* into *here is an answer*, which is the one
+thing this page exists to prevent.
+
+An age that cannot be determined is reported as such, and the exit code says
+unusable.
+
 ## Reviewing a change against this
 
 1. Does this code decide whether a gate passed?
@@ -145,10 +177,12 @@ read anything at all.
    quietly?
 6. Has the missing-data case actually been *simulated*, rather than reasoned
    about? Delete the verdict and watch what it does.
-7. **Does a test exercise the path chosen when nothing is configured?** A spec
+7. Does it read a file's mtime? If so, does it work on BSD as well as GNU, and
+   does an unreadable mtime report unusable rather than becoming zero?
+8. **Does a test exercise the path chosen when nothing is configured?** A spec
    that sets `DD_COV_VERDICT` explicitly can never test the default it is
    overriding, and the shared-`/tmp` defect lived in exactly that blind spot for
    the whole life of the specs that were meant to cover it.
 
-Points 6 and 7 are the ones that find the others. A reader that has never been run
+Points 6 and 8 are the ones that find the others. A reader that has never been run
 against an absent verdict has not been tested; it has been read.

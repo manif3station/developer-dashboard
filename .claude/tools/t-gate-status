@@ -282,5 +282,43 @@ t/02-two.t .. ok
 }
 
 
+# ---- DD-657: mtime read portably, and an unreadable one is not zero ----
+#
+# WRITTEN RED, BEFORE THE FIX. The defect: 'stat -c %Y' is GNU coreutils and BSD
+# stat (macOS) rejects it, so on a Mac the tool printed "stat: illegal option --
+# c", threw a shell syntax error, and reported an age of 496664 hours - while
+# exiting 0. Two of the three call sites carried '2>/dev/null || echo 0', which is
+# WHY it produced a number instead of failing: the guard turned an error into a
+# plausible answer, and a plausible answer gets believed.
+#
+# These assert the SHAPE of the fix, not merely the absence of the symptom.
+# CODE ONLY, NOT COMMENTS. The first cut of this grepped the raw file, which
+# would have forbidden the tool from DOCUMENTING the defect it guards against -
+# the fix's own explanatory comment names 'stat -c' three times, and a spec that
+# fails on that is punishing the explanation rather than the behaviour.
+body_gs="$(sed 's/[[:space:]]*#.*$//' "$TOOL")"
+
+hasnt "$body_gs" 'stat -c' \
+      'no EXECUTABLE line uses GNU-only "stat -c" to read a modification time'
+hasnt "$body_gs" 'mtime.*\|\| echo 0|_dd_mtime.*\|\| echo 0' \
+      'no mtime lookup substitutes epoch 0 for a value it could not read'
+has "$body_gs" 'stat shift' \
+      'gate-status reads mtimes through perl, which means the same on GNU and BSD'
+
+# ONE helper, not three call sites - three copies of an idiom is how two of them
+# grew a different fallback from the third in the first place.
+helper_defs="$(printf '%s' "$body_gs" | grep -c '_dd_mtime()' || true)"
+ok "$helper_defs" "1" "there is exactly one mtime helper definition"
+
+# THE FAILURE PATH: the assertion that would have caught the original defect, and
+# the one no existing spec had - every other test hands gate-status a readable file.
+unread="$(mktemp -d)"
+printf 't/00.t .. ok\nResult: PASS\nSUITE_EXIT=0\n' > "$unread/gate2.log"
+printf 'GATE_EXIT=0\nTREE=deadbeef\n' > "$unread/verdict.txt"
+un_out="$(DD_GATE_LOG="$unread/gate2.log" DD_GATE_VERDICT="$unread/nonexistent.txt" DD_GATE_REPORT="$WORK/none" bash "$TOOL" 2>&1)"
+rm -rf "$unread"
+hasnt "$un_out" '[0-9]{5,}h' \
+      'a missing verdict never renders as a huge fabricated age'
+
 echo "1..$((pass+fail))"
 [ "$fail" -eq 0 ] && echo "PASS ($pass assertions)" || { echo "FAIL ($fail of $((pass+fail)))"; exit 1; }
