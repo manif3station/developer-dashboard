@@ -347,6 +347,20 @@ sub dies_like {
     set_config( { web => { ssl_validity_days => '730' } } );
     is( $config->ssl_validity_days, 730, 'ssl_validity_days keeps a positive validity' );
 
+    # The WIRING, not the ends. t/17 proves generate_self_signed_cert honours a
+    # validity_days argument by reading the certificate's real notAfter, and the
+    # assertions above prove the accessor reads the config key. Neither touches
+    # the join between them - web_settings is what carries the value from one to
+    # the other, and if its key were renamed both files would still pass while
+    # AC-1 ("config.json {web}{ssl_validity_days} makes generate_self_signed_cert
+    # issue a cert with that notAfter") became false. Two green tests whose
+    # conjunction is untested is the same shape as an assertion that cannot fail.
+    is( $config->web_settings->{ssl_validity_days},
+        730, 'web_settings carries the configured validity through to the caller that generates the cert' );
+    set_config( { web => {} } );
+    is( $config->web_settings->{ssl_validity_days},
+        365, 'web_settings carries the 365 default when no validity is configured' );
+
     # AC-5: a value beyond the 398-day public-CA limit is HONOURED, not clamped.
     # The browser rule applies to publicly-trusted certificates and explicitly
     # not to locally-operated ones, so clamping here would enforce a rule that
