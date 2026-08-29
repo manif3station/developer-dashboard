@@ -74,9 +74,30 @@ validity would enforce a rule that does not apply to them, and would do it
 invisibly. Telling them what browsers require of public certificates, and why their
 certificate is not one, leaves the decision where it belongs.
 
-*(Worth confirming on macOS specifically before documenting any value above 398 as
-safe there — Apple's platform guidance on trusted certificates has historically
-been stricter than Chromium's about manually-installed roots.)*
+### There is a second ceiling, and it is the one that bites
+
+The paragraph above is about the *398-day* rule, and it is correct: that rule does
+not reach this certificate. Apple's own page on the change says so in terms — the
+398-day maximum applies to TLS server certificates issued from **preinstalled**
+root CAs, and *"this change will not affect certificates issued from user-added or
+administrator-added Root CAs."*
+
+**But Safari still refuses a certificate that is long enough**, even from a
+user-added root. Independent testing found 398 days accepted, 800 days accepted,
+1592 days rejected, with the boundary located by half-interval search at roughly
+**825 days**. That figure is somebody's measurement rather than a published limit,
+and it has not been reproduced here — treat it as "there is a ceiling near two
+years on Apple platforms", not as a specification.
+
+So the honest warning for a large `web.ssl_validity_days` is not *"the 398-day
+limit does not apply to you"* on its own. That sentence is true and reassuring and
+would leave an operator who set 3650 wondering why Safari rejects a certificate
+they were told was fine. The warning should say both halves: the public-CA rule
+does not govern a self-signed local certificate, **and** Apple platforms appear to
+stop honouring one somewhere around two years regardless.
+
+Chromium is the more permissive of the two here, which is the opposite of the
+direction one might assume from Apple's stricter public-CA posture.
 
 ## Enabling SSL changes the trust model, not just the transport
 
