@@ -26,6 +26,7 @@ Developer-Dashboard-0*
 !SECURITY_CHECKS.md
 !docs/open-decisions.md
 !docs/gate-map.md
+!docs/assertions-that-cannot-fail.md
 !docs/time-dependent-tests.md
 !docs/path-containment.md
 !docs/collector-watchdog-configuration.md
