@@ -80,6 +80,7 @@ my %SOURCE = (
     SkillDispatcher => _code_only( File::Spec->catfile( $LIB, 'SkillDispatcher.pm' ) ),
     SkillManager    => _code_only( File::Spec->catfile( $LIB, 'SkillManager.pm' ) ),
     PageRuntime     => _code_only( File::Spec->catfile( $LIB, 'PageRuntime.pm' ) ),
+    StreamDrain     => _code_only( File::Spec->catfile( $LIB, 'StreamDrain.pm' ) ),
     WebServer       => _code_only( File::Spec->catfile( $LIB, 'Web', 'Server.pm' ) ),
 );
 
@@ -91,10 +92,19 @@ my %SOURCE = (
 # only SkillDispatcher and SkillManager carry the raw inline form. So DD-617
 # shares that step between two callers, with PageRuntime as the reference
 # implementation rather than a third consumer.
+# UPDATED IN THE SAME COMMIT AS THE BEHAVIOUR, which is what this file's own
+# documentation requires. Before the extraction both consumers carried the
+# inline 8192-byte sysread; now it lives once in StreamDrain and they call it.
+# The assertion moves with the code rather than being deleted, so the step is
+# still pinned - just pinned in its new home.
 for my $mod (qw(SkillDispatcher SkillManager)) {
-    like( $SOURCE{$mod}, qr/sysread\(\s*\$\w+\s*,\s*\$\w+\s*,\s*8192\s*\)/,
-        "$mod drains with an inline 8192-byte sysread (the shared inner step)" );
+    like( $SOURCE{$mod}, qr/_drain_ready_handle\(\s*\$selector\s*,/,
+        "$mod drains through the shared _drain_ready_handle" );
+    unlike( $SOURCE{$mod}, qr/sysread\(\s*\$\w+\s*,\s*\$\w+\s*,\s*8192\s*\)/,
+        "$mod no longer carries its own inline sysread" );
 }
+like( $SOURCE{StreamDrain}, qr/sysread\(\s*\$\w+\s*,\s*\$\w+\s*,\s*8192\s*\)/,
+    'StreamDrain is now the one place the 8192-byte read happens' );
 
 like( $SOURCE{PageRuntime}, qr/sub\s+_stream_sysread/,
     'PageRuntime has already factored its read into _stream_sysread' );
@@ -129,9 +139,15 @@ like( $SOURCE{PageRuntime}, qr/_drain_saved_ajax_post_exit_handles/,
     'PageRuntime drains handles AFTER the child exits (Windows loses the final body otherwise)' );
 
 # AXIS 3 - where the bytes go.
-like( $SOURCE{SkillDispatcher}, qr/print\s+STDOUT\s+\$\w+/,
+# These two originally matched qr/print\s+STDOUT\s+\$\w+/ and FAILED after the
+# extraction - not because the tee was lost, but because the bytes now arrive as
+# ${$chunk_ref} rather than a plain scalar, which \$\w+ does not match. The
+# behaviour was verified intact by reading the migrated code BEFORE the pattern
+# was touched; loosening an assertion to make a suite green is only legitimate
+# when you have first established that the thing it guards still holds.
+like( $SOURCE{SkillDispatcher}, qr/print\s+STDOUT\s+\$\{?\$?\w+\}?/,
     'SkillDispatcher tees child stdout through to the real STDOUT' );
-like( $SOURCE{SkillDispatcher}, qr/print\s+STDERR\s+\$\w+/,
+like( $SOURCE{SkillDispatcher}, qr/print\s+STDERR\s+\$\{?\$?\w+\}?/,
     'SkillDispatcher tees child stderr through to the real STDERR' );
 like( $SOURCE{SkillManager}, qr/_progress_detail_line/,
     'SkillManager reports progress per line instead of teeing' );
