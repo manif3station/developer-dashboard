@@ -24,6 +24,7 @@ audit-local/
 Developer-Dashboard-0*
 *.md
 !SECURITY_CHECKS.md
+!SKILLS.md
 !docs/open-decisions.md
 !docs/gate-map.md
 !docs/assertions-that-cannot-fail.md
