@@ -94,6 +94,60 @@ finished. The cheapest check is to break the setup on purpose and confirm the
 test goes red — the same falsification this project applies to its operator
 tooling.
 
+## A second mechanism: the assertion throws the discriminator away
+
+The first instance on this page fails because a *setup* silently did not happen.
+There is a second route to the same place, and it is harder to see because
+nothing about the test is missing — the assertion simply **narrows the value it
+checks until success and failure look identical**.
+
+`t/09-runtime-manager.t` forks a child running `_follow_log_file`, sends it
+`SIGHUP`, and asserts:
+
+```perl
+kill 'HUP', $missing_pid;
+waitpid( $missing_pid, 0 );
+is( $? >> 8, 0, '_follow_log_file exits cleanly on HUP' );
+```
+
+The child's handler ends with `POSIX::_exit(0)`. So a child that honours the
+signal exits 0 — and a child killed by **any** other means also presents
+`$? >> 8 == 0`, because a signal death puts the signal in the *low* byte and
+leaves the exit byte zero. Measured in a container:
+
+```
+HUP lands BEFORE the handler exists   $? >> 8 = 0    $? & 127 = 1   assertion PASSES
+HUP lands AFTER  the handler exists   $? >> 8 = 0    $? & 127 = 0   assertion PASSES
+```
+
+Two opposite realities, one observable. The test certifies "exits cleanly on
+HUP" in a run where the handler never ran and the default action did the
+killing.
+
+**The discriminator was never missing.** `$?` is a 16-bit wait status carrying
+the exit code in the high byte, the signal number in the low seven bits, and the
+core flag at bit 8. `>> 8` discards exactly the half that distinguishes the two
+cases. The fix is to assert the *whole* status — `$? & 127 == 0` alongside
+`$? >> 8 == 0`, or `POSIX::WIFEXITED`/`WIFSIGNALED`, which `:sys_wait_h` already
+provides.
+
+**The generalisation, which is the reason this belongs on the page.** Any
+transformation applied to a value *before* asserting on it can erase the
+difference the assertion exists to detect: a shift, a regex capture, a `sort -u`,
+a truncation, a cast, a `head`. So the question to ask of any assertion is not
+only *"could this fail?"* but:
+
+> **What did I discard between the observation and the comparison, and could the
+> failure I am testing for be hiding in it?**
+
+There is also a window here worth naming separately, because it is what makes
+the bad case reachable rather than theoretical: `_follow_log_file` **creates the
+log file** before it **installs its signal handlers**, and the parent's
+readiness test is the file's existence. So the parent can legitimately signal a
+child that is not yet able to catch it. A readiness check that watches for a
+*side effect* of setup rather than for setup *completing* will eventually fire
+early — and if the assertion downstream cannot discriminate, nothing reports it.
+
 ## Where else to look
 
 The pair of near-identical routines that produced this one still exists:
