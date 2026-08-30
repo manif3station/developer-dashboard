@@ -1117,9 +1117,44 @@ is( $manager->web_log, '', 'web_log returns an empty string when the dashboard l
         sleep 0.1;
     }
     ok( -f $missing_follow, '_follow_log_file creates a missing log file before following it' );
-    kill 'HUP', $missing_pid;
-    waitpid( $missing_pid, 0 );
-    is( $? >> 8, 0, '_follow_log_file exits cleanly on HUP' );
+
+    # DD-660: three separate defects lived in the three lines that used to be here.
+    #
+    # (1) kill's return value was discarded. A kill that signals no process is
+    #     precisely the failure that would make a delivery problem invisible, so
+    #     it is checked and reported rather than assumed.
+    my $signalled = kill 'HUP', $missing_pid;
+    is( $signalled, 1, '_follow_log_file child was actually signalled (kill reported one process)' );
+
+    # (2) waitpid had NO bound. A child that never honours the signal hung the
+    #     suite for 16 minutes and would have hung indefinitely; because this runs
+    #     under the shared host-verification lock, every other gate stops behind
+    #     it. A hang is worse than a failure - a failure reports itself, a hang is
+    #     indistinguishable from a slow run.
+    my $reaped = 0;
+    for ( 1 .. 300 ) {    # 300 x 0.1s = a 30-second bound
+        $reaped = waitpid( $missing_pid, WNOHANG );
+        last if $reaped == $missing_pid;
+        sleep 0.1;
+    }
+
+    if ( $reaped != $missing_pid ) {
+        kill 'KILL', $missing_pid;
+        waitpid( $missing_pid, 0 );
+        fail("_follow_log_file child $missing_pid did not exit within 30s of SIGHUP; SIGKILLed it so the suite can continue");
+    }
+    else {
+        # (3) the assertion read only $? >> 8, which is 0 BOTH for a clean
+        #     POSIX::_exit(0) and for a death by signal - a signal death puts the
+        #     signal in the low byte and leaves the exit byte zero. So it
+        #     certified 'exits cleanly on HUP' in a run where the handler had not
+        #     been installed yet and SIGHUP's default action did the killing.
+        #     Measured in a container: handler ran -> $?>>8=0 and $?&127=0;
+        #     default action killed it -> $?>>8=0 and $?&127=1. Assert both halves.
+        my $status = $?;
+        is( $status & 127, 0, '_follow_log_file child was not killed by a signal (its own HUP handler ran)' );
+        is( $status >> 8,  0, '_follow_log_file exits cleanly on HUP' );
+    }
 }
 {
     my $missing_follow_tail = "$home/missing-follow-tail.log";
