@@ -33,6 +33,7 @@ Developer-Dashboard-0*
 !docs/path-containment.md
 !docs/collector-watchdog-configuration.md
 !docs/https-and-certificates.md
+!docs/uncoverable-annotation-placement.md
 !docs/gate-verdicts.md
 !doc/owasp-compliance-sow.md
 !doc/security.md
