@@ -1067,16 +1067,30 @@ our \$stash = {};
 our \$runtime = {};
 our \@errors = ();
 
+# __add_error(\@messages)
+# Records one or more non-empty CODE-block error messages into this sandpit
+# package's error list, for __errors to drain afterward.
+# Input: candidate error message strings, empty/undef ones are dropped.
+# Output: none.
 sub __add_error {
     push \@errors, grep { defined \$_ && \$_ ne '' } \@_;
 }
 
+# __errors()
+# Drains and returns every error recorded since the last drain.
+# Input: none.
+# Output: list of recorded error message strings; clears the internal list.
 sub __errors {
     my \@copy = \@errors;
     \@errors = ();
     return \@copy;
 }
 
+# stash(\$input)
+# CODE-block-visible accessor: merges a hash into this sandpit's page stash,
+# or reads back one key's stashed value.
+# Input: a hash reference to merge in, or a scalar key to look up.
+# Output: the input hash reference on a merge; the stashed value on a lookup.
 sub stash {
     my (\$input) = \@_;
     die "no input" if !defined \$input;
@@ -1087,27 +1101,52 @@ sub stash {
     return \$stash->{\$input};
 }
 
+# hide(\$input)
+# CODE-block-visible: stashes a hash like stash() does, then returns the
+# sentinel token that tells the page renderer to omit this value from output.
+# Input: a hash reference to stash, or undef.
+# Output: the "__DD_HIDE__" sentinel string.
 sub hide {
     my (\$input) = \@_;
     stash(\$input) if ref(\$input) eq 'HASH';
     return "__DD_HIDE__";
 }
 
+# void(\$input)
+# CODE-block-visible: stashes a value like stash() does, but returns nothing
+# (unlike hide(), which returns a sentinel) - for updates with no display need.
+# Input: a value to stash, or undef.
+# Output: none.
 sub void {
     my (\$input) = \@_;
     stash(\$input) if defined \$input;
     return;
 }
 
+# stop(\$message)
+# CODE-block-visible: aborts the current CODE block's evaluation early via the
+# internal "__DD_STOP__" die sentinel, carrying an optional message.
+# Input: optional message string.
+# Output: never returns; always dies.
 sub stop {
     my (\$message) = \@_;
     die "__DD_STOP__\\n" . (defined \$message ? \$message : '');
 }
 
+# params()
+# CODE-block-visible accessor for the current request's params hash.
+# Input: none.
+# Output: hash reference of request params (empty hash if none set).
 sub params {
     return \$runtime->{params} || {};
 }
 
+# __initial_context(\$class, \$next_stash, \$next_runtime)
+# Resets this sandpit package's stash/runtime/errors state to the values
+# supplied for the CODE block about to run.
+# Input: class name (unused), stash hash reference, runtime context hash
+# reference - both default to an empty hash when undef.
+# Output: 1.
 sub __initial_context {
     my (\$class, \$next_stash, \$next_runtime) = \@_;
     \$stash = \$next_stash || {};
@@ -1116,6 +1155,12 @@ sub __initial_context {
     return 1;
 }
 
+# __run_code(\$class, \$code)
+# Evaluates one CODE block's source inside this sandpit package, recording
+# any thrown error rather than letting it propagate.
+# Input: class name (unused), Perl source string to evaluate.
+# Output: the block's own return list; empty on an evaluation error, which is
+# instead recorded via __add_error.
 sub __run_code {
     my (\$class, \$code) = \@_;
     my \@result = eval "{\$code}";
