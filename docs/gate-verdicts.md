@@ -101,6 +101,32 @@ compares committed trees. It cannot distinguish two workspaces at one commit, an
 it says nothing about uncommitted work. Per-checkout paths handle the first; the
 second is open.
 
+## Per-subroutine counts vary between runs; the four-metric verdict does not
+
+Two `Devel::Cover` passes over a byte-identical tree (verified `git status
+--porcelain` empty plus per-file sha256, not merely "nothing changed") can report
+different per-subroutine execution counts - measured on
+`RuntimeManager.pm`, where every `BEGIN` block moved from 79 to 80 executions
+between two runs on the same commit (DD-663). The full suite's own total test
+count does the same thing across otherwise-identical trees, by more than a
+handful of tests (DD-646, DD-634).
+
+**This is ambient, not a regression, and DD-646 already fixed the part that
+matters:** before that fix, the variation could reach the four-metric verdict
+itself (statement/branch/condition/subroutine), because `RuntimeManager.pm`'s
+copy of `_read_process_env_marker` had no test for an empty environ, so its
+condition coverage depended on whether the suite happened to meet a process
+with a readable-but-empty environ during that run. After the fix, three
+consecutive runs reported 100.0 on all four metrics regardless of the
+underlying count drift - **the stability is a property of the metric, not of
+the measurement**. The counts beneath the metric still move; the metric that
+gates a release does not.
+
+**If you see a per-subroutine count differ between two coverage runs on the
+same tree, this is why**, and it is not by itself evidence of anything wrong.
+Confirm the four-metric total is still 100.0 on both runs before treating a
+count difference as a finding.
+
 ## The three states, which must never collapse into two
 
 This is the part that matters most, and the part that is easiest to get wrong.
