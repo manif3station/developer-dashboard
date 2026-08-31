@@ -55,17 +55,57 @@ new unguarded `$?` read appears anywhere in the tree.
 **The general rule: a function that answers a question must not change the
 state its caller is about to report.**
 
-## Hazard 2: the EOF condition is easy to get subtly wrong
+## Hazard 2: `sysread` has THREE outcomes, and treating it as two truncates output
 
 ```perl
-if ( !defined $read || $read == 0 ) { ... }
+my $read = sysread( $handle, $chunk, 8192 );
+if ( !defined $read || $read == 0 ) { ... }    # WRONG - conflates two of the three
 ```
 
-`sysread` returns **undef** on error and **0** at end of file, and those need
-the same handling here but are different conditions. Writing `if (!$read)`
-looks equivalent and is not — it also fires on a legitimately empty read.
-Getting it wrong produces a loop that spins, or one that drops the tail of a
-child's output, and neither fails loudly.
+**This page previously said these two conditions "need the same handling here
+but are different conditions."** That was the behaviour the code had, and it
+was a defect (DD-678). They are three outcomes and they need three answers:
+
+| `sysread` returns | means | correct response |
+|---|---|---|
+| a positive count | bytes arrived | use them |
+| **`undef` with `$!{EINTR}`** | **interrupted before any bytes moved** | **RETRY — the stream is not finished** |
+| `undef` otherwise | a genuine I/O error | report it, then stop |
+| `0` | real end of file | remove from the selector, close |
+
+The middle row is the one that bites. Perl does not install signal handlers
+with `SA_RESTART`, and `sysread` bypasses the `:perlio` layer that would
+otherwise retry, so an interrupted read reaches the caller as `undef`. Any
+handler at all is enough — a collector tick, a `SIGCHLD`, a window resize —
+so this is not a heavy-load-only path.
+
+Conflating `undef` with `0` means a signal arriving mid-read closes a handle
+whose child is still running and still has output to give. The child's tail is
+dropped, silently, and the caller cannot tell a truncated stream from a
+complete one.
+
+Conflating a *genuine error* with end of file is the same failure in the other
+direction: the read failed, and the caller is told the stream ended normally.
+
+### Retrying does not spin
+
+`sysread` on a blocking handle waits for bytes or for end of file, so a `next`
+on `EINTR` blocks again rather than busy-looping. This is the standard EINTR
+idiom, not a poll.
+
+### The response differs by what the helper RETURNS
+
+There are two drains in this codebase and they handle `EINTR` differently on
+purpose:
+
+- A helper returning a **status** can return early on `EINTR` and let its
+  caller's outer select loop call it again.
+- A helper returning **data**, where `undef` means "this handle is finished",
+  cannot — returning `undef` on `EINTR` reproduces the exact defect. It must
+  retry in a loop of its own.
+
+Copying one into the other looks like consistency and is a regression. That is
+why the two are not shared.
 
 The handle must also be **removed from the selector before being closed**.
 Closing without removing leaves a closed handle in the select set, which
