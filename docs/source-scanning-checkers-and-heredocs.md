@@ -48,13 +48,38 @@ worth documenting rather than fixing once and forgetting:
   (`\$`, `\@`) exactly like the surrounding code, or `perl -c` fails
   immediately with an "unintended interpolation" warning.
 
+## A third instance: an assertion PROVING absence read as an instance
+
+`hunt-monitor`'s `imp-todo` check (a bare `\bTODO\b` regex over every line
+under `lib/`, `bin/`, `script/`, `t/`) hit the same family from a third
+direction (DD-704). `t/15-release-metadata.t` carries `Test::More` assertions
+whose entire purpose is proving a pattern does NOT appear:
+
+```perl
+unlike( $auth_hunt_pod, qr/\bTODO\b/, 'auth regression POD no longer cites a TODO block' );
+```
+
+The word `TODO` appears on that line twice - once in the regex being tested
+for, once in the human-readable test description - and both are matched by a
+checker that cannot tell "this line contains the token" from "this line
+asserts the token is absent." The finding recurred four times (DD-636, DD-698,
+DD-708, DD-704) because each occurrence was discarded as a false positive
+without the checker itself being fixed - the root cause was correctly named on
+the first discard (DD-636) and only implemented on the fourth. `check_todo()`
+now skips a `.t`-file match sitting inside an `unlike()`/`isnt()` call, and the
+one remaining hit (a comment that merely *described* the assertion) was
+reworded to drop the bare word rather than taught to the checker, matching the
+project's existing precedent (DD-678) of rephrasing prose a raw-text sweep
+cannot parse rather than building it a parser.
+
 ## How to apply
 
-Before accepting a source-scanning checker's finding as real, confirm the
-matched line is not inside a heredoc string - and if it is, check whether that
-heredoc is interpolating (any edit inside it needs the same escaping
-discipline as the code around it) or not (edits there are free-form text, but
-still need to compile as valid embedded Perl if the heredoc is ever `eval`'d).
-`t/159`'s comment-matching bug (DD-693) is the same family from the opposite
-direction: a checker seeing a comment and reading it as code, rather than
-seeing code-shaped text and reading it as a comment.
+Before accepting a source-scanning checker's finding as real, ask which of
+three things it might actually be reading: code-shaped text inside a heredoc
+string (not real code in this file), a comment describing a construct rather
+than using it (`t/159`, DD-693 - the same family from the opposite direction:
+a checker seeing a comment and reading it as code), or an assertion proving a
+pattern's ABSENCE rather than containing an instance of it (`imp-todo`,
+DD-704). In every case the fix is either to narrow the checker with a real
+discriminator, or to reword the source so the checker's blind spot no longer
+matters - never to keep discarding the same finding by hand.
