@@ -166,6 +166,66 @@ thing this page exists to prevent.
 An age that cannot be determined is reported as such, and the exit code says
 unusable.
 
+## A CI verdict must name the commit it describes
+
+Everything above is about verdicts this project records for itself. The same
+rule governs verdicts it reads from CI, and it is easier to get wrong there
+because the answer arrives already formatted as a sentence about the branch.
+
+`.claude/tools/ci-health` asks GitHub for recent workflow runs and answers "is
+master green". A run carries a `head_sha`; the branch does not. So a verdict
+phrased as *"all workflows are green on master"* is ambiguous by construction —
+it is true of **some** commit, and nothing in the sentence says which.
+
+That ambiguity is not academic. The project's standing rule is to re-check CI
+**after** every push, because a green answer expires the moment you push. A
+checker that reports the branch's last completed runs makes obeying that rule
+produce the very false confidence it exists to prevent: you push, you dutifully
+re-check, and you are told about a commit that is not yours.
+
+**It fails in both directions**, which is the tell that the commit rather than
+the conclusion is the missing piece:
+
+- reported **green** from an earlier commit's runs — the false all-clear
+- reported **red** from an earlier commit's runs — sends you investigating a
+  failure you did not cause. Observed: a checker announced `Test is FAILURE on
+  master` for a run whose `head_sha` was the *previous* commit, while the run for
+  the just-pushed one was still queued.
+
+### The fourth state
+
+`TREE=` gives local verdicts three states — clean, failed, could-not-look. A CI
+verdict for a specific commit needs a **fourth**:
+
+| state | meaning |
+|---|---|
+| green | every workflow for THIS commit finished and passed |
+| red | a workflow for THIS commit failed |
+| could-not-look | the API, or the head SHA, could not be read |
+| **not yet verified** | runs for THIS commit exist but have not finished |
+
+The fourth is the one that matters immediately after a push, and the one most
+easily folded into the others. Two ways it gets lost:
+
+- **Folded into green by omission** — the in-flight run is skipped and an older
+  completed run answers instead.
+- **Folded into green by partial completion** — one of four workflows has
+  finished, it passed, and the checker says green. Measured: `all 1 workflows
+  are green on master@e1aec20 (3 still running)`, exit 0. The commit was right
+  and the answer was still premature; a caller acting on that exit status
+  proceeds on a quarter of the evidence.
+
+**A failure still outranks pending.** Something that has already gone wrong does
+not become unknown because something else is unfinished.
+
+### Resolve the head from the server
+
+The commit to judge is the branch head **as the server sees it**. A local
+`origin/master` is a snapshot of the last fetch, so comparing against it can
+report a confident zero difference for ever. `git ls-remote` asks the server and
+cannot be fooled by a stale local ref — the same reasoning that governs "am I
+behind" checks elsewhere in this project.
+
 ## Reviewing a change against this
 
 1. Does this code decide whether a gate passed?
