@@ -74,6 +74,7 @@ __pycache__/
 !docs/uncoverable-annotations.md
 !docs/source-scanning-checkers-and-heredocs.md
 !docs/board-write-attribution.md
+!docs/ticket-sandbox-root.md
 
 # Gate artifacts: run-suite/coverage-run/gate-status write per-checkout state
 # here (DD-652). Runtime output, never committed. Redundant with the blanket
