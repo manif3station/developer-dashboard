@@ -40,10 +40,6 @@ my %SETTER_BASELINE = map { $_ => 1 } (
     'Developer/Dashboard/CLI/Ask.pm::_ask_claude',
     'Developer/Dashboard/CLI/Ask.pm::_missing_backend_message',
     'Developer/Dashboard/CLI/Ask.pm::_run_cli',
-    'Developer/Dashboard/CLI/RuntimeControl.pm::_run_lifecycle_command',
-    'Developer/Dashboard/CLI/RuntimeControl.pm::_lifecycle_progress',
-    'Developer/Dashboard/CLI/Ticket.pm::exec_workspace_attach',
-    'Developer/Dashboard/CollectorRunner.pm::start_loop',
     'Developer/Dashboard/CollectorRunner.pm::_waitpid_nonblocking',
     'Developer/Dashboard/CollectorRunner.pm::_terminate_command_process',
     'Developer/Dashboard/RuntimeManager.pm::_wait_for_any_child_process',
@@ -54,8 +50,6 @@ my %SETTER_BASELINE = map { $_ => 1 } (
     'Developer/Dashboard/SkillManager.pm::_clone_skill_source',
     'Developer/Dashboard/SkillManager.pm::_terminate_streaming_command',
     'Developer/Dashboard/SkillManager.pm::_install_skill_dependency_manifest',
-    'Developer/Dashboard/Web/App.pm::_csrf_rejection_response',
-    'Developer/Dashboard/Web/App.pm::_authorize_api_request',
     'Developer/Dashboard/Web/Server.pm::_waitpid',
     'Developer/Dashboard/Web/Server.pm::generate_self_signed_cert',
     'Developer/Dashboard/Web/Server.pm::_ssl_cert_has_expected_profile',
@@ -96,6 +90,54 @@ sub _subs_in_file {
     return @subs;
 }
 
+# _strip_comments($text)
+# Removes every Perl "#" comment from a block of source text, tracking single-
+# and double-quote state (with backslash escaping) so a "#" or backtick INSIDE
+# a string literal is never mistaken for the start of a comment. DD-693: both
+# sweeps below used to grep raw source, so a comment quoting `backticks` or
+# naming "$?" in prose read exactly like the code it was explaining - an
+# explanation of the defect became indistinguishable from the defect itself.
+# Deliberately dependency-free (no PPI), matching the rest of this file's
+# style; a full comment can still leave a trailing newline, which is fine
+# because every regex this feeds is a substring search, not an anchor.
+# Input: multi-line source text string.
+# Output: the same text with every "#"-to-end-of-line comment removed.
+sub _strip_comments {
+    my ($text) = @_;
+    my $out = '';
+    my $quote = '';    # '' | "'" | '"'
+    my $i = 0;
+    my $len = length $text;
+    while ( $i < $len ) {
+        my $ch = substr( $text, $i, 1 );
+        if ($quote) {
+            $out .= $ch;
+            if ( $ch eq '\\' && $i + 1 < $len ) {
+                $out .= substr( $text, $i + 1, 1 );
+                $i += 2;
+                next;
+            }
+            $quote = '' if $ch eq $quote;
+            $i++;
+            next;
+        }
+        if ( $ch eq q{'} || $ch eq q{"} ) {
+            $quote = $ch;
+            $out .= $ch;
+            $i++;
+            next;
+        }
+        if ( $ch eq '#' ) {
+            $i++;
+            $i++ while $i < $len && substr( $text, $i, 1 ) ne "\n";
+            next;
+        }
+        $out .= $ch;
+        $i++;
+    }
+    return $out;
+}
+
 # _unguarded_dollar_question_hits($lib_dir)
 # Sweeps every .pm file under a lib/ root for a sub that reads the global $?
 # without a preceding "local $?;" guard anywhere in its own body - the shape
@@ -112,8 +154,9 @@ sub _unguarded_dollar_question_hits {
     for my $file ( sort @files ) {
         my ($rel) = $file =~ /\Q$lib_dir\E\/?(.*)/;
         for my $sub ( _subs_in_file($file) ) {
-            next if $sub->{body} !~ /\$\?/;
-            next if $sub->{body} =~ /local\s+\$\?/;
+            my $code = _strip_comments( $sub->{body} );
+            next if $code !~ /\$\?/;
+            next if $code =~ /local\s+\$\?/;
             $hits{"$rel\::$sub->{name}"} = 1;
         }
     }
@@ -139,16 +182,36 @@ sub _unguarded_dollar_question_setters {
     for my $file ( sort @files ) {
         my ($rel) = $file =~ /\Q$lib_dir\E\/?(.*)/;
         for my $sub ( _subs_in_file($file) ) {
-            my $sets = $sub->{body} =~ /\bwaitpid\s*\(/
-                || $sub->{body} =~ /\bsystem\s*\(/
-                || $sub->{body} =~ /`[^`]*`/;
+            my $code = _strip_comments( $sub->{body} );
+            my $sets = $code =~ /\bwaitpid\s*\(/
+                || $code =~ /\bsystem\s*\(/
+                || $code =~ /`[^`]*`/;
             next if !$sets;
-            next if $sub->{body} =~ /local\s+\$\?/;
+            next if $code =~ /local\s+\$\?/;
             $hits{"$rel\::$sub->{name}"} = 1;
         }
     }
     return \%hits;
 }
+
+# DD-693: _strip_comments unit coverage, run before the real sweep so a
+# regression in the stripper itself is caught with a precise diagnostic
+# rather than surfacing as a confusing sweep false-positive/negative.
+is( _strip_comments("my \$x = 1; # a comment mentioning \$? and `backticks`\n"),
+    "my \$x = 1; \n",
+    'a trailing comment naming $? and backticks is stripped, code before it survives' );
+is( _strip_comments("    # whole-line comment with `backticks` and \$?\n    return 1;\n"),
+    "    \n    return 1;\n",
+    'a whole-line comment is stripped entirely, the following code line survives' );
+is( _strip_comments(q{my $s = "a # not a comment";} . "\n"),
+    q{my $s = "a # not a comment";} . "\n",
+    'a "#" inside a double-quoted string is not treated as a comment start' );
+is( _strip_comments(q{my $s = 'another # not a comment';} . "\n"),
+    q{my $s = 'another # not a comment';} . "\n",
+    'a "#" inside a single-quoted string is not treated as a comment start' );
+is( _strip_comments(q{my $s = "escaped \" quote # still inside the string"; # real comment} . "\n"),
+    q{my $s = "escaped \" quote # still inside the string"; } . "\n",
+    'a backslash-escaped quote inside a string does not end the string early, so a "#" before the real closing quote stays part of the string' );
 
 my $lib_dir = _repo_path('lib');
 my $hits    = _unguarded_dollar_question_hits($lib_dir);
@@ -203,6 +266,18 @@ C<$?> mutated for its caller without ever reading C<$?> itself, simply by
 calling C<waitpid>, C<system>, or backticks and never guarding the value.
 That is invisible to the read-side sweep by construction, so a second sweep
 and a second, separately-triaged baseline (C<%SETTER_BASELINE>) cover it.
+
+DD-693 fixed both sweeps matching raw source instead of code: a comment
+quoting backticks (e.g. explaining an unrelated helper's own backtick usage
+in prose) read as a command substitution, and a comment merely naming the
+variable C<$?> read as an unguarded read - so an explanation of this exact
+bug class was itself flagged as an instance of it. C<_strip_comments> now
+removes every C<#>-to-end-of-line comment (tracking quote state so a C<#> or
+backtick inside a string literal is left alone) before either sweep runs.
+Re-deriving C<%SETTER_BASELINE> against the stripped source found six
+entries that were never real offenders - each verified by hand to contain no
+actual C<waitpid>/C<system>/backtick call, only a comment quoting one in
+prose - and removed them.
 
 =head1 WHY IT EXISTS
 
