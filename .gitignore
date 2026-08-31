@@ -25,16 +25,18 @@ Developer-Dashboard-0*
 *.md
 !SECURITY_CHECKS.md
 !SKILLS.md
-!docs/open-decisions.md
-!docs/gate-map.md
-!docs/assertions-that-cannot-fail.md
-!docs/unblocking-decisions.md
-!docs/time-dependent-tests.md
-!docs/path-containment.md
-!docs/collector-watchdog-configuration.md
-!docs/https-and-certificates.md
-!docs/uncoverable-annotation-placement.md
-!docs/gate-verdicts.md
+# DD-683: one glob instead of one negation per vault page. docs/ (plural) is
+# the flat operator vault with no subdirectories, and every new page used to
+# add its own !docs/<page>.md line at this same spot - a manufactured merge
+# conflict between any two cards adding a page at once, whose only correct
+# resolution was always "keep both". Widening this does NOT widen what
+# ships: docs/ (plural) never reaches the release tarball regardless of git
+# tracking (verified empirically - dzil build then grep the MANIFEST/tar for
+# docs/, both zero, both before and after this change), because dist.ini's
+# GatherDir gathers under `doc/` (singular) not `docs/`. doc/ (singular, the
+# shipped directory) keeps its own explicit per-file whitelist below,
+# unchanged.
+!docs/*.md
 !doc/owasp-compliance-sow.md
 !doc/security.md
 !doc/update-and-release.md
@@ -67,15 +69,6 @@ updates/
 # Build spew from the dogfood runs, same class: untracked was never protection.
 dogfood-output/
 __pycache__/
-!docs/process-supervision.md
-!docs/streaming-child-process-output.md
-!docs/page-resolution.md
-!docs/dollar-question-guard.md
-!docs/uncoverable-annotations.md
-!docs/why-this-is-perl.md
-!docs/source-scanning-checkers-and-heredocs.md
-!docs/board-write-attribution.md
-!docs/ticket-sandbox-root.md
 
 # Gate artifacts: run-suite/coverage-run/gate-status write per-checkout state
 # here (DD-652). Runtime output, never committed. Redundant with the blanket
