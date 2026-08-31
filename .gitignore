@@ -71,6 +71,7 @@ __pycache__/
 !docs/streaming-child-process-output.md
 !docs/page-resolution.md
 !docs/dollar-question-guard.md
+!docs/uncoverable-annotations.md
 
 # Gate artifacts: run-suite/coverage-run/gate-status write per-checkout state
 # here (DD-652). Runtime output, never committed. Redundant with the blanket
