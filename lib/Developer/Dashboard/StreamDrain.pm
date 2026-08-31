@@ -25,23 +25,51 @@ our @EXPORT_OK = qw(_drain_ready_handle);
 sub _drain_ready_handle {
     my ( $self, $selector, $handle ) = @_;
 
+    # THREE OUTCOMES, NOT TWO (DD-678). sysread returns 0 at end of file and
+    # undef on error, and this used to take the same branch for both - which
+    # meant an interrupted read closed the handle and silently truncated the
+    # child's output.
+    #
+    # Perl does not install handlers with SA_RESTART, and sysread bypasses the
+    # :perlio layer that would otherwise retry, so EINTR reaches us. SkillManager
+    # raises SIGALRM itself, so this is not hypothetical for its own reader.
+    #
+    # PageRuntime does not share this helper - it already had its own EINTR-aware
+    # drain, and adopting a non-aware one would have been a regression. That is
+    # now moot in the sense that this one is aware too, but the separation stays:
+    # t/163 fails by design if anybody migrates it.
+    #
+    # AND IT HANDLES EINTR DIFFERENTLY, deliberately, because the two helpers
+    # return different things. PageRuntime's _drain_saved_ajax_ready_handle
+    # returns a STATUS and can therefore do `return 1 if $!{EINTR}` - handing
+    # control back so its outer select loop calls again. This one returns DATA,
+    # with undef meaning "the handle is finished", so returning undef on EINTR
+    # would reproduce the very defect being fixed. The retry therefore happens
+    # here, in a loop.
+    #
+    # That loop cannot busy-spin: sysread on a blocking handle waits for bytes or
+    # a signal, so between interrupts it is asleep, not turning. It is the
+    # standard EINTR idiom, not a poll.
     my $chunk = '';
-    my $read = sysread( $handle, $chunk, 8192 );
+    my $read;
 
-    # DELIBERATELY CONFLATES ERROR WITH END OF FILE, because that is what both
-    # callers did before this extraction and this change preserves behaviour.
-    #
-    # sysread returns undef on error and 0 at EOF. Treating them alike means an
-    # interrupted read - EINTR, which is retryable - closes the handle and
-    # silently truncates the child's output. That is a real defect, it is filed
-    # as DD-678, and it is NOT fixed here: folding a correctness fix into a
-    # refactor makes it impossible to tell afterwards which change caused what.
-    # t/162 pins the current behaviour so the fix has to arrive as a visible
-    # failing assertion rather than as a side effect.
-    #
-    # PageRuntime does not share this helper precisely because its own drain
-    # already guards EINTR, and adopting this one would be a regression.
-    if ( !defined $read || $read == 0 ) {    # uncoverable condition left
+    while (1) {
+        $read = sysread( $handle, $chunk, 8192 );
+        last if defined $read;
+
+        # RETRYABLE. The read was interrupted before any bytes moved; the child
+        # is not finished and the handle is still live.
+        next if $!{EINTR};
+
+        # A GENUINE ERROR, which is neither retryable nor end of file. It is
+        # surfaced rather than swallowed - reporting it as EOF is what hid this
+        # class of failure in the first place - and then the handle is finished,
+        # because a handle we cannot read is not one we can keep selecting on.
+        warn "reading a ready child handle failed: $!\n";
+        last;
+    }
+
+    if ( !defined $read || $read == 0 ) {
         $selector->remove($handle);
         close $handle;
         return;
