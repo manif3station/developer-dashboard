@@ -39,7 +39,12 @@ worth documenting rather than fixing once and forgetting:
   a bootstrap script for the Ajax launcher child process. Its `stash`/`hide`/
   `void`/`stop`/`params` subs are text for that OTHER process - not real subs
   in `Developer::Dashboard::PageRuntime`, and `doc-sub-comments`' hits against
-  them are false positives, correctly left uncommented.
+  them are false positives, correctly left uncommented. **`check_sub_comments()`
+  itself was fixed to know this (DD-635)**, rather than leaving the finding to
+  be discarded by hand every time the check runs: it now tracks single-quoted
+  heredoc bodies and skips sub-comment checks inside them, while still
+  checking double-quoted/bare heredocs (`<<"TAG"`, `<<TAG`) - the form
+  `_new_sandpit` uses for real, `eval`'d code.
 - `_new_sandpit`'s `<<"PERL"` (double-quoted, interpolating): a per-page
   throwaway package template that IS `eval`'d by `__run_code`, in this same
   process, as real executable code. Its `__add_error`/`__errors`/`stash`/etc.
