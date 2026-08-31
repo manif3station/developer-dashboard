@@ -41,7 +41,12 @@ sub _drain_ready_handle {
     #
     # AND IT HANDLES EINTR DIFFERENTLY, deliberately, because the two helpers
     # return different things. PageRuntime's _drain_saved_ajax_ready_handle
-    # returns a STATUS and can therefore do `return 1 if $!{EINTR}` - handing
+    # returns a STATUS and can therefore do an early "return 1" on EINTR -
+    # phrased without backticks or the literal exit-status variable, because
+    # t/159's guard sweeps RAW SOURCE and cannot tell code from the commentary
+    # about it: a backtick pair anywhere in a sub body reads as a command
+    # substitution, and naming that variable at all reads as an unguarded use.
+    # Both fire from inside a comment. Filed as DD-693. Handing
     # control back so its outer select loop calls again. This one returns DATA,
     # with undef meaning "the handle is finished", so returning undef on EINTR
     # would reproduce the very defect being fixed. The retry therefore happens
