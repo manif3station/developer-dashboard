@@ -370,6 +370,12 @@ sub _tmux_status_interval_seconds {
     return 15;
 }
 
+# apply_ticket_status(%args)
+# Configures a tmux session's status bar to show the dashboard's ticket
+# indicator on top while preserving whatever status line the session already
+# had, restoring it below the indicator.
+# Input: session name, and optional tmux/dashboard command overrides for tests.
+# Output: 1 on success, dies on a tmux configuration error.
 sub apply_ticket_status {
     my (%args) = @_;
     my $session = $args{session} || die 'Missing session name';
