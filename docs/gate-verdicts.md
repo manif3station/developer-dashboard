@@ -24,6 +24,21 @@ their own location on disk, so the reader and the writers cannot disagree about
 where to look. `DD_SUITE_LOG`, `DD_GATE_LOG`, `DD_COV_LOG` and `DD_COV_VERDICT`
 override the defaults and keep precedence.
 
+**A fourth consumer, `.claude/tools/hunt-monitor`, missed this move (DD-702).**
+Its default paths were left pointing at the old fixed `/tmp/dd-gate2.log` and
+`/tmp/dd-gate2-verdict.txt` names, which nothing has written since the move to
+per-checkout state. Neither file existed, so hunt-monitor filed cards reporting
+a "verdict predates log" finding that was really a "these files do not exist"
+non-finding (DD-697). It now derives `DD_GATE_LOG`/`DD_GATE_VERDICT` from the
+same `STATE_DIR` the other three use, and picks up the same override variables.
+
+**The guard for this class of bug is `.claude/tools/t-gate-artifact-paths`.**
+It no longer iterates a hardcoded three-tool list (the gap that let hunt-monitor
+go unnoticed): it discovers every tool under `.claude/tools/` that references
+the gate2 artifact pair or a `DD_GATE_*`/`DD_SUITE_*`/`DD_COV_*` variable, and
+asserts on the discovered set. A fifth consumer is therefore covered by
+construction the day it is added, not by someone remembering to extend a list.
+
 ## The artifacts are PER CHECKOUT, and that is load-bearing
 
 They were once a fixed pair of `/tmp` names. Every checkout, worktree and session
