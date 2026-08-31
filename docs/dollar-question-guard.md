@@ -84,6 +84,47 @@ is the common case of a setter that needs no guard: nothing above it in the
 call stack is going to read `$?` afterward, because there is nothing above
 it.
 
+## The sweep itself has a false-positive class: it reads comments as code
+
+Both sweeps in `t/159-dollar-question-guard-sweep.t` work by grepping a sub's
+raw source text - deliberately dependency-free, matching the rest of the
+file's "no full parser" style. That has a real cost: a **comment** quoting
+backticks, or naming the variable `$?` in prose, matches exactly like real
+code, because a regex over raw text cannot tell an explanation from the thing
+it explains.
+
+```perl
+sub _drain_ready_handle {
+    ...
+    # PageRuntime's helper can do an early "return 1 if $!{EINTR}" - handing
+    # control back so its outer select loop calls again...
+```
+
+This comment mentions no real `waitpid`/`system`/backtick call, but the
+setting-side sweep's regex (`` /`[^`]*`/ `` etc.) does not know that - a
+backtick pair anywhere in the sub body reads as a command substitution
+(DD-693, found when it turned an unrelated DD-678 change red).
+
+**The fix (DD-693) is `_strip_comments`**: a small quote-state scanner that
+removes every `#`-to-end-of-line comment before either sweep's regex runs,
+leaving a `#` or backtick *inside a string literal* alone (tracked via
+single/double-quote state with backslash escaping). It is applied to both
+sweeps, because both are vulnerable to the same shape.
+
+**The baseline consequence is the sharper lesson.** Before this fix,
+`%SETTER_BASELINE` held several entries that were never real offenders - held
+there only by comment punctuation, verified by opening each sub and finding
+no actual `waitpid`/`system`/backtick call in its code. A baseline entry held
+by prose can never be removed by fixing anything, because there is nothing to
+fix - it sits there forever, diluting the property the baseline exists to
+have (every member is a real, currently-open offender). **Re-deriving that
+baseline was done by reading each candidate sub by hand, not by trusting an
+automated comment-stripper for the removal decision** - a crude stripper
+(one that doesn't track quote state, e.g. a bare `s/#.*$//`) can itself
+corrupt a `#` inside a string or regex and produce a false *negative*, which
+silently un-guards a real offender. That failure mode is strictly worse than
+the false positive it would be fixing.
+
 ## Where to look
 
 - `t/159-dollar-question-guard-sweep.t` - both sweeps and both baselines, run
