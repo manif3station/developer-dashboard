@@ -576,9 +576,10 @@ for my $path (@pod_paths) {
 
 # DD-434: the auth regression test's own POD is security documentation, so it
 # must describe the DNS-rebinding admin-trust invariant as enforced rather than
-# as an open gap, and must not advertise a TODO block the file does not carry.
-# DD-387 closed that gap; the POD went stale behind it and told readers a
-# loopback admin-elevation hole was merely "documented" and still open.
+# as an open gap, and must not describe an unfinished action item the file
+# does not carry. DD-387 closed that gap; the POD went stale behind it and
+# told readers a loopback admin-elevation hole was merely "documented" and
+# still open.
 {
     my $auth_hunt      = _slurp( _repo_path( 't', '57-hunt-auth.t' ) );
     my $auth_hunt_pod  = _extract_pod($auth_hunt);
