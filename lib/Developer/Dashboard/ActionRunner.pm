@@ -288,6 +288,11 @@ sub _background_child_exit_status {
 # Output: boolean true when waitpid reaped the child.
 sub _reap_child_process {
     my ( $self, $pid ) = @_;
+    # A QUERY MUST NOT DECIDE ITS CALLER'S EXIT STATUS (DD-585/589-593/597,
+    # DD-670). waitpid below reads the reaped child's status into $?, and
+    # without this guard that value leaks into whatever _pid_is_running's own
+    # caller reads next.
+    local $?;
     return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
     my $waited = waitpid( $pid, WNOHANG );
     return $waited == $pid ? 1 : 0;
