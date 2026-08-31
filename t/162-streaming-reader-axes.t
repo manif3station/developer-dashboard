@@ -109,18 +109,30 @@ like( $SOURCE{StreamDrain}, qr/sysread\(\s*\$\w+\s*,\s*\$\w+\s*,\s*8192\s*\)/,
 like( $SOURCE{PageRuntime}, qr/sub\s+_stream_sysread/,
     'PageRuntime has already factored its read into _stream_sysread' );
 
-# DD-678: the two inline readers conflate "error" with "end of file". sysread
-# returns undef on error and 0 at EOF; both modules take the same branch for
-# each, so a signal-interrupted read closes the handle and truncates the child's
-# output silently. PageRuntime does not. These assertions pin the CURRENT state
-# so that fixing it is a visible, deliberate change here rather than a silent
-# side effect of DD-617's extraction.
+# DD-678, FIXED - and these assertions were RE-DESCRIBED rather than deleted,
+# because what they test is still worth testing and is not what they said.
+#
+# They were written to pin the unfixed conflation "so that fixing it is a
+# visible, deliberate change here rather than a silent side effect". They
+# stopped doing that the moment DD-617's extraction landed: they grep the two
+# CONSUMERS' source, and the drain moved out of both. Measured at the time of
+# the fix - SkillDispatcher 0 occurrences of EINTR, SkillManager 0, StreamDrain
+# 3. So the fix could have landed in StreamDrain with these still passing,
+# unchanged, which is exactly the invisibility they existed to prevent.
+#
+# The behavioural pin now lives in t/164-stream-drain-eintr.t, which asserts
+# what the shared helper DOES and therefore cannot be invalidated by moving code
+# between files.
+#
+# What these three still genuinely guard: PageRuntime keeps its own EINTR-aware
+# read, and neither consumer re-implements a drain locally instead of calling
+# the shared one. Both remain true and both would be real regressions.
 like( $SOURCE{PageRuntime}, qr/\$!\{EINTR\}/,
     'PageRuntime retries an EINTR-interrupted read instead of treating it as EOF' );
 unlike( $SOURCE{SkillDispatcher}, qr/EINTR/,
-    'SkillDispatcher does NOT yet guard EINTR (DD-678) - pinned so the fix is deliberate' );
+    'SkillDispatcher handles EINTR only through the shared drain, not with its own copy' );
 unlike( $SOURCE{SkillManager}, qr/EINTR/,
-    'SkillManager does NOT yet guard EINTR (DD-678) - pinned so the fix is deliberate' );
+    'SkillManager handles EINTR only through the shared drain, not with its own copy' );
 
 # AXIS 1 + 2 - timeout policy and what a timeout does.
 unlike( $SOURCE{SkillDispatcher}, qr/can_read\(\s*[\d.]+\s*\)/,
