@@ -142,6 +142,53 @@ So the mark has to distinguish contention that **invalidates** from contention t
 merely **slows**. That is not a refinement of the feature; it is the thing that
 keeps the feature worth having.
 
+### The rule, and how it was got wrong first
+
+**More than a quarter of the sampled windows invalidates. At or below that, the
+run was slowed and its verdict stands.**
+
+The measure is the *fraction of the run that competed*, not whether competition
+ever occurred, because that fraction is the quantity deciding how much of the
+measurement is compromised. A run that shared the host for one twenty-second
+window out of a twelve-minute suite was slowed by an amount too small to change
+a pass into a failure; a run that shared it for a third of its length was not
+measuring what it claimed to measure. `SLOWED` is recorded rather than
+suppressed — the fact is kept, only its verdict changes.
+
+Strictly-greater is deliberate: it keeps a single hit in a four-sample run on
+the SLOWED side, so the classification cannot turn on how long a test stand-in
+happened to sleep.
+
+**The paragraph above this one was written before the rule existed, and the code
+agreed with it in a comment while doing something else.** The condition shipped
+as `peak > 0` — any foreign process at any single instant — directly beneath a
+comment reading *"Reserved for contention that INVALIDATES. A mark on nearly
+every run carries no information and gets skimmed, which is the fate of any
+guardrail that is always red."* The comment described a discriminator; the code
+implemented a boolean.
+
+It was caught by using the tool, not by reviewing it. Two real runs on the
+morning of 2026-09-01:
+
+| run | peak | windows | of samples | fraction | truth |
+|---|---|---|---|---|---|
+| 09:02 | 12 | 15 | 50 | 30% | genuinely invalidating |
+| 09:24 | 2 | 1 | 39 | 2.6% | transient, on a host verified quiet at launch |
+
+Both were marked identically, and the second was the run that had been launched
+*deliberately* on an idle host to earn a clean verdict. Two runs, two marks, is
+already the "always red" the comment warned about — and the checklist item
+covering the threshold had been ticked.
+
+The general shape is the one this project keeps paying for: **a stated mechanism
+inside work that is otherwise correct.** The sampler was right, the self-exclusion
+was right, the signal handling was right, and every assertion passed — because
+nothing asserted the distinction the comment promised. A test suite confirms the
+behaviour someone thought to describe; a comment describing behaviour nobody
+tested is a claim, and claims are what the next person reuses. The guard now in
+place asserts the arithmetic rather than the presence of a variable name, and was
+falsified by reverting the condition and watching it go red in both tools.
+
 ### What such a detector must not do
 
 It must not kill anything — not its own run, and not another project's process.
