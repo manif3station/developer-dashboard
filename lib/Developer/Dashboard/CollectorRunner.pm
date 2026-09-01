@@ -309,6 +309,17 @@ sub start_loop {
     # the schedule fallback ternary always yields a non-empty string
     my $schedule_mode = $job->{schedule} || ( $job->{cron} ? 'cron' : $job->{interval} ? 'interval' : 'manual' );    # uncoverable condition false
     die "Collector '$name' uses manual schedule and should be run on demand" if $schedule_mode eq 'manual';
+
+    # DD-737: a collector with neither 'command' nor 'code' used to be forked
+    # into a loop anyway, which then died on its very first tick inside
+    # _collector_source and every tick after that, forever, without ever
+    # disabling itself - observed on a real machine as hundreds of unreaped
+    # zombie loop-worker processes from one permanently misconfigured
+    # collector. _collector_source already performs exactly the check this
+    # needs; running it here, before any pidfile or fork, turns a doomed
+    # loop into an immediate, visible failure instead.
+    $self->_collector_source($job);
+
     my $pidfile = $self->_pidfile($name);
     my $title   = $self->_process_title($name);
 
