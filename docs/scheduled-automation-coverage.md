@@ -33,10 +33,22 @@ their unit files or their names. `dd-blocked-resolver` sounded like exactly
 what was missing; it wasn't, and `ft99-sweep` - which nobody suspected because
 its own name is about column drift, not blocked cards - already was.
 
-## What is NOT yet covered (DD-723)
+## The disabled-vs-clean gap is now covered (DD-723)
 
-Nothing currently distinguishes *"this scheduled job is disabled/missing"*
-from *"this scheduled job ran and found nothing"* for the crontab lines and
-any remaining systemd timers this project depends on. That is the shape both
-DD-587 and DD-661 hit, and it recurs until something checks liveness, not
-just output.
+`.claude/tools/schedule-health` checks this project's own crontab entries
+(the ones in the table above) against a declared manifest and reports
+DISABLED, STALE, or CANNOT-LOOK distinctly from CLEAN. It is deliberately
+NOT added to crontab by DD-723 itself - run it manually
+(`.claude/tools/schedule-health`) until its own behaviour has been trusted
+for a while, matching this project's own caution against recommending a
+tool's permanent installation the day it lands.
+
+**A checker built by scanning what crontab currently contains cannot see a
+line that has been REMOVED** - nothing remains to iterate over, so a scan-only
+design silently reduces its own checked count instead of reporting a finding.
+`schedule-health` learned this the direct way: its own first draft had exactly
+that bug, caught by deliberately removing a real crontab line and watching the
+matched-schedule count drop from 8 to 7 while still exiting 0 - the DD-587
+shape reappearing one level up, in the tool meant to catch it. The fix is to
+check presence against a declared manifest (`EXPECTED_SCHEDULE` in the tool's
+own source), never against what a scan happens to find.
