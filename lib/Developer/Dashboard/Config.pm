@@ -436,6 +436,23 @@ sub ssl_validity_days {
     return $days + 0;
 }
 
+# ssl_warn_days()
+# The number of days before a certificate's expiry at which dashboard doctor
+# starts warning about it (DD-651). Separate return-undef-style guards rather
+# than one compound condition, which is what keeps Devel::Cover's CONDITION
+# metric at 100 (DD-624).
+# Input: none.
+# Output: positive integer number of days.
+sub ssl_warn_days {
+    my ($self) = @_;
+    my $cfg  = $self->merged;
+    my $days = $cfg->{web}{ssl_warn_days};
+    return 30 if !defined $days;
+    return 30 if $days !~ /^\d+$/;
+    return 30 if $days < 1;
+    return $days + 0;
+}
+
 # save_global_web_workers($workers)
 # Persists the default Starman worker count in the writable runtime config.
 # Input: positive integer worker count.
