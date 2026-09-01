@@ -297,3 +297,41 @@ behind" checks elsewhere in this project.
 
 Points 6 and 8 are the ones that find the others. A reader that has never been run
 against an absent verdict has not been tested; it has been read.
+
+## The writer and its readers must share ONE override name (DD-721)
+
+`coverage-run` (the writer) and `gate-status`/`hunt-monitor` (its readers) each
+default their log/verdict paths to the same literal path
+(`$DD_STATE_DIR/gate2.log` / `gate2-verdict.txt`). That agreement held only
+because none of them had ever been overridden at the same time - the writer's
+override was named `DD_COV_LOG`/`DD_COV_VERDICT`, while the readers' were
+named `DD_GATE_LOG`/`DD_GATE_VERDICT`. Set one and not the other and a reader
+silently starts describing a different file than the one the writer is
+filling - exactly the shape this page's "does it write where a second
+workspace could also be writing?" question exists to catch, one level up:
+here the divergence isn't two writers sharing a path, it's a writer and a
+reader sharing a path *by naming coincidence* rather than by contract.
+
+Found because `hunt-monitor`'s bug profile reported "no recorded suite
+verdict to read" while a verdict genuinely existed (`gate2-verdict.txt`, a
+real tree object, `GATE_EXIT=0`) but its paired log did not - debris from a
+one-off manual test run earlier the same night, not reproducible, and not
+worth chasing on its own. What *is* worth fixing is that nothing prevented it:
+two components describing "the same file" by two different override names is
+one edit away from silently not being the same file at all.
+
+**Fix:** renamed the readers' override variables to match the writer's exactly
+(`DD_COV_LOG`/`DD_COV_VERDICT` everywhere). A caller who wants to redirect the
+gate's artifacts now has exactly one name to set, and reader/writer cannot
+structurally diverge again.
+
+**A separate, deliberately unresolved question from the same investigation:**
+the verdict that triggered this read `GATE_EXIT=0` alongside `coverage gate:
+no summary line was produced` - a run that produced no recognizable summary
+exited zero anyway. `coverage-run`'s `mark()` records the real child exit
+status honestly (`status=$?`), so forcing it non-zero when the underlying
+`script/coverage-gate` genuinely exited 0 would violate this tool's own
+documented invariant ("never write a result the gate did not produce") in the
+opposite direction. Whether `script/coverage-gate` can legitimately exit 0
+with no summary line needs its own investigation before this is touched -
+left as a known, named gap rather than guessed at under time pressure.
