@@ -3031,6 +3031,30 @@ It uses `LWP::UserAgent` for real outbound HTTP in active runtime paths such
 as the Java source lookup or mirror path behind `dashboard of` and
 `dashboard open-file`.
 
+# EMBEDDING IN PERL CODE
+
+Perl code that wants the same runtime the `dashboard`/`d2` command line
+resolves - a configured path alias, or the output of any other subcommand -
+does not need to build a path registry, file registry, and config loader by
+hand. `use Developer::Dashboard` exports `d2()`, a memoized runtime handle
+scoped to the current working directory:
+
+    use Developer::Dashboard;
+
+    my $foo = d2->paths->{foo};                    # in-process, no subprocess
+    my $out = d2->doctor;                           # shells to `dashboard doctor`
+    my $res = d2->run( 'tira.ticket.show', '--ref', 'DD-726' );
+                                                      # dotted subcommands
+
+`d2->paths` resolves in-process, the same table `dashboard paths`
+prints. Any other bareword method name shells to that `dashboard`
+subcommand; `d2->run(...)` is the explicit form for a dotted subcommand
+that cannot be spelled as a plain Perl method name. Output is decoded from
+JSON into a real Perl structure automatically when it looks like JSON,
+otherwise returned as plain text; a failing subcommand raises an exception
+with its error output attached rather than returning silently as if it had
+succeeded.
+
 # SEE ALSO
 
 ["Main Concepts"](#main-concepts),
