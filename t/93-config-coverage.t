@@ -373,6 +373,17 @@ sub dies_like {
     clear_config();
     is( $config->ssl_validity_days, 365, 'ssl_validity_days defaults a missing validity' );
 
+    # DD-651: ssl_warn_days guards, following the same one-clause-per-observation
+    # shape as ssl_validity_days above and for the same reason (DD-624).
+    set_config( { web => { ssl_warn_days => 'abc' } } );
+    is( $config->ssl_warn_days, 30, 'ssl_warn_days defaults a non-numeric value' );
+    set_config( { web => { ssl_warn_days => '0' } } );
+    is( $config->ssl_warn_days, 30, 'ssl_warn_days defaults a zero value' );
+    set_config( { web => { ssl_warn_days => '5' } } );
+    is( $config->ssl_warn_days, 5, 'ssl_warn_days keeps a positive value' );
+    clear_config();
+    is( $config->ssl_warn_days, 30, 'ssl_warn_days defaults a missing value' );
+
     # 603: docker_config presence/absence.
     set_config( { docker => { compose => 'x' } } );
     is_deeply( $config->docker_config, { compose => 'x' }, 'docker_config returns configured docker settings' );
