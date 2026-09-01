@@ -49,6 +49,52 @@ roots therefore coexist for as long as old sandboxes remain open - `pick a
 recognised root and record it`, not `there is exactly one correct path`, is
 the actual invariant `card-sandbox-missing` needs to check.
 
+## Coexistence is not symmetric: resuming matches the EXACT path
+
+The section above says the two roots coexist while old sandboxes remain open,
+and that the real invariant is *pick a recognised root and record it*. That is
+true, and it hides a sharp edge worth knowing before anyone changes the
+default.
+
+`ticket-worktree` resumes an existing sandbox by matching the path it just
+computed, literally:
+
+```perl
+my $path = File::Spec->catdir( $sandbox_root, $slug );
+...
+if ( $listed == 0 && $existing =~ /^worktree \Q$path\E$/m ) {
+    say STDERR "ticket-worktree: $ref already has a sandbox - resuming it, not starting again";
+```
+
+`$sandbox_root` is whichever root is in force for *this* invocation. So the
+resume protection only works when you open a card under the same root it was
+created under. Run it with the override on a card whose sandbox was made
+without one — or the reverse — and the match finds nothing, the tool falls
+through to the create path, and it cuts a **fresh worktree from origin/master**
+beside the existing one.
+
+**That failure is silent and looks like success.** There is no error; there is
+a new empty sandbox and a cheerful message. The original tree, with whatever
+uncommitted work is in it, stays on disk and is never mentioned.
+
+Measured on this machine while the two roots were both populated: 102
+sandboxes under the pre-move root against 21 under the declared one. Every one
+of those 102 is reachable today only because the tool's default still points
+there.
+
+**So the consequence for changing the default**, whenever that happens: it
+cannot be a one-line change. Flipping the default without also checking the
+old root turns "the old root drains as its cards finish" into "the old root
+stagnates while empty trees appear beside it" — because those cards can no
+longer be resumed at all. The fix is to look in the other recognised root
+before creating anything, and to say which root a sandbox was resumed from.
+
+**And the general form, which outlives this particular path.** When a tool
+both *derives* a location from configuration and *detects existing state* at
+that location, changing the configuration changes what it can see, not merely
+where it writes. Any such change needs to answer: what existing state becomes
+invisible, and does the tool report that or silently start again?
+
 ## How to apply
 
 Before opening a sandbox, check which root the board's policy currently
