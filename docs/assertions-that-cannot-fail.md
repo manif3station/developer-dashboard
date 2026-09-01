@@ -148,6 +148,80 @@ child that is not yet able to catch it. A readiness check that watches for a
 *side effect* of setup rather than for setup *completing* will eventually fire
 early — and if the assertion downstream cannot discriminate, nothing reports it.
 
+## The same shape in a checker, not a test
+
+Everything above is about tests. The failure is not confined to them: a guard
+that reports on the repository can carry an assertion that cannot fail, and it
+is worse there, because nobody reviews a tool's output line the way they review
+a test.
+
+`.claude/tools/decline-watch` answers one question — is a rule this project
+declined still rightly declined? It fetches the declines, judges each one's
+re-declare trigger, and finishes with a deliberate completeness line:
+
+```perl
+# Say N of N out loud. A checker that quietly drops one of its subjects reads
+# exactly like a checker that found nothing wrong with it.
+say sprintf 'decline-watch: accounted for %d of %d declined rules, %d due for revisit',
+  scalar @{$declines}, scalar @{$declines}, scalar @findings;
+```
+
+The comment is right and the line beneath it cannot deliver what the comment
+promises. **Both operands are the same variable.** "N of N" compares the fetched
+list against itself, so it holds for every N and can never report a shortfall —
+the exact drop the comment was written to make visible.
+
+It matters because the fetch is narrower than the subject. `tira.policy.declined`
+with no `--ref` returns board-wide declines only; per-card declines, scoped to a
+single card, are invisible to it. The tool prints `accounted for 2 of 2 declined
+rules, 0 due for revisit` and exits 0 while the unseen part goes unexamined.
+
+**And the verdict was correct anyway**, which is what makes it hard to catch. The
+unseen declines sat on cards whose triggers had not fired, so "0 due for revisit"
+was the true answer. It would print the identical line if a trigger *had* fired.
+The defect is not a wrong answer — it is an answer that cannot be wrong, and a
+silence that cannot become a finding is indistinguishable from a clean result.
+
+The size of the gap is not quoted here on purpose, and that is worth its own
+sentence. The first draft of this page said "two of four", which is what I had
+counted by checking the one card I already knew about. Running the fixed tool
+over every card found **four** per-card declines across **three** cards, six in
+total — so the page describing counts that cannot be falsified carried a count
+taken from a subset. The numbers moved again within the hour, as two of those
+declines were corrected. A count belongs in the tool's output, where it is
+re-derived every run; a page that quotes one is stating a measurement at an
+instant in the one place nobody updates.
+
+### Why a total must come from somewhere else
+
+A count is only a check when it is derived twice. The judged count and the total
+have to come from **independent derivations**, because one derivation compared
+against itself is the tautology above wearing arithmetic. Counting more
+carefully does not fix it; it reproduces it with a bigger number.
+
+So a completeness line needs three properties, and the third is the one that
+gets skipped:
+
+1. a count of what was actually fetched and judged;
+2. a total obtained by a different route;
+3. **a comparison whose failure is reported and exits non-zero.** Printing both
+   numbers is not enough — a reader who sees `2 of 4` and shrugs is exactly the
+   reader the line exists for.
+
+### Applying it
+
+- When a guard prints "accounted for", find where each number comes from. If
+  they trace to one fetch, the line is decorative.
+- Ask what the fetch **excludes**. A subject narrowed by a default — no `--ref`,
+  no `--all`, one column, one session — is the usual cause, and the narrowing is
+  invisible in the output.
+- Falsify it: make the two derivations disagree on purpose and confirm the tool
+  goes red. A completeness check never seen to fire proves nothing, which is the
+  same standard this repository already applies to its other instruments.
+- The established name is a **tautological assertion**, and the classic cause is
+  **aliasing** — one value supplied as two operands. It is normally discussed
+  about tests; it is not a property of tests.
+
 ## Where else to look
 
 The pair of near-identical routines that produced this one still exists:
