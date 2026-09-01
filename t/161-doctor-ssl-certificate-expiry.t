@@ -181,6 +181,52 @@ SKIP: {
         'AC-6 a 200-day certificate is quiet, so the verdict follows the certificate' );
 }
 
+# AC-7 (coverage closure): _ssl_certificate_issues accepts an explicit
+# warn_days, overriding Config::ssl_warn_days - run() never forwards this arg
+# itself, so it is only reachable by calling the check directly. Two calls on
+# the SAME 10-day certificate prove the value is read, the same shape AC-5
+# already used for the config-driven threshold.
+{
+    make_cert(10);
+    my @below = grep { ( $_->{kind} || '' ) =~ /certificate/i }
+      $doctor->_ssl_certificate_issues( warn_days => 5 );
+    is( scalar @below, 0,
+        'AC-7 an explicit warn_days of 5 does not warn on a certificate 10 days out' );
+    my @above = grep { ( $_->{kind} || '' ) =~ /certificate/i }
+      $doctor->_ssl_certificate_issues( warn_days => 20 );
+    is( scalar @above, 1,
+        'AC-7 the SAME certificate warns once an explicit warn_days moves past it' );
+}
+
+# AC-8 (coverage closure): a certificate openssl parses successfully (exit 0)
+# but whose -enddate output _ssl_parse_enddate cannot itself parse is reported
+# as cannot-look, exactly like AC-4b's outright-unparseable file - this is a
+# SEPARATE code path (past the exit-code check, inside the enddate-parse
+# branch) that no real openssl output can be made to exercise, since openssl's
+# -enddate format is fixed. Overridden the same way t/02 and t/08 already
+# override a sub for one test: a local typeglob swap, restored automatically
+# when the block ends.
+{
+    make_cert(10);
+    no warnings 'redefine';
+    local *Developer::Dashboard::Doctor::_ssl_parse_enddate = sub { return undef };
+    my @unparseable_enddate =
+      grep { ( $_->{kind} || '' ) =~ /certificate/i } $doctor->_ssl_certificate_issues;
+    is( scalar @unparseable_enddate, 0,
+        'AC-8 an enddate openssl printed but could not itself be parsed raises nothing rather than crashing' );
+}
+
+# AC-9 (coverage closure): _ssl_parse_enddate's own two failure branches,
+# tested directly since no real openssl output reaches either from AC-1..AC-6 -
+# every real certificate this suite generates already matches the full
+# notAfter format with a valid month name.
+is( Developer::Dashboard::Doctor::_ssl_parse_enddate("not an enddate line\n"),
+    undef,
+    'AC-9 a line not matching the notAfter=... shape returns undef' );
+is( Developer::Dashboard::Doctor::_ssl_parse_enddate("notAfter=Xxx  1 00:00:00 2030 GMT\n"),
+    undef,
+    'AC-9 a syntactically-matching line with an unrecognised month name returns undef' );
+
 done_testing;
 
 __END__

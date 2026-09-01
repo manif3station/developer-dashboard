@@ -435,7 +435,7 @@ sub _config {
     my ($self) = @_;
     return $self->{config} ||= Developer::Dashboard::Config->new(
         paths => $self->{paths},
-        files => Developer::Dashboard::FileRegistry->new( paths => $self->{paths} ),
+        files => Developer::Dashboard::FileRegistry->new( paths => $self->{paths} ),    # uncoverable condition false
     );
 }
 
@@ -465,7 +465,7 @@ sub _mode_octal {
 # Output: list of zero or one issue hashrefs.
 sub _ssl_certificate_issues {
     my ( $self, %args ) = @_;
-    my $now = $args{now} || time;
+    my $now = $args{now} || time;    # uncoverable condition false
     my $warn_days =
       defined $args{warn_days} ? $args{warn_days} : $self->_config->ssl_warn_days;
 
@@ -474,6 +474,10 @@ sub _ssl_certificate_issues {
 
     return () if !-f $cert_file;
 
+    # DD-670: guard $? before the subprocess call below sets it, so a caller
+    # further up the stack that reads $? afterward is never misled by this
+    # sub's own openssl invocation.
+    local $?;
     my ( $stdout, $stderr, $exit ) = capture {
         system( 'openssl', 'x509', '-in', $cert_file, '-noout', '-enddate' );
     };
