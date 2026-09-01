@@ -143,6 +143,54 @@ preserve behaviour.
 sleep in a file that cannot reach `Time::HiRes`. A fully-qualified
 `Time::HiRes::sleep(0.05)` is fine and is not reported.
 
+## Identifying a process you have no pid for
+
+Everything above answers *is process N still running?* — a question that starts
+with a pid you were given. The operator tooling asks a harder one:
+
+> **is anybody else running a gate right now?**
+
+There is no pid to start from. The answer has to come from the process table, and
+three things about reading it go wrong quietly enough that all three have shipped
+here.
+
+**A substring is not a command.** `grep -F 'prove'` matches every command line
+that merely contains that sequence, and real ones do: `improvement-scan`,
+`approve-thing`. A checker built this way reports the host busy because of a
+process that has nothing to do with it. Match the command **word** — the
+executable's basename, or an anchored pattern — never a substring of the whole
+line.
+
+**A checker can match itself.** The command doing the searching is in the table
+it is searching, and so are its children and the shell that spawned it. Filtering
+by name is unreliable in both directions: `grep -v grep` removes the pipeline but
+not a sibling, and any name-based exclusion is a guess about what your own
+process looks like. Compare **process groups** instead: read your own with
+`ps -o pgid= -p $$` and drop every row sharing it. A pgid comparison cannot
+misidentify you, because it is your identity rather than a description of it.
+
+**"I could not look" is a third answer, and it is the one that gets dropped.**
+A reader of the process table can fail — `ps` missing, non-zero, denied, output
+unparseable — and the failure looks exactly like an empty result. Code shaped
+like
+
+```perl
+my $busy = 0;
+$busy = 1 if defined $out && $out =~ /\S/;
+return $busy ? 0 : 1;
+```
+
+returns *not busy* when it could not look at all. Whether that is safe depends
+entirely on which way the caller leans: here it meant **the host is free, release
+the park**, so a broken `ps` would advance work on a measurement that never
+happened. Return `undef` — or whatever the caller's vocabulary for *unknown* is —
+and make the caller handle it. Collapsing unknown into either answer is the
+failure; which answer it collapses into only decides the direction of the damage.
+
+The same three rules apply to any check that reads the process table, whether it
+is deciding that a gate is running, that a supervisor is alive, or that a host is
+quiet enough to measure on.
+
 ## Where this lives
 
 | concern | location |
