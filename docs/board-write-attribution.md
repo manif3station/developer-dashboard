@@ -78,3 +78,37 @@ today's environment. `-t STDIN` correlated with "interactive" until an agent
 tool-shell broke it; "a session-id var is set" correlated with "one session"
 until a second session existed. The fix that lasts is the one keyed on the
 value itself - here, the session id - not on a proxy for it.
+
+## The registration step has its own layer collapse (DD-719)
+
+`ensure_registered()` (step 2 above, the auto-registration call) shells out to
+the board. Which `d2` that reaches is not fixed by the resolver's own logic -
+it depends on the caller's current working directory, and this project's own
+rule is that real work happens inside a per-ticket git worktree
+(`~/Sandbox/ddd/<ref>`), not the main checkout.
+
+A worktree carries no `.developer-dashboard` runtime layer, so a bare `d2`
+cannot resolve the project's selector (DD-545's exact defect, one layer
+below the author-identity problem this page otherwise describes).
+`.claude/tools/board` exists to solve exactly this: it locates the main
+checkout via `git --git-common-dir` (which resolves correctly from any linked
+worktree) and `chdir`s there before execing the real `d2`.
+
+`ensure_registered()` was not using it - it called a bare `d2` directly. From
+a worktree that call fails, `ensure_registered()` `die`s, and the standard
+calling idiom `AUTH="$(.claude/tools/tira-author)"` is a bash command
+substitution that captures **only stdout**: the `die()` message on stderr is
+silently discarded, leaving `AUTH=""` with no visible error at the call site.
+A worktree caller - every real ticket's own working directory - got an empty,
+unusable author name instead of the loud failure the code was written to
+produce.
+
+Fixed by routing `ensure_registered()`'s call through `.claude/tools/board`,
+resolved relative to `tira-author`'s own script location (the same pattern
+`board` uses to resolve itself, rather than depending on `PATH` or `cwd` -
+which is exactly the class of dependency that caused the bug).
+
+**The generalisation, matching this page's own closing lesson above:** a
+resolver can get the *identity* layer right and still depend on something
+environment-sensitive one step further down - here, "which `d2` a bare
+invocation reaches." Fixing one layer does not audit the layers it calls into.
