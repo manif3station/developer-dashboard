@@ -198,6 +198,74 @@ their locks are not ours to take. We are a **tenant** on this machine, not its
 operator, which is precisely why detect-and-annotate is the only available remedy
 rather than one option among several.
 
+## Exclusivity between gate runs is ASYMMETRIC, and only half of it is enforced
+
+The project rule is that full-suite and coverage verification are host-exclusive
+— only one `prove -lr t` or coverage pass at a time. **The tools implement that
+rule unevenly, and the uneven half is the one nobody notices.**
+
+| tool | takes a lock? | how |
+|---|---|---|
+| `coverage-run` | yes, indirectly | execs `script/coverage-gate`, which takes `flock LOCK_EX\|LOCK_NB` and refuses naming the holder |
+| `run-suite` | **no** | execs `prove` directly and inherits nothing |
+
+So coverage runs serialise against each other, and nothing serialises suite
+runs — against another suite, or against a coverage pass. Measured rather than
+inferred: two full suites started twelve seconds apart both ran, and the second
+printed no refusal of any kind.
+
+**Why this is easy to miss.** The lock is real, it is in this repository, and a
+reader who greps for `flock` finds it — in `coverage-gate`. Concluding "the
+gates lock" from that is correct about the file you happened to open and wrong
+about the system. The asymmetry only shows up if you ask which *caller* reaches
+that code: `coverage-run` does, by delegation; `run-suite` never does.
+
+### The consequence is a verdict, not just a slow afternoon
+
+A suite starting mid-coverage invalidates the coverage verdict, and a second
+suite invalidates both. Because neither announces itself, the contention is
+invisible to any check keyed on coverage processes — which is what the
+contention sampler described earlier on this page is keyed on. **A verdict can
+therefore be contended by something the contention detector is structurally
+unable to see.**
+
+### If a lock is added, its SCOPE is the whole question
+
+Two locks already exist on this host and they are not the same thing:
+
+- **`script/coverage-gate`'s lock** — per coverage run, released when it ends.
+- **`/tmp/dd-host-verify.lock`** — a session-level wrapper lock, in practice
+  held across an entire gate chain rather than the host-exclusive step. One
+  session held it for 2529 seconds while its `prove` child had already exited,
+  and the other session's suite waited forty minutes for twelve minutes of work.
+
+The obvious repair for the missing half — "give `run-suite` a lock" — makes the
+second problem worse if it reaches for the wrapper lock, because it adds another
+long-held claim on a contended machine. **The exclusive window should be the
+length of the run, not the length of the session's sequence.**
+
+### Sharing one lock file does not deadlock, and the reason is worth stating
+
+`flock` locks survive `execve`, and descriptors duplicated by `fork`/`dup` are
+multiple references to *one* lock rather than separate instances — so an
+inherited descriptor cannot block itself. A *separate* `open()` of the same path
+does contend.
+
+Applied here: `run-suite` taking `coverage-gate`'s lock file is safe, because
+`run-suite` execs `prove` and never invokes `coverage-gate`. The hazard is one
+level over, and it is the symmetric-looking change: giving **`coverage-run`** a
+lock on that same path would self-block, since it then execs `coverage-gate`,
+which opens the path independently. *Make both tools lock* is the intuitive fix
+and the broken one.
+
+### Refusing and waiting are different contracts
+
+`coverage-gate` refuses immediately and names the holder. A waiter is friendlier
+between two cooperating sessions, but it has a failure mode a refuser does not:
+**a queued run inherits a host it never measured**, and its own door-check
+readings are stale by the time it starts. Whichever is chosen, the choice
+belongs in the tools' documentation rather than in their behaviour alone.
+
 ## `TREE=` is what makes staleness a fact
 
 Within one checkout, the hard question about a recorded figure is *does it
