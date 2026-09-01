@@ -672,6 +672,8 @@ sub _discover_base_files {
 sub _service_disabled_marker_path {
     my ( $self, %args ) = @_;
     my $service = $args{service} || die 'Missing service';
+    die "Invalid service name: $service\n"
+      if $service =~ m{[\\/]} || $service eq '.' || $service eq '..';
     my $root = $self->_service_toggle_root(%args);
     return File::Spec->catfile( $root, $service, 'disabled.yml' );
 }

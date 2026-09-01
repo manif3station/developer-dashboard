@@ -687,6 +687,54 @@ $auth->remove_user('helper');
 my @users_after_remove = $auth->list_users;
 is( scalar(@users_after_remove), 0, 'remove_user deletes helper records' );
 
+{
+    my $old = Cwd::getcwd();
+    chdir $repo or die $!;
+    my $docker = Developer::Dashboard::DockerCompose->new(
+        config => $config,
+        paths  => $paths,
+    );
+
+    my $escape_dir = File::Spec->catdir( $repo, '.developer-dashboard', 'config', 'evil-traversal-probe' );
+    ok( !-e $escape_dir, 'traversal probe directory does not exist before the attempt' );
+
+    my $traversal_service = File::Spec->catdir( File::Spec->updir, 'evil-traversal-probe' );
+
+    my $disable_error = eval {
+        $docker->disable_service( project_root => $repo, service => $traversal_service );
+        1;
+    } ? undef : $@;
+    ok( $disable_error, 'disable_service refuses a service name containing a parent-directory traversal segment' );
+    ok( !-e $escape_dir, 'disable_service with a traversal service name creates nothing outside config/docker' );
+
+    my $enable_error = eval {
+        $docker->enable_service( project_root => $repo, service => $traversal_service );
+        1;
+    } ? undef : $@;
+    ok( $enable_error, 'enable_service refuses a service name containing a parent-directory traversal segment' );
+
+    my $dotdot_error = eval {
+        $docker->disable_service( project_root => $repo, service => File::Spec->updir );
+        1;
+    } ? undef : $@;
+    ok( $dotdot_error, 'disable_service refuses a bare ".." service name' );
+
+    my $dot_error = eval {
+        $docker->disable_service( project_root => $repo, service => File::Spec->curdir );
+        1;
+    } ? undef : $@;
+    ok( $dot_error, 'disable_service refuses a bare "." service name' );
+
+    my $slash_service = File::Spec->catdir( 'nested', 'escape' );
+    my $slash_error = eval {
+        $docker->disable_service( project_root => $repo, service => $slash_service );
+        1;
+    } ? undef : $@;
+    ok( $slash_error, 'disable_service refuses a service name containing a path separator' );
+
+    chdir $old or die $!;
+}
+
 done_testing;
 
 __END__
