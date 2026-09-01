@@ -475,3 +475,47 @@ Reporting "unusable" with no cause is only marginally better than reporting
 nothing, because a reader who cannot tell "expired token" from "GitHub is
 down" from "the JSON changed shape" cannot act on the report any faster than
 if it had said nothing at all.
+
+## A CANCELLED run is not an ABSENT run (DD-731)
+
+`ci-health`'s `%IS_VERDICT` set (`success`, `failure`, `timed_out`,
+`startup_failure`, `action_required`) exists to keep `cancelled` out of the
+red/green judgement - correctly, for the branch-history question
+`latest_completed()` answers: a run cancelled by the push after it means "we
+stopped asking", not "it is broken", and reporting it as a failure would
+alarm on every ordinary rapid sequence of pushes.
+
+But `head_verdict()` answers a different question - "what is known about
+THIS commit" - and reused the same filter, which drops a cancelled run for
+HEAD out of the picture entirely rather than treating it as no-verdict. If
+three other workflows for that commit finished green, the caller sees "all 3
+workflows are green" with no trace that a fourth existed and produced
+nothing. Observed live: master@386943e's Test run (the one running the suite
+and coverage gate) was cancelled at 09:47:19; JS Fuzz, CodeQL and Package
+GHCR were green; `ci-health` reported "all 3 workflows are green" and exited
+0. The only tell was the count - three where there should have been four -
+with nothing naming what was missing.
+
+**This is DD-668's shape one step on.** That card fixed `ci-health`
+attributing an *earlier* commit's verdict to the current one; this is the
+same mechanism - an answer true about the subset examined and false about
+the question actually asked - reached by dropping a record instead of
+misattributing it. Both are cured by the same instinct: before trusting a
+short list, ask whether something was filtered out of it, and say so if it
+was.
+
+**Fix:** `head_verdict()` tracks cancelled runs for HEAD in their own bucket,
+separate from `%for_head` (verdicts) and `$pending` (still in flight) - a
+cancelled run is neither. `main()` checks that bucket before the red-check
+and the empty-verdict check, reporting NOT YET VERIFIED and naming which
+workflow was cancelled, rather than letting the surviving green workflows
+stand in for the whole picture.
+
+**Why this matters more than an isolated bug:** cancellation is not rare on
+this project - it is the normal consequence of pushing to a branch with a
+concurrency group while an earlier push's run is still going, which happens
+routinely when two sessions or a fast sequence of commits share one CI
+pipeline. The situation that produces a cancelled run is the same situation
+that produces an unverified commit, so a checker that turns "cancelled" into
+"absent" turns exactly the moment CI needs to answer honestly into the
+moment it answers confidently wrong.
