@@ -16,8 +16,18 @@ Two artifacts do that:
 
 | file | written by | carries |
 |---|---|---|
-| `<checkout>/.claude/state/gate2.log` | `.claude/tools/run-suite`, `.claude/tools/coverage-run` | the run's output, plus a `SUITE_EXIT=N` marker on **every** exit path |
+| `<checkout>/.claude/state/gate2-suite.log` | `.claude/tools/run-suite` | the suite's own output, plus a `SUITE_EXIT=N` marker on **every** exit path |
+| `<checkout>/.claude/state/gate2.log` | `.claude/tools/coverage-run` | the coverage gate's output, plus a `SUITE_EXIT=N` marker |
 | `<checkout>/.claude/state/gate2-verdict.txt` | `.claude/tools/coverage-run` | `GATE_EXIT=N` and `TREE=<tree-ish>` |
+
+**These logs used to be the SAME file (DD-695).** `run-suite` and
+`coverage-run` both defaulted to `gate2.log`, and each truncates its log at
+startup - so the standard gate chain, `run-suite && coverage-run`, silently
+destroyed the suite's own `Files=`/`Tests=`/`Result:` report the moment the
+coverage run started, leaving only its exit status (and only if the caller
+had captured it). `run-suite` now defaults to its own file; `DD_SUITE_LOG`
+still overrides for anyone who set it explicitly, and `gate-status` (which
+reads `coverage-run`'s artifacts specifically) is unaffected.
 
 `.claude/tools/gate-status` is the reader. All three derive that directory from
 their own location on disk, so the reader and the writers cannot disagree about
