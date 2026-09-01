@@ -90,3 +90,44 @@ records actually carry, not from a blanket assumption about them.
 - Detection accuracy is a separate concern with its own failure modes; see
   *Source-scanning checkers can't see heredoc boundaries*, including the case of
   an assertion proving a token's absence being read as an instance of it.
+
+## A reproduce command that the tool's own bookkeeping silences
+
+Recording the difference between an item and its collection is only half of
+making a finding checkable. The other half is that the reader can *re-run* it —
+and that is easy to get wrong in a way every test still passes.
+
+A finding filed here carries a `Reproduce:` line naming the command that
+produced its number. The obvious command is the sweep itself:
+
+    hunt-monitor --profile improvement --once --dry-run
+
+Run by a reader, that prints `0 card(s) raised`. The sweep consults its ledger
+and stays deliberately silent about a finding it has already filed — which is
+correct for a scheduled hunt and useless for reproduction. So the card sent its
+reader to a command that answers nothing about whether the finding still holds,
+and a reader would reasonably conclude it had been fixed.
+
+The code beside it claimed the command *"reproduces the number exactly by
+construction"*. Every assertion around that comment passed. Only the stated
+mechanism was false, and a stated mechanism is what the next person reuses.
+
+**A reproduce path must ignore the state that makes ordinary operation quiet,
+and must therefore write nothing.** The fix is a separate mode — here
+`--report-all` — that empties the ledger for the run and forces the no-write
+path, so reproducing is a read:
+
+    ledger sha before  fe68cdac989a
+    ledger sha after   fe68cdac989a      (verified behaviourally, not by reading the code)
+
+**Two rules worth keeping beyond this tool.**
+
+*Perform the reproduce step, do not review it.* This was found by working the
+card's own test step — "re-run the recorded command by hand and assert it
+produces the number the card claims" — rather than by reading the code that
+emits it. Reading it produced a plausible command; running it produced nothing.
+
+*A flag named only inside a printed string is text, not an interface.* Assert
+that the option **exists** on the parser, which is why the parser is built by a
+factory the spec can call. A test that greps a help string for a flag name
+passes just as happily when the flag was never wired up.
