@@ -64,7 +64,7 @@ for my $pkg (@CONSUMERS) {
     ok( $pkg->can($HELPER), "$pkg can reach $HELPER" );
     no strict 'refs';
     is( \&{"${pkg}::${HELPER}"}, \&{"${SHARED}::${HELPER}"},
-        "$pkg's $HELPER IS the shared one, not a local copy" );
+        "the $HELPER reached by $pkg IS the shared one, not a local copy" );
 }
 
 # 3. PageRuntime keeps its own, better-factored read. It is the reference, not a
