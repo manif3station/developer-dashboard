@@ -43,12 +43,22 @@ my $key_file  = File::Spec->catfile( $cert_dir, 'server.key' );
 # future instead. Input: integer days. Output: nothing; dies on failure.
 sub make_cert {
     my ($days) = @_;
-    my ( undef, undef, $exit ) = capture {
+    my ( $stdout, $stderr, $exit ) = capture {
         system( 'openssl', 'req', '-x509', '-newkey', 'rsa:2048',
             '-keyout', $key_file, '-out', $cert_file,
             '-days', $days, '-nodes', '-subj', '/CN=localhost' );
     };
-    die "openssl failed generating a $days-day certificate" if $exit != 0;
+    # DD-651 CI-RED (2026-09-01): this used to die with only "openssl failed",
+    # discarding the subprocess's own stdout/stderr - so the one CI run that
+    # actually failed (queue-cancellation had swallowed every earlier verdict,
+    # see docs/gate-verdicts.md) gave no way to tell WHY openssl failed on
+    # that runner without reproducing it there directly. Passed locally and
+    # in a Docker Ubuntu 24.04/26.04 container on the same OpenSSL 3.0.13/3.5.5
+    # builds, so the cause is runner-specific and needs the runner's own
+    # openssl output to diagnose - capturing it here is a one-line cost with
+    # no downside, always worth carrying for a subprocess call in test setup.
+    die "openssl failed generating a $days-day certificate (exit $exit)\nstdout: $stdout\nstderr: $stderr"
+      if $exit != 0;
     return;
 }
 
