@@ -5,7 +5,7 @@ use warnings;
 use utf8;
 
 use Test::More;
-use File::Temp qw(tempdir);
+use File::Temp qw(tempdir tempfile);
 use File::Spec;
 use File::Path qw(make_path);
 use Capture::Tiny qw(capture);
@@ -37,6 +37,24 @@ make_path($cert_dir);
 my $cert_file = File::Spec->catfile( $cert_dir, 'server.crt' );
 my $key_file  = File::Spec->catfile( $cert_dir, 'server.key' );
 
+# CI-RED ROOT CAUSE (DD-651, 2026-09-01, found via the diagnostic capture
+# below): GitHub's runner uses shogo82148/actions-setup-perl, which installs
+# Perl at a prefix (/opt/hostedtoolcache/perl/<ver>/x64) and puts its bin
+# directory first on PATH. The openssl a bare `openssl` then resolves to on
+# that runner looks for its config inside THAT prefix - where no
+# openssl.cnf was ever installed - and dies:
+#   "Can't open '.../openssl.cnf' for reading, No such file or directory"
+# Reproduced exactly by forcing OPENSSL_CONF at a nonexistent path in a
+# plain ubuntu:24.04 container on the SAME OpenSSL 3.0.13 build the runner
+# uses - confirming the runner's default OPENSSLDIR lookup, not the OS or
+# openssl version, is what differs. Passing '-config' explicitly sidesteps
+# the lookup entirely, exactly like Web::Server::generate_self_signed_cert
+# already does for the real certificate-generation path (it writes its own
+# temp config and passes '-config' - this is the same defensive pattern,
+# not a new one). A minimal empty file is sufficient here because '-subj'
+# already supplies the full DN non-interactively; no [req] section is read.
+my ( undef, $openssl_config ) = tempfile( 'dd-t161-openssl-XXXXXX', SUFFIX => '.cnf', UNLINK => 1 );
+
 # make_cert($days) - writes a self-signed certificate valid for $days from now.
 # A negative value is not accepted by -days, so an already-expired certificate is
 # made by generating a 1-day certificate and asserting against a clock in the
@@ -46,17 +64,9 @@ sub make_cert {
     my ( $stdout, $stderr, $exit ) = capture {
         system( 'openssl', 'req', '-x509', '-newkey', 'rsa:2048',
             '-keyout', $key_file, '-out', $cert_file,
-            '-days', $days, '-nodes', '-subj', '/CN=localhost' );
+            '-days', $days, '-nodes', '-subj', '/CN=localhost',
+            '-config', $openssl_config );
     };
-    # DD-651 CI-RED (2026-09-01): this used to die with only "openssl failed",
-    # discarding the subprocess's own stdout/stderr - so the one CI run that
-    # actually failed (queue-cancellation had swallowed every earlier verdict,
-    # see docs/gate-verdicts.md) gave no way to tell WHY openssl failed on
-    # that runner without reproducing it there directly. Passed locally and
-    # in a Docker Ubuntu 24.04/26.04 container on the same OpenSSL 3.0.13/3.5.5
-    # builds, so the cause is runner-specific and needs the runner's own
-    # openssl output to diagnose - capturing it here is a one-line cost with
-    # no downside, always worth carrying for a subprocess call in test setup.
     die "openssl failed generating a $days-day certificate (exit $exit)\nstdout: $stdout\nstderr: $stderr"
       if $exit != 0;
     return;
