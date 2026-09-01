@@ -112,3 +112,44 @@ which is exactly the class of dependency that caused the bug).
 resolver can get the *identity* layer right and still depend on something
 environment-sensitive one step further down - here, "which `d2` a bare
 invocation reaches." Fixing one layer does not audit the layers it calls into.
+
+## A fixed identity does not retroactively fix the field that reads it (DD-717)
+
+DD-662's own key_details predicted this before it happened: *"A session that
+begins writing under a new id would fire card-changed-by-owner on every card
+it touched... The actor id and the assignee convention have to move
+together, or this trades an attribution gap for a violation flood."* It
+landed within the hour - two cards fired `card-changed-by-owner` repeatedly
+(up to URGENT) because their `assignee` field still held the pre-fix shared
+literal (`dd-session`) while every write from that point on was correctly
+authored under the new per-session derived name. The rule compares the
+newest change's author against the `assignee` field, and a resolver fix
+changes only the author side.
+
+**Two separate populations, easy to conflate:**
+
+- **Cards claimed before the fix**, whose `assignee` still holds the old
+  literal - a one-time population, correctable by a sweep.
+- **`ticket.create`'s own `reporter` default**, found separately by the peer
+  session: it defaults to the same stale literal regardless of `--author`,
+  so every NEW card is born with the mismatch too. This is a standing
+  defect, not a one-off population - "fix forward and let old ones drain"
+  does not converge, because the population is continuously replenished.
+  Not fixed here; recorded so the shape is not mistaken for the first one.
+
+Owner-authorized (Q-088, option A): correct assignee on every already-
+claimed card whose `agent_session` field already names the true claiming
+session, matching it there rather than guessing. One card (a standing
+special case with its own explicit, unrelated owner-deferral history) was
+left untouched pending a separate question - the sweep's own authorization
+did not have that card's special status in view when it was granted, and
+extending it there without asking would have been a different decision
+wearing the same clothes.
+
+## How to apply, one layer further
+
+Fixing WHO writes does not fix WHOSE NAME IS ALREADY ON RECORD. Any
+identity-resolution fix should be checked against every field that already
+stores a copy of the old value, not just the point that produces new ones -
+and each such field may have its own population dynamics (one-time backlog
+vs. continuously replenished) that call for different remedies.
