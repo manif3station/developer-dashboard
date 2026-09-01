@@ -261,6 +261,31 @@ that is half the problem. And it must not fingerprint the whole working tree,
 which would invalidate on every unrelated edit and become the over-eager detector
 that gets switched off. A guard that is always red is not a guard.
 
+### And a filename can defeat the fingerprint, which is not obvious
+
+The fingerprint walks the operator directory to hash what each file contains. The
+first version read `find -print` into `read -r`, which is newline-delimited — so a
+file whose **name** contains a newline split into two lines, neither of which is a
+real path. Both hashed as `unreadable`, the file's content was never read, and it
+could therefore change without moving the fingerprint.
+
+That is the same blindness this whole section is about, reached by name instead of
+by staging, and it is worth stating because nothing about the symptom points at the
+cause: the walk reports a value, the value looks fine, and only a file nobody would
+create by accident is invisible. The walk now uses `find -print0 | sort -z` with
+`read -r -d ''`.
+
+Two properties were measured rather than assumed when that changed. On ordinary
+filenames the old and new walks produce **byte-identical** digests, so the fix
+invalidates no verdict recorded before it. On a directory containing a
+newline-named file, the old walk returned the same digest before and after a
+content edit while the new one moved — which is the discriminating test, and the
+one that would have failed silently had only the first property been checked.
+
+The general point outlives this detail: **a guard that reads a set of files is only
+as trustworthy as its enumeration of that set.** Ask what a filename can do to the
+walk before trusting what the walk says about the contents.
+
 ## Per-subroutine counts vary between runs; the four-metric verdict does not
 
 Two `Devel::Cover` passes over a byte-identical tree (verified `git status
