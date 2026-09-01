@@ -220,6 +220,47 @@ compares committed trees. It cannot distinguish two workspaces at one commit, an
 it says nothing about uncommitted work. Per-checkout paths handle the first; the
 second is open.
 
+## What a tree hash cannot see, and why that matters here
+
+The sentence above — *the second is open* — is the whole of this section. A tree
+hash answers **which commit** a verdict describes. It does not answer **what was
+on disk** when the gate ran, and the gap between those two has exactly two shapes
+on this project. Both are ordinary here rather than exotic, which is why the limit
+is worth stating rather than filing away.
+
+**Uncommitted tracked work.** `HEAD^{tree}` is computed from the commit, not the
+workspace. Edit a tracked file and do not stage it, and the hash does not move —
+so a verdict recorded before the edit still validates after it. Every ticket on
+this board is worked in a sandbox where uncommitted edits are the *normal* state
+for hours at a time, so the case where the fingerprint is blind is the case that
+occurs all day, not an edge one.
+
+**Git-ignored operator tooling.** A large amount of the gate machinery —
+everything under `.claude/tools/`, including the wrappers that produce these
+verdicts and the specs `t/158` executes — is git-ignored by deliberate decision.
+Editing any of it changes what the suite actually exercises while moving no
+tracked byte at all. The tree hash is not merely imprecise here; the change is
+invisible to it by construction.
+
+The two shapes need saying separately because they fail differently. The first is
+a *staleness* problem: the right files are being compared, at the wrong moment.
+The second is a *scope* problem: the files are not being compared at all.
+
+**The practical rule, until a fingerprint covers them.** Editing anything under
+`.claude/tools/` invalidates the current suite verdict, and you must invalidate it
+by hand, because nothing will do it for you — no rerun is triggered, no marker
+goes stale, and the tree hash still matches. The same applies to an unstaged edit
+of a tracked file that the suite reads.
+
+**And what a fingerprint must not do, learned by rejecting the obvious answers.**
+It must not mutate the tree it measures: `git add -A && git write-tree` produces a
+correct hash and writes the index of a checkout somebody else may be committing
+from. It must not be `git stash create` either, which is non-destructive but
+captures tracked modifications only — blind to precisely the git-ignored tooling
+that is half the problem. And it must not fingerprint the whole working tree,
+which would invalidate on every unrelated edit and become the over-eager detector
+that gets switched off. A guard that is always red is not a guard.
+
 ## Per-subroutine counts vary between runs; the four-metric verdict does not
 
 Two `Devel::Cover` passes over a byte-identical tree (verified `git status
