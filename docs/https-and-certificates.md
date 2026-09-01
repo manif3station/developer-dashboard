@@ -124,3 +124,37 @@ asking for them.
 | certificate directory resolution | `Web::Server` → `PathRegistry` |
 | `web.*` settings, including SAN aliases | `Config` |
 | trust decisions and helper sessions | `Web::App` |
+
+## A running server does not notice its own certificate expiring (DD-651)
+
+Regeneration is real but has a narrower trigger than it looks:
+`generate_self_signed_cert` reuses an existing certificate only when
+`_ssl_cert_has_expected_profile` passes, and that check ends in an
+`openssl verify` whose exit status is tested — `verify` validates dates, so an
+expired certificate correctly fails the profile check and gets regenerated.
+
+**But regeneration only runs when `generate_self_signed_cert` is CALLED, which
+is at server START.** An instance already running when its certificate expires
+under it keeps serving the expired one until somebody restarts it. With the
+default 365-day validity (configurable under `web.*`, see above), that is a
+once-a-year event that arrives with no warning — and the only fix, a restart,
+is one nobody knows to perform because nothing said anything was wrong.
+
+The exposure is sharper under SSL than it first looks: with the loopback-admin
+shortcut disabled once SSL is on (see above), there is no trusted-local path
+that degrades gracefully past a certificate error — every browser client is
+already going through the helper-login path this section describes, so an
+expired certificate doesn't merely look untrusted, it blocks the one path an
+operator would use to notice and fix it.
+
+`dashboard doctor` closes the visibility gap, not the rotation gap: it reads
+the active certificate's own `notAfter` (via `openssl x509 -noout -enddate`,
+never from config or a generation timestamp) and reports a **warning** inside
+a configurable window (`web.ssl_warn_days`, default 30) or a **failure** once
+past `notAfter` — the two are distinguishable outcomes because they call for
+different actions, "plan a restart" versus "restart now". A certificate that
+does not exist raises nothing at all: that is the normal, SSL-never-used
+state, not a finding. A certificate that IS present but cannot be parsed
+(`openssl x509` exits non-zero) is reported as its own outcome, distinct from
+valid, near-expiry, and expired — a checker that cannot look must not report
+clean.
