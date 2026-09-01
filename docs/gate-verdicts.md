@@ -89,6 +89,68 @@ The wrappers exist for two specific failures, both recorded in their own headers
 Neither wrapper is allowed to write a result the gate did not produce. A failing
 run records a failure.
 
+## A verdict must say what the HOST was doing, not just what the tree was
+
+`TREE=` fixes the verdict to a tree. Nothing fixes it to the conditions it ran
+under — and on a shared machine those conditions decide whether the number means
+anything.
+
+Contention makes timing-sensitive tests misread. That produces false **failures**,
+not false passes, so the asymmetry is usable: a PASS under load is valid evidence,
+a FAIL under load is not believable either way and must be re-run. **The direction
+has to be fixed before the number exists**, or it is not a rule — a result accepted
+when it reads green and rejected when it does not is just preference wearing a
+process.
+
+### What the wrappers know, and what they do not
+
+`run-suite` and `coverage-run` record the exit status, the tree and the timing.
+Neither records whether anything else was competing for the machine. A verdict can
+therefore be produced by a run that spent half its time behind another project's
+coverage suite, and nothing in the artifact says so.
+
+Stating conditions by hand in the log header — which is what a careful operator
+does — records them **at launch only**. A run that becomes contended after it starts
+looks identical to one that never was.
+
+### Why load average is the wrong signal
+
+Two independent reasons, and the second is the one that surprises:
+
+1. A busy machine differs qualitatively from a competing **coverage** suite. Load
+   conflates them.
+2. **Load cannot distinguish the measurer's own work from anyone else's.** Measured
+   on this host: two leaked containers belonging to the measuring session pushed
+   loadavg to 11.81. A wrapper refusing to start on that number would have been
+   refusing on its own leaked work.
+
+So the signal is a count of **foreign** coverage processes — and "foreign" must
+exclude self, determined by *checking* (own pid, own process group, own container
+id) rather than by how a process looks. Identifying a running suite as another
+project's from its test filename has already been wrong here; the discriminator
+that works is `git cat-file -e <master-sha>:<path>`.
+
+### The constraint that decides the design
+
+The documented failure of contention reporting is that **people stop reading it**.
+This host is busy most of the time — three readiness attempts once found no clear
+window in ninety minutes. A detector that marks nearly every run CONTENDED carries
+no information and gets skimmed, which is the fate of any guardrail that is always
+red.
+
+So the mark has to distinguish contention that **invalidates** from contention that
+merely **slows**. That is not a refinement of the feature; it is the thing that
+keeps the feature worth having.
+
+### What such a detector must not do
+
+It must not kill anything — not its own run, and not another project's process.
+Killing a contended run loses the work and frees nothing once the run is nearly
+done. And it must not reach across projects: their containers are out of bounds and
+their locks are not ours to take. We are a **tenant** on this machine, not its
+operator, which is precisely why detect-and-annotate is the only available remedy
+rather than one option among several.
+
 ## `TREE=` is what makes staleness a fact
 
 Within one checkout, the hard question about a recorded figure is *does it
