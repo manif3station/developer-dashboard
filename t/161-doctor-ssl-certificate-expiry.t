@@ -140,8 +140,24 @@ SKIP: {
 # AC-1: inside the warning window, doctor warns AND names the days remaining and
 # the path - a warning that does not say how long or which file leaves the
 # operator with the same search they started with.
+#
+# Peer-caught (2026-09-01): this used to call $doctor->run(fix => 0) with no
+# explicit 'now', so days_remaining was computed against the REAL wall clock
+# at assertion time rather than at generation time. A -days 10 certificate's
+# notAfter is openssl's-own-notBefore + 10*86400, so int((notAfter-now)/86400)
+# drops from 10 to 9 the instant 'now' is taken any later than notBefore -
+# marginal by construction, not merely flaky. Passed standalone (the gap is
+# milliseconds) and failed inside the full 741-second suite (the gap widens
+# under load). Fixed per docs/time-dependent-tests.md's own rule: age the
+# reference against what the code actually compares, not the wall clock -
+# capture 'now' BEFORE generation starts, so it can only be EARLIER than
+# openssl's own notBefore, never later (int() then only ever rounds 10 down
+# from something >= 10, never below it). Falsified: a deliberate sleep(2)
+# between make_cert() and the assertion (removed afterward) still passed
+# with this fix, reproducing the exact suite-load-delay condition.
+my $soon_now = time;
 make_cert(10);
-my $soon_report = $doctor->run( fix => 0 );
+my $soon_report = $doctor->run( fix => 0, now => $soon_now );
 my @soon = ssl_issues($soon_report);
 is( scalar @soon, 1, 'AC-1 a certificate expiring in 10 days raises exactly one issue' );
 is( ( $soon[0]->{severity} || '' ), 'warning',
