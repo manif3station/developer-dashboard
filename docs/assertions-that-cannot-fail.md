@@ -222,6 +222,111 @@ gets skipped:
   **aliasing** — one value supplied as two operands. It is normally discussed
   about tests; it is not a property of tests.
 
+## A third mechanism: the environment removes the possibility of failure
+
+The two mechanisms above are defects in the test — a setup that silently did not
+happen, or an assertion that discards its own discriminator. This one is
+different in an important way: **the test is written correctly and the
+environment takes away its ability to fail.**
+
+```perl
+chmod 0000, $file;
+like( ( eval { $runner->loop_state('unreadable.loop'); 1 } ? '' : $@ ),
+      qr/Unable to read/, 'loop_state dies when a present state file cannot be opened' );
+```
+
+Read on its own this is a good test. Run it as uid 0 in a container and the
+`chmod` succeeds, the open **also** succeeds, nothing dies, and the assertion
+fails — so here the symptom is a *failure* rather than a false pass. That makes
+it look like a product regression, which is how it is usually reported.
+
+Measured on this repository's own image on 2026-09-02: the full suite as root
+fails **29 files**; re-running those 29 as uid 1000 leaves **13**. The remaining
+**16** fail only because the process cannot be denied. Each was confirmed
+individually — two root repeats and one non-root run, giving FAIL/FAIL/pass for
+every one.
+
+### The cause is a capability, not an identity
+
+Root is a proxy for the real cause and the proxy comes apart. Three arms, one
+variable:
+
+| arm | uid | `CapEff` | chmod-0000 read | dir opendir | write |
+|---|---|---|---|---|---|
+| plain root | 0 | `a80425fb` | **succeeds** | **succeeds** | **succeeds** |
+| root, `--cap-drop=DAC_OVERRIDE --cap-drop=DAC_READ_SEARCH` | 0 | `a80425f9` | denied | denied | denied |
+| `--user 1000:1000` | 1000 | `0000…0000` | denied | denied | — |
+
+The middle row is the point. It is uid 0 by every identity test and it behaves
+exactly like the unprivileged control, because what defeats a DAC check is
+`CAP_DAC_OVERRIDE` and `CAP_DAC_READ_SEARCH` — two bits that root merely holds
+by default. `CAP_DAC_OVERRIDE` is in Docker's **default retained set**, so this
+is not a peculiarity of one image: it is what every default `docker run` gives
+you.
+
+### So the obvious guard is the wrong one
+
+This suite carries two conventions for the same problem, and they are not
+equally good:
+
+| form | sites | correct when |
+|---|---|---|
+| `skip '…', N if $> == 0` | 19, in 6 files | only while nobody changes the capability set |
+| `chmod …` then `skip '…', N if -r $file` | 4, in `t/103` and `t/115` | always |
+
+The second is a **probe**: it asks whether a denial can be observed, not who the
+process is. Under a dropped capability the file genuinely is unreadable, `-r` is
+false, no skip fires, and the assertion runs as intended. The identity form
+skips it — `$>` is still 0 — and quietly deletes real coverage.
+
+The two forms agree today, which is why nothing has gone wrong yet. That is
+correct *by coincidence*: adopt the capability drop and all 19 identity guards
+change meaning at once, silently, in the direction of testing less.
+
+The probe also subsumes the other guard already in those files —
+`chmod … or skip 'chmod not honored on this filesystem'`, written for overlays
+and Windows. Both ask one question: **can a denial be observed here at all?**
+
+### Prefer running the assertion to skipping it
+
+An honest skip beats a pass that cannot fail. A test that actually runs beats
+the honest skip. Dropping the two capabilities at the test invocation makes
+these assertions execute in a container, with no `USER` line in the image —
+which matters because the blank-host bootstrap gate legitimately needs root.
+
+**The check that tells the two fixes apart** is a test count, not a pass/fail.
+Run the affected files as root with the capabilities dropped and compare against
+a non-root run: equal counts mean the guard is capability-accurate; a lower
+count means it is identity-based and is skipping work that would have passed.
+
+### A partial fix is worse than none here
+
+Of the 16, fifteen have no guard at all. The sixteenth,
+`t/73-pagestore-coverage.t`, already carries
+`skip 'permission failure paths require a non-root user', 3 if $> == 0` — and
+still fails, because only part of the file was covered.
+
+That is the expensive shape. A defect fixed nowhere reads as one problem. Fixed
+in one place inside the file that still has it, it supplies **false evidence of
+a decision nobody made**: a reader greps for a guard, finds one, and concludes
+the file is handled. Five of the six guarded files do pass as root, which makes
+the gap in the sixth look deliberate rather than missed.
+
+**So when guarding one instance of a shape, either guard the others or say in
+writing that you did not.** "Not fixed here" costs a line and stops the next
+reader inferring a judgement that was never reached.
+
+### Reviewing a change against this
+
+- Does the assertion depend on an operation being **refused**? Then ask what
+  would have to be true of the *process* for a refusal to be possible — uid,
+  capabilities, filesystem — and guard on that condition, not on a proxy for it.
+- Never guard on identity when you can probe for the effect. `-r`, `-w` and `-x`
+  after the `chmod` answer the real question in one line.
+- A failure count from a container is two populations, not one. Split it before
+  quoting it: 29 failures here meant 16 of one kind and 13 of another, and a
+  single number could not have said which was which.
+
 ## Where else to look
 
 The pair of near-identical routines that produced this one still exists:
