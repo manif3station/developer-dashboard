@@ -162,9 +162,17 @@ my $write_session = sub {
     my $record = $store->create( username => 'openfail-user', remote_addr => '127.0.0.1' );
     my $file   = File::Spec->catfile( $root, "$record->{session_id}.json" );
     ok( -f $file, 'created session file exists before the read-failure probe' );
-    chmod 0000, $file or die "Unable to chmod $file: $!";
-    my $err = eval { $store->get( $record->{session_id} ); 1 } ? '' : $@;
-    like( $err, qr/Unable to read/, 'get dies when a present session file cannot be opened for reading' );
+  SKIP: {
+        chmod 0000, $file or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $file ) {
+            close $probe or die "Unable to close probe on $file: $!";
+            skip 'this process can read a mode-0000 session file, so the open failure cannot occur', 1;
+        }
+
+        my $err = eval { $store->get( $record->{session_id} ); 1 } ? '' : $@;
+        like( $err, qr/Unable to read/, 'get dies when a present session file cannot be opened for reading' );
+    }
+
     chmod 0600, $file or die "Unable to restore mode on $file: $!";
 }
 
@@ -277,11 +285,18 @@ SKIP: {
     open my $fh, '>:raw', $file or die "Unable to write $file: $!";
     print {$fh} json_encode( { session_id => 'unreadable', expires_at => '2000-01-01T00:00:00Z' } );
     close $fh;
-    chmod 0000, $file or die "Unable to chmod $file: $!";
+  SKIP: {
+        chmod 0000, $file or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $file ) {
+            close $probe or die "Unable to close probe on $file: $!";
+            skip 'this process can read a mode-0000 session file, so the skip-on-read-failure path cannot occur', 1;
+        }
 
-    no warnings qw(redefine once);
-    local *Developer::Dashboard::PathRegistry::sessions_root = sub { return $dir };
-    is( $store->sweep_expired, 0, 'sweep_expired skips a session file it cannot open for reading' );
+        no warnings qw(redefine once);
+        local *Developer::Dashboard::PathRegistry::sessions_root = sub { return $dir };
+        is( $store->sweep_expired, 0, 'sweep_expired skips a session file it cannot open for reading' );
+    }
+
     chmod 0600, $file or die "Unable to restore mode on $file: $!";
 }
 
@@ -326,16 +341,27 @@ SKIP: {
     print {$fh} json_encode( { session_id => 'expired', expires_at => '2000-01-01T00:00:00Z' } );
     close $fh;
     chmod 0600, $file or die "Unable to chmod $file: $!";
-    chmod 0500, $dir  or die "Unable to chmod $dir: $!";
+  SKIP: {
+        chmod 0500, $dir or skip 'chmod not honored on this filesystem', 1;
 
-    my $removed;
-    {
-        no warnings qw(redefine once);
-        local *Developer::Dashboard::PathRegistry::sessions_root = sub { return $dir };
-        $removed = $store->sweep_expired;
+        # An unlink needs write on the DIRECTORY, so probe by trying to create
+        # a file in it - -w is mode-bit arithmetic and lies for uid 0.
+        my $wprobe = File::Spec->catfile( $dir, '.unlink-probe' );
+        my $pfh;
+        my $can_write = open( $pfh, '>', $wprobe ) ? do { close $pfh; unlink $wprobe; 1 } : 0;
+
+        my $removed;
+        if ( !$can_write ) {
+            no warnings qw(redefine once);
+            local *Developer::Dashboard::PathRegistry::sessions_root = sub { return $dir };
+            $removed = $store->sweep_expired;
+        }
+        chmod 0700, $dir or die "Unable to restore mode on $dir: $!";
+
+        skip 'this process can write into a mode-0500 directory, so the unlink failure cannot occur', 1
+          if $can_write;
+        is( $removed, 0, 'sweep_expired reports zero removals when an expired file cannot be unlinked' );
     }
-    is( $removed, 0, 'sweep_expired reports zero removals when an expired file cannot be unlinked' );
-    chmod 0700, $dir or die "Unable to restore mode on $dir: $!";
 }
 
 done_testing;

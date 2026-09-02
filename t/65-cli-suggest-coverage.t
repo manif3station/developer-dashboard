@@ -117,28 +117,52 @@ is_deeply(
 # An unreadable cli root dies explicitly rather than silently yielding nothing.
 {
     my $cli = $paths->cli_root;
-    chmod 0000, $cli or die "Unable to chmod $cli: $!";
-    my $err = eval { $suggest->top_level_candidates; 1 } ? '' : $@;
-    chmod 0755, $cli or die "Unable to restore $cli: $!";
-    like(
-        $err,
-        qr/Unable to read/,
-        '_top_level_candidates dies when a cli root cannot be opened',
-    );
+  SKIP: {
+        chmod 0000, $cli or skip 'chmod not honored on this filesystem', 1;
+
+        # Probe by attempting the opendir; -r is mode-bit arithmetic and answers
+        # true for uid 0 whatever the mode. Carried in a variable so the restore
+        # below runs on the skip path too.
+        my $probe_dh;
+        my $can_open = opendir( $probe_dh, $cli ) ? do { closedir $probe_dh; 1 } : 0;
+
+        my $err = $can_open ? '' : ( eval { $suggest->top_level_candidates; 1 } ? '' : $@ );
+        chmod 0755, $cli or die "Unable to restore $cli: $!";
+
+        skip 'this process can open a mode-0000 directory, so the read failure cannot occur', 1
+          if $can_open;
+        like(
+            $err,
+            qr/Unable to read/,
+            '_top_level_candidates dies when a cli root cannot be opened',
+        );
+    }
 }
 
 # An unreadable skill cli directory dies explicitly while collecting commands.
 {
     my $cli = File::Spec->catdir( $paths->skills_root, 'skillG', 'cli' );
     make_path($cli);
-    chmod 0000, $cli or die "Unable to chmod $cli: $!";
-    my $err = eval { $suggest->skill_commands('skillG'); 1 } ? '' : $@;
-    chmod 0755, $cli or die "Unable to restore $cli: $!";
-    like(
-        $err,
-        qr/Unable to read/,
-        '_collect_skill_commands dies when a skill cli directory cannot be opened',
-    );
+  SKIP: {
+        chmod 0000, $cli or skip 'chmod not honored on this filesystem', 1;
+
+        # Probe by attempting the opendir; -r is mode-bit arithmetic and answers
+        # true for uid 0 whatever the mode. Carried in a variable so the restore
+        # below runs on the skip path too.
+        my $probe_dh;
+        my $can_open = opendir( $probe_dh, $cli ) ? do { closedir $probe_dh; 1 } : 0;
+
+        my $err = $can_open ? '' : ( eval { $suggest->skill_commands('skillG'); 1 } ? '' : $@ );
+        chmod 0755, $cli or die "Unable to restore $cli: $!";
+
+        skip 'this process can open a mode-0000 directory, so the read failure cannot occur', 1
+          if $can_open;
+        like(
+            $err,
+            qr/Unable to read/,
+            '_collect_skill_commands dies when a skill cli directory cannot be opened',
+        );
+    }
 }
 
 # A falsy logical name ("0") inside a skill cli directory is skipped.
@@ -158,14 +182,26 @@ is_deeply(
 {
     my $nested = File::Spec->catdir( $paths->skills_root, 'skillI', 'skills' );
     make_path($nested);
-    chmod 0000, $nested or die "Unable to chmod $nested: $!";
-    my $err = eval { $suggest->skill_commands('skillI'); 1 } ? '' : $@;
-    chmod 0755, $nested or die "Unable to restore $nested: $!";
-    like(
-        $err,
-        qr/Unable to read/,
-        '_collect_skill_commands dies when a nested skills directory cannot be opened',
-    );
+  SKIP: {
+        chmod 0000, $nested or skip 'chmod not honored on this filesystem', 1;
+
+        # Probe by attempting the opendir; -r is mode-bit arithmetic and answers
+        # true for uid 0 whatever the mode. Carried in a variable so the restore
+        # below runs on the skip path too.
+        my $probe_dh;
+        my $can_open = opendir( $probe_dh, $nested ) ? do { closedir $probe_dh; 1 } : 0;
+
+        my $err = $can_open ? '' : ( eval { $suggest->skill_commands('skillI'); 1 } ? '' : $@ );
+        chmod 0755, $nested or die "Unable to restore $nested: $!";
+
+        skip 'this process can open a mode-0000 directory, so the read failure cannot occur', 1
+          if $can_open;
+        like(
+            $err,
+            qr/Unable to read/,
+            '_collect_skill_commands dies when a nested skills directory cannot be opened',
+        );
+    }
 }
 
 # Line 240 score comparator, both branch sides: different scores make the
