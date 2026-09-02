@@ -197,9 +197,20 @@ isa_ok( $auth, 'Developer::Dashboard::Auth', 'constructed auth manager' );
     open my $fh, '>', $locked or die "Unable to write $locked: $!";
     print {$fh} json_encode( { username => 'locked' } );
     close $fh;
-    chmod 0000, $locked;
-    my $read_fail = eval { $auth->get_user('locked'); 1 } ? '' : $@;
-    like( $read_fail, qr/Unable to read/, 'get_user dies when an existing record cannot be opened for reading' );
+  SKIP: {
+        chmod 0000, $locked or skip 'chmod not honored on this filesystem', 1;
+
+        # Probe by attempting the read, not with -r: filetest operators are
+        # mode-bit arithmetic and answer true for uid 0 whatever the mode.
+        if ( open my $probe, '<', $locked ) {
+            close $probe or die "Unable to close probe on $locked: $!";
+            skip 'this process can read a mode-0000 record, so the read failure cannot occur', 1;
+        }
+
+        my $read_fail = eval { $auth->get_user('locked'); 1 } ? '' : $@;
+        like( $read_fail, qr/Unable to read/, 'get_user dies when an existing record cannot be opened for reading' );
+    }
+
     chmod 0600, $locked;
 }
 

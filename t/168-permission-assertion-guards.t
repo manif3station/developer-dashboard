@@ -60,19 +60,39 @@ sub unguarded_denial_sites {
           or next;
         my $lost = owner_loses($mode) or next;
 
-        # The span runs from this chmod to whichever comes first: the mode being
-        # restored on the same target, or the enclosing block closing. Assertions
-        # outside that span are not testing this denial.
-        my $depth = 0;
-        my $end   = $#lines;
-        for my $j ( $i + 1 .. $#lines ) {
-            my $l = $lines[$j];
-            if ( $l =~ /chmod \s* \(? \s* 0[0-7]{3} \s* , \s* \Q$target\E/x ) { $end = $j - 1; last }
-            $depth += ( $l =~ tr/{// ) - ( $l =~ tr/}// );
-            if ( $depth < 0 ) { $end = $j; last }
+        # If the chmod sits inside a SKIP block, the SKIP block IS the span - a
+        # skip applies to the whole block, and the mode is often restored partway
+        # through it so that cleanup runs on the skip path. Cutting the span at
+        # the restore put the probe's own skip outside it and reported guarded
+        # code as unguarded.
+        my ( $start, $end );
+        my $d = 0;
+        for ( my $j = $i ; $j >= 0 ; $j-- ) {
+            $d += ( $lines[$j] =~ tr/}// ) - ( $lines[$j] =~ tr/{// );
+            if ( $d < 0 && $lines[$j] =~ /^\s*SKIP \s* : \s* \{/x ) { $start = $j; last }
+            last if $d < -1;
+        }
+        if ( defined $start ) {
+            my $bd = 0;
+            for my $j ( $start .. $#lines ) {
+                $bd += ( $lines[$j] =~ tr/{// ) - ( $lines[$j] =~ tr/}// );
+                if ( $bd == 0 && $j > $start ) { $end = $j; last }
+            }
+            $end //= $#lines;
+        }
+        else {
+            $start = $i;
+            my $depth = 0;
+            $end = $#lines;
+            for my $j ( $i + 1 .. $#lines ) {
+                my $l = $lines[$j];
+                if ( $l =~ /chmod \s* \(? \s* 0[0-7]{3} \s* , \s* \Q$target\E/x ) { $end = $j - 1; last }
+                $depth += ( $l =~ tr/{// ) - ( $l =~ tr/}// );
+                if ( $depth < 0 ) { $end = $j; last }
+            }
         }
 
-        my $span = join "\n", @lines[ $i .. $end ];
+        my $span = join "\n", @lines[ $start .. $end ];
 
         # The span must exercise the denial, and there are two shapes. Some files
         # assert inside it; others capture the failure with eval and deliberately
@@ -88,10 +108,23 @@ sub unguarded_denial_sites {
         # is genuinely denied. Measured 2026-09-02 - root with DAC_OVERRIDE
         # dropped: -r true, open denied. Accepting -r would let a guard skip an
         # assertion that was about to run and pass.
-        next if $span =~ /\b(?:open|opendir|sysopen)\b [^\n]* \n [^\n]* \bskip\b/x;
-        next if $span =~ /\bskip\b [^\n]* \bif \s+ (?:open|opendir|sysopen)\b/x;
-        next if $span =~ /\bif \s* \( \s* (?:open|opendir|sysopen)\b .*? \bskip\b/xs;
+        # Accept ONLY a probe tied to a real attempt. A bare -r/-w/-x never
+        # qualifies: filetest operators are mode-bit arithmetic and answer true
+        # for uid 0 whatever the mode, so they cannot see a dropped capability.
         next if $span =~ /\buse \s+ filetest \s+ ['"]access['"]/x;
+
+        # skip ... if open(...)
+        next if $span =~ /\bskip\b [^\n]* \bif \s+ (?:open|opendir|sysopen)\b/x;
+
+        # if ( open ... ) { ... skip ... }
+        next if $span =~ /\bif \s* \( \s* (?:open|opendir|sysopen)\b .*? \bskip\b/xs;
+
+        # my $can = open(...) ? ... : 0;  ...  skip ... if $can;
+        # The attempt's result is carried in a variable because the mode usually
+        # has to be restored on the skip path too.
+        if ( my ($var) = $span =~ /\$(\w+) \s* = \s* (?:open|opendir|sysopen) \b/x ) {
+            next if $span =~ /\bskip\b [^\n]* \bif \b [^\n]* \$\Q$var\E\b/x;
+        }
 
         push @findings, { line => $i + 1, mode => $mode, target => $target, lost => $lost };
     }

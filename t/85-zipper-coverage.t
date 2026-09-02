@@ -263,12 +263,23 @@ my $unreadable = File::Spec->catfile( $rt, 'dashboards', 'ajax', 'unreadable' );
 open my $ufh, '>', $unreadable or die "Unable to seed $unreadable: $!";
 print {$ufh} "secret";
 close $ufh;
-chmod 0000, $unreadable or die "Unable to chmod $unreadable: $!";
-my $read_err = eval {
-    Developer::Dashboard::Zipper::load_saved_ajax_code( runtime_root => $rt, file => 'unreadable' );
-    1;
-} ? '' : $@;
-like( $read_err, qr/Unable to read/, 'load_saved_ajax_code dies when the handler file exists but cannot be read' );
+SKIP: {
+    chmod 0000, $unreadable or skip 'chmod not honored on this filesystem', 1;
+
+    # Probe by attempting the read, not with -r: filetest operators are mode-bit
+    # arithmetic and answer true for uid 0 whatever the mode.
+    if ( open my $probe, '<', $unreadable ) {
+        close $probe or die "Unable to close probe on $unreadable: $!";
+        skip 'this process can read a mode-0000 file, so the read failure cannot occur', 1;
+    }
+
+    my $read_err = eval {
+        Developer::Dashboard::Zipper::load_saved_ajax_code( runtime_root => $rt, file => 'unreadable' );
+        1;
+    } ? '' : $@;
+    like( $read_err, qr/Unable to read/, 'load_saved_ajax_code dies when the handler file exists but cannot be read' );
+}
+
 chmod 0600, $unreadable;
 
 # ---------------------------------------------------------------------------

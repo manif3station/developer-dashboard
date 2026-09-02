@@ -157,10 +157,19 @@ my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
     open my $fh, '>', $secret or die "Unable to create $secret: $!";
     print {$fh} "secret\n";
     close $fh;
-    chmod 0000, $secret or die "Unable to chmod $secret: $!";
+  SKIP: {
+        chmod 0000, $secret or skip 'chmod not honored on this filesystem', 1;
 
-    my $read_err = eval { $files->read($secret); 1 } ? '' : $@;
-    like( $read_err, qr/Unable to read \Q$secret\E/, 'read dies when an existing file cannot be opened for reading' );
+        # Probe by attempting the read, not with -r: filetest operators are
+        # mode-bit arithmetic and answer true for uid 0 whatever the mode.
+        if ( open my $probe, '<', $secret ) {
+            close $probe or die "Unable to close probe on $secret: $!";
+            skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+        }
+
+        my $read_err = eval { $files->read($secret); 1 } ? '' : $@;
+        like( $read_err, qr/Unable to read \Q$secret\E/, 'read dies when an existing file cannot be opened for reading' );
+    }
 
     chmod 0700, $secret;    # restore so tempdir cleanup can reclaim it
 }

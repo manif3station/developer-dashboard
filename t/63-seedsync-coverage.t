@@ -106,16 +106,28 @@ SKIP: {
         print {$fh} 'secret-seed-body';
         close $fh or die "Unable to close $unreadable: $!";
     }
-    chmod 0000, $unreadable or die "Unable to chmod $unreadable: $!";
-    my $error =
-      eval { Developer::Dashboard::SeedSync::file_matches_content_md5( $unreadable, 'secret-seed-body' ); 1 }
-      ? ''
-      : $@;
-    like(
-        $error,
-        qr/\QUnable to read $unreadable\E/,
-        'file_matches_content_md5 dies when a present regular file cannot be opened for reading',
-    );
+  SKIP: {
+        chmod 0000, $unreadable or skip 'chmod not honored on this filesystem', 1;
+
+        # Probe by attempting the read, not with -r: filetest operators are
+        # mode-bit arithmetic and answer true for uid 0 whatever the mode.
+        if ( open my $probe, '<', $unreadable ) {
+            close $probe or die "Unable to close probe on $unreadable: $!";
+            chmod 0600, $unreadable;
+            skip 'this process can read a mode-0000 file, so the read failure cannot occur', 1;
+        }
+
+        my $error =
+          eval { Developer::Dashboard::SeedSync::file_matches_content_md5( $unreadable, 'secret-seed-body' ); 1 }
+          ? ''
+          : $@;
+        like(
+            $error,
+            qr/\QUnable to read $unreadable\E/,
+            'file_matches_content_md5 dies when a present regular file cannot be opened for reading',
+        );
+    }
+
     chmod 0600, $unreadable;    # let CLEANUP reclaim the file cleanly
 }
 
