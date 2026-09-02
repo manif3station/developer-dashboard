@@ -1337,11 +1337,26 @@ $m->{_current_request_context} ||= { host => '127.0.0.1', remote_addr => '127.0.
 }
 {
     my $nav_dir = File::Spec->catdir( $paths->dashboards_root, 'nav' );
-    chmod 0000, $nav_dir;
-    my $welcome = $store->load_saved_page('welcome');
-    eval { $m->_nav_items_html( page => $welcome, runtime_context => { params => {}, current_page => '/x' } ) };
-    chmod 0755, $nav_dir;
-    ok( 1, 'nav opendir failure path (2004 true)' );
+  SKIP: {
+        chmod 0000, $nav_dir or skip 'chmod not honored on this filesystem', 1;
+
+        # NOTE: the assertion below is a tautology - ok(1) after an eval whose
+        # result is discarded - and cannot fail for any process. That is tracked
+        # separately as DD-745; this card changes WHEN a denial test runs, never
+        # WHAT it asserts, so the guard is added and the assertion left alone.
+        my $probe_dh;
+        my $can_open = opendir( $probe_dh, $nav_dir ) ? do { closedir $probe_dh; 1 } : 0;
+
+        if ( !$can_open ) {
+            my $welcome = $store->load_saved_page('welcome');
+            eval { $m->_nav_items_html( page => $welcome, runtime_context => { params => {}, current_page => '/x' } ) };
+        }
+        chmod 0755, $nav_dir;
+
+        skip 'this process can open a mode-0000 directory, so the opendir failure cannot occur', 1
+          if $can_open;
+        ok( 1, 'nav opendir failure path (2004 true)' );
+    }
 }
 {
     no warnings 'redefine';

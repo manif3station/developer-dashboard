@@ -52,7 +52,14 @@ my $runner = Developer::Dashboard::CollectorRunner->new(
     close $fh or die "Unable to close $unreadable: $!";
   SKIP: {
         chmod 0000, $unreadable or skip 'chmod not honored on this filesystem', 1;
-        skip 'running as root defeats the unreadable-file open failure', 1 if -r $unreadable;
+        # Was `if -r $unreadable`. Perl's filetest operators are mode-bit
+        # arithmetic and special-case uid 0, so -r answers true for root even
+        # where the open is genuinely denied - which skipped an assertion that a
+        # capability-dropped root would have run and passed. Probe by attempting.
+        if ( open my $probe, '<', $unreadable ) {
+            close $probe or die "Unable to close probe on $unreadable: $!";
+            skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+        }
         ok(
             !defined $runner->_command_pid_from_file($unreadable),
             '_command_pid_from_file returns no pid when a present pidfile cannot be opened',

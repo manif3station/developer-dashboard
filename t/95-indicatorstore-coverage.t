@@ -125,7 +125,13 @@ SKIP: {
     my ($root) = $p->indicators_roots;
     my $file = plant( $root, 'unreadable', { status => 'ok' } );
     chmod 0000, $file or die "chmod failed: $!";
-    skip 'file still readable (running as root?)', 1 if -r $file;
+    # Was `if -r $file`. Perl's filetest operators are mode-bit arithmetic and
+    # special-case uid 0, so -r answers true for root even where the open is
+    # genuinely denied. Probe by attempting the read.
+    if ( open my $probe, '<', $file ) {
+        close $probe or die "Unable to close probe on $file: $!";
+        skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+    }
     my $err = eval { $s->get_indicator('unreadable'); 1 } ? '' : $@;
     like( $err, qr/Unable to read/, '_read_indicator_file dies when an existing status file cannot be read' );
     chmod 0644, $file;
