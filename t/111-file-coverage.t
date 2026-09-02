@@ -176,12 +176,24 @@ local $Developer::Dashboard::File::CONFIG_ALIASES_KEY = '';
     open my $fh, '>', $unreadable or die "Unable to write $unreadable: $!";
     print {$fh} "secret\n";
     close $fh or die "Unable to close $unreadable: $!";
-    chmod 0000, $unreadable or die "Unable to chmod $unreadable: $!";
+  SKIP: {
+        chmod 0000, $unreadable or skip 'chmod not honored on this filesystem', 1;
+        # Probe by ATTEMPTING the read, never with -r: Perl's filetest operators
+        # are mode-bit arithmetic and special-case uid 0, so -r answers true for
+        # root on a 0000 file even where the open is genuinely denied - which
+        # would skip an assertion that was about to run and pass.
+        if ( open my $probe, '<', $unreadable ) {
+            close $probe or die "Unable to close probe on $unreadable: $!";
+            skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+        }
 
-    my $error = '';
-    eval { Developer::Dashboard::File->read($unreadable); 1 } or $error = $@;
-    like( $error, qr/\AUnable to read \Q$unreadable\E: /, 'read dies when an existing file cannot be opened' );
+        my $error = '';
+        eval { Developer::Dashboard::File->read($unreadable); 1 } or $error = $@;
+        like( $error, qr/\AUnable to read \Q$unreadable\E: /, 'read dies when an existing file cannot be opened' );
+    }
 
+    # Restore outside the SKIP block: when the skip fires the mode was still
+    # changed, so cleanup must happen either way.
     chmod 0600, $unreadable or die "Unable to restore $unreadable: $!";
 }
 
