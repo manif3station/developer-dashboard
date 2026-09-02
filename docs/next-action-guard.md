@@ -68,6 +68,66 @@ board grows should extend `workable()` rather than be treated as covered by
 it already. Silently claiming a check covers more than it does is worse than
 naming the gap.
 
+## How it knows work is already in flight (DD-742)
+
+The selection order above reads every working column, but not all of them
+suppress a new recommendation, and the difference is easy to miss because the
+columns *are* all present in the file.
+
+    line 104   in-flight    in-progress researching analysing documentation
+    line 117   candidates   todo buglist new-enhancements ready planning backlog
+    line 130                final-check git-gate        "not been landed"
+    line 137                unit-test vulnerability-scan platform-test  "at a gate"
+
+Only line 104 suppresses. A card sitting at `unit-test` is reached at 137 —
+*after* the candidate loop has already answered — so the guard proposes starting
+something new while that card is mid-gate. Observed 2026-09-02: with a card in
+`unit-test` holding a standing suite verdict, the guard answered *"DD-659 is
+waiting to be started. Claim it and work it"*, because DD-659 was in `ready` and
+`ready` is reached at 117.
+
+**So "never start something new while something is claimed" is enforced for four
+columns and not for the other five.** That is a ranking, not an omission — and
+reading line 104 alone shows four names and looks like the whole story.
+
+### The set is published; do not write it down
+
+The board declares its own columns, so the working set does not have to be
+maintained by hand:
+
+```sh
+d2 tira.column.list --type ticket -o json
+```
+
+`required_actions > 0` selects exactly the eleven working columns
+(`researching` … `git-gate`) and excludes exactly the ten that are not — the
+queues, both `blocked-*`, and the four terminal columns. A column that demands
+work before you leave it is a working column *by construction*, so a twelfth one
+needs no code change.
+
+Three properties of that interface bite if ignored:
+
+- **`--type ticket` is required.** `epic` and `sow` return 21 columns with
+  **zero** `required_actions`. A derivation that omits the type yields an empty
+  set — and an empty in-flight set reports *"nothing is in flight"*, which is
+  this very defect in its most complete form. Assert the result is non-empty and
+  fail into the existing exit-3 path.
+- **A column may declare several `next` columns.** This board forks at
+  `final-check → {git-gate, admin-done}`. A walk assuming one successor stops at
+  the first.
+- **The candidate set overlaps the working set** at `ready` and `planning`.
+  That overlap is deliberate (DD-724): a card in `ready` is claimed but not
+  being worked, and is legitimately pickable. Deriving the working set must not
+  quietly remove those from what the guard can offer.
+
+### Why the list existed at all
+
+DD-733 extended the in-flight check from one column to four, because that is
+what the incident it came from involved — a session told to claim a new card
+while holding one in `analysing`. Four contiguous names read as a complete
+answer. **A fix derived from an incident covers the incident**; the set it
+should cover has to come from the system's own definition.
+
 ## Test seam
 
 `DD_NEXT_ACTION_D2` overrides which `d2` binary the guard calls, so
