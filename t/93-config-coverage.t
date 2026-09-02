@@ -254,8 +254,16 @@ sub dies_like {
     open my $bfh, '>:raw', $blocked or die $!;
     print {$bfh} '{}';
     close $bfh;
-    chmod 0000, $blocked;
-    dies_like( sub { $config->_load_json_hash_file($blocked) }, qr/Unable to read/, '_load_json_hash_file dies when the file cannot be opened' );
+  SKIP: {
+        chmod 0000, $blocked or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $blocked ) {
+            close $probe or die "Unable to close probe on $blocked: $!";
+            skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+        }
+
+        dies_like( sub { $config->_load_json_hash_file($blocked) }, qr/Unable to read/, '_load_json_hash_file dies when the file cannot be opened' );
+    }
+
     chmod 0600, $blocked;
 }
 
@@ -499,8 +507,21 @@ sub dies_like {
     # 66: a read-only target directory makes the temp open() fail.
     my $rodir = File::Spec->catdir( $scratch, 'rodir' );
     make_path($rodir);
-    chmod 0500, $rodir;
-    dies_like( sub { $config->_write_json_atomic( File::Spec->catfile( $rodir, 'x.json' ), '{}' ) }, qr/Unable to write/, '_write_json_atomic dies when the temp file cannot be created' );
+  SKIP: {
+        chmod 0500, $rodir or skip 'chmod not honored on this filesystem', 1;
+
+        # Probe by attempting to create a file - -w is mode-bit arithmetic and
+        # answers true for uid 0 whatever the mode.
+        my $wprobe = File::Spec->catfile( $rodir, '.write-probe' );
+        if ( open my $probe, '>', $wprobe ) {
+            close $probe or die "Unable to close probe on $wprobe: $!";
+            unlink $wprobe;
+            skip 'this process can write into a mode-0500 directory, so the write failure cannot occur', 1;
+        }
+
+        dies_like( sub { $config->_write_json_atomic( File::Spec->catfile( $rodir, 'x.json' ), '{}' ) }, qr/Unable to write/, '_write_json_atomic dies when the temp file cannot be created' );
+    }
+
     chmod 0700, $rodir;
 
     # 70: renaming the temp file over an existing directory fails.
@@ -515,10 +536,18 @@ sub dies_like {
 {
     # 37: load_global open() failure on an unreadable config file.
     set_config( { web => { host => 'x' } } );
-    chmod 0000, $config_file;
-    dies_like( sub { $config->load_global }, qr/Unable to read/, 'load_global dies when the config file cannot be opened' );
-    # 723: _load_writable_global open() failure on the same file.
-    dies_like( sub { $config->_load_writable_global }, qr/Unable to read/, '_load_writable_global dies when the config file cannot be opened' );
+  SKIP: {
+        chmod 0000, $config_file or skip 'chmod not honored on this filesystem', 2;
+        if ( open my $probe, '<', $config_file ) {
+            close $probe or die "Unable to close probe on $config_file: $!";
+            skip 'this process can read a mode-0000 file, so the open failure cannot occur', 2;
+        }
+
+        dies_like( sub { $config->load_global }, qr/Unable to read/, 'load_global dies when the config file cannot be opened' );
+        # 723: _load_writable_global open() failure on the same file.
+        dies_like( sub { $config->_load_writable_global }, qr/Unable to read/, '_load_writable_global dies when the config file cannot be opened' );
+    }
+
     chmod 0600, $config_file;
     clear_config();
 
@@ -528,9 +557,17 @@ sub dies_like {
     open my $rbf, '>:raw', $repo_bad_file or die $!;
     print {$rbf} '{"repo":1}';
     close $rbf;
-    chmod 0000, $repo_bad_file;
-    my $repo_bad_config = Developer::Dashboard::Config->new( files => $files, paths => $paths, repo_root => $repo_bad );
-    dies_like( sub { $repo_bad_config->load_repo }, qr/Unable to read/, 'load_repo dies when the repo config file cannot be opened' );
+  SKIP: {
+        chmod 0000, $repo_bad_file or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $repo_bad_file ) {
+            close $probe or die "Unable to close probe on $repo_bad_file: $!";
+            skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+        }
+
+        my $repo_bad_config = Developer::Dashboard::Config->new( files => $files, paths => $paths, repo_root => $repo_bad );
+        dies_like( sub { $repo_bad_config->load_repo }, qr/Unable to read/, 'load_repo dies when the repo config file cannot be opened' );
+    }
+
     chmod 0600, $repo_bad_file;
 
     my $repo_ok = tempdir( CLEANUP => 1 );
@@ -626,8 +663,16 @@ sub dies_like {
         open my $fh, '>:raw', $file or die $!;
         print {$fh} '{}';
         close $fh;
-        chmod 0000, $file;
-        dies_like( sub { $config->_skill_config_hash('iofail') }, qr/Unable to read/, '_skill_config_hash dies when a skill config cannot be opened' );
+      SKIP: {
+            chmod 0000, $file or skip 'chmod not honored on this filesystem', 1;
+            if ( open my $probe, '<', $file ) {
+                close $probe or die "Unable to close probe on $file: $!";
+                skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+            }
+
+            dies_like( sub { $config->_skill_config_hash('iofail') }, qr/Unable to read/, '_skill_config_hash dies when a skill config cannot be opened' );
+        }
+
         chmod 0700, $file;
         remove_tree( File::Spec->catdir( $skills, 'iofail' ) );
     }
