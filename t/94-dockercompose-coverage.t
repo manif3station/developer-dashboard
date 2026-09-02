@@ -325,7 +325,18 @@ chmod 0755, File::Spec->catfile( $stubbin, 'docker' );
 
 # ---- opendir-failure paths via an unreadable directory --------------------
 SKIP: {
-    skip 'permission-failure paths require a non-root user', 3 if $> == 0;
+    # Was `skip ... if $> == 0`. Identity is a proxy for the real condition and
+    # it comes apart: a root process with CAP_DAC_OVERRIDE dropped IS denied
+    # here, so the identity form skipped three assertions it would have passed.
+    # Probe once, by attempting the operation, for all three sites below.
+    my $probe_root = File::Spec->catdir( $ddroot, 'denial-probe' );
+    make_path($probe_root);
+    chmod 0000, $probe_root or skip 'chmod not honored on this filesystem', 3;
+    my $probe_dh;
+    my $denial_observable = opendir( $probe_dh, $probe_root ) ? do { closedir $probe_dh; 0 } : 1;
+    chmod 0700, $probe_root;
+    skip 'this process can open a mode-0000 directory, so these denials cannot occur', 3
+      if !$denial_observable;
 
     # (a) unreadable nested skills dir -> _installed_skill_docker_roots_for_runtime
     my $bad_nested = File::Spec->catdir( $ddroot, 'skills', 'badskill', 'skills' );
