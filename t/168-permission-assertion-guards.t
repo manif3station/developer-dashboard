@@ -123,7 +123,10 @@ sub unguarded_denial_sites {
         # The attempt's result is carried in a variable because the mode usually
         # has to be restored on the skip path too.
         if ( my ($var) = $span =~ /\$(\w+) \s* = \s* (?:open|opendir|sysopen) \b/x ) {
-            next if $span =~ /\bskip\b [^\n]* \bif \b [^\n]* \$\Q$var\E\b/x;
+            # The condition may sit on the next line - `skip '...', 3\n  if !$var;`
+            # is idiomatic when the message is long, so this must not be
+            # line-anchored.
+            next if $span =~ /\bskip\b .{0,200}? \bif \b .{0,80}? \$\Q$var\E\b/xs;
         }
 
         push @findings, { line => $i + 1, mode => $mode, target => $target, lost => $lost };

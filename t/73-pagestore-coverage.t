@@ -315,9 +315,18 @@ is( $reloaded_nested->{id}, 'team/status', 'a nested page reloads through existi
     my $bm = tempdir( CLEANUP => 1 );
     local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS} = $bm;
     my $locked = write_raw( File::Spec->catfile( $bm, 'locked.json' ), 'not json either way' );
-    chmod 0000, $locked or die "Unable to chmod $locked: $!";
-    my $migrated = $store->migrate_legacy_json_pages;
-    is( scalar @{$migrated}, 0, 'legacy migration skips a source file it cannot open' );
+  SKIP: {
+        chmod 0000, $locked or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $locked ) {
+            close $probe or die "Unable to close probe on $locked: $!";
+            chmod 0600, $locked or die "Unable to restore permissions on $locked: $!";
+            skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+        }
+
+        my $migrated = $store->migrate_legacy_json_pages;
+        is( scalar @{$migrated}, 0, 'legacy migration skips a source file it cannot open' );
+    }
+
     chmod 0600, $locked or die "Unable to restore permissions on $locked: $!";
 }
 
@@ -378,8 +387,17 @@ is( $reloaded_nested->{id}, 'team/status', 'a nested page reloads through existi
         'fallback save dies when the target is a directory' );
 
     my $locked = write_raw( File::Spec->catfile( $bm, 'fb-locked' ), "TITLE: locked\n" );
-    chmod 0000, $locked or die "Unable to chmod $locked: $!";
-    ok( !eval { $store->read_saved_entry('fb-locked'); 1 }, 'fallback read dies when the file cannot be opened' );
+  SKIP: {
+        chmod 0000, $locked or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $locked ) {
+            close $probe or die "Unable to close probe on $locked: $!";
+            chmod 0600, $locked or die "Unable to restore permissions on $locked: $!";
+            skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+        }
+
+        ok( !eval { $store->read_saved_entry('fb-locked'); 1 }, 'fallback read dies when the file cannot be opened' );
+    }
+
     chmod 0600, $locked or die "Unable to restore permissions on $locked: $!";
 
     my $nomode = $store->_open_saved_page_at( root => $bm, id => 'fb-nomode', flags => O_WRONLY | O_CREAT | O_TRUNC );
@@ -575,14 +593,26 @@ ok( scalar( $store->_saved_page_entries_for_root($droot) ),
 }
 
 # ---------------------------------------------------------------------------
-# Permission-dependent failure paths. These require a non-root user because the
-# superuser bypasses the directory/file permission bits under test:
+# Permission-dependent failure paths. These require a process that can actually
+# BE DENIED, which is not the same as a non-root one: a root process with
+# CAP_DAC_OVERRIDE dropped is denied here, and root with it held is not.
 #   line 167  opendir on an unreadable root
 #   line 175  open '<' on an unreadable json file
 #   line 188  unlink of a source file in a read-only root
 # ---------------------------------------------------------------------------
 SKIP: {
-    skip 'permission failure paths require a non-root user', 3 if $> == 0;
+    # Was `skip ... if $> == 0`. Identity is a proxy for the real condition and
+    # it comes apart: -r and $> both say "root can read this" whether or not the
+    # kernel would allow it, so the identity form skipped three assertions that
+    # a capability-dropped root would have run and passed. Probe once, by
+    # attempting the operation, and let the answer stand for all three sites.
+    my $probe_root = tempdir( CLEANUP => 1 );
+    chmod 0000, $probe_root or skip 'chmod not honored on this filesystem', 3;
+    my $probe_dh;
+    my $denial_observable = opendir( $probe_dh, $probe_root ) ? do { closedir $probe_dh; 0 } : 1;
+    chmod 0700, $probe_root;
+    skip 'this process can open a mode-0000 directory, so these denials cannot occur', 3
+      if !$denial_observable;
 
     # line 167: an unreadable bookmarks root makes opendir fail.
     {
