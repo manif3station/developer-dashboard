@@ -199,6 +199,133 @@ chdir $starting_cwd or die "Unable to chdir back to $starting_cwd: $!";
 
 is( scalar(@warnings), 0, 'no warnings escaped: ' . join( '; ', @warnings ) );
 
+
+# ---------------------------------------------------------------------------
+# DD-738: d2() chaining. RED until the proxy exists.
+#
+# Design settled by the owner across four questions, and the spec asserts the
+# SETTLED shape rather than the one this card was filed with:
+#   Q-096  proxy-object chaining, arbitrary depth, mirroring dotted CLI dispatch
+#   Q-100  ONLY an explicit terminator executes; boolean, numeric and
+#          interpolated context are all inert; an un-terminated proxy
+#          stringifies to something obviously non-executing
+#   Q-101  supersedes the original AC-3: a bare single-word call is a proxy too,
+#          with no depth-1 special case
+#   Q-104  the terminator is a CALL - d2()->collector->list->() - overloading
+#          &{}, chosen because it reserves no word and so cannot collide with a
+#          subcommand, which matters when the CLI dispatches arbitrary dotted
+#          names including installed skills.
+#
+# The stub RECORDS ITS ARGV to a file. Inertness is then asserted by an EMPTY
+# LOG rather than by the absence of output - a test that checks "nothing was
+# printed" passes just as well when the command ran and printed nothing.
+# ---------------------------------------------------------------------------
+{
+    my $bin_dir = tempdir( CLEANUP => 1 );
+    my $log     = File::Spec->catfile( $bin_dir, 'invocations' );
+    my $stub    = File::Spec->catfile( $bin_dir, 'dashboard' );
+    open my $sfh, '>', $stub or die "Unable to write $stub: $!";
+    print {$sfh} <<"STUB";
+#!/bin/sh
+printf '%s\\n' "\$*" >> '$log'
+echo 'stub-ran'
+STUB
+    close $sfh or die "Unable to close $stub: $!";
+    chmod 0755, $stub or die "Unable to chmod $stub: $!";
+    local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
+
+    # purpose: report every argv the stub has been invoked with since the last reset.
+    # input: none. output: list of argv strings, oldest first.
+    my $invocations = sub {
+        return () if !-e $log;
+        open my $lfh, '<', $log or die "Unable to read $log: $!";
+        my @lines = <$lfh>;
+        close $lfh or die "Unable to close $log: $!";
+        chomp @lines;
+        return @lines;
+    };
+    # purpose: forget every recorded invocation, so the next assertion speaks
+    #          only about what happened after it. input/output: none.
+    my $reset = sub { unlink $log if -e $log; return; };
+
+    my $handle = Developer::Dashboard::Handle->new( cwd => $home );
+
+    # AC-1 ARBITRARY DEPTH. Depths 2, 3 and 4 - a fix handling one extra word
+    # is a special case, and the owner asked for the general form.
+    for my $case ( [ [qw(collector list)], 'collector.list' ],
+                   [ [qw(foo bar zzz)],   'foo.bar.zzz' ],
+                   [ [qw(foo bar zzz yyy)], 'foo.bar.zzz.yyy' ] ) {
+        my ( $words, $dotted ) = @{$case};
+        $reset->();
+        # eval so a die at the first chained call does not hide the eight
+        # assertions after it - a RED spec that stops at its first failure
+        # tells you one thing when it could tell you the whole shape.
+        eval {
+            my $proxy = $handle;
+            $proxy = $proxy->$_ for @{$words};
+            $proxy->();
+            1;
+        };
+        is_deeply( [ $invocations->() ], [$dotted],
+            "AC-1: d2()->" . join( '->', @{$words} ) . "->() invokes exactly `dashboard $dotted`" );
+    }
+
+    # AC-2 NO ACCIDENTAL EXECUTION. Each context is exercised against a proxy
+    # that is never terminated, and the log must stay EMPTY.
+    {
+        $reset->();
+        eval { my $proxy = $handle->collector->list; my $t = $proxy ? 1 : 0; 1 };
+        is_deeply( [ $invocations->() ], [], 'AC-2: boolean context does not execute' );
+
+        $reset->();
+        eval { my $p2 = $handle->collector->list; my $n = 0 + $p2; 1 };
+        is_deeply( [ $invocations->() ], [], 'AC-2: numeric context does not execute' );
+
+        $reset->();
+        my $p3 = eval { $handle->collector->list };
+        eval { my $str = "interpolated: $p3"; 1 };
+        is_deeply( [ $invocations->() ], [], 'AC-2: interpolation does not execute' );
+
+        # AC-7 (Q-100): and the string it interpolates to must be obviously
+        # non-executing. Asserted as TEXT, not merely as "did not execute" -
+        # Perl autogenerates a missing stringify from numify, so a silently
+        # generated form would satisfy a weaker assertion.
+        is( ( defined $p3 ? "$p3" : '(the chain died)' ), 'd2 proxy: collector.list',
+            'AC-7: an un-terminated proxy stringifies to "d2 proxy: collector.list"' );
+    }
+
+    # AC-3 SUPERSEDED BY Q-101: a bare single-word call is a proxy like any
+    # other chain, with no depth-1 special case.
+    {
+        $reset->();
+        my $one = eval { $handle->doctor };
+        is_deeply( [ $invocations->() ], [], 'Q-101: a bare single-word call does NOT execute' );
+        is( ( defined $one ? "$one" : '(undef)' ), 'd2 proxy: doctor',
+            'Q-101: and stringifies as a proxy at depth 1 too' );
+        $reset->();
+        eval { $one->(); 1 };
+        is_deeply( [ $invocations->() ], ['doctor'], 'Q-101: terminating it invokes `dashboard doctor`' );
+    }
+
+    # AC-4 run() UNCHANGED - the documented bypass other code depends on.
+    {
+        $reset->();
+        my $out = $handle->run( 'collector', 'list' );
+        is_deeply( [ $invocations->() ], ['collector list'],
+            'AC-4: run() still passes its words as SEPARATE argv, not dotted' );
+        is( $out, 'stub-ran', 'AC-4: and still returns the trimmed stdout' );
+    }
+
+    # AC-5 DESTROY STILL GUARDED: a proxy that goes out of scope un-terminated
+    # invokes nothing. Without the guard, DESTROY is just another bareword.
+    {
+        $reset->();
+        eval { my $doomed = $handle->collector->list; 1 };
+        is_deeply( [ $invocations->() ], [],
+            'AC-5: a proxy going out of scope un-terminated invokes nothing' );
+    }
+}
+
 done_testing;
 
 __END__
