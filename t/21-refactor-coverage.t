@@ -2016,6 +2016,11 @@ like(
     my $blocked_dir = File::Spec->catdir( $blocked_root, 'blocked' );
     make_path($blocked_dir);
     chmod 0000, $blocked_dir or die "Unable to chmod $blocked_dir: $!";
+    my $probe_dh;
+    my $can_enter = opendir( $probe_dh, $blocked_dir ) ? do { closedir $probe_dh; 1 } : 0;
+  SKIP: {
+        skip 'this process can open a mode-0000 directory, so the chdir failure cannot occur', 1
+          if $can_enter;
     like(
         _dies(
             sub {
@@ -2029,6 +2034,8 @@ like(
         qr/Unable to change directory to '\Q$blocked_dir\E' for workspace 'blocked-workspace'/,
         'workspace -c surfaces the chdir failure instead of starting the workspace from the wrong directory',
     );
+    }
+
     chmod 0700, $blocked_dir or die "Unable to restore permissions on $blocked_dir: $!";
 }
 {

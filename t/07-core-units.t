@@ -5985,27 +5985,34 @@ dies_like(
     print {$ajax_fh} "still here";
     close $ajax_fh or die "Unable to close $ajax_path: $!";
     utime time - 7200, time - 7200, $ajax_path or die "Unable to age $ajax_path: $!";
-    if ( $> == 0 ) {
-        pass('_cleanup_ajax_temp_files unlink-failure branch is skipped under root because root can still remove the temp file despite directory permission tightening');
+    # Was `if ( $> == 0 ) { pass(...) }`. That FABRICATED a passing assertion for
+    # a branch nobody exercised, which is worse than a skip: a skip says "not
+    # tested"; a pass says "tested and correct" and is indistinguishable from a
+    # real result in every report. It also asked who the process is, when what
+    # matters is what it can do - a root process with CAP_DAC_OVERRIDE dropped
+    # genuinely cannot unlink here, so this branch IS reachable for it.
+    chmod 0555, $blocked_tmp or die "Unable to chmod $blocked_tmp: $!";
+    my $unlink_probe = File::Spec->catfile( $blocked_tmp, 'unlink-probe' );
+    my $pfh;
+    my $can_write_dir = open( $pfh, '>', $unlink_probe ) ? do { close $pfh; unlink $unlink_probe; 1 } : 0;
+  SKIP: {
+        skip 'this process can still write into a mode-0555 directory, so the unlink failure cannot occur', 1
+          if $can_write_dir;
+
+        no warnings qw(redefine once);
+        local *File::Spec::tmpdir = sub { return $blocked_tmp };
+        dies_like(
+            sub {
+                $ajax_keeper->_cleanup_temp_files(
+                    min_age_seconds => 60,
+                    scanned         => { state_roots => 0, ajax_temp_files => 0, result_temp_files => 0 },
+                );
+            },
+            qr/Unable to remove stale Ajax temp file/,
+            '_cleanup_temp_files dies when unlink fails and the temp file still exists',
+        );
     }
-    else {
-        chmod 0555, $blocked_tmp or die "Unable to chmod $blocked_tmp: $!";
-        {
-            no warnings qw(redefine once);
-            local *File::Spec::tmpdir = sub { return $blocked_tmp };
-            dies_like(
-                sub {
-                    $ajax_keeper->_cleanup_temp_files(
-                        min_age_seconds => 60,
-                        scanned         => { state_roots => 0, ajax_temp_files => 0, result_temp_files => 0 },
-                    );
-                },
-                qr/Unable to remove stale Ajax temp file/,
-                '_cleanup_temp_files dies when unlink fails and the temp file still exists',
-            );
-        }
-        chmod 0755, $blocked_tmp or die "Unable to restore $blocked_tmp permissions: $!";
-    }
+    chmod 0755, $blocked_tmp or die "Unable to restore $blocked_tmp permissions: $!";
     unlink $ajax_path or die "Unable to remove $ajax_path after ajax unlink failure coverage: $!";
 }
 
