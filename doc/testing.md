@@ -84,6 +84,53 @@ primary checkout. `t/139-worktree-source-tree-detection.t` proves the guardrail
 file really executes inside a real linked worktree and sweeps `t/` so the
 directory-only form cannot come back.
 
+### Running the suite in a container
+
+The project image runs as `uid 0`, and Docker's default capability set includes
+`CAP_DAC_OVERRIDE`. A privileged process bypasses discretionary access control
+entirely, so every test that asserts an operation is *refused* — an unreadable
+file, an unwritable directory — is asserting something that cannot happen. Those
+tests skip themselves rather than fail, because each one probes whether a denial
+is observable before asserting on it (see
+`docs/assertions-that-cannot-fail.md`).
+
+Skipping is honest, but it is coverage you did not get. **Drop the two DAC
+capabilities and the assertions run instead:**
+
+```bash
+docker run --rm \
+  --cap-drop=DAC_OVERRIDE --cap-drop=DAC_READ_SEARCH \
+  -v "$PWD:/src:ro" developer-dashboard:latest bash -c '
+    mkdir -p /work && tar -C /src --exclude=./.git -cf - . | tar -C /work -xf -
+    cd /work && prove -lr t'
+```
+
+The process is still `uid 0` — it can install packages, which the blank-host
+bootstrap gate legitimately needs — but it can no longer bypass the mode bits, so
+a permission denial is observable and every such assertion executes.
+
+**Verifying it worked is a skip count, not a test count.** A skipped test still
+counts as a test in TAP, so `Tests=` is identical either way. Run with `-v` and
+count the skips:
+
+```bash
+prove -lvr t | grep -ci '# skip.*cannot occur'
+```
+
+That number should be greater than zero for plain root and **zero** with the
+capabilities dropped. If it stays the same in both, a guard somewhere is testing
+identity (`$> == 0`) or using a bare `-r`/`-w` — both of which answer "true" for
+`uid 0` whatever the mode — rather than attempting the operation. `t/168` fails
+the build when that form appears.
+
+**One capability is not enough for every case.** A `chmod` refused because the
+process does not *own* the file is governed by `CAP_FOWNER`, not
+`CAP_DAC_OVERRIDE`, so dropping the DAC pair does not make those assertions
+reachable; they probe separately. Note also that `tar -x` needs `CAP_FOWNER` to
+restore file modes, so dropping it breaks the copy step above — which is why the
+recipe drops only the DAC pair.
+
+
 ## Coverage
 
 Install Devel::Cover in a local Perl library, then run the gate as one command:
