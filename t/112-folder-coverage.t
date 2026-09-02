@@ -135,13 +135,25 @@ is( $cd_missing, undef, 'cd() refuses a path that is not a directory' );
 
 my $locked = File::Spec->catdir( $home, 'locked-dir' );
 make_path($locked);
-chmod 0000, $locked or die "Unable to chmod $locked: $!";
-my $cd_locked = Developer::Dashboard::Folder->cd( $locked, sub { return 'ran' } );
-is( $cd_locked, undef, 'cd() gives up when the directory cannot be entered' );
+SKIP: {
+    chmod 0000, $locked or skip 'chmod not honored on this filesystem', 2;
+    # Probe by ATTEMPTING the opendir, never with -r: Perl's filetest operators
+    # are mode-bit arithmetic and special-case uid 0, so -r answers true for root
+    # on a 0000 directory even where the opendir is genuinely denied.
+    if ( opendir my $probe, $locked ) {
+        closedir $probe or die "Unable to close probe on $locked: $!";
+        skip 'this process can open a mode-0000 directory, so the failure cannot occur', 2;
+    }
 
-# ls() on an unreadable directory reports nothing instead of dying.
-my @locked_items = Developer::Dashboard::Folder->ls($locked);
-is( scalar @locked_items, 0, 'ls() reports nothing for a directory it cannot open' );
+    my $cd_locked = Developer::Dashboard::Folder->cd( $locked, sub { return 'ran' } );
+    is( $cd_locked, undef, 'cd() gives up when the directory cannot be entered' );
+
+    # ls() on an unreadable directory reports nothing instead of dying.
+    my @locked_items = Developer::Dashboard::Folder->ls($locked);
+    is( scalar @locked_items, 0, 'ls() reports nothing for a directory it cannot open' );
+}
+
+# Restore outside the SKIP block: the mode was changed before the skip could fire.
 chmod 0700, $locked or die "Unable to restore mode on $locked: $!";
 
 # The cd() context object exposes a stay() hook that ignores empty values.

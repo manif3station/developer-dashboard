@@ -82,8 +82,16 @@ sub unguarded_denial_sites {
         next
           if $span !~ /\b(?:ok|is|isnt|like|unlike|cmp_ok|is_deeply|\w+_like|dies\w*|lives\w*|throws\w*)\s*\(/
           && $span !~ /\beval\s*[{(]/;
-        next if $span =~ /\bskip\b [^\n]* \bif \s+ -[rwx] \s/x;
-        next if $span =~ /\bskip\b [^\n]* \bunless \s+ -[rwx] \s/x;
+        # An ACCESS-CHECKED probe only. A bare -r/-w/-x does not qualify: Perl's
+        # filetest operators are mode-bit arithmetic and special-case uid 0, so
+        # they answer true for root on a mode-0000 file even where the operation
+        # is genuinely denied. Measured 2026-09-02 - root with DAC_OVERRIDE
+        # dropped: -r true, open denied. Accepting -r would let a guard skip an
+        # assertion that was about to run and pass.
+        next if $span =~ /\b(?:open|opendir|sysopen)\b [^\n]* \n [^\n]* \bskip\b/x;
+        next if $span =~ /\bskip\b [^\n]* \bif \s+ (?:open|opendir|sysopen)\b/x;
+        next if $span =~ /\bif \s* \( \s* (?:open|opendir|sysopen)\b .*? \bskip\b/xs;
+        next if $span =~ /\buse \s+ filetest \s+ ['"]access['"]/x;
 
         push @findings, { line => $i + 1, mode => $mode, target => $target, lost => $lost };
     }
