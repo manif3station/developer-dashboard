@@ -395,7 +395,20 @@ is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the 
     my $chmod_pending = "$chmod_target.pending-devnull";
     symlink( File::Spec->devnull, $chmod_pending ) or die "Unable to symlink devnull: $!";
     my $chmod_err = eval { $reg->atomic_write_secure( $chmod_pending, $chmod_target, 'x' ); 1 } ? '' : $@;
-    like( $chmod_err, qr/\AUnable to chmod \Q$chmod_pending\E/, 'atomic_write_secure dies when the staging file cannot be chmod-ed' );
+  SKIP: {
+        # CAP_FOWNER, not CAP_DAC_OVERRIDE: chmod is refused to a process that
+        # does not own the file, and CAP_FOWNER overrides that. The staging path
+        # is a symlink to /dev/null, which this process does not own. Probe with
+        # a NO-OP chmod to the device's existing mode - it answers the question
+        # and changes nothing.
+        my $devnull   = File::Spec->devnull;
+        my $null_mode = ( stat $devnull )[2];
+        skip 'cannot stat the null device to probe chmod ownership', 1 if !defined $null_mode;
+        skip 'this process can chmod a device it does not own, so the chmod failure cannot occur', 1
+          if chmod( $null_mode & 07777, $devnull );
+
+        like( $chmod_err, qr/\AUnable to chmod \Q$chmod_pending\E/, 'atomic_write_secure dies when the staging file cannot be chmod-ed' );
+    }
     unlink $chmod_pending;
 
     # Rename failure: the final destination is an existing directory.

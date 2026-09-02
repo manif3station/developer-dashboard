@@ -224,7 +224,21 @@ SKIP: {
         );
         1;
     } ? '' : $@;
-    like( $chmod_err, qr/Unable to chmod/, '_saved_ajax_url_and_store dies when the pending file cannot be chmod-ed' );
+  SKIP: {
+        # A SECOND capability is at work here, not CAP_DAC_OVERRIDE: chmod is
+        # refused to a process that does not own the file, and CAP_FOWNER
+        # overrides that. The pending path is a symlink to /dev/null, which the
+        # process does not own - so root chmods it happily and the failure under
+        # test cannot occur. Probe by attempting a NO-OP chmod to /dev/null's
+        # existing mode, which answers the question without changing anything.
+        my $devnull   = File::Spec->devnull;
+        my $null_mode = ( stat $devnull )[2];
+        skip 'cannot stat the null device to probe chmod ownership', 1 if !defined $null_mode;
+        skip 'this process can chmod a device it does not own, so the chmod failure cannot occur', 1
+          if chmod( $null_mode & 07777, $devnull );
+
+        like( $chmod_err, qr/Unable to chmod/, '_saved_ajax_url_and_store dies when the pending file cannot be chmod-ed' );
+    }
     unlink $pending_path;
 }
 
