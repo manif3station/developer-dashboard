@@ -1836,10 +1836,19 @@ is( $manager->_tail_text( "a\n",       5 ), "a\n",    '_tail_text clamps the sta
 # --- web_state read failure --------------------------------------------------
 {
     $manager->_write_web_state( { marker => 1 } );
-    chmod 0000, $files->web_state;
-    my $err = eval { $manager->web_state; 1 } ? '' : $@;
-    like( $err, qr/Unable to read/, 'web_state dies when the state file cannot be read' );
-    chmod 0644, $files->web_state;
+      SKIP: {
+            my $guard_path = $files->web_state;
+            chmod 0000, $guard_path or skip 'chmod not honored on this filesystem', 1;
+            if ( open my $probe, '<', $guard_path ) {
+                close $probe or die "Unable to close probe on $guard_path: $!";
+                skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+            }
+
+        my $err = eval { $manager->web_state; 1 } ? '' : $@;
+        like( $err, qr/Unable to read/, 'web_state dies when the state file cannot be read' );
+        }
+
+        chmod 0644, $files->web_state;
     $manager->_cleanup_web_files;
 }
 
@@ -1887,10 +1896,19 @@ is( $manager->_tail_text( "a\n",       5 ), "a\n",    '_tail_text clamps the sta
 # --- _collector_supervisor_state read failure -------------------------------
 {
     $manager->_write_collector_supervisor_state( { watched_names => ['x'] } );
-    chmod 0000, $manager->_collector_supervisor_statefile;
-    my $err = eval { $manager->_collector_supervisor_state; 1 } ? '' : $@;
-    like( $err, qr/Unable to read/, '_collector_supervisor_state dies when the state file cannot be read' );
-    chmod 0644, $manager->_collector_supervisor_statefile;
+      SKIP: {
+            my $guard_path = $manager->_collector_supervisor_statefile;
+            chmod 0000, $guard_path or skip 'chmod not honored on this filesystem', 1;
+            if ( open my $probe, '<', $guard_path ) {
+                close $probe or die "Unable to close probe on $guard_path: $!";
+                skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+            }
+
+        my $err = eval { $manager->_collector_supervisor_state; 1 } ? '' : $@;
+        like( $err, qr/Unable to read/, '_collector_supervisor_state dies when the state file cannot be read' );
+        }
+
+        chmod 0644, $manager->_collector_supervisor_statefile;
     $manager->_cleanup_collector_supervisor_files;
 }
 
@@ -1907,10 +1925,19 @@ is( $manager->_tail_text( "a\n",       5 ), "a\n",    '_tail_text clamps the sta
     open $fh, '>', $manager->_collector_supervisor_pidfile or die $!;
     print {$fh} "$$\n";
     close $fh;
-    chmod 0000, $manager->_collector_supervisor_pidfile;
-    my $err = eval { $manager->_collector_supervisor_running; 1 } ? '' : $@;
-    like( $err, qr/Unable to read/, '_collector_supervisor_running dies when the pid file cannot be read' );
-    chmod 0644, $manager->_collector_supervisor_pidfile;
+      SKIP: {
+            my $guard_path = $manager->_collector_supervisor_pidfile;
+            chmod 0000, $guard_path or skip 'chmod not honored on this filesystem', 1;
+            if ( open my $probe, '<', $guard_path ) {
+                close $probe or die "Unable to close probe on $guard_path: $!";
+                skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+            }
+
+        my $err = eval { $manager->_collector_supervisor_running; 1 } ? '' : $@;
+        like( $err, qr/Unable to read/, '_collector_supervisor_running dies when the pid file cannot be read' );
+        }
+
+        chmod 0644, $manager->_collector_supervisor_pidfile;
 
     {
         local *Developer::Dashboard::RuntimeManager::_same_pid_namespace = sub { return 1 };
@@ -2260,10 +2287,19 @@ $manager->_cleanup_web_files;
     open my $fh, '>', $locked or die $!;
     print {$fh} "$$\n";
     close $fh;
-    chmod 0000, $locked;
-    my $err = eval { $pf_manager->_collector_stop_targets( { 'pf.locked' => 1 } ); 1 } ? '' : $@;
-    like( $err, qr/Unable to read/, '_collector_stop_targets dies when a collector pid file cannot be read' );
-    chmod 0644, $locked;
+      SKIP: {
+            my $guard_path = $locked;
+            chmod 0000, $guard_path or skip 'chmod not honored on this filesystem', 1;
+            if ( open my $probe, '<', $guard_path ) {
+                close $probe or die "Unable to close probe on $guard_path: $!";
+                skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+            }
+
+        my $err = eval { $pf_manager->_collector_stop_targets( { 'pf.locked' => 1 } ); 1 } ? '' : $@;
+        like( $err, qr/Unable to read/, '_collector_stop_targets dies when a collector pid file cannot be read' );
+        }
+
+        chmod 0644, $locked;
     unlink $locked;
 }
 
@@ -2277,10 +2313,18 @@ $manager->_cleanup_web_files;
     open my $fh, '>', File::Spec->catfile( $lockdir, 'x.pid' ) or die $!;
     close $fh;
     local *Developer::Dashboard::PathRegistry::collectors_root = sub { return $lockdir };
-    chmod 0000, $lockdir;
-    my $fb_manager = build_manager( config => $fb_config, runner => Local::Runner->new );
-    my $err = eval { $fb_manager->_collector_stop_fallback_names( {} ); 1 } ? '' : $@;
-    like( $err, qr/Unable to read/, '_collector_stop_fallback_names dies when the collectors directory cannot be read' );
+  SKIP: {
+        chmod 0000, $lockdir or skip 'chmod not honored on this filesystem', 1;
+        if ( opendir my $probe, $lockdir ) {
+            closedir $probe or die "Unable to close probe on $lockdir: $!";
+            skip 'this process can open a mode-0000 directory, so the read failure cannot occur', 1;
+        }
+
+        my $fb_manager = build_manager( config => $fb_config, runner => Local::Runner->new );
+        my $err = eval { $fb_manager->_collector_stop_fallback_names( {} ); 1 } ? '' : $@;
+        like( $err, qr/Unable to read/, '_collector_stop_fallback_names dies when the collectors directory cannot be read' );
+    }
+
     chmod 0755, $lockdir;
     unlink File::Spec->catfile( $lockdir, 'x.pid' );
 }
@@ -2326,10 +2370,19 @@ $manager->_cleanup_web_files;
 {
     my $logfile = $files->resolve_file('dashboard_log');
     $files->write( 'dashboard_log', "x\n" );
-    chmod 0000, $logfile;
-    my $err = eval { $manager->web_log; 1 } ? '' : $@;
-    like( $err, qr/Unable to read/, 'web_log dies when the log cannot be read' );
-    chmod 0644, $logfile;
+      SKIP: {
+            my $guard_path = $logfile;
+            chmod 0000, $guard_path or skip 'chmod not honored on this filesystem', 1;
+            if ( open my $probe, '<', $guard_path ) {
+                close $probe or die "Unable to close probe on $guard_path: $!";
+                skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+            }
+
+        my $err = eval { $manager->web_log; 1 } ? '' : $@;
+        like( $err, qr/Unable to read/, 'web_log dies when the log cannot be read' );
+        }
+
+        chmod 0644, $logfile;
     open my $fh, '>', $logfile or die $!;
     close $fh;
     is( $manager->web_log, '', 'web_log returns empty for an empty log file' );
@@ -2345,9 +2398,18 @@ is( $manager->_tail_text( "\n", 5 ), '', '_tail_text returns empty for a lone ne
     open my $fh, '>', $helper or die $!;
     print {$fh} "web-foreground\n";
     close $fh;
-    chmod 0000, $helper;
-    is( $manager->_helper_file_supports_internal_command( $helper, 'web-foreground' ), 0, '_helper_file_supports_internal_command returns zero when the file cannot be opened' );
-    chmod 0644, $helper;
+      SKIP: {
+            my $guard_path = $helper;
+            chmod 0000, $guard_path or skip 'chmod not honored on this filesystem', 1;
+            if ( open my $probe, '<', $guard_path ) {
+                close $probe or die "Unable to close probe on $guard_path: $!";
+                skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+            }
+
+        is( $manager->_helper_file_supports_internal_command( $helper, 'web-foreground' ), 0, '_helper_file_supports_internal_command returns zero when the file cannot be opened' );
+        }
+
+        chmod 0644, $helper;
 }
 
 # --- WAVE 2: additional condition-side coverage -----------------------------
