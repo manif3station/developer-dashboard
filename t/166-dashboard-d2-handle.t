@@ -328,6 +328,41 @@ STUB
         is( $out, 'stub-ran', 'AC-4: and still returns the trimmed stdout' );
     }
 
+    # AC-6 HOOKS STILL RUN. Not asserted directly - a hook test would need a
+    # real layered runtime - but asserted by its MECHANISM, which is the thing a
+    # refactor could actually lose. Layered pre-run hooks execute because
+    # Handle::run shells out through the real `dashboard` entrypoint; anything
+    # that reaches the CLI that way gets them for free. So what has to hold is
+    # that the proxy terminator goes through run() and inherits its WHOLE
+    # contract, rather than growing its own system() call that would bypass the
+    # entrypoint and silently lose hooks with every test still green.
+    #
+    # Two properties only run() provides are asserted here. If a refactor made
+    # _execute shell out directly, both would break loudly.
+    {
+        my $json_dir = tempdir( CLEANUP => 1 );
+        my $js = File::Spec->catfile( $json_dir, 'dashboard' );
+        open my $jfh, '>', $js or die "Unable to write $js: $!";
+        print {$jfh} <<'JSTUB';
+#!/bin/sh
+case "$1" in
+  deep.json) echo '{"via":"proxy"}' ;;
+  deep.fail) echo 'proxy failure detail' 1>&2; exit 9 ;;
+esac
+JSTUB
+        close $jfh or die "Unable to close $js: $!";
+        chmod 0755, $js or die "Unable to chmod $js: $!";
+        local $ENV{PATH} = "$json_dir:$ENV{PATH}";
+        my $h = Developer::Dashboard::Handle->new( cwd => $home );
+
+        is_deeply( $h->deep->json->(), { via => 'proxy' },
+            'AC-6: the terminator inherits run() JSON decoding - so it reaches the real entrypoint, which is what makes layered hooks run' );
+
+        my $died = eval { $h->deep->fail->(); 1 };
+        ok( !$died, 'AC-6: and inherits run() die-on-nonzero-exit' );
+        like( $@, qr/proxy failure detail/, 'AC-6: with stderr attached, exactly as run() does' );
+    }
+
     # AC-5 DESTROY STILL GUARDED: a proxy that goes out of scope un-terminated
     # invokes nothing. Without the guard, DESTROY is just another bareword.
     {
