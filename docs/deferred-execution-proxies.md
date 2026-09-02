@@ -65,6 +65,38 @@ and a caller who chained three words gets an exception instead of the output the
 command produced before failing. That may be right, but it should be a decision
 rather than an inheritance.
 
+## The host language's identifier grammar is narrower than the target's
+
+A proxy that turns method calls into another system's command names inherits a
+constraint nobody chose. **Perl method names cannot contain a hyphen, and
+hyphens are the ordinary way shell commands are named.** So passing each segment
+through verbatim - the obvious implementation, and the one that looks most
+faithful - silently makes the entire hyphenated half of the target unreachable.
+Nothing errors. Those commands simply cannot be named, and the gap is invisible
+until somebody tries one.
+
+The remedy is a rewrite of each segment at capture. Two properties are worth
+copying, and the second is the one that gets skipped:
+
+- **Translate where the segment is CAPTURED, not where the chain is joined.**
+  Then the accumulated state always holds what will actually be dispatched, and
+  the proxy's inert stringification names a command that exists. A proxy that
+  prints `soemthing_executable` sends its reader looking for a command by that
+  name; one that prints `soemthing-executable` hands them the thing to run.
+- **Write the COST into the code, not only into the decision that approved it.**
+  Any such translation is lossy - here, a command genuinely spelled with an
+  underscore stops being reachable through the chained form. That is a real
+  capability being given up, and if it lives only in a decision record it gets
+  rediscovered later as a bug and "fixed" by someone who never saw the trade.
+
+**The test for a translation should be POSITIVE evidence, not an absence.** The
+weak version asserts that a mistranslated name matches nothing - but "matched
+nothing" is also what you get when the chain never ran at all, so it passes for
+the wrong reason. The strong version points the translated name at a target that
+only answers to the translated spelling: reaching it proves the rewrite
+happened. In this repository that inversion turned one assertion of an empty
+result into direct evidence of the mapping.
+
 ## The general shape
 
 The reason this class bites is that **the accumulate step is obvious and the
