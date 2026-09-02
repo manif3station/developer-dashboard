@@ -203,10 +203,22 @@ sub main {
     # leaves those runs untouched and still catches the case that matters.
     my $caller_checkout = _checkout_root( File::Spec->curdir );
     my $repo_checkout   = _checkout_root($repository);
-    if (   defined $caller_checkout
-        && defined $repo_checkout
-        && $caller_checkout ne $repo_checkout )
-    {
+
+    # COMPARE CASE-INSENSITIVELY WHERE THE FILESYSTEM IS. On Windows and on a
+    # case-tolerant macOS volume, C:\proj and c:\proj are ONE directory, and
+    # abs_path does not promise a canonical case - so a plain `ne` would report
+    # a divergence that does not exist and refuse the gate in its OWN checkout.
+    # That is a false refusal: safe in direction (it declines rather than
+    # grading the wrong tree) but it would block every legitimate run there.
+    #
+    # File::Spec->case_tolerant() is FALSE on Linux, so this leaves the
+    # behaviour on this host exactly as the specs already measure it.
+    my $diverged =
+      File::Spec->case_tolerant()
+      ? ( lc($caller_checkout) ne lc($repo_checkout) )
+      : ( $caller_checkout ne $repo_checkout );
+
+    if ( defined $caller_checkout && defined $repo_checkout && $diverged ) {
         return _unusable(
                   "this gate would grade $repo_checkout, but you are standing in "
                 . "$caller_checkout - two different checkouts. Run that checkout's own "
