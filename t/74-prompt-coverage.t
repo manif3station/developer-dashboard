@@ -259,8 +259,16 @@ sub write_file {
     mkdir File::Spec->catdir( $noread_head, '.git' ) or die "mkdir noread-head/.git: $!";
     my $nrhead = File::Spec->catfile( $noread_head, '.git', 'HEAD' );
     write_file( $nrhead, "ref: refs/heads/x\n" );
-    chmod 0000, $nrhead;
+  SKIP: {
+        chmod 0000, $nrhead or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $nrhead ) {
+            close $probe or die "Unable to close probe on $nrhead: $!";
+            skip 'this process can read a mode-0000 HEAD, so the open failure cannot occur', 1;
+        }
+
     is( $prompt->_git_branch($noread_head), undef, 'an unreadable HEAD yields no branch (line 202 open-fail side)' );
+    }
+
     chmod 0644, $nrhead;
 
     # _git_metadata_dir argument guard.
@@ -288,8 +296,16 @@ sub write_file {
     mkdir $noread_git or die "mkdir $noread_git: $!";
     my $nggit = File::Spec->catfile( $noread_git, '.git' );
     write_file( $nggit, "gitdir: $realgit\n" );
-    chmod 0000, $nggit;
+  SKIP: {
+        chmod 0000, $nggit or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $nggit ) {
+            close $probe or die "Unable to close probe on $nggit: $!";
+            skip 'this process can read a mode-0000 .git file, so the open failure cannot occur', 1;
+        }
+
     is( $prompt->_git_metadata_dir($noread_git), undef, 'an unreadable .git file returns undef (line 228 open-fail side)' );
+    }
+
     chmod 0644, $nggit;
 }
 

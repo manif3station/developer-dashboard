@@ -136,10 +136,17 @@ my $guard_line     = q{[ -z "$PS1" ] && return};
 # Root can read a 0000 file, so only assert the failure as a non-root user.
 # ---------------------------------------------------------------------------
 SKIP: {
-    skip 'unreadable-file check is meaningless as root', 1 if $> == 0;
     my $unreadable = File::Spec->catfile( $home, 'unreadable-helper' );
     write_file( $unreadable, "some staged body\n" );
-    chmod 0000, $unreadable or die "Unable to chmod $unreadable: $!";
+    chmod 0000, $unreadable or skip 'chmod not honored on this filesystem', 1;
+
+    # Was `skip ... if $> == 0`. Identity is the wrong question - a root process
+    # with CAP_DAC_OVERRIDE dropped IS denied here and would run this assertion.
+    if ( open my $probe, '<', $unreadable ) {
+        close $probe or die "Unable to close probe on $unreadable: $!";
+        chmod 0600, $unreadable or die "Unable to restore $unreadable: $!";
+        skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+    }
     my $err = eval { $doctor->_helper_issue_for_path( name => 'jq', path => $unreadable ); 1 } ? '' : $@;
     like( $err, qr/Unable to read/, '_helper_issue_for_path dies when a staged helper cannot be opened for reading' );
     chmod 0600, $unreadable or die "Unable to restore $unreadable: $!";
@@ -323,9 +330,16 @@ SKIP: {
 # writing. Root bypasses the read-only bit, so only assert as a non-root user.
 # ---------------------------------------------------------------------------
 SKIP: {
-    skip 'read-only write check is meaningless as root', 1 if $> == 0;
     my $f = write_file( File::Spec->catfile( $home, 'rewrite-readonly' ), "$guard_line\n$dashboard_line\n" );
-    chmod 0444, $f or die "Unable to chmod $f: $!";
+    chmod 0444, $f or skip 'chmod not honored on this filesystem', 1;
+
+    # Was `skip ... if $> == 0`. Probe the write by attempting it; -w is
+    # mode-bit arithmetic and answers true for uid 0 whatever the mode.
+    if ( open my $probe, '>>', $f ) {
+        close $probe or die "Unable to close probe on $f: $!";
+        chmod 0644, $f or die "Unable to restore $f: $!";
+        skip 'this process can write a mode-0444 file, so the write failure cannot occur', 1;
+    }
     my $err = eval { $doctor->_rewrite_bashrc_dashboard_lines($f); 1 } ? '' : $@;
     like( $err, qr/Unable to write/, '_rewrite_bashrc_dashboard_lines dies when the bashrc cannot be reopened for writing' );
     chmod 0644, $f or die "Unable to restore $f: $!";

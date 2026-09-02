@@ -359,8 +359,16 @@ subtest 'transcript load and save edge cases' => sub {
     is( $load->($with_backend)->{backend}, 'codex', 'a stored backend is preserved' );
 
     my $unreadable = write_file( File::Spec->catfile( $dir, 'unreadable.json' ), json_encode( { backend => 'codex', messages => [] } ) );
-    chmod 0000, $unreadable or die "Unable to chmod $unreadable: $!";
-    is_deeply( $load->($unreadable), { backend => '', messages => [] }, 'an unreadable transcript degrades to an empty shell' );
+  SKIP: {
+        chmod 0000, $unreadable or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $unreadable ) {
+            close $probe or die "Unable to close probe on $unreadable: $!";
+            skip 'this process can read a mode-0000 transcript, so the degrade path cannot occur', 1;
+        }
+
+        is_deeply( $load->($unreadable), { backend => '', messages => [] }, 'an unreadable transcript degrades to an empty shell' );
+    }
+
     chmod 0600, $unreadable or die "Unable to restore $unreadable: $!";
 
     my $saved = File::Spec->catfile( $dir, 'saved.json' );
@@ -409,10 +417,25 @@ subtest 'transcript load and save edge cases' => sub {
 
     my $readonly = File::Spec->catdir( $dir, 'readonly' );
     mkdir $readonly or die "Unable to create $readonly: $!";
-    chmod 0500, $readonly or die "Unable to chmod $readonly: $!";
+
+    # Declared out here because later blocks in this scope reuse it.
     my $err = '';
-    eval { $save->( File::Spec->catfile( $readonly, 'blocked.json' ), { backend => 'claude', messages => [] }, $paths ); 1 } or $err = $@;
-    like( $err, qr/\AUnable to write /, 'an unwritable state directory is a user-facing error' );
+  SKIP: {
+        chmod 0500, $readonly or skip 'chmod not honored on this filesystem', 1;
+
+        # Probe by attempting to create a file in it - -w is mode-bit arithmetic
+        # and answers true for uid 0 whatever the mode.
+        my $wprobe = File::Spec->catfile( $readonly, '.write-probe' );
+        my $pfh;
+        my $can_write = open( $pfh, '>', $wprobe ) ? do { close $pfh; unlink $wprobe; 1 } : 0;
+        skip 'this process can write into a mode-0500 directory, so the write failure cannot occur', 1
+          if $can_write;
+
+        $err = '';
+        eval { $save->( File::Spec->catfile( $readonly, 'blocked.json' ), { backend => 'claude', messages => [] }, $paths ); 1 } or $err = $@;
+        like( $err, qr/\AUnable to write /, 'an unwritable state directory is a user-facing error' );
+    }
+
     chmod 0700, $readonly or die "Unable to restore $readonly: $!";
 
     my $blocked_target = File::Spec->catdir( $dir, 'target-is-a-directory.json' );
