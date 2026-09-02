@@ -78,9 +78,18 @@ chdir $home or die "Unable to chdir to $home: $!";
 # `dashboard <name>` and a nonzero exit dies with stderr attached, rather
 # than silently returning as if it had succeeded.
 {
+    # REWRITTEN FOR Q-101. This used to assert that a bareword call shells out
+    # IMMEDIATELY and dies on a nonzero exit. The owner superseded that - "a bare
+    # d2->doctor becomes lazy like any other chain ... a shipped one-word form
+    # changes meaning" - so building the chain no longer executes and no longer
+    # dies. The die-on-nonzero-exit contract is UNCHANGED; it moves to the
+    # terminator, which is what is asserted here.
     my $handle = Developer::Dashboard::Handle->new( cwd => $home );
-    my $ok = eval { $handle->doesnotexistasarealdashboardsubcommand; 1 };
-    ok( !$ok, 'AC-5/AC-8: an unknown subcommand fails rather than silently succeeding' );
+    my $built = eval { $handle->doesnotexistasarealdashboardsubcommand; 1 };
+    ok( $built, 'Q-101: building a chain for an unknown subcommand does NOT die - nothing has run yet' );
+
+    my $ran = eval { $handle->doesnotexistasarealdashboardsubcommand->(); 1 };
+    ok( !$ran, 'AC-5/AC-8: TERMINATING it fails rather than silently succeeding' );
     like( $@, qr/failed \(exit \d+\)/, 'and the die message names the exit code' );
 }
 
@@ -114,7 +123,10 @@ STUB
 
     # Also exercised via the AUTOLOAD path, per AC-5's "single-word method"
     # contract - same stub, different call shape.
-    my $via_autoload = $handle->text_thing;    # method name -> AUTOLOAD -> run('text_thing')
+    # REWRITTEN FOR Q-101: a bareword call now returns a proxy, so the value
+    # appears only once the chain is terminated. The mapping being asserted -
+    # method name verbatim, underscore not hyphen - is unchanged.
+    my $via_autoload = $handle->text_thing->();    # AUTOLOAD -> proxy -> run('text_thing')
     ok( !defined($via_autoload) || $via_autoload eq '',
         'AUTOLOAD maps the METHOD name verbatim (underscore, not the hyphenated CLI form) - no matching stub case, so empty/undef, not a die' );
 
