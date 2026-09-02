@@ -42,6 +42,7 @@ BEGIN {
 }
 
 use Capture::Tiny qw(capture);
+use Cwd ();
 use Digest::SHA qw(sha256_hex);
 use Fcntl qw(:flock);
 use File::Find ();
@@ -112,6 +113,46 @@ sub _gate_lock_paths {
 
 exit main(@ARGV);
 
+# Purpose: find the git checkout root containing a directory.
+# Input:   a directory path.
+# Output:  the canonical root, or undef when the path is not inside a checkout.
+#
+# Walks up looking for .git rather than shelling out to git, so the gate gains no
+# subprocess and no PATH dependency. It tests for EXISTENCE, not for a directory:
+# a linked worktree carries .git as a FILE, and this project works every ticket in
+# a worktree, so a -d test would report every sandbox as "not a checkout" and the
+# guard below would never fire where it matters most.
+sub _checkout_root {
+    my ($dir) = @_;
+    return undef if !defined $dir || $dir eq '';
+
+    # CANONICALISE FIRST, and this is not tidiness - it is the whole
+    # correctness of the comparison below. $repository arrives as
+    # "<root>/script/.." because it is built with File::Spec->updir, and
+    # rel2abs does NOT collapse "..". Testing -e on "<root>/script/../.git"
+    # succeeds, so without abs_path this returns the uncollapsed string, which
+    # then compares UNEQUAL to the caller's "<root>" and the gate refuses to
+    # run in its own checkout. Measured exactly that way before this line
+    # existed.
+    my $here = Cwd::abs_path($dir);
+    return undef if !defined $here;
+    my %seen;
+    while ( defined $here && !$seen{$here}++ ) {
+        return $here if -e File::Spec->catfile( $here, '.git' );
+        # abs_path, NOT rel2abs, and the difference is a hang. rel2abs does not
+        # collapse "..", so the walk produced "/tmp/x/..", then "/tmp/x/../..",
+        # then "/tmp/x/../../.." - a string that grows for ever and never equals
+        # its predecessor, so the loop never terminated and the %seen guard never
+        # fired because every value was new. It only bites when NOTHING is found,
+        # which is why a checkout resolved instantly and a temp directory hung.
+        my $up = Cwd::abs_path( File::Spec->catdir( $here, File::Spec->updir ) );
+        last if !defined $up || $up eq $here;
+        $here = $up;
+    }
+    return undef;
+}
+
+
 # Purpose: run the four-metric coverage gate end to end inside one environment.
 # Input: the raw @ARGV list - optional --database, --dry-run and --help, plus
 #        optional test paths which default to the whole t/ tree.
@@ -145,6 +186,33 @@ sub main {
     my $repository       = File::Spec->catdir( $script_directory, File::Spec->updir );
     my $checker          = File::Spec->catfile( $script_directory, 'check-all-metric-coverage' );
     return _unusable("the coverage checker is missing: $checker") if !-f $checker;
+
+    # WHICH TREE IS ABOUT TO BE GRADED - refuse rather than choose silently (DD-744).
+    #
+    # This gate derives its repository from its OWN file location, which is
+    # deliberate: run from anywhere, "grade the repository I belong to" is the
+    # sane reading. It stops being sane when the caller is standing in a
+    # DIFFERENT checkout, because then the tool makes a choice the caller never
+    # saw - it grades another tree, succeeds, and prints a normal-looking result.
+    #
+    # THE CONDITION IS NARROW ON PURPOSE, and widening it breaks real specs.
+    # Refusing whenever the two paths differ would break every spec that copies
+    # this gate into a throwaway directory and runs it from the real checkout -
+    # t/151-coverage-gate-launch-boundary.t does exactly that six times. A
+    # temp directory is not a checkout, so requiring BOTH sides to be checkouts
+    # leaves those runs untouched and still catches the case that matters.
+    my $caller_checkout = _checkout_root( File::Spec->curdir );
+    my $repo_checkout   = _checkout_root($repository);
+    if (   defined $caller_checkout
+        && defined $repo_checkout
+        && $caller_checkout ne $repo_checkout )
+    {
+        return _unusable(
+                  "this gate would grade $repo_checkout, but you are standing in "
+                . "$caller_checkout - two different checkouts. Run that checkout's own "
+                . 'script/coverage-gate instead, or pass --database explicitly if you '
+                . 'really mean to grade the other tree' );
+    }
 
     chdir $repository or return _unusable("cannot enter the repository root $repository: $!");
 
@@ -427,7 +495,11 @@ sub _announce {
     printf "coverage gate:   perl        : %s\n",       $^X;
     printf "coverage gate:   PERL5LIB    : %s\n",       defined $ENV{PERL5LIB} ? $ENV{PERL5LIB} : '(unset)';
     printf "coverage gate:   serializer  : %s\n",       $instrument;
-    printf "coverage gate:   database    : %s\n",       $database;
+    # ABSOLUTE, not the configured name. "cover_db" is byte-identical whichever
+    # tree this resolves in, so printing it answers nothing about which database
+    # is about to be deleted and rebuilt - the exact reason this defect survived
+    # a --dry-run inspection (DD-744).
+    printf "coverage gate:   database    : %s\n",       File::Spec->rel2abs($database);
     printf "coverage gate:   drop        : %s\n", join ' ', @{$delete};
     printf "coverage gate:   suite       : %s\n", join ' ', @{$suite};
     printf "coverage gate:   report      : %s\n", join ' ', @{$report};
@@ -518,6 +590,9 @@ sub _usage_text {
     return <<'USAGE';
 usage: perl script/coverage-gate [--database DIR] [--dry-run] [--help] [TEST_PATH...]
 
+Refuses when your working directory is inside a different git checkout from the
+one this script belongs to - run that checkout's own script/coverage-gate.
+
 Runs the whole four-metric coverage gate as one process, so every command in the
 chain inherits one environment:
 
@@ -587,7 +662,17 @@ contention.
 
 =head1 HOW TO USE
 
-Run it from anywhere; it enters the repository root itself. Give it test paths
+Run it from anywhere INSIDE its own checkout, or from outside any checkout; it
+enters the repository root itself. It will B<refuse> when the working directory
+is inside a DIFFERENT git checkout from the one it belongs to, naming both, and
+tell you to run that checkout's own copy instead - because otherwise it would
+grade a tree the caller never meant, succeed, and print a normal-looking result
+(DD-744). The refusal is narrow by design: it needs BOTH sides to be checkouts,
+so a copy running from a scratch directory is unaffected.
+
+The resolved database is reported as an ABSOLUTE path. The configured name is
+relative and therefore identical whichever tree it lands in, which is precisely
+why a C<--dry-run> inspection could not tell two trees apart. Give it test paths
 to narrow the instrumented run, C<--database> to keep the database somewhere
 other than C<cover_db>, and C<--dry-run> to see the resolved environment and the
 exact commands before spending a suite slot.
