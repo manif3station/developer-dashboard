@@ -98,8 +98,12 @@ ok(
 );
 
 # --- file_matches_content_md5 open failure (drives the "or die" on line 37) ---
-SKIP: {
-    skip 'file permissions cannot block reads when running as root', 1 if $> == 0;
+{
+    # The identity guard that used to stand here - `skip ... if $> == 0` - is
+    # gone. It wrapped the probed block below and would have skipped it for any
+    # root process, including one with CAP_DAC_OVERRIDE dropped that can be
+    # denied and would have passed. The inner SKIP block decides now, by
+    # attempting the read.
     my $unreadable = File::Spec->catfile( $home, 'unreadable-seed.txt' );
     {
         open my $fh, '>:raw', $unreadable or die "Unable to write $unreadable: $!";
