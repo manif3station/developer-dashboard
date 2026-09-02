@@ -244,11 +244,22 @@ my $write_manifest_file = sub {
 }
 {
     my ( $mock_paths, $file ) = $write_manifest_file->('{}');
-    chmod 0000, $file;
-    my $err = eval { $SP->can('_read_manifest')->( paths => $mock_paths ); 1 } ? '' : $@;
-    chmod 0644, $file;
-    like( $err, qr/Unable to read/,
-        '_read_manifest dies when an existing manifest file cannot be opened for reading' );
+  SKIP: {
+        chmod 0000, $file or skip 'chmod not honored on this filesystem', 1;
+
+        # Probe by attempting the read; -r is mode-bit arithmetic and answers
+        # true for uid 0 whatever the mode. Carried in a variable so the restore
+        # below runs on the skip path too.
+        my $probe;
+        my $can_read = open( $probe, '<', $file ) ? do { close $probe; 1 } : 0;
+
+        my $err = $can_read ? '' : ( eval { $SP->can('_read_manifest')->( paths => $mock_paths ); 1 } ? '' : $@ );
+        chmod 0644, $file;
+
+        skip 'this process can read a mode-0000 manifest, so the read failure cannot occur', 1 if $can_read;
+        like( $err, qr/Unable to read/,
+            '_read_manifest dies when an existing manifest file cannot be opened for reading' );
+    }
 }
 
 # --------------------------------------------------------------------------

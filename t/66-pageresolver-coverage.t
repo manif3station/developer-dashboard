@@ -114,10 +114,21 @@ my $resolver = Developer::Dashboard::PageResolver->new(
 #     misleading generic "not found". ---
 {
     my $unreadable_file = $pages->save_page( { id => 'unreadable-saved-page', title => 'X' } );
-    chmod 0000, $unreadable_file or die "Unable to chmod $unreadable_file: $!";
+  SKIP: {
+        chmod 0000, $unreadable_file or skip 'chmod not honored on this filesystem', 2;
+
+        # Probe by attempting the read, not with -r: filetest operators are
+        # mode-bit arithmetic and answer true for uid 0 whatever the mode.
+        if ( open my $probe, '<', $unreadable_file ) {
+            close $probe or die "Unable to close probe on $unreadable_file: $!";
+            skip 'this process can read a mode-0000 file, so the read failure cannot occur', 2;
+        }
+
     my $err = eval { $resolver->load_named_page('unreadable-saved-page'); 1 } ? '' : $@;
     like( $err, qr/Invalid page path/, 'DD-603: a real read failure surfaces its own diagnostic (PageStore\'s sysopen failure), not a fabricated one' );
     unlike( $err, qr/not found/, 'DD-603: a real read failure is never reported as "not found"' );
+    }
+
     chmod 0600, $unreadable_file or die "Unable to restore $unreadable_file: $!";
 }
 

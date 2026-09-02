@@ -88,16 +88,29 @@ is(
 # unreadable makes opendir fail for a non-root user, exercising the die branch.
 my $updates_dir = $updater->updates_dir;
 make_path($updates_dir) if !-d $updates_dir;
-chmod 0000, $updates_dir or die "Unable to chmod $updates_dir: $!";
-my $run_error = eval { $updater->run; 1 } ? '' : $@;
-# Restore read access before asserting so cleanup and any later logic are safe
-# regardless of the assertion outcome.
-chmod 0755, $updates_dir or die "Unable to restore $updates_dir: $!";
-like(
-    $run_error,
-    qr/Unable to open updates directory/,
-    'run() dies when the updates directory exists but cannot be opened',
-);
+SKIP: {
+    chmod 0000, $updates_dir or skip 'chmod not honored on this filesystem', 1;
+
+    # Probe by ATTEMPTING the opendir. -d/-r are mode-bit arithmetic and answer
+    # true for uid 0 whatever the mode, so they cannot tell whether the failure
+    # under test is reachable. The result is carried in a variable because the
+    # restore below must run on the skip path too.
+    my $probe;
+    my $can_open = opendir( $probe, $updates_dir ) ? do { closedir $probe; 1 } : 0;
+
+    my $run_error = $can_open ? '' : ( eval { $updater->run; 1 } ? '' : $@ );
+
+    # Restore read access before asserting so cleanup and any later logic are safe
+    # regardless of the assertion outcome.
+    chmod 0755, $updates_dir or die "Unable to restore $updates_dir: $!";
+
+    skip 'this process can open a mode-0000 directory, so the failure cannot occur', 1 if $can_open;
+    like(
+        $run_error,
+        qr/Unable to open updates directory/,
+        'run() dies when the updates directory exists but cannot be opened',
+    );
+}
 
 # --- run(): an update script that emits output. The output-print guard only
 # fires when a script actually writes to stdout or stderr, and every other

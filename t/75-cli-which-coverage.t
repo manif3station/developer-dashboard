@@ -219,12 +219,20 @@ is( scalar Developer::Dashboard::CLI::Which::_locate_skill_target( paths => $pat
     );
 }
 SKIP: {
-    skip 'root bypasses directory permission checks', 1 if $> == 0;
     my $fail_d = File::Spec->catdir( $cli_root, 'faildcmd.d' );
     make_path($fail_d);
-    chmod 0000, $fail_d or die "Unable to chmod $fail_d: $!";
-    my $err = eval { Developer::Dashboard::CLI::Which::_command_hook_files( paths => $paths, command => 'faildcmd' ); 1 } ? '' : $@;
+    chmod 0000, $fail_d or skip 'chmod not honored on this filesystem', 1;
+
+    # Was `skip ... if $> == 0`. That asks who the process is; what matters is
+    # what it can do. A root process with CAP_DAC_OVERRIDE dropped IS denied
+    # here, and the identity form skipped an assertion that would have passed.
+    my $probe;
+    my $can_open = opendir( $probe, $fail_d ) ? do { closedir $probe; 1 } : 0;
+
+    my $err = $can_open ? '' : ( eval { Developer::Dashboard::CLI::Which::_command_hook_files( paths => $paths, command => 'faildcmd' ); 1 } ? '' : $@ );
     chmod 0755, $fail_d or die "Unable to restore $fail_d: $!";
+
+    skip 'this process can open a mode-0000 directory, so the failure cannot occur', 1 if $can_open;
     like( $err, qr/Unable to read/, '_command_hook_files dies when a participating hook directory cannot be opened' );
 }
 
