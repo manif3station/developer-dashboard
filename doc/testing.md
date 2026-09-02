@@ -123,6 +123,11 @@ identity (`$> == 0`) or using a bare `-r`/`-w` — both of which answer "true" f
 `uid 0` whatever the mode — rather than attempting the operation. `t/168` fails
 the build when that form appears.
 
+`use filetest 'access'` would also be correct, and is deliberately **not** used:
+the pragma is missing from the stock perl on `ubuntu:24.04` and
+`debian:stable-slim`, both of which this project supports. Attempting the
+operation needs no pragma.
+
 **One capability is not enough for every case.** A `chmod` refused because the
 process does not *own* the file is governed by `CAP_FOWNER`, not
 `CAP_DAC_OVERRIDE`, so dropping the DAC pair does not make those assertions

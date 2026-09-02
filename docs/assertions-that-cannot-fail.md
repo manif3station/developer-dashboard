@@ -275,7 +275,27 @@ equally good:
 | `chmod …` then `skip '…', N if -r $file` | 4, in `t/103` and `t/115` | always |
 
 The second is a **probe**: it asks whether a denial can be observed, not who the
-process is. Under a dropped capability the file genuinely is unreadable, `-r` is
+process is.
+
+**Probe by ATTEMPTING the operation, not with `-r`/`-w`/`-x`.** Perl's filetest
+operators are mode-bit arithmetic and special-case uid 0, so `-r` answers *true*
+for root on a mode-0000 file even where the open is genuinely refused. Measured
+on three images — `ubuntu:24.04` (perl 5.38.2), `debian:stable-slim` (5.40.1)
+and this project's own — the result is identical everywhere:
+
+| | `-r` says | actual `open` |
+|---|---|---|
+| plain root | TRUE | SUCCEEDED |
+| root, DAC capabilities dropped | **TRUE** | **DENIED** |
+
+So a probe written with `-r` skips an assertion that a capability-dropped root
+would have run and passed — the same defect as the identity guard, reached by a
+different route.
+
+`use filetest 'access'` routes the operators through `access(2)` and *is*
+correct — **but it is not portable**: the pragma is absent from the stock perl
+on both `ubuntu:24.04` and `debian:stable-slim` (`Can't locate filetest.pm`).
+Attempting the operation needs no pragma and works everywhere. Under a dropped capability the file genuinely is unreadable, `-r` is
 false, no skip fires, and the assertion runs as intended. The identity form
 skips it — `$>` is still 0 — and quietly deletes real coverage.
 
