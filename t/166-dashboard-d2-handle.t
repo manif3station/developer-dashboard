@@ -106,6 +106,7 @@ chdir $home or die "Unable to chdir to $home: $!";
 case "$1" in
   json-thing) echo '{"alpha":"beta"}' ;;
   text-thing) echo 'plain text output' ;;
+  silent-thing) ;;
   fail-thing) echo 'stub failure detail' 1>&2; exit 7 ;;
 esac
 STUB
@@ -123,12 +124,28 @@ STUB
 
     # Also exercised via the AUTOLOAD path, per AC-5's "single-word method"
     # contract - same stub, different call shape.
-    # REWRITTEN FOR Q-101: a bareword call now returns a proxy, so the value
-    # appears only once the chain is terminated. The mapping being asserted -
-    # method name verbatim, underscore not hyphen - is unchanged.
-    my $via_autoload = $handle->text_thing->();    # AUTOLOAD -> proxy -> run('text_thing')
-    ok( !defined($via_autoload) || $via_autoload eq '',
-        'AUTOLOAD maps the METHOD name verbatim (underscore, not the hyphenated CLI form) - no matching stub case, so empty/undef, not a die' );
+    # REWRITTEN FOR Q-107, which reversed what Q-101 left here. This used to
+    # assert the method name reached the CLI VERBATIM - underscore, not hyphen -
+    # and the owner chose translation instead, because a Perl method name cannot
+    # contain a hyphen and hyphenated executables are the normal shell naming.
+    #
+    # The assertion inverts into something strictly stronger. The stub answers
+    # only to `text-thing`, so REACHING it from ->text_thing is positive evidence
+    # that the rewrite happened; the old spelling asserted an empty result, which
+    # is what you also get when nothing runs at all.
+    my $via_autoload = $handle->text_thing->();    # AUTOLOAD -> proxy -> run('text-thing')
+    is( $via_autoload, 'plain text output',
+        'Q-107: the proxy rewrites _ to - per segment, so ->text_thing reaches the CLI command `text-thing`' );
+
+    # RESTORES A BRANCH THIS CARD ITSELF ORPHANED. run() has an early
+    # `return $stdout if $stdout eq ''`, and before Q-107 it was exercised by
+    # accident: ->text_thing missed every stub case and produced empty output.
+    # Translating _ to - made that call MATCH `text-thing`, so the empty-stdout
+    # branch stopped being reached and Devel::Cover reported line 66 at 50%.
+    # A case that produces nothing is now named explicitly rather than relying
+    # on a miss, which is what made the coverage accidental in the first place.
+    my $silent = $handle->run('silent-thing');
+    is( $silent, '', 'run() returns empty string when the command prints nothing' );
 
     my $failed = eval { $handle->run('fail-thing'); 1 };
     ok( !$failed, 'AC-8: a nonzero exit dies' );
@@ -282,6 +299,39 @@ STUB
             "AC-1: d2()->" . join( '->', @{$words} ) . "->() invokes exactly `dashboard $dotted`" );
     }
 
+    # Q-107 TRANSLATION, AT EVERY SEGMENT AND EVERY DEPTH. A Perl method name
+    # cannot contain a hyphen, so without this the whole hyphenated half of the
+    # CLI is unreachable from the chained form. Depth 1 and depth 3 are both
+    # exercised because translating only the terminal segment would pass a
+    # single-word test and still fail the owner's own example.
+    for my $case ( [ [qw(soemthing_executable)],           'soemthing-executable' ],
+                   [ [qw(foo bar soemthing_executable)],   'foo.bar.soemthing-executable' ],
+                   [ [qw(a_b_c)],                          'a-b-c' ] ) {
+        my ( $words, $dotted ) = @{$case};
+        $reset->();
+        eval {
+            my $proxy = $handle;
+            $proxy = $proxy->$_ for @{$words};
+            $proxy->();
+            1;
+        };
+        is_deeply( [ $invocations->() ], [$dotted],
+            "Q-107: d2()->" . join( '->', @{$words} ) . "->() invokes exactly `dashboard $dotted`" );
+    }
+
+    # The inert stringification shows what WOULD run, not what was typed. A
+    # proxy printed while debugging is worse than useless if it names a command
+    # that does not exist - the reader would go looking for soemthing_executable.
+    {
+        $reset->();
+        my $translated = eval { $handle->foo->soemthing_executable };
+        is( ( defined $translated ? "$translated" : '(the chain died)' ),
+            'd2 proxy: foo.soemthing-executable',
+            'Q-107: an un-terminated proxy stringifies with the TRANSLATED segments' );
+        is_deeply( [ $invocations->() ], [],
+            'Q-107: and stringifying the translated proxy still executes nothing' );
+    }
+
     # AC-2 NO ACCIDENTAL EXECUTION. Each context is exercised against a proxy
     # that is never terminated, and the log must stay EMPTY.
     {
@@ -371,6 +421,28 @@ JSTUB
         is_deeply( [ $invocations->() ], [],
             'AC-5: a proxy going out of scope un-terminated invokes nothing' );
     }
+}
+
+# DESTROY IS EXERCISED WITH TIMELY DESTRUCTION, not by waiting for the
+# interpreter to shut down. A proxy left to global destruction did run DESTROY,
+# but Devel::Cover recorded the sub at count 0 - so the suite claimed AC-5 while
+# the line it depends on was never measured as executed. Dropping the last
+# reference inside a scope calls DESTROY immediately, where it is both observable
+# and countable.
+#
+# The assertion here is deliberately about the SIDE EFFECT, not the return value:
+# DESTROY returns nothing by design, so the only thing worth proving is that
+# destruction invokes no command. The proof that the line RAN is the coverage
+# count, which the gate checks separately.
+{
+    my $home   = tempdir( CLEANUP => 1 );
+    my $handle = Developer::Dashboard::Handle->new( cwd => $home );
+
+    my $proxy = $handle->collector->list;
+    ok( ref($proxy), 'a chain builds a proxy before destruction' );
+
+    undef $proxy;    # last reference dropped -> DESTROY runs HERE, not at exit
+    is( $proxy, undef, 'AC-5: dropping the last reference destroys the proxy in scope' );
 }
 
 done_testing;
