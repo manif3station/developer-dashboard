@@ -122,6 +122,19 @@ sub unguarded_denial_sites {
         # if ( open ... ) { ... skip ... }
         next if $span =~ /\bif \s* \( \s* (?:open|opendir|sysopen)\b .*? \bskip\b/xs;
 
+        # skip ... if !denial_observable();  - a NAMED probe helper, accepted only
+        # when this file actually defines one that attempts an operation. The
+        # name alone is not enough: a helper that tested $> would be exactly the
+        # defect, wearing a reassuring name.
+        if ( $span =~ /\bskip\b .{0,200}? \bif \b .{0,80}? \b(\w+_observable) \s* \(/xs ) {
+            my $helper = $1;
+            my $whole  = join "\n", @lines;
+            if ( $whole =~ /\bsub \s+ \Q$helper\E \s* \{ (.*?) \n \}/xs ) {
+                my $body = $1;
+                next if $body =~ /\b(?:open|opendir|sysopen)\b/ && $body !~ /\$>/;
+            }
+        }
+
         # my $can = open(...) ? ... : 0;  ...  skip ... if $can;
         # The attempt's result is carried in a variable because the mode usually
         # has to be restored on the skip path too.

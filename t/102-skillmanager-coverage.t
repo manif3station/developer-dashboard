@@ -23,6 +23,25 @@ use Developer::Dashboard::SkillManager;
 # deepest .developer-dashboard layer discovered from the cwd, so we must chdir
 # into the temp HOME before constructing the manager.
 # ---------------------------------------------------------------------------
+# purpose: report whether THIS process can actually be denied access to a file
+#          it owns. Not the same question as "is this root": a root process with
+#          CAP_DAC_OVERRIDE dropped is denied, and Perl's -r is mode-bit
+#          arithmetic that answers true for uid 0 whatever the mode. The only
+#          reliable probe is to attempt the operation.
+# input:   none.
+# output:  1 when a permission denial is observable here, 0 when it is not.
+sub denial_observable {
+    my $dir  = tempdir( CLEANUP => 1 );
+    my $file = File::Spec->catfile( $dir, 'denial-probe' );
+    open my $fh, '>', $file or die "Unable to write $file: $!";
+    close $fh or die "Unable to close $file: $!";
+    chmod 0000, $file or return 0;
+    my $readable = open my $probe, '<', $file;
+    close $probe if $readable;
+    chmod 0600, $file;
+    return $readable ? 0 : 1;
+}
+
 my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME} = $home;
 chdir $home or die "Unable to chdir to $home: $!";
@@ -208,7 +227,7 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
 
     # open failure on a present-but-unreadable file (non-root only).
   SKIP: {
-        skip 'cannot deny read to root', 2 if $> == 0;
+        skip 'cannot deny read to root', 2 if !denial_observable();
         chmod 0000, $manifest;
         eval { $manager->_dependency_file_lines($manifest); 1 };
         like( $@, qr/Unable to read/, 'dependency file lines dies when the file cannot be opened' );
@@ -313,7 +332,7 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
 
     # _copy_tree failure surfaces through its eval wrapper (unreadable source).
   SKIP: {
-        skip 'cannot deny read to root', 1 if $> == 0;
+        skip 'cannot deny read to root', 1 if !denial_observable();
         my $locked = tempdir( CLEANUP => 1 );
         _spew( File::Spec->catfile( $locked, 'secret' ), "x\n" );
         chmod 0000, File::Spec->catfile( $locked, 'secret' );
@@ -607,7 +626,7 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
 
     # opendir failures on unreadable directories (non-root only).
   SKIP: {
-        skip 'cannot deny read to root', 4 if $> == 0;
+        skip 'cannot deny read to root', 4 if !denial_observable();
         my $locked = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'locked-skill' );
         make_path( File::Spec->catdir( $locked, 'cli' ) );
         make_path( File::Spec->catdir( $locked, 'dashboards' ) );
@@ -656,7 +675,7 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
 
     # _local_skill_has_version open failure (non-root only).
   SKIP: {
-        skip 'cannot deny read to root', 1 if $> == 0;
+        skip 'cannot deny read to root', 1 if !denial_observable();
         chmod 0000, File::Spec->catfile( $checkout, '.env' );
         eval { $manager->_local_skill_has_version($checkout); 1 };
         like( $@, qr/Unable to read/, 'version detection dies when the .env file cannot be read' );
@@ -677,7 +696,7 @@ my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     is( $manager->_skill_env_version($noversion), undef, 'env version is undef when VERSION is absent' );
 
   SKIP: {
-        skip 'cannot deny read to root', 1 if $> == 0;
+        skip 'cannot deny read to root', 1 if !denial_observable();
         chmod 0000, File::Spec->catfile( $dir, '.env' );
         eval { $manager->_skill_env_version($dir); 1 };
         like( $@, qr/Unable to read/, 'env version dies when the .env file cannot be read' );
@@ -1200,7 +1219,7 @@ my $repos = tempdir( CLEANUP => 1 );
     is( $rm2->_unregister_root_ddfile_source('nomatch')->{removed}, 0, 'unregister leaves the file untouched when nothing matches' );
 
   SKIP: {
-        skip 'cannot deny access to root', 4 if $> == 0;
+        skip 'cannot deny access to root', 4 if !denial_observable();
 
         # register read failure.
         my $rp3 = Developer::Dashboard::PathRegistry->new( home => tempdir( CLEANUP => 1 ) );
@@ -1273,7 +1292,7 @@ my $repos = tempdir( CLEANUP => 1 );
     is( $rm3->_register_home_gitignore_skill('skill')->{registered}, 1, 'gitignore registration adds a separator when needed' );
 
   SKIP: {
-        skip 'cannot deny access to root', 2 if $> == 0;
+        skip 'cannot deny access to root', 2 if !denial_observable();
         my $rp4 = Developer::Dashboard::PathRegistry->new( home => tempdir( CLEANUP => 1 ) );
         my $rm4 = Developer::Dashboard::SkillManager->new( paths => $rp4 );
         my $gi4 = File::Spec->catfile( $rp4->home_runtime_root, '.gitignore' );
@@ -1303,7 +1322,7 @@ my $repos = tempdir( CLEANUP => 1 );
 # ===========================================================================
 {
   SKIP: {
-        skip 'cannot deny access to root', 1 if $> == 0;
+        skip 'cannot deny access to root', 1 if !denial_observable();
         my $repo = _make_git_skill( 'rmfail-skill', version => '1.00' );
         my $installed = $manager->install( 'file://' . $repo );
         ok( !$installed->{error}, 'install a skill to exercise a protected uninstall' ) or diag $installed->{error};
@@ -1374,7 +1393,7 @@ my $repos = tempdir( CLEANUP => 1 );
 # ===========================================================================
 {
   SKIP: {
-        skip 'cannot deny write to root', 2 if $> == 0;
+        skip 'cannot deny write to root', 2 if !denial_observable();
         my $sk = File::Spec->catdir( $paths->skills_root, 'marker-skill' );
         make_path($sk);
         chmod 0500, $sk;
@@ -1804,7 +1823,7 @@ my $repos = tempdir( CLEANUP => 1 );
     }
 
   SKIP: {
-        skip 'cannot deny read to root', 1 if $> == 0;
+        skip 'cannot deny read to root', 1 if !denial_observable();
         my $locked = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'locked.json' );
         _spew( $locked, '{}' );
         chmod 0000, $locked;
@@ -1827,7 +1846,7 @@ my $repos = tempdir( CLEANUP => 1 );
     like( $@, qr/Missing target tree/, '_copy_tree_contents rejects an empty target' );
 
   SKIP: {
-        skip 'cannot deny write to root', 1 if $> == 0;
+        skip 'cannot deny write to root', 1 if !denial_observable();
         my $dst = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'dst' );
         make_path($dst);
         chmod 0500, $dst;    # read-only target dir makes the file copy fail
@@ -1913,7 +1932,7 @@ my $repos = tempdir( CLEANUP => 1 );
 # ===========================================================================
 {
   SKIP: {
-        skip 'cannot deny read to root', 1 if $> == 0;
+        skip 'cannot deny read to root', 1 if !denial_observable();
         my $mk = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'Makefile' );
         _spew( $mk, "install:\n\t\@:\n" );
         chmod 0000, $mk;
@@ -1964,7 +1983,7 @@ my $repos = tempdir( CLEANUP => 1 );
 # ===========================================================================
 {
   SKIP: {
-        skip 'cannot deny read to root', 1 if $> == 0;
+        skip 'cannot deny read to root', 1 if !denial_observable();
         my $sk = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'cfg-locked' );
         make_path( File::Spec->catdir( $sk, 'config' ) );
         _spew( File::Spec->catfile( $sk, 'config', 'config.json' ), '{}' );
