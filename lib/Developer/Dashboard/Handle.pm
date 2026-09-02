@@ -101,13 +101,97 @@ sub _registry {
 # method character) - use run() directly for those.
 # Input: method-call arguments.
 # Output: same as run().
+# AUTOLOAD($name, @args)
+# Begins a lazy command chain. Returns a proxy that accumulates dotted segments
+# as each bareword method is called and shells out ONLY when the chain is
+# terminated with a call - d2()->collector->list->() runs `dashboard
+# collector.list`. Nothing executes here: an un-terminated chain is inert in
+# boolean, numeric and string context (owner decision Q-100), and there is no
+# depth-1 special case, so a bare d2()->doctor is a proxy too (Q-101).
+# Input: the method name Perl could not resolve, plus any arguments.
+# Output: a Developer::Dashboard::Handle::Proxy.
 sub AUTOLOAD {
     my $self = shift;
     my $name = $AUTOLOAD;
     $name =~ s/.*:://;
     return if $name eq 'DESTROY';
-    return $self->run( $name, @_ );
+    return Developer::Dashboard::Handle::Proxy->_begin( $self, $name, @_ );
 }
+
+1;
+
+
+package Developer::Dashboard::Handle::Proxy;
+
+use strict;
+use warnings;
+
+# A deferred command chain. It exists so that d2()->foo->bar->() can mirror the
+# CLI's own dotted dispatch (`d2 foo.bar`) at arbitrary depth: the first method
+# call cannot know whether another is coming, so it must return something
+# chainable rather than a value.
+#
+# THE THREE VALUE CONTEXTS ARE ALL DECLARED EXPLICITLY. Perl autogenerates a
+# missing stringify from numify, so leaving q{""} out would silently replace the
+# deliberately non-executing "d2 proxy: ..." text with a generated one - and the
+# whole point of Q-100's answer is that a proxy must be obviously inert when
+# printed. Declaring all three closes that hole at the source.
+#
+# fallback IS 1, NOT 0, and the difference cost a test. With 0 nothing is ever
+# derived, so `$proxy eq ''` dies with "Operation eq: no method found" even
+# though q{""} is right there - which broke an existing assertion that had every
+# right to compare a stringifiable object. The risk fallback => 0 was reached for
+# is already gone: it only mattered while q{""} might be absent, and it is not.
+use overload
+  '&{}'    => sub { my $self = shift; return sub { return $self->_execute(@_) } },
+  q{""}    => sub { my $self = shift; return 'd2 proxy: ' . join '.', @{ $self->{segments} } },
+  '0+'     => sub { return 0 },
+  'bool'   => sub { return 1 },
+  fallback => 1;
+
+our $AUTOLOAD;
+
+# _begin($handle, $name, @args)
+# Starts a chain from a Handle. Input: the owning handle, the first segment,
+# and any arguments. Output: a new proxy carrying one segment.
+sub _begin {
+    my ( $class, $handle, $name, @args ) = @_;
+    return bless { handle => $handle, segments => [$name], args => [@args] }, $class;
+}
+
+# AUTOLOAD($name, @args)
+# Appends one segment and returns a NEW proxy, so a chain can be branched or
+# held without one call mutating another's accumulated path.
+# Input: the method name, plus any arguments. Output: a new proxy.
+sub AUTOLOAD {
+    my $self = shift;
+    my $name = $AUTOLOAD;
+    $name =~ s/.*:://;
+    return if $name eq 'DESTROY';
+    return bless {
+        handle   => $self->{handle},
+        segments => [ @{ $self->{segments} }, $name ],
+        args     => [ @{ $self->{args} }, @_ ],
+    }, ref $self;
+}
+
+# _execute(@args)
+# Terminates the chain: joins the segments with '.' exactly as the CLI's dotted
+# dispatch expects and hands them to Handle::run, which shells out through the
+# real entrypoint and so gets layered hook execution for free.
+# Input: any further arguments. Output: whatever run() returns.
+sub _execute {
+    my ( $self, @args ) = @_;
+    return $self->{handle}->run( ( join '.', @{ $self->{segments} } ), @{ $self->{args} }, @args );
+}
+
+# DESTROY()
+# Explicitly does nothing. Without it the proxy's AUTOLOAD would receive
+# DESTROY as just another bareword segment when a chain goes out of scope
+# un-terminated, which is how an inert chain would come to invoke something.
+sub DESTROY { return }
+
+package Developer::Dashboard::Handle;
 
 1;
 
@@ -156,9 +240,17 @@ parsing its output itself.
     use Developer::Dashboard;
 
     my $foo = d2->paths->{foo};              # fast, in-process
-    my $out = d2->doctor;                    # shells to `dashboard doctor`
+
+    # A bareword method starts a LAZY chain. Nothing runs until the chain is
+    # terminated with a call - the trailing ->().
+    my $out = d2->doctor->();                # shells to `dashboard doctor`
+    my $lst = d2->collector->list->();       # shells to `dashboard collector.list`
+
+    # Un-terminated, a chain is inert and says so if you print it:
+    print d2->collector->list;               # "d2 proxy: collector.list"
+
     my $res = d2->run( 'tira.ticket.show', '--ref', 'DD-726' );
-                                              # dotted subcommands: run() only
+                                             # run() still takes its words separately
 
 C<d2()> (exported by L<Developer::Dashboard>) memoizes one handle per working
 directory, so repeated calls from the same directory reuse the same
@@ -178,7 +270,10 @@ build their own registries directly, unchanged by this module.
     # A custom alias added with `dashboard path add reports /var/reports`:
     my $dir = d2->paths->{reports};   # '/var/reports'
 
-    # Anything else the CLI can do, in-process:
-    my $version_text = d2->version;
+    # Anything else the CLI can do - remember the terminating ->():
+    my $version_text = d2->version->();
+
+    # Arbitrary depth, mirroring the CLI's own dotted dispatch:
+    my $out = d2->foo->bar->zzz->();  # `dashboard foo.bar.zzz`
 
 =cut

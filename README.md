@@ -3042,14 +3042,20 @@ scoped to the current working directory:
     use Developer::Dashboard;
 
     my $foo = d2->paths->{foo};                    # in-process, no subprocess
-    my $out = d2->doctor;                           # shells to `dashboard doctor`
+    my $out = d2->doctor->();                       # shells to `dashboard doctor`
+    my $lst = d2->collector->list->();               # `dashboard collector.list`
     my $res = d2->run( 'tira.ticket.show', '--ref', 'DD-726' );
-                                                      # dotted subcommands
+                                                      # run() takes words separately
 
 `d2->paths` resolves in-process, the same table `dashboard paths`
-prints. Any other bareword method name shells to that `dashboard`
-subcommand; `d2->run(...)` is the explicit form for a dotted subcommand
-that cannot be spelled as a plain Perl method name. Output is decoded from
+prints. Any other bareword method name starts a **lazy chain** that mirrors
+the CLI's own dotted dispatch at arbitrary depth - `d2->foo->bar->()`
+runs `dashboard foo.bar` - and **nothing executes until the chain is
+terminated with a call**, the trailing `->()`. An un-terminated chain is
+inert in boolean, numeric and string context, and stringifies to something
+obviously non-executing such as `d2 proxy: foo.bar`, so a stray debug print
+cannot run a command. `d2->run(...)` remains available and takes its
+words as separate arguments. Output is decoded from
 JSON into a real Perl structure automatically when it looks like JSON,
 otherwise returned as plain text; a failing subcommand raises an exception
 with its error output attached rather than returning silently as if it had
