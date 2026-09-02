@@ -265,11 +265,17 @@ SKIP: {
     # A temp directory that exists but cannot be listed must be loud. Silently
     # reporting nothing would be indistinguishable from a clean sweep.
     my $locked = tempdir( CLEANUP => 1 );
-    if ( $> == 0 ) {
-        pass('_temp_file_candidates unreadable-directory branch is skipped under root');
-    }
-    else {
-        chmod 0100, $locked or die "Unable to chmod $locked: $!";
+    # Was `if ( $> == 0 ) { pass(...) }` - a fabricated passing assertion for a
+    # branch nobody ran, which reads as "tested and correct" in every report. And
+    # identity is the wrong question: a root process with CAP_DAC_READ_SEARCH
+    # dropped cannot list this directory, so the branch IS reachable for it.
+    chmod 0100, $locked or die "Unable to chmod $locked: $!";
+    my $probe_dh;
+    my $can_list = opendir( $probe_dh, $locked ) ? do { closedir $probe_dh; 1 } : 0;
+  SKIP: {
+        skip 'this process can list a mode-0100 directory, so the read failure cannot occur', 1
+          if $can_list;
+
         my $error = '';
         eval {
             no warnings qw(redefine once);
@@ -277,9 +283,9 @@ SKIP: {
             $keeper->_temp_file_candidates;
             1;
         } or $error = $@;
-        chmod 0700, $locked or die "Unable to restore $locked: $!";
         like( $error, qr/Unable to read temp directory/, '_temp_file_candidates dies rather than reporting an empty scan when the temp directory cannot be listed' );
     }
+    chmod 0700, $locked or die "Unable to restore $locked: $!";
 }
 
 # _is_inside($root, $path)

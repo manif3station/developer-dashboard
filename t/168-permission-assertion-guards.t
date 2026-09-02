@@ -65,22 +65,25 @@ sub unguarded_denial_sites {
         # through it so that cleanup runs on the skip path. Cutting the span at
         # the restore put the probe's own skip outside it and reported guarded
         # code as unguarded.
+        # Find the INNERMOST SKIP block that actually contains this line, by
+        # computing each SKIP block's extent and testing containment. A backward
+        # brace-counting scan looked cheaper and was wrong: it matched an earlier
+        # SKIP block that had already closed, because a running depth can reach
+        # -1 at a line that is not the enclosing opener.
         my ( $start, $end );
-        my $d = 0;
-        for ( my $j = $i ; $j >= 0 ; $j-- ) {
-            $d += ( $lines[$j] =~ tr/}// ) - ( $lines[$j] =~ tr/{// );
-            if ( $d < 0 && $lines[$j] =~ /^\s*SKIP \s* : \s* \{/x ) { $start = $j; last }
-            last if $d < -1;
-        }
-        if ( defined $start ) {
+        for my $j ( 0 .. $#lines ) {
+            next if $lines[$j] !~ /^\s*SKIP \s* : \s* \{/x;
             my $bd = 0;
-            for my $j ( $start .. $#lines ) {
-                $bd += ( $lines[$j] =~ tr/{// ) - ( $lines[$j] =~ tr/}// );
-                if ( $bd == 0 && $j > $start ) { $end = $j; last }
+            my $close;
+            for my $k ( $j .. $#lines ) {
+                $bd += ( $lines[$k] =~ tr/{// ) - ( $lines[$k] =~ tr/}// );
+                if ( $bd == 0 && $k > $j ) { $close = $k; last }
             }
-            $end //= $#lines;
+            $close //= $#lines;
+            next if $i < $j || $i > $close;
+            ( $start, $end ) = ( $j, $close ) if !defined $start || $j > $start;
         }
-        else {
+        if ( !defined $start ) {
             $start = $i;
             my $depth = 0;
             $end = $#lines;
