@@ -191,6 +191,55 @@ The same three rules apply to any check that reads the process table, whether it
 is deciding that a gate is running, that a supervisor is alive, or that a host is
 quiet enough to measure on.
 
+## A doomed loop must never be forked in the first place (DD-737)
+
+Every check on this page is about telling a live process from a dead one
+after the fact. The cheaper fix, when it applies, is to never create the
+process at all - and one collector shape made exactly that mistake.
+
+A collector's config entry needs either a `command` (shell text) or `code`
+(Perl) to actually do anything; `_collector_source` has always validated
+that, dying with `"Collector '<name>' missing command or code"` when
+neither is present. The problem was *when* that validation ran: only on
+each loop tick, inside the forked worker, after `start_loop` had already
+created a pidfile, written loop state, and spawned the process. A
+misconfigured collector - one config entry with only `interval` and `name`,
+nothing to run - was forked into a real loop worker anyway, which then died
+immediately on its first tick, and on every tick after that, forever. The
+collector never disabled itself; it just kept retrying a config that could
+never succeed.
+
+**Observed live, from a real machine (owner's photo).** Every time that
+loop-worker process died - from this error, or from an ordinary `dashboard
+restart` cycle - it needed something to call `waitpid` on it before it
+would leave the process table. On a normal host, systemd (PID 1) does that
+automatically for any orphaned process, so a supervisor exiting without
+reaping its own children is invisible. Under a PID 1 that does not do that
+- a plain Docker container with no init, `sleep`, or similar as its
+entrypoint - every one of those exits became a permanent zombie instead.
+Reproduced directly in `developer-dashboard:latest`: two `dashboard
+restart` cycles against the same broken config left multiple `<defunct>`
+entries, all reparented to PID 1, none cleared by either restart. The
+owner's screenshot showed the same shape at a much larger scale - hundreds
+of zombies sharing one non-init PPID, accumulated over hours.
+
+**The fix is at the point of creation, not the point of death.**
+`start_loop` now calls `_collector_source($job)` - the same validation the
+tick loop already performed - before writing any pidfile or forking
+anything. A collector with neither `command` nor `code` now fails
+immediately and visibly (`dashboard collector start` / `dashboard restart`
+report the error directly) instead of silently forking a process whose
+only future is dying once per interval forever.
+
+**This does not fix the general reaping gap.** A collector that is
+correctly configured can still fail for other reasons - a crashing command,
+an external `kill`, the environment itself going away - and its worker can
+still become an orphan needing PID-1-level reaping. What this closes is the
+specific pattern that turns *one* permanently broken config into an
+*unbounded, ever-growing* pile of zombies: a collector that can never
+succeed no longer gets to try, and fail, and leak, every interval for as
+long as the host stays up.
+
 ## Where this lives
 
 | concern | location |
