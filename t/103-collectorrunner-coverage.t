@@ -465,7 +465,13 @@ is( $runner->loop_state('missing.loop'), undef, 'loop_state returns undef when n
     my $file = write_raw_state( 'unreadable.loop', json_encode( { status => 'running' } ) );
   SKIP: {
         chmod 0000, $file or skip 'chmod not honored on this filesystem', 1;
-        skip 'running as root defeats the unreadable-file open failure', 1 if -r $file;
+        # Was `if -r $file`. Filetest operators are mode-bit arithmetic and
+        # special-case uid 0, so -r answers true for root even where the open is
+        # denied. Probe by attempting it.
+        if ( open my $probe, '<', $file ) {
+            close $probe or die "Unable to close probe on $file: $!";
+            skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+        }
         like( ( eval { $runner->loop_state('unreadable.loop'); 1 } ? '' : $@ ), qr/Unable to read/, 'loop_state dies when a present state file cannot be opened' );
         chmod 0600, $file;
     }
@@ -503,7 +509,14 @@ is( $runner->loop_state('missing.loop'), undef, 'loop_state returns undef when n
   SKIP: {
         my $dir = $paths->collector_dir('nowrite.loop');
         chmod 0500, $dir or skip 'chmod not honored on this filesystem', 1;
-        skip 'running as root defeats the unwritable-directory failure', 1 if -w $dir;
+        # Was `if -w $dir`. Probe by attempting to create a file: -w is mode-bit
+        # arithmetic and answers true for uid 0 whatever the mode.
+        my $wprobe = File::Spec->catfile( $dir, '.write-probe' );
+        if ( open my $probe, '>', $wprobe ) {
+            close $probe or die "Unable to close probe on $wprobe: $!";
+            unlink $wprobe;
+            skip 'this process can write into a mode-0500 directory, so the write failure cannot occur', 1;
+        }
         like( ( eval { $runner->_write_loop_state( 'nowrite.loop', { status => 'running' } ); 1 } ? '' : $@ ), qr/Unable to write/, '_write_loop_state dies when the temp state file cannot be opened' );
         chmod 0700, $dir;
     }
@@ -603,7 +616,11 @@ is( $runner->_helper_file_supports_internal_command( File::Spec->catfile( $home,
     is( $runner->_helper_file_supports_internal_command( $helper, 'collector-loop-foreground' ), 1, '_helper_file_supports_internal_command detects a present command token' );
   SKIP: {
         chmod 0000, $helper or skip 'chmod not honored on this filesystem', 1;
-        skip 'running as root defeats the unreadable-file open failure', 1 if -r $helper;
+        # Was `if -r $helper`. Probe by attempting the read.
+        if ( open my $probe, '<', $helper ) {
+            close $probe or die "Unable to close probe on $helper: $!";
+            skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+        }
         is( $runner->_helper_file_supports_internal_command( $helper, 'collector-loop-foreground' ), 0, '_helper_file_supports_internal_command returns false when a present file cannot be opened' );
         chmod 0600, $helper;
     }

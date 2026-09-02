@@ -341,12 +341,20 @@ sub dies_like {
     $collector->write_job( $name, { name => $name, command => 'true' } );
     my $file = $collector->collector_paths($name)->{job};
 
-    chmod 0000, $file or die "Unable to chmod $file: $!";
+  SKIP: {
+        chmod 0000, $file or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $file ) {
+            close $probe or die "Unable to close probe on $file: $!";
+            skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+        }
+
     dies_like(
         sub { $collector->read_job($name) },
         qr/Unable to read \Q$file\E/,
         'read_job dies when the stored job file cannot be opened',
     );
+    }
+
     chmod 0600, $file or die "Unable to chmod $file: $!";
 
     is( $collector->read_job($name)->{command}, 'true', 'read_job decodes the stored job definition' );
@@ -880,8 +888,16 @@ dies_like( sub { $collector->_format_log_entry( name => '' ) }, qr/Missing colle
     print {$fh} "kept\n" or die "Unable to write $file: $!";
     close $fh or die "Unable to close $file: $!";
 
-    chmod 0000, $file or die "Unable to chmod $file: $!";
+  SKIP: {
+        chmod 0000, $file or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $file ) {
+            close $probe or die "Unable to close probe on $file: $!";
+            skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+        }
+
     dies_like( sub { Developer::Dashboard::Collector::_slurp($file) }, qr/Unable to read \Q$file\E/, '_slurp dies when an existing file cannot be opened' );
+    }
+
     chmod 0600, $file or die "Unable to chmod $file: $!";
     is( Developer::Dashboard::Collector::_slurp($file), "kept\n", '_slurp reads an existing readable file' );
 }
@@ -894,8 +910,16 @@ dies_like( sub { $collector->_format_log_entry( name => '' ) }, qr/Missing colle
     $collector->write_status( $name, { flag => 1 } );
     my $file = $collector->collector_paths($name)->{status};
 
-    chmod 0000, $file or die "Unable to chmod $file: $!";
+  SKIP: {
+        chmod 0000, $file or skip 'chmod not honored on this filesystem', 1;
+        if ( open my $probe, '<', $file ) {
+            close $probe or die "Unable to close probe on $file: $!";
+            skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
+        }
+
     dies_like( sub { $collector->_read_status_file($file) }, qr/Unable to read \Q$file\E/, '_read_status_file dies when an existing status file cannot be opened' );
+    }
+
     chmod 0600, $file or die "Unable to chmod $file: $!";
     is( $collector->_read_status_file($file)->{flag}, 1, '_read_status_file decodes a readable status file' );
 }
