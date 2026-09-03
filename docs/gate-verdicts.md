@@ -517,6 +517,73 @@ gates lock" from that is correct about the file you happened to open and wrong
 about the system. The asymmetry only shows up if you ask which *caller* reaches
 that code: `coverage-run` does, by delegation; `run-suite` never does.
 
+### SUPERSEDED 2026-09-03 — `run-suite` DOES take a lock now, and the gap moved
+
+**The table above described the state before DD-696 and is no longer true.** It
+is kept because a superseded claim is the record of what was believed, and
+because the shape of the gap it describes survived the fix in a form that is
+easy to miss.
+
+DD-696 gave `run-suite` its own host-wide lock. Measured on 2026-09-03 by
+reading what each tool opens:
+
+| tool | lock path | what it protects |
+|---|---|---|
+| `run-suite` | `/tmp/dd-gate-host.lock` (`DD_SUITE_LOCK`) | the **host** |
+| `script/coverage-gate` | `.<db>.lock` beside its database | the **database** |
+| `coverage-run` | none of its own — delegates to `coverage-gate` | — |
+| `gate-status`, `host-ready`, `check-all-metric-coverage` | none | they are readers |
+
+**So both halves now lock, and they still do not exclude each other** — because
+they lock *different files*. `coverage-gate` contains zero references to
+`dd-gate-host`; `run-suite`'s only lock is its own. Two `flock`s on different
+paths cannot interact, on every code path rather than the one that happened to
+run.
+
+Which pairs actually exclude, as of this writing:
+
+| pair | excluded? | |
+|---|---|---|
+| suite vs suite | **yes** | one host lock (DD-696) |
+| coverage vs coverage, same database | **yes** | one database lock |
+| coverage vs coverage, different `--database` | no | **correct** — see below |
+| **suite vs coverage** | **no** | the remaining gap |
+
+#### Why `coverage-gate` locks its database and not the repository
+
+Not an oversight, and the reason constrains any fix. A repository-wide lock was
+tried and removed: the suite's own tests *drive* `coverage-gate`, so the gate
+held the lock for the whole run and then **refused its own tests** (DD-526). A
+gate given its own `--database` contends for nothing, so a fixed lock also
+refuses runs that conflict with nothing.
+
+Any host lock added here must therefore keep two properties, or it reintroduces
+the failure it is meant to prevent:
+
+1. **two gates on different `--database` paths must still not refuse each
+   other**; and
+2. **the host lock path must be injectable**, exactly as `run-suite`'s is, so
+   the gate can still pass the suite that is running it.
+
+A third detail blocks the obvious cheap test: `--dry-run` returns *before* the
+lock is taken, deliberately, so describing the chain never blocks. It cannot be
+used to observe locking; a falsification has to start a real gate.
+
+#### A lock cannot exclude what never takes it
+
+The sharper limit, and the one that decides how much a lock is worth here. On
+2026-09-03 three of four consecutive full-suite runs were invalidated by
+contention, and the interfering work was **another project's containerised
+coverage run** — a different uid, its own container, its own interpreter. No
+lock in this repository would have excluded a second of it.
+
+That is not an argument against the lock. It is the boundary between the two
+mechanisms this page describes: **a lock coordinates tools that agree to take
+it; detection is the only thing that sees everything else.** A design that has
+one and not the other is half-covered in a way that looks complete — which is
+exactly how the pre-DD-696 state read to anyone who grepped for `flock` and
+found one.
+
 ### The consequence is a verdict, not just a slow afternoon
 
 A suite starting mid-coverage invalidates the coverage verdict, and a second

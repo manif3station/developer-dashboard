@@ -53,7 +53,7 @@ if ( !open $held, '+>>', $lock_path ) {
 flock $held, LOCK_EX | LOCK_NB
     or die "Unable to take a private lock at $lock_path, which nothing else can hold: $!";
 
-plan tests => 9;
+plan tests => 15;
 
 # Hold it the way a real gate holds it. Taking the flock is what stops the second
 # run, but recording the pid is what makes the refusal useful to a person, and a
@@ -113,6 +113,91 @@ ok(
 );
 close $after;
 
+# DD-734. THE HOST LOCK, WHICH IS A DIFFERENT LOCK FROM THE ONE ABOVE AND GUARDS
+# A DIFFERENT THING.
+#
+# The database lock tested above stops two gates sharing one coverage database.
+# It does NOT stop a full suite running underneath a coverage pass, because
+# run-suite takes a HOST lock at DD_SUITE_LOCK (default /tmp/dd-gate-host.lock)
+# and this gate has never looked at that path. Both tools lock; they lock
+# different files; so neither can block the other, and a suite starting
+# mid-coverage silently invalidates the coverage verdict.
+#
+# The path is injected rather than using the real /tmp/dd-gate-host.lock for the
+# same reason the database above is a private tempdir: a test that took the real
+# host lock would block, or be blocked by, a genuine gate running on this
+# machine - and this suite is itself sometimes run by that gate.
+my $host_lock = File::Spec->catfile( $database, 'dd-gate-host.lock' );
+
+my $host_held;
+if ( !open $host_held, '+>>', $host_lock ) {
+    die "Unable to open the injected host lock $host_lock: $!";
+}
+flock $host_held, LOCK_EX | LOCK_NB
+    or die "Unable to take the private host lock at $host_lock: $!";
+truncate $host_held, 0;
+seek $host_held, 0, 0;
+print {$host_held} "$$\n";
+$host_held->flush if $host_held->can('flush');
+
+# A SECOND database, so this case is decided by the HOST lock alone. Reusing the
+# one above would let the database lock refuse the run and the test would pass
+# without the host lock existing at all - green for the wrong reason, which is
+# the failure this whole file is written to avoid.
+my $other_database = File::Temp::tempdir( CLEANUP => 1 );
+my $other_scratch  = File::Spec->catdir( $other_database, 'cover_db' );
+
+my ( $host_output, $host_status ) = _run_gate_with_env(
+    { DD_SUITE_LOCK => $host_lock },
+    '--database', $other_scratch, 't/00-load.t'
+);
+
+is( $host_status, 4,
+    'a gate exits 4 when the HOST lock is held, even though its own database is free' );
+like( $host_output, qr/refusing to run/,
+    'the host-lock refusal says it is refusing, in the same words as the database refusal' );
+like( $host_output, qr/pid $$\b/,
+    'the host-lock refusal names the holder, so an operator can find the suite that owns the host' );
+
+# The other direction, and it is the regression this change most plausibly
+# causes. A gate whose host lock is FREE must run even while a foreign database
+# lock is held, or DD-526 is back: a gate given its own --database contends for
+# nothing, and refusing it would make the suite unable to be run BY the gate.
+my ( $free_output, $free_status ) = _run_gate_with_env(
+    { DD_SUITE_LOCK => File::Spec->catfile( $other_database, 'unheld.lock' ) },
+    '--database', $other_scratch, '--dry-run'
+);
+
+is( $free_status, 0,
+    'a gate with a free host lock is not refused, so two gates on different databases still coexist' );
+
+# DD-734, AC-5. THE GATE MUST NOT REFUSE ITSELF.
+#
+# run-suite holds the host lock for the whole prove run, and the suite it is
+# running invokes this gate in nine separate test files - none of which injects
+# a lock path. If the gate took the host lock unconditionally, every one of them
+# would be refused by a lock held by the suite running them. That is DD-526
+# exactly: "the gate could never pass the suite it was running".
+#
+# A forked descriptor could not self-block, but the gate OPENS the path
+# independently, and a separate open() of the same file contends - which is why
+# "make both tools lock" is the intuitive fix and the broken one.
+#
+# So a gate running under a harness is a test fixture, not a verification run,
+# and must proceed. HARNESS_ACTIVE is the signal, the same one
+# _close_inherited_fds already uses for the same reason.
+my ( $harness_output, $harness_status ) = _run_gate_with_env(
+    { DD_SUITE_LOCK => $host_lock, HARNESS_ACTIVE => 1 },
+    '--database', $other_scratch, '--dry-run'
+);
+
+is( $harness_status, 0,
+    'a gate under a harness proceeds even though the host lock is held, so the suite can still run the gate (DD-526)' );
+unlike( $harness_output, qr/another gate holds/,
+    'the harness case is not refused by the host lock, which nine existing test files depend on' );
+
+close $host_held;
+
 # Purpose: run the gate as a separate process and collect what it said and how
 #          it ended, since both are part of the behaviour under test.
 # Input: the argument list to pass to the gate.
@@ -123,6 +208,16 @@ sub _run_gate {
     my $output = qx{$^X \Q$gate\E @{[ join ' ', map { quotemeta } @arguments ]} 2>&1};
 
     return ( defined $output ? $output : '', $? >> 8 );
+}
+
+# Purpose: run the gate as a separate process with extra environment set, so a
+#          lock path can be injected without disturbing the real one.
+# Input:   a hashref of environment overrides, then the argument list.
+# Output:  the combined output, and the exit status already shifted.
+sub _run_gate_with_env {
+    my ( $env, @args ) = @_;
+    local %ENV = ( %ENV, %{$env} );
+    return _run_gate(@args);
 }
 
 __END__
