@@ -147,8 +147,15 @@ $host_held->flush if $host_held->can('flush');
 my $other_database = File::Temp::tempdir( CLEANUP => 1 );
 my $other_scratch  = File::Spec->catdir( $other_database, 'cover_db' );
 
+# HARNESS_ACTIVE MUST BE CLEARED HERE, and the suite is what taught me why. The
+# gate deliberately skips the host lock under a harness (see below), and this
+# file runs UNDER prove, which sets HARNESS_ACTIVE. So an inherited value made
+# these three assertions test the guard instead of the lock: they passed when I
+# ran the file with bare perl and failed the moment the suite ran it, which is
+# the only way that matters. Clearing it makes this case the REAL-RUN case a
+# gate reached from coverage-run is in.
 my ( $host_output, $host_status ) = _run_gate_with_env(
-    { DD_SUITE_LOCK => $host_lock },
+    { DD_SUITE_LOCK => $host_lock, HARNESS_ACTIVE => undef },
     '--database', $other_scratch, 't/00-load.t'
 );
 
@@ -164,7 +171,7 @@ like( $host_output, qr/pid $$\b/,
 # lock is held, or DD-526 is back: a gate given its own --database contends for
 # nothing, and refusing it would make the suite unable to be run BY the gate.
 my ( $free_output, $free_status ) = _run_gate_with_env(
-    { DD_SUITE_LOCK => File::Spec->catfile( $other_database, 'unheld.lock' ) },
+    { DD_SUITE_LOCK => File::Spec->catfile( $other_database, 'unheld.lock' ), HARNESS_ACTIVE => undef },
     '--database', $other_scratch, '--dry-run'
 );
 
@@ -216,7 +223,13 @@ sub _run_gate {
 # Output:  the combined output, and the exit status already shifted.
 sub _run_gate_with_env {
     my ( $env, @args ) = @_;
+
+    # An undef VALUE means DELETE, not set-to-empty. The distinction is load
+    # bearing: the gate tests exists($ENV{HARNESS_ACTIVE}) semantics via
+    # truthiness, and an empty string would still be an inherited harness marker
+    # to anything that checks defined-ness rather than truth.
     local %ENV = ( %ENV, %{$env} );
+    delete $ENV{$_} for grep { !defined $env->{$_} } keys %{$env};
     return _run_gate(@args);
 }
 
