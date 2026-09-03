@@ -258,6 +258,178 @@ were, because sharing one of those would impose a single behaviour on both and
 every existing test would still pass — each version satisfies its own module's
 tests today.
 
+### The nine that were left, and why "nine" is not the useful part
+
+Naming them matters, because "nine helpers differ" is a fact nobody can act on and
+a list is checkable in seconds. Measured comment-stripped — which is essential,
+since one module comments its helpers and the other does not, and a first pass
+comparing bodies *with* comments reported almost the inverse split:
+
+| helper | shared lines | what actually differs |
+|---|---|---|
+| `_dashboard_core_helper_path` | 90% | one default: `web-foreground` vs `collector-loop-foreground` |
+| `_same_pid_namespace` | 88% | which accessor fetches the current namespace id |
+| `_helper_file_supports_internal_command` | 85% | **nothing** — one assigns then returns, the other returns |
+| `_spawn_windows_background_command` | 83% | RuntimeManager hardcodes `powershell`; CollectorRunner resolves it |
+| `_replace_path_via_powershell` | 82% | the same, plus a stated failure when it is unavailable |
+| `_close_inherited_fds` | 75% | RuntimeManager has a `preserve_harness` guard; CollectorRunner has an explicit keep-loop |
+| `_read_process_title` | 60% | `_procfs_available` + `_slurp_proc_file` vs `_read_proc_file` + a `capture` fallback |
+| `_read_process_state` | 52% | the same two strategies |
+| `_now_iso8601` | 50% | **`localtime` vs `gmtime` — deliberate** |
+
+#### The similarity score sorts them; it does not classify them
+
+It misleads in **both** directions, and either mistake is expensive:
+
+- `_helper_file_supports_internal_command` is **85% different and behaviourally
+  identical.** Its entire difference is assigning to a variable before returning.
+- `_now_iso8601` is the **lowest at 50% and must never be merged.** That split is
+  a subsystem boundary: `localtime` in `Collector` and `CollectorRunner`, the two
+  writers of collector state, which chain consistently; `gmtime` in
+  `RuntimeManager`, `Auth`, `SessionStore`, `Housekeeper` and `ActionRunner`. A
+  card proposing to reconcile it was **discarded** on exactly this ground.
+
+So an extraction ordered by similarity would have merged the one pair that must
+stay apart and skipped one that could be merged today. **Read the pair.**
+
+#### The cost, measured: one defect, four investigations
+
+`_read_process_state` is defined in **three** modules, and no two bodies are
+textually alike. All three nonetheless read the procfs file *identically* — an
+`-r` guard, an open, a slurp — so the only behavioural difference is the
+fallback, and there are **two** policies, not three:
+
+| module | fallback when the procfs read yields nothing |
+|---|---|
+| `RuntimeManager` | returns undef; does **not** try `ps` when procfs exists |
+| `CollectorRunner` | always confirms with `ps` |
+| `ActionRunner` | always confirms with `ps` — same policy, expressed inline |
+
+That distinction matters because *the bodies differing is not the same fact as
+the behaviour differing*, and only the second is a reason to give two helpers
+two names.
+
+All three open with `local $?`, and each cites a **different card**: DD-585,
+DD-589, DD-590, DD-591. The same defect — *a query deciding its caller's exit
+status* — was found independently four times, in four modules, and fixed four
+times.
+
+**Nothing connected them.** The name was shared and the bodies were not, so a
+search for "the other copies" by similarity would have missed them, and a
+copy-paste detector would have flagged none. Each was rediscovered by somebody
+meeting the symptom again. One of the four comments carries the whole incident —
+`t/153` walking `/proc` in its END block, a vanished pid poisoning `$?`,
+Test::Builder reporting *"exited with 256"* and failing the file at 255 with all
+fifteen subtests passing. The other three describe the same shape in their own
+words, unaware.
+
+> **Same-name divergence does not merely mislead a reader. It multiplies the cost
+> of every defect in the divergent code by the number of copies, because no
+> search connects them.**
+
+That is the argument for a check that *derives* the divergent set rather than
+listing it: a list tells you about the copies somebody remembered.
+
+#### A shared name can be the mechanism, not the mistake
+
+Two of the divergent helpers cannot be renamed at all, and the reason is
+structural rather than a matter of taste. The shared bodies dispatch through
+them:
+
+```
+ProcessSupervision::_pid_is_running    calls  $self->_read_process_state
+ProcessSupervision::_replace_state_file calls $self->_replace_path_via_powershell
+```
+
+Because those calls go through `$self`, each consumer's own version is the one
+that runs. **The shared name is what makes the shared body work.** Rename
+either implementation and the dispatch silently binds every consumer to
+whichever body kept the name — a behaviour change against a suite that would
+stay green, because nothing asserts which copy answered.
+
+So same-name-different-body has three resolutions, not two:
+
+| the divergence is | resolution |
+|---|---|
+| accidental — the bodies should never have differed | **reconcile** into one shared implementation |
+| real, and nothing shared depends on the name | **rename** so the name stops claiming sameness |
+| real, and a shared body dispatches through the name | **declare it** — this is polymorphism working |
+
+The third class is easy to misfile as the second, and misfiling it is a
+behaviour change rather than a cosmetic one. The test is one question with a
+cheap answer: *does any shared body call this through `$self`?*
+
+#### Sometimes the qualifier is the module, not the helper
+
+Two helpers — `_read_process_state` and `_read_process_title` — split the same
+way in the same two modules: `RuntimeManager` checks `_procfs_available` and
+then trusts procfs, while `CollectorRunner` always confirms with `ps`. That
+looks like two divergences. It is one, and it belongs to the classes rather
+than to the helpers:
+
+| module | procfs-reading subs | how many gate on `_procfs_available` |
+|---|---|---|
+| `RuntimeManager` | 3 | **3** |
+| `CollectorRunner` | 3 | **0** |
+| `ActionRunner` | 1 | 0 |
+
+Each stance is defensible on its own terms. A long-lived supervisor can
+establish once whether the host has procfs and rely on it; a collector runner
+deals with short-lived pids that routinely vanish between `readdir` and the
+read, so it confirms every time.
+
+**So the name is not lying — the class name is already the qualifier.**
+Renaming these would append the same suffix to every procfs helper in each
+class, encoding once per helper a fact the module states once, and every helper
+added later would have to repeat it.
+
+The test for this case: *does the same split appear across several helpers in
+the same pair of modules?* If it does, it is a property of the modules, and
+renaming spreads one fact over many names.
+
+#### A fourth case: divergent because one side is wrong
+
+`_spawn_windows_background_command` differs in a way neither reconcile nor
+rename can honestly resolve. `CollectorRunner` resolves the interpreter through
+`_powershell_command` and dies with a clear message when it is unavailable;
+`RuntimeManager` hardcodes the string `powershell`.
+
+That is not a design difference. One of them is a defect, tracked separately.
+Both other resolutions would hide it:
+
+- **reconcile** picks a winner silently, and the losing behaviour disappears
+  with no record that it was ever the other way;
+- **rename** gives the defect a permanent name and makes it read as a
+  deliberate variant — the same failure as the partial workaround that makes
+  its unfixed siblings look intentional.
+
+**Declaring it, with a reference to the card that fixes it, is the only option
+that leaves the defect visible.** It reconciles once that card lands.
+
+#### A same-name helper is not confined to these two modules
+
+The two-module framing is a property of where the divergence was first noticed,
+not of the code. `_read_process_state` is defined in **three** modules —
+`ActionRunner` as well — and `_now_iso8601` in **seven**. A rename covering only
+the two files where the problem was spotted leaves a third definition on the old
+name, which is *worse* than the divergence: the difference becomes invisible
+**and** inconsistent.
+
+Before renaming any shared-looking helper, `grep -rln` for its definition across
+all of `lib/`. The count is frequently not two.
+
+#### And a divergence can be a bug report nobody filed
+
+Two of the nine differ mainly because `CollectorRunner` resolves the PowerShell
+executable and reports a clear failure when it cannot, while `RuntimeManager`
+hardcodes the bare string. That is not a naming difference — it is one module
+carrying a fix the other never received. Renaming the pair without noticing would
+leave the weaker implementation in place under a clearer name, which is the worst
+of the available outcomes.
+
+**When two versions of a helper differ, ask which one is better before asking what
+to call them.**
+
 So a reader should still not assume a helper of a given name is shared. Check
 whether it is imported or defined locally; `t/160` pins which are which, and
 fails by design if a divergent one is moved into the shared module.

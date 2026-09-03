@@ -31,6 +31,10 @@ use Developer::Dashboard::ProcessSupervision qw(
     _rename_path
     _replace_state_file
     _unlink_path
+    _helper_file_supports_internal_command
+    _same_pid_namespace
+    _close_inherited_fds
+    _dashboard_core_helper_path
 );
 
 our $SIGNAL_MANAGER;
@@ -2309,28 +2313,6 @@ sub _cleanup_web_files {
     return 1;
 }
 
-# _close_inherited_fds(%args)
-# Closes inherited non-stdio descriptors in runtime children so background
-# web/watchdog processes do not keep caller-side capture handles open after
-# lifecycle commands exit.
-# Input: optional keep array reference of descriptor integers, optional
-# close_ipc boolean for socketpair/anon_inode cleanup, and optional
-# preserve_harness boolean for in-process TAP harness execution.
-# Output: true value.
-sub _close_inherited_fds {
-    my ( $self, %args ) = @_;
-    return 1 if $args{preserve_harness} && $ENV{HARNESS_ACTIVE};
-    my %keep = map { $_ => 1 } grep { defined $_ && $_ =~ /^\d+$/ } @{ $args{keep} || [] };
-    $keep{0} = 1;
-    $keep{1} = 1;
-    $keep{2} = 1;
-    for my $fd ( $self->_open_file_descriptors ) {
-        next if $keep{$fd};
-        next if !$self->_descriptor_is_inherited_pipe( $fd, %args );
-        POSIX::close($fd);
-    }
-    return 1;
-}
 
 
 
@@ -2456,41 +2438,6 @@ sub _windows_background_collector_supervisor_command {
     );
 }
 
-
-# _dashboard_core_helper_path()
-# Resolves the staged private _dashboard-core helper used by detached Windows
-# web launches.
-# Input: none.
-# Output: absolute helper path string.
-sub _dashboard_core_helper_path {
-    my ( $self, $command ) = @_;
-    $command ||= 'web-foreground';
-    my $staged = File::Spec->catfile( $self->{paths}->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
-    return $staged if $self->_helper_file_supports_internal_command( $staged, $command );
-
-    my $shipped = eval { Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core') };
-    $shipped = '' if !defined $shipped;
-    return $shipped if $self->_helper_file_supports_internal_command( $shipped, $command );
-
-    return $staged;
-}
-
-# _helper_file_supports_internal_command($path, $command)
-# Checks whether one helper source file contains the requested private command
-# branch so Windows background launches can avoid stale staged helpers.
-# Input: helper file path and internal command string.
-# Output: boolean true when the helper source contains the requested command.
-sub _helper_file_supports_internal_command {
-    my ( $self, $path, $command ) = @_;
-    return 0 if !defined $path || $path eq '' || !-f $path;
-    return 0 if !defined $command || $command eq '';
-    open my $fh, '<:raw', $path or return 0;
-    local $/;
-    my $content = <$fh>;
-    CORE::close($fh) or return 0;    # uncoverable branch true closing a successfully opened read-only handle does not fail on the test host
-    my $matched = $content =~ /\Q$command\E/ ? 1 : 0;
-    return $matched;
-}
 
 # _spawn_windows_background_command(@command)
 # Launches one detached background Windows process command and returns the
@@ -3227,31 +3174,7 @@ sub _port_accepting_connections {
 }
 
 
-# _same_pid_namespace($pid)
-# Confirms whether a process id belongs to the current pid namespace so host
-# and container runtimes do not manage each other's processes.
-# Input: process id integer.
-# Output: boolean true when both processes share the same pid namespace or when
-# namespace metadata is unavailable on this platform.
-sub _same_pid_namespace {
-    my ( $self, $pid ) = @_;
-    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
-    my $current = $self->_current_pid_namespace_id;
-    my $target  = $self->_pid_namespace_id($pid);
-    return 1 if !defined $current || $current eq '';
-    return 1 if !defined $target  || $target eq '';
-    return $current eq $target ? 1 : 0;
-}
 
-# _current_pid_namespace_id()
-# Returns the current process pid-namespace identity string when procfs
-# exposes one.
-# Input: none.
-# Output: namespace identity string or undef.
-sub _current_pid_namespace_id {
-    my ($self) = @_;
-    return $self->_pid_namespace_id($$);
-}
 
 
 # _read_process_title($pid)

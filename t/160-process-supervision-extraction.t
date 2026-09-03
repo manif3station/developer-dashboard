@@ -42,21 +42,37 @@ my @EXTRACTED = qw(
     _rename_path
     _replace_state_file
     _unlink_path
+    _helper_file_supports_internal_command
+    _same_pid_namespace
+    _close_inherited_fds
 );
 
 # Deliberately NOT extracted: these differ between the two modules (DD-669), and
 # each class must keep its own.
-my @MUST_STAY_PER_CLASS = qw(
-    _close_inherited_fds
-    _dashboard_core_helper_path
-    _helper_file_supports_internal_command
-    _now_iso8601
-    _read_process_state
-    _read_process_title
-    _replace_path_via_powershell
-    _same_pid_namespace
-    _spawn_windows_background_command
+# Each name here is a helper that EXISTS IN BOTH CONSUMERS WITH DIFFERENT BODIES and is
+# deliberately left that way. The reason is recorded beside the name because a bare list
+# only asserts that they differ - it cannot tell a later reader whether the justification
+# still holds, which is the question that actually matters when one of these is touched.
+# Four resolutions exist for a divergent shared name, and only the first removes it:
+# reconcile, rename, declare-as-interface, or declare-as-defect (DD-669).
+my %MUST_STAY_PER_CLASS = (
+    _now_iso8601 => 'DD-642 decided the localtime/gmtime split deliberately',
+    _read_process_state =>
+        'INTERFACE: shared _pid_is_running dispatches through this name, so each consumer '
+      . 'supplies its own body. Also carries the per-module procfs-trust policy.',
+    _read_process_title =>
+        'PER-MODULE POLICY: RuntimeManager gates every procfs read on _procfs_available and '
+      . 'trusts it; CollectorRunner never gates and always confirms with ps. The module is '
+      . 'the qualifier, so a rename would repeat one fact across every helper in the class.',
+    _replace_path_via_powershell =>
+        'INTERFACE: shared _replace_state_file dispatches through this name.',
+    _spawn_windows_background_command =>
+        'DEFECT, NOT DESIGN: RuntimeManager hardcodes the powershell string where '
+      . 'CollectorRunner resolves it via _powershell_command and dies when unavailable. '
+      . 'Tracked as DD-753; reconciles once that lands. Renaming would make the defect '
+      . 'read as a deliberate variant.',
 );
+my @MUST_STAY_PER_CLASS = sort keys %MUST_STAY_PER_CLASS;
 
 my @CONSUMERS = qw(
     Developer::Dashboard::RuntimeManager
@@ -122,6 +138,86 @@ for my $sub (@MUST_STAY_PER_CLASS) {
     no strict 'refs';
     ok( !defined &{"Developer::Dashboard::ProcessSupervision::$sub"},
         "$sub was NOT pulled into the shared module - it differs per class" );
+}
+
+# ---------------------------------------------------------------------------
+# 5. THE NEXT divergence, not just these nine (DD-669 AC-3).
+#
+# @MUST_STAY_PER_CLASS above is a hardcoded list. It pins the nine we know about
+# and says nothing about a tenth - so a helper that starts diverging tomorrow, or
+# one that is quietly reconciled and left in the list, both pass. That is the
+# same shape as a grep naming its own subjects: it restates the author's model
+# and passes precisely when that model is incomplete.
+#
+# This derives the set FROM THE SOURCE and compares it against the declaration,
+# so either direction of drift fails.
+#
+# COMMENT-STRIPPED, and that is not cosmetic: one module comments its helpers and
+# the other does not, so comparing bodies WITH comments reports almost the
+# inverse split - 9 identical and 14 different, when the truth is the reverse.
+{
+    my $extract = sub {
+        my ($path) = @_;
+        open my $fh, '<', $path or die "$path: $!";
+        my ( %subs, $name, @body, $depth, $in );
+        while ( my $line = <$fh> ) {
+            if ( !$in && $line =~ /^\s*sub\s+(\w+)\s*\{/ ) {
+                $name = $1; $in = 1; $depth = 0; @body = ();
+            }
+            next if !$in;
+            my $stripped = $line;
+            $stripped =~ s/\#.*$//;
+            $stripped =~ s/^\s+|\s+$//g;
+            push @body, $stripped if length $stripped;
+            $depth += ( $line =~ tr/{// );
+            $depth -= ( $line =~ tr/}// );
+            if ( $depth <= 0 ) { $subs{$name} = join "\n", @body; $in = 0; }
+        }
+        close $fh;
+        return \%subs;
+    };
+
+    my $rm = $extract->("$FindBin::Bin/../lib/Developer/Dashboard/RuntimeManager.pm");
+    my $cr = $extract->("$FindBin::Bin/../lib/Developer/Dashboard/CollectorRunner.pm");
+
+    # 'new' is a constructor: it differs because they are two classes, not
+    # because anything drifted.
+    # _now_iso8601 is declared per-class above, and DD-642 decided that split deliberately
+# rather than by neglect. A reason recorded in a list is a claim; this pins it, so a
+# well-meant "these should surely agree" edit fails here and is sent to the card instead
+# of landing. The population is wider than the two consumers this file owns - Housekeeper
+# and ActionRunner also define _now_iso8601 and both use gmtime - so this asserts the two
+# it is scoped to and names the others rather than implying they are the whole set.
+{
+    my %clock = (
+        'Developer::Dashboard::RuntimeManager'  => 'gmtime',
+        'Developer::Dashboard::CollectorRunner' => 'localtime',
+    );
+    for my $class ( sort keys %clock ) {
+        ( my $path = $class ) =~ s{::}{/}g;
+        my $file = "lib/$path.pm";
+        open my $fh, '<', $file or die "cannot read $file: $!";
+        local $/;
+        my $source = <$fh>;
+        close $fh;
+        my ($body) = $source =~ /^sub _now_iso8601 \{(.*?)^\}/ms;
+        ok( defined $body, "$class defines _now_iso8601" );
+        my $want = $clock{$class};
+        my $other = $want eq 'gmtime' ? 'localtime' : 'gmtime';
+        like( $body, qr/\b\Q$want\E\b/,
+            "${class}::_now_iso8601 still uses $want - the split DD-642 decided, not an oversight" );
+        unlike( $body, qr/\b\Q$other\E\b/,
+            "${class}::_now_iso8601 does not also reach for $other" );
+    }
+}
+
+my @divergent = sort grep {
+        $_ ne 'new' && exists $cr->{$_} && $rm->{$_} ne $cr->{$_}
+    } keys %$rm;
+
+    my @declared = sort @MUST_STAY_PER_CLASS;
+    is_deeply( \@divergent, \@declared,
+        'the divergent shared helpers found in the source are exactly the ones declared - a NEW divergence, or a resolved one left in the list, fails here' );
 }
 
 done_testing();
