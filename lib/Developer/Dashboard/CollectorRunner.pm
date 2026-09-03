@@ -32,6 +32,10 @@ use Developer::Dashboard::ProcessSupervision qw(
     _rename_path
     _replace_state_file
     _unlink_path
+    _helper_file_supports_internal_command
+    _same_pid_namespace
+    _close_inherited_fds
+    _dashboard_core_helper_path
 );
 
 our $SIGNAL_RUNNER;
@@ -1228,20 +1232,6 @@ sub _read_proc_file {
     return scalar <$fh>;
 }
 
-# _same_pid_namespace($pid)
-# Confirms whether a loop pid belongs to the current pid namespace so shared
-# home runtimes do not stop collector loops from sibling containers.
-# Input: process id integer.
-# Output: boolean true when the pid namespace matches or procfs metadata is unavailable.
-sub _same_pid_namespace {
-    my ( $self, $pid ) = @_;
-    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
-    my $current = $self->_pid_namespace_id($$);
-    my $target  = $self->_pid_namespace_id($pid);
-    return 1 if !defined $current || $current eq '';
-    return 1 if !defined $target  || $target eq '';
-    return $current eq $target ? 1 : 0;
-}
 
 
 # _write_loop_state($name, $data)
@@ -1348,41 +1338,6 @@ sub _windows_background_worker_command {
 }
 
 
-# _dashboard_core_helper_path($command)
-# Resolves the staged private _dashboard-core helper used by detached Windows
-# collector loop and worker launches.
-# Input: internal helper command string.
-# Output: absolute helper path string.
-sub _dashboard_core_helper_path {
-    my ( $self, $command ) = @_;
-    $command ||= 'collector-loop-foreground';
-    my $staged = File::Spec->catfile( $self->{paths}->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
-    return $staged if $self->_helper_file_supports_internal_command( $staged, $command );
-
-    my $shipped = eval { Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core') };
-    $shipped = '' if !defined $shipped;
-    return $shipped if $self->_helper_file_supports_internal_command( $shipped, $command );
-
-    return $staged;
-}
-
-# _helper_file_supports_internal_command($path, $command)
-# Checks whether one helper source file contains the requested private command
-# branch so Windows collector launches can avoid stale staged helpers.
-# Input: helper file path and internal command string.
-# Output: boolean true when the helper source contains the requested command.
-sub _helper_file_supports_internal_command {
-    my ( $self, $path, $command ) = @_;
-    return 0 if !defined $path || $path eq '' || !-f $path;
-    return 0 if !defined $command || $command eq '';
-    open my $fh, '<:raw', $path or return 0;
-    local $/;
-    my $content = <$fh>;
-    # closing a freshly read handle does not fail on the test host
-    CORE::close($fh) or return 0;    # uncoverable branch true
-    return $content =~ /\Q$command\E/ ? 1 : 0;
-}
-
 # _spawn_windows_background_command(@command)
 # Launches one detached background Windows helper command and returns the
 # spawned pid.
@@ -1452,31 +1407,6 @@ sub _cleanup_loop_files {
     return 1;
 }
 
-# _close_inherited_fds(%args)
-# Closes inherited non-stdio descriptors in detached collector children so
-# background loops do not keep caller-side capture handles open after the
-# lifecycle command exits.
-# Input: optional keep array reference of descriptor integers and optional
-# close_ipc boolean for socketpair/anon_inode cleanup.
-# Output: true value.
-sub _close_inherited_fds {
-    my ( $self, %args ) = @_;
-    my %keep;
-    for my $fd ( @{ $args{keep} || [] } ) {
-        next if !defined $fd;
-        next if $fd !~ /^\d+$/;
-        $keep{$fd} = 1;
-    }
-    $keep{0} = 1;
-    $keep{1} = 1;
-    $keep{2} = 1;
-    for my $fd ( $self->_open_file_descriptors ) {
-        next if $keep{$fd};
-        next if !$self->_descriptor_is_inherited_pipe( $fd, %args );
-        POSIX::close($fd);
-    }
-    return 1;
-}
 
 
 

@@ -282,7 +282,7 @@ my $pid;
         \@spawned,
         [
             'C:\\Strawberry\\perl\\bin\\perl.exe',
-            $manager->_dashboard_core_helper_path,
+            $manager->_dashboard_core_helper_path('web-foreground'),
             'web-foreground',
             '--host',
             '0.0.0.0',
@@ -333,7 +333,7 @@ my $pid;
         return 0;
     };
     is(
-        $manager->_dashboard_core_helper_path,
+        $manager->_dashboard_core_helper_path('web-foreground'),
         $shipped,
         '_dashboard_core_helper_path falls back to the shipped dist helper when the staged helper lacks the requested internal command',
     );
@@ -354,7 +354,7 @@ my $pid;
         return 0;
     };
     is(
-        $manager->_dashboard_core_helper_path,
+        $manager->_dashboard_core_helper_path('web-foreground'),
         $staged,
         '_dashboard_core_helper_path keeps the staged helper when it already contains the requested internal command',
     );
@@ -370,7 +370,7 @@ my $pid;
     };
     local *Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command = sub { return 0 };
     is(
-        $manager->_dashboard_core_helper_path,
+        $manager->_dashboard_core_helper_path('web-foreground'),
         $staged,
         '_dashboard_core_helper_path falls back to the staged helper path when neither staged nor shipped helpers advertise the requested internal command',
     );
@@ -406,7 +406,7 @@ my $pid;
     };
     local *Developer::Dashboard::RuntimeManager::_helper_file_supports_internal_command = sub { return 0 };
     is(
-        $manager->_dashboard_core_helper_path,
+        $manager->_dashboard_core_helper_path('web-foreground'),
         $staged,
         '_dashboard_core_helper_path survives missing dist share directories and falls back to the staged helper path',
     );

@@ -8,7 +8,15 @@ our $VERSION = '4.29';
 use Exporter 'import';
 
 use Capture::Tiny qw(capture);
+use File::Spec;
 use Time::HiRes qw(sleep);
+
+# POSIX WITHOUT IMPORTING, deliberately. Both source modules do
+# `use POSIX qw(close setsid strftime)`, and importing `close` SHADOWS the
+# built-in - which is why their code says CORE::close($fh) when it means the
+# ordinary one. Nothing here needs that hazard: the only POSIX call is
+# fully qualified, so the empty import list keeps the built-in intact.
+use POSIX ();
 
 use Developer::Dashboard::Platform qw(command_in_path is_windows);
 
@@ -27,6 +35,7 @@ use Developer::Dashboard::Platform qw(command_in_path is_windows);
 # because each version satisfies its own module's tests.
 our @EXPORT_OK = qw(
     _current_perl_command
+    _dashboard_core_helper_path
     _descriptor_is_inherited_pipe
     _fork_process
     _open_file_descriptors
@@ -40,6 +49,9 @@ our @EXPORT_OK = qw(
     _rename_path
     _replace_state_file
     _unlink_path
+    _helper_file_supports_internal_command
+    _same_pid_namespace
+    _close_inherited_fds
 );
 
 # _reap_child_process($pid)
@@ -278,6 +290,108 @@ sub _process_exists {
 }
 
 1;
+
+# _dashboard_core_helper_path($command)
+# Resolves the private _dashboard-core helper that advertises one internal
+# command, preferring the staged working copy over the shipped dist asset.
+# $command is REQUIRED: both former per-class copies of this helper were
+# identical apart from a default (web-foreground in RuntimeManager,
+# collector-loop-foreground in CollectorRunner), and no caller in lib/ ever
+# relied on either - every one passes the command it wants. A default that only
+# tests exercise is behaviour that looks supported and is never proven, so the
+# argument is now required and each call site states its own command (DD-669).
+# Input: internal helper command string.
+# Output: absolute helper path string.
+sub _dashboard_core_helper_path {
+    my ( $self, $command ) = @_;
+    my $staged = File::Spec->catfile( $self->{paths}->home_runtime_root, 'cli', 'dd', '_dashboard-core' );
+    return $staged if $self->_helper_file_supports_internal_command( $staged, $command );
+
+    my $shipped = eval { Developer::Dashboard::InternalCLI::_helper_asset_path('_dashboard-core') };
+    $shipped = '' if !defined $shipped;
+    return $shipped if $self->_helper_file_supports_internal_command( $shipped, $command );
+
+    return $staged;
+}
+
+# _helper_file_supports_internal_command($path, $command)
+# Purpose: whether a staged or shipped helper file implements a given internal
+#          command, decided by looking for the command name in its text.
+# Input:   the file path, and the command name to look for
+# Output:  1 when the file exists and mentions the command, 0 otherwise
+#
+# SHARED (DD-669). RuntimeManager and CollectorRunner carried this under the same
+# name with the same behaviour - the only difference was that one assigned the
+# match to a variable before returning it. Same name, same behaviour, two copies
+# is the cheapest kind of divergence to remove and the easiest to let drift.
+sub _helper_file_supports_internal_command {
+    my ( $self, $path, $command ) = @_;
+    return 0 if !defined $path || $path eq '' || !-f $path;
+    return 0 if !defined $command || $command eq '';
+    open my $fh, '<:raw', $path or return 0;
+    local $/;
+    my $content = <$fh>;
+    # closing a freshly read, read-only handle does not fail on the test host
+    CORE::close($fh) or return 0;    # uncoverable branch true
+    return $content =~ /\Q$command\E/ ? 1 : 0;
+}
+
+# _same_pid_namespace($pid)
+# Purpose: whether a pid lives in the same PID namespace as this process, so a
+#          liveness answer about it can be trusted.
+# Input:   the pid to check
+# Output:  1 when the namespaces match or either is unknown, 0 when they differ
+#
+# SHARED (DD-669). RuntimeManager and CollectorRunner carried this under the same
+# name with the same behaviour; the only difference was that RuntimeManager
+# reached the current namespace through a one-line _current_pid_namespace_id
+# wrapper and CollectorRunner called _pid_namespace_id($$) directly. The wrapper
+# is gone with this extraction - it had exactly one caller, this sub.
+#
+# UNKNOWN IS TRUSTED, DELIBERATELY: a namespace id we cannot read must not make a
+# live process look dead, so an unreadable id on either side answers 1.
+sub _same_pid_namespace {
+    my ( $self, $pid ) = @_;
+    return 0 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
+    my $current = $self->_pid_namespace_id($$);
+    my $target  = $self->_pid_namespace_id($pid);
+    return 1 if !defined $current || $current eq '';
+    return 1 if !defined $target  || $target eq '';
+    return $current eq $target ? 1 : 0;
+}
+
+# _close_inherited_fds(%args)
+# Purpose: close file descriptors this process inherited but must not keep, so a
+#          detached child cannot hold a parent's pipe open.
+# Input:   keep => [fd, ...] to spare; preserve_harness => 1 to do nothing under
+#          an in-process TAP harness; further args reach the inherited-pipe test
+# Output:  1 always
+#
+# SHARED (DD-669), and it is a UNION rather than a choice. The two copies were
+# identical except that RuntimeManager's carried the preserve_harness guard and
+# CollectorRunner's built its keep-set with an explicit loop instead of map/grep -
+# a style difference, not a behavioural one. preserve_harness is an ARGUMENT, and
+# exactly one caller in the tree passes it (RuntimeManager, for in-process TAP),
+# so keeping the guard costs CollectorRunner nothing: its single caller passes
+# close_ipc and never reaches the early return.
+#
+# This card first classified it as a genuine behavioural difference needing a
+# rename. Reading the callers showed one version is a strict superset of the
+# other, which is why it is reconciled instead.
+sub _close_inherited_fds {
+    my ( $self, %args ) = @_;
+    return 1 if $args{preserve_harness} && $ENV{HARNESS_ACTIVE};
+    my %keep = map { $_ => 1 } grep { defined $_ && $_ =~ /^\d+$/ } @{ $args{keep} || [] };
+    $keep{0} = 1;
+    $keep{1} = 1;
+    $keep{2} = 1;
+    for my $fd ( $self->_open_file_descriptors ) {
+        next if $keep{$fd};
+        next if !$self->_descriptor_is_inherited_pipe( $fd, %args );
+        POSIX::close($fd);
+    }
+    return 1;
+}
 
 __END__
 

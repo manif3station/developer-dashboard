@@ -633,7 +633,7 @@ is( $manager->_same_pid_namespace(999999), 1, '_same_pid_namespace true when the
 ok( $manager->_same_pid_namespace($$),       '_same_pid_namespace true for the current process' );
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::RuntimeManager::_current_pid_namespace_id = sub { return undef };
+    local *Developer::Dashboard::RuntimeManager::_pid_namespace_id = sub { return undef };
     is( $manager->_same_pid_namespace($$), 1, '_same_pid_namespace true when the current namespace is unknown' );
 }
 {
@@ -2655,7 +2655,7 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
 # _same_pid_namespace: an empty current namespace id (line 3270)
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::RuntimeManager::_current_pid_namespace_id = sub { return '' };
+    local *Developer::Dashboard::RuntimeManager::_pid_namespace_id = sub { return '' };
     is( $manager->_same_pid_namespace($$), 1, '_same_pid_namespace trusts an empty current namespace id' );
 }
 

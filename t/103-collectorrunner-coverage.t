@@ -594,8 +594,13 @@ is( $runner->_descriptor_is_inherited_pipe(999999999), 0, '_descriptor_is_inheri
     }
 }
 
-# _dashboard_core_helper_path: default command plus the undef shipped-path guard.
-ok( defined $runner->_dashboard_core_helper_path(), '_dashboard_core_helper_path defaults its command argument' );
+# _dashboard_core_helper_path: the command argument is REQUIRED since DD-669 reconciled
+# the two per-class copies, which differed only in their default. A bare call is now a
+# misuse rather than a supported form, and must still answer deterministically with the
+# staged path rather than warning - _helper_file_supports_internal_command rejects an
+# undef command, so both lookups miss and the staged path falls out of the end.
+is( $runner->_dashboard_core_helper_path(), $runner->_dashboard_core_helper_path(''),
+    '_dashboard_core_helper_path answers the staged path for a missing command instead of warning' );
 {
     no warnings 'redefine';
     local *Developer::Dashboard::InternalCLI::_helper_asset_path = sub { return undef };
