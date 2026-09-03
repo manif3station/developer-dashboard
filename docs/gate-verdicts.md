@@ -367,6 +367,48 @@ stand-in's argv to actually match. The replacement assertion avoids the ambient
 baseline entirely by using a pattern unique to the run, so the expected count is
 exactly zero and nobody else's suite can move it.
 
+#### It recurred in the second producer, and the reason was a private copy
+
+The fix above was applied to `run-suite`. `coverage-run` has the same shape — it
+starts its gate under `setsid` too — and did **not** get it, because it was
+carrying its own copy of the whole predicate rather than sourcing the shared one.
+
+There the defect is worse. `run-suite`'s only appeared when the pattern widened to
+include a bare `prove`, since a plain `prove` had never matched `Devel::Cover`. A
+**coverage** gate's children *are* `Devel::Cover` processes — that is what coverage
+means — so the count is inflated in every window of every real run. With
+"more than a quarter of windows invalidates", that makes **every coverage verdict
+on this host CONTENDED against itself**, which is not a slow afternoon: it is a
+gate that cannot produce admissible evidence at all.
+
+Measured with a control pair at identical ambient load — a stand-in gate spawning
+no `Devel::Cover`-shaped child gave `FOREIGN_PEAK=6`, one spawning a single child
+gave `7`. A delta of exactly +1 for exactly one added child.
+
+**The copy had missed four protections**, not one, counted occurrence by
+occurrence against the shared definition: the process-group exclusion list, the
+quoted-pattern grep, the pattern-compile check, and the empty-process-table check.
+Three were live defects; the fourth — an unreadable process table read as an empty
+one — is latent and nobody has hit it.
+
+> **A private copy does not merely fail to improve. It diverges further with every
+> fix applied to the original**, and each divergence is invisible because the copy
+> still looks like the thing it was copied from.
+
+#### Why the guard that was supposed to prevent this did not
+
+The card that consolidated the definition asserted, in its own acceptance
+criteria, *"one definition of foreign, sourced not copied"*. Its spec checked
+`run-suite` and `host-ready`.
+
+**There were three files.** A grep that names its own subjects is not a search — it
+is a restatement of the author's mental model, and it passes *precisely when that
+model is incomplete*. The copy it could not see was the one carrying the defect.
+
+So the assertion now enumerates the tools directory and requires the pattern to
+appear in exactly one file, whatever files exist. A fourth copy added later goes
+red on its own, without anyone remembering to add it to a list.
+
 ### A single clear sample is not permission
 
 A wait that launches on the first clear reading will eventually launch into a gap
