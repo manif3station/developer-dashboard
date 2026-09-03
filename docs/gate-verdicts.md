@@ -198,6 +198,193 @@ their locks are not ours to take. We are a **tenant** on this machine, not its
 operator, which is precisely why detect-and-annotate is the only available remedy
 rather than one option among several.
 
+### The pre-run WAIT and the in-run SAMPLER are two mechanisms, and they must share one definition
+
+Everything above describes the sampler that runs *during* a gate and classifies
+the result afterwards. There is a second, earlier decision: whether to launch at
+all. On a host that is busy most of the time, waiting for a quiet window is what
+makes a clean verdict obtainable, and that wait is a different piece of code
+running at a different moment.
+
+**The hazard is not that the two are separate. It is that they can disagree about
+what "foreign" means**, and then a run is launched as clear by one definition and
+classified against the other. Measured on 2026-09-02:
+
+| | mechanism | what it counts as foreign |
+|---|---|---|
+| the in-run sampler | a `ps` pipeline | a `Devel::Cover` process |
+| the pre-run waits | walks `/proc` | `Devel::Cover` **or** a foreign workspace path |
+
+Neither of those is the right definition, and finding out which cost a shipped
+defect. The *diagnosis* behind the wider one is sound: a foreign coverage suite
+running in a container spends part of its life between individual test files,
+where no `Devel::Cover` process exists at that instant but the machine is still
+committed to that work, and a definition sampling only for `Devel::Cover` reads
+those gaps as a quiet host.
+
+**The path-based remedy did not follow from that diagnosis, and it was shipped
+before anyone ran it against the real process table.** Measured on this host:
+
+| pattern | matches |
+|---|---|
+| `Devel::Cover` or a `/workspace/` or `/skills/` path | **19** |
+| `Devel::Cover` or `prove` or `cover` as a command | **2** |
+
+Eighteen of the nineteen were a policy bridge, a `tail -F` on a log, and another
+project's watcher — none of them competing for the machine. A wait using that
+definition would **never** launch, which is a worse failure than the narrow
+pattern it replaced, and a harder one to recognise: a too-wide detector fails
+*closed*, so it presents as a permanently busy host rather than as a matching bug.
+
+What actually spans the gaps is the **harness**, not a path. `prove` forks one
+child per test file and the parent persists for the whole run, so it is visible
+in the gaps the wide pattern was reaching for. Observed directly: a foreign
+`prove` parent stayed alive while its child moved from one test file to the next.
+
+Two lessons, and the second is the one that generalises past this file:
+
+- **A widening is a claim about a population nobody has counted.** Run the
+  matcher against the real population and read the *members*, not the total — a
+  count of 19 looks like a busy host, while the member list is what shows most of
+  them are a log tailer.
+- **The requirement is stronger than "do not duplicate the code": one definition,
+  obtained from one place by both callers.** Two copies of a rule that agree
+  today are two rules tomorrow, which is why the operator-tool spec asserts that
+  the two fingerprint expressions elsewhere in this system are textually
+  identical rather than merely both present.
+
+### Self-exclusion by process group is not enough when the gated run leads its own group
+
+`run-suite` starts `prove` under `setsid`, deliberately, so that a kill can signal
+the whole test process group rather than just the wrapper. That is the same
+mechanism the negative-PID kill depends on — and it puts `prove` in a *different*
+process group from the sampler measuring it.
+
+Self-exclusion is by process group. So the sampler excludes itself and **not the
+run it exists to measure.**
+
+While the definition matched only `Devel::Cover` this was invisible, because a
+plain `prove` never matched it. Widening the definition to cover the harness
+exposed it immediately:
+
+| | FOREIGN_PEAK | verdict |
+|---|---|---|
+| before the fix | **2** | CONTENDED, 14 of 14 windows |
+| after | **1** | the ambient baseline — one genuinely foreign run present |
+
+A peak of 2 with exactly one real foreign run on the host is the whole finding.
+The consequence was not a wrong number: `CONTENDED` means *the verdict does not
+stand*, so every gate on this machine would have been invalidated against itself
+and **no run could produce a usable verdict at all**.
+
+The fix is for the caller to name the group it is gating — `run-suite` reads its
+child's pgid from `ps` after launching and passes it as an additional exclusion.
+Read from `ps`, not assumed equal to `$!`: `setsid` forks when it is already a
+process group leader, and then `$!` is the `setsid` process rather than `prove`.
+
+**Two things about how this was found are worth more than the fix.**
+
+The existing spec had a self-exclusion case, and it passed throughout. It sets the
+probe override, so it exercises the probe seam and never the real pattern — *the
+test written to cover this property could not see it.* That is this project's own
+rule about a spec overriding the default it is meant to test, met from the other
+side.
+
+And the first attempt to confirm the regression got it wrong in the reassuring
+direction: a stand-in named `prove-standin` does not match the pattern, so the
+peak of 1 it reported was a genuinely foreign suite running elsewhere, read as
+proof of self-counting. The discriminating question is never *is the count
+non-zero* — it is *is it one more than the ambient baseline*, which requires the
+stand-in's argv to actually match. The replacement assertion avoids the ambient
+baseline entirely by using a pattern unique to the run, so the expected count is
+exactly zero and nobody else's suite can move it.
+
+### A single clear sample is not permission
+
+A wait that launches on the first clear reading will eventually launch into a gap
+between a foreign suite's test files. The counter-intuitive consequence:
+**sampling more often makes this more likely, not less**, because each additional
+look is another opportunity to land in a gap.
+
+The fix is confirmation, not frequency — re-check after a delay and require both
+readings to be clear. Observed doing its job on 2026-09-02 at 23:36:08, where a
+transient clear reading was refused and the real window arrived 106 seconds later:
+
+    CLOSED on confirm (first=0 confirm=1)
+
+Two samples taken inside one quiet gap are one observation, so the confirm delay
+has to exceed the target's quiet phases to be worth anything.
+
+### A closed window resumes the wait; it does not end it
+
+When confirmation fails, the wait continues. Two properties follow, and both have
+been got wrong here:
+
+- **Do not abort.** A wait given a two-hour budget that gives up nineteen minutes
+  in has discarded the reason it was given a budget.
+- **Do not report a limit you have not reached.** A message reading *"host never
+  became ready"* printed directly beneath a line saying it had is worse than
+  silence: it travels with a direction, and sends the next reader to investigate
+  the foreign work instead of the wait. Name which condition failed
+  (`first=0 confirm=1`) so a reader can tell a sibling holding a lock from a busy
+  machine.
+
+Deciding whether to give up or resume is what forces the checker to know *which*
+condition is unmet. A checker that only ever aborts can carry one message for
+every path, so its vagueness is structural and no rewording fixes it.
+
+### The detector must exclude itself, by checking rather than by appearance
+
+A bare pattern match over the process table counts the searching process. During
+one evening's measurement that produced phantom foreign counts of four, five and
+six on a quiet host. Exclusion is by own pid and own process group, and a foreign
+process is identified by *checking* — `git cat-file -e <master-sha>:<path>` on a
+test file it is running — never by whether its filename looks unfamiliar. That
+guess has been wrong here, and it propagates.
+
+**"Own process group" is narrower than "ours", and the section above is the
+reason.** A caller that gates a run which leads its own group must name that
+group as well, or it excludes itself and counts the thing it is measuring. Read
+the two together: exclusion is by group *membership you have declared*, not by
+the group you happen to be in.
+
+### What the window data does and does not settle
+
+Nine full-suite launches on 2026-09-02/03, as a percentage of sampled windows in
+which foreign work was seen:
+
+    0.0   0.0   0.0   2.2   |   55.8   77.3   77.8   86.0   86.4
+
+Seven of the nine were discarded. Within *that* sample the distribution is
+bimodal, with nothing between 5% and 50%, so no threshold chosen anywhere in that
+range would have classified those nine runs differently.
+
+**That is a fact about those nine runs, and it does not generalise into a claim
+that the threshold is unimportant.** The table earlier on this page records a run
+at 30% of windows — squarely inside the gap tonight's sample happens to have — and
+a 25% cut and a 50% cut classify that run oppositely. The honest statement is
+narrower than it first appeared: *this sample cannot discriminate the threshold*,
+which is a reason not to tune it from this data, not evidence that tuning it would
+change nothing.
+
+The distinction matters because the wider sentence is the one that would have been
+quoted later, and it would have retired a live question using evidence that never
+addressed it.
+
+**AND THESE FIGURES ARE NOT COMPARABLE TO ANY MEASURED AFTER THIS PAGE'S OTHER
+CHANGES.** All eleven runs above were sampled under the previous, narrower
+definition — foreign meant a `Devel::Cover` process and nothing else. Under the
+definition now in force, which also counts a foreign `prove` or `cover`, the same
+afternoons would have reported *higher* fractions, because runs that were
+invisible then are counted now. Nothing about the numbers is wrong; they answer a
+question that has since been redefined.
+
+So a later reader comparing a fresh percentage against this table is comparing two
+different measurements, and the threshold question (`DD-749`) has to be settled on
+figures gathered under one definition. Record which definition produced any
+contention figure you intend to reuse — a percentage with no definition attached
+is not a measurement anyone can act on.
+
 ## Exclusivity between gate runs is ASYMMETRIC, and only half of it is enforced
 
 The project rule is that full-suite and coverage verification are host-exclusive
