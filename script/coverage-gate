@@ -93,6 +93,43 @@ sub _gate_lock_path {
 # not unlink these, ever, and do not let a cleanup rule match them.
 use constant LEGACY_GATE_LOCK => '.coverage-gate.lock';
 
+# DD-734. THE HOST LOCK, WHICH GUARDS SOMETHING THE DATABASE LOCK DOES NOT.
+#
+# The lock above stops two gates sharing one coverage database. It does not stop
+# a full SUITE running underneath a coverage pass: run-suite takes a host-wide
+# lock at DD_SUITE_LOCK (DD-696) and this script never looked at that path, so
+# both tools locked, on different files, and neither could block the other. A
+# suite starting mid-coverage invalidates the coverage verdict silently.
+#
+# Same default as run-suite, and injectable for the same reason: this suite is
+# sometimes run BY the gate, and a test that took the real path would block or be
+# blocked by a genuine run.
+use constant HOST_GATE_LOCK => '/tmp/dd-gate-host.lock';
+
+# Purpose: the host lock this run must hold, or nothing when it must not take one.
+# Input:   none - it reads DD_SUITE_LOCK and HARNESS_ACTIVE from the environment.
+# Output:  the single host lock path, or an empty list under a harness.
+sub _host_gate_lock_paths {
+
+    # THE GUARD THAT STOPS THIS BEING DD-526 AGAIN. run-suite holds the host lock
+    # for the whole prove run, and the suite it runs invokes this script in nine
+    # test files, none of which injects a lock path. Taking the host lock
+    # unconditionally would have every one of them refused by a lock held by the
+    # suite running them - which is DD-526 word for word: the gate could never
+    # pass the suite it was running.
+    #
+    # An flock does not rescue it. Descriptors duplicated by fork are references
+    # to ONE lock and cannot self-block, but this script OPENS the path itself,
+    # and a separate open() of the same file contends.
+    #
+    # So a gate under a harness is a test FIXTURE rather than a verification run,
+    # and takes no host lock. A gate reached from coverage-run is a real run and
+    # HARNESS_ACTIVE is unset there.
+    return () if $ENV{HARNESS_ACTIVE};
+
+    return ( $ENV{DD_SUITE_LOCK} || HOST_GATE_LOCK );
+}
+
 # Purpose: list every lock path this run must hold to be sure it is alone with its
 #          database - which during a rename means the new name and the old one.
 # Input: the database this run intends to own.
@@ -107,6 +144,11 @@ sub _gate_lock_paths {
     # that conflict with nothing - the exact fault DD-526 was fixed to avoid.
     push @paths, File::Spec->rel2abs(LEGACY_GATE_LOCK)
         if File::Spec->rel2abs($database) eq File::Spec->rel2abs('cover_db');
+
+    # The host lock is appended rather than replacing anything: the database lock
+    # keeps doing the work it was moved to the database FOR, and two gates given
+    # different --database paths must still not refuse each other.
+    push @paths, _host_gate_lock_paths();
 
     return @paths;
 }
@@ -688,6 +730,24 @@ why a C<--dry-run> inspection could not tell two trees apart. Give it test paths
 to narrow the instrumented run, C<--database> to keep the database somewhere
 other than C<cover_db>, and C<--dry-run> to see the resolved environment and the
 exact commands before spending a suite slot.
+
+It takes TWO locks, and they guard different things. The first is named after
+the coverage B<database>, so two gates conflict exactly when they would share a
+database rather than merely when they run at the same time - a gate given its
+own C<--database> contends for nothing. The second is a B<host> lock at
+C<DD_SUITE_LOCK> (default F</tmp/dd-gate-host.lock>), the same path
+C<run-suite> takes, because a full suite running underneath a coverage pass
+invalidates the coverage verdict and until DD-734 nothing stopped it: both tools
+locked, on different files, so neither could block the other.
+
+The host lock is B<not> taken when C<HARNESS_ACTIVE> is set. That is not an
+escape hatch, it is what keeps the gate able to pass the suite that runs it:
+nine test files invoke this script, and under C<run-suite> - which holds the
+host lock for the whole run - every one of them would otherwise be refused by
+its own suite. That is the DD-526 failure, in which a repository-wide lock made
+the gate refuse the very tests driving it. A gate under a harness is a test
+fixture; a gate reached from C<coverage-run> is a real run, and
+C<HARNESS_ACTIVE> is unset there.
 
 Exit statuses are the interface:
 
