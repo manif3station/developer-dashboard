@@ -189,6 +189,74 @@ tested is a claim, and claims are what the next person reuses. The guard now in
 place asserts the arithmetic rather than the presence of a variable name, and was
 falsified by reverting the condition and watching it go red in both tools.
 
+### A verdict sentence must state what was LOOKED FOR, not what was concluded
+
+The classification above decides whether a run stands. The sentence it prints is
+what everybody actually reads, and it is a separate thing that can be wrong on its
+own.
+
+The message said, for years:
+
+    CONTENDED: a foreign coverage run held the host for N of M sampled windows
+
+Two claims in one line, and neither is what the instrument establishes.
+
+**"A foreign COVERAGE run" names a different set from the one counted.** While the
+pattern matched `Devel::Cover` only, the sentence claimed *more* than the grep
+looked for — a competing plain `prove` was invisible, and a run reporting no
+foreign coverage was read as a quiet host. Once the pattern widened to cover the
+harness, the same sentence began claiming *less* than the grep looks for: a plain
+`prove` is now counted and then described as something the message says was not
+there. **The defect reversed rather than disappeared**, which is worth noticing
+because widening the instrument felt like fixing it.
+
+**"HELD THE HOST" is an inference, not a measurement.** What was measured is that
+a matching process was *seen in a sample*. It may have been idle, blocked on IO,
+or a leftover nobody reaped. The verdict is still right to distrust the run — a
+competing process usually is competing — but the sentence should not assert a
+mechanism nobody looked at.
+
+So the line now reads:
+
+    CONTENDED: a foreign test or coverage process was seen in N of M sampled windows (peak P)
+
+#### The figure must carry its own definition
+
+A contention percentage is meaningless without knowing what was counted, and this
+is not hypothetical: eleven figures recorded on this page were gathered under the
+narrow definition, the definition then changed, and **nothing in any log said
+which one produced which number.** A later reader comparing a fresh percentage
+against them is comparing two different measurements and has no way to tell.
+
+The marker line therefore names the pattern it used:
+
+    FOREIGN_PEAK=N FOREIGN_SAMPLES=M WINDOW_SAMPLES=W FOREIGN_PATTERN=<pattern>
+
+That makes every figure self-describing, so two eras are distinguishable by anyone
+reading the artifact, without needing to know which release wrote it.
+
+#### The bound is real: argv matching is defeatable
+
+Detection is by command line, and **a process can rewrite its own argv** — measured
+here, where a perl process reported itself as `innocent-looking-daemon`. The specs
+depend on exactly that to build stand-ins, so the same mechanism is available to
+anything that would rather not be counted.
+
+The obvious fallback does not rescue it. It is widely repeated that overwriting
+`argv[0]` cannot defeat identification because `ps` reads `/proc/PID/comm`, a
+separate mechanism. **That is false for perl**, which sets both: measured on this
+host, argv read `innocent-looking-daemon` and `comm` read `innocent-lookin` — a
+15-character truncation of the same fake name, not a surviving original.
+
+`/proc/PID/cgroup` was considered as a more robust signal and rejected. It cleanly
+separates containerised work from host work and is immune to argv rewriting, but
+it cannot see a bare host-side `prove` belonging to no container — which is the
+case the widening existed for. It would swap one partial signal for another.
+
+**Hence the wording rather than a better detector.** The honest response to a
+bound you cannot remove is a sentence that states it, so the number is read with
+the caution it deserves.
+
 ### What such a detector must not do
 
 It must not kill anything — not its own run, and not another project's process.
