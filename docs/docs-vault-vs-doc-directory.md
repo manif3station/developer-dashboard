@@ -22,9 +22,20 @@ meant to ship into `docs/` silently keeps it out of every release.
 ## What actually decides what ships
 
 **`.gitignore` governs git tracking only. It does not decide what reaches
-the release tarball.** That is `dist.ini`'s `[GatherDir]` plugin, and it
-gathers under `doc/` (singular), never `docs/` (plural) - a directory it
-simply does not look at, tracked or not.
+the release tarball.** That is `dist.ini`'s `[GatherDir]` plugin — and the
+way it excludes `docs/` matters, because getting it wrong invites somebody to
+delete the line that does the work.
+
+`[GatherDir]` here declares no `root`, so it gathers the **whole distribution
+root** — `docs/` included. What keeps the vault out of the tarball is one
+explicit line:
+
+    dist.ini:37    exclude_match = ^docs/
+
+**Delete that line and `docs/` ships.** It is not belt-and-braces beside some
+other protection; it is the only protection. `.gitignore` cannot stand in for
+it, because dzil gathers from disk rather than from git — which is exactly how
+`FIX.md` reached the local 4.22 tarball (DD-401).
 
 Verified empirically (DD-683), because this is exactly the kind of claim
 that must be checked rather than assumed: a `dzil build` before and after
@@ -32,8 +43,9 @@ widening `docs/`'s `.gitignore` whitelist from 19 per-page negations to a
 single `!docs/*.md` glob produced a tarball with **zero** `docs/` entries
 both times (checked against both the generated `MANIFEST` and the actual
 tar contents), while `doc/`'s files were unaffected. Widening what git
-tracks under `docs/` does not widen what ships, because nothing downstream
-of git ever looks there.
+tracks under `docs/` does not widen what ships, because what reaches the
+tarball is decided by `exclude_match`, not by git. The check was right; the
+reason it works is the exclusion above, not an absence of gathering.
 
 ## Why the vault whitelist is one glob, not one line per page
 
