@@ -32,10 +32,14 @@ Developer-Dashboard-0*
 # resolution was always "keep both". Widening this does NOT widen what
 # ships: docs/ (plural) never reaches the release tarball regardless of git
 # tracking (verified empirically - dzil build then grep the MANIFEST/tar for
-# docs/, both zero, both before and after this change), because dist.ini's
-# GatherDir gathers under `doc/` (singular) not `docs/`. doc/ (singular, the
-# shipped directory) keeps its own explicit per-file whitelist below,
-# unchanged.
+# docs/, both zero, both before and after this change). The REASON is
+# dist.ini's `exclude_match = ^docs/`, NOT anything about what GatherDir
+# looks at: GatherDir declares no root here, so it gathers the whole
+# distribution root and docs/ is excluded explicitly. DELETE THAT LINE AND
+# docs/ SHIPS - it is the only protection, and .gitignore cannot stand in for
+# it because dzil gathers from disk rather than from git (DD-401). See
+# docs/docs-vault-vs-doc-directory.md. doc/ (singular, the shipped
+# directory) keeps its own explicit per-file whitelist below, unchanged.
 !docs/*.md
 !doc/owasp-compliance-sow.md
 !doc/security.md
