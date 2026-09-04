@@ -22,15 +22,26 @@ plan skip_all => 'JS fast-check fuzz test requires source-tree package.json and 
   if !-f $package_json || !-f $package_lock;
 
 my $node_modules = File::Spec->catdir( $ROOT, 'node_modules' );
+# DD-732. The INSTALL stays conditional - running npm ci when the tree is already
+# there is pure waste - but the ASSERTION must not be. Inside the branch it ran only
+# on the first invocation in a tree, so this file planned 1..4 once and 1..3 for ever
+# after, in the same tree at the same commit. That made the suite total a property of
+# the working tree rather than of the commit, and a genuine drop of one test
+# indistinguishable from the ordinary difference between a first and a second run.
+#
+# Assert the POSTCONDITION rather than the action: the tree is present. That is the
+# state the rest of this file depends on, it is true in both cases, and it also
+# catches an install that exited 0 and produced nothing - which the exit-code
+# assertion could not.
 if ( !-d $node_modules ) {
-    my ( $stdout, $stderr, $exit ) = capture {
+    my ( $install_out, $install_err, $install_exit ) = capture {
         local %ENV = %ENV;
         _configure_npm_test_env();
         system( $npm_bin, 'ci', '--ignore-scripts' );
     };
-    is( $exit, 0, 'npm ci prepares the fast-check dependency tree' )
-      or diag($stdout), diag($stderr);
+    diag($install_out), diag($install_err) if $install_exit != 0;
 }
+ok( -d $node_modules, 'the fast-check dependency tree is present' );
 
 my ( $stdout, $stderr, $exit ) = capture {
     local %ENV = %ENV;
