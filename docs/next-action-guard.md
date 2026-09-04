@@ -128,6 +128,37 @@ while holding one in `analysing`. Four contiguous names read as a complete
 answer. **A fix derived from an incident covers the incident**; the set it
 should cover has to come from the system's own definition.
 
+## Priority within a column (DD-747)
+
+Column order (`todo` → `buglist` → `new-enhancements` → `ready` → `planning`
+→ `backlog`) decides which *column* the guard looks in first, but nothing
+originally decided the order *within* one. `col()` returns whatever
+`tira.ticket.list --refs-only` gives, which is ref-ascending — so the
+candidate loop always offered the **oldest** card in a column, never the
+**highest-priority** one. Measured on this board: `backlog` returned DD-637
+(priority 2) before DD-744 (priority 4), and the guard recommended DD-637 —
+directly contradicting the board's own `priority-skipped` rule, which exists
+to enforce exactly the ordering the guard was ignoring.
+
+The fix fetches `tira.export --fields ref,priority` **once**, before the
+candidate loop runs, and `sort_by_priority()` reorders each column's `col()`
+output by descending priority before the loop iterates it. Column order is
+untouched — a `buglist` card is still never reached before an available
+`todo` one, however high its priority, because the sort happens *within*
+each `$(col X)` call, not across the concatenated list.
+
+Two properties the fix is asserted against, not just the happy path:
+
+- **A tie (or an unset priority, which reads as 0) falls back to the
+  original ref-ascending order.** The fix must not become order-dependent on
+  something new for cards that never had a stated priority; without this a
+  fix could pass by coincidence on a board that happens to have one
+  high-priority card and say nothing about ties.
+- **The priority fetch failing does not lose refs.** `sort_by_priority()`
+  falls back to its input, unsorted, if the export call or the JSON it
+  returns cannot be parsed — a could-not-sort is not a could-not-look, and
+  the guard's exit-3 contract belongs to the board-read step, not this one.
+
 ## Test seam
 
 `DD_NEXT_ACTION_D2` overrides which `d2` binary the guard calls, so
