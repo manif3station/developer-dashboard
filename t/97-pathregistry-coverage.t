@@ -384,7 +384,28 @@ is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the 
         skip "unable to symlink /dev/full: $!", 1
           if !symlink( '/dev/full', $write_pending );
 
-        my $write_err = eval { $reg->atomic_write_secure( $write_pending, $write_target, 'x' x 200_000 ); 1 } ? '' : $@;
+        # DD-725. The print to /dev/full fails with ENOSPC and atomic_write_secure
+        # dies, so $fh goes out of scope unflushed and perl warns about the
+        # IMPLICIT close - attributing it to the print on PathRegistry.pm line
+        # 1104, not to the explicit close on 1105, which is never reached. That
+        # warning is expected here and was leaking to the suite's stderr on every
+        # run, on a project where warnings are errors and a permanently noisy
+        # stderr trains the reader to skim past the next real one.
+        #
+        # Tolerated in t/103's shape rather than t/89's: the match names BOTH the
+        # close-filehandle phrase and the device clause, and anything else is
+        # rethrown. t/89 filters on /unable to close filehandle/i alone, which is
+        # safe inside its collect-and-assert structure but would, here, silently
+        # absorb a close failure from EIO or EBADF at the same site.
+        my $write_err;
+        {
+            local $SIG{__WARN__} = sub {
+                my ($w) = @_;
+                return if defined $w && $w =~ /unable to close filehandle.*No space left on device/;
+                die $w;
+            };
+            $write_err = eval { $reg->atomic_write_secure( $write_pending, $write_target, 'x' x 200_000 ); 1 } ? '' : $@;
+        }
         like( $write_err, qr/\AUnable to (?:write|close) \Q$write_pending\E/,
             'atomic_write_secure dies when the staging write cannot be flushed to the device' );
         unlink $write_pending if -l $write_pending;
