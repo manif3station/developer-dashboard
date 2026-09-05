@@ -35,6 +35,7 @@ my @EXTRACTED = qw(
     _overwrite_state_file_in_place
     _pid_is_running
     _pid_namespace_id
+    _powershell_command
     _powershell_single_quote
     _process_exists
     _read_process_env_marker
@@ -218,6 +219,25 @@ my @divergent = sort grep {
     my @declared = sort @MUST_STAY_PER_CLASS;
     is_deeply( \@divergent, \@declared,
         'the divergent shared helpers found in the source are exactly the ones declared - a NEW divergence, or a resolved one left in the list, fails here' );
+}
+
+
+# DD-753: RuntimeManager hardcoded the bare string 'powershell' at four call sites
+# while CollectorRunner resolved it and reported a named failure. Both now use the
+# shared resolver, so no bare command argument may remain. Comments are stripped
+# before matching, because a guard that greps raw source cannot tell code from the
+# commentary explaining why the code is that way - and this file's own header
+# discusses the string it forbids.
+{
+    my $rm = "$FindBin::Bin/../lib/Developer/Dashboard/RuntimeManager.pm";
+    open my $fh, '<', $rm or die "cannot read $rm: $!";
+    my @code = grep { $_ !~ /^\s*#/ } <$fh>;
+    close $fh;
+    my $source = join '', @code;
+    my @hits = ( $source =~ /(['"]powershell['"])\s*,/g );
+    is( scalar @hits, 0,
+        'RuntimeManager passes no bare powershell string as a command argument' )
+      or diag( 'still hardcoded at ' . scalar(@hits) . ' site(s)' );
 }
 
 done_testing();
