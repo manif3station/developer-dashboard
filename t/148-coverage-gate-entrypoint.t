@@ -14,6 +14,18 @@ my $checker   = File::Spec->catfile( $repo, 'script', 'check-all-metric-coverage
 my $clean     = "File              stmt   bran   cond    sub  total\nTotal            100.0  100.0  100.0  100.0  100.0\n";
 my $shortfall = "File              stmt   bran   cond    sub  total\nTotal            100.0   99.9  100.0  100.0   99.9\n";
 
+# Devel::Cover is an optional development tool, not a declared runtime dependency.
+# Without it the gate takes a different and correct path - it reports that
+# Devel::Cover::DB::IO could not be loaded - so this file's subject cannot be
+# measured at all, and its assertions would report an environmental gap as a
+# defect. The guard sits BEFORE any plan is declared: t/151 previously died after
+# 3 of a planned 9, and "Bad plan. You planned 9 tests but ran 3" cannot tell a
+# reader which assertions were unmet and which were never attempted. Gated by
+# t/170-optional-tooling-skips.t, because CI carries Devel::Cover and would never
+# notice this guard being removed.
+plan skip_all => 'Devel::Cover is not installed, so the coverage gate cannot be exercised'
+  if !eval { require Devel::Cover::DB::IO; 1 };
+
 # The scripted stand-in used for both cover and prove. It records the
 # environment it observed before doing anything, which is how the one-
 # environment guarantee is measured rather than assumed.
