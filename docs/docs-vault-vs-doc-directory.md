@@ -59,6 +59,58 @@ conflict that trains people to resolve without reading. A single glob
 removes the conflict at its source: a new page needs no `.gitignore` edit
 at all.
 
+## How the exclusions are guarded, and how the guard guards itself
+
+`dist.ini`'s exclusions are the only thing keeping the vault, operator tooling
+and `OLD_CODE/` out of a release archive, so `t/15-release-metadata.t` checks
+them two different ways — and the difference matters.
+
+**By spelling.** A handful of `like()` assertions pin that specific
+`exclude_match` lines are present, plus two `unlike()` assertions pinning that
+`integration/` and `.md` are *not* excluded. Those catch a deleted line. They
+cannot catch a line that is present and wrong.
+
+**By meaning.** A second block compiles *every* `exclude_match` out of
+`dist.ini` and applies the compiled patterns to sample paths, asserting each
+sample is excluded. Its own comment states the principle: text assertions
+"cannot catch a pattern that is present but does not actually match the paths it
+is meant to stop".
+
+The second is the stronger check, and it had a gap that is worth understanding
+because the shape recurs: **the patterns were derived, but the samples were
+not.** Every pattern in `dist.ini` was compiled and applied — to a hardcoded
+list of eight paths. Nine patterns therefore matched nothing in that list, were
+exercised by nothing, and passed in silence. Three of them were `^docs/`,
+`^\.claude/` and `^OLD_CODE/`.
+
+So the block that was gated by meaning rather than spelling was itself gated by
+a list somebody had to remember to extend.
+
+**The fix is to derive the second half too:**
+
+```perl
+for my $pat (@exclude_match) {
+    ok( scalar( grep { $_ =~ $pat } @must_be_excluded ),
+        "at least one sample path exercises $pat" );
+}
+```
+
+Now a new `exclude_match` added without a sample *fails*. Adding the nine
+missing samples alone would have closed the gap for exactly as long as nobody
+touched `dist.ini` again.
+
+**The general form, which is not about tarballs at all:** when a check derives
+one half of its inputs and hardcodes the other, the hardcoded half is where it
+silently stops covering things. Ask of any guard not only "what does it check"
+but "what would have to be added by hand for it to keep checking everything".
+
+One thing these samples do *not* test: `dist.ini`'s patterns are applied here by
+Perl, not by `dzil`. `GatherDir` matches `exclude_match` against paths relative
+to the distribution root — which is the form these samples use — but it also
+prunes matching *directories* during traversal rather than filtering file by
+file. The samples verify the pattern; `t/36-release-kwalitee.t` verifies a real
+built archive. Neither replaces the other.
+
 ## How to apply
 
 - Writing an operator-facing page describing a mechanism? It goes in
