@@ -144,6 +144,30 @@ for my $case ( [ 'cover-empty-expiry', '' ], [ 'cover-zero-expiry', '0' ] ) {
     is( $session->{username}, 'no-remote-user', 'from_cookie loads the crafted no-remote-addr session record' );
 }
 
+# --- from_cookie: a stored remote_addr with NO request remote_addr supplied
+#     at all also leaves the binding check inert - this is the "defined
+#     $args{remote_addr}" side of the guard, distinct from the stored-side
+#     case immediately above. DD-764's own fix uncovered this arm: before,
+#     a session with no expires_at was falsy at the truthiness guard and
+#     fell through to this line; now it is deleted and returned early, so
+#     the only path that used to reach here with no expires_at is gone.
+#     Reach the same arm directly instead. ---------------------------
+{
+    $write_session->(
+        'cover-no-request-addr',
+        {
+            session_id  => 'cover-no-request-addr',
+            username    => 'no-request-addr-user',
+            role        => 'helper',
+            remote_addr => '10.0.0.1',
+            expires_at  => '2999-01-01T00:00:00Z',
+        }
+    );
+    my $session = $store->from_cookie('dashboard_session=cover-no-request-addr');
+    is( ref $session, 'HASH', 'from_cookie skips remote-address binding when the caller supplies no remote_addr at all' );
+    is( $session->{username}, 'no-request-addr-user', 'from_cookie loads the crafted no-request-addr session record' );
+}
+
 # --- from_cookie: a stored empty remote_addr disables address binding ---
 {
     $write_session->(
