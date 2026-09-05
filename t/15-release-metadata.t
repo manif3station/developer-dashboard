@@ -338,8 +338,29 @@ my @operator_local_files = qw(
         dogfood-output/screenshot.png
         .worktrees/dd-432/lib/Developer/Dashboard.pm
         node_modules/left-pad/index.js
+        bin/jq
+        .claude/rules/tira-board-contract.md
+        docs/gate-map.md
+        examples/sample-dashboard.pl
+        .github/workflows/test.yml
+        OLD_CODE/legacy-helper.pl
+        test_by_michael/Dockerfile
+        updates/2026-01-01-migrate.pl
+        blogs/2026-release-notes.md
     );
     ok( $excluded->($_), "dist.ini exclusions actually match $_ so it cannot be gathered" ) for @must_be_excluded;
+
+    # DERIVE BOTH HALVES, NOT ONE. The patterns above are compiled out of
+    # dist.ini, so a new exclusion is picked up automatically - but the sample
+    # paths are a hardcoded list, so a pattern nothing samples is compiled,
+    # applied to nothing, and passes in silence. Nine of seventeen were in that
+    # state, including ^docs/, ^\.claude/ and ^OLD_CODE/ (DD-766). This asserts
+    # every declared exclusion is exercised, so adding an exclude_match without
+    # a sample FAILS instead of quietly reducing what this block covers.
+    for my $pat (@exclude_match) {
+        ok( scalar( grep { $_ =~ $pat } @must_be_excluded ),
+            "at least one sample path exercises the exclusion $pat" );
+    }
 
     my @must_be_shipped = qw(
         lib/Developer/Dashboard.pm
