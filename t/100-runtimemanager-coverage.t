@@ -2707,6 +2707,78 @@ ok( $manager->_looks_like_collector_supervisor_process( { args => 'dashboard col
     is_deeply( [ $manager->_listener_pids_for_port(7890) ], [61], '_listener_pids_for_port Windows falls back to netstat for undef ss stdout' );
 }
 
+# DD-753: the resolver's FAILURE side at every site that has one.
+#
+# Adding the resolver created a new outcome at four call sites - "no PowerShell
+# could be resolved" - and the four do not share a failure shape, because their
+# contracts differ. Two return, one dies, and the fourth is a query that yields
+# nothing. Coverage found three of these untested after the implementation
+# looked complete, which is the point of measuring branches rather than lines:
+# every one of these guards is a single statement that reads as obviously
+# correct and had never once been executed.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return '' };
+    # is_windows is forced for the whole block because two of these three subs
+    # return early on a non-Windows host and never reach the resolver at all.
+    # The first draft omitted it and the ok(!$ok) assertion still PASSED - the
+    # is_windows early return yields a false status too - so only the assertion
+    # on the specific message discriminated a covered guard from an unreached
+    # one. A test that asserts merely "it failed" would have passed here while
+    # executing none of the code it was written for.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+
+    # An ACTION site that reports through a status pair.
+    {
+        my ( $ok, $error ) = $manager->_replace_path_via_powershell( 'source.txt', 'target.txt' );
+        ok( !$ok, '_replace_path_via_powershell reports failure when no PowerShell executable resolves' );
+        is(
+            $error,
+            'Unable to resolve a PowerShell executable for the dashboard runtime',
+            '_replace_path_via_powershell names the missing executable rather than failing through system() with an empty capture',
+        );
+    }
+
+    # An ACTION site that cannot use a status pair, because it returns a pid.
+    {
+        my $pid = eval { $manager->_spawn_windows_background_command('perl.exe') };
+        my $err = $@;
+        is( $pid, undef, '_spawn_windows_background_command yields no pid when no PowerShell executable resolves' );
+        like(
+            $err,
+            qr/^Unable to launch detached Windows web process: powershell is unavailable$/m,
+            '_spawn_windows_background_command dies with the reason, because a false pid would be indistinguishable from a real one',
+        );
+    }
+
+    # A QUERY site: no PowerShell means no answer, not an error.
+    {
+        is_deeply(
+            [ $manager->_listener_pids_for_port(7890) ],
+            [],
+            '_listener_pids_for_port returns empty on Windows when no PowerShell executable resolves',
+        );
+    }
+}
+
+# DD-753: _ps_processes discards a non-zero PowerShell exit.
+#
+# Reachable only once the resolver yields a command, so the early return added
+# with the resolver had shadowed it - the branch existed before this card and
+# stopped being exercised when the guard went in front of it. Restoring it is
+# part of the card, not incidental.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::is_windows        = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
+    local *Developer::Dashboard::RuntimeManager::capture             = sub (&) { return ( 'ignored output', undef, 1 ) };
+    is_deeply(
+        [ $manager->_ps_processes ],
+        [],
+        '_ps_processes returns empty when the PowerShell process query exits non-zero, rather than parsing its output',
+    );
+}
+
 # _listener_pids_for_port: ss exit 255 and undef stderr (line 2787)
 {
     no warnings 'redefine';
