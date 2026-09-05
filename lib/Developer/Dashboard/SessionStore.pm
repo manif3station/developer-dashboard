@@ -116,7 +116,11 @@ sub from_cookie {
         $pairs{$k} = defined $v ? $v : '';
     }
     my $session = $self->get( $pairs{dashboard_session} ) or return;
-    if ( $session->{expires_at} && _iso8601_to_epoch( $session->{expires_at} ) <= time ) {
+    # DD-764: no truthiness guard on expires_at - _iso8601_to_epoch already
+    # returns 0 for undef/''/'0'/malformed input, which compares as long
+    # expired. A missing expiry must fail CLOSED the same way a malformed
+    # one already does, never be treated as "never expires".
+    if ( _iso8601_to_epoch( $session->{expires_at} ) <= time ) {
         $self->delete( $session->{session_id} );
         return;
     }
@@ -193,8 +197,12 @@ sub sweep_expired {
         close $fh;
         my $record = eval { json_decode($json) };
         next if !$record || ref($record) ne 'HASH';
+        # DD-764: a missing or empty expires_at used to be skipped here,
+        # leaving such a record both immortal (from_cookie never expired
+        # it) and uncollectable (cleanup never removed it). Let it fall
+        # through to the epoch comparison below, which already collects a
+        # malformed value correctly (_iso8601_to_epoch returns 0 for it).
         my $expires_at = $record->{expires_at};
-        next if !defined $expires_at || $expires_at eq '';
         next if _iso8601_to_epoch($expires_at) > $now;
         $removed++ if $args{dry_run} || unlink $file;
     }

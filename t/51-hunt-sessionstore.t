@@ -149,10 +149,13 @@ is( Developer::Dashboard::SessionStore::_safe_session_id('../../etc/passwd'),
     write_file( $notjson, 'not a session file' );
 
     my $removed = $store->sweep_expired;
-    is( $removed, 1, 'sweep_expired removes exactly the one expired session' );
+    # DD-764: a record with no expiry now COLLECTS, same as an expired one -
+    # a missing expiry is no longer treated as "never expires", so this
+    # count went from 1 to 2 and $noexp is gone rather than untouched.
+    is( $removed, 2, 'sweep_expired removes the expired session AND the no-expiry one' );
     ok( !-f $expired, 'sweep_expired deleted the expired session file' );
     ok( -f $valid,    'sweep_expired kept the still-valid session file' );
-    ok( -f $noexp,    'sweep_expired left a record with no expiry untouched' );
+    ok( !-f $noexp,   'sweep_expired now collects a record with no expiry rather than leaving it untouched' );
     ok( -f $broken,   'sweep_expired left an unparseable file untouched' );
     ok( -f $array,    'sweep_expired left a non-object json file untouched' );
     ok( -f $notjson,  'sweep_expired ignored a non-json file' );

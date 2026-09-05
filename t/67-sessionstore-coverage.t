@@ -105,22 +105,26 @@ my $write_session = sub {
     return $file;
 };
 
-# --- from_cookie: empty expiry short-circuits the expiry check, and no
-#     request remote_addr short-circuits the binding check ---------------
-{
+# --- from_cookie: DD-764 - a missing/empty/zero expiry fails CLOSED, the
+#     same way a malformed one already does, rather than being treated as
+#     "never expires". _iso8601_to_epoch returns 0 for all three shapes, so
+#     dropping the truthiness guard on $session->{expires_at} is what makes
+#     absence compare as long-expired instead of short-circuiting past the
+#     comparison entirely. ---------------------------------------------
+for my $case ( [ 'cover-empty-expiry', '' ], [ 'cover-zero-expiry', '0' ] ) {
+    my ( $id, $expires_at ) = @$case;
     $write_session->(
-        'cover-empty-expiry',
+        $id,
         {
-            session_id  => 'cover-empty-expiry',
-            username    => 'empty-expiry-user',
+            session_id  => $id,
+            username    => "$id-user",
             role        => 'helper',
             remote_addr => '10.0.0.1',
-            expires_at  => '',
+            expires_at  => $expires_at,
         }
     );
-    my $session = $store->from_cookie('dashboard_session=cover-empty-expiry');
-    is( ref $session, 'HASH', 'from_cookie returns a session whose empty expiry skips the expiry comparison' );
-    is( $session->{username}, 'empty-expiry-user', 'from_cookie loads the crafted empty-expiry session record' );
+    my $session = $store->from_cookie("dashboard_session=$id");
+    is( $session, undef, "from_cookie rejects a session whose expires_at is '$expires_at' as expired, not eternal" );
 }
 
 # --- from_cookie: a request remote_addr with no stored remote_addr key
@@ -300,18 +304,42 @@ SKIP: {
     chmod 0600, $file or die "Unable to restore mode on $file: $!";
 }
 
-# --- sweep_expired: a record with an empty expiry is left untouched -----
-{
-    my $dir = File::Spec->catdir( $home, 'sweep-empty-expiry' );
+# --- sweep_expired: DD-764 - a record with a missing, empty, or "0" expiry
+#     is COLLECTED, not left untouched. An absent expiry used to be treated
+#     as "never expires" and skipped by the same guard that (correctly)
+#     still protects a record whose expiry is a genuinely future timestamp
+#     below, which sweep_expired must still leave alone. -----------------
+for my $case ( [ 'blank', '' ], [ 'zero', '0' ], [ 'missing', undef ] ) {
+    my ( $name, $expires_at ) = @$case;
+    my $dir = File::Spec->catdir( $home, "sweep-$name-expiry" );
     make_path($dir);
-    my $file = File::Spec->catfile( $dir, 'blank.json' );
+    my $file = File::Spec->catfile( $dir, "$name.json" );
+    my %record = ( session_id => $name );
+    $record{expires_at} = $expires_at if defined $expires_at;
     open my $fh, '>:raw', $file or die "Unable to write $file: $!";
-    print {$fh} json_encode( { session_id => 'blank', expires_at => '' } );
+    print {$fh} json_encode( \%record );
     close $fh;
 
     no warnings qw(redefine once);
     local *Developer::Dashboard::PathRegistry::sessions_root = sub { return $dir };
-    is( $store->sweep_expired, 0, 'sweep_expired leaves a record whose expiry is the empty string untouched' );
+    is( $store->sweep_expired, 1, "sweep_expired collects a record whose expiry is " . ( defined $expires_at ? "'$expires_at'" : 'absent' ) );
+    ok( !-e $file, "and the file is actually removed ($name)" );
+}
+
+# --- sweep_expired: a record with a genuinely future expiry is still left
+#     untouched - the regression guard for the fix above. ----------------
+{
+    my $dir = File::Spec->catdir( $home, 'sweep-future-expiry' );
+    make_path($dir);
+    my $file = File::Spec->catfile( $dir, 'future.json' );
+    open my $fh, '>:raw', $file or die "Unable to write $file: $!";
+    print {$fh} json_encode( { session_id => 'future', expires_at => '2999-01-01T00:00:00Z' } );
+    close $fh;
+
+    no warnings qw(redefine once);
+    local *Developer::Dashboard::PathRegistry::sessions_root = sub { return $dir };
+    is( $store->sweep_expired, 0, 'sweep_expired leaves a record with a genuinely future expiry untouched' );
+    ok( -f $file, 'and the file is still there' );
 }
 
 # --- sweep_expired: dry_run counts an expired file without unlinking it -
