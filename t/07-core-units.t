@@ -5049,6 +5049,10 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             return '';
         };
         local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::CollectorRunner::command_in_path;
+        # DD-753: _powershell_command now lives in ProcessSupervision, so it resolves
+        # is_windows in THAT package - mirroring command_in_path alone is no longer
+        # enough, exactly as this file already mirrors command_in_path itself.
+        local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
         is(
             $runner->_powershell_command,
             'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
@@ -5066,6 +5070,10 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
         local *Developer::Dashboard::CollectorRunner::command_in_path = sub { return '' };
         local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::CollectorRunner::command_in_path;
+        # DD-753: _powershell_command now lives in ProcessSupervision, so it resolves
+        # is_windows in THAT package - mirroring command_in_path alone is no longer
+        # enough, exactly as this file already mirrors command_in_path itself.
+        local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
         local $ENV{SystemRoot} = $fake_system_root;
         is(
             $runner->_powershell_command,
@@ -5083,6 +5091,10 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             return '';
         };
         local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::CollectorRunner::command_in_path;
+        # DD-753: _powershell_command now lives in ProcessSupervision, so it resolves
+        # is_windows in THAT package - mirroring command_in_path alone is no longer
+        # enough, exactly as this file already mirrors command_in_path itself.
+        local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
         is(
             $runner->_current_perl_command,
             'C:\\Strawberry\\perl\\bin\\perl.exe',
@@ -5096,6 +5108,10 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         local $^X = '/usr/bin/perl';
         local *Developer::Dashboard::CollectorRunner::command_in_path = sub { return '' };
         local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::CollectorRunner::command_in_path;
+        # DD-753: _powershell_command now lives in ProcessSupervision, so it resolves
+        # is_windows in THAT package - mirroring command_in_path alone is no longer
+        # enough, exactly as this file already mirrors command_in_path itself.
+        local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
         is(
             $runner->_current_perl_command,
             '/usr/bin/perl',
@@ -5114,6 +5130,10 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             return '';
         };
         local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::CollectorRunner::command_in_path;
+        # DD-753: _powershell_command now lives in ProcessSupervision, so it resolves
+        # is_windows in THAT package - mirroring command_in_path alone is no longer
+        # enough, exactly as this file already mirrors command_in_path itself.
+        local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
         is(
             $runner->_current_perl_command,
             '/usr/local/bin/perl',
@@ -5127,6 +5147,10 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             return '';
         };
         local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::CollectorRunner::command_in_path;
+        # DD-753: _powershell_command now lives in ProcessSupervision, so it resolves
+        # is_windows in THAT package - mirroring command_in_path alone is no longer
+        # enough, exactly as this file already mirrors command_in_path itself.
+        local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
         is(
             $runner->_current_perl_command,
             '/usr/local/bin/perl.exe',
@@ -5135,6 +5159,10 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
 
         local *Developer::Dashboard::CollectorRunner::command_in_path = sub { return '' };
         local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::CollectorRunner::command_in_path;
+        # DD-753: _powershell_command now lives in ProcessSupervision, so it resolves
+        # is_windows in THAT package - mirroring command_in_path alone is no longer
+        # enough, exactly as this file already mirrors command_in_path itself.
+        local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
         is(
             $runner->_current_perl_command,
             '/tmp/nonexistent-collector-perl',
@@ -5158,6 +5186,10 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
             return '';
         };
         local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::CollectorRunner::command_in_path;
+        # DD-753: _powershell_command now lives in ProcessSupervision, so it resolves
+        # is_windows in THAT package - mirroring command_in_path alone is no longer
+        # enough, exactly as this file already mirrors command_in_path itself.
+        local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
 
         ok(
             $runner->_helper_file_supports_internal_command( $staged_helper, 'collector-loop-foreground' ),
@@ -5251,6 +5283,10 @@ ok( !Developer::Dashboard::CollectorRunner::_cron_match('*/2', 5), 'cron matcher
         local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
         local *Developer::Dashboard::CollectorRunner::command_in_path = sub { return '' };
         local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::CollectorRunner::command_in_path;
+        # DD-753: _powershell_command now lives in ProcessSupervision, so it resolves
+        # is_windows in THAT package - mirroring command_in_path alone is no longer
+        # enough, exactly as this file already mirrors command_in_path itself.
+        local *Developer::Dashboard::ProcessSupervision::is_windows = sub { return 1 };
         local $ENV{SystemRoot} = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'missing-system-root' );
         is(
             $runner->_powershell_command,

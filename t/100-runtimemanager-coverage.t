@@ -809,6 +809,11 @@ is( $manager->_send_signal( 'TERM', undef, 0, 'nope' ), 0, '_send_signal ignores
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
     @cap = ( '', '', 0 );
@@ -829,6 +834,11 @@ is( $manager->_send_signal( 'TERM', undef, 0, 'nope' ), 0, '_send_signal ignores
     no warnings 'redefine';
     my @sent;
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::_ps_processes = sub {
         return (
             { pid => 1, args => 'perl match-me' },
@@ -1015,6 +1025,11 @@ is_deeply( [ $manager->_listener_pids_for_port(0) ], [], '_listener_pids_for_por
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
     @cap = ( "  4321  \n 4321 \n", '', 0 );
@@ -1105,6 +1120,11 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
     ok( length $manager->_current_perl_command, '_current_perl_command resolves a perl interpreter on POSIX hosts' );
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::command_in_path = sub { my ($n) = @_; return $n eq 'perl' ? '/win/perl.exe' : undef };
     local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     is( $manager->_current_perl_command, '/win/perl.exe', '_current_perl_command prefers perl in PATH on Windows' );
@@ -1149,6 +1169,10 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
     no warnings 'redefine';
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
+    # DD-753: this block reaches the PowerShell path without forcing is_windows, so
+    # the resolver returns empty here on Linux and the sub now refuses before
+    # capture is consulted. Stub it to a command, as CollectorRunner's tests do.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     @cap = ( "7788\n", '', 0 );
     is( $manager->_spawn_windows_background_command( 'perl.exe', 'core', 'web-foreground' ), 7788, '_spawn_windows_background_command returns the spawned pid' );
     @cap = ( '', 'launch failed', 1 );
@@ -1161,6 +1185,11 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
     no warnings 'redefine';
     is_deeply( [ $manager->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, '' ], '_replace_path_via_powershell is a no-op off Windows' );
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
     @cap = ( '', '', 0 );
@@ -1174,6 +1203,11 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
     no warnings 'redefine';
     is_deeply( [ $manager->_overwrite_state_file_in_place( 'a', 'b' ) ], [ 0, '' ], '_overwrite_state_file_in_place is a no-op off Windows' );
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     my $src = File::Spec->catfile( $home, 'overwrite-src' );
     my $tgt = File::Spec->catfile( $home, 'overwrite-tgt' );
     open my $sfh, '>', $src or die $!;
@@ -1190,6 +1224,11 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     my $src = File::Spec->catfile( $home, 'overwrite-src2' );
     my $tgt = File::Spec->catfile( $home, 'overwrite-tgt2' );
     open my $sfh, '>', $src or die $!;
@@ -1205,6 +1244,11 @@ is( $manager->_descriptor_is_inherited_pipe(999999), 0, '_descriptor_is_inherite
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
 
     # Target exists: unlink then a successful rename retry.
     {
@@ -1277,6 +1321,11 @@ is( $manager->_web_runtime_matches_pid( { pid => 9 }, 5, 0 ), 0, '_web_runtime_m
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     is( $manager->_web_runtime_matches_pid( { pid => 9, port => 7890 }, 5, 7890 ), 1, '_web_runtime_matches_pid matches on Windows when the port lines up' );
     is( $manager->_web_runtime_matches_pid( { pid => 9, port => 1000 }, 5, 7890 ), 0, '_web_runtime_matches_pid rejects a Windows port mismatch' );
     is( $manager->_web_runtime_matches_pid( { pid => 9 },               5, 7890 ), 0, '_web_runtime_matches_pid rejects a Windows runtime with no port' );
@@ -1326,6 +1375,11 @@ is( $manager->_web_runtime_ready( 5,     0 ),    0, '_web_runtime_ready rejects 
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return (4321) };
     is( $manager->_web_runtime_ready( 5, 7890 ), 1, '_web_runtime_ready Windows confirms a bound listener' );
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
@@ -1454,6 +1508,11 @@ is( $manager->_is_managed_web(999999), 0, '_is_managed_web rejects a dead pid' )
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     is( $manager->_detach_web_process_session, 1, '_detach_web_process_session is a no-op on Windows' );
 }
 {
@@ -1543,6 +1602,11 @@ $manager->_cleanup_web_files;
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::_progress_emit = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_from_state = sub { return () };
@@ -1629,6 +1693,11 @@ $manager->_cleanup_web_files;
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_windows_background_web_command = sub { return ('perl.exe') };
     local *Developer::Dashboard::RuntimeManager::_port_accepting_connections = sub { return 1 };
@@ -2139,6 +2208,11 @@ is( $manager->_looks_like_collector_supervisor_process( {} ),  0, '_looks_like_c
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::_start_web_windows_background = sub { return 999 };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
     {
@@ -2180,6 +2254,11 @@ $manager->_cleanup_web_files;
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::_cleanup_web_files = sub { return 1 };
     local *Developer::Dashboard::RuntimeManager::_windows_background_web_command = sub { return ('perl.exe') };
     local *Developer::Dashboard::RuntimeManager::_spawn_windows_background_command = sub { return 7000 };
@@ -2346,6 +2425,11 @@ $manager->_cleanup_web_files;
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::_collector_supervisor_running = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::_current_perl_command = sub { return 'perl.exe' };
     local *Developer::Dashboard::RuntimeManager::_dashboard_core_helper_path = sub { return "C:/dd/$_[1]" };
@@ -2533,6 +2617,11 @@ ok( $manager->_looks_like_collector_supervisor_process( { args => 'dashboard col
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     my $src = File::Spec->catfile( $home, 'rsf-undef-src' );
     my $tgt = File::Spec->catfile( $home, 'rsf-undef-tgt' );
     open my $fh, '>', $src or die $!;
@@ -2577,6 +2666,10 @@ ok( $manager->_looks_like_collector_supervisor_process( { args => 'dashboard col
     no warnings 'redefine';
     my @cap;
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return @cap };
+    # DD-753: _spawn_windows_background_command has no internal is_windows guard, so
+    # every call reaches the resolver - unlike _ps_processes and _listener_pids_for_port,
+    # which skip the PowerShell branch on Linux and need no stub.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     @cap = ( '', '', 0 );
     is( $manager->_spawn_windows_background_command('perl.exe'), undef, '_spawn_windows_background_command returns undef when the launcher prints no pid' );
     @cap = ( "notapid\n7788\n", '', 0 );
@@ -2604,9 +2697,86 @@ ok( $manager->_looks_like_collector_supervisor_process( { args => 'dashboard col
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( undef, '', 0 ) };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_netstat = sub { return (61) };
     is_deeply( [ $manager->_listener_pids_for_port(7890) ], [61], '_listener_pids_for_port Windows falls back to netstat for undef ss stdout' );
+}
+
+# DD-753: the resolver's FAILURE side at every site that has one.
+#
+# Adding the resolver created a new outcome at four call sites - "no PowerShell
+# could be resolved" - and the four do not share a failure shape, because their
+# contracts differ. Two return, one dies, and the fourth is a query that yields
+# nothing. Coverage found three of these untested after the implementation
+# looked complete, which is the point of measuring branches rather than lines:
+# every one of these guards is a single statement that reads as obviously
+# correct and had never once been executed.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return '' };
+    # is_windows is forced for the whole block because two of these three subs
+    # return early on a non-Windows host and never reach the resolver at all.
+    # The first draft omitted it and the ok(!$ok) assertion still PASSED - the
+    # is_windows early return yields a false status too - so only the assertion
+    # on the specific message discriminated a covered guard from an unreached
+    # one. A test that asserts merely "it failed" would have passed here while
+    # executing none of the code it was written for.
+    local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+
+    # An ACTION site that reports through a status pair.
+    {
+        my ( $ok, $error ) = $manager->_replace_path_via_powershell( 'source.txt', 'target.txt' );
+        ok( !$ok, '_replace_path_via_powershell reports failure when no PowerShell executable resolves' );
+        is(
+            $error,
+            'Unable to resolve a PowerShell executable for the dashboard runtime',
+            '_replace_path_via_powershell names the missing executable rather than failing through system() with an empty capture',
+        );
+    }
+
+    # An ACTION site that cannot use a status pair, because it returns a pid.
+    {
+        my $pid = eval { $manager->_spawn_windows_background_command('perl.exe') };
+        my $err = $@;
+        is( $pid, undef, '_spawn_windows_background_command yields no pid when no PowerShell executable resolves' );
+        like(
+            $err,
+            qr/^Unable to launch detached Windows web process: powershell is unavailable$/m,
+            '_spawn_windows_background_command dies with the reason, because a false pid would be indistinguishable from a real one',
+        );
+    }
+
+    # A QUERY site: no PowerShell means no answer, not an error.
+    {
+        is_deeply(
+            [ $manager->_listener_pids_for_port(7890) ],
+            [],
+            '_listener_pids_for_port returns empty on Windows when no PowerShell executable resolves',
+        );
+    }
+}
+
+# DD-753: _ps_processes discards a non-zero PowerShell exit.
+#
+# Reachable only once the resolver yields a command, so the early return added
+# with the resolver had shadowed it - the branch existed before this card and
+# stopped being exercised when the guard went in front of it. Restoring it is
+# part of the card, not incidental.
+{
+    no warnings 'redefine';
+    local *Developer::Dashboard::RuntimeManager::is_windows        = sub { return 1 };
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
+    local *Developer::Dashboard::RuntimeManager::capture             = sub (&) { return ( 'ignored output', undef, 1 ) };
+    is_deeply(
+        [ $manager->_ps_processes ],
+        [],
+        '_ps_processes returns empty when the PowerShell process query exits non-zero, rather than parsing its output',
+    );
 }
 
 # _listener_pids_for_port: ss exit 255 and undef stderr (line 2787)
@@ -2678,6 +2848,11 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::running_web = sub { return undef };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port = sub { return () };
     is( $manager->_web_runtime_ready( 5, undef ), 0, '_web_runtime_ready under Windows with no port falls through to the shared loop' );
@@ -2835,6 +3010,11 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     my $src = File::Spec->catfile( $home, 'rsf-2191-src' );
     my $tgt = File::Spec->catfile( $home, 'rsf-2191-tgt' );
     for my $p ( $src, $tgt ) { open my $fh, '>', $p or die $!; print {$fh} "x"; close $fh; }
@@ -2848,6 +3028,11 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     my $src = File::Spec->catfile( $home, 'rsf-2203-src' );
     my $tgt = File::Spec->catfile( $home, 'rsf-2203-tgt' );
     open my $fh, '>', $src or die $!;
@@ -2864,6 +3049,11 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( undef, 'err-only', 1 ) };
     is_deeply( [ $manager->_replace_path_via_powershell( 'a', 'b' ) ], [ 0, 'err-only' ], '_replace_path_via_powershell skips undef output in the failure text' );
 }
@@ -2872,6 +3062,11 @@ is( $manager->_collector_runtime_ready( undef, 1 ), 0, '_collector_runtime_ready
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::command_in_path = sub { return undef };
     local *Developer::Dashboard::ProcessSupervision::command_in_path = \&Developer::Dashboard::RuntimeManager::command_in_path;
     ok( length $manager->_current_perl_command, '_current_perl_command falls back past perl.exe when nothing is in PATH on Windows' );
@@ -2884,6 +3079,11 @@ is( Developer::Dashboard::RuntimeManager::_powershell_single_quote(undef), q{''}
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::is_windows = sub { return 1 };
+    # DD-753: RuntimeManager now resolves the PowerShell executable instead of
+    # hardcoding it, so forcing is_windows is no longer enough to reach the
+    # PowerShell branch - the resolver must also yield a command. Same stub
+    # CollectorRunner's tests have always used.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) { return ( "header\n  4321  \n", '', 0 ) };
     is_deeply( [ $manager->_listener_pids_for_port(7890) ], [4321], '_listener_pids_for_port skips non-numeric Windows owning-process lines' );
 }
