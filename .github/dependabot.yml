@@ -4,6 +4,19 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # DD-741: CodeQL refuses to run unless its init, autobuild and analyze steps
+    # use the SAME version. Dependabot proposes one pull request per action PATH,
+    # so without this group each one moves a single step, strands the other two,
+    # and fails with "Loaded a configuration file for version X, but running
+    # version Y" - every PR red, none mergeable alone. It happened three times
+    # (4.37.6->4.37.7, 4.37.7->4.37.8, 4.37.8->4.37.9) before this block existed.
+    # Grouped, the family arrives as ONE pull request that can actually pass.
+    # Scoped to the family deliberately: patterns: ["*"] would batch every action
+    # update together, so one failing update would block all the others.
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
