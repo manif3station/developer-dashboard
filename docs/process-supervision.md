@@ -240,6 +240,56 @@ specific pattern that turns *one* permanently broken config into an
 succeed no longer gets to try, and fail, and leak, every interval for as
 long as the host stays up.
 
+## An external executable is resolved, not named
+
+Every place the dashboard shells out to a program it did not install faces the same
+question: **is that program actually there, under that name, on this host?** For
+PowerShell on Windows the answer is often no under the bare name `powershell` — a
+corrupted or misconfigured `PATH` is a common real-world state, and the executable
+normally lives at `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`
+whether or not that directory is on `PATH`.
+
+So the model here is: **resolve the command, then fail with a stated reason if you
+cannot.** The resolution is a fallback chain, tried in order:
+
+1. `command_in_path('powershell')`
+2. `command_in_path('powershell.exe')`
+3. `$ENV{SystemRoot}\System32\WindowsPowerShell\v1.0\powershell.exe`, if it exists
+4. otherwise the empty string
+
+The empty string is the contract. A caller branches on it and reports *which
+executable could not be found*, naming the process that needed it.
+
+### Why the empty string rather than a die
+
+The resolver returns a value rather than throwing, because whether a missing
+PowerShell is fatal depends on the caller. A collector that cannot launch must stop
+and say so; a query helper asking which processes are listening can reasonably return
+an empty list. A resolver that threw would take that choice away from both.
+
+### What hardcoding costs, concretely
+
+`system 'powershell', '-NoLogo', ...` on a host where PowerShell is unresolvable does
+not fail in a way anyone can read. `system` returns non-zero, the captured stdout is
+empty, and the caller sees *"no processes matched"* or *"the state file was not
+replaced"* — a plausible, wrong answer rather than an error. The failure is
+indistinguishable from a legitimately empty result, which is the property that makes
+it expensive: nothing looks broken.
+
+That is why the difference is worth a page rather than a preference. Both spellings
+"work" on a healthy host, and they diverge only where diagnosis matters most.
+
+### The trap when fixing this
+
+A partial fix is worse than none here. If some call sites in a module resolve and
+others do not, the hardcoded remainder stops looking like an oversight and starts
+looking like a decision — somebody clearly considered this area, so the difference
+must be intentional. When converting call sites, convert **all** of them in a module,
+or annotate the ones deliberately left with the reason.
+
+Related: the `_spawn_windows_background_command` and `_replace_path_via_powershell`
+rows in the divergent-pairs table below are two instances of exactly this split.
+
 ## Where this lives
 
 | concern | location |

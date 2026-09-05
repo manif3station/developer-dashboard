@@ -42,6 +42,7 @@ our @EXPORT_OK = qw(
     _overwrite_state_file_in_place
     _pid_is_running
     _pid_namespace_id
+    _powershell_command
     _powershell_single_quote
     _process_exists
     _read_process_env_marker
@@ -235,6 +236,28 @@ sub _current_perl_command {
     return $^X;
 }
 
+# _powershell_command()
+# Resolves the PowerShell executable to invoke on Windows. Tries PATH under both
+# spellings, then the SystemRoot install path, because a Windows host commonly has
+# powershell.exe present at its standard location while PATH does not name it.
+# Shared by RuntimeManager and CollectorRunner (DD-753): RuntimeManager previously
+# hardcoded the bare string at four call sites and so failed through system() with
+# an empty capture, while CollectorRunner resolved it and named the failure.
+# Called as a plain function, not a method - it needs no object state.
+# Input: none.
+# Output: a usable PowerShell command string, or the empty string when none
+#         resolves or the host is not Windows. Callers branch on empty and report
+#         which executable was missing.
+sub _powershell_command {
+    return '' if !is_windows();
+    return command_in_path('powershell')     if command_in_path('powershell');
+    return command_in_path('powershell.exe') if command_in_path('powershell.exe');
+    my $system_root = $ENV{SystemRoot} || 'C:\\Windows';
+    my $fallback = File::Spec->catfile( $system_root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe' );
+    return $fallback if -f $fallback;
+    return '';
+}
+
 # _powershell_single_quote($value)
 # Escapes one literal string for safe use in a single-quoted PowerShell
 # argument position.
@@ -403,8 +426,8 @@ Developer::Dashboard::ProcessSupervision - process-supervision helpers shared by
 
 Hold the one definition of each low-level helper that RuntimeManager and
 CollectorRunner both need: deciding whether a pid is alive, forking and reaping
-children, reading a process's namespace and environment, and replacing state
-files atomically.
+children, reading a process's namespace and environment, replacing state
+files atomically, and resolving the PowerShell executable to invoke on Windows.
 
 =head1 WHY IT EXISTS
 
