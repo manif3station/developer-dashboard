@@ -309,6 +309,18 @@ is( Developer::Dashboard::Folder->createdalias, $created, 'an existing absolute 
 # Leave the compatibility layer configured with the plain runtime registry.
 Developer::Dashboard::Folder->configure( paths => $paths );
 
+
+# DD-616: Folder's copy of this computation was replaced by delegation to the
+# shared Developer::Dashboard::PathRegistry::alias_cache_key. Assert the delegation
+# rather than only the values, so a reintroduced local copy that happens to agree
+# today would still be visible here.
+{
+    my $paths = Developer::Dashboard::PathRegistry->new;
+    is( Developer::Dashboard::Folder::_configured_alias_cache_key($paths),
+        Developer::Dashboard::PathRegistry::alias_cache_key($paths),
+        'Folder delegates the alias cache key to the shared implementation' );
+}
+
 done_testing;
 
 __END__
