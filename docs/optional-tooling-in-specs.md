@@ -100,3 +100,28 @@ Adding Devel::Cover to a platform image is the wrong fix for a failing spec here
 A platform gate answers "does this work on that distro"; it does not need a
 coverage instrument, and installing one to quiet two specs treats the symptom at
 the most expensive available point.
+
+### "as of its build date" was doing real work (DD-761)
+
+`developer-dashboard:latest`'s build was self-referential —
+`test_by_michael/Dockerfile` read `FROM developer-dashboard:latest` and
+`compose.yml` tagged the result back to the same name, so every rebuild layered
+on top of the *previous* build of itself rather than starting clean. Paired
+with a checked-in `DD.tgz` tarball that nothing regenerated, the image drifted
+three weeks behind master: `String::Compare::ConstantTime` — a **declared
+runtime dependency** (`cpanfile`, `Auth.pm` loads it at compile time) — was
+simply absent, and every code path through `Auth.pm` died in the container the
+platform gate names. `dashboard encode`/`decode` failed outright; a fast-check
+property test presented the failure as a plausible-looking empty-string
+counterexample (see [assertions that cannot fail](assertions-that-cannot-fail.md)
+for that shape generally) before a control run (`encode("hello")` failing
+identically) showed the module was never loading for *any* input.
+
+Fixed by regenerating `DD.tgz` from current master, pinning the Dockerfile to a
+real base (`FROM ubuntu:26.04`, the OS the image actually runs) instead of
+itself, and adding a build-time check that parses `cpanfile`'s declared
+`requires` and fails the **build** if any of them cannot load — so the next
+drift of this kind is caught the moment it's introduced, not months later by
+whoever next hits the missing module through an unrelated symptom. The table
+above is accurate again as of the rebuild; it will drift again if the
+Dockerfile ever reverts to referencing itself.
