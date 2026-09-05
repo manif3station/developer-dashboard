@@ -122,10 +122,7 @@ sub _paths_obj {
 # Output: cache key string.
 sub _configured_alias_cache_key {
     my ($paths) = @_;
-    return '' if !$paths || !blessed($paths);
-    my $project_root = eval { $paths->current_project_root } || '';
-    my @runtime_roots = eval { $paths->runtime_roots } || ();    # uncoverable condition right
-    return join "\n", $project_root, @runtime_roots;
+    return Developer::Dashboard::PathRegistry::alias_cache_key($paths);
 }
 
 # _load_configured_aliases()

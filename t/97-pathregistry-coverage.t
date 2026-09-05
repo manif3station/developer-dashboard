@@ -804,6 +804,26 @@ is( $paths->cwd, $home, 'the public cwd compatibility accessor delegates to the 
     ok( $paths->_state_root_key( $paths->home_runtime_root ), 'state root key hashes the runtime identity' );
 }
 
+
+# DD-616: File.pm and Folder.pm each carried their own byte-identical copy of the
+# alias cache key computation. The shared implementation lives here, on the registry
+# whose roots it reads, because both callers already load this module and the value
+# is derived entirely from a paths object.
+{
+    can_ok( 'Developer::Dashboard::PathRegistry', 'alias_cache_key' );
+
+    my $paths = Developer::Dashboard::PathRegistry->new;
+    my $key   = Developer::Dashboard::PathRegistry::alias_cache_key($paths);
+    ok( defined $key, 'alias_cache_key returns a defined value for a real registry' );
+
+    is( Developer::Dashboard::PathRegistry::alias_cache_key(undef), '',
+        'alias_cache_key is empty for an undefined registry' );
+    is( Developer::Dashboard::PathRegistry::alias_cache_key('not-an-object'), '',
+        'alias_cache_key is empty for an unblessed scalar' );
+    is( Developer::Dashboard::PathRegistry::alias_cache_key( {} ), '',
+        'alias_cache_key is empty for an unblessed hash reference' );
+}
+
 done_testing;
 
 __END__

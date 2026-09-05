@@ -10,6 +10,7 @@ use Cwd qw(abs_path getcwd);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
+use Scalar::Util qw(blessed);
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::Platform qw(passwd_user_name);
 
@@ -166,6 +167,25 @@ sub project_runtime_root {
 sub runtime_roots {
     my ($self) = @_;
     return reverse $self->runtime_layers;
+}
+
+# alias_cache_key($paths)
+# Builds the cache key that tells configured-alias consumers whether the runtime
+# layout they cached against is still the current one. Shared by File.pm and
+# Folder.pm, which each carried a byte-identical copy of this computation before
+# DD-616; it lives here because the value is derived entirely from a paths object
+# and both callers already load this module.
+# Called as a plain function, not a method, because it must return an empty key
+# for a missing or unblessed argument rather than dying on a method call.
+# Input: a Developer::Dashboard::PathRegistry object, or any value at all.
+# Output: newline-joined project root and runtime roots, or the empty string when
+#         the argument is not a blessed object or its accessors fail.
+sub alias_cache_key {
+    my ($paths) = @_;
+    return '' if !$paths || !blessed($paths);
+    my $project_root  = eval { $paths->current_project_root } || '';
+    my @runtime_roots = eval { $paths->runtime_roots } || ();    # uncoverable condition right
+    return join "\n", $project_root, @runtime_roots;
 }
 
 # runtime_layers()
@@ -1368,6 +1388,15 @@ every skill-namespaced route, ajax, and static asset path.
 Report the layered runtime directories. C<runtime_root> and C<cache_root> follow the deepest discovered layer, which is the write target for layered runtime state. C<home_runtime_root> and C<home_cache_root> stay pinned to the home layer, for per-user artifacts that a fixed external consumer reads from one well-known path - the generated shell-startup caches a login profile dot-sources are the motivating case, because a project-layer copy of those would be a cache no refresh ever rewrites.
 
 =for comment FULL-POD-DOC START
+
+=head2 alias_cache_key
+
+Build the cache key that tells configured-alias consumers whether the runtime
+layout they cached against is still the current one. Called as a plain function
+rather than a method, because it must return an empty key for a missing or
+unblessed argument instead of dying on a method call. C<Developer::Dashboard::File>
+and C<Developer::Dashboard::Folder> both delegate to it; each previously carried
+its own identical copy of the computation.
 
 =head1 PURPOSE
 

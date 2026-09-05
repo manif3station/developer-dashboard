@@ -349,6 +349,17 @@ is( Developer::Dashboard::File::_configured_alias_cache_key( DDFileCoverRegistry
 
 chdir $orig_cwd or die "Unable to chdir back to $orig_cwd: $!";
 
+
+# DD-616: File's copy was replaced by an unwrap to the paths object followed by
+# delegation to the shared Developer::Dashboard::PathRegistry::alias_cache_key.
+{
+    my $paths = Developer::Dashboard::PathRegistry->new;
+    my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
+    is( Developer::Dashboard::File::_configured_alias_cache_key($files),
+        Developer::Dashboard::PathRegistry::alias_cache_key($paths),
+        'File unwraps to paths and delegates the alias cache key' );
+}
+
 done_testing;
 
 __END__
