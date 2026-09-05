@@ -29,6 +29,7 @@ use Developer::Dashboard::ProcessSupervision qw(
     _process_exists
     _read_process_env_marker
     _reap_child_process
+    _powershell_command
     _rename_path
     _replace_state_file
     _unlink_path
@@ -1279,7 +1280,7 @@ sub _replace_path_via_powershell {
     # sub returns.
     local $?;
     return ( 0, '' ) if !is_windows();
-    my $powershell = $self->_powershell_command;
+    my $powershell = _powershell_command;
     return ( 0, 'Unable to resolve a PowerShell executable for Windows state-file replacement' )
       if !defined $powershell || $powershell eq '';
     my @script = (
@@ -1350,7 +1351,7 @@ sub _spawn_windows_background_command {
     # without this guard that stays set in the caller's process after this
     # sub returns.
     local $?;
-    my $powershell = $self->_powershell_command;
+    my $powershell = _powershell_command;
     die "Unable to launch detached Windows collector process: powershell is unavailable\n"
       if !defined $powershell || $powershell eq '';
 
@@ -1377,23 +1378,6 @@ sub _spawn_windows_background_command {
     return $pid;
 }
 
-# _powershell_command()
-# Resolves the Windows PowerShell executable path for state-file replacement
-# fallback commands, even when PATH has not been normalized yet inside a
-# pseudo-forked collector branch.
-# Input: none.
-# Output: executable path string or empty string when no usable PowerShell
-# binary can be found.
-sub _powershell_command {
-    my ($self) = @_;
-    return '' if !is_windows();
-    return command_in_path('powershell')     if command_in_path('powershell');
-    return command_in_path('powershell.exe') if command_in_path('powershell.exe');
-    my $system_root = $ENV{SystemRoot} || 'C:\\Windows';
-    my $fallback = File::Spec->catfile( $system_root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe' );
-    return $fallback if -f $fallback;
-    return '';
-}
 
 
 # _cleanup_loop_files($name)

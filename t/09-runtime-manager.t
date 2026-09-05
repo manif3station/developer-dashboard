@@ -2037,6 +2037,11 @@ END {
 {
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     no warnings 'redefine';
+    # DD-753: RuntimeManager resolves the PowerShell executable now instead of
+    # hardcoding it. Forcing OS_NAME makes is_windows true, but command_in_path
+    # still finds nothing on this host and C:\Windows does not exist, so the
+    # resolver returns '' and the branch is skipped. Stub it, as t/100 does.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
         return (
             "2372\n5868\n2372\n",
@@ -2054,6 +2059,11 @@ END {
 {
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     no warnings 'redefine';
+    # DD-753: RuntimeManager resolves the PowerShell executable now instead of
+    # hardcoding it. Forcing OS_NAME makes is_windows true, but command_in_path
+    # still finds nothing on this host and C:\Windows does not exist, so the
+    # resolver returns '' and the branch is skipped. Stub it, as t/100 does.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
         return (
             '',
@@ -3514,6 +3524,11 @@ SCRIPT
 {
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     no warnings 'redefine';
+    # DD-753: RuntimeManager resolves the PowerShell executable now instead of
+    # hardcoding it. Forcing OS_NAME makes is_windows true, but command_in_path
+    # still finds nothing on this host and C:\Windows does not exist, so the
+    # resolver returns '' and the branch is skipped. Stub it, as t/100 does.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
         return ( '', 'ERROR: The process "3996" not found.', 128 );
     };
@@ -3527,6 +3542,11 @@ SCRIPT
 {
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     no warnings 'redefine';
+    # DD-753: RuntimeManager resolves the PowerShell executable now instead of
+    # hardcoding it. Forcing OS_NAME makes is_windows true, but command_in_path
+    # still finds nothing on this host and C:\Windows does not exist, so the
+    # resolver returns '' and the branch is skipped. Stub it, as t/100 does.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
         return ( "taskkill: command not found\n", '', 127 );
     };
@@ -3540,6 +3560,11 @@ SCRIPT
 {
     local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32';
     no warnings 'redefine';
+    # DD-753: RuntimeManager resolves the PowerShell executable now instead of
+    # hardcoding it. Forcing OS_NAME makes is_windows true, but command_in_path
+    # still finds nothing on this host and C:\Windows does not exist, so the
+    # resolver returns '' and the branch is skipped. Stub it, as t/100 does.
+    local *Developer::Dashboard::RuntimeManager::_powershell_command = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
         return ( '', 'taskkill hard failure', 5 );
     };

@@ -269,6 +269,11 @@ for my $case (@env_int_cases) {
     no warnings 'redefine';
     my @cap;
     local *Developer::Dashboard::RuntimeManager::is_windows                        = sub { return 1 };
+    # DD-753: the PowerShell executable is resolved now rather than hardcoded, so
+    # forcing is_windows is not enough - without a resolvable command the sub
+    # returns early and the three fallback assertions below would pass for the
+    # WRONG reason (empty from the early return, not from the fallback path).
+    local *Developer::Dashboard::RuntimeManager::_powershell_command              = sub { return 'pwsh' };
     local *Developer::Dashboard::RuntimeManager::_listener_pids_for_port_via_netstat = sub { return () };
     local *Developer::Dashboard::RuntimeManager::capture                           = sub (&) { return @cap };
 

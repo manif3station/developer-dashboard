@@ -24,6 +24,7 @@ use Developer::Dashboard::ProcessSupervision qw(
     _overwrite_state_file_in_place
     _pid_is_running
     _pid_namespace_id
+    _powershell_command
     _powershell_single_quote
     _process_exists
     _read_process_env_marker
@@ -2293,8 +2294,11 @@ sub _replace_path_via_powershell {
           . _powershell_single_quote($target)
           . ' -Force',
     );
+    my $powershell = _powershell_command;
+    return ( 0, 'Unable to resolve a PowerShell executable for the dashboard runtime' )
+      if !length $powershell;
     my ( $stdout, $stderr, $exit_code ) = capture {
-        system 'powershell', '-NoLogo', '-NoProfile', '-Command', join '; ', @script;
+        system $powershell, '-NoLogo', '-NoProfile', '-Command', join '; ', @script;
         return $? >> 8;
     };
     return ( 1, '' ) if $exit_code == 0;
@@ -2464,8 +2468,11 @@ sub _spawn_windows_background_command {
           . ' -PassThru',
         q{[Console]::Out.WriteLine($job.Id)},
     );
+    my $powershell = _powershell_command;
+    die "Unable to launch detached Windows web process: powershell is unavailable\n"
+      if !length $powershell;
     my ( $stdout, $stderr, $exit_code ) = capture {
-        system 'powershell', '-NoLogo', '-NoProfile', '-Command', join '; ', @script;
+        system $powershell, '-NoLogo', '-NoProfile', '-Command', join '; ', @script;
         return $? >> 8;
     };
     die "Unable to launch detached Windows web process: $stderr$stdout"
@@ -2615,9 +2622,11 @@ sub _ps_processes {
     # status.
     local $?;
     if (is_windows()) {
+        my $powershell = _powershell_command;
+        return () if !length $powershell;
         my ( $stdout, undef, $exit_code ) = capture {
             system(
-                'powershell',
+                $powershell,
                 '-NoLogo',
                 '-NoProfile',
                 '-Command',
@@ -2676,9 +2685,11 @@ sub _listener_pids_for_port {
     local $?;
     return () if !$port;
     if (is_windows()) {
+        my $powershell = _powershell_command;
+        return () if !length $powershell;
         my ( $stdout, undef, $exit_code ) = capture {
             system(
-                'powershell',
+                $powershell,
                 '-NoLogo',
                 '-NoProfile',
                 '-Command',
