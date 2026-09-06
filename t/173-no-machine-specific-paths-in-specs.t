@@ -3,6 +3,13 @@ use strict;
 use warnings;
 use Test::More;
 use File::Spec;
+# File::Temp, not a pid-based name in a shared tmpdir. A predictable filename in
+# a world-writable directory is CWE-377: another local user can pre-create the
+# path and the test then reads content it did not write. DD-798 is the same
+# class in a shipped refusal's advice, found by the peer session the same
+# evening; this file acquired it by writing three fixtures the convenient way,
+# and the perlsec review of its own card is what caught it.
+use File::Temp qw(tempfile);
 
 # DD-800. A spec must not hardcode an absolute home directory. Two files did -
 # t/05-cli-smoke.t and t/31-powershell-bootstrap-cache.t each prepended a
@@ -149,8 +156,8 @@ is( scalar @offenders, 0,
 # offence and one that is only a comment about an offence, and require it to
 # tell them apart - the distinction the whole file rests on.
 {
-    my $tmp = File::Spec->catfile( File::Spec->tmpdir, "dd800-guard-control-$$.pl" );
-    open my $fh, '>:encoding(UTF-8)', $tmp or die "cannot write $tmp: $!";
+    my ( $fh, $tmp ) = tempfile( "dd800-guard-control-XXXXXXXX", SUFFIX => '.pl', TMPDIR => 1 );
+    binmode $fh, ':encoding(UTF-8)';
     print {$fh} <<'ENDOFFIXTURE';
 # this comment mentions /home/someone/perl5/lib/perl5 and must NOT be flagged
 my $bad = '/home/someone/perl5/lib/perl5';
@@ -168,8 +175,8 @@ ENDOFFIXTURE
 # body is a STRING holding source text; flagging it would make any file that
 # carries a fixture unfixable except by deleting the fixture.
 {
-    my $tmp = File::Spec->catfile( File::Spec->tmpdir, "dd800-guard-heredoc-$$.pl" );
-    open my $fh, '>:encoding(UTF-8)', $tmp or die "cannot write $tmp: $!";
+    my ( $fh, $tmp ) = tempfile( "dd800-guard-heredoc-XXXXXXXX", SUFFIX => '.pl', TMPDIR => 1 );
+    binmode $fh, ':encoding(UTF-8)';
     print {$fh} <<'ENDOFHEREDOCFIXTURE';
 my $fixture = <<'INNER';
 my $bad = '/home/someone/perl5/lib/perl5';
@@ -191,8 +198,8 @@ ENDOFHEREDOCFIXTURE
 # helper, a line matcher - is testing path handling, and forbidding the literal
 # there would forbid the test. Five real specs do exactly this.
 {
-    my $tmp = File::Spec->catfile( File::Spec->tmpdir, "dd800-guard-env-$$.pl" );
-    open my $fh, '>:encoding(UTF-8)', $tmp or die "cannot write $tmp: $!";
+    my ( $fh, $tmp ) = tempfile( "dd800-guard-env-XXXXXXXX", SUFFIX => '.pl', TMPDIR => 1 );
+    binmode $fh, ':encoding(UTF-8)';
     print {$fh} <<'ENDOFENVFIXTURE';
 is( $obj->_display_path('/home/dev/x'), '/home/dev/x', 'test data, not configuration' );
 return '/home/dev/bin/cmd' if $name eq 'cmd';
