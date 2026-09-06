@@ -209,10 +209,19 @@ if [ -z "$db_age_days" ]; then
   exit 4
 fi
 
-# 14, stricter than upstream's 30 on purpose: 30 days is precisely the age at which
+# 21, stricter than upstream's 30 on purpose: 30 days is precisely the age at which
 # this project's database silently lacked the advisory a clean verdict was cited to
 # disprove. CI installs CPANSA-DB fresh on every run, so this cannot wedge a runner.
-db_age_limit="${CPAN_AUDIT_FRESH_DAYS:-14}"
+#
+# 21 rather than a rounder number because the limit must EXCEED THE LARGEST REAL GAP
+# BETWEEN PUBLICATIONS, or the gate refuses during a normal quiet spell with no newer
+# database to install. Measured from the CPAN index on 2026-09-06 over 40 CPANSA-DB
+# releases across 223 days: median gap 4, mean 5.7, MAXIMUM 18, one gap of 39 over
+# 14 days and none over 30. That 18 is the max of a 223-day window - one sample of
+# the tail, not the tail - so 21 is "above the largest gap seen", not a proven
+# ceiling. Keep this in step with DEFAULT_MAX_DB_AGE_DAYS in
+# script/cpan-audit-declared-chain; they are one policy expressed in two languages.
+db_age_limit="${CPAN_AUDIT_FRESH_DAYS:-21}"
 if ! printf '%s' "$db_age_limit" | grep -qE '^[0-9]+$'; then
   printf 'did not audit: CPAN_AUDIT_FRESH_DAYS is set to %s, which is not a whole number of days\n' "$db_age_limit" >&2
   exit 4
@@ -223,8 +232,11 @@ fi
 printf 'advisory database: %s (%s days old)\n' "$db_stamp" "$db_age_days"
 
 if [ "$db_age_days" -gt "$db_age_limit" ]; then
-  printf "did not audit: advisory database is %s days old (%s) and the limit is %s; refresh it with 'cpan -D CPANSA::DB', or raise CPAN_AUDIT_FRESH_DAYS if you accept auditing against a corpus that old\n" \
+  printf 'did not audit: advisory database is %s days old (%s) and the limit is %s. Refresh it WITHOUT disturbing a shared CPAN tree:\n' \
     "$db_age_days" "$db_stamp" "$db_age_limit" >&2
+  printf '    cpanm --local-lib-contained /tmp/dd-fresh-cpansa CPANSA::DB\n' >&2
+  printf '    PERL5LIB=/tmp/dd-fresh-cpansa/lib/perl5:$PERL5LIB %s %s\n' "$0" "$perl5_root" >&2
+  printf 'Or set CPAN_AUDIT_FRESH_DAYS if you accept auditing against a corpus that old.\n' >&2
   exit 4
 fi
 
