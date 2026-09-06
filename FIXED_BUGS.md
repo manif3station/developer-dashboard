@@ -1,6 +1,59 @@
 # Fixed Bugs
 
 
+## 4.30
+
+- **DD-764**: a stored session whose `expires_at` was absent, empty, or "0"
+  was accepted as valid forever by `SessionStore::from_cookie` and skipped by
+  `sweep_expired`, so the record was both immortal and uncollectable - while a
+  malformed timestamp already failed closed, because `_iso8601_to_epoch`
+  returns 0 for anything not matching its strict ISO-8601 pattern. Both
+  truthiness guards are gone, so an absent expiry now compares the same way
+  malformed input already did: the session is rejected and deleted on use, and
+  the file is collected by the sweep. `create()` always writes `expires_at`,
+  so reaching this needed a record written outside the product's own path - a
+  hand-edit, a restore, or an older schema - making it a latent fail-open on a
+  session bearer credential rather than an exploitable bug.
+- **DD-737**: a collectors config entry carrying only a name and an interval
+  (no `command` and no `code`) was forked into a loop worker anyway; that
+  worker died on its first tick with "Collector <name> missing command or
+  code" and on every tick after that, forever, without ever disabling itself,
+  leaving an unreaped process behind each time it died on a host whose PID 1
+  does not reap orphans. Reproduced in the project's container image, where
+  two `dashboard restart` cycles left three or more defunct "dashboard
+  collector" entries that later restarts never cleared. `start_loop` now runs
+  the same command/code validation `_collector_source` already performed per
+  tick, before writing a pidfile or forking, so a misconfigured collector
+  fails immediately with that error and spawns no process.
+- **DD-753**: `RuntimeManager` launched PowerShell by hardcoding the bare
+  string `powershell` at four call sites, while `CollectorRunner` did the same
+  job through a resolver that tries PATH under both spellings, then the
+  SystemRoot install path, and names the missing executable when none
+  resolves. On a Windows host where PowerShell is not on PATH, the collector
+  said what was wrong and the dashboard runtime failed through `system()` into
+  an empty capture, indistinguishable from a legitimately empty result. The
+  resolver now lives once in `ProcessSupervision` and is used by both modules,
+  so all four runtime call sites resolve PowerShell the same way, and each
+  reports the missing executable in the shape its own contract requires - a
+  status pair, a die, or an empty list. Verified on Linux only; no Windows
+  guest was available, and the card records that platform verification as
+  still owed.
+- **DD-738**: `d2()`'s AUTOLOAD handled only a single word and shelled out
+  immediately, returning a plain string, so a second method call on it -
+  `d2()->collector->list` - died as a bareword class lookup. A bareword method
+  now starts a lazy proxy that accumulates dotted segments at any depth,
+  mirroring the CLI's own dotted dispatch, and nothing executes until the
+  chain is terminated with a call: `d2()->foo->bar->()` runs
+  `dashboard foo.bar`. An un-terminated chain is inert in boolean, numeric and
+  string context and stringifies to something obviously non-executing ("d2
+  proxy: foo.bar"), so a stray debug print cannot run a command; underscores
+  in a segment are rewritten to hyphens, since a Perl method name cannot carry
+  a hyphen and the hyphenated half of the CLI was otherwise unreachable
+  through the chained form. INCOMPATIBLE CHANGE: this reaches the single-word form with it -
+  `d2->doctor` now needs the trailing `->()` to execute - while `d2->run(...)`,
+  which takes its words as separate arguments and passes them through
+  verbatim, is unaffected.
+
 ## 4.29
 
 - **DD-585/589/590/591/592/593**: six query functions across

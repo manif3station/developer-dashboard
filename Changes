@@ -1,3 +1,383 @@
+4.30  2026-09-05
+
+  - DD-764: a stored session record whose expires_at was absent, empty or "0"
+    was accepted as valid forever by SessionStore::from_cookie and skipped by
+    sweep_expired, so the record was both immortal and uncollectable - while a
+    malformed timestamp already failed closed, because _iso8601_to_epoch
+    returns 0 for anything not matching its strict ISO-8601 pattern. Both
+    truthiness guards are gone, so an absent expiry now compares the same way
+    malformed input already did: the session is rejected and deleted on use,
+    and the file is collected by the sweep. create() always writes expires_at,
+    so reaching this needed a record written outside the product's own path -
+    a hand-edit, a restore, or an older schema - which makes it a latent
+    fail-open on a session bearer credential rather than an exploitable bug.
+  - DD-737: a collectors config entry carrying only a name and an interval (no
+    'command' and no 'code') was forked into a loop worker anyway. That worker
+    died on its very first tick with "Collector <name> missing command or
+    code" and on every tick after that, forever, without ever disabling
+    itself, leaving an unreaped process behind each time it died on a host
+    whose PID 1 does not reap orphans. Reproduced in the project's container
+    image, where two `dashboard restart` cycles left three or more defunct
+    "dashboard collector" entries that later restarts never cleared.
+    start_loop now runs the same command/code validation _collector_source
+    already performed per tick, before writing a pidfile or forking, so a
+    misconfigured collector fails immediately with that error and spawns no
+    process.
+  - DD-753: RuntimeManager launched PowerShell by hardcoding the bare string
+    'powershell' at four call sites, while CollectorRunner did the same job
+    through a resolver that tries PATH under both spellings, then the
+    SystemRoot install path, and names the missing executable when none
+    resolves. On a Windows host where PowerShell is not on PATH, the collector
+    said what was wrong and the dashboard runtime failed through system() into
+    an empty capture, indistinguishable from a legitimately empty result. The
+    resolver now lives once in ProcessSupervision and is used by both modules,
+    so all four runtime call sites resolve PowerShell the same way, and each
+    reports the missing executable in the shape its own contract requires - a
+    status pair, a die, or an empty list. Verified on Linux only: no Windows
+    guest was available, and the card records the platform verification as
+    still owed.
+  - DD-738: d2()'s AUTOLOAD handled only a single word and shelled out
+    immediately, returning a plain string, so a second method call on it -
+    d2()->collector->list - died as a bareword class lookup. A bareword method
+    now starts a lazy proxy that accumulates dotted segments at any depth,
+    mirroring the CLI's own dotted dispatch, and nothing executes until the
+    chain is terminated with a call: d2()->foo->bar->() runs `dashboard
+    foo.bar`. An un-terminated chain is inert in boolean, numeric and string
+    context and stringifies to something obviously non-executing ("d2 proxy:
+    foo.bar"), so a stray debug print cannot run a command; underscores in a
+    segment are rewritten to hyphens, since a Perl method name cannot carry a
+    hyphen and the hyphenated half of the CLI was otherwise unreachable
+    through the chained form. INCOMPATIBLE CHANGE, and it reaches the
+    single-word form too:
+    d2->doctor now needs the trailing ->() to execute. d2->run(...), which
+    takes its words as separate arguments and passes them through verbatim, is
+    unaffected.
+  - DD-616: Developer::Dashboard::File and Developer::Dashboard::Folder each
+    carried their own copy of the computation that builds the configured-alias
+    cache key, so the key and the runtime roots it is derived from could drift
+    apart. Both now delegate to a single
+    Developer::Dashboard::PathRegistry::alias_cache_key, on the registry that
+    owns those roots. Of the five sub names the two modules share across 45
+    lines, none was byte-identical, and the AUTOLOAD and
+    configured-alias-loading pairs were deliberately left alone because they
+    encode a real difference - Folder creates the directory it resolves and
+    File must not create the file it resolves. Behaviour of the installed
+    product is unchanged.
+  - DD-669: nine subroutines shared a name between RuntimeManager and
+    CollectorRunner while having different bodies, so the name asserted a
+    sameness that did not hold and no copy-paste detector could see it. Four
+    are now single implementations in ProcessSupervision -
+    _helper_file_supports_internal_command, _same_pid_namespace
+    (RuntimeManager's _current_pid_namespace_id became dead and was deleted),
+    _close_inherited_fds (a union, since RuntimeManager's preserve_harness
+    guard is a strict superset) and _dashboard_core_helper_path (its command
+    argument is now required, the two copies having differed only in a default
+    no caller in lib/ reached) - for a net -33 lines in lib/: 155 duplicated
+    lines removed, 114 shared added. The remaining five keep their per-class
+    names with the reason recorded beside each, including two that are
+    interface contracts the shared helpers dispatch through and one that
+    diverges because RuntimeManager's side is defective (tracked separately as
+    DD-753). t/160 now derives the divergent set from source and compares it
+    against the declared set, so both a new divergence and a
+    resolved-but-still-declared one fail.
+  - DD-656: tests that chmod a file unreadable and then assert the operation
+    is denied cannot observe a denial when the running process is root, so a
+    container run of the suite reported seven of them as product failures when
+    the mismatch was in the environment, not the code. A new gate,
+    t/168-permission-assertion-guards.t, scans every test file for that shape
+    and was RED at 62 sites across 26 files; each site now probes whether a
+    denial is actually observable - by attempting the operation after the
+    chmod - and skips with a named reason when it is not, replacing earlier
+    guards that tested process identity instead. A follow-up run on
+    ubuntu:24.04, debian:stable-slim and the project image measured that -r
+    still answers true for uid 0 where the open is denied, and that the
+    `filetest` pragma named as the alternative is absent from stock perl on
+    Ubuntu and Debian, so attempting the operation is the form kept.
+    Test-suite work only; no change to shipped code.
+  - DD-725: t/97-pathregistry-coverage.t deliberately writes to /dev/full to
+    exercise a failed flush, but unlike t/103 and t/89 it carried no tolerance
+    for the resulting "unable to close filehandle ... No space left on device"
+    warning, so every full-suite run on a host with /dev/full leaked it to
+    stderr. That block now carries a scoped local $SIG{__WARN__} matching
+    exactly that text - both the close-filehandle phrase and the device clause
+    - and rethrowing anything else. Measured before and after on the same
+    tree: 164 tests and 0 failures both times, stderr lines 1 to 0, with the
+    ENOSPC assertion present and not skipped in both runs. No library code
+    changed: the warning is perl's own notice about an implicit close during
+    die-unwind, not a defect in PathRegistry.
+  - DD-732: t/35-js-fast-check.t asserted npm ci's exit code inside the
+    `if ( !-d node_modules )` branch that performed the install, so the file
+    planned 1..4 on the first run in a tree and 1..3 on every run afterwards -
+    the same file at the same commit reporting a different count depending on
+    a directory it had created itself. That made the whole suite's total a
+    property of the working tree rather than of the commit, presenting as
+    flakiness (17540 once and 17539 four times on one unchanged tree) and
+    hiding any genuine loss of a single test in the noise. The install stays
+    conditional, but the assertion now runs every time and checks the
+    postcondition - that the dependency tree is present - which also catches
+    an install that exits 0 and produces nothing. Verified from both states,
+    with node_modules present and with it removed.
+  - DD-748: in a container without Devel::Cover,
+    t/148-coverage-gate-entrypoint.t failed 29 of 50 assertions and
+    t/151-coverage-gate-launch-boundary.t died after 3 of a planned 9, so a
+    missing optional tool was reported as a test failure rather than an absent
+    prerequisite. Both files now detect Devel::Cover's absence before any plan
+    is declared and skip_all with a reason naming the module, following
+    t/138-coverage-exec-truncation.t which already did this. A new
+    t/170-optional-tooling-skips.t masks the module with an @INC hook in a
+    child process and asserts all three specs skip, name the module, exit 0
+    and abandon no plan - while confirming t/148 and t/151 still run all 59
+    assertions when Devel::Cover is present, so a guard that always skipped
+    would be caught.
+  - DD-766: the behavioural tarball-exclusion block in
+    t/15-release-metadata.t compiled all 17 exclude_match patterns out of
+    dist.ini but applied them to a hardcoded list of 8 sample paths, so 9
+    patterns were compiled, exercised by nothing, and passed silently. Nothing
+    leaked, but a deleted dist.ini line would not have been noticed. Sample
+    paths were added for those nine, and a loop now asserts that every
+    compiled exclusion is matched by at least one sample, so an exclude_match
+    added to dist.ini without a sample fails instead of quietly reducing what
+    the block covers. Added alone, the loop failed for exactly nine patterns;
+    with the samples it reports 17 of 17 exercised, and the pre-existing
+    must_be_shipped assertions are unchanged at 7. Falsified by adding a
+    throwaway exclusion, confirming it went red, and removing it again.
+  - DD-741: CodeQL refuses to run unless its init, autobuild and analyze steps
+    use the same version, but Dependabot opens one pull request per action
+    path - so each bump moved a single step, stranded the other two, and every
+    pull request failed the required "analyze (javascript-typescript)" check
+    with "Loaded a configuration file for version X, but running version Y".
+    It happened three times (4.37.6 to 4.37.7, 4.37.7 to 4.37.8 and 4.37.8 to
+    4.37.9, as PRs 48/49/50) before being fixed at the cause. A Dependabot
+    group scoped to "github/codeql-action*" now makes the family arrive as a
+    single pull request that can pass; the pattern is deliberately
+    family-scoped rather than a blanket wildcard, which would batch every
+    action update so one failure blocked the rest.
+    t/171-dependabot-grouping.t guards the block and was falsified in three
+    directions - removing the block, narrowing it to one path, and widening it
+    to "*" - before being trusted.
+  - DD-655: a recorded gate verdict stored only the HEAD tree hash, so
+    gate-status could tell that a verdict described an older commit but not
+    that it described different uncommitted work - measured on DD-652, where
+    the sandbox's HEAD tree had not moved all night while all six files the
+    card changed hashed to something that tree does not describe. coverage-run
+    now records a working-state fingerprint beside the tree hash - git status
+    --porcelain --untracked-files=no plus git diff HEAD for uncommitted
+    tracked work, and every file under the operator tools directory by
+    relative path and content for the git-ignored tooling - and gate-status
+    compares it with the same expression, so "a different commit" and "the
+    same commit with different uncommitted work" are told apart, while a
+    fingerprint that cannot be computed reports unknown rather than clean. The
+    rejected alternatives are recorded with their reasons: git stash create
+    captures tracked modifications only, and hashing the whole working tree
+    invalidates on every unrelated edit. A follow-up closed a blind spot in
+    the walk itself - a filename containing a newline split into two unreadable
+    non-paths, letting its content change without moving the digest.
+  - DD-696: host exclusivity between gate runs was enforced on only one side:
+    coverage-run serialises by delegating to script/coverage-gate's flock,
+    while run-suite exec'd prove directly and took no lock at all - measured
+    by starting two full suites twelve seconds apart, both of which ran and
+    the second printed no refusal. run-suite now takes an exclusive lock
+    immediately before launching prove, refuses naming the holder rather than
+    waiting, and scopes the lock to the prove run only; script/coverage-gate
+    was deliberately left unchanged here, with that half tracked separately as
+    DD-734.
+  - DD-734: the suite runner has held a host-wide lock since DD-696, while
+    script/coverage-gate locked only a file named after its coverage database
+    (DD-526) - two different files, so neither tool could ever refuse the
+    other, and a suite starting mid-coverage silently invalidated the coverage
+    verdict. The gate now also takes the same host lock the suite runner uses
+    (DD_SUITE_LOCK, default /tmp/dd-gate-host.lock), appended to the database
+    lock rather than replacing it, so two gates given different --database
+    paths still do not refuse each other. Because the suite itself invokes the
+    gate in nine test files, the host lock is skipped when HARNESS_ACTIVE is
+    set, so the gate cannot be refused by the suite that is running it; a
+    follow-up fixed the lock test, whose real-run cases had inherited
+    HARNESS_ACTIVE from prove and were exercising the guard instead of the
+    lock. t/146-coverage-gate-lock.t grew from 9 tests to 15.
+  - DD-744: script/coverage-gate derived its repository from its own file
+    location and chdir'd there, so every relative path after that - the
+    cover_db database and the t/ test directory - resolved in the script's own
+    tree; invoking one checkout's copy from a different working directory ran
+    that first tree's suite and deleted and rebuilt its coverage database,
+    while the run succeeded and named neither tree. The gate now refuses when
+    both the working directory and its own repository are git checkouts and
+    they differ, naming both absolute paths, and it reports the resolved
+    absolute database instead of the configured relative name that was
+    byte-identical whichever tree it landed in. The refusal condition is
+    deliberately narrow so the existing specs' temporary non-checkout
+    repositories still run, and the two roots are compared case-insensitively
+    where the filesystem is case-tolerant so the guard cannot falsely refuse
+    in its own checkout on Windows or a case-tolerant macOS volume. New spec
+    t/169-gate-target-resolution.t covers the refusal, the proceed case, and
+    the absolute database reporting.
+  - DD-729: host-readiness waiting was rewritten from scratch in each session
+    that needed it, and the copies disagreed about what "foreign" means: the
+    in-run sampler counted only a Devel::Cover process while the ad-hoc
+    pre-run waits also matched a foreign workspace path, so a run could be
+    launched as clear by one definition and then classified against the other.
+    There is now a single readiness waiter with a spec, and both mechanisms
+    obtain one definition rather than each carrying a copy. Two recorded
+    claims were corrected by measurement: the path-based definition returns 19
+    processes on this host against 2 for the harness-based one - 18 of them a
+    policy bridge, a `tail -F` and another project's watcher - so a wait using
+    it would never launch, and every contention figure recorded before the
+    definition change now carries a caveat that it cannot be pooled with
+    anything measured after it.
+  - DD-746: the suite runner's in-run sampler counted only Devel::Cover
+    processes, so a competing plain prove was never counted - measured side by
+    side, a /proc scan saw one foreign prove at the same moment the runner
+    wrote FOREIGN_PEAK=0, a marker that reads as "the host was empty".
+    Widening the pattern under DD-729 reversed the defect rather than fixing
+    it: the verdict still called what it saw "a foreign coverage run" that
+    "held the host", while the grep now matched any foreign test or coverage
+    process and being seen in a sample is not evidence of holding anything.
+    The CONTENDED and SLOWED lines now read "a foreign test or coverage
+    process was seen in N of M sampled windows (peak P)", and the marker line
+    carries FOREIGN_PATTERN so every recorded figure states the definition
+    that produced it - without which the eleven figures gathered under the old
+    narrow pattern cannot be pooled with new ones.
+  - DD-727: the gate-status reporter decided whether a suite verdict stood
+    from SUITE_EXIT and GATE_EXIT alone, and read none of the contention
+    markers run-suite writes into the same log - a grep for CONTENDED, SLOWED,
+    FOREIGN_PEAK, FOREIGN_SAMPLES and WINDOW_SAMPLES across the whole tool
+    returned zero matches - so a log whose own line read "this verdict
+    competed for the host and does not stand" was reported as a finished gate,
+    in the reassuring direction. Corroborated four times on the card (DD-682
+    at 49 of 55 contended windows, DD-733 at 50 of 56, and both of DD-744's
+    runs at 34 of 44 and 35 of 45), all of which passed and all of which were
+    discarded by hand. The reporter now carries run-suite's own classification
+    rather than re-deriving the threshold in a second place: a CONTENDED line
+    overrides SUITE_EXIT and the verdict is reported as not standing, a SLOWED
+    line is recorded without invalidating, and the three states - passed, did
+    not stand, could not look - stay distinct, so broken code remains
+    distinguishable from inadmissible evidence.
+  - DD-750: the coverage tool's host-contention sampler excluded only its own
+    process group, while the gate it launches runs under setsid in a different
+    one - and a coverage run's children are Devel::Cover processes by
+    construction, so the count was inflated in every window of every real run
+    and no coverage verdict on this host could come out uncontended. Measured
+    with a control pair at identical ambient load, a stand-in gate spawning no
+    Devel::Cover-shaped child gave FOREIGN_PEAK=6 and one spawning a single
+    child gave 7; after the fix both read 2. Rather than patch it in place,
+    the private copy of the predicate was replaced by a call to the shared
+    definition, which also supplies four protections that copy had never
+    received: the process-group exclusion list, the quoted-pattern grep, the
+    pattern-compile check and the empty-process-table check.
+  - DD-761: the Docker image the platform gate runs against was built FROM
+    itself and tagged back to the same name, so rebuilds layered on the
+    previous build instead of starting clean, and a checked-in tarball that
+    nothing regenerated left the image three weeks behind master.
+    String::Compare::ConstantTime - declared as a runtime dependency in
+    cpanfile, dist.ini and Makefile.PL, and loaded by Auth.pm at compile time
+    - was absent from the image, so every path through Auth.pm died there and
+    `dashboard encode`/`decode` exited 2 for every input; the failure first
+    surfaced as a plausible-looking empty-string property-test
+    counterexample, and only a control run (encode("hello") failing
+    identically) showed the module was never loading at all. The image build
+    now pins a real base, regenerates its tarball from master, and fails at
+    build time when any dependency cpanfile declares cannot load. No shipped
+    code changed: the dependency was always declared correctly, and the fix
+    lives in the operator's local image-build directory, which the
+    distribution excludes.
+  - DD-682: the scheduled repository hunters fingerprinted a finding's whole
+    item set, so any change of membership refiled every member: 28 filed cards
+    carried only 11 distinct findings, 17 of them redundant refs, with
+    "modules over 1500 lines" filed seven times in three days. Card titles
+    also carried the item count, so one finding appeared as "(6)" and "(7)"
+    and no title match could tell they were the same. Findings are now
+    fingerprinted per item and only unreported items are filed, titles carry
+    no count, and a new --report-all mode empties the ledger for the run so a
+    card's recorded reproduce command prints the finding instead of "0 card(s)
+    raised". Operator-local board automation only; no shipped code was
+    touched.
+  - DD-733: the repository's internal "what next" helper encoded a picture of
+    the board that had drifted in four measured ways: it offered a card the
+    owner had explicitly deferred through two answered-and-marked questions,
+    never proposed work from the buglist, new-enhancements or backlog columns,
+    was blind to the researching, analysing and documentation columns so its
+    own "never start something new while something is claimed" rule could not
+    fire, and asserted every backlog card was parked on a condition when 24 of
+    27 carried none. It now consults per-card policy declines when judging
+    whether a candidate is workable, covers those columns in both its
+    in-flight and candidate loops, and drops the false parked claim; its
+    accompanying spec grew from 15 assertions to 35.
+  - DD-742: the operator next-action guard listed four columns as in-flight
+    (in-progress, researching, analysing, documentation) while the board
+    declares eleven working columns, so a card at a later gate did not
+    suppress a new recommendation: observed 2026-09-02 with a card in
+    unit-test, the guard answered "DD-659 is waiting to be started. Claim it
+    and work it". It now asks the board, where required_actions > 0 selects
+    exactly the eleven working columns, so a twelfth column needs no code
+    change, and an empty result fails into the existing could-not-look path
+    rather than reporting that nothing is in flight.
+  - DD-747: the next-action helper walked the pick-next column order but
+    applied no ordering within a column: its candidate listing returns refs in
+    ascending order, so the loop always took the oldest workable card.
+    Measured on 2026-09-02, it named DD-637 (priority 2) as the next thing to
+    do while DD-744 (priority 4) sat unworked in the same column. The tool now
+    fetches ref and priority once per run and sorts each column's candidates
+    by descending priority before picking.
+  - DD-756: the hourly policy sweep compares the board's live policy set
+    against the project's policy manifest, and the two records had drifted
+    across the board upgrades: 61 policies were declared on the board while
+    the manifest held 32 declared and 2 declined, with ten rules
+    (card-changed-by-owner, agent-still, card-agentless, task-unlinked,
+    task-changed, job-due, task-card-mismatch, monitor-dead, monitor-output,
+    monitor-silent) present on the board and absent from the manifest, so the
+    sweep exited 1 every hour asking for judgements that had already been
+    made. Each of the ten is now judged and recorded in the manifest with its
+    reason, and the sweep returns to exit 0. The manifest and the sweep are
+    operator-local tooling; nothing in the installed distribution changes.
+  - DD-679: nothing walked the working copies on the development host, so work
+    sitting on disk that no card knew about went unnoticed: three checkouts
+    were found holding content not on master, two of them belonging to cards
+    already in terminal columns. A new developer-documentation page records
+    the measured layout - 169 registered worktrees split 32/100/36 across
+    three roots, one of them inside the main checkout - and the two identity
+    tests a checkout must satisfy before anything reports on it, since a clone
+    of this repository fails a git-common-dir check while a
+    correctly-registered worktree of an unrelated project can sit in our own
+    superseded sandbox root. It also records why "this directory differs from
+    master" is the wrong question: scored by hand against three cases it gave
+    one true finding and two false alarms, because a stale tree routinely
+    holds a superseded draft, so the sweep asks whether the commit carrying
+    the card's ref landed instead.
+  - DD-659: the development host-exclusivity rule was written down but not
+    scoped, and a hand-written per-session wrapper had held a host lock across
+    an entire gate chain - 2529 seconds, with its prove child long since
+    exited, while another session's twelve-minute suite waited over forty
+    minutes. A new development-process page records the convention that such a
+    lock is acquired immediately before the work and released when that
+    process exits, notes that run-suite and coverage-gate already scope this
+    way (per run and per coverage database respectively), and states the two
+    limits run-scope does not remove: a waiter cannot tell a deliberate hold
+    from a hang, and it does not prevent starvation between waiters using
+    different strategies. No code changed - the offending wrapper was
+    per-session and no longer exists.
+  - DD-757: two places in the repository explained that docs/ never reaches
+    the release tarball because dist.ini's [GatherDir] gathers under doc/
+    (singular) and never looks at docs/ (plural). That reason is false:
+    [GatherDir] declares no root, so it gathers the whole distribution root,
+    and docs/ is kept out by one explicit line, dist.ini's
+    `exclude_match = ^docs/`, which neither artifact mentioned. The conclusion
+    itself was never wrong and had been checked by building the distribution
+    before and after and finding zero docs/ entries both times; only the
+    attribution was wrong, and a reader trusting it could delete that exclude
+    line as redundant, after which docs/ would ship. Both now name the line
+    and state plainly that removing it ships docs/, cross-referencing the
+    earlier case (DD-401) where a git-ignored file still reached a local 4.22
+    tarball because dzil gathers from disk rather than git.
+  - DD-776: since Tira 5.77 the board tool raises its own card whenever it is
+    upgraded, but no written procedure existed for working one, so each review
+    invented its own checklist. An internal documentation page now records
+    what that ticket actually asks - that nothing is left undeclared, and that
+    no already-declared policy would be refused by a validation the upgrade
+    added - and what it does not ask, since there is no per-version manifest
+    to diff against. The 5.56 to 5.77 review it was written from found
+    `tira.policy.undeclared` empty and none of this project's 61 declared
+    policies setting --age on the eighteen rules 5.61 gave forbids => ['age'],
+    so nothing needed correcting.
+
 4.29  2026-08-18
 
   - DD-585/589/590/591/592/593: six query functions across CollectorRunner.pm,
