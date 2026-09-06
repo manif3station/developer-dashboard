@@ -682,6 +682,16 @@ from a database it cannot vouch for, and the refusal names the fix.
 The threshold is C<CPAN_AUDIT_FRESH_DAYS>, which is C<CPAN::Audit>'s own variable
 rather than a private one, so setting it moves upstream's freshness warning and
 this refusal together instead of leaving two thresholds to disagree in silence.
+The refusal names a way forward, because a refusal with no way forward gets
+worked around rather than followed. That recipe creates its own directory with
+C<mktemp -d> and never names a fixed path: a fixed path under world-writable
+F</tmp> is predictable, C<cpanm> reuses an existing directory rather than
+refusing it, and the next line of the recipe puts that directory B<first> on
+C<PERL5LIB>. Recommending it would mean a security tool advising the user to
+load Perl from a location they do not control (CWE-377, CWE-378). The audited
+root is still echoed back at the end of the recipe so the command can be re-run
+as printed - that path is the caller's own argument, not one this gate invents.
+
 It defaults here to B<21 days> - stricter than upstream's 30, because 30 days is
 precisely the age at which this project's database lacked the advisory a clean
 verdict was later cited to disprove.
