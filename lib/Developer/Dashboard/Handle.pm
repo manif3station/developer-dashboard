@@ -10,7 +10,7 @@ use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::Config;
 use Developer::Dashboard::JSON qw(json_decode);
 
-our $VERSION = '4.29';
+our $VERSION = '4.30';
 
 our $AUTOLOAD;
 
@@ -258,7 +258,7 @@ __END__
 Developer::Dashboard::Handle - in-process proxy for the dashboard/d2 CLI
 
 =head1 VERSION
-4.29
+4.30
 
 =head1 PURPOSE
 
