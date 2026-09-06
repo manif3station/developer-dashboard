@@ -16,7 +16,7 @@ plan skip_all => "audit gate not present at $GATE" if !-f $GATE;
 
 # WHY THIS FILE EXISTS (DD-567)
 #   Five consecutive merges landed on master with no test verdict and no coverage
-#   verdict. CI step 7 - "Audit isolated Perl dependencies" - failed because the
+#   verdict. CI step 7 - "Audit isolated dependency root" - failed because the
 #   PERL INTERPRETER had an advisory (CVE-2026-15534 against 5.44.0), and its
 #   failure skipped steps 8 through 11: the declared-chain audit, the test run and
 #   the coverage gate. Every local run reported PASS throughout, which is exactly
@@ -236,7 +236,7 @@ result.
 =head1 WHAT USES IT
 
 The suite, through C<prove -lr t>. It exercises C<script/cpan-audit-project>,
-which CI runs as the "Audit isolated Perl dependencies" step of the Test
+which CI runs as the "Audit isolated dependency root" step of the Test
 workflow.
 
 =head1 EXAMPLES
