@@ -234,8 +234,9 @@ printf 'advisory database: %s (%s days old)\n' "$db_stamp" "$db_age_days"
 if [ "$db_age_days" -gt "$db_age_limit" ]; then
   printf 'did not audit: advisory database is %s days old (%s) and the limit is %s. Refresh it WITHOUT disturbing a shared CPAN tree:\n' \
     "$db_age_days" "$db_stamp" "$db_age_limit" >&2
-  printf '    cpanm --local-lib-contained /tmp/dd-fresh-cpansa CPANSA::DB\n' >&2
-  printf '    PERL5LIB=/tmp/dd-fresh-cpansa/lib/perl5:$PERL5LIB %s %s\n' "$0" "$perl5_root" >&2
+  printf '    DIR=$(mktemp -d)\n' >&2
+  printf '    cpanm --local-lib-contained "$DIR" CPANSA::DB\n' >&2
+  printf '    PERL5LIB="$DIR/lib/perl5:$PERL5LIB" %s %s\n' "$0" "$perl5_root" >&2
   printf 'Or set CPAN_AUDIT_FRESH_DAYS if you accept auditing against a corpus that old.\n' >&2
   exit 4
 fi

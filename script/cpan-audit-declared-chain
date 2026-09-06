@@ -232,8 +232,9 @@ sub _corpus_report {
         line    => $line,
         refusal => sprintf(
             "the advisory database is %d days old (%s) and the limit is %d. Refresh it WITHOUT disturbing a shared CPAN tree:\n"
-              . "    cpanm --local-lib-contained /tmp/dd-fresh-cpansa CPANSA::DB\n"
-              . "    PERL5LIB=/tmp/dd-fresh-cpansa/lib/perl5:\$PERL5LIB %s %s\n"
+              . "    DIR=\$(mktemp -d)\n"
+              . "    cpanm --local-lib-contained \"\$DIR\" CPANSA::DB\n"
+              . "    PERL5LIB=\"\$DIR/lib/perl5:\$PERL5LIB\" %s %s\n"
               . "Or set CPAN_AUDIT_FRESH_DAYS if you accept auditing against a corpus that old.",
             $age, $shown, $limit, $0, ( defined $audited_root ? $audited_root : '<root>' )
         )

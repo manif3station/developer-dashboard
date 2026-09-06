@@ -326,11 +326,31 @@ my $REFUSAL = qr/advisory database is \d+ days? old .* and the limit is \d+/i;
     for my $case ( [ 'declared-chain', $perl_out ], [ 'cpan-audit-project', $bash_out ] ) {
         my ( $name, $out ) = @{$case};
 
-        # AC-1: no absolute /tmp path anywhere in the advice. Deliberately wider than
-        # the one name that was there - banning only dd-fresh-cpansa would be satisfied
-        # by inventing a different fixed name, which is the same defect renamed.
-        unlike $out, qr{(?<![\w/])/tmp/\S+},
-          "$name refusal names no absolute /tmp path";
+        # AC-1: no FIXED /tmp path in the RECOMMENDED COMMANDS. Scoped to the recipe
+        # lines rather than the whole message, and that narrowing was forced by the
+        # test failing: the gate legitimately echoes the root it was asked to audit,
+        # and in this spec that root IS a tempdir under /tmp. A whole-output ban
+        # therefore reported a defect that did not exist - the assertion was wrong,
+        # not the code. Still deliberately wider than the one name that was there,
+        # because banning only dd-fresh-cpansa is satisfied by inventing a different
+        # fixed name, which is the same defect renamed.
+        my @advice = grep { /^\s{4}\S/ } split /\n/, $out;
+
+        # The property is NOT "no /tmp appears" - the last recipe line ends with the
+        # root the CALLER asked to audit, echoed back so the command can be re-run,
+        # and in this spec that root is itself a tempdir. Twice this assertion was
+        # written too wide and twice the test said so. What must hold is narrower and
+        # is the actual defect: the directory the recipe CREATES and PREPENDS must not
+        # be a path of the tool's own invention.
+        my ($install) = grep { /--local-lib-contained/ } @advice;
+        unlike $install, qr{/tmp/},
+          "$name installs into a directory it creates, not a fixed /tmp path";
+        my ($prepend) = grep { /^\s*PERL5LIB=/ } @advice;
+        my ($value)   = $prepend =~ /PERL5LIB="([^"]*)"/;
+        unlike $value, qr{/tmp/},
+          "$name prepends its created directory, not a fixed /tmp path";
+        unlike $out, qr/dd-fresh-cpansa/,
+          "$name output does not mention the scratch name at all";
 
         # AC-2: it still tells the user what to DO. Being actionable is why a fix is
         # named at all; a refusal with no way forward gets worked around, not followed.
