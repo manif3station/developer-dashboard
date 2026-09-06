@@ -24,6 +24,59 @@ autonomous Claude rounds an hour** with the reconciliation as a side effect of
 one of those rounds, not a small standalone check. That distinction cost a
 withdrawn recommendation on DD-661 (CMT-002) before it was caught.
 
+## A third mechanism: board jobs (`JOB-NNN`)
+
+The table above predates them. Tira's own job executor was wired in 5.81
+(TKT-944) and monitor output widened to carry command output in 5.82
+(TKT-945), so the board now schedules commands itself, alongside crontab and
+session-owned `Monitor`s:
+
+```sh
+d2 tira.job.list          # id, last_due_at, last_output_at, the recent output buffer
+```
+
+**Read health from `last_output_at` and the output buffer — never from
+`last_run`.** `last_run` is a field *nothing ever wrote*: one assignment of
+`undef` at creation and no other in the engine (5.80, TKT-942, now retired in
+favour of a computed `last_due_at`). It reads `null` on a healthy job and a
+dead one alike, so it discriminates nothing. A job that is genuinely working
+looks like this — the two timestamps a second apart, with real content behind
+them:
+
+```
+last_due_at:    2026-09-06T14:30:56+0100
+last_output_at: 2026-09-06T14:30:57+0100
+last_run:       null          <- still null, and still meaningless
+```
+
+### What a job's command must be, and why a bare command is not enough
+
+**A board job does not run in the checkout.** Getting this wrong produces
+three different failures that each look like a different bug — measured on
+JOB-005 (DD-782), from `/tmp`, which is the neutral cwd a job actually
+resembles:
+
+| command | what happens | why |
+|---|---|---|
+| `d2 tira.police.outstanding` | `exec ... failed: No such file or directory` | `PATH` carries a **relative** `bin` entry, which only resolves while standing in the checkout |
+| `/home/mv/perl5/bin/d2 tira.police.outstanding` | `Cannot resolve project selector 'tira-ddd'` | an absolute path fixes **which** `d2` runs, not **where** it runs; the layered runtime resolves config from the deepest `.developer-dashboard` above the cwd, and only the main checkout has one |
+| `<repo>/.claude/tools/board tira.police.outstanding` | the real list | the wrapper anchors on its own file location and prepends `~/perl5/lib/perl5` to `PERL5LIB` before exec — both added by DD-545 for schedulers exactly like this |
+
+The middle row is the trap, and it is worse than the bug it replaces: it
+turns a loud `exec` failure into a quiet resolution failure on a job whose
+output nobody reads, so the schedule still *looks* healthy. Prefer the failure
+that announces itself.
+
+The wrapper needs `HOME` — without it `PathRegistry` refuses with *"Missing
+home directory"*. Whether a given runner supplies it is not answerable by
+reasoning about the runner; JOB-005 settled it empirically by producing real
+output on a scheduled tick.
+
+**The generalisation, which is this page's existing lesson one level down:** a
+command that works when you type it is not evidence it works when something
+else runs it. The variable is rarely the binary — it is the working directory,
+the environment, and the `PATH` that the *scheduler* provides.
+
 ## The lesson that generalises
 
 **A tool's name is a claim about what it does, not evidence of it.** Before
