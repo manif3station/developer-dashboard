@@ -80,6 +80,30 @@ sub db { return { dists => {} } }
 1;
 FAKE
     close $fh;
+
+    # CPAN::Audit::Version IS FAKED TOO, and leaving it out is what turned master
+    # red (DD-799). The gate requires BOTH modules; shadowing only the database
+    # left this file depending on the REAL CPAN::Audit reaching @INC by ambient
+    # PERL5LIB. On this host it always does - prove runs with ~/perl5 on the path,
+    # so the fake is merely PREPENDED to a tree that already has the real one. In
+    # CI it never does: CPAN::Audit is installed into a separate audit-local prefix
+    # whose BIN is added to PATH while the "Run tests" step keeps
+    # PERL5LIB=local/lib/perl5. The gate then exits 2 and every assertion that runs
+    # it fails, in a file whose POD claimed to be hermetic.
+    #
+    # in_range is never reached by these cases - the fake database has an empty
+    # dists map, so the findings loop iterates nothing - but it returns a definite
+    # 0 rather than dying, so a future case that DOES reach it fails on an
+    # assertion instead of on a missing method.
+    open my $vfh, '>', File::Spec->catfile( $pkg, 'Version.pm' ) or die "cannot write fake Version: $!";
+    print {$vfh} <<'FAKEVER';
+package CPAN::Audit::Version;
+sub new      { return bless {}, shift }
+sub in_range { return 0 }
+1;
+FAKEVER
+    close $vfh;
+
     return $dir;
 }
 
@@ -329,8 +353,12 @@ that a release was audited.
 
     PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/172-cpan-audit-database-age.t
 
-The file is hermetic. The Perl gate is exercised against a temporary library that
-shadows C<CPAN::Audit::DB> with a chosen stamp; the bash gate is exercised against
+The file is hermetic, and that is CHECKABLE rather than asserted - run it with
+C<env -u PERL5LIB> and it must still pass. It did not, before DD-799: the spec
+shadowed C<CPAN::Audit::DB> and relied on the REAL C<CPAN::Audit::Version> arriving
+through ambient C<PERL5LIB>, which is true on a developer host and false in CI.
+Both modules are faked now. The Perl gate is exercised against a temporary library
+that shadows both; the bash gate is exercised against
 a C<cpan-audit> shim whose C<--version> names one. Neither reads the host's real
 advisory database, so the file cannot pass or fail because of what upstream
 published today.
