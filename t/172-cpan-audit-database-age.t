@@ -8,11 +8,13 @@ use File::Spec;
 use File::Temp qw(tempdir);
 use FindBin;
 use POSIX qw(strftime);
+use Time::Local qw(timegm);
 use Test::More;
 
 my $ROOT       = File::Spec->rel2abs( File::Spec->catdir( $FindBin::Bin, File::Spec->updir ) );
 my $PERL_GATE  = File::Spec->catfile( $ROOT, 'script', 'cpan-audit-declared-chain' );
 my $BASH_GATE  = File::Spec->catfile( $ROOT, 'script', 'cpan-audit-project' );
+my $GATE_SRC   = $PERL_GATE;
 
 plan skip_all => "declared-chain gate not present at $PERL_GATE" if !-f $PERL_GATE;
 plan skip_all => "project gate not present at $BASH_GATE"        if !-f $BASH_GATE;
@@ -154,6 +156,49 @@ my $MID   = _stamp(5);      # inside the default limit, outside a tightened one
 # assertion has to name the half it means. REFUSAL matches only the declining
 # sentence, which carries the configured limit; the report never does.
 my $REFUSAL = qr/advisory database is \d+ days? old .* and the limit is \d+/i;
+
+# AC-0: the date arithmetic itself, against an INDEPENDENT ORACLE.
+#
+# The gate deliberately does its own days-from-civil arithmetic rather than using
+# Time::Local, so that no timezone rule or year-interpretation heuristic can move a
+# release decision. That choice is only safe if the arithmetic is right, and until
+# now it was exercised only indirectly, through two stamps that happen to sit far
+# apart. Leap years and century rules were untested.
+#
+# The oracle is Time::Local rather than hand-written constants, and that is not
+# fussiness: writing this check the first time with constants I worked out myself,
+# one of eight was wrong - the CODE was correct and MY EXPECTATION was not. A test
+# whose expected values come from the same head as the argument for the code proves
+# only that the head is self-consistent.
+{
+    my $gate_src = do {
+        open my $fh, '<', $GATE_SRC or die "cannot read gate: $!";
+        local $/;
+        <$fh>;
+    };
+    my ($body) = $gate_src =~ /(sub _days_from_civil \{.*?\n\})/s;
+    ok $body, 'the gate still defines _days_from_civil (this spec reads the real one)';
+
+    my $dfc = eval "$body; \\&_days_from_civil";
+    die "could not load _days_from_civil: $@" if !$dfc;
+
+    # Cases chosen for the rules that actually differ between calendars, not for
+    # coverage of a range: both century rules, an ordinary leap year, and a date
+    # before the epoch so a negative result is exercised.
+    for my $case (
+        [ 1970, 1,  1,  'the civil epoch' ],
+        [ 1969, 12, 31, 'the day before the epoch - a negative result' ],
+        [ 2000, 2,  29, '2000 IS a leap year: divisible by 400' ],
+        [ 1900, 3,  1,  '1900 is NOT a leap year: divisible by 100, not 400' ],
+        [ 2024, 2,  29, 'an ordinary leap year' ],
+        [ 2026, 9,  6,  'a date in the range this gate actually sees' ],
+      )
+    {
+        my ( $y, $m, $d, $why ) = @{$case};
+        my $oracle = timegm( 0, 0, 0, $d, $m - 1, $y ) / 86_400;
+        is $dfc->( $y, $m, $d ), $oracle, "days_from_civil agrees with Time::Local: $why";
+    }
+}
 
 # AC-1: the Perl gate names its corpus on EVERY run, including a clean one.
 # The clean path is the one people believe, so it is the one that must carry the
