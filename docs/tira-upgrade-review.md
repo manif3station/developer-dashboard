@@ -56,3 +56,34 @@ found (a real declared-policy conflict, worth fixing directly), or nothing
 requiring action, with the evidence that produced that conclusion. A card
 that concludes "nothing to declare" without showing the check that
 established it is a comment, not a review.
+
+## The two checks are the FLOOR, not the ceiling
+
+Both checks above are about **policy declarations**. An upgrade can change
+things that are not policies at all, and those changes will pass both checks
+silently.
+
+Measured on DD-779 (5.77 -> 5.83): `policy.undeclared` was empty and no
+declared policy would be refused — both checks clean — while the most
+consequential finding of that upgrade was neither. Two entries together
+explained a failure this board had been watching for a day without
+understanding it:
+
+- **5.81 TKT-944** connected a job executor that had existed since TKT-841 with
+  no caller but the manual Run-now button, so command-mode jobs went from
+  announcing-and-doing-nothing to actually running.
+- **5.82 TKT-945** widened `monitor-output` to carry cron command output, so
+  those runs' failures began reaching the bridge.
+
+The job had not started failing. It had started *running* — and its failure had
+started *being visible*. **A defect that appears the day after an upgrade is
+often one that was always there and has only now become observable**, and
+neither policy check can tell you that.
+
+It also voided a piece of evidence on another card: 5.80 retired `last_run` as a
+field nothing ever wrote, so an argument resting on `last_run: null` proved
+nothing about the job's health.
+
+**So read the Changes text for behaviour, not only for policy validation.** The
+checks tell you whether your declarations still bind; they do not tell you what
+the board now does differently underneath them.
