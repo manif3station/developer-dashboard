@@ -188,3 +188,39 @@ this gate could not see. **The two halves are worth reading together:** a manife
 that cannot exclude a vulnerability and a gate that cannot report its own blindness
 produced one clean verdict between them, and fixing either alone would have left
 that verdict looking exactly as trustworthy as it did before.
+
+## The same question, one level down: does your test constrain anything?
+
+A verdict is only as good as the corpus behind it. An *assertion* is only as good
+as its power to fail — and a passing suite cannot tell the two apart. A green
+assertion means either "this constrains the code" or "this would have passed
+whatever the code did", and nothing in a passing run distinguishes them.
+
+**Mutation is what separates them, and the useful signal is which assertions
+survive.** Verifying the date arithmetic behind this gate, the century correction
+was removed deliberately, expecting red. Four of seven assertions fell:
+
+| case | on the mutation |
+|---|---|
+| 1970-01-01, 1969-12-31, 2000-02-29, 1900-03-01 | **red** |
+| 2024-02-29, 2026-09-06 | **green** |
+
+For a year in the current era the era-offset is 26, so `int(26/100)` is zero and
+the century correction is a **no-op on contemporary dates**. A spec containing only
+recent dates would have passed a broken century rule and proved nothing whatever.
+
+The reflex on seeing red is to record the guard as falsified and move on. **The
+value was in asking why the other three stayed green** — that answer is what
+revealed which cases carry the discrimination, and it is not obtainable from a
+passing run in either direction.
+
+### And an oracle must be independent of the author
+
+The same check, written first with expected values worked out by hand, had **one of
+eight wrong** — the code was right and the expectation was not. Values derived from
+the same reasoning that produced the code demonstrate only that the reasoning is
+self-consistent. `Time::Local` is a separate implementation of the same calendar,
+which is what makes it an oracle rather than a second opinion from the same source.
+
+This is the corpus problem again, wearing test clothing: **name what your result
+was checked against, and confirm that thing could have disagreed.**
