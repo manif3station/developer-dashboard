@@ -22,6 +22,13 @@ jobs:
       PERL_MM_USE_DEFAULT: 1
       NONINTERACTIVE_TESTING: 1
       PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
+      # DD-794: the other half of the contained install below. local/lib/perl5 is
+      # NOT on @INC, and the fuzz test spawns perl with -Ilib plus the dashboard
+      # script - where -Ilib supplies only the project's own lib and none of the
+      # dependencies. Set at job level rather than on one step so a later step
+      # that runs perl cannot silently miss it. Removing this while leaving -L in
+      # place turns a rare upgrade-triggered failure into a permanent one.
+      PERL5LIB: ${{ github.workspace }}/local/lib/perl5
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -37,8 +44,19 @@ jobs:
           node-version: '22'
           cache: npm
 
+      # CONTAINED DELIBERATELY (DD-794). A bare cpanm --installdeps mutates the
+      # perl tree actions-setup-perl shipped with, which is already populated -
+      # so a declared version bump becomes an UPGRADE, and cpanm verifies the
+      # result against a version scan taken BEFORE it installed anything. Run
+      # 34036177297 logged "Successfully installed URI-5.37 (upgraded from 5.35)"
+      # and then, one second later, "Installed version (5.35) of URI is not in
+      # range '5.36'" - for BOTH URI and URI::Escape, two modules of one
+      # distribution, which is what identifies a single stale pre-install scan
+      # rather than a second tree. Against a fresh local/ the module is absent,
+      # the install is a first install, and there is nothing for that scan to be
+      # stale about. See docs/containing-a-ci-dependency-install.md.
       - name: Install Perl dependencies
-        run: cpanm --installdeps --notest .
+        run: cpanm --installdeps --notest -L local .
 
       - name: Install JS test dependencies
         run: npm ci --ignore-scripts
