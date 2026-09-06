@@ -31,6 +31,14 @@ my $PBKDF2_ITERATIONS = 210_000;
 # SHA-256 hashes and are still accepted for backward compatibility.
 my $PBKDF2_SCHEME = 'pbkdf2-hmac-sha256';
 
+# Salt for the decoy derivation verify_user runs when no user record exists
+# (DD-783). Its value is irrelevant and it is never compared against anything -
+# its only job is to give the absent-user path the same work as a present one,
+# so the elapsed time of a login attempt stops disclosing which accounts exist.
+# A fixed literal is correct here: a random salt would cost an entropy read on
+# every failed login and buy nothing, because the result is discarded.
+my $ABSENT_USER_SALT = 'dd783-absent-user-decoy-salt';
+
 # new(%args)
 # Constructs an auth manager bound to file and path registries.
 # Input: files and paths objects.
@@ -131,7 +139,25 @@ sub verify_user {
     my ( $self, %args ) = @_;
     my $username = $args{username} || return;
     my $password = $args{password} || return;
-    my $user = $self->get_user($username) or return;
+    my $user = $self->get_user($username);
+    if ( !$user ) {
+        # DD-783: burn an equivalent derivation before refusing, so an absent
+        # account costs what a present one costs. This used to return here
+        # immediately: measured 0.0000s for an unknown username against
+        # 0.6082s for a known one, while both produced the identical response
+        # body. The body resisted enumeration and the clock did not, on a
+        # service whose default bind is 0.0.0.0.
+        #
+        # HONEST LIMIT, recorded rather than glossed: this matches the cost of
+        # a PBKDF2 record, which is what add_user has written since stretching
+        # landed. A surviving LEGACY single-round SHA-256 record is still
+        # cheaper than this decoy and so remains distinguishable by timing.
+        # Closing that too means either upgrading the last legacy records or
+        # making the legacy path pay the same, and it is a smaller leak than
+        # the one this closes - see the card.
+        _pbkdf2_hmac_sha256_hex( $password, $ABSENT_USER_SALT, $PBKDF2_ITERATIONS );
+        return;
+    }
     my $expected = $self->_expected_password_hash( $user, $username, $password );
     return if !_secure_compare( $expected, $user->{password_hash} );
     return $user;
