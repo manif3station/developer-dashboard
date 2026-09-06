@@ -1069,22 +1069,77 @@ sub is_home_runtime_path {
     return $self->_same_or_descendant_path( $path, $self->home_runtime_path ) ? 1 : 0;
 }
 
+# runtime_layer_root_for($path)
+# Finds which of our runtime layers owns a path, so the securing helpers can
+# protect a project-local layer exactly as they already protect the home one.
+#
+# WHY THIS EXISTS (DD-784). secure_file_permissions and secure_dir_permissions
+# were both gated on is_home_runtime_path, but DD-OOP-LAYERS makes the DEEPEST
+# .developer-dashboard the write target - so every runtime file and directory
+# written into a project-local layer kept its umask default. Measured before the
+# fix, under umask 002: config/api.json at 0664 inside a 0775 directory, holding
+# the machine-tier API secret digests and their route allowlist. A group member
+# could read the digests and, because the directory was group-writable, replace
+# the file outright and register their own key.
+#
+# The gap was already known and worked around rather than fixed: atomic_write_secure
+# chmods unconditionally and says in its own comment that it avoids the gated
+# method for exactly this reason. That closed it for the three writers migrated
+# onto it (Auth, SessionStore, Zipper) and left 40-odd other call sites, and the
+# comment explaining the workaround is what made the remainder look deliberate.
+# Input: file or directory path string.
+# Output: the runtime layer root containing the path, or empty string when none does.
+# MUST NOT call runtime_layers here, however natural that reads. runtime_layers
+# resolves home_runtime_ROOT, which calls _ensure_dir, which calls
+# secure_dir_permissions, which would call back into this - an infinite
+# recursion that hangs any process touching a runtime path. Measured: the
+# config suite went from under a second to a hard timeout the moment this used
+# the ensuring accessor. Build the candidate list from the non-creating sources
+# instead: home_runtime_PATH is a pure path computation, and the env and
+# ancestor layer helpers create nothing.
+sub runtime_layer_root_for {
+    my ( $self, $path ) = @_;
+    return '' if !defined $path || $path eq '';
+    for my $root ( $self->_runtime_layers_from_env, $self->home_runtime_path, $self->_ancestor_runtime_layers ) {
+        next if !defined $root || $root eq '';
+        return $root if $self->_same_or_descendant_path( $path, $root );
+    }
+    return '';
+}
+
+# is_runtime_layer_path($path)
+# Checks whether a path lives under ANY of our runtime layers, home or
+# project-local. This is the predicate the securing helpers gate on, so a
+# project-local layer is protected exactly as the home layer is.
+# Input: file or directory path string.
+# Output: boolean true when the path is inside one of our runtime layers.
+sub is_runtime_layer_path {
+    my ( $self, $path ) = @_;
+    return $self->runtime_layer_root_for($path) ne '' ? 1 : 0;
+}
+
 # secure_dir_permissions($dir)
 # Tightens one home-runtime directory chain to owner-only mode.
 # Input: directory path string.
 # Output: directory path string.
 sub secure_dir_permissions {
     my ( $self, $dir ) = @_;
-    return $dir if !$self->is_home_runtime_path($dir);
 
-    my $home_runtime = $self->home_runtime_path;
-    my $path = $home_runtime;
+    # DD-784: anchor on whichever runtime layer owns this directory rather than
+    # always the home one. Gated on is_home_runtime_path, this returned early for
+    # a project-local layer, so those directories kept the umask default (0775
+    # measured under umask 002) while the home layer got 0700. A group-writable
+    # runtime directory is what turns a readable secret into a replaceable one.
+    my $layer_root = $self->runtime_layer_root_for($dir);
+    return $dir if $layer_root eq '';
+
+    my $path = $layer_root;
     if ( -d $path ) {
         chmod 0700, $path or die "Unable to chmod $path to 0700: $!";    # uncoverable branch true
     }
-    return $dir if $dir eq $home_runtime;
+    return $dir if $dir eq $layer_root;
 
-    my $suffix = substr( $dir, length($home_runtime) );
+    my $suffix = substr( $dir, length($layer_root) );
     $suffix =~ s{^/}{};
     for my $part ( grep { $_ ne '' } File::Spec->splitdir($suffix) ) {
         $path = File::Spec->catdir( $path, $part );
@@ -1103,7 +1158,11 @@ sub secure_dir_permissions {
 sub secure_file_permissions {
     my ( $self, $file, %args ) = @_;
     return $file if !defined $file || $file eq '';
-    return $file if !$self->is_home_runtime_path($file) && !$self->_is_state_path($file);
+    # DD-784: gated on ANY runtime layer, not only the home one. This used to
+    # read is_home_runtime_path, which silently stopped securing every file
+    # written into a project-local .developer-dashboard - the layer that
+    # DD-OOP-LAYERS makes the write target whenever one exists.
+    return $file if !$self->is_runtime_layer_path($file) && !$self->_is_state_path($file);
     return $file if !-e $file;
     my $mode = $args{executable} ? 0700 : 0600;
     chmod $mode, $file or die sprintf 'Unable to chmod %s to %04o: %s', $file, $mode, $!;    # uncoverable branch true
@@ -1178,7 +1237,11 @@ sub _is_state_path {
 sub _ensure_dir {
     my ( $self, $dir ) = @_;
     if ( !-d $dir ) {
-        if ( $self->is_home_runtime_path($dir) ) {
+        # DD-784: create at 0700 for ANY runtime layer, not only the home one -
+        # otherwise a project-local runtime directory is born umask-default and
+        # is merely tightened afterwards, leaving a window in which it is
+        # group-writable.
+        if ( $self->is_runtime_layer_path($dir) ) {
             make_path( $dir, { mode => 0700 } );
         }
         else {
