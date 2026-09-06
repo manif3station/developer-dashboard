@@ -111,6 +111,11 @@ my $home_literal = qr{(?:/home/[a-z0-9_.-]+|/Users/[A-Za-z0-9_.-]+)/};
 # _statements($path)
 # Joins executable lines into ;-terminated statements, keeping the line number
 # the statement STARTED on so a failure still points at something findable.
+# A trailing fragment with no ';' is emitted rather than dropped - silently
+# discarding the last statement of a file is how a scanner acquires a blind
+# spot at exactly the place people put closing code.
+# Input: path to a Perl file.
+# Output: list of [starting_line_number, joined_statement_text] pairs.
 sub _statements {
     my ($path) = @_;
     my ( @statements, $buffer, $start );
