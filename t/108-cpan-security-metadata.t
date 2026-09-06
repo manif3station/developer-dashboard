@@ -236,7 +236,14 @@ for my $case (
     make_path( File::Spec->catdir( $bad, @file ) );
     _write_file( $fixture, "package $case->{module};\nour \$VERSION = '$case->{version}';\n1;\n" );
     my ( $bad_rc, $bad_out ) = _run_gate($bad);
-    isnt( $bad_rc, 0, "audit gate is non-zero for a real vulnerable $case->{dist} fixture" );
+    # FIVE, not merely non-zero. "Non-zero" is satisfied by every way this gate can
+    # fail, including the ones where it never audited anything - a usage error (2),
+    # a wrong subject (3), a tool that could not run (4). Measured on 2026-09-06:
+    # while a corpus guard was refusing before the audit, this assertion PASSED
+    # through the entire window in which its two siblings below were failing, so a
+    # gate that had looked at nothing was certified as having found something.
+    # 5 is the advisories-found status, and no path that skips the audit can reach it.
+    is( $bad_rc, 5, "audit gate reports a real vulnerable $case->{dist} fixture as a FINDING (5), not merely non-zero" );
     like(
         $bad_out,
         qr/\Q$case->{dist}\E.*\Q$case->{version}\E.*advisor/is,

@@ -183,13 +183,31 @@ if ! printf '%s' "$db_stamp" | grep -qE '^[0-9]{8}([.][0-9]+)?$'; then
   exit 4
 fi
 
-db_epoch="$(date -u -d "${db_stamp:0:4}-${db_stamp:4:2}-${db_stamp:6:2}" +%s 2>/dev/null || true)"
-if [ -z "$db_epoch" ]; then
+# The AGE is computed in perl, and that is not a contradiction of the rule above.
+# The rule is about the STAMP: it must come from the binary that produces the
+# verdict, because a stamp read from anywhere else can describe a database no
+# verdict came from. Arithmetic on a stamp already in hand carries no such risk.
+#
+# It is perl rather than date(1) because `date -d` is a GNU extension. BSD and
+# macOS date reject it, so the original version of this block was silently
+# Linux-only: on a Mac it would have fallen into the guard below and refused to
+# audit at all, turning a portable gate into one that fail-closes on half its
+# platforms. perl is already a hard dependency here - the gate audits a Perl
+# library root and cpan-audit is itself perl - so this adds nothing new.
+db_age_days="$(perl -e '
+    my ($y, $m, $d) = ($ARGV[0] =~ /^(\d{4})(\d{2})(\d{2})/) or exit 1;
+    sub dfc { my ($y,$m,$d)=@_; $y -= ($m<=2?1:0);
+              my $e=int(($y>=0?$y:$y-399)/400); my $yoe=$y-$e*400;
+              my $doy=int((153*($m+($m>2?-3:9))+2)/5)+$d-1;
+              return $e*146097 + $yoe*365+int($yoe/4)-int($yoe/100)+$doy - 719468; }
+    my @n = gmtime(time);
+    print dfc($n[5]+1900, $n[4]+1, $n[3]) - dfc($y, $m, $d);
+' "$db_stamp" 2>/dev/null || true)"
+if [ -z "$db_age_days" ]; then
   printf 'advisory database: %s (age unknown)\n' "$db_stamp"
-  printf 'did not audit: date(1) could not read the advisory database stamp %s\n' "$db_stamp" >&2
+  printf 'did not audit: could not compute the age of advisory database stamp %s\n' "$db_stamp" >&2
   exit 4
 fi
-db_age_days=$(( ( $(date -u +%s) - db_epoch ) / 86400 ))
 
 # 14, stricter than upstream's 30 on purpose: 30 days is precisely the age at which
 # this project's database silently lacked the advisory a clean verdict was cited to
