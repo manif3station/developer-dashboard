@@ -637,7 +637,8 @@ moves, so a chain that was clean yesterday can legitimately fail today.
 
 Give it the Perl library root whose distribution metadata should be walked. The
 C<cpanfile> and the reviewed advisory disposition file default to the ones next
-to the script, and both can be overridden.
+to the script, and both can be overridden. C<CPAN_AUDIT_FRESH_DAYS> overrides how
+old an advisory database may be before the gate refuses to answer from it.
 
 Exit codes are fail-closed:
 
@@ -649,12 +650,55 @@ advisory range.
 =item * C<1> - at least one permitted vulnerable resolution was found.
 
 =item * C<2> - the gate could not audit the whole chain (bad usage, missing
-C<CPAN::Audit>, a library root with no distribution metadata, or a distribution
-metadata file it could not read or parse). It never reports a clean chain it did
-not establish, and an unreadable metadata file is not established: dropping one
+C<CPAN::Audit>, a library root with no distribution metadata, a distribution
+metadata file it could not read or parse, or an advisory database whose age
+could not be established or exceeds the limit). It never reports a clean chain it
+did not establish, and an unreadable metadata file is not established: dropping one
 shrinks the closure, and a smaller closure is exactly what hides a finding.
 
 =back
+
+=head2 The advisory database is named on every run
+
+Every run prints the advisory database behind its verdict and how old it is,
+whether or not that run finds anything:
+
+    advisory database: CPAN::Audit::DB 20260906.002 (0 days old)
+
+This is not decoration. A verdict is only as good as the corpus it was reached
+from, and on 2026-09-06 this gate reported the closure clean against a database
+thirty days old that did not contain C<URI> at all - so a real advisory against
+the installed C<URI> was not missed but unreportable, and the clean line looked
+exactly like a clean line from a current database. Naming the corpus is what lets
+a reader tell "nothing is wrong" from "nothing could have been found", and the
+clean path is the one that most needs it.
+
+=head2 Refusing a corpus too old to answer from
+
+Past a limit the gate declines to produce a verdict at all rather than answering
+from a database it cannot vouch for, and the refusal names the fix.
+
+The threshold is C<CPAN_AUDIT_FRESH_DAYS>, which is C<CPAN::Audit>'s own variable
+rather than a private one, so setting it moves upstream's freshness warning and
+this refusal together instead of leaving two thresholds to disagree in silence.
+It defaults here to B<21 days> - stricter than upstream's 30, because 30 days is
+precisely the age at which this project's database lacked the advisory a clean
+verdict was later cited to disprove.
+
+Twenty-one is derived rather than chosen. The limit must exceed the largest real
+gap between publications, or the gate refuses during an ordinary quiet spell when
+no newer database exists to install - blocking for a reason nobody can act on,
+which is how a gate gets routed around instead of fixed. Measured across 40
+C<CPANSA-DB> releases spanning 223 days: median gap 4 days, maximum 18. That
+maximum is one sample of the tail rather than the tail, so read 21 as "above the
+largest gap seen in 223 days", not as a proven ceiling; if a longer gap appears
+upstream, that is the number to move.
+
+Note that upstream already detects this and deliberately declines to act on it:
+C<cpan-audit --fresh> warns through C<CPAN::Audit::FreshnessCheck> but leaves the
+exit status unchanged, so no caller reading a status can see it. That is the right
+choice for an interactive audit and the wrong one for a release gate. This gate
+escalates a signal upstream already emits; it does not invent a policy.
 
 =head1 WHAT USES IT
 
