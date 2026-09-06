@@ -232,6 +232,16 @@ fi
 printf 'advisory database: %s (%s days old)\n' "$db_stamp" "$db_age_days"
 
 if [ "$db_age_days" -gt "$db_age_limit" ]; then
+  # THE RECIPE CREATES ITS OWN DIRECTORY AND NEVER NAMES A FIXED PATH (DD-798).
+  # A fixed path under world-writable /tmp is predictable; /tmp is 1777, so the
+  # sticky bit stops a user deleting another's files but not creating that
+  # directory first; cpanm REUSES an existing directory rather than refusing it;
+  # and the next line puts it FIRST on PERL5LIB. Together that is a security tool
+  # advising the user to load Perl from a location they do not control - CWE-377
+  # and CWE-378. The audited root IS still echoed at the end of the recipe so the
+  # command can be re-run as printed: that path is the caller's own argument, not
+  # one this gate invents, which is the distinction two drafts of the test got
+  # wrong before the assertion was narrowed to the created-and-prepended directory.
   printf 'did not audit: advisory database is %s days old (%s) and the limit is %s. Refresh it WITHOUT disturbing a shared CPAN tree:\n' \
     "$db_age_days" "$db_stamp" "$db_age_limit" >&2
   printf '    DIR=$(mktemp -d)\n' >&2
