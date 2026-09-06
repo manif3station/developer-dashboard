@@ -8,6 +8,7 @@ use Test::More;
 use File::Temp qw(tempdir);
 use File::Spec;
 use File::Path qw(make_path remove_tree);
+use Cwd ();
 
 use lib 'lib';
 
@@ -676,6 +677,70 @@ sub dies_like {
         chmod 0700, $file;
         remove_tree( File::Spec->catdir( $skills, 'iofail' ) );
     }
+}
+
+# -------------------------------------------------------------------------
+# Block K (DD-784): config written into a PROJECT-LOCAL runtime layer must be
+# secured exactly as the home layer already is.
+#
+# config/api.json holds the machine-tier API secret digests and each key's
+# /ajax/ route allowlist. Config::_write_json_atomic secured it through
+# PathRegistry::secure_file_permissions, which returns early unless the path is
+# under the HOME runtime or the state root - so in a project-local layer, which
+# DD-OOP-LAYERS makes the write target whenever one exists, the file kept the
+# umask default. Measured before the fix: api.json 0664 inside a 0775 config
+# directory, against 0600/0700 in the home layer. Under a group-writable umask
+# that is a machine-tier authentication bypass: a group member can replace the
+# file and register their own key.
+#
+# THE PRECONDITION MATTERS AND IS EASY TO MISS. _ancestor_runtime_layers
+# returns nothing unless the cwd sits under $HOME or under a detected project
+# root, so without the .git below no project layer is discovered at all, the
+# write falls back to the home layer, and the defect silently does not appear.
+# Three probes reported 0600/0700 for exactly that reason before this was
+# reproduced.
+#
+# The umask is pinned to 002 rather than inherited: with a strict umask the
+# file would arrive at 0600 by accident and this test would pass while
+# discriminating nothing.
+# -------------------------------------------------------------------------
+{
+    my $saved_umask = umask 0002;
+    my $saved_cwd   = Cwd::getcwd();
+    my $saved_home  = $ENV{HOME};
+
+    my $layer_home = tempdir( CLEANUP => 1 );
+    my $project    = tempdir( CLEANUP => 1 );
+    make_path( File::Spec->catdir( $project, '.git' ) );
+    make_path( File::Spec->catdir( $project, '.developer-dashboard' ) );
+
+    $ENV{HOME} = $layer_home;
+    chdir $project or die "Unable to chdir to $project: $!";
+
+    my $layer_paths = Developer::Dashboard::PathRegistry->new;
+    my $layer_files = Developer::Dashboard::FileRegistry->new( paths => $layer_paths );
+    my $layer_config = Developer::Dashboard::Config->new( files => $layer_files, paths => $layer_paths );
+
+    my $layer_config_root = $layer_paths->config_root;
+
+    # Positive control: the project layer really is the write target here. If it
+    # were not, the assertions below would be measuring the home layer - which
+    # was already correct - and would pass without discriminating anything.
+    ok( !$layer_paths->is_home_runtime_path($layer_config_root),
+        'DD-784 setup: the config root under test is a project-local layer, not the home layer' );
+
+    my $layer_api = File::Spec->catfile( $layer_config_root, 'api.json' );
+    $layer_config->_write_json_atomic( $layer_api, json_encode( { keys => [ { id => 'probe', secret_digest => 'deadbeef' } ] } ) );
+
+    is( sprintf( '%04o', ( stat $layer_api )[2] & 07777 ), '0600',
+        'api.json in a project-local layer is written 0600, not left at the umask default (DD-784)' );
+    is( sprintf( '%04o', ( stat $layer_config_root )[2] & 07777 ), '0700',
+        'the project-local config directory is 0700, so the file cannot simply be replaced (DD-784)' );
+
+    chdir $saved_cwd or die "Unable to restore cwd: $!";
+    if ( defined $saved_home ) { $ENV{HOME} = $saved_home; }
+    else                       { delete $ENV{HOME}; }
+    umask $saved_umask;
 }
 
 done_testing;
