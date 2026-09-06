@@ -11,6 +11,7 @@ use FindBin qw($RealBin);
 use Capture::Tiny qw(capture);
 use JSON::XS ();
 use Test::More;
+use version ();
 use Archive::Tar;
 
 my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
@@ -256,8 +257,8 @@ my %runtime_prereq_minimum = (
     'LWP::Protocol::https'   => '6.07',
     'LWP::UserAgent'         => '6.83',
     'Template'               => '3.103',
-    'URI'                    => '0',
-    'URI::Escape'            => '0',
+    'URI'                    => '5.36',
+    'URI::Escape'            => '5.36',
     'XML::Parser'            => '2.48',
 );
 for my $module ( sort keys %runtime_prereq_minimum ) {
@@ -269,6 +270,26 @@ for my $module ( sort keys %runtime_prereq_minimum ) {
     like( $makefile, qr/["']\Q$module\E["']\s*=>\s*$makefile_value/, "Makefile.PL declares runtime prerequisite $module at $minimum" );
     like( $cpanfile, $cpanfile_re, "cpanfile declares runtime prerequisite $module at $minimum" );
     like( $dist, qr/^\Q$module\E = \Q$minimum\E$/m, "dist.ini declares runtime prerequisite $module at $minimum" ) if $dist ne '';
+}
+
+# DD-789: URI below 5.36 carries CVE-2026-19953, so an unversioned requirement is
+# a declaration that a vulnerable resolution is acceptable. The loop above already
+# pins all three manifests to the SAME version, which is a consistency check - it
+# would pass just as happily if this floor were lowered to 0 in every one of them
+# at once. These assertions add the security constraint the consistency check
+# cannot express, and they compare numerically so raising the floor later keeps
+# passing while lowering or removing it fails.
+#
+# URI::Escape ships inside the URI distribution and tracks its version, so both
+# are floored: advisories are published against distributions while manifests
+# declare modules, and a floor on only one of them silently stops constraining
+# the distribution the day the other requirement is removed.
+for my $uri_module (qw(URI URI::Escape)) {
+    my $declared = $runtime_prereq_minimum{$uri_module};
+    ok(
+        defined $declared && $declared ne '0' && version->parse($declared) >= version->parse('5.36'),
+        "the canonical runtime floor for $uri_module is at least 5.36, so the declared chain cannot permit CVE-2026-19953"
+    ) or diag( "canonical floor for $uri_module is " . ( defined $declared ? "'$declared'" : 'undefined' ) );
 }
 for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket workspace path paths ps1 encode decode indicator collector config auth api ask init cpan page action docker serve stop restart shell doctor housekeeper skills which upgrade)) {
     ok( -f _repo_path( 'share', 'private-cli', $helper ), "share/private-cli/$helper is shipped as a private helper asset" );
@@ -948,7 +969,9 @@ __END__
 
 This test keeps the shipped version metadata, public executable list, and core
 documentation aligned for the private-helper and isolated-skill packaging
-model.
+model. It also pins the declared runtime dependency floors, so a
+distribution carrying a published advisory cannot be permitted by the manifests
+even where no current advisory database is installed to notice.
 
 =for comment FULL-POD-DOC START
 
