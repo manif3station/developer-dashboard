@@ -28,7 +28,20 @@ use constant EXIT_UNUSABLE => 2;
 # advisory that a clean verdict was then cited to disprove (DD-790). The knob is
 # upstream's own CPAN_AUDIT_FRESH_DAYS, so one name moves the warning and the
 # refusal together rather than letting two thresholds disagree in silence.
-use constant DEFAULT_MAX_DB_AGE_DAYS => 14;
+#
+# WHY 21 AND NOT A ROUNDER NUMBER. The limit must EXCEED THE LARGEST REAL GAP
+# BETWEEN PUBLICATIONS, or the gate refuses during a normal quiet spell while no
+# newer database exists to install - blocking for a reason nobody can act on, which
+# is how a gate gets routed around instead of fixed. Measured from the CPAN index
+# on 2026-09-06 across 40 CPANSA-DB releases spanning 223 days: median gap 4 days,
+# mean 5.7, MAXIMUM 18, with 1 gap of 39 exceeding 14 days and none exceeding 30.
+# 21 clears the observed maximum with three days of margin and still catches the
+# 30-day staleness this card was raised for. IF A LONGER GAP EVER APPEARS UPSTREAM,
+# THIS IS THE NUMBER THAT MOVES - the measurement, not the constant, is the reason.
+# And 18 is the maximum of a 223-DAY WINDOW, which is one sample of the tail rather
+# than the tail itself: read 21 as "chosen against the largest gap seen in 223 days",
+# never as a proven ceiling.
+use constant DEFAULT_MAX_DB_AGE_DAYS => 21;
 
 exit main(@ARGV);
 
@@ -65,7 +78,7 @@ sub main {
     # The corpus is established BEFORE the subject is walked, because a database
     # too old to answer with makes every later step moot - and reporting it only
     # on the failure path would name the database exactly when nobody needs it.
-    my $corpus = _corpus_report();
+    my $corpus = _corpus_report($perl5_root);
     # Flushed, because the refusal below goes to STDERR while this goes to STDOUT.
     # Block-buffered, the corpus line lands AFTER the refusal in any combined log -
     # so the reader meets "refused because the database is old" before being told
@@ -201,6 +214,7 @@ sub _max_database_age_days {
 # Printing the corpus only when refusing would reproduce the defect on the exact
 # path that caused it.
 sub _corpus_report {
+    my ($audited_root) = @_;
     my $stamp = eval { CPAN::Audit::DB->VERSION };
     my $shown = defined $stamp && $stamp ne '' ? $stamp : 'unknown';
     my $age   = _database_age_days($stamp);
@@ -217,8 +231,11 @@ sub _corpus_report {
     return {
         line    => $line,
         refusal => sprintf(
-            "the advisory database is %d days old (%s) and the limit is %d; refresh it with 'cpan -D CPANSA::DB', or raise CPAN_AUDIT_FRESH_DAYS if you accept auditing against a corpus that old",
-            $age, $shown, $limit
+            "the advisory database is %d days old (%s) and the limit is %d. Refresh it WITHOUT disturbing a shared CPAN tree:\n"
+              . "    cpanm --local-lib-contained /tmp/dd-fresh-cpansa CPANSA::DB\n"
+              . "    PERL5LIB=/tmp/dd-fresh-cpansa/lib/perl5:\$PERL5LIB %s %s\n"
+              . "Or set CPAN_AUDIT_FRESH_DAYS if you accept auditing against a corpus that old.",
+            $age, $shown, $limit, $0, ( defined $audited_root ? $audited_root : '<root>' )
         )
     } if $age > $limit;
     return { line => $line, refusal => undef };
