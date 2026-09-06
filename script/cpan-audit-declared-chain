@@ -21,6 +21,15 @@ use constant EXIT_CLEAN   => 0;
 use constant EXIT_FINDING => 1;
 use constant EXIT_UNUSABLE => 2;
 
+# Stricter than CPAN::Audit::FreshnessCheck's own default of 30 days, deliberately.
+# Upstream's threshold serves an interactive audit, where a warning on STDERR is
+# read by the person who typed the command. This is a release gate, and 30 days is
+# precisely the age at which this project's database silently lacked the URI
+# advisory that a clean verdict was then cited to disprove (DD-790). The knob is
+# upstream's own CPAN_AUDIT_FRESH_DAYS, so one name moves the warning and the
+# refusal together rather than letting two thresholds disagree in silence.
+use constant DEFAULT_MAX_DB_AGE_DAYS => 14;
+
 exit main(@ARGV);
 
 # Purpose: run the declared-chain advisory gate end to end.
@@ -52,6 +61,18 @@ sub main {
     my $version_class = _load_audit_modules();
     return _unusable('CPAN::Audit::DB and CPAN::Audit::Version must be loadable; install CPAN::Audit and put it on PERL5LIB')
         if !$version_class;
+
+    # The corpus is established BEFORE the subject is walked, because a database
+    # too old to answer with makes every later step moot - and reporting it only
+    # on the failure path would name the database exactly when nobody needs it.
+    my $corpus = _corpus_report();
+    # Flushed, because the refusal below goes to STDERR while this goes to STDOUT.
+    # Block-buffered, the corpus line lands AFTER the refusal in any combined log -
+    # so the reader meets "refused because the database is old" before being told
+    # which database, which is the wrong way round for the only line that explains it.
+    local $| = 1;
+    print $corpus->{line};
+    return _unusable( $corpus->{refusal} ) if defined $corpus->{refusal};
 
     my $declared = _parse_cpanfile($cpanfile);
     return _unusable("no runtime requirements declared in $cpanfile")
@@ -112,6 +133,95 @@ sub _unusable {
     my ($reason) = @_;
     printf {*STDERR} "cannot audit the declared chain: %s\n", $reason;
     return EXIT_UNUSABLE;
+}
+
+# Purpose: days elapsed since 1970-01-01 for a civil year/month/day, by pure
+#          integer arithmetic.
+# Input: $y (full year), $m (1-12), $d (1-31).
+# Output: an integer day number, negative before 1970.
+#
+# Deliberately not Time::Local: its two-digit-year heuristics and the epoch
+# rollover in timegm have surprised callers, and a date comparison that can be
+# moved by a timezone or an interpretation rule is exactly the kind of quiet
+# wrongness this gate exists to refuse. This is Howard Hinnant's days_from_civil,
+# which is total and has no configuration.
+sub _days_from_civil {
+    my ( $y, $m, $d ) = @_;
+    $y -= ( $m <= 2 ? 1 : 0 );
+    my $era = int( ( $y >= 0 ? $y : $y - 399 ) / 400 );
+    my $yoe = $y - $era * 400;
+    my $doy = int( ( 153 * ( $m + ( $m > 2 ? -3 : 9 ) ) + 2 ) / 5 ) + $d - 1;
+    my $doe = $yoe * 365 + int( $yoe / 4 ) - int( $yoe / 100 ) + $doy;
+    return $era * 146_097 + $doe - 719_468;
+}
+
+# Purpose: the age in days of a CPANSA database stamp.
+# Input: $stamp - a version in CPANSA's YYYYMMDD.NNN form.
+# Output: the age in days, or undef when the stamp is not that shape.
+#
+# undef means "this cannot be judged", never "this is fine". The caller turns it
+# into a refusal, because a stamp we cannot read is a corpus we cannot vouch for.
+sub _database_age_days {
+    my ($stamp) = @_;
+    return undef if !defined $stamp;
+    return undef if $stamp !~ /^([0-9]{4})([0-9]{2})([0-9]{2})(?:[.]|\z)/;
+    my ( $y, $m, $d ) = ( $1, $2, $3 );
+    return undef if $m < 1 || $m > 12 || $d < 1 || $d > 31;
+    my @now = gmtime(time);
+    return _days_from_civil( $now[5] + 1900, $now[4] + 1, $now[3] )
+      - _days_from_civil( $y, $m, $d );
+}
+
+# Purpose: the configured maximum advisory-database age.
+# Input: none (reads CPAN_AUDIT_FRESH_DAYS).
+# Output: ( $days, undef ) or ( undef, $complaint ) when the variable is unusable.
+#
+# A malformed value is refused rather than ignored. Silently falling back to the
+# default would mean an operator who set the knob and mistyped it gets the
+# default's behaviour while believing they set their own - the silent-drop failure
+# this project has met repeatedly in option handling.
+sub _max_database_age_days {
+    my $configured = $ENV{CPAN_AUDIT_FRESH_DAYS};
+    return ( DEFAULT_MAX_DB_AGE_DAYS, undef ) if !defined $configured || $configured eq '';
+    return ( undef, "CPAN_AUDIT_FRESH_DAYS is set to '$configured', which is not a whole number of days" )
+      if $configured !~ /^[0-9]+$/;
+    return ( $configured + 0, undef );
+}
+
+# Purpose: name the advisory database behind this run, and decide whether it is
+#          fit to answer with.
+# Input: none.
+# Output: a hash reference - {line} always, {refusal} when the gate must not
+#         report a verdict.
+#
+# WHY THE LINE IS UNCONDITIONAL. A verdict is only meaningful alongside the corpus
+# it was reached from, and the clean path is the one readers believe. Two clean runs
+# of this gate were cited as evidence on 2026-09-06 while the database predated the
+# advisory in question by three weeks; nothing in that output could have revealed it.
+# Printing the corpus only when refusing would reproduce the defect on the exact
+# path that caused it.
+sub _corpus_report {
+    my $stamp = eval { CPAN::Audit::DB->VERSION };
+    my $shown = defined $stamp && $stamp ne '' ? $stamp : 'unknown';
+    my $age   = _database_age_days($stamp);
+    my ( $limit, $complaint ) = _max_database_age_days();
+
+    my $line = sprintf "advisory database: CPAN::Audit::DB %s%s\n", $shown,
+      defined $age ? sprintf( ' (%d day%s old)', $age, $age == 1 ? '' : 's' ) : ' (age unknown)';
+
+    return { line => $line, refusal => $complaint } if defined $complaint;
+    return {
+        line    => $line,
+        refusal => "the advisory database version '$shown' is not in CPANSA's YYYYMMDD.NNN form, so its age cannot be established"
+    } if !defined $age;
+    return {
+        line    => $line,
+        refusal => sprintf(
+            "the advisory database is %d days old (%s) and the limit is %d; refresh it with 'cpan -D CPANSA::DB', or raise CPAN_AUDIT_FRESH_DAYS if you accept auditing against a corpus that old",
+            $age, $shown, $limit
+        )
+    } if $age > $limit;
+    return { line => $line, refusal => undef };
 }
 
 # Purpose: load the CPAN::Audit advisory database and version-range comparator

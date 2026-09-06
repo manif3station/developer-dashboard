@@ -279,7 +279,7 @@ for my $case (
     # A tool that ran and found something: also non-zero, but it names an
     # advisory. Same status class, opposite meaning - this is the case that
     # proves the gate is reading the output rather than just the exit code.
-    _write_file( $stub, "#!/bin/sh\nprintf '%s\\n' 'HTTP-Tiny (have ==0.086) has 1 advisory'\nprintf '%s\\n' '  * CPANSA-HTTP-Tiny-2026-7010'\nexit 1\n" );
+    _write_file( $stub, "#!/bin/sh\n" . _version_prologue() . "printf '%s\\n' 'HTTP-Tiny (have ==0.086) has 1 advisory'\nprintf '%s\\n' '  * CPANSA-HTTP-Tiny-2026-7010'\nexit 1\n" );
     chmod 0755, $stub or die "chmod $stub: $!";
     {
         local $ENV{PATH} = join ':', $fake_bin, '/usr/local/bin', '/usr/bin', '/bin';
@@ -335,8 +335,40 @@ sub _slurp {
     return defined $content ? $content : '';
 }
 
+# Purpose: the sh prologue every cpan-audit double needs so the gate's corpus
+#          probe is answered the way the real binary answers it.
+# Input:   none.
+# Output:  a shell snippet answering --version and falling through otherwise.
+#
+# The gate establishes which advisory database it is auditing against before it
+# audits (DD-790), so a double that ignores --version is an incomplete model of
+# the binary: the gate refuses it as UNUSABLE, correctly, and every case in the
+# block fails for a reason none of them is about. The stamp is today's, computed
+# rather than written, so these files cannot start failing by the calendar.
+sub _version_prologue {
+    my @now   = gmtime(time);
+    my $stamp = sprintf '%04d%02d%02d.001', $now[5] + 1900, $now[4] + 1, $now[3];
+    return
+        qq{for a in "\$\@"; do\n}
+      . qq{  if [ "\$a" = "--version" ]; then\n}
+      . qq{    echo "cpan-audit version 1.503 using:"\n}
+      . qq{    echo "\tCPANSA::DB       $stamp"\n}
+      . qq{    exit 0\n}
+      . qq{  fi\ndone\n};
+}
+
 sub _run_gate {
     my ($root) = @_;
+    # The corpus guard (DD-790) is stood down for these cases, deliberately and
+    # narrowly. Their subject is ATTRIBUTION - does a finding name the right
+    # distribution and advisory id - and they read the host's real advisory
+    # database to do it. Leaving the age check live would make them fail whenever
+    # that database happened to be a fortnight old, which is a fact about the
+    # machine and not about the code under test; it did exactly that on 2026-09-06,
+    # turning thirteen attribution assertions red for a reason none of them names.
+    # The freshness behaviour itself is owned by t/172-cpan-audit-database-age.t,
+    # which shims the stamp and therefore tests it without depending on any host.
+    local $ENV{CPAN_AUDIT_FRESH_DAYS} = 100_000;
     # The developer-machine locations come first so the gate runs against the
     # same tooling it does interactively, but the AMBIENT PATH and PERL5LIB are
     # appended rather than discarded. Replacing them outright baked one machine's
