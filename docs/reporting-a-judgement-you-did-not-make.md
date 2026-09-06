@@ -76,3 +76,5 @@ For any pair where one tool produces and another reports:
 - **Check every exit path in the reporter.** A tool that announces its verdict
   in two places needs the fix in both; a one-sided fix leaves the other path
   reporting the old answer, and nothing looks wrong.
+
+Related: [[absence-versus-parse-failure]] — the same three-state collapse inside a *single* tool, where a checker reports "nothing was declared" on the strength of its own pattern not matching, and so cannot tell an absent declaration from an unparsed one.
