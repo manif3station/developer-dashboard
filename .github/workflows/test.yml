@@ -50,12 +50,26 @@ jobs:
           cpanm --notest -L audit-local CPAN::Audit
           echo "$GITHUB_WORKSPACE/audit-local/bin" >> "$GITHUB_PATH"
 
-      - name: Audit isolated Perl dependencies
+      - name: Audit isolated dependency root (environmental - NOT a release blocker)
         env:
           PERL5LIB: ${{ github.workspace }}/audit-local/lib/perl5
         run: script/cpan-audit-project local/lib/perl5
 
-      - name: Audit the declared dependency chain
+      # RELEASE GATE, AND IT MUST REPORT EVEN WHEN THE STEP ABOVE FAILS (DD-791).
+      #
+      # Without always() an isolated-root failure SKIPS this step, and skipped is
+      # not passed - it is the verdict you did not get, which reads identically to
+      # one nobody wanted. Observed twice: runs 34030447382 and 34031833296 both
+      # show the isolated audit failing and this step skipped, so master carried no
+      # release-gate verdict across two commits and nothing announced it.
+      #
+      # This is DD-568's own line applied to the step it missed: what builds the
+      # TREE fails fast, what performs VERIFICATION must survive an earlier failure
+      # and report. This step builds nothing; it consumes local/lib/perl5 exactly as
+      # "Run tests" does. If that tree is incomplete the script exits 2 UNUSABLE and
+      # says why, which is a state a reader can act on rather than an absence.
+      - name: Audit declared dependency chain (RELEASE GATE)
+        if: always()
         env:
           PERL5LIB: ${{ github.workspace }}/audit-local/lib/perl5:${{ github.workspace }}/local/lib/perl5
         run: script/cpan-audit-declared-chain local/lib/perl5
