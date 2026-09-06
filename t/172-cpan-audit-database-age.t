@@ -307,6 +307,69 @@ my $REFUSAL = qr/advisory database is \d+ days? old .* and the limit is \d+/i;
       'and the stamp is still printed when accepted';
 }
 
+# DD-798 AC-1..AC-3 and AC-5: the refusal RECOMMENDS a command, and a recommendation
+# is shipped code - the user pastes it into a shell with their own privileges. Both
+# gates used to name a FIXED path under world-writable /tmp and then put it FIRST on
+# PERL5LIB. /tmp is 1777, so the sticky bit stops a user DELETING another's files but
+# not CREATING that directory first; cpanm then REUSES an existing directory rather
+# than refusing it. On the host where this was found the directory already existed,
+# mode 775, already holding CPAN/Audit/DB.pm and CPANSA/DB.pm - the very modules the
+# instruction says to prepend. CWE-377/378; the published twin is CVE-2026-19953's
+# neighbour CVE-2026-25645 in Requests.
+#
+# These assert on the EMITTED TEXT, never on the source line, so a refactor of how
+# the message is built cannot silently drop the property.
+{
+    my ( $perl_exit, $perl_out ) = _run_perl_gate($STALE);
+    my ( $bash_exit, $bash_out ) = _run_bash_gate($STALE);
+
+    for my $case ( [ 'declared-chain', $perl_out ], [ 'cpan-audit-project', $bash_out ] ) {
+        my ( $name, $out ) = @{$case};
+
+        # AC-1: no absolute /tmp path anywhere in the advice. Deliberately wider than
+        # the one name that was there - banning only dd-fresh-cpansa would be satisfied
+        # by inventing a different fixed name, which is the same defect renamed.
+        unlike $out, qr{(?<![\w/])/tmp/\S+},
+          "$name refusal names no absolute /tmp path";
+
+        # AC-2: it still tells the user what to DO. Being actionable is why a fix is
+        # named at all; a refusal with no way forward gets worked around, not followed.
+        like $out, qr/\bmktemp -d\b/,
+          "$name refusal creates a private directory with mktemp -d";
+        like $out, qr/\$DIR/,
+          "$name refusal refers to the directory it just created";
+
+        # AC-5: the corpus verdict itself must not move. Only the recommended path
+        # changes, and a fix that quietly altered a security gate's verdict would be
+        # far worse than the bug it replaced.
+        like $out, $REFUSAL,
+          "$name still names the age and the limit";
+        like $out, qr/\Q$STALE\E/,
+          "$name still names the offending stamp";
+    }
+
+    # AC-5 continued: each gate keeps its OWN could-not-run code.
+    is $perl_exit, 2, 'declared-chain still exits 2';
+    is $bash_exit, 4, 'cpan-audit-project still exits 4 - its own code, not the Perl gate 2';
+
+    # AC-3: what is printed must actually RUN. A refusal that prints a recipe with a
+    # syntax error is worse than one printing nothing: the user believes it, pastes
+    # it, and then debugs our message. Nothing else in this suite checks that.
+    for my $case ( [ 'declared-chain', $perl_out ], [ 'cpan-audit-project', $bash_out ] ) {
+        my ( $name, $out ) = @{$case};
+        my @recipe = grep { /^\s{4}\S/ } split /\n/, $out;
+        cmp_ok scalar @recipe, '>=', 3,
+          "$name prints a recipe of at least three lines";
+        my $script = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'recipe.sh' );
+        open my $rfh, '>', $script or die "cannot write recipe: $!";
+        print {$rfh} join( "\n", map { s/^\s{4}//r } @recipe ), "\n";
+        close $rfh;
+        system 'sh', '-n', $script;
+        is ${^CHILD_ERROR_NATIVE} >> 8, 0,
+          "$name printed recipe parses as shell - sh -n accepts it";
+    }
+}
+
 done_testing;
 
 __END__
