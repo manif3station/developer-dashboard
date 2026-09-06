@@ -1177,14 +1177,25 @@ sub secure_file_permissions {
 # each independently reimplemented this sequence; this is the single place
 # every writer should reach for instead).
 #
-# Deliberately does NOT go through secure_file_permissions: that method only
-# secures paths under home_runtime_path/state_root, but config_root (and
-# anything beneath it, e.g. Auth.pm's users_root) is NOT gated by
-# is_home_runtime_path and can resolve outside both when a project-local
-# .developer-dashboard layer is the active runtime_root (DD-OOP-LAYERS) -
-# reusing the gated method here would silently stop securing those files.
-# chmod unconditionally instead, matching what every migrated call site
-# already did before this helper existed.
+# Deliberately chmods unconditionally rather than going through
+# secure_file_permissions, and the REASON CHANGED with DD-784 - read this
+# before assuming the old one still applies.
+#
+# It used to be a coverage gap: secure_file_permissions was gated on
+# is_home_runtime_path, so it did not secure config_root (nor anything beneath
+# it, e.g. Auth.pm's users_root) once a project-local .developer-dashboard
+# layer became the active runtime_root under DD-OOP-LAYERS. Routing through it
+# would have silently stopped securing those files. DD-784 closed that gap:
+# the method now gates on is_runtime_layer_path, which covers ANY runtime
+# layer, so that justification no longer holds.
+#
+# What remains, and is the reason this still chmods directly: the subject here
+# is the STAGING file, not the destination. It must be secured whether or not
+# it satisfies any layer predicate, because the whole point of the sequence is
+# that the content is already at its final mode before the rename makes it
+# reachable at a predictable path. A gated helper is the wrong shape for that -
+# a predicate returning false would leave the staging file loose and the
+# rename would publish it.
 #
 # Callers keep their own staging-path-naming helper (e.g. _pending_user_file)
 # so existing fault-injection tests that override it to a fixed, predictable
