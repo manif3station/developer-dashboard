@@ -35,19 +35,36 @@ session-owned `Monitor`s:
 d2 tira.job.list          # id, last_due_at, last_output_at, the recent output buffer
 ```
 
-**Read health from `last_output_at` and the output buffer — never from
-`last_run`.** `last_run` is a field *nothing ever wrote*: one assignment of
-`undef` at creation and no other in the engine (5.80, TKT-942, now retired in
-favour of a computed `last_due_at`). It reads `null` on a healthy job and a
-dead one alike, so it discriminates nothing. A job that is genuinely working
-looks like this — the two timestamps a second apart, with real content behind
-them:
+**Read all three stamps, and know which absence means what.** As of 5.84
+(TKT-963) a job records three facts that come apart in exactly the cases that
+were unreadable before:
+
+| stamp | means |
+|---|---|
+| `last_due_at` | the window came round |
+| `last_run_at` | the command was run |
+| `last_output_at` | it said something |
+
+A manual **Run now** has the second without the first — it never comes due. A
+command exiting 0 in **silence** has the second without the third. Before 5.84
+that silent success had *neither*, so it and a mere due-window were the same
+reading, on the scheduled path as well as the manual one.
+
+A job that is genuinely working and talkative looks like this:
 
 ```
 last_due_at:    2026-09-06T14:30:56+0100
 last_output_at: 2026-09-06T14:30:57+0100
-last_run:       null          <- still null, and still meaningless
 ```
+
+> **This guidance inverted on 2026-09-06 and the earlier version is worth
+> knowing about.** Through 5.80–5.83 the advice here was *"never read health
+> from `last_run`"*, because `last_run` was a field nothing ever wrote — one
+> assignment of `undef` at creation and no other in the engine — so it read
+> `null` on a healthy job and a dead one alike. That was true, and 5.84 replaced
+> it with a real `last_run_at`. **The page said the opposite of this for about
+> two hours.** If you are reading a claim about what a Tira field means, check
+> which version it was written against.
 
 ### What a job's command must be, and why a bare command is not enough
 

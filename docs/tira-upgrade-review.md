@@ -82,7 +82,22 @@ neither policy check can tell you that.
 
 It also voided a piece of evidence on another card: 5.80 retired `last_run` as a
 field nothing ever wrote, so an argument resting on `last_run: null` proved
-nothing about the job's health.
+nothing about the job's health. **That held for 5.80 through 5.83 only — 5.84's
+TKT-963 added a real `last_run_at`, and the guidance inverts: read all three
+stamps and know which absence means what.** `last_due_at` says the window came
+round, `last_run_at` says the command ran, `last_output_at` says it said
+something. A manual Run now has the second without the first; a command exiting
+0 in silence has the second without the third — and before 5.84 it had
+*neither*, so a silent success and a mere due-window read identically.
+
+**This page is now an instance of its own thesis, which is why the correction is
+dated rather than swallowed.** The claim above was about the TOOL, it was true
+when written, and it went stale in three days — sitting inside the document that
+exists to warn that a declared rule can change meaning without changing name.
+Nothing in the original sentence said which version it described, so a reader a
+month later would have taken a past-tense observation as current guidance. That
+is the same failure one level along: not an undeclared rule, but an undated
+fact. **Date any claim about what a Tira field or rule means.**
 
 **So read the Changes text for behaviour, not only for policy validation.** The
 checks tell you whether your declarations still bind; they do not tell you what
