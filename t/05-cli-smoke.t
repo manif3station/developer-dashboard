@@ -51,7 +51,21 @@ sub is_same_path_output {
 }
 
 local $ENV{HOME} = tempdir(CLEANUP => 1);
-local $ENV{PERL5LIB} = join ':', grep { defined && $_ ne '' } '/home/mv/perl5/lib/perl5', ( $ENV{PERL5LIB} || () );
+# DD-800: this used to prepend a literal '/home/mv/perl5/lib/perl5'. Do not put
+# a machine-specific path back. The line above localises HOME to a tempdir,
+# which destroys any $HOME-relative resolution of the module path, and the
+# literal was added to compensate - the two lines are adjacent for that reason.
+#
+# It was INERT anywhere that path does not exist (both this file and t/31 pass
+# in a container with no /home/mv), so it broke nothing. What it did was MASK:
+# the spec could not fail for a caller who had not set PERL5LIB, because it
+# supplied the deps itself. A spec that cannot fail for a missing dependency
+# cannot report one, and this repository's documented invocation carries
+# PERL5LIB explicitly for exactly that reason.
+#
+# The caller's value is still passed through below, which is the whole of what
+# this line legitimately needs to do.
+local $ENV{PERL5LIB} = join ':', grep { defined && $_ ne '' } ( $ENV{PERL5LIB} || () );
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
 local $ENV{DEVELOPER_DASHBOARD_CHECKERS};

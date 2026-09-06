@@ -13,9 +13,14 @@ my $UNDER_COVER = exists $INC{'Devel/Cover.pm'};
 my $repo = getcwd();
 
 local $ENV{HOME} = tempdir(CLEANUP => 1);
+# DD-800: this used to prepend a literal '/home/mv/perl5/lib/perl5'. Do not put
+# a machine-specific path back - see the fuller note in t/05-cli-smoke.t, which
+# carried the identical two lines. In short: localising HOME above destroys
+# $HOME-relative resolution, the literal was added to compensate, and it MASKED
+# a caller who had not set PERL5LIB rather than fixing anything. This file
+# passes with the entry absent (25/25 in a container with no /home/mv).
 local $ENV{PERL5LIB} = join ':',
     grep { defined && $_ ne '' }
-    '/home/mv/perl5/lib/perl5',
     ( $ENV{PERL5LIB} || () );
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
