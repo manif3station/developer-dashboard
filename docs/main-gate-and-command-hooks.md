@@ -33,11 +33,17 @@ hook list.
   or the command itself — can read what an earlier one did.
 - **stderr is the control channel.** A hook asks to stop by printing the literal
   marker `[[STOP]]` on stderr. Nothing on stdout is interpreted.
-- **Recursion guard.** A hook that itself runs `dashboard` or `d2` does not
-  re-fire the main gate; the guard is the same one the per-command chain uses,
-  and `d2`'s re-exec of its sibling `dashboard` fires each stage exactly once.
+- **Recursion guard.** The main gate runs its hooks with the environment
+  variable `DEVELOPER_DASHBOARD_MAIN_GATE` set; a nested `dashboard` or `d2`
+  started by a hook inherits it and skips the gate, so a hook that calls back
+  into the switchboard does not re-fire it. `d2`'s re-exec of its sibling
+  `dashboard` also fires the gate exactly once. The per-command chain has no
+  equivalent guard and is unchanged: a `cli/<cmd>.d/` hook that runs
+  `dashboard <cmd>` runs that command's per-command hooks again, as it always
+  has.
 - `dashboard which <cmd>` lists every hook that would run for `<cmd>`, both
-  stages, one `HOOK` line each, in the order they would run.
+  stages, one `HOOK` line each, in the order they would run: the main-gate
+  hooks first (deepest layer first, home last), then the per-command hooks.
 
 ## The two deliberate differences
 
@@ -104,7 +110,8 @@ dashboard which version
 ```
 
 prints the resolved command and a `HOOK` line for each hook in each stage in
-execution order. If a hook you expect is missing, the layer is not in the
+execution order — every main-gate hook before the first per-command hook,
+because that is the order they run. If a hook you expect is missing, the layer is not in the
 stack for the current directory (the stack is discovered from `$PWD`, not from
 the location of the hook file).
 
