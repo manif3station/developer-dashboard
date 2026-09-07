@@ -138,13 +138,30 @@ sub home_runtime_root {
     return $self->_ensure_dir( $self->home_runtime_path );
 }
 
+# _layer_dir_for($parent)
+# Resolves which directory name a runtime layer under $parent actually uses:
+# .developer-dashboard if it exists, .d2 as a fallback when only .d2 exists
+# (DD-809), or .developer-dashboard's path when NEITHER exists yet - a fresh
+# layer is always created under the long name, never the alias, so this is
+# the write-target name too, not only a read-time lookup.
+# Input: parent directory path string.
+# Output: full layer directory path string (may not exist on disk).
+sub _layer_dir_for {
+    my ( $self, $parent ) = @_;
+    my $primary = File::Spec->catdir( $parent, '.developer-dashboard' );
+    return $primary if -d $primary;
+    my $alias = File::Spec->catdir( $parent, '.d2' );
+    return $alias if -d $alias;
+    return $primary;
+}
+
 # home_runtime_path()
 # Returns the canonical home-backed runtime root path without creating it.
 # Input: none.
 # Output: home runtime directory path string.
 sub home_runtime_path {
     my ($self) = @_;
-    return File::Spec->catdir( $self->home, '.developer-dashboard' );
+    return $self->_layer_dir_for( $self->home );
 }
 
 # project_runtime_root()
@@ -154,9 +171,9 @@ sub home_runtime_path {
 sub project_runtime_root {
     my ($self) = @_;
     my $repo = $self->current_project_root or return;
-    my $home_runtime = File::Spec->catdir( $self->home, '.developer-dashboard' );
+    my $home_runtime = $self->_layer_dir_for( $self->home );
     return if $repo eq $home_runtime;
-    my $root = File::Spec->catdir( $repo, '.developer-dashboard' );
+    my $root = $self->_layer_dir_for($repo);
     return -d $root ? $root : undef;
 }
 
@@ -1227,7 +1244,7 @@ sub _ancestor_runtime_layers {
     my @layers;
     my $dir = $cwd;
     while ($dir) {
-        my $candidate = File::Spec->catdir( $dir, '.developer-dashboard' );
+        my $candidate = $self->_layer_dir_for($dir);
         my $visible_candidate = $self->_display_path($candidate);
         push @layers, $visible_candidate if -d $candidate && $self->_path_identity($candidate) ne $self->_path_identity($home_runtime);
         last if $self->_path_identity($dir) eq $self->_path_identity($stop_dir);
