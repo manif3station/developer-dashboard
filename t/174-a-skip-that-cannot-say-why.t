@@ -110,8 +110,9 @@ installed-copy case, so it reads as expected rather than as a gap.
 This project already requires every checker to distinguish B<clean> from
 B<could-not-look>, because a checker that dies quietly reads exactly like one
 that found nothing. A skip is the same decision-not-to-measure, in test output,
-and it is the one place the rule was never applied. See
-F<docs/a-skip-that-cannot-say-why.md>.
+and it is the one place the rule was never applied. See the SYSTEM-scoped page
+in the docs vault on why a skip that cannot say WHY is a checker that cannot
+say could-not-look.
 
 The file count cannot substitute for this: C<prove> counts a C<skip_all> file in
 C<Files=>, so a skipping run and a running one report the same total.
