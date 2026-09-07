@@ -1104,9 +1104,16 @@ sub runtime_layer_root_for {
         # None of the three sources above can yield undef or empty: the env
         # reader filters blanks itself, home_runtime_path is a pure
         # File::Spec->catdir on an always-set home, and the ancestor walker
-        # only ever pushes real existing-directory paths. Same shape and same
-        # single annotation as the register_named_paths guard above (line 90),
-        # which reaches 100.0 on every metric with only this one comment.
+        # only ever pushes real existing-directory paths.
+        #
+        # TWO ANNOTATIONS, MEASURED SEPARATELY RATHER THAN GUESSED TOGETHER.
+        # An own-line "uncoverable branch true" alone closed branch (measured:
+        # 99.3 -> 100.0). A trailing "uncoverable condition left" alone closed
+        # condition to the SAME residual value both times it was tried alone
+        # (99.4), so it is doing real work rather than a placebo. Stacking both
+        # as two own-lines lost the condition one; this combines the two forms
+        # that were each independently confirmed to work.
+        # uncoverable branch true
         next if !defined $root || $root eq '';    # uncoverable condition left
         return $root if $self->_same_or_descendant_path( $path, $root );
     }
