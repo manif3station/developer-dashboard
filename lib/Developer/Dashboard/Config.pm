@@ -260,9 +260,10 @@ sub _normalize_collector_job {
 
 # _collector_disable_flag($value)
 # Normalizes one collector disable value into a stable boolean flag. A JSON
-# literal true/false arrives from json_decode as a JSON::PP::Boolean object,
-# which is a reference, so it is unwrapped to its truth value BEFORE the
-# reference test - otherwise "disable": false read as disabled (DD-813).
+# literal true/false arrives from json_decode as a blessed boolean reference
+# (JSON::XS::is_bool detects it), so it is unwrapped to its truth value
+# BEFORE the reference test - otherwise "disable": false read as disabled
+# (DD-813).
 # Input: scalar config value from collector disable.
 # Output: numeric boolean where 1 disables the collector and 0 keeps it active.
 sub _collector_disable_flag {
@@ -1022,10 +1023,10 @@ sub _merge_api_key_hashes {
 
 # _api_key_disabled_flag($entry)
 # Returns whether one raw API config entry is an explicit child-layer
-# tombstone. A JSON literal true/false on the flag field is a
-# JSON::PP::Boolean reference and is unwrapped before the reference test, so
-# "disabled": false keeps the key visible (DD-813); any other reference still
-# counts as a tombstone.
+# tombstone. A JSON literal true/false on the flag field arrives as a
+# blessed boolean reference (JSON::XS::is_bool detects it) and is unwrapped
+# before the reference test, so "disabled": false keeps the key visible
+# (DD-813); any other reference still counts as a tombstone.
 # Input: API entry hash reference.
 # Output: numeric boolean flag.
 sub _api_key_disabled_flag {
