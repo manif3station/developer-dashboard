@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 
+use Developer::Dashboard::PerlEnv;
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -118,7 +119,7 @@ sub _run_perl_gate {
     my ( $stamp, %env ) = @_;
     my $lib  = _fake_db_lib($stamp);
     my $root = tempdir( CLEANUP => 1 );
-    local $ENV{PERL5LIB} = join ':', $lib, ( $ENV{PERL5LIB} // () );
+    local $ENV{PERL5LIB} = join Developer::Dashboard::PerlEnv::path_separator(), $lib, ( $ENV{PERL5LIB} // () );
     local @ENV{ keys %env } = values %env;
     my $out = `$^X \Q$PERL_GATE\E \Q$root\E 2>&1`;
     return ( ${^CHILD_ERROR_NATIVE} >> 8, $out );

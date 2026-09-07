@@ -4,6 +4,7 @@ use utf8;
 
 use Capture::Tiny qw(capture);
 use Cwd qw(getcwd);
+use Developer::Dashboard::PerlEnv;
 use File::Path ();
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -19,7 +20,7 @@ local $ENV{HOME} = tempdir(CLEANUP => 1);
 # $HOME-relative resolution, the literal was added to compensate, and it MASKED
 # a caller who had not set PERL5LIB rather than fixing anything. This file
 # passes with the entry absent (25/25 in a container with no /home/mv).
-local $ENV{PERL5LIB} = join ':',
+local $ENV{PERL5LIB} = join Developer::Dashboard::PerlEnv::path_separator(),
     grep { defined && $_ ne '' }
     ( $ENV{PERL5LIB} || () );
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};

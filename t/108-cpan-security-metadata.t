@@ -2,6 +2,7 @@ use strict;
 use warnings;
 
 use Cwd qw(abs_path);
+use Developer::Dashboard::PerlEnv;
 use File::Path qw(make_path remove_tree);
 use File::Spec;
 use FindBin qw($RealBin);
@@ -459,9 +460,9 @@ sub _run_gate {
     # somebody else.
     my ($running_series) = sprintf( '%vd', $^V ) =~ /\A(\d+\.\d+)/;
     my $same_perl = defined $target_series && defined $running_series && $target_series eq $running_series;
-    my @ambient = $same_perl ? grep { defined && length } split /:/, ( $ENV{PERL5LIB} // '' ) : ();
+    my @ambient = $same_perl ? grep { defined && length } split /\Q@{[ Developer::Dashboard::PerlEnv::path_separator() ]}\E/, ( $ENV{PERL5LIB} // '' ) : ();
 
-    local $ENV{PERL5LIB} = join ':', grep { defined && length }
+    local $ENV{PERL5LIB} = join Developer::Dashboard::PerlEnv::path_separator(), grep { defined && length }
         File::Spec->catdir( $ENV{HOME}, 'perl5', 'perlbrew', 'perls', 'perl-5.44.0', 'local', 'lib', 'perl5' ),
         @audit_lib,
         @ambient;
