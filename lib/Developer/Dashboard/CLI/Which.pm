@@ -348,7 +348,11 @@ Call C<run_which_command(command =E<gt> 'which', args =E<gt> \@ARGV)>. The modul
 builds a lightweight path registry, detects whether the target is a built-in
 helper, a layered custom command, or a dotted skill command, then prints one
 C<COMMAND /full/path> line followed by zero or more C<HOOK /full/path> lines in
-the same order the runtime would execute them. When users add C<--edit>, the
+the same order the runtime would execute them: the main-gate hooks (every
+executable file directly under a layer's F<hooks/> directory, deepest layer
+first and the home layer last) come before the per-command
+F<E<lt>commandE<gt>.d/> hooks, because the switchboard runs the main gate once
+before it resolves the command. When users add C<--edit>, the
 module skips the printed inspection output and re-enters C<dashboard open-file>
 with the resolved command file path so the existing editor-selection behavior
 is reused.
