@@ -87,3 +87,40 @@ nothing about the job's health.
 **So read the Changes text for behaviour, not only for policy validation.** The
 checks tell you whether your declarations still bind; they do not tell you what
 the board now does differently underneath them.
+
+## Confirm a store can carry the signal before grepping it
+
+An upgrade entry that says *"the fix line for X now reads Y"* invites one
+obvious verification: grep whatever store you have of past findings for Y. If
+the grep returns zero, the entry looks unlanded, or the reviewer looks wrong.
+
+**That grep only means something if the store records the field the entry
+changed.** Before reading a count from it, check that the field is ever
+populated there at all — run the grep for the *old* value too, or count how many
+rows carry the field with any value. A store that returns zero for every value
+is not disagreeing with the entry; it is structurally unable to witness it.
+
+Measured on the 5.84 -> 5.85 review (TKT-866, which made police fix lines for
+`JOB-`/`TSK-` subjects runnable as `d2 tira.job.list` / `d2 tira.tasklist.list`):
+
+- `d2 tira.policy.bridge.logs` holds a `fix` field, and it was **empty on 769 of
+  769** `JOB-`/`TSK-` entries — before and after the upgrade alike. A grep of the
+  logs for the new fix text returns 0 and proves nothing.
+- The **rendered bridge** (`d2 tira.policy.bridge`) carries the fix line, and a
+  finding raised after the upgrade showed the new text there on its first
+  appearance.
+
+So the same change is invisible in one store and plain in another, and the
+store that is cheap to grep is the blind one. The general rule: **a zero from a
+grep is a claim about the store as much as about the change.** Establish that
+the store can say something other than zero — a control row you know must
+match — before quoting its answer.
+
+The same review also showed the other way a changelog entry is useful: **an
+entry can hand you a yardstick you did not have.** TKT-978 published a median
+police-pass time for this board (5.49 s). A pass observed running for several
+minutes was, until that number existed, merely "slow"; against a published
+median it is a measurable finding for the board's owner. Read entries for
+numbers you can compare against, not only for behaviour that changed — and
+record the finding rather than acting on it when the command it measures is not
+yours to run.
