@@ -1104,11 +1104,10 @@ sub runtime_layer_root_for {
         # None of the three sources above can yield undef or empty: the env
         # reader filters blanks itself, home_runtime_path is a pure
         # File::Spec->catdir on an always-set home, and the ancestor walker
-        # only ever pushes real existing-directory paths. Same shape as the
-        # register_named_paths guard above, which is annotated the same way.
-        # uncoverable branch true
-        # uncoverable condition left
-        next if !defined $root || $root eq '';
+        # only ever pushes real existing-directory paths. Same shape and same
+        # single annotation as the register_named_paths guard above (line 90),
+        # which reaches 100.0 on every metric with only this one comment.
+        next if !defined $root || $root eq '';    # uncoverable condition left
         return $root if $self->_same_or_descendant_path( $path, $root );
     }
     return '';
