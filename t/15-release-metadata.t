@@ -797,6 +797,46 @@ for my $path ( _shipped_perl_doc_paths() ) {
     );
 }
 
+# Every test file a document cites must exist at exactly that path. The
+# upgrade test was renamed twice (t/107 -> t/122 -> t/136) and two documents
+# kept the first number for months; nothing caught it because a later test
+# took the t/122- prefix, so the stale name looked plausible to a reader and
+# no check ever resolved the token. Prefix similarity is not resolution.
+{
+    my @citation_population = _test_citation_population();
+    cmp_ok( scalar(@citation_population), '>', 0, 'test-citation guard reads a non-empty set of documents' );
+
+    my @documents = map { [ File::Spec->abs2rel( $_, $ROOT ) => _slurp($_) ] } @citation_population;
+    my %cited = map { $_ => 1 } map { _cited_test_paths( $_->[1] ) } @documents;
+    cmp_ok( scalar( keys %cited ), '>', 0, 'test-citation guard found at least one cited test path to resolve' );
+
+    my %unresolved = _unresolved_test_citations(@documents);
+    if (%unresolved) {
+        for my $token ( sort keys %unresolved ) {
+            fail("cited test $token does not exist at that path - cited by: " . join( ', ', @{ $unresolved{$token} } ));
+        }
+    }
+    else {
+        pass('every test path cited by the documentation and POD exists at exactly that path');
+    }
+
+    # Control pair, so the resolver is known to discriminate. The stale token
+    # is assembled at runtime: this file is in the population it scans, and a
+    # guard that exempted its own text would have a hole exactly where the
+    # next person copies from.
+    my $stale_token   = join '', 't/122-', 'upgrade-cli.t';
+    my $current_token = 't/136-upgrade-cli.t';
+    my @prefix_holders = glob( _repo_path( 't', '122-*' ) );
+    cmp_ok( scalar(@prefix_holders), '>', 0, 'control precondition: another test owns the t/122- prefix' );
+    ok( !-f _repo_path( split m{/}, $stale_token ), 'control precondition: the stale token itself does not exist' );
+
+    my %control_stale = _unresolved_test_citations( [ 'control' => "prove -lv $stale_token" ] );
+    is_deeply( [ sort keys %control_stale ], [$stale_token], 'control: a prefix match does not resolve a stale test citation' );
+
+    my %control_current = _unresolved_test_citations( [ 'control' => "prove -lv $current_token" ] );
+    is_deeply( [ sort keys %control_current ], [], 'control: an existing test path resolves' );
+}
+
 done_testing();
 
 sub _slurp {
@@ -856,6 +896,58 @@ sub _perl_doc_paths {
 
     my %seen;
     return sort grep { !$seen{$_}++ } @paths;
+}
+
+# Purpose: list every document whose test citations must resolve - markdown
+# under doc/ and docs/, README.md, and every Perl file _perl_doc_paths() walks.
+# Input: none. Output: sorted, de-duplicated list of absolute paths.
+sub _test_citation_population {
+    my @paths = grep { -f $_ } ( _repo_path('README.md') );
+    for my $root ( _repo_path('doc'), _repo_path('docs') ) {
+        next if !-d $root;
+        find(
+            {
+                no_chdir => 1,
+                wanted   => sub {
+                    return if !-f $_;
+                    return if $_ !~ /\.md\z/;
+                    push @paths, $File::Find::name;
+                },
+            },
+            $root,
+        );
+    }
+    push @paths, _perl_doc_paths();
+
+    my %seen;
+    return sort grep { !$seen{$_}++ } @paths;
+}
+
+# Purpose: extract every repo-relative test path a piece of text cites.
+# Input: the text. Output: list of distinct tokens shaped t/NN-name.t, in
+# order of first appearance. A token is a citation whatever surrounds it -
+# a prose mention counts exactly as much as a prove command.
+sub _cited_test_paths {
+    my ($content) = @_;
+    my %seen;
+    return grep { !$seen{$_}++ } ( $content =~ m{(?<![\w./-])(t/[0-9]{2,3}-[A-Za-z0-9_.-]+\.t)\b}g );
+}
+
+# Purpose: resolve every cited test path against the repository at its EXACT
+# path and report the ones that do not exist. Input: a list of [label, text]
+# pairs. Output: hash of unresolved token => [labels that cite it]. A test
+# sharing only the numeric prefix with the token is not a match.
+sub _unresolved_test_citations {
+    my (@documents) = @_;
+    my %unresolved;
+    for my $document (@documents) {
+        my ( $label, $content ) = @{$document};
+        for my $token ( _cited_test_paths($content) ) {
+            next if -f _repo_path( split m{/}, $token );
+            push @{ $unresolved{$token} }, $label;
+        }
+    }
+    return %unresolved;
 }
 
 sub _shipped_perl_doc_paths {
