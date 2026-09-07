@@ -1064,6 +1064,9 @@ documentation aligned for the private-helper and isolated-skill packaging
 model. It also pins the declared runtime dependency floors, so a
 distribution carrying a published advisory cannot be permitted by the manifests
 even where no current advisory database is installed to notice.
+It also resolves every C<t/NN-name.t> path cited in the README, the markdown under
+C<doc/> and C<docs/>, and the POD of every Perl file, so a renamed test file
+cannot leave a stale citation behind in the documentation.
 
 =for comment FULL-POD-DOC START
 
