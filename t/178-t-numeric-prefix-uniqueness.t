@@ -78,3 +78,51 @@ sub colliding_prefixes {
 }
 
 done_testing;
+
+__END__
+
+=head1 NAME
+
+t/178-t-numeric-prefix-uniqueness.t - guards against two t/ files sharing a
+numeric prefix
+
+=head1 PURPOSE
+
+Asserts that no two files under C<t/> share a leading numeric prefix, and
+carries genuine controls proving the check discriminates a real collision
+from a clean directory.
+
+=head1 WHY IT EXISTS
+
+Ten pairs of t/ files shared a numeric prefix on 2026-09-07 (DD-816) - the
+exact class C<d1a6053b> renumbered away once already. The project's own
+operating rules and several docs pages cite tests by bare prefix (C<t/15>,
+C<t/158>), trusting it to
+resolve to exactly one file; a fresh collision makes that silently
+ambiguous, and C<prove -lr t> runs every file regardless of its name, so
+nothing else notices. This guard's population is the C<t/> directory
+itself, distinct from and complementary to DD-786's citation-resolution
+guard (C<t/15-release-metadata.t>), whose population is documentation
+text.
+
+=head1 WHEN TO USE
+
+It runs in the ordinary suite. Consult it before assigning a new numeric
+prefix to a fresh test file, or when investigating why a bare-prefix doc
+reference resolves to more than one file.
+
+=head1 HOW TO USE
+
+    prove -lv t/178-t-numeric-prefix-uniqueness.t
+
+=head1 WHAT USES IT
+
+Nothing programmatic; it is a standing guard, run by C<prove -lr t> and by
+the coverage gate.
+
+=head1 EXAMPLES
+
+Copying any existing t/ file to a name sharing another file's prefix makes
+the real-population assertion fail, naming both files by exact filename.
+
+=cut
