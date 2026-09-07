@@ -92,7 +92,7 @@ __END__
 
 =head1 NAME
 
-t/94-d2-alias.t - .d2 alias resolution for the runtime layer directory
+t/25-d2-alias.t - .d2 alias resolution for the runtime layer directory
 
 =head1 PURPOSE
 
@@ -117,7 +117,7 @@ C<_ancestor_runtime_layers>).
 
 =head1 HOW TO USE
 
-  prove -lv t/94-d2-alias.t
+  prove -lv t/25-d2-alias.t
 
 =head1 WHAT USES IT
 
@@ -127,7 +127,7 @@ resolution methods this test exercises directly.
 =head1 EXAMPLES
 
   # Full run with verbose output
-  prove -lv t/94-d2-alias.t
+  prove -lv t/25-d2-alias.t
 
   # Run as part of the full suite
   prove -lr t

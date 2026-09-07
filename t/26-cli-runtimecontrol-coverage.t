@@ -535,7 +535,7 @@ __END__
 
 =head1 NAME
 
-t/100-cli-runtimecontrol-coverage.t - Devel::Cover gate for the runtime control CLI
+t/26-cli-runtimecontrol-coverage.t - Devel::Cover gate for the runtime control CLI
 
 =head1 PURPOSE
 
@@ -562,7 +562,7 @@ board, or the default table/JSON rendering for runtime-control commands.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/100-cli-runtimecontrol-coverage.t> while iterating, and keep
+Run C<prove -lv t/26-cli-runtimecontrol-coverage.t> while iterating, and keep
 it green under C<prove -lr t> before release. The file is hermetic: it roots a
 temporary home and chdirs into it, then calls the module's public and private
 functions directly (via C<\&Package::_func> references) against three small
@@ -583,7 +583,7 @@ C<dashboard stop>, and C<dashboard log[s]> behaving as documented.
 
 Example 1:
 
-  prove -lv t/100-cli-runtimecontrol-coverage.t
+  prove -lv t/26-cli-runtimecontrol-coverage.t
 
 Run the runtime-control CLI coverage checks on their own while iterating.
 

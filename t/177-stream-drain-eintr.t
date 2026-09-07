@@ -131,7 +131,7 @@ __END__
 
 =head1 NAME
 
-t/164-stream-drain-eintr.t - pin that StreamDrain tells EINTR apart from EOF
+t/177-stream-drain-eintr.t - pin that StreamDrain tells EINTR apart from EOF
 
 =head1 PURPOSE
 
@@ -159,7 +159,7 @@ read, or before assuming a truncated child output is the child's fault.
 
 =head1 HOW TO USE
 
-    prove -l t/164-stream-drain-eintr.t
+    prove -l t/177-stream-drain-eintr.t
 
 =head1 WHAT USES IT
 

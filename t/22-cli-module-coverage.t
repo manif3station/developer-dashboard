@@ -1466,7 +1466,7 @@ __END__
 
 =head1 NAME
 
-15-cli-module-coverage.t - direct coverage tests for dashboard CLI helper modules
+22-cli-module-coverage.t - direct coverage tests for dashboard CLI helper modules
 
 =head1 DESCRIPTION
 
@@ -1490,7 +1490,7 @@ Use this file when changing the hard-to-hit branches that keep library coverage 
 
 =head1 HOW TO USE
 
-Run it directly with C<prove -lv t/15-cli-module-coverage.t> while iterating, then keep it green under C<prove -lr t> and the coverage runs before release. 
+Run it directly with C<prove -lv t/22-cli-module-coverage.t> while iterating, then keep it green under C<prove -lr t> and the coverage runs before release. 
 
 =head1 WHAT USES IT
 
@@ -1500,13 +1500,13 @@ Developers during TDD, the full C<prove -lr t> suite, the coverage gates, and th
 
 Example 1:
 
-  prove -lv t/15-cli-module-coverage.t
+  prove -lv t/22-cli-module-coverage.t
 
 Run the focused regression test by itself while you are changing the behavior it owns.
 
 Example 2:
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/15-cli-module-coverage.t
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/22-cli-module-coverage.t
 
 Exercise the same focused test while collecting coverage for the library code it reaches.
 

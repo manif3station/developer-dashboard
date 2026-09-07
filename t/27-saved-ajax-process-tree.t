@@ -170,7 +170,7 @@ __END__
 
 =head1 NAME
 
-109-saved-ajax-process-tree.t - saved-Ajax disconnect process-tree acceptance test
+27-saved-ajax-process-tree.t - saved-Ajax disconnect process-tree acceptance test
 
 =head1 DESCRIPTION
 
@@ -200,7 +200,7 @@ or process ownership changes.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/109-saved-ajax-process-tree.t> for the focused TDD, BDD, and
+Run C<prove -lv t/27-saved-ajax-process-tree.t> for the focused TDD, BDD, and
 ATDD loop. Then include it in the repository-wide tests and platform gates.
 
 =head1 WHAT USES IT
@@ -210,11 +210,11 @@ use this executable scenario.
 
 =head1 EXAMPLES
 
-  prove -lv t/109-saved-ajax-process-tree.t
+  prove -lv t/27-saved-ajax-process-tree.t
 
 Run the deterministic POSIX process-tree scenario.
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/109-saved-ajax-process-tree.t
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/27-saved-ajax-process-tree.t
 
 Collect focused implementation coverage while exercising the same acceptance
 behavior.

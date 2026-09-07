@@ -365,7 +365,7 @@ secret digest.
 
 Example 4:
 
-  prove -lv t/05-cli-smoke.t t/15-cli-module-coverage.t
+  prove -lv t/05-cli-smoke.t t/22-cli-module-coverage.t
 
 Rerun the focused CLI and module regression tests after changing this helper.
 
