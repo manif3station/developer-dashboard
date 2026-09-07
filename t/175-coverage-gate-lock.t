@@ -237,7 +237,7 @@ __END__
 
 =head1 NAME
 
-146-coverage-gate-lock.t - prove the coverage gate refuses to be the second run
+175-coverage-gate-lock.t - prove the coverage gate refuses to be the second run
 against one database
 
 =head1 PURPOSE
@@ -270,7 +270,7 @@ environment.
 
 =head1 HOW TO USE
 
-    prove -lv t/146-coverage-gate-lock.t
+    prove -lv t/175-coverage-gate-lock.t
 
 =head1 WHAT USES IT
 

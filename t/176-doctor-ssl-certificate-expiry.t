@@ -271,7 +271,7 @@ __END__
 
 =head1 NAME
 
-t/161-doctor-ssl-certificate-expiry.t - doctor reports the active SSL
+t/176-doctor-ssl-certificate-expiry.t - doctor reports the active SSL
 certificate's remaining validity
 
 =head1 PURPOSE
@@ -301,7 +301,7 @@ check, or the SSL certificate directory.
 
 =head1 HOW TO USE
 
-  PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/161-doctor-ssl-certificate-expiry.t
+  PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/176-doctor-ssl-certificate-expiry.t
 
 =head1 WHAT USES IT
 

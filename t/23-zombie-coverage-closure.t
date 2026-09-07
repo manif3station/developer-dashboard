@@ -126,7 +126,7 @@ __END__
 
 =head1 NAME
 
-t/47-zombie-coverage-closure.t
+t/23-zombie-coverage-closure.t
 
 =head1 PURPOSE
 
@@ -169,21 +169,21 @@ add unnecessary setup noise.
 Run it directly while iterating on collector zombie handling or runtime helper
 resolution:
 
-  prove -lv t/47-zombie-coverage-closure.t
+  prove -lv t/23-zombie-coverage-closure.t
 
 Run it under coverage when closing the final library coverage gap:
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/47-zombie-coverage-closure.t
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/23-zombie-coverage-closure.t
 
 =head1 EXAMPLES
 
 Direct focused rerun:
 
-  prove -lv t/47-zombie-coverage-closure.t
+  prove -lv t/23-zombie-coverage-closure.t
 
 Covered focused rerun:
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/47-zombie-coverage-closure.t
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/23-zombie-coverage-closure.t
 
 =head1 WHAT USES IT
 

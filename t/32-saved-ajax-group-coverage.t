@@ -439,7 +439,7 @@ __END__
 
 =head1 NAME
 
-110-saved-ajax-group-coverage.t - saved-Ajax POSIX process-group unit coverage
+32-saved-ajax-group-coverage.t - saved-Ajax POSIX process-group unit coverage
 
 =head1 DESCRIPTION
 
@@ -476,7 +476,7 @@ or termination escalation logic changes.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/110-saved-ajax-group-coverage.t> directly, or include it in
+Run C<prove -lv t/32-saved-ajax-group-coverage.t> directly, or include it in
 the repository-wide suite and coverage gates.
 
 =head1 WHAT USES IT
@@ -486,11 +486,11 @@ file to hold the saved-Ajax lifecycle helpers at full coverage.
 
 =head1 EXAMPLES
 
-  prove -lv t/110-saved-ajax-group-coverage.t
+  prove -lv t/32-saved-ajax-group-coverage.t
 
 Run the focused process-group unit checks.
 
-  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/110-saved-ajax-group-coverage.t
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/32-saved-ajax-group-coverage.t
 
 Collect the per-branch coverage these units exist to provide.
 

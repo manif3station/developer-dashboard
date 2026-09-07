@@ -126,7 +126,7 @@ __END__
 
 =head1 NAME
 
-t/50-makefile-perl5lib-portability.t - portable Makefile.PL local-lib contract
+t/24-makefile-perl5lib-portability.t - portable Makefile.PL local-lib contract
 
 =head1 PURPOSE
 
@@ -146,7 +146,7 @@ paths, platform handling, or File::ShareDir::Install postamble integration.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/50-makefile-perl5lib-portability.t> from the repository root.
+Run C<prove -lv t/24-makefile-perl5lib-portability.t> from the repository root.
 The fixture uses the active Perl's C<Config> values and an absolute temporary HOME.
 
 =head1 WHAT USES IT
@@ -158,7 +158,7 @@ Makefiles portable across Perl versions, architectures, and path separators.
 
 Example 1:
 
-  prove -lv t/50-makefile-perl5lib-portability.t
+  prove -lv t/24-makefile-perl5lib-portability.t
 
 Run the focused portability contract while implementing Makefile.PL changes.
 
