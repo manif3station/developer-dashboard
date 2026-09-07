@@ -91,7 +91,7 @@ __END__
 
 =head1 NAME
 
-t/173-a-skip-that-cannot-say-why.t - grade whether t/158's skip says WHICH condition fired
+t/174-a-skip-that-cannot-say-why.t - grade whether t/158's skip says WHICH condition fired
 
 =head1 PURPOSE
 
@@ -122,7 +122,7 @@ On any change to C<t/158>'s guard, its message, or the layout of C<.claude/>.
 
 =head1 HOW TO USE
 
-    PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/173-a-skip-that-cannot-say-why.t
+    PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/174-a-skip-that-cannot-say-why.t
 
 =head1 WHAT USES IT
 
