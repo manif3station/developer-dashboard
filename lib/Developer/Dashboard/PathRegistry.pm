@@ -1101,20 +1101,17 @@ sub runtime_layer_root_for {
     my ( $self, $path ) = @_;
     return '' if !defined $path || $path eq '';
     for my $root ( $self->_runtime_layers_from_env, $self->home_runtime_path, $self->_ancestor_runtime_layers ) {
-        # None of the three sources above can yield undef or empty: the env
-        # reader filters blanks itself, home_runtime_path is a pure
-        # File::Spec->catdir on an always-set home, and the ancestor walker
-        # only ever pushes real existing-directory paths.
-        #
-        # TWO ANNOTATIONS, MEASURED SEPARATELY RATHER THAN GUESSED TOGETHER.
-        # An own-line "uncoverable branch true" alone closed branch (measured:
-        # 99.3 -> 100.0). A trailing "uncoverable condition left" alone closed
-        # condition to the SAME residual value both times it was tried alone
-        # (99.4), so it is doing real work rather than a placebo. Stacking both
-        # as two own-lines lost the condition one; this combines the two forms
-        # that were each independently confirmed to work.
-        # uncoverable branch true
-        next if !defined $root || $root eq '';    # uncoverable condition left
+        # None of the three sources above can yield undef or empty in
+        # production - the env reader filters blanks itself, home_runtime_path
+        # is a pure File::Spec->catdir on an always-set home, and the ancestor
+        # walker only ever pushes real existing-directory paths. Annotating
+        # this as uncoverable held branch at 100.0 but never closed condition
+        # (stuck at 99.9 across five independent attempts at the comment
+        # syntax), so per Q-150 it is exercised directly instead: t/93 stubs
+        # _runtime_layers_from_env to inject an undef entry and an empty-string
+        # entry ahead of a real root, which drives both operands of this OR
+        # true independently while a normal run still drives it false.
+        next if !defined $root || $root eq '';
         return $root if $self->_same_or_descendant_path( $path, $root );
     }
     return '';
