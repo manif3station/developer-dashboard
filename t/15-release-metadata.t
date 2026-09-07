@@ -172,6 +172,8 @@ if ( $dist ne '' ) {
     like( $dist, qr/^exclude_match = \^updates\/$/m, 'dist.ini excludes checkout-only update scripts so user-defined update remains the installed runtime contract' );
     like( $dist, qr/^exclude_match = \^dogfood-output\/$/m, 'dist.ini excludes dogfood-output so browser QA evidence and screenshots do not leak into release tarballs' );
     like( $dist, qr/^exclude_match = \^\\\.worktrees\/$/m, 'dist.ini excludes .worktrees so ticket worktrees do not leak into release tarballs' );
+    like( $dist, qr/^exclude_match = \^\\\.developer-dashboard\/$/m, 'dist.ini excludes .developer-dashboard so operator runtime state does not leak into release tarballs' );
+    like( $dist, qr/^exclude_match = \^_developer-dashboard\/$/m, 'dist.ini excludes _developer-dashboard so a non-dot rename of the runtime root does not leak into release tarballs (DD-432 class)' );
     unlike( $dist, qr/^exclude_match = \^integration\/$/m, 'dist.ini keeps integration assets in the release tarball so install-time integration tests can read them' );
     unlike( $dist, qr/^exclude_match = \\.md\$$/m, 'dist.ini keeps Markdown documentation in the release tarball so release tests can read the shipped docs' );
     like( $dist, qr/^\[ShareDir\]$/m, 'dist.ini installs the seeded share assets into the built distribution' );
@@ -358,6 +360,8 @@ my @operator_local_files = qw(
         Developer-Dashboard-9.99/lib/Developer/Dashboard.pm
         dogfood-output/screenshot.png
         .worktrees/dd-432/lib/Developer/Dashboard.pm
+        .developer-dashboard/config/auth.json
+        _developer-dashboard/config/auth.json
         node_modules/left-pad/index.js
         bin/jq
         .claude/rules/tira-board-contract.md
@@ -393,6 +397,24 @@ my @operator_local_files = qw(
         install.sh
     );
     ok( !$excluded->($_), "dist.ini exclusions leave $_ in the release tarball" ) for @must_be_shipped;
+}
+
+# MANIFEST.SKIP is a separate exclusion mechanism from dist.ini's GatherDir
+# exclude_match (used by the `make dist`/MakeMaker MANIFEST path rather than
+# dzil's own build), and until now carried no test coverage of its own -
+# assert both spellings of the runtime state root are excluded there too, the
+# same way DD-432 excluded both hermes spellings in both files at once.
+{
+    my $manifest_skip = _slurp( _repo_path('MANIFEST.SKIP') );
+    my @skip_pattern = map { qr/$_/ } split /\n/, $manifest_skip;
+    like( $manifest_skip, qr/^\^\\\.developer-dashboard\/$/m, 'MANIFEST.SKIP excludes .developer-dashboard so operator runtime state does not leak into a MANIFEST-built tarball' );
+    like( $manifest_skip, qr/^\^_developer-dashboard\/$/m, 'MANIFEST.SKIP excludes _developer-dashboard so a non-dot rename does not leak into a MANIFEST-built tarball (DD-432 class)' );
+    for my $spelling (qw(.developer-dashboard _developer-dashboard)) {
+        ok(
+            ( scalar grep { "$spelling/config/auth.json" =~ $_ } @skip_pattern ),
+            "MANIFEST.SKIP patterns actually match $spelling/config/auth.json, not merely name it",
+        );
+    }
 }
 
 my @required_tarball_paths = (
