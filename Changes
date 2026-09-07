@@ -1,5 +1,17 @@
 4.30  2026-09-05
 
+  - DD-810: the switchboard now runs a main gate before resolving any command:
+    every executable file directly under <layer>/hooks/ in the runtime layer
+    stack runs once per invocation, deepest layer first and home last, with
+    the full command argv, and each hook's RESULT/LAST_RESULT is recorded
+    under the same keys the per-command chain writes. A hook that prints the
+    marker [[STOP]] on stderr skips the remaining hooks and the command does
+    not run; dashboard exits 1 with the hook's stderr visible. A layer stack
+    with no hooks/ directory produces bit-for-bit today's output and an empty
+    stderr. The hooks run with DEVELOPER_DASHBOARD_MAIN_GATE set so a nested
+    dashboard or d2 does not re-fire the gate, and d2's re-exec of dashboard
+    fires it exactly once. `dashboard which <cmd>` lists the main-gate hooks
+    before the per-command ones, in run order.
   - DD-764: a stored session record whose expires_at was absent, empty or "0"
     was accepted as valid forever by SessionStore::from_cookie and skipped by
     sweep_expired, so the record was both immortal and uncollectable - while a

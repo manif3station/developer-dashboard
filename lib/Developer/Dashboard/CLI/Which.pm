@@ -90,19 +90,15 @@ sub _locate_target {
     my $target = $args{target} || '';
     return { command => '', hooks => [] } if $target eq '';
 
-    if ( my $skill = _locate_skill_target( paths => $paths, target => $target ) ) {
-        return $skill;
-    }
+    my $located = _locate_skill_target( paths => $paths, target => $target )
+      || _builtin_target( paths => $paths, target => $target )
+      || _custom_target( paths => $paths, target => $target );
+    return { command => '', hooks => [] } if !$located;
 
-    if ( my $helper = _builtin_target( paths => $paths, target => $target ) ) {
-        return $helper;
-    }
-
-    if ( my $custom = _custom_target( paths => $paths, target => $target ) ) {
-        return $custom;
-    }
-
-    return { command => '', hooks => [] };
+    # The main gate runs before the command is resolved, so its hooks come
+    # first in the report - exactly the order the switchboard executes them.
+    unshift @{ $located->{hooks} }, _main_gate_hook_files( paths => $paths );
+    return $located;
 }
 
 # _builtin_target(%args)
@@ -178,16 +174,50 @@ sub _command_hook_files {
         my $plain_root = File::Spec->catdir( $root, $command );
         my $hooks_root = -d $plain_root ? $plain_root : File::Spec->catdir( $root, $command . '.d' );
         next if !-d $hooks_root;
-        opendir( my $dh, $hooks_root ) or die "Unable to read $hooks_root: $!";
-        for my $entry ( sort grep { $_ ne '.' && $_ ne '..' } readdir($dh) ) {
-            my $path = File::Spec->catfile( $hooks_root, $entry );
-            next if $entry eq 'run';
-            next if !is_runnable_file($path);
-            push @hooks, $path;
-        }
-        closedir($dh);
+        push @hooks, _runnable_hook_entries($hooks_root);
     }
 
+    return @hooks;
+}
+
+# _main_gate_hook_files(%args)
+# Enumerates the main-gate hook files (<layer>/hooks/*) that the switchboard
+# runs once per invocation before any command is resolved, deepest participating
+# DD-OOP-LAYER first and the home layer last, in execution order.
+# Input: path registry under "paths".
+# Output: ordered list of absolute hook file paths; empty when no layer has a
+# hooks directory.
+sub _main_gate_hook_files {
+    my (%args) = @_;
+    my $paths = $args{paths} || die "Missing paths registry\n";
+
+    my @hooks;
+    for my $layer ( reverse $paths->runtime_layers ) {
+        my $hooks_root = File::Spec->catdir( $layer, 'hooks' );
+        next if !-d $hooks_root;
+        push @hooks, _runnable_hook_entries($hooks_root);
+    }
+
+    return @hooks;
+}
+
+# _runnable_hook_entries($hooks_root)
+# Reads one hook directory the way the switchboard does: entries sorted by
+# name, skipping the "run" body and anything that is not an executable regular
+# file.
+# Input: existing hook directory path.
+# Output: ordered list of absolute hook file paths.
+sub _runnable_hook_entries {
+    my ($hooks_root) = @_;
+    opendir( my $dh, $hooks_root ) or die "Unable to read $hooks_root: $!";
+    my @hooks;
+    for my $entry ( sort grep { $_ ne '.' && $_ ne '..' } readdir($dh) ) {
+        my $path = File::Spec->catfile( $hooks_root, $entry );
+        next if $entry eq 'run';
+        next if !is_runnable_file($path);
+        push @hooks, $path;
+    }
+    closedir($dh);
     return @hooks;
 }
 
