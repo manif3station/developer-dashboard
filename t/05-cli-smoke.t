@@ -4,6 +4,7 @@ use utf8;
 
 use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 use Capture::Tiny qw(capture);
+use Developer::Dashboard::PerlEnv;
 use Cwd qw(abs_path getcwd);
 use Digest::SHA qw(sha256_hex);
 use Developer::Dashboard::Collector;
@@ -65,7 +66,7 @@ local $ENV{HOME} = tempdir(CLEANUP => 1);
 #
 # The caller's value is still passed through below, which is the whole of what
 # this line legitimately needs to do.
-local $ENV{PERL5LIB} = join ':', grep { defined && $_ ne '' } ( $ENV{PERL5LIB} || () );
+local $ENV{PERL5LIB} = join Developer::Dashboard::PerlEnv::path_separator(), grep { defined && $_ ne '' } ( $ENV{PERL5LIB} || () );
 local $ENV{DEVELOPER_DASHBOARD_BOOKMARKS};
 local $ENV{DEVELOPER_DASHBOARD_CONFIGS};
 local $ENV{DEVELOPER_DASHBOARD_CHECKERS};
@@ -2139,7 +2140,7 @@ my $perl_target = File::Spec->catfile( $perl_root, 'App.pm' );
 open my $perl_fh, '>', $perl_target or die "Unable to write $perl_target: $!";
 print {$perl_fh} "package My::App;\n1;\n";
 close $perl_fh;
-local $ENV{PERL5LIB} = join ':', grep { defined && $_ ne '' } File::Spec->catdir( $open_root, 'lib' ), $ENV{PERL5LIB};
+local $ENV{PERL5LIB} = join Developer::Dashboard::PerlEnv::path_separator(), grep { defined && $_ ne '' } File::Spec->catdir( $open_root, 'lib' ), $ENV{PERL5LIB};
 my $perl_module = _run("$perl -I'$lib' '$dashboard' open-file --print My::App");
 like($perl_module, qr/\Q$perl_target\E/, 'dashboard open-file resolves Perl module names');
 
