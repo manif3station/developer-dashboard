@@ -15,7 +15,7 @@ use lib 'lib';
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::Config;
-use Developer::Dashboard::JSON qw(json_encode);
+use Developer::Dashboard::JSON qw(json_decode json_encode);
 
 # A tiny path-registry stand-in whose home() can be undef or empty, so the
 # home-shorthand branches in Config that guard on a missing home directory can
@@ -158,6 +158,18 @@ sub dies_like {
     is( $config->_collector_disable_flag('0'),   0, '_collector_disable_flag treats a false token as enabled' );
     is( $config->_collector_disable_flag(''),    0, '_collector_disable_flag treats an empty string as enabled' );
     is( $config->_collector_disable_flag('yes'), 1, '_collector_disable_flag treats a non-empty value as disabled' );
+
+    # DD-813: a JSON literal true/false arrives from json_decode as a
+    # JSON::PP::Boolean object, so it is a reference - and the reference test
+    # above must not swallow it before the token test sees its truth value.
+    # Decoded here rather than built by hand so the test sees the exact shape
+    # every config.json on disk produces.
+    my ( $json_true, $json_false ) = @{ json_decode('[true,false]') };
+    ok( ref($json_false), 'json_decode gives a reference for a JSON false (the shape under test)' );
+    is( $config->_collector_disable_flag($json_false), 0, '_collector_disable_flag treats a JSON false as enabled' );
+    is( $config->_collector_disable_flag($json_true),  1, '_collector_disable_flag treats a JSON true as disabled' );
+    is( $config->_normalize_collector_job( { name => 'j', disable => $json_false } )->{disable}, 0, '_normalize_collector_job keeps a collector with "disable": false enabled' );
+    is( $config->_normalize_collector_job( { name => 'k', disable => $json_true } )->{disable},  1, '_normalize_collector_job disables a collector with "disable": true' );
 }
 
 # -------------------------------------------------------------------------
@@ -243,6 +255,17 @@ sub dies_like {
     is( $config->_api_key_disabled_flag( { disabled => '0' } ),   0, '_api_key_disabled_flag treats a false token as enabled' );
     is( $config->_api_key_disabled_flag( { disabled => '1' } ),   1, '_api_key_disabled_flag treats a truthy token as disabled' );
     is( $config->_api_key_disabled_flag( {} ),                    0, '_api_key_disabled_flag returns 0 when no flag field exists' );
+
+    # DD-813: the same JSON::PP::Boolean shape on the api.json tombstone field.
+    my ( $api_true, $api_false ) = @{ json_decode('[true,false]') };
+    is( $config->_api_key_disabled_flag( { disabled => $api_false } ),  0, '_api_key_disabled_flag treats a JSON false as enabled' );
+    is( $config->_api_key_disabled_flag( { disabled => $api_true } ),   1, '_api_key_disabled_flag treats a JSON true as disabled' );
+    is( $config->_api_key_disabled_flag( { _disabled => $api_false } ), 0, '_api_key_disabled_flag treats a JSON false _disabled as enabled' );
+    is_deeply(
+        $config->_normalize_api_keys( { live => { secret => 'ls', disabled => $api_false }, gone => { secret => 'gs', disabled => $api_true } } ),
+        { live => { secret => 'ls', ajax => [] } },
+        '_normalize_api_keys keeps a key whose "disabled" is JSON false and drops one whose "disabled" is JSON true',
+    );
 
     # 939/943/947/948: ajax route normalization.
     is_deeply( $config->_normalize_api_ajax_routes('scalar'), [], '_normalize_api_ajax_routes returns empty for a non-array payload' );
