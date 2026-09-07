@@ -139,3 +139,34 @@ median it is a measurable finding for the board's owner. Read entries for
 numbers you can compare against, not only for behaviour that changed — and
 record the finding rather than acting on it when the command it measures is not
 yours to run.
+
+## 5.85 -> 5.86: a genuinely new rule surface arrived, and most of an upgrade can still be internal-only
+
+`tira.policy.undeclared` had answered empty for two reviews running (5.84 and
+5.85 - "every rule this board could adopt was already declared"). 5.86 broke
+that streak: `checklist-item-terminal` (TKT-867, test-hardened by TKT-1000)
+is a genuinely new rule surface - it reports an epic/SOW checklist item once
+every card it names in free text has reached a terminal column while the item
+itself stays open.
+
+**Before declaring it, checked whether it applies to THIS board at all,
+not just whether it exists.** A rule that watches epic/SOW checklists is
+vacuous on a board with none. This one has 10 epics and 3 SOWs, so the rule
+was declared for real, not as a formality.
+
+**18 of 19 entries needed no decision at all**, which is the more common
+shape and worth naming so the next reviewer does not expect every upgrade to
+carry a new policy: police-pass journal caching, UI shake/reserved-space
+fixes, a job-announcement race fix, several error-message quality
+improvements, and two test-only changes (TKT-1000, TKT-961's summarizer). None
+of these change what this board's own declared rules mean or require a
+decision - they change how correctly or efficiently Tira's *existing*
+behaviour is delivered.
+
+**One entry (TKT-984) closed a defect this project's own session memory had
+recorded as an open workaround** - `tira.job.list --id` had silently ignored
+its filter, documented here as a standing "never trust an unverified filter
+flag" caution. Verified live post-upgrade (`--id JOB-001` now returns exactly
+one job) and the memory file was corrected in place rather than left to assert
+a defect that no longer exists - the same "correct rather than delete"
+discipline this page itself follows.
