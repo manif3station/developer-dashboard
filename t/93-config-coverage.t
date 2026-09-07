@@ -34,6 +34,16 @@ local $ENV{HOME} = $home;
 chdir $home or die "Unable to chdir to $home: $!";
 
 my $paths  = Developer::Dashboard::PathRegistry->new( home => $home );
+
+# runtime_layer_root_for's own guard against an undef/empty $path: a real
+# external caller (any consumer of is_runtime_layer_path, secure_file_permissions
+# or secure_dir_permissions) could pass one, so this is exercised directly
+# rather than annotated - unlike the loop-internal $root guard a few lines
+# below it, which is unreachable because none of its three enumerated sources
+# can yield undef/empty (see the uncoverable annotation at that line).
+is( $paths->runtime_layer_root_for(undef), '', 'runtime_layer_root_for(undef) returns empty rather than dying' );
+is( $paths->runtime_layer_root_for(''),    '', 'runtime_layer_root_for empty string returns empty' );
+
 my $files  = Developer::Dashboard::FileRegistry->new( paths => $paths );
 my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
 
