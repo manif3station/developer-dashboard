@@ -3136,6 +3136,322 @@ like( $fake_cpanm_args, qr/-L \Q$project_root\/.developer-dashboard\/local\E/, '
 like( $fake_cpanm_args, qr/\bDBI\b/, 'dashboard cpan installs DBI automatically for DBD drivers' );
 like( $fake_cpanm_args, qr/\bDBD::Mock\b/, 'dashboard cpan installs the requested DBD driver' );
 
+
+# ---------------------------------------------------------------------------
+# DD-810: THE MAIN GATE. A hooks/ directory in any runtime layer holds
+# executables that run ONCE per bin/dashboard invocation, before command
+# resolution, for every form of the command line. Every scenario below builds
+# its OWN fresh HOME: a main-gate hook under the shared $ENV{HOME} above would
+# fire on every later invocation in this file and turn unrelated assertions
+# into tests of this section.
+# ---------------------------------------------------------------------------
+my $d2_entrypoint = File::Spec->catfile( $repo, 'bin', 'd2' );
+
+# _gate_fixture()
+# Builds one isolated HOME with an empty project layer beneath it.
+# Input: none.
+# Output: list of ($home, $project_dir, $home_hooks_dir, $project_hooks_dir);
+#         both hooks/ directories exist and are empty.
+sub _gate_fixture {
+    my $home       = abs_path( tempdir( CLEANUP => 1 ) );
+    my $proj       = File::Spec->catdir( $home, 'proj' );
+    my $home_hooks = File::Spec->catdir( $home, '.developer-dashboard', 'hooks' );
+    my $proj_hooks = File::Spec->catdir( $proj, '.developer-dashboard', 'hooks' );
+    make_path( $home_hooks, $proj_hooks );
+    return ( $home, $proj, $home_hooks, $proj_hooks );
+}
+
+# _gate_file($path, $content, $mode)
+# Writes one hook (or decoy) file with an explicit permission mode, creating
+# its parent directory when needed.
+# Input: absolute path, file content, octal mode.
+# Output: the path written.
+sub _gate_file {
+    my ( $path, $content, $mode ) = @_;
+    my ( $volume, $dir ) = File::Spec->splitpath($path);
+    my $parent = File::Spec->catpath( $volume, $dir, '' );
+    make_path($parent) if $parent ne '' && !-d $parent;
+    open my $fh, '>', $path or die "Unable to write $path: $!";
+    print {$fh} $content;
+    close $fh or die "Unable to close $path: $!";
+    chmod $mode, $path or die "Unable to chmod $path: $!";
+    return $path;
+}
+
+# _gate_run($home, $dir, $entrypoint, @args)
+# Runs an entrypoint under an explicit HOME from an explicit directory and
+# returns everything it produced. Nothing is asserted here because several
+# scenarios expect a non-zero exit.
+# Input: HOME directory, working directory, entrypoint path, argv list.
+# Output: list of (stdout, stderr, exit_code), both streams UTF-8 decoded.
+sub _gate_run {
+    my ( $home, $dir, $entrypoint, @args ) = @_;
+    my $argv = join ' ', map { "'$_'" } @args;
+    my $child_perl5opt = join ' ',
+      grep { defined $_ && $_ ne '' } ( $ENV{PERL5OPT}, $ENV{HARNESS_PERL_SWITCHES} );
+    my ( $stdout, $stderr, $exit_code ) = capture {
+        local $ENV{PERL5OPT} = $child_perl5opt if _coverage_requested();
+        system 'sh', '-c', "cd '$dir' && HOME='$home' '$perl' -I'$lib' '$entrypoint' $argv";
+        return $? >> 8;
+    };
+    return ( decode( 'UTF-8', $stdout ), decode( 'UTF-8', $stderr ), $exit_code );
+}
+
+# _gate_lines($path)
+# Reads a marker file written by hooks as a list of chomped lines.
+# Input: marker path.
+# Output: list of lines; the empty list when the file does not exist.
+sub _gate_lines {
+    my ($path) = @_;
+    return () if !-e $path;
+    open my $fh, '<', $path or die "Unable to read $path: $!";
+    my @lines = <$fh>;
+    close $fh or die "Unable to close $path: $!";
+    chomp @lines;
+    return @lines;
+}
+
+# AC-4: a layer with no hooks/ contributes nothing, and zero hooks is
+# bit-for-bit today's behaviour - stderr EMPTY, not merely "no failure".
+{
+    my $home = abs_path( tempdir( CLEANUP => 1 ) );
+    my ( $stdout, $stderr, $exit ) = _gate_run( $home, $home, $dashboard, 'version' );
+    is( $stdout, "$expected_version\n", 'AC-4: no hooks/ directory anywhere - version output unchanged' );
+    is( $stderr, '',                    'AC-4: no hooks/ directory anywhere - stderr empty' );
+    is( $exit,   0,                     'AC-4: no hooks/ directory anywhere - exit 0' );
+
+    my ( $empty_home, $empty_proj ) = _gate_fixture();
+    ( $stdout, $stderr, $exit ) = _gate_run( $empty_home, $empty_proj, $dashboard, 'version' );
+    is( $stdout, "$expected_version\n", 'AC-4: empty hooks/ in two layers - version output unchanged' );
+    is( $stderr, '',                    'AC-4: empty hooks/ in two layers - stderr empty, no warning' );
+    is( $exit,   0,                     'AC-4: empty hooks/ in two layers - exit 0' );
+}
+
+# AC-1: the gate runs exactly once per invocation, BEFORE command resolution,
+# so every form of the command line - including the forms that never resolve
+# a command at all - passes through it. Each form is compared against a
+# hookless control HOME to prove the gate alters neither output nor exit.
+{
+    my ( $home, $proj, $home_hooks ) = _gate_fixture();
+    my $control = abs_path( tempdir( CLEANUP => 1 ) );
+    my $marker  = File::Spec->catfile( $home, 'hook-marker' );
+    _gate_file(
+        File::Spec->catfile( $home_hooks, '10-mark.sh' ),
+        "#!/bin/sh\nprintf 'HOOK-RAN %s\\n' \"\$*\" >> '$marker'\n",
+        0755
+    );
+
+    my @forms = (
+        [ 'no command',      [] ],
+        [ 'help',            ['help'] ],
+        [ 'version',         ['version'] ],
+        [ 'which version',   [ 'which', 'version' ] ],
+        [ 'unknown command', ['no-such-command-dd810'] ],
+    );
+    my $expected_lines = 0;
+    for my $form (@forms) {
+        my ( $label, $argv ) = @{$form};
+        my @gated   = _gate_run( $home,    $home,    $dashboard, @{$argv} );
+        my @control = _gate_run( $control, $control, $dashboard, @{$argv} );
+        is( $gated[0], $control[0], "AC-1 [$label]: stdout identical to the hookless control" );
+        is( $gated[1], $control[1], "AC-1 [$label]: stderr identical to the hookless control" );
+        is( $gated[2], $control[2], "AC-1 [$label]: exit status identical to the hookless control" );
+        $expected_lines++;
+        my @lines = _gate_lines($marker);
+        is( scalar @lines, $expected_lines,
+            "AC-1 [$label]: the main gate ran exactly once (marker now $expected_lines line(s))" );
+        is( $lines[-1] // '', 'HOOK-RAN ' . join( ' ', @{$argv} ),
+            "AC-1 [$label]: the hook saw the full command argv" );
+    }
+}
+
+# AC-11 (Q-142 A): deepest layer first, HOME last - the REVERSE of the
+# per-command chain, deliberately. Exercised through bin/d2 so the re-exec
+# path carries the order too.
+{
+    my ( $home, $proj, $home_hooks, $proj_hooks ) = _gate_fixture();
+    _gate_file( File::Spec->catfile( $home_hooks, 'foo.pl' ), "#!$perl\nprint \"foo.pl\\n\";\n", 0755 );
+    _gate_file( File::Spec->catfile( $proj_hooks, 'bar.pl' ), "#!$perl\nprint \"bar.pl\\n\";\n", 0755 );
+    my ( $stdout, $stderr, $exit ) = _gate_run( $home, $proj, $d2_entrypoint, 'version' );
+    is( $stdout, "bar.pl\nfoo.pl\n$expected_version\n",
+        'AC-11: project hook (deepest) runs first, HOME hook last, then the command' );
+    is( $stderr, '', 'AC-11: ordering scenario writes nothing to stderr' );
+    is( $exit,   0,  'AC-11: ordering scenario exits 0' );
+}
+
+# AC-12 (Q-143 A): every layer between the cwd and HOME contributes its hooks.
+{
+    my $home   = abs_path( tempdir( CLEANUP => 1 ) );
+    my $a      = File::Spec->catdir( $home, 'a' );
+    my $b      = File::Spec->catdir( $a,    'b' );
+    my $marker = File::Spec->catfile( $home, 'layer-marker' );
+    for my $layer ( [ $home, 'home' ], [ $a, 'a' ], [ $b, 'b' ] ) {
+        my ( $dir, $name ) = @{$layer};
+        _gate_file(
+            File::Spec->catfile( $dir, '.developer-dashboard', 'hooks', '10-mark.sh' ),
+            "#!/bin/sh\necho '$name' >> '$marker'\n",
+            0755
+        );
+    }
+    my ( undef, undef, $exit ) = _gate_run( $home, $b, $dashboard, 'version' );
+    is( $exit, 0, 'AC-12: three-layer stack exits 0 from the deepest layer' );
+    is_deeply( [ _gate_lines($marker) ], [ 'b', 'a', 'home' ],
+        'AC-12: from HOME/a/b every layer contributes, deepest first' );
+    unlink $marker;
+    ( undef, undef, $exit ) = _gate_run( $home, $a, $dashboard, 'version' );
+    is( $exit, 0, 'AC-12: two-layer stack exits 0 from the middle layer' );
+    is_deeply( [ _gate_lines($marker) ], [ 'a', 'home' ],
+        'AC-12: from HOME/a only the layers at or above the cwd contribute' );
+}
+
+# AC-13 (Q-144 A): each hook is handed the full command argv, and the previous
+# hook's stdout/stderr/exit are recorded in LAST_RESULT for the next one -
+# the same contract the per-command chain honours.
+{
+    my ( $home, $proj, $home_hooks ) = _gate_fixture();
+    my $argv_file   = File::Spec->catfile( $home, 'hook-argv' );
+    my $result_file = File::Spec->catfile( $home, 'hook-last-result' );
+    _gate_file(
+        File::Spec->catfile( $home_hooks, '10-argv.sh' ),
+        "#!/bin/sh\nprintf '%s\\n' \"\$*\" > '$argv_file'\necho first-hook-stdout\n",
+        0755
+    );
+    _gate_file(
+        File::Spec->catfile( $home_hooks, '20-last-result.sh' ),
+        "#!/bin/sh\nprintf '%s' \"\${LAST_RESULT:-}\" > '$result_file'\n",
+        0755
+    );
+    my ( $stdout, $stderr, $exit ) = _gate_run( $home, $home, $d2_entrypoint, 'version', '--json' );
+    is( $exit, 0, 'AC-13: version with an extra argument still exits 0 through the gate' );
+    is_deeply( [ _gate_lines($argv_file) ], ['version --json'],
+        'AC-13: the main-gate hook is handed the full command argv' );
+    my $last_json = join '', _gate_lines($result_file);
+    ok( $last_json ne '', 'AC-13: the second main-gate hook receives LAST_RESULT from the first' );
+    my $last = $last_json ne '' ? json_decode($last_json) : {};
+    like( $last->{file} // '', qr/\Q10-argv.sh\E\z/, 'AC-13: LAST_RESULT names the previous main-gate hook file' );
+    is( $last->{exit},   0,                     'AC-13: LAST_RESULT carries the previous hook exit code' );
+    is( $last->{STDOUT}, "first-hook-stdout\n", 'AC-13: LAST_RESULT carries the previous hook stdout' );
+    is( $last->{STDERR}, '',                    'AC-13: LAST_RESULT carries the previous hook stderr' );
+}
+
+# AC-5: hook output is streamed through the same runner as per-command hooks,
+# so it appears BEFORE the command's own output.
+{
+    my ( $home, $proj, $home_hooks ) = _gate_fixture();
+    _gate_file( File::Spec->catfile( $home_hooks, '10-hello.sh' ), "#!/bin/sh\necho 'hello from main gate'\n", 0755 );
+    my ( $stdout, $stderr, $exit ) = _gate_run( $home, $home, $dashboard, 'version' );
+    is( $stdout, "hello from main gate\n$expected_version\n", 'AC-5: hook stdout is streamed before the command output' );
+    is( $stderr, '', 'AC-5: streaming scenario writes nothing to stderr' );
+    is( $exit,   0,  'AC-5: streaming scenario exits 0' );
+}
+
+# AC-3: discovery mirrors _command_hook_roots - only executable regular files
+# directly under <layer>/hooks/, lexically sorted; a non-executable file, a
+# subdirectory and a file named run are all skipped.
+{
+    my ( $home, $proj, $home_hooks, $proj_hooks ) = _gate_fixture();
+    my $marker = File::Spec->catfile( $home, 'discovery-marker' );
+    my %entries = (
+        '10-a.sh'          => 0755,
+        '20-b.sh'          => 0755,
+        '30-c.sh'          => 0644,
+        'sub/40-d.sh'      => 0755,
+        'run'              => 0755,
+    );
+    for my $entry ( sort keys %entries ) {
+        _gate_file( File::Spec->catfile( $proj_hooks, split m{/}, $entry ),
+            "#!/bin/sh\necho '$entry' >> '$marker'\n", $entries{$entry} );
+    }
+    my ( $stdout, $stderr, $exit ) = _gate_run( $home, $proj, $dashboard, 'version' );
+    is( $exit, 0, 'AC-3: discovery scenario exits 0' );
+    is_deeply( [ _gate_lines($marker) ], [ '10-a.sh', '20-b.sh' ],
+        'AC-3: only executable regular files directly under hooks/ run, in lexical order; 0644, sub/ and run are skipped' );
+    is( $stderr, '', 'AC-3: skipped entries produce no warning' );
+}
+
+# AC-6: dashboard which <cmd> reports the main-gate hooks it would run, one
+# HOOK <absolute path> line each in run order, BEFORE the per-command lines.
+# (which version cannot resolve - version is a switchboard built-in, not a
+# helper - so the resolvable helper jq is the subject here.)
+{
+    my ( $home, $proj, $home_hooks, $proj_hooks ) = _gate_fixture();
+    my $hook_marker = File::Spec->catfile( $home, 'which-marker' );
+    for my $entry ( [ '10-a.sh', 0755 ], [ '20-b.sh', 0755 ], [ '30-c.sh', 0644 ], [ 'run', 0755 ] ) {
+        _gate_file( File::Spec->catfile( $proj_hooks, $entry->[0] ), "#!/bin/sh\necho '$entry->[0]' >> '$hook_marker'\n", $entry->[1] );
+    }
+    _gate_file( File::Spec->catfile( $proj_hooks, 'sub', '40-d.sh' ), "#!/bin/sh\necho '40-d.sh' >> '$hook_marker'\n", 0755 );
+    my $cmd_hook = _gate_file(
+        File::Spec->catfile( $proj, '.developer-dashboard', 'cli', 'jq.d', '50-cmd.sh' ),
+        "#!/bin/sh\necho '50-cmd.sh' >> '$hook_marker'\n",
+        0755
+    );
+    my ( $stdout, $stderr, $exit ) = _gate_run( $home, $proj, $dashboard, 'which', 'jq' );
+    is( $exit, 0, 'AC-6: which jq exits 0 with main-gate hooks present' );
+    my @lines = grep { $_ ne '' } split /\n/, $stdout;
+    like( $lines[0] // '', qr/^COMMAND /, 'AC-6: which jq still prints the COMMAND line first' );
+    is_deeply(
+        [ grep { /^HOOK / } @lines ],
+        [
+            'HOOK ' . File::Spec->catfile( $proj_hooks, '10-a.sh' ),
+            'HOOK ' . File::Spec->catfile( $proj_hooks, '20-b.sh' ),
+            "HOOK $cmd_hook",
+        ],
+        'AC-6: which jq lists the main-gate hooks in run order before the per-command hook, skipping 0644, sub/ and run'
+    );
+    is_deeply( [ _gate_lines($hook_marker) ], [ '10-a.sh', '20-b.sh' ],
+        'AC-6: which jq itself passed through the main gate exactly once' );
+}
+
+# AC-7: a hook that invokes dashboard itself must not recurse. The fixture
+# caps its own depth at three markers so a missing guard fails the assertion
+# instead of forking without bound on a shared host.
+{
+    my ( $home, $proj, $home_hooks ) = _gate_fixture();
+    my $marker = File::Spec->catfile( $home, 'nested-marker' );
+    _gate_file(
+        File::Spec->catfile( $home_hooks, '10-nested.sh' ),
+        "#!/bin/sh\necho nested >> '$marker'\n"
+          . "depth=\$(wc -l < '$marker' | tr -d ' ')\n"
+          . "if [ \"\$depth\" -lt 3 ]; then HOME='$home' '$perl' -I'$lib' '$dashboard' version >/dev/null 2>&1; fi\n",
+        0755
+    );
+    my ( $stdout, $stderr, $exit ) = _gate_run( $home, $home, $dashboard, 'version' );
+    is( $exit,   0,                     'AC-7: a hook that re-enters dashboard still lets the outer command exit 0' );
+    is( $stdout, "$expected_version\n", 'AC-7: the outer command output is unaffected by the nested invocation' );
+    is( scalar( () = _gate_lines($marker) ), 1, 'AC-7: the recursion guard lets the main gate run exactly once' );
+}
+
+# AC-14 (Q-149 B): [[STOP]] on a main-gate hook's stderr skips the remaining
+# hooks AND the command; dashboard exits 1 with the hook's stderr visible.
+# This deliberately differs from the per-command chain, where a stop lets the
+# command run and exit 0 (see the hook-stop-check scenario above).
+{
+    my ( $home, $proj, $home_hooks ) = _gate_fixture();
+    my $marker = File::Spec->catfile( $home, 'stop-marker' );
+    _gate_file( File::Spec->catfile( $home_hooks, '10-gate.sh' ),
+        "#!/bin/sh\necho 'blocked: no ticket' >&2\necho '[[STOP]]' >&2\nexit 0\n", 0755 );
+    _gate_file( File::Spec->catfile( $home_hooks, '20-mark.sh' ), "#!/bin/sh\necho ran >> '$marker'\n", 0755 );
+    my ( $stdout, $stderr, $exit ) = _gate_run( $home, $home, $dashboard, 'version' );
+    is( $stdout, '', 'AC-14: a main-gate [[STOP]] prevents the command from running (empty stdout)' );
+    like( $stderr, qr/^blocked: no ticket$/m, 'AC-14: the stopping hook stderr reaches the caller' );
+    like( $stderr, qr/^\[\[STOP\]\]$/m,        'AC-14: the [[STOP]] marker itself is visible on stderr' );
+    is( $exit, 1, 'AC-14: dashboard exits 1 after a main-gate stop' );
+    ok( !-e $marker, 'AC-14: the hooks after the stopping one never run' );
+}
+
+# AC-8 and AC-9: the gate resolves its roots from the runtime layer stack (no
+# new hard-coded layer literal in the switchboard), and the switchboard POD
+# describes the main gate.
+{
+    open my $fh, '<', $dashboard or die "Unable to read $dashboard: $!";
+    my $source = do { local $/; <$fh> };
+    close $fh;
+    my $literal_count = () = $source =~ /'\.developer-dashboard'/g;
+    is( $literal_count, 0, 'AC-8: bin/dashboard gains no hard-coded .developer-dashboard literal for the main gate' );
+    like( $source, qr/^=head\d.*\bmain gate\b/mi,     'AC-9: bin/dashboard POD has a heading for the main gate' );
+    like( $source, qr/hooks\/.*deepest.*first/is,     'AC-9: bin/dashboard POD states the deepest-first run order' );
+    like( $source, qr/\[\[STOP\]\].*exit(?:s)? (?:non-zero|1)/is, 'AC-9: bin/dashboard POD states the main-gate stop contract' );
+}
 done_testing;
 
 sub _write_zip_entries {
