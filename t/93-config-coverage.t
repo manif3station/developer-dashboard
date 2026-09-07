@@ -37,12 +37,24 @@ my $paths  = Developer::Dashboard::PathRegistry->new( home => $home );
 
 # runtime_layer_root_for's own guard against an undef/empty $path: a real
 # external caller (any consumer of is_runtime_layer_path, secure_file_permissions
-# or secure_dir_permissions) could pass one, so this is exercised directly
-# rather than annotated - unlike the loop-internal $root guard a few lines
-# below it, which is unreachable because none of its three enumerated sources
-# can yield undef/empty (see the uncoverable annotation at that line).
+# or secure_dir_permissions) could pass one, so this is exercised directly.
 is( $paths->runtime_layer_root_for(undef), '', 'runtime_layer_root_for(undef) returns empty rather than dying' );
 is( $paths->runtime_layer_root_for(''),    '', 'runtime_layer_root_for empty string returns empty' );
+
+# The loop-internal $root guard: none of its three enumerated sources can
+# yield undef/empty in production, so it cannot be driven by any real caller.
+# Stub the first source to inject exactly that - an undef entry, then an
+# empty-string entry - ahead of a real root, so the OR's two operands each
+# fire true independently while the real root below them still falls through
+# to a normal (both-false) match.
+{
+    no warnings 'redefine';
+    my $real_root = $paths->home_runtime_path;
+    local *Developer::Dashboard::PathRegistry::_runtime_layers_from_env = sub { return ( undef, '', $real_root ) };
+    my $probe = File::Spec->catdir( $real_root, 'probe.txt' );
+    is( $paths->runtime_layer_root_for($probe), $real_root,
+        'runtime_layer_root_for skips an injected undef and empty layer root and still finds the real one' );
+}
 
 my $files  = Developer::Dashboard::FileRegistry->new( paths => $paths );
 my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
