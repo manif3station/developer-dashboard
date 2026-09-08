@@ -6,6 +6,7 @@ use warnings;
 our $VERSION = '4.30';
 
 use Cwd qw(cwd);
+use Developer::Dashboard::DirEntries qw(sorted_dir_entries);
 use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);
 use Developer::Dashboard::InternalCLI;
@@ -211,7 +212,7 @@ sub _runnable_hook_entries {
     my ($hooks_root) = @_;
     opendir( my $dh, $hooks_root ) or die "Unable to read $hooks_root: $!";
     my @hooks;
-    for my $entry ( sort grep { $_ ne '.' && $_ ne '..' } readdir($dh) ) {
+    for my $entry ( sorted_dir_entries($dh) ) {
         my $path = File::Spec->catfile( $hooks_root, $entry );
         next if $entry eq 'run';
         next if !is_runnable_file($path);

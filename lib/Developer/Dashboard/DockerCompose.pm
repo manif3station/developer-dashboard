@@ -7,6 +7,7 @@ our $VERSION = '4.30';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
+use Developer::Dashboard::DirEntries qw(sorted_dir_entries);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
@@ -480,7 +481,7 @@ sub _installed_skill_docker_roots_for_runtime {
     while (@queue) {
         my $parent = shift @queue;
         opendir my $dh, $parent or next;
-        for my $entry ( sort grep { $_ ne '.' && $_ ne '..' } readdir($dh) ) {
+        for my $entry ( sorted_dir_entries($dh) ) {
             my $skill_root = File::Spec->catdir( $parent, $entry );
             next if !-d $skill_root;
             next if $seen{$skill_root}++;    # uncoverable branch true the breadth-first walk visits each skill root once
