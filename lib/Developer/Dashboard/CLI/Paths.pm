@@ -44,113 +44,206 @@ sub run_paths_command {
         $aliases_loaded = 1;
         return 1;
     };
+    my %ctx = (
+        paths       => $paths,
+        config      => $config,
+        load_paths  => $load_configured_path_aliases,
+    );
 
     if ( $command eq 'paths' ) {
-        my @argv = @{$argv};
-        my $output = 'table';
-        GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
-        die "Usage: dashboard paths [-o json|table]\n" if @argv || ( $output ne 'json' && $output ne 'table' );
-        $load_configured_path_aliases->();
-        if ( $output eq 'json' ) {
-            print json_encode( $paths->all_paths );
-            return 1;
-        }
-        print _paths_table( $paths->all_paths );
-        return 1;
+        return _paths_action_paths( %ctx, argv => [ @{$argv} ] );
     }
 
     my @argv = @{$argv};
     my $action = shift @argv || '';
-    if ( $action eq 'resolve' ) {
-        $load_configured_path_aliases->();
-        my $name = shift @argv || die "Usage: dashboard path resolve <name>\n";
-        print $paths->resolve_dir($name), "\n";
-        return 1;
-    }
-    if ( $action eq 'locate' ) {
-        my $output = 'table';
-        GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
-        die "Usage: dashboard path locate [-o json|table] <term...>\n" if $output ne 'json' && $output ne 'table';
-        my $matches = [ $paths->locate_projects(@argv) ];
-        if ( $output eq 'json' ) {
-            print json_encode($matches);
-            return 1;
-        }
-        print list_table( 'Path', $matches );
-        return 1;
-    }
-    if ( $action eq 'cdr' ) {
-        $load_configured_path_aliases->();
-        print json_encode( _cdr_payload( paths => $paths, args => \@argv ) );
-        return 1;
-    }
-    if ( $action eq 'complete-cdr' ) {
-        $load_configured_path_aliases->();
-        my $index = shift @argv;
-        $index = 0 if !defined $index || $index eq '';
-        print join( "\n", _cdr_completion( paths => $paths, words => \@argv, index => $index ) ), "\n";
-        return 1;
-    }
-    if ( $action eq 'add' ) {
-        my $output = 'table';
-        GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
-        die "Usage: dashboard path add <name> <path> [-o json|table]\n" if $output ne 'json' && $output ne 'table';
-        my ( $name, $path ) = _normalize_add_arguments(@argv);
-        my $saved = $config->save_global_path_alias( $name, $path );
-        $paths->register_named_paths( { $name => $path } );
-        $saved->{resolved} = $paths->resolve_dir($name);
-        if ( $output eq 'json' ) {
-            print json_encode($saved);
-            return 1;
-        }
-        print mutation_table(
-            alias    => $saved->{name},
-            stored   => $saved->{path},
-            resolved => $saved->{resolved},
-            status   => 'saved',
-        );
-        return 1;
-    }
-    if ( $action eq 'del' || $action eq 'rm' ) {
-        my $output = 'table';
-        GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
-        die "Usage: dashboard path del <name> [-o json|table]\n" if $output ne 'json' && $output ne 'table';
-        my $name = _normalize_delete_argument(
-            paths  => $paths,
-            config => $config,
-            name   => shift(@argv),
-        );
-        my $deleted = $config->remove_global_path_alias($name);
-        $paths->unregister_named_path($name);
-        if ( $output eq 'json' ) {
-            print json_encode($deleted);
-            return 1;
-        }
-        print removal_table(
-            alias   => $deleted->{name},
-            removed => $deleted->{removed},
-        );
-        return 1;
-    }
-    if ( $action eq 'project-root' ) {
-        my $root = $paths->current_project_root;
-        print defined $root ? "$root\n" : '';
-        return 1;
-    }
-    if ( $action eq 'list' ) {
-        my $output = 'table';
-        GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
-        die "Usage: dashboard path list [-o json|table]\n" if @argv || ( $output ne 'json' && $output ne 'table' );
-        $load_configured_path_aliases->();
-        if ( $output eq 'json' ) {
-            print json_encode( $paths->all_path_aliases );
-            return 1;
-        }
-        print aliases_table( $paths->all_path_aliases );
-        return 1;
-    }
+    if ( $action eq 'resolve' )      { return _paths_action_resolve( %ctx, argv => \@argv ) }
+    if ( $action eq 'locate' )       { return _paths_action_locate( %ctx, argv => \@argv ) }
+    if ( $action eq 'cdr' )          { return _paths_action_cdr( %ctx, argv => \@argv ) }
+    if ( $action eq 'complete-cdr' ) { return _paths_action_complete_cdr( %ctx, argv => \@argv ) }
+    if ( $action eq 'add' )          { return _paths_action_add( %ctx, argv => \@argv ) }
+    if ( $action eq 'del' || $action eq 'rm' ) { return _paths_action_del( %ctx, argv => \@argv ) }
+    if ( $action eq 'project-root' ) { return _paths_action_project_root( %ctx, argv => \@argv ) }
+    if ( $action eq 'list' )         { return _paths_action_list( %ctx, argv => \@argv ) }
 
     die "Usage: dashboard path <resolve|locate|cdr|complete-cdr|add|del|rm|project-root|list> ...\n";
+}
+
+# _paths_action_paths(%args)
+# Implements the top-level "dashboard paths" inventory listing.
+# Input: paths registry, config, alias-loader closure, and argv under "paths",
+# "config", "load_paths", and "argv".
+# Output: prints the full path inventory as JSON or a summary table; returns 1.
+sub _paths_action_paths {
+    my (%args) = @_;
+    my ( $paths, $load_paths, $argv ) = @args{qw(paths load_paths argv)};
+    my @argv = @{$argv};
+    my $output = 'table';
+    GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
+    die "Usage: dashboard paths [-o json|table]\n" if @argv || ( $output ne 'json' && $output ne 'table' );
+    $load_paths->();
+    if ( $output eq 'json' ) {
+        print json_encode( $paths->all_paths );
+        return 1;
+    }
+    print _paths_table( $paths->all_paths );
+    return 1;
+}
+
+# _paths_action_resolve(%args)
+# Implements "dashboard path resolve <name>".
+# Input: paths registry, alias-loader closure, and argv under "paths",
+# "load_paths", and "argv".
+# Output: prints the resolved directory for the named alias; returns 1.
+sub _paths_action_resolve {
+    my (%args) = @_;
+    my ( $paths, $load_paths, $argv ) = @args{qw(paths load_paths argv)};
+    $load_paths->();
+    my $name = shift( @{$argv} ) || die "Usage: dashboard path resolve <name>\n";
+    print $paths->resolve_dir($name), "\n";
+    return 1;
+}
+
+# _paths_action_locate(%args)
+# Implements "dashboard path locate [-o json|table] <term...>".
+# Input: paths registry and argv under "paths" and "argv".
+# Output: prints the matched project paths as JSON or a summary table;
+# returns 1.
+sub _paths_action_locate {
+    my (%args) = @_;
+    my ( $paths, $argv ) = @args{qw(paths argv)};
+    my @argv = @{$argv};
+    my $output = 'table';
+    GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
+    die "Usage: dashboard path locate [-o json|table] <term...>\n" if $output ne 'json' && $output ne 'table';
+    my $matches = [ $paths->locate_projects(@argv) ];
+    if ( $output eq 'json' ) {
+        print json_encode($matches);
+        return 1;
+    }
+    print list_table( 'Path', $matches );
+    return 1;
+}
+
+# _paths_action_cdr(%args)
+# Implements "dashboard path cdr <term...>".
+# Input: paths registry, alias-loader closure, and argv under "paths",
+# "load_paths", and "argv".
+# Output: prints the cdr resolution payload as JSON; returns 1.
+sub _paths_action_cdr {
+    my (%args) = @_;
+    my ( $paths, $load_paths, $argv ) = @args{qw(paths load_paths argv)};
+    $load_paths->();
+    print json_encode( _cdr_payload( paths => $paths, args => $argv ) );
+    return 1;
+}
+
+# _paths_action_complete_cdr(%args)
+# Implements "dashboard path complete-cdr <index> <word...>".
+# Input: paths registry, alias-loader closure, and argv under "paths",
+# "load_paths", and "argv".
+# Output: prints newline-separated shell-completion candidates; returns 1.
+sub _paths_action_complete_cdr {
+    my (%args) = @_;
+    my ( $paths, $load_paths, $argv ) = @args{qw(paths load_paths argv)};
+    $load_paths->();
+    my $index = shift( @{$argv} );
+    $index = 0 if !defined $index || $index eq '';
+    print join( "\n", _cdr_completion( paths => $paths, words => $argv, index => $index ) ), "\n";
+    return 1;
+}
+
+# _paths_action_add(%args)
+# Implements "dashboard path add <name> <path> [-o json|table]".
+# Input: paths registry, config, and argv under "paths", "config", and "argv".
+# Output: prints the saved alias as JSON or a mutation summary table;
+# returns 1.
+sub _paths_action_add {
+    my (%args) = @_;
+    my ( $paths, $config, $argv ) = @args{qw(paths config argv)};
+    my @argv = @{$argv};
+    my $output = 'table';
+    GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
+    die "Usage: dashboard path add <name> <path> [-o json|table]\n" if $output ne 'json' && $output ne 'table';
+    my ( $name, $path ) = _normalize_add_arguments(@argv);
+    my $saved = $config->save_global_path_alias( $name, $path );
+    $paths->register_named_paths( { $name => $path } );
+    $saved->{resolved} = $paths->resolve_dir($name);
+    if ( $output eq 'json' ) {
+        print json_encode($saved);
+        return 1;
+    }
+    print mutation_table(
+        alias    => $saved->{name},
+        stored   => $saved->{path},
+        resolved => $saved->{resolved},
+        status   => 'saved',
+    );
+    return 1;
+}
+
+# _paths_action_del(%args)
+# Implements "dashboard path del|rm <name> [-o json|table]".
+# Input: paths registry, config, and argv under "paths", "config", and "argv".
+# Output: prints the removed alias as JSON or a removal summary table;
+# returns 1.
+sub _paths_action_del {
+    my (%args) = @_;
+    my ( $paths, $config, $argv ) = @args{qw(paths config argv)};
+    my @argv = @{$argv};
+    my $output = 'table';
+    GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
+    die "Usage: dashboard path del <name> [-o json|table]\n" if $output ne 'json' && $output ne 'table';
+    my $name = _normalize_delete_argument(
+        paths  => $paths,
+        config => $config,
+        name   => shift(@argv),
+    );
+    my $deleted = $config->remove_global_path_alias($name);
+    $paths->unregister_named_path($name);
+    if ( $output eq 'json' ) {
+        print json_encode($deleted);
+        return 1;
+    }
+    print removal_table(
+        alias   => $deleted->{name},
+        removed => $deleted->{removed},
+    );
+    return 1;
+}
+
+# _paths_action_project_root(%args)
+# Implements "dashboard path project-root".
+# Input: paths registry under "paths".
+# Output: prints the current project root, or nothing when there is none;
+# returns 1.
+sub _paths_action_project_root {
+    my (%args) = @_;
+    my $paths = $args{paths};
+    my $root = $paths->current_project_root;
+    print defined $root ? "$root\n" : '';
+    return 1;
+}
+
+# _paths_action_list(%args)
+# Implements "dashboard path list [-o json|table]".
+# Input: paths registry, alias-loader closure, and argv under "paths",
+# "load_paths", and "argv".
+# Output: prints the configured path aliases as JSON or a summary table;
+# returns 1.
+sub _paths_action_list {
+    my (%args) = @_;
+    my ( $paths, $load_paths, $argv ) = @args{qw(paths load_paths argv)};
+    my @argv = @{$argv};
+    my $output = 'table';
+    GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
+    die "Usage: dashboard path list [-o json|table]\n" if @argv || ( $output ne 'json' && $output ne 'table' );
+    $load_paths->();
+    if ( $output eq 'json' ) {
+        print json_encode( $paths->all_path_aliases );
+        return 1;
+    }
+    print aliases_table( $paths->all_path_aliases );
+    return 1;
 }
 
 # _normalize_add_arguments(@argv)
