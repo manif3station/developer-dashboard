@@ -3261,8 +3261,13 @@ sub _gate_lines {
         my @lines = _gate_lines($marker);
         is( scalar @lines, $expected_lines,
             "AC-1 [$label]: the main gate ran exactly once (marker now $expected_lines line(s))" );
-        is( $lines[-1] // '', 'HOOK-RAN ' . join( ' ', @{$argv} ),
-            "AC-1 [$label]: the hook saw the full command argv" );
+
+        # DD-832: the hook's own argv matches exactly what the eventual
+        # command target would receive - the top-level command name (the
+        # first element, when present) is NOT prepended.
+        my @expected_hook_argv = @{$argv} ? @{$argv}[ 1 .. $#{$argv} ] : ();
+        is( $lines[-1] // '', 'HOOK-RAN ' . join( ' ', @expected_hook_argv ),
+            "AC-1 [$label]: the hook's argv matches the command target's own argv, with no command name prepended" );
     }
 }
 
@@ -3324,8 +3329,11 @@ sub _gate_lines {
     );
     my ( $stdout, $stderr, $exit ) = _gate_run( $home, $home, $d2_entrypoint, 'version', '--json' );
     is( $exit, 0, 'AC-13: version with an extra argument still exits 0 through the gate' );
-    is_deeply( [ _gate_lines($argv_file) ], ['version --json'],
-        'AC-13: the main-gate hook is handed the full command argv' );
+
+    # DD-832: the hook's argv matches exactly what the "version" command
+    # target itself receives - no top-level command name prepended.
+    is_deeply( [ _gate_lines($argv_file) ], ['--json'],
+        "AC-13: the main-gate hook's argv matches the command target's own argv, with no command name prepended" );
     my $last_json = join '', _gate_lines($result_file);
     ok( $last_json ne '', 'AC-13: the second main-gate hook receives LAST_RESULT from the first' );
     my $last = $last_json ne '' ? json_decode($last_json) : {};
@@ -3333,6 +3341,24 @@ sub _gate_lines {
     is( $last->{exit},   0,                     'AC-13: LAST_RESULT carries the previous hook exit code' );
     is( $last->{STDOUT}, "first-hook-stdout\n", 'AC-13: LAST_RESULT carries the previous hook stdout' );
     is( $last->{STDERR}, '',                    'AC-13: LAST_RESULT carries the previous hook stderr' );
+}
+
+# DD-832 AC-2: a main-gate hook can still learn which top-level command is
+# about to run, via $ENV{DEVELOPER_DASHBOARD_COMMAND} - set before the main
+# gate runs now that the command name is no longer prepended to the hook's
+# own argv.
+{
+    my ( $home, $proj, $home_hooks ) = _gate_fixture();
+    my $command_file = File::Spec->catfile( $home, 'hook-command-env' );
+    _gate_file(
+        File::Spec->catfile( $home_hooks, '10-command-env.sh' ),
+        "#!/bin/sh\nprintf '%s' \"\${DEVELOPER_DASHBOARD_COMMAND:-}\" > '$command_file'\n",
+        0755
+    );
+    my ( undef, undef, $exit ) = _gate_run( $home, $home, $dashboard, 'version' );
+    is( $exit, 0, 'DD-832 AC-2: version through the gate still exits 0' );
+    is( join( '', _gate_lines($command_file) ), 'version',
+        'DD-832 AC-2: a main-gate hook reads the top-level command name from $ENV{DEVELOPER_DASHBOARD_COMMAND}' );
 }
 
 # AC-5: hook output is streamed through the same runner as per-command hooks,
