@@ -354,13 +354,17 @@ sub _module_lib_root {
 
 # _exec_go_source($path, @args)
 # Re-execs one executable Go source file through go run so hook and command
-# launch code can treat it like any other runnable script.
+# launch code can treat it like any other runnable script. Passes -C <the
+# source file's own directory> (Go 1.20+) so go.mod discovery starts at the
+# file's own skill layer instead of walking up from the caller's cwd - a
+# bare `go run <path>` silently misses a skill's own go.mod unless the
+# caller happens to already be inside that directory tree (DD-825).
 # Input: Go source file path plus passthrough argv.
 # Output: does not return on success; dies when exec fails.
 sub _exec_go_source {
     my ( $path, @args ) = @_;
     die "Missing Go source path\n" if !defined $path || $path eq '';
-    $EXEC_LAUNCHER->( 'go', 'run', $path, @args ) or die "Unable to exec go run for $path: $!";
+    $EXEC_LAUNCHER->( 'go', 'run', '-C', dirname($path), $path, @args ) or die "Unable to exec go run for $path: $!";
 }
 
 # _exec_java_source($path, @args)
