@@ -7,6 +7,7 @@ use utf8;
 use Test::More;
 use File::Temp qw(tempdir);
 use File::Spec;
+use File::Path qw(make_path);
 
 use lib 'lib';
 
@@ -588,6 +589,63 @@ is(
         ok( !$ok, '_exec_java_source dies when the java launcher fails (mvn path)' );
         like( $@, qr/Unable to exec java/, 'java exec failure surfaced (mvn path)' );
     }
+}
+
+# ---------------------------------------------------------------------------
+# DD-824: _find_layer_venv_python + command_argv_for_path's .py dispatch -
+# per-skill-layer local/venv python resolution, falling back to the global
+# python when no layer in the file's ancestry has one.
+# ---------------------------------------------------------------------------
+{
+    ok( !defined Developer::Dashboard::Platform::_find_layer_venv_python( File::Spec->catfile( $work, 'nolayer', 'cli', 'foo.py' ) ),
+        '_find_layer_venv_python returns undef when no ancestor layer has a local/venv' );
+}
+{
+    my $skill = File::Spec->catdir( $work, 'pyskill' );
+    my $cli   = File::Spec->catdir( $skill, 'cli' );
+    my $venv_bin = File::Spec->catdir( $skill, 'local', 'venv', 'bin' );
+    mkdir $skill; mkdir $cli;
+    make_path($venv_bin) if !-d $venv_bin;
+    my $venv_python = write_file( File::Spec->catfile( $venv_bin, 'python' ), "#!/bin/sh\n" );
+    chmod 0755, $venv_python;
+    my $foo = write_file( File::Spec->catfile( $cli, 'foo.py' ), "print('hi')\n" );
+
+    is( Developer::Dashboard::Platform::_find_layer_venv_python($foo), $venv_python,
+        '_find_layer_venv_python finds the layer local/venv/bin/python walking up from the source file' );
+
+    # AC-2: a .py file with no local/venv anywhere in its ancestry still
+    # resolves through the global python, unchanged.
+    {
+        no warnings 'redefine';
+        local *Developer::Dashboard::Platform::command_in_path = sub { return '/usr/local/bin/python' };
+        my $hello = write_file( File::Spec->catfile( $work, 'hello.py' ), "print('hi')\n" );
+        is_deeply(
+            [ command_argv_for_path($hello) ],
+            [ '/usr/local/bin/python', $hello ],
+            'command_argv_for_path falls back to the global python when no layer venv exists (AC-2)'
+        );
+    }
+
+    # AC-1: a .py file whose layer DOES have a local/venv resolves through
+    # that venv's own python interpreter, not the global one.
+    is_deeply(
+        [ command_argv_for_path($foo) ],
+        [ $venv_python, $foo ],
+        "command_argv_for_path resolves through the layer's own venv python when one exists (AC-1)"
+    );
+
+    # AC-3: a second, independent skill layer with its own venv resolves
+    # against its own venv, with no interference between the two.
+    my $skill2 = File::Spec->catdir( $work, 'pyskill2' );
+    my $cli2   = File::Spec->catdir( $skill2, 'cli' );
+    my $venv_bin2 = File::Spec->catdir( $skill2, 'local', 'venv', 'bin' );
+    mkdir $skill2; mkdir $cli2;
+    make_path($venv_bin2) if !-d $venv_bin2;
+    my $venv_python2 = write_file( File::Spec->catfile( $venv_bin2, 'python' ), "#!/bin/sh\n" );
+    chmod 0755, $venv_python2;
+    my $bar = write_file( File::Spec->catfile( $cli2, 'bar.py' ), "print('hi')\n" );
+    is( Developer::Dashboard::Platform::_find_layer_venv_python($bar), $venv_python2,
+        "a second skill layer resolves its OWN local/venv, independent of the first (AC-3)" );
 }
 
 # ---------------------------------------------------------------------------

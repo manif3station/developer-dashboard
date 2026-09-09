@@ -184,7 +184,11 @@ sub command_argv_for_path {
     my $lower = lc $resolved;
 
     return ( $^X, '-I', _module_lib_root(), $resolved ) if $lower =~ /\.pl\z/;
-    return ( _python_binary(), $resolved ) if $lower =~ /\.py\z/;
+    if ( $lower =~ /\.py\z/ ) {
+        my $venv_python = _find_layer_venv_python($resolved);
+        return ( $venv_python, $resolved ) if defined $venv_python;
+        return ( _python_binary(), $resolved );
+    }
     return ( _node_binary(), $resolved ) if $lower =~ /\.js\z/;
     return ( $^X, '-I', _module_lib_root(), '-MDeveloper::Dashboard::Platform', '-e', 'Developer::Dashboard::Platform::_exec_go_source(@ARGV)', $resolved )
       if $lower =~ /\.go\z/;
@@ -310,6 +314,29 @@ sub _powershell_binary {
 # Output: executable path or command name string.
 sub _python_binary {
     return command_in_path('python') || command_in_path('python3') || 'python';
+}
+
+# _find_layer_venv_python($path)
+# Walks up from a .py file's own directory looking for a DD-OOP-LAYERS skill
+# layer's own local/venv (DD-824) - reuses the existing per-layer walk
+# pattern (same as DD-823's _find_layer_pom) rather than inventing a new
+# top-level convention.
+# Input: Python source file path.
+# Output: absolute venv python interpreter path string, or undef when no
+# layer in the file's ancestry has one.
+sub _find_layer_venv_python {
+    my ($path) = @_;
+    my $dir = dirname($path);
+    while (1) {
+        my $python = is_windows()
+          ? File::Spec->catfile( $dir, 'local', 'venv', 'Scripts', 'python.exe' )
+          : File::Spec->catfile( $dir, 'local', 'venv', 'bin',     'python' );
+        return $python if -f $python;
+        my $parent = dirname($dir);
+        last if $parent eq $dir;    # reached filesystem root
+        $dir = $parent;
+    }
+    return undef;
 }
 
 # _node_binary()
