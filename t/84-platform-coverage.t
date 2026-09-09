@@ -517,6 +517,79 @@ is(
     like( $@, qr/mvn compile failed/, 'mvn compile failure surfaced' );
 }
 
+# DD-823: the remaining branches of _exec_java_source_via_mvn - the
+# dependency:build-classpath mvn call failing, the classpath file being
+# unreadable, an empty resolved classpath (ternary's other side), and the
+# final java exec failing.
+{
+    my $skill = File::Spec->catdir( $work, 'skill3' );
+    my $cli   = File::Spec->catdir( $skill, 'cli' );
+    my $config = File::Spec->catdir( $skill, 'config' );
+    mkdir $skill; mkdir $cli; mkdir $config;
+    my $pom = write_file( File::Spec->catfile( $config, 'pom.xml' ), "<project/>\n" );
+    my $baz = write_file( File::Spec->catfile( $cli, 'Baz.java' ), "package demo3;\npublic class Baz { public static void main(String[] a) {} }\n" );
+
+    # dependency:build-classpath mvn call fails.
+    {
+        local $Developer::Dashboard::Platform::SYSTEM_LAUNCHER = sub {
+            $? = ( $_[0] eq 'mvn' && grep { $_ eq 'dependency:build-classpath' } @_ ) ? ( 5 << 8 ) : 0;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+            return 1;
+        };
+        my $ok = eval { Developer::Dashboard::Platform::_exec_java_source($baz); 1 };
+        ok( !$ok, '_exec_java_source dies when mvn dependency:build-classpath fails' );
+        like( $@, qr/mvn dependency:build-classpath failed/, 'dependency:build-classpath failure surfaced' );
+    }
+
+    # the resolved classpath file is unreadable (mvn "succeeds" but never
+    # writes the file the caller was told to expect).
+    {
+        local $Developer::Dashboard::Platform::SYSTEM_LAUNCHER = sub { $? = 0; return 1 };    ## no critic (Variables::RequireLocalizedPunctuationVars)
+        my $ok = eval { Developer::Dashboard::Platform::_exec_java_source($baz); 1 };
+        ok( !$ok, '_exec_java_source dies when the resolved classpath file cannot be read' );
+        like( $@, qr/Unable to read resolved classpath/, 'unreadable classpath file surfaced' );
+    }
+
+    # an EMPTY resolved classpath (mvn writes nothing to declare) exercises
+    # the ternary's other side: classpath is just the layer's target/classes,
+    # with no ":dependency" suffix.
+    {
+        local $Developer::Dashboard::Platform::SYSTEM_LAUNCHER = sub {
+            if ( $_[0] eq 'mvn' && grep { $_ eq 'dependency:build-classpath' } @_ ) {
+                my ($outfile) = grep { /^-Dmdep\.outputFile=/ } @_;
+                $outfile =~ s/^-Dmdep\.outputFile=//;
+                open my $fh, '>', $outfile or die $!;
+                close $fh;
+            }
+            $? = 0;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+            return 1;
+        };
+        my @java_exec;
+        local $Developer::Dashboard::Platform::EXEC_LAUNCHER = sub { @java_exec = @_; return 1 };
+        my $ok = eval { Developer::Dashboard::Platform::_exec_java_source($baz); 1 };
+        ok( $ok, '_exec_java_source succeeds with an empty resolved classpath' );
+        like( $java_exec[2], qr{\Q/target/classes\E\z}, 'an empty dependency classpath leaves just the layer target/classes, no trailing colon-suffix' );
+    }
+
+    # the final java exec fails.
+    {
+        local $Developer::Dashboard::Platform::SYSTEM_LAUNCHER = sub {
+            if ( $_[0] eq 'mvn' && grep { $_ eq 'dependency:build-classpath' } @_ ) {
+                my ($outfile) = grep { /^-Dmdep\.outputFile=/ } @_;
+                $outfile =~ s/^-Dmdep\.outputFile=//;
+                open my $fh, '>', $outfile or die $!;
+                print {$fh} '/fake/dep.jar';
+                close $fh;
+            }
+            $? = 0;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+            return 1;
+        };
+        local $Developer::Dashboard::Platform::EXEC_LAUNCHER = sub { return 0 };
+        my $ok = eval { Developer::Dashboard::Platform::_exec_java_source($baz); 1 };
+        ok( !$ok, '_exec_java_source dies when the java launcher fails (mvn path)' );
+        like( $@, qr/Unable to exec java/, 'java exec failure surfaced (mvn path)' );
+    }
+}
+
 # ---------------------------------------------------------------------------
 # _passwd_entry / passwd_user_name / passwd_home_directory : the Windows
 # short-circuit, the absent-record outcome, and the resolved record.
