@@ -450,8 +450,7 @@ sub _exec_java_source_via_mvn {
 
     open my $fh, '<', $cp_file or die "Unable to read resolved classpath $cp_file: $!";
 
-    # uncoverable condition false
-    my $dependency_classpath = do { local $/; <$fh> } // '';
+    my $dependency_classpath = do { local $/; <$fh> } // '';    # uncoverable condition right
     close $fh;
     $dependency_classpath =~ s/\s+\z//;
 
