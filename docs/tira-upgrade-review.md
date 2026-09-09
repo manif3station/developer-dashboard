@@ -170,3 +170,45 @@ flag" caution. Verified live post-upgrade (`--id JOB-001` now returns exactly
 one job) and the memory file was corrected in place rather than left to assert
 a defect that no longer exists - the same "correct rather than delete"
 discipline this page itself follows.
+
+## 5.86 -> 5.87: `tira.policy.undeclared` empty again, and two entries that bear without needing a declaration
+
+`tira.policy.undeclared` returned empty on this review - back to the more
+common shape after 5.86's genuinely new `checklist-item-terminal` surface.
+That does not mean the changelog was skimmed: every one of the nine 5.87
+entries was read and classified, and two of them change something real about
+how this board should be read, without either one being a new rule to declare
+or decline.
+
+**TKT-666 bears because this board genuinely has the shape it was written
+for.** `card-duration` for a sow/epic now measures dwell from the *later* of
+the parent's own arrival or its most recent child's own last move, rather
+than only the parent's own arrival - a parent that lives in its working
+column for its entire life by design could otherwise never settle the old
+measurement short of finishing every child (the same reasoning `wip-limit`
+already used, per TKT-333). **Checked whether it applies here rather than
+assuming it does**: this board carries 10 epics and 3 SOWs (confirmed via
+`d2 tira.export --fields ref,type`), so the fix is a real reduction in false
+`card-duration CRITICAL` noise on parent cards, not a no-op. Nothing to
+declare - this corrects the *behaviour* of a rule this project already
+relies on, it does not introduce a new one.
+
+**TKT-831 retires a hazard this project's own memory had been carrying as a
+standing workaround.** `dd-tasklist-prune-is-destructive.md` warned that the
+tasklist dashboard's own unattended 5-minute auto-prune timer would silently
+delete every done tasklist item board-wide, bypassing the `confirm()` guard
+that was only ever wired to the manual Prune button - and that the owner had
+confirmed the CLI-driven prune (`d2 tira.tasklist.prune`, run deliberately
+after marking items done) was the safe path. 5.87 removes the unattended
+timer entirely: pruning now only ever happens through that confirm()-gated
+button. **The memory is corrected in place, not deleted**, per this page's
+own "correct rather than delete" discipline - the struck-through original
+warning stays as the record of what was true, with a superseded note at the
+top pointing here.
+
+The remaining seven entries (TKT-672, TKT-669, TKT-658, TKT-653, TKT-641,
+TKT-635, and TKT-1002) are message-quality, internal-tooling, or
+already-known-to-us fixes: TKT-1002 in particular is this project's *own*
+upstream report from earlier the same session (the JOB-005 absolute-path
+fix), now folded into `docs/JOBS.md` - a report that bites, gets filed, and
+comes back landed inside one upgrade cycle.
