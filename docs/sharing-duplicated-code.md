@@ -79,3 +79,12 @@ in several modules is the common case here: each instance is correct, and the co
 that a future change to what the filter should exclude has to find call sites that no
 symbol connects. That is a real reason to share an identical body — and it is not a
 reason to share a parallel one.
+
+## Another worked example: the CLI table helpers
+
+`CLI/Files.pm` and `CLI/Paths.pm` each carry `_aliases_table`, `_list_table`,
+`_mutation_table`, `_removal_table` and `_render_table`; `_build_paths` is
+also duplicated in `CLI/Which.pm`. Applying the test: nothing needs to be
+passed in to make one body serve every call site - `_build_paths` is
+byte-identical between `Files.pm` and `Which.pm`, and `_render_table`
+differs only by a trailing blank line, not by behaviour. Share it (DD-773).

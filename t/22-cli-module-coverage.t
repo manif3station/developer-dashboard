@@ -17,6 +17,7 @@ use Developer::Dashboard::CLI::OpenFile qw(build_path_registry run_open_file_com
 use Developer::Dashboard::CLI::API ();
 use Developer::Dashboard::CLI::Query qw(run_query_command);
 use Developer::Dashboard::CLI::Which ();
+use Developer::Dashboard::CLI::TableHelpers ();
 use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::JSON qw(json_decode json_encode);
@@ -298,7 +299,7 @@ is(
 {
     my $original_cwd = cwd();
     chdir $project_root or die "Unable to chdir to $project_root: $!";
-    my $which_paths = Developer::Dashboard::CLI::Which::_build_paths();
+    my $which_paths = Developer::Dashboard::CLI::TableHelpers::build_paths();
     isa_ok( $which_paths, 'Developer::Dashboard::PathRegistry', 'which helper builds a path registry' );
     chdir $original_cwd or die "Unable to restore cwd to $original_cwd: $!";
 }

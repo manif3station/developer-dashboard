@@ -12,6 +12,14 @@ use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::CLI::TableHelpers qw(
+    build_paths
+    aliases_table
+    list_table
+    mutation_table
+    removal_table
+    render_table
+);
 
 # run_paths_command(%args)
 # Dispatches the lightweight dashboard path/paths CLI behaviour without loading
@@ -26,7 +34,7 @@ sub run_paths_command {
     my $argv    = $args{args}    || die "Missing command arguments\n";
     die "Command arguments must be an array reference\n" if ref($argv) ne 'ARRAY';
 
-    my $paths = _build_paths();
+    my $paths = build_paths();
     my $files = Developer::Dashboard::FileRegistry->new( paths => $paths );
     my $config = Developer::Dashboard::Config->new( files => $files, paths => $paths );
     my $aliases_loaded = 0;
@@ -68,7 +76,7 @@ sub run_paths_command {
             print json_encode($matches);
             return 1;
         }
-        print _list_table( 'Path', $matches );
+        print list_table( 'Path', $matches );
         return 1;
     }
     if ( $action eq 'cdr' ) {
@@ -95,7 +103,7 @@ sub run_paths_command {
             print json_encode($saved);
             return 1;
         }
-        print _mutation_table(
+        print mutation_table(
             alias    => $saved->{name},
             stored   => $saved->{path},
             resolved => $saved->{resolved},
@@ -118,7 +126,7 @@ sub run_paths_command {
             print json_encode($deleted);
             return 1;
         }
-        print _removal_table(
+        print removal_table(
             alias   => $deleted->{name},
             removed => $deleted->{removed},
         );
@@ -138,7 +146,7 @@ sub run_paths_command {
             print json_encode( $paths->all_path_aliases );
             return 1;
         }
-        print _aliases_table( $paths->all_path_aliases );
+        print aliases_table( $paths->all_path_aliases );
         return 1;
     }
 
@@ -196,21 +204,6 @@ sub _normalize_delete_argument {
     }
 
     return basename($cwd);
-}
-
-# _build_paths()
-# Builds the lightweight path registry used by the path helper commands.
-# Input: none.
-# Output: Developer::Dashboard::PathRegistry object scoped to the current cwd.
-sub _build_paths {
-    my $home = $ENV{HOME} || '';
-    my @roots = grep { defined && -d } map { "$home/$_" } qw(projects src work);    # uncoverable branch false the interpolated map above always yields a defined string
-    return Developer::Dashboard::PathRegistry->new(
-        home            => $home,
-        cwd             => cwd(),
-        workspace_roots => \@roots,
-        project_roots   => \@roots,
-    );
 }
 
 # _cdr_payload(%args)
@@ -350,75 +343,7 @@ sub _cdr_directory_candidates {
 sub _paths_table {
     my ($all_paths) = @_;
     my @rows = map { [ $_, $all_paths->{$_} ] } sort keys %{ $all_paths || {} };
-    return _render_table( [ 'Path', 'Value' ], \@rows );
-}
-
-# _aliases_table($aliases_hash)
-# Renders one saved path-alias registry as a summary table.
-# Input: hash reference keyed by alias name.
-# Output: formatted table text string.
-sub _aliases_table {
-    my ($aliases) = @_;
-    my @rows = map { [ $_, $aliases->{$_} ] } sort keys %{ $aliases || {} };
-    return _render_table( [ 'Alias', 'Path' ], \@rows );
-}
-
-# _list_table($label, $items)
-# Renders one flat list as a single-column summary table.
-# Input: heading label string and array reference of scalar items.
-# Output: formatted table text string.
-sub _list_table {
-    my ( $label, $items ) = @_;
-    my @rows = map { [ $_ ] } @{ $items || [] };
-    return _render_table( [$label], \@rows );
-}
-
-# _mutation_table(%args)
-# Renders one path-alias add/update result as a summary table.
-# Input: alias, stored path, resolved path, and status strings.
-# Output: formatted table text string.
-sub _mutation_table {
-    my (%args) = @_;
-    return _render_table(
-        [ 'Alias', 'Stored', 'Resolved', 'Status' ],
-        [ [ map { $args{$_} // '' } qw(alias stored resolved status) ] ],
-    );
-}
-
-# _removal_table(%args)
-# Renders one path-alias removal result as a summary table.
-# Input: alias string and removed boolean flag.
-# Output: formatted table text string.
-sub _removal_table {
-    my (%args) = @_;
-    return _render_table(
-        [ 'Alias', 'Removed', 'Status' ],
-        [ [ $args{alias} // '', $args{removed} ? 'yes' : 'no', $args{removed} ? 'removed' : 'no-change' ] ],
-    );
-}
-
-# _render_table($header, $rows)
-# Formats one rectangular data set as a padded terminal table.
-# Input: header array reference and row array reference.
-# Output: formatted text string.
-sub _render_table {
-    my ( $header, $rows ) = @_;
-    my @widths = map { length( defined $_ ? $_ : '' ) } @{ $header || [] };
-    for my $row ( @{ $rows || [] } ) {
-        for my $idx ( 0 .. $#{$row} ) {
-            my $value = defined $row->[$idx] ? $row->[$idx] : '';
-            my $width = length($value);
-            $widths[$idx] = $width if $width > $widths[$idx];
-        }
-    }
-
-    my @lines;
-    push @lines, join( '  ', map { sprintf "%-*s", $widths[$_], ( $header->[$_] // '' ) } 0 .. $#widths );
-    push @lines, join( '  ', map { '-' x $widths[$_] } 0 .. $#widths );
-    for my $row ( @{ $rows || [] } ) {
-        push @lines, join( '  ', map { sprintf "%-*s", $widths[$_], ( defined $row->[$_] ? $row->[$_] : '' ) } 0 .. $#widths );
-    }
-    return join( "\n", @lines ) . "\n";
+    return render_table( [ 'Path', 'Value' ], \@rows );
 }
 
 1;
