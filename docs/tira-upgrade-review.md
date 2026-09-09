@@ -229,3 +229,24 @@ none introduces a new rule name this project would need to declare via
 This content overlaps with DD-828's later 5.88 -> 5.89 review, which already
 covered the same ground and declared the one genuinely new rule found across
 both passes (`task-created`, as POL-124).
+
+## 5.88 -> 5.91 (DD-836)
+
+Board moved from 5.88 to 5.91 across three releases without an intervening
+review being appended here (5.88->5.89's genuinely-new rule, `task-created`,
+was already declared as POL-124 by DD-828 - see the note at the end of the
+5.87->5.88 section above). Reviewed 5.91's own changelog directly:
+
+Entries: TKT-1035 (a highlight-state reversal on the review-column card
+markup), TKT-1032 (confirmed-already-fixed zombie-process report, no new
+code), TKT-895/`tira.question.withdraw` (a new discard-with-required-reason
+verb for questions we are not required to use), TKT-877 (a meta-guard
+comparing two copies of Tira's own commit-gate logic), TKT-876 (a stale
+line-count claim in Tira's own README/SKILLS docs), TKT-865 (Tira's own
+meta-guard test files documented as a named set).
+
+None of these introduces a new rule name, changes the shape of a command or
+field this project reads, or requires a new `d2 tira.policy.add` /
+`tira.policy.decline`. `tira.policy.undeclared` confirmed empty. No code
+change required; this entry is documentation-only, matching the DD-819/DD-820
+pattern for a clean review.
