@@ -367,15 +367,37 @@ sub _exec_go_source {
     $EXEC_LAUNCHER->( 'go', 'run', '-C', dirname($path), $path, @args ) or die "Unable to exec go run for $path: $!";
 }
 
+# _find_layer_pom($path)
+# Walks up from a source file's own directory looking for a DD-OOP-LAYERS
+# skill layer's config/pom.xml - reuses the existing per-layer walk pattern
+# rather than inventing a new top-level convention (DD-823).
+# Input: source file path.
+# Output: absolute pom.xml path string, or undef when no layer has one.
+sub _find_layer_pom {
+    my ($path) = @_;
+    my $dir = dirname($path);
+    while (1) {
+        my $pom = File::Spec->catfile( $dir, 'config', 'pom.xml' );
+        return $pom if -f $pom;
+        my $parent = dirname($dir);
+        last if $parent eq $dir;    # reached filesystem root
+        $dir = $parent;
+    }
+    return undef;
+}
+
 # _exec_java_source($path, @args)
-# Compiles one executable Java source file into an isolated temp directory and
-# then re-execs the resulting main class through java.
+# Runs one executable Java source file. When its DD-OOP-LAYERS skill layer
+# carries a config/pom.xml, builds and resolves dependencies through mvn
+# (DD-823) so a layer's declared Maven dependencies are available; otherwise
+# falls back to compiling standalone with javac into an isolated temp
+# directory exactly as before, unchanged.
 # Input: Java source file path plus passthrough argv.
 # Output: does not return on success; dies when compilation or exec fails.
 sub _exec_java_source {
     my ( $path, @args ) = @_;
 
-    # DD-597: the javac launch below mutates the caller's global $? as a
+    # DD-597: the javac/mvn launches below mutate the caller's global $? as a
     # side effect; without this guard that stays set in the caller's process
     # after this sub returns (the die path only - a successful exec below
     # replaces the process image and never returns).
@@ -385,6 +407,9 @@ sub _exec_java_source {
     my $class = _java_main_class($path);
     my ($simple_class) = $class =~ /([^\.]+)\z/;
     die "Unable to resolve Java main class for $path\n" if !defined $simple_class;
+
+    my $pom = _find_layer_pom($path);
+    return _exec_java_source_via_mvn( $pom, $class, @args ) if defined $pom;
 
     my $build_root = tempdir( CLEANUP => 1 );
     my $source_root = tempdir( CLEANUP => 1 );
@@ -396,6 +421,42 @@ sub _exec_java_source {
     die "javac failed for $path with exit code $exit_code\n" if $exit_code != 0;
 
     $EXEC_LAUNCHER->( 'java', '-cp', $build_root, $class, @args ) or die "Unable to exec java for $path: $!";
+}
+
+# _exec_java_source_via_mvn($pom, $class, @args)
+# Builds one skill layer through its own config/pom.xml (treating the layer
+# as one Maven module) and execs the resolved main class with mvn's declared
+# dependencies on the classpath (DD-823).
+# Input: pom.xml path, fully qualified main class name, passthrough argv.
+# Output: does not return on success; dies when build or exec fails.
+sub _exec_java_source_via_mvn {
+    my ( $pom, $class, @args ) = @_;
+
+    # DD-597 convention: the mvn launches below mutate the caller's global $?
+    # as a side effect; without this guard that stays set in the caller's
+    # process after this sub returns (the die path only - a successful exec
+    # replaces the process image and never returns).
+    local $?;
+    my $layer_root = dirname( dirname($pom) );
+
+    $SYSTEM_LAUNCHER->( 'mvn', '-f', $pom, '-q', 'compile' );
+    my $compile_exit = $? >> 8;
+    die "mvn compile failed for $pom with exit code $compile_exit\n" if $compile_exit != 0;
+
+    my $cp_file = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'classpath.txt' );
+    $SYSTEM_LAUNCHER->( 'mvn', '-f', $pom, '-q', 'dependency:build-classpath', "-Dmdep.outputFile=$cp_file" );
+    my $cp_exit = $? >> 8;
+    die "mvn dependency:build-classpath failed for $pom with exit code $cp_exit\n" if $cp_exit != 0;
+
+    open my $fh, '<', $cp_file or die "Unable to read resolved classpath $cp_file: $!";
+    my $dependency_classpath = do { local $/; <$fh> } // '';
+    close $fh;
+    $dependency_classpath =~ s/\s+\z//;
+
+    my $classes_dir = File::Spec->catdir( $layer_root, 'target', 'classes' );
+    my $classpath = $dependency_classpath eq '' ? $classes_dir : "$classes_dir:$dependency_classpath";
+
+    $EXEC_LAUNCHER->( 'java', '-cp', $classpath, $class, @args ) or die "Unable to exec java for $pom: $!";
 }
 
 # _java_main_class($path)
