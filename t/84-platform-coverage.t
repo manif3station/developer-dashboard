@@ -446,6 +446,78 @@ is(
 }
 
 # ---------------------------------------------------------------------------
+# DD-823: _find_layer_pom + _exec_java_source_via_mvn - per-skill-layer
+# config/pom.xml dependency resolution, falling back to plain javac when no
+# layer in the file's ancestry has one.
+# ---------------------------------------------------------------------------
+{
+    ok( !defined Developer::Dashboard::Platform::_find_layer_pom( File::Spec->catfile( $work, 'nolayer', 'cli', 'Foo.java' ) ),
+        '_find_layer_pom returns undef when no ancestor layer has a config/pom.xml' );
+}
+{
+    my $skill = File::Spec->catdir( $work, 'skill' );
+    my $cli   = File::Spec->catdir( $skill, 'cli' );
+    my $config = File::Spec->catdir( $skill, 'config' );
+    mkdir $skill; mkdir $cli; mkdir $config;
+    my $pom = write_file( File::Spec->catfile( $config, 'pom.xml' ), "<project/>\n" );
+    my $foo = write_file( File::Spec->catfile( $cli, 'Foo.java' ), "package demo;\npublic class Foo { public static void main(String[] a) {} }\n" );
+
+    is( Developer::Dashboard::Platform::_find_layer_pom($foo), $pom, '_find_layer_pom finds the layer pom.xml walking up from the source file' );
+
+    # AC-2: a file with no config/pom.xml anywhere in its ancestry still
+    # takes the plain-javac path, unchanged.
+    is( Developer::Dashboard::Platform::_find_layer_pom($hello), undef, '_find_layer_pom returns undef for a file whose ancestry has no pom.xml' );
+
+    # AC-1: when a layer pom.xml exists, _exec_java_source dispatches to mvn
+    # instead of javac, and passes the resolved classpath (layer's own
+    # target/classes plus mvn's dependency:build-classpath output) to java.
+    my @mvn_calls;
+    my $cp_written;
+    local $Developer::Dashboard::Platform::SYSTEM_LAUNCHER = sub {
+        push @mvn_calls, [@_];
+        if ( $_[0] eq 'mvn' && grep { $_ eq 'dependency:build-classpath' } @_ ) {
+            my ($outfile) = grep { /^-Dmdep\.outputFile=/ } @_;
+            $outfile =~ s/^-Dmdep\.outputFile=//;
+            open my $fh, '>', $outfile or die $!;
+            print {$fh} "/fake/dep1.jar:/fake/dep2.jar";
+            close $fh;
+            $cp_written = 1;
+        }
+        $? = 0;    ## no critic (Variables::RequireLocalizedPunctuationVars)
+        return 1;
+    };
+    my @java_exec;
+    local $Developer::Dashboard::Platform::EXEC_LAUNCHER = sub { @java_exec = @_; return 1 };
+
+    my $ret = eval { Developer::Dashboard::Platform::_exec_java_source( $foo, 'alpha' ); 1 };
+    ok( $ret, '_exec_java_source with a layer pom.xml dispatches to mvn instead of javac' );
+    is( scalar(@mvn_calls), 2, 'mvn was invoked exactly twice - compile then dependency:build-classpath' );
+    is_deeply( $mvn_calls[0], [ 'mvn', '-f', $pom, '-q', 'compile' ], 'first mvn call compiles the layer module' );
+    ok( $cp_written, 'the dependency:build-classpath mvn call resolved a classpath file' );
+    is( $java_exec[0], 'java', 'java is invoked to run the resolved main class' );
+    is( $java_exec[1], '-cp', 'the -cp flag is passed' );
+    like( $java_exec[2], qr{\Q/target/classes\E:/fake/dep1\.jar:/fake/dep2\.jar\z}, 'classpath includes the layer target/classes plus mvn-resolved dependencies' );
+    is( $java_exec[3], 'demo.Foo', 'the resolved fully-qualified class is execed' );
+    is( $java_exec[4], 'alpha', 'passthrough argv reaches java' );
+
+    # AC-3: a second, independent skill layer with its own pom.xml resolves
+    # against its own layer root, with no interference between the two.
+    my $skill2 = File::Spec->catdir( $work, 'skill2' );
+    my $cli2   = File::Spec->catdir( $skill2, 'cli' );
+    my $config2 = File::Spec->catdir( $skill2, 'config' );
+    mkdir $skill2; mkdir $cli2; mkdir $config2;
+    my $pom2 = write_file( File::Spec->catfile( $config2, 'pom.xml' ), "<project/>\n" );
+    my $bar = write_file( File::Spec->catfile( $cli2, 'Bar.java' ), "package other;\npublic class Bar { public static void main(String[] a) {} }\n" );
+    is( Developer::Dashboard::Platform::_find_layer_pom($bar), $pom2, 'a second skill layer resolves its OWN pom.xml, independent of the first' );
+
+    # mvn compile failure surfaces.
+    local $Developer::Dashboard::Platform::SYSTEM_LAUNCHER = sub { $? = 3 << 8; return 1 };    ## no critic (Variables::RequireLocalizedPunctuationVars)
+    my $failed = eval { Developer::Dashboard::Platform::_exec_java_source($foo); 1 };
+    ok( !$failed, '_exec_java_source dies when mvn compile fails' );
+    like( $@, qr/mvn compile failed/, 'mvn compile failure surfaced' );
+}
+
+# ---------------------------------------------------------------------------
 # _passwd_entry / passwd_user_name / passwd_home_directory : the Windows
 # short-circuit, the absent-record outcome, and the resolved record.
 # ---------------------------------------------------------------------------
