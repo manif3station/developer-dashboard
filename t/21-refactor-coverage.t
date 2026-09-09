@@ -19,6 +19,7 @@ use Developer::Dashboard::CLI::Query ();
 use Developer::Dashboard::CLI::Ticket ();
 use Developer::Dashboard::CollectorRunner;
 use Developer::Dashboard::CLI::Paths ();
+use Developer::Dashboard::CLI::TableHelpers ();
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::InternalCLI ();
 use Developer::Dashboard::JSON qw(json_decode json_encode);
@@ -1677,7 +1678,7 @@ like( $paths_output, qr/home_runtime_root/, 'CLI::Paths default table includes t
     local $ENV{HOME} = $empty_home;
     my $cwd = getcwd();
     chdir $empty_home or die "Unable to chdir to $empty_home: $!";
-    my $paths_from_empty_home = Developer::Dashboard::CLI::Paths::_build_paths();
+    my $paths_from_empty_home = Developer::Dashboard::CLI::TableHelpers::build_paths();
     is_deeply( [ $paths_from_empty_home->workspace_roots ], [], 'CLI::Paths _build_paths skips missing default workspace roots' );
     chdir $cwd or die "Unable to chdir back to $cwd: $!";
 }

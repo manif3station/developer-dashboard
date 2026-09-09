@@ -15,6 +15,7 @@ use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::SkillManager;
 use Developer::Dashboard::SkillDispatcher;
 use Developer::Dashboard::CLI::Which;
+use Developer::Dashboard::CLI::TableHelpers;
 
 # Hermetic runtime: a temp HOME the test also chdirs into, so the
 # DD-OOP-LAYERS runtime root resolves from this directory (the which helper
@@ -26,9 +27,9 @@ chdir $home or die "Unable to chdir to $home: $!";
 
 my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
 
-# Resolve the exact cli layer the which helper's own _build_paths will inspect,
+# Resolve the exact cli layer the which helper's shared build_paths will inspect,
 # so custom-command and hook fixtures land where the resolver looks.
-my @cli_layers = Developer::Dashboard::CLI::Which::_build_paths()->cli_layers;
+my @cli_layers = Developer::Dashboard::CLI::TableHelpers::build_paths()->cli_layers;
 my $cli_root   = $cli_layers[-1];
 make_path($cli_root);
 
@@ -133,7 +134,7 @@ my $tool = make_exec( File::Spec->catfile( $cli_root, 'coverage-tool' ) );
     my $registry;
     {
         local $ENV{HOME} = '';
-        $registry = eval { Developer::Dashboard::CLI::Which::_build_paths() };
+        $registry = eval { Developer::Dashboard::CLI::TableHelpers::build_paths() };
     }
     ok(
         !defined $registry || $registry->isa('Developer::Dashboard::PathRegistry'),

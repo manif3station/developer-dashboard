@@ -11,6 +11,7 @@ use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);
 use Developer::Dashboard::InternalCLI;
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::CLI::TableHelpers qw(build_paths);
 use Developer::Dashboard::Platform qw(command_argv_for_path resolve_runnable_file is_runnable_file);
 use Developer::Dashboard::SkillDispatcher;
 use Developer::Dashboard::SkillManager;
@@ -39,7 +40,7 @@ sub run_which_command {
     my $target = shift @argv || die _usage();
     die _usage() if @argv;
 
-    my $paths = _build_paths();
+    my $paths = build_paths();
     my $result = _locate_target(
         paths  => $paths,
         target => $target,
@@ -62,21 +63,6 @@ sub run_which_command {
 # Output: usage string.
 sub _usage {
     return "Usage: dashboard which [--edit] <cmd>|<skill>.<cmd>|<skill>.<sub-skill>.<cmd>\n";
-}
-
-# _build_paths()
-# Builds the lightweight path registry used by the which helper.
-# Input: none.
-# Output: Developer::Dashboard::PathRegistry object scoped to the current cwd.
-sub _build_paths {
-    my $home = $ENV{HOME} || '';
-    my @roots = grep { -d } map { "$home/$_" } qw(projects src work);
-    return Developer::Dashboard::PathRegistry->new(
-        home            => $home,
-        cwd             => cwd(),
-        workspace_roots => \@roots,
-        project_roots   => \@roots,
-    );
 }
 
 # _locate_target(%args)

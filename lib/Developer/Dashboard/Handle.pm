@@ -73,7 +73,8 @@ sub run {
 # _registry()
 # Builds (once per handle) the PathRegistry with configured named aliases
 # registered, scoped to this handle's cwd - the same composition
-# CLI::Paths::_build_paths + run_paths_command's alias-loading closure use.
+# Developer::Dashboard::CLI::TableHelpers::build_paths + run_paths_command's
+# alias-loading closure use.
 # Input: none.
 # Output: Developer::Dashboard::PathRegistry object.
 sub _registry {
