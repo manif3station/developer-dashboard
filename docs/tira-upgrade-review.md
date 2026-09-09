@@ -212,3 +212,20 @@ already-known-to-us fixes: TKT-1002 in particular is this project's *own*
 upstream report from earlier the same session (the JOB-005 absolute-path
 fix), now folded into `docs/JOBS.md` - a report that bites, gets filed, and
 comes back landed inside one upgrade cycle.
+
+## 5.87 -> 5.88 (DD-820)
+
+Entries: TKT-696 (`card_holes`/`ticket.missing` gain a `past_column`
+standard for what a card owes past a milestone), TKT-695 (`task-card-mismatch`
+now reports a task whose ref names no card, rather than silently deferring to
+`task-unlinked`), TKT-692 (four commands stop interpolating an undef id into
+their refusal message), TKT-689 (a refusal names the flag the raising
+command actually takes).
+
+All four are internal Tira tooling improvements to existing rules/commands -
+none introduces a new rule name this project would need to declare via
+`d2 tira.policy.add`. `tira.policy.undeclared` confirmed empty.
+
+This content overlaps with DD-828's later 5.88 -> 5.89 review, which already
+covered the same ground and declared the one genuinely new rule found across
+both passes (`task-created`, as POL-124).
