@@ -358,6 +358,22 @@ ok( length $root_from_inc, '_module_lib_root resolves via %INC' );
     like( $@, qr/Unable to exec go run/, 'go-run failure surfaced' );
 }
 
+# DD-825: go run must be launched with -C <the source file's own directory>,
+# not a bare `go run <path>` - a bare invocation lets go.mod discovery walk up
+# from the CALLER's cwd rather than the skill's own directory, so a skill's
+# go.mod is silently missed unless the caller happens to already be inside it.
+{
+    my @seen_argv;
+    local $Developer::Dashboard::Platform::EXEC_LAUNCHER = sub { @seen_argv = @_; return 1 };
+    my $go_path = File::Spec->catfile( $work, 'skill', 'cli', 'foo.go' );
+    eval { Developer::Dashboard::Platform::_exec_go_source($go_path); 1 };
+    is_deeply(
+        \@seen_argv,
+        [ 'go', 'run', '-C', File::Spec->catdir( $work, 'skill', 'cli' ), $go_path ],
+        '_exec_go_source passes -C <source dir> so go.mod discovery starts at the skill layer, not the caller cwd'
+    );
+}
+
 # ---------------------------------------------------------------------------
 # _java_main_class : line 361 + 363
 # ---------------------------------------------------------------------------

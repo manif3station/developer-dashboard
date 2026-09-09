@@ -1281,8 +1281,8 @@ SH
         open my $go_log_fh, '<', $go_log or die $!;
         is(
             do { local $/; <$go_log_fh> },
-            "run\nexec-hook.go\nalpha\nbeta\n",
-            '_exec_go_source delegates to go run with passthrough argv',
+            "run\n-C\n.\nexec-hook.go\nalpha\nbeta\n",
+            '_exec_go_source delegates to go run -C <source dir> with passthrough argv',
         );
         close $go_log_fh;
         unlink 'exec-hook.go' or die $!;
@@ -1297,8 +1297,8 @@ SH
         ok( eval { Developer::Dashboard::Platform::_exec_go_source( 'inline-hook.go', 'alpha', 'beta' ); 1 }, '_exec_go_source can be exercised inline through the launcher hook' );
         is_deeply(
             \@go_exec,
-            [ 'go', 'run', 'inline-hook.go', 'alpha', 'beta' ],
-            '_exec_go_source uses the go launcher with passthrough argv in-process',
+            [ 'go', 'run', '-C', '.', 'inline-hook.go', 'alpha', 'beta' ],
+            '_exec_go_source uses the go launcher with -C <source dir> and passthrough argv in-process',
         );
         dies_like(
             sub { Developer::Dashboard::Platform::_exec_go_source() },
