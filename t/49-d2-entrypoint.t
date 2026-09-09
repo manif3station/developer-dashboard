@@ -94,7 +94,10 @@ like(
         close $marker_fh;
         chomp @marker_lines;
     }
-    is_deeply( \@marker_lines, ['HOOK-RAN version'],
+    # DD-832: the hook's argv matches "version"'s own argv (none), with no
+    # top-level command name prepended - so $* is empty, leaving a trailing
+    # space from the format string.
+    is_deeply( \@marker_lines, ['HOOK-RAN '],
         'd2 inherits the main gate through its re-exec exactly once, not twice' );
 }
 

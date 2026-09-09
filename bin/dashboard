@@ -43,6 +43,12 @@ my $switchboard_paths;
 
 my $cmd = shift @ARGV || '';
 _load_runtime_env();
+
+# DD-832: set before the main gate runs so a main-gate hook can still learn
+# the top-level command name from the environment - its own @ARGV now
+# matches exactly what the command target itself receives, with no
+# top-level command name prepended.
+$ENV{DEVELOPER_DASHBOARD_COMMAND} = $cmd if $cmd ne '';
 my $main_gate_results = _run_main_gate_hooks( $cmd, @ARGV );
 _prime_command_result_env( $cmd, $main_gate_results, @ARGV ) if $cmd ne '';
 
@@ -108,7 +114,6 @@ sub _prime_command_result_env {
         Developer::Dashboard::Runtime::Result::clear_current();
         Developer::Dashboard::Runtime::Result::clear_last_result();
     }
-    $ENV{DEVELOPER_DASHBOARD_COMMAND} = $cmd if defined $cmd && $cmd ne '';
     return 1 if !defined $cmd || $cmd eq '';
 
     my @hook_roots = _command_hook_roots($cmd);
@@ -257,9 +262,12 @@ sub _main_gate_hook_roots {
 # Runs the main gate once per invocation, before the command is resolved and
 # for every form of the command line (no command, help, version, which, an
 # unknown command). Each runnable file directly under a main-gate root runs in
-# sorted order with the full command argv, its output streamed as it appears
-# and its captured result recorded in RESULT/LAST_RESULT for the hooks after it
-# and for the command. A hook printing the [[STOP]] marker on stderr ends the
+# sorted order with the SAME argv the eventual command target itself will
+# receive (DD-832 - no top-level command name prepended; a hook that needs to
+# know the command name reads $ENV{DEVELOPER_DASHBOARD_COMMAND}, set by the
+# caller before this sub runs), its output streamed as it appears and its
+# captured result recorded in RESULT/LAST_RESULT for the hooks after it and
+# for the command. A hook printing the [[STOP]] marker on stderr ends the
 # invocation: the remaining hooks are skipped, the command never runs and the
 # process exits 1 with the hook's stderr already on the terminal. A dashboard
 # started by a hook inherits DEVELOPER_DASHBOARD_MAIN_GATE and skips the gate,
@@ -277,7 +285,7 @@ sub _run_main_gate_hooks {
     Developer::Dashboard::Runtime::Result::clear_current();
     Developer::Dashboard::Runtime::Result::clear_last_result();
     local $ENV{DEVELOPER_DASHBOARD_MAIN_GATE} = 1;
-    my @hook_argv = ( ( $cmd ne '' ? $cmd : () ), @argv );
+    my @hook_argv = @argv;
     my %results;
     for my $hook_root (@hook_roots) {
         opendir my $dh, $hook_root or next;

@@ -486,8 +486,10 @@ JSTUB
         chomp( @marker_lines = <$mfh> );
         close $mfh;
     }
-    is_deeply( \@marker_lines, ['version'],
-        'DD-810 AC-2/AC-6: Handle::run inherits the main gate through the real entrypoint - the hook fired exactly once with the full command argv' );
+    # DD-832: the hook's argv matches "version"'s own argv (none), with no
+    # top-level command name prepended.
+    is_deeply( \@marker_lines, [''],
+        'DD-810 AC-2/AC-6: Handle::run inherits the main gate through the real entrypoint - the hook fired exactly once with argv matching the command target' );
 }
 
 done_testing;
