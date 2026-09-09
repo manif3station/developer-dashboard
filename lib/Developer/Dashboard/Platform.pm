@@ -449,8 +449,9 @@ sub _exec_java_source_via_mvn {
     die "mvn dependency:build-classpath failed for $pom with exit code $cp_exit\n" if $cp_exit != 0;
 
     open my $fh, '<', $cp_file or die "Unable to read resolved classpath $cp_file: $!";
-    my $dependency_classpath = do { local $/; <$fh> }    # uncoverable condition false
-      // '';
+
+    # uncoverable condition false
+    my $dependency_classpath = do { local $/; <$fh> } // '';
     close $fh;
     $dependency_classpath =~ s/\s+\z//;
 
