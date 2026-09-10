@@ -1430,7 +1430,15 @@ SH
             'command_argv_for_path resolves PowerShell scripts on Windows through the preferred runnable PowerShell binary',
         );
     }
-    ok( command_in_path('tool'), 'command_in_path resolves PATHEXT-backed PowerShell scripts on Windows' );
+    # DD-765: this used to assert command_in_path('tool') resolved tool.ps1
+    # sitting in the CWD - that was the exact security/correctness bug this
+    # card fixes (a bare name must search PATH only, never the caller's
+    # cwd), not a feature. command_in_path's own contract is "resolve a
+    # command from PATH"; resolving a script file candidate in the current
+    # directory is is_runnable_file/resolve_runnable_file's job via
+    # _runnable_path_candidates, which is unrelated to command_in_path and
+    # still works below unchanged.
+    ok( !command_in_path('tool'), 'command_in_path does not resolve a bare name against the cwd (DD-765)' );
     ok( is_runnable_file('tool'), 'is_runnable_file resolves PATHEXT-backed PowerShell scripts on Windows' );
     {
         open my $fh, '>', 'tool.cmd' or die $!;
