@@ -127,14 +127,27 @@ sub shell_command_argv {
 
 # command_in_path($name)
 # Resolves a command name from PATH using PATHEXT semantics on Windows when needed.
-# Input: bare command name or path string.
-# Output: absolute/relative executable path string or undef when not found.
+# Input: bare command name.
+# Output: absolute executable path string or undef when not found.
 sub command_in_path {
     my ($name) = @_;
     return if !defined $name || $name eq '';
 
-    for my $candidate ( _path_candidates($name) ) {
-        return $candidate if -f $candidate;
+    # DD-765: a BARE name (no directory separator) is a request to search
+    # PATH - the caller's cwd is not on PATH, and never was. Testing the
+    # bare name as a relative filesystem path here resolved it against the
+    # process's cwd, so a same-named file sitting in whatever directory
+    # dashboard happened to be run from was preferred over the real PATH
+    # executable and returned as a RELATIVE string - a dot-in-PATH hazard
+    # reached without dot ever being on PATH, and unconditionally wrong the
+    # moment any caller's cwd changes between the check and the use. Every
+    # current caller passes a bare name, so this loop never had a legitimate
+    # reason to exist; a caller with an actual path does not need this
+    # resolver at all.
+    if ( $name =~ m{[\\/]} ) {
+        for my $candidate ( _path_candidates($name) ) {
+            return $candidate if -f $candidate;
+        }
     }
 
     for my $dir ( File::Spec->path ) {

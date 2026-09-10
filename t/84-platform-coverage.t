@@ -180,6 +180,23 @@ ok( !defined command_in_path(''),    'command_in_path empty-string returns undef
     unlink $shadow;
 }
 
+# A caller passing an actual PATH-separator-bearing path (not a bare name)
+# is asking a different question, and that path is still resolved directly -
+# this is the branch that stays reachable after DD-765's fix.
+{
+    my $subdir = File::Spec->catdir( $home, 'toolsub' );
+    mkdir $subdir or die "mkdir $subdir: $!";
+    my $explicit = File::Spec->catfile( $subdir, 'explicit-tool' );
+    write_file( $explicit, "#!/bin/sh\necho explicit\n" );
+    chmod 0755, $explicit;
+    my $rel = File::Spec->abs2rel($explicit);
+    local $ENV{PATH} = $bin;
+    is( command_in_path($rel), $rel,
+        'command_in_path still resolves an explicit path containing a directory separator (DD-765)' );
+    unlink $explicit;
+    rmdir $subdir;
+}
+
 # Every path command_in_path DOES return must be absolute - a relative result
 # denotes a different file once the caller's cwd changes (DD-765 AC-2).
 {
