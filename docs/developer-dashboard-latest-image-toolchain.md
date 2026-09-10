@@ -21,7 +21,8 @@ decision. Found and fixed this way so far:
 - **DD-827**: `ss`/`lsof` were absent, so `t/09`'s listener-pid test fell through to its
   empty fallback path. Fixed by adding them to the `apt-get install` line.
 - **DD-829**: no `go` binary at all, so `cli/*.go` E2E/ATDD work had no container to
-  verify against.
+  verify against. Fixed by adding `golang-go` to the `apt-get install` line (apt's
+  candidate on `ubuntu:26.04` is `2:1.26~1`, modern enough for any realistic `go.mod`).
 - **DD-830**: `python3` ships in the base image, but Debian/Ubuntu split `pip` out of
   the base `python3` package - `python3 -m pip` failed with `No module named pip`, so
   any skill with a `requirements.txt` could not install at all. `python3-pip` alone was
