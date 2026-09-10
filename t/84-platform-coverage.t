@@ -162,6 +162,35 @@ ok( !defined command_in_path(''),    'command_in_path empty-string returns undef
 }
 
 # ---------------------------------------------------------------------------
+# DD-765: a bare name must never resolve against the CWD. The process is
+# already chdir'd into $home (see the hermetic-runtime block at the top of
+# this file), which is exactly the shape of the real bug - a file sitting in
+# the directory dashboard happens to be run from, sharing a name with a real
+# command. PATH is restricted to $bin (which does not contain 'make'), so a
+# fix-correct resolver must return undef here, never the cwd shadow file.
+# ---------------------------------------------------------------------------
+{
+    my $shadow = File::Spec->catfile( $home, 'make' );
+    write_file( $shadow, "#!/bin/sh\necho shadow\n" );
+    chmod 0755, $shadow;
+    local $ENV{PATH} = $bin;
+    my $found = command_in_path('make');
+    ok( !defined $found,
+        'command_in_path never resolves a same-named file sitting in the cwd, only PATH (DD-765)' );
+    unlink $shadow;
+}
+
+# Every path command_in_path DOES return must be absolute - a relative result
+# denotes a different file once the caller's cwd changes (DD-765 AC-2).
+{
+    only_commands('python');
+    local $ENV{PATH} = $bin;
+    my $found = command_in_path('python');
+    ok( $found && File::Spec->file_name_is_absolute($found),
+        'command_in_path returns an absolute path, never relative (DD-765 AC-2)' );
+}
+
+# ---------------------------------------------------------------------------
 # resolve_runnable_file : line 129
 # ---------------------------------------------------------------------------
 ok( !defined resolve_runnable_file(undef), 'resolve_runnable_file(undef) returns undef' );
