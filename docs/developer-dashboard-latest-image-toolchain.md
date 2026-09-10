@@ -33,6 +33,10 @@ decision. Found and fixed this way so far:
   adding **both** `python3-pip` and `python3-venv` to the `apt-get install` line; a venv's
   own pip is exempt from the PEP-668 guard, which only blocks installing into the system
   interpreter.
+- **DD-831**: no `mvn` (or JDK) at all, so `cli/*.java` work with a `config/pom.xml`
+  could only be verified through mocked `SYSTEM_LAUNCHER`/`EXEC_LAUNCHER`, never a real
+  Maven build. Fixed by adding `maven` and `default-jdk` to the `apt-get install` line
+  (apt's candidates on `ubuntu:26.04` are `maven 3.9.12-1` and `default-jdk 2:1.25-77`).
 
 ## The pattern for the next one
 
