@@ -644,13 +644,18 @@ if ( !$UNDER_COVER ) {
     my $serve_port = _find_free_port();
     my $serve_json = json_decode( _run_in_home( $serve_home, "$perl -I'$lib' '$dashboard' serve --host 127.0.0.1 --port $serve_port" ) );
     ok( $serve_json->{pid}, 'dashboard serve returns a managed web pid for the collector lifecycle smoke test' );
+    # DD-801: this loop used to carry a second `last if` that re-tested
+    # $first_stdout against the exact regex the first condition had already
+    # rejected - it could never be the reason the loop exited, and its only
+    # observable effect was a `collector status` subprocess (a full perl
+    # startup) paid on every one of up to 160 iterations to evaluate a
+    # condition that could not fire. One real check, one subprocess per
+    # iteration, is what the loop actually needs.
     my $first_stdout = '';
     for ( 1 .. 160 ) {
         my $output = json_decode( _run_in_home( $serve_home, "$perl -I'$lib' '$dashboard' collector output tick.collector" ) );
         $first_stdout = $output->{stdout} || '';
         last if $first_stdout =~ /^\d+\.\d+\n$/;
-        my $status = json_decode( _run_in_home( $serve_home, "$perl -I'$lib' '$dashboard' collector status tick.collector" ) );
-        last if ( $status->{last_success} || 0 ) && $first_stdout =~ /^\d+\.\d+\n$/;
         sleep 0.25;
     }
     like( $first_stdout, qr/^\d+\.\d+\n$/, 'dashboard serve starts configured interval collectors so collector output begins changing without a separate restart' );
