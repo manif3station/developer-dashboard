@@ -354,3 +354,44 @@ The pair of near-identical routines that produced this one still exists:
 `CollectorRunner`, and only one copy's test had the guard. Wherever a primitive
 is duplicated, its *tests* can diverge as silently as its code — and the test
 divergence is harder to see, because both files are green.
+
+## The loop-exit form (DD-801)
+
+The same defect appears one layer down, in a poll loop's exit condition rather
+than in the final assertion. `t/05-cli-smoke.t`'s collector-lifecycle wait had
+two `last if`s:
+
+```perl
+my $first_stdout = '';
+for ( 1 .. 160 ) {
+    my $output = json_decode( ... 'collector output tick.collector' );
+    $first_stdout = $output->{stdout} || '';
+    last if $first_stdout =~ /^\d+\.\d+\n$/;                                   # A
+    my $status = json_decode( ... 'collector status tick.collector' );          # a whole extra process
+    last if ( $status->{last_success} || 0 ) && $first_stdout =~ /^\d+\.\d+\n$/; # B
+    sleep 0.25;
+}
+```
+
+`$first_stdout` is assigned once per iteration, before A, and untouched between
+A and B. So B's second conjunct tests exactly the value A has already rejected
+— B can never be the reason the loop exits. It reads as a second, more careful
+check ("exit when the output looks right AND the collector reports success"),
+so a maintainer trusts a corroboration that never runs, and pays a full
+subprocess (`collector status`) on every one of up to 160 iterations to
+evaluate a condition that cannot fire.
+
+**The generalisation:** an assertion that cannot fail and a loop exit that
+cannot exit are the same defect wearing different clothes. Both claim a
+discrimination the code does not perform, and both are found the same way —
+for every branch point, exhibit a concrete state that satisfies it and is not
+already caught earlier. A condition with no such state is dead, whatever it
+looks like it is checking.
+
+**The fix is not "simplify until it passes."** A loop simplification that
+removes the dead condition without preserving the loop's ability to genuinely
+fail is worse than leaving the dead code: it would make `like( $first_stdout,
+... )` pass even when a collector produces nothing, for a different, newer
+reason. The negative control — point the loop at a collector configured with a
+command that emits nothing, and confirm the assertion still fails — is what
+proves the simplification kept its teeth.
