@@ -24,9 +24,14 @@ decision. Found and fixed this way so far:
   verify against.
 - **DD-830**: `python3` ships in the base image, but Debian/Ubuntu split `pip` out of
   the base `python3` package - `python3 -m pip` failed with `No module named pip`, so
-  any skill with a `requirements.txt` could not install at all, independent of the
-  separate per-skill venv isolation question (DD-824). Fixed by adding `python3-pip` to
-  the `apt-get install` line.
+  any skill with a `requirements.txt` could not install at all. `python3-pip` alone was
+  not enough to fix it: DD-824's real install path creates a per-skill venv FIRST
+  (`python3 -m venv`), and `python3-venv` was ALSO missing - venv creation failed with
+  "ensurepip is not available", the code fell back to a direct `pip install --user`,
+  and Debian's PEP-668 externally-managed-environment guard refused that too. Fixed by
+  adding **both** `python3-pip` and `python3-venv` to the `apt-get install` line; a venv's
+  own pip is exempt from the PEP-668 guard, which only blocks installing into the system
+  interpreter.
 
 ## The pattern for the next one
 
