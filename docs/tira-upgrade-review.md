@@ -270,3 +270,33 @@ tooling - none introduces a new rule name this project would need to declare
 via `d2 tira.policy.add`, and none changes the shape of a command or field
 this project reads. `tira.policy.undeclared` confirmed empty. No code change
 required; documentation-only, matching the DD-819/DD-820/DD-836 pattern.
+
+## 5.92 -> 5.93 (DD-840)
+
+Entries: TKT-1041 (Tira's own `lib/Tira/CLI.pm` move-path guards lifted into
+a new `Tira::CLI::Move`, mirroring TKT-607's own shape - forwarding stubs
+keep every existing caller working), TKT-1040 (a doc-vs-ships meta-guard
+false-positived on the ordinary English word "Specified" in prose, tightened
+to the actual bold-and-versioned legend convention), TKT-1039 (two unmarked
+bare assertions in Tira's own meta-guard suite), TKT-1030 (a job card's log
+panel repainting a stale tail instead of appending the genuinely new lines),
+TKT-1038 (a documented command, `attachment.where`, whose entrypoint file was
+never actually created - the same missing-file shape TKT-895 fixed once
+already), TKT-1015 (a pre-push hook computing "the cards this push is about"
+from the wrong ref, ignoring git's own stdin payload), plus several smaller
+internal fixes.
+
+**One new policy rule: `backward-move-unexplained`.** Mirrors
+`discard-unexplained`'s own mechanism exactly - a comment satisfies it only
+if written at or after the card's own last backward move (5s grace,
+identical to `discard-unexplained`), not any comment the card has ever
+carried. Moves into/out of discard stay `discard-unexplained`'s business; a
+forward move gains no prompt; the rule reports, it never refuses. **Declared
+as POL-125**, same action (`bridge-reminder`) and message shape as
+`discard-unexplained`'s POL-072 - this project already comments on every
+state change (the "comment first, then fold into fields" discipline this
+file's own rule contract documents elsewhere), so declaring rather than
+declining costs nothing and catches a genuine future mistake.
+
+`tira.policy.undeclared` confirmed empty after declaring POL-125. No code
+change required beyond the declaration itself.
