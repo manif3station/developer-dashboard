@@ -250,3 +250,23 @@ field this project reads, or requires a new `d2 tira.policy.add` /
 `tira.policy.decline`. `tira.policy.undeclared` confirmed empty. No code
 change required; this entry is documentation-only, matching the DD-819/DD-820
 pattern for a clean review.
+
+## 5.91 -> 5.92 (DD-837)
+
+Entries: TKT-910 (`link_remove` falsely reported success on a wrong-direction
+or self-link removal), TKT-907 (`tasklist.list --sort` edge cases: empty
+spec, trailing/leading comma, bare `:desc`), TKT-906 (17 of 18 exemption
+entries in Tira's own t/524 wrongly attributed to one card), TKT-903 (a
+meta-guard's own regex silently mis-parsed two entries, joining the t/865
+meta-guard family as its 21st member), TKT-902 (the commit gate refused a
+POD-only lib/*.pm addition, which the documentation column's own required
+action instructs), TKT-901 (a killed gate-run left its container running
+against an already-removed worktree), TKT-900 (doc-examples harvest widened
+from a hard-coded 2-file list to every docs/*.md, catching two real stale
+usage-grammar lines in SKILLS.md along the way).
+
+All seven are internal Tira fixes to its own commands, tests and release
+tooling - none introduces a new rule name this project would need to declare
+via `d2 tira.policy.add`, and none changes the shape of a command or field
+this project reads. `tira.policy.undeclared` confirmed empty. No code change
+required; documentation-only, matching the DD-819/DD-820/DD-836 pattern.
