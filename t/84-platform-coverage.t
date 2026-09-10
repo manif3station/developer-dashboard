@@ -194,6 +194,13 @@ ok( !defined command_in_path(''),    'command_in_path empty-string returns undef
     is( command_in_path($rel), $rel,
         'command_in_path still resolves an explicit path containing a directory separator (DD-765)' );
     unlink $explicit;
+
+    # And the false side of that same -f check: a separator-bearing path that
+    # does not exist there falls through to a genuine PATH search rather than
+    # short-circuiting on the strength of merely looking like a path.
+    local $ENV{PATH} = $bin;
+    ok( !defined command_in_path( File::Spec->catfile( $subdir, 'no-such-tool' ) ),
+        'command_in_path with a separator-bearing but nonexistent path falls through, never fabricates a hit (DD-765)' );
     rmdir $subdir;
 }
 
