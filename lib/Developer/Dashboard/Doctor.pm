@@ -11,7 +11,6 @@ use Time::Local qw(timegm);
 use Capture::Tiny qw(capture);
 
 use Developer::Dashboard::Config ();
-use Developer::Dashboard::FileRegistry ();
 use Developer::Dashboard::InternalCLI ();
 use Developer::Dashboard::JSON qw(json_decode);
 
@@ -427,16 +426,13 @@ sub _slurp_text_file {
 }
 
 # _config()
-# Lazily constructs the merged runtime config loader, following the same shape
-# Housekeeper::_config already uses for this exact pattern.
+# Lazily constructs the merged runtime config loader, via the shared
+# Config->for_paths classmethod (DD-763) both Housekeeper and Doctor use.
 # Input: none.
 # Output: Developer::Dashboard::Config object.
 sub _config {
     my ($self) = @_;
-    return $self->{config} ||= Developer::Dashboard::Config->new(
-        paths => $self->{paths},
-        files => Developer::Dashboard::FileRegistry->new( paths => $self->{paths} ),    # uncoverable condition false
-    );
+    return $self->{config} ||= Developer::Dashboard::Config->for_paths( $self->{paths} );    # uncoverable condition false
 }
 
 # _mode_octal($path)

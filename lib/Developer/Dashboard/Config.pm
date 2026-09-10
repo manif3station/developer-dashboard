@@ -26,6 +26,18 @@ sub new {
     }, $class;
 }
 
+# for_paths($paths)
+# Constructs a configuration loader bound to a path registry, building the
+# matching file registry itself - the shape both Housekeeper and Doctor
+# needed identically (DD-763).
+# Input: Developer::Dashboard::PathRegistry object.
+# Output: Developer::Dashboard::Config object.
+sub for_paths {
+    my ( $class, $paths ) = @_;
+    require Developer::Dashboard::FileRegistry;
+    return $class->new( paths => $paths, files => Developer::Dashboard::FileRegistry->new( paths => $paths ) );
+}
+
 # load_global()
 # Loads the user-global dashboard configuration file.
 # Input: none.

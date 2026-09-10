@@ -88,3 +88,15 @@ also duplicated in `CLI/Which.pm`. Applying the test: nothing needs to be
 passed in to make one body serve every call site - `_build_paths` is
 byte-identical between `Files.pm` and `Which.pm`, and `_render_table`
 differs only by a trailing blank line, not by behaviour. Share it (DD-773).
+
+## Another worked example: the config-loader constructor
+
+`Housekeeper.pm` and `Doctor.pm` each carried a `_config` method that only
+ever did one thing: `Config->new(paths => $self->{paths}, files =>
+FileRegistry->new(paths => $self->{paths}))`, byte-identical between the
+two (confirmed with `diff`, not just a body-hash match). Applying the test:
+nothing needs to be passed in beyond what `Config` itself already has -
+`paths`. Shared as `Config->for_paths($paths)`, a classmethod living on
+`Config` itself since it is Config's own job to know how to build one
+(DD-763). Both call sites became one-liners: `$self->{config} ||=
+Developer::Dashboard::Config->for_paths($self->{paths})`.
