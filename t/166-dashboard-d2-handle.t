@@ -486,10 +486,10 @@ JSTUB
         chomp( @marker_lines = <$mfh> );
         close $mfh;
     }
-    # DD-832: the hook's argv matches "version"'s own argv (none), with no
-    # top-level command name prepended.
-    is_deeply( \@marker_lines, [''],
-        'DD-810 AC-2/AC-6: Handle::run inherits the main gate through the real entrypoint - the hook fired exactly once with argv matching the command target' );
+    # DD-835 (reverses DD-832): the hook's argv is the full command line as
+    # typed - "version" is prepended, not stripped.
+    is_deeply( \@marker_lines, ['version'],
+        'DD-810 AC-2/AC-6: Handle::run inherits the main gate through the real entrypoint - the hook fired exactly once with argv matching what the user typed' );
 }
 
 done_testing;
