@@ -1843,6 +1843,12 @@ my $repos = tempdir( CLEANUP => 1 );
     # interference between them.
     my $skill3 = File::Spec->catdir( tempdir( CLEANUP => 1 ), 'venv-skill-3' );
     isnt( $manager->_skill_venv_python_path($skill3), $venv_python, 'a second skill resolves its OWN venv path, independent of the first (AC-3)' );
+
+    # AC-4: on a forced-Windows host, the venv python path uses the
+    # Scripts/python.exe layout instead of bin/python.
+    local $ENV{DD_TEST_OS} = 'MSWin32';
+    my $win_venv_python = $manager->_skill_venv_python_path($skill3);
+    like( $win_venv_python, qr/Scripts.python\.exe$/, '_skill_venv_python_path uses Scripts/python.exe on a forced-Windows host (AC-4)' );
 }
 
 # ===========================================================================
