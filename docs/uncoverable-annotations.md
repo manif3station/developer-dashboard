@@ -109,6 +109,37 @@ Anything parsing this report must therefore recompute the column layout at every
 header. A parser that does not will return a small, plausible, wrong number
 rather than an error.
 
+## An honest annotation still LOOKS like a flagged line (DD-774)
+
+The `***`/no-`***` distinction above is what the instrument checks; it is not
+what a human or agent scanning the echoed table sees at a glance. Both a
+genuine gap and an honestly-excused annotation print as a sub-100% row in the
+same detail table:
+
+```
+line  err      %   true  false   branch
+----- --- ------ ------ ------   ------
+4           - 50      1     -0   if ($x)      <- honest annotation: NOT a defect
+9     ***     50      1      0   if ($x)      <- genuine gap: THIS is the defect
+```
+
+Line 4's percentage reads 50, exactly like line 9's - the only textual
+difference is line 4's leading `-` (an excused position exists on this row)
+against line 9's plain value and its own `***` marker. Nothing in the printed
+table calls that difference out, so scanning a large multi-file report for the
+one real gap means eyeballing every honestly-excused row along the way and
+ruling each one out by hand - which is exactly what cost time isolating a real
+gap during DD-824's coverage work, via a raw grep of `.claude/state/gate2.log`.
+
+`check-all-metric-coverage` now reports these separately: `_honored_annotation_lines()`
+walks the same per-line detail sections `_stale_annotations()` already parses,
+and calls a row "already accounted for" when it carries a leading `-` on its
+own metric value **and** no `***` - the third leg of the three-way split this
+page already documents (honest / stale / genuine gap). It runs in both
+directions: on a passing report (informational, after the stale check) and on
+a failing one (right after the shortfall is detected, since that is exactly
+when a reader most needs the unrelated honest rows ruled out).
+
 ## Where this sits in the gate chain
 
 ```
