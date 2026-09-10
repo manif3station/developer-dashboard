@@ -788,6 +788,18 @@ sub dies_like {
     umask $saved_umask;
 }
 
+# DD-763: Config->for_paths($paths) is the shared classmethod extracted from
+# Housekeeper::_config / Doctor::_config, which built the identical
+# Config->new(paths=>..., files=>FileRegistry->new(paths=>...)) shape.
+{
+    my $paths      = Developer::Dashboard::PathRegistry->new;
+    my $for_paths  = Developer::Dashboard::Config->for_paths($paths);
+    isa_ok( $for_paths, 'Developer::Dashboard::Config', 'for_paths returns a Config object' );
+    is( $for_paths->{paths}, $paths, 'for_paths binds the given paths object' );
+    isa_ok( $for_paths->{files}, 'Developer::Dashboard::FileRegistry', 'for_paths builds a matching FileRegistry' );
+    is( $for_paths->{files}{paths}, $paths, 'for_paths\' FileRegistry is bound to the SAME paths object' );
+}
+
 done_testing;
 
 __END__
