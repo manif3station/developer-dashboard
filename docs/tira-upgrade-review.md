@@ -337,3 +337,41 @@ command, field or output shape this project reads changed. `tira.policy.
 undeclared` confirmed empty (65 policies, unchanged). No code change
 required; documentation-only, matching the DD-819/DD-820/DD-836/DD-840
 pattern.
+
+## 5.94 -> 5.97 (DD-843)
+
+Three releases: 5.95 (TKT-574), 5.96 (TKT-577), 5.97 (TKT-578).
+
+- **5.95, TKT-574** - `ticket.create`/`epic.create`/`sow.create` gained a
+  repeatable `--checklist TEXT` flag, filing a card with checklist items
+  already attached instead of one `checklist.add` call per item;
+  `checklist.add --status` now defaults to `To Do` when omitted or given
+  empty, matching the new flag's own default. Purely additive (a card
+  created without `--checklist` behaves exactly as before) and does not
+  weaken the required `--command`/`--proof` pair a later `Done` tick still
+  needs. **This project already passes `--status "To Do"` explicitly on
+  every `checklist.add` call**, per its own convention of adding items as
+  `To Do` first and ticking each only as earned - the new default changes
+  nothing observable here, and the new `--checklist` flag is an optional
+  convenience this project has not adopted (cards are still built up field
+  by field during planning, not filed pre-populated).
+- **5.96, TKT-577** - fixed two passages in Tira's own `docs/commands.md`
+  and `SKILLS.md` that named the internal `record.show` value as something
+  a reader could type directly, plus an ordinal/count that had gone stale
+  twice already. Documentation-only, inside Tira's own tree - touches
+  nothing this project maintains.
+- **5.97, TKT-578** - the ten `--set-*` replacement flags
+  (`--set-acceptance`, `--set-key-details`, etc.) shared one `eval` that
+  gave an unreadable path (the most likely mistake - inline prose typed
+  where a filename belongs) the identical "is not JSON" message a readable
+  file with malformed content gets, even though the path was never read
+  far enough to have content to judge. Split into two messages: an
+  unreadable path (or stdin) now says a JSON file or `-` is expected; a
+  readable file with bad content still says its content is not JSON,
+  unchanged. Diagnostic wording only - no behavior change for a
+  well-formed call, and this project does not currently use these flags in
+  any script that greps their error text.
+
+`tira.policy.undeclared` confirmed empty. No code change required; no
+command signature or behavior this project relies on changed. Purely
+informational, matching the DD-819/DD-820/DD-836/DD-840/DD-842 pattern.
