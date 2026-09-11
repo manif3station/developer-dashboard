@@ -479,6 +479,27 @@ SKIP: {
     is_deeply( \@tracked, [], 'no sandbox file is tracked in this repository' );
 }
 
+# .claude/ (93KB+ of operator rules) is excluded from the release TARBALL by
+# dist.ini's exclude_match, but that is a claim about the build, not about the
+# git INDEX (DD-673). `git add -f` bypasses .gitignore, so nothing before this
+# assertion would have caught an accidental commit of operator tooling into
+# this project's public history - it would have passed the tarball-exclusion
+# gate (correctly excluded from the build) and every other existing check
+# silently. Distinct from the owner's Q-057 decision, which accepted the risk
+# of .claude/ having no backup - a question about loss, not publication.
+{
+    my $gitignore = _slurp( _repo_path('.gitignore') );
+    like(
+        $gitignore,
+        qr{^\Q.claude/\E$}m,
+        '.claude/ is git-ignored so a stray add cannot commit operator tooling into master',
+    );
+
+    my @tracked = grep { m{^\.claude/} }
+      split /\n/, `git -C @{[ _repo_path() ]} ls-files 2>/dev/null`;
+    is_deeply( \@tracked, [], 'no .claude/ file is tracked in this repository' );
+}
+
     # Untracked-but-not-ignored working directories are the same leak class as
     # the operator files above: GatherDir reads the disk, so .gitignore never
     # protects the tarball. dogfood-output/ in particular holds browser QA
