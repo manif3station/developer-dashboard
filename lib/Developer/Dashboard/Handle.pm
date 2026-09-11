@@ -220,7 +220,35 @@ sub AUTOLOAD {
 # Input: any further arguments. Output: whatever run() returns.
 sub _execute {
     my ( $self, @args ) = @_;
-    return $self->{handle}->run( ( join '.', @{ $self->{segments} } ), @{ $self->{args} }, @args );
+    return $self->{handle}
+      ->run( ( join '.', @{ $self->{segments} } ), _cli_args( @{ $self->{args} }, @args ) );
+}
+
+# _cli_args(@args)
+# Translates a Perl named-argument list into CLI flag form (DD-739):
+# d2()->somecmd(arg1 => 1) reaches the CLI as `dashboard somecmd --arg1 1`.
+# Input: the chain's accumulated args plus the terminator's own args, combined.
+# Output: a CLI-ready argv list.
+#
+# WHY ARITY IS THE ONLY LINE THAT CAN BE DRAWN. Perl cannot itself tell
+# ('arg1' => 1) apart from ('arg1', 1) at runtime - the fat comma is pure
+# syntax, both are the identical two-element list. So this cannot ask "was
+# this written with =>" and must instead ask a question it CAN answer: does
+# the list divide evenly into pairs? An ODD-length list can never be a
+# complete set of pairs, so it is passed through verbatim as positional
+# arguments - which is also why run() itself is untouched: it is the escape
+# hatch for a command that genuinely needs positional arguments, translated
+# or not. This is translation, not execution, exactly as the card that asked
+# for it says - run() still does the one real shell-out either way.
+sub _cli_args {
+    my (@args) = @_;
+    return @args if @args % 2;
+    my @cli;
+    while (@args) {
+        my ( $key, $value ) = splice( @args, 0, 2 );
+        push @cli, "--$key", $value;
+    }
+    return @cli;
 }
 
 # DESTROY()
@@ -304,6 +332,16 @@ parsing its output itself.
 
     my $res = d2->run( 'tira.ticket.show', '--ref', 'DD-726' );
                                              # run() still takes its words separately
+
+    # NAMED ARGUMENTS translate to CLI flags (DD-739): an EVEN-length
+    # argument list is treated as complete key => value pairs.
+    my $out = d2->somecmd( arg1 => 1 )->(); # shells to `dashboard somecmd --arg1 1`
+
+    # An ODD-length (single, or any unpaired) argument list can never be
+    # complete pairs, so it passes through unchanged as a positional
+    # argument instead - Perl cannot itself tell ('a' => 'b') apart from
+    # ('a', 'b') at runtime, so arity is the only question this can answer.
+    my $del = d2->path->del('myalias')->(); # shells to `dashboard path.del myalias`
 
 C<d2()> (exported by L<Developer::Dashboard>) memoizes one handle per working
 directory, so repeated calls from the same directory reuse the same
