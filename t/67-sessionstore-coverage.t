@@ -416,6 +416,17 @@ for my $case ( [ 'blank', '' ], [ 'zero', '0' ], [ 'missing', undef ] ) {
     }
 }
 
+# DD-850: same shape as DD-848 in Zipper.pm - every other test in this file
+# overrides _pending_session_file; this one calls the real implementation,
+# which none of them exercise.
+{
+    my @paths = map { $store->_pending_session_file('/tmp/dd850-session-target') } 1 .. 50;
+    my %seen;
+    my @dupes = grep { $seen{$_}++ } @paths;
+    is( scalar(@dupes), 0,
+        'DD-850: 50 real, rapid-fire calls to _pending_session_file for the same destination never repeat a staging path' );
+}
+
 done_testing;
 
 __END__

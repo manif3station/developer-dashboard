@@ -3371,6 +3371,25 @@ is( Developer::Dashboard::RuntimeManager::_portable_signal(15), 15, '_portable_s
         '_ps_processes does not leak its own subprocess status into the caller global $?' );
 }
 
+# DD-850: same shape as DD-848 in Zipper.pm - exercising the real
+# path-generation helpers directly, which the other tests in this file
+# never do (they call the higher-level _write_* methods against real
+# fixtures, not the staging-path generator in isolation).
+{
+    my $manager = build_manager();
+    my @a = map { $manager->_pending_collector_supervisor_state_file('/tmp/dd850-supervisor-target') } 1 .. 50;
+    my %seen_a;
+    my @dupes_a = grep { $seen_a{$_}++ } @a;
+    is( scalar(@dupes_a), 0,
+        'DD-850: 50 real, rapid-fire calls to _pending_collector_supervisor_state_file for the same destination never repeat a staging path' );
+
+    my @b = map { $manager->_pending_web_state_file('/tmp/dd850-webstate-target') } 1 .. 50;
+    my %seen_b;
+    my @dupes_b = grep { $seen_b{$_}++ } @b;
+    is( scalar(@dupes_b), 0,
+        'DD-850: 50 real, rapid-fire calls to _pending_web_state_file for the same destination never repeat a staging path' );
+}
+
 done_testing;
 
 __END__
