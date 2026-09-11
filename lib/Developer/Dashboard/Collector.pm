@@ -12,6 +12,7 @@ use Time::HiRes qw(time);
 use Time::Local qw(timegm);
 
 use Developer::Dashboard::JSON qw(json_encode json_decode json_decode_state);
+use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
 
 # new(%args)
 # Constructs the collector storage manager.
@@ -19,7 +20,7 @@ use Developer::Dashboard::JSON qw(json_encode json_decode json_decode_state);
 # Output: Developer::Dashboard::Collector object.
 sub new {
     my ( $class, %args ) = @_;
-    my $paths = $args{paths} || die 'Missing paths registry';
+    my $paths = require_paths_arg(%args);
     return bless { paths => $paths }, $class;
 }
 

@@ -11,6 +11,8 @@ use File::Basename qw(basename);
 use File::Spec;
 use POSIX qw(strftime);
 
+use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
+
 # new(%args)
 # Constructs the prompt renderer.
 # Input: indicators and paths objects.
@@ -18,7 +20,7 @@ use POSIX qw(strftime);
 sub new {
     my ( $class, %args ) = @_;
     my $indicators = $args{indicators} || die 'Missing indicator store';
-    my $paths      = $args{paths}      || die 'Missing paths registry';
+    my $paths      = require_paths_arg(%args);
 
     return bless {
         indicators => $indicators,
