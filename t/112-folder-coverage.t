@@ -5,6 +5,7 @@ use warnings;
 use utf8;
 
 use Capture::Tiny qw(capture);
+use Cwd qw(cwd);
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -192,6 +193,47 @@ close $marker_fh or die "Unable to close marker: $!";
     };
     is( $vanished_result, 'entered', 'cd() still runs the callback when the caller directory vanished' );
     ok( -f 'marker', 'cd() stays in the target when there is no caller directory to return to' );
+}
+chdir $home or die "Unable to chdir back to $home: $!";
+
+# DD-844: cd() calls its callback with no eval/guard, so a dying callback
+# used to skip the chdir-back restoration line entirely, leaving the process
+# sitting in the target directory. Asserted in BOTH directions - the cwd
+# must be restored AND the original exception must still propagate, never
+# be swallowed.
+{
+    my $die_target = File::Spec->catdir( $home, 'cd-dies' );
+    make_path($die_target);
+    my $died = eval {
+        Developer::Dashboard::Folder->cd( $die_target, sub { die "boom\n" } );
+        1;
+    };
+    my $err = $@;
+    ok( !$died, 'cd() lets a dying callback\'s exception propagate out of cd() itself' );
+    like( $err, qr/\Aboom\n/, 'and the ORIGINAL exception is not swallowed or replaced' );
+    is( cwd(), $home,
+        'cd() still restores the caller\'s original directory when the callback dies' );
+}
+
+# The stay() escape hatch must keep working even when a LATER die happens -
+# restoration uses whatever $pwd currently holds, not a fixed original value.
+{
+    my $stay_target = File::Spec->catdir( $home, 'cd-stay-dies' );
+    make_path($stay_target);
+    my $stay_dest = File::Spec->catdir( $home, 'cd-stay-dest' );
+    make_path($stay_dest);
+    eval {
+        Developer::Dashboard::Folder->cd(
+            $stay_target,
+            sub {
+                my ($ctx) = @_;
+                $ctx->{stay}->($stay_dest);
+                die "boom-after-stay\n";
+            }
+        );
+    };
+    is( cwd(), $stay_dest,
+        'cd() restores to the stay()-redirected directory, not the original, when the callback dies after calling stay()' );
 }
 chdir $home or die "Unable to chdir back to $home: $!";
 

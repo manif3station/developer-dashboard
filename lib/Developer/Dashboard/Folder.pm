@@ -142,9 +142,12 @@ sub _load_configured_aliases {
 }
 
 # cd($where, $code)
-# Temporarily changes directory and invokes a callback.
+# Temporarily changes directory and invokes a callback. Exception-safe
+# (DD-844): a dying callback still restores the working directory before
+# its exception is rethrown, unaltered, to the caller.
 # Input: named path or literal directory path plus callback.
-# Output: callback return value or undef.
+# Output: callback return value, undef, or rethrows the callback's own
+#         exception if it died.
 sub cd {
     my ( $class, $where, $code ) = @_;
     return if ref($code) ne 'CODE';
@@ -153,15 +156,23 @@ sub cd {
     return if !$dir || !-d $dir;
     chdir $dir or return;
     my $parent = dirname($dir);
-    my $result = $code->(
-        {
-            caller => $pwd,
-            parent => $parent,
-            dir    => $dir,
-            stay   => sub { $pwd = $_[0] if defined $_[0] && $_[0] ne '' },
-        }
-    );
+    # DD-844: the callback runs under eval so a die does not skip the
+    # restoration below - $pwd is restored (honoring any stay() redirect the
+    # callback made before dying) and only THEN is the original exception
+    # rethrown, never swallowed or replaced.
+    my $result = eval {
+        $code->(
+            {
+                caller => $pwd,
+                parent => $parent,
+                dir    => $dir,
+                stay   => sub { $pwd = $_[0] if defined $_[0] && $_[0] ne '' },
+            }
+        );
+    };
+    my $err = $@;
     chdir $pwd if $pwd;
+    die $err if $err;
     return $result;
 }
 
