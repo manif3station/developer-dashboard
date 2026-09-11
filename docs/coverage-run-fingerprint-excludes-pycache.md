@@ -31,6 +31,17 @@ directory rather than filtering individual `.pyc` files by name, so it also
 covers any future build-artifact subdirectory sharing that name anywhere
 under `.claude/tools/`.
 
+**`working_state_fingerprint()` is defined TWICE** - once in
+`coverage-run` and once in `gate-status` - and DD-655 requires the two
+copies to stay byte-identical (checked by `t-gate-status`'s own
+cross-file diff assertion). The fix landed in `coverage-run` first and
+initially missed `gate-status`'s copy, which `t/158-operator-tool-specs.t`
+caught on a real DD-848 gate run (test 10, `t-gate-status` failing its
+own consistency check) - both copies now carry the identical exclusion.
+Any future change to this function must be applied to both files in the
+same edit, or the two will diverge again and the next full-suite run will
+catch it the same way.
+
 ## Why this loses no real signal
 
 A `.pyc` under `__pycache__` is, per PEP 3147, a derived, invalidate-and
