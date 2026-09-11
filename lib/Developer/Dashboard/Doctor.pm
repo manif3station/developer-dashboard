@@ -13,6 +13,7 @@ use Capture::Tiny qw(capture);
 use Developer::Dashboard::Config ();
 use Developer::Dashboard::InternalCLI ();
 use Developer::Dashboard::JSON qw(json_decode);
+use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
 
 # new(%args)
 # Constructs the dashboard doctor runtime service.
@@ -20,7 +21,7 @@ use Developer::Dashboard::JSON qw(json_decode);
 # Output: Developer::Dashboard::Doctor object.
 sub new {
     my ( $class, %args ) = @_;
-    my $paths = $args{paths} || die 'Missing paths registry';
+    my $paths = require_paths_arg(%args);
     return bless { paths => $paths }, $class;
 }
 

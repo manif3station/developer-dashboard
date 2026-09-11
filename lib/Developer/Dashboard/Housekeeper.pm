@@ -15,6 +15,7 @@ use Developer::Dashboard::CollectorRunner;
 use Developer::Dashboard::Config;
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::JSON qw(json_decode);
+use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
 use Developer::Dashboard::SessionStore;
 
 # new(%args)
@@ -23,7 +24,7 @@ use Developer::Dashboard::SessionStore;
 # Output: Developer::Dashboard::Housekeeper object.
 sub new {
     my ( $class, %args ) = @_;
-    my $paths = $args{paths} || die 'Missing paths registry';
+    my $paths = require_paths_arg(%args);
     return bless {
         paths => $paths,
     }, $class;
