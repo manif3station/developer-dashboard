@@ -249,13 +249,20 @@ sub _saved_ajax_url_and_store {
 # before the atomic rename into $path. Its own sub (rather than an inline
 # sprintf) exists so a coverage test can override it to a fixed, predictable
 # path when it needs to pre-stage that exact location to force a write
-# failure - the real path is deliberately unpredictable (mixing pid and
-# wall-clock time) so two writers can never collide on it.
+# failure. DD-848: pid+wall-clock-second alone is NOT collision-safe - $$ is
+# fixed for a process's lifetime and time() has 1-second resolution, so two
+# real calls for the SAME destination within the same second used to produce
+# an identical path, silently swapping two concurrent saves' content. The
+# per-process monotonic counter below guarantees no two calls from one
+# process ever collide, whatever the timing; cross-process collision remains
+# impossible via pid, since two live processes never share one.
 # Input: final destination file path string.
 # Output: staging file path string.
+my $_pending_ajax_seq = 0;
+
 sub _pending_ajax_file {
     my ($path) = @_;
-    return sprintf '%s.%s.%s.pending', $path, $$, time;
+    return sprintf '%s.%s.%s.%s.pending', $path, $$, time, ++$_pending_ajax_seq;
 }
 
 # _validate_saved_ajax_file($file)

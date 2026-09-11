@@ -584,6 +584,22 @@ is( $cmdp[1], 'text', '_cmdp returns the payload type as its trailing tuple valu
     like( $out, qr/set_chain_value/, 'Ajax uses the plain tokenised path for an unrelated source' );
 }
 
+# DD-848: _pending_ajax_file's own comment claims its path is "deliberately
+# unpredictable (mixing pid and wall-clock time) so two writers can never
+# collide" - false, since $$ is fixed for a process's lifetime and time() has
+# 1-second resolution, so two REAL (unoverridden) calls for the same
+# destination within the same second produced an IDENTICAL staging path,
+# which would silently swap two concurrent ajax handler saves' content.
+# Every other test in this file overrides the function; this one calls the
+# real implementation, which none of them exercise.
+{
+    my @paths = map { Developer::Dashboard::Zipper::_pending_ajax_file('/tmp/dd848-target.pl') } 1 .. 50;
+    my %seen;
+    my @dupes = grep { $seen{$_}++ } @paths;
+    is( scalar(@dupes), 0,
+        'DD-848: 50 real, rapid-fire calls to _pending_ajax_file for the same destination never repeat a staging path' );
+}
+
 done_testing;
 
 __END__
