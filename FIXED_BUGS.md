@@ -1,6 +1,31 @@
 # Fixed Bugs
 
 
+## 4.31
+
+- **DD-770**: `.claude/tools/host-ready`'s foreign-process detector matched
+  on command-line text, spoofable via Perl's `$0 = "..."` (verified live:
+  `ps args`/`/proc/PID/cmdline`/`/proc/PID/comm` all read the same
+  rewritten buffer). Fixed with a positive-only `/proc/PID/exe` veto that
+  never turns "could not verify" into "excluded".
+- **DD-771**: `/tmp/dd-gate-host.lock` being shared with the Tira project
+  is deliberate (TKT-857), not a bug - corrected during this card's own
+  research. Fixed the two real survivors: an unnamed lock holder in
+  `run-suite`'s refusal, and a retry silently destroying a failed
+  attempt's log.
+- **DD-740**: `board-pulse`, `next-action` and `tira-bridge-run` each
+  hardcoded the checkout's absolute path instead of sharing `.claude/
+  tools/board`'s DD-545 `git --git-common-dir` resolution, so each failed
+  run from a sandbox, a container, or a different checkout location.
+- **DD-785**: seven `lib/` modules hand-rolled the same paths-registry
+  constructor guard (four byte-identical). Extracted into
+  `Developer::Dashboard::PathsRegistryArg`.
+- **DD-767**: `t/100` and `t/103`'s empty-environ probe loops were bounded
+  by a poll count (3000), not wall-clock time - DD-482 specified the
+  wall-clock fix and it was never shipped. Fixed with a `Time::HiRes`
+  60-second deadline and a state+cmdline diagnostic that no longer reports
+  a zombie as "alive".
+
 ## 4.30
 
 - **DD-764**: a stored session whose `expires_at` was absent, empty, or "0"
