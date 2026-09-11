@@ -92,6 +92,39 @@ It was resolved by the two parties noticing and one conceding — **an agreement
 not a mechanism.** That works with two participants who are talking. It does not
 generalise, and nothing in run-scope exclusivity prevents the next occurrence.
 
+## 3. Sharing the lock across projects can be deliberate - check before calling it a bug (DD-771)
+
+`/tmp/dd-gate-host.lock` (the default `DD_SUITE_LOCK` path) is not private to
+this project. The Tira project's own `tools/gate-run` joins the same path on
+purpose, citing its own TKT-857: two coverage-db writers running concurrently
+produced a *wrong number* rather than a failed run, and the fix was to share
+this project's existing exclusion rather than invent a second one. That
+comment names `.claude/tools/run-suite` and `script/coverage-gate` by name.
+
+So a refusal here naming a foreign pid is not evidence of an accidental
+collision - it can be, and on at least one measured occasion (2026-09-06
+10:45) was, the shared lock doing exactly the job both projects designed it
+to do. **Read the holder's own source before concluding a cross-project lock
+collision is a defect.** Assuming it was an accident and "fixing" it by
+un-sharing the lock would have reintroduced the wrong-coverage-number bug
+TKT-857 was written to prevent.
+
+Two narrower gaps survive that correction and are genuine:
+
+- **The refusal names a bare pid, not the holding project.** `run-suite`'s
+  refusal (`another gate holds /tmp/dd-gate-host.lock (pid N)`) makes a
+  reader resolve `/proc/N/cwd` by hand to learn which project holds it.
+  Fixed by resolving the holder's project from its cwd when readable, and
+  falling back to the bare pid - never turning "could not resolve" into a
+  worse or misleading message - when it is not.
+- **A retry silently destroys a failed attempt's evidence.** `run-suite`
+  writes to a fixed path (`${DD_SUITE_LOG:-$DD_STATE_DIR/gate2-suite.log}`)
+  and truncates it unconditionally (`: > "$LOG"`) on every invocation,
+  including a retry after a failure. The same shape as DD-652 (shared
+  artifact paths destroying verdicts under concurrency), met here from the
+  *retry* direction instead of the *concurrency* direction - one caller,
+  two attempts, the same path.
+
 ## The short version
 
 - Lock the **run**, not the session, not the chain.
