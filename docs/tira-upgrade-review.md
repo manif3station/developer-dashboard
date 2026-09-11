@@ -300,3 +300,40 @@ declining costs nothing and catches a genuine future mistake.
 
 `tira.policy.undeclared` confirmed empty after declaring POL-125. No code
 change required beyond the declaration itself.
+
+## 5.93 -> 5.94 (DD-842)
+
+Entries: TKT-1063 (a crash-looping monitor command used to restart forever
+with no bound; the feeder now counts consecutive sub-5s runs and stops
+auto-restarting after 5, recording the attempt count and folding it into
+`monitor-dead`'s own alert message - a deliberate `job_started` clears the
+cap), TKT-1053 (a SIGCHLD handler installed per Starman worker now reaps a
+job feeder the *worker* itself parented, fixing a zombie `job.stop` used to
+leave behind), TKT-1062 (documented, not fixed: clearing a job card's log
+panel does not survive a page reload, and neither do the bridge/logs
+panels' own Clear buttons - a pre-existing limitation named rather than
+silently left for the next reader to rediscover), TKT-1048 (`tasklist
+--help` and its `SKILLS.md` source line were missing three real, shipped
+flags), plus TKT-1041..1047, five more large-file/test-file splits inside
+Tira's own `lib/Tira/` continuing the same 500/1500-line exemption cleanup
+as 5.93's TKT-1041.
+
+**One entry binds on this project, and it is worth remembering rather than
+declaring:** TKT-1063 changes how Tira's own job feeder supervises *our*
+board jobs (`JOB-001`..`JOB-008`). If any of ours ever genuinely
+crash-loops, the feeder now stops auto-restarting it after 5 consecutive
+sub-5-second runs instead of looping it forever - `monitor-dead` still
+fires, now carrying the attempt count, and a deliberate `d2 tira.job.run`
+(or any run that lasts at least 5s) clears the cap. Checked `JOB-001`
+(`is-agent-sleeping`) live against this: its `recent[]` log shows repeated
+"Use of uninitialized value" warnings and an intermittent "syntax error ...
+near ';:'", but `perl -c` against the live `is-agent-sleeping.pl` confirmed
+syntax OK - re-verifying, not assuming, that this is the already-known
+transient PAR-extraction-race noise rather than a genuine crash loop that
+would trip TKT-1063's new cap.
+
+Everything else is Tira-internal refactor or documentation, with no
+command, field or output shape this project reads changed. `tira.policy.
+undeclared` confirmed empty (65 policies, unchanged). No code change
+required; documentation-only, matching the DD-819/DD-820/DD-836/DD-840
+pattern.
