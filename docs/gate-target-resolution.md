@@ -19,10 +19,15 @@ silently and producing a result that looks exactly like the one you wanted.
 | `.claude/tools/gate-status` | **its own file location** for `COVER_DB` | reads the main checkout's database whatever the cwd |
 
 `run-suite`'s behaviour is what makes cross-checkout gating work at all, and it
-is the one to preserve. A sandbox has no `.claude/` — the directory is
-git-ignored — so the only way to reach these tools from a sandbox is by the main
-checkout's absolute path, and `run-suite` is the one where that does the
-expected thing.
+is the one to preserve. **Every ticket-worktree sandbox carries its own
+complete `.claude/tools/` on disk** — created by `.claude/tools/ticket-worktree`
+when the sandbox is cut, and git-ignored so it is never checked out or merged,
+but present and independently writable all the same. The normal path from a
+sandbox is `cd` into it and invoke the tool by its **own relative path**
+(`.claude/tools/run-suite`), which resolves that sandbox's own local copy - not
+the main checkout's. The main checkout's absolute path is a second, working
+route (its cwd-based resolution still lands on the sandbox), but it is not the
+only one, and it is not the normal one.
 
 ## Why the script-relative answer is defensible, and where it stops being so
 
