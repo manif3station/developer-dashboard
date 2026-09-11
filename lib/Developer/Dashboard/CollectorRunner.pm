@@ -1261,6 +1261,24 @@ sub _read_proc_file {
 
 
 
+# _pending_loop_state_file($file)
+# Builds the per-writer staging path _write_loop_state writes to before the
+# atomic rename into $file. Its own sub (matching the pattern in
+# Auth.pm/Collector.pm/SessionStore.pm/Zipper.pm) exists so a coverage test
+# can exercise the real path-generation logic directly. DD-850: pid+wall-
+# clock-second alone is NOT collision-safe (see DD-848) - the per-process
+# monotonic counter below guarantees no two calls from one process ever
+# collide, whatever the timing; cross-process collision remains prevented
+# by pid uniqueness among live processes.
+# Input: final destination file path string.
+# Output: staging file path string.
+my $_loop_state_seq = 0;
+
+sub _pending_loop_state_file {
+    my ( $self, $file ) = @_;
+    return sprintf '%s.%s.%s.%s.pending', $file, $$, time, ++$_loop_state_seq;
+}
+
 # _write_loop_state($name, $data)
 # Atomically writes loop lifecycle metadata for a collector.
 # Input: collector name string and partial state hash reference.
@@ -1274,7 +1292,7 @@ sub _write_loop_state {
         %{ $data || {} },
         name => $name,
     );
-    my $tmp = sprintf '%s.%s.%s.pending', $file, $$, time;
+    my $tmp = $self->_pending_loop_state_file($file);
     open my $fh, '>', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode( \%state );
     close $fh;

@@ -1798,6 +1798,24 @@ sub _collector_supervisor_state {
     return json_decode_state( scalar <$fh> );
 }
 
+# _pending_collector_supervisor_state_file($file)
+# Builds the per-writer staging path _write_collector_supervisor_state writes
+# to before the atomic rename into $file. Its own sub (matching the pattern
+# in Auth.pm/Collector.pm/SessionStore.pm/Zipper.pm) exists so a coverage test
+# can exercise the real path-generation logic directly. DD-850: pid+wall-
+# clock-second alone is NOT collision-safe (see DD-848) - the per-process
+# monotonic counter below guarantees no two calls from one process ever
+# collide, whatever the timing; cross-process collision remains prevented
+# by pid uniqueness among live processes.
+# Input: final destination file path string.
+# Output: staging file path string.
+my $_collector_supervisor_state_seq = 0;
+
+sub _pending_collector_supervisor_state_file {
+    my ( $self, $file ) = @_;
+    return sprintf '%s.%s.%s.%s.pending', $file, $$, time, ++$_collector_supervisor_state_seq;
+}
+
 # _write_collector_supervisor_state($state)
 # Atomically persists the watchdog supervisor state snapshot.
 # Input: state hash reference.
@@ -1805,7 +1823,7 @@ sub _collector_supervisor_state {
 sub _write_collector_supervisor_state {
     my ( $self, $data ) = @_;
     my $file = $self->_collector_supervisor_statefile;
-    my $tmp = sprintf '%s.%s.%s.pending', $file, $$, time;
+    my $tmp = $self->_pending_collector_supervisor_state_file($file);
     open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";    # uncoverable branch true the state root exists and is writable, so the pending-file write cannot fail on the test host
     print {$fh} json_encode( $data || {} );
     close $fh;
@@ -2263,6 +2281,24 @@ sub _follow_log_file {
     }
 }
 
+# _pending_web_state_file($file)
+# Builds the per-writer staging path _write_web_state writes to before the
+# atomic rename into $file. Its own sub (matching the pattern in
+# Auth.pm/Collector.pm/SessionStore.pm/Zipper.pm) exists so a coverage test
+# can exercise the real path-generation logic directly. DD-850: pid+wall-
+# clock-second alone is NOT collision-safe (see DD-848) - the per-process
+# monotonic counter below guarantees no two calls from one process ever
+# collide, whatever the timing; cross-process collision remains prevented
+# by pid uniqueness among live processes.
+# Input: final destination file path string.
+# Output: staging file path string.
+my $_web_state_seq = 0;
+
+sub _pending_web_state_file {
+    my ( $self, $file ) = @_;
+    return sprintf '%s.%s.%s.%s.pending', $file, $$, time, ++$_web_state_seq;
+}
+
 # _write_web_state($state)
 # Atomically persists the web service state snapshot.
 # Input: state hash reference.
@@ -2274,7 +2310,7 @@ sub _write_web_state {
         $payload = $data;
     }
     my $file = $self->{files}->web_state;
-    my $tmp = sprintf '%s.%s.%s.pending', $file, $$, time;
+    my $tmp = $self->_pending_web_state_file($file);
     open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";    # uncoverable branch true the state root exists and is writable, so the pending-file write cannot fail on the test host
     print {$fh} json_encode($payload);
     close $fh;

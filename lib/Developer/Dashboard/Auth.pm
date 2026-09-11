@@ -119,14 +119,18 @@ sub add_user {
 # Builds the per-writer staging path add_user writes to before the atomic
 # rename into $file. Its own sub (rather than an inline sprintf) exists so a
 # coverage test can override it to a fixed, predictable path when it needs to
-# pre-stage that exact location to force a write failure - the real path is
-# deliberately unpredictable (mixing pid and wall-clock time) so two writers
-# can never collide on it.
+# pre-stage that exact location to force a write failure. DD-850: pid+wall-
+# clock-second alone is NOT collision-safe (see DD-848) - the per-process
+# monotonic counter below guarantees no two calls from one process ever
+# collide, whatever the timing; cross-process collision remains prevented
+# by pid uniqueness among live processes.
 # Input: final destination file path string.
 # Output: staging file path string.
+my $_pending_user_file_seq = 0;
+
 sub _pending_user_file {
     my ( $self, $file ) = @_;
-    return sprintf '%s.%s.%s.pending', $file, $$, time;
+    return sprintf '%s.%s.%s.%s.pending', $file, $$, time, ++$_pending_user_file_seq;
 }
 
 # verify_user(%args)

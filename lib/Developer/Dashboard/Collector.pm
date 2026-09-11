@@ -728,13 +728,19 @@ sub _atomic_write_json {
 # one worker truncate and then rename away another worker's staged file, which
 # both lost that worker's output and made its rename fail, so the run died before
 # the active-run counter could be decremented and the collector stayed reported
-# as running forever. The process id plus the high-resolution timestamp is the
-# same uniquifier the other lock-free atomic writers in this distribution use.
+# as running forever. The process id plus wall-clock time is the same uniquifier
+# the other lock-free atomic writers in this distribution use - but pid+time
+# ALONE is not collision-safe within one process (DD-850, see DD-848): $$ is
+# fixed for the process's life and time() has 1-second resolution, so the
+# monotonic counter below is what actually guarantees no two calls from this
+# process ever collide, regardless of timing.
 # Input: target file path string.
 # Output: pending temporary file path string.
+my $_pending_path_seq = 0;
+
 sub _pending_path {
     my ( $self, $file ) = @_;
-    return sprintf '%s.%s.%s.pending', $file, $$, time;
+    return sprintf '%s.%s.%s.%s.pending', $file, $$, time, ++$_pending_path_seq;
 }
 
 # _atomic_write_text($file, $text)

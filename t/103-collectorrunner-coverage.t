@@ -1738,6 +1738,16 @@ ok( !defined $runner->stop_loop('stop.missing'), 'stop_loop returns undef with n
         '_run_command does not leak its own subprocess status into the caller global $?' );
 }
 
+# DD-850: same shape as DD-848 in Zipper.pm - exercising the real
+# path-generation helper directly, which no other test in this file does.
+{
+    my @paths = map { $runner->_pending_loop_state_file('/tmp/dd850-loopstate-target') } 1 .. 50;
+    my %seen;
+    my @dupes = grep { $seen{$_}++ } @paths;
+    is( scalar(@dupes), 0,
+        'DD-850: 50 real, rapid-fire calls to _pending_loop_state_file for the same destination never repeat a staging path' );
+}
+
 done_testing;
 
 __END__
