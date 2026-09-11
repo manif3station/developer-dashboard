@@ -82,7 +82,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.30', 'repo version bumped for the 30-card queue spanning DD-616..DD-776, dominated by gate-instrument correctness (DD-744, DD-746, DD-750, DD-729, DD-734) plus the DD-764 session-expiry fail-closed fix' );
+is( $version, '4.31', 'repo version bumped to release DD-770..DD-767: host-ready exe-veto, the shared gate-lock premise correction, the checkout-root resolver, the paths-registry constructor extraction, and the empty-environ wall-clock probe fix' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
