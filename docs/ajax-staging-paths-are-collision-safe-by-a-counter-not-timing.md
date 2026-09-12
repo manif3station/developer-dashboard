@@ -68,3 +68,11 @@ impossible the way it always was: two live processes never share a pid.
 - **This does not change `_pending_ajax_file`'s signature or its callers.**
   `_saved_ajax_url_and_store` still calls it with one path argument and
   gets one staging path string back.
+
+## The same defect elsewhere (DD-850)
+
+The exact same `sprintf '%s.%s.%s.pending', $file, $$, time` shape, with the
+same false "two writers can never collide" comment, existed unfixed in five
+other pending-file writers across this codebase. See
+`docs/pending-file-staging-paths-across-the-codebase.md` for the full list
+and the identical fix applied to each.
