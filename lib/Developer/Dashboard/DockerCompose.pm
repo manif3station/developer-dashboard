@@ -70,8 +70,24 @@ sub resolve {
         service_map  => \%service_map,
     );
 
+    # DD-862: file-gathering must use every ENABLED service, not just the
+    # requested/effective ones - a requested service's own compose file may
+    # declare `depends_on` another configured service, and Docker Compose can
+    # only auto-start that dependency if its definition is present in the
+    # merged -f stack too. Narrowing this to @services silently dropped the
+    # dependency's file whenever it was not itself named on the command line.
+    # @services (the requested/effective set) still governs everything else
+    # below - env resolution, the resolved "services" field - only the FILE
+    # set widens here.
+    my @enabled_services = $self->_discover_enabled_services(
+        project_root => $project_root,
+        service_map  => \%service_map,
+    );
+    my %file_gather_seen;
+    my @file_gather_services = grep { !$file_gather_seen{$_}++ } ( @services, @enabled_services );
+
     my $service_files = $self->_gather_service_files(
-        services     => \@services,
+        services     => \@file_gather_services,
         service_map  => \%service_map,
         project_root => $project_root,
         modes        => \@modes,
