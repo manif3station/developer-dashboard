@@ -164,6 +164,31 @@ my ( $docker, $paths ) = build_docker( $home, $repo );
     ok( grep( { $_ eq 'orange' } @{ $resolved->{services} } ), 'auto-discovers skill service orange' );
 }
 
+# ---- DD-862: naming ONE service must not drop another enabled service's ---
+# ---- compose file - a depends_on target needs its file in the merge too --
+{
+    my $old = getcwd();
+    chdir $repo or die $!;
+    my $resolved = $docker->resolve( args => ['up'], services => ['purple'] );
+    chdir $old or die $!;
+    ok(
+        grep( { m{config/docker/green/} } @{ $resolved->{files} } ),
+        'DD-862: requesting only "purple" still includes enabled service "green"\'s compose file'
+    );
+    ok(
+        grep( { m{config/docker/purple/compose\.yml$} } @{ $resolved->{files} } ),
+        'DD-862: the explicitly requested service "purple" is still included'
+    );
+    ok(
+        !grep( { m{config/docker/blue/compose\.yml$} } @{ $resolved->{files} } ),
+        'DD-862: a DISABLED service ("blue") is still excluded even though file-gathering now uses the full enabled set'
+    );
+    is_deeply(
+        $resolved->{services}, ['purple'],
+        'DD-862: the resolved "services" field (used for env resolution/passthrough) still reflects only what was actually requested'
+    );
+}
+
 # ---- run() with a harmless docker stub on PATH ----------------------------
 my $stubbin = File::Spec->catdir( $home, 'stubbin' );
 make_path($stubbin);
