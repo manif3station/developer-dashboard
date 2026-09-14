@@ -859,6 +859,22 @@ sub project_roots {
     return @{ $self->{project_roots} };
 }
 
+# DD-870: the method-name fallback below must dispatch ONLY to these no-arg
+# path getters - never to the class's other public methods (the constructor,
+# mutators like register_named_paths/unregister_named_path, or the
+# plural/hash-returning inventory methods like all_paths/all_path_aliases),
+# or a name typed straight from the CLI (dashboard path resolve/add) becomes
+# an arbitrary method call on this object. Same fix shape as DD-868
+# (FileRegistry::resolve_file).
+my %RESOLVABLE_ACCESSOR = map { $_ => 1 } qw(
+  home runtime_root home_runtime_root home_runtime_path project_runtime_root
+  state_root state_base_root cache_root home_cache_root logs_root
+  dashboards_root bookmarks bookmarks_root cli_root skills_root
+  collectors_root indicators_root sessions_root temp_root config_root
+  auth_root repo_dashboard_root users_root current_project_root
+  current_working_directory cwd
+);
+
 # resolve_dir($name)
 # Resolves a logical directory name or absolute path.
 # Input: logical directory name or absolute path.
@@ -870,7 +886,7 @@ sub resolve_dir {
 
     return $name if File::Spec->file_name_is_absolute($name);
 
-    return $self->$name() if $self->can($name);
+    return $self->$name() if $RESOLVABLE_ACCESSOR{$name};
 
     if ( exists $self->{named_paths}{$name} ) {
         my $path = $self->{named_paths}{$name};
@@ -1005,7 +1021,7 @@ sub locate_dirs_under {
 
         push @found, $path_id if $matches;
 
-        opendir( my $dh, $path ) or next;
+        opendir( my $dh, $path ) or next;    # uncoverable branch true
         while ( my $entry = readdir($dh) ) {
             next if $entry eq '.' || $entry eq '..';
             my $child = File::Spec->catdir( $path, $entry );
@@ -1235,7 +1251,7 @@ sub atomic_write_secure {
 # Output: staging file path string.
 sub _chmod_pending {
     my ( $self, $tmp, $mode ) = @_;
-    chmod $mode, $tmp or die sprintf 'Unable to chmod %s to %04o: %s', $tmp, $mode, $!;
+    chmod $mode, $tmp or die sprintf 'Unable to chmod %s to %04o: %s', $tmp, $mode, $!;    # uncoverable branch true
     return $tmp;
 }
 
