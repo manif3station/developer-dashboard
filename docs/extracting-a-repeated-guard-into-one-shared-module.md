@@ -72,10 +72,31 @@ appear in **exactly one place** among the sites the ticket scoped in - the
 new shared module - never zero (nothing calls it) and never more than one
 (a site was missed, or kept its own copy by mistake).
 
+## An extraction can itself miss a site
+
+Even a correctly-scoped extraction can leave a site un-migrated: DD-762
+extracted `DirEntries::sorted_dir_entries` out of what was measured as six
+call sites, but `RuntimeManager.pm` carried a seventh, byte-identical
+inline copy of the same `sort grep { $_ ne '.' && $_ ne '..' && ... }
+readdir($dh)` idiom that the original hunt's non-recursive grep missed
+(DD-865, found by the hourly improvement hunt). The fix was the same
+"verifying the extraction actually happened" check above, run again later:
+grep `lib/` recursively for the old literal pattern and confirm zero
+copies remain outside the shared module. `RuntimeManager.pm` now composes
+`sorted_dir_entries($dh)` with its own `.pid`-specific `grep` stage rather
+than re-implementing the dot-filter a third time.
+
+**So the verification step is not one-time.** A module added or edited
+after the extraction can reintroduce the pattern it was meant to
+eliminate, and the only way to know is to re-run the same grep, not to
+trust the original count.
+
 ## Related
 
 - `lib/Developer/Dashboard/DirEntries.pm` - the first instance of this
   exact shape (DD-762), and the template this page's naming/POD structure
-  follows.
+  follows. Now has 4 consumers: `SkillDispatcher.pm`, `DockerCompose.pm`,
+  `CLI/Which.pm`, and `RuntimeManager.pm` (the last migrated after the
+  fact by DD-865).
 - `lib/Developer/Dashboard/PathsRegistryArg.pm` - the second instance
   (DD-785), notable for the corrected-scope lesson above.
