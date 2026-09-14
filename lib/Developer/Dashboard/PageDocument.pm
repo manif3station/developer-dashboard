@@ -55,7 +55,11 @@ sub from_json {
 }
 
 # from_instruction($text)
-# Parses canonical instruction text into a page document.
+# Parses canonical instruction text into a page document. CODE-section keys
+# (CODE0..CODE1000, DD-866) are ordered numerically by the digits after CODE,
+# never lexicographically - PageRuntime::run_code_blocks executes them
+# sequentially against one shared sandpit, so the order returned here IS the
+# execution order.
 # Input: instruction document text string.
 # Output: Developer::Dashboard::PageDocument object.
 sub from_instruction {
@@ -90,7 +94,13 @@ sub from_instruction {
     $meta{icon} = _trim( join( "\n", @{ $sections{ICON} } ) ) if exists $sections{ICON};
 
     my @codes;
-    for my $section ( sort grep { /^CODE\d+$/ } keys %sections ) {
+
+    # DD-866: a plain string `sort` orders "CODE10" ahead of "CODE2" (lexicographic
+    # comparison), which is wrong once a page has ten or more code blocks -
+    # @LEGACY_KEYS already declares CODE0..CODE1000, so multi-digit sections are a
+    # real, in-contract case, not a hypothetical one. Sort numerically on the
+    # digits after CODE instead, so authoring/execution order is preserved.
+    for my $section ( sort { ($a =~ /(\d+)/)[0] <=> ($b =~ /(\d+)/)[0] } grep { /^CODE\d+$/ } keys %sections ) {
         push @codes, {
             id   => $section,
             body => _trim_trailing_newline( join( "\n", @{ $sections{$section} } ) ),
