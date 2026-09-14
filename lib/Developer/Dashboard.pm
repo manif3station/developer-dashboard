@@ -746,9 +746,13 @@ one runtime.
 
 =item * Update Manager
 
-C<Developer::Dashboard::UpdateManager> runs ordered update scripts and
-restarts validated collector loops when needed, giving the runtime a
-controlled bootstrap and upgrade path.
+C<Developer::Dashboard::UpdateManager> implements ordered update-script
+execution and validated-collector-loop restart, and carries its own unit
+test suite - but it is not currently wired into C<bin/dashboard> or any
+C<share/private-cli/> command. Nothing in the shipped CLI switchboard calls
+it today, so no update scripts run and no collector loops restart through
+this path in the running product; it exists as tested groundwork for a
+bootstrap/upgrade command that is not yet cut over.
 
 =item * Docker Compose Resolver
 
