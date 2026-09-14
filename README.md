@@ -481,8 +481,9 @@ generic package names.
 
 - Data Query Commands
 
-    `dashboard jq`, `dashboard yq`, `dashboard tomq`, and `dashboard propq`
-    parse JSON, YAML, TOML, and Java properties input, then optionally extract a
+    `dashboard jq`, `dashboard yq`, `dashboard tomq`, `dashboard propq`,
+    `dashboard iniq`, `dashboard csvq`, and `dashboard xmlq` parse JSON, YAML,
+    TOML, Java properties, INI, CSV, and XML input, then optionally extract a
     dotted path and print a scalar or canonical JSON, giving the CLI a small
     data-inspection toolkit that fits naturally into shell workflows.
     `dashboard tomq` inflates TOML booleans into plain Perl `1` and `0`
@@ -982,6 +983,9 @@ dotted path or evaluate a Perl expression against the decoded document through
 - `dashboard yq [path] [file]` for YAML
 - `dashboard tomq [path] [file]` for TOML
 - `dashboard propq [path] [file]` for Java properties
+- `dashboard iniq [path] [file]` for INI
+- `dashboard csvq [path] [file]` for CSV
+- `dashboard xmlq [path] [file]` for XML
 
 If the selected value is a hash or array, the command prints canonical JSON.
 If the selected value is a scalar, it prints the scalar plus a trailing

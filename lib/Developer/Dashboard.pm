@@ -688,8 +688,9 @@ files instead of directories.
 
 =item * Data Query Commands
 
-C<dashboard jq>, C<dashboard yq>, C<dashboard tomq>, and C<dashboard propq>
-parse JSON, YAML, TOML, and Java properties input, then optionally extract a
+C<dashboard jq>, C<dashboard yq>, C<dashboard tomq>, C<dashboard propq>,
+C<dashboard iniq>, C<dashboard csvq>, and C<dashboard xmlq> parse JSON, YAML,
+TOML, Java properties, INI, CSV, and XML input, then optionally extract a
 dotted path and print a scalar or canonical JSON, giving the CLI a small
 data-inspection toolkit that fits naturally into shell workflows.
 C<dashboard tomq> inflates TOML booleans into plain Perl C<1> and C<0>
@@ -1289,6 +1290,18 @@ C<dashboard tomq [path] [file]> for TOML
 =item *
 
 C<dashboard propq [path] [file]> for Java properties
+
+=item *
+
+C<dashboard iniq [path] [file]> for INI
+
+=item *
+
+C<dashboard csvq [path] [file]> for CSV
+
+=item *
+
+C<dashboard xmlq [path] [file]> for XML
 
 =back
 
