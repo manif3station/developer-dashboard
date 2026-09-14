@@ -426,6 +426,30 @@ SKIP: {
     is( $doctor->_slurp_text_file($empty), q{}, '_slurp_text_file returns an empty string for an empty file' );
 }
 
+# ---------------------------------------------------------------------------
+# _rewrite_bashrc_dashboard_lines returns early, writing nothing, when the
+# guard recomputed AFTER removing dashboard lines comes back undefined - the
+# defensive branch this function exists to take if a future dashboard-line
+# pattern ever overlapped the guard's own text. Forced via mocking since the
+# current fixed set of dashboard-line patterns and the guard's own literal
+# text are structurally disjoint and cannot trigger this from real input.
+# ---------------------------------------------------------------------------
+{
+    my $f = write_file( File::Spec->catfile( $home, 'guard-vanishes-bashrc' ), "$dashboard_line\n$guard_line\n" );
+    my $before = $doctor->_slurp_text_file($f);
+
+    no warnings 'redefine';
+    my $call = 0;
+    local *Developer::Dashboard::Doctor::_bash_noninteractive_guard_offsets = sub {
+        my ( $self, $text ) = @_;
+        $call++;
+        return ( 0, 5 ) if $call == 1;
+        return ( undef, undef );
+    };
+    $doctor->_rewrite_bashrc_dashboard_lines($f);
+    is( $doctor->_slurp_text_file($f), $before, '_rewrite_bashrc_dashboard_lines writes nothing when the recomputed guard is undefined' );
+}
+
 done_testing;
 
 __END__
