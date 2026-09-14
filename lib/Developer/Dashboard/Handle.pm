@@ -95,13 +95,6 @@ sub _registry {
     };
 }
 
-# AUTOLOAD($self, @args)
-# Any method name not defined above (e.g. d2->doctor) is treated as a
-# single-word dashboard subcommand and delegated to run(). Dotted
-# subcommands cannot be spelled this way (a dot is not a valid bareword
-# method character) - use run() directly for those.
-# Input: method-call arguments.
-# Output: same as run().
 # AUTOLOAD($name, @args)
 # Begins a lazy command chain. Returns a proxy that accumulates dotted segments
 # as each bareword method is called and shells out ONLY when the chain is

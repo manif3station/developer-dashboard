@@ -14,9 +14,9 @@ instead of rebuilding its registry each time.
     use Developer::Dashboard;
 
     my $foo = d2->paths->{foo};                    # in-process, no subprocess
-    my $out = d2->doctor;                           # shells to `dashboard doctor`
+    my $out = d2->doctor->();                       # shells to `dashboard doctor`
     my $res = d2->run( 'tira.ticket.show', '--ref', 'DD-726' );
-                                                      # dotted subcommands
+                                                      # dotted subcommands, one call
 
 ## Why it exists (DD-726)
 
@@ -37,10 +37,15 @@ configured named aliases from `Config->path_aliases` (exactly as
 reference of alias name to resolved directory. No subprocess.
 
 **Everything else is a subprocess proxy.** Any method name not defined on
-the handle (`AUTOLOAD`) is treated as a single-word `dashboard` subcommand -
-`d2->doctor` runs `dashboard doctor`. A dotted subcommand (Tira's
-`tira.ticket.show` and friends) cannot be spelled as a bareword Perl method,
-so `d2->run($subcommand, @args)` is the explicit form for those.
+the handle (`AUTOLOAD`) begins a lazy `Developer::Dashboard::Handle::Proxy`
+chain that shells out only when terminated with a call -
+`d2->doctor->()` runs `dashboard doctor`, and a dotted subcommand chains
+naturally too: `d2->collector->list->()` runs `dashboard collector.list`.
+See [d2-handle-named-argument-translation.md](d2-handle-named-argument-translation.md)
+for the full proxy contract (argument translation, when the chain
+actually executes, and the un-terminated-chain-is-inert rule). Skip the
+chain and call `d2->run($subcommand, @args)` directly when that reads
+more clearly for a one-off call.
 
 Both paths capture stdout via `Capture::Tiny`, decode it as JSON into a real
 Perl structure when it looks like JSON (matching the owner's framing: JSON
