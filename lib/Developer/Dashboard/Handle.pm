@@ -38,9 +38,10 @@ sub paths {
 # run($subcommand, @args)
 # Runs `dashboard <subcommand> @args` exactly as it would run on the command
 # line, for anything not covered by an in-process method such as paths().
-# Existing for subcommands that cannot be spelled as a bareword Perl method
-# (dotted Tira commands such as tira.ticket.show) and as the mechanism
-# AUTOLOAD delegates to for everything else.
+# The explicit escape hatch for a subcommand genuinely spelled with an
+# underscore (unreachable through the AUTOLOAD proxy chain per Q-107 in
+# Handle::Proxy::_dispatch_name) or where a plain, non-chained call reads
+# more clearly than d2->foo->bar->(...).
 # Input: subcommand name string, list of further CLI arguments.
 # Output: decoded Perl structure when stdout parses as JSON, otherwise the
 #         raw trimmed stdout string. Dies (with stderr attached) on a
