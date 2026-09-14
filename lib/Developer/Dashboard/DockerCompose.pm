@@ -787,6 +787,12 @@ sub run {
 # happened to be looked up in the wrong place or the wrong order.
 sub _materialized_command {
     my ( $self, $resolved ) = @_;
+
+    # DD-597 shape: system() below mutates the caller's global $? as a side
+    # effect; without this guard that stays set in the caller's process
+    # (run(), and anything run() is itself called from) after this sub
+    # returns, regardless of the exit code already captured locally below.
+    local $?;
     my @files = @{ $resolved->{files} };
     return $resolved->{command} if !@files;
 
