@@ -5,6 +5,9 @@ use warnings;
 
 our $VERSION = '4.31';
 
+use Exporter qw(import);
+our @EXPORT_OK = qw(readfile);
+
 use Fcntl qw(:flock);
 use File::Spec;
 use POSIX qw(strftime);
@@ -13,6 +16,19 @@ use Time::Local qw(timegm);
 
 use Developer::Dashboard::JSON qw(json_encode json_decode json_decode_state);
 use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
+
+# readfile($alias)
+# Plain-function convenience wrapper around new_from_all_folders()->read_output($alias),
+# for callers that want a collector's latest output without holding onto the
+# object themselves.
+# Input: collector name string.
+# Output: list of ( stdout, stderr, last_run, collector object ).
+sub readfile {
+    my ($alias) = @_;
+    my $collector = __PACKAGE__->new_from_all_folders;
+    my ( $stdout, $stderr, $last_run ) = @{ $collector->read_output($alias) }{qw(stdout stderr last_run)};
+    return ( $stdout, $stderr, $last_run, $collector );
+}
 
 # new(%args)
 # Constructs the collector storage manager.
@@ -809,6 +825,9 @@ Developer::Dashboard::Collector - file-backed collector storage
   my $collector = Developer::Dashboard::Collector->new(paths => $paths);
   $collector->write_job('sample', { name => 'sample', command => 'true' });
 
+  use Developer::Dashboard::Collector qw(readfile);
+  my ( $stdout, $stderr, $last_run, $collector ) = readfile('sample');
+
 =head1 DESCRIPTION
 
 This module owns the on-disk storage model for collector job definitions,
@@ -821,6 +840,13 @@ and stays parsable by the next rotation pass.
 =head1 METHODS
 
 =head2 new, collector_paths, write_job, read_job, write_result, write_status, read_status, read_output, collector_exists, append_log_entry, rotate_log, read_log, inspect_collector, list_collectors
+
+=head2 readfile
+
+Exportable plain function (not a method), available via C<@EXPORT_OK>. Wraps
+C<< __PACKAGE__->new_from_all_folders->read_output($alias) >> for a caller
+that wants one collector's latest output without holding onto the collector
+object itself. Still returns the object as its fourth value.
 
 Construct and manage collector storage.
 

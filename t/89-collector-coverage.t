@@ -381,6 +381,37 @@ sub dies_like {
     is( $collector->read_output($name)->{last_run}, '2026-01-01T00:00:00Z', 'the last_run marker is read back without its trailing newline' );
 }
 
+# ---------------------------------------------------------------------------
+# DD-859: readfile($alias) - the plain-function wrapper around
+# new_from_all_folders()->read_output($alias).
+# ---------------------------------------------------------------------------
+{
+    my $name = 'readfile-target';
+    seed_collector( $name, 'stdout' => "hello\n", 'stderr' => "warn\n", 'last_run' => "2026-02-02T00:00:00Z\n" );
+
+    my ( $json, $error, $last_run, $returned_collector ) = Developer::Dashboard::Collector::readfile($name);
+    is( $json,      "hello\n",             'DD-859: readfile returns the collector\'s stdout as $json' );
+    is( $error,     "warn\n",              'DD-859: readfile returns the collector\'s stderr as $error' );
+    is( $last_run,  '2026-02-02T00:00:00Z', 'DD-859: readfile returns the trimmed last_run marker' );
+    isa_ok( $returned_collector, 'Developer::Dashboard::Collector', 'DD-859: readfile also returns a usable collector object' );
+    is_deeply(
+        $returned_collector->read_output($name),
+        $collector->read_output($name),
+        'DD-859: the collector object readfile builds resolves the same persisted state as an explicitly constructed one',
+    );
+
+    my ( $missing_json, $missing_error, $missing_last_run ) = Developer::Dashboard::Collector::readfile('no-such-collector');
+    is( $missing_json,     '', 'DD-859 ATDD-2: readfile on a missing collector returns an empty stdout, not a die - matching read_output' );
+    is( $missing_error,    '', 'DD-859 ATDD-2: readfile on a missing collector returns an empty stderr - matching read_output' );
+    is( $missing_last_run, '', 'DD-859 ATDD-2: readfile on a missing collector returns an empty last_run - matching read_output' );
+}
+
+is_deeply(
+    \@Developer::Dashboard::Collector::EXPORT_OK,
+    ['readfile'],
+    'DD-859 ATDD-1: readfile is exported via @EXPORT_OK only, not exported by default',
+);
+
 # An artifact that exists but errors on read leaves the output value undefined.
 # /proc/self/mem is a regular file that reports EIO on a read from offset zero,
 # which is the one hermetic way to reach that path: it is exactly the case the
