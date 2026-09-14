@@ -77,9 +77,10 @@ code that has already validated the directory exists:
 
 =head1 WHAT USES IT
 
-C<Developer::Dashboard::SkillDispatcher>, C<Developer::Dashboard::DockerCompose>
-and C<Developer::Dashboard::CLI::Which> all call it in place of their own
-former copies of the same filter.
+C<Developer::Dashboard::SkillDispatcher>, C<Developer::Dashboard::DockerCompose>,
+C<Developer::Dashboard::CLI::Which>, and C<Developer::Dashboard::RuntimeManager>
+(DD-865, migrated after the fact once found still carrying its own inline
+copy) all call it in place of their own former copies of the same filter.
 
 =head1 EXAMPLES
 

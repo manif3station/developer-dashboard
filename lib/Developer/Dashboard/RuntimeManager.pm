@@ -13,6 +13,7 @@ use Time::HiRes qw(sleep time);
 
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::CollectorRunner ();
+use Developer::Dashboard::DirEntries qw(sorted_dir_entries);
 use Developer::Dashboard::InternalCLI ();
 use Developer::Dashboard::JSON qw(json_encode json_decode json_decode_state);
 use Developer::Dashboard::Platform qw(command_in_path is_windows);
@@ -943,7 +944,7 @@ sub _collector_stop_fallback_names {
     my $collectors_root = eval { $self->{paths}->collectors_root };
     if ( defined $collectors_root && $collectors_root ne '' && -d $collectors_root ) {
         opendir( my $dh, $collectors_root ) or die "Unable to read $collectors_root: $!";
-        for my $entry ( sort grep { $_ ne '.' && $_ ne '..' && /\.pid\z/ } readdir($dh) ) {
+        for my $entry ( grep { /\.pid\z/ } sorted_dir_entries($dh) ) {
             my ($name) = $entry =~ /\A(.*)\.pid\z/;
             next if !defined $name || $name eq '' || $seen{$name}++;    # uncoverable condition left the readdir entries are pre-filtered to match /\.pid\z/, so the capture is always defined
             push @names, $name;
