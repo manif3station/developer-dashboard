@@ -91,6 +91,25 @@ after the extraction can reintroduce the pattern it was meant to
 eliminate, and the only way to know is to re-run the same grep, not to
 trust the original count.
 
+## A third instance: a whole function, not just a line (DD-891)
+
+`Developer::Dashboard::TextUtils` (DD-891) extracts `_trim` - a complete
+6-line whitespace-trim function, not merely one shared line inside a larger
+function - out of `PageDocument.pm` and `Web/App.pm`, which each carried a
+byte-for-byte identical private copy. This is the same recognised shape
+(byte-identical bodies is the strongest signal) applied to a whole
+function rather than a guard line, and it followed the same
+verify-before-scoping discipline: the card's own description estimated 11
+call sites (7 + 4); a live recursive grep found 9 (6 + 3) before the
+extraction began, corrected on the card rather than trusted from the
+filing automation's count.
+
+Unlike `DirEntries.pm`'s dot-filter or `PathsRegistryArg.pm`'s guard,
+`_trim` is a pure function with no dependency on its caller's other state
+- the whole body moves verbatim into `TextUtils.pm`, and both call sites
+become a plain `_trim($text)` call after the `use` line, with no argument
+list changes needed at any of the 9 sites.
+
 ## Related
 
 - `lib/Developer/Dashboard/DirEntries.pm` - the first instance of this
@@ -100,3 +119,5 @@ trust the original count.
   fact by DD-865).
 - `lib/Developer/Dashboard/PathsRegistryArg.pm` - the second instance
   (DD-785), notable for the corrected-scope lesson above.
+- `lib/Developer/Dashboard/TextUtils.pm` - the third instance (DD-891),
+  notable for being a whole function rather than one shared line.
