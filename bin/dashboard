@@ -545,7 +545,6 @@ dashboard - thin command switchboard for Developer Dashboard
 
   dashboard help
   dashboard init
-  dashboard update
   dashboard doctor [--fix]
   dashboard ps1 [--jobs N] [--cwd PATH] [--mode compact|extended] [--color]
   dashboard paths [-o json|table]
