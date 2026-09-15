@@ -5,7 +5,7 @@ our $VERSION = '4.32';
 use strict;
 use warnings;
 use IO::Socket::UNIX;
-use JSON::PP qw(decode_json);
+use JSON::XS qw(decode_json);
 use POSIX qw(setsid);
 use Developer::Dashboard::Pax::AppImage;
 
@@ -33,7 +33,7 @@ sub run_client {
     if (!$socket) {
         return _direct_exec($image, $argv);
     }
-    my $request = JSON::PP->new->ascii(1)->canonical(1)->encode({
+    my $request = JSON::XS->new->ascii(1)->canonical(1)->encode({
         argv => $argv,
         cwd => $args{cwd} // _cwd(),
     });
@@ -145,7 +145,7 @@ sub _prepare_runtime {
     if (@libs) {
         require Config;
         my $sep = $Config::Config{path_sep} || ':';
-        my @existing = grep { defined && length } split /\Q$sep\E/, ($ENV{PERL5LIB} // '');
+        my @existing = grep { length } split /\Q$sep\E/, ($ENV{PERL5LIB} // '');
         $ENV{PERL5LIB} = join $sep, @libs, @existing;
     }
 }

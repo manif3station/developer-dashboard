@@ -7,7 +7,7 @@ use warnings;
 use Digest::SHA qw(sha256_hex);
 use File::Path qw(make_path);
 use File::Spec;
-use JSON::PP qw(decode_json);
+use JSON::XS qw(decode_json);
 
 sub new {
     my ($class, %args) = @_;
@@ -27,7 +27,7 @@ sub write_artifact {
     make_path($dir);
     my $path = File::Spec->catfile($dir, "$id.json");
     open my $fh, '>', $path or die "cannot write $path: $!";
-    print {$fh} JSON::PP->new->canonical(1)->pretty(1)->encode({
+    print {$fh} JSON::XS->new->canonical(1)->pretty(1)->encode({
         metadata => $metadata,
         artifact => $artifact,
     });
@@ -42,7 +42,7 @@ sub write_artifact {
 sub metadata_for {
     my ($self, $manifest, $artifact) = @_;
     my $module_graph_hash = sha256_hex(join "\n", @{ $manifest->{module_graph}{modules} // [] });
-    my $capture_manifest_hash = sha256_hex(JSON::PP->new->canonical(1)->encode($manifest));
+    my $capture_manifest_hash = sha256_hex(JSON::XS->new->canonical(1)->encode($manifest));
     my $cpu_target = join('-', $^O, $manifest->{runtime}{archname} // 'unknown');
     my $id_input = join "\n",
         $manifest->{runtime}{perl_config_version} // '',
@@ -68,7 +68,7 @@ sub metadata_for {
         },
         profile_provenance => 'none',
         capture_mode => $manifest->{capture}{mode},
-        environment_bound => ($manifest->{capture}{mode} // '') eq 'live' ? JSON::PP::true() : JSON::PP::false(),
+        environment_bound => ($manifest->{capture}{mode} // '') eq 'live' ? JSON::XS::true() : JSON::XS::false(),
     };
 }
 
@@ -95,7 +95,7 @@ sub validate_metadata {
         if ($metadata->{capture_mode} // '') ne ($manifest->{capture}{mode} // '');
 
     return {
-        valid => @errors ? JSON::PP::false() : JSON::PP::true(),
+        valid => @errors ? JSON::XS::false() : JSON::XS::true(),
         errors => \@errors,
     };
 }

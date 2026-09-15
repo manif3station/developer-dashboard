@@ -6,7 +6,7 @@ use strict;
 use warnings;
 use Cwd qw(abs_path);
 use File::Spec;
-use JSON::PP ();
+use JSON::XS ();
 use Developer::Dashboard::Pax::Capture;
 use Developer::Dashboard::Pax::Manifest;
 use Developer::Dashboard::Pax::RegionSelector;
@@ -65,7 +65,7 @@ sub dependencies {
         my %item = (
             module => $module,
             declared_in_cpanfile => $modules{$module}{declared_in_cpanfile} // [],
-            used_in_code => $modules{$module}{used_in_code} ? JSON::PP::true() : JSON::PP::false(),
+            used_in_code => $modules{$module}{used_in_code} ? JSON::XS::true() : JSON::XS::false(),
         );
         if (my $packaged = $packaged{$module}) {
             if (($packaged->{unit_kind} // '') eq 'dependency') {
@@ -90,7 +90,7 @@ sub dependencies {
                 $item{class} = $xs ? 'bundled_xs' : 'bundled_pure_perl';
                 $item{provider} = 'bundled_runtime';
                 $item{source_path} = $path;
-                $item{xs} = $xs ? JSON::PP::true() : JSON::PP::false();
+                $item{xs} = $xs ? JSON::XS::true() : JSON::XS::false();
                 $summary{$item{class}}++;
             }
         }
@@ -251,7 +251,7 @@ sub _static_native_units_from_code_units {
         next if ref($unit) ne 'HASH';
         my $bytes = $unit->{bytes};
         next if !defined $bytes || $bytes eq '';
-        my $record = eval { JSON::PP::decode_json($bytes) };
+        my $record = eval { JSON::XS::decode_json($bytes) };
         next if !$record || ref($record) ne 'HASH';
         my @subs = (
             @{ $record->{subs} // [] },

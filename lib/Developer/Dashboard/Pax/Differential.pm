@@ -5,7 +5,7 @@ our $VERSION = '4.32';
 use strict;
 use warnings;
 use IPC::Open3;
-use JSON::PP ();
+use JSON::XS ();
 use Symbol qw(gensym);
 use Developer::Dashboard::Pax::Capture;
 
@@ -31,12 +31,12 @@ sub compare_capture {
         entrypoint => $entrypoint,
         stock => $stock,
         pax => $pax,
-        pass => ($stock->{exit} == 0 && $pax->{exit} == 0) ? JSON::PP::true() : JSON::PP::false(),
+        pass => ($stock->{exit} == 0 && $pax->{exit} == 0) ? JSON::XS::true() : JSON::XS::false(),
         comparison => {
             stock_exit => $stock->{exit},
             pax_exit => $pax->{exit},
-            stock_stderr_present => $stock->{stderr} ne '' ? JSON::PP::true() : JSON::PP::false(),
-            pax_stderr_present => $pax->{stderr} ne '' ? JSON::PP::true() : JSON::PP::false(),
+            stock_stderr_present => $stock->{stderr} ne '' ? JSON::XS::true() : JSON::XS::false(),
+            pax_stderr_present => $pax->{stderr} ne '' ? JSON::XS::true() : JSON::XS::false(),
         },
     };
 }

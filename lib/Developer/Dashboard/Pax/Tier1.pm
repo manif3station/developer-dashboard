@@ -6,7 +6,7 @@ use warnings;
 use Digest::SHA qw(sha256_hex);
 use File::Path qw(make_path);
 use File::Spec;
-use JSON::PP ();
+use JSON::XS ();
 use Developer::Dashboard::Pax::Backend::Tier1CraneliftEquivalent;
 use Developer::Dashboard::Pax::Backend::Tier2LLVM;
 
@@ -96,7 +96,7 @@ sub _emit_native_artifact {
                 command => "$executable_path $left $right",
                 expected => "$expected",
                 actual => $output,
-                passed => $output eq "$expected" ? JSON::PP::true() : JSON::PP::false(),
+                passed => $output eq "$expected" ? JSON::XS::true() : JSON::XS::false(),
             };
         }
     }

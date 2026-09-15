@@ -97,8 +97,8 @@ sub _run_perl_probe {
 
 sub _decode_probe_output {
     my ($out) = @_;
-    require JSON::PP;
-    my $decoded = eval { JSON::PP::decode_json($out) };
+    require JSON::XS;
+    my $decoded = eval { JSON::XS::decode_json($out) };
     if ($@) {
         return {
             diagnostics => [{
@@ -116,7 +116,7 @@ sub _probe_source {
     return <<'PERL';
 use strict;
 use warnings;
-use JSON::PP ();
+use JSON::XS ();
 use Config;
 use B qw(svref_2object);
 
@@ -171,7 +171,7 @@ sub _sub_optree_summary {
     if ($@ || !$obj) {
         return {
             name => $name,
-            available => JSON::PP::false(),
+            available => JSON::XS::false(),
             reason => "$@",
         };
     }
@@ -179,7 +179,7 @@ sub _sub_optree_summary {
     my $start = eval { $obj->START };
     return {
         name => $name,
-        available => JSON::PP::true(),
+        available => JSON::XS::true(),
         root_class => $root ? ref($root) : undef,
         start_class => $start ? ref($start) : undef,
         optree_ops => _walk_ops($start),
@@ -232,7 +232,7 @@ sub _closure_descriptor {
     my ($cv) = @_;
     return {
         class => ref($cv),
-        has_padlist => eval { $cv->PADLIST ? JSON::PP::true() : JSON::PP::false() } || JSON::PP::false(),
+        has_padlist => eval { $cv->PADLIST ? JSON::XS::true() : JSON::XS::false() } || JSON::XS::false(),
         file => eval { $cv->FILE } || undef,
         stash => eval { $cv->STASH->NAME } || undef,
     };
@@ -250,7 +250,7 @@ sub _subs {
             my $summary = eval { _sub_optree_summary($full, $code) };
             push @subs, $summary || {
                 name => $full,
-                available => JSON::PP::false(),
+                available => JSON::XS::false(),
                 reason => "$@",
             };
         }
@@ -300,7 +300,7 @@ my $result = {
     diagnostics => \@diagnostics,
 };
 
-print JSON::PP->new->ascii(1)->canonical(1)->encode($result);
+print JSON::XS->new->ascii(1)->canonical(1)->encode($result);
 exit($ok ? 0 : 1);
 
 sub _method_resolution {
@@ -322,8 +322,8 @@ sub _regex_metadata {
     while ($source =~ m{(?:m|qr)?/((?:\\/|[^/])*)/[a-z]*}g) {
         push @patterns, {
             pattern => $1,
-            locale_sensitive => $source =~ /\buse\s+locale\b/ ? JSON::PP::true() : JSON::PP::false(),
-            unicode_sensitive => $source =~ /\buse\s+utf8\b/ ? JSON::PP::true() : JSON::PP::false(),
+            locale_sensitive => $source =~ /\buse\s+locale\b/ ? JSON::XS::true() : JSON::XS::false(),
+            unicode_sensitive => $source =~ /\buse\s+utf8\b/ ? JSON::XS::true() : JSON::XS::false(),
         };
     }
     return \@patterns;

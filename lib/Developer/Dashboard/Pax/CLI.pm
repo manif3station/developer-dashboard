@@ -4,7 +4,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
-use JSON::PP qw(encode_json);
+use JSON::XS qw(encode_json);
 use File::Spec ();
 use File::Temp ();
 use Developer::Dashboard::Pax::Capture;
@@ -1421,7 +1421,7 @@ sub _standalone_why_not {
     my @source_fallback = grep { ($_->{packaging} // '') eq 'source_payload_fallback' } @{ $image->{code_units} // [] };
     my $report = {
         name => $name,
-        standalone_ready => (@missing == 0) ? JSON::PP::true() : JSON::PP::false(),
+        standalone_ready => (@missing == 0) ? JSON::XS::true() : JSON::XS::false(),
         bundled_runtime => $image->{runtime}{mode},
         missing_dependencies => [ map {
             {
@@ -1509,7 +1509,7 @@ sub _missing {
 
 sub _json {
     my ($data, $pretty) = @_;
-    my $json = JSON::PP->new->ascii(1)->canonical(1);
+    my $json = JSON::XS->new->ascii(1)->canonical(1);
     $json = $json->pretty(1) if $pretty;
     return $json->encode($data);
 }

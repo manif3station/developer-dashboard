@@ -5,7 +5,7 @@ our $VERSION = '4.32';
 use strict;
 use warnings;
 use Digest::SHA qw(sha256_hex);
-use JSON::PP ();
+use JSON::XS ();
 
 sub new {
     my ($class, %args) = @_;
@@ -47,7 +47,7 @@ sub plan {
         provenance => {
             source_entrypoint => $manifest->{source_entrypoint},
             perl_abi_stamp => $manifest->{runtime}{pax_abi_stamp},
-            capture_manifest_hash => sha256_hex(JSON::PP->new->canonical(1)->encode($manifest)),
+            capture_manifest_hash => sha256_hex(JSON::XS->new->canonical(1)->encode($manifest)),
         },
     };
 }

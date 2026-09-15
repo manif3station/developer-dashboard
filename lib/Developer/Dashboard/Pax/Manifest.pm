@@ -5,7 +5,7 @@ our $VERSION = '4.32';
 use strict;
 use warnings;
 use Digest::SHA qw(sha256_hex);
-use JSON::PP ();
+use JSON::XS ();
 use Developer::Dashboard::Pax::Compatibility;
 
 use constant TARGET_PERL_FAMILY => '5.42.x';
@@ -38,7 +38,7 @@ sub to_hash {
             perl_version => $runtime->{perl_version},
             perl_config_version => $version,
             perl_family_target => TARGET_PERL_FAMILY,
-            baseline_match => $baseline_match ? JSON::PP::true() : JSON::PP::false(),
+            baseline_match => $baseline_match ? JSON::XS::true() : JSON::XS::false(),
             archname => $runtime->{archname},
             executable => $runtime->{executable},
             config => $config,

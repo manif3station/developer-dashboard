@@ -4,7 +4,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
-use JSON::PP ();
+use JSON::XS ();
 
 sub new {
     my ($class, %args) = @_;
@@ -47,7 +47,7 @@ sub report {
         push @regions, {
             region => $name,
             %$stats,
-            hot => $stats->{dispatches} >= $self->{threshold} ? JSON::PP::true() : JSON::PP::false(),
+            hot => $stats->{dispatches} >= $self->{threshold} ? JSON::XS::true() : JSON::XS::false(),
         };
     }
     return {

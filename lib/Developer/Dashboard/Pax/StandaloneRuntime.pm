@@ -10,7 +10,7 @@ use File::Basename qw(basename dirname);
 use File::Path qw(make_path);
 use File::Spec;
 use Cwd qw(abs_path);
-use JSON::PP ();
+use JSON::XS ();
 use Socket qw(MSG_PEEK);
 
 use Developer::Dashboard::Pax::GuardManager;
@@ -477,7 +477,7 @@ sub _standalone_executable_path {
         return File::Spec->rel2abs($path);
     }
     my $path_sep = $Config::Config{path_sep} || ':';
-    for my $dir (grep { defined && $_ ne '' } split /\Q$path_sep\E/, ($ENV{PATH} // '')) {
+    for my $dir (grep { $_ ne '' } split /\Q$path_sep\E/, ($ENV{PATH} // '')) {
         my $candidate = File::Spec->catfile($dir, $path);
         next if !-f $candidate || !-x _;
         my $resolved = abs_path($candidate);
@@ -1001,13 +1001,9 @@ sub _script_source_from_code_units {
 
 sub _runtime_json_decoder {
     return $RUNTIME_JSON_DECODER if $RUNTIME_JSON_DECODER;
-    if (eval { require JSON::XS; 1 }) {
-        $RUNTIME_JSON_DECODER = JSON::XS->new->utf8(1);
-        $RUNTIME_JSON_DECODER_KIND = 'JSON::XS';
-        return $RUNTIME_JSON_DECODER;
-    }
-    $RUNTIME_JSON_DECODER = JSON::PP->new->utf8(1);
-    $RUNTIME_JSON_DECODER_KIND = 'JSON::PP';
+    require JSON::XS;
+    $RUNTIME_JSON_DECODER = JSON::XS->new->utf8(1);
+    $RUNTIME_JSON_DECODER_KIND = 'JSON::XS';
     return $RUNTIME_JSON_DECODER;
 }
 
@@ -1981,8 +1977,8 @@ sub _install_compiled_sub {
                 my $label = defined $indicator->{label} ? $indicator->{label} : $indicator->{name};
                 my $stale = $self->{indicators}->is_stale($indicator, max_age => $max_age) ? 1 : 0;
                 my $part = $mode eq 'extended'
-                    ? join('', grep { defined && $_ ne '' } $status_icon, $icon, $label)
-                    : join('', grep { defined && $_ ne '' } $status_icon, ($icon || substr($label, 0, 1)));
+                    ? join('', grep { $_ ne '' } $status_icon, $icon, $label)
+                    : join('', grep { $_ ne '' } $status_icon, ($icon || substr($label, 0, 1)));
                 if ($color) {
                     my $status = $indicator->{status} || '';
                     my $ansi = $stale ? "\e[33m"
@@ -2220,7 +2216,7 @@ sub _install_compiled_sub {
         $impl = sub {
             require Cwd;
             my $home = $ENV{HOME} || '';
-            my @roots = grep { defined && -d } map { "$home/$_" } qw(projects src work);
+            my @roots = grep { -d } map { "$home/$_" } qw(projects src work);
             return __PAX_RUNTIME_LEGACY_NAMESPACE__::PathRegistry->new(
                 home => $home,
                 cwd => Cwd::cwd(),
@@ -2300,7 +2296,7 @@ sub _install_compiled_sub {
             my $roots = $args{include} || [];
             die $type_error if ref($roots) ne 'ARRAY';
             my @candidates = grep { index($_, $prefix) == 0 } keys %{ $paths->named_paths || {} };
-            for my $root (grep { defined && $_ ne '' && -d $_ } @{$roots}) {
+            for my $root (grep { $_ ne '' && -d $_ } @{$roots}) {
                 push @candidates, _code_for($directory_method)->(
                     paths => $paths,
                     root => $root,
@@ -2309,7 +2305,7 @@ sub _install_compiled_sub {
                 );
             }
             my %seen;
-            return sort grep { defined && $_ ne '' && !$seen{$_}++ } @candidates;
+            return sort grep { $_ ne '' && !$seen{$_}++ } @candidates;
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -3591,7 +3587,7 @@ OPENSSL_CONFIG
         $impl = sub {
             my ($self, $signal, @pids) = @_;
             my $portable_signal = _code_for($portable_signal_method)->($signal);
-            my @targets = grep { defined $_ && /^\d+$/ && $_ > 0 } @pids;
+            my @targets = grep { /^\d+$/ && $_ > 0 } @pids;
             return 0 if !@targets;
             return kill $portable_signal, @targets;
         };
@@ -4085,7 +4081,7 @@ OPENSSL_CONFIG
         $impl = sub {
             my $override = $ENV{DEVELOPER_DASHBOARD_RUNTIME_STABILITY_POLLS};
             return $override if defined $override && $override =~ /^\d+$/ && $override > 0;
-            my $perl5opt = join ' ', grep { defined && $_ ne '' } @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)};
+            my $perl5opt = join ' ', grep { $_ ne '' } @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)};
             return 300 if $perl5opt =~ /Devel::Cover/;
             return 100;
         };
@@ -4349,7 +4345,7 @@ OPENSSL_CONFIG
             my ($self) = @_;
             my $paths = $self->{paths} || return ();
             my $path_sep = $^O eq 'MSWin32' ? ';' : ':';
-            my @perl5lib = grep { defined $_ && $_ ne '' } split /\Q$path_sep\E/, ($ENV{PERL5LIB} || '');
+            my @perl5lib = grep { $_ ne '' } split /\Q$path_sep\E/, ($ENV{PERL5LIB} || '');
             for my $local_lib (reverse $paths->runtime_local_lib_roots) {
                 next if !-d $local_lib;
                 next if grep { $_ eq $local_lib } @perl5lib;
@@ -4608,7 +4604,7 @@ PERL
     if (($sub->{op} // '') eq 'page_runtime_sandpit_add_error') {
         $impl = sub {
             no strict 'refs';
-            push @{"${package}::errors"}, grep { defined $_ && $_ ne '' } @_;
+            push @{"${package}::errors"}, grep { $_ ne '' } @_;
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -4770,7 +4766,7 @@ PERL
             };
             my @errors = $package_name->__errors();
             if (@errors) {
-                my $error = join '', grep { defined $_ && $_ ne '' } @errors;
+                my $error = join '', grep { $_ ne '' } @errors;
                 _code_for($destroy_sandpit_method)->($self, $sandpit) if $destroy_sandpit;
                 die $error if $error ne '';
             }
@@ -4831,7 +4827,7 @@ PERL
             untie *STDOUT;
             untie *STDERR;
             my @errors = $package_name->__errors();
-            my $error = join '', grep { defined $_ && $_ ne '' } @errors;
+            my $error = join '', grep { $_ ne '' } @errors;
             if (ref($args{return_writer}) eq 'CODE') {
                 for my $value (@returns) {
                     next if ref($value) ne 'HASH' && ref($value) ne 'ARRAY';
@@ -4876,7 +4872,7 @@ PERL
                 params    => $params,
                 singleton => $singleton,
             );
-            my @temp_files = grep { defined $_ && $_ ne '' } @env{qw(DEVELOPER_DASHBOARD_AJAX_PARAMS_FILE DEVELOPER_DASHBOARD_AJAX_QUERY_STRING_FILE)};
+            my @temp_files = grep { $_ ne '' } @env{qw(DEVELOPER_DASHBOARD_AJAX_PARAMS_FILE DEVELOPER_DASHBOARD_AJAX_QUERY_STRING_FILE)};
             my $stdout = Symbol::gensym;
             my $stderr = Symbol::gensym;
             my $stdin  = Symbol::gensym;
@@ -5458,8 +5454,8 @@ PERL
             return if $home eq '';
             ${$paths_symbol} = __PAX_RUNTIME_LEGACY_NAMESPACE__::PathRegistry->new(
                 home => $home,
-                workspace_roots => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],
-                project_roots => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],
+                workspace_roots => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
+                project_roots => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
             );
             __PACKAGE__->_load_configured_aliases();
             return ${$paths_symbol};
@@ -5903,7 +5899,7 @@ PERL
             my ($self, %args) = @_;
             my $project_root = $args{project_root} || Cwd::cwd();
             my $service_map = $args{service_map} || {};
-            my %names = map { $_ => 1 } grep { defined && $_ ne '' } keys %{$service_map};
+            my %names = map { $_ => 1 } grep { $_ ne '' } keys %{$service_map};
             for my $root (_code_for($lookup_roots_method)->($self, project_root => $project_root, service => '__all__')) {
                 next if !-d $root;
                 opendir my $dh, $root or next;
@@ -6232,7 +6228,7 @@ PERL
             my ($data, $path) = @_;
             return $data if !defined $path || $path eq '' || $path eq '$d' || $path eq '.';
             $path =~ s/^\$d\.?//;
-            my @parts = grep { defined && $_ ne '' } split /\./, $path;
+            my @parts = grep { $_ ne '' } split /\./, $path;
             my $value = $data;
             while (@parts) {
                 if (ref($value) eq 'HASH') {
@@ -6531,7 +6527,7 @@ PERL_EVAL
                 __PAX_RUNTIME_LEGACY_NAMESPACE__::SeedSync::content_md5(_code_for($seeded_instruction_method)->($filename)),
                 @{ $legacy_map->{$id} || [] },
             );
-            return grep { defined $_ && $_ ne '' && !$seen{$_}++ } @md5s;
+            return grep { $_ ne '' && !$seen{$_}++ } @md5s;
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -6761,7 +6757,7 @@ PERL_EVAL
         $impl = sub {
             my ($class, @parts) = @_;
             require File::Find;
-            @parts = grep { defined && $_ ne '' } @parts;
+            @parts = grep { $_ ne '' } @parts;
             my $paths = _code_for($paths_method)->();
             return () if !@parts || !$paths || !$paths->can('workspace_roots');
             my @found;
@@ -7396,7 +7392,7 @@ PERL_EVAL
     if (($sub->{op} // '') eq 'collector_log_payload_present') {
         $impl = sub {
             my ($self, $status, $output) = @_;
-            return 1 if grep { defined && $_ ne '' } map { $output->{$_} } qw(stdout stderr combined last_run);
+            return 1 if grep { $_ ne '' } map { $output->{$_} } qw(stdout stderr combined last_run);
             return 1 if grep { defined } map { $status->{$_} } qw(last_exit_code last_run last_completed_at last_started_at timed_out);
             return 0;
         };
@@ -7660,7 +7656,7 @@ PERL_EVAL
         $impl = sub {
             my ($self, $text) = @_;
             return () if !defined $text || $text eq '';
-            return grep { defined && $_ ne '' } split /(?=^=== collector )/m, $text;
+            return grep { $_ ne '' } split /(?=^=== collector )/m, $text;
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -7978,8 +7974,8 @@ PERL_EVAL
                     code     => <<'PERL',
 my $housekeeper = __PAX_RUNTIME_LEGACY_NAMESPACE__::Housekeeper->new(
     paths => __PAX_RUNTIME_LEGACY_NAMESPACE__::PathRegistry->new(
-        workspace_roots => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
-        project_roots   => [ grep { defined && -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
+        workspace_roots => [ grep { -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
+        project_roots   => [ grep { -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
     ),
 );
 print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode( $housekeeper->run );
@@ -8071,7 +8067,7 @@ PERL
             }
             @jobs = @{ _code_for($merge_named_array_method)->($self, \@jobs, [ _code_for($skill_collectors_method)->($self) ], 'name') };
             if (my $filter = $ENV{DEVELOPER_DASHBOARD_CHECKERS}) {
-                my %wanted = map { $_ => 1 } grep { defined && $_ ne '' } split /:/, $filter;
+                my %wanted = map { $_ => 1 } grep { $_ ne '' } split /:/, $filter;
                 @jobs = grep { ref($_) eq 'HASH' && $wanted{ $_->{name} } } @jobs;
             }
             return \@jobs;
@@ -8593,7 +8589,7 @@ PERL
         $impl = sub {
             my ($self, $skill_name, $command) = @_;
             return if !$skill_name || !$command;
-            my @segments = grep { defined && $_ ne '' } split /\./, $command;
+            my @segments = grep { $_ ne '' } split /\./, $command;
             return if !@segments;
             for my $command_root_spec (_code_for($command_root_specs_method)->($self, \@segments)) {
                 my @provider_layers;
@@ -9223,7 +9219,7 @@ PERL
     if (($sub->{op} // '') eq 'collector_runner_coverage_instrumentation_active') {
         $impl = sub {
             my ($self) = @_;
-            my $perl5opt = join ' ', grep { defined && $_ ne '' } @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)};
+            my $perl5opt = join ' ', grep { $_ ne '' } @ENV{qw(PERL5OPT HARNESS_PERL_SWITCHES)};
             return $perl5opt =~ /Devel::Cover/ ? 1 : 0;
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
@@ -9711,7 +9707,7 @@ PERL
             my $route = defined $args{route} ? $args{route} : '';
             my @skill_layers = _code_for($skill_layers_method)->($self, $skill_name);
             return [404, 'text/plain; charset=utf-8', "Skill '$skill_name' not found\n"] if !@skill_layers;
-            my @parts = grep { defined && $_ ne '' } split m{/+}, $route;
+            my @parts = grep { $_ ne '' } split m{/+}, $route;
             my @dashboards_roots = map { File::Spec->catdir($_, 'dashboards') } @skill_layers;
             return [404, 'text/plain; charset=utf-8', "Skill '$skill_name' does not provide dashboards\n"]
                 if !grep { -d $_ } @dashboards_roots;
@@ -9832,7 +9828,7 @@ PERL
             my $local_root = File::Spec->catdir($skill_path, 'perl5');
             my $shared_root = File::Spec->catdir($self->{manager}{paths}->home, 'perl5');
             my $path_sep = $^O eq 'MSWin32' ? ';' : ':';
-            my @perl5lib = grep { defined && $_ ne '' } split /\Q$path_sep\E/, ($ENV{PERL5LIB} || '');
+            my @perl5lib = grep { $_ ne '' } split /\Q$path_sep\E/, ($ENV{PERL5LIB} || '');
             for my $shared_lib (
                 File::Spec->catdir($shared_root, 'lib', 'perl5'),
                 File::Spec->catdir($shared_root, 'lib', 'perl5', $Config::Config{archname} || ''),
@@ -10195,12 +10191,12 @@ PERL
             my $remote_addr = $args{remote_addr} || '';
             my $host = $args{host};
             my @extra_loopback_hosts = map { _code_for($canonical_host_method)->($self, $_) }
-                grep { defined $_ && $_ ne '' }
+                grep { $_ ne '' }
                 @{ ref($args{extra_loopback_hosts}) eq 'ARRAY' ? $args{extra_loopback_hosts} : [] };
             return 0 if !_code_for($loopback_method)->($self, $remote_addr);
             return 1 if !defined $host || $host eq '';
             return 1 if _code_for($loopback_method)->($self, $host);
-            return 1 if grep { defined $_ && $_ ne '' && $_ eq $host } @extra_loopback_hosts;
+            return 1 if grep { $_ ne '' && $_ eq $host } @extra_loopback_hosts;
             return _code_for($resolve_method)->($self, $host);
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
@@ -10239,7 +10235,7 @@ PERL
             $redirect_to =~ s/"/&quot;/g;
             return <<"HTML";
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11095,7 +11091,7 @@ HTML
             my $legacy_bootstrap = _code_for($legacy_bootstrap_method)->();
             return <<"HTML";
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11291,7 +11287,7 @@ HTML
         my $trim_method = $sub->{trim_method} // die 'compiled sub trim method missing';
         $impl = sub {
             my ($path, $context) = @_;
-            my @parts = grep { defined && $_ ne '' } split /\./, _code_for($trim_method)->($path);
+            my @parts = grep { $_ ne '' } split /\./, _code_for($trim_method)->($path);
             my $value = $context;
             for my $part (@parts) {
                 return '' if ref($value) ne 'HASH' || !exists $value->{$part};
@@ -12052,7 +12048,7 @@ JS
         $impl = sub {
             require Cwd;
             my $home = $ENV{HOME} || '';
-            my @roots = grep { defined && -d } map { "$home/$_" } qw(projects src work);
+            my @roots = grep { -d } map { "$home/$_" } qw(projects src work);
             return $path_registry_class->new(
                 home => $home,
                 cwd => Cwd::cwd(),
@@ -12067,7 +12063,7 @@ JS
         my $path_registry_class = $sub->{path_registry_class} // '__PAX_RUNTIME_LEGACY_NAMESPACE__::PathRegistry';
         $impl = sub {
             my $home = $ENV{HOME} || '';
-            my @roots = grep { defined && -d } map { "$home/$_" } qw(projects src work);
+            my @roots = grep { -d } map { "$home/$_" } qw(projects src work);
             return $path_registry_class->new(
                 workspace_roots => \@roots,
                 project_roots => \@roots,
@@ -12127,7 +12123,7 @@ JS
         $impl = sub {
             my (@matches) = @_;
             my %seen;
-            return grep { defined && $_ ne '' && !$seen{$_}++ } @matches;
+            return grep { $_ ne '' && !$seen{$_}++ } @matches;
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -12140,7 +12136,7 @@ JS
             return @{$matches} if $choices eq '' && @{$matches};
             if ($choices =~ /^\d+(?:\s*-\s*\d+)?(?:[\s,]+\d+(?:\s*-\s*\d+)?)*$/) {
                 my @chosen;
-                for my $chunk (grep { defined && $_ ne '' } split /[,\s]+/, $choices) {
+                for my $chunk (grep { $_ ne '' } split /[,\s]+/, $choices) {
                     if ($chunk =~ /^(\d+)-(\d+)$/) {
                         my ($start, $end) = ($1, $2);
                         return if $start < 1 || $end < $start || $end > @{$matches};
@@ -12211,7 +12207,7 @@ JS
                 next if !defined $pattern || $pattern eq '';
                 my $regex = _code_for($compile_regex_method)->($pattern);
                 my $score = 50;
-                my @components = grep { defined && $_ ne '' } split m{[\\/]+}, $match_path;
+                my @components = grep { $_ ne '' } split m{[\\/]+}, $match_path;
                 if ($basename =~ /\A(?:$pattern)\z/i) {
                     $score = 0;
                 } elsif ($stem =~ /\A(?:$pattern)\z/i) {
@@ -12270,7 +12266,7 @@ JS
                 @INC,
             );
             my %seen;
-            return grep { defined && $_ ne '' && -d $_ && !$seen{$_}++ } @roots;
+            return grep { $_ ne '' && -d $_ && !$seen{$_}++ } @roots;
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -12322,7 +12318,7 @@ JS
             my $archive = $args{archive} || die 'Missing archive path';
             my $entry = $args{entry} || die 'Missing archive entry';
             my $digest = Digest::MD5::md5_hex(join "\0", $archive, $entry);
-            my @parts = grep { defined && $_ ne '' } split m{/+}, $entry;
+            my @parts = grep { $_ ne '' } split m{/+}, $entry;
             return File::Spec->catfile(
                 $paths->cache_root,
                 'open-file',
@@ -12343,10 +12339,10 @@ JS
                 @{$roots},
                 File::Spec->catdir($paths->home, '.m2', 'repository'),
                 File::Spec->catdir($paths->home, '.gradle', 'caches'),
-                grep { defined && $_ ne '' } ($ENV{JAVA_HOME}, $ENV{JDK_HOME}),
+                grep { $_ ne '' } ($ENV{JAVA_HOME}, $ENV{JDK_HOME}),
             );
             my %seen;
-            return grep { defined && $_ ne '' && -d $_ && !$seen{$_}++ } @candidates;
+            return grep { $_ ne '' && -d $_ && !$seen{$_}++ } @candidates;
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -12472,7 +12468,7 @@ JS
             my @matches;
             for my $doc (_code_for($maven_search_method)->($entry_name)) {
                 next if ref($doc) ne 'HASH';
-                next if !grep { defined && $_ eq '-sources.jar' } @{ $doc->{ec} || [] };
+                next if !grep { $_ eq '-sources.jar' } @{ $doc->{ec} || [] };
                 my $archive = _code_for($download_source_jar_method)->(paths => $paths, doc => $doc) or next;
                 push @matches, _code_for($extract_archive_sources_method)->(
                     paths => $paths,
@@ -12587,7 +12583,7 @@ JS
                 @patterns = @argv;
             } else {
                 $scope = $paths->current_project_root || Cwd::cwd();
-                @patterns = grep { defined && $_ ne '' } ($first, @argv);
+                @patterns = grep { $_ ne '' } ($first, @argv);
             }
             my @entries;
             my @regexes = map { _code_for($compile_regex_method)->($_) } @patterns;
@@ -13588,8 +13584,8 @@ JS
             return if $home eq '';
             my $paths = $path_registry_class->new(
                 home => $home,
-                workspace_roots => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],
-                project_roots => [ grep { defined && -d } map { "$home/$_" } qw(projects src work) ],
+                workspace_roots => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
+                project_roots => [ grep { -d } map { "$home/$_" } qw(projects src work) ],
             );
             ${$files_symbol} = $file_registry_class->new(paths => $paths);
             _code_for($load_aliases_method)->();
@@ -13761,7 +13757,7 @@ JS
         my $locate_under_method = $sub->{locate_under_method} // die 'compiled sub locate-under method missing';
         $impl = sub {
             my ($self, @terms) = @_;
-            @terms = grep { defined && $_ ne '' } @terms;
+            @terms = grep { $_ ne '' } @terms;
             return () if !@terms;
             return _code_for($locate_under_method)->($self, $self->paths->cwd, @terms);
         };
@@ -13772,7 +13768,7 @@ JS
         $impl = sub {
             require File::Find;
             my ($self, $root, @terms) = @_;
-            @terms = grep { defined && $_ ne '' } @terms;
+            @terms = grep { $_ ne '' } @terms;
             return () if !defined $root || $root eq '' || !-d $root || !@terms;
             my @found;
             File::Find::find(
@@ -14689,7 +14685,7 @@ sub _compiled_script_sub_source {
         $proto || '',
         $args,
         _perl_literal($full),
-        _perl_literal(JSON::PP->new->canonical(1)->encode($shape)),
+        _perl_literal(JSON::XS->new->canonical(1)->encode($shape)),
     );
 }
 

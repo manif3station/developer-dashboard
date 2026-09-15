@@ -4,7 +4,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
-use JSON::PP ();
+use JSON::XS ();
 use Developer::Dashboard::Pax::Capture;
 use Developer::Dashboard::Pax::Manifest;
 use Developer::Dashboard::Pax::RegionSelector;

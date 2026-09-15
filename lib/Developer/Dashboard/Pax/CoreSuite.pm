@@ -4,7 +4,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
-use JSON::PP qw(decode_json);
+use JSON::XS qw(decode_json);
 use IPC::Open3;
 use Symbol qw(gensym);
 
@@ -30,7 +30,7 @@ sub run {
         perl => $self->{perl},
         total => scalar @results,
         failed => $failed,
-        passed => $failed ? JSON::PP::false() : JSON::PP::true(),
+        passed => $failed ? JSON::XS::false() : JSON::XS::true(),
         results => \@results,
     };
 }
@@ -46,7 +46,7 @@ sub _run_case {
         exit => $exit,
         stdout => $stdout,
         stderr => $stderr,
-        passed => $exit == 0 ? JSON::PP::true() : JSON::PP::false(),
+        passed => $exit == 0 ? JSON::XS::true() : JSON::XS::false(),
     };
 }
 

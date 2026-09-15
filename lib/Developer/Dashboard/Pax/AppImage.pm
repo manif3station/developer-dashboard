@@ -9,7 +9,7 @@ use Digest::SHA qw(sha256_hex);
 use File::Find ();
 use File::Path qw(make_path);
 use File::Spec;
-use JSON::PP qw(decode_json);
+use JSON::XS qw(decode_json);
 
 # new(%args)
 # Constructs the app-image manager rooted at the directory where named app
@@ -422,7 +422,7 @@ sub _c_string {
 sub _write_json {
     my ($path, $data) = @_;
     open my $fh, '>', $path or die "cannot write $path: $!";
-    print {$fh} JSON::PP->new->ascii(1)->canonical(1)->pretty(1)->encode($data);
+    print {$fh} JSON::XS->new->ascii(1)->canonical(1)->pretty(1)->encode($data);
     close $fh;
 }
 
