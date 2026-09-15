@@ -412,3 +412,40 @@ sometimes the correct conclusion is "the fix makes an existing manual
 workaround (an `--exempt-required`) unnecessary going forward," which is
 worth recording precisely so a future reviewer does not re-litigate
 DD-651/DD-828's exemptions as if they were still live defects.
+
+## 5.126 -> 5.131 (DD-901): five entries, zero load-bearing
+
+`tira.policy.undeclared` confirmed empty. All 5 entries bind nothing to
+this project - the shape most reviews actually take, worth naming so a
+zero-finding review does not read as a shallower pass than one that found
+something:
+
+- **TKT-1102 (5.131)**: internal Tira module decomposition
+  (`Notification.pm` extracted from `lib/Tira.pm`) - no command or
+  behavior change we could adopt or break against.
+- **TKT-1101 (5.130)**: fixed raw git stderr leaking from police's own
+  repository-detection guard on a broken/partial `.git` directory. Worth
+  checking against this project's own history before dismissing (a broken
+  worktree sandbox could plausibly have hit this) - no report of the
+  symptom found, and it is a pure bugfix either way, nothing to adopt.
+- **TKT-1098 (5.129)**: Tira's own `lib/Tira.pm` POD moved to a sibling
+  `lib/Tira.pod` - internal docs reorg.
+- **TKT-785 (5.128)**: `record.move`'s CLI dispatch now returns an
+  additive `moved` field confirming FROM->TO on a genuine column change.
+  Purely additive - does not remove or change any field this project
+  already parses. This project never relies on `record_move`'s return
+  shape for logic (every move here is followed by an independent
+  `tira.ticket.show` to confirm state), so there is nothing broken to fix
+  and nothing yet worth adopting, though the field could simplify a
+  future move-confirmation check if this project ever chooses to read it
+  instead of re-querying.
+- **TKT-772 (5.127)**: browser Columns dialog rename-safety fix - UI-only,
+  this project uses the CLI exclusively.
+
+**The check worth stating explicitly for a zero-finding review**: "nothing
+load-bearing" is a conclusion reached by reading every entry for behavior
+that could affect this project (per the "the two checks are the FLOOR, not
+the ceiling" section above), not merely by running
+`tira.policy.undeclared` and stopping there - TKT-1101's symptom
+specifically required checking this project's own board/CI history before
+it could honestly be called irrelevant.
