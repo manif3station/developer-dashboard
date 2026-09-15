@@ -701,7 +701,7 @@ depending on backend-specific boolean objects.
 
 Private F<~/.developer-dashboard/cli/dd/> helper files provide the built-in
 command behaviour without installing generic command names into the global
-PATH. Query, open-file, workspace, path, file, and prompt commands keep
+PATH. Query, open-file, workspace, path, file, and C<ps1> commands keep
 dedicated helper bodies, while the remaining built-ins stage thin wrappers
 that hand off to a shared private C<_dashboard-core> runtime.
 
