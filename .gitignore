@@ -83,3 +83,12 @@ __pycache__/
 # Operator tooling is never part of the repo (owner, 2026-08-29):
 # "no claude tool allows to be part of the repo. add to gitignore"
 .claude/
+
+# DD-882: build-artifact directories from the vendored PAX compiler's own
+# runtime cache and t/183's ported working directory. t/183 (ported from
+# PAX's own t/cli.t) only remove_tree()s t/tmp-sow03/ BEFORE each run, never
+# after, so compiled binaries and .c intermediates are always left in the
+# tree post-run; .pax/ is PAX's own on-disk standalone-build cache, written
+# wherever a `pax build` is invoked from. Neither is a deliverable.
+.pax/
+t/tmp-sow03/

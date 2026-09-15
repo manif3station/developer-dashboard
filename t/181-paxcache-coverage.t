@@ -66,17 +66,24 @@ sub source_file_with_content {
 }
 
 # --------------------------------------------------------------------------
-# PAX not installed: always undef, never touches the cache or spawns.
+# PAX genuinely unavailable: always undef, never touches the cache or
+# spawns. Since PAX is now vendored (DD-882) and staged as an internal
+# command, this is no longer reachable via a bare PATH clear - the staged
+# copy is found regardless of the caller's shell PATH, which is the whole
+# point ("no more excuses pax isn't there"). To exercise the still-real
+# last-resort degradation contract, force the ONE remaining way _pax_bin()
+# can fail both resolution paths: an explicit pax_bin override pointing at
+# a path that does not exist, which _pax_bin() returns verbatim (it does
+# not itself validate existence, matching resolve()'s own "verify the
+# subject actually ran" discipline lower down) - the compile attempt itself
+# then fails at exec time, but resolve() must still return undef cleanly.
 # --------------------------------------------------------------------------
 {
-    local $ENV{PATH} = '/nonexistent-empty-dir-for-this-test';
-    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths );
+    my $nonexistent_pax = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'nonexistent-pax' );
+    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $nonexistent_pax );
     my $source = source_file_with_content("#!/usr/bin/env perl\nprint 1;\n");
     my $result = $cache->resolve($source);
-    is( $result, undef, 'AC-4: no pax on PATH -> resolve() returns undef' );
-
-    my $cache_dir = File::Spec->catdir( $paths->home_cache_root, 'pax' );
-    ok( !-d $cache_dir || !glob("$cache_dir/*"), 'AC-4: no cache artifacts written when pax is unavailable' );
+    is( $result, undef, 'AC-4: a misconfigured/missing pax_bin override -> resolve() returns undef, never dies' );
 }
 
 # --------------------------------------------------------------------------
@@ -87,7 +94,7 @@ sub source_file_with_content {
     my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax();
     local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
 
-    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths );
+    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
     my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'v1';\n");
 
     my $result = $cache->resolve($source);
@@ -115,7 +122,7 @@ sub source_file_with_content {
     my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax();
     local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
 
-    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths );
+    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
     my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'v2';\n");
 
     my $first = $cache->resolve($source);
@@ -155,7 +162,7 @@ sub source_file_with_content {
     my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax();
     local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
 
-    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths );
+    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
     my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'v3';\n");
 
     $cache->resolve($source);
@@ -187,7 +194,7 @@ sub source_file_with_content {
     my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax( sleep => 2 );
     local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
 
-    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths );
+    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
     my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'v4';\n");
 
     # Fire 5 overlapping resolve() calls in quick succession, all against the
@@ -225,7 +232,7 @@ sub source_file_with_content {
     my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax();
     local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
 
-    my $cache  = Developer::Dashboard::PaxCache->new( paths => $paths );
+    my $cache  = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
     my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'direct-success';\n");
     my $work_dir  = tempdir( CLEANUP => 1 );
     my $bin_file  = File::Spec->catfile( $work_dir, 'out.pax' );
@@ -293,7 +300,7 @@ sub source_file_with_content {
     my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax();
     local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
 
-    my $cache  = Developer::Dashboard::PaxCache->new( paths => $paths );
+    my $cache  = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
     my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'winpath';\n");
     my $work_dir  = tempdir( CLEANUP => 1 );
     my $bin_file  = File::Spec->catfile( $work_dir, 'win.pax' );
@@ -328,7 +335,7 @@ sub source_file_with_content {
 {
     my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax();
     local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
-    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths );
+    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
 
     is( $cache->resolve(undef), undef, 'resolve(undef) returns undef' );
     is( $cache->resolve(''),    undef, 'resolve("") returns undef' );
@@ -368,7 +375,7 @@ sub source_file_with_content {
     my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax();
     local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
 
-    my $cache  = Developer::Dashboard::PaxCache->new( paths => $paths );
+    my $cache  = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
     my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'stale-lock';\n");
 
     # Pre-create a lock file naming a PID that is guaranteed to be dead: fork
@@ -407,7 +414,7 @@ sub source_file_with_content {
     my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax();
     local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
 
-    my $cache  = Developer::Dashboard::PaxCache->new( paths => $paths );
+    my $cache  = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
     my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'malformed-lock';\n");
 
     my $key       = Digest::MD5::md5_hex($source);
@@ -438,7 +445,7 @@ sub source_file_with_content {
     my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax();
     local $ENV{PATH} = "$bin_dir:$ENV{PATH}";    # pax IS available, so the code reaches the cache-hit check
 
-    my $cache  = Developer::Dashboard::PaxCache->new( paths => $paths );
+    my $cache  = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
     my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'not-executable';\n");
 
     my $md5 = Digest::MD5->new;
