@@ -72,11 +72,22 @@ sub resolve {
 
 # _pax_bin()
 # Resolves the pax executable, honoring a constructor override for tests.
+# PAX is vendored into this repository (Developer::Dashboard::Pax::*,
+# 2026-09-15) specifically so this resolution never depends on a separate
+# PAX checkout or the caller's shell PATH - the staged internal 'pax'
+# command (share/private-cli/pax) is tried first; an external PATH lookup
+# remains only as a last-resort fallback.
 # Input: none.
 # Output: absolute pax path string, or undef when unavailable.
 sub _pax_bin {
     my ($self) = @_;
     return $self->{pax_bin} if defined $self->{pax_bin};
+    require Developer::Dashboard::InternalCLI;
+    my $staged = eval {
+        Developer::Dashboard::InternalCLI::ensure_helper( paths => $self->{paths}, name => 'pax' );
+        Developer::Dashboard::InternalCLI::helper_path( paths => $self->{paths}, name => 'pax' );
+    };
+    return $staged if defined $staged && -f $staged;
     return command_in_path('pax');
 }
 
@@ -225,8 +236,23 @@ sub _spawn_background_compile {
     # First child: detach into its own session so it survives the parent
     # dashboard invocation exiting, then fork again (the classic double-fork)
     # so the caller's waitpid above reaps this short-lived first child
-    # immediately rather than the long-running grandchild.
-    setsid();                        # uncoverable statement
+    # immediately rather than the long-running grandchild. setsid() alone
+    # only detaches the process/session group (relevant to signal delivery);
+    # it does NOT redirect file descriptors, so without the explicit
+    # redirects below this process (and any `pax build` subprocess it later
+    # spawns via system()) would keep writing live build progress straight
+    # into the calling terminal/pipe - discovered live when this cache
+    # started covering bin/dashboard itself (DD-882), which made every
+    # cache-miss invocation of ANY command visibly leak PAX's own progress
+    # output. Matches the established detach pattern already used by
+    # ActionRunner's own background-action path (open STDIN from /dev/null,
+    # STDOUT/STDERR to a log file, never left connected to the caller).
+    setsid();    # uncoverable statement
+    my $log_file = $args{lock_file};
+    $log_file =~ s/\.compiling\z/.log/;
+    open STDIN, '<', File::Spec->devnull();    # uncoverable statement
+    open STDOUT, '>>', $log_file;              # uncoverable statement
+    open STDERR, '>>', $log_file;              # uncoverable statement
     my $grandchild = fork();         # uncoverable statement
     # uncoverable statement
     # uncoverable branch true
