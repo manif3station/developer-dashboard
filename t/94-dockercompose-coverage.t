@@ -589,6 +589,29 @@ JSON
     is( $docker->_expand_env_path('${DDDC_MISSING_VAR}a'),  'a',       'expand_env_path collapses undefined braced var' );
     is( $docker->_expand_env_path('$DDDC_MISSING_VAR/a'),   '/a',      'expand_env_path collapses undefined bare var' );
 
+    # DD-887: expansion must run as a single pass over the ORIGINAL string,
+    # never re-scanning an already-substituted value for further
+    # placeholders. Without this, one env var's value containing a
+    # "$NAME"-shaped substring gets a second, unintended expansion using a
+    # completely unrelated env var.
+    local $ENV{DDDC_OUTER_VAR} = '$DDDC_INNER_VAR/tail';
+    local $ENV{DDDC_INNER_VAR} = 'unexpected';
+    is(
+        $docker->_expand_env_path('${DDDC_OUTER_VAR}'),
+        '$DDDC_INNER_VAR/tail',
+        'AC-1: expand_env_path does not re-expand a substituted value - the literal $DDDC_INNER_VAR text inside DDDC_OUTER_VAR survives unexpanded, not silently replaced with DDDC_INNER_VAR\'s own value',
+    );
+    is(
+        $docker->_expand_env_path('${DDDC_TEST_VAR}/x'),
+        'value/x',
+        'AC-2: ordinary single-level expansion (no embedded $ pattern) is unaffected by the single-pass fix',
+    );
+    is(
+        $docker->_expand_env_path('${DDDC_MISSING_VAR}/x'),
+        '/x',
+        'AC-3: an undefined env var still expands to empty string under the single-pass fix',
+    );
+
     # _skill_docker_env_key with undef / empty / junk.
     is( $docker->_skill_docker_env_key(undef), undef, 'env key undef' );
     is( $docker->_skill_docker_env_key(''),    undef, 'env key empty' );

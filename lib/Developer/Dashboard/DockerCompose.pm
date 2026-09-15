@@ -291,8 +291,16 @@ sub _expand_env_path {
     my ( $self, $path ) = @_;
     return $path if !defined $path || $path eq '';
 
-    $path =~ s/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/defined $ENV{$1} ? $ENV{$1} : ''/ge;
-    $path =~ s/\$([A-Za-z_][A-Za-z0-9_]*)/defined $ENV{$1} ? $ENV{$1} : ''/ge;
+    # DD-887: a single combined pass over the ORIGINAL string, matching both
+    # ${VAR} and bare $VAR forms in one alternation - never two sequential
+    # passes, which would re-scan the first pass's OUTPUT as input to the
+    # second, letting one env var's own value (if it happens to contain a
+    # "$NAME"-shaped substring) get a second, unintended expansion using a
+    # completely unrelated env var.
+    $path =~ s/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/
+        my $name = defined $1 ? $1 : $2;
+        defined $ENV{$name} ? $ENV{$name} : '';
+    /gex;
 
     return $path;
 }
