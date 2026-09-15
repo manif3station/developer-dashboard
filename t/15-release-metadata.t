@@ -82,7 +82,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.31', 'repo version bumped to release DD-770..DD-767: host-ready exe-veto, the shared gate-lock premise correction, the checkout-root resolver, the paths-registry constructor extraction, and the empty-environ wall-clock probe fix' );
+is( $version, '4.32', 'repo version bumped for owner-requested testing tarball (DD-879, msg #1985): includes DD-866..DD-878 (FileRegistry/PathRegistry/File/Folder allowlist fixes, Config.pm skill-layer merge order, PAX compile-cache DD-877/878, PAX macOS/Alpine research DD-871/872/875/876) plus DD-842..DD-865 (staging-path collision fixes, Tira upgrade reviews, DirEntries extraction)' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;

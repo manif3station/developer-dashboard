@@ -1,6 +1,23 @@
 # Fixed Bugs
 
 
+## 4.32
+
+- **DD-868/DD-870/DD-878**: `FileRegistry::resolve_file`, `PathRegistry::resolve_dir`,
+  `File::_resolve_file` and `Folder::_resolve_path` all dispatched a
+  caller-supplied alias name to ANY method the resolved object/class
+  answered `can()` true for, not just an intended path getter. Fixed with a
+  compile-time allowlist in each. DD-868/870 were confirmed reachable via
+  `dashboard file resolve <name>`/`dashboard path resolve <name>`; DD-878's
+  two instances one layer down were confirmed NOT reachable by any current
+  caller, but fixed as defense-in-depth since `File`'s own POD documents
+  dynamic dispatch as an intended public API pattern.
+- **DD-874**: `Config.pm`'s `api_registry` merged the operator's own
+  deepest-writable `api.json` layer BEFORE a skill's bundled API-key
+  fragments, so an installed skill could silently replace or tombstone an
+  operator-set key set via `dashboard api add`. Fixed by merging skill
+  fragments first (lowest priority) and the operator's own layer last.
+
 ## 4.31
 
 - **DD-770**: `.claude/tools/host-ready`'s foreign-process detector matched

@@ -1,3 +1,33 @@
+4.32  2026-09-15
+
+  - DD-868/DD-870/DD-878: FileRegistry::resolve_file, PathRegistry::resolve_dir,
+    File::_resolve_file and Folder::_resolve_path all fell back to dispatching
+    a caller-supplied alias name to ANY method the resolved object/class
+    answered can() true for. Replaced with a compile-time allowlist of the
+    intended no-arg path getters in each.
+  - DD-874: Config.pm's api_registry merged the operator's own deepest-writable
+    api.json layer BEFORE a skill's bundled key fragments, so an installed
+    skill could silently replace or tombstone an operator-set API key. Skill
+    fragments now merge first (lowest priority), the operator's own layer
+    last (highest).
+  - DD-877: added Developer::Dashboard::PaxCache, an MD5-keyed, non-blocking
+    PAX compile cache - a cache miss runs interpreted immediately and
+    triggers at most one detached background compile per source file, with
+    an O_CREAT|O_EXCL lock guarding against overlapping invocations spawning
+    duplicate compiles. Wired into dashboard ps1 as a proof of concept.
+  - DD-871/872/875/876: researched PAX (a sibling adaptive Perl compiler)
+    compiling this codebase - confirmed clean on glibc/Debian with a
+    measured ~36x runtime speedup, found and reported two PAX bugs upstream
+    (an objcopy long-option ambiguity on newer binutils, a hardcoded ELF
+    output width ignoring the target architecture), and confirmed PAX has no
+    macOS Mach-O build path at all (hardcoded ELF-only, zero platform
+    branching) - a real, immediate blocker for any Mac user.
+  - DD-866/867/869/873: corrected drifted architecture-overview POD in
+    Developer::Dashboard.pm (an inactive UpdateManager module described as
+    wired-in when it is intentional dormant groundwork; Data Query Commands
+    listing 4 shipped formats instead of all 7; "prompt commands" phrasing
+    inconsistent with the file's own established "ps1 commands" wording).
+
 4.31  2026-09-11
 
   - DD-770: .claude/tools/host-ready's foreign-process detector matched on
