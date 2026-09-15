@@ -7,6 +7,20 @@ our $VERSION = '4.32';
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
 use Developer::Dashboard::TextUtils qw(_trim);
+use Safe ();
+
+# Opcode set permitted inside the Safe compartment _safe_eval_stash_literal
+# uses to parse a legacy STASH body. Deliberately minimal: only what is
+# needed to construct nested hash/array/string/number/undef literals - no
+# variables, no operators, no subroutine calls of any kind (entersub is
+# NOT permitted, which also blocks calling out to any already-compiled sub
+# reachable by name - Safe's opmask only restricts code compiled INSIDE the
+# compartment, so a permitted entersub would let a payload call an
+# arbitrary existing sub with full privileges). DD-896.
+our @STASH_SAFE_OPS = qw(
+  padany const stub null pushmark list lineseq leaveeval scope
+  anonhash anonlist undef rv2gv
+);
 
 our $LEGACY_SEP = ':--------------------------------------------------------------------------------:';
 our @LEGACY_KEYS = ( qw(TITLE ICON BOOKMARK STASH NOTE HTML), map { sprintf 'CODE%d', $_ } 0 .. 1000 );
@@ -441,8 +455,27 @@ sub _decode_stash_section {
         return $value if ref($value) eq 'HASH';
         return {};
     }
-    my $hash = eval "+{ $text }";
+    my $hash = _safe_eval_stash_literal($text);
     return ref($hash) eq 'HASH' ? $hash : {};
+}
+
+# _safe_eval_stash_literal($text)
+# Evaluates a legacy STASH body as a restricted Perl data-literal expression
+# inside a Safe compartment (DD-896) - permits only nested hash/array/
+# string/number/undef construction, matching what _legacy_value/
+# _legacy_stash_text serialize. No variables, operators, or subroutine
+# calls of any kind are permitted, so embedded code (system/exec/qx/
+# backticks/calling any other sub) cannot execute.
+# Input: STASH body text (Perl hash-literal-like syntax, no surrounding braces).
+# Output: the evaluated value (expected to be a hash reference), or undef
+# on any parse/compartment error.
+sub _safe_eval_stash_literal {
+    my ($text) = @_;
+    my $compartment = Safe->new;
+    $compartment->permit_only(@STASH_SAFE_OPS);
+    my $result = $compartment->reval( "+{ $text }", 1 );
+    return undef if $@;
+    return $result;
 }
 
 # _parse_legacy_sections($text)
