@@ -62,8 +62,49 @@ sub acmdx {
         token   => $token,
         url     => { tokenised => $url, app => $args{app} || $url },
         forward => [ $path => { token => $token->{raw}, type => $type } ],
-        html    => sprintf( q{<a href="%s" target="%s">%s</a>}, $url, ( $args{target} || '_blank' ), ( $args{label} || 'Click Here' ) ),    # uncoverable condition false
+        html    => sprintf(
+            q{<a href="%s" target="%s">%s</a>},
+            _escape_html_attr($url),
+            _escape_html_attr( $args{target} || '_blank' ),
+            _escape_html( $args{label} || 'Click Here' ),    # uncoverable condition false
+        ),
     };
+}
+
+# _escape_html($text)
+# Escapes text for safe output as HTML element content. DD-892: acmdx is a
+# public, exported function for skill/bookmark page authors to build
+# clickable links from their own template data (which may itself derive
+# from saved page content or a skill config value) - unescaped, a label or
+# target containing HTML metacharacters could break out of its
+# attribute/content position and inject markup or script. Mirrors
+# Web/App.pm's own private _escape_html of the same name and semantics
+# (this project's established convention for this exact escaping shape);
+# duplicated locally rather than shared across modules, matching how
+# Web/App.pm's own version is itself module-private.
+# Input: text string (or undef).
+# Output: HTML-content-safe string.
+sub _escape_html {
+    my ($text) = @_;
+    $text = '' if !defined $text;
+    $text =~ s/&/&amp;/g;
+    $text =~ s/</&lt;/g;
+    $text =~ s/>/&gt;/g;
+    return $text;
+}
+
+# _escape_html_attr($value)
+# Escapes one value for safe output inside a double-quoted HTML attribute -
+# _escape_html's escaping plus quote characters, so the value cannot close
+# its surrounding attribute quote early. See _escape_html above for why.
+# Input: attribute value string (or undef).
+# Output: HTML-attribute-safe string.
+sub _escape_html_attr {
+    my ($value) = @_;
+    $value = _escape_html($value);
+    $value =~ s/"/&quot;/g;
+    $value =~ s/'/&#39;/g;
+    return $value;
 }
 
 # Ajax(%args)
