@@ -9,11 +9,12 @@ use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
 use Digest::SHA qw(sha256_hex);
 use File::Spec;
-use POSIX qw(WNOHANG setsid strftime);
+use POSIX qw(WNOHANG setsid);
 
 use Developer::Dashboard::Codec qw(encode_payload decode_payload);
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::Platform qw(is_windows shell_command_argv);
+use Developer::Dashboard::TimeUtils qw(_now_iso8601);
 
 # new(%args)
 # Constructs an action runner bound to file and path registries.
@@ -181,7 +182,7 @@ sub run_command_action {
             return {
                 background => 1,
                 pid        => $started_pid + 0,
-                started_at => _now_iso8601(),
+                started_at => _now_iso8601( tz => "utc" ),
             };
         }
         local $SIG{CHLD} = 'DEFAULT';
@@ -474,17 +475,8 @@ sub _run_command {
         stderr      => $stderr,
         timed_out   => $timed_out ? 1 : 0,
         content_type => 'application/json; charset=utf-8',
-        started_at  => _now_iso8601(),
+        started_at  => _now_iso8601( tz => "utc" ),
     };
-}
-
-# _now_iso8601()
-# Returns the current UTC timestamp in ISO-8601 form.
-# Input: none.
-# Output: timestamp string.
-sub _now_iso8601 {
-    my @t = gmtime();
-    return strftime( '%Y-%m-%dT%H:%M:%SZ', @t );
 }
 
 1;

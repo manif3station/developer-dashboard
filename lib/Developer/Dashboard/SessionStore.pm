@@ -10,6 +10,7 @@ use File::Spec;
 use POSIX qw(strftime);
 
 use Developer::Dashboard::JSON qw(json_encode json_decode);
+use Developer::Dashboard::TimeUtils qw(_now_iso8601);
 
 # new(%args)
 # Constructs the file-backed session store.
@@ -43,9 +44,9 @@ sub create {
         username    => $username,
         role        => $role,
         remote_addr => $args{remote_addr} || '',
-        created_at  => _now_iso8601(),
+        created_at  => _now_iso8601( tz => "utc" ),
         expires_at  => _iso8601_after($ttl),
-        updated_at  => _now_iso8601(),
+        updated_at  => _now_iso8601( tz => "utc" ),
     };
     my $file = $self->_session_file($session_id);
     # DD-600: write to a per-writer temp file with an unpredictable name and
@@ -211,15 +212,6 @@ sub sweep_expired {
         $removed++ if $args{dry_run} || unlink $file;
     }
     return $removed;
-}
-
-# _now_iso8601()
-# Returns the current UTC timestamp in ISO-8601 form.
-# Input: none.
-# Output: timestamp string.
-sub _now_iso8601 {
-    my @t = gmtime();
-    return strftime( '%Y-%m-%dT%H:%M:%SZ', @t );
 }
 
 # _iso8601_after($seconds)
