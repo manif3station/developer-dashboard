@@ -4,7 +4,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
-use JSON::PP ();
+use JSON::XS ();
 use Time::HiRes qw(time);
 use Developer::Dashboard::Pax::Capture;
 use Developer::Dashboard::Pax::Manifest;
@@ -105,7 +105,7 @@ sub _time_native {
     my ($native) = grep { ($_->{entry_kind} // '') eq 'native_i64_leaf' && $_->{executable_path} } @artifacts;
     if (!$native) {
         return {
-            available => JSON::PP::false(),
+            available => JSON::XS::false(),
             mean_seconds => undef,
             result => undef,
         };
@@ -128,7 +128,7 @@ sub _time_native {
         };
     }
     my $summary = _summarise(\@samples);
-    $summary->{available} = JSON::PP::true();
+    $summary->{available} = JSON::XS::true();
     $summary->{result} = $result;
     return $summary;
 }
@@ -155,7 +155,7 @@ sub _current_rss_kb {
 sub _memory_impact {
     my ($before, $after) = @_;
     return {
-        measured => defined($before) && defined($after) ? JSON::PP::true() : JSON::PP::false(),
+        measured => defined($before) && defined($after) ? JSON::XS::true() : JSON::XS::false(),
         unit => 'KiB',
         before_rss_kb => $before,
         after_rss_kb => $after,

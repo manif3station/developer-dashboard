@@ -4,7 +4,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
-use JSON::PP qw(decode_json);
+use JSON::XS qw(decode_json);
 use Developer::Dashboard::Pax::Capture;
 use Developer::Dashboard::Pax::Manifest;
 
@@ -34,7 +34,7 @@ sub run {
             path => $case->{path},
             expected_level => $expected,
             actual_level => $level,
-            passed => (!defined $expected || $expected eq $level) ? JSON::PP::true() : JSON::PP::false(),
+            passed => (!defined $expected || $expected eq $level) ? JSON::XS::true() : JSON::XS::false(),
             reason => $pax_manifest->{compatibility}{reason},
             barriers => $pax_manifest->{compatibility}{barriers} // [],
             diagnostics => $pax_manifest->{diagnostics} // [],
@@ -46,7 +46,7 @@ sub run {
         manifest_path => $self->{manifest_path},
         total => scalar @results,
         failed => $failed,
-        passed => $failed ? JSON::PP::false() : JSON::PP::true(),
+        passed => $failed ? JSON::XS::false() : JSON::XS::true(),
         levels => \%levels,
         results => \@results,
     };

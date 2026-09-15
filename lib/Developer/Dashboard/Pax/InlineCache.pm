@@ -4,7 +4,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
-use JSON::PP ();
+use JSON::XS ();
 
 sub new {
     my ($class, %args) = @_;
@@ -58,7 +58,7 @@ sub update {
     my $method = $args{method} // $args{region_name} // '';
     my $slot = $self->{sites}{$site} ||= {
         entries => [],
-        megamorphic => JSON::PP::false(),
+        megamorphic => JSON::XS::false(),
     };
 
     for my $entry (@{ $slot->{entries} }) {
@@ -75,7 +75,7 @@ sub update {
         target_region_name => $args{target_region_name},
         hits => 0,
     };
-    $slot->{megamorphic} = JSON::PP::true()
+    $slot->{megamorphic} = JSON::XS::true()
         if @{ $slot->{entries} } > $self->{max_polymorphic};
 
     return {

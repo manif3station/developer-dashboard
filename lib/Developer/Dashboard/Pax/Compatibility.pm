@@ -4,7 +4,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
-use JSON::PP ();
+use JSON::XS ();
 
 sub new {
     my ($class, %args) = @_;
@@ -50,7 +50,7 @@ sub _level {
     return {
         level => $level,
         reason => $reason,
-        acceleration_supported => $acceleration_supported ? JSON::PP::true() : JSON::PP::false(),
+        acceleration_supported => $acceleration_supported ? JSON::XS::true() : JSON::XS::false(),
         barriers => $barriers,
     };
 }

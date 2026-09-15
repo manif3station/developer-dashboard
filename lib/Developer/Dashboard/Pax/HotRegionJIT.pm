@@ -4,7 +4,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
-use JSON::PP ();
+use JSON::XS ();
 
 sub new {
     my ($class, %args) = @_;
@@ -25,7 +25,7 @@ sub decision {
         return {
             status => 'barrier',
             reason => 'region has no native lowering shape',
-            hot => JSON::PP::false(),
+            hot => JSON::XS::false(),
         };
     }
 
@@ -33,7 +33,7 @@ sub decision {
         return {
             status => 'promote',
             reason => 'profile threshold reached',
-            hot => JSON::PP::true(),
+            hot => JSON::XS::true(),
             tier => 'tier-1',
         };
     }
@@ -41,7 +41,7 @@ sub decision {
     return {
         status => 'observe',
         reason => 'profile threshold not reached',
-        hot => JSON::PP::false(),
+        hot => JSON::XS::false(),
         tier => 'interpreter',
     };
 }

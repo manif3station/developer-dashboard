@@ -4,7 +4,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
-use JSON::PP qw(decode_json);
+use JSON::XS qw(decode_json);
 use Developer::Dashboard::Pax::Benchmark;
 use Developer::Dashboard::Pax::Capture;
 use Developer::Dashboard::Pax::Manifest;
@@ -38,7 +38,7 @@ sub run {
         manifest_path => $self->{manifest_path},
         iterations => $self->{iterations},
         classes => \@classes,
-        passed => JSON::PP::true(),
+        passed => JSON::XS::true(),
     };
 }
 

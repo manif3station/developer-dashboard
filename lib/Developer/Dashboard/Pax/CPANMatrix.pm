@@ -4,7 +4,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
-use JSON::PP qw(decode_json);
+use JSON::XS qw(decode_json);
 use IPC::Open3;
 use Symbol qw(gensym);
 use Developer::Dashboard::Pax::Capture;
@@ -32,7 +32,7 @@ sub run {
         perl => $self->{perl},
         total => scalar @results,
         failed => $failed,
-        passed => $failed ? JSON::PP::false() : JSON::PP::true(),
+        passed => $failed ? JSON::XS::false() : JSON::XS::true(),
         results => \@results,
     };
 }
@@ -51,7 +51,7 @@ sub _run_distribution {
     for my $expected (@{ $dist->{expected_levels} // [] }) {
         push @level_checks, {
             level => $expected,
-            passed => _level_present($expected, \@fixtures) ? JSON::PP::true() : JSON::PP::false(),
+            passed => _level_present($expected, \@fixtures) ? JSON::XS::true() : JSON::XS::false(),
         };
     }
     my $declared_xs = $dist->{declared_xs} // [];
@@ -66,7 +66,7 @@ sub _run_distribution {
         level_checks => \@level_checks,
         modules => \@modules,
         fixtures => \@fixtures,
-        passed => $failed ? JSON::PP::false() : JSON::PP::true(),
+        passed => $failed ? JSON::XS::false() : JSON::XS::true(),
     };
 }
 
@@ -79,7 +79,7 @@ sub _run_module {
         exit => $exit,
         version => $exit == 0 ? _trim($stdout) : undef,
         stderr => $stderr,
-        passed => $exit == 0 ? JSON::PP::true() : JSON::PP::false(),
+        passed => $exit == 0 ? JSON::XS::true() : JSON::XS::false(),
     };
 }
 
@@ -92,7 +92,7 @@ sub _run_fixture {
         capture_status => $capture->{status},
         compatibility_level => $manifest->{compatibility}{level},
         reason => $manifest->{compatibility}{reason},
-        passed => ($capture->{status} // '') eq 'ok' ? JSON::PP::true() : JSON::PP::false(),
+        passed => ($capture->{status} // '') eq 'ok' ? JSON::XS::true() : JSON::XS::false(),
     };
 }
 

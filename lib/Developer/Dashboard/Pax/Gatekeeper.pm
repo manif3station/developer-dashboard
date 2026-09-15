@@ -4,7 +4,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
-use JSON::PP ();
+use JSON::XS ();
 use Developer::Dashboard::Pax::Backend::Tier1CraneliftEquivalent;
 use Developer::Dashboard::Pax::Backend::Tier2LLVM;
 use Developer::Dashboard::Pax::Benchmark;

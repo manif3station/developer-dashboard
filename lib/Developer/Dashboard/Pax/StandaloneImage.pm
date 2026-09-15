@@ -12,7 +12,7 @@ use File::Path qw(make_path);
 use File::Basename qw(dirname basename);
 use File::Spec;
 use File::Temp qw(tempdir tempfile);
-use JSON::PP ();
+use JSON::XS ();
 use Developer::Dashboard::Pax::CodeUnitCompiler;
 use Developer::Dashboard::Pax::StandaloneAnalysis;
 
@@ -69,7 +69,7 @@ sub build {
         @lib_dirs,
         map { $_->{dir} } @inferred_app_file_sets,
     ]);
-    my @scan_roots = grep { defined && $_ ne '' } (
+    my @scan_roots = grep { $_ ne '' } (
         _safe_dir_abs($abs_entrypoint),
         @runtime_lib_dirs,
         @source_roots,
@@ -224,8 +224,8 @@ sub build {
         },
         runtime => {
             mode => $runtime_mode,
-            app_server_required => JSON::PP::false,
-            source_tree_required => JSON::PP::false,
+            app_server_required => JSON::XS::false,
+            source_tree_required => JSON::XS::false,
             perl_binary => $runtime->{perl_binary},
             perl_binary_logical_path => $runtime->{perl_binary_logical_path},
             bundled_inc_roots => $runtime->{bundled_inc_roots},
@@ -253,7 +253,7 @@ sub build {
         source_roots => [ map { _logical_root('src', $_) } @source_roots ],
         source_hash => _source_hash(\@code_units, $assets, $runtime->{payloads}, $native_payloads),
         build_plan => {
-            paxfile_applied => $args{paxfile_applied} ? JSON::PP::true : JSON::PP::false,
+            paxfile_applied => $args{paxfile_applied} ? JSON::XS::true : JSON::XS::false,
             override_fields => $args{override_fields} // [],
             source_packaging => 'mixed_compiled_pcu_v1_hybrid_or_source_fallback_with_compiled_dependencies',
             native_packaging => 'packaged_dispatch_bundle',
@@ -305,7 +305,7 @@ sub _standalone_source_plan {
     my $inspect = _standalone_inspect_json($entrypoint);
     return {} if $inspect eq '';
 
-    my $manifest = eval { JSON::PP::decode_json($inspect) };
+    my $manifest = eval { JSON::XS::decode_json($inspect) };
     return {} if !$manifest || ref($manifest) ne 'HASH';
 
     my $extract_root = tempdir('pax-standalone-source-XXXXXX', TMPDIR => 1, CLEANUP => 1);
@@ -414,7 +414,7 @@ sub _standalone_extract_quietly {
 
 sub _extract_payload_path {
     my ($root, $prefix, $logical_path) = @_;
-    my @parts = grep { defined && $_ ne '' } split m{/+}, ($logical_path // '');
+    my @parts = grep { $_ ne '' } split m{/+}, ($logical_path // '');
     return File::Spec->catfile($root, $prefix, @parts);
 }
 
@@ -512,7 +512,7 @@ sub _materialized_manifest_roots {
 }
 
 sub _common_source_parent {
-    my @paths = grep { defined && $_ ne '' } @_;
+    my @paths = grep { $_ ne '' } @_;
     return '' if !@paths;
     my @common = File::Spec->splitdir(dirname(shift @paths));
     for my $path (@paths) {
@@ -532,7 +532,7 @@ sub _extracted_manifest_roots {
     my %seen;
     for my $logical_root (@{ $logical_roots // [] }) {
         next if !defined $logical_root || $logical_root eq '';
-        my @parts = grep { defined && $_ ne '' } split m{/+}, $logical_root;
+        my @parts = grep { $_ ne '' } split m{/+}, $logical_root;
         my $path = File::Spec->catdir($root, $prefix, @parts);
         next if !-d $path || $seen{$path}++;
         push @roots, $path;
@@ -586,7 +586,7 @@ sub load {
     my $path = File::Spec->catfile($self->{root}, $name, 'manifest.json');
     open my $fh, '<', $path or die "cannot read standalone image $path: $!";
     local $/;
-    return JSON::PP::decode_json(<$fh>);
+    return JSON::XS::decode_json(<$fh>);
 }
 
 sub path_for {
@@ -725,7 +725,7 @@ sub _code_manifest {
     my %seen;
     my %seen_modules;
     my $compiler = Developer::Dashboard::Pax::CodeUnitCompiler->new;
-    my @preferred_roots = grep { defined && $_ ne '' } (dirname($entrypoint), @$lib_dirs, @$source_roots);
+    my @preferred_roots = grep { $_ ne '' } (dirname($entrypoint), @$lib_dirs, @$source_roots);
     my @lib_file_sets = map {
         +{
             dir   => $_,
@@ -1028,7 +1028,7 @@ sub _pure_perl_dependency_units {
         );
         next if (($compiled->{packaging} // '') eq 'source_payload_fallback');
         if (($compiled->{packaging} // '') eq 'hybrid_compiled_pcu_v1') {
-            my $record = eval { JSON::PP::decode_json($compiled->{bytes}) };
+            my $record = eval { JSON::XS::decode_json($compiled->{bytes}) };
             if (!$@ && ref($record) eq 'HASH' && !@{ $record->{subs} // [] }) {
                 next;
             }
@@ -1112,7 +1112,7 @@ sub _locate_pure_perl_module {
     my $rel = $module;
     $rel =~ s{::}{/}g;
     $rel .= '.pm';
-    my @search_roots = grep { defined && $_ ne '' } (@{ $preferred_roots // [] }, @INC);
+    my @search_roots = grep { $_ ne '' } (@{ $preferred_roots // [] }, @INC);
     my %seen_root;
     for my $inc (@search_roots) {
         next if ref $inc;
@@ -1409,7 +1409,7 @@ sub _toolchain_path {
 
 sub _launcher_source {
     my ($manifest) = @_;
-    my $manifest_json = JSON::PP->new->ascii(1)->canonical(1)->encode(_manifest_without_bytes($manifest));
+    my $manifest_json = JSON::XS->new->ascii(1)->canonical(1)->encode(_manifest_without_bytes($manifest));
     my $manifest_literal = _c_string($manifest_json);
     my $entrypoint_logical = _c_string($manifest->{entrypoint}{logical_path});
     my $source_hash = _c_string($manifest->{source_hash} // '');
@@ -1694,7 +1694,7 @@ sub _manifest_fast_version {
         next if ref($unit) ne 'HASH';
         next if ($unit->{logical_path} // '') ne $entrypoint_logical;
         next if !defined($unit->{bytes}) || $unit->{bytes} eq '';
-        my $record = eval { JSON::PP::decode_json($unit->{bytes}) };
+        my $record = eval { JSON::XS::decode_json($unit->{bytes}) };
         next if ref($record) ne 'HASH';
         return $record->{version} if defined($record->{version}) && $record->{version} ne '';
     }
@@ -1974,7 +1974,7 @@ sub _shared_lib_payload_variants {
 
 sub _shared_lib_dependency_closure {
     my (@roots) = @_;
-    my @queue = grep { defined $_ && $_ ne '' && -f $_ } @roots;
+    my @queue = grep { $_ ne '' && -f $_ } @roots;
     my %seen;
     my %selected;
     while (my $path = shift @queue) {
@@ -2076,7 +2076,7 @@ sub _runtime_core_libs_from_inc_dirs {
     my ($inc_dirs) = @_;
     my @libs;
     my %seen;
-    my @dirs = grep { defined $_ && $_ ne '' } map { abs_path($_) || $_ } @{ $inc_dirs // [] };
+    my @dirs = grep { $_ ne '' } map { abs_path($_) || $_ } @{ $inc_dirs // [] };
     for my $dir (@dirs) {
         next if !-d $dir;
         File::Find::find({
@@ -2105,7 +2105,7 @@ my $PAX_OWN_LIB_ROOT = do {
 
 sub _runtime_inc_dirs {
     my ($exclude_dirs) = @_;
-    my %exclude = map { $_ => 1 } grep { defined && length } map { abs_path($_) || $_ } @$exclude_dirs;
+    my %exclude = map { $_ => 1 } grep { length } map { abs_path($_) || $_ } @$exclude_dirs;
     my %seen;
     my @dirs;
     for my $dir (@INC) {
@@ -2219,7 +2219,7 @@ sub _runtime_selected_files {
 
 sub _expand_runtime_module_files {
     my (%args) = @_;
-    my @queue = grep { defined && -f $_ } @{ $args{seed_files} // [] };
+    my @queue = grep { -f $_ } @{ $args{seed_files} // [] };
     my %selected;
     while (my $path = shift @queue) {
         my $abs = abs_path($path) || $path;
@@ -2405,7 +2405,7 @@ sub _probe_loaded_runtime_files {
     print {$fh} <<'PL';
 use strict;
 use warnings;
-use JSON::PP qw(encode_json decode_json);
+use JSON::XS qw(encode_json decode_json);
 
 my $payload = decode_json($ENV{PAX_RUNTIME_PROBE_PAYLOAD} // '{}');
 unshift @INC, @{ $payload->{lib_dirs} // [] };
@@ -2429,7 +2429,7 @@ print encode_json(\@files);
 PL
     close $fh;
 
-    my $payload = JSON::PP->new->ascii(1)->canonical(1)->encode({
+    my $payload = JSON::XS->new->ascii(1)->canonical(1)->encode({
         modules => \@modules,
         lib_dirs => [ map { abs_path($_) || $_ } @{ $args{lib_dirs} // [] } ],
     });
@@ -2437,10 +2437,10 @@ PL
     my $output = qx{$^X $path};
     my $exit = $? >> 8;
     return () if $exit != 0 || !defined $output || $output eq '';
-    my $decoded = eval { JSON::PP::decode_json($output) };
+    my $decoded = eval { JSON::XS::decode_json($output) };
     return () if $@ || ref($decoded) ne 'ARRAY';
     my %seen;
-    return grep { defined $_ && -f $_ && !$seen{$_}++ } @$decoded;
+    return grep { -f $_ && !$seen{$_}++ } @$decoded;
 }
 
 sub _related_xs_files {
@@ -2658,7 +2658,7 @@ sub _write_json {
     my $dir = dirname($path);
     make_path($dir) if length $dir && !-d $dir;
     open my $fh, '>', $path or die "cannot write $path: $!";
-    print {$fh} JSON::PP->new->ascii(1)->canonical(1)->pretty(1)->encode(_manifest_without_bytes($data));
+    print {$fh} JSON::XS->new->ascii(1)->canonical(1)->pretty(1)->encode(_manifest_without_bytes($data));
     close $fh;
 }
 
