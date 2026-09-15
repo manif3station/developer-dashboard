@@ -265,6 +265,34 @@ sub _spawn_background_compile {
     # uncoverable branch true
     # uncoverable branch false
     if ( $grandchild > 0 ) {
+        # DD-882 (severe runaway found and fixed during this ticket's own
+        # vulnerability-scan gate): the lock file was written with $$ back in
+        # _maybe_spawn_compile - the ORIGINAL CALLER's pid, not any
+        # background process's. That caller returns and exits almost
+        # immediately (it only ever waitpid()s on this short-lived first
+        # child, then falls through to finish its own real command and
+        # terminate normally), so _lock_is_stale's kill(0,$pid) check on
+        # that now-dead pid reports the lock stale within moments of it
+        # being created - even though the actual compile (this fork's own
+        # child, $grandchild) is still genuinely running. Any later caller
+        # then deletes the "stale" lock and starts a SECOND real compile,
+        # which repeats the same mistake, unboundedly. Observed live: PAX's
+        # own build-time benchmark step (Benchmark.pm's live-timing run)
+        # invokes the entrypoint being compiled as a side effect of timing
+        # it, re-entering this exact self-compile hook on a source that is
+        # itself mid-compile - within minutes this produced dozens of
+        # concurrent real `pax build` processes on the host, each spawning
+        # its own benchmark, each spawning another compile. Rewriting the
+        # lock here - after the double-fork, in the still-alive first child,
+        # naming $grandchild instead - closes the race: waitpid() in the
+        # true parent (the _maybe_spawn_compile caller) blocks until THIS
+        # process exits, so the rewrite is guaranteed to land before that
+        # caller ever returns control to whatever invoked resolve().
+        # uncoverable branch false
+        if ( open my $lock_fh, '>', $args{lock_file} ) {
+            print {$lock_fh} $grandchild;    # uncoverable statement
+            close $lock_fh;                  # uncoverable statement
+        }
         POSIX::_exit(0);    # uncoverable statement
     }
 
