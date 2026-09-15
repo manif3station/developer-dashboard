@@ -32,6 +32,9 @@ is( slurp_file( $raw_path, raw => 1 ), "\x00\x01raw", 'raw => 1 reads in :raw mo
 my $missing_path = File::Spec->catfile( $dir, 'does-not-exist.txt' );
 is( slurp_file( $missing_path, on_missing => 'empty' ), '', "on_missing => 'empty' returns '' for a missing file" );
 
+# on_missing => 'empty' with a file that DOES exist - must still read it normally
+is( slurp_file( $text_path, on_missing => 'empty' ), "hello\n", "on_missing => 'empty' still reads an existing file normally" );
+
 # on_missing default is 'die'
 eval { slurp_file($missing_path) };
 like( $@, qr/Unable to read/, 'default on_missing dies with a message naming the failure' );
@@ -49,6 +52,24 @@ like( $@, qr/\Q$missing_path\E/, 'CollectorRunner.pm-shaped call: text mode, die
 
 # CLI/Ask.pm contract: raw + custom message + never returns undef
 is( slurp_file( $text_path, raw => 1 ), "hello\n", 'CLI/Ask.pm-shaped call: raw mode on an existing file' );
+
+# normalize_undef: an I/O error on an already-open handle (not a missing file)
+# yields undef from <$fh>. Reproduced hermetically the same way as
+# t/89-collector-coverage.t's "unreadable artifact" case: symlink to
+# /proc/self/mem, which opens successfully but fails to read.
+SKIP: {
+    skip 'requires /proc/self/mem to force a read error', 2
+      if !-f '/proc/self/mem';
+
+    my $unreadable = File::Spec->catfile( $dir, 'unreadable-via-symlink' );
+    my $symlinked = symlink( '/proc/self/mem', $unreadable );
+    skip "unable to symlink /proc/self/mem: $!", 2 if !$symlinked;
+
+    is( slurp_file( $unreadable, raw => 1 ), undef,
+        'default (normalize_undef off): an I/O read error returns undef, matching Collector.pm/CollectorRunner.pm original behavior' );
+    is( slurp_file( $unreadable, raw => 1, normalize_undef => 1 ), '',
+        "normalize_undef => 1: the same I/O read error returns '' instead, matching CLI/Ask.pm's original behavior" );
+}
 
 done_testing;
 
