@@ -35,19 +35,19 @@ otherwise let the value break out of its surrounding `"..."` early.
 
 ## Where this lives
 
-`Developer::Dashboard::Web::App` has the original, most complete version
-(used for rendering saved pages, syntax highlighting, and several other
-HTML-building paths). `Developer::Dashboard::Zipper` carries its own local
-copy (added for DD-892), used by `acmdx` when building the `html` field of
-its returned link bundle.
-
-**Each copy is module-private** (not exported), matching how the original
-in `Web::App` is itself private - this is a small enough utility that a
-shared module has not been introduced for it. If a third module needs the
-same escaping, check whether the duplication has grown large enough to be
-worth extracting (see the project's own duplication-tracking precedent:
-DD-762's `DirEntries.pm` extraction, and DD-888/DD-891's filed findings
-about other small duplicated helpers) before adding a fourth copy.
+`Developer::Dashboard::HtmlEscape` holds the canonical pair (DD-898,
+extracting what were until then two identical private copies:
+`Developer::Dashboard::Web::App`'s original, most complete version, used
+for rendering saved pages, syntax highlighting, and several other
+HTML-building paths; and `Developer::Dashboard::Zipper`'s local copy,
+added for DD-892 and used by `acmdx` when building the `html` field of its
+returned link bundle). Both modules now `use Developer::Dashboard::HtmlEscape
+qw(_escape_html _escape_html_attr)` and define no private copy of their
+own - matching this project's own duplication-tracking precedent (DD-762's
+`DirEntries.pm`, and DD-888/DD-891/DD-894's own extractions of the same
+shape). A third module needing this escaping simply imports it the same
+way; no extraction decision is needed since the shared module already
+exists.
 
 ## Why this matters
 
