@@ -28,6 +28,7 @@ BEGIN {
 use lib 'lib';
 
 use Developer::Dashboard::Collector;
+use Developer::Dashboard::FileSlurp;
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::PathRegistry;
 
@@ -912,7 +913,8 @@ dies_like( sub { $collector->_format_log_entry( name => '' ) }, qr/Missing colle
 {
     my $outside = tempdir( CLEANUP => 1 );
     my $missing = File::Spec->catfile( $outside, 'missing' );
-    is( Developer::Dashboard::Collector::_slurp($missing), '', '_slurp returns an empty string for a missing file' );
+    is( Developer::Dashboard::FileSlurp::slurp_file( $missing, raw => 1, on_missing => 'empty' ),
+        '', 'slurp_file (Collector.pm-shaped call) returns an empty string for a missing file' );
 
     my $file = File::Spec->catfile( $outside, 'unreadable' );
     open my $fh, '>:raw', $file or die "Unable to write $file: $!";
@@ -926,11 +928,13 @@ dies_like( sub { $collector->_format_log_entry( name => '' ) }, qr/Missing colle
             skip 'this process can read a mode-0000 file, so the open failure cannot occur', 1;
         }
 
-    dies_like( sub { Developer::Dashboard::Collector::_slurp($file) }, qr/Unable to read \Q$file\E/, '_slurp dies when an existing file cannot be opened' );
+    dies_like( sub { Developer::Dashboard::FileSlurp::slurp_file( $file, raw => 1, on_missing => 'empty' ) },
+        qr/Unable to read \Q$file\E/, 'slurp_file (Collector.pm-shaped call) dies when an existing file cannot be opened' );
     }
 
     chmod 0600, $file or die "Unable to chmod $file: $!";
-    is( Developer::Dashboard::Collector::_slurp($file), "kept\n", '_slurp reads an existing readable file' );
+    is( Developer::Dashboard::FileSlurp::slurp_file( $file, raw => 1, on_missing => 'empty' ),
+        "kept\n", 'slurp_file (Collector.pm-shaped call) reads an existing readable file' );
 }
 
 # ---------------------------------------------------------------------------

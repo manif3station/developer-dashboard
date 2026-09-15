@@ -16,6 +16,7 @@ use lib 'lib';
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::CollectorRunner;
 use Developer::Dashboard::FileRegistry;
+use Developer::Dashboard::FileSlurp;
 use Developer::Dashboard::IndicatorStore;
 use Developer::Dashboard::InternalCLI ();
 use Developer::Dashboard::JSON qw(json_encode);
@@ -538,9 +539,9 @@ is( $runner->loop_state('missing.loop'), undef, 'loop_state returns undef when n
 }
 
 # ===========================================================================
-# _slurp failure.
+# slurp_file failure (CollectorRunner.pm-shaped call: text mode, dies on missing).
 # ===========================================================================
-like( ( eval { Developer::Dashboard::CollectorRunner::_slurp( File::Spec->catfile( $home, 'no-such-slurp-file' ) ); 1 } ? '' : $@ ), qr/Unable to read/, '_slurp dies for a missing file' );
+like( ( eval { Developer::Dashboard::FileSlurp::slurp_file( File::Spec->catfile( $home, 'no-such-slurp-file' ) ); 1 } ? '' : $@ ), qr/Unable to read/, 'slurp_file (CollectorRunner.pm-shaped call) dies for a missing file' );
 
 # ===========================================================================
 # _descriptor_is_inherited_pipe fd classification.
