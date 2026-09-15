@@ -68,7 +68,7 @@ assertions had already passed**, reporting FAIL with no failed assertion
 anywhere in the output - the failure is only visible in the exit code and
 the "no plan was declared" diagnostic, not in any `not ok` line.
 
-**The general lesson, matching DD-891's precedent on `TimeUtils.pm`
+**The general lesson, matching DD-894's precedent on `TimeUtils.pm`
 (t/100/t/09 calling `RuntimeManager::_now_iso8601()` bare by its old
 private name):** after renaming or relocating a private sub as part of an
 extraction, grep the WHOLE test suite for the old fully-qualified name
