@@ -6,6 +6,7 @@ use warnings;
 our $VERSION = '4.32';
 
 use Developer::Dashboard::JSON qw(json_decode json_encode);
+use Developer::Dashboard::TextUtils qw(_trim);
 
 our $LEGACY_SEP = ':--------------------------------------------------------------------------------:';
 our @LEGACY_KEYS = ( qw(TITLE ICON BOOKMARK STASH NOTE HTML), map { sprintf 'CODE%d', $_ } 0 .. 1000 );
@@ -668,18 +669,6 @@ function ready(options) {
 if (!window.configs) window.configs = {};
 </script>
 JS
-}
-
-# _trim($text)
-# Trims leading and trailing whitespace from a text string.
-# Input: text string.
-# Output: trimmed text string.
-sub _trim {
-    my ($text) = @_;
-    $text = '' if !defined $text;
-    $text =~ s/\A\s+//;
-    $text =~ s/\s+\z//;
-    return $text;
 }
 
 # _trim_trailing_newline($text)

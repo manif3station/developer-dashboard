@@ -18,6 +18,7 @@ use Cwd qw(abs_path cwd);
 
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::Platform qw(command_in_path is_windows);
+use Developer::Dashboard::TextUtils qw(_trim);
 use Developer::Dashboard::PageDocument;
 use Developer::Dashboard::PageRuntime;
 use Developer::Dashboard::Codec qw(decode_payload);
@@ -2879,18 +2880,6 @@ sub _page_with_runtime_state {
         role        => $request_ctx->{role} || '',
     };
     return $page;
-}
-
-# _trim($text)
-# Trims leading and trailing whitespace from text.
-# Input: text string.
-# Output: trimmed string.
-sub _trim {
-    my ($text) = @_;
-    $text = '' if !defined $text;
-    $text =~ s/\A\s+//;
-    $text =~ s/\s+\z//;
-    return $text;
 }
 
 # _login_redirect_target(%args)
