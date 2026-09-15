@@ -68,3 +68,29 @@ to do bears no relation to the script's intent.
   the distribution's own shipped `share/private-cli/` command bodies are
   staged or invoked; those are always genuine Perl carrying a matching
   shebang.
+
+## A worked example is not a claim that the name is a built-in
+
+`bin/dashboard`'s own SYNOPSIS lists `dashboard <custom-subcommand>
+[args...]` generically, and its POD EXAMPLES sections legitimately
+demonstrate the custom-command mechanism using specific example names (for
+instance, staging a script at `~/.developer-dashboard/cli/update` and its
+`update.d/` hooks, then running `dashboard update`) - a real, working
+sequence when the staging steps are followed, since nothing distinguishes
+a staged custom command from a shipped built-in once it is resolved.
+
+That is different from listing the same bare command name, unqualified, in
+the SYNOPSIS section itself alongside genuine built-ins (`help`, `init`,
+`doctor`, ...). A reader who copies a bare SYNOPSIS line and runs it on a
+fresh install, with nothing staged, gets "Unknown dashboard command" -
+correctly, since nothing about the SYNOPSIS format distinguishes "this is
+always available" from "this becomes available once you stage it" (DD-889:
+`dashboard update` was listed bare in the SYNOPSIS this way, contradicting
+its own EXAMPLES section three pages later showing the staging steps it
+actually needs).
+
+**When documenting the custom-command mechanism:** use the generic
+`dashboard <custom-subcommand> [args...]` form in the SYNOPSIS section, and
+reserve a specific example name for an EXAMPLES section that shows the
+full staging sequence - never list a specific custom-command name bare in
+the SYNOPSIS as if it were a standing built-in.
