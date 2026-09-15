@@ -193,6 +193,8 @@ sub _cwd {
 
 1;
 
+__END__
+
 =pod
 
 =head1 NAME

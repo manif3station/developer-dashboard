@@ -262,68 +262,104 @@ sub _which {
 
 1;
 
-=pod
+__END__
 
 =head1 NAME
 
-Developer::Dashboard::Pax::Tier1 - tier-1 native compilation planner
+Developer::Dashboard::Pax::Tier1 - emits and smoke-tests native C artifacts for a guarded SSA region
 
 =head1 SYNOPSIS
 
   use Developer::Dashboard::Pax::Tier1;
 
-  my $obj = Developer::Dashboard::Pax::Tier1->new(...);
-  my $result = $obj->compile(...);
+  my $planner = Developer::Dashboard::Pax::Tier1->new( out_dir => '.pax/native' );
+  my $result  = $planner->compile($ssa_unit);
 
 =head1 DESCRIPTION
 
-Defines the fast native compilation plan shape used by the tier-1 acceleration path.
+Given one guarded SSA region (the output of region selection over a hot loop
+or leaf op PAX has decided is worth native-compiling), C<compile> matches the
+region's C<native_shape> against a small set of known shapes (an i64 sum
+loop, a masked-mix accumulator loop, a binary i64 leaf op) and, when a match
+is found, emits a standalone C translation unit for it, compiles that C with
+the system C<cc>/C<gcc> into both a shared library and (where the shape
+supports it) a smoke-testable executable, and reports the resulting artifact
+alongside tier-1 (Cranelift-equivalent C ABI, see
+L<Developer::Dashboard::Pax::Backend::Tier1CraneliftEquivalent>) and tier-2
+(LLVM, see L<Developer::Dashboard::Pax::Backend::Tier2LLVM>) backend
+metadata. No native toolchain available, or no shape emitter matched, both
+degrade to a C<fallback_artifact>/C<native_probe_trampoline> rather than
+failing the whole compile.
 
 =head1 METHODS
 
 =head2 new, compile
 
-These are the public entrypoints exposed by this module's current interface.
+C<new> takes C<backend> (default C<portable-fallback>) and C<out_dir>
+(default C<.pax/native>). C<compile> takes one SSA unit hash and returns the
+artifact-description hash described above.
 
 =head1 PURPOSE
 
-This module exists to keep the tier-1 native compilation planner logic in one place so the CLI, build
-pipeline, and runtime can reuse the same behavior instead of duplicating it.
+Turns a single guarded SSA region into a real, compiled, smoke-tested native
+artifact (or an honest fallback description when that isn't possible on the
+current machine), so everything above this module in the pipeline - PAX's
+build/run CLI, standalone binary packaging - can treat "was this region
+natively compiled, and does the artifact actually work" as one small,
+testable question answered in one place.
 
 =head1 WHY IT EXISTS
 
-PAX uses this module when it needs tier-1 native compilation planner. Keeping that behavior isolated here
-makes the surrounding compiler and packaging stages easier to reason about and
-safer to evolve.
+The C emission and the "did it actually work" smoke test (running the
+compiled executable with two sample inputs and comparing the observed
+output against the expected one) are both genuinely fallible - the host may
+lack a C compiler, or the emitted source may fail to build - and every
+caller needs the SAME honest answer about which happened. Centralizing the
+match-shape/emit-C/compile/smoke-test sequence here means a region that
+falls back to interpretation is indistinguishable in behavior, but not in
+reporting, from one that was successfully compiled natively.
 
 =head1 WHEN TO USE
 
-Edit this file when a change affects tier-1 native compilation planner, the data contract this module
-returns, or the conditions under which callers choose this path.
+Edit this file when adding support for a new native-shape kind (extend
+C<_c_source_for_region>'s shape dispatch and add a matching C<_c_*_body>
+emitter), when changing how the smoke test is run or judged, or when the
+tier-1/tier-2 backend metadata this module attaches to a result needs to
+change shape.
 
 =head1 HOW TO USE
 
-Load the module through the normal PAX call path, pass explicit arguments rather
-than ambient global state, and keep project-specific behavior out of this file
-so the implementation stays neutral across arbitrary Perl applications.
+Construct a C<Tier1> planner with an C<out_dir> for its generated C sources,
+shared libraries and executables, then call C<compile> with one SSA unit
+that has already been through guard insertion and region selection. Read
+the returned hash's C<status> field first (C<native_artifact> vs
+C<fallback_artifact>) before trusting C<library_path>/C<executable_path>,
+since a fallback result legitimately omits them.
 
 =head1 WHAT USES IT
 
-This module is used by the PAX CLI, the build pipeline, standalone packaging,
-and the test suite paths that cover tier-1 native compilation planner.
+PAX's own build pipeline (C<Developer::Dashboard::Pax::CLI>'s C<build>
+command path) invokes this once per region GuardedSSA and region selection
+have marked as native-compilation-eligible; the standalone binary packaging
+path (C<StandaloneImage>/C<StandaloneRuntime>) consumes the resulting
+artifact paths when assembling a compiled binary.
 
 =head1 EXAMPLES
 
 Example 1:
 
-  perl -Ilib -MDeveloper::Dashboard::Pax::Tier1 -e 1
-
-Confirm that the module loads from a source checkout.
+  my $planner = Developer::Dashboard::Pax::Tier1->new;
+  my $result  = $planner->compile({
+      region_id    => 'r1',
+      native_shape => { kind => 'i64_binary_leaf', op => 'add', smoke_left => 2, smoke_right => 3, smoke_expected => 5 },
+  });
+  # $result->{status} eq 'native_artifact' on a host with a working cc
 
 Example 2:
 
-  prove -lr t
+  perl -Ilib -MDeveloper::Dashboard::Pax::Tier1 -e 1
 
-Run the repository test suite after changing the behavior this module owns.
+Confirm the module loads cleanly from a source checkout before wiring in a
+new native shape.
 
 =cut

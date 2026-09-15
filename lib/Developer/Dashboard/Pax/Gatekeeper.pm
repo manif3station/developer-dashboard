@@ -442,4 +442,55 @@ This module keeps historical SOW and release-policy checks callable from Perl
 so validation can be reused by gates and tests without reopening the public CLI
 surface.
 
+=head1 WHY IT EXISTS
+
+PAX's own release history accumulated a set of statements of work (SOW-01,
+etc.) each with concrete, checkable acceptance conditions - things like "the
+CPAN/XS test matrix covers at least 7 dual-life distributions" or "deopt
+frame reconstruction includes every required Perl frame field". Those
+conditions used to be exercised through diagnostic subcommands that SOW-03
+deliberately removed from the public CLI surface (C<bin/pax> now exposes
+only C<build> and C<run>). Rather than lose the ability to verify them at
+all, this module keeps every check as a plain Perl method, so a gate or
+test can call C<sow01_report> (and friends) directly without needing a
+public CLI command that would reopen the surface SOW-03 closed.
+
+=head1 WHEN TO USE
+
+Edit this file when adding a new named check to an existing SOW report
+(follow the C<_check_*> naming and C<{id, description, status, evidence}>
+result shape already used throughout), or when a check's pass/fail
+condition needs to change because the code it inspects moved or was
+renamed.
+
+=head1 HOW TO USE
+
+Construct with C<root> pointing at the repository checkout the checks
+should inspect, then call the report method for the SOW you need (e.g.
+C<sow01_report>). Each report aggregates its individual C<_check_*> calls
+into a list of C<{id, description, status, evidence}> hashes - read
+C<status> (C<passed> vs C<blocked>) per check, and C<evidence> for what to
+look at when a check is blocked.
+
+=head1 WHAT USES IT
+
+PAX's own internal release/gate tooling calls this to verify SOW acceptance
+conditions still hold before a release is considered valid, without
+depending on any public CLI diagnostic surface.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  my $gatekeeper = Developer::Dashboard::Pax::Gatekeeper->new(root => '.');
+  my $report = $gatekeeper->sow01_report;
+  my @blocked = grep { $_->{status} eq 'blocked' } @$report;
+  # @blocked lists every SOW-01 condition not currently satisfied
+
+Example 2:
+
+  for my $check (@$report) {
+      print "$check->{id}: $check->{status} ($check->{evidence})\n";
+  }
+
 =cut

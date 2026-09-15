@@ -207,6 +207,8 @@ print defined $value ? $value : q{};
 
 1;
 
+__END__
+
 =pod
 
 =head1 NAME

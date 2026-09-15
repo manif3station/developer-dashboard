@@ -465,6 +465,8 @@ sub _which {
 
 1;
 
+__END__
+
 =pod
 
 =head1 NAME

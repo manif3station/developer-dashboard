@@ -27,22 +27,49 @@ die "bad multiply" unless multiply(6, 7) == 42;
 die "bad greater_than" unless greater_than(10, 3) == 1;
 1;
 
-=pod
+__END__
 
 =head1 NAME
 
-t/fixtures/native_leafs.pl - fixture for fixture with small native-shaped leaf routines
+t/fixtures/native_leafs.pl - fixture: small pure leaf functions that are good native-compilation candidates
 
-=head1 DESCRIPTION
+=head1 PURPOSE
 
-This fixture exists to provide fixture with small native-shaped leaf routines. Tests load or execute it to reproduce a
-specific code shape that the PAX compiler, capture engine, or runtime must
-handle correctly.
+Defines four small, pure, argument-in/value-out arithmetic and comparison subs (add, subtract, multiply, greater_than) - the shape PAX's native-compilation path should treat as leaf functions.
+
+=head1 WHY IT EXISTS
+
+Ported from PAX's own upstream fixture corpus as part of DD-882's vendoring
+of the whole PAX compiler into C<Developer::Dashboard::Pax::*>, so the same
+narrow edge case PAX's own maintainers already tested against - small pure leaf functions that are good native-compilation candidates -
+keeps being exercised against the vendored copy exactly as it was against
+the original.
+
+=head1 WHEN TO USE
+
+Change this file only when the specific behavior it captures needs to
+change. Add a new, separate fixture for a different edge case rather than
+widening this one's scope - each fixture in this directory is deliberately
+narrow.
 
 =head1 HOW TO USE
 
-Keep the fixture small and focused on the behavior named above. When a new test
-needs a different shape, add or change fixtures deliberately instead of turning
-this file into a grab bag.
+Built and run via C<pax build>/C<pax run> against this file as an
+entrypoint, driven from t/183-pax-cli-build-run-contract.t. Self-checking: dies with a specific message ("bad add", "bad subtract", etc.) if any of the four operations produces the wrong compiled/run result.
+
+=head1 WHAT USES IT
+
+t/183-pax-cli-build-run-contract.t, exercising the vendored PAX compiler's
+handling of this specific case during build and run.
+
+=head1 EXAMPLES
+
+Running it interpreted, the baseline behavior a compiled version must match:
+
+    perl t/fixtures/native_leafs.pl
+
+Building and running it through the vendored PAX compiler:
+
+    pax build t/fixtures/native_leafs.pl -o /tmp/out && /tmp/out
 
 =cut

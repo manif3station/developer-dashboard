@@ -36,6 +36,48 @@ The project is deliberately neutral. Core compiler, packaging, loader, runtime,
 and dispatch code must not embed assumptions about one application, company, or
 module namespace.
 
+=head1 PURPOSE
+
+This is the top-level package for PAX vendored wholesale into Developer
+Dashboard under the C<Developer::Dashboard::Pax::*> namespace: an adaptive
+Perl compiler and standalone-binary packager that turns any entrypoint,
+including C<bin/dashboard> and C<bin/d2> themselves, into one self-contained
+executable with compiled code units, native artifacts for eligible hot
+regions, and a runtime launcher.
+
+=head1 WHY IT EXISTS
+
+Developer Dashboard's own C<bin/dashboard> and C<bin/d2> entrypoints check
+their own source against a compile cache on every invocation and exec a
+matching compiled binary directly when one exists (see
+L<Developer::Dashboard::PaxCache>). That self-compile mechanism needs a real
+compiler always available - not conditionally found on the caller's shell
+C<PATH> - which is why PAX's full source is vendored into this project's own
+C<lib/> tree and staged as an internal C<pax> command, rather than kept as a
+separate dependency the environment might or might not provide.
+
+=head1 WHEN TO USE
+
+Read this file (and the C<MAIN CONCEPTS>/C<ARCHITECTURE> sections below) to
+orient in the vendored PAX codebase before working in
+C<lib/Developer/Dashboard/Pax/*>; edit it when PAX's own top-level
+documentation - its command surface, paxfile contract, or architecture
+overview - needs to change for this vendored copy.
+
+=head1 HOW TO USE
+
+Reach PAX through C<dashboard pax> / C<d2 pax> (this project's staged
+internal command, see C<share/private-cli/pax>), or programmatically via
+C<Developer::Dashboard::Pax::CLI-E<gt>run(@ARGV)>. C<Developer::Dashboard::PaxCache>
+is the other real caller - it shells out to exactly this command surface
+when it needs to produce a fresh compiled binary for its cache.
+
+=head1 WHAT USES IT
+
+C<Developer::Dashboard::PaxCache> (this project's self-compile cache for
+C<bin/dashboard>/C<bin/d2>) and the staged C<share/private-cli/pax> internal
+command both depend on this vendored PAX tree being present and working.
+
 =head1 INTRODUCTION
 
 PAX exists to change the deployment shape of a Perl application.
@@ -502,11 +544,11 @@ Release readiness requires:
 
 =over 4
 
-=item * C<Changes>, C<README.md>, C<cpanfile>, C<dist.ini>, and C<lib/Developer/Dashboard/Pax.pm>.
+=item * C<Changes>, the generated product manual, C<cpanfile>, C<dist.ini>, and C<lib/Developer/Dashboard/Pax.pm>.
 
 =item * canonical version synchronization across all PAX modules.
 
-=item * POD and README parity for public behavior.
+=item * POD and generated-manual parity for public behavior.
 
 =item * C<make doc-gate>, which includes C<POD-DOC-ALL> for the full
 maintained Perl surface plus changed subroutine comments.
@@ -546,9 +588,9 @@ version and commit the release-preparation changes. After a successful PAUSE
 upload, the operator must move C<RELEASED_TO_PAUSE> to the released commit and
 push the tag to C<origin>. C<make cpan-dist> and
 C<make cpan-build> then enforce the version gate, the C<Changes> gate, and the
-documentation gate for C<README.md>, this module POD, and the full maintained
-Perl surface through C<POD-DOC-ALL> without mutating tracked source files
-during the packaging step.
+documentation gate for the generated product manual, this module POD, and the
+full maintained Perl surface through C<POD-DOC-ALL> without mutating tracked
+source files during the packaging step.
 
 =head1 TESTING AND COVERAGE
 
@@ -814,13 +856,11 @@ framework code embedded into one standalone executable.
 
 =over 4
 
-=item * C<bin/pax> - public command entrypoint.
+=item * C<share/private-cli/pax> - this vendored copy's staged command entrypoint (C<dashboard pax> / C<d2 pax>).
 
 =item * C<lib/Developer/Dashboard/Pax/> - compiler, packaging, runtime, and validation modules.
 
 =item * C<paxfile.yml> - neutral build manifest.
-
-=item * C<README.md> - operator documentation.
 
 =item * C<Changes>, C<cpanfile>, C<dist.ini> - release metadata.
 
@@ -838,18 +878,13 @@ L<https://opensource.org/license/artistic-2-0>.
 
 =head1 SECURITY
 
-Security issues should be reported privately before they are discussed in a
-public issue tracker.
-
-See the repository F<SECURITY.md> for the reporting address, the backup private
-advisory route, and the reproduction detail needed for triage.
+Security issues in this vendored copy fall under Developer Dashboard's own
+security reporting and review process, not a separate PAX-specific one.
 
 =head1 SEE ALSO
 
-The repository C<README.md> mirrors the public command contract and operator
-workflow documented here.
-
-The internal documentation rule for DD-style parity is recorded in
-F<docs/pax-doc-parity.md>.
+L<Developer::Dashboard::Pax::CLI>, L<Developer::Dashboard::Pax::StandaloneImage>,
+and L<Developer::Dashboard::PaxCache> for the surrounding vendoring and
+self-compile-cache integration this module is part of.
 
 =cut

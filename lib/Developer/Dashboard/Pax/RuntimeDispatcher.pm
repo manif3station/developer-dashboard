@@ -220,6 +220,8 @@ sub _profile_by_region {
 
 1;
 
+__END__
+
 =pod
 
 =head1 NAME

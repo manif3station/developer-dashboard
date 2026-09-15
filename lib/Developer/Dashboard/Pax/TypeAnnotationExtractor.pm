@@ -107,68 +107,99 @@ sub _infer_from_native_shape {
 
 1;
 
-=pod
+__END__
 
 =head1 NAME
 
-Developer::Dashboard::Pax::TypeAnnotationExtractor - extract or infer typed contracts for native-capable regions
+Developer::Dashboard::Pax::TypeAnnotationExtractor - extract or infer typed parameter/return contracts for a region
 
 =head1 SYNOPSIS
 
   use Developer::Dashboard::Pax::TypeAnnotationExtractor;
 
-  my $obj = Developer::Dashboard::Pax::TypeAnnotationExtractor->new(...);
-  my $result = $obj->extract(...);
+  my $extractor = Developer::Dashboard::Pax::TypeAnnotationExtractor->new(
+      source_text  => $region_source,
+      native_shape => $shape,
+      region_name  => 'r1',
+  );
+  my $contract = $extractor->extract;
 
 =head1 DESCRIPTION
 
-Extracts explicit C<# pax-type: ...> hints from source when available and falls back to shape-based type inference for native-capable regions.
+C<extract> first scans C<source_text> for explicit C<# pax-type: params=$left:i64,$right:i64 return=i64>
+comment annotations (an operator-authored contract, C<confidence =E<gt> 'explicit'>) and, only if none
+are found, falls back to C<_infer_from_native_shape>: a small, deliberately conservative table that
+knows the parameter/return types of the handful of C<native_shape> kinds PAX's own region selector can
+already recognize (C<i64_sum_loop>, C<i64_masked_mix_accum_loop>, C<i64_binary_leaf>), returning
+C<confidence =E<gt> 'inferred'>. An unrecognized shape with no explicit annotation returns
+C<confidence =E<gt> 'none'> and an untyped C<PerlScalar> contract rather than guessing.
 
 =head1 METHODS
 
 =head2 new, extract
 
-These are the public entrypoints exposed by this module's current interface.
+C<new> takes C<source_text>, C<native_shape>, and C<region_name>. C<extract>
+takes no arguments and returns the typed-contract hash described above.
 
 =head1 PURPOSE
 
-This module exists to keep the typed-contract extraction logic in one place so the CLI, build
-pipeline, and runtime can reuse the same behavior instead of duplicating it.
+Gives the typed-IR and native-compilation stages downstream a single,
+explicit answer to "what are this region's parameter and return types, and
+how sure are we" - explicit source annotations when the author supplied
+them, a safe shape-based inference otherwise, and an honest untyped answer
+when neither is available, rather than each downstream stage re-deriving
+its own guess.
 
 =head1 WHY IT EXISTS
 
-PAX uses this module when it needs typed-contract extraction. Keeping that behavior isolated here
-makes the surrounding compiler and packaging stages easier to reason about and
-safer to evolve.
+Native compilation (see L<Developer::Dashboard::Pax::Tier1>) and typed IR
+construction (see L<Developer::Dashboard::Pax::TypedIR>) both need to know
+concrete parameter/return types before they can emit real machine-level
+code; Perl itself carries no such types. Centralizing extraction/inference
+here, with an explicit C<confidence> field on every result, means a
+downstream stage can choose to trust an C<inferred> contract for a loop
+shape it already knows how to natively compile while refusing to act on a
+C<none> contract for something PAX has never seen before.
 
 =head1 WHEN TO USE
 
-Edit this file when a change affects typed-contract extraction, the data contract this module
-returns, or the conditions under which callers choose this path.
+Edit this file when adding a C<# pax-type:> annotation syntax variant, when
+teaching the inference table about a new C<native_shape> kind PAX's region
+selector has learned to recognize, or when the confidence levels a caller
+can rely on need to change.
 
 =head1 HOW TO USE
 
-Load the module through the normal PAX call path, pass explicit arguments rather
-than ambient global state, and keep project-specific behavior out of this file
-so the implementation stays neutral across arbitrary Perl applications.
+Construct with the region's raw source text (for explicit-annotation
+scanning) and its C<native_shape> hash (for the inference fallback), then
+call C<extract> once per region. Always read the returned C<confidence>
+field before trusting C<params>/C<return> - a C<none> result means no real
+type information was available and callers should treat the region as
+untyped rather than natively compile it.
 
 =head1 WHAT USES IT
 
-This module is used by the guarded SSA, LLVM backend planning, and the test
-suite paths that cover typed-region extraction.
+PAX's guarded-SSA and native compilation pipeline (Tier1's C<compile>) and
+the LLVM backend planning path use this to get typed parameter/return
+contracts for a region before attempting to emit native code for it.
 
 =head1 EXAMPLES
 
 Example 1:
 
-  perl -Ilib -MDeveloper::Dashboard::Pax::TypeAnnotationExtractor -e 1
-
-Confirm that the module loads from a source checkout.
+  my $extractor = Developer::Dashboard::Pax::TypeAnnotationExtractor->new(
+      source_text => "# pax-type: params=\$left:i64,\$right:i64 return=i64\n",
+  );
+  my $contract = $extractor->extract;
+  # $contract->{source} eq 'comment', $contract->{confidence} eq 'explicit'
 
 Example 2:
 
-  prove -lv t/type_annotation_extractor.t
-
-Run the focused extraction regression coverage.
+  my $extractor = Developer::Dashboard::Pax::TypeAnnotationExtractor->new(
+      native_shape => { kind => 'i64_binary_leaf' },
+  );
+  my $contract = $extractor->extract;
+  # no annotation present, so this falls back to shape inference:
+  # $contract->{confidence} eq 'inferred', $contract->{return} eq 'i64'
 
 =cut

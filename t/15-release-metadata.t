@@ -1069,6 +1069,16 @@ sub _repo_search_without_self {
     FILE:
     for my $path ( sort grep { !$seen{$_}++ } @files ) {
         next if $path eq $self;
+        # DD-882: the vendored PAX compiler (lib/Developer/Dashboard/Pax/*)
+        # and its own ported test fixtures/build-artifact scratch dirs carry
+        # third-party source whose own literal strings (e.g. PAX's own
+        # `api-dashboard.page` page-name pattern in an unrelated page-runtime
+        # regex) can coincidentally match this repo-history search without
+        # being a reference to THIS project's own extracted API/SQL
+        # dashboard feature - the thing this check actually exists to catch.
+        next if $path =~ m{/lib/Developer/Dashboard/Pax(?:/|\.pm\z)};
+        next if $path =~ m{/t/fixtures/};
+        next if $path =~ m{/t/tmp-sow03/};
         my $content = _slurp($path);
         my @lines   = split /\n/, $content, -1;
         for my $index ( 0 .. $#lines ) {

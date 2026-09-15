@@ -7,21 +7,6 @@ use File::Spec;
 use FindBin;
 use JSON::PP qw(decode_json);
 
-=pod
-
-=head1 NAME
-
-t/cli.t - SOW-03 public CLI contract tests
-
-=head1 DESCRIPTION
-
-This test file verifies that C<bin/pax> exposes only C<build> and C<run> to
-users. Older diagnostics remain implementation internals and must not be
-reachable as public subcommands. It also verifies Perl-style inline entrypoint
-support via C<-I>, C<-M>, and C<-e> for the public build/run surface.
-
-=cut
-
 my $repo = abs_path("$FindBin::Bin/..");
 my $pax = "$repo/share/private-cli/pax";
 my $sow03_root = "$repo/t/tmp-sow03";
@@ -373,11 +358,65 @@ like($shebang_output, qr/^args=alpha\|beta$/m, 'shebang execution preserves @ARG
 
 done_testing;
 
-=head1 TEST PLAN
+__END__
 
-This test covers the public C<build> and C<run> command surface, self-hosting,
-interpreter mode, inline Perl execution flags, and progress-rundown behavior.
+=head1 NAME
 
-=head1 HOW TO RUN
+t/183-pax-cli-build-run-contract.t - vendored PAX's own build/run CLI contract test
 
-  prove -lv t/cli.t
+=head1 PURPOSE
+
+Verifies that the vendored PAX compiler's staged C<share/private-cli/pax>
+front door exposes only its public C<build> and C<run> subcommands - older
+diagnostics remain implementation internals and must not be reachable -
+and that both commands work correctly across their real surface: paxfile
+defaults, C<-o>/C<--output> overrides, progress-rundown output (on by
+default, suppressible via C<PAX_PROGRESS=0>), inline Perl entrypoints via
+C<-I>/C<-M>/C<-e>, and PAX compiling and running a standalone copy of
+itself (self-hosting).
+
+=head1 WHY IT EXISTS
+
+Ported from PAX's own upstream C<t/cli.t> as part of DD-882's vendoring of
+the whole PAX compiler into C<Developer::Dashboard::Pax::*>, so the exact
+same build/run contract PAX's own maintainers already relied on keeps being
+checked here, against the vendored copy, rather than being silently
+dropped at the vendoring boundary. 5 of its 59 assertions
+(self-built-pax-related tests 42-43, 45-46, 59) are known-scoped failures
+about PAX's own original C<bin/pax> file structure, not applicable once
+PAX is staged as C<share/private-cli/pax> rather than shipped as its own
+standalone entrypoint - tracked on DD-882's card, not a regression.
+
+=head1 WHEN TO USE
+
+Run this file whenever C<share/private-cli/pax>, any vendored
+C<Developer::Dashboard::Pax::*> module it depends on for build/run/self-host
+behavior, or the staging path that resolves C<pax> as an internal command
+changes.
+
+=head1 HOW TO USE
+
+    PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/183-pax-cli-build-run-contract.t
+
+Requires no fixture setup beyond what already lives under C<t/fixtures/> -
+the file builds and tears down its own working directories
+(C<t/tmp-sow03/>, gitignored) as it runs.
+
+=head1 WHAT USES IT
+
+Runs as part of C<prove -lr t> (the full suite gate) and confirms the
+vendored PAX's own subprocess-level build/run contract before any other
+DD-882 gate (coverage, platform-test, git-gate) is trusted.
+
+=head1 EXAMPLES
+
+Building a standalone binary from paxfile defaults and running it:
+
+    $pax build
+    $pax run
+
+Compiling an inline entrypoint directly from flags, with no source file:
+
+    $pax build -I lib -M Some::Module -e 'print "hi\n"' -o /tmp/out
+
+=cut
