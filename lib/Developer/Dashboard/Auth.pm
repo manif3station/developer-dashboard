@@ -5,6 +5,7 @@ use warnings;
 
 our $VERSION = '4.32';
 
+use Crypt::URandom qw(urandom);
 use Fcntl qw(:mode);
 use Digest::SHA qw(sha256_hex hmac_sha256);
 use File::Spec;
@@ -90,7 +91,17 @@ sub add_user {
       if $username !~ /\A[A-Za-z0-9_.-]{1,64}\z/;
     die 'Password must be at least 8 characters long'
       if length($password) < 8;
-    my $salt       = sha256_hex( join ':', $$, time, rand(), $username );
+    # 256 bits straight from the operating system's CSPRNG. This used to hash
+    # the pid, the wall-clock second, rand() and the username together, the
+    # exact CVE-2026-13577 construction (DD-452/453) already fixed for
+    # SessionStore.pm's session ids: every term but rand() is attacker-
+    # observable, and rand() is drand48 seeded with thirty-two bits - and
+    # inside this project's own container deployment $$ is always 1,
+    # contributing zero entropy at all (DD-900). Crypt::URandom is imported
+    # at compile time on purpose - there is deliberately no fallback,
+    # because a SILENT fallback to weak material is the vulnerability
+    # itself, not the remedy for it.
+    my $salt       = unpack 'H*', urandom(32);
     my $iterations = $PBKDF2_ITERATIONS;
     my $record     = {
         username        => $username,
