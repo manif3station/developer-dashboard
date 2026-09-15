@@ -375,3 +375,40 @@ Three releases: 5.95 (TKT-574), 5.96 (TKT-577), 5.97 (TKT-578).
 `tira.policy.undeclared` confirmed empty. No code change required; no
 command signature or behavior this project relies on changed. Purely
 informational, matching the DD-819/DD-820/DD-836/DD-840/DD-842 pattern.
+
+## 5.112 -> 5.126 (DD-884): a fix that generalises an existing exemption
+
+Fifteen entries, `tira.policy.undeclared` confirmed empty. 13 of 15 bind
+nothing to this project - internal Tira-source refactors, Tira's own docs
+(`SKILLS.md`/`POLICIES.md`) corrections, Tira's own test-suite fixes, a
+browser onboarding-form fix (this project uses the CLI, not the wizard),
+and a non-breaking additive option (`--id` now also accepts an entry's own
+exact wording on `checklist.update`/`required-action.update`, TKT-693).
+
+Two entries were worth checking further:
+
+- **TKT-660 (5.112)**: `--help` on a name that dispatches to nothing used
+  to silently succeed with a generic fallback usage line, reading as
+  confirmation the command existed. Now refused, with a near-match
+  suggestion. Checked: no `.claude/tools/*` script calls `--help`
+  programmatically (grep, zero hits), so nothing in this project's own
+  automation changes behavior - purely beneficial for an interactive typo.
+- **TKT-1087 (5.113)**: `required-action-stranded` (this board's own
+  POL-126, DD-861) now reads `column_endings` the same way
+  `checklist-item-terminal` already does - exempting any card that reached
+  a genuinely terminal column, not only one that passed through
+  `discard`. This board's terminal columns (`done-not-released`,
+  `admin-done`, `release-to-pause`, `discard`) are all correctly marked
+  `terminal: 1` (`tira.column.list`), so the fix applies cleanly here.
+  DD-651 and DD-828's `--exempt-required` entries from 2026-09-14 - made
+  under the OLD, narrower behavior - remain on the record as historical
+  fact (an exemption is a decision made under conditions at the time, not
+  retroactively erased); nothing needed correcting, and no new exemption
+  is expected to be needed by future terminal-but-not-discarded cards.
+
+**The generalisable shape**: a fix to a rule this board has already
+declared does not always demand a NEW declaration or a script change -
+sometimes the correct conclusion is "the fix makes an existing manual
+workaround (an `--exempt-required`) unnecessary going forward," which is
+worth recording precisely so a future reviewer does not re-litigate
+DD-651/DD-828's exemptions as if they were still live defects.
