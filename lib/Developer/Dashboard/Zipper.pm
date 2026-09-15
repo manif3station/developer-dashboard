@@ -111,6 +111,14 @@ sub _escape_html_attr {
 # Prints a older config-binding script for an encoded ajax endpoint.
 # Input: jvar, type, optional file/singleton names, and optional code values.
 # Output: hide marker string.
+# DD-895: $path (the jvar substring after the first '.') and the ajax url
+# are both JS STRING content in the emitted <script> tag, so both go
+# through _js_single_quote before interpolation - matching how
+# $args{singleton} was already correctly handled two lines away. $root
+# (the jvar substring before the first '.') stays unescaped by design: it
+# is interpolated as a bare JS identifier/property-access expression
+# (e.g. `window` or `someObj`), not as string content, so JS-string
+# escaping would be the wrong treatment for it.
 sub Ajax {
     my %args = @_;
     die "jvar is required" if !$args{jvar};
@@ -143,7 +151,8 @@ sub Ajax {
                 );
                 my ( $root, $path ) = split /\./, $args{jvar}, 2;
                 $path ||= '';
-                print sprintf qq{<script>set_chain_value(%s,'%s','%s')</script>}, $root, $path, $saved->{url};
+                print sprintf qq{<script>set_chain_value(%s,'%s','%s')</script>}, $root,
+                  _js_single_quote($path), _js_single_quote( $saved->{url} );
                 print sprintf qq{<script>dashboard_ajax_singleton_cleanup('%s')</script>}, _js_single_quote( $args{singleton} )
                   if defined $args{singleton} && $args{singleton} ne '';
                 return 'HIDE-THIS';
@@ -156,12 +165,14 @@ sub Ajax {
     );
     my ( $root, $path ) = split /\./, $args{jvar}, 2;
     $path ||= '';
-    print sprintf qq{<script>set_chain_value(%s,'%s','%s')</script>}, $root, $path, $ajax->{url}{tokenised};
+    print sprintf qq{<script>set_chain_value(%s,'%s','%s')</script>}, $root,
+      _js_single_quote($path), _js_single_quote( $ajax->{url}{tokenised} );
     return 'HIDE-THIS';
 }
 
 # _js_single_quote($text)
-# Escapes one scalar so it is safe inside a single-quoted JavaScript string literal.
+# Escapes one scalar so it is safe inside a single-quoted JavaScript string
+# literal that is itself written directly into an inline <script> element.
 # Input: plain scalar string.
 # Output: escaped string.
 sub _js_single_quote {
@@ -169,6 +180,20 @@ sub _js_single_quote {
     $text = '' if !defined $text;
     $text =~ s/\\/\\\\/g;
     $text =~ s/'/\\'/g;
+
+    # DD-895: JS-quote-escaping alone is not enough for text that ends up
+    # inside an inline <script> element's own text content (as opposed to
+    # an external .js file or an event-handler attribute) - the HTML
+    # tokenizer looks for the literal case-insensitive sequence "</script"
+    # ANYWHERE in a script element's raw text, independent of and before
+    # any JS parsing, so a JS string literal containing that text still
+    # closes the surrounding tag even once every quote is correctly
+    # escaped. Escaping every "</" as "<\/" is a harmless, always-valid JS
+    # string escape (a backslash before a literal forward slash is just
+    # that slash) that also breaks the "</script" sequence the HTML parser
+    # is looking for, whatever text follows it.
+    $text =~ s{</}{<\\/}g;
+
     return $text;
 }
 

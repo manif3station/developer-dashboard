@@ -70,3 +70,33 @@ DD-892: a label containing `</a><script>...` and a target containing
 `"><img ... onerror=...>`, both asserted to survive only as
 entity-escaped text, never as literal markup in the returned `html`
 field).
+
+## A sibling context: escaping for a JS string, not HTML
+
+DD-895 found the same defect shape one output-context over. HTML-entity
+escaping (`_escape_html`/`_escape_html_attr`) protects data landing inside
+HTML markup; it does nothing for data landing inside a **JS string
+literal** written directly into a `<script>` block - a single quote there
+needs `_js_single_quote` (already present in `Zipper.pm`), not
+`_escape_html`, because the injection boundary is the JS string's own
+quote character and the `</script>` tag, not an HTML tag or attribute.
+
+`Ajax()`'s two `<script>set_chain_value(...)</script>` call sites
+interpolate `jvar`'s split `$path` component into a single-quoted JS
+string slot, but - unlike `$args{singleton}` two lines away in the same
+`sprintf` - never routed it through `_js_single_quote`. A `jvar`
+containing a single quote and a `</script>` sequence broke out of the
+surrounding script tag entirely, confirmed by live reproduction inside a
+`developer-dashboard:latest` container (see DD-895's card for the exact
+payload and output).
+
+**The general lesson**: this file's `_escape_html`/`_escape_html_attr`
+pair is the right tool for HTML markup, and a *different* escaper
+(`_js_single_quote`) is the right tool for a JS string literal inside a
+`<script>` tag - using the HTML pair (or no escaper at all) for the
+latter context does not protect it. When auditing a `sprintf`/`qq{}`
+block for unescaped interpolation, identify the OUTPUT CONTEXT of each
+`%s` slot first (HTML content, HTML attribute, JS string, JS bare
+expression, URL) - each has its own correct escaper, and applying the
+wrong one (or none) leaves that slot exploitable even while a sibling
+slot two lines away is handled correctly.
