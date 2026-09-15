@@ -14950,7 +14950,7 @@ sub _log_native_hit {
 
 1;
 
-=pod
+__END__
 
 =head1 NAME
 
@@ -14974,30 +14974,47 @@ These are the public entrypoints exposed by this module's current interface.
 
 =head1 PURPOSE
 
-This module exists to keep the embedded runtime loader for standalone binaries logic in one place so the CLI, build
-pipeline, and runtime can reuse the same behavior instead of duplicating it.
+This is the code PAX itself embeds into every standalone binary it produces
+(see L<Developer::Dashboard::Pax::StandaloneImage>) - it is what actually
+runs when a compiled binary starts, extracting its own packaged payload and
+dispatching to the right entrypoint, helper, or native fallback, entirely
+independent of the original source checkout.
 
 =head1 WHY IT EXISTS
 
-PAX uses this module when it needs embedded runtime loader for standalone binaries. Keeping that behavior isolated here
-makes the surrounding compiler and packaging stages easier to reason about and
-safer to evolve.
+A standalone binary built by PAX carries no live reference back to the
+source tree it was built from - the whole point is that it keeps working
+after that source tree, and any local CPAN installation, are gone. This
+module is the runtime that makes that true: it is packaged INSIDE the
+binary itself and, on startup, extracts the embedded code units/assets/
+dependency payload to a private runtime directory, sets up C<@INC> and
+environment against that extracted location rather than the original repo,
+and only then dispatches to the actual application entrypoint (falling back
+to bundled-Perl execution for any region that wasn't natively compiled).
 
 =head1 WHEN TO USE
 
-Edit this file when a change affects embedded runtime loader for standalone binaries, the data contract this module
-returns, or the conditions under which callers choose this path.
+Edit this file when changing how a standalone binary extracts and bootstraps
+its own embedded payload, how it decides between a native artifact and its
+bundled-Perl fallback for a given region, or how it dispatches to helper
+commands packaged alongside the main entrypoint.
 
 =head1 HOW TO USE
 
-Load the module through the normal PAX call path, pass explicit arguments rather
-than ambient global state, and keep project-specific behavior out of this file
-so the implementation stays neutral across arbitrary Perl applications.
+This module is not meant to be C<use>d directly by ordinary application
+code - it is embedded into a standalone binary's own source by
+L<Developer::Dashboard::Pax::StandaloneImage> at build time and runs as
+that binary's own startup path. To exercise its behavior, build a
+standalone binary (C<pax build>) and run it; its extraction/dispatch
+logic is what executes.
 
 =head1 WHAT USES IT
 
-This module is used by the PAX CLI, the build pipeline, standalone packaging,
-and the test suite paths that cover embedded runtime loader for standalone binaries.
+Every standalone binary PAX builds carries a copy of this module's code,
+embedded by L<Developer::Dashboard::Pax::StandaloneImage> at build time -
+including a self-built C<pax> binary itself (PAX can build itself), and
+any compiled C<bin/dashboard>/C<bin/d2> binary produced through
+C<Developer::Dashboard::PaxCache>'s self-compile cache.
 
 =head1 EXAMPLES
 

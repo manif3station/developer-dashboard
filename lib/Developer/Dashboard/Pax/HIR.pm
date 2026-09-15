@@ -95,6 +95,8 @@ sub _body_op_for_region {
 
 1;
 
+__END__
+
 =pod
 
 =head1 NAME

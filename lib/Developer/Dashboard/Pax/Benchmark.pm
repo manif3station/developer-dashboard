@@ -204,4 +204,54 @@ This module exists to keep performance comparisons scripted and reproducible so
 PAX can measure where a build is faster, slower, or functionally different from
 stock Perl.
 
+=head1 WHY IT EXISTS
+
+PAX's whole value proposition is "capture/native-compile this entrypoint and
+it still behaves the same, only faster (or at least no slower)" - a claim
+that is only checkable by actually timing runs, not by inspecting code. This
+module runs the SAME entrypoint under three conditions (stock C<perl>,
+PAX's capture/interpret path, and a natively-compiled artifact when one
+exists) with matched sample counts and RSS-before/after memory accounting,
+so a benchmark result is directly comparable across the three rather than
+each caller timing its own ad-hoc subset.
+
+=head1 WHEN TO USE
+
+Edit this file when adding a new dimension to compare (a new timing metric,
+a different memory measurement), when the native-artifact selection logic
+in C<_time_native> needs to recognize a new C<entry_kind>, or when the
+benchmark result shape callers depend on changes.
+
+=head1 HOW TO USE
+
+Construct a C<Benchmark> with an C<iterations> count, then call
+C<run_capture_benchmark> to measure just the capture/interpret overhead for
+one entrypoint, or C<run_runtime_benchmark> for the full three-way
+comparison (stock Perl, capture, native). Read C<native_available> before
+trusting C<native_mean_seconds> - a region with no natively-compilable
+shape legitimately reports C<native_available =E<gt> false> and
+C<fallback_share =E<gt> 1> rather than a fabricated timing.
+
+=head1 WHAT USES IT
+
+PAX's own differential/validation test paths (see
+L<Developer::Dashboard::Pax::Differential>) and its benchmark-matrix
+tooling (see L<Developer::Dashboard::Pax::BenchmarkMatrix>) call this to
+produce the timing evidence behind a "this build is not slower" claim.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  my $bench = Developer::Dashboard::Pax::Benchmark->new(iterations => 5);
+  my $result = $bench->run_capture_benchmark('bin/app.pl');
+  # $result->{mean_seconds} is the mean capture/interpret time over 5 runs
+
+Example 2:
+
+  my $bench = Developer::Dashboard::Pax::Benchmark->new(iterations => 3);
+  my $result = $bench->run_runtime_benchmark('bin/app.pl');
+  # compares $result->{reference_mean_seconds} (stock perl) against
+  # $result->{native_mean_seconds} when $result->{native_available} is true
+
 =cut

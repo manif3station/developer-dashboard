@@ -135,6 +135,8 @@ sub _level_present {
 
 1;
 
+__END__
+
 =pod
 
 =head1 NAME

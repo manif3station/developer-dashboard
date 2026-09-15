@@ -111,6 +111,8 @@ sub _initial_epochs {
 
 1;
 
+__END__
+
 =pod
 
 =head1 NAME

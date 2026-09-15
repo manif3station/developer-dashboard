@@ -2724,6 +2724,49 @@ This module owns the single-binary packaging path. It is where source planning,
 runtime payload selection, launcher generation, and manifest writing come
 together.
 
+=head1 WHY IT EXISTS
+
+An entrypoint plus its compiled code units, native artifacts, and dependency
+payloads are individually useless to an operator who just wants "one file I
+can copy and run" - they need assembling into a single self-contained
+executable with a launcher that finds and runs the right pieces regardless
+of the current working directory or whether a local C<lib/> exists. This
+module is the one place that assembly happens, so C<pax build> and every
+internal caller that needs a standalone binary get the identical, tested
+packaging logic rather than each reimplementing manifest writing and
+launcher generation.
+
+=head1 WHEN TO USE
+
+Edit this file when changing what gets bundled into a standalone image (a
+new payload category beyond code units/native artifacts/dependencies/
+assets), when the launcher's own runtime bootstrap logic needs to change,
+or when the on-disk manifest format C<load> reads back needs a new field.
+
+=head1 WHAT USES IT
+
+C<Developer::Dashboard::Pax::CLI>'s public C<pax build> command is the
+primary caller; PaxCache (C<Developer::Dashboard::PaxCache>, this project's
+own self-compile cache) also depends transitively on a working standalone
+build, since a compiled binary it caches is exactly this module's output.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  my $image = Developer::Dashboard::Pax::StandaloneImage->new;
+  my $result = $image->build(
+      entrypoint => 'bin/app.pl',
+      lib_dirs   => ['lib'],
+      output     => '/tmp/app',
+  );
+  # $result->{status} eq 'ok' and /tmp/app is now a runnable standalone file
+
+Example 2:
+
+  my $manifest = Developer::Dashboard::Pax::StandaloneImage->new->load('/tmp/app');
+  # inspect what was actually bundled into a previously-built image
+
 =head1 HOW TO USE
 
 Build through this module when a workflow needs one standalone executable. Keep

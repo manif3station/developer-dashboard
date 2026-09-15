@@ -55,68 +55,98 @@ sub _typed_op_for_shape {
 
 1;
 
-=pod
+__END__
 
 =head1 NAME
 
-Developer::Dashboard::Pax::TypedIR - lower native-capable SSA units into a typed intermediate form
+Developer::Dashboard::Pax::TypedIR - lower a native-capable SSA unit into one typed intermediate op
 
 =head1 SYNOPSIS
 
   use Developer::Dashboard::Pax::TypedIR;
 
-  my $obj = Developer::Dashboard::Pax::TypedIR->new(...);
-  my $result = $obj->lower_unit(...);
+  my $lowerer = Developer::Dashboard::Pax::TypedIR->new;
+  my $ir = $lowerer->lower_unit($ssa_unit, type_annotations => $contract);
 
 =head1 DESCRIPTION
 
-Bridges guarded SSA and LLVM planning by expressing supported native shapes as a typed intermediate form with explicit parameter and return contracts.
+C<lower_unit> takes an SSA unit's C<native_shape> and maps it, via
+C<_typed_op_for_shape>, onto one of a small fixed set of typed op names
+(C<typed_i64_binary_leaf>, C<typed_i64_sum_loop>,
+C<typed_i64_masked_mix_accum_loop>) - the same three shape kinds
+L<Developer::Dashboard::Pax::Tier1> and
+L<Developer::Dashboard::Pax::TypeAnnotationExtractor> already recognize.
+When a shape is present but has no matching typed op, or no shape is
+present at all, the result is C<status =E<gt> 'untyped'> with a reason
+rather than a guess; a match instead returns C<status =E<gt> 'typed_ir'>
+carrying the region's id/name, the caller-supplied type contract
+(C<source>/C<confidence>/C<params>/C<return> from
+C<TypeAnnotationExtractor>), and a one-element C<ops> list naming the typed
+op and the shape kind it came from.
 
 =head1 METHODS
 
 =head2 new, lower_unit
 
-These are the public entrypoints exposed by this module's current interface.
+C<new> takes no arguments. C<lower_unit> takes one SSA unit hash plus a
+C<type_annotations> hash (typically the result of
+L<Developer::Dashboard::Pax::TypeAnnotationExtractor/extract>) and returns
+the typed-IR hash described above.
 
 =head1 PURPOSE
 
-This module exists to keep the typed intermediate representation logic in one place so the CLI, build
-pipeline, and runtime can reuse the same behavior instead of duplicating it.
+Gives PAX's native-compilation and LLVM-backend-planning stages one small,
+explicit typed instruction to act on instead of the raw, untyped SSA unit -
+this is the boundary where "we recognize this shape and know its types"
+becomes a concrete op name the backends can dispatch on.
 
 =head1 WHY IT EXISTS
 
-PAX uses this module when it needs typed intermediate representation lowering. Keeping that behavior isolated here
-makes the surrounding compiler and packaging stages easier to reason about and
-safer to evolve.
+Guarded SSA construction and native-shape detection happen upstream of any
+notion of concrete types; a native/LLVM backend, in contrast, needs a
+typed instruction before it can emit real machine code. This module is the
+single place that bridges the two, so a backend never has to re-derive "is
+this shape one we know how to type" from the untyped SSA unit itself, and
+adding support for a new shape means teaching exactly this module (and its
+paired L<TypeAnnotationExtractor>) about it, not every backend
+individually.
 
 =head1 WHEN TO USE
 
-Edit this file when a change affects typed intermediate representation lowering, the data contract this module
-returns, or the conditions under which callers choose this path.
+Edit this file when adding a new typed op for a native shape
+L<Developer::Dashboard::Pax::TypeAnnotationExtractor> or
+L<Developer::Dashboard::Pax::Tier1> has learned to recognize, or when the
+fields carried on a C<typed_ir> result need to change.
 
 =head1 HOW TO USE
 
-Load the module through the normal PAX call path, pass explicit arguments rather
-than ambient global state, and keep project-specific behavior out of this file
-so the implementation stays neutral across arbitrary Perl applications.
+Call C<lower_unit> once per SSA unit after type annotations have already
+been extracted (see L<Developer::Dashboard::Pax::TypeAnnotationExtractor>);
+pass that extractor's result as C<type_annotations>. Always check
+C<status> before reading C<ops> - an C<untyped> result carries no C<ops>
+entry and the caller should fall back to interpreted execution for that
+region rather than attempt native compilation.
 
 =head1 WHAT USES IT
 
-This module is used by guarded SSA, LLVM backend planning, and the test suite
-paths that cover typed native lowering.
+PAX's native compilation and LLVM backend planning paths call this after
+region selection and type annotation extraction, to get the one typed op
+those backends dispatch native-code emission on.
 
 =head1 EXAMPLES
 
 Example 1:
 
-  perl -Ilib -MDeveloper::Dashboard::Pax::TypedIR -e 1
-
-Confirm that the module loads from a source checkout.
+  my $lowerer = Developer::Dashboard::Pax::TypedIR->new;
+  my $ir = $lowerer->lower_unit(
+      { region_id => 'r1', native_shape => { kind => 'i64_binary_leaf' } },
+      type_annotations => { source => 'native_shape_inference', confidence => 'inferred', return => 'i64' },
+  );
+  # $ir->{status} eq 'typed_ir', $ir->{ops}[0]{op} eq 'typed_i64_binary_leaf'
 
 Example 2:
 
-  prove -lv t/typed_ir.t
-
-Run the focused typed IR regression coverage.
+  my $ir = $lowerer->lower_unit({ region_id => 'r2', native_shape => {} });
+  # no shape kind at all: $ir->{status} eq 'untyped'
 
 =cut

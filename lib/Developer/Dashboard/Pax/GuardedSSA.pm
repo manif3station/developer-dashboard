@@ -93,6 +93,8 @@ sub _source_text_for_unit {
 
 1;
 
+__END__
+
 =pod
 
 =head1 NAME

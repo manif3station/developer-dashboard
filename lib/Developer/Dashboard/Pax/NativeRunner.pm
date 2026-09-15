@@ -46,6 +46,8 @@ sub run_i64_binary {
 
 1;
 
+__END__
+
 =pod
 
 =head1 NAME

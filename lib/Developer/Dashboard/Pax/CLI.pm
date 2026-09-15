@@ -1560,6 +1560,43 @@ standalone binary with arguments after C<-->.
 This module keeps the public command contract, option parsing, interpreter
 mode, and user-facing error handling in one place so C<bin/pax> can stay thin.
 
+=head1 WHY IT EXISTS
+
+Earlier PAX revisions exposed a wide set of diagnostic subcommands directly
+on the CLI; SOW-03 deliberately narrowed the public surface to just
+C<build> and C<run> so the command a user types carries a small, stable
+contract, while every diagnostic capability that used to be a subcommand
+(capture, differential comparison, benchmarking, gatekeeper checks) stays
+reachable as a plain Perl method for tests and internal callers. This
+module is where that narrowing lives - it is the one place deciding which
+commands are public.
+
+=head1 WHEN TO USE
+
+Edit this file when changing C<build>/C<run>'s option parsing, when
+C<paxfile.yml> default resolution needs new fields, or when deciding
+whether a capability should be exposed as a new public subcommand (rare -
+prefer keeping it a private method other Perl code can call directly,
+matching SOW-03's intent).
+
+=head1 WHAT USES IT
+
+C<share/private-cli/pax> (this project's staged internal C<pax> command,
+reached via C<dashboard pax> / C<d2 pax>) dispatches directly into
+C<Developer::Dashboard::Pax::CLI-E<gt>run(@ARGV)>; the same entrypoint is
+what C<Developer::Dashboard::PaxCache> shells out to when it needs a real
+C<pax build> to populate its compile cache.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  exit Developer::Dashboard::Pax::CLI->run('build', '-o', '/tmp/app', 'bin/app.pl');
+
+Example 2:
+
+  exit Developer::Dashboard::Pax::CLI->run('run', 'bin/app.pl', '--', '--flag', 'value');
+
 =head1 HOW TO USE
 
 Route all public CLI execution through C<run>. Keep internal diagnostics and

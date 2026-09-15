@@ -153,9 +153,55 @@ This module keeps build-progress rendering separate from command parsing and
 build planning so long-running CLI work can report useful progress without
 tangling presentation logic into the compiler and packaging code.
 
+=head1 WHY IT EXISTS
+
+C<pax build> can take a real, noticeable amount of wall-clock time (source
+discovery, entrypoint compilation, dependency compilation, native artifact
+emission), and PAX's own CLI contract requires machine-readable results to
+stay on C<stdout> while progress is purely cosmetic. Without a dedicated
+renderer, either progress output would contaminate the structured C<stdout>
+payload (breaking any caller parsing it as JSON) or operators would get no
+feedback at all during a multi-second build. This module solves both by
+writing exclusively to a configurable C<stream> (C<stderr> by default) and
+redrawing in place when C<dynamic> is set.
+
+=head1 WHEN TO USE
+
+Edit this file when adding a new task-status style (beyond C<pending>,
+C<running>, C<done>, C<failed>), when the redraw/clear-line escape sequence
+logic needs to change for a different terminal target, or when a new PAX
+CLI command needs the same phase-rundown presentation C<pax build> already
+uses.
+
+=head1 HOW TO USE
+
+Construct with a C<title> and an ordered C<tasks> array (each needing an
+C<id>, optionally a C<label>); this renders the initial board immediately.
+Get a callback via C<callback> and pass it into whatever PAX pipeline stage
+emits progress events shaped C<{ task_id =E<gt> ..., status =E<gt> ... }>;
+each event triggers a re-render. Call C<finish> once the whole task board is
+done so the terminal cursor is left on a fresh line.
+
 =head1 WHAT USES IT
 
 The public C<pax build> flow uses this module for the DD-style progress rundown
 shown on C<stderr>.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  my $progress = Developer::Dashboard::Pax::CLI::Progress->new(
+      title => 'pax build progress',
+      tasks => [ { id => 'compile', label => 'Compile entrypoint' } ],
+  );
+  $progress->callback->({ task_id => 'compile', status => 'done' });
+  $progress->finish;
+
+Example 2:
+
+  # PAX_PROGRESS=0 disables the rundown entirely (t/183 exercises this);
+  # this module is simply not constructed in that mode.
+  local $ENV{PAX_PROGRESS} = 0;
 
 =cut
