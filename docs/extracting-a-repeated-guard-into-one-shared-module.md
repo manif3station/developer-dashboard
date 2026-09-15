@@ -131,6 +131,31 @@ bug causing a shared-field mismatch and was correctly discarded once the
 UTC/local split was found to be deliberate - worth naming here because the
 two cards look, from their titles alone, like the same finding twice.
 
+## A pattern can be REINTRODUCED deliberately, then still need fixing (DD-898)
+
+`Developer::Dashboard::HtmlEscape` (DD-898) extracts `_escape_html` and
+`_escape_html_attr` out of `Web/App.pm` and `Zipper.pm` - a case where the
+duplication was created on purpose, not by accident: DD-892 explicitly
+mirrored `Web/App.pm`'s existing pair into `Zipper.pm` as its own private
+copy (rather than extracting a shared module at the time), and
+`docs/html-escaping-convention.md` documented the duplication as "this
+file's convention" without flagging it for later extraction. That is the
+identical shape `TextUtils.pm` (DD-891) was in before its own fix - two
+copies, not yet drifted, with nothing structural stopping a future edit to
+one from silently not reaching the other. **A duplication being
+intentional at the moment it is created does not mean it should stay
+duplicated** - "deliberately mirrored" and "deliberately shared" are two
+different decisions, and only a habit of extracting on sight distinguishes
+them from each other later.
+
+Unlike `TimeUtils.pm`, no call site needed its arguments changed - both
+functions keep the exact signature every existing caller already uses, so
+fully-qualified test calls (`Developer::Dashboard::Web::App::_escape_html(...)`)
+resolve correctly with zero test-file changes, since Exporter installs the
+imported sub into each importing package's own symbol table (the same
+mechanism `t/160`'s own header comment documents, corrected earlier this
+session).
+
 ## Related
 
 - `lib/Developer/Dashboard/DirEntries.pm` - the first instance of this
@@ -145,3 +170,7 @@ two cards look, from their titles alone, like the same finding twice.
 - `lib/Developer/Dashboard/TimeUtils.pm` - the fourth instance (DD-894),
   notable for taking an explicit parameter to preserve two genuinely
   different, intentional output formats rather than one fixed behavior.
+- `lib/Developer/Dashboard/FileSlurp.pm` - the fifth instance (DD-888).
+- `lib/Developer/Dashboard/HtmlEscape.pm` - the sixth instance (DD-898),
+  notable for the duplication having been created deliberately (DD-892
+  mirroring rather than sharing) and still needing this same fix later.
