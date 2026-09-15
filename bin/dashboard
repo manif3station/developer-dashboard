@@ -74,6 +74,11 @@ if ( $cmd eq 'version' ) {
 
 if ( my @helper_command = _builtin_helper_command($cmd) ) {
     my ( $helper_path, @helper_argv ) = @helper_command;
+    if ( !@helper_argv ) {
+        if ( my $cached = _pax_cached_binary_for( $cmd, $helper_path ) ) {
+            _exec_switchboard_command( $cached, @ARGV );
+        }
+    }
     _exec_switchboard_command( $helper_path, @helper_argv, @ARGV );
 }
 
@@ -421,6 +426,26 @@ sub _skill_dotted_command_parts {
     my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     return if !$manager->get_skill_path( $skill_name, include_disabled => 1 );
     return ( $skill_name, $skill_command );
+}
+
+# _pax_cached_binary_for($cmd, $helper_path)
+# Checks whether a fresh PAX-compiled binary is cached for one staged
+# built-in helper, scoped to an explicit small allowlist (DD-877's proof of
+# concept: 'ps1' only) so a first rollout has a small, reversible blast
+# radius. Never blocks: a cache miss triggers a background compile and
+# returns undef so the caller falls through to the normal interpreted exec.
+# Input: top-level command name string and its resolved staged helper path.
+# Output: cached compiled binary path string, or undef.
+my %PAX_CACHE_ELIGIBLE_COMMANDS = ( ps1 => 1 );
+
+sub _pax_cached_binary_for {
+    my ( $cmd, $helper_path ) = @_;
+    return undef if is_windows();
+    return undef if !$PAX_CACHE_ELIGIBLE_COMMANDS{$cmd};
+    return undef if !defined $helper_path || $helper_path eq '';
+    require Developer::Dashboard::PaxCache;
+    my $cache = Developer::Dashboard::PaxCache->new( paths => _switchboard_paths() );
+    return $cache->resolve($helper_path);
 }
 
 # _exec_switchboard_command($path, @argv)
