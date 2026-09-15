@@ -11,6 +11,7 @@ use Getopt::Long qw(GetOptionsFromArray);
 use MIME::Base64 qw(encode_base64);
 
 use Developer::Dashboard::Config;
+use Developer::Dashboard::FileSlurp qw(slurp_file);
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::JSON qw(json_encode json_decode);
 use Developer::Dashboard::PathRegistry;
@@ -308,23 +309,10 @@ sub _classify_files {
             push @images, $path;
         }
         else {
-            push @texts, { path => $path, body => _slurp($path) };
+            push @texts, { path => $path, body => slurp_file( $path, raw => 1, missing_message => 'Unable to read attachment %s: %s', normalize_undef => 1 ) };
         }
     }
     return ( \@images, \@texts );
-}
-
-# _slurp($path)
-# Reads one file fully as raw bytes.
-# Input: file path string.
-# Output: file contents string; dies when unreadable.
-sub _slurp {
-    my ($path) = @_;
-    open my $fh, '<:raw', $path or die "Unable to read attachment $path: $!\n";
-    local $/;
-    my $body = <$fh>;
-    close $fh;
-    return defined $body ? $body : '';    # uncoverable branch false a readable attachment always slurps to a defined string (an empty file reads as the empty string, not undef)
 }
 
 # _build_api_messages($history, $prompt, $text_files, $images)
@@ -348,7 +336,7 @@ sub _build_api_messages {
                 source => {
                     type       => 'base64',
                     media_type => $IMAGE_MEDIA_TYPE{ lc $ext },
-                    data       => encode_base64( _slurp($path), '' ),
+                    data       => encode_base64( slurp_file( $path, raw => 1, missing_message => 'Unable to read attachment %s: %s', normalize_undef => 1 ), '' ),
                 },
               };
         }

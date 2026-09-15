@@ -10,6 +10,7 @@ use File::Spec;
 use Cwd qw(getcwd);
 use Capture::Tiny qw(capture);
 
+use Developer::Dashboard::FileSlurp;
 use Developer::Dashboard::JSON qw(json_encode json_decode);
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::FileRegistry;
@@ -490,7 +491,7 @@ subtest 'transcript load resilience' => sub {
     is_deeply( $loaded->{messages}, [], 'missing messages normalized to []' );
 };
 
-subtest 'unit seams: _run_cli, _default_ua, _slurp, _emit' => sub {
+subtest 'unit seams: _run_cli, _default_ua, slurp_file, _emit' => sub {
     my ( $so, $se, $ex ) = $M->can('_run_cli')->( [ $^X, '-e', 'print "hi"; warn "werr\n"; exit 0' ] );
     is( $so, 'hi',    '_run_cli captures stdout' );
     like( $se, qr/werr/, '_run_cli captures stderr' );
@@ -503,9 +504,14 @@ subtest 'unit seams: _run_cli, _default_ua, _slurp, _emit' => sub {
 
     my $empty = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'empty' );
     open my $ef, '>', $empty or die $!; close $ef;
-    is( $M->can('_slurp')->($empty), '', '_slurp of empty file is empty string' );
-    eval { $M->can('_slurp')->("$home/no-such-slurp"); 1 };
-    like( $@, qr/Unable to read attachment/, '_slurp dies on unreadable' );
+    is( Developer::Dashboard::FileSlurp::slurp_file( $empty, raw => 1, missing_message => 'Unable to read attachment %s: %s', normalize_undef => 1 ),
+        '', 'slurp_file (Ask.pm-shaped call) of empty file is empty string' );
+    eval {
+        Developer::Dashboard::FileSlurp::slurp_file( "$home/no-such-slurp",
+            raw => 1, missing_message => 'Unable to read attachment %s: %s' );
+        1;
+    };
+    like( $@, qr/Unable to read attachment/, 'slurp_file (Ask.pm-shaped call) dies on unreadable' );
 
     my $buf = '';
     $M->can('_emit')->( \$buf, 'noNL' );

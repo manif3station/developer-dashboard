@@ -14,6 +14,7 @@ use Template;
 use Time::HiRes qw(sleep time);
 
 use Developer::Dashboard::InternalCLI ();
+use Developer::Dashboard::FileSlurp qw(slurp_file);
 use Developer::Dashboard::JSON qw(json_encode json_decode);
 use Developer::Dashboard::PerlEnv ();
 use Developer::Dashboard::Platform qw(command_in_path is_windows shell_command_argv);
@@ -444,7 +445,7 @@ sub _adopt_existing_loop_if_running {
     # So if the record is missing, ask the process table before forking. A loop
     # already running for this collector is adopted and its record rewritten,
     # which is both the correct outcome and the repair of the missing file.
-    my $existing = -f $pidfile ? do { my $recorded = _slurp($pidfile); chomp $recorded; $recorded } : undef;
+    my $existing = -f $pidfile ? do { my $recorded = slurp_file($pidfile); chomp $recorded; $recorded } : undef;
     $existing = $self->_find_running_loop($name) if !$existing;
 
     # Truthy rather than merely defined, and that is the guarantee the line above
@@ -941,7 +942,7 @@ sub stop_loop {
     # firing every interval, and it is the same wrong assumption start_loop made.
     my $pid;
     if ( -f $pidfile ) {
-        $pid = _slurp($pidfile);
+        $pid = slurp_file($pidfile);
         chomp $pid;
     }
     else {
@@ -1011,7 +1012,7 @@ sub running_loops {
         next if $entry eq '.' || $entry eq '..';
         next if $entry !~ /^(.*)\.pid$/;
         my $name = $1;
-        my $pid  = eval { _slurp( File::Spec->catfile( $root, $entry ) ) };
+        my $pid  = eval { slurp_file( File::Spec->catfile( $root, $entry ) ) };
         next if !$pid;
         chomp $pid;
         if ( $pid && $self->_reap_child_process($pid) ) {
@@ -1897,17 +1898,6 @@ sub _signal_stop {
     };
 
     $SIGNAL_RUNNER->_shutdown_loop( $SIGNAL_LOOP_NAME, 'stopped', $SIGNAL_LOOP_WORKERS );
-}
-
-# _slurp($file)
-# Reads the full contents of a file.
-# Input: file path string.
-# Output: file content string.
-sub _slurp {
-    my ($file) = @_;
-    open my $fh, '<', $file or die "Unable to read $file: $!";
-    local $/;
-    return <$fh>;
 }
 
 # _now_iso8601()

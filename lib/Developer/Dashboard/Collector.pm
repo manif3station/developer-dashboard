@@ -14,6 +14,7 @@ use POSIX qw(strftime);
 use Time::HiRes qw(time);
 use Time::Local qw(timegm);
 
+use Developer::Dashboard::FileSlurp qw(slurp_file);
 use Developer::Dashboard::JSON qw(json_encode json_decode json_decode_state);
 use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
 
@@ -363,7 +364,7 @@ sub rotate_log {
     return $self->_with_log_lock(
         $paths,
         sub {
-            my $original = _slurp( $paths->{log} );
+            my $original = slurp_file( $paths->{log}, raw => 1, on_missing => 'empty' );
             my $rotated = $self->_apply_log_rotation(
                 $name,
                 $original,
@@ -408,7 +409,7 @@ sub read_log {
     my ( $self, $name ) = @_;
     die 'Missing collector name' if !defined $name || $name eq '';
     for my $file ( $self->_collector_file_candidates( $name, 'log' ) ) {
-        return _slurp($file) if -f $file;
+        return slurp_file( $file, raw => 1, on_missing => 'empty' ) if -f $file;
     }
     return $self->_render_latest_log_entry($name);
 }
@@ -465,7 +466,7 @@ sub _collector_file_candidates {
 sub _first_existing_text_file {
     my ( $self, $name, $filename ) = @_;
     for my $file ( $self->_collector_file_candidates( $name, $filename ) ) {
-        return _slurp($file) if -f $file;
+        return slurp_file( $file, raw => 1, on_missing => 'empty' ) if -f $file;
     }
     return '';
 }
@@ -789,18 +790,6 @@ sub _read_status_file {
     my $data = eval { json_decode($raw) };
     return $data if !$@;
     return;
-}
-
-# _slurp($file)
-# Reads an entire file or returns an empty string when missing.
-# Input: file path string.
-# Output: file content string.
-sub _slurp {
-    my ($file) = @_;
-    return '' if !-f $file;
-    open my $fh, '<:raw', $file or die "Unable to read $file: $!";
-    local $/;
-    return scalar <$fh>;
 }
 
 # _now_iso8601()
