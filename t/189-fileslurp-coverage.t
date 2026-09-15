@@ -56,7 +56,7 @@ __END__
 
 =head1 NAME
 
-t/188-fileslurp-coverage.t - coverage for Developer::Dashboard::FileSlurp
+t/189-fileslurp-coverage.t - coverage for Developer::Dashboard::FileSlurp
 
 =head1 PURPOSE
 
@@ -79,7 +79,7 @@ three call sites' contract changes.
 
 =head1 HOW TO USE
 
-    PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/188-fileslurp-coverage.t
+    PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/189-fileslurp-coverage.t
 
 =head1 WHAT USES IT
 
