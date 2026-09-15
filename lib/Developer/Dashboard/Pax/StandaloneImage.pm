@@ -4,6 +4,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
+use Capture::Tiny qw(capture);
 use Cwd qw(abs_path);
 use Config ();
 use Digest::SHA qw(sha256_hex);
@@ -2434,8 +2435,11 @@ PL
         lib_dirs => [ map { abs_path($_) || $_ } @{ $args{lib_dirs} // [] } ],
     });
     local $ENV{PAX_RUNTIME_PROBE_PAYLOAD} = $payload;
-    my $output = qx{$^X $path};
-    my $exit = $? >> 8;
+    # DD-882 (vulnerability-scan hardening): list-form system() via
+    # Capture::Tiny instead of qx{}, matching this project's own Perl
+    # conventions - never a shell-interpolated string, even though $path is
+    # this sub's own just-written temp probe script, not external input.
+    my ( $output, undef, $exit ) = capture { system( $^X, $path ); return $? >> 8; };
     return () if $exit != 0 || !defined $output || $output eq '';
     my $decoded = eval { JSON::XS::decode_json($output) };
     return () if $@ || ref($decoded) ne 'ARRAY';

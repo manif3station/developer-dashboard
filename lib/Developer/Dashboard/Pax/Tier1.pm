@@ -3,6 +3,7 @@ our $VERSION = '4.32';
 
 use strict;
 use warnings;
+use Capture::Tiny qw(capture);
 use Digest::SHA qw(sha256_hex);
 use File::Path qw(make_path);
 use File::Spec;
@@ -90,7 +91,13 @@ sub _emit_native_artifact {
             my $left = defined $emission->{smoke_left} ? $emission->{smoke_left} : 2;
             my $right = defined $emission->{smoke_right} ? $emission->{smoke_right} : 3;
             my $expected = defined $emission->{smoke_expected} ? $emission->{smoke_expected} : '5';
-            my $output = `$executable_path $left $right`;
+            # DD-882 (vulnerability-scan hardening): list-form system() via
+            # Capture::Tiny instead of backticks, matching this project's
+            # own Perl conventions - never a shell-interpolated string, even
+            # though $executable_path is this sub's own just-compiled
+            # native artifact and $left/$right are internally-generated
+            # smoke-test integers, not external input.
+            my ($output) = capture { system( $executable_path, $left, $right ) };
             chomp $output;
             $native_test = {
                 command => "$executable_path $left $right",
