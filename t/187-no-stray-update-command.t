@@ -91,7 +91,7 @@ the CLI. C<upgrade> is the real, different command.
 Found by the hourly doc-accuracy-hunt automation via a static check against
 C<InternalCLI::helper_names()> plus the document's own internal
 self-contradiction. This test is the permanent regression guard, checking
-both the canonical POD source and its generated README.md, plus
+both the canonical POD source and the generated README, plus
 bin/dashboard's own usage text - while explicitly confirming the unrelated
 per-command hooks demo (which uses "update" only as a generic example
 command name) is correctly left alone.
