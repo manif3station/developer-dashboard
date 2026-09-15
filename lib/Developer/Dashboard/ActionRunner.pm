@@ -134,6 +134,21 @@ sub run_encoded_action {
     );
 }
 
+# DD-881: the cwd-alias fallback below must dispatch ONLY to these no-arg
+# PathRegistry directory getters - never to any other public method
+# (register_named_paths/unregister_named_path mutate state, resolve_dir
+# and others take required arguments), or a config-supplied cwd that
+# merely collides with a method name becomes an arbitrary method call.
+# Mirrors PathRegistry's own %RESOLVABLE_ACCESSOR (DD-870).
+my %RESOLVABLE_ACCESSOR = map { $_ => 1 } qw(
+  home runtime_root home_runtime_root home_runtime_path project_runtime_root
+  state_root state_base_root cache_root home_cache_root logs_root
+  dashboards_root bookmarks bookmarks_root cli_root skills_root
+  collectors_root indicators_root sessions_root temp_root config_root
+  auth_root repo_dashboard_root users_root current_project_root
+  current_working_directory cwd
+);
+
 # run_command_action(%args)
 # Executes a local command action synchronously or in the background.
 # Input: command, cwd, env, timeout_ms, and background options.
@@ -142,7 +157,7 @@ sub run_command_action {
     my ( $self, %args ) = @_;
     my $cmd = $args{command} || die 'Missing command';
     my $cwd = $args{cwd} || cwd();    # uncoverable condition false
-    if ( !File::Spec->file_name_is_absolute($cwd) && $self->{paths}->can($cwd) ) {
+    if ( !File::Spec->file_name_is_absolute($cwd) && $RESOLVABLE_ACCESSOR{$cwd} ) {
         $cwd = $self->{paths}->$cwd();
     }
     die "Action cwd '$cwd' does not exist" if !-d $cwd;

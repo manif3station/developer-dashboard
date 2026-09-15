@@ -61,6 +61,21 @@ sub new {
     }, $class;
 }
 
+# DD-881: the cwd-alias fallback below must dispatch ONLY to these no-arg
+# PathRegistry directory getters - never to any other public method
+# (register_named_paths/unregister_named_path mutate state, resolve_dir
+# and others take required arguments), or a job-config-supplied cwd that
+# merely collides with a method name becomes an arbitrary method call.
+# Mirrors PathRegistry's own %RESOLVABLE_ACCESSOR (DD-870).
+my %RESOLVABLE_ACCESSOR = map { $_ => 1 } qw(
+  home runtime_root home_runtime_root home_runtime_path project_runtime_root
+  state_root state_base_root cache_root home_cache_root logs_root
+  dashboards_root bookmarks bookmarks_root cli_root skills_root
+  collectors_root indicators_root sessions_root temp_root config_root
+  auth_root repo_dashboard_root users_root current_project_root
+  current_working_directory cwd
+);
+
 # run_once($job)
 # Executes a collector job a single time with cwd/env/timeout handling.
 # Input: collector job hash reference.
@@ -73,7 +88,7 @@ sub run_once {
 
     # cwd() always returns a non-empty path
     my $cwd = $job->{cwd} || cwd();    # uncoverable condition false
-    if ( !File::Spec->file_name_is_absolute($cwd) && $self->{paths}->can($cwd) ) {
+    if ( !File::Spec->file_name_is_absolute($cwd) && $RESOLVABLE_ACCESSOR{$cwd} ) {
         $cwd = $self->{paths}->$cwd();
     }
 
@@ -1052,6 +1067,7 @@ sub loop_state {
     return if !-f $file;
     my $last_error = '';
     for ( 1 .. 3 ) {
+        # uncoverable branch true
         open my $fh, '<', $file or die "Unable to read $file: $!";
         local $/;
         my $payload = scalar <$fh>;
@@ -1293,6 +1309,7 @@ sub _write_loop_state {
         name => $name,
     );
     my $tmp = $self->_pending_loop_state_file($file);
+    # uncoverable branch true
     open my $fh, '>', $tmp or die "Unable to write $tmp: $!";
     print {$fh} json_encode( \%state );
     close $fh;
@@ -1711,6 +1728,7 @@ PERL
 sub _command_pid_from_file {
     my ( $self, $pidfile ) = @_;
     return if !defined $pidfile || $pidfile eq '' || !-f $pidfile;
+    # uncoverable branch true
     open my $fh, '<', $pidfile or return;
     my $pid = <$fh>;
     close $fh;

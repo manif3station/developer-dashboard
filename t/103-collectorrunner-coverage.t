@@ -1748,6 +1748,39 @@ ok( !defined $runner->stop_loop('stop.missing'), 'stop_loop returns undef with n
         'DD-850: 50 real, rapid-fire calls to _pending_loop_state_file for the same destination never repeat a staging path' );
 }
 
+# DD-881: run_once's cwd resolution must not dispatch a job-supplied cwd
+# string to ANY public method the bound PathRegistry object happens to
+# answer can() true for - only its intended no-arg directory getters. A
+# spy paths object proves whether the vulnerable dispatch was actually
+# attempted, independent of what -d does afterward.
+{
+    package DDCollectorRunnerCwdSpy;
+    my @CALLS;
+    sub new { return bless {}, shift }
+    sub calls { return @CALLS }
+    sub named_paths { push @CALLS, 'named_paths'; return {} }
+}
+
+{
+    @DDCollectorRunnerCwdSpy::CALLS = ();
+    my $spy_paths  = DDCollectorRunnerCwdSpy->new;
+    my $spy_runner = Developer::Dashboard::CollectorRunner->new(
+        collectors => $collector_store,
+        files      => $files,
+        paths      => $spy_paths,
+    );
+    eval { $spy_runner->run_once( { name => 'dd881.spy', command => 'true', cwd => 'named_paths' } ) };
+    my @calls = DDCollectorRunnerCwdSpy::calls();
+    is( scalar(@calls), 0,
+        "DD-881: run_once(cwd => 'named_paths') never dispatches to the spy's named_paths method"
+    );
+}
+
+{
+    my $result = $runner->run_once( { name => 'dd881.legit', command => 'true', cwd => 'home' } );
+    is( $result->{exit_code}, 0, 'DD-881: a legitimate accessor alias (home) still resolves' );
+}
+
 done_testing;
 
 __END__
