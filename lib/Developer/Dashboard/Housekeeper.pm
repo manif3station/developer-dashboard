@@ -7,12 +7,12 @@ our $VERSION = '4.32';
 
 use File::Path qw(remove_tree);
 use File::Spec;
-use POSIX qw(strftime);
 use Time::HiRes qw(time);
 
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::CollectorRunner;
 use Developer::Dashboard::Config;
+use Developer::Dashboard::TimeUtils qw(_now_iso8601);
 use Developer::Dashboard::FileRegistry;
 use Developer::Dashboard::JSON qw(json_decode);
 use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
@@ -60,7 +60,7 @@ sub run {
 
     return {
         ok               => 1,
-        happened_at      => _now_iso8601(),
+        happened_at      => _now_iso8601( tz => "utc" ),
         min_age_seconds  => $min_age_seconds + 0,
         dry_run          => $dry_run,
         scanned          => $scanned,
@@ -361,14 +361,6 @@ sub _collector_runner {
 sub _config {
     my ($self) = @_;
     return $self->{config} ||= Developer::Dashboard::Config->for_paths( $self->{paths} );    # uncoverable condition false
-}
-
-# _now_iso8601()
-# Returns the current UTC time in dashboard timestamp format.
-# Input: none.
-# Output: timestamp string.
-sub _now_iso8601 {
-    return strftime( '%Y-%m-%dT%H:%M:%SZ', gmtime(time) );
 }
 
 1;

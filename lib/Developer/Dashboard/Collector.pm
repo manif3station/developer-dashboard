@@ -10,13 +10,13 @@ our @EXPORT_OK = qw(readfile);
 
 use Fcntl qw(:flock);
 use File::Spec;
-use POSIX qw(strftime);
 use Time::HiRes qw(time);
 use Time::Local qw(timegm);
 
 use Developer::Dashboard::FileSlurp qw(slurp_file);
 use Developer::Dashboard::JSON qw(json_encode json_decode json_decode_state);
 use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
+use Developer::Dashboard::TimeUtils qw(_now_iso8601);
 
 # readfile($alias)
 # Plain-function convenience wrapper around new_from_all_folders()->read_output($alias),
@@ -121,7 +121,7 @@ sub write_result {
     $self->_atomic_write_text( $paths->{stderr}, defined $result{stderr} ? $result{stderr} : '' );
     $self->_atomic_write_text( $paths->{combined}, ( defined $result{stdout} ? $result{stdout} : '' ) . ( defined $result{stderr} ? $result{stderr} : '' ) );
 
-    my $timestamp = _now_iso8601();
+    my $timestamp = _now_iso8601( tz => "local" );
     $self->_atomic_write_text( $paths->{last_run}, $timestamp . "\n" );
 
     my $written = $self->update_status(
@@ -267,7 +267,7 @@ sub mark_stopped {
                 %{$existing},
                 running     => 0,
                 active_runs => 0,
-                stopped_at  => _now_iso8601(),
+                stopped_at  => _now_iso8601( tz => "local" ),
             };
         }
     );
@@ -790,15 +790,6 @@ sub _read_status_file {
     my $data = eval { json_decode($raw) };
     return $data if !$@;
     return;
-}
-
-# _now_iso8601()
-# Returns the current local timestamp in ISO-8601 form with timezone offset.
-# Input: none.
-# Output: timestamp string.
-sub _now_iso8601 {
-    my @t = localtime();
-    return strftime( '%Y-%m-%dT%H:%M:%S%z', @t );
 }
 
 1;

@@ -8,11 +8,11 @@ our $VERSION = '4.32';
 use Fcntl qw(:mode);
 use Digest::SHA qw(sha256_hex hmac_sha256);
 use File::Spec;
-use POSIX qw(strftime);
 use Socket qw(AF_INET AF_INET6 SOCK_STREAM getaddrinfo inet_ntoa inet_ntop unpack_sockaddr_in unpack_sockaddr_in6);
 use String::Compare::ConstantTime ();
 
 use Developer::Dashboard::JSON qw(json_encode json_decode);
+use Developer::Dashboard::TimeUtils qw(_now_iso8601);
 
 # Work factor for the PBKDF2-HMAC-SHA256 helper-password scheme. This is the
 # iteration count new helper passwords are stretched with; it is also recorded
@@ -99,7 +99,7 @@ sub add_user {
         password_scheme => $PBKDF2_SCHEME,
         iterations      => $iterations,
         password_hash   => _pbkdf2_hmac_sha256_hex( $password, $salt, $iterations ),
-        updated_at      => _now_iso8601(),
+        updated_at      => _now_iso8601( tz => "utc" ),
     };
     my $file = $self->_user_file($username);
     # DD-599: write to a per-writer temp file with an unpredictable name and
@@ -495,15 +495,6 @@ sub _secure_compare {
     my ( $left, $right ) = @_;
     return 0 if !defined $left || !defined $right;
     return String::Compare::ConstantTime::equals( $left, $right ) ? 1 : 0;
-}
-
-# _now_iso8601()
-# Returns the current UTC timestamp in ISO-8601 form.
-# Input: none.
-# Output: timestamp string.
-sub _now_iso8601 {
-    my @t = gmtime();
-    return strftime( '%Y-%m-%dT%H:%M:%SZ', @t );
 }
 
 1;

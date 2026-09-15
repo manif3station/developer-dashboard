@@ -238,7 +238,7 @@ is( $manager->_collector_stalled_for_watchdog( 'x',  {} ), 0, '_collector_stalle
 is( $manager->_collector_stalled_for_watchdog( {},   'x' ), 0, '_collector_stalled_for_watchdog rejects a non-hash status' );
 is( $manager->_collector_stalled_for_watchdog( {},   {} ), 0, '_collector_stalled_for_watchdog false when there is no progress epoch' );
 {
-    my $recent = Developer::Dashboard::RuntimeManager::_now_iso8601();
+    my $recent = Developer::Dashboard::RuntimeManager::_now_iso8601( tz => 'utc' );
     is( $manager->_collector_stalled_for_watchdog( { interval => 5 }, { last_run => $recent } ), 0, '_collector_stalled_for_watchdog false for a fresh collector' );
     my $old = POSIX::strftime( '%Y-%m-%dT%H:%M:%SZ', gmtime( time - 100000 ) );
     is( $manager->_collector_stalled_for_watchdog( { interval => 1 }, { last_run => $old } ), 1, '_collector_stalled_for_watchdog true for a long-stalled collector' );
@@ -246,7 +246,7 @@ is( $manager->_collector_stalled_for_watchdog( {},   {} ), 0, '_collector_stalle
 {
     no warnings 'redefine';
     local *Developer::Dashboard::RuntimeManager::_collector_watchdog_stale_seconds = sub { return 0 };
-    is( $manager->_collector_stalled_for_watchdog( { interval => 1 }, { last_run => Developer::Dashboard::RuntimeManager::_now_iso8601() } ), 0, '_collector_stalled_for_watchdog false when the stale window is under one second' );
+    is( $manager->_collector_stalled_for_watchdog( { interval => 1 }, { last_run => Developer::Dashboard::RuntimeManager::_now_iso8601( tz => 'utc' ) } ), 0, '_collector_stalled_for_watchdog false when the stale window is under one second' );
 }
 
 # --- _collector_watchdog_last_progress_epoch --------------------------------
@@ -254,7 +254,7 @@ is( $manager->_collector_watchdog_last_progress_epoch('x'), 0, '_collector_watch
 is( $manager->_collector_watchdog_last_progress_epoch( {} ), 0, '_collector_watchdog_last_progress_epoch zero for empty status' );
 is( $manager->_collector_watchdog_last_progress_epoch( { last_run => '' } ), 0, '_collector_watchdog_last_progress_epoch skips empty timestamps' );
 {
-    my $now = Developer::Dashboard::RuntimeManager::_now_iso8601();
+    my $now = Developer::Dashboard::RuntimeManager::_now_iso8601( tz => 'utc' );
     ok( $manager->_collector_watchdog_last_progress_epoch( { last_completed_at => $now, last_started_at => $now } ) > 0, '_collector_watchdog_last_progress_epoch returns the newest epoch' );
     is( $manager->_collector_watchdog_last_progress_epoch( { last_run => 'not-a-date' } ), 0, '_collector_watchdog_last_progress_epoch skips unparseable timestamps' );
 }

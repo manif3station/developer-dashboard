@@ -17,6 +17,7 @@ use Developer::Dashboard::InternalCLI ();
 use Developer::Dashboard::FileSlurp qw(slurp_file);
 use Developer::Dashboard::JSON qw(json_encode json_decode);
 use Developer::Dashboard::PerlEnv ();
+use Developer::Dashboard::TimeUtils qw(_now_iso8601);
 use Developer::Dashboard::Platform qw(command_in_path is_windows shell_command_argv);
 use Developer::Dashboard::ProcessSupervision qw(
     _current_perl_command
@@ -95,7 +96,7 @@ sub run_once {
 
     die "Collector cwd '$cwd' does not exist" if !-d $cwd;
 
-    my $started_at = _now_iso8601();
+    my $started_at = _now_iso8601( tz => "local" );
     # Normalize the timeout to milliseconds once and persist it under its own
     # field. Storing a millisecond value under the seconds-keyed 'timeout' field
     # made a persisted-and-reloaded job (for example the Windows worker re-read,
@@ -402,8 +403,8 @@ sub start_loop {
                 ( $interval != $configured_interval ? ( configured_interval => $configured_interval ) : () ),
                 schedule     => $schedule_mode,
                 status       => 'starting',
-                started_at   => _now_iso8601(),
-                heartbeat_at => _now_iso8601(),
+                started_at   => _now_iso8601( tz => "local" ),
+                heartbeat_at => _now_iso8601( tz => "local" ),
             }
         );
         open my $fh, '>', $pidfile or die "Unable to write $pidfile: $!";
@@ -475,7 +476,7 @@ sub _adopt_existing_loop_if_running {
                     interval     => $interval,
                     schedule     => $schedule_mode,
                     status       => 'running',
-                    heartbeat_at => _now_iso8601(),
+                    heartbeat_at => _now_iso8601( tz => "local" ),
                 }
             );
 
@@ -552,8 +553,8 @@ sub _start_windows_loop_process {
             ( $interval != $configured_interval ? ( configured_interval => $configured_interval ) : () ),
             schedule     => $schedule_mode,
             status       => 'starting',
-            started_at   => _now_iso8601(),
-            heartbeat_at => _now_iso8601(),
+            started_at   => _now_iso8601( tz => "local" ),
+            heartbeat_at => _now_iso8601( tz => "local" ),
         }
     );
     return $pid;
@@ -621,7 +622,7 @@ sub _run_loop_child {
                 multiple     => $max_parallel,
                 active_runs  => scalar keys %active_workers,
                 active_worker_pids => [ $self->_active_worker_pids( \%active_workers ) ],
-                heartbeat_at => _now_iso8601(),
+                heartbeat_at => _now_iso8601( tz => "local" ),
             }
         );
         my $due = $self->_job_is_due( $job, $name );
@@ -629,11 +630,11 @@ sub _run_loop_child {
             my $worker_pid = eval { $self->_start_loop_worker( $job, $name, $title ) };
             if ($@) {
                 my $error = "$@";
-                my $message = sprintf "[%s][%s] %s\n", _now_iso8601(), $name, $error;
+                my $message = sprintf "[%s][%s] %s\n", _now_iso8601( tz => "local" ), $name, $error;
                 $self->{files}->append( 'collector_log', $message );
                 $self->{collectors}->append_log_entry(
                     $name,
-                    happened_at => _now_iso8601(),
+                    happened_at => _now_iso8601( tz => "local" ),
                     error       => $error,
                     source      => 'loop error',
                 );
@@ -653,7 +654,7 @@ sub _run_loop_child {
                         multiple     => $max_parallel,
                         active_runs  => scalar keys %active_workers,
                         active_worker_pids => [ $self->_active_worker_pids( \%active_workers ) ],
-                        heartbeat_at => _now_iso8601(),
+                        heartbeat_at => _now_iso8601( tz => "local" ),
                         error        => $error,
                     }
                 );
@@ -778,11 +779,11 @@ sub _run_loop_worker {
     my $ok = eval { $self->run_once($job); 1 };
     if ( !$ok ) {
         my $error = "$@";
-        my $message = sprintf "[%s][%s] %s\n", _now_iso8601(), $name, $error;
+        my $message = sprintf "[%s][%s] %s\n", _now_iso8601( tz => "local" ), $name, $error;
         $self->{files}->append( 'collector_log', $message );
         $self->{collectors}->append_log_entry(
             $name,
-            happened_at => _now_iso8601(),
+            happened_at => _now_iso8601( tz => "local" ),
             error       => $error,
             source      => 'loop error',
         );
@@ -804,7 +805,7 @@ sub _run_loop_worker {
                 schedule     => $state_schedule,
                 status       => 'error',
                 error        => $error,
-                heartbeat_at => _now_iso8601(),
+                heartbeat_at => _now_iso8601( tz => "local" ),
             }
         );
         exit 255;
@@ -1866,8 +1867,8 @@ sub _shutdown_loop {
             pid          => $$,
             process_name => $self->_process_title($name),
             status       => $status || 'stopped',
-            heartbeat_at => _now_iso8601(),
-            stopped_at   => _now_iso8601(),
+            heartbeat_at => _now_iso8601( tz => "local" ),
+            stopped_at   => _now_iso8601( tz => "local" ),
         }
     );
     $self->_cleanup_loop_files($name);
@@ -1891,22 +1892,13 @@ sub _signal_stop {
     eval {
         $SIGNAL_RUNNER->{collectors}->append_log_entry(
             $SIGNAL_LOOP_NAME,
-            happened_at => _now_iso8601(),
+            happened_at => _now_iso8601( tz => "local" ),
             source      => 'loop stopped by signal',
             error       => 'SIG' . ( $signal // 'unknown' ) . " received by pid $$",
         );
     };
 
     $SIGNAL_RUNNER->_shutdown_loop( $SIGNAL_LOOP_NAME, 'stopped', $SIGNAL_LOOP_WORKERS );
-}
-
-# _now_iso8601()
-# Returns the current local timestamp in ISO-8601 form with timezone offset.
-# Input: none.
-# Output: timestamp string.
-sub _now_iso8601 {
-    my @t = localtime();
-    return strftime( '%Y-%m-%dT%H:%M:%S%z', @t );
 }
 
 1;

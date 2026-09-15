@@ -110,6 +110,27 @@ Unlike `DirEntries.pm`'s dot-filter or `PathsRegistryArg.pm`'s guard,
 become a plain `_trim($text)` call after the `use` line, with no argument
 list changes needed at any of the 9 sites.
 
+## A fourth instance: a parameterized function, not a fixed one (DD-894)
+
+`Developer::Dashboard::TimeUtils` (DD-894) extracts `_now_iso8601` out of
+7 files (5 producing a UTC/`Z`-suffixed timestamp via `gmtime`, 2 producing
+a local timestamp with a numeric offset via `localtime` - documented as
+deliberate in `lib/Developer/Dashboard.pm`'s own POD, so cron-scheduled
+collector output lines up with the machine's local time across
+daylight-saving transitions). Unlike `TextUtils.pm`'s single fixed
+behavior, this extraction takes an explicit `tz => 'utc'|'local'`
+parameter - the two groups are genuinely-identical-WITHIN-group but
+different ACROSS group, and the fix must preserve both outputs exactly
+rather than collapsing them into one format. This is the "explicit
+options, not silent special-casing" principle from the shape-of-the-fix
+section above, applied to a case where the two branches are not near
+misses to be judged but two real, permanent, differently-purposed formats.
+
+A prior card (DD-642) misread this same duplication as an unintentional
+bug causing a shared-field mismatch and was correctly discarded once the
+UTC/local split was found to be deliberate - worth naming here because the
+two cards look, from their titles alone, like the same finding twice.
+
 ## Related
 
 - `lib/Developer/Dashboard/DirEntries.pm` - the first instance of this
@@ -121,3 +142,6 @@ list changes needed at any of the 9 sites.
   (DD-785), notable for the corrected-scope lesson above.
 - `lib/Developer/Dashboard/TextUtils.pm` - the third instance (DD-891),
   notable for being a whole function rather than one shared line.
+- `lib/Developer/Dashboard/TimeUtils.pm` - the fourth instance (DD-894),
+  notable for taking an explicit parameter to preserve two genuinely
+  different, intentional output formats rather than one fixed behavior.
