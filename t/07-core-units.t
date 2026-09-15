@@ -5375,7 +5375,7 @@ SCRIPT
           or diag $error;
         ok( !-e $source, '_overwrite_state_file_in_place removes the consumed collector pending state file after a successful overwrite' );
         is(
-            Developer::Dashboard::CollectorRunner::_slurp($target),
+            Developer::Dashboard::CollectorRunner::slurp_file($target),
             qq({"status":"running"}),
             '_overwrite_state_file_in_place replaces the target collector state payload in place',
         );

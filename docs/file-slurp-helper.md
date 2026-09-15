@@ -56,3 +56,22 @@ happened here before any bug was actually found: the three had already
 diverged in raw-vs-text mode and missing-file handling, with nothing
 connecting them by name. See DD-762 for the precedent (directory-entry
 listing, `DirEntries.pm`) and DD-888 for this instance.
+
+## An extraction can leave a stale reference in a TEST, not just in `lib/`
+
+DD-897: `t/07-core-units.t` called `CollectorRunner`'s old private name
+directly and fully-qualified - `Developer::Dashboard::CollectorRunner::
+_slurp($target)` - to check `_overwrite_state_file_in_place`'s output. The
+rename to `slurp_file` (via the shared import) missed this one call site,
+so the file died with "Undefined subroutine" **after all of its own 717
+assertions had already passed**, reporting FAIL with no failed assertion
+anywhere in the output - the failure is only visible in the exit code and
+the "no plan was declared" diagnostic, not in any `not ok` line.
+
+**The general lesson, matching DD-891's precedent on `TimeUtils.pm`
+(t/100/t/09 calling `RuntimeManager::_now_iso8601()` bare by its old
+private name):** after renaming or relocating a private sub as part of an
+extraction, grep the WHOLE test suite for the old fully-qualified name
+(`Package::_old_name`), not only the call sites inside `lib/`. A test
+poking a private sub directly by name is a call site the extraction has
+to migrate too, and it is invisible to a `lib/`-only search.
