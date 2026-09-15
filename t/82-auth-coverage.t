@@ -63,6 +63,36 @@ isa_ok( $auth, 'Developer::Dashboard::Auth', 'constructed auth manager' );
     is( $record->{username}, 'alice', 'add_user stores the requested username' );
     is( $record->{iterations}, 210_000, 'add_user records the default PBKDF2 work factor' );
 
+    # DD-900: the salt must come from the OS CSPRNG (Crypt::URandom), not
+    # from hashing pid/time/rand()/username - the exact weak construction
+    # CVE-2026-13577 already condemned and DD-452/453 already fixed for
+    # SessionStore.pm's session ids. A CORE::GLOBAL::rand/time override
+    # cannot discriminate this: Auth.pm was already compiled once (via the
+    # `use Developer::Dashboard::Auth` above) with any built-in calls bound
+    # at COMPILE time, so a runtime override installed here has no effect
+    # on them (the same reason this file's own DD-599 rename intercept has
+    # to be installed in a BEGIN block, before Auth.pm compiles) - and real,
+    # unshimmed rand()/time() differ between any two calls regardless of
+    # whether the implementation is vulnerable, so "two salts differ" alone
+    # proves nothing either way. What DOES discriminate: Auth.pm imports
+    # `urandom` via `use Crypt::URandom qw(urandom);`, which copies a
+    # coderef into Auth.pm's OWN package glob at compile time - overriding
+    # the ORIGINAL Crypt::URandom::urandom glob afterward does not reach
+    # that already-bound copy (measured directly), but overriding Auth's
+    # own imported glob does, since that is exactly the symbol Auth.pm's
+    # bare `urandom(32)` call resolves through every time it runs.
+    {
+        my $urandom_calls = 0;
+        no warnings 'redefine';
+        local *Developer::Dashboard::Auth::urandom = sub { $urandom_calls++; return "\x11" x $_[0] };
+        my $record = $auth->add_user( username => 'dd900-urandom-check', password => 'password123' );
+        ok( $urandom_calls > 0,
+            'DD-900: Crypt::URandom::urandom is actually called during add_user (not the old pid+time+rand+username construction)' );
+        is( $record->{salt}, ( '11' x 32 ),
+            'DD-900: the salt is the hex encoding of urandom()\'s own output, not a hash of anything else' );
+        $auth->remove_user('dd900-urandom-check');
+    }
+
     # DD-599: the credential record's PREDICTABLE final path (username.json)
     # must never become visible with loose permissions - a bare stat() after
     # add_user returns can't prove this (a later chmod always leaves the
