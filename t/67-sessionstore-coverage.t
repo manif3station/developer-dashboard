@@ -82,12 +82,12 @@ my $store = Developer::Dashboard::SessionStore->new( paths => $paths );
         '_iso8601_after treats a falsy ttl as a zero-second offset from now',
     );
     is(
-        Developer::Dashboard::SessionStore::_iso8601_to_epoch(undef),
+        Developer::Dashboard::SessionStore::_iso8601_to_epoch( undef, on_error => 'zero' ),
         0,
         '_iso8601_to_epoch returns 0 for an undefined timestamp',
     );
     is(
-        Developer::Dashboard::SessionStore::_iso8601_to_epoch('not-a-timestamp'),
+        Developer::Dashboard::SessionStore::_iso8601_to_epoch( 'not-a-timestamp', on_error => 'zero' ),
         0,
         '_iso8601_to_epoch returns 0 for a timestamp that does not match the ISO-8601 shape',
     );

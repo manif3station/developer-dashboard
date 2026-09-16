@@ -156,6 +156,35 @@ imported sub into each importing package's own symbol table (the same
 mechanism `t/160`'s own header comment documents, corrected earlier this
 session).
 
+## A parameter can preserve a SECURITY-relevant behavior, not just a format choice (DD-904)
+
+`Developer::Dashboard::IsoTimestamp` (DD-904) extracts `_iso8601_to_epoch`
+out of `Collector.pm` and `SessionStore.pm` - and the first draft of this
+extraction was wrong. The card's own filing guessed "always die on
+malformed input, since silent-0 is a latent footgun", matching the
+instinct that produced `TextUtils.pm`'s single fixed behavior. Reading
+`SessionStore.pm`'s two call sites in full (not just the sub itself)
+found the opposite: `SessionStore.pm`'s silent-0 return is DD-764's
+deliberate, documented fail-closed security behavior - "a missing expiry
+must fail CLOSED the same way a malformed one already does, never be
+treated as never expires" - relied on by both the cookie-based expiry
+check and the housekeeper's stale-session cleanup sweep. `Collector.pm`,
+by contrast, needs to die on a malformed timestamp, because a malformed
+line in its own self-generated log format indicates real corruption that
+should be loud (and `RuntimeManager.pm` already wraps its call in `eval`,
+expecting exactly that die behavior).
+
+So this is `TimeUtils.pm`'s shape again - two genuinely different,
+permanent, deliberate behaviors, not a bug to collapse into one - but the
+axis being preserved is an error-handling CONTRACT rather than an output
+FORMAT. The shared module takes an explicit `on_error => 'die'|'zero'`
+parameter with no default, exactly mirroring `TimeUtils.pm`'s
+`tz => 'utc'|'local'` precedent. **The lesson worth keeping: when a card
+proposes collapsing an error-handling divergence, read every CALL SITE of
+the "wrong" behavior before assuming it is a footgun - a `# DD-NNN:`
+comment beside the call is often the fastest way to discover the
+divergence is load-bearing.**
+
 ## Related
 
 - `lib/Developer/Dashboard/DirEntries.pm` - the first instance of this
@@ -174,3 +203,7 @@ session).
 - `lib/Developer/Dashboard/HtmlEscape.pm` - the sixth instance (DD-898),
   notable for the duplication having been created deliberately (DD-892
   mirroring rather than sharing) and still needing this same fix later.
+- `lib/Developer/Dashboard/IsoTimestamp.pm` - the seventh instance
+  (DD-904), notable for the preserved parameter being a security-relevant
+  error-handling contract (die vs. fail-closed-zero) rather than an output
+  format.
