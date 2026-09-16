@@ -6,13 +6,14 @@ use warnings;
 our $VERSION = '4.32';
 
 use Digest::MD5 qw(md5_hex);
-use Cwd qw(abs_path getcwd);
+use Cwd qw(getcwd);
 use File::Basename qw(dirname);
 use File::Path qw(make_path);
 use File::Spec;
 use Scalar::Util qw(blessed);
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::Platform qw(passwd_user_name);
+use Developer::Dashboard::PathIdentity ();
 
 # _resolved_home_from_env()
 # Resolves the current user home directory from the available process
@@ -1358,14 +1359,14 @@ sub _ancestor_runtime_layers {
 # _path_identity($path)
 # Normalizes a path for identity and ancestry comparisons without requiring the
 # caller to care about symlink aliases such as /var versus /private/var on macOS.
+# Delegates to Developer::Dashboard::PathIdentity (DD-903) with
+# empty_fallback => 1, preserving this class's historical behavior of falling
+# back to File::Spec->canonpath when abs_path() returns an empty string.
 # Input: path string.
 # Output: canonical existing path or a stable canonpath string.
 sub _path_identity {
     my ( $self, $path ) = @_;
-    return '' if !defined $path || $path eq '';
-    my $resolved = eval { abs_path($path) };
-    return $resolved if defined $resolved && $resolved ne '';    # uncoverable condition right
-    return File::Spec->canonpath($path);
+    return Developer::Dashboard::PathIdentity::_path_identity( $path, empty_fallback => 1 );
 }
 
 # _prefer_reference_style($path, $reference)
@@ -1417,16 +1418,13 @@ sub _display_path {
 
 # _same_or_descendant_path($path, $root)
 # Checks whether one path is identical to or nested beneath another path after
-# canonical normalization.
+# canonical normalization. Delegates to Developer::Dashboard::PathIdentity
+# (DD-903) with empty_fallback => 1, matching this class's own _path_identity.
 # Input: candidate path string and root path string.
 # Output: boolean.
 sub _same_or_descendant_path {
     my ( $self, $path, $root ) = @_;
-    return 0 if !defined $path || $path eq '' || !defined $root || $root eq '';
-    my $path_id = $self->_path_identity($path);
-    my $root_id = $self->_path_identity($root);
-    return 1 if $path_id eq $root_id;
-    return index( $path_id, $root_id . '/' ) == 0 ? 1 : 0;
+    return Developer::Dashboard::PathIdentity::_same_or_descendant_path( $path, $root, empty_fallback => 1 );
 }
 
 # _runtime_layers_from_env()
