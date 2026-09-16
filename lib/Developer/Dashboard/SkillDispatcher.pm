@@ -88,7 +88,7 @@ sub dispatch {
     return {
         stdout    => $hook_stdout . $stdout,
         stderr    => $hook_stderr . $stderr,
-        exit_code => $exit,
+        exit_code => $exit >> 8,
         hooks     => $hook_result->{hooks},
     };
 }
@@ -196,7 +196,7 @@ sub execute_hooks {
             $results{$result_key} = {
                 stdout    => $stdout,
                 stderr    => $stderr,
-                exit_code => $exit,
+                exit_code => $exit >> 8,
             };
             $last_result = {
                 file   => $hook_path,
