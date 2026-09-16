@@ -688,6 +688,18 @@ like( $@, qr/^Usage: open-file/, 'run rejects missing arguments' );
     like( $@, qr/^No files found/, 'run rejects unmatched searches' );
 }
 
+# A failed exec (bad editor binary) must not be silently swallowed - it has
+# to die with a clear message naming the failed command, never fall through
+# and let the caller exit 0 as though the editor actually ran (DD-910).
+{
+    eval { oc( '_command_exec', '/nonexistent-editor-binary-xyz', $realfile ) };
+    like(
+        $@,
+        qr{\QUnable to run editor '/nonexistent-editor-binary-xyz'\E},
+        '_command_exec dies naming the failed editor command'
+    );
+}
+
 # Leave the temp tree so File::Temp cleanup can remove it.
 chdir $orig_cwd or die "Unable to restore cwd to $orig_cwd: $!";
 
