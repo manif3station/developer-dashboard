@@ -145,9 +145,15 @@ sub _selection_matches {
     my $matches = $args{matches} || [];
     return @$matches if $choices eq '' && @$matches;
 
-    if ( $choices =~ /^\d+(?:\s*-\s*\d+)?(?:[\s,]+\d+(?:\s*-\s*\d+)?)*$/ ) {
+    # Collapse whitespace around a range's dash BEFORE splitting on
+    # whitespace, so "1 - 5" survives as one "1-5" chunk instead of being
+    # torn into "1", "-", "5" by the same /[,\s]+/ split that also has to
+    # separate distinct selections (DD-908).
+    ( my $normalized = $choices ) =~ s/\s*-\s*/-/g;
+
+    if ( $normalized =~ /^\d+(?:-\d+)?(?:[\s,]+\d+(?:-\d+)?)*$/ ) {
         my @chosen;
-        for my $chunk ( grep { $_ ne '' } split /[,\s]+/, $choices ) {
+        for my $chunk ( grep { $_ ne '' } split /[,\s]+/, $normalized ) {
             if ( $chunk =~ /^(\d+)-(\d+)$/ ) {
                 my ( $start, $end ) = ( $1, $2 );
                 return if $start < 1 || $end < $start || $end > @$matches;
