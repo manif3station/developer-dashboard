@@ -143,6 +143,11 @@ is_deeply( [ oc( '_selection_matches', choices => '1,3', matches => [ 'a', 'b', 
 is_deeply( [ oc('_select_open_file_matches') ],                     [],         'no matches selects nothing' );
 is_deeply( [ oc( '_select_open_file_matches', matches => ['solo'] ) ], ['solo'], 'single match returns immediately' );
 {
+    # A pipe with data already written and then closed behaves exactly like
+    # the historical "piped answer" usage (printf '2\n' | dashboard of ...,
+    # t/05-cli-smoke.t) - IO::Select reports it ready immediately (EOF is a
+    # readable event), so this exercises the real, unmocked
+    # _stdin_has_pending_input() as well as the read/EOF path below it.
     my @m;
     capture {
         my $empty = '';
@@ -182,6 +187,85 @@ is_deeply( [ oc( '_select_open_file_matches', matches => ['solo'] ) ], ['solo'],
         $err = $@;
     };
     like( $err, qr/Invalid file selection 'nope'/, 'invalid selection dies' );
+}
+{
+    # _stdin_has_pending_input() itself: an in-memory scalar-backed handle
+    # (this project's own established way of faking STDIN) reports a
+    # defined but negative fileno, not a real OS descriptor - select()
+    # cannot examine it and would otherwise wait out the full timeout
+    # without ever reporting it ready, however much data it actually
+    # holds, so it is treated as always ready instead.
+    my $empty = '';
+    open my $in, '<', \$empty or die $!;
+    local *STDIN = $in;
+    my $fileno = fileno($in);
+    ok( defined $fileno && $fileno < 0, 'sanity: the scalar-backed test handle has a defined but negative fileno' );
+    is( oc('_stdin_has_pending_input', 5), 1, 'a negative-fileno handle reports ready immediately, no real wait' );
+}
+{
+    # A genuinely closed handle reports an UNDEF fileno (not merely
+    # negative) - the two are different failure shapes of the same guard
+    # and both must short-circuit to "ready" the same way, since neither
+    # can physically block a read.
+    open my $in, '<', \'' or die $!;
+    close $in;
+    local *STDIN = $in;
+    ok( !defined fileno($in), 'sanity: a closed handle has a genuinely undef fileno' );
+    is( oc('_stdin_has_pending_input', 5), 1, 'an undef-fileno handle reports ready immediately, no real wait' );
+}
+{
+    # A real OS file descriptor (a genuine regular file, not an in-memory
+    # scalar handle) exercises the actual select()/IO::Select path this
+    # whole check exists for, rather than the always-ready short-circuits
+    # above. A regular file is always immediately select()-ready regardless
+    # of content, so this must return true fast, never waiting out the
+    # timeout - proving can_read() itself, not just the fileno guard around
+    # it.
+    my $dir = tempdir( CLEANUP => 1 );
+    my $real_file = catfile( $dir, 'real-stdin-fixture.txt' );
+    spew( $real_file, "3\n" );
+    open my $in, '<', $real_file or die $!;
+    local *STDIN = $in;
+    my $fileno = fileno($in);
+    ok( defined $fileno && $fileno >= 0, 'sanity: a real regular-file handle has a genuine non-negative fileno' );
+    my $before = time;
+    my $ready  = oc( '_stdin_has_pending_input', 5 );
+    my $elapsed = time - $before;
+    is( $ready, 1, 'a real file descriptor with content is reported ready via the real select() path' );
+    ok( $elapsed < 3, 'a genuinely ready descriptor does not wait out the timeout' );
+}
+{
+    # The genuine hang case this whole check exists to prevent: a real,
+    # open pipe with nothing written to it and not yet closed - exactly
+    # what a script's inherited-but-silent STDIN looks like. can_read()
+    # must wait out the timeout and report not-ready, never blocking
+    # forever; a short 1-second timeout keeps this fast while still
+    # proving the real wait-then-give-up behavior, not a shortcut.
+    pipe( my $read_end, my $write_end ) or die "pipe failed: $!";
+    local *STDIN = $read_end;
+    my $fileno = fileno($read_end);
+    ok( defined $fileno && $fileno >= 0, 'sanity: the pipe read end has a genuine non-negative fileno' );
+    my $before  = time;
+    my $ready   = oc( '_stdin_has_pending_input', 1 );
+    my $elapsed = time - $before;
+    is( $ready, 0, 'an open pipe with nothing written is reported not ready after the timeout' );
+    ok( $elapsed >= 1, 'the check genuinely waited out the timeout rather than giving up early' );
+    close $write_end;
+}
+{
+    # Explicit "nothing pending" override, since a real open-but-silent pipe
+    # can only be demonstrated by actually waiting out the timeout - forcing
+    # the wrapper directly is the only way to exercise this branch without
+    # slowing the suite down by several real seconds (DD-915: this is the
+    # actual hang case the fix protects against).
+    my @m;
+    my $out = capture {
+        no strict 'refs';
+        local *{"${PKG}::_stdin_has_pending_input"} = sub { 0 };
+        @m = oc( '_select_open_file_matches', matches => [ 'x', 'y', 'z' ] );
+    };
+    is_deeply( \@m, [ 'x', 'y', 'z' ], 'no pending input falls back to all matches' );
+    unlike( $out, qr/> /, 'no pending input prints no prompt, never blocks on a read' );
 }
 
 # ---------------------------------------------------------------------------
