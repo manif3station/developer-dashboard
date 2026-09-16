@@ -42,26 +42,29 @@ sub run_open_file_command {
     my (%args) = @_;
     my $paths = $args{paths} || build_path_registry();    # uncoverable condition false build_path_registry always returns a blessed registry object
     my @argv  = @{ $args{args} || [] };
-    my $print = 0;
-    my $line  = 0;
+    my $print  = 0;
+    my $line   = 0;
     my $editor = '';
+    my $online = 0;
 
     my $options_ok = GetOptionsFromArray(
         \@argv,
         'print!'   => \$print,
         'line=i'   => \$line,
         'editor=s' => \$editor,
+        'online!'  => \$online,
     );
 
-    die "Usage: open-file [--print] [--line N] [--editor CMD] <file|scope> [pattern...]\n"
+    die "Usage: open-file [--print] [--line N] [--editor CMD] [--online] <file|scope> [pattern...]\n"
       if !$options_ok;
 
-    die "Usage: open-file [--print] [--line N] [--editor CMD] <file|scope> [pattern...]\n"
+    die "Usage: open-file [--print] [--line N] [--editor CMD] [--online] <file|scope> [pattern...]\n"
       if !@argv;
 
     my ( $line_override, @matches ) = _resolve_open_file_matches(
-        paths => $paths,
-        args  => \@argv,
+        paths  => $paths,
+        args   => \@argv,
+        online => $online,
     );
     $line ||= $line_override || 0;
 
@@ -272,8 +275,9 @@ sub _scope_match_rank {
 # Output: list containing optional line number and matched file path strings.
 sub _resolve_open_file_matches {
     my (%args) = @_;
-    my $paths = $args{paths} || die 'Missing path registry';
-    my @argv  = @{ $args{args} || [] };
+    my $paths  = $args{paths} || die 'Missing path registry';
+    my @argv   = @{ $args{args} || [] };
+    my $online = $args{online} || 0;
     my ( $files, $config ) = _open_file_registries( paths => $paths );
 
     my $first = shift @argv;
@@ -297,8 +301,9 @@ sub _resolve_open_file_matches {
 
     if ( defined $first ) {
         my @named_matches = _named_source_matches(
-            paths => $paths,
-            name  => $first,
+            paths  => $paths,
+            name   => $first,
+            online => $online,
         );
         return ( $line, @named_matches ) if @named_matches;
     }
@@ -390,8 +395,9 @@ sub _scope_relative_path_match {
 # Output: sorted list of matching file path strings.
 sub _named_source_matches {
     my (%args) = @_;
-    my $paths = $args{paths} || die 'Missing path registry';
-    my $name  = $args{name}  || return;
+    my $paths  = $args{paths} || die 'Missing path registry';
+    my $name   = $args{name}  || return;
+    my $online = $args{online} || 0;
 
     my @roots = _open_file_roots( paths => $paths );
     my @matches;
@@ -418,6 +424,7 @@ sub _named_source_matches {
             roots    => \@roots,
             name     => $name,
             relative => $relative,
+            online   => $online,
           );
     }
 
@@ -494,7 +501,13 @@ sub _compile_open_file_regex {
 
 # _java_archive_source_matches(%args)
 # Resolves Java source files from local or downloaded source archives when no live .java file exists.
-# Input: path registry object, root array reference, class name string, and relative Java source path string.
+# The network fallback (Maven Central) only runs when the caller explicitly
+# opts in via online => 1 (DD-914) - dashboard of otherwise looks like a
+# local file-search command, and reaching the internet as an automatic side
+# effect of a miss is a surprising thing for it to do silently. When offline
+# and no local archive satisfies the lookup, a notice naming --online is
+# printed to STDERR instead of either failing silently or making the call.
+# Input: path registry object, root array reference, class name string, relative Java source path string, and online boolean.
 # Output: ordered list of extracted Java source file paths.
 sub _java_archive_source_matches {
     my (%args) = @_;
@@ -502,6 +515,7 @@ sub _java_archive_source_matches {
     my $roots    = $args{roots}    || [];
     my $name     = $args{name}     || return;
     my $relative = $args{relative} || return;
+    my $online   = $args{online}   || 0;
 
     my @matches;
     for my $archive ( _candidate_java_source_archives( paths => $paths, roots => $roots ) ) {
@@ -512,13 +526,16 @@ sub _java_archive_source_matches {
             relative => $relative,
           );
     }
-    if ( !@matches ) {
+    if ( !@matches && $online ) {
         push @matches,
           _download_java_source_matches(
             paths    => $paths,
             name     => $name,
             relative => $relative,
           );
+    }
+    elsif ( !@matches ) {
+        print {*STDERR} "'$name' was not found locally; pass --online to search Maven Central.\n";
     }
     return _unique_matches(@matches);
 }
@@ -837,9 +854,12 @@ existing relative file path inside the resolved scope. In that exact-file case,
 the helper opens the scoped file directly instead of falling back to regex
 search. A single hit opens or prints that file, while multiple hits are ranked
 and shown as a chooser or plain list. Perl module lookup maps C<Foo::Bar> to
-C<Foo/Bar.pm>; Java lookup maps dotted class names to C<.java> source files,
-source archives, or cached Maven source jars before the helper decides whether
-to print the path or exec the configured editor.
+C<Foo/Bar.pm>; Java lookup maps dotted class names to C<.java> source files or
+local source archives entirely offline. When neither is found, the helper
+prints a notice and stops rather than reaching the network - pass C<--online>
+to let it fall through to a Maven Central search and download a source jar
+into the dashboard cache (DD-914) before deciding whether to print the path
+or exec the configured editor.
 
 =head1 WHAT USES IT
 
@@ -856,6 +876,7 @@ print-vs-editor flows.
   dashboard of foobar 456.txt
   dashboard of . "Ok\.js$"
   dashboard open-file javax.jws.WebService
+  dashboard open-file --online javax.jws.WebService
   dashboard of Developer::Dashboard::CLI::Paths
   dashboard open-file --print bookmarks index
 

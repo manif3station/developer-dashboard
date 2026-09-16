@@ -500,6 +500,52 @@ is_deeply( [ oc( '_java_archive_source_matches', paths => $reg, name => 'com.X.Y
 }
 
 # ---------------------------------------------------------------------------
+# _java_archive_source_matches : network opt-in gate (DD-914)
+# ---------------------------------------------------------------------------
+{
+    # No local archive can satisfy this class, and online lookup is NOT
+    # requested (the online arg is simply omitted, matching how a caller
+    # that never passed --online would call this). Network must not be
+    # touched at all - fail loudly if it is.
+    local $ENV{JAVA_HOME};
+    delete $ENV{JAVA_HOME};
+    local $ENV{JDK_HOME};
+    delete $ENV{JDK_HOME};
+    no warnings 'redefine';
+    local *LWP::UserAgent::get = sub { die "network must not be reached without --online\n" };
+    my ( $out, $err, @m ) = capture {
+        oc(
+            '_java_archive_source_matches',
+            paths    => $reg,
+            roots    => [],
+            name     => 'com.example.NoLocalJar',
+            relative => $good_relative,
+        );
+    };
+    is_deeply( \@m, [], 'no matches when offline and no local archive exists' );
+    like( $err, qr/--online/, 'a notice naming --online is printed when network lookup is skipped' );
+}
+{
+    # Same missing-local-archive situation, but online => 1 is passed:
+    # existing network-lookup behavior must be preserved unchanged.
+    local $ENV{JAVA_HOME};
+    delete $ENV{JAVA_HOME};
+    local $ENV{JDK_HOME};
+    delete $ENV{JDK_HOME};
+    no warnings 'redefine';
+    local *LWP::UserAgent::get = sub { HTTP::Response->new( 200, 'OK', [], '{"response":{"docs":[]}}' ) };
+    my @m = oc(
+        '_java_archive_source_matches',
+        paths    => $reg,
+        roots    => [],
+        name     => 'com.example.NoLocalJar',
+        relative => $good_relative,
+        online   => 1,
+    );
+    is_deeply( \@m, [], 'online => 1 still reaches the (mocked) network search, finds nothing here' );
+}
+
+# ---------------------------------------------------------------------------
 # _maven_search_documents : query, transport and payload handling
 # ---------------------------------------------------------------------------
 is_deeply( [ oc( '_maven_search_documents', undef ) ], [], 'undef class name yields no documents' );
@@ -602,6 +648,25 @@ spew( $realfile, "alpha\n" );
 
 eval { oc( '_resolve_open_file_matches', args => ['x'] ) };
 like( $@, qr/Missing path registry/, 'resolve requires a path registry' );
+
+{
+    # _resolve_open_file_matches must thread online => 1 all the way down to
+    # the network-lookup gate (DD-914), not just accept it as a no-op arg.
+    local $ENV{JAVA_HOME};
+    delete $ENV{JAVA_HOME};
+    local $ENV{JDK_HOME};
+    delete $ENV{JDK_HOME};
+    no warnings 'redefine';
+    local *LWP::UserAgent::get = sub { HTTP::Response->new( 200, 'OK', [], '{"response":{"docs":[]}}' ) };
+    my ( $line, @m ) = oc(
+        '_resolve_open_file_matches',
+        paths  => $reg,
+        args   => ['com.example.ThreadedOnline'],
+        online => 1,
+    );
+    is( $line, 0, 'online-threaded resolve returns a zero line when nothing is found' );
+    is_deeply( \@m, [], 'online-threaded resolve reaches the (mocked) network path and still finds nothing here' );
+}
 
 {
     my ( $line, @m ) = oc( '_resolve_open_file_matches', paths => $reg, args => ["$realfile:18"] );
