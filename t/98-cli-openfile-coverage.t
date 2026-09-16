@@ -261,7 +261,7 @@ is_deeply( [ oc( '_select_open_file_matches', matches => ['solo'] ) ], ['solo'],
     my @m;
     my $out = capture {
         no strict 'refs';
-        local *{"${PKG}::_stdin_has_pending_input"} = sub { 0 };
+        local *{"Developer::Dashboard::CLI::OpenFileChooser::_stdin_has_pending_input"} = sub { 0 };
         @m = oc( '_select_open_file_matches', matches => [ 'x', 'y', 'z' ] );
     };
     is_deeply( \@m, [ 'x', 'y', 'z' ], 'no pending input falls back to all matches' );
@@ -556,7 +556,7 @@ my $good_relative = catfile( 'com', 'example', 'Foo.java' );
     # An entry name that does not resolve to a member is skipped during extraction.
     my $jar = catfile( $home, 'src-jar.jar' );
     no warnings 'redefine';
-    local *Developer::Dashboard::CLI::OpenFile::_matching_java_archive_entries = sub { return ('missing/Absent.java') };
+    local *Developer::Dashboard::CLI::OpenFileJavaSource::_matching_java_archive_entries = sub { return ('missing/Absent.java') };
     my @z = oc( '_extract_java_sources_from_archive', paths => $reg, archive => $jar, relative => $good_relative );
     is_deeply( \@z, [], 'unresolvable archive entry names are skipped' );
 }
@@ -721,7 +721,7 @@ is_deeply( [ oc( '_download_java_source_matches', paths => $reg, name => 'com.X'
     write_jar( $good,  { 'com/example/Foo.java' => "class Foo {}\n" } );
     write_jar( $empty, { 'other/Bar.txt'        => "note\n" } );
 
-    local *Developer::Dashboard::CLI::OpenFile::_maven_search_documents = sub {
+    local *Developer::Dashboard::CLI::OpenFileJavaSource::_maven_search_documents = sub {
         return (
             'not-a-hash',
             {},
@@ -731,7 +731,7 @@ is_deeply( [ oc( '_download_java_source_matches', paths => $reg, name => 'com.X'
             { ec => ['-sources.jar'], g => 'g', a => 'good',  v => '1' },
         );
     };
-    local *Developer::Dashboard::CLI::OpenFile::_download_maven_source_jar = sub {
+    local *Developer::Dashboard::CLI::OpenFileJavaSource::_download_maven_source_jar = sub {
         my %args = @_;
         my $doc  = $args{doc};
         return undef  if $doc->{a} eq 'faildl';
