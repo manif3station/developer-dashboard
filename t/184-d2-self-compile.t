@@ -110,6 +110,54 @@ sub seed_cache_for_d2 {
     like( $out, qr/\A\d+\.\d+\s*\z/, 'DD-882: with the guard set, d2 falls through to its normal re-exec of dashboard' );
 }
 
+# DD-924: a REAL PAX-compiled d2 binary, not merely the hand-written sentinel
+# used above, must correctly fall through to dashboard when it re-runs its
+# own internal exec-into-dashboard fallback line. That line computes its
+# target path from $Bin, and inside a genuinely compiled binary FindBin's
+# $Bin resolves to wherever the RUNNING COMPILED BINARY physically lives
+# (PaxCache's cache directory) rather than to bin/'s real location - a defect
+# the sentinel above is structurally unable to exercise, since it never runs
+# any of d2's own compiled body. This builds a real standalone binary from
+# bin/d2 itself (via share/private-cli/pax, the same build path
+# t/183-pax-cli-build-run-contract.t exercises for its own contract) and
+# seeds it into the cache exactly as a genuine self-compile would leave it.
+{
+    my $home         = tempdir( CLEANUP => 1 );
+    my $real_binary  = File::Spec->catfile( $home, 'd2-real-compiled.pax' );
+    my $pax          = File::Spec->catfile( $repo_root, 'share', 'private-cli', 'pax' );
+
+    my ( $build_out, $build_err, $build_exit ) = capture {
+        local $ENV{PERL5LIB} = defined $ENV{PERL5LIB} && $ENV{PERL5LIB} ne ''
+            ? "$lib:$ENV{PERL5LIB}"
+            : $lib;
+        system( $^X, $pax, 'build', '--compact', $d2, '-o', $real_binary );
+        return $? >> 8;
+    };
+    is( $build_exit, 0, 'DD-924: pax build compiles a real standalone binary from bin/d2 itself' )
+        or diag("build stdout: $build_out\nbuild stderr: $build_err");
+    ok( -x $real_binary, 'DD-924: the real compiled d2 binary is executable' );
+
+    open my $rbfh, '<:raw', $real_binary or die "Unable to read $real_binary: $!";
+    local $/;
+    my $real_binary_contents = <$rbfh>;
+    close $rbfh;
+
+    seed_cache_for_d2( $home, $real_binary_contents );
+
+    my ( $out, $err, $exit ) = capture {
+        local $ENV{HOME}          = $home;
+        local $ENV{HARNESS_ACTIVE} = 0;
+        system( $^X, '-I', $lib, $d2, 'version' );
+    };
+    is( $exit >> 8, 0,
+        'DD-924: d2 execs the real compiled binary, whose own internal exec-into-dashboard fallback succeeds'
+    ) or diag("stdout: $out\nstderr: $err");
+    unlike( $err, qr/Can't open perl script/,
+        q{DD-924: the compiled binary's own $Bin resolution does not point at the pax cache directory} );
+    like( $out, qr/\A\d+\.\d+\s*\z/,
+        'DD-924: the compiled binary correctly falls through to dashboard and prints its plain version' );
+}
+
 done_testing;
 
 __END__
@@ -152,6 +200,10 @@ Confirms the contract every real C<d2> invocation depends on: a fresh
 compiled binary for d2 itself is used transparently when available, a miss
 falls through to the existing sibling-dashboard re-exec unchanged, and the
 shared guard prevents either entrypoint's hook from re-triggering the other.
+DD-924's block additionally confirms that a REAL C<pax>-compiled d2 binary's
+own internal fallback into C<dashboard> actually works at runtime, not just
+that d2 dispatches to it - the sentinel-based blocks above cannot exercise
+that, since a hand-written sentinel never runs any of d2's own compiled body.
 
 =head1 EXAMPLES
 
@@ -159,5 +211,13 @@ Seeding a fake cached binary for d2 and confirming d2 execs it directly:
 
     my $bin_file = seed_cache_for_d2($home, "#!/usr/bin/env perl\nprint 'hi';\n");
     system($^X, '-I', $lib, $d2, 'version');    # runs the sentinel, not dashboard
+
+Building and seeding a REAL compiled d2 binary (DD-924), then confirming its
+own internal fallback into dashboard succeeds rather than failing on a
+miscomputed C<$Bin>:
+
+    system($^X, $pax, 'build', '--compact', $d2, '-o', $real_binary);
+    seed_cache_for_d2($home, do { open my $fh, '<:raw', $real_binary; local $/; <$fh> });
+    system($^X, '-I', $lib, $d2, 'version');    # runs the REAL compiled binary
 
 =cut

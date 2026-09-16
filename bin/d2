@@ -11,7 +11,20 @@ use FindBin qw($Bin);
 # shell alias, so it works in scripts and fresh shells without loading the shell
 # bootstrap. It re-execs its sibling `dashboard` entrypoint with the same
 # arguments so the two commands behave identically.
-my $dashboard = File::Spec->catfile( $Bin, 'dashboard' );
+#
+# DD-924: computed from $Bin here, not inline at the exec site below, because
+# this whole file's body (this line included) is what PAX embeds verbatim
+# into a compiled d2 binary - when THAT binary later runs, $Bin resolves via
+# FindBin to wherever the compiled binary itself physically lives (PaxCache's
+# cache directory), not to this source file's real bin/ directory, so
+# recomputing this path from $Bin at that point silently breaks. Once the
+# correct value is known (on this, the genuinely-interpreted run, where $Bin
+# is accurate), it is baked into an env var by
+# _maybe_exec_self_compiled_d2() before it execs into the compiled binary, so
+# the compiled binary's own re-run of this same line reads that baked value
+# instead of re-deriving a now-wrong one from its own $Bin.
+my $dashboard = $ENV{DEVELOPER_DASHBOARD_D2_DASHBOARD_PATH}
+    || File::Spec->catfile( $Bin, 'dashboard' );
 
 _maybe_exec_self_compiled_d2();
 
@@ -60,13 +73,15 @@ sub _maybe_exec_self_compiled_d2 {
             my $cache  = Developer::Dashboard::PaxCache->new( paths => $paths );
             my $cached = $cache->resolve($self_path);
             if ( defined $cached ) {
-                $ENV{DEVELOPER_DASHBOARD_PAX_SELF_EXECED} = 1;
+                $ENV{DEVELOPER_DASHBOARD_PAX_SELF_EXECED}   = 1;
+                $ENV{DEVELOPER_DASHBOARD_D2_DASHBOARD_PATH} = $dashboard;
                 exec { $cached } $cached, @ARGV;
                 die "Unable to exec self-compiled d2 binary at $cached: $!\n";
             }
         }
     }
     delete $ENV{DEVELOPER_DASHBOARD_PAX_SELF_EXECED};
+    delete $ENV{DEVELOPER_DASHBOARD_D2_DASHBOARD_PATH};
     return;
 }
 
