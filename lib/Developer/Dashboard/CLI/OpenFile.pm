@@ -98,7 +98,7 @@ sub _editor_supports_tabs {
     my $editor  = $command->[0] || '';
     return 0 if $editor eq '';
     $editor =~ s{.*[\\/]}{};
-    return $editor =~ /\A(?:vim|nvim|vi|gvim|iv)\z/i ? 1 : 0;
+    return $editor =~ /\A(?:vim|nvim|vi|gvim|view)\z/i ? 1 : 0;
 }
 
 # _select_open_file_matches(%args)

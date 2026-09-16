@@ -109,7 +109,9 @@ my $reg = Developer::Dashboard::PathRegistry->new( home => $home, cwd => $home )
 # ---------------------------------------------------------------------------
 ok( oc( '_editor_supports_tabs', command => ['vim'] ),            'vim supports tabs' );
 ok( oc( '_editor_supports_tabs', command => ['/usr/bin/nvim'] ), 'path-qualified nvim supports tabs' );
+ok( oc( '_editor_supports_tabs', command => ['view'] ),          'view (vim read-only entrypoint) supports tabs' );
 ok( !oc( '_editor_supports_tabs', command => ['code'] ),         'non-vim editor does not' );
+ok( !oc( '_editor_supports_tabs', command => ['iv'] ),           'the former bogus "iv" pattern no longer matches anything' );
 ok( !oc('_editor_supports_tabs'),                                'missing command yields no tabs' );
 ok( !oc( '_editor_supports_tabs', command => [''] ),             'empty editor name yields no tabs' );
 
