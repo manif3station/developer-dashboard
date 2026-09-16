@@ -392,6 +392,25 @@ like( $@, qr/Missing path registry/, '_java_source_archive_roots requires paths'
     my @r = oc( '_java_source_archive_roots', paths => $reg );
     ok( !( grep { !defined $_ } @r ), 'default archive roots contain no undef entries' );
 }
+{
+    # DD-916: @INC entries can never contain Java source archives, so they
+    # must not survive into the Java-archive search root list even when the
+    # caller passes them through (as _open_file_roots's general-purpose list
+    # does, since it also serves Perl-module lookup).
+    my $wsdir = catdir( $home, 'wsdir' );
+    local $ENV{JAVA_HOME};
+    delete $ENV{JAVA_HOME};
+    local $ENV{JDK_HOME};
+    delete $ENV{JDK_HOME};
+    my ($inc_dir) = grep { -d $_ } @INC;
+    my @r = oc(
+        '_java_source_archive_roots',
+        paths => $reg,
+        roots => [ $inc_dir, $wsdir ],
+    );
+    ok( !( grep { $_ eq $inc_dir } @r ), '@INC entry excluded from Java archive search roots' );
+    ok( ( grep { $_ eq $wsdir } @r ),    'non-@INC root is still retained' );
+}
 
 eval { oc('_candidate_java_source_archives') };
 like( $@, qr/Missing path registry/, '_candidate_java_source_archives requires paths' );
