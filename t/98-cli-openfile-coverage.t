@@ -615,6 +615,14 @@ like( $@, qr/Missing path registry/, 'resolve requires a path registry' );
 eval { run_open_file_command( paths => $reg ) };
 like( $@, qr/^Usage: open-file/, 'run rejects missing arguments' );
 
+# An unrecognized flag must fail loudly, not silently proceed with defaults.
+{
+    my $warn;
+    local $SIG{__WARN__} = sub { $warn .= $_[0] };
+    eval { run_open_file_command( paths => $reg, args => [ '--bogus-option', $realfile ] ) };
+    like( $@, qr/^Usage: open-file/, 'run rejects an unrecognized flag with the usage error' );
+}
+
 # No paths supplied exercises build_path_registry, print mode exits cleanly.
 {
     my $err;

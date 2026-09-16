@@ -46,12 +46,15 @@ sub run_open_file_command {
     my $line  = 0;
     my $editor = '';
 
-    GetOptionsFromArray(
+    my $options_ok = GetOptionsFromArray(
         \@argv,
         'print!'   => \$print,
         'line=i'   => \$line,
         'editor=s' => \$editor,
     );
+
+    die "Usage: open-file [--print] [--line N] [--editor CMD] <file|scope> [pattern...]\n"
+      if !$options_ok;
 
     die "Usage: open-file [--print] [--line N] [--editor CMD] <file|scope> [pattern...]\n"
       if !@argv;
