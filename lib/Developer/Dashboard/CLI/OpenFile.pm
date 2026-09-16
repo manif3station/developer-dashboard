@@ -181,11 +181,14 @@ sub _unique_matches {
 
 # _ordered_scope_matches(%args)
 # Orders recursive scope-search matches so exact helper/script names sort before broader substring matches.
-# Input: pattern array reference plus discovered file path array reference.
+# Input: pattern array reference, optional pre-compiled regex array reference (DD-912 - same order as
+# patterns, so a caller that already compiled its patterns once does not pay to recompile them once per
+# candidate file), plus discovered file path array reference.
 # Output: ordered unique file path strings ranked by basename/stem relevance and original discovery order.
 sub _ordered_scope_matches {
     my (%args) = @_;
     my @patterns = @{ $args{patterns} || [] };
+    my @regexes  = @{ $args{regexes} || [] };
     my @entries  = @{ $args{entries} || [] };
     @entries = map { { file => $_, match_path => $_ } } _unique_matches( @{ $args{files} || [] } )
       if !@entries;
@@ -198,6 +201,7 @@ sub _ordered_scope_matches {
                 file      => $entries[$index]{file},
                 match_path => $entries[$index]{match_path},
                 patterns => \@patterns,
+                regexes  => \@regexes,
             ),
             index => $index,
         };
@@ -212,22 +216,28 @@ sub _ordered_scope_matches {
 
 # _scope_match_rank(%args)
 # Scores one recursive scope-search file so exact basename hits outrank partial path matches.
-# Input: file path string plus the active pattern array reference.
+# Input: file path string, the active pattern array reference, and an optional pre-compiled regex array
+# reference (DD-912) in the same order as patterns - when the regex at a given index is missing, this
+# compiles that one pattern itself so direct callers (tests, or any caller with only raw pattern strings)
+# keep working unchanged.
 # Output: numeric rank where lower values are stronger matches.
 sub _scope_match_rank {
     my (%args) = @_;
     my $file       = $args{file}       || '';
     my $match_path = $args{match_path} || $file;
     my @patterns   = @{ $args{patterns} || [] };
+    my @regexes    = @{ $args{regexes} || [] };
     my ($basename) = $match_path =~ m{([^/\\]+)$};
     $basename ||= $match_path;
     my $stem = $basename;
     $stem =~ s{\.[^.]+$}{};
 
     my $rank = 0;
-    for my $pattern (@patterns) {
+    for my $index ( 0 .. $#patterns ) {
+        my $pattern = $patterns[$index];
         next if !defined $pattern || $pattern eq '';
-        my $regex = _compile_open_file_regex($pattern);
+        # uncoverable condition false _compile_open_file_regex only returns undef for an undef/empty pattern, already excluded above
+        my $regex = $regexes[$index] || _compile_open_file_regex($pattern);
         my $score = 50;
         my @components = grep { $_ ne '' } split m{[\\/]+}, $match_path;
 
@@ -338,6 +348,7 @@ sub _resolve_open_file_matches {
 
     my @files = _ordered_scope_matches(
         patterns => \@patterns,
+        regexes  => \@regexes,
         entries  => \@entries,
     );
     return ( $line, @files );
