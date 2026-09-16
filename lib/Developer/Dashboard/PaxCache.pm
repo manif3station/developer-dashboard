@@ -248,8 +248,8 @@ sub _spawn_background_compile {
     # ActionRunner's own background-action path (open STDIN from /dev/null,
     # STDOUT/STDERR to a log file, never left connected to the caller).
     setsid();    # uncoverable statement
-    my $log_file = $args{lock_file};
-    $log_file =~ s/\.compiling\z/.log/;
+    my $log_file = $args{lock_file};    # uncoverable statement
+    $log_file =~ s/\.compiling\z/.log/;    # uncoverable statement
     open STDIN, '<', File::Spec->devnull();    # uncoverable statement
     open STDOUT, '>>', $log_file;              # uncoverable statement
     open STDERR, '>>', $log_file;              # uncoverable statement
@@ -288,9 +288,11 @@ sub _spawn_background_compile {
         # true parent (the _maybe_spawn_compile caller) blocks until THIS
         # process exits, so the rewrite is guaranteed to land before that
         # caller ever returns control to whatever invoked resolve().
+        # uncoverable statement
+        # uncoverable branch true
         # uncoverable branch false
         if ( open my $lock_fh, '>', $args{lock_file} ) {
-            print {$lock_fh} $grandchild;    # uncoverable statement
+            print $lock_fh $grandchild;    # uncoverable statement
             close $lock_fh;                  # uncoverable statement
         }
         POSIX::_exit(0);    # uncoverable statement

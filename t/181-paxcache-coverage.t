@@ -15,6 +15,14 @@ use lib 'lib';
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::PaxCache;
 
+# Loaded eagerly here (rather than left to _pax_bin's own lazy `require`) so
+# that later blocks in this file can `local *Developer::Dashboard::InternalCLI::*`
+# to force _pax_bin's degradation paths: overriding a glob BEFORE the module
+# has ever been require'd gets silently clobbered the moment _pax_bin's own
+# `require Developer::Dashboard::InternalCLI` first fires and (re)defines the
+# real subs over the override, mid-scope, inside the very call being tested.
+require Developer::Dashboard::InternalCLI;
+
 # Hermetic runtime: isolated home so PathRegistry::home_cache_root resolves
 # into a controlled scratch tree, never the real ~/.developer-dashboard.
 my $home = tempdir( CLEANUP => 1 );
@@ -506,6 +514,63 @@ sub source_file_with_content {
     ok( !-e $bin_file, 'direct _run_compile_and_install: exit-0-but-no-output is not installed' );
     ok( !-e $md5_file, 'direct _run_compile_and_install: exit-0-but-no-output writes no md5 marker' );
     ok( !-e $lock_file, 'direct _run_compile_and_install: exit-0-but-no-output still releases the lock file' );
+}
+
+# --------------------------------------------------------------------------
+# _pax_bin() full degradation chain: when the staged internal helper cannot
+# be resolved (InternalCLI's staging throws) AND no `pax` is found on PATH,
+# _pax_bin() returns undef, and resolve() must then also return undef via
+# its own separate "pax entirely unavailable" branch (resolve()'s line 43,
+# `!defined $pax_bin`) - every other block in this file bypasses that branch
+# by supplying an explicit pax_bin constructor override.
+# --------------------------------------------------------------------------
+{
+    local $ENV{PATH} = '/nonexistent-empty-path-dir-for-this-test';
+    local *Developer::Dashboard::InternalCLI::ensure_helper =
+      sub { die "staging deliberately fails for this test\n" };
+    local *Developer::Dashboard::InternalCLI::helper_path =
+      sub { die "staging deliberately fails for this test\n" };
+
+    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths );
+    is( $cache->_pax_bin, undef, '_pax_bin: staging failure + no PATH pax -> undef' );
+
+    my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'no-pax-anywhere';\n");
+    is( $cache->resolve($source), undef, 'resolve(): pax entirely unavailable -> undef, never dies' );
+}
+
+# --------------------------------------------------------------------------
+# _pax_bin()'s "staged path resolves but the file does not exist" sub-case:
+# InternalCLI's staging succeeds (no die) and returns a path, but nothing
+# actually lives there - `defined $staged` is true while `-f $staged` is
+# false, which must still fall through to the PATH lookup rather than
+# returning a dangling path. Covers the remaining condition sub-case of
+# `defined $staged && -f $staged` that the block above does not reach.
+# --------------------------------------------------------------------------
+{
+    local $ENV{PATH} = '/nonexistent-empty-path-dir-for-this-test';
+    local *Developer::Dashboard::InternalCLI::ensure_helper = sub { return 1 };
+    local *Developer::Dashboard::InternalCLI::helper_path =
+      sub { return '/nonexistent/staged/pax/path/for/this/test' };
+
+    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths );
+    is( $cache->_pax_bin, undef,
+        '_pax_bin: staged path resolves but file does not exist -> falls through to PATH, finds nothing -> undef' );
+}
+
+# --------------------------------------------------------------------------
+# _pax_bin()'s genuine success path: no constructor override, InternalCLI's
+# REAL (unmocked) staging runs and actually writes the helper file, so
+# `defined $staged && -f $staged` is true on both sides and _pax_bin returns
+# the staged path directly, never reaching the PATH-lookup fallback. Every
+# other no-override block in this file happens to call _run_compile_and_install
+# directly rather than going through resolve()/_pax_bin, so this is the one
+# place the real staging success itself is exercised.
+# --------------------------------------------------------------------------
+{
+    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths );
+    my $staged = $cache->_pax_bin;
+    ok( defined $staged, '_pax_bin: real (unmocked) staging resolves a defined path' );
+    ok( defined $staged && -f $staged, '_pax_bin: the resolved staged path genuinely exists on disk' ) if defined $staged;
 }
 
 done_testing();

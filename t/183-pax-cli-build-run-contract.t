@@ -202,7 +202,7 @@ my $self_build_rc = _run_with_redirect(
     cwd => $blank,
     stdout => $self_build_log,
     stderr => File::Spec->catfile($sow03_root, 'pax-self-build.stderr'),
-    cmd => [ $^X, $pax, 'build', '--compact', '-o', $self_binary, "$repo/bin/pax" ],
+    cmd => [ $^X, $pax, 'build', '--compact', '-o', $self_binary, $pax ],
 );
 is($self_build_rc, 0, 'pax build -o output bin/pax succeeds from a blank directory without paxfile.yml');
 ok(-x $self_binary, 'self-built pax binary is executable');
@@ -212,7 +212,7 @@ like($self_help, qr/^usage:\n  pax build /, 'self-built pax prints build usage')
 unlike($self_help, qr/\bpax standalone-build\b|\bpax app-build\b|\bpax capture\b/, 'self-built pax keeps SOW-03 CLI surface');
 
 my $self_run_binary = "$sow03_root/pax-self-run";
-my $self_run_output = `cd $blank && $^X $pax run --compact -o $self_run_binary $repo/bin/pax -- help`;
+my $self_run_output = `cd $blank && $^X $pax run --compact -o $self_run_binary $pax -- help`;
 is($? >> 8, 0, 'pax run bin/pax builds then runs self-built pax');
 like($self_run_output, qr/^usage:\n  pax build /, 'pax run bin/pax emits self-built help output');
 ok(-x $self_run_binary, 'pax run self-build writes requested binary');
