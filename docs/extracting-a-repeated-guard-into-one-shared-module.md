@@ -207,3 +207,16 @@ divergence is load-bearing.**
   (DD-904), notable for the preserved parameter being a security-relevant
   error-handling contract (die vs. fail-closed-zero) rather than an output
   format.
+- `lib/Developer/Dashboard/PathIdentity.pm` - the eighth instance
+  (DD-903), extracting `_path_identity`/`_same_or_descendant_path` out of
+  `PathRegistry.pm` (instance methods) and `EnvLoader.pm` (class methods).
+  `TimeUtils.pm`'s shape again: the two copies genuinely diverged only in
+  the `abs_path()`-returns-empty-string edge case (`PathRegistry.pm` falls
+  back to `File::Spec->canonpath`; `EnvLoader.pm` returns the empty string
+  as-is), while agreeing on every other case including `abs_path()`
+  returning `undef`. The shared module takes an explicit
+  `empty_fallback => 1|0` parameter with no default, mirroring
+  `TimeUtils.pm`'s `tz` and `IsoTimestamp.pm`'s `on_error` precedent
+  exactly - a third confirmation that when a duplication check turns up a
+  real divergence, the fix is an explicit parameter naming what varies,
+  never a silent pick of one side.
