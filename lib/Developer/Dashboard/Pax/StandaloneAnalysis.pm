@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::StandaloneAnalysis;
 
-our $VERSION = '4.32';
+our $VERSION = '4.33';
 
 use strict;
 use warnings;
