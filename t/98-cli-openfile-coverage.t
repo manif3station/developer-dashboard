@@ -130,6 +130,9 @@ is_deeply( [ oc( '_selection_matches', choices => '0-2', matches => [ 'a', 'b', 
 is_deeply( [ oc( '_selection_matches', choices => '3-2', matches => [ 'a', 'b', 'c' ] ) ], [], 'reversed range rejected' );
 is_deeply( [ oc( '_selection_matches', choices => '1-9', matches => [ 'a', 'b' ] ) ],      [], 'range end beyond size rejected' );
 is_deeply( [ oc( '_selection_matches', choices => '1-2', matches => [ 'a', 'b', 'c' ] ) ], [ 'a', 'b' ], 'valid range selects span' );
+is_deeply( [ oc( '_selection_matches', choices => '1 - 5', matches => [ 'a', 'b', 'c', 'd', 'e', 'f', 'g' ] ) ], [ 'a', 'b', 'c', 'd', 'e' ], 'spaced range "1 - 5" selects the same span as "1-5" (DD-908)' );
+is_deeply( [ oc( '_selection_matches', choices => '1  -  5', matches => [ 'a', 'b', 'c', 'd', 'e', 'f', 'g' ] ) ], [ 'a', 'b', 'c', 'd', 'e' ], 'range with extra internal spaces around the dash still selects the span (DD-908)' );
+is_deeply( [ oc( '_selection_matches', choices => '1 - 2, 4', matches => [ 'a', 'b', 'c', 'd' ] ) ], [ 'a', 'b', 'd' ], 'a spaced range combined with a comma-separated index both resolve (DD-908)' );
 is_deeply( [ oc( '_selection_matches', choices => '0', matches => [ 'a', 'b' ] ) ],        [], 'chunk below one rejected' );
 is_deeply( [ oc( '_selection_matches', choices => '2', matches => [ 'a', 'b', 'c' ] ) ],   [ 'b' ], 'single index selects one' );
 is_deeply( [ oc( '_selection_matches', choices => '1,3', matches => [ 'a', 'b', 'c' ] ) ], [ 'a', 'c' ], 'comma list selects several' );
