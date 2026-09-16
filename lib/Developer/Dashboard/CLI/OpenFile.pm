@@ -572,14 +572,22 @@ sub _candidate_java_source_archives {
 
 # _java_source_archive_roots(%args)
 # Returns the filesystem roots that can contain Java source archives for open-file lookup.
+# The incoming roots list (built by _open_file_roots for Perl-module/general
+# lookup) includes @INC, which structurally cannot contain Java source
+# archives - kept in, it made every Java-class lookup miss walk the system
+# Perl library tree via File::Find for no possible benefit (DD-916). @INC
+# entries are excluded by identity here rather than re-deriving the
+# general-purpose roots from scratch, so this stays correct if that list
+# ever changes shape.
 # Input: path registry object plus the current open-file roots array reference.
 # Output: ordered list of existing directory path strings.
 sub _java_source_archive_roots {
     my (%args) = @_;
     my $paths = $args{paths} || die 'Missing path registry';
     my $roots = $args{roots} || [];
+    my %is_inc = map { $_ => 1 } @INC;
     my @candidates = (
-        @$roots,
+        ( grep { !$is_inc{$_} } @$roots ),
         File::Spec->catdir( $paths->home, '.m2', 'repository' ),
         File::Spec->catdir( $paths->home, '.gradle', 'caches' ),
         grep { defined && $_ ne '' } ( $ENV{JAVA_HOME}, $ENV{JDK_HOME} ),
