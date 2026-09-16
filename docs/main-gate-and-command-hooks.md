@@ -31,6 +31,19 @@ hook list.
 - **RESULT / LAST_RESULT.** Each hook's captured stdout, stderr and exit code are
   recorded under the same keys the per-command chain writes, so a later hook —
   or the command itself — can read what an earlier one did.
+- **The recorded exit code is always the shifted value, never the raw
+  wait-status.** SkillDispatcher runs every hook and command through
+  `Capture::Tiny`'s `capture { ... system(@command, @args); }`, and inside
+  that block `system()`'s own return value — which becomes the block's
+  trailing value, and therefore what `capture()` hands back as `$exit` — is
+  the *raw* wait-status (`$?`), identical to what a bare `system()` call
+  leaves in `$?` outside any capture. A command that genuinely exits `1`
+  produces a raw value of `256`; SkillDispatcher always shifts it
+  (`$exit >> 8`) before storing it as `exit_code`, so RESULT/LAST_RESULT and
+  everything downstream (including `bin/dashboard`'s own process exit code)
+  see the true `1`, never the unshifted `256` (DD-883, 2026-09-16 — two of
+  three call sites in `SkillDispatcher.pm` originally stored the raw value
+  directly, silently reporting a real hook failure as dashboard exiting 0).
 - **stderr is the control channel.** A hook asks to stop by printing the literal
   marker `[[STOP]]` on stderr. Nothing on stdout is interpreted.
 - **Recursion guard.** The main gate runs its hooks with the environment
