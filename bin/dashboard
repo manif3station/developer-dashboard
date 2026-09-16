@@ -431,54 +431,43 @@ sub _skill_dotted_command_parts {
 }
 
 # _maybe_exec_self_compiled_dashboard()
-# DD-882 (owner correction, Telegram msg #2001, 2026-09-15): checks whether
-# a fresh PAX-compiled binary is cached for THIS entrypoint's own source
-# file and, if so, execs it directly with the original argv - never blocks
-# on a miss, exactly like every other PaxCache-backed command; a cache miss
-# just falls through to run interpreted, having already triggered a
-# background compile as a side effect of the resolve() call.
+# DD-882 (owner correction, Telegram msg #2001, 2026-09-15) added a
+# self-exec-on-cache-hit here; DD-905 (2026-09-16) DISABLED the exec side
+# of it after finding that a REAL PAX-compiled binary of this entrypoint
+# silently corrupts %ENV loading: Developer::Dashboard::EnvLoader's
+# _load_env_file (a plain line-by-line <$fh> read of .env) dies with
+# "Invalid env line ... line 1: <the whole file concatenated>" when run as
+# the compiled binary, even though the byte-identical source runs cleanly
+# interpreted. Root cause is inside the vendored Pax StandaloneRuntime's
+# own execution environment (not yet found in ~15,000 lines) - some real,
+# non-embedded-asset filesystem file read behaves differently there than
+# under normal Perl. t/182's own coverage never caught this because it
+# seeds the cache with a HAND-WRITTEN SENTINEL SCRIPT rather than a real
+# PAX compile, so it only ever proved the exec-if-cached mechanism, never
+# a real compiled binary's actual runtime behavior.
 #
-# Guarded by an environment variable so the compiled binary - which embeds
-# this exact same self-check code, since PAX compiles the whole script
-# body - never re-runs the check and never re-execs itself: without the
-# guard, the first real invocation would exec the compiled binary, whose
-# own startup would recompute the identical cache hit and exec itself
-# again, forever. The guard is deleted before falling through to normal
-# dispatch (both on a hit that already exec'd - which never returns here -
-# and on a miss) so a LATER child `dashboard` invocation this same process
-# spawns (a collector, an action) still gets its own independent,
-# unsuppressed self-check rather than inheriting a stale suppression.
-# Also skipped whenever $ENV{HARNESS_ACTIVE} is set (the standard
-# Test::Harness/prove signal, which leaks to any child `dashboard` a test
-# spawns via system()/exec() - see this project's own established lesson on
-# that). Without this, the test suite's habit of using a fresh tempdir HOME
-# per test block turns every one of those blocks into a genuinely new
-# "machine" from PaxCache's per-machine-cache point of view, so each
-# spawns its OWN full real background PAX compile of this ~40-module
-# codebase with zero chance of the cache ever being reused - discovered
-# live when that multiplied into dozens of concurrent real compiles and
-# made t/05-cli-smoke.t alone take 10+ minutes instead of seconds. A real
-# ephemeral/ CI environment has the identical shape (fresh HOME, thrown
-# away after one run), so this is a genuine, not merely test-only,
-# consideration - HARNESS_ACTIVE is the cleanly-available signal for the
-# specific case this project's own suite hits every run.
-# Input: none (reads @ARGV, $Bin, %ENV).
-# Output: never returns on a successful self-exec; otherwise returns.
+# Because this ran unconditionally on every real (non-HARNESS_ACTIVE)
+# invocation, and PaxCache::resolve() triggers its background compile
+# automatically with no explicit opt-in, the corruption was silent and
+# invisible to `prove -lr t` no matter how thorough (HARNESS_ACTIVE skips
+# this whole function), surfacing only in live interactive/production use
+# once a background compile happened to finish.
+#
+# Still calls resolve() so the background compile keeps happening (harmless,
+# and lets a future fix pick up a warm cache immediately) - it just never
+# acts on a defined cache hit to exec into it. RE-ENABLE ONLY after the
+# StandaloneRuntime file-I/O divergence is root-caused and fixed; until
+# then this always falls through to normal interpreted execution.
+# Input: none (reads $Bin).
+# Output: none; always falls through to interpreted execution.
 sub _maybe_exec_self_compiled_dashboard {
     return if $ENV{HARNESS_ACTIVE};
-    if ( !$ENV{DEVELOPER_DASHBOARD_PAX_SELF_EXECED} ) {
-        my $self_path = File::Spec->catfile( $Bin, 'dashboard' );
-        if ( -f $self_path ) {
-            require Developer::Dashboard::PaxCache;
-            my $cache = Developer::Dashboard::PaxCache->new( paths => _switchboard_paths() );
-            my $cached = $cache->resolve($self_path);
-            if ( defined $cached ) {
-                $ENV{DEVELOPER_DASHBOARD_PAX_SELF_EXECED} = 1;
-                _exec_switchboard_command( $cached, @ARGV );
-            }
-        }
+    my $self_path = File::Spec->catfile( $Bin, 'dashboard' );
+    if ( -f $self_path ) {
+        require Developer::Dashboard::PaxCache;
+        my $cache = Developer::Dashboard::PaxCache->new( paths => _switchboard_paths() );
+        $cache->resolve($self_path);    # side effect only: keeps the background compile warm
     }
-    delete $ENV{DEVELOPER_DASHBOARD_PAX_SELF_EXECED};
     return;
 }
 
