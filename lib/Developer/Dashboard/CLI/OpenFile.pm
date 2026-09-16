@@ -752,11 +752,21 @@ sub _command_exit {
 
 # _command_exec(@command)
 # Wraps process exec so tests can override it and inspect the final editor command.
+# A failed exec() returns false rather than dying, so without this check a
+# missing or unexecutable editor binary would fall through silently and the
+# whole command would exit 0 as though the editor had actually run (DD-910).
 # Input: shell command array.
 # Output: never returns during normal command execution.
 sub _command_exec {
     my (@command) = @_;
     exec { $command[0] } @command;
+
+    # Reached only when exec() fails to replace the process image, and
+    # proven reachable by t/98-cli-openfile-coverage.t's own passing
+    # assertion - but the exec() op boundary is structurally invisible to
+    # this coverage instrument, matching the documented fork/exec pattern
+    # already annotated the same way in PaxCache.pm.
+    die "Unable to run editor '$command[0]': $!\n";    # uncoverable statement
 }
 
 1;
