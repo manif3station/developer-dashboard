@@ -258,6 +258,30 @@ is_deeply( [ oc( '_named_source_matches', paths => $reg ) ], [], 'missing name y
 }
 
 # ---------------------------------------------------------------------------
+# _unique_existing_dirs : the shared dedup+existing-directory filter (DD-913)
+# ---------------------------------------------------------------------------
+{
+    my $edir1 = catdir( $home, 'ued_exists_1' );
+    my $edir2 = catdir( $home, 'ued_exists_2' );
+    make_path($edir1);
+    make_path($edir2);
+    my $noexist = catdir( $home, 'ued_noexist' );
+    my $afile   = catfile( $home, 'ued_a_file' );
+    spew( $afile, "not a directory\n" );
+
+    my @filtered = oc(
+        '_unique_existing_dirs',
+        undef, '', $noexist, $afile, $edir1, $edir1, $edir2,
+    );
+    is_deeply(
+        \@filtered,
+        [ $edir1, $edir2 ],
+        '_unique_existing_dirs drops undef/empty/missing/non-directory entries, dedups, preserves order',
+    );
+    is_deeply( [ oc('_unique_existing_dirs') ], [], 'no candidates returns nothing' );
+}
+
+# ---------------------------------------------------------------------------
 # _open_file_roots : deduped, filtered root list
 # ---------------------------------------------------------------------------
 eval { oc('_open_file_roots') };

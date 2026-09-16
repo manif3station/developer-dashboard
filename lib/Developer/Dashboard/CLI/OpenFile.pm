@@ -413,6 +413,19 @@ sub _named_source_matches {
     return _unique_matches(@matches);
 }
 
+# _unique_existing_dirs(@candidates)
+# Deduplicates a candidate path list while preserving original order and
+# dropping anything undef, empty, or not an existing directory (DD-913,
+# shared by _open_file_roots and _java_source_archive_roots so the filter
+# has one place to change if its semantics ever need to).
+# Input: list of candidate path strings.
+# Output: ordered list of unique, existing directory path strings.
+sub _unique_existing_dirs {
+    my (@candidates) = @_;
+    my %seen;
+    return grep { defined && $_ ne '' && -d $_ && !$seen{$_}++ } @candidates;
+}
+
 # _open_file_roots(%args)
 # Builds the ordered root list used for module/class source resolution.
 # Input: path registry object.
@@ -428,8 +441,7 @@ sub _open_file_roots {
         @INC,
     );
 
-    my %seen;
-    return grep { defined && $_ ne '' && -d $_ && !$seen{$_}++ } @roots;
+    return _unique_existing_dirs(@roots);
 }
 
 # _existing_named_files(%args)
@@ -545,8 +557,7 @@ sub _java_source_archive_roots {
         grep { defined && $_ ne '' } ( $ENV{JAVA_HOME}, $ENV{JDK_HOME} ),
     );
 
-    my %seen;
-    return grep { defined && $_ ne '' && -d $_ && !$seen{$_}++ } @candidates;
+    return _unique_existing_dirs(@candidates);
 }
 
 # _extract_java_sources_from_archive(%args)
