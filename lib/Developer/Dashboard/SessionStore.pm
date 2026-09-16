@@ -9,6 +9,7 @@ use Crypt::URandom qw(urandom);
 use File::Spec;
 use POSIX qw(strftime);
 
+use Developer::Dashboard::IsoTimestamp qw(_iso8601_to_epoch);
 use Developer::Dashboard::JSON qw(json_encode json_decode);
 use Developer::Dashboard::TimeUtils qw(_now_iso8601);
 
@@ -125,7 +126,7 @@ sub from_cookie {
     # returns 0 for undef/''/'0'/malformed input, which compares as long
     # expired. A missing expiry must fail CLOSED the same way a malformed
     # one already does, never be treated as "never expires".
-    if ( _iso8601_to_epoch( $session->{expires_at} ) <= time ) {
+    if ( _iso8601_to_epoch( $session->{expires_at}, on_error => 'zero' ) <= time ) {
         $self->delete( $session->{session_id} );
         return;
     }
@@ -208,7 +209,7 @@ sub sweep_expired {
         # through to the epoch comparison below, which already collects a
         # malformed value correctly (_iso8601_to_epoch returns 0 for it).
         my $expires_at = $record->{expires_at};
-        next if _iso8601_to_epoch($expires_at) > $now;
+        next if _iso8601_to_epoch( $expires_at, on_error => 'zero' ) > $now;
         $removed++ if $args{dry_run} || unlink $file;
     }
     return $removed;
@@ -223,17 +224,6 @@ sub _iso8601_after {
     my $epoch = time + ( $seconds || 0 );
     my @t = gmtime($epoch);
     return strftime( '%Y-%m-%dT%H:%M:%SZ', @t );
-}
-
-# _iso8601_to_epoch($text)
-# Converts an ISO-8601 UTC timestamp to epoch seconds.
-# Input: timestamp string.
-# Output: epoch integer.
-sub _iso8601_to_epoch {
-    my ($text) = @_;
-    return 0 if !defined $text || $text !~ /\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})Z\z/;
-    require Time::Local;
-    return Time::Local::timegm( $6, $5, $4, $3, $2 - 1, $1 );
 }
 
 1;

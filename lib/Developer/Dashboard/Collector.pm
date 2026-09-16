@@ -11,9 +11,9 @@ our @EXPORT_OK = qw(readfile);
 use Fcntl qw(:flock);
 use File::Spec;
 use Time::HiRes qw(time);
-use Time::Local qw(timegm);
 
 use Developer::Dashboard::FileSlurp qw(slurp_file);
+use Developer::Dashboard::IsoTimestamp ();
 use Developer::Dashboard::JSON qw(json_encode json_decode json_decode_state);
 use Developer::Dashboard::PathsRegistryArg qw(require_paths_arg);
 use Developer::Dashboard::TimeUtils qw(_now_iso8601);
@@ -700,21 +700,14 @@ sub _entry_timestamp_epoch {
 # _iso8601_to_epoch($timestamp)
 # Converts one dashboard ISO-8601 timestamp string into epoch seconds.
 # Input: timestamp string in YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS+HHMM form.
-# Output: UTC epoch integer.
+# Output: UTC epoch integer. Dies on anything unparseable (DD-904).
 sub _iso8601_to_epoch {
     my ( $self, $timestamp ) = @_;
-    my ( $year, $month, $day, $hour, $minute, $second, $zone ) =
-      $timestamp =~ /\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(Z|[+-]\d{4}|[+-]\d{2}:\d{2})\z/;
-    die "Unsupported collector log timestamp $timestamp\n" if !defined $zone;
-
-    my $offset_seconds = 0;
-    if ( $zone ne 'Z' ) {
-        my ( $sign, $offset_hour, $offset_minute ) = $zone =~ /\A([+-])(\d{2}):?(\d{2})\z/;
-        $offset_seconds = ( $offset_hour * 3600 ) + ( $offset_minute * 60 );
-        $offset_seconds *= -1 if $sign eq '-';
-    }
-
-    return timegm( $second, $minute, $hour, $day, $month - 1, $year ) - $offset_seconds;
+    my $epoch = eval {
+        Developer::Dashboard::IsoTimestamp::_iso8601_to_epoch( $timestamp, on_error => 'die' );
+    };
+    die "Unsupported collector log timestamp $timestamp\n" if $@;
+    return $epoch;
 }
 
 # _with_trailing_newline($text)
