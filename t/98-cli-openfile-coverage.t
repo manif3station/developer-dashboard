@@ -216,6 +216,46 @@ is( oc( '_scope_match_rank', file => 'x.txt' ), 0, 'no patterns yields a zero ra
     ok( defined $r1 && defined $r2 && defined $r3 && defined $r4, 'rank scoring handles empty, trailing-slash and undef inputs' );
 }
 
+# DD-912: a caller that already compiled its patterns once (as
+# _resolve_open_file_matches does, via _ordered_scope_matches -> _scope_match_rank)
+# must not pay to recompile the same pattern for every candidate file scored.
+{
+    my $compile_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::CLI::OpenFile::_compile_open_file_regex = sub {
+        $compile_calls++;
+        return qr/\Q$_[0]\E/i;
+    };
+    my @regexes = map { Developer::Dashboard::CLI::OpenFile::_compile_open_file_regex($_) } ('App');
+    is( $compile_calls, 1, 'compiling the pattern list once records exactly one call' );
+
+    $compile_calls = 0;
+    oc(
+        '_ordered_scope_matches',
+        patterns => ['App'],
+        regexes  => \@regexes,
+        entries  => [
+            { file => 'one/App.pm',   match_path => 'one/App.pm' },
+            { file => 'two/App.pm',   match_path => 'two/App.pm' },
+            { file => 'three/App.pm', match_path => 'three/App.pm' },
+        ],
+    );
+    is( $compile_calls, 0, 'ranking three candidate files with pre-compiled regexes recompiles the pattern zero times' );
+}
+{
+    # Without pre-compiled regexes (the direct-caller / legacy shape already
+    # covered above), _scope_match_rank still compiles the pattern itself -
+    # this only changes behavior when a caller supplies regexes.
+    my $compile_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::CLI::OpenFile::_compile_open_file_regex = sub {
+        $compile_calls++;
+        return qr/\Q$_[0]\E/i;
+    };
+    oc( '_scope_match_rank', match_path => 'App.pm', patterns => ['App'] );
+    is( $compile_calls, 1, 'a direct caller with no pre-compiled regexes still gets one compiled on demand' );
+}
+
 # ---------------------------------------------------------------------------
 # _open_file_registries
 # ---------------------------------------------------------------------------
