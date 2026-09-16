@@ -41,7 +41,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.32
+4.33
 
 =head1 INTRODUCTION
 
