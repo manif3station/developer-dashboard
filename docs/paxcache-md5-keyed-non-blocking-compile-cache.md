@@ -70,14 +70,44 @@ absolute path, to keep filenames filesystem-safe and collision-free):
 - `<key>.compiling` - the PID-stamped lock, present only while a compile
   is genuinely in flight
 
-## What this does NOT do (yet)
+## What this does NOT do
 
-This module is deliberately scoped narrow for its first real caller
-(`dashboard ps1`, wired in via `bin/dashboard`'s `_exec_switchboard_command`
-immediately before its existing `command_argv_for_path` resolution). It
-does not vendor PAX's own source into this repository, does not touch
-`bin/dashboard`/`bin/d2` themselves (DD-871/872 already proved those
-compile cleanly on their own), and does not reach the web server or
-collector processes (explicitly out of scope, DDS-001 Q-160). Extending
-it to more internal CLI tools is future work under epic DDE-002, once
-this proof of concept is proven correct end to end.
+Does not reach the web server or collector processes (explicitly out of
+scope, DDS-001 Q-160). Extending it to more internal CLI tools beyond the
+two callers below is future work under epic DDE-002.
+
+## Callers, and one caller's cache-hit action is deliberately disabled
+
+Two callers currently invoke `resolve()`:
+
+- **`dashboard ps1`** (`_pax_cached_binary_for` in `bin/dashboard`, DD-877's
+  proof of concept, small allowlist by design): on a cache hit, execs the
+  cached compiled binary directly. Unaffected by the issue below.
+
+- **`bin/dashboard`'s own self-check** (`_maybe_exec_self_compiled_dashboard`,
+  DD-882 vendored the whole PAX library and wired this in so the dashboard
+  entrypoint itself could self-compile). **DD-905 (2026-09-16) disabled the
+  exec side of this caller specifically**, after finding that a REAL
+  PAX-compiled binary of `bin/dashboard` silently corrupts `%ENV` loading on
+  startup: `Developer::Dashboard::EnvLoader`'s `_load_env_file` (a plain
+  line-by-line `<$fh>` read of `.env`) dies with `"Invalid env line ...
+  line 1: <the whole file concatenated as one line>"` when run inside the
+  compiled binary's own execution environment - even though the
+  byte-identical source runs `.env` loading cleanly under normal interpreted
+  Perl. The root cause is somewhere inside the vendored Pax
+  `StandaloneRuntime`'s own runtime (not yet found, in a ~15,000-line
+  module) - some real, non-embedded-asset filesystem file read behaves
+  differently there than under plain Perl. Because this ran unconditionally
+  on every real invocation, and `resolve()` triggers its background compile
+  automatically with no explicit opt-in, the corruption was silent and
+  invisible to `prove -lr t` (the test harness sets `HARNESS_ACTIVE`, which
+  this caller explicitly skips on) - it only ever surfaced in live
+  interactive/production use, once a background compile happened to finish.
+
+  **Current state:** this caller still calls `resolve()` (so the background
+  compile keeps happening - harmless, and lets a future fix pick up a warm
+  cache immediately) but never acts on a defined cache hit to exec into it;
+  `bin/dashboard` always falls through to its own interpreted body. **Do
+  not re-enable the exec side of this specific caller** until the
+  `StandaloneRuntime` file-I/O divergence above is properly root-caused and
+  fixed - re-enabling it blind would silently reintroduce the corruption.
