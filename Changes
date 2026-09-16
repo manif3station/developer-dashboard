@@ -1,3 +1,14 @@
+4.33  2026-09-16
+
+  - DD-918: lib/Developer/Dashboard/CLI/OpenFile.pm was 823 lines, exceeding
+    this project's 500-line-per-module guideline. Extracted the Java-class
+    resolution machinery (archive extraction, Maven Central search/download,
+    the --online network gate) into OpenFileJavaSource.pm, the interactive
+    multi-match chooser into OpenFileChooser.pm, and shared dedup helpers
+    into OpenFileUtil.pm. All moved subs are re-exported into OpenFile.pm's
+    own namespace so existing callers and t/98-cli-openfile-coverage.t need
+    no behavior change.
+
 4.32  2026-09-15
 
   - DD-868/DD-870/DD-878: FileRegistry::resolve_file, PathRegistry::resolve_dir,

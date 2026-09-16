@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '4.32';
+our $VERSION = '4.33';
 
 our @EXPORT = ('d2');
 
