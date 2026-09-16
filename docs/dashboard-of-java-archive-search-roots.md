@@ -1,66 +1,41 @@
-# dashboard of: Java source-archive search roots
+# `dashboard of` Java-archive search roots
 
 ## What this covers
 
-How `dashboard of`/`open-file` picks which directories to search for Java
-source archives (`.jar`/`.war`/`-sources.jar`/`-src.jar`/`src.zip`/`source.zip`)
-when a dotted Java class name (e.g. `javax.jws.WebService`) isn't satisfied by
-a direct `.java` file on disk.
+How `dashboard of <Fully.Qualified.ClassName>`
+(`Developer::Dashboard::CLI::OpenFile`) decides which directories to
+search for Java source archives (`.jar`, `.war`, `-sources.jar`,
+`src.zip`) when a dotted Java class name can't be resolved to a direct
+`.java` file.
 
-## How it behaves
+## How the root list is built
 
-`_java_source_archive_roots` (`Developer::Dashboard::CLI::OpenFile`) builds
-its candidate root list from two sources:
+`_java_source_archive_roots` builds its candidate directory list from
+two sources:
 
-1. The general-purpose lookup roots already assembled by `_open_file_roots`
-   for Perl-module/general file resolution: `cwd()`, the current project
-   root, workspace roots, and project roots.
-2. Java-specific roots: `~/.m2/repository`, `~/.gradle/caches`, and
-   `$JAVA_HOME`/`$JDK_HOME` when set.
+- Java-specific roots: `~/.m2/repository`, `~/.gradle/caches`, and
+  `$JAVA_HOME`/`$JDK_HOME` when set.
+- The general-purpose roots already resolved for Perl-module/plain-file
+  lookup (`_open_file_roots`: cwd, the current project root, workspace
+  roots, and `@INC`).
 
-**`@INC` entries are deliberately excluded from source (1)** (DD-916).
-`_open_file_roots` includes `@INC` because it also serves Perl-module lookup,
-where `@INC` is exactly the right search path - but `@INC` structurally
-cannot contain a Java source archive, so including it here only meant every
-Java-class lookup miss walked the system Perl library tree via
-`File::Find` for no possible benefit. `_java_source_archive_roots` filters
-`@INC` entries out by identity before adding the Java-specific roots, so a
-caller building its roots from `_open_file_roots` still gets a Java-relevant
-search set.
+## Why `@INC` is excluded (DD-916)
 
-## Why it exists
+`@INC` is Perl's own module search path. It can never contain a Java
+source archive, so including it in the Java-archive walk only added
+File::Find work over potentially large system Perl library directories
+with zero chance of a match. `_java_source_archive_roots` now filters
+`@INC` entries out of the incoming general-purpose roots by identity
+before adding the Java-specific roots, so a Java-class lookup miss
+walks only directories that could plausibly hold a Java archive.
 
-Before DD-916, a Java-class lookup miss (e.g. because no local `.jar`
-satisfied it) triggered a full recursive filesystem walk of every entry in
-`@INC` - which can include large system Perl library directories - purely to
-confirm, every single time, that none of them contain a Java archive. The
-walk cost scaled with the size of the Perl install, not with anything
-relevant to the Java lookup.
+cwd, the project root, and workspace roots are kept - a Java project
+checked out alongside Perl code, or a monorepo, is a real and common
+case for a source archive to live in one of those.
 
-## When to use / extend this
+## What's deliberately out of scope here
 
-If `dashboard of`'s Java-class lookup needs a new candidate root (another
-build-tool cache directory, for instance), add it inside
-`_java_source_archive_roots` alongside `~/.m2`/`~/.gradle`, not by widening
-what `_open_file_roots` passes in - that list is shared with Perl-module
-resolution and should stay scoped to what Perl lookup actually needs.
-
-## What is *not* covered here
-
-A persisted cache of the archive walk across invocations (so a `dashboard of`
-process doesn't re-walk `~/.m2`/`~/.gradle` from scratch on every miss) was
-considered as a second, larger improvement in the same finding and
-deliberately left out of DD-916's scope - `dashboard of` is a one-shot CLI
-process with no natural place to persist a cache between invocations without
-a separate design decision (an on-disk index keyed by root mtime, most
-likely). Left for a future ticket if the walk cost still matters after the
-`@INC` exclusion.
-
-## Related
-
-- `_open_file_roots` - the general-purpose root list this one filters.
-- `_unique_existing_dirs` (DD-913) - the shared dedup+existing-directory
-  filter both root-builders use.
-- `docs/dashboard-of-network-opt-in.md` - the `--online` flag gating the
-  separate Maven Central network fallback that runs only when no local
-  archive (searched using these roots) satisfies the lookup.
+A persisted, cross-invocation index of discovered archives (so a
+lookup miss doesn't re-walk the filesystem every time `dashboard of`
+runs) is a separate, larger change and was left for a future ticket
+when the filesystem-walk cost still matters after this fix.
