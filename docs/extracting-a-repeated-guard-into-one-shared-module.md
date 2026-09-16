@@ -185,6 +185,36 @@ the "wrong" behavior before assuming it is a footgun - a `# DD-NNN:`
 comment beside the call is often the fastest way to discover the
 divergence is load-bearing.**
 
+## A ninth instance, and the first one INTRA-file rather than cross-module (DD-913)
+
+`Developer::Dashboard::CLI::OpenFile`'s `_open_file_roots` and
+`_java_source_archive_roots` (DD-913) each independently wrote out the
+identical `grep { defined && $_ ne '' && -d $_ && !$seen{$_}++ }` filter -
+byte-identical, the strongest signal, exactly as this page's opening
+section names it. But unlike every prior instance on this page, both
+copies live in the SAME file, not across separate `lib/` modules.
+
+**The shape-of-the-fix section's own restraint principle answers this
+case directly, in the other direction from usual:** creating a whole new
+shared module (a new file, a new `package`, a new `use` line at every
+call site) for two call sites that already sit twenty lines apart in one
+file would be the disproportionate-abstraction failure this page already
+warns against, just approached from the opposite side - not "forcing
+divergent sites to fit one shape" but "building more machinery than two
+identical, non-divergent sites need." The fix here is a small private
+`_unique_existing_dirs(@candidates)` sub within `OpenFile.pm` itself,
+called by both existing functions - same "flat function, not a class"
+shape, same verify-byte-identical-first discipline, just scoped to the
+file where the duplication actually lives rather than promoted to a new
+module by default.
+
+**The generalised rule this instance adds:** before extracting, check
+whether the duplication crosses a file boundary. If it does not, prefer a
+private helper local to that one file over a new shared module - the
+module boundary should track where the duplication actually reaches, not
+be applied reflexively because eight prior instances on this page all
+happened to be cross-file.
+
 ## Related
 
 - `lib/Developer/Dashboard/DirEntries.pm` - the first instance of this
