@@ -1,3 +1,11 @@
+4.34  2026-09-17
+
+  - DD-917: OpenFile.pm's _scope_match_rank compiled/resolved every pattern's
+    regex unconditionally at the top of its per-pattern loop, even though two
+    cheaper checks (exact basename match, prefix match) are tried first and
+    often decide the score without ever needing it. Resolved lazily instead,
+    only at the point of use.
+
 4.33  2026-09-16
 
   - DD-918: lib/Developer/Dashboard/CLI/OpenFile.pm was 823 lines, exceeding
