@@ -175,3 +175,65 @@ fix never touched, simply because the path had never been genuinely
 exercised before. Verifying "the known defect is fixed" is not the same
 claim as "this code path is safe to turn back on" - the two were
 conflated here, twice, on the same day.
+
+## DD-931: DD-930's root cause, fixed - but self-exec STAYS disabled
+
+**DD-931 (2026-09-17) root-caused DD-930.** `EnvAudit` is never added to
+`CodeUnitCompiler`'s `compiled_packages`, because its only literal source
+reference sits inside `EnvLoader.pm`'s `_load_env_file`/`_load_env_pl_file`
+subs - and those subs are special-cased by `CodeUnitCompiler.pm` (matched by
+source-text shape around line 10880-10988): their ENTIRE body is replaced
+with a hardcoded `env_load_env_file`/`env_load_env_pl_file` runtime op
+*before* the compiler's own dependency-discovery pass (which walks literal
+source text) ever sees the `EnvAudit->record(...)` call inside them. So
+`EnvAudit` never joins `compiled_packages` and never gets a
+`__PAX_RUNTIME_LEGACY_NAMESPACE__::` alias installed by
+`_install_namespace_compat()`.
+
+**Fix:** both runtime op implementations in `StandaloneRuntime.pm` now
+`require Developer::Dashboard::EnvAudit;` directly and call the real class
+(`Developer::Dashboard::EnvAudit->record(...)`) instead of going through the
+never-populated legacy-namespace alias. Safe because `_install_require_hook`
+already overrides `CORE::GLOBAL::require` to fall back to a normal
+filesystem `require` for any non-embedded unit.
+
+**Verified with a real compiled binary** (`share/private-cli/pax build`,
+113/113 units): `EnvAudit` string-table references went from 0 (pre-fix,
+confirmed by grepping every cached `.pax` binary in DD-930's own
+investigation) to 51 (post-fix), and the binary no longer crashes on
+`EnvAudit->record(...)`.
+
+**Self-exec was NOT re-enabled.** Attempting genuine end-to-end verification
+(not just checking the narrow EnvAudit fix in isolation) surfaced three
+further, independent, more severe defects in the compiled binary, each filed
+separately rather than silently absorbed:
+
+- **DD-932** - the compiled binary silently never even *opens* any
+  `.developer-dashboard/.env` runtime-layer file at all (confirmed via
+  `strace`: zero `.env`-related syscalls, vs. the interpreted `dashboard`
+  which opens and correctly validates the same file). Worse than DD-905's
+  original corruption bug: no symptom at all to notice it by.
+- **DD-933** - the "special-cased op body invisible to dependency discovery"
+  pattern DD-931 root-caused for `EnvAudit` is not unique to it:
+  `JSON::json_decode` and `SeedSync::same_content_md5` crash the identical
+  way in the same test binary. DD-931's fix closes only one instance of a
+  systemic pattern; the durable fix belongs in `CodeUnitCompiler.pm`'s
+  dependency-discovery pass itself (or a documented require-your-own-deps
+  convention for every special-cased op), not in one-off patches per class.
+- **DD-934** - the compiled entrypoint (`entrypoint.pl`, itself a
+  PAX-generated virtual file, not a source file in this repo) crashes with
+  `Can't use string ("<token>") as a HASH ref` on almost any subcommand that
+  carries a trailing argv token - which is most real `dashboard` invocations.
+
+**So `bin/dashboard`'s self-exec-on-cache-hit guard stays disabled**
+(DD-930's mitigation shape unchanged) until DD-932, DD-933 and DD-934 are
+also resolved. DD-931 fixed the one defect its own title named; it
+deliberately did not claim the broader "re-enable self-compile" goal, which
+is now tracked across four tickets instead of one.
+
+**The lesson, one layer further than DD-930's own:** even *"the specific
+crash this ticket named is fixed, verified with a real binary"* is not the
+same claim as *"this code path is safe to turn back on"* - the same
+conflation DD-930's section above already named, caught a second time by
+insisting on genuine end-to-end verification rather than a narrow
+before/after check of the one symptom the ticket was filed against.
