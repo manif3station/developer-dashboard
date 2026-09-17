@@ -82,7 +82,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.38', 'repo version bumped at DD-936\'s distro-column gate per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-936 (PaxCache background compile now opt-in, DD_PAX=on)' );
+is( $version, '4.39', 'repo version bumped at DD-935\'s distro-column gate per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-935 (fix CodeUnitCompiler.pm\'s own pathological compile-time cost)' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
