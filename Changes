@@ -1,3 +1,20 @@
+4.42  2026-09-17
+
+  - DD-933: generalized DD-931's finding - CodeUnitCompiler.pm's
+    dependency-discovery pass walks literal source text to decide a
+    compiled entrypoint's compiled_packages closure, so a class referenced
+    only inside a sub body the compiler special-cases (substituted
+    wholesale with a runtime op) is invisible to it and never gets a
+    __PAX_RUNTIME_LEGACY_NAMESPACE__ alias installed for some entrypoints.
+    Confirmed the same gap hits JSON (~53 call sites) and SeedSync (4 call
+    sites) in StandaloneRuntime.pm, called via the legacy-namespace alias
+    from inside other special-cased ops. Fixed by requiring both classes
+    directly at file-load time and calling them by their real package
+    names, same convention already shipped for EnvAudit in DD-931. New
+    test t/198 proves genuine RED-then-GREEN by invoking the real op
+    dispatcher directly. Verified against a real Docker container with a
+    clean-master baseline comparison: zero regressions.
+
 4.41  2026-09-17
 
   - DD-934: fixed a compiled bin/dashboard entrypoint crash on ANY
