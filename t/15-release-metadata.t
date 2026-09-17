@@ -786,6 +786,27 @@ unlike(
     'main module product manual avoids brittle private-module POD links and stays self-contained',
 );
 
+{
+    # DD-943: t/183-pax-cli-build-run-contract.t creates t/tmp-sow03/ as a
+    # deliberately minimal/POD-less fixture scratch directory and leaves it
+    # on disk after running (gitignored, cleaned only at t/183's own START,
+    # not its end). _perl_doc_paths() must exclude it the same way it
+    # excludes /lib/Developer/Dashboard/Pax and /t/fixtures/, or this test
+    # incorrectly fails whenever t/183 happens to run first in the same
+    # `prove` process.
+    my $stray_dir = _repo_path( 't', 'tmp-sow03', 'dd943-stray' );
+    make_path($stray_dir);
+    my $stray_file = File::Spec->catfile( $stray_dir, 'Fixture.pm' );
+    open my $fh, '>', $stray_file or die "Unable to write $stray_file: $!";
+    print {$fh} "package DD943::Fixture;\n1;\n";
+    close $fh;
+    my @paths = _perl_doc_paths();
+    my ($found) = grep { $_ eq $stray_file } @paths;
+    ok( !$found, 'DD-943: _perl_doc_paths() excludes a stray fixture under t/tmp-sow03/' );
+    require File::Path;
+    File::Path::remove_tree( _repo_path( 't', 'tmp-sow03' ) );
+}
+
 for my $path ( _perl_doc_paths() ) {
     my $content = _slurp($path);
     like( $content, qr/^__END__$/m, "$path keeps Perl POD after __END__" );
@@ -929,6 +950,14 @@ sub _perl_doc_paths {
                 wanted   => sub {
                     return if !-f $_;
                     return if $_ =~ m{/OLD_CODE/};
+                    # DD-943: t/183-pax-cli-build-run-contract.t leaves its
+                    # own deliberately minimal/POD-less scratch fixtures on
+                    # disk under t/tmp-sow03/ after it runs - exclude them
+                    # the same way /lib/Developer/Dashboard/Pax and
+                    # /t/fixtures/ are already excluded elsewhere in this
+                    # file, or this sweep fails whenever t/183 happens to
+                    # run before t/15 in the same prove process.
+                    return if $_ =~ m{/t/tmp-sow03/};
                     return if $_ !~ /\.(?:pm|pl|t)\z/ && $_ !~ m{/share/private-cli/[^/]+\z};
                     push @paths, $File::Find::name;
                 },
