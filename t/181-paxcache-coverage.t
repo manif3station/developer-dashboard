@@ -7,6 +7,7 @@ use utf8;
 use Test::More;
 use File::Temp qw(tempdir);
 use File::Spec;
+use File::Path qw(make_path);
 use Digest::MD5 ();
 use POSIX qw(WNOHANG);
 
@@ -29,6 +30,12 @@ my $home = tempdir( CLEANUP => 1 );
 local $ENV{HOME}                           = $home;
 local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} = tempdir( CLEANUP => 1 );
 chdir $home or die "Unable to chdir to $home: $!";
+
+# DD-936: resolve() defaults to disabled (returns undef immediately) unless
+# DD_PAX=on. This file exercises resolve()'s pre-existing cache/spawn
+# mechanics, so opt in for the whole file; the DD_PAX-off default itself is
+# asserted separately, further down, with its own explicit local override.
+local $ENV{DD_PAX} = 'on';
 
 my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
 
@@ -571,6 +578,105 @@ sub source_file_with_content {
     my $staged = $cache->_pax_bin;
     ok( defined $staged, '_pax_bin: real (unmocked) staging resolves a defined path' );
     ok( defined $staged && -f $staged, '_pax_bin: the resolved staged path genuinely exists on disk' ) if defined $staged;
+}
+
+# --------------------------------------------------------------------------
+# DD-936: DD_PAX opt-in gate, scoped to ONLY the spawn-a-new-compile path
+# (Q-167: option A, owner-answered 2026-09-17, after option B as originally
+# implemented was found to break bin/d2's own self-exec feature in
+# t/184-d2-self-compile.t - a pre-existing valid cache hit must NOT require
+# DD_PAX). Default (unset) disables spawning a NEW background compile on a
+# cache MISS; it does not affect reporting an already-existing, valid cache
+# HIT. Every other block in this file locally sets DD_PAX=on at file scope
+# (see top of file) specifically so it can keep exercising resolve()'s
+# pre-existing mechanics unaffected by this gate - these blocks are what
+# actually prove the gate, so they override that file-scope value back off.
+# --------------------------------------------------------------------------
+{
+    local $ENV{DD_PAX} = undef;
+    my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax();
+    local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
+
+    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
+    my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'dd936-unset';\n");
+
+    my $result = $cache->resolve($source);
+    is( $result, undef, 'DD-936 AC-1: DD_PAX unset, cache MISS -> resolve() returns undef' );
+
+    # Give a wrongly-spawned background compile a moment to have started and
+    # written its call-log entry, then assert it never did.
+    select( undef, undef, undef, 0.3 );
+    ok( !-e $log_file, 'DD-936 AC-1: DD_PAX unset, cache MISS -> the fake pax binary was never invoked at all' );
+}
+
+# --------------------------------------------------------------------------
+# Q-167 option A's own contract: an ALREADY-EXISTING, valid cache HIT is
+# reported regardless of DD_PAX - this is the exact scenario t/184's own
+# seed_cache_for_d2 depends on (seed a real cache entry directly, no compile
+# involved, expect it reported/used). No fake pax binary needed here at all;
+# a cache hit never invokes pax_bin.
+# --------------------------------------------------------------------------
+{
+    local $ENV{DD_PAX} = undef;
+    my $cache  = Developer::Dashboard::PaxCache->new( paths => $paths );
+    my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'dd936-hit';\n");
+
+    # Seed a valid cache entry directly, exactly as resolve()'s own
+    # cache-hit check reads it: matching MD5 + an executable binary file.
+    my $md5 = do {
+        open my $fh, '<:raw', $source or die $!;
+        Digest::MD5->new->addfile($fh)->hexdigest;
+    };
+    my $key       = Digest::MD5::md5_hex($source);
+    my $cache_dir = File::Spec->catdir( $paths->home_cache_root, 'pax' );
+    make_path($cache_dir);
+    my $md5_file = File::Spec->catfile( $cache_dir, "$key.md5" );
+    my $bin_file = File::Spec->catfile( $cache_dir, "$key.pax" );
+    open my $mfh, '>', $md5_file or die $!;
+    print {$mfh} $md5;
+    close $mfh;
+    open my $bfh, '>', $bin_file or die $!;
+    print {$bfh} "fake-compiled-binary\n";
+    close $bfh;
+    chmod 0755, $bin_file;
+
+    is(
+        $cache->resolve($source),
+        $bin_file,
+        'DD-936 AC-1b (Q-167 option A): DD_PAX unset, a pre-existing valid cache HIT is still reported normally - only new spawns are gated'
+    );
+}
+
+{
+    local $ENV{DD_PAX} = 'off';
+    my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax();
+    local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
+
+    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
+    my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'dd936-off';\n");
+
+    my $result = $cache->resolve($source);
+    is( $result, undef, 'DD-936: DD_PAX=off (anything other than "on") -> resolve() returns undef' );
+    select( undef, undef, undef, 0.3 );
+    ok( !-e $log_file, 'DD-936: DD_PAX=off -> the fake pax binary was never invoked' );
+}
+
+{
+    local $ENV{DD_PAX} = 'on';
+    my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax();
+    local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
+
+    my $cache = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
+    my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'dd936-on';\n");
+
+    my $result = $cache->resolve($source);
+    is( $result, undef, 'DD-936 AC-2: DD_PAX=on -> resolve() still returns undef on a genuine cache miss (unchanged behavior)' );
+
+    for ( 1 .. 50 ) {
+        last if -e $log_file;
+        select( undef, undef, undef, 0.1 );
+    }
+    ok( -e $log_file, 'DD-936 AC-2: DD_PAX=on -> the background compile WAS spawned, exactly as before this change' );
 }
 
 done_testing();
