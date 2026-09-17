@@ -32,10 +32,29 @@ was compiled hundreds of times.
 
 **A caller with only raw pattern strings still works.** `_scope_match_rank`
 falls back to compiling on demand when the regex at a given index is
-missing (`$regexes[$index] || _compile_open_file_regex($pattern)`), which
-is what the module's own direct unit tests exercise — they call
-`_scope_match_rank`/`_ordered_scope_matches` with `patterns` only, no
+missing, which is what the module's own direct unit tests exercise — they
+call `_scope_match_rank`/`_ordered_scope_matches` with `patterns` only, no
 `regexes`, and get identical behavior to before.
+
+## Lazy on-demand resolution (DD-917)
+
+The fallback compile is itself lazy, not eager. `_scope_match_rank` scores
+each candidate through a sequence of increasingly expensive checks
+(exact basename, stem, path-component match) before it ever reaches a
+regex-dependent branch. Before DD-917, the missing-regex fallback
+(`$regexes[$index] || _compile_open_file_regex($pattern)`) ran at the top
+of the function regardless of whether a cheaper check would go on to
+decide the score first — so a file that matched on basename alone still
+paid for a regex compile it never used.
+
+DD-917 defers that compile with `my $regex; ... $regex ||=
+_resolved_scope_match_regex(\@regexes, $index, $pattern)`, resolved only
+the first time a branch that actually needs it is reached. A file whose
+score resolves via a cheaper check never triggers the compile at all; a
+file that does reach a regex branch gets it compiled once and reused for
+every subsequent regex branch in the same call, via `_resolved_scope_match_regex`
+(`$regexes->[$index] || _compile_open_file_regex($pattern)` — same fallback
+expression as before, just called lazily instead of eagerly).
 
 ## When to use
 

@@ -327,9 +327,9 @@ is( oc( '_scope_match_rank', file => 'x.txt' ), 0, 'no patterns yields a zero ra
     is( $compile_calls, 0, 'ranking three candidate files with pre-compiled regexes recompiles the pattern zero times' );
 }
 {
-    # Without pre-compiled regexes (the direct-caller / legacy shape already
-    # covered above), _scope_match_rank still compiles the pattern itself -
-    # this only changes behavior when a caller supplies regexes.
+    # DD-917: a cheap literal check (stem exact match, here) resolves this
+    # file's score before the regex branch is ever reached, so - without
+    # pre-compiled regexes - the pattern must NOT be compiled at all.
     my $compile_calls = 0;
     no warnings 'redefine';
     local *Developer::Dashboard::CLI::OpenFile::_compile_open_file_regex = sub {
@@ -337,7 +337,36 @@ is( oc( '_scope_match_rank', file => 'x.txt' ), 0, 'no patterns yields a zero ra
         return qr/\Q$_[0]\E/i;
     };
     oc( '_scope_match_rank', match_path => 'App.pm', patterns => ['App'] );
-    is( $compile_calls, 1, 'a direct caller with no pre-compiled regexes still gets one compiled on demand' );
+    is( $compile_calls, 0, 'a stem-exact match resolves the score without ever compiling the pattern' );
+}
+{
+    # DD-917: a file that does NOT resolve via any of the cheap literal
+    # checks must still fall through to a real regex compile on demand -
+    # laziness must not silently drop the regex path altogether.
+    my $compile_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::CLI::OpenFile::_compile_open_file_regex = sub {
+        $compile_calls++;
+        return qr/\Q$_[0]\E/i;
+    };
+    my $rank = oc( '_scope_match_rank', match_path => 'lib/deep/Other.pm', patterns => ['App'] );
+    is( $compile_calls, 1, 'a file with no cheap literal match still gets the pattern compiled once, on demand' );
+    is( $rank, 50, 'and the fallback score reflects no match at all' );
+}
+{
+    # DD-917: when a caller supplies pre-compiled regexes (DD-912) AND the
+    # candidate file needs the regex branch (no cheap literal resolves it
+    # first), the supplied regex is reused - never recompiled.
+    my $compile_calls = 0;
+    no warnings 'redefine';
+    local *Developer::Dashboard::CLI::OpenFile::_compile_open_file_regex = sub {
+        $compile_calls++;
+        return qr/\Q$_[0]\E/i;
+    };
+    my @regexes = ( Developer::Dashboard::CLI::OpenFile::_compile_open_file_regex('App') );
+    $compile_calls = 0;
+    oc( '_scope_match_rank', match_path => 'lib/deep/Other.pm', patterns => ['App'], regexes => \@regexes );
+    is( $compile_calls, 0, 'a pre-compiled regex is reused for the regex branch, never recompiled' );
 }
 
 # ---------------------------------------------------------------------------

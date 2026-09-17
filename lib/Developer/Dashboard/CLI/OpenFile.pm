@@ -128,6 +128,19 @@ sub _ordered_scope_matches {
       } @ranked;    # uncoverable branch true : entries carry unique indexes, so this tiebreaker is never 0 and the comparator never returns 0
 }
 
+# _resolved_scope_match_regex($regexes, $index, $pattern)
+# Resolves the regex for one scope-match ranking pattern: the caller's pre-compiled
+# regex at this index if one was supplied (DD-912), otherwise compiles the pattern
+# itself so direct callers (tests, or any caller with only raw pattern strings) keep
+# working unchanged.
+# Input: pre-compiled regex array reference, pattern index, and the pattern string.
+# Output: compiled regex object.
+sub _resolved_scope_match_regex {
+    my ( $regexes, $index, $pattern ) = @_;
+    # uncoverable condition false _compile_open_file_regex only returns undef for an undef/empty pattern, already excluded by _scope_match_rank before this is called
+    return $regexes->[$index] || _compile_open_file_regex($pattern);
+}
+
 # _scope_match_rank(%args)
 # Scores one recursive scope-search file so exact basename hits outrank partial path matches.
 # Input: file path string, the active pattern array reference, and an optional pre-compiled regex array
@@ -150,8 +163,7 @@ sub _scope_match_rank {
     for my $index ( 0 .. $#patterns ) {
         my $pattern = $patterns[$index];
         next if !defined $pattern || $pattern eq '';
-        # uncoverable condition false _compile_open_file_regex only returns undef for an undef/empty pattern, already excluded above
-        my $regex = $regexes[$index] || _compile_open_file_regex($pattern);
+        my $regex;    # DD-917: resolved lazily below, only if a cheaper check does not already decide the score
         my $score = 50;
         my @components = grep { $_ ne '' } split m{[\\/]+}, $match_path;
 
@@ -164,12 +176,24 @@ sub _scope_match_rank {
         elsif ( $basename =~ /\A(?:$pattern)/i ) {
             $score = 2;
         }
-        elsif ( $basename =~ $regex ) {
+        elsif (
+            do {
+                # uncoverable condition left (DD-917) $regex is freshly declared undef on every loop iteration and nothing sets it before this point, so the already-resolved side of ||= is never taken
+                # uncoverable condition false (DD-917) _resolved_scope_match_regex never returns a falsy value, so $regex is never falsy after this line
+                $regex ||= _resolved_scope_match_regex( \@regexes, $index, $pattern );
+                $basename =~ $regex;
+            }
+          )
+        {
             $score = 3;
         }
         elsif ( grep { $_ =~ /\A(?:$pattern)\z/i } @components ) {
             $score = 4;
         }
+
+        # $regex is always already resolved by the elsif above by the time this branch is
+        # reached - the if/elsif chain visits that branch first on every path that reaches
+        # this one, so there is no remaining case where $regex could still be undef here.
         elsif ( $match_path =~ $regex ) {
             $score = 5;
         }
