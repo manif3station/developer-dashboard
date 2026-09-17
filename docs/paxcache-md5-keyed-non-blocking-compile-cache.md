@@ -76,38 +76,59 @@ Does not reach the web server or collector processes (explicitly out of
 scope, DDS-001 Q-160). Extending it to more internal CLI tools beyond the
 two callers below is future work under epic DDE-002.
 
-## Callers, and one caller's cache-hit action is deliberately disabled
+## Callers
 
-Two callers currently invoke `resolve()`:
+Two callers currently invoke `resolve()`, and both now exec directly into a
+cache hit:
 
 - **`dashboard ps1`** (`_pax_cached_binary_for` in `bin/dashboard`, DD-877's
   proof of concept, small allowlist by design): on a cache hit, execs the
-  cached compiled binary directly. Unaffected by the issue below.
+  cached compiled binary directly.
 
 - **`bin/dashboard`'s own self-check** (`_maybe_exec_self_compiled_dashboard`,
   DD-882 vendored the whole PAX library and wired this in so the dashboard
-  entrypoint itself could self-compile). **DD-905 (2026-09-16) disabled the
-  exec side of this caller specifically**, after finding that a REAL
-  PAX-compiled binary of `bin/dashboard` silently corrupts `%ENV` loading on
-  startup: `Developer::Dashboard::EnvLoader`'s `_load_env_file` (a plain
-  line-by-line `<$fh>` read of `.env`) dies with `"Invalid env line ...
-  line 1: <the whole file concatenated as one line>"` when run inside the
-  compiled binary's own execution environment - even though the
-  byte-identical source runs `.env` loading cleanly under normal interpreted
-  Perl. The root cause is somewhere inside the vendored Pax
-  `StandaloneRuntime`'s own runtime (not yet found, in a ~15,000-line
-  module) - some real, non-embedded-asset filesystem file read behaves
-  differently there than under plain Perl. Because this ran unconditionally
-  on every real invocation, and `resolve()` triggers its background compile
-  automatically with no explicit opt-in, the corruption was silent and
-  invisible to `prove -lr t` (the test harness sets `HARNESS_ACTIVE`, which
-  this caller explicitly skips on) - it only ever surfaced in live
-  interactive/production use, once a background compile happened to finish.
+  entrypoint itself could self-compile): on a cache hit, execs the cached
+  compiled binary directly, guarded against re-exec via
+  `DEVELOPER_DASHBOARD_PAX_SELF_EXECED`.
 
-  **Current state:** this caller still calls `resolve()` (so the background
-  compile keeps happening - harmless, and lets a future fix pick up a warm
-  cache immediately) but never acts on a defined cache hit to exec into it;
-  `bin/dashboard` always falls through to its own interpreted body. **Do
-  not re-enable the exec side of this specific caller** until the
-  `StandaloneRuntime` file-I/O divergence above is properly root-caused and
-  fixed - re-enabling it blind would silently reintroduce the corruption.
+## DD-905/DD-922: the %ENV-corruption defect this cache hit into, root-caused and fixed
+
+**DD-905 (2026-09-16)** temporarily disabled `bin/dashboard`'s exec side
+after finding that a REAL PAX-compiled binary of `bin/dashboard` silently
+corrupted `%ENV` loading on startup: `Developer::Dashboard::EnvLoader`'s
+`_load_env_file` (a plain line-by-line `<$fh>` read of `.env`) died with
+`"Invalid env line ... line 1: <the whole file concatenated as one
+line>"` when run inside the compiled binary's own execution environment -
+even though the byte-identical source ran `.env` loading cleanly under
+normal interpreted Perl.
+
+**DD-922 (2026-09-16, same day) root-caused it.** The defect was inside the
+vendored Pax `StandaloneRuntime`'s own entrypoint dispatch, not anything
+specific to `bin/dashboard` or `EnvLoader.pm`: four sibling dispatchers -
+`_run_service_dispatch_unit`, `_run_cli_router_unit`,
+`_run_dispatch_script_unit`, `_run_script_unit` - each open one small JSON
+metadata file and do `local $/;` to slurp it whole, but that `local $/;`
+spans the *rest of the sub*, including a *later* `eval $wrapped` in the
+same sub that runs the entrypoint's own compiled source (bootstrap code,
+or the user script itself). `eval STRING` does not open a fresh dynamic
+scope - it shares its caller's - so every real-file `open+<$fh>` read the
+entrypoint's own running code performed (EnvLoader.pm's `.env` parser
+included) silently inherited the still-active `$/ = undef` and slurped the
+whole file as one "line". Confirmed with an isolated 8-line reproduction
+script: reads a 4-line file correctly when interpreted, reads the whole
+file as one "line" when self-compiled and run directly, entirely
+independent of `bin/dashboard`'s own complexity.
+
+**Fix:** each of the four dispatchers' `local $/;` + JSON-metadata read is
+now confined to its own bare block, so `$/` is back to its normal default
+before any later `eval` of user/bootstrap source runs. `bin/dashboard`'s
+exec side is re-enabled - a cache hit is executed again, exactly as DD-882
+originally shipped it. `dashboard ps1`'s narrower self-compile path shares
+the identical dispatch mechanism and is fixed by the same change (verified
+live: no crash, no content corruption on `Prompt.pm`'s real-file git
+HEAD/branch reads).
+
+A separate, unrelated finding surfaced while verifying `ps1`: its compiled
+binary's UTF-8 emoji output renders as mojibake (no crash, no wrong data -
+a STDOUT encoding difference, not a `$/` issue). Filed as DD-923, not part
+of this fix.
