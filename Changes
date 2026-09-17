@@ -1,3 +1,13 @@
+4.38  2026-09-17
+
+  - DD-936: PaxCache::resolve() no longer spawns a new background pax
+    build by default - owner-specified opt-in via DD_PAX=on, after
+    observing pax build burn ~66% CPU for 90+ seconds per invocation
+    merely from running dashboard/d2 init. Gate scoped to only the
+    spawn-a-new-compile path (not cache-hit reporting), after an
+    earlier blanket-gate version was found to break bin/d2's own
+    self-exec feature and corrected the same day (Q-167).
+
 4.37  2026-09-17
 
   - DD-931: require Developer::Dashboard::EnvAudit directly (instead of
