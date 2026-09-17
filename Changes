@@ -1,3 +1,11 @@
+4.36  2026-09-17
+
+  - DD-924: d2's self-compiled binary resolved $Bin to the pax cache
+    directory it physically ran from, not the original bin/ source
+    directory, breaking its own exec-into-dashboard fallback with
+    "Can't open perl script". Fixed by baking the correct path into an
+    env var on the genuinely-interpreted first run, before self-exec.
+
 4.35  2026-09-17
 
   - DD-922: root-caused and fixed StandaloneRuntime's file-read corruption
