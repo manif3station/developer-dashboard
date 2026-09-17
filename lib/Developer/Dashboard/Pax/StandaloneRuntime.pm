@@ -16,6 +16,22 @@ use Socket qw(MSG_PEEK);
 use Developer::Dashboard::Pax::GuardManager;
 use Developer::Dashboard::Pax::NativeRunner;
 
+# DD-933: JSON and SeedSync are called by name from inside op
+# implementations below (the same shape DD-931 already fixed for
+# EnvAudit) - CodeUnitCompiler.pm's dependency-discovery pass walks
+# literal source text to decide a compiled entrypoint's compiled_packages
+# closure, and a class referenced ONLY inside a sub body the compiler
+# special-cases and substitutes wholesale (as several JSON/SeedSync call
+# sites below are) is invisible to that walk, so it never gets a
+# __PAX_RUNTIME_LEGACY_NAMESPACE__ alias installed for some entrypoints.
+# Requiring both directly here, unconditionally, at this file's own load
+# time (this falls through the existing CORE::GLOBAL::require hook to a
+# normal filesystem require when, as here, neither is an embedded
+# compiled unit) means every op implementation below can call the real
+# package name directly and never depends on that alias existing.
+use Developer::Dashboard::JSON ();
+use Developer::Dashboard::SeedSync ();
+
 my $STATE;
 my $RUNTIME_JSON_DECODER;
 my $RUNTIME_JSON_DECODER_KIND;
@@ -1601,7 +1617,7 @@ sub _install_compiled_sub {
             return 1 if %{$hash_symbol};
             my $raw = $ENV{$env_key} || '';
             return 1 if $raw eq '';
-            my $decoded = __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode($raw);
+            my $decoded = Developer::Dashboard::JSON::json_decode($raw);
             die $error_message if ref($decoded) ne 'HASH';
             %{$hash_symbol} = map {
                 $_ => {
@@ -1619,7 +1635,7 @@ sub _install_compiled_sub {
         my $copy_method = $sub->{copy_method} // die 'compiled sub copy method missing';
         $impl = sub {
             my ($class) = @_;
-            $ENV{$env_key} = __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode(_code_for($copy_method)->($class));
+            $ENV{$env_key} = Developer::Dashboard::JSON::json_encode(_code_for($copy_method)->($class));
             return 1;
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
@@ -2157,7 +2173,7 @@ sub _install_compiled_sub {
         my $decode_error = $sub->{decode_error} // 'Doctor hook RESULT must decode to a hash';
         $impl = sub {
             return {} if !defined $ENV{RESULT} || $ENV{RESULT} eq '';
-            my $results = __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode($ENV{RESULT});
+            my $results = Developer::Dashboard::JSON::json_decode($ENV{RESULT});
             die $decode_error if ref($results) ne 'HASH';
             return $results;
         };
@@ -2415,7 +2431,7 @@ sub _install_compiled_sub {
             };
             if ($command eq 'paths') {
                 $load_configured_path_aliases->();
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($paths->all_paths);
+                print Developer::Dashboard::JSON::json_encode($paths->all_paths);
                 return 1;
             }
             my @argv = @{$argv};
@@ -2427,12 +2443,12 @@ sub _install_compiled_sub {
                 return 1;
             }
             if ($action eq 'locate') {
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode([ $paths->locate_projects(@argv) ]);
+                print Developer::Dashboard::JSON::json_encode([ $paths->locate_projects(@argv) ]);
                 return 1;
             }
             if ($action eq 'cdr') {
                 $load_configured_path_aliases->();
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode(_code_for($cdr_payload_method)->(paths => $paths, args => \@argv));
+                print Developer::Dashboard::JSON::json_encode(_code_for($cdr_payload_method)->(paths => $paths, args => \@argv));
                 return 1;
             }
             if ($action eq 'complete-cdr') {
@@ -2448,14 +2464,14 @@ sub _install_compiled_sub {
                 my $saved = $config->save_global_path_alias($name, $path);
                 $paths->register_named_paths({ $name => $path });
                 $saved->{resolved} = $paths->resolve_dir($name);
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($saved);
+                print Developer::Dashboard::JSON::json_encode($saved);
                 return 1;
             }
             if ($action eq 'del') {
                 my $name = shift @argv || die "Usage: dashboard path del <name>\n";
                 my $deleted = $config->remove_global_path_alias($name);
                 $paths->unregister_named_path($name);
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($deleted);
+                print Developer::Dashboard::JSON::json_encode($deleted);
                 return 1;
             }
             if ($action eq 'project-root') {
@@ -2465,7 +2481,7 @@ sub _install_compiled_sub {
             }
             if ($action eq 'list') {
                 $load_configured_path_aliases->();
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($paths->all_path_aliases);
+                print Developer::Dashboard::JSON::json_encode($paths->all_path_aliases);
                 return 1;
             }
             die $usage_error;
@@ -2542,7 +2558,7 @@ sub _install_compiled_sub {
 
             if ($command eq 'files') {
                 $load_configured_file_aliases->();
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($files->all_files);
+                print Developer::Dashboard::JSON::json_encode($files->all_files);
                 return 1;
             }
 
@@ -2568,7 +2584,7 @@ sub _install_compiled_sub {
                         shift @argv;
                     }
                 }
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode([ $files->locate_files_under($root, @argv) ]);
+                print Developer::Dashboard::JSON::json_encode([ $files->locate_files_under($root, @argv) ]);
                 return 1;
             }
             if ($action eq 'add') {
@@ -2576,19 +2592,19 @@ sub _install_compiled_sub {
                 my $path = shift @argv || die "Usage: dashboard file add <name> <path>\n";
                 my $saved = $config->save_global_file_alias($name, $path);
                 $files->register_named_files({ $name => $saved->{path} });
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($saved);
+                print Developer::Dashboard::JSON::json_encode($saved);
                 return 1;
             }
             if ($action eq 'del') {
                 my $name = shift @argv || die "Usage: dashboard file del <name>\n";
                 my $deleted = $config->remove_global_file_alias($name);
                 $files->unregister_named_file($name);
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($deleted);
+                print Developer::Dashboard::JSON::json_encode($deleted);
                 return 1;
             }
             if ($action eq 'list') {
                 $load_configured_file_aliases->();
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($files->named_files);
+                print Developer::Dashboard::JSON::json_encode($files->named_files);
                 return 1;
             }
 
@@ -3545,7 +3561,7 @@ OPENSSL_CONFIG
             return if !-f $file;
             open my $fh, '<:raw', $file or die "Unable to read $file: $!";
             local $/;
-            return __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode(scalar <$fh>);
+            return Developer::Dashboard::JSON::json_decode(scalar <$fh>);
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -3580,7 +3596,7 @@ OPENSSL_CONFIG
             my $file = $self->{files}->web_state;
             my $tmp = sprintf '%s.%s.%s.pending', $file, $$, time;
             open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
-            print {$fh} __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($payload);
+            print {$fh} Developer::Dashboard::JSON::json_encode($payload);
             close $fh;
             $self->{paths}->secure_file_permissions($tmp);
             rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
@@ -4342,7 +4358,7 @@ OPENSSL_CONFIG
         $impl = sub {
             my ($self, %args) = @_;
             my $params = ref($args{params}) eq 'HASH' ? $args{params} : {};
-            my $params_json = __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($params);
+            my $params_json = Developer::Dashboard::JSON::json_encode($params);
             my $query_string = _code_for($query_string_method)->($params);
             my %env = (
                 DEVELOPER_DASHBOARD_AJAX_FILE      => $args{path} || '',
@@ -5210,7 +5226,7 @@ PERL
             local $/;
             my $raw = <$fh>;
             close $fh or die "Unable to close $file: $!";
-            my $data = eval { __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode($raw) };
+            my $data = eval { Developer::Dashboard::JSON::json_decode($raw) };
             return if !$data || ref($data) ne 'HASH';
             return $data;
         };
@@ -5762,7 +5778,7 @@ PERL
                 my $existing = do { local $/; <$existing_fh> };
                 close $existing_fh or die "Unable to close $target: $!";
                 return 0 if !_code_for($managed_check_method)->($existing, $name);
-                return 0 if __PAX_RUNTIME_LEGACY_NAMESPACE__::SeedSync::same_content_md5($existing, $content);
+                return 0 if Developer::Dashboard::SeedSync::same_content_md5($existing, $content);
             }
             open my $fh, '>:raw', $target or die "Unable to write $target: $!";
             print {$fh} $content;
@@ -6250,7 +6266,7 @@ PERL
             my (%args) = @_;
             my $command = $args{command} || die 'Missing command';
             my $text = defined $args{text} ? $args{text} : '';
-            return __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode($text) if $command eq 'pjq' || $command eq 'jq';
+            return Developer::Dashboard::JSON::json_decode($text) if $command eq 'pjq' || $command eq 'jq';
             return YAML::XS::Load($text) if $command eq 'pyq' || $command eq 'yq';
             return TOML::Tiny::from_toml($text) if $command eq 'ptomq' || $command eq 'tomq';
             return _code_for($parse_java_properties_method)->($text) if $command eq 'pjp' || $command eq 'propq';
@@ -6357,7 +6373,7 @@ PERL_EVAL
         $impl = sub {
             my ($value) = @_;
             if (ref($value)) {
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($value), "\n";
+                print Developer::Dashboard::JSON::json_encode($value), "\n";
                 return 1;
             }
             print defined $value ? $value : '';
@@ -6563,7 +6579,7 @@ PERL_EVAL
             my $filename = _code_for($asset_filename_method)->($id);
             my %seen;
             my @md5s = (
-                __PAX_RUNTIME_LEGACY_NAMESPACE__::SeedSync::content_md5(_code_for($seeded_instruction_method)->($filename)),
+                Developer::Dashboard::SeedSync::content_md5(_code_for($seeded_instruction_method)->($filename)),
                 @{ $legacy_map->{$id} || [] },
             );
             return grep { $_ ne '' && !$seen{$_}++ } @md5s;
@@ -6665,7 +6681,7 @@ PERL_EVAL
             my $json = do { local $/; <$fh> };
             close $fh or die "Unable to close $manifest_path: $!";
             $json = '{}' if !defined $json || $json =~ /\A\s*\z/;
-            my $manifest = __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode($json);
+            my $manifest = Developer::Dashboard::JSON::json_decode($json);
             die "Seed manifest at $manifest_path must decode to a hash\n" if ref($manifest) ne 'HASH';
             return $manifest;
         };
@@ -6681,7 +6697,7 @@ PERL_EVAL
             die 'Missing seeded page manifest hash' if ref($manifest) ne 'HASH';
             my $manifest_path = _code_for($manifest_path_method)->(paths => $paths);
             open my $fh, '>:raw', $manifest_path or die "Unable to write $manifest_path: $!";
-            print {$fh} __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($manifest);
+            print {$fh} Developer::Dashboard::JSON::json_encode($manifest);
             print {$fh} "\n";
             close $fh or die "Unable to close $manifest_path: $!";
             $paths->secure_file_permissions($manifest_path) if $paths->can('secure_file_permissions');
@@ -6737,7 +6753,7 @@ PERL_EVAL
             }
             my $id = $page->as_hash->{id} || die 'Missing seeded page id';
             my $wanted = $page->canonical_instruction;
-            my $wanted_md5 = __PAX_RUNTIME_LEGACY_NAMESPACE__::SeedSync::content_md5($wanted);
+            my $wanted_md5 = Developer::Dashboard::SeedSync::content_md5($wanted);
             my $current;
             my $loaded = eval {
                 $current = $pages->read_saved_entry($id);
@@ -6749,7 +6765,7 @@ PERL_EVAL
                 _code_for($record_manifest_method)->(paths => $paths, id => $id, md5 => $wanted_md5);
                 return 'created';
             }
-            my $current_md5 = __PAX_RUNTIME_LEGACY_NAMESPACE__::SeedSync::content_md5($current);
+            my $current_md5 = Developer::Dashboard::SeedSync::content_md5($current);
             if ($current_md5 eq $wanted_md5) {
                 _code_for($record_manifest_method)->(paths => $paths, id => $id, md5 => $wanted_md5);
                 return 'current';
@@ -6999,14 +7015,14 @@ PERL_EVAL
                 return {
                     kind => 'builtin',
                     content_type => 'application/json; charset=utf-8',
-                    body => __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($page->as_hash->{state} || {}),
+                    body => Developer::Dashboard::JSON::json_encode($page->as_hash->{state} || {}),
                 };
             }
             if ($id eq 'paths.list') {
                 return {
                     kind => 'builtin',
                     content_type => 'application/json; charset=utf-8',
-                    body => __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode({
+                    body => Developer::Dashboard::JSON::json_encode({
                         home => $self->{paths}->home,
                         runtime => $self->{paths}->runtime_root,
                         dashboards => $self->{paths}->dashboards_root,
@@ -7043,7 +7059,7 @@ PERL_EVAL
                 ),
             };
             return __PAX_RUNTIME_LEGACY_NAMESPACE__::Codec::encode_payload(
-                __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($payload)
+                Developer::Dashboard::JSON::json_encode($payload)
             );
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
@@ -7052,7 +7068,7 @@ PERL_EVAL
     if (($sub->{op} // '') eq 'action_decode_payload') {
         $impl = sub {
             my ($self, $token) = @_;
-            my $payload = __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode(
+            my $payload = Developer::Dashboard::JSON::json_decode(
                 __PAX_RUNTIME_LEGACY_NAMESPACE__::Codec::decode_payload($token)
             );
             die 'Action payload must be a hash' if ref($payload) ne 'HASH';
@@ -7293,7 +7309,7 @@ PERL_EVAL
         my $write_text_method = $sub->{write_text_method} // die 'compiled sub write-text method missing';
         $impl = sub {
             my ($self, $file, $data) = @_;
-            return _code_for($write_text_method)->($self, $file, __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($data));
+            return _code_for($write_text_method)->($self, $file, Developer::Dashboard::JSON::json_encode($data));
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -7363,7 +7379,7 @@ PERL_EVAL
                 next if !-f $file;
                 open my $fh, '<:raw', $file or die "Unable to read $file: $!";
                 local $/;
-                return __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode(<$fh>);
+                return Developer::Dashboard::JSON::json_decode(<$fh>);
             }
             return;
         };
@@ -7379,7 +7395,7 @@ PERL_EVAL
                 open my $fh, '<:raw', $file or die "Unable to read $file: $!";
                 local $/;
                 my $raw = <$fh>;
-                my $data = eval { __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode($raw) };
+                my $data = eval { Developer::Dashboard::JSON::json_decode($raw) };
                 return $data if !$@;
             }
             return;
@@ -7915,7 +7931,7 @@ PERL_EVAL
                 next if !-f $file;
                 open my $fh, '<:raw', $file or die "Unable to read $file: $!";
                 local $/;
-                $merged = _code_for($merge_hashes_method)->($self, $merged, __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode(<$fh>));
+                $merged = _code_for($merge_hashes_method)->($self, $merged, Developer::Dashboard::JSON::json_decode(<$fh>));
             }
             for my $fragment (_code_for($skill_fragments_method)->($self)) {
                 $merged = _code_for($merge_hashes_method)->($self, $merged, $fragment);
@@ -7931,7 +7947,7 @@ PERL_EVAL
             my ($self, $config) = @_;
             my $file = _code_for($file_method)->($self);
             open my $fh, '>:raw', $file or die "Unable to write $file: $!";
-            print {$fh} __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($config || {});
+            print {$fh} Developer::Dashboard::JSON::json_encode($config || {});
             close $fh;
             $self->{paths}->secure_file_permissions($file);
             return $file;
@@ -7947,7 +7963,7 @@ PERL_EVAL
             return {} if !-f $file;
             open my $fh, '<:raw', $file or die "Unable to read $file: $!";
             local $/;
-            return __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode(<$fh>);
+            return Developer::Dashboard::JSON::json_decode(<$fh>);
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -7987,7 +8003,7 @@ PERL_EVAL
             return {} if !-f $file;
             open my $fh, '<:raw', $file or die "Unable to read $file: $!";
             local $/;
-            return __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode(<$fh>);
+            return Developer::Dashboard::JSON::json_decode(<$fh>);
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -8017,7 +8033,7 @@ my $housekeeper = __PAX_RUNTIME_LEGACY_NAMESPACE__::Housekeeper->new(
         project_roots   => [ grep { -d } map { "$ENV{HOME}/$_" } qw(projects src work) ],
     ),
 );
-print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode( $housekeeper->run );
+print Developer::Dashboard::JSON::json_encode( $housekeeper->run );
 0;
 PERL
                     cwd      => 'home',
@@ -8869,7 +8885,7 @@ PERL
             my ($self, %args) = @_;
             my $collector_name = $args{collector_name} || die 'Missing collector name';
             my $stdout = defined $args{stdout} ? $args{stdout} : '';
-            my $decoded = eval { __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode($stdout) };
+            my $decoded = eval { Developer::Dashboard::JSON::json_decode($stdout) };
             if ($@) {
                 my $error = "$@";
                 $error =~ s/\s+\z//;
@@ -9116,7 +9132,7 @@ PERL
             return if !-f $file;
             open my $fh, '<', $file or die "Unable to read $file: $!";
             local $/;
-            return __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode(scalar <$fh>);
+            return Developer::Dashboard::JSON::json_decode(scalar <$fh>);
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -9220,7 +9236,7 @@ PERL
             my %state = (%{$existing}, %{ $data || {} }, name => $name);
             my $tmp = sprintf '%s.%s.%s.pending', $file, $$, time;
             open my $fh, '>', $tmp or die "Unable to write $tmp: $!";
-            print {$fh} __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode(\%state);
+            print {$fh} Developer::Dashboard::JSON::json_encode(\%state);
             close $fh;
             $self->{paths}->secure_file_permissions($tmp);
             rename $tmp, $file or die "Unable to rename $tmp to $file: $!";
@@ -9936,7 +9952,7 @@ PERL
             };
             my $file = _code_for($file_method)->($self, $session_id);
             open my $fh, '>:raw', $file or die "Unable to write $file: $!";
-            print {$fh} __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($record);
+            print {$fh} Developer::Dashboard::JSON::json_encode($record);
             close $fh;
             chmod 0600, $file;
             return $record;
@@ -9953,7 +9969,7 @@ PERL
                 next if !-f $file;
                 open my $fh, '<:raw', $file or die "Unable to read $file: $!";
                 local $/;
-                return __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode(scalar <$fh>);
+                return Developer::Dashboard::JSON::json_decode(scalar <$fh>);
             }
             return;
         };
@@ -10050,7 +10066,7 @@ PERL
             };
             my $file = _code_for($file_method)->($self, $username);
             open my $fh, '>:raw', $file or die "Unable to write $file: $!";
-            print {$fh} __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($record);
+            print {$fh} Developer::Dashboard::JSON::json_encode($record);
             close $fh;
             chmod 0600, $file;
             return $record;
@@ -10066,7 +10082,7 @@ PERL
                 next if !-f $file;
                 open my $fh, '<:raw', $file or die "Unable to read $file: $!";
                 local $/;
-                return __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode(scalar <$fh>);
+                return Developer::Dashboard::JSON::json_decode(scalar <$fh>);
             }
             return;
         };
@@ -10935,7 +10951,7 @@ HTML
         my $from_hash_method = $sub->{from_hash_method} // die 'compiled sub from-hash method missing';
         $impl = sub {
             my ($class, $json) = @_;
-            return _code_for($from_hash_method)->($class, __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode($json));
+            return _code_for($from_hash_method)->($class, Developer::Dashboard::JSON::json_decode($json));
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -11043,7 +11059,7 @@ HTML
         my $as_hash_method = $sub->{as_hash_method} // die 'compiled sub as-hash method missing';
         $impl = sub {
             my ($self) = @_;
-            return __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode(_code_for($as_hash_method)->($self));
+            return Developer::Dashboard::JSON::json_encode(_code_for($as_hash_method)->($self));
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -11251,7 +11267,7 @@ HTML
             my ($text) = @_;
             $text = _code_for($trim_method)->($text);
             return {} if $text eq '';
-            my $value = eval { __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode($text) };
+            my $value = eval { Developer::Dashboard::JSON::json_decode($text) };
             return defined $value ? $value : {};
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
@@ -11264,7 +11280,7 @@ HTML
             $text = _code_for($trim_method)->($text);
             return {} if $text eq '';
             if ($text =~ /\A[\{\[]/) {
-                my $value = eval { __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode($text) };
+                my $value = eval { Developer::Dashboard::JSON::json_decode($text) };
                 return $value if ref($value) eq 'HASH';
                 return {};
             }
@@ -11535,7 +11551,7 @@ JS
             return if !-f $file;
             open my $fh, '<:raw', $file or die "Unable to read $file: $!";
             local $/;
-            return __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_decode(<$fh>);
+            return Developer::Dashboard::JSON::json_decode(<$fh>);
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
@@ -11561,7 +11577,7 @@ JS
             $data{updated_at} = Time::HiRes::time() if !exists $data{updated_at};
             my $tmp = "$file.pending";
             open my $fh, '>:raw', $tmp or die "Unable to write $tmp: $!";
-            print {$fh} __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode(\%data);
+            print {$fh} Developer::Dashboard::JSON::json_encode(\%data);
             close $fh;
             $self->{paths}->secure_file_permissions($tmp);
             unlink $file if -f $file;
@@ -14203,7 +14219,7 @@ JS
                 }
                 $progress->finish if $progress;
                 if ($output eq 'json') {
-                    print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($result);
+                    print Developer::Dashboard::JSON::json_encode($result);
                 } else {
                     print _code_for($install_summary_method)->($result);
                 }
@@ -14213,21 +14229,21 @@ JS
                 my $manager = $manager_class->new(paths => _code_for($build_paths_method)->());
                 my $repo_name = shift @argv || die "Usage: dashboard skills uninstall <repo-name>\n";
                 my $result = $manager->uninstall($repo_name);
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($result);
+                print Developer::Dashboard::JSON::json_encode($result);
                 return $result->{error} ? 1 : 0;
             }
             if ($action eq 'enable') {
                 my $manager = $manager_class->new(paths => _code_for($build_paths_method)->());
                 my $repo_name = shift @argv || die "Usage: dashboard skills enable <repo-name>\n";
                 my $result = $manager->enable($repo_name);
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($result);
+                print Developer::Dashboard::JSON::json_encode($result);
                 return $result->{error} ? 1 : 0;
             }
             if ($action eq 'disable') {
                 my $manager = $manager_class->new(paths => _code_for($build_paths_method)->());
                 my $repo_name = shift @argv || die "Usage: dashboard skills disable <repo-name>\n";
                 my $result = $manager->disable($repo_name);
-                print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($result);
+                print Developer::Dashboard::JSON::json_encode($result);
                 return $result->{error} ? 1 : 0;
             }
             if ($action eq 'list') {
@@ -14236,7 +14252,7 @@ JS
                 Getopt::Long::GetOptionsFromArray(\@argv, 'o|output=s' => \$output);
                 my $skills = $manager->list();
                 if ($output eq 'json') {
-                    print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode({ skills => $skills });
+                    print Developer::Dashboard::JSON::json_encode({ skills => $skills });
                     return 0;
                 }
                 if ($output eq 'table') {
@@ -14252,7 +14268,7 @@ JS
                 my $repo_name = shift @argv || die "Usage: dashboard skills usage <repo-name> [-o json|table]\n";
                 my $usage = $manager->usage($repo_name);
                 if ($output eq 'json') {
-                    print __PAX_RUNTIME_LEGACY_NAMESPACE__::JSON::json_encode($usage);
+                    print Developer::Dashboard::JSON::json_encode($usage);
                     return $usage->{error} ? 1 : 0;
                 }
                 if ($output eq 'table') {
