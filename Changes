@@ -1,3 +1,18 @@
+4.40  2026-09-17
+
+  - DD-938: dashboard ask is now a Developer Dashboard expert by default.
+    `dashboard ask --docs` prints a curated onboarding summary (DD-OOP-LAYERS,
+    .env/docker-compose conventions, where a disposable helper script
+    belongs) directly to stdout - never the full CLAUDE.md, never a new
+    file. `dashboard source --files` lists every file installed under
+    ~/perl5/{lib,bin} as a fallback deep-dive reference. A workspace's
+    genuinely first-ever `dashboard ask <question>` call (empty transcript,
+    not --no-memory) silently prepends the --docs context to that turn's
+    prompt - no flag, no injected instruction line - and every later turn
+    sees it already in replayed history. Also fixed a t/196 numeric-prefix
+    collision with a pre-existing test file (renamed to t/197) and three
+    POD gaps surfaced by the release-metadata gate.
+
 4.39  2026-09-17
 
   - DD-935: fixed a pathological per-character substr() loop in
