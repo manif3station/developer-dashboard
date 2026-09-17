@@ -13453,6 +13453,19 @@ JS
         my $unterminated_comment_error = $sub->{unterminated_comment_error} // 'Unterminated block comment in %s';
         $impl = sub {
             my ($class, $file) = @_;
+            # DD-931: EnvAudit.pm is never itself referenced by name in any
+            # sub body PAX statically discovers (its only real-code call site
+            # was THIS special-cased sub, whose body the compiler substitutes
+            # entirely with this runtime op before the compiler's own
+            # dependency walk ever sees "EnvAudit->record(...)" as literal
+            # source) - so it is never added to the compiled dependency
+            # closure and never gets a __PAX_RUNTIME_LEGACY_NAMESPACE__ alias
+            # installed. Load the real class directly (falls through the
+            # existing CORE::GLOBAL::require hook to a normal filesystem
+            # require when, as here, it is not an embedded compiled unit)
+            # rather than going through the legacy-namespace alias, which
+            # was never populated for it.
+            require Developer::Dashboard::EnvAudit;
             open my $fh, '<:raw', $file or die "Unable to read $file: $!";
             my $line_no = 0;
             my $in_block_comment = 0;
@@ -13479,7 +13492,7 @@ JS
                     line_no => $line_no,
                 );
                 $ENV{$key} = $value;
-                __PAX_RUNTIME_LEGACY_NAMESPACE__::EnvAudit->record($key, $value, $file);
+                Developer::Dashboard::EnvAudit->record($key, $value, $file);
             }
             close $fh or die "Unable to close $file: $!";
             die sprintf($unterminated_comment_error, $file) . "\n" if $in_block_comment;
@@ -13491,6 +13504,10 @@ JS
     if (($sub->{op} // '') eq 'env_load_env_pl_file') {
         $impl = sub {
             my ($class, $file) = @_;
+            # DD-931: see the DD-931 comment on the env_load_env_file op
+            # above - EnvAudit is never embedded/aliased for the same
+            # reason, and the fix is the same.
+            require Developer::Dashboard::EnvAudit;
             my %before = %ENV;
             delete $INC{$file};
             require $file;
@@ -13505,7 +13522,7 @@ JS
             for my $key (@changed) {
                 next if exists $before{$key} && defined $before{$key} && defined $ENV{$key} && $before{$key} eq $ENV{$key};
                 next if exists $before{$key} && !defined $before{$key} && !defined $ENV{$key};
-                __PAX_RUNTIME_LEGACY_NAMESPACE__::EnvAudit->record($key, $ENV{$key}, $file);
+                Developer::Dashboard::EnvAudit->record($key, $ENV{$key}, $file);
             }
             return 1;
         };
