@@ -188,6 +188,25 @@ SKIP: {
         : "DD-930: the real self-compiled binary did NOT reproduce the known upstream defect in this environment this run - environment-dependent, not this ticket's own concern (see DD-930's card for the confirmed reproduction)."
     );
 
+    # DD-934: StandaloneRuntime.pm's _run_cli_router_unit called
+    # _prime_command_result_env with only ($cmd, @ARGV), silently dropping
+    # the $main_gate_results positional argument the function's own
+    # signature expects - so the first real argv token filled that slot
+    # instead of a hashref, and the function's "$main_gate_results || {}"
+    # fallback then dereferenced a plain string. A bare command name never
+    # triggered it (no argv token to misplace); ANY trailing token did.
+    # Reuses the already-built $bin_file from the block above rather than
+    # paying for a second ~2 minute real compile.
+    my ( $argv_out, $argv_err, $argv_exit ) = capture {
+        local $ENV{HOME} = $home;
+        system( $bin_file, 'which', 'perl' );
+    };
+    unlike(
+        $argv_err,
+        qr/Can't use string \(.*\) as a HASH ref/,
+        'DD-934: a real compiled binary invoked with a subcommand PLUS a trailing argv token does not crash on the $main_gate_results arity mismatch'
+    );
+
     my ( $out, $err, $exit ) = capture {
         local $ENV{HOME} = $home;
         local $ENV{HARNESS_ACTIVE} = 0;

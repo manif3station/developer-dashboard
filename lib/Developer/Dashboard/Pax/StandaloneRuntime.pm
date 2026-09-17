@@ -846,7 +846,15 @@ sub _run_cli_router_unit {
 
     my $cmd = shift @ARGV || '';
     _code_for('main::_load_runtime_env')->() if _code_for('main::_load_runtime_env');
-    _code_for('main::_prime_command_result_env')->($cmd, @ARGV)
+    # DD-934: _prime_command_result_env's real signature is
+    # ($cmd, $main_gate_results, @argv) - the interpreted bin/dashboard call
+    # site passes all three (main_gate_results from _run_main_gate_hooks,
+    # which this standalone runtime does not invoke). Passing an explicit
+    # {} here (rather than omitting the argument) keeps @ARGV's first token
+    # in the @argv slot instead of silently filling $main_gate_results,
+    # which previously crashed on "%{ <a plain argv string> || {} }"
+    # dereferencing the moment any trailing argv token was present.
+    _code_for('main::_prime_command_result_env')->($cmd, {}, @ARGV)
         if $cmd ne '' && _code_for('main::_prime_command_result_env');
 
     if ($cmd eq '') {
