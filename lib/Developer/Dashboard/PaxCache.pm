@@ -37,6 +37,7 @@ sub new {
 # Output: cached binary path string, or undef.
 sub resolve {
     my ( $self, $source_path ) = @_;
+
     return undef if !defined $source_path || $source_path eq '' || !-f $source_path;
 
     my $pax_bin = $self->_pax_bin;
@@ -58,6 +59,21 @@ sub resolve {
     if ( defined $cached_md5 && $cached_md5 eq $md5 && -x $bin_file ) {
         return $bin_file;
     }
+
+    # DD-936: opt-in kill switch, owner-specified 2026-09-17 (Q-167: option A),
+    # put in place after observing pax build burn ~66% CPU for 90+ seconds per
+    # invocation in a live container merely from running 'dashboard
+    # init'/'d2 init'. Scoped to ONLY the spawn-a-new-compile path, not the
+    # cache-hit check above: an already-existing, valid cache hit (e.g. one
+    # seeded directly, or left over from an earlier DD_PAX=on compile) is
+    # still reported normally regardless of DD_PAX, so bin/d2's own
+    # designed self-exec feature (DD-882) keeps working off an existing
+    # binary. Only the act of SPAWNING a brand new background compile - the
+    # actual CPU cost that was observed - requires DD_PAX=on. Default is
+    # OFF: the user does not set anything to keep new compiles disabled,
+    # only sets DD_PAX=on to enable them. Independent of, and does not
+    # require, DD-935's compile-time/CPU fix landing first.
+    return undef if ( $ENV{DD_PAX} // '' ) ne 'on';
 
     $self->_maybe_spawn_compile(
         source_path => $source_path,

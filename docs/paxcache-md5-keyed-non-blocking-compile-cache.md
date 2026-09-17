@@ -237,3 +237,46 @@ same claim as *"this code path is safe to turn back on"* - the same
 conflation DD-930's section above already named, caught a second time by
 insisting on genuine end-to-end verification rather than a narrow
 before/after check of the one symptom the ticket was filed against.
+
+## DD-935/DD-936: background compile is opt-in now (`DD_PAX=on`), off by default
+
+**DD-935 (2026-09-17)** measured, in a live container, exactly why `pax
+build` is a heavy background operation: compiling the 113 application units
+of `bin/dashboard` takes under 4 minutes *combined*, but one single file -
+`lib/Developer/Dashboard/Pax/CodeUnitCompiler.pm`, the compiler's own
+~13,000-line source, compiling itself - took over 4.5 minutes alone and was
+still running when last observed (confirmed independently: even compiling
+that ONE file in isolation, outside the whole `pax build` pipeline, exceeded
+a 2-minute timeout). Root cause: for a file this size, `compile()`'s per-sub
+path (`_compile_sub`/`_compile_declared_sub_from_source`) runs several
+regex-based extraction passes (`_extract_sub_body` and siblings) over the
+*entire* source string, once per declared sub - O(subs x file_size) of
+regex scanning against a ~400KB source, with 100+ subs in this one file.
+Not yet fixed (DD-935 tracks the actual algorithmic fix); this section
+documents the mitigation that shipped first.
+
+**DD-936 (2026-09-17), same day, owner-specified live:** *"can PAX be a opt-in
+function. by default is opt-out and disabled... to enable pax, user will
+need to have enviro variable DD_PAX=on... by default is off, the user does
+not need to specify it."* `bin/dashboard`'s self-exec was already disabled
+(DD-930) - stopping a cached binary from being *executed* - but
+`PaxCache::resolve()` still unconditionally spawned a real background `pax
+build` process on every cache miss regardless, which is exactly the CPU cost
+the owner observed live (`docker exec <container> ps -ef` showing two `pax
+build` processes each pinned at ~66% CPU for 90+ seconds, triggered merely
+by running `dashboard init`/`d2 init`). Disabling self-exec stopped the
+*result* being used; it did nothing to stop the wasteful compile itself from
+running.
+
+**Fix:** `PaxCache::resolve()` now checks `$ENV{DD_PAX}` first, before any
+other logic - if it is not exactly `'on'`, `resolve()` returns `undef`
+immediately (the same shape as its other early-exit paths, e.g. a missing
+source file), spawning nothing and touching no cache state. The default
+(the variable unset) is fully disabled; nothing needs to be set to keep it
+off. Setting `DD_PAX=on` restores the pre-DD-936 behavior unchanged.
+
+**This is independent of DD-935.** DD-936 is a pure kill switch, not
+contingent on DD-935's algorithmic fix landing first - it stops the CPU cost
+immediately, and the owner's own stated intent is to reconsider the default
+once DD-935 is verified (compile time well under a minute, not
+CPU-intensive), as a separate later decision.
