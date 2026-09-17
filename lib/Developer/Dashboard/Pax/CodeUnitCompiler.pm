@@ -6,6 +6,7 @@ use strict;
 use warnings;
 
 use Cwd qw(abs_path);
+use Encode qw(decode);
 use File::Basename ();
 use File::Spec ();
 use Digest::SHA qw(sha256_hex);
@@ -24,7 +25,7 @@ sub compile {
     my $logical_path = $args{logical_path} // die 'logical_path required';
     my $abs_path = abs_path($path) || $path;
     if ($kind eq 'entrypoint') {
-        my $source = _slurp($abs_path);
+        my $source = decode( 'UTF-8', _slurp($abs_path) );
         if (my $service = _compiled_service_dispatch_unit($abs_path, $kind, $logical_path, $source)) {
             return $service;
         }
@@ -37,7 +38,7 @@ sub compile {
         return _compiled_script_unit($abs_path, $kind, $logical_path, $source);
     }
 
-    my $source = _slurp($abs_path);
+    my $source = decode( 'UTF-8', _slurp($abs_path) );
     my $package = _package_name($source) or return _fallback_unit($abs_path, $kind, $logical_path, 'missing_package_declaration');
     my $has_sub_defs = ($source =~ /\bsub\s+[A-Za-z_][A-Za-z0-9_]*\b/s) ? 1 : 0;
     my @declared_subs = _declared_subs($source, $package);
@@ -12334,7 +12335,7 @@ sub _compiled_unit {
         initializers => $initializers,
         subs => $subs,
     };
-    my $bytes = JSON::XS->new->ascii(1)->canonical(1)->encode($record);
+    my $bytes = JSON::XS->new->utf8(1)->ascii(1)->canonical(1)->encode($record);
     my $compiled_logical = $logical_path;
     $compiled_logical =~ s/\.pm$/.pcu.json/;
 
@@ -12368,7 +12369,7 @@ sub _compiled_script_unit {
             op => 'call_main_argv_and_exit',
         };
     }
-    my $bytes = JSON::XS->new->ascii(1)->canonical(1)->encode($record);
+    my $bytes = JSON::XS->new->utf8(1)->ascii(1)->canonical(1)->encode($record);
     my $compiled_logical = $logical_path;
     $compiled_logical =~ s{\.[^.]+\z}{.script.json};
     $compiled_logical .= '.script.json' if $compiled_logical !~ /\.script\.json\z/;
@@ -12516,7 +12517,7 @@ sub _compiled_dispatch_script_unit {
         actions => $dispatch->{actions},
         unknown_action => $dispatch->{unknown_action},
     };
-    my $bytes = JSON::XS->new->ascii(1)->canonical(1)->encode($record);
+    my $bytes = JSON::XS->new->utf8(1)->ascii(1)->canonical(1)->encode($record);
     my $compiled_logical = $logical_path;
     $compiled_logical =~ s{\.[^.]+\z}{.dispatch.json};
     $compiled_logical .= '.dispatch.json' if $compiled_logical !~ /\.dispatch\.json\z/;
@@ -12578,7 +12579,7 @@ sub _compiled_cli_router_unit {
         suggest_class => $suggest_class,
         subs => \@subs,
     };
-    my $bytes = JSON::XS->new->ascii(1)->canonical(1)->encode($record);
+    my $bytes = JSON::XS->new->utf8(1)->ascii(1)->canonical(1)->encode($record);
     my $compiled_logical = $logical_path;
     $compiled_logical =~ s{\.[^.]+\z}{.cli-router.json};
     $compiled_logical .= '.cli-router.json' if $compiled_logical !~ /\.cli-router\.json\z/;
@@ -12748,7 +12749,7 @@ sub _compiled_service_dispatch_unit {
         server_module => $server_module,
         builder_method => $builder_method,
     };
-    my $bytes = JSON::XS->new->ascii(1)->canonical(1)->encode($record);
+    my $bytes = JSON::XS->new->utf8(1)->ascii(1)->canonical(1)->encode($record);
     my $compiled_logical = $logical_path;
     $compiled_logical =~ s{\.[^.]+\z}{.service.json};
     $compiled_logical .= '.service.json' if $compiled_logical !~ /\.service\.json\z/;
@@ -12915,7 +12916,7 @@ sub _hybrid_compiled_unit {
         residual_source => $residual_mode eq 'module' ? $source : undef,
         residual_source_path => $path,
     };
-    my $bytes = JSON::XS->new->ascii(1)->canonical(1)->encode($record);
+    my $bytes = JSON::XS->new->utf8(1)->ascii(1)->canonical(1)->encode($record);
     my $compiled_logical = $logical_path;
     $compiled_logical =~ s/\.pm$/.pcu.json/;
 
