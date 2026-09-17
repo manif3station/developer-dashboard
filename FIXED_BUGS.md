@@ -1,6 +1,21 @@
 # Fixed Bugs
 
 
+## 4.39
+
+- **DD-935**: `pax build` took 4.5+ minutes to compile a single file -
+  `CodeUnitCompiler.pm`, the compiler's own ~13,000-line source,
+  compiling itself - versus ~4 minutes for the other 112 files in the
+  build combined. Root cause: `_extract_sub_body`/`_extract_sub_source`
+  walked brace depth with a per-character `substr()` loop against the
+  file's own large decoded source string, called multiple times per
+  declared sub. Fixed by replacing the manual loop with a
+  `\G`-anchored regex scan that lets the C regex engine skip
+  non-brace characters natively. Verified: 1.4s -> 0.0005s per
+  extraction call, 0.12s for the full self-compile (was a 2-minute-plus
+  timeout). Also dropped the launcher's `cc` flag from `-O2` to `-O0`
+  (no runtime benefit on a thin bootstrap stub, real compile-time cost).
+
 ## 4.37
 
 - **DD-931**: a genuinely PAX-compiled `bin/dashboard` binary crashed with

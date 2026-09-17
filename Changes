@@ -1,3 +1,15 @@
+4.39  2026-09-17
+
+  - DD-935: fixed a pathological per-character substr() loop in
+    CodeUnitCompiler.pm's own _extract_sub_body/_extract_sub_source
+    (the compiler self-compiling its own ~13,000-line source was the
+    dominant cost of a pax build - 4.5+ minutes for one file vs ~4
+    minutes for the other 112 combined). Replaced with a \G-anchored
+    regex scan: 1.4s -> 0.0005s per extraction call, verified
+    repeatedly in isolation. Also dropped the launcher's cc flag from
+    -O2 to -O0. A second, separate contributor to full-pipeline
+    compile time was found during verification and filed as DD-939.
+
 4.38  2026-09-17
 
   - DD-936: PaxCache::resolve() no longer spawns a new background pax

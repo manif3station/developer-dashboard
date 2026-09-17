@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::CLI::Progress;
 
-our $VERSION = '4.38';
+our $VERSION = '4.39';
 
 use strict;
 use warnings;
