@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::ArtifactCache;
 
-our $VERSION = '4.33';
+our $VERSION = '4.34';
 
 use strict;
 use warnings;
