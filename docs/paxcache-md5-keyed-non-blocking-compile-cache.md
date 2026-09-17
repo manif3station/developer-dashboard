@@ -238,45 +238,112 @@ conflation DD-930's section above already named, caught a second time by
 insisting on genuine end-to-end verification rather than a narrow
 before/after check of the one symptom the ticket was filed against.
 
-## DD-935/DD-936: background compile is opt-in now (`DD_PAX=on`), off by default
+## DD-935/DD-936: pax build's compile-time/CPU cost, and stopping it by default
 
-**DD-935 (2026-09-17)** measured, in a live container, exactly why `pax
-build` is a heavy background operation: compiling the 113 application units
-of `bin/dashboard` takes under 4 minutes *combined*, but one single file -
+**Both found the same underlying problem, from opposite ends, the same day
+(2026-09-17), after the owner observed it live** via a `dd-pax-test`
+container (`docker exec dd-pax-test ps -ef` showing two `pax build`
+processes pinned at ~66% CPU for 90+ seconds from nothing more than
+`dashboard init`/`d2 init`).
+
+### DD-935: the algorithmic fix
+
+Measured directly in a real container build's progress log: the "Compile
+application units" phase compiled 112 of 113 files in under 4 minutes
+combined, then stalled on unit 64/113 -
 `lib/Developer/Dashboard/Pax/CodeUnitCompiler.pm`, the compiler's own
-~13,000-line source, compiling itself - took over 4.5 minutes alone and was
-still running when last observed (confirmed independently: even compiling
-that ONE file in isolation, outside the whole `pax build` pipeline, exceeded
-a 2-minute timeout). Root cause: for a file this size, `compile()`'s per-sub
-path (`_compile_sub`/`_compile_declared_sub_from_source`) runs several
-regex-based extraction passes (`_extract_sub_body` and siblings) over the
-*entire* source string, once per declared sub - O(subs x file_size) of
-regex scanning against a ~400KB source, with 100+ subs in this one file.
-Not yet fixed (DD-935 tracks the actual algorithmic fix); this section
-documents the mitigation that shipped first.
+~13,000-line source, compiling itself - for over 4.5 minutes, still running
+when last observed. Confirmed independently: compiling that one file in
+isolation, entirely outside the `pax build` pipeline, exceeded a 2-minute
+timeout with no other overhead at all.
 
-**DD-936 (2026-09-17), same day, owner-specified live:** *"can PAX be a opt-in
-function. by default is opt-out and disabled... to enable pax, user will
-need to have enviro variable DD_PAX=on... by default is off, the user does
-not need to specify it."* `bin/dashboard`'s self-exec was already disabled
-(DD-930) - stopping a cached binary from being *executed* - but
-`PaxCache::resolve()` still unconditionally spawned a real background `pax
-build` process on every cache miss regardless, which is exactly the CPU cost
-the owner observed live (`docker exec <container> ps -ef` showing two `pax
-build` processes each pinned at ~66% CPU for 90+ seconds, triggered merely
-by running `dashboard init`/`d2 init`). Disabling self-exec stopped the
-*result* being used; it did nothing to stop the wasteful compile itself from
-running.
+**Root cause, isolated via `Devel::NYTProf` and targeted
+`Time::HiRes`-wrapped instrumentation:** `CodeUnitCompiler.pm`'s own
+`_extract_sub_body`/`_extract_sub_source` (its per-sub source-extraction
+helpers, used to classify every declared sub in a file being compiled) walk
+brace depth with a Perl-level `while ($i < length($source)) { my $char =
+substr($source, $i, 1); ...; $i++ }` loop - one `substr()` call per
+character of the file. Measured on this exact file self-compiling: two such
+lines alone accounted for ~650 of the profile's ~660 total measured seconds,
+called 3,025,200 times combined across 201 extraction calls. A single
+isolated call extracting `compile()`'s own ~7.5KB body cost 1.4 seconds.
 
-**Fix:** `PaxCache::resolve()` now checks `$ENV{DD_PAX}` first, before any
-other logic - if it is not exactly `'on'`, `resolve()` returns `undef`
-immediately (the same shape as its other early-exit paths, e.g. a missing
-source file), spawning nothing and touching no cache state. The default
-(the variable unset) is fully disabled; nothing needs to be set to keep it
-off. Setting `DD_PAX=on` restores the pre-DD-936 behavior unchanged.
+The precise Perl-internals mechanism (why per-character `substr()` against
+this file's particular `decode('UTF-8', ...)`'d string is this expensive)
+was not fully isolated - ruled out: scattered multi-byte content (this file
+is confirmed pure ASCII, zero non-ASCII bytes). The fix does not depend on
+knowing why.
 
-**This is independent of DD-935.** DD-936 is a pure kill switch, not
-contingent on DD-935's algorithmic fix landing first - it stops the CPU cost
-immediately, and the owner's own stated intent is to reconsider the default
-once DD-935 is verified (compile time well under a minute, not
-CPU-intensive), as a separate later decision.
+**Fix:** both extractors now use a `\G`-anchored regex scan
+(`/\G[^{}]*([{}])/gs`) instead of the manual per-character loop - the C
+regex engine skips every non-brace character in one native step per match,
+so the Perl level only ever touches the braces themselves. Same semantics,
+verified byte-identical output on the same real extraction: **1.4s -> 0.0005s**
+per call, and the full `compile()` call against `CodeUnitCompiler.pm` itself
+went from a 2-minute-plus timeout to **0.12 seconds**.
+
+**Secondary, independent fix:** `StandaloneImage.pm`'s `_compile_launcher`
+dropped its `cc` invocation from `-O2` to `-O0` - the generated launcher is a
+thin bootstrap stub with no hot loops of its own, so `-O2`'s optimization
+passes bought zero runtime benefit while costing real wall-clock compile
+time on the large generated C source. Verified: 2.7s clean launcher compile.
+
+**Not yet obtained: a single trustworthy full end-to-end wall-clock number.**
+This host ran under severe, sustained multi-tenant contention throughout this
+investigation (load average 13-24, never genuinely quiet) - three separate
+full-pipeline measurement attempts on the fixed code landed at 890s, a
+contended run discarded outright, and 926s, against a 959s baseline - only
+1-4% improvement despite the dramatic isolated win. This is the documented
+host-contention trap this project's own rules warn about repeatedly, not a
+defect in the fix - the underlying per-file compile cost is confirmed fixed
+via isolated, uncontended function-level measurement, which contention
+cannot distort the way it distorts a whole-pipeline wall-clock comparison.
+
+**A second, architecturally distinct contributor was found and filed
+separately as DD-939**, rather than left unexplained: `Capture.pm`'s
+`capture()` (called via `_capture_live_unit` for any file that doesn't take
+the fast "declared subs" shortcut) spawns a real, separate Perl subprocess
+per file via `IPC::Open3`, to introspect that file's compiled optree.
+Subprocess fork/exec+scheduling overhead is disproportionately sensitive to
+host contention in a way a tight CPU loop is not, which is consistent with
+the gap between the isolated win and the contended full-pipeline numbers -
+not yet confirmed as the actual explanation, tracked in DD-939.
+
+### DD-936: the opt-in kill switch
+
+**Owner-specified live:** *"can PAX be a opt-in function. by default is
+opt-out and disabled... to enable pax, user will need to have enviro
+variable DD_PAX=on... by default is off, the user does not need to specify
+it."* `bin/dashboard`'s self-exec was already disabled (DD-930) - stopping a
+cached binary from being *executed* - but `PaxCache::resolve()` still
+unconditionally spawned a real background `pax build` process on every
+cache miss regardless, which is exactly the CPU cost the owner observed
+live. Disabling self-exec stopped the *result* being used; it did nothing to
+stop the wasteful compile itself from running.
+
+**First implementation gated the WHOLE of `resolve()`** behind
+`$ENV{DD_PAX} eq 'on'`, checked before anything else. This was found to be
+too broad during verification: it also blocked reporting an
+ALREADY-EXISTING, valid cache hit, not just spawning a new compile - which
+silently broke `bin/d2`'s own designed self-exec feature (DD-882):
+`t/184-d2-self-compile.t` seeds a real, valid cache entry directly (no
+compile involved) and expects it reported/used, and with `DD_PAX` unset that
+now returned `undef` even for a hit that required no new work at all.
+Confirmed real and deterministic: passed on clean master, failed
+identically on the DD-936 branch in isolation.
+
+**Corrected (Q-167, owner-answered same day, option A):** the `DD_PAX` gate
+moved to immediately before the `_maybe_spawn_compile` call, AFTER the
+existing cache-hit check - an already-existing valid cache hit is reported
+normally regardless of `DD_PAX`; only spawning a brand NEW background
+compile requires `DD_PAX=on`. Default (the variable unset) is fully
+disabled for new compiles; nothing needs to be set to keep it off.
+Re-verified: `t/184` 12/12 PASS (the regression genuinely fixed), `t/181`
+49/49 PASS including a new test covering the cache-hit-regardless-of-DD_PAX
+scenario directly.
+
+**This is independent of DD-935.** DD-936 is a pure kill switch on new
+compiles, not contingent on DD-935's algorithmic fix landing first - it
+stops the CPU cost of a fresh compile immediately, and the owner's own
+stated intent is to reconsider the default once DD-935 (and DD-939, if
+confirmed) are verified, as a separate later decision.

@@ -1369,9 +1369,17 @@ sub _compile_launcher {
         die "objcopy assets.pkg failed" if ($? >> 8) != 0;
         system($objcopy, '--input', 'binary', '--output', 'elf64-x86-64', '--binary-architecture', 'i386:x86-64', 'native.pkg', 'native.pkg.o');
         die "objcopy native.pkg failed" if ($? >> 8) != 0;
+        # DD-935: -O0, not -O2. This launcher is a thin bootstrap stub (parse
+        # the embedded manifest, mmap the payload blobs, exec the runtime) -
+        # it has no hot loops of its own, so -O2's optimization passes buy
+        # zero runtime benefit while costing real wall-clock compile time on
+        # the large generated source (the manifest is embedded as one C
+        # string literal, which scales with the compiled unit's payload
+        # size). Correctness is unaffected: -O0 still fully type-checks and
+        # compiles the same source, it only skips optimization.
         system(
             $cc,
-            '-O2',
+            '-O0',
             '-Wl,-z,noexecstack',
             '-o',
             $manifest->{output_path},
