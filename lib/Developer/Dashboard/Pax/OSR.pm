@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::OSR;
 
-our $VERSION = '4.34';
+our $VERSION = '4.35';
 
 use strict;
 use warnings;

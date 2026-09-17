@@ -1,3 +1,20 @@
+4.35  2026-09-17
+
+  - DD-922: root-caused and fixed StandaloneRuntime's file-read corruption
+    (a `local $/;` spanning too far, leaking into a later `eval` of the
+    entrypoint's own compiled source via eval STRING's shared dynamic
+    scope). Re-enabled bin/dashboard's self-exec-on-cache-hit - and DD-930
+    (same day) found a second, independent defect in the same area and
+    disabled it again; see that entry.
+  - DD-923: fixed a UTF-8 double-encoding defect in CodeUnitCompiler.pm
+    that corrupted literal non-ASCII characters (e.g. dashboard ps1's
+    status icons) in PAX-compiled binaries.
+  - DD-930: bin/dashboard's self-exec-on-cache-hit disabled again, hours
+    after DD-922 re-enabled it - a second, independent PAX-compiler defect
+    (EnvAudit->record failing inside the compiled binary's own legacy
+    namespace) was found the moment the exec path was genuinely exercised
+    against real project config for the first time since DD-905.
+
 4.34  2026-09-17
 
   - DD-917: OpenFile.pm's _scope_match_rank compiled/resolved every pattern's

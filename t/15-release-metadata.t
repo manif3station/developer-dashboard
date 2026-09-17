@@ -82,7 +82,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.34', 'repo version bumped at DD-917\'s distro-column gate per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-917 (lazy regex resolution in OpenFile.pm\'s _scope_match_rank)' );
+is( $version, '4.35', 'repo version bumped at DD-922\'s distro-column gate per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-922 (root-cause fix for StandaloneRuntime\'s local $/ scope leak, re-enabling then re-disabling self-compile per DD-930)' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
