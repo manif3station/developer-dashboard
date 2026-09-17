@@ -12004,14 +12004,28 @@ sub _extract_sub_body {
     my ($source, $sub_name) = @_;
     return if $source !~ /sub\s+\Q$sub_name\E\b[^\{]*\{/g;
     my $start = pos($source);
+
+    # DD-935: a brace-depth walk via a Perl-level `substr($source, $i, 1)`
+    # loop is, empirically, catastrophically slow against this project's
+    # large decode()'d module sources - measured directly, extracting one
+    # ~7.5KB sub body out of CodeUnitCompiler.pm's own ~443KB source (this
+    # very file, self-compiling) cost 1.4s for a SINGLE call, and this loop
+    # runs multiple times per declared sub across 100+ subs, compounding
+    # into the multi-minute stall this ticket root-causes. Root mechanism
+    # not fully isolated (ruled out: scattered multi-byte content - this
+    # file is pure ASCII), but the fix does not depend on knowing why: a
+    # `\G`-anchored regex scan lets the C regex engine skip every non-brace
+    # character in one native step per match, touching only the braces
+    # themselves at the Perl level, which is unambiguously fast regardless
+    # of the string's internal UTF8/offset-cache representation. Same
+    # semantics as before: $start..(closing-brace's own position), closing
+    # brace itself excluded from the returned body.
+    pos($source) = $start;
     my $depth = 1;
-    my $i = $start;
-    while ($i < length($source)) {
-        my $char = substr($source, $i, 1);
-        $depth++ if $char eq '{';
-        $depth-- if $char eq '}';
-        return substr($source, $start, $i - $start) if $depth == 0;
-        $i++;
+    while ($source =~ /\G[^{}]*([{}])/gs) {
+        $depth++ if $1 eq '{';
+        $depth-- if $1 eq '}';
+        return substr($source, $start, pos($source) - 1 - $start) if $depth == 0;
     }
     return;
 }
@@ -12022,21 +12036,21 @@ sub _extract_sub_source {
     my $start = $-[0];
     my $brace = index($source, '{', $+[0] - 1);
     return if $brace < 0;
+
+    # DD-935: see the DD-935 comment on _extract_sub_body above - same fix,
+    # same reason, applied to this sibling extractor.
+    pos($source) = $brace + 1;
     my $depth = 1;
-    my $i = $brace + 1;
-    while ($i < length($source)) {
-        my $char = substr($source, $i, 1);
-        $depth++ if $char eq '{';
-        $depth-- if $char eq '}';
-        if ($depth == 0) {
-            my $end = $i + 1;
-            while ($end < length($source) && substr($source, $end, 1) =~ /[ \t]/) {
-                $end++;
-            }
-            $end++ if $end < length($source) && substr($source, $end, 1) eq ';';
-            return substr($source, $start, $end - $start);
+    while ($source =~ /\G[^{}]*([{}])/gs) {
+        $depth++ if $1 eq '{';
+        $depth-- if $1 eq '}';
+        next if $depth != 0;
+        my $end = pos($source);
+        while ($end < length($source) && substr($source, $end, 1) =~ /[ \t]/) {
+            $end++;
         }
-        $i++;
+        $end++ if $end < length($source) && substr($source, $end, 1) eq ';';
+        return substr($source, $start, $end - $start);
     }
     return;
 }
