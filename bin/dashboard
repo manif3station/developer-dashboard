@@ -442,7 +442,7 @@ sub _skill_dotted_command_parts {
 # real PAX-compiled binary of this entrypoint silently corrupted %ENV
 # loading: Developer::Dashboard::EnvLoader's _load_env_file (a plain
 # line-by-line <$fh> read of .env) read the WHOLE file as one "line".
-# DD-922 (2026-09-16) root-caused and fixed it: the vendored Pax
+# DD-922 (2026-09-16) root-caused and fixed THAT defect: the vendored Pax
 # StandaloneRuntime's own _run_script_unit (and its three sibling
 # _run_*_unit dispatchers) localized $/ to slurp ONE JSON metadata file,
 # but that `local $/;` spanned the REST of the sub - including the later
@@ -453,6 +453,18 @@ sub _skill_dotted_command_parts {
 # confining each `local $/;` to a bare block around just its own read, so
 # $/ is back to normal before any later `eval` of user/bootstrap source
 # runs. See StandaloneRuntime.pm's own DD-922 comments at each fixed site.
+#
+# DD-930 (2026-09-17) re-DISABLED the exec side again, minutes after DD-922
+# re-enabled it: a REAL self-compiled binary of this entrypoint (run against
+# a project with real .env-adjacent config) now dies with "Can't locate
+# object method 'record' via package '__PAX_RUNTIME_LEGACY_NAMESPACE__::
+# EnvAudit'" - a DIFFERENT, previously-unreachable defect in the vendored
+# Pax CodeUnitCompiler's own narrow special-case handling of EnvLoader.pm's
+# _load_env_pl_file sub (it pattern-matches that sub's source shape and
+# substitutes a custom runtime op whose EnvAudit->record call never
+# resolves in the compiled binary's "legacy namespace"). Never surfaced
+# before DD-922 because self-exec had been off the whole time since DD-905.
+# Re-enable only after DD-930's own root cause is fixed.
 #
 # Guarded by an environment variable so the compiled binary - which embeds
 # this exact same self-check code, since PAX compiles the whole script
@@ -487,11 +499,10 @@ sub _maybe_exec_self_compiled_dashboard {
         if ( -f $self_path ) {
             require Developer::Dashboard::PaxCache;
             my $cache = Developer::Dashboard::PaxCache->new( paths => _switchboard_paths() );
-            my $cached = $cache->resolve($self_path);
-            if ( defined $cached ) {
-                $ENV{DEVELOPER_DASHBOARD_PAX_SELF_EXECED} = 1;
-                _exec_switchboard_command( $cached, @ARGV );
-            }
+            # DD-930: still resolve() so a background compile stays warm for
+            # whoever fixes the real defect, but never act on a defined hit -
+            # see this sub's own DD-930 comment above for why.
+            $cache->resolve($self_path);
         }
     }
     delete $ENV{DEVELOPER_DASHBOARD_PAX_SELF_EXECED};

@@ -132,3 +132,46 @@ A separate, unrelated finding surfaced while verifying `ps1`: its compiled
 binary's UTF-8 emoji output renders as mojibake (no crash, no wrong data -
 a STDOUT encoding difference, not a `$/` issue). Filed as DD-923, not part
 of this fix.
+
+## DD-930: a SECOND, independent self-compile defect, found minutes after DD-922 re-enabled the exec side
+
+DD-922's fix and re-enable were correct for the defect they addressed, but
+`bin/dashboard`'s self-exec-on-cache-hit had been off since DD-905 - the
+whole time between DD-905 and DD-922 landing - so nothing had ever actually
+run a real compiled `dashboard` binary against genuine project config until
+DD-922 turned self-exec back on. Within minutes, a real self-compiled
+`dashboard` invocation from inside this project's own checkout (a command
+that reaches `EnvLoader`'s `_load_env_pl_file` path with real config
+present - `dashboard version` alone does not trigger it) crashed with:
+
+```
+Can't locate object method "record" via package
+"__PAX_RUNTIME_LEGACY_NAMESPACE__::EnvAudit" (perhaps you forgot to load
+"__PAX_RUNTIME_LEGACY_NAMESPACE__::EnvAudit"?)
+```
+
+**Root cause (different mechanism from DD-905/DD-922's `$/` scope leak):**
+`Developer::Dashboard::Pax::CodeUnitCompiler` has a narrow, pattern-matched
+special case (source-text shape matching, not semantic analysis) that
+detects `EnvLoader.pm`'s `_load_env_pl_file` sub and substitutes a custom
+`env_load_env_pl_file` runtime op instead of compiling it normally. That
+op is interpreted in `StandaloneRuntime.pm` as
+`__PAX_RUNTIME_LEGACY_NAMESPACE__::EnvAudit->record(...)`, but the compiled
+binary's "legacy namespace" bridging never actually loads or registers a
+usable `EnvAudit` class there, so the call fails at runtime. Confirmed the
+cached binary was not stale - its recorded MD5 matched the exact current
+(DD-922-fixed) `bin/dashboard` source byte-for-byte.
+
+**Mitigation (DD-930):** `bin/dashboard`'s self-exec-on-cache-hit disabled
+again - the resolve() call still runs (keeping a background compile warm),
+but a cache hit is never acted on, matching DD-905's original disable
+shape exactly. Root-cause fix tracked separately as DD-931, per this
+project's own disable-is-not-done rule (a mitigation is not done until the
+real fix's ticket is filed in the same breath).
+
+**The generalizable lesson:** a mitigation that re-enables a previously-off
+code path can surface a SECOND, entirely independent defect the first
+fix never touched, simply because the path had never been genuinely
+exercised before. Verifying "the known defect is fixed" is not the same
+claim as "this code path is safe to turn back on" - the two were
+conflated here, twice, on the same day.
