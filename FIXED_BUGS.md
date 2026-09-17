@@ -1,6 +1,24 @@
 # Fixed Bugs
 
 
+## 4.42
+
+- **DD-933**: CodeUnitCompiler.pm's dependency-discovery pass (which walks
+  literal source text to decide a compiled entrypoint's compiled_packages
+  closure) can miss a class referenced only inside a sub body the compiler
+  special-cases and substitutes with a runtime op - the same shape DD-931
+  fixed for EnvAudit. Confirmed hitting JSON (~53 call sites) and SeedSync
+  (4 call sites) in StandaloneRuntime.pm, both called via the never-
+  reliably-populated __PAX_RUNTIME_LEGACY_NAMESPACE__ alias from inside
+  other special-cased ops - a compiled entrypoint whose closure had no
+  other literal reference to either class would crash "Undefined
+  subroutine" the first time such an op ran. Fixed by requiring both
+  classes directly at file-load time and calling their real package names.
+  Verified RED-then-GREEN with a new test (t/198) invoking the real op
+  dispatcher directly, plus a full-suite Docker container run against a
+  clean-master baseline confirming zero regressions.
+
+
 ## 4.39
 
 - **DD-935**: `pax build` took 4.5+ minutes to compile a single file -

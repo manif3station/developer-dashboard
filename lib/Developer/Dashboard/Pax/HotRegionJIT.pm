@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::HotRegionJIT;
 
-our $VERSION = '4.41';
+our $VERSION = '4.42';
 
 use strict;
 use warnings;
