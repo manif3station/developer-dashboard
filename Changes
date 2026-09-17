@@ -1,3 +1,14 @@
+4.37  2026-09-17
+
+  - DD-931: require Developer::Dashboard::EnvAudit directly (instead of
+    the never-populated __PAX_RUNTIME_LEGACY_NAMESPACE__ alias) in both
+    of Pax's env-loading runtime ops, root-causing DD-930's mitigation.
+    Verified against a real compiled binary: EnvAudit string-table
+    references go from 0 (crash) to 51 (clean run). bin/dashboard's
+    self-exec-on-cache-hit guard stays DISABLED - genuine end-to-end
+    verification surfaced three further, independent defects (DD-932,
+    DD-933, DD-934), each filed separately.
+
 4.36  2026-09-17
 
   - DD-924: d2's self-compiled binary resolved $Bin to the pax cache

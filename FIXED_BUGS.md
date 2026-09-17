@@ -1,6 +1,21 @@
 # Fixed Bugs
 
 
+## 4.37
+
+- **DD-931**: a genuinely PAX-compiled `bin/dashboard` binary crashed with
+  `Can't locate object method "record" via package
+  "__PAX_RUNTIME_LEGACY_NAMESPACE__::EnvAudit"` whenever its env-loading
+  runtime ops ran, because `EnvAudit` is never added to
+  `CodeUnitCompiler`'s `compiled_packages` (its only literal source
+  reference sits inside a sub whose entire body the compiler substitutes
+  with a hardcoded op before its own dependency-discovery pass ever sees
+  the call). Fixed by requiring `Developer::Dashboard::EnvAudit` directly
+  in both runtime op implementations instead of going through the
+  never-populated legacy-namespace alias. Root-causes DD-930's mitigation;
+  `bin/dashboard`'s self-exec guard stays disabled pending DD-932/933/934,
+  three further defects found while verifying this fix end to end.
+
 ## 4.32
 
 - **DD-868/DD-870/DD-878**: `FileRegistry::resolve_file`, `PathRegistry::resolve_dir`,

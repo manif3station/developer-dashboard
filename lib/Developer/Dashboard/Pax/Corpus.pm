@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::Corpus;
 
-our $VERSION = '4.36';
+our $VERSION = '4.37';
 
 use strict;
 use warnings;
