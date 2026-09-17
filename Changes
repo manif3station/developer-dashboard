@@ -1,3 +1,14 @@
+4.43  2026-09-18
+
+  - DD-943: fixed t/15-release-metadata.t's _perl_doc_paths() incorrectly
+    scanning t/183-pax-cli-build-run-contract.t's leftover scratch fixtures
+    under t/tmp-sow03/ (deliberately minimal-POD test inputs for the PAX
+    build pipeline, never cleaned up at the end of that test's own run) -
+    causing ~25 spurious POD-completeness failures whenever t/183 happened
+    to run before t/15 in the same prove process. Added the same exclusion
+    pattern already used elsewhere in the same file. Confirmed pre-existing
+    (present in CI before DD-933 landed, not caused by it).
+
 4.42  2026-09-17
 
   - DD-933: generalized DD-931's finding - CodeUnitCompiler.pm's
