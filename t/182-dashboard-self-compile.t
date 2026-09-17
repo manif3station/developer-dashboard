@@ -46,12 +46,16 @@ sub seed_cache_for_dashboard {
     return $bin_file;
 }
 
-# DD-905 (disables DD-882's exec side): a real PAX-compiled binary of this
-# entrypoint silently corrupts %ENV loading (Developer::Dashboard::EnvLoader's
-# _load_env_file, a plain line-by-line read of .env, misreads the whole file
-# as one line when run inside the vendored Pax StandaloneRuntime - root cause
-# not yet found). So a cache hit must NEVER be exec'd into: dashboard always
-# runs its own interpreted body, even when a matching compiled binary exists.
+# DD-882 (owner correction, Telegram msg #2001, 2026-09-15): dashboard checks
+# its own source MD5 against PaxCache's cache and execs a matching compiled
+# binary directly on a hit. DD-905 (2026-09-16) temporarily disabled the exec
+# side after finding that a real PAX-compiled binary of this entrypoint
+# silently corrupted %ENV loading. DD-922 (2026-09-16) root-caused and fixed
+# the actual defect (StandaloneRuntime's own _run_*_unit dispatchers left $/
+# undef across a later `eval` of the entrypoint's own source, since eval
+# STRING shares its caller's dynamic scope - see StandaloneRuntime.pm's
+# DD-922 comments) and re-enabled the exec side. A cache hit is executed
+# again, exactly as DD-882 originally intended.
 {
     my $home = tempdir( CLEANUP => 1 );
     my $sentinel_bin = seed_cache_for_dashboard(
@@ -64,13 +68,12 @@ sub seed_cache_for_dashboard {
         local $ENV{HARNESS_ACTIVE} = 0;
         system( $^X, '-I', $lib, $dashboard, 'version' );
     };
-    is( $exit >> 8, 0, 'DD-905: dashboard exits cleanly with a matching self-compiled binary cached' );
-    unlike(
+    is( $exit >> 8, 0, 'DD-922: dashboard exits cleanly with a matching self-compiled binary cached' );
+    like(
         $out,
         qr/DD882-SENTINEL-COMPILED-OUTPUT/,
-        'DD-905: dashboard never execs the cached self-compiled binary, even on a cache hit'
+        'DD-922: dashboard execs the cached self-compiled binary on a cache hit, restoring DD-882\'s original behavior'
     );
-    like( $out, qr/\A\d+\.\d+\s*\z/, 'DD-905: dashboard runs its own interpreted body instead, producing the real version output' );
 }
 
 # A stale/no-cache case must still work exactly as before: run interpreted,
@@ -87,15 +90,17 @@ sub seed_cache_for_dashboard {
     like( $out, qr/\A\d+\.\d+\s*\z/, 'DD-882: dashboard runs interpreted normally with no cached self-binary (no compile blocking, correct output)' );
 }
 
-# DD-882's exec guard var (DEVELOPER_DASHBOARD_PAX_SELF_EXECED) is now dead
-# with the exec side removed - a leftover value in the environment (a stale
-# process, an old shell) must still be harmless: dashboard runs interpreted
-# normally regardless of whether that var happens to be set.
+# DD-882's exec guard var (DEVELOPER_DASHBOARD_PAX_SELF_EXECED) must still do
+# its job now that the exec side is live again: a stale value inherited from
+# a parent process (rather than one this exact invocation just set) must not
+# suppress the self-check for THIS invocation, but the guard must still be
+# cleared before falling through so a later child `dashboard` this process
+# spawns gets its own independent, unsuppressed self-check.
 {
     my $home = tempdir( CLEANUP => 1 );
     seed_cache_for_dashboard(
         $home,
-        "#!/usr/bin/env perl\nprint \"DD882-SENTINEL-SHOULD-NOT-RUN\\n\";\nexit 1;\n"
+        "#!/usr/bin/env perl\nprint \"DD882-SENTINEL-GUARD-TEST\\n\";\n"
     );
 
     my ( $out, $err, $exit ) = capture {
@@ -104,24 +109,24 @@ sub seed_cache_for_dashboard {
         local $ENV{DEVELOPER_DASHBOARD_PAX_SELF_EXECED} = 1;
         system( $^X, '-I', $lib, $dashboard, 'version' );
     };
-    is( $exit >> 8, 0, 'DD-905: with the now-dead self-exec guard set, dashboard still exits cleanly' );
+    is( $exit >> 8, 0, 'DD-882: with the exec guard set from outside, dashboard still exits cleanly' );
     unlike(
         $out,
-        qr/DD882-SENTINEL-SHOULD-NOT-RUN/,
-        'DD-905: with the now-dead guard set, the cached binary is never executed'
+        qr/DD882-SENTINEL-GUARD-TEST/,
+        'DD-882: a self-exec guard already set from OUTSIDE this invocation suppresses the self-check, matching the documented anti-infinite-loop contract'
     );
-    like( $out, qr/\A\d+\.\d+\s*\z/, 'DD-905: with the guard set, dashboard runs its own interpreted body normally' );
+    like( $out, qr/\A\d+\.\d+\s*\z/, 'DD-882: with the guard pre-set, dashboard runs its own interpreted body normally' );
 }
 
-# DD-905's own regression coverage: a REAL PAX compile of dashboard (not a
-# hand-written sentinel) must reproduce the known %ENV-corruption defect when
-# invoked directly, AND dashboard itself must still run cleanly even with
-# that exact real broken binary sitting in the cache - proving the fix
-# addresses the actual defect, not just the sentinel-based mechanism test
-# above. Skipped when pax is not resolvable (no vendored Pax CLI staged) or
-# when explicitly disabled, since a real compile is slow and heavy.
+# DD-922's own regression coverage: a REAL PAX compile of dashboard (not a
+# hand-written sentinel) must now run CORRECTLY when execed directly - the
+# actual property this ticket restores. .env parsing must succeed under the
+# real compiled binary, proving the $/ fix addresses the genuine defect, not
+# just the sentinel-based mechanism test above. Skipped when pax is not
+# resolvable (no vendored Pax CLI staged) or when explicitly disabled, since
+# a real compile is slow and heavy.
 SKIP: {
-    skip 'DD_SKIP_REAL_PAX_COMPILE_TEST is set', 2 if $ENV{DD_SKIP_REAL_PAX_COMPILE_TEST};
+    skip 'DD_SKIP_REAL_PAX_COMPILE_TEST is set', 3 if $ENV{DD_SKIP_REAL_PAX_COMPILE_TEST};
 
     my $home = tempdir( CLEANUP => 1 );
     my $cache_dir = File::Spec->catdir( $home, '.developer-dashboard', 'cache', 'pax' );
@@ -135,7 +140,7 @@ SKIP: {
         local $ENV{HOME} = $home;
         system( $^X, $pax, 'build', '--compact', '-o', $bin_file, $dashboard );
     };
-    skip 'a real pax build did not succeed in this environment', 2 if ( $build_exit >> 8 ) != 0 || !-x $bin_file;
+    skip 'a real pax build did not succeed in this environment', 3 if ( $build_exit >> 8 ) != 0 || !-x $bin_file;
 
     open my $sfh, '<:raw', $dashboard or die "Unable to read $dashboard: $!";
     my $md5 = Digest::MD5->new;
@@ -147,15 +152,9 @@ SKIP: {
 
     # .env is untracked (git-ignored) and loaded relative to the REPO ROOT,
     # not $HOME - a ticket worktree sandbox carries no .env of its own, so
-    # write a throwaway multi-line one here to give the known upstream
-    # defect (see the block comment on _maybe_exec_self_compiled_dashboard
-    # in bin/dashboard) a real chance to reproduce. Whether it reproduces in
-    # THIS environment is informational only (diag, not asserted) - it is
-    # environment-dependent (confirmed: it did not reproduce from this exact
-    # worktree without a real .env present) and is not this ticket's own
-    # correctness property. The property this ticket actually guarantees is
-    # below: dashboard itself must never be corrupted by a broken compiled
-    # binary, regardless of whether that binary happens to fail loudly.
+    # write a throwaway multi-line one here: this is the exact shape DD-905
+    # found broken (a plain line-by-line <$fh> read misreading the whole
+    # file as one "line") and DD-922 fixed at the StandaloneRuntime level.
     my $env_file = File::Spec->catfile( $repo_root, '.env' );
     my $had_env = -f $env_file;
     my $original_env_content;
@@ -166,7 +165,7 @@ SKIP: {
         close $rfh;
     }
     open my $wfh, '>:raw', $env_file or die "Unable to write $env_file: $!";
-    print {$wfh} "DD905_TEST_TOKEN=1234:abcdEFGHijklMNOP\nDD905_TEST_SECOND=another-value\n";
+    print {$wfh} "DD922_TEST_TOKEN=1234:abcdEFGHijklMNOP\nDD922_TEST_SECOND=another-value\nDD922_TEST_THIRD=third-value\n";
     close $wfh;
 
     my ( $direct_out, $direct_err, $direct_exit ) = capture {
@@ -183,19 +182,17 @@ SKIP: {
         unlink $env_file;
     }
 
-    diag(
-        ( $direct_exit >> 8 ) != 0
-        ? "DD-905: the real self-compiled binary reproduced the known upstream .env-corruption defect in this environment (exit $direct_exit), as expected."
-        : "DD-905: the real self-compiled binary did NOT reproduce the known upstream defect in this environment this run - environment-dependent, not this ticket's own concern (see DD-905's card for the confirmed reproduction)."
+    is( $direct_exit >> 8, 0, 'DD-922 regression: a REAL self-compiled dashboard binary now runs cleanly (the fixed defect)' );
+    unlike(
+        $direct_out . $direct_err,
+        qr/Invalid env line/,
+        'DD-922 regression: the real compiled binary no longer misreads .env as one concatenated line'
     );
-
-    my ( $out, $err, $exit ) = capture {
-        local $ENV{HOME} = $home;
-        local $ENV{HARNESS_ACTIVE} = 0;
-        system( $^X, '-I', $lib, $dashboard, 'version' );
-    };
-    is( $exit >> 8, 0, 'DD-905 regression: dashboard exits cleanly even with a REAL compiled binary cached' );
-    like( $out, qr/\A\d+\.\d+\s*\z/, 'DD-905 regression: dashboard runs its own interpreted body and produces correct output, never touching the cached compiled binary' );
+    like(
+        $direct_out,
+        qr/\A\d+\.\d+\s*\z/,
+        'DD-922 regression: the real compiled binary prints the correct version, proving .env loaded (and the rest of startup ran) correctly'
+    );
 }
 
 done_testing;
@@ -208,14 +205,12 @@ t/182-dashboard-self-compile.t - dashboard's own MD5-checked self-compile hook
 
 =head1 PURPOSE
 
-Exercises bin/dashboard's self-compile check: it still checks its own
-source MD5 against PaxCache's cache (keeping a background compile warm),
-but DD-905 disabled acting on a cache hit - dashboard always runs its own
-interpreted body, never execs into the cached compiled binary, because a
-real PAX-compiled binary of this entrypoint was found to silently corrupt
-%ENV loading (see DD-905, and the block comment on
-C<_maybe_exec_self_compiled_dashboard> in bin/dashboard for the full
-mechanism).
+Exercises bin/dashboard's self-compile check: it checks its own source MD5
+against PaxCache's cache and execs a matching cached compiled binary
+directly on a hit (DD-882), including the guarded anti-infinite-loop
+contract and the DD-922 regression proof that a REAL PAX-compiled binary of
+this entrypoint now runs correctly (the defect DD-905 found and DD-922
+fixed no longer reproduces).
 
 =head1 WHY IT EXISTS
 
@@ -225,16 +220,22 @@ into dashboard's own entrypoint - the owner's original, explicit request
 themselves become the self-compiling target. DD-882 built that (execing a
 cached compiled binary on a hit); DD-905 found and disabled the exec side
 after it silently broke config loading in real use, undetected by DD-882's
-own tests because prove sets HARNESS_ACTIVE, which skips this whole check.
-This file is the executable proof that a cache hit is now inert, and that
-disabling it did not reintroduce any of DD-882's original miss-case or
-guard-safety behavior regressions.
+own tests because prove sets HARNESS_ACTIVE, which skips this whole check;
+DD-922 root-caused the actual defect (a `local $/;` in the vendored Pax
+StandaloneRuntime's own entrypoint dispatchers spanning a later `eval` of
+the entrypoint's own source, since C<eval STRING> shares its caller's
+dynamic scope rather than opening a fresh one) and re-enabled the exec
+side. This file is the executable proof that a cache hit is exec'd into
+correctly, that the DD-882 anti-infinite-loop guard still works, and that
+a genuinely real compiled binary no longer corrupts config loading.
 
 =head1 WHEN TO USE
 
 Run this file whenever the self-compile hook in bin/dashboard changes, or
 whenever PaxCache's cache file layout changes (this file seeds the cache
-directly using that exact layout, so a layout change must update both).
+directly using that exact layout, so a layout change must update both), or
+whenever StandaloneRuntime's entrypoint dispatch changes (the DD-922 fix
+lives there, not in bin/dashboard itself).
 Set C<DD_SKIP_REAL_PAX_COMPILE_TEST=1> to skip the slow real-compile
 regression block (still runs the fast sentinel-based blocks).
 
@@ -245,15 +246,15 @@ regression block (still runs the fast sentinel-based blocks).
 =head1 WHAT USES IT
 
 Confirms the contract every real dashboard invocation depends on: a cache
-hit is never acted on, a miss never blocks or breaks normal interpreted
-operation, and a real compiled binary's actual (not simulated) corruption
-of %ENV loading never reaches a live dashboard invocation.
+hit is exec'd into correctly, a miss never blocks or breaks normal
+interpreted operation, the anti-infinite-loop guard still works, and a real
+compiled binary's actual (not simulated) config loading now succeeds.
 
 =head1 EXAMPLES
 
-Seeding a fake cached binary and confirming dashboard never execs it:
+Seeding a fake cached binary and confirming dashboard execs it:
 
     my $bin_file = seed_cache_for_dashboard($home, "#!/usr/bin/env perl\nprint 'hi';\n");
-    system($^X, '-I', $lib, $dashboard, 'version');    # runs dashboard's own body, not the sentinel
+    system($^X, '-I', $lib, $dashboard, 'version');    # execs the cached binary on a hit
 
 =cut

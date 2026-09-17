@@ -765,9 +765,17 @@ sub _run_entrypoint {
 
 sub _run_service_dispatch_unit {
     my ($entrypoint) = @_;
-    open my $fh, '<', $entrypoint or die "cannot read service dispatch unit $entrypoint: $!";
-    local $/;
-    my $record = _runtime_json_decode(<$fh>);
+    my $record;
+    {
+        # DD-922: $/ must be restored to its normal default BEFORE any later
+        # `eval` in this sub runs user/bootstrap source - eval STRING shares
+        # the caller's dynamic scope rather than opening a fresh one, so a
+        # bare `local $/;` spanning the whole sub silently left every file
+        # read performed by the entrypoint's own code running in slurp mode.
+        open my $fh, '<', $entrypoint or die "cannot read service dispatch unit $entrypoint: $!";
+        local $/;
+        $record = _runtime_json_decode(<$fh>);
+    }
 
     my $cmd = shift(@ARGV);
     $cmd = 'version' if !defined($cmd) || $cmd eq '';
@@ -820,9 +828,14 @@ sub _run_service_dispatch_unit {
 
 sub _run_cli_router_unit {
     my ($entrypoint) = @_;
-    open my $fh, '<', $entrypoint or die "cannot read cli router unit $entrypoint: $!";
-    local $/;
-    my $record = _runtime_json_decode(<$fh>);
+    my $record;
+    {
+        # DD-922: see _run_service_dispatch_unit's comment - $/ must be
+        # restored before the bootstrap `eval` below runs user code.
+        open my $fh, '<', $entrypoint or die "cannot read cli router unit $entrypoint: $!";
+        local $/;
+        $record = _runtime_json_decode(<$fh>);
+    }
     my $path = _virtual_entrypoint_path($entrypoint);
     my $bootstrap = $record->{bootstrap_source};
     if (defined $bootstrap && $bootstrap ne '') {
@@ -892,9 +905,14 @@ sub _run_cli_router_unit {
 
 sub _run_dispatch_script_unit {
     my ($entrypoint) = @_;
-    open my $fh, '<', $entrypoint or die "cannot read dispatch script unit $entrypoint: $!";
-    local $/;
-    my $record = _runtime_json_decode(<$fh>);
+    my $record;
+    {
+        # DD-922: see _run_service_dispatch_unit's comment - $/ must be
+        # restored before the bootstrap `eval` below runs user code.
+        open my $fh, '<', $entrypoint or die "cannot read dispatch script unit $entrypoint: $!";
+        local $/;
+        $record = _runtime_json_decode(<$fh>);
+    }
     my $path = _virtual_entrypoint_path($entrypoint);
     my $bootstrap = $record->{bootstrap_source};
     if (defined $bootstrap && $bootstrap ne '') {
@@ -961,9 +979,22 @@ sub _run_dispatch_action {
 
 sub _run_script_unit {
     my ($entrypoint) = @_;
-    open my $fh, '<', $entrypoint or die "cannot read script unit $entrypoint: $!";
-    local $/;
-    my $record = _runtime_json_decode(<$fh>);
+    my $record;
+    {
+        # DD-922: $/ must be restored to its normal default BEFORE the
+        # `eval $wrapped` below runs the entrypoint's own compiled source -
+        # eval STRING shares the caller's dynamic scope rather than opening
+        # a fresh one, so a bare `local $/;` spanning this whole sub left
+        # every real-file read the entrypoint's own code performed (e.g.
+        # EnvLoader.pm's plain `open+<$fh>` line-read loop) running in
+        # slurp mode, silently corrupting any line-oriented file parsing.
+        # Root-caused live: a byte-identical 8-line script correctly reads
+        # a file line-by-line when run interpreted, and reads the whole
+        # file as one "line" when self-compiled and run standalone.
+        open my $fh, '<', $entrypoint or die "cannot read script unit $entrypoint: $!";
+        local $/;
+        $record = _runtime_json_decode(<$fh>);
+    }
     my $source = $record->{script_source} // _script_source_from_code_units($entrypoint)
         // _source_path_to_script_source($entrypoint)
         // _script_source_from_residual_payload($entrypoint);
