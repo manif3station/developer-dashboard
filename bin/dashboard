@@ -660,8 +660,8 @@ dashboard - thin command switchboard for Developer Dashboard
   dashboard action run <page_id> <action_id>
   dashboard docker compose [--addon NAME] [--mode NAME] [--service NAME] [--project DIR] [--dry-run] <compose-args...>
   dashboard docker list [--enabled|--disabled]
-  dashboard docker enable <service>
-  dashboard docker disable <service>
+  dashboard docker enable <service> [service...]
+  dashboard docker disable <service> [service...]
       dashboard serve [logs [-f] [-n N]|workers <N>] [--host HOST] [--port PORT] [--workers N] [--foreground] [--no-editor|--no-endit] [--no-indicators|--no-indicator]
   dashboard stop
   dashboard restart [--host HOST] [--port PORT] [--workers N]
