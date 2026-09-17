@@ -1,6 +1,22 @@
 # Fixed Bugs
 
 
+## 4.43
+
+- **DD-943**: t/15-release-metadata.t's `_perl_doc_paths()` walked `t/` for
+  every `.pm`/`.pl`/`.t` file with no exclusion for `t/tmp-sow03/` - a
+  scratch directory `t/183-pax-cli-build-run-contract.t` creates with
+  deliberately minimal-POD fixture files to exercise the PAX build
+  pipeline, and leaves on disk after its own run (cleaned only at its own
+  START, by design). When t/183 ran before t/15 in the same `prove`
+  process, t/15 incorrectly scanned those fixtures and failed ~25 subtests
+  against files never meant to carry real project POD. Confirmed
+  pre-existing (present in CI for the commit immediately before DD-933
+  landed, not introduced by it). Fixed by mirroring an exclusion pattern
+  already used elsewhere in the same file. Verified RED-then-GREEN with a
+  new subtest creating a real stray fixture and confirming it's excluded.
+
+
 ## 4.42
 
 - **DD-933**: CodeUnitCompiler.pm's dependency-discovery pass (which walks

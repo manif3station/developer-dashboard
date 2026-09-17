@@ -3,7 +3,7 @@ package Developer::Dashboard::PaxCache;
 use strict;
 use warnings;
 
-our $VERSION = '4.42';
+our $VERSION = '4.43';
 
 use Digest::MD5 ();
 use File::Spec ();
