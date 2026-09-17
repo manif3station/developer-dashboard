@@ -1,3 +1,17 @@
+4.41  2026-09-17
+
+  - DD-934: fixed a compiled bin/dashboard entrypoint crash on ANY
+    subcommand with a trailing argv token ("Can't use string as a HASH
+    ref"). StandaloneRuntime.pm's _run_cli_router_unit called
+    _prime_command_result_env with only ($cmd, @ARGV), silently dropping
+    the $main_gate_results positional argument the function's own
+    signature expects - the first argv token filled that slot instead of
+    a hashref, crashing the moment any argument followed the command name.
+    Fixed by passing an explicit {} at the call site. This blocked safely
+    re-enabling self-exec, since almost every real invocation carries at
+    least one argument. Verified RED-then-GREEN against a real compiled
+    binary.
+
 4.40  2026-09-17
 
   - DD-938: dashboard ask is now a Developer Dashboard expert by default.
