@@ -97,7 +97,7 @@ subtest 'claude direct API (default backend, env key)' => sub {
     is( $body->{model},           'claude-opus-4-8', 'default model' );
     is( $body->{max_tokens},      4096,              'default max_tokens' );
     is( $body->{messages}[0]{role},    'user', 'user turn' );
-    is( $body->{messages}[0]{content}, 'What is one plus one?', 'prompt content' );
+    like( $body->{messages}[0]{content}, qr/What is one plus one\?\z/, 'prompt content (docs context auto-prepended on the first call in this fresh workspace, DD-938)' );
 };
 
 subtest 'per-workspace memory: follow-up carries history + sticky backend' => sub {
@@ -110,7 +110,7 @@ subtest 'per-workspace memory: follow-up carries history + sticky backend' => su
     $M->can('run_ask')->( args => ['Second question'], ua => $ua2, out => \$out );
     my $body = json_decode( $ua2->{requests}[0]->content );
     is( scalar @{ $body->{messages} }, 3, 'prior user+assistant turns replayed + new turn' );
-    is( $body->{messages}[0]{content}, 'First question', 'history user turn' );
+    like( $body->{messages}[0]{content}, qr/First question\z/, 'history user turn (docs context auto-prepended on the first call in that fresh workspace, DD-938)' );
     is( $body->{messages}[1]{role},    'assistant',      'history assistant turn' );
     is( $body->{messages}[2]{content}, 'Second question', 'new turn last' );
 };
@@ -141,6 +141,17 @@ subtest '--no-memory sends no history and persists nothing' => sub {
     $M->can('run_ask')->( args => ['more'], ua => $ua3, out => \$out );
     my $b3 = json_decode( $ua3->{requests}[0]->content );
     is( scalar @{ $b3->{messages} }, 3, 'no-memory turn was not saved' );
+};
+
+subtest 'DD-938: --no-memory on a genuinely fresh workspace does not auto-inject docs' => sub {
+    local $ENV{ANTHROPIC_API_KEY} = 'sk-env';
+    local $ENV{WORKSPACE_REF}     = 'ws/nomem-fresh';
+    my $out;
+    my $ua = FakeUA->new( api_reply('answer') );
+    $M->can('run_ask')->( args => [ '--no-memory', 'first ever call' ], ua => $ua, out => \$out );
+    my $body = json_decode( $ua->{requests}[0]->content );
+    is( scalar @{ $body->{messages} }, 1, 'single turn, no replayed history' );
+    is( $body->{messages}[0]{content}, 'first ever call', 'the docs context is not prepended when --no-memory is set, even on a workspace that has never been asked before' );
 };
 
 subtest 'config-file api_key + base_url + model + max_tokens' => sub {
@@ -246,7 +257,7 @@ subtest 'codex backend (sticky) forces read-only and attaches images' => sub {
     like( $argv, qr/-s read-only/,        'read-only sandbox forced' );
     like( $argv, qr/--skip-git-repo-check/, 'skip git repo check' );
     like( $argv, qr/-i \S+c\.png/,        'image via -i' );
-    like( $argv, qr/-- hello codex/,      'prompt after --' );
+    like( $argv, qr/-- .*hello codex/s,   'prompt after -- (docs context auto-prepended on the first call in this fresh workspace, DD-938)' );
     like( $argv, qr/--model gpt-5\.5/,    'model forwarded' );
 
     # Now sticky: a plain ask stays on codex.
@@ -275,7 +286,7 @@ subtest 'copilot backend attaches with --attachment' => sub {
     );
     like( $out, qr/copilot reply/, 'copilot answer printed' );
     my $argv = join ' ', @{ $calls[0] };
-    like( $argv, qr/-p hi copilot/,      'prompt via -p' );
+    like( $argv, qr/-p .*hi copilot/s,   'prompt via -p (docs context auto-prepended on the first call in this fresh workspace, DD-938)' );
     like( $argv, qr/--allow-all-tools/,  'non-interactive tools flag' );
     like( $argv, qr/--attachment \S+k\.png/, 'image via --attachment' );
     like( $argv, qr/--model gpt-5/,      'model forwarded' );
@@ -301,7 +312,7 @@ subtest 'gemini backend argv when present' => sub {
         out    => \$out,
     );
     my $argv = join ' ', @{ $calls[0] };
-    like( $argv, qr/-p hi gem/,   'prompt via -p' );
+    like( $argv, qr/-p .*hi gem/s, 'prompt via -p (docs context auto-prepended on the first call in this fresh workspace, DD-938)' );
     like( $argv, qr/-m gemini-2\.5-pro/, 'model via -m' );
     like( $argv, qr/-o text/,     'text output' );
 };
@@ -414,7 +425,7 @@ subtest 'stdin is appended to the prompt' => sub {
     my $ua2 = FakeUA->new( api_reply('ok') );
     $M->can('run_ask')->( args => [], stdin => "only stdin", ua => $ua2, out => \my $o2 );
     my $b2 = json_decode( $ua2->{requests}[0]->content );
-    is( $b2->{messages}[0]{content}, 'only stdin', 'stdin-only prompt' );
+    like( $b2->{messages}[0]{content}, qr/only stdin\z/, 'stdin-only prompt (docs context auto-prepended on the first call in that fresh workspace, DD-938)' );
 };
 
 # ------------------------------------------------------------------
@@ -537,6 +548,64 @@ subtest 'transcript is written owner-only under state root' => sub {
         my $mode = ( stat $file )[2] & 07777;
         is( $mode, 0600, 'transcript is 0600' );
     }
+};
+
+# --------------------------------------------------------------------------
+# DD-938: `dashboard ask --docs` prints curated onboarding context and never
+# touches an AI backend or writes any file - a pure, cheap, static stdout
+# path, distinct from every other test above which exercises a real (faked)
+# backend round-trip.
+# --------------------------------------------------------------------------
+subtest 'DD-938: ask --docs prints curated context, touches no backend, writes no file' => sub {
+    my $work = tempdir( CLEANUP => 1 );
+    my $before_cwd = getcwd();
+    chdir $work or die "Unable to chdir to $work: $!";
+
+    my @before_entries = sort glob('*');
+    my $ua_called = 0;
+    my $rc = $M->can('run_ask')->(
+        args => ['--docs'],
+        ua   => FakeUA->new( sub { $ua_called++; api_reply('unused')->(@_) } ),
+        out  => \my $out,
+    );
+    chdir $before_cwd or die "Unable to chdir back to $before_cwd: $!";
+
+    is( $rc, 0, '--docs exits 0' );
+    ok( length($out) > 0, '--docs prints non-empty output' );
+    like( $out, qr/cli/i, '--docs output mentions the cli/ dot-notation convention' );
+    is( $ua_called, 0, '--docs never touches the AI backend' );
+    my @after_entries = sort glob("$work/*");
+    is_deeply( \@after_entries, [], '--docs writes no file into the current directory' );
+};
+
+# --------------------------------------------------------------------------
+# DD-938 (auto-inject, owner-corrected scope): a workspace's FIRST-EVER
+# plain `dashboard ask` call (no --docs flag) silently gets the curated
+# docs context prepended to that turn's prompt - zero flag, zero injected
+# instruction line. The SECOND call in the same workspace must NOT repeat
+# it, since it is already in that conversation's own history from turn 1.
+# --------------------------------------------------------------------------
+subtest 'DD-938: first ask call in a workspace auto-includes docs context, second does not' => sub {
+    local $ENV{ANTHROPIC_API_KEY} = 'sk-env';
+    local $ENV{WORKSPACE_REF}     = 'ws/dd938-auto';
+    my $ua = FakeUA->new( api_reply('ok') );
+
+    my $rc1 = $M->can('run_ask')->( args => ['first real question'], ua => $ua, out => \my $out1 );
+    is( $rc1, 0, 'first call exits 0' );
+    my $first_body = $ua->{requests}[0]->content;
+    like( $first_body, qr/DD-OOP-LAYERS/, 'first call includes the docs context in what is sent to the backend' );
+    like( $first_body, qr/first real question/, 'first call still includes the actual question' );
+
+    my $rc2 = $M->can('run_ask')->( args => ['second real question'], ua => $ua, out => \my $out2 );
+    is( $rc2, 0, 'second call exits 0' );
+    my $second_body = json_decode( $ua->{requests}[1]->content );
+    # The docs context legitimately appears once, in the REPLAYED first
+    # turn (real conversation history a backend needs) - the thing DD-938
+    # actually guards against is a SECOND, redundant copy prepended to the
+    # new turn itself.
+    is( scalar @{ $second_body->{messages} }, 3, 'history replayed + new turn, no extra turn added' );
+    like( $second_body->{messages}[0]{content}, qr/DD-OOP-LAYERS/, 'the docs context is present via the replayed first turn' );
+    is( $second_body->{messages}[2]{content}, 'second real question', 'the NEW turn itself has no redundant second copy of the docs context' );
 };
 
 done_testing;
