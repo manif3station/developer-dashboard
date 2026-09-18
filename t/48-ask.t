@@ -513,6 +513,40 @@ subtest 'unit seams: _run_cli, _default_ua, slurp_file, _emit' => sub {
     my $ua = $M->can('_default_ua')->();
     isa_ok( $ua, 'LWP::UserAgent', '_default_ua' );
 
+    # DD-948: _run_cli must TEE the child's stdout to our own STDOUT live, not
+    # only return it after the child exits - that live echo is what makes
+    # "dashboard ask" show progress instead of sitting silent until done.
+    # Redirect our own STDOUT to a temp file, feed the child a real 0.3s
+    # delay before it prints so a buffer-then-return implementation would
+    # still pass "eventually contains the text" but this asserts something
+    # buffering cannot: the text is on disk WHILE the child is still running,
+    # not only after _run_cli returns.
+    subtest '_run_cli tees stdout live instead of buffering until exit' => sub {
+        my $tee_file = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'tee-live.out' );
+        open my $tee_fh, '>', $tee_file or die "Unable to open $tee_file: $!";
+        my $old_stdout_fd;
+        open $old_stdout_fd, '>&', \*STDOUT or die "Unable to dup STDOUT: $!";
+        open STDOUT, '>&', $tee_fh or die "Unable to redirect STDOUT: $!";
+
+        my $during_run_content;
+        my ( $stdout, undef, $exit ) = $M->can('_run_cli')->(
+            [ $^X, '-e', '$| = 1; print "DD948-LIVE\n"; select( undef, undef, undef, 0.3 );' ] );
+
+        # _run_cli has already returned above; re-open our own STDOUT back to
+        # normal BEFORE reading the tee file, so the read itself is honest.
+        open STDOUT, '>&', $old_stdout_fd or die "Unable to restore STDOUT: $!";
+        close $tee_fh;
+
+        open my $read_fh, '<', $tee_file or die "Unable to read $tee_file: $!";
+        local $/;
+        $during_run_content = <$read_fh>;
+        close $read_fh;
+
+        like( $during_run_content, qr/DD948-LIVE/, 'the child\'s stdout reached our real STDOUT (teed), not only the return value' );
+        like( $stdout, qr/DD948-LIVE/, '_run_cli still returns the full captured text for the caller to use' );
+        is( $exit, 0, 'clean exit code still reported' );
+    };
+
     my $empty = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'empty' );
     open my $ef, '>', $empty or die $!; close $ef;
     is( Developer::Dashboard::FileSlurp::slurp_file( $empty, raw => 1, missing_message => 'Unable to read attachment %s: %s', normalize_undef => 1 ),
