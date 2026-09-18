@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Ask;
 use strict;
 use warnings;
 
-our $VERSION = '4.43';
+our $VERSION = '4.44';
 
 use Capture::Tiny qw(capture);
 use File::Spec;
