@@ -475,6 +475,7 @@ subtest '_ask_claude API defaults and CLI fallback argv' => sub {
             claude_conf => {},
             env         => { ANTHROPIC_API_KEY => 'sk-defaults' },
             ua          => $ua,
+            paths       => $paths,
         ),
         'DEFAULTED ANSWER',
         'the API answer is returned when a key resolves',
@@ -498,6 +499,7 @@ subtest '_ask_claude API defaults and CLI fallback argv' => sub {
             history     => [],
             claude_conf => { base_url => 'http://127.0.0.1:1', max_tokens => 32 },
             env         => { ANTHROPIC_API_KEY => 'sk-configured' },
+            paths       => $paths,
         );
         1;
     } or $err = $@;
