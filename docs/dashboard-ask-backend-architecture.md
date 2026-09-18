@@ -58,3 +58,54 @@ under a similar name.
    own code comment, the way `_call_claude_api` and `_call_nova_api` both
    do - the next person choosing a shape for the backend after that should
    not have to re-derive it from scratch.
+
+## The direct-API path's repo-search gap, and the tool_use loop that closes it (DD-946)
+
+**The asymmetry.** `dashboard ask`'s CLI-fallback path (no
+`ANTHROPIC_API_KEY` set, local `claude` CLI available) answers
+repo-specific questions correctly, because the local `claude` CLI IS the
+full Claude Code agent - it gets Read/Grep/Bash tool access to its cwd as
+an incidental side effect of what that CLI is, not by any deliberate
+design in `Ask.pm`. The direct-API path (`_call_claude_api`, the
+documented default whenever `ANTHROPIC_API_KEY` IS set) is a single
+non-streaming POST to the Anthropic Messages API with no filesystem
+access at all - it can only answer from the prompt text, `--file`
+attachments, replayed history, and DD-938's static curated
+`_docs_context()` blurb. None of that lets it answer a question needing
+fine-grained source detail (e.g. "which file/line implements X").
+
+**The fix is a real `tool_use` loop, scoped to two read-only tools.**
+Unlike the CLI-fallback path's blanket Bash/Read/Grep access, the
+direct-API path gets exactly two tools, both refusing any path outside
+the current project root (`PathRegistry`'s project root):
+
+- `read_file` - read one file's contents by path.
+- `grep_repo` - search file contents by pattern, scoped to the project
+  tree.
+
+No write tool, no exec tool, and no tool at all for the CLI-fallback path
+(it already has its own, broader access - adding a second mechanism there
+would be redundant, not additive).
+
+**The Anthropic Messages API `tool_use` shape**, the exact contract the
+loop implements:
+
+- The request carries a top-level `tools` array:
+  `[{name, description, input_schema}, ...]`.
+- A response whose `stop_reason` is `tool_use` carries one or more
+  content blocks of shape `{type: 'tool_use', id, name, input}`.
+- The client executes the named tool locally with `input`, then sends a
+  new **user**-role message back with a content block
+  `{type: 'tool_result', tool_use_id, content}` (one per `tool_use`
+  block in the prior turn).
+- The loop repeats - send, inspect `stop_reason`, execute any
+  `tool_use` blocks, reply with `tool_result` - until `stop_reason` is
+  anything other than `tool_use` (normally `end_turn`), at which point
+  the final text content is the answer.
+
+**AC-3's unchanged-behavior requirement falls out of this shape for
+free.** A plain question that needs no repo search never causes the model
+to emit a `tool_use` block, so the first response already has
+`stop_reason != 'tool_use'` and the loop exits after exactly one request
+- the same single-POST behavior `_call_claude_api` has today, same
+request shape, tools array present but unused.
