@@ -181,7 +181,7 @@ sub load_saved_ajax_code {
     my (%args) = @_;
     my $path = saved_ajax_file_path(%args);
     return if !-f $path;
-    open my $fh, '<', $path or die "Unable to read $path: $!";
+    open my $fh, '<', $path or die "Unable to read $path: $!";    # uncoverable branch true only reachable as a non-root user (permission-denied on a file that already passed -f); the gate container runs as root
     local $/;
     my $code = <$fh>;
     close $fh;
