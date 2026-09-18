@@ -74,6 +74,13 @@ updates/
 dogfood-output/
 __pycache__/
 
+# DD-950: NYTProf's default profiler output. A stray nytprof.out leaked into
+# the 4.46 release tarball because it was untracked and ungitignored - dzil's
+# GatherDir reads disk, not git, so nothing stopped it. nytprof/ is NYTProf's
+# alternate "-d" directory-mode output.
+nytprof.out
+nytprof/
+
 # Gate artifacts: run-suite/coverage-run/gate-status write per-checkout state
 # here (DD-652). Runtime output, never committed. Redundant with the blanket
 # .claude/ rule below (DD-644), kept because it names the specific reason this
