@@ -895,7 +895,7 @@ is( $runner->_cron_due( '* * * * 7', 'cron.wday7' ), $runner->_cron_due( '* * * 
 like( ( eval { $runner->_run_command( source => 'true', cwd => File::Spec->catdir( $home, 'no-such-cwd' ), timeout_ms => 1000 ); 1 } ? '' : $@ ), qr/Unable to chdir/, '_run_command dies when it cannot chdir into the collector cwd' );
 {
     no warnings 'redefine';
-    local *Developer::Dashboard::CollectorRunner::shell_command_argv = sub { die "argv boom\n" };
+    local *Developer::Dashboard::CommandRunner::shell_command_argv = sub { die "argv boom\n" };
     like( ( eval { $runner->_run_command( source => 'true', cwd => $home, timeout_ms => 1000 ); 1 } ? '' : $@ ), qr/argv boom/, '_run_command re-throws a non-timeout error from the command build' );
 }
 {
@@ -930,8 +930,8 @@ like( ( eval { $runner->_run_command( source => 'true', cwd => File::Spec->catdi
         '_await_command_pid returns a pid as soon as the launcher records it' );
     {
         no warnings 'redefine';
-        local *Developer::Dashboard::CollectorRunner::_command_pid_from_file = sub { return undef };
-        local *Developer::Dashboard::CollectorRunner::sleep = sub { return 0 };
+        local *Developer::Dashboard::CommandRunner::command_pid_from_file = sub { return undef };
+        local *Developer::Dashboard::CommandRunner::sleep = sub { return 0 };
         ok( !defined $runner->_await_command_pid($pidfile),
             '_await_command_pid stops after its bounded startup wait' );
     }
@@ -983,9 +983,9 @@ SKIP: {
     die "fork failed: $!" if !defined $child;
     if ( !$child ) {
         no warnings 'redefine';
-        local *Developer::Dashboard::CollectorRunner::is_windows = sub { return 1 };
-        local *Developer::Dashboard::CollectorRunner::_await_command_pid = sub { return 4242 };
-        local *Developer::Dashboard::CollectorRunner::_terminate_command_process = sub { return 1 };
+        local *Developer::Dashboard::CommandRunner::is_windows = sub { return 1 };
+        local *Developer::Dashboard::CommandRunner::await_command_pid = sub { return 4242 };
+        local *Developer::Dashboard::CommandRunner::terminate_command_process = sub { return 1 };
         $runner->_forward_command_signal( $pidfile, 'TERM', 15 );
         POSIX::_exit(1);
     }
