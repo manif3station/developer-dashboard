@@ -1,6 +1,22 @@
 # Fixed Bugs
 
 
+## 4.55
+
+- **DD-958**: `Platform.pm`'s `resolve_runnable_file` (lines 183-184) and
+  `command_argv_for_path` (line 226's guard / line 227's Windows fallback
+  return) each carried an untested direction on both the forced-Windows
+  side and its natural-Linux counterpart, with no uncoverable annotation
+  either - a genuine gap in the "100.0 on every metric, always"
+  discipline. Fixed by adding 4 test assertions to
+  `t/84-platform-coverage.t`: 2 using the project's established
+  `local $Developer::Dashboard::Platform::OS_NAME = 'MSWin32'` override
+  to force `is_windows()` true, 2 natural-Linux counterparts - the
+  true/false coverage columns track the literal written condition
+  (`!is_windows()` / `is_windows()`), not Devel::Cover's
+  display-rewritten "unless" text, so both sides needed separate
+  coverage. Platform.pm now 100.0 on all 4 Devel::Cover metrics.
+
 ## 4.54
 
 - **DD-928**: `Zipper.pm`'s `load_saved_ajax_code` had no uncoverable
