@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::AppImage;
 
-our $VERSION = '4.48';
+our $VERSION = '4.49';
 
 use strict;
 use warnings;

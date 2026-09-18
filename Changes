@@ -1,3 +1,11 @@
+4.49  2026-09-18
+
+  - DD-954: a skill's own cli/__init__.<ext> self-script now runs when
+    it is invoked with no subcommand at all - d2 <skill-name> (bare) and
+    d2 <skill>.<nested-skill> (dotted, when no explicit subcommand file
+    exists) both fall back to it, any extension. An explicit top-level or
+    subcommand always wins over the fallback.
+
 4.48  2026-09-18
 
   - DD-948: dashboard ask's CLI-fallback backend path (codex/copilot/gemini,
