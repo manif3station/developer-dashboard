@@ -1,3 +1,10 @@
+4.50  2026-09-18
+
+  - DD-952: added Amazon Nova as a dashboard ask backend (--nova), against
+    Nova's own standalone REST endpoint (api.nova.amazon.com/v1/chat/
+    completions, bearer-token auth via NOVA_API_KEY) - the same direct-API
+    shape --claude already uses, not AWS Bedrock/SigV4.
+
 4.49  2026-09-18
 
   - DD-954: a skill's own cli/__init__.<ext> self-script now runs when

@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::RuntimeDispatcher;
 
-our $VERSION = '4.49';
+our $VERSION = '4.50';
 
 use strict;
 use warnings;
