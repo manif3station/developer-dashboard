@@ -1,3 +1,18 @@
+4.46  2026-09-18
+
+  - DD-947: extracted CollectorRunner.pm's command-execution cluster
+    (run_command, await_windows_command, spawn_windows_command,
+    record_command_pid, command_launcher_argv, command_pid_from_file,
+    await_command_pid, forward_command_signal, terminate_command_process,
+    exit_code_from_status) into a new sibling module,
+    Developer::Dashboard::CommandRunner - first cut toward DD-641's
+    1963-line oversized-module finding. Confirmed zero instance-state
+    ($self->{...}) dependency in the 241-line cluster before moving it;
+    every original call site kept as a one-line forwarder so no existing
+    caller changed. CommandRunner.pm reaches 100.0 on all four
+    Devel::Cover metrics. CollectorRunner.pm drops from 1963 to 1754
+    lines.
+
 4.45  2026-09-18
 
   - DD-942: closed Ask.pm's pre-existing branch/condition coverage gap

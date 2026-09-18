@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::DeoptEngine;
 
-our $VERSION = '4.45';
+our $VERSION = '4.46';
 
 use strict;
 use warnings;

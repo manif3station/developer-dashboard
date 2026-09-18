@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '4.45';
+our $VERSION = '4.46';
 
 use Capture::Tiny qw(capture);
 use Errno qw(EINTR);
