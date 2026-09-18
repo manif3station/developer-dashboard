@@ -262,6 +262,58 @@ ok( !$noresolve, 'command_argv_for_path dies when nothing resolves' );
 like( $@, qr/Unable to find runnable file/, 'unresolvable path error surfaced' );
 
 # ---------------------------------------------------------------------------
+# DD-958: resolve_runnable_file's is_windows()-true candidate-selection path
+# (lines 183-184) and command_argv_for_path's is_windows()-true fallback
+# (line 226's guard / line 227's return) are only reachable when is_windows()
+# answers true - force it with the project's established local $OS_NAME
+# override (see docs/forced-windows-unit-tests.md) rather than annotating
+# them uncoverable, since they ARE testable this way.
+# ---------------------------------------------------------------------------
+{
+    local $Developer::Dashboard::Platform::OS_NAME = $win;
+
+    my $winbat = File::Spec->catfile( $work, 'winscript.bat' );
+    write_file( $winbat, "echo win\n" );
+    is(
+        resolve_runnable_file( File::Spec->catfile( $work, 'winscript' ) ),
+        $winbat,
+        'resolve_runnable_file: under forced is_windows(), a .bat candidate is selected via _is_windows_runnable_candidate (line 183 false, line 184 true)',
+    );
+
+    my $windata = File::Spec->catfile( $work, 'plain.dat' );
+    write_file( $windata, "not runnable\n" );
+    is_deeply(
+        [ command_argv_for_path($windata) ],
+        [ $^X, $windata ],
+        'command_argv_for_path: under forced is_windows(), an unmatched extension falls through to the Windows fallback return (line 226 false, line 227 true)',
+    );
+}
+
+# The two counterpart natural-Linux (is_windows() false) states on the same
+# lines are ALSO gaps: Devel::Cover measures the true/false columns against
+# the literal written condition (!is_windows() on line 226; is_windows() as
+# the left operand of the && on lines 183/184), not the rewritten display
+# text it prints ("unless is_windows()") - so the forced-Windows block above
+# only closes half of each line's coverage. See docs/forced-windows-unit-tests.md.
+
+my $noexec = File::Spec->catfile( $work, 'notexec.sh' );
+write_file( $noexec, "echo x\n" );
+chmod 0644, $noexec;    # exists, but not executable
+is(
+    resolve_runnable_file( $noexec ),
+    undef,
+    'resolve_runnable_file: on Linux, a candidate that exists but is not executable is skipped (line 183 !is_windows()&&-x false side, line 184 is_windows() false side)',
+);
+
+my $plaindata = File::Spec->catfile( $work, 'plain-linux.dat' );
+write_file( $plaindata, "not runnable\n" );
+is_deeply(
+    [ command_argv_for_path($plaindata) ],
+    [$plaindata],
+    'command_argv_for_path: on Linux, an unmatched extension falls through to the plain-path return, no interpreter prefix (line 226 true side)',
+);
+
+# ---------------------------------------------------------------------------
 # DD-856: a .pl-suffixed file carrying a non-Perl shebang must run through
 # its OWN shebang interpreter, not be force-fed to perl by extension alone.
 # ---------------------------------------------------------------------------
