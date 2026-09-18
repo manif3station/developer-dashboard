@@ -1,3 +1,12 @@
+4.48  2026-09-18
+
+  - DD-948: dashboard ask's CLI-fallback backend path (codex/copilot/gemini,
+    or claude with no API key set) now tees its child process's output
+    live to the caller's terminal instead of fully buffering it until the
+    process exits. Switched _run_cli from Capture::Tiny's capture{} to
+    tee{}. The direct-API path is unchanged (real streaming there needs
+    Anthropic SSE wiring, a separate, larger change).
+
 4.47  2026-09-18
 
   - DD-950: excluded a stray NYTProf profiling artifact (nytprof.out) from
