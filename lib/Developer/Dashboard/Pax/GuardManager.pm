@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::GuardManager;
 
-our $VERSION = '4.46';
+our $VERSION = '4.47';
 
 use strict;
 use warnings;

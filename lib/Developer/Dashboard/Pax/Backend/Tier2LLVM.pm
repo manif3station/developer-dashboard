@@ -1,5 +1,5 @@
 package Developer::Dashboard::Pax::Backend::Tier2LLVM;
-our $VERSION = '4.46';
+our $VERSION = '4.47';
 
 use strict;
 use warnings;

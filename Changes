@@ -1,3 +1,13 @@
+4.47  2026-09-18
+
+  - DD-950: excluded a stray NYTProf profiling artifact (nytprof.out) from
+    the release tarball. dzil's GatherDir gathers from disk, not git, so an
+    untracked, ungitignored leftover file ships exactly like a real source
+    file - the same mechanism that let FIX.md leak into the 4.22 tarball
+    (DD-401). Found auditing DD-947's 4.46 build. Added dist.ini exclusion,
+    .gitignore entries for nytprof.out/nytprof/, and RED-then-GREEN test
+    coverage in t/15-release-metadata.t.
+
 4.46  2026-09-18
 
   - DD-947: extracted CollectorRunner.pm's command-execution cluster
