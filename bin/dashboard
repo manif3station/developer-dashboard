@@ -93,6 +93,11 @@ if ( my ( $skill_name, $skill_command ) = _skill_dotted_command_parts($cmd) ) {
     _exec_switchboard_command( $helper_path, '_exec', $skill_name, $skill_command, @ARGV );
 }
 
+if ( my $skill_name = _skill_bare_init_command_name($cmd) ) {
+    my $helper_path = _builtin_helper_path('skills');
+    _exec_switchboard_command( $helper_path, '_exec', $skill_name, '__init__', @ARGV );
+}
+
 if ( $cmd ne '' ) {
     require Developer::Dashboard::CLI::Suggest;
     print STDERR Developer::Dashboard::CLI::Suggest->new()->unknown_command_message($cmd);
@@ -428,6 +433,28 @@ sub _skill_dotted_command_parts {
     my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
     return if !$manager->get_skill_path( $skill_name, include_disabled => 1 );
     return ( $skill_name, $skill_command );
+}
+
+# _skill_bare_init_command_name($cmd)
+# DD-954: resolves a bare "dashboard <name>" (no dotted subcommand at all)
+# to an installed skill whose own cli/__init__.<ext> self-script exists, so
+# a skill can be invoked directly without a subcommand. An explicit
+# top-level command (built-in, custom, or an installed skill with its OWN
+# top-level .d2/cli/<name>, all checked earlier in the dispatch chain above)
+# always wins - this only ever runs once nothing more specific matched.
+# Input: top-level command token such as skill-name.
+# Output: skill name string when it resolves to an installed skill carrying
+# its own cli/__init__ self-script, or an empty list otherwise.
+sub _skill_bare_init_command_name {
+    my ($cmd) = @_;
+    return if !defined $cmd || $cmd eq '' || $cmd =~ /\./;
+    require Developer::Dashboard::SkillManager;
+    my $paths = _switchboard_paths();
+    my $manager = Developer::Dashboard::SkillManager->new( paths => $paths );
+    my $skill_path = $manager->get_skill_path( $cmd, include_disabled => 1 );
+    return if !$skill_path;
+    return if !resolve_runnable_file( File::Spec->catfile( $skill_path, 'cli', '__init__' ) );
+    return $cmd;
 }
 
 # _maybe_exec_self_compiled_dashboard()
