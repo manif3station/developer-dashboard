@@ -5,7 +5,7 @@ use warnings;
 
 our $VERSION = '4.47';
 
-use Capture::Tiny qw(capture);
+use Capture::Tiny qw(capture tee);
 use File::Spec;
 use Getopt::Long qw(GetOptionsFromArray);
 use MIME::Base64 qw(encode_base64);
@@ -620,12 +620,14 @@ sub _emit {
 }
 
 # _run_cli($argv)
-# Default CLI runner: executes the argv and captures its streams.
+# Default CLI runner: executes the argv, teeing its streams live to our own
+# STDOUT/STDERR (DD-948: this is the caller's only progress feedback while
+# a backend CLI runs) while still capturing them for the return value.
 # Input: argv array reference.
 # Output: (stdout, stderr, exit-code) list.
 sub _run_cli {
     my ($argv) = @_;
-    my ( $stdout, $stderr, $status ) = capture { system( @{$argv} ); };
+    my ( $stdout, $stderr, $status ) = tee { system( @{$argv} ); };
     my $exit = $status == -1 ? -1 : ( $status >> 8 );
     return ( $stdout, $stderr, $exit );
 }
