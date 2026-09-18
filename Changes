@@ -1,3 +1,17 @@
+4.56  2026-09-19
+
+  - DD-929: lib/Developer/Dashboard/Pax/*.pm was entirely absent (zero
+    rows) from every Devel::Cover run - a PAX-compiled binary's extraction
+    root gets spliced onto PERL5LIB before exec, and Devel::Cover's
+    default startup behavior silently ignores anything already on @INC
+    at that point. The extraction path was already stable
+    (content-addressed by source_hash); the missing piece was telling
+    Devel::Cover to -select it explicitly. Added
+    Developer::Dashboard::Pax::CoverageSelect (4 tested helper
+    functions) and t/200-pax-coverage-select.t (32 tests, including a
+    live build-and-run integration check), plus
+    docs/pax-coverage-measurement.md documenting the mechanism.
+
 4.55  2026-09-18
 
   - DD-958: Platform.pm's resolve_runnable_file (lines 183-184) and
