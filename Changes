@@ -1,3 +1,16 @@
+4.45  2026-09-18
+
+  - DD-942: closed Ask.pm's pre-existing branch/condition coverage gap
+    (confirmed present before DD-938 touched the file: 99.2/89.4/77.7/100.0
+    stmt/branch/cond/sub). Added 52 new regression subtests to t/48-ask.t,
+    calling private helpers directly via $M->can() where run_ask's public
+    interface cannot reach a specific internal branch. Result:
+    100.0/98.5/96.8/100.0. Two residual lines are genuine Devel::Cover
+    tooling limitations, filed separately as DD-944. Also caught and fixed
+    a genuine regression mid-gate (t/168-permission-assertion-guards.t)
+    from an incorrect uid-based SKIP guard, rewritten to match this
+    project's established probe-then-restore permission-test pattern.
+
 4.44  2026-09-18
 
   - DD-937: reviewed the Tira board-engine upgrade 5.131 -> 5.150 (19
