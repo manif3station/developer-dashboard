@@ -3,7 +3,7 @@ package Developer::Dashboard::PathRegistry;
 use strict;
 use warnings;
 
-our $VERSION = '4.50';
+our $VERSION = '4.51';
 
 use Digest::MD5 qw(md5_hex);
 use Cwd qw(getcwd);

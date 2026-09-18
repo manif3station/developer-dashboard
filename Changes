@@ -1,3 +1,13 @@
+4.51  2026-09-18
+
+  - DD-946: `dashboard ask`'s direct-API backend (--claude, with a key
+    set) now runs a real Anthropic tool_use round-trip loop instead of a
+    single non-streaming POST, offering two read-only tools (read_file,
+    grep_repo) scoped to the current project root - closing the gap
+    where only the CLI-fallback path could answer genuinely
+    repo-specific questions. A plain question needing no repo search is
+    unchanged (one request, same shape as before).
+
 4.50  2026-09-18
 
   - DD-952: added Amazon Nova as a dashboard ask backend (--nova), against

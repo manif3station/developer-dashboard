@@ -1,6 +1,29 @@
 # Fixed Bugs
 
 
+## 4.51
+
+- **DD-946**: two pre-existing, silently-broken `# uncoverable branch`
+  annotations on `open(...) or return` constructs in
+  `CLI/Ask.pm` (`_execute_grep_repo`, `_load_transcript`) had branch
+  true/false backwards - Devel::Cover rewrites `X or Y` internally as
+  `unless(X){Y}`, inverting the naive true/false reading, so the
+  annotation excused the wrong (always-hit) side while the real rare
+  path stayed genuinely uncovered. Masked by rounding (the file's total
+  branch count was small enough that one unaccounted line still
+  displayed 100.0) until DD-946's larger diff surfaced it. Fixed by
+  swapping both annotations to `branch true`, confirmed via an isolated
+  Devel::Cover probe before and after.
+- **DD-946**: `_workspace_key`'s two textually-identical `!defined $x ||
+  $x eq ''` fallback checks were tracked by Devel::Cover as two separate
+  condition instances, and only one honored its `# uncoverable condition
+  right` annotation even in an isolated reproduction with the real
+  fallback value possibly undef - reproduced directly (two occurrences
+  of one literal condition string in one sub trip this; a single
+  occurrence does not). Fixed by restructuring both checks to call a
+  shared `_blank()` helper, collapsing the duplicate condition instance
+  into one Devel::Cover location.
+
 ## 4.43
 
 - **DD-943**: t/15-release-metadata.t's `_perl_doc_paths()` walked `t/` for
