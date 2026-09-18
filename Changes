@@ -1,3 +1,16 @@
+4.55  2026-09-18
+
+  - DD-958: Platform.pm's resolve_runnable_file (lines 183-184) and
+    command_argv_for_path (line 226/227's Windows fallback) each had an
+    untested direction, on both the forced-Windows side and its natural
+    Linux counterpart - Devel::Cover's true/false columns track the
+    literal written condition, not its display-rewritten "unless" text.
+    Added 4 targeted test assertions to t/84-platform-coverage.t (2
+    forced via the project's established local $OS_NAME override, 2
+    natural-Linux counterparts); Platform.pm now 100.0 on all 4
+    Devel::Cover metrics. New SYSTEM-scoped page
+    docs/forced-windows-unit-tests.md documents the override convention.
+
 4.54  2026-09-18
 
   - DD-928: Zipper.pm's load_saved_ajax_code open()-failure branch now
