@@ -1,6 +1,17 @@
 # Fixed Bugs
 
 
+## 4.54
+
+- **DD-928**: `Zipper.pm`'s `load_saved_ajax_code` had no uncoverable
+  annotation at all on its `open(...) or die` failure branch, leaving
+  branch coverage at 98.3% despite its own dedicated test file passing -
+  a real, silent gap in the standing "100.0 on every metric, always"
+  discipline. Fixed with a correctly-polarized `# uncoverable branch
+  true` (Devel::Cover rewrites `EXPR or STATEMENT` internally as
+  `unless(EXPR){STATEMENT}`, so `true` is the rare failure path and
+  `false` is the common success path - inverted from the naive reading).
+
 ## 4.51
 
 - **DD-946**: two pre-existing, silently-broken `# uncoverable branch`
