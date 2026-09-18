@@ -1,3 +1,16 @@
+4.44  2026-09-18
+
+  - DD-937: reviewed the Tira board-engine upgrade 5.131 -> 5.150 (19
+    releases). Nothing new to declare (tira.policy.undeclared confirmed
+    empty). Adopted two genuinely useful additions into how this project
+    reads its own board: `d2 tira.police.explain --ref REF --rule RULE`
+    (prints a rule's exact computation rather than only its final verdict,
+    verified live against DD-667's own long-standing card-duration
+    finding) and the `checklist-idle` "standing" label exemption for a
+    container card meant to stay open indefinitely. Findings recorded in
+    docs/tira-upgrade-review.md. Documentation-only, no product code
+    changed.
+
 4.43  2026-09-18
 
   - DD-943: fixed t/15-release-metadata.t's _perl_doc_paths() incorrectly
