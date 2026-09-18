@@ -41,6 +41,35 @@ the line stays uncovered while looking annotated. Two comments on their own
 lines work; two criteria in one comment do not. The tell is that the coverage
 figure does not move.
 
+### `X or Y` is `unless(X){Y}` internally — true/false is inverted from the naive reading
+
+The worked example above annotates `exec {...} @argv or die "...";` with
+`branch true`, and that is *correct*, not a typo - but it looks backwards on
+first read, because `or die` reads like a false-path guard. Devel::Cover
+internally rewrites any `EXPR or STATEMENT` (and `EXPR1 or EXPR2`) as
+`unless (EXPR) { STATEMENT }` before instrumenting it, so its own report even
+displays the line that way (`cover -report`'s per-line detail literally
+prints `unless open my $fh, ...` for a plain `open(...) or die ...`). That
+means:
+
+- **`true`** = the `unless` condition is true = the guarded expression
+  (`open`, `exec`, …) **failed** - the rare path a real fixture usually
+  cannot trigger (permission bits do not apply to root, for instance).
+- **`false`** = the `unless` condition is false = the guarded expression
+  **succeeded** - the common path every ordinary test run already exercises.
+
+Annotating `branch false` on an `X or die` line (the naive, "die is the
+'false'/failure case" reading) excuses the *wrong*, already-covered side and
+leaves the real, genuinely-untested failure path silently uncovered -
+confirmed directly with an isolated Devel::Cover probe (a minimal
+`open(...) or return "FAIL"` fixture: annotating `false` left `true=0,
+false=-1` with the line still flagged `***`; annotating `true` produced a
+clean `100.0` with no `***`). This shape recurred three times independently
+in this codebase (`CLI/Ask.pm`'s `_execute_grep_repo` and `_load_transcript`,
+DD-946; `Zipper.pm`'s `load_saved_ajax_code`, DD-928) before being written
+down here - the existing example above had the fix all along, this section
+is what was missing: *why*.
+
 ## It is a claim about the SUITE, not about the line
 
 This is the whole of it, and it is the part that decays.
