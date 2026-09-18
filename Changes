@@ -1,3 +1,14 @@
+4.54  2026-09-18
+
+  - DD-928: Zipper.pm's load_saved_ajax_code open()-failure branch now
+    carries a correct `# uncoverable branch true` annotation (it had
+    none), restoring 100.0 branch coverage - the failure path is only
+    reachable as a non-root user, and gate containers run as root.
+    Extends docs/uncoverable-annotations.md with the underlying
+    mechanism: Devel::Cover rewrites `EXPR or STATEMENT` as
+    `unless(EXPR){STATEMENT}`, inverting true/false from the naive
+    reading.
+
 4.53  2026-09-18
 
   - DD-953: measured PAX self-compiled vs interpreter speed for the 7
