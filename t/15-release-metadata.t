@@ -328,6 +328,19 @@ my @operator_local_files = qw(
 );
 {
     my $dist = _slurp( _repo_path('dist.ini') );
+    like(
+        $dist,
+        qr/^exclude_filename = nytprof\.out$/m,
+        'dist.ini excludes a stray nytprof.out profiling artifact from release tarballs (DD-950)',
+    );
+    my $gitignore = _slurp( _repo_path('.gitignore') );
+    for my $nytprof_pattern (qw(nytprof.out nytprof/)) {
+        like(
+            $gitignore,
+            qr/^\Q$nytprof_pattern\E$/m,
+            "$nytprof_pattern is git-ignored so a stray profiler run does not create an untracked leak candidate (DD-950)",
+        );
+    }
     for my $operator_file (@operator_local_files) {
         like(
             $dist,
@@ -520,6 +533,14 @@ SKIP: {
             "release tarball carries no $leak_prefix/ member",
         );
     }
+    # DD-950: a stray NYTProf profiling artifact leaked into the 4.46 tarball
+    # because nothing named it - dist.ini gathers from disk (GatherDir), so an
+    # untracked, ungitignored file left behind by a local `perl -d:NYTProf` run
+    # ships exactly like a real source file. Same class of gap as the operator
+    # files above, different cause (a dev-tool artifact, not a rules file).
+    my @nytprof_leaked = grep { m{^Developer-Dashboard-\Q$version\E/nytprof(?:\.out|/)} } @files;
+    is( scalar @nytprof_leaked, 0, 'release tarball carries no nytprof.out or nytprof/ member' );
+
     my $meta_member = "Developer-Dashboard-$version/META.json";
     ok( $files{$meta_member}, 'matching release tarball ships META.json for packaged prerequisite assertions' );
     my $meta_content = $tar->get_content($meta_member);
