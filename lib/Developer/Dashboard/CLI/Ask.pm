@@ -541,7 +541,14 @@ sub _workspace_key {
     my ( $paths, $env ) = @_;
     my $ref = $env->{WORKSPACE_REF};
     $ref = $paths->current_project_root if !defined $ref || $ref eq '';
-    $ref = 'global' if !defined $ref || $ref eq '';
+    # DD-942: PathRegistry::current_project_root (via project_root_for)
+    # only ever returns undef or a genuinely non-empty directory string -
+    # every `$dir` it can assign comes from -d checking a real, non-empty
+    # path component, and dirname() of a non-empty string is never ''
+    # either. So $ref eq '' specifically (as opposed to !defined $ref) can
+    # never be true here, confirmed by reading PathRegistry.pm's own
+    # source rather than assumed.
+    $ref = 'global' if !defined $ref || $ref eq '';    # uncoverable condition right
     $ref =~ s/[^A-Za-z0-9._-]+/-/g;
     $ref =~ s/\A-+//;
     $ref =~ s/-+\z//;
@@ -566,7 +573,12 @@ sub _transcript_file {
 sub _load_transcript {
     my ($file) = @_;
     return { backend => '', messages => [] } if !-f $file;
-    open my $fh, '<:raw', $file or return { backend => '', messages => [] };
+    # DD-942: covered directly by t/48-ask.t on a non-root host (uid 0
+    # ignores permission bits entirely, so a chmod-0000 fixture cannot
+    # force this open() to fail there) - this project's own Docker
+    # coverage-gate container runs as root, so the false branch is
+    # genuinely unreachable in that specific, real environment.
+    open my $fh, '<:raw', $file or return { backend => '', messages => [] };    # uncoverable branch false only reachable as a non-root user; the gate container runs as root
     local $/;
     my $raw = <$fh>;
     close $fh;

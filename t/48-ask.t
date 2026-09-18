@@ -608,6 +608,226 @@ subtest 'DD-938: first ask call in a workspace auto-includes docs context, secon
     is( $second_body->{messages}[2]{content}, 'second real question', 'the NEW turn itself has no redundant second copy of the docs context' );
 };
 
+# --------------------------------------------------------------------------
+# DD-942: pre-existing branch/condition coverage gaps in Ask.pm, confirmed
+# on clean master before DD-938 ever touched this file. Each subtest below
+# targets one specific missing outcome named on the card, exercised either
+# through run_ask's public interface or, where the branch lives in an
+# internal helper the public interface cannot reach directly, via $M->can()
+# the same way the existing 'unit seams'/'transcript load resilience'
+# subtests above already do.
+# --------------------------------------------------------------------------
+subtest 'DD-942: claude CLI fallback with no --model (the model-omitted branch)' => sub {
+    # run_ask itself always resolves a model for the 'claude' backend (an
+    # explicit --model, else claude_conf's default_model, else
+    # $DEFAULT_MODEL) - so $a{model} is never actually undef on that path
+    # through the public interface. The false branch of "if defined
+    # $a{model}" is only reachable by calling _ask_claude directly with no
+    # model key at all, exactly as this test does.
+    my @calls;
+    my $answer = $M->can('_ask_claude')->(
+        env         => {},
+        claude_conf => {},
+        images      => [],
+        history     => [],
+        prompt      => 'via cli no model',
+        text_files  => [],
+        detect      => \&detect_present,
+        runner      => rec_runner( \@calls, "CLI ANSWER\n", '', 0 ),
+    );
+    is( $answer, 'CLI ANSWER', 'claude CLI answer returned' );
+    my @argv = @{ $calls[0] };
+    ok( !( grep { $_ eq '--model' } @argv ), 'no --model token forwarded when $a{model} was never set' );
+};
+
+subtest 'DD-942: stdin explicitly present but empty string is treated as absent' => sub {
+    local $ENV{ANTHROPIC_API_KEY} = 'sk-env';
+    local $ENV{WORKSPACE_REF}     = 'ws/stdin-empty';
+    my $ua = FakeUA->new( api_reply('ok') );
+    $M->can('run_ask')->( args => ['just the prompt'], stdin => '', ua => $ua, out => \my $o );
+    my $body = json_decode( $ua->{requests}[0]->content );
+    # Fresh workspace, so DD-938's auto-docs-injection prepends its own
+    # context to turn one - assert the PROMPT PORTION has no piped stdin
+    # appended, not full equality against the bare prompt.
+    unlike( $body->{messages}[0]{content}, qr/\n\n\z|\A\z/, 'no trailing blank-appended stdin block' );
+    like( $body->{messages}[0]{content}, qr/just the prompt\z/, 'an empty-string stdin never gets appended after the prompt' );
+};
+
+subtest 'DD-942: _resolve_backend falls through to claude when the stored transcript backend is unknown' => sub {
+    my $resolved = $M->can('_resolve_backend')->( { backend => '' }, { backend => 'not-a-real-backend' } );
+    is( $resolved, 'claude', 'an unrecognized stored backend name is not trusted; falls back to claude' );
+};
+
+subtest 'DD-942: _capture_backend edge cases' => sub {
+    # undef stderr on a non-zero exit: the s/// guard must not warn/die on undef.
+    my $out1 = eval { $M->can('_capture_backend')->( 'x', ['argv'], sub { return ( '', undef, 1 ); } ) };
+    like( $@, qr/x backend failed: exit status 1/, 'undef stderr falls back to "exit status N", no warning on the undef s///' );
+
+    # stderr present but only whitespace, after trimming becomes '' -> "exit status N" branch.
+    eval { $M->can('_capture_backend')->( 'y', ['argv'], sub { return ( '', "   \n", 1 ); } ) };
+    like( $@, qr/y backend failed: exit status 1/, 'whitespace-only stderr trims to empty, falls back to "exit status N"' );
+
+    # detail long enough to trigger the truncation branch (lines 354-357).
+    my $huge = 'E' x 10_100;
+    eval { $M->can('_capture_backend')->( 'z', ['argv'], sub { return ( '', $huge, 1 ); } ) };
+    like( $@, qr/truncated, \d+ more bytes? omitted/, 'an oversized stderr detail is truncated with a byte count' );
+
+    # undef stdout on success (exit 0): the "$stdout = '' if !defined" branch.
+    eval { $M->can('_capture_backend')->( 'w', ['argv'], sub { return ( undef, '', 0 ); } ) };
+    like( $@, qr/w backend returned no answer/, 'undef stdout on success is normalized to empty and reported as no answer' );
+};
+
+subtest 'DD-942: _resolve_api_key branch combinations' => sub {
+    is( $M->can('_resolve_api_key')->( {}, { ANTHROPIC_API_KEY => 'from-env' } ), 'from-env', 'env key wins when present' );
+    is( $M->can('_resolve_api_key')->( { api_key => 'from-conf' }, {} ), 'from-conf', 'falls back to config api_key when env is absent' );
+    is( $M->can('_resolve_api_key')->( { api_key => 'from-conf' }, { ANTHROPIC_API_KEY => '' } ), 'from-conf', 'an empty-string env key is treated as absent, falls back to config' );
+    is( $M->can('_resolve_api_key')->( {}, {} ), '', 'neither source set yields the empty-string sentinel' );
+};
+
+subtest 'DD-942: _classify_files with an extensionless attachment' => sub {
+    my $noext = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'noext' );
+    open my $fh, '>', $noext or die $!; print {$fh} 'plain body'; close $fh;
+    my ( $images, $texts ) = $M->can('_classify_files')->( [$noext] );
+    is( scalar @{$images}, 0, 'an extensionless file is never classified as an image' );
+    is( $texts->[0]{path}, $noext, 'it is classified as a text attachment instead' );
+};
+
+subtest 'DD-942: _build_api_messages with no history and no images' => sub {
+    my $messages = $M->can('_build_api_messages')->( undef, 'plain question', undef, undef );
+    is( scalar @{$messages}, 1, 'no history means only the new turn' );
+    is( $messages->[0]{content}, 'plain question', 'plain string content when there are no images' );
+
+    my $messages2 = $M->can('_build_api_messages')->( undef, 'q', undef, [] );
+    is( $messages2->[0]{content}, 'q', 'an empty (defined) images array ref behaves the same as no images' );
+};
+
+subtest 'DD-942: _render_history with no history' => sub {
+    is( $M->can('_render_history')->(undef), '', 'undef history renders as the empty string' );
+    is( $M->can('_render_history')->( [] ),  '', 'empty-array history renders as the empty string' );
+};
+
+subtest 'DD-942: _inline_text_files with no text attachments' => sub {
+    is( $M->can('_inline_text_files')->( 'bare prompt', undef ), 'bare prompt', 'undef text_files leaves the prompt untouched' );
+    is( $M->can('_inline_text_files')->( 'bare prompt', [] ),    'bare prompt', 'empty text_files array leaves the prompt untouched' );
+};
+
+subtest 'DD-942: _extract_api_text content-block filtering' => sub {
+    my $text = $M->can('_extract_api_text')->( { content => [ { type => 'tool_use' }, { type => 'text', text => 'kept' } ] } );
+    is( $text, 'kept', 'a non-text block ahead of a real text block is skipped, not concatenated' );
+
+    eval { $M->can('_extract_api_text')->( { content => [ { type => 'text' } ] } ) };
+    like( $@, qr/no text/, 'a text-type block with no text key contributes nothing and still reports no-text' );
+};
+
+subtest 'DD-942: _build_config with HOME unset in the passed env' => sub {
+    my $config = $M->can('_build_config')->( {} );
+    isa_ok( $config, 'Developer::Dashboard::Config', '_build_config tolerates a passed env with no HOME key' );
+};
+
+subtest 'DD-942: run_ask with no env key at all falls back to %ENV' => sub {
+    local $ENV{ANTHROPIC_API_KEY} = 'sk-env';
+    local $ENV{WORKSPACE_REF}     = 'ws/no-env-key';
+    my $ua = FakeUA->new( api_reply('ok') );
+    my $exit = $M->can('run_ask')->( args => ['q'], ua => $ua, out => \my $o );
+    is( $exit, 0, 'run_ask with no env => key at all still works, reading real %ENV' );
+};
+
+subtest 'DD-942: truncation message pluralization boundary (exactly 1 byte omitted)' => sub {
+    my $detail_len = 4_001;    # MAX_BACKEND_ERROR_DETAIL_BYTES(4000) + 1 omitted byte
+    my $detail     = 'E' x $detail_len;
+    eval { $M->can('_capture_backend')->( 'z', ['argv'], sub { return ( '', $detail, 1 ); } ) };
+    like( $@, qr/truncated, 1 more byte omitted\)/, 'exactly one omitted byte uses the singular "byte", not "bytes"' );
+};
+
+subtest 'DD-942: _resolve_api_key with a defined-but-empty config api_key' => sub {
+    is( $M->can('_resolve_api_key')->( { api_key => '' }, {} ), '', 'an empty-string config api_key is treated the same as absent' );
+};
+
+subtest 'DD-942: _classify_files with no files at all' => sub {
+    my ( $images, $texts ) = $M->can('_classify_files')->(undef);
+    is_deeply( $images, [], 'undef files yields an empty images list' );
+    is_deeply( $texts,  [], 'undef files yields an empty texts list' );
+};
+
+subtest 'DD-942: _extract_api_text with a non-hash data payload' => sub {
+    eval { $M->can('_extract_api_text')->( [1, 2, 3] ) };
+    like( $@, qr/no content/, 'a non-hash response payload is rejected before ever inspecting content' );
+};
+
+subtest 'DD-942: _extract_api_text skips a non-hash content block' => sub {
+    my $text = $M->can('_extract_api_text')->( { content => [ 'a bare string, not a hashref', { type => 'text', text => 'real' } ] } );
+    is( $text, 'real', 'a non-hashref content entry is skipped rather than causing a fatal dereference' );
+};
+
+subtest 'DD-942: _workspace_key falls all the way through to "global" when there is no project root either' => sub {
+    my $rootless = tempdir( CLEANUP => 1 );
+    my $paths = Developer::Dashboard::PathRegistry->new( home => $rootless, cwd => $rootless );
+    is( $paths->current_project_root, undef, 'control: a plain non-git tempdir has no derivable project root' );
+    is( $M->can('_workspace_key')->( $paths, {} ), 'global', 'no WORKSPACE_REF and no project root both fall through to the literal "global" key' );
+};
+
+subtest 'DD-942: _run_cli reports exit -1 when the command itself cannot be launched' => sub {
+    my ( undef, undef, $exit ) = $M->can('_run_cli')->( ['/nonexistent-binary-xyz-does-not-exist-anywhere'] );
+    is( $exit, -1, 'a system() that never launches (exec failure) reports exit -1, not a shifted 0' );
+};
+
+subtest 'DD-942: run_ask with an explicit env hash ref (not falling back to %ENV)' => sub {
+    my $ua = FakeUA->new( api_reply('ok') );
+    my $exit = $M->can('run_ask')->(
+        args => ['q'],
+        ua   => $ua,
+        out  => \my $o,
+        env  => { ANTHROPIC_API_KEY => 'sk-explicit', WORKSPACE_REF => 'ws/explicit-env' },
+    );
+    is( $exit, 0, 'an explicitly-passed env hash ref is honoured directly, never falling through to \%ENV' );
+};
+
+subtest 'DD-942: _extract_api_text skips a content block with no type key at all' => sub {
+    my $text = $M->can('_extract_api_text')->( { content => [ { text => 'no type key here' }, { type => 'text', text => 'kept' } ] } );
+    is( $text, 'kept', 'a block missing "type" entirely (undef, not just non-text) is skipped via the || \'\' fallback' );
+};
+
+subtest 'DD-942: _workspace_key with WORKSPACE_REF explicitly the empty string (defined, not absent)' => sub {
+    my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
+    my $key = $M->can('_workspace_key')->( $paths, { WORKSPACE_REF => '' } );
+    like( $key, qr/\A[A-Za-z0-9._-]+\z/, 'a defined-but-empty WORKSPACE_REF (distinct from absent/undef) still falls through to a real key' );
+};
+
+subtest 'DD-942: _load_transcript on a file the process cannot read' => sub {
+    my $dir = tempdir( CLEANUP => 1 );
+    my $unreadable = File::Spec->catfile( $dir, 'unreadable.json' );
+    open my $fh, '>', $unreadable or die $!;
+    print {$fh} json_encode( { backend => 'codex' } );
+    close $fh;
+  SKIP: {
+        chmod 0000, $unreadable or skip 'chmod not honored on this filesystem', 1;
+        # Probe by attempting, never by predicate: Perl's filetest operators
+        # are mode-bit arithmetic and special-case uid 0, so -r (or checking
+        # $>) answers true/0 for root even where the open below is
+        # genuinely denied on a non-root host - t/168's own repo-wide guard
+        # requires this exact probe-then-restore shape (matching
+        # t/103/t/115's own established pattern), not a uid check.
+        if ( open my $probe, '<', $unreadable ) {
+            close $probe or die "Unable to close probe on $unreadable: $!";
+            chmod 0600, $unreadable;
+            skip 'this process can read a mode-0000 file (likely root), so the open failure cannot occur', 1;
+        }
+        my $shell = $M->can('_load_transcript')->($unreadable);
+        is_deeply( $shell, { backend => '', messages => [] }, 'a file that exists but cannot be opened yields the same empty shell as a missing one' );
+        chmod 0600, $unreadable;    # restore so File::Temp's own cleanup can remove it
+    }
+};
+
+subtest 'DD-942: _load_transcript normalizes a transcript with no backend key at all' => sub {
+    my $dir = tempdir( CLEANUP => 1 );
+    my $no_backend_key = File::Spec->catfile( $dir, 'no-backend.json' );
+    open my $fh, '>', $no_backend_key or die $!;
+    print {$fh} json_encode( { messages => [] } );
+    close $fh;
+    my $loaded = $M->can('_load_transcript')->($no_backend_key);
+    is( $loaded->{backend}, '', 'a transcript JSON with no "backend" key at all gets one normalized in as the empty string' );
+};
+
 done_testing;
 
 __END__
