@@ -37,9 +37,45 @@ A skill with no `go.mod` anywhere in its tree continues to run exactly as
 today - `-C` only changes where Go looks for a module file; it does not
 require one to exist.
 
+## Per-layer module and build CACHE isolation (DD-951)
+
+`-C` (DD-825, above) solves *finding* the right `go.mod` - it does not
+solve *where downloaded dependencies and build artifacts land*. Without
+further changes, every skill's `go run` still shares one global
+`GOMODCACHE`/`GOCACHE` (`$GOPATH/pkg/mod` and Go's default build cache),
+exactly the shape DD-824 fixed for Python's global `pip --user` and DD-823
+fixed for Java's shared local repository - two skills declaring different
+(or conflicting) versions of the same Go module would silently share one
+cache entry.
+
+`_exec_go_source` now also sets `GOMODCACHE`/`GOCACHE` to a directory
+under the skill layer's own `local/go-cache/` (mirroring DD-824's
+`local/venv/` convention) whenever a sibling `go.mod` is found via the
+same directory Walk `-C` already resolves to. A skill with no `go.mod`
+is unaffected - the env vars are only set when a real module file was
+found, so the pre-DD-951 no-module fallback behavior is unchanged.
+
+```
+GOMODCACHE=<skill layer>/local/go-cache/mod \
+GOCACHE=<skill layer>/local/go-cache/build \
+go run -C <skill's own directory> <path>
+```
+
+No new manifest file is introduced - `go.mod` itself is both the
+dependency declaration Go already reads and the trigger for isolation,
+so there is nothing equivalent to Java's `config/pom.xml` subdirectory
+convention or Python's separate install step to wire into the
+`aptfile`/`apkfile`/`dnfile`/`cpanfile`/`Makefile`/`ddfile` install
+order - Go resolves and downloads its own dependencies lazily, on the
+first `go run` of each skill, the same way it already did before this
+change.
+
 ## Origin
 
 Michael asked for the same per-skill dependency isolation treatment given to
 Java (DD-823) and Python (DD-824) to be applied to Go. Approved 2026-09-08
-("Yes, do it"). This is the smallest of the three sibling tickets - one
-flag added to one invocation. Tracked as DD-825.
+("Yes, do it"). The first pass (DD-825) was framed as "the smallest of
+the three sibling tickets" - one flag added to one invocation - because
+it solved discovery only. DD-951 completed the isolation Java and Python
+both already had: per-layer cache directories, not just per-layer module
+discovery.
