@@ -72,6 +72,71 @@ for long-running processes (the web server, collectors) - those were
 already out of scope (DD-871, owner decision Q-160) and startup cost is
 not their bottleneck.
 
+## Runtime speed on a data-processing workload: the opposite result (DD-953)
+
+DD-872's ~36x speedup was measured on `dashboard version` - a command that
+does almost no work, so avoiding Perl's own startup/compile cost dominates
+the result. DD-953 asked the same question for real data-processing work:
+the 7 data-query CLI commands (`jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`,
+`xmlq` - `lib/Developer/Dashboard/CLI/Query.pm`) against a large fixture,
+in the same `developer-dashboard:latest` container.
+
+**Methodology.** One equivalent ~50,000-record dataset built in each of
+the 7 native formats (JSON/YAML/TOML/Java-properties/INI/CSV/XML, 1.4-4.6MB
+each). Each command run twice per path: once interpreted
+(`perl -Ilib share/private-cli/<cmd> <query> <fixture>`), once as a
+standalone binary built with `dashboard pax build -o <cmd>-bin
+share/private-cli/<cmd>` (89.7MB each - the whole bundled runtime, not a
+thin wrapper). Every one of the 14 runs' output was verified byte-for-byte
+against the expected value before trusting its timing - a fast wrong
+answer is not evidence of anything.
+
+| command | interpreted | compiled | result |
+|---|---|---|---|
+| jq    | 0.110s  | 0.701s  | **6.4x slower** |
+| yq    | 0.387s  | 0.942s  | **2.4x slower** |
+| tomq  | 10.011s | 11.762s | **1.2x slower** |
+| iniq  | 1.229s  | 2.630s  | **2.1x slower** |
+| propq | 1.685s  | 2.529s  | **1.5x slower** |
+| csvq  | 0.148s  | 0.924s  | **6.2x slower** |
+| xmlq  | 1.972s  | 3.152s  | **1.6x slower** |
+
+Every row is a matched same-query, same-fixture pair, output-verified
+before the timing was trusted.
+
+**The compiled binary was slower on every single command measured** - the
+opposite of DD-872's result, and not a close call (1.2x to 6.4x slower).
+Root cause, by construction rather than guesswork: DD-872's `dashboard
+version` command does essentially no work, so `perl`'s own startup and
+`@INC`/BEGIN-time module compilation *is* almost the entire measured cost
+- exactly what a compiled binary eliminates. These 7 commands spend most
+of their wall-clock time actually parsing 1.4-4.6MB of real data (JSON/
+YAML/TOML/etc decoding is genuine CPU work, not startup overhead), so
+avoiding Perl's compile-time cost buys proportionally little - while the
+compiled binary pays its own real cost every invocation: unpacking a
+90MB self-contained payload (bundled runtime + every dependency) before
+it can even begin parsing the fixture. `tomq`'s own already-slow parser
+(10s interpreted, see below) shows the smallest relative penalty (1.2x)
+precisely because the parsing work dominates enough to make the
+unpacking overhead comparatively small - the two effects trade off in
+opposite directions as the real workload grows.
+
+**Separate finding: `tomq` is dramatically slower than every other
+command**, interpreted or compiled (10-12s vs well under 3s for
+everything else at a comparable fixture size). This is `_parse_toml`'s
+own algorithmic cost, unrelated to PAX - worth a focused look as its own
+finding, not folded into the PAX comparison above.
+
+**What this means for DD-871/DD-872's premise.** "PAX makes dashboard
+invocations meaningfully faster" is true specifically for cheap,
+startup-dominated commands, and does not generalize to data-processing
+workloads - measured now on both ends, not assumed on either. A
+standalone binary's fixed unpacking cost is a real, non-negligible tax
+that a heavy workload can absorb but a light one cannot escape from
+without it dominating the result. Any future decision to ship a
+PAX-compiled build of a data-query command should weigh this measured
+cost, not the `dashboard version` number.
+
 ## What this settles for SOW DDS-001 / epic DDE-002
 
 - The core premise (PAX makes `dashboard`/`d2` invocations meaningfully
