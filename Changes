@@ -1,3 +1,15 @@
+4.53  2026-09-18
+
+  - DD-953: measured PAX self-compiled vs interpreter speed for the 7
+    data-query CLI commands (jq/yq/tomq/propq/iniq/csvq/xmlq) against an
+    equivalent ~50,000-record fixture, in a developer-dashboard:latest
+    container - documented in docs/pax-alpine-and-runtime-speed-measured.md.
+    Finding: the compiled binary was slower on every command (1.2x-6.4x),
+    the opposite of the earlier dashboard-version benchmark - a real
+    parsing workload's own cost dominates the standalone binary's
+    unpacking overhead. No code changes; a measurement/documentation
+    ticket only.
+
 4.52  2026-09-18
 
   - DD-951: skills using Go now get per-layer module/build cache
