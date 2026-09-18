@@ -449,3 +449,50 @@ the ceiling" section above), not merely by running
 `tira.policy.undeclared` and stopping there - TKT-1101's symptom
 specifically required checking this project's own board/CI history before
 it could honestly be called irrelevant.
+
+## 5.131 -> 5.150 (DD-937): two genuinely useful additions, zero load-bearing changes
+
+Nineteen entries, `tira.policy.undeclared` confirmed empty. Most bind
+nothing to this project - internal Tira-source refactors and module
+decompositions (TKT-1103/5.133, further splitting Police.pm/Serve.pm),
+race/performance fixes to the police pass itself (TKT-1116/5.143,
+TKT-1114/5.142), browser-UI-only fixes (TKT-824/5.137, this project uses
+the CLI exclusively), Tira's own docs/test-suite corrections
+(TKT-968/5.148, TKT-819/5.136, TKT-885/5.140), and internal consistency
+mechanisms with no external surface (TKT-905/5.141, TKT-970/5.149).
+
+Two entries were worth adopting into how this project reads the board:
+
+- **`d2 tira.police.explain --ref REF --rule RULE` (TKT-786/5.135,
+  extended to `card-duration`/`agent-still`/`board-still` by
+  TKT-1106/5.144)**: prints the exact computation a rule reads to decide
+  its verdict, rather than only the final violation text. Verified
+  directly rather than trusted from the changelog: `d2 tira.police.explain
+  --ref DD-667 --rule card-duration` returned `elapsed: 17d`,
+  `older_than_age: 1`, `would_fire: 1` against POL-076's declared 2-day
+  threshold - confirming this board's own long-standing understanding of
+  DD-667's permanent `card-duration` finding (CLAUDE.md's own
+  known-unclearable set) is still accurate. Worth reaching for whenever a
+  finding's cause needs double-checking rather than re-deriving it by
+  hand from `history_list`/comments the way earlier sessions on this board
+  did before this command existed.
+- **`checklist-idle` now exempts a card labeled `standing`
+  (TKT-845/5.138)**: for a container card meant to stay open indefinitely
+  (Tira's own examples were `EPC-007`/`SOW-004`, collecting reports across
+  a whole programme) rather than one that has genuinely stalled. This
+  board has no such standing-container card today, so nothing to label
+  yet - but if one is ever created (a long-running epic collecting
+  findings, say), labeling it `standing` is the correct mechanism rather
+  than repeatedly settling `checklist-idle` reports that were never
+  actionable.
+
+**Precedent worth carrying into DD-641/DD-927 (this project's own
+oversized-module tickets)**: TKT-1103 (5.133) is Tira's own team hitting
+the identical problem this board is tracking - `lib/Tira/CLI/Police.pm`
+and `lib/Tira/CLI/Serve.pm` both crossed their 1000-line cap. Their fix
+shape is directly transferable: lift a genuinely cohesive, low-coupling
+helper cluster into a new sibling module, and keep thin one-line
+forwarders at every call site still using the old fully-qualified name -
+exactly the "confirmed zero `$self->{...}` instance-state coupling before
+extracting" discipline DD-641's own CollectorRunner research already
+applied on this board, independently, the same week.
