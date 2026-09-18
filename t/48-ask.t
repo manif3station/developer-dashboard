@@ -60,6 +60,18 @@ sub api_reply {
     };
 }
 
+# DD-952: Nova's endpoint follows the OpenAI chat-completions response
+# shape ({choices:[{message:{content}}]}), not Claude's own {content:[...]}
+# shape - a genuinely different response body to parse.
+sub nova_reply {
+    my ($text) = @_;
+    return sub {
+        my $r = HTTP::Response->new( 200, 'OK' );
+        $r->content( json_encode( { choices => [ { message => { role => 'assistant', content => $text } } ] } ) );
+        return $r;
+    };
+}
+
 # A recording CLI runner factory: captures argv, returns canned streams.
 sub rec_runner {
     my ( $store, $stdout, $stderr, $exit ) = @_;
@@ -98,6 +110,155 @@ subtest 'claude direct API (default backend, env key)' => sub {
     is( $body->{max_tokens},      4096,              'default max_tokens' );
     is( $body->{messages}[0]{role},    'user', 'user turn' );
     like( $body->{messages}[0]{content}, qr/What is one plus one\?\z/, 'prompt content (docs context auto-prepended on the first call in this fresh workspace, DD-938)' );
+};
+
+# DD-952: --nova follows the direct-API shape (like --claude), against
+# Nova's own standalone REST endpoint, not AWS Bedrock/SigV4.
+subtest 'nova direct API' => sub {
+    local $ENV{NOVA_API_KEY}  = 'nova-key-env';
+    local $ENV{WORKSPACE_REF} = 'ws/nova';
+    my $ua = FakeUA->new( nova_reply('Nova says hi.') );
+    my $out;
+    my $exit = $M->can('run_ask')->(
+        args => [ '--nova', 'Hello! How are you?' ],
+        ua   => $ua,
+        out  => \$out,
+    );
+    is( $exit, 0, 'exit 0' );
+    like( $out, qr/Nova says hi\./, 'answer printed' );
+    my $req = $ua->{requests}[0];
+    like( $req->uri, qr{\Ahttps://api\.nova\.amazon\.com/v1/chat/completions\z}, 'posts to the real Nova endpoint' );
+    is( $req->header('authorization'), 'Bearer nova-key-env', 'bearer token from NOVA_API_KEY' );
+    my $body = json_decode( $req->content );
+    is( $body->{model}, 'nova-2-lite-v1', 'default nova model' );
+    is( $body->{messages}[0]{role}, 'user', 'user turn' );
+    like( $body->{messages}[0]{content}, qr/Hello! How are you\?\z/, 'prompt content' );
+};
+
+subtest 'nova with an explicit --model override' => sub {
+    local $ENV{NOVA_API_KEY}  = 'nova-key-env';
+    local $ENV{WORKSPACE_REF} = 'ws/nova-model';
+    my $ua = FakeUA->new( nova_reply('ok') );
+    $M->can('run_ask')->(
+        args => [ '--nova', '--model', 'nova-2-pro-v1', 'anything' ],
+        ua   => $ua,
+        out  => \(my $out),
+    );
+    my $body = json_decode( $ua->{requests}[0]->content );
+    is( $body->{model}, 'nova-2-pro-v1', 'an explicit --model overrides the default nova model' );
+};
+
+subtest 'nova with no NOVA_API_KEY set' => sub {
+    delete local $ENV{NOVA_API_KEY};
+    local $ENV{WORKSPACE_REF} = 'ws/nova-nokey';
+    my $out;
+    my $exit = eval {
+        $M->can('run_ask')->(
+            args => [ '--nova', 'anything' ],
+            ua   => FakeUA->new( nova_reply('unused') ),
+            out  => \$out,
+        );
+    };
+    ok( !defined $exit || $exit != 0, 'a missing NOVA_API_KEY does not silently succeed' );
+};
+
+subtest 'nova rejects image attachments' => sub {
+    local $ENV{NOVA_API_KEY}  = 'nova-key-env';
+    local $ENV{WORKSPACE_REF} = 'ws/nova-images';
+    my $tmp_image = File::Spec->catfile( tempdir( CLEANUP => 1 ), 'pic.png' );
+    open my $img_fh, '>', $tmp_image or die $!;
+    print {$img_fh} 'not a real png, content unused';
+    close $img_fh;
+    my $out;
+    my $exit = eval {
+        $M->can('run_ask')->(
+            args => [ '--nova', '--file', $tmp_image, 'describe this' ],
+            ua   => FakeUA->new( nova_reply('unused') ),
+            out  => \$out,
+        );
+    };
+    ok( !defined $exit || $exit != 0, 'attaching a file with --nova does not silently succeed (images unsupported)' );
+};
+
+subtest 'nova API request failure surfaces the status line' => sub {
+    local $ENV{NOVA_API_KEY}  = 'nova-key-env';
+    local $ENV{WORKSPACE_REF} = 'ws/nova-failure';
+    my $ua = FakeUA->new( sub { return HTTP::Response->new( 500, 'Internal Server Error' ); } );
+    my $out;
+    eval {
+        $M->can('run_ask')->(
+            args => [ '--nova', 'anything' ],
+            ua   => $ua,
+            out  => \$out,
+        );
+    };
+    like( $@, qr/Nova API request failed.*Internal Server Error/, '_call_nova_api dies naming the HTTP status line on failure' );
+};
+
+subtest 'nova API malformed/empty response bodies' => sub {
+    is( eval { $M->can('_extract_nova_api_text')->( { choices => [] } ) }, undef, 'empty choices array' );
+    like( $@, qr/Nova API returned no content/, 'empty choices dies with the right message' );
+
+    is( eval { $M->can('_extract_nova_api_text')->( { choices => [ { message => { content => '' } } ] } ) }, undef, 'empty content string' );
+    like( $@, qr/Nova API returned no text/, 'empty content dies with the right message' );
+
+    # DD-952: condition coverage needs each disjunct of the guard exercised
+    # on its own, not just the overall true/false outcome - a non-HASH
+    # payload (never reaches the choices key at all) versus a HASH with no
+    # "choices" array versus one with an empty array are three genuinely
+    # different ways the guard's "or" can go true.
+    is( eval { $M->can('_extract_nova_api_text')->( 'not a hashref at all' ) }, undef, 'a non-HASH payload' );
+    like( $@, qr/Nova API returned no content/, 'non-HASH payload dies with the right message' );
+    is( eval { $M->can('_extract_nova_api_text')->( { choices => 'not an array' } ) }, undef, 'choices present but not an ARRAY' );
+    like( $@, qr/Nova API returned no content/, 'non-ARRAY choices dies with the right message' );
+
+    # ...and the two ways "no content" can be true: the key is missing
+    # entirely (undef) versus present as an empty string.
+    is( eval { $M->can('_extract_nova_api_text')->( { choices => [ { message => {} } ] } ) }, undef, 'content key entirely absent (undef)' );
+    like( $@, qr/Nova API returned no text/, 'undef content dies with the right message' );
+};
+
+subtest 'nova API key resolution: undef vs empty-string, both refuse' => sub {
+    # DD-952: _ask_nova's guard is "not defined $key or $key eq ''" - undef
+    # (the key was never set) and '' (set to an explicit empty string) are
+    # two different ways to reach the same refusal, and condition coverage
+    # needs both exercised, not just one.
+    eval {
+        $M->can('_ask_nova')->(
+            env => { NOVA_API_KEY => '' }, images => [], history => [], text_files => [],
+            prompt => 'x', ua => FakeUA->new( nova_reply('unused') ),
+        );
+    };
+    like( $@, qr/No NOVA_API_KEY set/, 'an explicit empty-string NOVA_API_KEY is refused the same as an unset one' );
+};
+
+subtest 'nova default ua and default model, when neither is passed explicitly' => sub {
+    # DD-952: condition coverage on `$a{ua} || _default_ua()` and
+    # `$a{model} || $NOVA_DEFAULT_MODEL` in _ask_nova needs the "left is
+    # false/absent" side exercised too - calling _ask_nova with no ua/model
+    # keys forces both defaults to actually run. _default_ua() builds a
+    # REAL LWP::UserAgent, so its ->request is monkeypatched here (this
+    # project's established hermetic-test pattern) purely to avoid a real
+    # network call while still proving the fallback construction path runs.
+    require LWP::UserAgent;    # must be loaded BEFORE localizing its glob, or
+                                # _default_ua's own lazy `require LWP::UserAgent`
+                                # re-defines request() during this dynamic scope
+                                # and silently overwrites the patch below.
+    my @seen_requests;
+    local *LWP::UserAgent::request = sub {
+        my ( $self, $req ) = @_;
+        push @seen_requests, $req;
+        my $r = HTTP::Response->new( 200, 'OK' );
+        $r->content( json_encode( { choices => [ { message => { content => 'default-ua-path' } } ] } ) );
+        return $r;
+    };
+    my $answer = $M->can('_ask_nova')->(
+        env => { NOVA_API_KEY => 'k' }, images => [], history => [], text_files => [], prompt => 'x',
+    );
+    is( $answer, 'default-ua-path', '_ask_nova with no explicit ua/model still reaches the real API call path' );
+    is( scalar @seen_requests, 1, 'exactly one request was made through the default-constructed LWP::UserAgent' );
+    my $body = json_decode( $seen_requests[0]->content );
+    is( $body->{model}, 'nova-2-lite-v1', 'the default model fallback is what was actually sent' );
 };
 
 subtest 'per-workspace memory: follow-up carries history + sticky backend' => sub {

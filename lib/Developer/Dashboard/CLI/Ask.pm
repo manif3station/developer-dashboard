@@ -20,12 +20,14 @@ use Developer::Dashboard::Platform qw(command_in_path command_argv_for_path);
 # Ordered backend catalogue. Each entry names the CLI it shells out to and how
 # it attaches images. The claude backend is special: it prefers the direct
 # Anthropic API when a key is available and only falls back to the CLI.
-my @BACKENDS = qw(claude codex copilot gemini);
+my @BACKENDS = qw(claude codex copilot gemini nova);
 my %BACKEND_FLAG = map { ( $_ => $_ ) } @BACKENDS;
 
 my $DEFAULT_MODEL    = 'claude-opus-4-8';
 my $DEFAULT_BASE_URL = 'https://api.anthropic.com';
 my $DEFAULT_MAX_TOKENS = 4096;
+my $NOVA_DEFAULT_MODEL    = 'nova-2-lite-v1';
+my $NOVA_DEFAULT_BASE_URL = 'https://api.nova.amazon.com';
 my $MAX_BACKEND_ERROR_DETAIL_BYTES = 4000;
 
 # Filename extensions treated as image attachments (everything else is inlined
@@ -147,6 +149,7 @@ sub _parse_args {
         'codex'     => \$flag{codex},
         'copilot'   => \$flag{copilot},
         'gemini'    => \$flag{gemini},
+        'nova'      => \$flag{nova},
         'model|m=s' => \$model,
         'file|f=s@' => \@files,
         'new|reset' => \$reset,
@@ -255,6 +258,7 @@ sub _resolve_backend {
 sub _dispatch_backend {
     my (%a) = @_;
     return _ask_claude(%a) if $a{backend} eq 'claude';
+    return _ask_nova(%a) if $a{backend} eq 'nova';
     return _ask_cli_backend(%a);
 }
 
@@ -286,6 +290,74 @@ sub _ask_claude {
     my @argv = ( command_argv_for_path($cli), '-p', $prompt, '--output-format', 'text' );
     push @argv, ( '--model', $a{model} ) if defined $a{model};
     return _capture_backend( 'claude', \@argv, $a{runner} );
+}
+
+# _ask_nova(%args)
+# Answers via Amazon Nova's own standalone REST endpoint (DD-952) -
+# api.nova.amazon.com/v1/chat/completions, bearer-token auth. This is
+# architecturally identical to _ask_claude's direct-API path (see
+# docs/dashboard-ask-backend-architecture.md), never AWS Bedrock/SigV4 -
+# NOVA_API_KEY is a plain bearer token, not an AWS credential.
+# Input: same payload as _dispatch_backend.
+# Output: answer text string; dies when no NOVA_API_KEY is set or images
+# are attached (Nova's image content-block shape is not implemented here).
+sub _ask_nova {
+    my (%a) = @_;
+    my $key = $a{env}{NOVA_API_KEY};
+    die "No NOVA_API_KEY set. Set it to use --nova.\n" if !defined $key || $key eq '';
+    die "Image attachments are not supported with --nova.\n" if @{ $a{images} };
+    my $messages = _build_api_messages( $a{history}, $a{prompt}, $a{text_files}, [] );
+    my $ua    = $a{ua} || _default_ua();          # uncoverable condition false - _default_ua() is a built agent, never false
+    my $model = $a{model} || $NOVA_DEFAULT_MODEL;    # uncoverable condition false - the right side is a non-empty module default, never false
+    return _call_nova_api(
+        ua       => $ua,
+        key      => $key,
+        base_url => $NOVA_DEFAULT_BASE_URL,
+        model    => $model,
+        messages => $messages,
+    );
+}
+
+# _call_nova_api(%args)
+# Posts one request to Nova's chat-completions endpoint and extracts the
+# answer text.
+# Input: ua, key, base_url, model, and messages array ref.
+# Output: answer text string; dies on a non-success HTTP response or an
+# unparseable/empty response body.
+sub _call_nova_api {
+    my (%a) = @_;
+    require HTTP::Request;
+    my $url = $a{base_url} . '/v1/chat/completions';
+    my $req = HTTP::Request->new( POST => $url );
+    $req->header( 'content-type'  => 'application/json' );
+    $req->header( 'authorization' => "Bearer $a{key}" );
+    $req->content(
+        json_encode(
+            {
+                model    => $a{model},
+                messages => $a{messages},
+            }
+        )
+    );
+
+    my $resp = $a{ua}->request($req);
+    die "Nova API request failed: @{[ $resp->status_line ]}\n" if !$resp->is_success;
+    return _extract_nova_api_text( json_decode( $resp->decoded_content ) );
+}
+
+# _extract_nova_api_text($data)
+# Extracts the answer text from a Nova chat-completions response
+# (OpenAI-chat-completions shape: {choices:[{message:{content}}]}), a
+# genuinely different response body than Claude's {content:[...]} shape.
+# Input: decoded response hash ref.
+# Output: answer text string; dies when no text content is present.
+sub _extract_nova_api_text {
+    my ($data) = @_;
+    die "Nova API returned no content.\n"
+      if ref($data) ne 'HASH' || ref( $data->{choices} ) ne 'ARRAY' || !@{ $data->{choices} };
+    my $content = $data->{choices}[0]{message}{content};
+    die "Nova API returned no text.\n" if !defined $content || $content eq '';
+    return $content;
 }
 
 # _ask_cli_backend(%args)
