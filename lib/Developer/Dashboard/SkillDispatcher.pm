@@ -850,6 +850,14 @@ sub _command_spec {
 
         for my $provider_path ( reverse @provider_layers ) {
             my $cmd_path = resolve_runnable_file( File::Spec->catfile( $provider_path, 'cli', $command_root_spec->{command_name} ) );
+
+            # DD-954: no explicit cli/<command> file exists for this
+            # candidate - fall back to the provider's own cli/__init__
+            # self-script (any extension) before giving up on it. This runs
+            # for every nested level _command_root_specs already visits, so
+            # a nested skill's __init__ is reached the same way a top-level
+            # one is, with no separate recursive walk needed.
+            $cmd_path ||= resolve_runnable_file( File::Spec->catfile( $provider_path, 'cli', '__init__' ) );
             next if !$cmd_path;
             return {
                 cmd_path      => $cmd_path,

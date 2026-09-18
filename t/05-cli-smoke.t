@@ -2009,6 +2009,32 @@ close $manifest_local_ddfile_fh;
 my $skill_dotted_dispatch = _run("$perl -I'$lib' '$dashboard' demo-skill.foo alpha beta");
 like( $skill_dotted_dispatch, qr/skill-hook/, 'dashboard <skill>.<command> runs skill-local hooks before the skill command body' );
 like( $skill_dotted_dispatch, qr/alpha\|beta/, 'dashboard <skill>.<command> forwards remaining args to the skill command body' );
+
+# DD-954: a skill with ONLY a cli/__init__ self-script (no other subcommand,
+# and no top-level .d2/cli/<name>) responds to a bare "dashboard <name>"
+# invocation by running that __init__ script directly.
+my $init_skill_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'skills', 'init-skill', 'cli' );
+make_path($init_skill_root);
+my $init_skill_command = File::Spec->catfile( $init_skill_root, '__init__' );
+open my $init_skill_fh, '>', $init_skill_command or die "Unable to write $init_skill_command: $!";
+print {$init_skill_fh} "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nprint qq{init-self|\@ARGV\\n};\n";
+close $init_skill_fh;
+chmod 0755, $init_skill_command or die "Unable to chmod $init_skill_command: $!";
+my $bare_init_dispatch = _run("$perl -I'$lib' '$dashboard' init-skill one two");
+like( $bare_init_dispatch, qr/init-self\|one two/, 'dashboard <skill-with-only-init> runs the skill\'s own cli/__init__ with no subcommand needed' );
+
+# An explicit top-level command for the same name still wins over __init__.
+my $init_override_root = File::Spec->catdir( $ENV{HOME}, '.developer-dashboard', 'cli' );
+make_path($init_override_root);
+my $init_override_command = File::Spec->catfile( $init_override_root, 'init-skill' );
+open my $init_override_fh, '>', $init_override_command or die "Unable to write $init_override_command: $!";
+print {$init_override_fh} "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nprint qq{top-level-wins\\n};\n";
+close $init_override_fh;
+chmod 0755, $init_override_command or die "Unable to chmod $init_override_command: $!";
+my $bare_init_overridden = _run("$perl -I'$lib' '$dashboard' init-skill");
+like( $bare_init_overridden, qr/top-level-wins/, 'an explicit top-level .d2/cli/<name> still wins over a skill\'s own cli/__init__' );
+unlike( $bare_init_overridden, qr/init-self/, 'the __init__ fallback is never reached once a top-level command resolves' );
+unlink $init_override_command or die "Unable to remove $init_override_command: $!";
 {
     # 'ask' is now a reserved built-in command, so this stdin-passthrough check
     # uses a non-reserved custom command name to keep exercising the user

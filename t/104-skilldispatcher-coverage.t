@@ -184,6 +184,11 @@ write_file( File::Spec->catfile( $proj_runner, 'skills', 'child', 'dashboards', 
 mkd( File::Spec->catdir( $proj_runner, 'skills', 'disabledchild', 'cli' ) );
 write_file( File::Spec->catfile( $proj_runner, 'skills', 'disabledchild', '.disabled' ), "" );
 
+# DD-954: a nested skill with ONLY a cli/__init__ self-script, no explicit
+# cli/<command> file at all - the command token never resolves to a real
+# file, so this is exactly the case the __init__ fallback exists for.
+write_exec( File::Spec->catfile( $proj_runner, 'skills', 'initchild', 'cli', '__init__' ), "#!/bin/sh\necho initchild-self \"\$@\"\n" );
+
 # secondary skills in the project layer
 mkd( File::Spec->catdir( $proj_skills, 'nocfg' ) );                       # exists, no config/dashboards
 write_file( File::Spec->catfile( $proj_skills, 'arrcfg', 'config', 'config.json' ), "[1,2,3]\n" );
@@ -390,6 +395,18 @@ ok( $disp->command_spec( 'runner', 'greet' ), 'command_spec resolves a runnable 
 is( $disp->_command_spec( 'runner', '.' ), undef, '_command_spec guards a dotted command that splits to nothing' );
 ok( $disp->_command_spec( 'runner', 'child.sub' ), '_command_spec resolves a nested dotted command' );
 is( $disp->_command_spec( 'runner', 'missingchild.sub' ), undef, '_command_spec skips a missing nested provider path' );
+
+# DD-954: a nested skill's cli/<command> never exists, but its cli/__init__
+# does - _command_spec must fall back to __init__ rather than reporting no
+# match, once nothing more specific resolves.
+{
+    my $init_spec = $disp->_command_spec( 'runner', 'initchild.anything' );
+    ok( $init_spec, '_command_spec falls back to the nested skill\'s cli/__init__ when no explicit command file exists' );
+    like( $init_spec->{cmd_path}, qr{initchild.*cli.*__init__\z}, 'the resolved cmd_path is the __init__ script itself' );
+    is( $init_spec->{command_name}, 'anything', 'command_name still reports the token that was actually typed' );
+}
+is( $disp->_command_spec( 'runner', 'missingchild.anything' ), undef,
+    '__init__ fallback still does not invent a provider path that does not exist at all' );
 is( $disp->command_path( 'runner', '' ), undef, 'command_path guards a missing command name' );
 ok( $disp->command_path( 'runner', 'greet' ), 'command_path returns the runnable path' );
 
