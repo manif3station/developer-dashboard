@@ -1,6 +1,23 @@
 # Fixed Bugs
 
 
+## 4.56
+
+- **DD-929**: `lib/Developer/Dashboard/Pax/*.pm` (~25-30 vendored files)
+  was completely absent from every Devel::Cover coverage report - not low
+  coverage, literally zero rows, since a PAX-compiled binary execs a
+  bundled perl with its own extraction root spliced onto `PERL5LIB`
+  before the exec, and Devel::Cover's default startup behavior silently
+  ignores anything already present on `@INC` at that point (it snapshots
+  `@INC` very early and treats it all as library code to skip). Fixed by
+  adding `Developer::Dashboard::Pax::CoverageSelect`, which computes the
+  binary's already-stable, content-addressed extraction root (from its
+  own reported `source_hash` - `StandaloneImage.pm` was never actually
+  unstable here, contrary to an earlier diagnosis) and builds the
+  `Devel::Cover -select` pattern that overrides the default ignore.
+  Verified live: a real PAX binary, built and run under the computed
+  `PERL5OPT`, now genuinely collects coverage data instead of zero rows.
+
 ## 4.55
 
 - **DD-958**: `Platform.pm`'s `resolve_runnable_file` (lines 183-184) and
