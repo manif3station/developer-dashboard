@@ -1,3 +1,12 @@
+4.52  2026-09-18
+
+  - DD-951: skills using Go now get per-layer module/build cache
+    isolation - `_exec_go_source` sets GOMODCACHE/GOCACHE to a skill
+    layer's own `local/go-cache/` directory whenever a sibling go.mod is
+    found, so two skills declaring different Go module versions never
+    share one global cache. Mirrors DD-823 (Java/Maven) and DD-824
+    (Python/venv). A skill with no go.mod is unaffected.
+
 4.51  2026-09-18
 
   - DD-946: `dashboard ask`'s direct-API backend (--claude, with a key
