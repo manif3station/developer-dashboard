@@ -1,3 +1,10 @@
+4.57  2026-09-19
+
+  - DD-964: docs/pax-coverage-measurement.md's follow-up-work pointer
+    cited DD-929, which is now closed (done-not-released) and never
+    did that follow-up. Filed DD-967 as the real open follow-up ticket
+    and updated the doc to cite it instead.
+
 4.56  2026-09-19
 
   - DD-929: lib/Developer/Dashboard/Pax/*.pm was entirely absent (zero
