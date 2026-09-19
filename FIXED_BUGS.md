@@ -1,6 +1,17 @@
 # Fixed Bugs
 
 
+## 4.57
+
+- **DD-964**: `docs/pax-coverage-measurement.md`'s "What this does not
+  yet cover" section cited DD-929 as tracking the follow-up work of
+  wiring `t/182`/`t/183`/`t/184` into the coverage gate and driving
+  `Pax/*.pm` to 100% coverage. DD-929 reached `done-not-released`
+  (terminal) without doing that work, and no card existed to carry
+  it - the same shape as this project's own disable-is-not-done rule,
+  applied to a stale doc pointer. Fixed by filing DD-967 as the real
+  open follow-up ticket and updating the doc to cite it.
+
 ## 4.56
 
 - **DD-929**: `lib/Developer/Dashboard/Pax/*.pm` (~25-30 vendored files)
