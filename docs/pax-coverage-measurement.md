@@ -91,7 +91,7 @@ This closes the *mechanism* gap - Devel::Cover can now genuinely collect
 data from a PAX-compiled binary's own code. It does not, by itself, wire
 every existing test (`t/182`/`t/183`/`t/184`) into the main coverage-gate
 run, nor does it claim `lib/Developer/Dashboard/Pax/*.pm` is at 100%
-coverage - that is separate follow-up work, tracked on DD-929's own card.
+coverage - that is separate follow-up work, tracked on DD-967.
 
 ## Related
 
