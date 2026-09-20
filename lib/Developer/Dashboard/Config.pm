@@ -356,14 +356,47 @@ sub _skill_path_aliases {
 }
 
 # file_aliases()
-# Returns configured file aliases from merged configuration.
+# Returns configured file aliases from merged configuration, including any
+# installed skill's own config/config.json file_aliases block, qualified by
+# skill name (DD-978) so cdr/d2 paths can see them at all - a skill's own
+# file_aliases were previously invisible outside the skill's own runtime.
 # Input: none.
 # Output: hash reference of file aliases.
 sub file_aliases {
     my ($self) = @_;
     my $cfg = $self->merged;
-    return {} if ref( $cfg->{file_aliases} ) ne 'HASH';
-    return $self->_expand_path_aliases( $cfg->{file_aliases} );
+    my %aliases;
+    %aliases = %{ $self->_expand_path_aliases( $cfg->{file_aliases} ) } if ref( $cfg->{file_aliases} ) eq 'HASH';
+    my $skill_aliases = $self->_expand_path_aliases( $self->_skill_file_aliases );
+    @aliases{ keys %{$skill_aliases} } = values %{$skill_aliases};
+    return \%aliases;
+}
+
+# _skill_file_aliases()
+# Returns every installed skill's own file_aliases, each name qualified by its
+# skill (DD-978), mirroring _skill_path_aliases' established
+# "prefix unless already prefixed" convention so a skill can pre-qualify its
+# own alias names without double-prefixing. A skill's own config already
+# merges recursively across every DD-OOP-LAYER it participates in via
+# _skill_config_hash (the same _merge_hashes recursion every other nested
+# config key gets), so this is layer-merge-safe by construction.
+# Input: none.
+# Output: hash reference of skill-qualified file aliases (unexpanded).
+sub _skill_file_aliases {
+    my ($self) = @_;
+    my %aliases;
+    for my $entry ( $self->_skill_config_entries ) {
+        my $skill_aliases = $entry->{config}{file_aliases};
+        next if ref($skill_aliases) ne 'HASH';
+        for my $name ( keys %{$skill_aliases} ) {
+            next if !defined $name || $name eq '';    # uncoverable condition left
+            my $qualified_name = $name =~ /^\Q$entry->{skill_name}\E\./
+              ? $name
+              : $entry->{skill_name} . '.' . $name;
+            $aliases{$qualified_name} = $skill_aliases->{$name};
+        }
+    }
+    return \%aliases;
 }
 
 # global_path_aliases()
@@ -1204,14 +1237,15 @@ save_writable_api_registry() methods operate on only the deepest writable
 runtime layer so CLI management commands can update the correct OOP config
 target without rewriting inherited parents.
 
-The path_aliases() method (DD-977) also surfaces every installed skill's own
-F<config/config.json> C<path_aliases> block, each name qualified by its
-skill (C<E<lt>skillE<gt>.E<lt>aliasE<gt>>) unless already qualified - the
-same convention collectors() already applies to skill-contributed collector
-names via _skill_collectors(). A skill's own path_aliases already merge
-across every DD-OOP-LAYER that skill participates in (the same recursive
-_merge_hashes every nested config key gets), so this is layer-safe without
-any new merge logic.
+The path_aliases() method (DD-977) and file_aliases() method (DD-978) also
+surface every installed skill's own F<config/config.json>
+C<path_aliases>/C<file_aliases> block, each name qualified by its skill
+(C<E<lt>skillE<gt>.E<lt>aliasE<gt>>) unless already qualified - the same
+convention collectors() already applies to skill-contributed collector names
+via _skill_collectors(). A skill's own path_aliases/file_aliases already
+merge across every DD-OOP-LAYER that skill participates in (the same
+recursive _merge_hashes every nested config key gets), so this is
+layer-safe without any new merge logic.
 
 =for comment FULL-POD-DOC START
 
