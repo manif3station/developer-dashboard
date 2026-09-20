@@ -1,29 +1,38 @@
-# A skill's own `path_aliases` are now visible to `cdr`/`d2 paths` (DD-977)
+# A skill's own `path_aliases`/`file_aliases` are now visible to `cdr`/`d2 paths` (DD-977/DD-978)
 
-Why a skill's own `config/config.json` `path_aliases` block was previously
-dead weight, how it is exposed now, and how the merge stays OOP-LAYERS-safe.
-This page describes the current behavior of the system, not any one ticket.
+Why a skill's own `config/config.json` `path_aliases`/`file_aliases` blocks
+were previously dead weight, how they are exposed now, and how the merge
+stays OOP-LAYERS-safe. This page describes the current behavior of the
+system, not any one ticket. `path_aliases` (directories) and `file_aliases`
+(individual files) are two parallel registries with identical mechanics -
+everything below applies to both unless a section says otherwise.
 
 ## The gap this closes
 
-`Developer::Dashboard::Config::path_aliases` builds the alias registry that
-`cdr`/`dashboard path cdr`/`dashboard paths` read. Before DD-977 it read
-*only* `$self->merged->{path_aliases}` - the top-level project/global config
-key. An installed skill's own `config/config.json` can declare a
-`path_aliases` block too, but that payload is loaded by `_skill_config_hash`
-and returned wrapped under `{ _<skillname> => { path_aliases => {...} } }`
-(see `skill-api-fragments-merge-below-project-layers.md` for why skill
-config is namespaced this way) - a shape `path_aliases()` never looked
-inside. The result: a skill author could write a `path_aliases` block into
-their own skill's config and it would simply never be read by anything,
-silently.
+`Developer::Dashboard::Config::path_aliases` and `::file_aliases` build the
+two alias registries that `cdr`/`dashboard path cdr`/`dashboard paths` read
+(directories and files respectively). Before DD-977/DD-978 each read *only*
+its own top-level project/global config key (`$self->merged->{path_aliases}`
+or `{file_aliases}`). An installed skill's own `config/config.json` can
+declare either block too, but that payload is loaded by `_skill_config_hash`
+and returned wrapped under `{ _<skillname> => { path_aliases => {...},
+file_aliases => {...} } }` (see `skill-api-fragments-merge-below-project-layers.md`
+for why skill config is namespaced this way) - a shape neither function ever
+looked inside. The result: a skill author could write a `path_aliases` or
+`file_aliases` block into their own skill's config and it would simply never
+be read by anything, silently.
 
 ## What changed
 
-`Config::path_aliases` now also calls `Config::_skill_path_aliases`, which
-walks every installed skill's own config (`_skill_config_entries`) and pulls
-out each skill's `path_aliases`, **qualifying each name with the skill's own
-name** unless it is already qualified:
+`Config::path_aliases` now also calls `Config::_skill_path_aliases`, and
+`Config::file_aliases` calls the parallel `Config::_skill_file_aliases` -
+each walks every installed skill's own config (`_skill_config_entries`) and
+pulls out that skill's own aliases (`path_aliases` or `file_aliases`
+respectively), **qualifying each name with the skill's own name** unless it
+is already qualified. The two helpers are deliberately separate functions,
+not one shared by both, to avoid destabilizing `path_aliases`' already-shipped
+behavior when `file_aliases` landed (DD-978) - a small amount of duplication
+between two structurally identical private helpers was the safer choice:
 
 ```perl
 my $qualified_name = $name =~ /^\Q$entry->{skill_name}\E\./
@@ -34,9 +43,11 @@ my $qualified_name = $name =~ /^\Q$entry->{skill_name}\E\./
 This is the exact same "prefix unless already prefixed" convention
 `_skill_collectors` already uses for collector job names - deliberately
 reused rather than inventing a second qualification rule for the same kind
-of problem. A skill named `mytool` declaring `path_aliases => { docs => ...
-}` becomes reachable as `cdr mytool.docs` and shows up in `d2 paths` output
-as `mytool.docs`.
+of problem, and now shared identically between `_skill_path_aliases` and
+`_skill_file_aliases`. A skill named `mytool` declaring `path_aliases => {
+docs => ... }` becomes reachable as `cdr mytool.docs` and shows up in
+`d2 paths` output as `mytool.docs`; a `file_aliases => { readme => ... }`
+block in the same skill becomes `mytool.readme` in the file-alias registry.
 
 ## Why qualify by skill name at all
 
@@ -61,17 +72,11 @@ gets, because `path_aliases` is a plain `HASH` value, not a named array
 requiring `_merge_named_hash_array`'s special identity-matching (the way
 `collectors`/`providers` do). So a skill installed at both the home layer
 and a project layer, each declaring a *different* alias, already had both
-aliases survive the merge correctly - `_skill_path_aliases` only had to
-start reading the result, not build new merge logic. Verified directly in
-`t/93-config-coverage.t` with two real layers of the same skill, each
-contributing one alias, confirming neither is dropped.
-
-## What this does NOT cover
-
-`file_aliases` (the parallel registry for individual files rather than
-directories) has the identical gap and is tracked separately as DD-978, by
-Michael's own explicit request to verify the two independently rather than
-bundling them into one change.
+aliases survive the merge correctly - `_skill_path_aliases`/
+`_skill_file_aliases` only had to start reading the result, not build new
+merge logic. Verified directly in `t/93-config-coverage.t` with two real
+layers of the same skill, each contributing one alias of each kind,
+confirming none of the four is dropped.
 
 ## Related
 

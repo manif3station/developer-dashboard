@@ -799,6 +799,51 @@ sub dies_like {
         remove_tree( File::Spec->catdir( $skills, 'pathskill' ) );
     }
 
+    # DD-978: skill-local file_aliases were completely invisible to
+    # file_aliases()/cdr/d2 paths before this fix - the exact parallel gap
+    # to DD-977's path_aliases fix above, same qualification convention.
+    {
+        my $fileskill_dir = File::Spec->catdir( $skills, 'fileskill', 'config' );
+        make_path($fileskill_dir);
+        open my $fs_fh, '>:raw', File::Spec->catfile( $fileskill_dir, 'config.json' ) or die $!;
+        print {$fs_fh} json_encode(
+            {
+                file_aliases => {
+                    readme              => '$HOME/fileskill-readme',
+                    'fileskill.already' => '$HOME/fileskill-already',
+                    ''                  => '$HOME/should-be-skipped',
+                },
+            }
+        );
+        close $fs_fh;
+
+        my $skill_aliases = $config->_skill_file_aliases;
+        is( $skill_aliases->{'fileskill.readme'}, '$HOME/fileskill-readme',
+            '_skill_file_aliases qualifies an unprefixed skill file_alias name' );
+        is( $skill_aliases->{'fileskill.already'}, '$HOME/fileskill-already',
+            '_skill_file_aliases keeps an already-qualified skill file_alias name' );
+        ok( !exists $skill_aliases->{readme}, '_skill_file_aliases never leaks the bare unqualified name' );
+        ok( !exists $skill_aliases->{''} && !exists $skill_aliases->{'fileskill.'},
+            '_skill_file_aliases drops an empty-string alias name entirely' );
+
+        my $all_without_project = $config->file_aliases;
+        is( $all_without_project->{'fileskill.readme'}, "$home/fileskill-readme",
+            'file_aliases() expands and surfaces a skill-local file alias under its qualified name, even with no project-level file_aliases at all' );
+        ok( !exists $all_without_project->{readme}, 'file_aliases() does not leak the skill alias under its bare name' );
+
+        # Both kinds present together: a real project-level alias must survive
+        # alongside the skill-qualified one, not be dropped by the merge.
+        set_config( { file_aliases => { proj => '$HOME/project-file-alias' } } );
+        my $all_with_project = $config->file_aliases;
+        is( $all_with_project->{proj}, "$home/project-file-alias",
+            'file_aliases() still surfaces a real project-level alias' );
+        is( $all_with_project->{'fileskill.readme'}, "$home/fileskill-readme",
+            'file_aliases() surfaces the skill-qualified alias alongside the project-level one, not clobbered by it' );
+        clear_config();
+
+        remove_tree( File::Spec->catdir( $skills, 'fileskill' ) );
+    }
+
     # 835: _skill_config_hash open() failure on an unreadable skill config.
     {
         my $dir = File::Spec->catdir( $skills, 'iofail', 'config' );
@@ -933,6 +978,53 @@ sub dies_like {
         'DD-977 OOP-LAYERS: a skill path_alias declared at the home layer survives the layer merge' );
     is( $skill_aliases->{'oopskill.fromproject'}, '$HOME/from-project-layer',
         'DD-977 OOP-LAYERS: a skill path_alias declared at the project layer survives the SAME merge, not clobbering the home one' );
+
+    chdir $saved_cwd or die "Unable to restore cwd: $!";
+    if ( defined $saved_home ) { $ENV{HOME} = $saved_home; }
+    else                       { delete $ENV{HOME}; }
+}
+
+# DD-978: the parallel OOP-LAYERS proof for file_aliases - identical shape to
+# the path_aliases test directly above, confirming _skill_file_aliases gets
+# the same layer-merge-safe-by-construction guarantee.
+{
+    my $saved_cwd  = Cwd::getcwd();
+    my $saved_home = $ENV{HOME};
+
+    my $layer_home = tempdir( CLEANUP => 1 );
+    my $project     = tempdir( CLEANUP => 1 );
+    make_path( File::Spec->catdir( $project, '.git' ) );
+    make_path( File::Spec->catdir( $project, '.developer-dashboard' ) );
+
+    $ENV{HOME} = $layer_home;
+    chdir $project or die "Unable to chdir to $project: $!";
+
+    my $layer_paths  = Developer::Dashboard::PathRegistry->new;
+    my $layer_files  = Developer::Dashboard::FileRegistry->new( paths => $layer_paths );
+    my $layer_config = Developer::Dashboard::Config->new( files => $layer_files, paths => $layer_paths );
+
+    # Home-layer skill install: contributes one alias.
+    my ($home_skills_root) = grep { m{\Q$layer_home\E} } ( $layer_paths->skills_roots );
+    my $home_skill_dir = File::Spec->catdir( $home_skills_root, 'oopfileskill', 'config' );
+    make_path($home_skill_dir);
+    open my $home_fh, '>:raw', File::Spec->catfile( $home_skill_dir, 'config.json' ) or die $!;
+    print {$home_fh} json_encode( { file_aliases => { fromhome => '$HOME/from-home-layer-file' } } );
+    close $home_fh;
+
+    # Project-layer install of the SAME skill: contributes a DIFFERENT alias,
+    # and must not clobber the home layer's own alias.
+    my ($project_skills_root) = grep { !m{\Q$layer_home\E} } ( $layer_paths->skills_roots );
+    my $project_skill_dir = File::Spec->catdir( $project_skills_root, 'oopfileskill', 'config' );
+    make_path($project_skill_dir);
+    open my $proj_fh, '>:raw', File::Spec->catfile( $project_skill_dir, 'config.json' ) or die $!;
+    print {$proj_fh} json_encode( { file_aliases => { fromproject => '$HOME/from-project-layer-file' } } );
+    close $proj_fh;
+
+    my $skill_aliases = $layer_config->_skill_file_aliases;
+    is( $skill_aliases->{'oopfileskill.fromhome'}, '$HOME/from-home-layer-file',
+        'DD-978 OOP-LAYERS: a skill file_alias declared at the home layer survives the layer merge' );
+    is( $skill_aliases->{'oopfileskill.fromproject'}, '$HOME/from-project-layer-file',
+        'DD-978 OOP-LAYERS: a skill file_alias declared at the project layer survives the SAME merge, not clobbering the home one' );
 
     chdir $saved_cwd or die "Unable to restore cwd: $!";
     if ( defined $saved_home ) { $ENV{HOME} = $saved_home; }
