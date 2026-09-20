@@ -1,6 +1,22 @@
 # Fixed Bugs
 
 
+## 4.58
+
+- **DD-977**: `Config::path_aliases()` only ever read the top-level
+  project/global merged config key, so a skill's own
+  `config/config.json` `path_aliases` block was completely invisible
+  to `cdr`/`d2 paths` - dead weight a skill author could write and
+  nothing would ever read. Fixed by adding `Config::_skill_path_aliases()`,
+  which walks installed skills' own config and qualifies each alias by
+  skill name (`skill.alias`, mirroring `_skill_collectors`' established
+  convention) unless already qualified. Verified this required no new
+  merge logic: a skill's own config already merges recursively across
+  every DD-OOP-LAYER it participates in via the existing
+  `_skill_config_hash`/`_merge_hashes` recursion, since `path_aliases`
+  is a plain `HASH` key rather than a named array. `file_aliases` has
+  the identical gap and is tracked separately as DD-978.
+
 ## 4.57
 
 - **DD-964**: `docs/pax-coverage-measurement.md`'s "What this does not
