@@ -1,3 +1,14 @@
+4.58  2026-09-21
+
+  - DD-977: a skill's own config/config.json path_aliases block was
+    completely invisible to cdr/d2 paths - Config::path_aliases()
+    only ever read the top-level project/global merged config key.
+    Added Config::_skill_path_aliases(), which merges in each
+    installed skill's own path_aliases, qualified by skill name
+    (skill.alias). Verified OOP-LAYERS recursive merge with two real
+    layers of one skill. file_aliases has the identical gap, tracked
+    separately as DD-978.
+
 4.57  2026-09-19
 
   - DD-964: docs/pax-coverage-measurement.md's follow-up-work pointer
