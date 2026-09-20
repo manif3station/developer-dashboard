@@ -751,6 +751,54 @@ sub dies_like {
     ok( exists $coll{'collskill.pre'}, '_skill_collectors keeps an already-qualified collector name' );
     is( scalar( keys %coll ), 2, '_skill_collectors drops non-hash and unnamed collector entries' );
 
+    # DD-977: skill-local path_aliases were completely invisible to
+    # path_aliases()/cdr/d2 paths before this fix - only the top-level
+    # project/global path_aliases key was ever read. A skill's own
+    # config/config.json path_aliases block must now surface, qualified by
+    # skill name (mirroring _skill_collectors' own established
+    # "prefix unless already prefixed" convention just tested above).
+    {
+        my $pathskill_dir = File::Spec->catdir( $skills, 'pathskill', 'config' );
+        make_path($pathskill_dir);
+        open my $ps_fh, '>:raw', File::Spec->catfile( $pathskill_dir, 'config.json' ) or die $!;
+        print {$ps_fh} json_encode(
+            {
+                path_aliases => {
+                    docs                => '$HOME/pathskill-docs',
+                    'pathskill.already' => '$HOME/pathskill-already',
+                    ''                  => '$HOME/should-be-skipped',
+                },
+            }
+        );
+        close $ps_fh;
+
+        my $skill_aliases = $config->_skill_path_aliases;
+        is( $skill_aliases->{'pathskill.docs'}, '$HOME/pathskill-docs',
+            '_skill_path_aliases qualifies an unprefixed skill path_alias name' );
+        is( $skill_aliases->{'pathskill.already'}, '$HOME/pathskill-already',
+            '_skill_path_aliases keeps an already-qualified skill path_alias name' );
+        ok( !exists $skill_aliases->{docs}, '_skill_path_aliases never leaks the bare unqualified name' );
+        ok( !exists $skill_aliases->{''} && !exists $skill_aliases->{'pathskill.'},
+            '_skill_path_aliases drops an empty-string alias name entirely' );
+
+        my $all_without_project = $config->path_aliases;
+        is( $all_without_project->{'pathskill.docs'}, "$home/pathskill-docs",
+            'path_aliases() expands and surfaces a skill-local path alias under its qualified name, even with no project-level path_aliases at all' );
+        ok( !exists $all_without_project->{docs}, 'path_aliases() does not leak the skill alias under its bare name' );
+
+        # Both kinds present together: a real project-level alias must survive
+        # alongside the skill-qualified one, not be dropped by the merge.
+        set_config( { path_aliases => { proj => '$HOME/project-alias' } } );
+        my $all_with_project = $config->path_aliases;
+        is( $all_with_project->{proj}, "$home/project-alias",
+            'path_aliases() still surfaces a real project-level alias' );
+        is( $all_with_project->{'pathskill.docs'}, "$home/pathskill-docs",
+            'path_aliases() surfaces the skill-qualified alias alongside the project-level one, not clobbered by it' );
+        clear_config();
+
+        remove_tree( File::Spec->catdir( $skills, 'pathskill' ) );
+    }
+
     # 835: _skill_config_hash open() failure on an unreadable skill config.
     {
         my $dir = File::Spec->catdir( $skills, 'iofail', 'config' );
@@ -836,6 +884,59 @@ sub dies_like {
     if ( defined $saved_home ) { $ENV{HOME} = $saved_home; }
     else                       { delete $ENV{HOME}; }
     umask $saved_umask;
+}
+
+# DD-977 (Michael, TG #2116): "this also needs to be OOP-LAYERS" - a skill's
+# own path_aliases must be recursively merged across every DD-OOP-LAYER the
+# skill itself participates in (skill_layers walks home -> project for one
+# skill name), the same way collectors/providers already merge by identity
+# instead of the deepest layer silently discarding an inherited one.
+# path_aliases is a plain HASH key (not a named array), so _skill_config_hash's
+# existing _merge_hashes recursion already makes this safe by construction -
+# this proves it directly with two real layers of the SAME skill, each
+# declaring a DIFFERENT alias, confirming both survive the merge.
+{
+    my $saved_cwd  = Cwd::getcwd();
+    my $saved_home = $ENV{HOME};
+
+    my $layer_home = tempdir( CLEANUP => 1 );
+    my $project     = tempdir( CLEANUP => 1 );
+    make_path( File::Spec->catdir( $project, '.git' ) );
+    make_path( File::Spec->catdir( $project, '.developer-dashboard' ) );
+
+    $ENV{HOME} = $layer_home;
+    chdir $project or die "Unable to chdir to $project: $!";
+
+    my $layer_paths  = Developer::Dashboard::PathRegistry->new;
+    my $layer_files  = Developer::Dashboard::FileRegistry->new( paths => $layer_paths );
+    my $layer_config = Developer::Dashboard::Config->new( files => $layer_files, paths => $layer_paths );
+
+    # Home-layer skill install: contributes one alias.
+    my ($home_skills_root) = grep { m{\Q$layer_home\E} } ( $layer_paths->skills_roots );
+    my $home_skill_dir = File::Spec->catdir( $home_skills_root, 'oopskill', 'config' );
+    make_path($home_skill_dir);
+    open my $home_fh, '>:raw', File::Spec->catfile( $home_skill_dir, 'config.json' ) or die $!;
+    print {$home_fh} json_encode( { path_aliases => { fromhome => '$HOME/from-home-layer' } } );
+    close $home_fh;
+
+    # Project-layer install of the SAME skill: contributes a DIFFERENT alias,
+    # and must not clobber the home layer's own alias.
+    my ($project_skills_root) = grep { !m{\Q$layer_home\E} } ( $layer_paths->skills_roots );
+    my $project_skill_dir = File::Spec->catdir( $project_skills_root, 'oopskill', 'config' );
+    make_path($project_skill_dir);
+    open my $proj_fh, '>:raw', File::Spec->catfile( $project_skill_dir, 'config.json' ) or die $!;
+    print {$proj_fh} json_encode( { path_aliases => { fromproject => '$HOME/from-project-layer' } } );
+    close $proj_fh;
+
+    my $skill_aliases = $layer_config->_skill_path_aliases;
+    is( $skill_aliases->{'oopskill.fromhome'}, '$HOME/from-home-layer',
+        'DD-977 OOP-LAYERS: a skill path_alias declared at the home layer survives the layer merge' );
+    is( $skill_aliases->{'oopskill.fromproject'}, '$HOME/from-project-layer',
+        'DD-977 OOP-LAYERS: a skill path_alias declared at the project layer survives the SAME merge, not clobbering the home one' );
+
+    chdir $saved_cwd or die "Unable to restore cwd: $!";
+    if ( defined $saved_home ) { $ENV{HOME} = $saved_home; }
+    else                       { delete $ENV{HOME}; }
 }
 
 # DD-763: Config->for_paths($paths) is the shared classmethod extracted from
