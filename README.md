@@ -940,6 +940,11 @@ For example, a layered `.env` file can now look like:
     */
     CHAINED=$ROOT_CACHE/$TOKEN
 
+A separate mechanism, `# include <skill.path>`, pulls another
+skill's own `.env`/`.env.pl` in by name rather than by layer position -
+see ["EMBEDDING IN PERL CODE"](#embedding-in-perl-code) for `env->include(...)`, its `.env.pl`
+counterpart.
+
 ## Open File Commands
 
 `dashboard of` is the shorthand name for `dashboard open-file`.
@@ -3093,7 +3098,9 @@ Unlike `d2`, `env` cannot be a plain exported sub: Perl resolves a bareword
 immediately before `->` as a literal package name at parse time
 regardless of any same-named sub, so `env` is a real second package declared
 inside this file - loading `Developer::Dashboard` is what makes it
-available, the same practical effect as `d2`'s own export.
+available, the same practical effect as `d2`'s own export. See ["Layered
+Env Files"](#layered-env-files) for the `.env`-file-native `# include <skill.path>`
+directive this method mirrors.
 
 # SEE ALSO
 

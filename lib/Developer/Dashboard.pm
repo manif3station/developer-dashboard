@@ -1240,6 +1240,11 @@ For example, a layered F<.env> file can now look like:
   */
   CHAINED=$ROOT_CACHE/$TOKEN
 
+A separate mechanism, C<# include E<lt>skill.pathE<gt>>, pulls another
+skill's own F<.env>/F<.env.pl> in by name rather than by layer position -
+see L</EMBEDDING IN PERL CODE> for C<env-E<gt>include(...)>, its C<.env.pl>
+counterpart.
+
 =head2 Open File Commands
 
 C<dashboard of> is the shorthand name for C<dashboard open-file>.
@@ -3767,7 +3772,9 @@ Unlike C<d2>, C<env> cannot be a plain exported sub: Perl resolves a bareword
 immediately before C<-E<gt>> as a literal package name at parse time
 regardless of any same-named sub, so C<env> is a real second package declared
 inside this file - loading C<Developer::Dashboard> is what makes it
-available, the same practical effect as C<d2>'s own export.
+available, the same practical effect as C<d2>'s own export. See L</Layered
+Env Files> for the C<.env>-file-native C<# include E<lt>skill.pathE<gt>>
+directive this method mirrors.
 
 =head1 SEE ALSO
 
