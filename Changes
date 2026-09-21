@@ -1,3 +1,30 @@
+4.67  2026-09-21
+
+  - DD-989: fixed a symlink-clobber vulnerability in
+    Developer::Dashboard::IndicatorStore::set_indicator. Its staging path
+    used to be the bare literal "$file.pending" with no pid/time/counter
+    uniquifier at all, and permissions were secured only AFTER the write -
+    the exact write-then-secure anti-pattern already fixed six other times
+    (DD-599/600/601/602/848/850), but worse: a fully predictable path,
+    missed by both prior sweeps because neither searched for a
+    pending-file writer with no uniquifier whatsoever. Live-reproduced: a
+    symlink pre-planted at the predictable staging path let a local actor
+    clobber an arbitrary victim file's content and leave the real
+    status.json pointing at the victim afterward. Fixed by routing through
+    the shared Developer::Dashboard::PathRegistry::atomic_write_secure
+    helper via a new _pending_indicator_file staging-path helper (pid +
+    time + a per-process monotonic counter), matching the pattern already
+    used by SessionStore.pm/Auth.pm/Collector.pm/CLI/Ask.pm/Zipper.pm.
+    Added t/204-indicatorstore-pending-path-symlink.t, a regression test
+    that plants a symlink at the historical predictable path and asserts
+    the victim file is untouched and the real indicator file ends up a
+    regular file with correct content. Updated
+    docs/pending-file-staging-paths-across-the-codebase.md to add
+    IndicatorStore as the 7th migrated site. Filed DD-999 (pre-existing
+    500-line module-size overage) and DD-1000 (unaudited lock-file symlink
+    exposure, low severity) as separate, out-of-scope follow-ups found
+    during this ticket's audits.
+
 4.66  2026-09-21
 
   - DD-993: fixed a CI-only, warnings-FATAL build failure ("Prototype

@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::OpenFileJavaSource;
 use strict;
 use warnings;
 
-our $VERSION = '4.66';
+our $VERSION = '4.67';
 
 use Archive::Zip qw(:ERROR_CODES :CONSTANTS);
 use Digest::MD5 qw(md5_hex);
