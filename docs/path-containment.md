@@ -85,6 +85,12 @@ sites, each of which was a defect before it was a rule:
   in the request.
 - **Docker service toggles** — a service name from `dashboard docker
   disable|enable` joined to the layer's `config/docker` root.
+- **Open-file exact match** (DD-985) — `dashboard of <scope> <pattern...>`'s
+  exact-relative-path fast path (`_scope_relative_path_match` in
+  `CLI/OpenFile.pm`), reached on ordinary usage with no special flag. Fixed by
+  reusing the same helper the archive-extraction fix already established
+  (`_contained_cache_path`) rather than writing a second one - one containment
+  helper, several call sites, is the point of this page.
 
 The list is a description of what has been found, not a boundary. **The test for
 a new call site is not whether it appears above; it is whether any segment in the

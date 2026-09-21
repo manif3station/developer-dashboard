@@ -311,7 +311,8 @@ sub _open_file_registries {
 # _scope_relative_path_match(%args)
 # Resolves an exact relative file path inside one search scope before regex fallback search.
 # Input: scope directory path and pattern array reference representing one relative path.
-# Output: exact file path string or undef when the pattern list is not one existing relative file.
+# Output: exact file path string or undef when the pattern list is not one existing relative
+# file, or when it would resolve outside the scope directory.
 sub _scope_relative_path_match {
     my (%args) = @_;
     my $scope    = $args{scope}   || return;
@@ -319,8 +320,13 @@ sub _scope_relative_path_match {
     return if !@patterns;
     return if grep { !defined $_ || $_ eq '' } @patterns;
 
-    my $relative = File::Spec->catfile(@patterns);
-    my $target   = File::Spec->catfile( $scope, $relative );
+    # DD-985: patterns come straight from the CLI's argv, so a '..' segment
+    # must never be allowed to walk the target outside $scope. Reuses the
+    # same lexical containment resolver the DD-498 Zip Slip fix already
+    # established (_contained_cache_path, imported above from
+    # OpenFileJavaSource) rather than a second bespoke check.
+    my $target = _contained_cache_path( $scope, @patterns );
+    return if !defined $target;
     return -f $target ? $target : undef;
 }
 

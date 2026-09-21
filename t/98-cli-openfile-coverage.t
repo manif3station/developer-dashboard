@@ -394,6 +394,41 @@ is_deeply( [ oc( '_scope_relative_path_match', scope => $subdir, pattern => ['']
 is( oc( '_scope_relative_path_match', scope => $subdir, pattern => ['rel.txt'] ), catfile( $subdir, 'rel.txt' ), 'existing relative path resolves' );
 is( oc( '_scope_relative_path_match', scope => $subdir, pattern => ['nope.txt'] ), undef, 'missing relative path yields undef' );
 
+# DD-985: a pattern whose tokens escape $subdir via '..' segments must never
+# resolve to a real file outside the scope - regardless of whether that file
+# exists and is readable. Uses a real secret file OUTSIDE $subdir (but still
+# inside the hermetic $home tempdir) to prove containment, not just a string
+# comparison.
+my $secret = catfile( $home, 'outside-secret.txt' );
+spew( $secret, "top secret\n" );
+ok( -f $secret, 'sanity: the secret file genuinely exists outside the scope dir' );
+
+is(
+    oc( '_scope_relative_path_match', scope => $subdir, pattern => [ '..', 'outside-secret.txt' ] ),
+    undef,
+    'DD-985: a single ..-segment escaping scope is rejected, not resolved to the real outside file'
+);
+
+# A deeper traversal payload, matching the live-reproduced attack shape.
+my $deep_secret = catfile( $home, 'deep-secret.txt' );
+spew( $deep_secret, "deeper secret\n" );
+is(
+    oc( '_scope_relative_path_match', scope => $subdir, pattern => [ '..', '..', catfile(qw(a b)), '..', '..', '..', 'deep-secret.txt' ] ),
+    undef,
+    'DD-985: multiple ..-segments still cannot climb out of scope'
+);
+
+# A '..' that is cancelled out by a real intermediate segment (net effect
+# stays INSIDE scope) must keep working - this is not a containment escape.
+my $nested = catdir( $subdir, 'nested' );
+make_path($nested);
+spew( catfile( $nested, 'inner.txt' ), "inner\n" );
+is(
+    oc( '_scope_relative_path_match', scope => $subdir, pattern => [ 'nested', '..', 'nested', 'inner.txt' ] ),
+    catfile( $nested, 'inner.txt' ),
+    'DD-985 regression: a self-cancelling .. that stays within scope still resolves'
+);
+
 # ---------------------------------------------------------------------------
 # _named_source_matches guards + Perl module + Java class resolution
 # ---------------------------------------------------------------------------
