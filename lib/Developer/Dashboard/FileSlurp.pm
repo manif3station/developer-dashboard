@@ -3,7 +3,7 @@ package Developer::Dashboard::FileSlurp;
 use strict;
 use warnings;
 
-our $VERSION = '4.68';
+our $VERSION = '4.69';
 
 use Exporter 'import';
 

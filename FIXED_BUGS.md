@@ -1,6 +1,27 @@
 # Fixed Bugs
 
 
+## 4.69
+
+- **DD-1003**: `PaxCache::_run_compile_and_install` wrote its `md5_file`
+  cache-freshness marker with a plain `open('>', $md5_file)` followed by a
+  separate `print`/`close` - truncating the file to zero bytes the instant
+  `open()` succeeded, well before the digest was actually written. An
+  interruption in that window (SIGKILL, OOM, a host reboot mid-compile)
+  left `md5_file` as a real, existing, zero-byte file sitting next to an
+  already-valid, already-renamed binary - permanently wedging `resolve()`
+  into treating a fresh cache entry as stale forever, burning a full PAX
+  recompile on every future invocation for a binary that never actually
+  needed rebuilding again. Fixed to match `bin_file`'s own already-atomic
+  install two lines above it: write the digest to a sibling temp path,
+  then `rename()` it onto `md5_file` - a reader can only ever observe the
+  complete previous content or the complete new content, never a
+  truncated state in between. `t/206-paxcache-md5-atomic-write.t` proves
+  this directly via a real fork+SIGKILL race against the production
+  `_run_compile_and_install` path with a 20MB payload (large enough to
+  give the write a genuinely observable duration), confirmed RED against
+  the unfixed code and GREEN against the fix.
+
 ## 4.68
 
 - **DD-1004**: `d2 path add`/`d2 file add` always wrote into the flat
