@@ -1,3 +1,21 @@
+4.65  2026-09-21
+
+  - DD-941: t/15-release-metadata.t's retired-internal-wording gate
+    (unlike $doc, qr/\blegacy\b/i) correctly bans that retired wording,
+    case-insensitively, in shipped docs/POD, but FIXED_BUGS.md's
+    append-only DD-931 (4.37) and DD-933 (4.42) entries legitimately
+    reference the real, current,
+    shipping identifier __PAX_RUNTIME_LEGACY_NAMESPACE__ and describe it in
+    prose as a "legacy-namespace alias" - the DD-931 entry uses that phrase
+    without the literal identifier present on the same line, so an
+    identifier-only exemption did not close the gate (owner decision,
+    Q-179). Widened the allow-list (a new _strip_legacy_namespace_mentions
+    helper in t/15-release-metadata.t) to also strip the phrase
+    "legacy-namespace" case-insensitively before the check runs, alongside
+    the existing identifier exemption, while a genuinely retired bare
+    mention of that same banned term anywhere else still fails the gate.
+    No FIXED_BUGS.md entry was reworded.
+
 4.64  2026-09-21
 
   - DD-926: pax build's intermediate build cache directory
