@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '4.58';
+our $VERSION = '4.59';
 
 our @EXPORT = ('d2');
 
@@ -41,7 +41,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.58
+4.59
 
 =head1 INTRODUCTION
 

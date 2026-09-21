@@ -1,6 +1,20 @@
 # Fixed Bugs
 
 
+## 4.59
+
+- **DD-978**: the parallel gap to DD-977 (4.58), for `file_aliases`
+  instead of `path_aliases` - `Config::file_aliases()` only ever read
+  the top-level project/global merged config key, so a skill's own
+  `config/config.json` `file_aliases` block was completely invisible
+  to `cdr`/`d2 paths`. Fixed by adding `Config::_skill_file_aliases()`,
+  an exact parallel to `_skill_path_aliases()` (deliberately a separate
+  helper rather than a shared one, to avoid destabilizing the
+  already-shipped `path_aliases` behavior), merged into
+  `file_aliases()`. Same skill-name qualification convention, same
+  OOP-LAYERS-safe-by-construction merge behavior. Verified with 20 new
+  tests in `t/93-config-coverage.t` and a live end-to-end docker probe.
+
 ## 4.58
 
 - **DD-977**: `Config::path_aliases()` only ever read the top-level
