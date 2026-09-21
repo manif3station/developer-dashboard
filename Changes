@@ -1,3 +1,14 @@
+4.59  2026-09-21
+
+  - DD-978: the parallel gap to DD-977, for file_aliases instead of
+    path_aliases - a skill's own config/config.json file_aliases block
+    was completely invisible to cdr/d2 paths. Added
+    Config::_skill_file_aliases() (an exact parallel to DD-977's
+    _skill_path_aliases()), merged into file_aliases(). Same
+    skill-name qualification convention, same OOP-LAYERS-safe-by-
+    construction merge behavior. Verified with 20 new tests and a
+    live end-to-end docker probe.
+
 4.58  2026-09-21
 
   - DD-977: a skill's own config/config.json path_aliases block was
