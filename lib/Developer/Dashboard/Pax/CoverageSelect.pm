@@ -3,7 +3,7 @@ package Developer::Dashboard::Pax::CoverageSelect;
 use strict;
 use warnings;
 
-our $VERSION = '4.63';
+our $VERSION = '4.64';
 
 use Exporter 'import';
 use Capture::Tiny qw(capture);

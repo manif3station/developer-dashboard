@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::GuardedSSA;
 
-our $VERSION = '4.63';
+our $VERSION = '4.64';
 
 use strict;
 use warnings;

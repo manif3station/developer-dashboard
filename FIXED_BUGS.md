@@ -1,6 +1,23 @@
 # Fixed Bugs
 
 
+## 4.64
+
+- **DD-926**: `pax build`'s intermediate build cache directory
+  (`.pax-launcher-build`, derived in
+  `Developer::Dashboard::Pax::StandaloneImage::_compile_launcher`) was a
+  single literal path shared by every uid building against the same output
+  parent directory - commonly bare `/tmp`. A root-owned build (e.g. from
+  inside a `developer-dashboard:latest` container) left it owned root:root;
+  every later non-root build sharing that output parent then failed
+  outright with `Permission Denied`, and the failure did not self-clear
+  (a non-root user cannot remove root-owned files without `sudo`).
+  Namespaced the directory per invoking uid
+  (`.pax-launcher-build-<uid>`, via a new `_pax_launcher_build_dir_name`
+  helper) - the same technique `File::Temp` uses to avoid this exact
+  shared-`/tmp` collision class - while same-uid repeated builds keep
+  reusing the same per-uid path.
+
 ## 4.63
 
 - **DD-986**: `CLI::Skills.pm` carried its own private `_render_table`/
