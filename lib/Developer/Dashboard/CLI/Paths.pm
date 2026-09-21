@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Paths;
 use strict;
 use warnings;
 
-our $VERSION = '4.59';
+our $VERSION = '4.60';
 
 use Cwd qw(cwd);
 use File::Basename qw(basename);

@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::OpenFile;
 use strict;
 use warnings;
 
-our $VERSION = '4.59';
+our $VERSION = '4.60';
 
 use Cwd qw(cwd);
 use Exporter 'import';

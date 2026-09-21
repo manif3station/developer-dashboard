@@ -1,3 +1,24 @@
+4.60  2026-09-21
+
+  - DD-979: new .env/.env.pl skill include feature. A "# include
+    <foo.bar>" comment directive in a plain .env file (or "# include
+    <foo.bar.*>" to also pull in every nested sub-skill) loads that
+    skill's own .env/.env.pl into the current environment on request;
+    env->include('foo.bar') does the same programmatically from a
+    .env.pl file after `use Developer::Dashboard;`. env is a real
+    second package (Perl resolves a bareword before -> as a literal
+    package name at parse time, so it cannot be a plain exported sub
+    like d2). Included variables are namespaced
+    <UPPERCASE.DOTTED.PATH with single underscores>__<name> (foo.bar's
+    BOB=1 becomes FOO_BAR__BOB), resolved DD-OOP-LAYERS-style across
+    every layer with deeper layers winning without dropping
+    shallower-only keys. Hardened against a path-traversal exposure
+    found during implementation (a spec like "../.." surviving the
+    dot-split as a bare "/" segment) with an explicit _valid_segment()
+    guard. New module Developer::Dashboard::EnvInclude, 100.0/100.0/
+    100.0/100.0 coverage, 42 new tests, new SYSTEM-scoped doc
+    docs/env-skill-include-directive.md.
+
 4.59  2026-09-21
 
   - DD-978: the parallel gap to DD-977, for file_aliases instead of
