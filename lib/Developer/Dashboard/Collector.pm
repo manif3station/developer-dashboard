@@ -3,7 +3,7 @@ package Developer::Dashboard::Collector;
 use strict;
 use warnings;
 
-our $VERSION = '4.64';
+our $VERSION = '4.65';
 
 use Exporter qw(import);
 our @EXPORT_OK = qw(readfile);

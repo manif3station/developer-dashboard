@@ -1,6 +1,29 @@
 # Fixed Bugs
 
 
+## 4.65
+
+- **DD-941**: `t/15-release-metadata.t`'s retired-internal-wording gate
+  (`unlike( $doc, qr/\blegacy\b/i, ... )`) correctly bans that retired
+  wording, case-insensitively, across shipped docs/POD, but FIXED_BUGS.md's
+  own append-only `## 4.37` (DD-931) and `## 4.42` (DD-933) entries
+  legitimately reference the real, current, shipping identifier
+  `__PAX_RUNTIME_LEGACY_NAMESPACE__` and describe it in prose as a
+  "legacy-namespace alias" - the `## 4.37` entry uses that phrase without
+  the literal identifier present on the same line, so an identifier-only
+  allow-list (as tested) did not close the gate. Escalated as Q-177/Q-179;
+  the owner chose to widen the allow-list to the phrase itself (Q-179
+  option A) rather than grandfather by content age or reword an already-
+  tagged, append-only entry. Fixed by adding
+  `_strip_legacy_namespace_mentions()` to `t/15-release-metadata.t`, which
+  strips both `__PAX_RUNTIME_LEGACY_NAMESPACE__` and the phrase
+  `legacy-namespace` (both case-insensitive) from a copy of the text
+  immediately before the existing `\blegacy\b` check runs, for both the
+  doc-path and POD-path loops. A genuinely retired bare mention of that
+  same banned term anywhere else still fails the gate (verified with a
+  disposable negative-case control). Documented system-wide in
+  `docs/retired-internal-wording-allow-list.md`.
+
 ## 4.64
 
 - **DD-926**: `pax build`'s intermediate build cache directory
