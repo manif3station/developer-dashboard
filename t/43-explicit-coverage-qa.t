@@ -40,6 +40,7 @@ use Developer::Dashboard::SkillManager ();
     sub current_project_root { return $_[0]{cwd}; }
     sub runtime_roots   { return @{ $_[0]{runtime_roots} || [] }; }
     sub installed_skill_roots { return (); }
+    sub nested_skill_entries { return (); }
     sub secure_file_permissions { return 1; }
 }
 
@@ -116,6 +117,14 @@ use Developer::Dashboard::SkillManager ();
         my ( $self, $name ) = @_;
         return { removed => $name };
     }
+
+    # DD-1004: CLI::Files now calls the top-level save_file_alias/
+    # remove_file_alias dispatcher rather than the global methods directly;
+    # this stub only exercises undotted names, so it delegates straight
+    # through, exactly like the real Config::_save_named_alias does for that
+    # case.
+    sub save_file_alias   { my $self = shift; return $self->save_global_file_alias(@_) }
+    sub remove_file_alias { my $self = shift; return $self->remove_global_file_alias(@_) }
 }
 
 {
@@ -723,6 +732,11 @@ subtest 'CLI::Files covers files inventory and locate branches' => sub {
         my $removed = delete $file_aliases{$name} ? 1 : 0;
         return { name => $name, removed => $removed };
     };
+    # DD-1004: CLI::Files calls save_file_alias/remove_file_alias (defined at
+    # package level above), which method-dispatch to save_global_file_alias/
+    # remove_global_file_alias - Perl resolves that dispatch at call time, so
+    # it picks up these `local`-overridden closures automatically; no
+    # separate local override of save_file_alias/remove_file_alias is needed.
     local *TestCLIFileRegistry::register_named_files = sub {
         my ( $self, $aliases ) = @_;
         %{$self->{named}} = ( %{$self->{named}}, %{ $aliases || {} } );
@@ -885,6 +899,19 @@ subtest 'CLI::Paths covers table defaults and output guards' => sub {
         my ( $self, $name ) = @_;
         my $removed = delete $path_aliases{$name} ? 1 : 0;
         return { name => $name, removed => $removed };
+    };
+    # DD-1004: CLI::Paths now calls the top-level save_path_alias/
+    # remove_path_alias dispatcher rather than the global methods directly;
+    # this stub only exercises undotted names, so it delegates straight
+    # through, exactly like the real Config::_save_named_alias does for that
+    # case.
+    local *TestCLIPathsConfig::save_path_alias = sub {
+        my $self = shift;
+        return $self->save_global_path_alias(@_);
+    };
+    local *TestCLIPathsConfig::remove_path_alias = sub {
+        my $self = shift;
+        return $self->remove_global_path_alias(@_);
     };
     local *TestCLIPathRegistry::register_named_paths = sub {
         my ( $self, $aliases ) = @_;

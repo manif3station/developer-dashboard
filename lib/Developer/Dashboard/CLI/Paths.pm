@@ -165,9 +165,9 @@ sub _paths_action_add {
     GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
     die "Usage: dashboard path add <name> <path> [-o json|table]\n" if $output ne 'json' && $output ne 'table';
     my ( $name, $path ) = _normalize_add_arguments(@argv);
-    my $saved = $config->save_global_path_alias( $name, $path );
-    $paths->register_named_paths( { $name => $path } );
-    $saved->{resolved} = $paths->resolve_dir($name);
+    my $saved = $config->save_path_alias( $name, $path );
+    $paths->register_named_paths( { $saved->{name} => $saved->{path} } );
+    $saved->{resolved} = $paths->resolve_dir( $saved->{name} );
     if ( $output eq 'json' ) {
         print json_encode($saved);
         return 1;
@@ -198,7 +198,7 @@ sub _paths_action_del {
         config => $config,
         name   => shift(@argv),
     );
-    my $deleted = $config->remove_global_path_alias($name);
+    my $deleted = $config->remove_path_alias($name);
     $paths->unregister_named_path($name);
     if ( $output eq 'json' ) {
         print json_encode($deleted);

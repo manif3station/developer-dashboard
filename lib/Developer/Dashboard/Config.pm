@@ -6,6 +6,7 @@ use warnings;
 our $VERSION = '4.67';
 
 use File::Spec;
+use File::Path qw(make_path);
 use Cwd qw(cwd);
 
 use JSON::XS ();
@@ -352,6 +353,8 @@ sub _skill_path_aliases {
             $aliases{$qualified_name} = $skill_aliases->{$name};
         }
     }
+    my $nested = $self->_nested_skill_alias_entries('path_aliases');
+    @aliases{ keys %{$nested} } = values %{$nested};
     return \%aliases;
 }
 
@@ -396,7 +399,248 @@ sub _skill_file_aliases {
             $aliases{$qualified_name} = $skill_aliases->{$name};
         }
     }
+    my $nested = $self->_nested_skill_alias_entries('file_aliases');
+    @aliases{ keys %{$nested} } = values %{$nested};
     return \%aliases;
+}
+
+# _nested_skill_alias_entries($alias_key)
+# Shared read-side walker for skill-depth-prefixed path_aliases/file_aliases
+# (DD-1004). Owner's rule (Q-182): "add" never writes into a skill's own
+# config.json at any depth - so this reads in two priority-ordered passes,
+# mirroring the write side exactly, never duplicating its resolution logic.
+#
+# PASS 1 (lower priority) - a nested (depth 2+) skill's own SHIPPED
+# defaults, read directly from ITS OWN config.json regardless of .git,
+# because that file is a read-only source here, never a write target. Depth
+# 1 shipped defaults are deliberately left to the pre-existing
+# _skill_config_entries path, which already covers them with full
+# DD-OOP-LAYER multi-layer merging that a single-resolved-directory read
+# does not attempt to reproduce.
+#
+# PASS 2 (higher priority, OVERRIDES pass 1 for the same qualified name) -
+# whatever save_skill_path_alias/save_skill_file_alias actually wrote,
+# resolved via the exact same PathRegistry::skill_config_write_location a
+# write of those same segments would use: an ancestor skill's config.json,
+# or the global config's fallback section when no git-free parent ancestor
+# exists (always true at depth 1, since a depth-1 target has no parent
+# skill at all - Q-182). This is what lets a user's "d2 path add" override a
+# skill-shipped default without ever touching the skill's own file.
+# Input: the config domain key to read, "path_aliases" or "file_aliases".
+# Output: hash reference of fully-qualified dotted alias names (skill
+# segments joined by "." plus the alias name) to their stored (unexpanded)
+# path values.
+sub _nested_skill_alias_entries {
+    my ( $self, $alias_key ) = @_;
+    my %aliases;
+    my @entries = $self->{paths}->nested_skill_entries( include_disabled => 1 );
+
+    # PASS 1: nested (depth 2+) shipped defaults, straight from the skill's
+    # own file - never routed through the write-location resolver.
+    for my $entry (@entries) {
+        my $segments = $entry->{segments};
+        next if @{$segments} == 1;
+        my $config_file = File::Spec->catfile( $entry->{dir}, 'config', 'config.json' );
+        next if !-f $config_file;
+        my $node = eval { $self->_load_json_hash_file($config_file) };
+        next if ref($node) ne 'HASH';
+        my $leaf = ref( $node->{$alias_key} ) eq 'HASH' ? $node->{$alias_key} : {};
+        for my $name ( keys %{$leaf} ) {
+            next if !defined $name || $name eq '';    # uncoverable condition left every leaf key is either hand-authored by a skill or written by save_skill_*_alias, both of which already reject an empty/undef alias name
+            $aliases{ join( '.', @{$segments}, $name ) } = $leaf->{$name};
+        }
+    }
+
+    # PASS 2: user-written ancestor overrides, at every depth including 1 -
+    # shadows pass 1 for the same qualified name.
+    my $global_fallback_key = 'skills';    # Q-181: owner-confirmed top-level key for the global-config walk-up-exhausted fallback (DD-1004)
+    my $global_cfg;
+    for my $entry (@entries) {
+        my $segments = $entry->{segments};
+        my $location = $self->{paths}->skill_config_write_location($segments) or next;
+
+        my $node;
+        if ( $location->{kind} eq 'skill' ) {
+            my $config_file = File::Spec->catfile( $location->{dir}, 'config', 'config.json' );
+            next if !-f $config_file;
+            $node = eval { $self->_load_json_hash_file($config_file) };
+            next if ref($node) ne 'HASH';
+        }
+        else {
+            $global_cfg = $self->_load_writable_global if !defined $global_cfg;    # loaded once, reused for every later entry needing the global fallback
+            $node = ref( $global_cfg->{$global_fallback_key} ) eq 'HASH' ? $global_cfg->{$global_fallback_key} : {};
+        }
+
+        for my $seg ( @{ $location->{remaining} } ) {
+            $node = ref($node) eq 'HASH' && ref( $node->{$seg} ) eq 'HASH' ? $node->{$seg} : {};    # uncoverable condition left $node is always a hashref here by construction (the "skill" branch above only assigns a HASH, and every prior loop iteration's false side already assigns {} rather than a non-hash value), so this side can never observe a non-HASH $node
+        }
+
+        my $leaf = ref($node) eq 'HASH' && ref( $node->{$alias_key} ) eq 'HASH' ? $node->{$alias_key} : {};    # uncoverable condition left $node is always a hashref here for the same reason as the loop above
+        for my $name ( keys %{$leaf} ) {
+            next if !defined $name || $name eq '';    # uncoverable condition left every leaf key is written by save_skill_*_alias, which already rejects an empty/undef alias name
+            $aliases{ join( '.', @{$segments}, $name ) } = $leaf->{$name};    # overrides pass 1 for the same qualified name
+        }
+    }
+
+    return \%aliases;
+}
+
+# split_skill_alias_name($name)
+# Parses a dotted "dashboard path/file add" alias name into its skill-depth
+# path plus the trailing alias segment (DD-1004), e.g. "foo.bar.something" ->
+# (["foo","bar"], "something"). An undotted name is not a skill-prefixed
+# alias at all.
+# Input: raw alias name string as typed on the command line.
+# Output: two-element list of (array reference of skill-name segments,
+# trailing alias-name string) when the name contains at least one dot with a
+# non-empty segment on both sides; empty list otherwise.
+sub split_skill_alias_name {
+    my ( $self, $name ) = @_;
+    return if !defined $name || index( $name, '.' ) < 0;
+    my @parts = split /\./, $name, -1;
+    return if @parts < 2;    # uncoverable branch true the preceding index() check already guarantees at least one '.', so a -1-limit split always returns at least 2 pieces
+    return if grep { $_ eq '' } @parts;    # split() on a plain string never yields an undef element, only possibly-empty ones, so an explicit !defined check here would be dead code
+    my $alias = pop @parts;
+    return ( \@parts, $alias );
+}
+
+# save_skill_path_alias(\@segments, $alias, $path)
+# save_skill_file_alias(\@segments, $alias, $path)
+# Persists a skill-depth-prefixed path/file alias (DD-1004) at whichever
+# location PathRegistry::skill_config_write_location resolves for the given
+# segments - NEVER the target skill's own config/config.json (Q-182: the
+# owner's rule is unconditional, not only when the target itself carries a
+# .git), always its nearest git-free PARENT ancestor, or the global config's
+# fallback section when no such parent exists (always true at depth 1) -
+# storing it as a NESTED hash mirroring the remaining depth segments, never a
+# flattened dotted-string key, so the same structure round-trips through
+# _nested_skill_alias_entries regardless of where the walk-up stopped, and
+# shadows any shipped default the target skill's own file already declares
+# for the same qualified name without ever modifying that file.
+# Input: array reference of skill-name segments, trailing alias name string,
+# and target path string.
+# Output: hash reference containing the fully-qualified dotted alias name and
+# its stored (expanded) path.
+sub save_skill_path_alias { my ( $self, $segments, $alias, $path ) = @_; return $self->_save_skill_alias( 'path_aliases', $segments, $alias, $path ) }
+sub save_skill_file_alias { my ( $self, $segments, $alias, $path ) = @_; return $self->_save_skill_alias( 'file_aliases', $segments, $alias, $path ) }
+
+# _save_skill_alias($alias_key, \@segments, $alias, $path)
+# Shared implementation behind save_skill_path_alias/save_skill_file_alias.
+# Input: config domain key ("path_aliases"/"file_aliases"), array reference
+# of skill-name segments, trailing alias name string, and target path string.
+# Output: hash reference containing the fully-qualified dotted alias name and
+# its stored (expanded) path.
+sub _save_skill_alias {
+    my ( $self, $alias_key, $segments, $alias, $path ) = @_;
+    die 'Missing skill-depth segments' if ref($segments) ne 'ARRAY' || !@{$segments};
+    die 'Missing alias name' if !defined $alias || $alias eq '';
+    die 'Missing alias target' if !defined $path || $path eq '';
+
+    my $location = $self->{paths}->skill_config_write_location($segments)
+      or die "Unable to resolve installed skill path for '" . join( '.', @{$segments} ) . "'\n";
+    my $stored_path = $self->_normalize_home_path($path);
+
+    if ( $location->{kind} eq 'skill' ) {
+        my $config_dir = File::Spec->catdir( $location->{dir}, 'config' );
+        make_path($config_dir) if !-d $config_dir;
+        my $config_file = File::Spec->catfile( $config_dir, 'config.json' );
+        my $cfg = -f $config_file ? $self->_load_json_hash_file($config_file) : {};
+        my $target = $cfg;
+        for my $seg ( @{ $location->{remaining} } ) {
+            $target->{$seg} = {} if ref( $target->{$seg} ) ne 'HASH';
+            $target = $target->{$seg};
+        }
+        $target->{$alias_key} = {} if ref( $target->{$alias_key} ) ne 'HASH';
+        $target->{$alias_key}{$alias} = $stored_path;
+        $self->_write_json_atomic( $config_file, json_encode($cfg) );
+    }
+    else {
+        my $global_fallback_key = 'skills';    # Q-181: owner-confirmed top-level key for the global-config walk-up-exhausted fallback (DD-1004)
+        my $cfg = $self->_load_writable_global;
+        $cfg->{$global_fallback_key} = {} if ref( $cfg->{$global_fallback_key} ) ne 'HASH';
+        my $target = $cfg->{$global_fallback_key};
+        for my $seg ( @{ $location->{remaining} } ) {
+            $target->{$seg} = {} if ref( $target->{$seg} ) ne 'HASH';
+            $target = $target->{$seg};
+        }
+        $target->{$alias_key} = {} if ref( $target->{$alias_key} ) ne 'HASH';
+        $target->{$alias_key}{$alias} = $stored_path;
+        $self->save_global($cfg);
+    }
+
+    return {
+        name => join( '.', @{$segments}, $alias ),
+        path => $self->_expand_config_path($stored_path),
+    };
+}
+
+# remove_skill_path_alias(\@segments, $alias)
+# remove_skill_file_alias(\@segments, $alias)
+# Deletes a skill-depth-prefixed path/file alias (DD-1004) from whichever
+# location it would have been written to (symmetry with save_skill_*_alias),
+# and remains idempotent when the alias was never present there.
+# Input: array reference of skill-name segments and trailing alias name
+# string.
+# Output: hash reference containing the fully-qualified dotted alias name and
+# a removal flag.
+sub remove_skill_path_alias { my ( $self, $segments, $alias ) = @_; return $self->_remove_skill_alias( 'path_aliases', $segments, $alias ) }
+sub remove_skill_file_alias { my ( $self, $segments, $alias ) = @_; return $self->_remove_skill_alias( 'file_aliases', $segments, $alias ) }
+
+# _remove_skill_alias($alias_key, \@segments, $alias)
+# Shared implementation behind remove_skill_path_alias/remove_skill_file_alias.
+# Input: config domain key, array reference of skill-name segments, and
+# trailing alias name string.
+# Output: hash reference containing the fully-qualified dotted alias name and
+# a removal flag.
+sub _remove_skill_alias {
+    my ( $self, $alias_key, $segments, $alias ) = @_;
+    die 'Missing skill-depth segments' if ref($segments) ne 'ARRAY' || !@{$segments};
+    die 'Missing alias name' if !defined $alias || $alias eq '';
+
+    my $qualified_name = join( '.', @{$segments}, $alias );
+    my $location = $self->{paths}->skill_config_write_location($segments);
+    return { name => $qualified_name, removed => 0 } if !$location;
+
+    my $removed = 0;
+    if ( $location->{kind} eq 'skill' ) {
+        my $config_file = File::Spec->catfile( $location->{dir}, 'config', 'config.json' );
+        return { name => $qualified_name, removed => 0 } if !-f $config_file;
+        my $cfg = $self->_load_json_hash_file($config_file);
+        my $target = $cfg;
+        for my $seg ( @{ $location->{remaining} } ) {
+            return { name => $qualified_name, removed => 0 } if ref( $target->{$seg} ) ne 'HASH';
+            $target = $target->{$seg};
+        }
+        if ( ref( $target->{$alias_key} ) eq 'HASH' && exists $target->{$alias_key}{$alias} ) {
+            delete $target->{$alias_key}{$alias};
+            $removed = 1;
+        }
+        $self->_write_json_atomic( $config_file, json_encode($cfg) );
+    }
+    else {
+        my $global_fallback_key = 'skills';    # Q-181: owner-confirmed top-level key for the global-config walk-up-exhausted fallback (DD-1004)
+        my $cfg = $self->_load_writable_global;
+        my $target = ref( $cfg->{$global_fallback_key} ) eq 'HASH' ? $cfg->{$global_fallback_key} : {};
+        my $reachable = 1;
+        for my $seg ( @{ $location->{remaining} } ) {
+            if ( ref($target) ne 'HASH' || ref( $target->{$seg} ) ne 'HASH' ) {    # uncoverable condition left $target is always a hashref entering every iteration - it starts as one above and the loop body only ever reassigns it to a value already confirmed HASH by this same check
+                $reachable = 0;
+                last;
+            }
+            $target = $target->{$seg};
+        }
+        # $target is always a hashref here by the same loop invariant as above (it starts as one, and the
+        # loop only ever reassigns it to a value already confirmed HASH), so no ref($target) eq 'HASH' check
+        # is needed - unlike the loop's own guard, this line is never reached with reachable true and a
+        # non-hash $target, so that check would be dead code.
+        if ( $reachable && ref( $target->{$alias_key} ) eq 'HASH' && exists $target->{$alias_key}{$alias} ) {
+            delete $target->{$alias_key}{$alias};
+            $removed = 1;
+        }
+        $self->save_global($cfg);
+    }
+
+    return { name => $qualified_name, removed => $removed };
 }
 
 # global_path_aliases()
@@ -731,6 +975,55 @@ sub remove_global_file_alias {
         name    => $name,
         removed => $removed,
     };
+}
+
+# save_path_alias($name, $path)
+# save_file_alias($name, $path)
+# Top-level "dashboard path/file add" entry point (DD-1004): routes a bare
+# alias name to the existing global-config behaviour unchanged, and a dotted
+# skill-depth-prefixed name (e.g. "foo.bar.something") to
+# save_skill_path_alias/save_skill_file_alias instead - the ONE place this
+# branch is made, so CLI::Paths and CLI::Files both go through it rather than
+# each re-deciding where an alias belongs.
+# Input: alias name string as typed on the command line, and target path
+# string.
+# Output: hash reference containing the stored alias name and path.
+sub save_path_alias { my ( $self, $name, $path ) = @_; return $self->_save_named_alias( 'path', $name, $path ) }
+sub save_file_alias { my ( $self, $name, $path ) = @_; return $self->_save_named_alias( 'file', $name, $path ) }
+
+# _save_named_alias($domain, $name, $path)
+# Shared implementation behind save_path_alias/save_file_alias.
+# Input: domain string ("path" or "file"), alias name string, target path
+# string.
+# Output: hash reference containing the stored alias name and path.
+sub _save_named_alias {
+    my ( $self, $domain, $name, $path ) = @_;
+    my ( $segments, $alias ) = $self->split_skill_alias_name($name);
+    return $segments
+      ? ( $domain eq 'file' ? $self->save_skill_file_alias( $segments, $alias, $path ) : $self->save_skill_path_alias( $segments, $alias, $path ) )
+      : ( $domain eq 'file' ? $self->save_global_file_alias( $name, $path ) : $self->save_global_path_alias( $name, $path ) );
+}
+
+# remove_path_alias($name)
+# remove_file_alias($name)
+# Top-level "dashboard path/file del|rm" entry point (DD-1004): the removal
+# symmetry counterpart to save_path_alias/save_file_alias, using the exact
+# same dotted-name routing decision.
+# Input: alias name string as typed on the command line.
+# Output: hash reference containing the alias name and a removal flag.
+sub remove_path_alias { my ( $self, $name ) = @_; return $self->_remove_named_alias( 'path', $name ) }
+sub remove_file_alias { my ( $self, $name ) = @_; return $self->_remove_named_alias( 'file', $name ) }
+
+# _remove_named_alias($domain, $name)
+# Shared implementation behind remove_path_alias/remove_file_alias.
+# Input: domain string ("path" or "file"), alias name string.
+# Output: hash reference containing the alias name and a removal flag.
+sub _remove_named_alias {
+    my ( $self, $domain, $name ) = @_;
+    my ( $segments, $alias ) = $self->split_skill_alias_name($name);
+    return $segments
+      ? ( $domain eq 'file' ? $self->remove_skill_file_alias( $segments, $alias ) : $self->remove_skill_path_alias( $segments, $alias ) )
+      : ( $domain eq 'file' ? $self->remove_global_file_alias($name) : $self->remove_global_path_alias($name) );
 }
 
 # _normalize_home_path($path)

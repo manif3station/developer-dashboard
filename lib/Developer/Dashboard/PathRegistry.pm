@@ -538,6 +538,114 @@ sub installed_skill_roots {
     return @roots;
 }
 
+# nested_skill_dir_chain(\@segments)
+# Resolves a skill-depth path (DD-1004) - one or more dotted alias-name
+# segments such as ["foo","bar"] from "foo.bar.something" - to the chain of
+# on-disk skill directories it names, recursing into each skill's own nested
+# skills/ subdirectory arbitrarily deep: skills/foo, then
+# skills/foo/skills/bar, and so on. The first segment is resolved the normal
+# layered way (skill_layers, deepest participating layer wins, same as every
+# other flat skill lookup); every subsequent segment is a single directory
+# lookup inside the previous segment's own "skills" subdirectory, because a
+# nested skill-in-skill is not itself independently layered across DD-OOP
+# roots - it lives wherever its parent skill's tree put it.
+# Input: array reference of one or more skill-name segments.
+# Output: ordered list of directory path strings, chain[0] the first
+# segment's skill root through chain[-1] the deepest segment's directory, in
+# the same order as the input segments; empty list when the array reference
+# is missing/empty or any segment fails to resolve to an installed directory.
+sub nested_skill_dir_chain {
+    my ( $self, $segments ) = @_;
+    return () if ref($segments) ne 'ARRAY' || !@{$segments};
+    my @segs = @{$segments};
+
+    my $first = shift @segs;
+    my @first_layers = $self->skill_layers( $first, include_disabled => 1 );
+    return () if !@first_layers;
+    my $dir = $first_layers[-1];    # deepest participating layer for the first segment
+    my @chain = ($dir);
+
+    for my $seg (@segs) {
+        my @seg_ok = validated_path_segments($seg);
+        return () if @seg_ok != 1;
+        my $candidate = File::Spec->catdir( $dir, 'skills', $seg );
+        return () if !-d $candidate;
+        $dir = $candidate;
+        push @chain, $dir;
+    }
+
+    return @chain;
+}
+
+# nested_skill_entries(%args)
+# Recursively discovers every installed skill directory reachable by walking
+# into "skills/" subdirectories arbitrarily deep, starting from each
+# top-level installed_skill_roots() entry (DD-1004 read-side counterpart to
+# nested_skill_dir_chain, shared so discovery never drifts from resolution).
+# Input: optional include_disabled flag.
+# Output: ordered list of hash refs {segments => arrayref of skill-name
+# segments from the top down, dir => that skill's directory path string}
+# covering every depth, shallowest first.
+sub nested_skill_entries {
+    my ( $self, %args ) = @_;
+    my @entries;
+    my @queue = map { { segments => [ ( $_ =~ m{/([^/]+)\z} )[0] ], dir => $_ } } $self->installed_skill_roots(%args);
+    while ( my $node = shift @queue ) {
+        push @entries, $node;
+        my $nested_root = File::Spec->catdir( $node->{dir}, 'skills' );
+        next if !-d $nested_root;
+        opendir my $dh, $nested_root or next;    # uncoverable branch true - transient unreadable nested skills/ tree, not a supported failure mode
+        for my $child ( sort grep { $_ ne '.' && $_ ne '..' && -d File::Spec->catdir( $nested_root, $_ ) } readdir $dh ) {
+            my $child_dir = File::Spec->catdir( $nested_root, $child );
+            my $disabled = -f File::Spec->catfile( $child_dir, '.disabled' ) ? 1 : 0;
+            next if !$args{include_disabled} && $disabled;
+            push @queue, { segments => [ @{ $node->{segments} }, $child ], dir => $child_dir };
+        }
+        closedir $dh;
+    }
+    return @entries;
+}
+
+# skill_config_write_location(\@segments)
+# Resolves WHERE the config for a skill-depth path may safely be written
+# (DD-1004). Owner's rule, given unconditionally (Q-182, generalising the
+# original .git-only framing): a skill's OWN config.json is NEVER the write
+# target, at any depth, regardless of whether that skill itself carries a
+# .git - "if the alias already exists in the skill's own config.json, do not
+# change it; save to the non-.git PARENT instead, and that overrides the
+# skill's own value at read time, while the skill's file stays untouched."
+# So the walk always starts one level ABOVE the deepest resolved segment
+# (the target's parent), looking for the nearest ancestor with no .git of
+# its own, continuing past any ancestor that itself carries a .git exactly
+# as the original git-preservation rule described; a depth-1 target has no
+# parent skill at all, so it falls straight through to the global config
+# fallback unconditionally. Falls all the way through to the global config
+# root when every ancestor (or there simply are none, for depth-1) carries a
+# .git or does not exist.
+# Input: array reference of one or more skill-name segments.
+# Output: hash reference - either {kind => 'skill', dir => stopping skill
+# directory (always a PARENT of the target, never the target itself),
+# remaining => arrayref of the segments BELOW that directory (the nesting
+# still owed inside its config.json)}, or {kind => 'global', remaining =>
+# arrayref of the FULL segment list} when no git-free parent ancestor exists
+# (including the depth-1 case, which has none by construction); undef when
+# the segments do not resolve to an installed skill chain at all.
+sub skill_config_write_location {
+    my ( $self, $segments ) = @_;
+    return if ref($segments) ne 'ARRAY' || !@{$segments};
+    my @chain = $self->nested_skill_dir_chain($segments);
+    return if !@chain;
+
+    for ( my $i = $#chain - 1; $i >= 0; $i-- ) {
+        my $dir = $chain[$i];
+        next if -d File::Spec->catdir( $dir, '.git' );
+        my @remaining = @{$segments}[ $i + 1 .. $#{$segments} ];
+        return { kind => 'skill', dir => $dir, remaining => \@remaining };
+    }
+
+    return { kind => 'global', remaining => [ @{$segments} ] };
+}
+
 # installed_skill_docker_roots()
 # Returns the config/docker roots contributed by installed skills in deterministic sorted order.
 # Input: none.
