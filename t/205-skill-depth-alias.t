@@ -796,7 +796,7 @@ __END__
 
 =head1 NAME
 
-t/204-skill-depth-alias.t - skill-depth-prefixed dotted alias name support for
+t/205-skill-depth-alias.t - skill-depth-prefixed dotted alias name support for
 dashboard path/file add and del
 
 =head1 PURPOSE
@@ -836,7 +836,7 @@ C<nested_skill_entries>, or C<skill_config_write_location>.
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/204-skill-depth-alias.t> while iterating, and keep it green
+Run C<prove -lv t/205-skill-depth-alias.t> while iterating, and keep it green
 under C<prove -lr t> before release. The file is hermetic: it roots a
 temporary home, chdirs into it, and builds real nested skill directory
 fixtures (including C<.git> markers) under a temp C<skills/> tree rather than
@@ -850,7 +850,7 @@ confirm the write and read sides stay in agreement.
 
 =head1 EXAMPLES
 
-  prove -lv t/204-skill-depth-alias.t
+  prove -lv t/205-skill-depth-alias.t
 
 Run this suite on its own while iterating.
 
