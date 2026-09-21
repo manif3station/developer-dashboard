@@ -360,10 +360,23 @@ sub _run_compile_and_install {
     if ( $exit_code == 0 && -f $temp_out ) {
         chmod 0755, $temp_out;
         rename $temp_out, $args{bin_file};
+
+        # DD-1003: write the digest to a sibling temp path first, then
+        # rename() it onto md5_file - matching bin_file's own atomic
+        # install two lines above. A plain open('>',...) on md5_file
+        # directly truncates it to empty the instant open() succeeds,
+        # well before the digest is written; any interruption in that
+        # window (kill, OOM, crash) leaves a permanently-corrupt marker
+        # next to an already-valid binary, wedging resolve() into
+        # treating a fresh binary as stale forever. rename(2) on the same
+        # filesystem is atomic, so a reader can only ever see the
+        # complete previous content or the complete new content.
+        my $md5_tmp = "$args{md5_file}.tmp.$$";
         # uncoverable branch false
-        if ( open my $mfh, '>', $args{md5_file} ) {
+        if ( open my $mfh, '>', $md5_tmp ) {
             print {$mfh} $args{md5};
             close $mfh;
+            rename $md5_tmp, $args{md5_file};
         }
     }
     else {
