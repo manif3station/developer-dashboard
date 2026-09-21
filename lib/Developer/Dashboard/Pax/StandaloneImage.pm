@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::StandaloneImage;
 
-our $VERSION = '4.63';
+our $VERSION = '4.64';
 
 use strict;
 use warnings;
@@ -1327,6 +1327,31 @@ sub _source_hash {
     return $sha->hexdigest;
 }
 
+# _pax_launcher_build_dir_name(%args) -> STRING
+#
+# Purpose: derive the literal directory NAME (not a full path) used as the
+#   pax launcher build cache, namespaced by invoking uid.
+# Input: optional %args with 'uid' (defaults to the real process uid, $<).
+# Output: a string of the form '.pax-launcher-build-<uid>'.
+#
+# DD-926: this used to be the bare literal '.pax-launcher-build', shared by
+# every uid that ever built against the same output parent directory (most
+# commonly bare /tmp). A root-owned build (e.g. from inside a
+# developer-dashboard:latest container) and a later non-root host build then
+# collided on the same path: the first uid to create it "won" ownership, and
+# every later build by a DIFFERENT uid failed outright with Permission
+# Denied trying to write into it - a failure that does not self-clear, since
+# a non-root user cannot remove root-owned files without sudo. Appending the
+# invoking uid removes the collision entirely (the same technique
+# File::Temp itself uses to avoid this exact class of shared-/tmp collision)
+# while still letting repeated builds by the SAME uid reuse the SAME path,
+# preserving the original caching intent.
+sub _pax_launcher_build_dir_name {
+    my (%args) = @_;
+    my $uid = defined $args{uid} ? $args{uid} : $<;
+    return '.pax-launcher-build-' . $uid;
+}
+
 sub _compile_launcher {
     local $?;    # DD-882 (vendored-in from PAX): guard $? so this sub's own subprocess call never leaks a mutated exit status to whatever runs in the caller after it returns.
     my ($manifest) = @_;
@@ -1334,7 +1359,7 @@ sub _compile_launcher {
     my $parent = $manifest->{output_path};
     $parent =~ s{/[^/]+\z}{};
     make_path($parent) if length $parent && !-d $parent;
-    my $build_dir = File::Spec->catdir($parent, '.pax-launcher-build');
+    my $build_dir = File::Spec->catdir($parent, _pax_launcher_build_dir_name());
     make_path($build_dir) if !-d $build_dir;
     my $code_pkg = File::Spec->catfile($build_dir, 'code.pkg');
     my $runtime_pkg = File::Spec->catfile($build_dir, 'runtime.pkg');
