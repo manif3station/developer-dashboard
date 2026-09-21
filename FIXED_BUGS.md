@@ -1,6 +1,34 @@
 # Fixed Bugs
 
 
+## 4.66
+
+- **DD-993**: fixed a CI-only, warnings-FATAL build failure (`Prototype
+  mismatch: sub Developer::Dashboard::RuntimeManager::sleep (;$) vs
+  (;@)`) in `t/100-runtimemanager-coverage.t` and
+  `t/106-runtimemanager-coverage-2.t`. `RuntimeManager.pm` imports its
+  `sleep` from `Time::HiRes`, so `RuntimeManager::sleep` is an alias
+  whose prototype is whatever the running Perl's `Time::HiRes` gives
+  `sleep()` - `(;$)` on the Perl 5.44 GitHub Actions runner used
+  (run 35292793810), `(;@)` on the Perl 5.40.1 this project's own
+  `developer-dashboard:latest` Docker image bundles, which is exactly why
+  the bug reproduced on CI and not locally. Both coverage files installed
+  their test-only mock of `RuntimeManager::sleep` as a permanent
+  (non-local) typeglob assignment guarded only by
+  `no warnings 'redefine'`, which does not cover Perl's separate
+  `prototype` warning category - confirmed even an unprototyped override
+  still mismatches `(;$) vs none` once only `redefine` is silenced. Fixed
+  by silencing both categories together
+  (`no warnings qw(redefine prototype);`) and dropping the mock's own
+  explicit prototype, matching the style already used by every other
+  mock in the suite. Added `t/203-runtimemanager-sleep-mock-prototype.t`,
+  a deterministic, Perl-version-independent regression test for the
+  mechanism (reproduces it against a hand-declared prototype rather than
+  the real `Time::HiRes`, so it cannot pass locally the way the original
+  bug did), and a new system-scoped section in
+  `docs/expected-warnings-in-tests.md` on overriding subs imported (not
+  locally declared) from another module.
+
 ## 4.65
 
 - **DD-941**: `t/15-release-metadata.t`'s retired-internal-wording gate
