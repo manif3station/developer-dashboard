@@ -3076,6 +3076,25 @@ otherwise returned as plain text; a failing subcommand raises an exception
 with its error output attached rather than returning silently as if it had
 succeeded.
 
+`use Developer::Dashboard` also makes `env->include(...)` available, the
+`.env.pl` counterpart to the `# include <skill.path>` comment
+directive a plain `.env` file can use. It pulls one named skill's own
+`.env`/`.env.pl` in by its dotted path, namespacing every resulting
+variable under the skill's path in UPPERCASE with double underscores - `foo`'s
+nested `bar` sub-skill's own `BOB=1` arrives as `$ENV{FOO_BAR__BOB}`, never
+a bare `$ENV{BOB}`:
+
+    use Developer::Dashboard;
+
+    env->include('foo.bar');      # foo's nested bar sub-skill only
+    env->include('foo.bar.*');    # foo.bar, plus every sub-skill nested under it
+
+Unlike `d2`, `env` cannot be a plain exported sub: Perl resolves a bareword
+immediately before `->` as a literal package name at parse time
+regardless of any same-named sub, so `env` is a real second package declared
+inside this file - loading `Developer::Dashboard` is what makes it
+available, the same practical effect as `d2`'s own export.
+
 # SEE ALSO
 
 ["Main Concepts"](#main-concepts),

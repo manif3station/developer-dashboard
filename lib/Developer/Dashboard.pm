@@ -28,6 +28,30 @@ sub d2 {
     return $HANDLE_BY_CWD{$cwd} //= Developer::Dashboard::Handle->new( cwd => $cwd );    # uncoverable condition false
 }
 
+# package env
+# Provides the env->include(...) bareword class-method entry point usable
+# from a .env.pl file after "use Developer::Dashboard;", the .env.pl
+# counterpart to the "# include <skill.path>" comment directive
+# Developer::Dashboard::EnvLoader recognizes in plain .env files. Perl
+# resolves a bareword before "->" as a literal package name string at parse
+# time regardless of any same-named sub, so this has to be a real package
+# (not a plain exported sub like d2 itself) for "env->include(...)" to work
+# at all - loading Developer::Dashboard is what makes it available, the same
+# practical effect DD-979 asked for, even though it is not (and cannot be) a
+# literal @EXPORT entry the way d2 is.
+package env;
+
+# include($spec)
+# Forwards to Developer::Dashboard::EnvInclude->include - see that module for
+# the full resolution, loading, and namespacing behavior.
+# Input: dotted skill path string, optionally suffixed with ".*".
+# Output: ordered array reference of the env files that were loaded.
+sub include {
+    my ( undef, $spec ) = @_;
+    require Developer::Dashboard::EnvInclude;
+    return Developer::Dashboard::EnvInclude->include($spec);
+}
+
 1;
 
 __END__
@@ -3725,6 +3749,25 @@ JSON into a real Perl structure automatically when it looks like JSON,
 otherwise returned as plain text; a failing subcommand raises an exception
 with its error output attached rather than returning silently as if it had
 succeeded.
+
+C<use Developer::Dashboard> also makes C<env-E<gt>include(...)> available, the
+C<.env.pl> counterpart to the C<# include E<lt>skill.pathE<gt>> comment
+directive a plain C<.env> file can use. It pulls one named skill's own
+C<.env>/C<.env.pl> in by its dotted path, namespacing every resulting
+variable under the skill's path in UPPERCASE with double underscores - C<foo>'s
+nested C<bar> sub-skill's own C<BOB=1> arrives as C<$ENV{FOO_BAR__BOB}>, never
+a bare C<$ENV{BOB}>:
+
+    use Developer::Dashboard;
+
+    env->include('foo.bar');      # foo's nested bar sub-skill only
+    env->include('foo.bar.*');    # foo.bar, plus every sub-skill nested under it
+
+Unlike C<d2>, C<env> cannot be a plain exported sub: Perl resolves a bareword
+immediately before C<-E<gt>> as a literal package name at parse time
+regardless of any same-named sub, so C<env> is a real second package declared
+inside this file - loading C<Developer::Dashboard> is what makes it
+available, the same practical effect as C<d2>'s own export.
 
 =head1 SEE ALSO
 

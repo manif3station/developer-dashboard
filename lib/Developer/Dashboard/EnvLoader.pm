@@ -341,6 +341,11 @@ sub _load_env_file {
     while ( my $line = <$fh> ) {
         ++$line_no;
         $line =~ s/\r?\n\z//;
+        if ( my $spec = $class->_include_directive($line) ) {
+            require Developer::Dashboard::EnvInclude;
+            Developer::Dashboard::EnvInclude->include($spec);
+            next;
+        }
         $line = $class->_strip_env_comments(
             line             => $line,
             file             => $file,
@@ -414,6 +419,20 @@ sub _path_identity {
 sub _same_or_descendant_path {
     my ( $class, $path, $root ) = @_;
     return Developer::Dashboard::PathIdentity::_same_or_descendant_path( $path, $root, empty_fallback => 0 );
+}
+
+# _include_directive($line)
+# Recognizes a "# include <skill.path>" or "# include <skill.path.*>" line
+# before generic comment-stripping would otherwise silently discard it as an
+# ordinary whole-line comment.
+# Input: raw, not-yet-comment-stripped .env line string.
+# Output: the include spec string, or undef when the line is not a directive.
+sub _include_directive {
+    my ( $class, $line ) = @_;
+    my $trimmed = $line;    # the sole caller always passes a defined line read from an open filehandle
+    $trimmed =~ s/\A\s+//;
+    return undef if $trimmed !~ /\A#\s*include\s*<([^>]+)>\s*\z/;
+    return $1;
 }
 
 # _strip_env_comments(%args)
