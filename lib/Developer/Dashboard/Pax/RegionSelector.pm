@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::RegionSelector;
 
-our $VERSION = '4.67';
+our $VERSION = '4.68';
 
 use strict;
 use warnings;

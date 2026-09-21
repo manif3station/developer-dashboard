@@ -1,6 +1,24 @@
 # Fixed Bugs
 
 
+## 4.68
+
+- **DD-1004**: `d2 path add`/`d2 file add` always wrote into the flat
+  global `config.json`, even for a dotted, skill-depth-prefixed alias name
+  (e.g. `foo.bar.something`) - there was no write side at all for
+  DD-977/978's read-only skill-alias qualification, and no resolver walked
+  a skill's own nested `skills/` subdirectory. Fixed by adding
+  `PathRegistry::nested_skill_dir_chain`/`nested_skill_entries`/
+  `skill_config_write_location` and the matching `Config::save_skill_*`/
+  `remove_skill_*`/`split_skill_alias_name` machinery, routed through new
+  top-level `save_path_alias`/`save_file_alias`/`remove_path_alias`/
+  `remove_file_alias` dispatchers. Per the owner's git-preservation
+  correction (Q-182): the write never targets a skill's own file directly,
+  at any depth, so a user's override always shadows that skill's shipped
+  default without risking data loss on the skill's next `d2 skill install`/
+  update. Documented in
+  `docs/skill-depth-prefixed-alias-add-and-git-preservation-walk-up.md`.
+
 ## 4.67
 
 - **DD-989**: fixed a symlink-clobber vulnerability in
