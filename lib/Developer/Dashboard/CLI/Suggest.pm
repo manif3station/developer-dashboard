@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Suggest;
 use strict;
 use warnings;
 
-our $VERSION = '4.60';
+our $VERSION = '4.61';
 
 use File::Basename qw(basename);
 use File::Spec;

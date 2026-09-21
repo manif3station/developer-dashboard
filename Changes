@@ -1,3 +1,18 @@
+4.61  2026-09-21
+
+  - DD-985: fixed a path-traversal vulnerability (CWE-22) in
+    'dashboard of'/open-file's exact-match fast path
+    (_scope_relative_path_match). A '..' segment in the search
+    pattern escaped the resolved scope directory entirely, so
+    ordinary usage such as 'dashboard of myproject ../../.ssh
+    id_rsa' could open or print any file readable by the invoking
+    user, with no special flag required. Fixed by resolving through
+    the project's existing lexical containment helper
+    (_contained_cache_path, the same one DD-498's Zip Slip fix
+    established) instead of a second bespoke check. The
+    regex-search fallback path was confirmed structurally
+    non-vulnerable and left untouched.
+
 4.60  2026-09-21
 
   - DD-979: new .env/.env.pl skill include feature. A "# include
