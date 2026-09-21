@@ -1,6 +1,17 @@
 # Fixed Bugs
 
 
+## 4.63
+
+- **DD-986**: `CLI::Skills.pm` carried its own private `_render_table`/
+  `_format_row`/`_plain_text`, left out of DD-773's consolidation of
+  `Files.pm`/`Paths.pm`/`Which.pm` onto the shared
+  `TableHelpers::render_table`. Grepping every real call site confirmed
+  its ANSI-stripping behavior was never exercised (both content-producing
+  helpers feeding cells return hardcoded plain text), so it was dead
+  weight rather than a distinguishing behaviour. Migrated onto the shared
+  helper, removed ~40 duplicated lines, verified byte-identical output.
+
 ## 4.62
 
 - **DD-984**: `Developer::Dashboard.pm`'s "Layered Env Files" POD section -
