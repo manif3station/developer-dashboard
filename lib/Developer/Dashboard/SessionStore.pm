@@ -3,7 +3,7 @@ package Developer::Dashboard::SessionStore;
 use strict;
 use warnings;
 
-our $VERSION = '4.61';
+our $VERSION = '4.62';
 
 use Crypt::URandom qw(urandom);
 use File::Spec;

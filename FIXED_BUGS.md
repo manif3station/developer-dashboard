@@ -1,6 +1,15 @@
 # Fixed Bugs
 
 
+## 4.62
+
+- **DD-984**: `Developer::Dashboard.pm`'s "Layered Env Files" POD section -
+  the natural place a reader would look for anything about `.env`/`.env.pl`
+  loading - made zero mention of DD-979's `env->include`/`# include`
+  feature, documented ~2500 lines later inside the unrelated `EMBEDDING IN
+  PERL CODE` section with no cross-reference either way. Fixed by adding a
+  short pointer paragraph in both directions.
+
 ## 4.61
 
 - **DD-985**: `CLI::OpenFile`'s `_scope_relative_path_match` (the
