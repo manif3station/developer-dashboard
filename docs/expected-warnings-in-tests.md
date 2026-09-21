@@ -95,3 +95,88 @@ measurement.
 - Did the verification prove the guarded block ran, on both sides?
 - If a sibling test handles the same warning, does this one match its shape —
   and if it deliberately differs, does a comment say why?
+
+## A different shape: overriding an IMPORTED sub carries its importer's prototype
+
+The warnings above are provoked by a failure path. This one is provoked by the
+**mock itself** — installing a test double over a sub that was never declared
+in this project's own code, and whose prototype the mock author cannot see by
+reading this repository.
+
+### The mechanism
+
+A module that does `use Time::HiRes qw(sleep time);` does not declare its own
+`sleep`. The imported name is an **alias** for `Time::HiRes::sleep`, and it
+carries whatever prototype `Time::HiRes::sleep` has on the Perl that loaded
+it. That prototype is not fixed across Perl/Time::HiRes versions — it has been
+observed as both `(;$)` and `(;@)` on Perls this project has actually run on.
+
+A test that overrides such a sub **permanently, at file scope**, with a
+non-local typeglob assignment —
+
+    *Some::Package::sleep = sub { ... };
+
+— has Perl check the assignment against the slot's *existing* contents for
+two independent things, both separately warnable and both fatal under this
+project's `use warnings FATAL => 'all'`:
+
+- **`redefine`** — is a named sub being replaced at all?
+- **`prototype`** — does the new sub's prototype (including the case of
+  having none) match the old one's?
+
+**Silencing `redefine` alone does not touch `prototype`.** And giving the
+override sub no prototype of its own does not make it safe either — Perl
+still compares "no prototype" against whatever the existing sub's prototype
+is, and reports a mismatch (`... vs none`) exactly as it would for two
+different explicit prototypes. The only combination immune to the version the
+imported sub's prototype happens to carry is silencing **both** categories
+together:
+
+    no warnings qw(redefine prototype);
+    *Some::Package::sleep = sub { ... };
+
+### Why this is invisible on some machines and fatal on others
+
+The prototype comparison is between two concrete values, so whether it fires
+at all depends on whether the machine's imported sub's prototype happens to
+equal the override's. A developer whose local interpreter's imported sub
+already matches the override never sees anything — the check passes
+trivially. A CI runner (or any other machine) whose interpreter's import
+carries a different prototype hits the mismatch every time. **Neither
+observation proves anything about the other machine** — a clean local run is
+not evidence the override is safe, only evidence that this one machine's
+import happens to agree with it.
+
+### The narrower, always-safe alternative
+
+A **`local`** typeglob assignment —
+
+    local *Some::Package::sleep = sub { ... };
+
+— triggers neither warning category, on any Perl, because `local`izing a glob
+temporarily clears the slot before the new value is installed: there is
+nothing present for the new assignment to be checked against. This is safe by
+construction and needs no `no warnings` at all — but it is dynamically
+scoped, so it reverts the moment the enclosing block exits. It is the right
+tool for a mock that only needs to be active inside one test block; it is the
+*wrong* tool for a mock that must survive for an entire test file's duration,
+because a `local` inside a file-scope `BEGIN` block reverts as soon as that
+`BEGIN` block finishes running.
+
+### Applying this
+
+Before overriding any sub this project did not itself declare (an import from
+a core module, a role, an inherited method):
+
+1. Is the override scoped to one block, or does it need to live for the whole
+   file? A block-scoped override should use `local *glob = sub {...}` and
+   needs no extra `no warnings` line at all.
+2. A file-scope override needs a permanent (non-`local`) glob assignment, and
+   therefore needs `no warnings qw(redefine prototype);` together — never
+   `redefine` alone — regardless of whether the override sub itself carries an
+   explicit prototype.
+3. Never conclude an override is safe from a single machine's clean run. The
+   prototype the override collides with belongs to whatever provided the
+   original sub, not to this project's code, and it can differ by
+   interpreter/module version between any two machines running the same
+   checkout.

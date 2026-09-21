@@ -82,7 +82,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.65', 'repo version bumped at DD-941\'s distro-column gate per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-941 (t/15-release-metadata.t retired-internal-wording allow-list widened to the legacy-namespace phrase, Q-179)' );
+is( $version, '4.66', 'repo version bumped per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-993 (RuntimeManager::sleep prototype-mismatch CI fix)' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
