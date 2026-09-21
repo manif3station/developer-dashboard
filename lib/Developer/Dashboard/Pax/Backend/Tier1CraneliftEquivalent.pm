@@ -1,5 +1,5 @@
 package Developer::Dashboard::Pax::Backend::Tier1CraneliftEquivalent;
-our $VERSION = '4.59';
+our $VERSION = '4.60';
 
 use strict;
 use warnings;

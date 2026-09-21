@@ -1,6 +1,19 @@
 # Fixed Bugs
 
 
+## 4.60
+
+- **DD-979**: while implementing the new `.env`/`.env.pl` skill include
+  feature (`env->include(...)` / `# include <foo.bar>`), found that
+  `EnvInclude::_resolve_targets`'s dot-split of the include spec, while
+  structurally safe against a literal `..` token, still let a spec like
+  `../..` survive as a bare `/` segment and reach
+  `File::Spec->catdir` unvalidated - a path-traversal exposure. Fixed
+  before landing with an explicit `_valid_segment()` defense-in-depth
+  guard (rejects `.`, `..`, embedded `/`/`\`, control/NUL bytes,
+  empty/undef); verified with a live traversal-payload test against a
+  planted fixture outside the skills tree.
+
 ## 4.59
 
 - **DD-978**: the parallel gap to DD-977 (4.58), for `file_aliases`

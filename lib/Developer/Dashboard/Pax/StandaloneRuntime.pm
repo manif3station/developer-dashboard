@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::StandaloneRuntime;
 
-our $VERSION = '4.59';
+our $VERSION = '4.60';
 
 use strict;
 use warnings;
