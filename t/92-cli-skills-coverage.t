@@ -701,32 +701,14 @@ like( $usage_bare, qr/^Service\s+Files\n-+/m,   'a skill with no docker services
 like( $usage_bare, qr/^Name\s+Qualified\s+Indicator\s+Schedule\n-+/m, 'a skill with no collectors still renders the collectors header' );
 
 # ---------------------------------------------------------------------------
-# Table rendering primitives.
+# Table rendering now delegates to the shared Developer::Dashboard::CLI::
+# TableHelpers::render_table (DD-986), whose own edge cases (absent header,
+# absent rows, undef cells, a row wider than its header) are covered by
+# t/70-cli-files-coverage.t and t/90-cli-paths-coverage.t. Skills.pm's own
+# call sites into it are exercised above via run_cli('list'|'install'|
+# 'enable'|'disable'|'uninstall') and the _usage_table/_skills_install_
+# summary_table assertions.
 # ---------------------------------------------------------------------------
-
-is(
-    Developer::Dashboard::CLI::Skills::_render_table( undef, undef ),
-    "\n\n",
-    'a table with no header and no rows renders as two empty lines',
-);
-
-is(
-    Developer::Dashboard::CLI::Skills::_render_table( [ 'One', undef ], [ [ 'a', undef ] ] ),
-    "One  \n---  \na    \n",
-    'undefined header and row cells render as empty strings',
-);
-
-is(
-    Developer::Dashboard::CLI::Skills::_render_table( ['H'], [ [ 'a', 'wide' ] ] ),
-    "H      \n-  ----\na  wide\n",
-    'a row wider than the header seeds the missing column width from the row',
-);
-
-is(
-    Developer::Dashboard::CLI::Skills::_render_table( ['Skill'], [ ["\e[32mok\e[0m"] ] ),
-    "Skill\n-----\n\e[32mok\e[0m   \n",
-    'ansi escapes are excluded from the padded column width',
-);
 
 is( scalar @warnings, 0, 'no warnings were emitted' ) or diag( join "\n", @warnings );
 

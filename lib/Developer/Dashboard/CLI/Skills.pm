@@ -9,6 +9,7 @@ use Getopt::Long qw(GetOptionsFromArray);
 use Cwd qw(getcwd);
 use Developer::Dashboard::JSON qw(json_encode);
 use Developer::Dashboard::CLI::Progress;
+use Developer::Dashboard::CLI::TableHelpers qw(render_table);
 use Developer::Dashboard::PathRegistry;
 use Developer::Dashboard::SkillManager;
 
@@ -335,7 +336,7 @@ sub _skills_install_summary_table {
     elsif ( !@rows || !$changed ) {
         $text .= "No update.\n";
     }
-    $text .= _render_table( [ 'Skill', 'Source', 'Before', 'After', 'Status' ], \@rows ) if @rows;
+    $text .= render_table( [ 'Skill', 'Source', 'Before', 'After', 'Status' ], \@rows ) if @rows;
     return $text;
 }
 
@@ -369,7 +370,7 @@ sub _skills_table {
             $_->{indicators_count} || 0,
         ]
     } @{ $skills || [] };
-    return _render_table(
+    return render_table(
         [ 'Repo', 'Enabled', 'CLI', 'Pages', 'Docker', 'Collectors', 'Indicators' ],
         \@rows,
     );
@@ -390,7 +391,7 @@ sub _usage_table {
     $text .= "Docker Root: $usage->{docker}{root}\n\n";
 
     $text .= "CLI Commands\n";
-    $text .= _render_table(
+    $text .= render_table(
         [ 'Command', 'Hooks', 'Hook Count', 'Path' ],
         [
             map {
@@ -399,7 +400,7 @@ sub _usage_table {
         ],
     );
     $text .= "\nPages\n";
-    $text .= _render_table(
+    $text .= render_table(
         [ 'Type', 'Entry' ],
         [
             ( map { [ 'page', $_ ] } @{ $usage->{pages}{entries} || [] } ),
@@ -407,14 +408,14 @@ sub _usage_table {
         ],
     );
     $text .= "\nDocker Services\n";
-    $text .= _render_table(
+    $text .= render_table(
         [ 'Service', 'Files' ],
         [
             map { [ $_->{name}, join ', ', @{ $_->{files} || [] } ] } @{ $usage->{docker}{services} || [] }
         ],
     );
     $text .= "\nCollectors\n";
-    $text .= _render_table(
+    $text .= render_table(
         [ 'Name', 'Qualified', 'Indicator', 'Schedule' ],
         [
             map {
@@ -442,45 +443,7 @@ sub _skills_state_table {
         push @header, 'Enabled';
         push @row, _boolean_text($enabled);
     }
-    return _render_table( \@header, [ \@row ] );
-}
-
-# _render_table($header, $rows)
-# Formats a rectangular data set as a padded text table.
-# Input: header array reference and row array reference.
-# Output: text string ending in a newline.
-sub _render_table {
-    my ( $header, $rows ) = @_;
-    my @rows = @{ $rows || [] };
-    my @widths = map { length _plain_text($_) } @{ $header || [] };
-    for my $row (@rows) {
-        for my $idx ( 0 .. $#{$row} ) {
-            my $value = defined $row->[$idx] ? $row->[$idx] : '';
-            my $width = length _plain_text($value);
-            $widths[$idx] = $width if !defined $widths[$idx] || $width > $widths[$idx];
-        }
-    }
-
-    my @lines;
-    push @lines, _format_row( $header, \@widths );
-    push @lines, _format_row( [ map { '-' x $widths[$_] } 0 .. $#widths ], \@widths );
-    push @lines, map { _format_row( $_, \@widths ) } @rows;
-    return join( "\n", @lines ) . "\n";
-}
-
-# _format_row($row, $widths)
-# Pads one table row to the requested column widths.
-# Input: row array reference and width array reference.
-# Output: padded row text.
-sub _format_row {
-    my ( $row, $widths ) = @_;
-    my @cells;
-    for my $idx ( 0 .. $#{$widths} ) {
-        my $value = defined $row->[$idx] ? $row->[$idx] : '';
-        my $plain = _plain_text($value);
-        push @cells, $value . ( ' ' x ( $widths->[$idx] - length($plain) ) );
-    }
-    return join '  ', @cells;
+    return render_table( \@header, [ \@row ] );
 }
 
 # _enabled_text($value)
@@ -499,17 +462,6 @@ sub _enabled_text {
 sub _boolean_text {
     my ($value) = @_;
     return $value ? 'yes' : 'no';
-}
-
-# _plain_text($value)
-# Removes ANSI color escapes from one display string.
-# Input: scalar value.
-# Output: plain string without ANSI escapes.
-sub _plain_text {
-    my ($value) = @_;
-    $value = '' if !defined $value;
-    $value =~ s/\e\[[0-9;]*m//g;
-    return $value;
 }
 
 1;

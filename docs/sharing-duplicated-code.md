@@ -89,6 +89,36 @@ passed in to make one body serve every call site - `_build_paths` is
 byte-identical between `Files.pm` and `Which.pm`, and `_render_table`
 differs only by a trailing blank line, not by behaviour. Share it (DD-773).
 
+## Follow-up: the same table helpers, one file left behind
+
+DD-773 above migrated `Files.pm`, `Paths.pm` and `Which.pm` onto the shared
+`TableHelpers::render_table`, but `CLI/Skills.pm` kept its own private
+`_render_table`/`_format_row` — not overlooked forever, just excluded from
+that ticket's scope. Its version called one extra private helper,
+`_plain_text`, that stripped ANSI colour escapes (`s/\e\[[0-9;]*m//g`) before
+computing column widths, so a coloured cell would still pad correctly. That
+looked at first like a genuine behavioural difference blocking the merge (per
+the test above: "a value that selects between behaviours").
+
+It was not, once checked. Applying the test properly means checking whether
+that difference is ever *exercised*, not just whether it *exists*: grepping
+every real call site into Skills.pm's table renderer showed the only two
+content-producing helpers feeding cell values, `_enabled_text` and
+`_boolean_text`, return hardcoded plain strings (`'enabled'/'disabled'`,
+`'yes'/'no'`) — never ANSI. The only other ANSI-shaped code in the file was an
+unrelated `color => (-t STDERR ? 1 : 0)` flag feeding a separate
+`Developer::Dashboard::CLI::Progress` object, never touching the table
+renderer at all. So the ANSI-stripping was dead weight, not a distinguishing
+behaviour, and Skills.pm was migrated onto the shared helper directly (DD-986)
+— confirmed byte-identical output for real skill-list-shaped tables before and
+after.
+
+**The lesson this adds:** a helper that does strictly more than the shared one
+is not automatically a reason to keep it separate. Check whether the "more"
+is ever reached by a real call site before treating it as a blocking
+difference — an unreached capability is not a behaviour, it is unexercised
+code wearing the shape of one.
+
 ## Another worked example: the config-loader constructor
 
 `Housekeeper.pm` and `Doctor.pm` each carried a `_config` method that only
