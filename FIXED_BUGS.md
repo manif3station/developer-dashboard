@@ -1,6 +1,25 @@
 # Fixed Bugs
 
 
+## 4.61
+
+- **DD-985**: `CLI::OpenFile`'s `_scope_relative_path_match` (the
+  exact-match fast path for `dashboard of <scope> <pattern...>`)
+  joined caller-supplied search-pattern tokens via
+  `File::Spec->catfile` onto the resolved scope directory with no
+  containment check - a `..` segment in the pattern escaped `$scope`
+  entirely, so ordinary usage like `dashboard of myproject
+  ../../.ssh id_rsa` could open or print any file readable by the
+  invoking user (CWE-22 path traversal), with no special flag
+  needed. Fixed by resolving through `_contained_cache_path`, the
+  same lexical containment helper this project's DD-498 Zip Slip fix
+  already established, rather than a second bespoke check. Verified
+  RED-then-GREEN with a real secret file outside the scope directory:
+  the traversal payload returned a genuine match before the fix and
+  is rejected after. The regex-search fallback path (rooted at
+  `$scope` via `File::Find`) was confirmed structurally
+  non-vulnerable and left untouched.
+
 ## 4.60
 
 - **DD-979**: while implementing the new `.env`/`.env.pl` skill include
