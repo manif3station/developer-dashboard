@@ -98,9 +98,9 @@ sub run_files_command {
         die "Usage: dashboard file add <name> <path> [-o json|table]\n" if $output ne 'json' && $output ne 'table';
         my $name = shift @argv || die "Usage: dashboard file add <name> <path>\n";
         my $path = shift @argv || die "Usage: dashboard file add <name> <path>\n";
-        my $saved = $config->save_global_file_alias( $name, $path );
-        $files->register_named_files( { $name => $saved->{path} } );
-        $saved->{resolved} = $files->resolve_file($name);
+        my $saved = $config->save_file_alias( $name, $path );
+        $files->register_named_files( { $saved->{name} => $saved->{path} } );
+        $saved->{resolved} = $files->resolve_file( $saved->{name} );
         if ( $output eq 'json' ) {
             print json_encode($saved);
             return 1;
@@ -118,7 +118,7 @@ sub run_files_command {
         GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
         die "Usage: dashboard file del <name> [-o json|table]\n" if $output ne 'json' && $output ne 'table';
         my $name = shift @argv || die "Usage: dashboard file del <name>\n";
-        my $deleted = $config->remove_global_file_alias($name);
+        my $deleted = $config->remove_file_alias($name);
         $files->unregister_named_file($name);
         if ( $output eq 'json' ) {
             print json_encode($deleted);
