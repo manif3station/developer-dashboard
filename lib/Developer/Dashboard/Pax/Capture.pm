@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::Capture;
 
-our $VERSION = '4.66';
+our $VERSION = '4.67';
 
 use strict;
 use warnings;
