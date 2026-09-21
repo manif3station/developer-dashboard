@@ -1,3 +1,10 @@
+4.62  2026-09-21
+
+  - DD-984: Developer::Dashboard.pm's "Layered Env Files" POD section had
+    no cross-reference to DD-979's env->include/# include feature,
+    documented ~2500 lines later with no backlink either. Added a pointer
+    paragraph in both directions; README.md regenerated.
+
 4.61  2026-09-21
 
   - DD-985: fixed a path-traversal vulnerability (CWE-22) in
