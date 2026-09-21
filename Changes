@@ -1,3 +1,14 @@
+4.63  2026-09-21
+
+  - DD-986: CLI/Skills.pm kept its own private _render_table/_format_row,
+    left out of DD-773's consolidation of Files.pm/Paths.pm/Which.pm onto
+    the shared Developer::Dashboard::CLI::TableHelpers::render_table.
+    Confirmed via grep of every real call site that its ANSI-stripping
+    behavior (_plain_text) was dead weight - the only content-producing
+    helpers feeding cells return hardcoded plain text. Migrated Skills.pm
+    onto the shared helper, removed ~40 lines of duplicated code, verified
+    byte-identical output for representative skill-list data.
+
 4.62  2026-09-21
 
   - DD-984: Developer::Dashboard.pm's "Layered Env Files" POD section had
