@@ -1,3 +1,17 @@
+4.69  2026-09-21
+
+  - DD-1003: `PaxCache::_run_compile_and_install`'s `md5_file` digest write
+    is now atomic (write to a sibling temp path, then `rename()`), matching
+    the atomic-install pattern already used for `bin_file` two lines above
+    it. Previously a plain `open('>', $md5_file)` truncated the file to
+    zero bytes the instant `open()` succeeded, well before the digest was
+    written - any interruption in that window (SIGKILL, OOM, host reboot)
+    left `md5_file` as a real, existing, zero-byte file beside an
+    already-valid, already-renamed binary, permanently wedging
+    `resolve()` into treating a fresh cache as stale forever.
+    `t/206-paxcache-md5-atomic-write.t` proves the fix directly via a
+    fork+SIGKILL race against the real `_run_compile_and_install` path.
+
 4.68  2026-09-21
 
   - DD-1004: `d2 path add`/`d2 file add` now support skill-depth-prefixed
