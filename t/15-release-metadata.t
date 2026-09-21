@@ -82,7 +82,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.64', 'repo version bumped at DD-926\'s distro-column gate per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-926 (pax launcher build cache namespaced per uid)' );
+is( $version, '4.65', 'repo version bumped at DD-941\'s distro-column gate per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-941 (t/15-release-metadata.t retired-internal-wording allow-list widened to the legacy-namespace phrase, Q-179)' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
@@ -670,13 +670,13 @@ for my $doc ( grep { defined && $_ ne '' } ( $skill_guide, $skills_pod ) ) {
 
 for my $path (@doc_paths) {
     my $doc = _slurp($path);
-    unlike( $doc, qr/\blegacy\b/i, "$path no longer mentions the retired internal wording" );
+    unlike( _strip_legacy_namespace_mentions($doc), qr/\blegacy\b/i, "$path no longer mentions the retired internal wording" );
     unlike( $doc, qr/`FORM\.TT:`|`FORM:`|\bFORM\.TT\b/, "$path no longer documents removed FORM bookmark directives" );
 }
 
 for my $path (@pod_paths) {
     my $pod = _extract_pod( _slurp($path) );
-    unlike( $pod, qr/\blegacy\b/i, "$path POD no longer mentions the retired internal wording" );
+    unlike( _strip_legacy_namespace_mentions($pod), qr/\blegacy\b/i, "$path POD no longer mentions the retired internal wording" );
     unlike( $pod, qr/C<FORM\.TT:>|C<FORM:>|\bFORM\.TT\b/, "$path POD no longer documents removed FORM bookmark directives" );
 }
 
@@ -940,6 +940,21 @@ sub _slurp_optional {
 
 sub _repo_path {
     return File::Spec->catfile( $ROOT, @_ );
+}
+
+# DD-941 (owner decision, Q-179: widen the allow-list to the phrase, not just
+# the identifier): the retired-internal-wording gate below bans the bare word
+# "legacy" case-insensitively, but __PAX_RUNTIME_LEGACY_NAMESPACE__ is a real,
+# current, shipping identifier, and FIXED_BUGS.md's append-only entries also
+# describe it in prose as a "legacy-namespace alias" without the identifier
+# literally present on that line (e.g. the DD-931 4.37 entry). Both are the
+# same real technical term, not leftover retired wording, so both are exempt
+# here - everything else still trips the plain /\blegacy\b/i check.
+sub _strip_legacy_namespace_mentions {
+    my ($text) = @_;
+    $text =~ s/__PAX_RUNTIME_LEGACY_NAMESPACE__//gi;
+    $text =~ s/legacy-namespace//gi;
+    return $text;
 }
 
 sub _extract_pod {
