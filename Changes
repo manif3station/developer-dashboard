@@ -1,3 +1,28 @@
+4.68  2026-09-21
+
+  - DD-1004: `d2 path add`/`d2 file add` now support skill-depth-prefixed
+    dotted alias names (e.g. `d2 path add foo.bar.something /foobar`),
+    resolving arbitrarily nested `skills/<a>/skills/<b>/...` directories.
+    The write NEVER targets a skill's own `config/config.json` directly, at
+    any depth, regardless of whether that skill carries its own `.git`
+    (owner correction, Q-182, generalising the original git-preservation
+    framing): it always walks up to the nearest git-free PARENT ancestor,
+    or the global config's `skills` fallback section when none exists
+    (always true for a depth-1 name, which has no parent skill) - storing
+    the alias as a NESTED hash mirroring the remaining depth segments,
+    never a flattened dotted string. A user's override this way always
+    shadows a skill's own shipped default at read time without ever
+    modifying that skill's file, letting a skill's shipped config survive
+    every future `d2 skill install`/update untouched. New:
+    `PathRegistry::nested_skill_dir_chain`/`nested_skill_entries`/
+    `skill_config_write_location`; `Config::split_skill_alias_name`,
+    `save_skill_path_alias`/`save_skill_file_alias`,
+    `remove_skill_path_alias`/`remove_skill_file_alias`, and the top-level
+    `save_path_alias`/`save_file_alias`/`remove_path_alias`/
+    `remove_file_alias` dispatchers both CLI::Paths and CLI::Files now
+    route through. An undotted alias name keeps today's exact global-config
+    behavior, byte-for-byte unchanged. Added t/205-skill-depth-alias.t.
+
 4.67  2026-09-21
 
   - DD-989: fixed a symlink-clobber vulnerability in
