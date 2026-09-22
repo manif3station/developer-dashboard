@@ -1,10 +1,28 @@
-# How PAX standalone binaries will embed payloads on macOS
+# How PAX standalone binaries embed payloads on macOS
 
-This page describes a planned mechanism, not yet implemented or
-verified live (DD-1014) - it exists to record sourced research so the
-next work on this doesn't start cold. Everything below is marked with
-its actual confidence level; nothing here should be treated as proven
-until a "VERIFIED LIVE" note says so.
+This page describes the current, LANDED-BUT-NOT-YET-VERIFIED-LIVE
+mechanism (DD-1014). Everything below is marked with its actual
+confidence level; nothing here should be treated as proven until a
+"VERIFIED LIVE" note says so - and as of this writing, nothing has one.
+
+## Current status: implemented, not yet confirmed on real macOS
+
+`StandaloneImage.pm` now has a real macOS code path:
+`_is_macho_magic`, `_compile_probe_target_format`, and
+`_compile_launcher_darwin` (the `-sectcreate` mechanism below),
+plus an `#ifdef __APPLE__` branch in `_launcher_source` reading
+payloads back via `getsectiondata()`. `_compile_launcher` routes to
+this path automatically when its object-format probe detects Mach-O.
+`pax-release.yml`'s `macos-arm64` job now runs a real build + smoke-
+verify step instead of the old placeholder.
+
+None of this has been confirmed by actually compiling and running
+anything on real macOS - no macOS host (macdev or otherwise) was
+reachable this session. `t/218-standaloneimage-macho-detection.t`
+covers everything testable without one (magic-byte recognition, and
+that the darwin path fails cleanly - not silently - when run on a
+non-Mach-O-producing host). The real proof is the next `macos-14`
+GitHub Actions run of `pax-release.yml`.
 
 ## Why the Linux mechanism doesn't transfer
 

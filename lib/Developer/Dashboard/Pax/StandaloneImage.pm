@@ -817,11 +817,39 @@ sub _code_manifest {
                     _progress_source_label($kind eq 'source' ? 'src' : 'lib', $rel),
                 ),
             }) if $progress;
-            my $compiled = $compiler->compile(
-                path => $path,
-                kind => $kind,
-                logical_path => _safe_logical_path(File::Spec->catfile($prefix, $rel)),
-            );
+            # DD-1015 (second finding, same investigation): a real
+            # windows-amd64 CI run showed ZERO progress for the full
+            # 90-minute job timeout, frozen at this exact call for
+            # lib/Developer/Dashboard/CLI/API.pm - even AFTER adding
+            # STDOUT autoflush (t/217), which ruled out invisible
+            # buffering as the explanation. This is a genuine hang, not
+            # a slow-but-working run. Local reproduction of the SAME
+            # file/call on Linux completes in ~3s. A generous 60s
+            # per-unit wall-clock guard turns an indefinite silent hang
+            # into a fast, diagnosable failure naming the exact unit,
+            # instead of consuming an entire CI job's timeout budget
+            # with no information. NOTE: alarm()-based interruption is
+            # only guaranteed to fire at a Perl-level safe point - if
+            # the true hang lives inside a regex engine's own internal
+            # backtracking (not yet confirmed; DD-1027 tracks the real
+            # root-cause investigation), this guard may not actually
+            # break out of it. It is a diagnostic safety net, not a
+            # fix for the underlying cause.
+            my $compiled = eval {
+                local $SIG{ALRM} = sub { die "compile unit timed out after 60s: $path\n" };
+                alarm(60);
+                my $r = $compiler->compile(
+                    path => $path,
+                    kind => $kind,
+                    logical_path => _safe_logical_path(File::Spec->catfile($prefix, $rel)),
+                );
+                alarm(0);
+                $r;
+            };
+            if ( my $err = $@ ) {
+                alarm(0);
+                die $err;
+            }
             $compiled->{source_bytes} = _slurp_bytes($path);
             push @manifest, $compiled;
             $compiled_app_units++;
@@ -1463,6 +1491,58 @@ sub _compile_probe_object_header {
 # absent, reading the first 2 bytes as a COFF Machine field and
 # confirming it matches a known, real value (0x8664) rather than
 # assuming every non-ELF object must be COFF.
+# Purpose: recognize Mach-O magic bytes (macOS object/executable
+# format), distinct from ELF's "\x7fELF" and COFF's machine-field
+# check. Input: the first 4 raw bytes of a compiled object. Output:
+# true if they match a known Mach-O magic constant.
+#
+# DD-1014: checks both 32-bit and 64-bit magic, and both native and
+# byte-swapped forms - a real little-endian host (every current Mac,
+# Intel or Apple Silicon) writes MH_MAGIC_64 (0xfeedfacf) to disk as
+# CF FA ED FE (the "CIGAM" - magic spelled backwards - byte-swapped
+# form is genuinely what appears on disk for a little-endian target;
+# the big-endian forms are recognized defensively in case a probe ever
+# runs through a cross-compiler targeting a big-endian Mach-O host).
+# Constants from Apple's own <mach-o/loader.h>.
+sub _is_macho_magic {
+    my ($bytes) = @_;
+    return 0 if !defined $bytes || length($bytes) < 4;
+    my $magic = unpack( 'N', substr( $bytes, 0, 4 ) );
+    return ( $magic == 0xfeedface    # MH_MAGIC (32-bit, native)
+          || $magic == 0xcefaedfe    # MH_CIGAM (32-bit, byte-swapped)
+          || $magic == 0xfeedfacf    # MH_MAGIC_64 (64-bit, native)
+          || $magic == 0xcffaedfe    # MH_CIGAM_64 (64-bit, byte-swapped)
+    ) ? 1 : 0;
+}
+
+# Purpose: the lightweight "what object format does this cc produce"
+# check _compile_launcher needs BEFORE deciding whether objcopy applies
+# at all - unlike _compile_probe_object_header_multi_format (which
+# dies on an unrecognized format, since its callers only ever expect
+# ELF/COFF), this returns 'macho' rather than dying, since macOS is a
+# real, expected, structurally-different target here.
+# Input: cc executable path/name. Output: 'elf', 'coff', or 'macho'.
+sub _compile_probe_target_format {
+    my ($cc) = @_;
+    local $?;
+    my $probe_dir = tempdir( CLEANUP => 1 );
+    my $probe_c = File::Spec->catfile( $probe_dir, 'probe.c' );
+    my $probe_o = File::Spec->catfile( $probe_dir, 'probe.o' );
+    open my $fh, '>', $probe_c or die "cannot write probe source: $!";
+    print {$fh} "int main(void) { return 0; }\n";
+    close $fh;
+    system( $cc, '-c', '-o', $probe_o, $probe_c );
+    die "target-format probe compile with '$cc' failed\n" if ( $? >> 8 ) != 0 || !-f $probe_o;
+    open my $ofh, '<:raw', $probe_o or die "cannot read probe object: $!";
+    read $ofh, my $header, 4;
+    close $ofh;
+    return 'elf' if substr( $header, 0, 4 ) eq "\x7fELF";
+    return 'macho' if _is_macho_magic($header);
+    my $coff_machine = unpack( 'v', substr( $header, 0, 2 ) );
+    return 'coff' if $coff_machine == 0x8664;
+    die "target-format probe: unrecognized object format (first bytes: " . unpack( 'H*', $header ) . ")\n";
+}
+
 sub _compile_probe_object_header_multi_format {
     my ($cc) = @_;
     local $?;    # DD-1015/DD-670: same $? guard as _compile_probe_object_header.
@@ -1527,8 +1607,17 @@ sub _compile_launcher {
     print {$fh} _launcher_source($manifest);
     close $fh;
     my $cc = _which('cc') || _which('gcc');
-    my $objcopy = _which('objcopy');
     return { status => 'not_built', reason => 'no C compiler available' } if !$cc;
+    # DD-1014: macOS never uses objcopy at all (llvm-objcopy cannot do
+    # binary-to-object conversion for Mach-O - see
+    # docs/pax-macos-binary-embedding.md), so the format probe runs
+    # BEFORE requiring objcopy, and a Mach-O result routes to the
+    # structurally different -sectcreate mechanism instead.
+    my $probe_format = eval { _compile_probe_target_format($cc) };
+    if ( defined $probe_format && $probe_format eq 'macho' ) {
+        return _compile_launcher_darwin($manifest);
+    }
+    my $objcopy = _which('objcopy');
     return { status => 'not_built', reason => 'no objcopy available' } if !$objcopy;
     my $tool_path = _toolchain_path($cc, $objcopy);
     require Cwd;
@@ -1601,6 +1690,84 @@ sub _compile_launcher {
         : { status => 'not_built', reason => 'standalone launcher compile failed' };
 }
 
+# Purpose: macOS's own compile-launcher path (DD-1014). Structurally
+# different from _compile_launcher's objcopy-based mechanism because
+# macOS's llvm-objcopy cannot do binary-to-object conversion for
+# Mach-O at all (docs/pax-macos-binary-embedding.md) - so instead of
+# objcopy converting each payload into a linkable .o first, the raw
+# .pkg files are embedded directly at link time via `cc -sectcreate
+# <segment> <section> <file>`, and _launcher_source's Mach-O branch
+# (#ifdef __APPLE__) reads them back at runtime via getsectiondata()
+# rather than the _binary_*_start symbols objcopy would have produced.
+#
+# Section names are limited to 16 characters in Mach-O (unlike ELF
+# symbol names) - "__codepkg" (9), "__runtimepkg" (12), "__assetspkg"
+# (11), "__nativepkg" (11) all fit; segment "__DATA" is the standard
+# choice for embedded read-only-at-runtime application data.
+#
+# NOT YET VERIFIED LIVE on a real macOS toolchain (no macOS host
+# reachable this session - see docs/pax-macos-binary-embedding.md).
+# Implemented from Apple's own documented -sectcreate/getsectiondata
+# mechanism; real correctness can only be confirmed via a real
+# macos-14 GitHub Actions run, which pax-release.yml now wires up.
+#
+# Input: the build manifest (same shape _compile_launcher takes).
+# Output: {status => 'built'} or {status => 'not_built', reason => ...}.
+sub _compile_launcher_darwin {
+    local $?;
+    my ($manifest) = @_;
+    my $cc = _which('cc') || _which('gcc');
+    return { status => 'not_built', reason => 'no C compiler available' } if !$cc;
+    my $format = eval { _compile_probe_target_format($cc) };
+    return { status => 'not_built', reason => "cannot determine target format: $@" } if !defined $format;
+    return { status => 'not_built', reason => "_compile_launcher_darwin called against a non-Mach-O toolchain (detected: $format) - this host cannot produce a macOS binary" }
+        if $format ne 'macho';
+
+    my $source_path = "$manifest->{output_path}.c";
+    my $parent = $manifest->{output_path};
+    $parent =~ s{/[^/]+\z}{};
+    make_path($parent) if length $parent && !-d $parent;
+    my $build_dir = File::Spec->catdir($parent, _pax_launcher_build_dir_name());
+    make_path($build_dir) if !-d $build_dir;
+    my $code_pkg = File::Spec->catfile($build_dir, 'code.pkg');
+    my $runtime_pkg = File::Spec->catfile($build_dir, 'runtime.pkg');
+    my $asset_pkg = File::Spec->catfile($build_dir, 'assets.pkg');
+    my $native_pkg = File::Spec->catfile($build_dir, 'native.pkg');
+    _write_binary($code_pkg, _payload_package_blob($manifest->{code_units}));
+    _write_binary($runtime_pkg, _payload_package_blob($manifest->{runtime_payloads}));
+    _write_binary($asset_pkg, _payload_package_blob($manifest->{assets}));
+    _write_binary($native_pkg, _payload_package_blob($manifest->{native_payloads} // []));
+    open my $fh, '>', $source_path or return { status => 'not_built', reason => "cannot write launcher source: $!" };
+    print {$fh} _launcher_source($manifest);
+    close $fh;
+
+    require Cwd;
+    my $cwd = Cwd::getcwd();
+    my $ok = eval {
+        chdir $build_dir or die "cannot chdir to $build_dir: $!";
+        system(
+            $cc,
+            '-O0',
+            '-sectcreate', '__DATA', '__codepkg', 'code.pkg',
+            '-sectcreate', '__DATA', '__runtimepkg', 'runtime.pkg',
+            '-sectcreate', '__DATA', '__assetspkg', 'assets.pkg',
+            '-sectcreate', '__DATA', '__nativepkg', 'native.pkg',
+            '-o', $manifest->{output_path},
+            $source_path,
+        );
+        die "darwin launcher compile failed" if ($? >> 8) != 0;
+        1;
+    };
+    my $build_error = $@;
+    my $restore_ok = eval { chdir $cwd or die "cannot restore cwd to $cwd: $!"; 1; };
+    my $restore_error = $@;
+    return { status => 'not_built', reason => $build_error } if !$ok;
+    return { status => 'not_built', reason => $restore_error } if !$restore_ok;
+    return (($? >> 8) == 0 && -x $manifest->{output_path})
+        ? { status => 'built' }
+        : { status => 'not_built', reason => 'standalone darwin launcher compile failed' };
+}
+
 sub _toolchain_path {
     my (@tools) = @_;
     my %seen;
@@ -1647,6 +1814,34 @@ struct pax_pkg_entry {
     unsigned long offset;
 };
 
+#ifdef __APPLE__
+/* DD-1014: macOS's llvm-objcopy cannot do binary-to-object conversion
+ * for Mach-O (see docs/pax-macos-binary-embedding.md), so the payload
+ * .pkg files are embedded directly at link time via
+ * `cc -sectcreate __DATA __codepkg code.pkg ...` instead of objcopy -
+ * which produces no _binary_*_start symbols the way objcopy does. The
+ * embedded section is located at RUNTIME instead, via getsectiondata()
+ * from <mach-o/getsect.h>, into these pointers.
+ */
+#include <mach-o/getsect.h>
+#include <mach-o/dyld.h>
+static const unsigned char *pax_code_pkg_start, *pax_code_pkg_end;
+static const unsigned char *pax_runtime_pkg_start, *pax_runtime_pkg_end;
+static const unsigned char *pax_assets_pkg_start, *pax_assets_pkg_end;
+static const unsigned char *pax_native_pkg_start, *pax_native_pkg_end;
+static void pax_darwin_load_sections(void) {
+    unsigned long size = 0;
+    const struct mach_header_64 *mh = (const struct mach_header_64 *)_dyld_get_image_header(0);
+    pax_code_pkg_start = getsectiondata(mh, "__DATA", "__codepkg", &size);
+    pax_code_pkg_end = pax_code_pkg_start ? pax_code_pkg_start + size : NULL;
+    pax_runtime_pkg_start = getsectiondata(mh, "__DATA", "__runtimepkg", &size);
+    pax_runtime_pkg_end = pax_runtime_pkg_start ? pax_runtime_pkg_start + size : NULL;
+    pax_assets_pkg_start = getsectiondata(mh, "__DATA", "__assetspkg", &size);
+    pax_assets_pkg_end = pax_assets_pkg_start ? pax_assets_pkg_start + size : NULL;
+    pax_native_pkg_start = getsectiondata(mh, "__DATA", "__nativepkg", &size);
+    pax_native_pkg_end = pax_native_pkg_start ? pax_native_pkg_start + size : NULL;
+}
+#else
 extern const unsigned char _binary_code_pkg_start[];
 extern const unsigned char _binary_code_pkg_end[];
 extern const unsigned char _binary_runtime_pkg_start[];
@@ -1655,6 +1850,16 @@ extern const unsigned char _binary_assets_pkg_start[];
 extern const unsigned char _binary_assets_pkg_end[];
 extern const unsigned char _binary_native_pkg_start[];
 extern const unsigned char _binary_native_pkg_end[];
+#define pax_code_pkg_start _binary_code_pkg_start
+#define pax_code_pkg_end _binary_code_pkg_end
+#define pax_runtime_pkg_start _binary_runtime_pkg_start
+#define pax_runtime_pkg_end _binary_runtime_pkg_end
+#define pax_assets_pkg_start _binary_assets_pkg_start
+#define pax_assets_pkg_end _binary_assets_pkg_end
+#define pax_native_pkg_start _binary_native_pkg_start
+#define pax_native_pkg_end _binary_native_pkg_end
+static void pax_darwin_load_sections(void) {}
+#endif
 
 $runtime_inc_roots
 $code_lib_roots
@@ -1771,11 +1976,12 @@ static int resolve_roots(const char *root, char *code_root, size_t code_size, ch
 }
 
 static int extract_roots(const char *root, char *code_root, size_t code_size, char *runtime_root, size_t runtime_size, char *assets_root, size_t assets_size) {
+    pax_darwin_load_sections();
     if (resolve_roots(root, code_root, code_size, runtime_root, runtime_size, assets_root, assets_size) != 0) return 111;
-    if (write_package_root(code_root, _binary_code_pkg_start, (unsigned long)(_binary_code_pkg_end - _binary_code_pkg_start)) != 0) return 111;
-    if (write_package_root(runtime_root, _binary_runtime_pkg_start, (unsigned long)(_binary_runtime_pkg_end - _binary_runtime_pkg_start)) != 0) return 111;
-    if (write_package_root(assets_root, _binary_assets_pkg_start, (unsigned long)(_binary_assets_pkg_end - _binary_assets_pkg_start)) != 0) return 111;
-    if ($native_package_present && write_package_root(root, _binary_native_pkg_start, (unsigned long)(_binary_native_pkg_end - _binary_native_pkg_start)) != 0) return 111;
+    if (write_package_root(code_root, pax_code_pkg_start, (unsigned long)(pax_code_pkg_end - pax_code_pkg_start)) != 0) return 111;
+    if (write_package_root(runtime_root, pax_runtime_pkg_start, (unsigned long)(pax_runtime_pkg_end - pax_runtime_pkg_start)) != 0) return 111;
+    if (write_package_root(assets_root, pax_assets_pkg_start, (unsigned long)(pax_assets_pkg_end - pax_assets_pkg_start)) != 0) return 111;
+    if ($native_package_present && write_package_root(root, pax_native_pkg_start, (unsigned long)(pax_native_pkg_end - pax_native_pkg_start)) != 0) return 111;
     return 0;
 }
 

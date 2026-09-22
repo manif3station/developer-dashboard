@@ -44,7 +44,7 @@ if ( defined $setup_idx ) {
     # deliberately excluded: no Perl 5.44 binary exists for windows-11-arm
     # at all - see the workflow's own comment - and macOS/DD-1014 remains
     # fully unimplemented).
-    is( $setup_step->{if}, q{startsWith(matrix.target, 'linux-') || matrix.target == 'windows-amd64'}, 'the Perl-setup step is gated to Linux and windows-amd64 targets, matching its dependent steps' );
+    is( $setup_step->{if}, q{startsWith(matrix.target, 'linux-') || matrix.target == 'windows-amd64' || matrix.target == 'macos-arm64'}, 'the Perl-setup step is gated to Linux, windows-amd64 and macos-arm64 targets, matching its dependent steps' );
 }
 
 # AC-4 (found via a REAL PAX Release CI run, not a local test - share/
