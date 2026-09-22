@@ -56,9 +56,10 @@ like( $deps_step->{run}, qr/cpanm.*--installdeps/, 'installs dependencies via cp
 my $smoke_step = $step_by_name{'Smoke-verify the compiled dashboard binary (Linux only)'};
 ok( $smoke_step, 'a smoke-verify step exists for Linux' );
 is( $smoke_step->{if}, q{startsWith(matrix.target, 'linux-')}, 'the smoke-verify step is gated to Linux targets' );
-like( $smoke_step->{run}, qr/compiled_version=.*pax-output\/d2 version/, 'reads the compiled binary\'s own version output' );
-like( $smoke_step->{run}, qr/source_version=.*perl bin\/dashboard version/, 'reads the source-Perl CLI\'s version output for comparison' );
-like( $smoke_step->{run}, qr/if \[ "\$compiled_version" != "\$source_version" \]/, 'fails the job when compiled and source-Perl output diverge' );
+# DD-1016: the version-only shell comparison was replaced by the shared
+# functional-parity harness (t/222 guards the wiring in detail).
+like( $smoke_step->{run}, qr/script\/pax-functional-parity-check/, 'delegates to the shared functional-parity harness (DD-1016)' );
+like( $smoke_step->{run}, qr/--compiled pax-output\/d2\b/, 'points the harness at the real compiled binary' );
 like( $smoke_step->{run}, qr/ELF 32-bit/, 'asserts the i686 binary is genuinely 32-bit, not just successfully built' );
 
 done_testing();

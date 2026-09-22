@@ -389,13 +389,25 @@ sub _lower_i64_binary_leaf {
     my ($body) = @_;
     return if $body !~ /my\s*\(\s*\$([A-Za-z_]\w*)\s*,\s*\$([A-Za-z_]\w*)\s*\)\s*=\s*\@_\s*;/s;
     my ($left, $right) = ($1, $2);
-    return if $body !~ /return\s+\$([A-Za-z_]\w*)\s*([+\-*]|>)\s*\$([A-Za-z_]\w*)\s*;/s;
+    return if $body !~ /return\s+\$([A-Za-z_]\w*)\s*(\+|-|\*|>|&|\||\^)\s*\$([A-Za-z_]\w*)\s*;/s;
     return if $1 ne $left || $3 ne $right;
+    # DDE-007 Stage 1: bitwise &, |, ^ added deliberately, NOT / or % -
+    # Perl's / always returns a float (never matches C's truncating
+    # integer division) and Perl's % follows the RIGHT operand's sign
+    # while C's follows the LEFT operand's - both would be a genuine
+    # semantic mismatch between what this "native i64" shape claims to
+    # replicate and what the generated C code actually computes for
+    # negative or non-evenly-dividing operands. Bitwise ops on integers
+    # are bit-for-bit identical between Perl and C across the FULL i64
+    # domain, so they carry no such risk.
     my %ops = (
         '+' => ['add', 'left + right', 5],
         '-' => ['subtract', 'left - right', -1],
         '*' => ['multiply', 'left * right', 6],
         '>' => ['greater_than', 'if left > right { 1 } else { 0 }', 0],
+        '&' => ['bitwise_and', 'left & right', 2],
+        '|' => ['bitwise_or', 'left | right', 3],
+        '^' => ['bitwise_xor', 'left ^ right', 1],
     );
     my $op = $ops{$2} or return;
     return {

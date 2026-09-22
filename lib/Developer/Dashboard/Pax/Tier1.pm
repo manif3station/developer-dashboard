@@ -192,6 +192,9 @@ sub _c_binary_expr {
     return 'return left - right;' if ($op // '') eq 'subtract';
     return 'return left * right;' if ($op // '') eq 'multiply';
     return 'return left > right ? 1 : 0;' if ($op // '') eq 'greater_than';
+    return 'return left & right;' if ($op // '') eq 'bitwise_and';
+    return 'return left | right;' if ($op // '') eq 'bitwise_or';
+    return 'return left ^ right;' if ($op // '') eq 'bitwise_xor';
     return 'return 0;';
 }
 
