@@ -1,3 +1,15 @@
+4.82  2026-09-22
+
+  - DD-1022: `_skip_dependency_module` wrongly treated `overload` as a
+    compile-time-only pragma like strict/warnings/utf8, so it was
+    never bundled into a standalone binary's runtime payload. Any
+    subcommand whose code path reached File::Temp (which itself
+    `use overload`s stringification/numification) crashed at BEGIN
+    time with "Can't locate overload.pm in @INC" - shipped in v4.78/
+    v4.79 undetected because the release smoke-check only ever ran
+    `dashboard version`. Fixed by removing `overload` from the skip
+    list.
+
 4.81  2026-09-22
 
   - DD-1020 (real fix for t/183, found via real CI on v4.80): the

@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::Benchmark;
 
-our $VERSION = '4.81';
+our $VERSION = '4.82';
 
 use strict;
 use warnings;
