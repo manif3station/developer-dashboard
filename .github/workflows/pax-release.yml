@@ -1,0 +1,73 @@
+name: PAX Release
+
+# DD-1012: workflow skeleton + trigger, part of epic DDE-006 (Multi-platform
+# PAX CI). Trigger mirrors package-ghcr.yml's established push-to-master
+# convention. The matrix defines all 6 owner-confirmed platform/arch targets;
+# the "PAX build (placeholder)" step below is replaced with a real
+# `dashboard pax build` invocation per-platform by sibling tickets
+# DD-1013 (Linux), DD-1014 (macOS), and DD-1015 (Windows). The functional
+# verification harness (DD-1016) is wired in alongside those.
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pax-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            runs_on: ubuntu-latest
+            artifact_name: d2-dashboard-linux-amd64
+          - target: linux-arm64
+            runs_on: ubuntu-24.04-arm
+            artifact_name: d2-dashboard-linux-arm64
+          - target: linux-i686
+            # No native 32-bit GitHub-hosted runner exists (verified
+            # 2026-09-22). This runs on an amd64 host under a 32-bit
+            # toolchain/QEMU-user setup - the exact mechanism is DD-1013's
+            # to implement; this entry only reserves the matrix slot.
+            runs_on: ubuntu-latest
+            artifact_name: d2-dashboard-linux-i686
+          - target: macos-arm64
+            runs_on: macos-14
+            artifact_name: d2-dashboard-macos-arm64
+          - target: windows-amd64
+            runs_on: windows-latest
+            artifact_name: d2-dashboard-windows-amd64
+          - target: windows-arm64
+            # GitHub-hosted Windows arm64 runners reached GA 2025-08 (public
+            # repos) / 2026-01 (private repos) - verified 2026-09-22. Exact
+            # runner label confirmed by DD-1015 when it wires the real
+            # build step.
+            runs_on: windows-11-arm
+            artifact_name: d2-dashboard-windows-arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: PAX build (placeholder)
+        run: echo "TODO (DD-1013/1014/1015) - dashboard pax build for ${{ matrix.target }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: pax-output/
+          if-no-files-found: ignore
