@@ -151,7 +151,7 @@ jobs:
           # Root cause not fully diagnosed (FindBin's $Bin+cwd resolution
           # behaves differently in this CI environment); -Ilib sidesteps it
           # entirely by being explicit rather than relying on inference.
-          perl -Ilib share/private-cli/pax build --compact -o pax-output/dashboard bin/dashboard
+          perl -Ilib share/private-cli/pax build --compact -o pax-output/d2 bin/dashboard
 
       - name: PAX build dashboard (Windows amd64 only)
         # DD-1015: windows-arm64 stays on the placeholder below - the
@@ -180,7 +180,7 @@ jobs:
         if: matrix.target == 'windows-amd64'
         run: |
           mkdir pax-output -Force | Out-Null
-          perl -Ilib share/private-cli/pax build --compact -o pax-output/dashboard.exe bin/dashboard
+          perl -Ilib share/private-cli/pax build --compact -o pax-output/d2.exe bin/dashboard
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: PAX build (placeholder, windows-arm64 and macOS)
@@ -191,11 +191,11 @@ jobs:
         if: startsWith(matrix.target, 'linux-')
         run: |
           set -e
-          file pax-output/dashboard
+          file pax-output/d2
           if [ "${{ matrix.target }}" = "linux-i686" ]; then
-            file pax-output/dashboard | grep -q "ELF 32-bit" || { echo "expected a 32-bit ELF binary"; exit 1; }
+            file pax-output/d2 | grep -q "ELF 32-bit" || { echo "expected a 32-bit ELF binary"; exit 1; }
           fi
-          compiled_version=$(./pax-output/dashboard version)
+          compiled_version=$(./pax-output/d2 version)
           source_version=$(perl bin/dashboard version)
           if [ "$compiled_version" != "$source_version" ]; then
             echo "compiled binary version ($compiled_version) does not match source-Perl CLI version ($source_version)"
@@ -208,7 +208,7 @@ jobs:
         # Strawberry Perl the binary was built with, not Git Bash's own.
         if: matrix.target == 'windows-amd64'
         run: |
-          $compiled_version = & ./pax-output/dashboard.exe version
+          $compiled_version = & ./pax-output/d2.exe version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $source_version = & perl bin/dashboard version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
