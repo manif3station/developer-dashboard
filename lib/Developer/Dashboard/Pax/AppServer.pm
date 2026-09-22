@@ -8,6 +8,7 @@ use IO::Socket::UNIX;
 use JSON::XS qw(decode_json);
 use POSIX qw(setsid);
 use Developer::Dashboard::Pax::AppImage;
+use Developer::Dashboard::JSON qw(json_encode_with_options);
 
 sub new {
     my ($class, %args) = @_;
@@ -33,10 +34,10 @@ sub run_client {
     if (!$socket) {
         return _direct_exec($image, $argv);
     }
-    my $request = JSON::XS->new->ascii(1)->canonical(1)->encode({
+    my $request = json_encode_with_options( {
         argv => $argv,
         cwd => $args{cwd} // _cwd(),
-    });
+    }, ascii => 1 );
     print {$socket} "$request\n";
     my $exit = 0;
     while (defined(my $line = <$socket>)) {

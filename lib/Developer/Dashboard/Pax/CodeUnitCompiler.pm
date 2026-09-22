@@ -11,6 +11,7 @@ use File::Basename ();
 use File::Spec ();
 use Digest::SHA qw(sha256_hex);
 use JSON::XS ();
+use Developer::Dashboard::JSON qw(json_encode_with_options);
 use Developer::Dashboard::Pax::Capture;
 
 sub new {
@@ -12349,7 +12350,7 @@ sub _compiled_unit {
         initializers => $initializers,
         subs => $subs,
     };
-    my $bytes = JSON::XS->new->utf8(1)->ascii(1)->canonical(1)->encode($record);
+    my $bytes = json_encode_with_options( $record, utf8 => 1, ascii => 1 );
     my $compiled_logical = $logical_path;
     $compiled_logical =~ s/\.pm$/.pcu.json/;
 
@@ -12383,7 +12384,7 @@ sub _compiled_script_unit {
             op => 'call_main_argv_and_exit',
         };
     }
-    my $bytes = JSON::XS->new->utf8(1)->ascii(1)->canonical(1)->encode($record);
+    my $bytes = json_encode_with_options( $record, utf8 => 1, ascii => 1 );
     my $compiled_logical = $logical_path;
     $compiled_logical =~ s{\.[^.]+\z}{.script.json};
     $compiled_logical .= '.script.json' if $compiled_logical !~ /\.script\.json\z/;
@@ -12531,7 +12532,7 @@ sub _compiled_dispatch_script_unit {
         actions => $dispatch->{actions},
         unknown_action => $dispatch->{unknown_action},
     };
-    my $bytes = JSON::XS->new->utf8(1)->ascii(1)->canonical(1)->encode($record);
+    my $bytes = json_encode_with_options( $record, utf8 => 1, ascii => 1 );
     my $compiled_logical = $logical_path;
     $compiled_logical =~ s{\.[^.]+\z}{.dispatch.json};
     $compiled_logical .= '.dispatch.json' if $compiled_logical !~ /\.dispatch\.json\z/;
@@ -12593,7 +12594,7 @@ sub _compiled_cli_router_unit {
         suggest_class => $suggest_class,
         subs => \@subs,
     };
-    my $bytes = JSON::XS->new->utf8(1)->ascii(1)->canonical(1)->encode($record);
+    my $bytes = json_encode_with_options( $record, utf8 => 1, ascii => 1 );
     my $compiled_logical = $logical_path;
     $compiled_logical =~ s{\.[^.]+\z}{.cli-router.json};
     $compiled_logical .= '.cli-router.json' if $compiled_logical !~ /\.cli-router\.json\z/;
@@ -12763,7 +12764,7 @@ sub _compiled_service_dispatch_unit {
         server_module => $server_module,
         builder_method => $builder_method,
     };
-    my $bytes = JSON::XS->new->utf8(1)->ascii(1)->canonical(1)->encode($record);
+    my $bytes = json_encode_with_options( $record, utf8 => 1, ascii => 1 );
     my $compiled_logical = $logical_path;
     $compiled_logical =~ s{\.[^.]+\z}{.service.json};
     $compiled_logical .= '.service.json' if $compiled_logical !~ /\.service\.json\z/;
@@ -12930,7 +12931,7 @@ sub _hybrid_compiled_unit {
         residual_source => $residual_mode eq 'module' ? $source : undef,
         residual_source_path => $path,
     };
-    my $bytes = JSON::XS->new->utf8(1)->ascii(1)->canonical(1)->encode($record);
+    my $bytes = json_encode_with_options( $record, utf8 => 1, ascii => 1 );
     my $compiled_logical = $logical_path;
     $compiled_logical =~ s/\.pm$/.pcu.json/;
 

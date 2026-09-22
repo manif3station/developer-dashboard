@@ -5,6 +5,7 @@ our $VERSION = '4.71';
 use strict;
 use warnings;
 use JSON::XS qw(encode_json);
+use Developer::Dashboard::JSON qw(json_encode_with_options);
 use File::Spec ();
 use File::Temp ();
 use Developer::Dashboard::Pax::Capture;
@@ -1509,9 +1510,7 @@ sub _missing {
 
 sub _json {
     my ($data, $pretty) = @_;
-    my $json = JSON::XS->new->ascii(1)->canonical(1);
-    $json = $json->pretty(1) if $pretty;
-    return $json->encode($data);
+    return json_encode_with_options( $data, ascii => 1, ( $pretty ? ( pretty => 1 ) : () ) );
 }
 
 sub _usage {
