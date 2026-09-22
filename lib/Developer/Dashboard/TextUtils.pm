@@ -3,7 +3,7 @@ package Developer::Dashboard::TextUtils;
 use strict;
 use warnings;
 
-our $VERSION = '4.73';
+our $VERSION = '4.74';
 
 use Exporter 'import';
 
