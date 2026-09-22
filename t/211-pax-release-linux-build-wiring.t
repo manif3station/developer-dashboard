@@ -21,14 +21,18 @@ ok( $build_step, 'a real "PAX build dashboard" step exists' );
 is( $build_step->{if}, q{startsWith(matrix.target, 'linux-')}, 'the build step is gated to Linux targets only' );
 like( $build_step->{run}, qr/pax build --compact -o pax-output\/d2 bin\/dashboard/, 'the build step invokes pax build against bin/dashboard, no paxfile - output named d2 (DD-1015/DD-1025)' );
 
-# the still-unimplemented-targets placeholder must still exist, gated to
-# exactly windows-arm64 and macOS (windows-amd64 got a real build step -
-# DD-1015 - so it is no longer part of this placeholder's condition).
-my $placeholder_step = $step_by_name{'PAX build (placeholder, windows-arm64 and macOS)'};
-ok( $placeholder_step, 'the windows-arm64/macOS placeholder step still exists' );
-like( $placeholder_step->{if}, qr/windows-arm64/, 'the placeholder step still covers windows-arm64' );
-like( $placeholder_step->{if}, qr/macos-/, 'the placeholder step still covers macOS' );
-unlike( $placeholder_step->{if}, qr/windows-amd64/, 'the placeholder step no longer covers windows-amd64 (it has a real build step)' );
+# the last still-unimplemented target (windows-arm64) keeps its own
+# placeholder - windows-amd64 (DD-1015) and macOS (DD-1014) both got
+# real build steps, so neither is part of this placeholder anymore.
+my $placeholder_step = $step_by_name{'PAX build (placeholder, windows-arm64 only)'};
+ok( $placeholder_step, 'the windows-arm64 placeholder step still exists' );
+is( $placeholder_step->{if}, q{matrix.target == 'windows-arm64'}, 'the placeholder step is gated to windows-arm64 only' );
+
+# AC-5 (DD-1014): a real macOS build step exists, output named d2.
+my $macos_build_step = $step_by_name{'PAX build dashboard (macOS only)'};
+ok( $macos_build_step, 'a real "PAX build dashboard (macOS only)" step exists' );
+is( $macos_build_step->{if}, q{matrix.target == 'macos-arm64'}, 'the macOS build step is gated to macos-arm64 only' );
+like( $macos_build_step->{run}, qr/pax build --compact -o pax-output\/d2 bin\/dashboard/, 'the macOS build step invokes pax build, output named d2' );
 
 # AC-3: the i686 toolchain step, and specifically the self-recursion fix.
 my $i686_step = $step_by_name{'Install 32-bit toolchain (linux-i686 only)'};
