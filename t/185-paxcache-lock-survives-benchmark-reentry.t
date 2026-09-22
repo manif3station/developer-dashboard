@@ -22,6 +22,17 @@ local $ENV{HOME}                           = $home;
 local $ENV{DEVELOPER_DASHBOARD_STATE_ROOT} = tempdir( CLEANUP => 1 );
 chdir $home or die "Unable to chdir to $home: $!";
 
+# DD-1019 (real root cause, was previously misdiagnosed as CI-load timing
+# flakiness): DD-936 added an opt-in kill switch - resolve() returns undef
+# immediately unless DD_PAX=on - landed AFTER this file was written, and
+# this file was never updated to opt in (t/181-paxcache-coverage.t was, at
+# its own file scope, the same day DD-936 shipped). Without this, NEITHER
+# outer resolve() call below ever spawns a real background compile at all,
+# regardless of any wait budget - confirmed directly: this test failed
+# identically with a 5s, then a 20s, busy-wait, because $log_file was never
+# created in the first place, not because the wait was too short.
+local $ENV{DD_PAX} = 'on';
+
 my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
 
 # write_fake_pax(%opts)
@@ -34,12 +45,14 @@ my $paths = Developer::Dashboard::PathRegistry->new( home => $home );
 # Output: (bin_dir, pax_path, log_file) path strings.
 sub write_fake_pax {
     my (%opts) = @_;
-    my $bin_dir       = tempdir( CLEANUP => 1 );
-    my $pax_path      = File::Spec->catfile( $bin_dir, 'pax' );
-    my $sleep_seconds = $opts{sleep} || 0;
-    my $log_file      = $opts{log_file} || File::Spec->catfile( $bin_dir, 'pax-calls.log' );
+    my $bin_dir         = tempdir( CLEANUP => 1 );
+    my $pax_path        = File::Spec->catfile( $bin_dir, 'pax' );
+    my $sleep_seconds   = $opts{sleep} || 0;
+    my $startup_delay   = $opts{startup_delay} || 0;    # DD-1019: simulates fork/exec latency under real CI-runner contention, BEFORE the log line is even written
+    my $log_file        = $opts{log_file} || File::Spec->catfile( $bin_dir, 'pax-calls.log' );
     open my $fh, '>', $pax_path or die "Unable to write fake pax: $!";
     print {$fh} "#!/usr/bin/env perl\n";
+    print {$fh} "sleep($startup_delay);\n" if $startup_delay;
     print {$fh} "open my \$log, '>>', '$log_file' or die \$!;\n";
     print {$fh} "print {\$log} \"\$\$ \@ARGV\\n\"; close \$log;\n";
     print {$fh} "sleep($sleep_seconds);\n" if $sleep_seconds;
@@ -113,8 +126,15 @@ sub source_file_with_content {
     # its first log line) before the "re-entry" call below - matching the
     # real timing where the benchmark subprocess starts a beat after the
     # outer dashboard invocation.
+    # DD-1019: widened from 5s to 20s - a real GitHub Actions release-gate
+    # run observed this exact wait lose the race under genuine runner
+    # contention (the outer process's own fork/exec of the fake-pax script
+    # delayed past 5s), even though the fake pax writes its log line before
+    # any of its own configured sleep runs. 20s stays well inside this
+    # file's own already-bounded runtime while giving real headroom for
+    # fork/exec scheduling delays under load.
     my $waited = 0;
-    while ( $waited < 5 && !-s $log_file ) {
+    while ( $waited < 20 && !-s $log_file ) {
         sleep(0.1);
         $waited += 0.1;
     }
@@ -150,6 +170,37 @@ sub source_file_with_content {
     my $final_result = $cache->resolve($source);
     ok( defined $final_result && -x $final_result,
         'after the compile finishes, resolve() returns the installed executable binary' );
+}
+
+# DD-1019: proves the widened 20s wait budget genuinely matters, not just
+# that a bigger number happens to still pass. An 8-second startup delay
+# (simulating real CI-runner fork/exec contention) sits comfortably past
+# the OLD 5s budget - a regression back to 5s would fail this block's very
+# first assertion - and comfortably inside the NEW 20s one.
+{
+    my ( $bin_dir, $pax_path, $log_file ) = write_fake_pax( startup_delay => 8, sleep => 1 );
+    local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
+    my $source = source_file_with_content("#!/usr/bin/env perl\nprint 'outer-delayed';\n");
+
+    my $outer_pid = fork();
+    die "fork failed: $!" if !defined $outer_pid;
+    if ( $outer_pid == 0 ) {
+        my $cache = Developer::Dashboard::PaxCache->new( paths => $paths, pax_bin => $pax_path );
+        $cache->resolve($source);
+        POSIX::_exit(0);
+    }
+    waitpid( $outer_pid, 0 );
+
+    my $waited = 0;
+    while ( $waited < 20 && !-s $log_file ) {
+        sleep(0.1);
+        $waited += 0.1;
+    }
+    ok( -s $log_file,
+        'a background compile delayed 8s past its own startup still gets caught by the 20s wait budget' );
+    ok( $waited > 5,
+        'the wait genuinely needed more than the OLD 5s budget to see it - proving the widening is load-bearing, not decorative' )
+      or diag("waited only ${waited}s - this test's own delay stopped discriminating old vs new budget");
 }
 
 done_testing;

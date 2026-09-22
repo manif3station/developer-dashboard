@@ -24,6 +24,7 @@ our @EXPORT_OK = qw(
 # to answer or the manifest carried no hash.
 sub pax_binary_source_hash {
     my ($binary_path) = @_;
+    local $?;    # DD-1019: guard $? so this sub's own system() call never leaks a mutated exit status to whatever runs in the caller after it returns.
     return if !defined $binary_path || $binary_path eq '';
     return if !-x $binary_path;
     my ( $stdout, $stderr, $exit ) = capture { system( $binary_path, '--pax-standalone-inspect' ) };
