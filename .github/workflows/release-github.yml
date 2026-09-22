@@ -269,13 +269,12 @@ jobs:
           # subdirectory named after the artifact (d2-dashboard-linux-amd64/,
           # etc, per actions/download-artifact's own documented layout when
           # merge-multiple is false) - rename each binary to embed that
-          # target name before upload, since pax-output/dashboard on its own
-          # would collide across every platform once uploaded flat to one
-          # release.
+          # target name before upload, since pax-output/d2 on its own would
+          # collide across every platform once uploaded flat to one release.
           found=0
           for dir in pax-binaries/*/; do
             target="$(basename "${dir}")"
-            for bin in "${dir}"dashboard "${dir}"dashboard.exe; do
+            for bin in "${dir}"d2 "${dir}"d2.exe; do
               [ -f "${bin}" ] || continue
               ext="${bin##*.}"
               renamed="${target}"
