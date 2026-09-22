@@ -848,7 +848,7 @@ subtest 'CLI::Files covers files inventory and locate branches' => sub {
     );
     like(
         _dies( sub { Developer::Dashboard::CLI::Files::run_files_command( command => 'file', args => [ 'add', '-o', 'yaml', 'bad', '/tmp/bad.txt' ] ) } ),
-        qr/Usage: dashboard file add <name> <path> \[-o json\|table\]/,
+        qr/Usage: dashboard file add <name> <path> \[-c\|--create\[=MODE\]\] \[-o json\|table\]/,
         'file add rejects unsupported output formats explicitly',
     );
     like(
@@ -1017,7 +1017,7 @@ subtest 'CLI::Paths covers table defaults and output guards' => sub {
     );
     like(
         _dies( sub { Developer::Dashboard::CLI::Paths::run_paths_command( command => 'path', args => [ 'add', '-o', 'yaml', 'demo', $named_root ] ) } ),
-        qr/Usage: dashboard path add <name> <path> \[-o json\|table\]/,
+        qr/Usage: dashboard path add <name> <path> \[-c\|--create\[=MODE\]\] \[-o json\|table\]/,
         'path add rejects unsupported output formats explicitly',
     );
     like(
