@@ -227,6 +227,7 @@ sub forward_command_signal {
 # Output: true value after bounded TERM/KILL cleanup.
 sub terminate_command_process {
     my ($pid) = @_;
+    local $?;    # DD-1019: guard $? so this sub's own waitpid/system calls never leak a mutated exit status to whatever runs in the caller after it returns.
     return 1 if !defined $pid || $pid !~ /^\d+$/ || $pid < 1;
 
     if ( is_windows() ) {
