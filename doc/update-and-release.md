@@ -387,11 +387,10 @@ on unscoped CPAN-global module names.
 
 ## Release To PAUSE
 
-The GitHub workflow:
-
-- `.github/workflows/release-cpan.yml`
-
-builds the release using Dist::Zilla:
+CPAN/PAUSE release happens only locally, via `dashboard pause-release` -
+there is no GitHub-triggered path (see
+`docs/cpan-release-is-local-only.md`). Build the release using
+Dist::Zilla:
 
 ```bash
 rm -rf Developer-Dashboard-* Developer-Dashboard-*.tar.gz

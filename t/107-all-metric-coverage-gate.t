@@ -237,7 +237,7 @@ sub read_repository_file {
 # inspected, then each invokes the canonical entrypoint and none of them
 # open-codes the three-command chain, because an open-coded chain is what lets
 # one command of it run without the library path the others had.
-for my $workflow_name (qw(test.yml release-cpan.yml release-github.yml)) {
+for my $workflow_name (qw(test.yml release-github.yml)) {
     my $body = read_repository_file( File::Spec->catfile( '.github', 'workflows', $workflow_name ) );
 
     like(
