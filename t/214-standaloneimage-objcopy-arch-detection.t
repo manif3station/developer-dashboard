@@ -68,6 +68,48 @@ SKIP: {
         'the combined helper resolves a real cc to a real objcopy target with no manual archname involved' );
 }
 
+# AC-5 (DD-1020's own follow-up correction, found via real CI - t/183
+# failing with "cc: fatal error: cannot execute 'as'" even after
+# DD-1023's binutils install changed nothing): the probe must work when
+# called under a caller that has deliberately stripped $ENV{PATH} (t/183's
+# own `env -i PATH=/nonexistent` scenario, proving standalone execution),
+# as long as the SAME PATH restoration _compile_launcher's other tool
+# invocations already use (_toolchain_path($cc, $objcopy)) is applied
+# around the probe too - without it, cc can still be found via an
+# absolute path but cannot find its own `as` subprocess, since gcc's
+# internal assembler lookup needs a PATH to search regardless of how cc
+# itself was resolved.
+SKIP: {
+    my $cc = `which cc 2>/dev/null` || `which gcc 2>/dev/null`;
+    chomp $cc;
+    skip 'no C compiler available in this environment', 2 if !$cc;
+
+    my $objcopy = `which objcopy 2>/dev/null`;
+    chomp $objcopy;
+    skip 'no objcopy available in this environment', 2 if !$objcopy;
+
+    my $tool_path = Developer::Dashboard::Pax::StandaloneImage::_toolchain_path( $cc, $objcopy );
+
+    # Without the PATH restoration this ticket's fix applies, the probe
+    # fails under a fully stripped environment - proving the bug is real,
+    # not merely that the fix is harmless.
+    my ( $broken_out, $broken_err, $broken_exit ) = capture {
+        system( 'env', '-i', "PATH=/nonexistent", "PERL5LIB=$ENV{PERL5LIB}", $^X, '-Ilib', '-MDeveloper::Dashboard::Pax::StandaloneImage',
+            '-e', qq{my \$r = eval { Developer::Dashboard::Pax::StandaloneImage::_objcopy_target_for_compiler(shift) }; print \$r ? "OK" : "FAIL: \$\@";},
+            $cc );
+    };
+    like( $broken_out, qr/^FAIL:/, 'sanity: the probe genuinely fails under a stripped PATH with no restoration (proves the bug is real)' );
+
+    # With the SAME restoration _compile_launcher applies around it, the
+    # probe succeeds even though the caller's own ambient PATH is stripped.
+    my ( $fixed_out, $fixed_err, $fixed_exit ) = capture {
+        system( 'env', '-i', "PATH=/nonexistent", "PERL5LIB=$ENV{PERL5LIB}", $^X, '-Ilib', '-MDeveloper::Dashboard::Pax::StandaloneImage',
+            '-e', qq{local \$ENV{PATH} = '$tool_path'; my \$r = eval { Developer::Dashboard::Pax::StandaloneImage::_objcopy_target_for_compiler(shift) }; print \$r ? "OK" : "FAIL: \$\@";},
+            $cc );
+    };
+    is( $fixed_out, 'OK', 'AC-5: the probe succeeds under a stripped ambient PATH once the SAME toolchain-path restoration _compile_launcher uses is applied around it' );
+}
+
 # AC-2: the existing amd64 build path is provably unaffected - a real
 # local build on this (x86_64) host succeeds and produces a working
 # binary, exactly as it did before this ticket's change.
