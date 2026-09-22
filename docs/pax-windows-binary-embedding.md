@@ -29,6 +29,33 @@ confirmation available.
 `_objcopy_target_for_coff_header` maps `0x8664` to `{output =>
 'pe-x86-64', binary_architecture => 'i386:x86-64'}`.
 
+## Two real defects found and fixed getting windows-amd64 CI-green
+
+Both found from a real GitHub Actions run's own log, not local
+reproduction (per this project's own compile-on-GitHub-not-locally
+rule):
+
+1. **Wrong `perl` resolved.** The build/smoke-verify steps set
+   `shell: bash`, which resolves `perl` to Git Bash's own bundled MSYS
+   Perl rather than the Strawberry Perl `actions-setup-perl` installed
+   (and that the preceding `cpanm` step had just populated with
+   dependencies) - confirmed from the failure's own `@INC` dump, which
+   listed Unix-style default paths (`/usr/lib/perl5/site_perl` etc)
+   only Git Bash's own perl carries. Fixed by dropping the explicit
+   `shell: bash` so the steps use the platform default (`pwsh`),
+   rewritten in PowerShell syntax.
+2. **Invisible progress mistaken for a hang.** `share/private-cli/pax`
+   never set `$| = 1` - Perl fully block-buffers STDOUT when not
+   attached to a TTY, exactly GitHub Actions' pwsh-piped case on
+   Windows, so a real windows-amd64 run showed zero visible build
+   progress for 40+ minutes (frozen mid-compile) before hitting its
+   45-minute job timeout. Fixed with autoflush (`t/217`) and the job
+   timeout raised to 90 minutes so a genuinely slower Windows run has
+   room to show real, now-visible progress.
+
+The compiled binary is named `d2` (`d2.exe` on Windows), not
+`dashboard` - see `docs/github-release-attaches-pax-binaries.md`.
+
 ## Why this is more tractable than macOS
 
 `_compile_launcher`'s Linux path (DD-1020) converts each raw payload
