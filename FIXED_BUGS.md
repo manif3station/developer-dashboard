@@ -1,6 +1,25 @@
 # Fixed Bugs
 
 
+## 4.82
+
+- **DD-1022**: `StandaloneImage.pm::_skip_dependency_module` wrongly
+  treated `overload` as a compile-time-only pragma safe to omit from a
+  standalone binary's bundled runtime payload, the same category as
+  strict/warnings/utf8/etc. `overload` is not compile-time-only - it
+  installs real subroutines (STRINGIFY/NUMIFY/etc) invoked later, at
+  runtime, whenever the overloaded object is stringified or numified.
+  Confirmed live by downloading a real GitHub Actions CI artifact and
+  running it in a fresh container with no host Perl reachable:
+  `File::Temp` (bundled because `Capture::Tiny` depends on it) itself
+  does `use overload '""' => 'STRINGIFY', '0+' => 'NUMIFY', fallback
+  => 1;`, so any subcommand whose code path reached
+  `File::Temp`/`Capture::Tiny` crashed at `BEGIN` time. Shipped
+  undetected in v4.78/v4.79 because the release smoke-check only ever
+  ran `dashboard version`, whose own code path never touches
+  `File::Temp`. Fixed by removing `overload` from the skip list.
+
+
 ## 4.81
 
 - **DD-1020** (real fix for t/183, misdiagnosed as DD-1023): the
