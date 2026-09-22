@@ -30,6 +30,13 @@ jobs:
         with:
           perl-version: '5.44'
 
+      # DD-1023: same fix as release-github.yml - t/183's self-hosted
+      # pax-build scenarios compile real C code and need a working
+      # assembler (`as`, provided by binutils), confirmed missing on this
+      # runner by a real CI failure ("cc: fatal error: cannot execute 'as'").
+      - name: Install C toolchain (as/binutils, for t/183's self-hosted pax builds)
+        run: sudo apt-get update && sudo apt-get install -y build-essential binutils
+
       - name: Install project dependencies
         run: cpanm --installdeps --notest -L local .
 
