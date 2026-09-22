@@ -113,19 +113,28 @@ jobs:
         # Matches test.yml's own established Perl-setup pattern exactly
         # (same pinned SHA, same perl-version).
         #
-        # DD-1015: also covers windows-latest/windows-11-arm - this action
+        # DD-1015: also covers windows-latest (windows-amd64) - this action
         # installs Strawberry Perl on Windows, which bundles its own
         # MinGW-w64 C toolchain (gcc/ld/objcopy under its own c/bin
         # directory) specifically so XS module compilation works out of
         # the box - the same toolchain this job's own Windows PAX build
         # step below needs, with no separate install step required.
-        if: startsWith(matrix.target, 'linux-') || startsWith(matrix.target, 'windows-')
+        #
+        # windows-arm64 is DELIBERATELY EXCLUDED here, not just left on the
+        # placeholder step further down: a real CI run confirmed
+        # shogo82148/actions-setup-perl has no prebuilt Perl 5.44 binary for
+        # windows-11-arm at all ("Error: unable to get the binary for
+        # 5.44"), so running this step for it only produces a second,
+        # earlier failure ahead of the placeholder step that already
+        # documents the real gap. windows-arm64 stays fully unimplemented
+        # (DD-1015) until that binary-availability gap is addressed too.
+        if: startsWith(matrix.target, 'linux-') || matrix.target == 'windows-amd64'
         uses: shogo82148/actions-setup-perl@53e33bb27be492a926eee378e8a5f7ff6618b061  # v1.43.1
         with:
           perl-version: '5.44'
 
       - name: Install Perl dependencies (Linux and Windows)
-        if: startsWith(matrix.target, 'linux-') || startsWith(matrix.target, 'windows-')
+        if: startsWith(matrix.target, 'linux-') || matrix.target == 'windows-amd64'
         run: cpanm --quiet --notest --installdeps .
 
       - name: PAX build dashboard (Linux only)
@@ -153,11 +162,26 @@ jobs:
         # rather than guessing. amd64's PE target (pe-x86-64) is
         # well-documented, standard binutils naming, verified via this
         # exact CI run - see this job's own conclusion for the real result.
+        #
+        # NO explicit `shell:` here (defaults to pwsh on Windows) - the
+        # first real CI run of this step set `shell: bash`, which resolves
+        # `perl` to Git Bash's OWN BUNDLED MSYS PERL rather than the
+        # Strawberry Perl actions-setup-perl installed (and that the
+        # preceding cpanm step just populated with JSON::XS). Confirmed
+        # from the failure's own @INC dump: it listed Unix-style default
+        # paths (`/usr/lib/perl5/site_perl` etc.) that only Git Bash's own
+        # perl carries, never Strawberry's, and a PERL5LIB parsed with `:`
+        # as the separator (Unix convention) instead of Strawberry's `;`,
+        # collapsing the whole semicolon-joined Windows-style PERL5LIB
+        # string into one unusable @INC entry. Same reasoning explains why
+        # "Install Perl dependencies" two steps above (no explicit shell,
+        # so pwsh, so the real Strawberry perl) succeeded while this step
+        # could not see anything it had just installed.
         if: matrix.target == 'windows-amd64'
-        shell: bash
         run: |
-          mkdir -p pax-output
+          mkdir pax-output -Force | Out-Null
           perl -Ilib share/private-cli/pax build --compact -o pax-output/dashboard.exe bin/dashboard
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: PAX build (placeholder, windows-arm64 and macOS)
         if: matrix.target == 'windows-arm64' || startsWith(matrix.target, 'macos-')
@@ -179,16 +203,19 @@ jobs:
           fi
 
       - name: Smoke-verify the compiled dashboard binary (Windows amd64 only)
+        # Same reasoning as the build step above: no explicit `shell:` so
+        # this resolves `perl bin/dashboard version` through the same
+        # Strawberry Perl the binary was built with, not Git Bash's own.
         if: matrix.target == 'windows-amd64'
-        shell: bash
         run: |
-          set -e
-          compiled_version=$(./pax-output/dashboard.exe version)
-          source_version=$(perl bin/dashboard version)
-          if [ "$compiled_version" != "$source_version" ]; then
-            echo "compiled binary version ($compiled_version) does not match source-Perl CLI version ($source_version)"
+          $compiled_version = & ./pax-output/dashboard.exe version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $source_version = & perl bin/dashboard version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($compiled_version -ne $source_version) {
+            Write-Host "compiled binary version ($compiled_version) does not match source-Perl CLI version ($source_version)"
             exit 1
-          fi
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
