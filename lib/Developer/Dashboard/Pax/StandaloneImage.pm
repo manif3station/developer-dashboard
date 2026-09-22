@@ -1417,9 +1417,19 @@ sub _compile_launcher {
         die "launcher compile failed" if ($? >> 8) != 0;
         1;
     };
+    # DD-1006: capture each eval's $@ into its own variable IMMEDIATELY
+    # after that eval returns, before the other eval can run and clobber
+    # the shared $@ (Perl resets $@ at the start and on the successful
+    # completion of every eval, so two sequential evals sharing one $@
+    # means whichever ran last determines what a later read sees - not
+    # whichever one actually failed). Without this, the cwd-restore eval
+    # succeeding (the common case) silently erases the real build-failure
+    # diagnostic before "reason => $@" below ever reads it.
+    my $build_error = $@;
     my $restore_ok = eval { chdir $cwd or die "cannot restore cwd to $cwd: $!"; 1; };
-    return { status => 'not_built', reason => $@ } if !$ok;
-    return { status => 'not_built', reason => $@ } if !$restore_ok;
+    my $restore_error = $@;
+    return { status => 'not_built', reason => $build_error } if !$ok;
+    return { status => 'not_built', reason => $restore_error } if !$restore_ok;
     return (($? >> 8) == 0 && -x $manifest->{output_path})
         ? { status => 'built' }
         : { status => 'not_built', reason => 'standalone launcher compile failed' };
