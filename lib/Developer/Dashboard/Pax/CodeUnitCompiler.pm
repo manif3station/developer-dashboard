@@ -12448,13 +12448,22 @@ sub _native_i64_binary_leaf_shape {
     my ($body) = @_;
     return if $body !~ /my\s*\(\s*\$([A-Za-z_]\w*)\s*,\s*\$([A-Za-z_]\w*)\s*\)\s*=\s*\@_\s*;/s;
     my ($left, $right) = ($1, $2);
-    return if $body !~ /return\s+\$([A-Za-z_]\w*)\s*([+\-*]|>)\s*\$([A-Za-z_]\w*)\s*;/s;
+    return if $body !~ /return\s+\$([A-Za-z_]\w*)\s*(\+|-|\*|>|&|\||\^)\s*\$([A-Za-z_]\w*)\s*;/s;
     return if $1 ne $left || $3 ne $right;
+    # Deliberately NOT / (divide) or % (modulo): Perl's / always returns a
+    # float (mismatches C's truncating int64_t division), and Perl's %
+    # follows the sign of the RIGHT operand while C's follows the LEFT -
+    # both are genuine correctness bugs for negative/non-evenly-dividing
+    # operands if compiled to C as-is. Bitwise ops are bit-for-bit
+    # identical between Perl and C across the full int64_t domain.
     my %ops = (
         '+' => ['add', 5],
         '-' => ['subtract', -1],
         '*' => ['multiply', 6],
         '>' => ['greater_than', 0],
+        '&' => ['bitwise_and', 2],
+        '|' => ['bitwise_or', 3],
+        '^' => ['bitwise_xor', 1],
     );
     my $op = $ops{$2} or return;
     return {

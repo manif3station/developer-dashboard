@@ -211,6 +211,11 @@ jobs:
         run: echo "TODO (DD-1015) - dashboard pax build for ${{ matrix.target }} (no Perl 5.44 binary exists for windows-11-arm upstream)"
 
       - name: Smoke-verify the compiled dashboard binary (Linux only)
+        # DD-1016: delegates to the shared functional-parity harness
+        # (script/pax-functional-parity-check) instead of the old
+        # per-platform duplicated version-only comparison, so a real
+        # divergence in anything on the representative CLI surface (not
+        # just the version string) is caught here too.
         if: startsWith(matrix.target, 'linux-')
         run: |
           set -e
@@ -218,39 +223,25 @@ jobs:
           if [ "${{ matrix.target }}" = "linux-i686" ]; then
             file pax-output/d2 | grep -q "ELF 32-bit" || { echo "expected a 32-bit ELF binary"; exit 1; }
           fi
-          compiled_version=$(./pax-output/d2 version)
-          source_version=$(perl bin/dashboard version)
-          if [ "$compiled_version" != "$source_version" ]; then
-            echo "compiled binary version ($compiled_version) does not match source-Perl CLI version ($source_version)"
-            exit 1
-          fi
+          perl script/pax-functional-parity-check --compiled pax-output/d2 --source-perl perl --source-script bin/dashboard --lib lib
 
       - name: Smoke-verify the compiled dashboard binary (Windows amd64 only)
         # Same reasoning as the build step above: no explicit `shell:` so
-        # this resolves `perl bin/dashboard version` through the same
-        # Strawberry Perl the binary was built with, not Git Bash's own.
+        # this resolves the harness's own `perl` invocation through the
+        # same Strawberry Perl the binary was built with, not Git Bash's
+        # own. DD-1016: delegates to the shared functional-parity harness.
         if: matrix.target == 'windows-amd64'
         run: |
-          $compiled_version = & ./pax-output/d2.exe version
+          perl script/pax-functional-parity-check --compiled pax-output/d2.exe --source-perl perl --source-script bin/dashboard --lib lib
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $source_version = & perl bin/dashboard version
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($compiled_version -ne $source_version) {
-            Write-Host "compiled binary version ($compiled_version) does not match source-Perl CLI version ($source_version)"
-            exit 1
-          }
 
       - name: Smoke-verify the compiled dashboard binary (macOS only)
+        # DD-1016: delegates to the shared functional-parity harness.
         if: matrix.target == 'macos-arm64'
         run: |
           set -e
           file pax-output/d2
-          compiled_version=$(./pax-output/d2 version)
-          source_version=$(perl bin/dashboard version)
-          if [ "$compiled_version" != "$source_version" ]; then
-            echo "compiled binary version ($compiled_version) does not match source-Perl CLI version ($source_version)"
-            exit 1
-          fi
+          perl script/pax-functional-parity-check --compiled pax-output/d2 --source-perl perl --source-script bin/dashboard --lib lib
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

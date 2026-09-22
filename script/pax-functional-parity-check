@@ -1,0 +1,197 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use File::Temp qw(tempfile);
+use Getopt::Long qw(GetOptions);
+use Capture::Tiny qw(capture);
+
+# Purpose: run the SAME representative command set against a compiled PAX
+#          binary and its source-Perl equivalent, and report whether their
+#          output genuinely matches - DDE-006's shared functional-parity
+#          verification harness (DD-1016), so every platform build ticket
+#          (Linux/macOS/Windows) invokes one harness instead of each
+#          inventing its own ad hoc single-command check.
+# Input:   --compiled PATH --source-perl PERL_EXE --source-script PATH
+#          [--lib DIR] (repeatable), or --list-checks to print the check
+#          names and exit.
+# Output:  a PASS/FAIL line per check on stdout; exit 0 if every check
+#          passed, exit 1 if any check failed.
+
+my ( $compiled, $source_perl, $source_script, @lib_dirs, $list_checks );
+GetOptions(
+    'compiled=s'      => \$compiled,
+    'source-perl=s'   => \$source_perl,
+    'source-script=s' => \$source_script,
+    'lib=s'           => \@lib_dirs,
+    'list-checks'     => \$list_checks,
+) or die "usage: $0 --compiled PATH --source-perl PERL_EXE --source-script PATH [--lib DIR]\n";
+
+my @checks = _representative_checks();
+
+if ($list_checks) {
+    print " - $_->{name}\n" for @checks;
+    exit 0;
+}
+
+die "usage: $0 --compiled PATH --source-perl PERL_EXE --source-script PATH [--lib DIR]\n"
+    if !defined $compiled || !defined $source_perl || !defined $source_script;
+
+my $all_passed = 1;
+for my $check (@checks) {
+    my ( $expected, $expected_ok ) = _run_source( $check, $source_perl, $source_script, \@lib_dirs );
+    my ( $actual,   $actual_ok )   = _run_compiled( $check, $compiled );
+
+    if ( $expected_ok && $actual_ok && $expected eq $actual ) {
+        print "PASS $check->{name}\n";
+        next;
+    }
+
+    $all_passed = 0;
+    print "FAIL $check->{name}\n";
+    print "  expected: $expected\n";
+    print "  actual:   $actual\n";
+}
+
+exit( $all_passed ? 0 : 1 );
+
+# Purpose: the representative command set exercising dashboard/d2's core
+#          CLI surface - a static value (version), an informational
+#          command (--help), and a real data-processing command (jq)
+#          against a small fixed fixture, so the harness proves more than
+#          "the binary starts and prints a version string".
+# Input:   none.
+# Output:  a list of hashrefs, each {name, args, normalize}.
+sub _representative_checks {
+    my ( undef, $fixture_path ) = tempfile( SUFFIX => '.json', UNLINK => 0 );
+    open my $fh, '>', $fixture_path or die "cannot write $fixture_path: $!";
+    print {$fh} qq({"a":1,"b":[1,2,3]}\n);
+    close $fh;
+
+    return (
+        {
+            name => 'version',
+            args => ['version'],
+        },
+        {
+            name      => 'help',
+            args      => ['--help'],
+            normalize => sub {
+                my ($text) = @_;
+                my ($first_line) = split /\n/, $text, 2;
+                return $first_line // '';
+            },
+        },
+        {
+            name => 'jq',
+            args => [ 'jq', '.a', $fixture_path ],
+        },
+    );
+}
+
+# Purpose: run one check against the source-Perl CLI (perl -I<lib>...
+#          <script> <args>) and capture its normalized stdout.
+# Input:   $check (hashref), $source_perl (perl executable path),
+#          $source_script (path to bin/dashboard), $lib_dirs (arrayref).
+# Output:  ($normalized_stdout, $ok) - $ok is false if the process failed
+#          to run or exited non-zero.
+sub _run_source {
+    my ( $check, $source_perl, $source_script, $lib_dirs ) = @_;
+    my @lib_args = map { ( '-I', $_ ) } @$lib_dirs;
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( $source_perl, @lib_args, $source_script, @{ $check->{args} } );
+    };
+    return ( _normalize( $check, $stdout ), $exit == 0 );
+}
+
+# Purpose: run one check against the compiled binary directly and capture
+#          its normalized stdout.
+# Input:   $check (hashref), $compiled (path to the compiled binary).
+# Output:  ($normalized_stdout, $ok) - $ok is false if the process failed
+#          to run or exited non-zero.
+sub _run_compiled {
+    my ( $check, $compiled ) = @_;
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( $compiled, @{ $check->{args} } );
+    };
+    return ( _normalize( $check, $stdout ), $exit == 0 );
+}
+
+# Purpose: apply a check's own normalization (if any) and always chomp a
+#          trailing newline, so a harmless line-ending difference never
+#          reads as a functional mismatch.
+# Input:   $check (hashref), $text (raw captured stdout).
+# Output:  the normalized string.
+sub _normalize {
+    my ( $check, $text ) = @_;
+    $text = $check->{normalize}->($text) if $check->{normalize};
+    $text =~ s/\r?\n\z//;
+    return $text;
+}
+
+1;
+
+__END__
+
+=pod
+
+=head1 NAME
+
+pax-functional-parity-check - DDE-006's shared PAX build-vs-source functional-parity harness
+
+=head1 PURPOSE
+
+Runs the same representative command set against a compiled PAX standalone
+binary and the source-Perl CLI it was built from, and reports whether
+their output genuinely matches - one shared implementation every
+DDE-006 platform-build CI job (Linux, macOS, Windows) can invoke, instead
+of each job inventing its own ad hoc single-command (C<version>-only)
+check.
+
+=head1 WHY IT EXISTS
+
+DD-1016 (child of DDE-006): the owner's explicit acceptance bar is "the
+independent binary d2/dashboard will be 100% functional matching to the
+source Perl script" - not just "the build succeeded". Before this script
+existed, C<.github/workflows/pax-release.yml>'s three platform smoke-verify
+steps (Linux, Windows amd64, macOS) each duplicated the SAME single
+C<version> comparison independently, which could never catch a divergence
+in anything other than the version string. This script gives every
+platform job the same, real, multi-part comparison instead.
+
+=head1 WHEN TO USE
+
+Run this after a C<dashboard pax build> produces a compiled binary, to
+confirm it behaves identically to the source Perl CLI it was built from
+across a representative slice of the CLI surface.
+
+=head1 HOW TO USE
+
+    perl script/pax-functional-parity-check \
+        --compiled pax-output/d2 \
+        --source-perl perl \
+        --source-script bin/dashboard \
+        --lib lib
+
+    # list the checks this harness runs, without executing them:
+    perl script/pax-functional-parity-check --list-checks
+
+Exits 0 if every check matched; exits 1 and prints which check(s) diverged,
+with their actual and expected values, if any did not.
+
+=head1 WHAT USES IT
+
+C<.github/workflows/pax-release.yml>'s per-platform smoke-verify steps
+(Linux, Windows amd64, macOS) call this script instead of each running
+their own duplicated single-command comparison.
+
+=head1 EXAMPLES
+
+Example 1:
+
+    perl script/pax-functional-parity-check --compiled pax-output/d2 \
+        --source-perl perl --source-script bin/dashboard --lib lib
+
+Prints one C<PASS>/C<FAIL> line per representative check.
+
+=cut
