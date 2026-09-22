@@ -1102,7 +1102,15 @@ sub _strip_pod {
 sub _skip_dependency_module {
     my ($module) = @_;
     return 1 if !$module;
-    return 1 if $module =~ /^(?:strict|warnings|utf8|lib|parent|base|constant|feature|vars|integer|bytes|mro|overload|if|open|re)$/;
+    # DD-1022: 'overload' deliberately excluded from this list. Unlike
+    # strict/warnings/utf8/etc (compiler pragmas with no runtime
+    # footprint once compiled), overload installs real subroutines
+    # (STRINGIFY/NUMIFY/etc) invoked LATER, at runtime, whenever the
+    # overloaded object is stringified/numified - it must be bundled
+    # like any real dependency, or a module that triggers the overload
+    # (e.g. File::Temp) crashes with overload.pm missing from @INC.
+    # Confirmed live via a real GitHub Actions CI artifact.
+    return 1 if $module =~ /^(?:strict|warnings|utf8|lib|parent|base|constant|feature|vars|integer|bytes|mro|if|open|re)$/;
     return 1 if $module =~ /^Developer::Dashboard::Pax::/;
     return 0;
 }
