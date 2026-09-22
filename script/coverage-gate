@@ -765,9 +765,8 @@ Exit statuses are the interface:
 
 =head1 WHAT USES IT
 
-The C<test>, C<release-cpan> and C<release-github> workflows, the contributor
-testing guide, and C<t/148-coverage-gate-entrypoint.t>, which is its acceptance
-contract.
+The C<test> and C<release-github> workflows, the contributor testing guide,
+and C<t/148-coverage-gate-entrypoint.t>, which is its acceptance contract.
 
 =head1 EXAMPLES
 
