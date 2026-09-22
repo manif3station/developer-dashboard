@@ -27,6 +27,28 @@ sub write_fake_bin {
     return $path;
 }
 
+# write_probe_capable_fake_cc($dir, $real_cc)
+# Writes a fake `cc` that satisfies DD-1020's architecture-probe compile
+# (a genuine `-c -o FILE.o FILE.c` invocation, delegated to the REAL
+# system compiler so the probe gets a real, readable ELF object) while
+# still being a no-op for any other invocation (the final launcher link
+# step, which these tests never reach - objcopy fails first). Without
+# this, a bare always-exit-0 stub satisfies neither: the probe's own
+# `-f $probe_o` check fails because no object file was ever written.
+# Input: directory to write into, absolute path to a real C compiler.
+# Output: full path to the written script.
+sub write_probe_capable_fake_cc {
+    my ( $dir, $real_cc ) = @_;
+    my $path = File::Spec->catfile( $dir, 'cc' );
+    open my $fh, '>', $path or die $!;
+    print {$fh} "#!/bin/sh\n";
+    print {$fh} "if [ \"\$1\" = '-c' ]; then exec $real_cc \"\$\@\"; fi\n";
+    print {$fh} "exit 0\n";
+    close $fh;
+    chmod 0755, $path;
+    return $path;
+}
+
 # minimal_manifest($output_path)
 # Builds the smallest manifest _compile_launcher accepts - empty payload
 # lists throughout, since _payload_package_blob only needs an arrayref
@@ -57,7 +79,9 @@ sub minimal_manifest {
 {
     my $bin_dir = tempdir( CLEANUP => 1 );
     write_fake_bin( $bin_dir, 'objcopy', 1 );    # always fails
-    write_fake_bin( $bin_dir, 'cc',      0 );    # resolvable, never actually reached
+    my $real_cc = `which cc 2>/dev/null` || `which gcc 2>/dev/null`;
+    chomp $real_cc;
+    write_probe_capable_fake_cc( $bin_dir, $real_cc );    # real for the DD-1020 arch-probe compile, no-op otherwise (link step never reached)
 
     local $ENV{PATH} = "$bin_dir:$ENV{PATH}";
 
