@@ -1,6 +1,30 @@
 # Fixed Bugs
 
 
+## 4.71
+
+- **DD-1006**: `Pax::StandaloneImage::_compile_launcher` ran a build eval
+  (chdir into the build dir, run objcopy/cc) followed by a separate
+  cwd-restore eval, and read `$@` once to build the `reason` field on
+  both `not_built` failure paths. Perl resets `$@` at the start and on
+  successful completion of every eval - so when the build eval died but
+  the restore eval then succeeded (the ordinary case: the build fails,
+  and restoring the working directory afterwards works fine), the
+  restore eval's own successful completion silently erased the build
+  eval's `$@` before `reason => $@` ever read it. A developer whose
+  standalone-image build genuinely failed - objcopy exiting nonzero, no
+  compiler found, the launcher compile itself failing - got back an
+  empty `reason` string with no clue which step broke. Fixed by
+  capturing `my $build_error = $@` immediately after the build eval
+  returns and `my $restore_error = $@` immediately after the restore
+  eval returns, each read before the other eval gets a chance to run and
+  reset the shared `$@` - each failure path now reports its own
+  correctly-captured diagnostic. `t/209-standaloneimage-build-error-capture.t`
+  proves AC-1 (build failure survives a successful restore) end-to-end
+  via a fake failing `objcopy` on `PATH`, an isolated mechanism-level
+  test for AC-2 (restore failure isn't masked by a stale build-eval
+  `$@`), and a SKIP-guarded happy-path check for AC-3.
+
 ## 4.70
 
 - **DD-1005**: `d2 path add`/`d2 file add` had no way to mark an alias as

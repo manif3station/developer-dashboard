@@ -1,3 +1,16 @@
+4.71  2026-09-22
+
+  - DD-1006: `_compile_launcher` in `Pax::StandaloneImage` ran a build eval
+    followed by a cwd-restore eval and read `$@` once for both failure
+    paths' `reason` field. Perl resets `$@` at the start and on successful
+    completion of every eval, so when the build eval failed but the
+    subsequent restore eval succeeded (the common case), the restore
+    eval's success silently erased the real build-failure diagnostic
+    before it was ever read - a failed standalone-image build reported an
+    empty reason. Fixed by capturing each eval's `$@` into its own
+    variable immediately after that eval returns, before the other eval
+    can run and clobber it.
+
 4.70  2026-09-22
 
   - DD-1005: `d2 path add`/`d2 file add` now accept a `-c`/`--create` flag
