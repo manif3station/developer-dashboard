@@ -60,23 +60,41 @@ objcopy cannot honor an x86-64 spec on an aarch64 toolchain), and
 32-bit/64-bit object mismatch, since objcopy kept emitting 64-bit x86-64
 objects while DD-1013's `-m32` `cc` wrapper linked for 32-bit).
 
-Fixed by detecting the build host's architecture from `$Config{archname}`
-and selecting the correct `objcopy` target pair from a small lookup
-table. Every value was verified against the *real* tool, not assumed:
+**First fix attempt (superseded the same day) detected the build host's
+architecture from `$Config{archname}`.** That is wrong for a
+cross-compiling target: confirmed live in real CI, `linux-i686` still
+failed at the final link even after this landed, because that runner
+cross-compiles 32-bit objects via a `-m32`-forcing `cc` wrapper on an
+ordinary *native x86_64* Perl - `$Config{archname}` there is
+`x86_64-linux-gnu-thread-multi` regardless of the actual `-m32` target,
+so the archname-based detection silently selected the wrong (64-bit)
+spec. `gcc -m32 -dumpmachine` also does not report the 32-bit target on
+this project's own hosts, so no metadata-only signal here is
+trustworthy.
 
-| Architecture | `--output`             | `--binary-architecture` |
-|--------------|-------------------------|--------------------------|
-| x86_64       | `elf64-x86-64`          | `i386:x86-64`            |
-| i686 / i386  | `elf32-i386`            | `i386`                   |
-| aarch64      | `elf64-littleaarch64`   | `aarch64`                |
+**The real fix compiles a probe object with the ACTUAL `cc` and reads
+back its genuine ELF header** - `_compile_probe_object_header($cc)`
+writes a trivial `int main(void) { return 0; }`, compiles it with
+whatever `cc` `_compile_launcher` will actually use (honoring any PATH
+wrapper, `-m32` included), and reads the resulting object's real
+`EI_CLASS`/`e_machine` bytes directly. `_objcopy_target_for_elf_header`
+maps that pair to the correct `objcopy` target - every value verified
+against the *real* tool, not assumed:
 
-The i686 and aarch64 rows were confirmed by installing real cross-binutils
+| ELF class | `e_machine` | `--output`             | `--binary-architecture` |
+|-----------|-------------|-------------------------|--------------------------|
+| 64-bit    | EM_X86_64 (62)  | `elf64-x86-64`          | `i386:x86-64`            |
+| 32-bit    | EM_386 (3)      | `elf32-i386`            | `i386`                   |
+| 64-bit    | EM_AARCH64 (183)| `elf64-littleaarch64`   | `aarch64`                |
+
+The aarch64 row was confirmed by installing real cross-binutils
 (`binutils-aarch64-linux-gnu`) in a fresh container and running
 `aarch64-linux-gnu-objcopy --info` directly - not by trusting an
-unverified web search result, since the aarch64 BFD target name
-(`elf64-littleaarch64`) is exactly the kind of specific claim this
-project's own discipline requires checking against the real tool before
-relying on it.
+unverified web search result. Confirmed live via a real GitHub Actions
+run (35714535676) that the archname-based version genuinely fixed
+`linux-arm64` (a native aarch64 runner, real artifact produced) while
+missing only `linux-i686` for the cross-compilation reason above -
+`linux-amd64` was unaffected throughout.
 
 **Scope note:** this only covers Linux hosts (amd64/i686/aarch64) -
 whether macOS ships an `objcopy` compatible with this mechanism at all
