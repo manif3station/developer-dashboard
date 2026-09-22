@@ -44,6 +44,18 @@ if ( defined $setup_idx ) {
     is( $setup_step->{if}, q{startsWith(matrix.target, 'linux-')}, 'the Perl-setup step is gated to Linux targets, matching its dependent steps' );
 }
 
+# AC-4 (found via a REAL PAX Release CI run, not a local test - share/
+# private-cli/pax's own FindBin-based lib resolution ("Can't locate
+# Developer/Dashboard/Pax/CLI.pm in @INC") only ever failed in the actual
+# GitHub Actions environment; every local invocation this session ran
+# succeeded). The build step must pass -Ilib explicitly rather than
+# relying on FindBin+cwd inference.
+{
+    my ($build_step) = grep { $_->{name} eq 'PAX build dashboard (Linux only)' } @steps;
+    ok( $build_step, 'the PAX build dashboard step exists' );
+    like( $build_step->{run}, qr/perl -Ilib share\/private-cli\/pax build/, 'the PAX build step passes -Ilib explicitly, not relying on FindBin lib resolution' );
+}
+
 # AC-3 (found via the same real-CI verification this ticket's git-gate
 # performed): every action pin in pax-release.yml must resolve to a
 # node24+ runtime - GitHub force-runs node20 actions on node24, which
