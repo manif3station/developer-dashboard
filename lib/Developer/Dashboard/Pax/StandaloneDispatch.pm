@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::StandaloneDispatch;
 
-our $VERSION = '4.70';
+our $VERSION = '4.71';
 
 use strict;
 use warnings;
