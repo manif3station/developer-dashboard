@@ -1,6 +1,30 @@
 # Fixed Bugs
 
 
+## 4.72
+
+- **DD-1002**: nine `lib/Developer/Dashboard/Pax/*.pm` modules each
+  hand-rolled their own `JSON::XS->new->...->encode()` chain with
+  independently drifted option sets (ascii/canonical/pretty/utf8
+  combinations) instead of using the shared `Developer::Dashboard::JSON`
+  wrapper the rest of the codebase already uses - nothing guarded against a
+  tenth ad hoc call site being added, or an existing one silently changing
+  its output encoding without anyone noticing. Fixed by adding
+  `json_encode_with_options($value, %opts)` to `JSON.pm` and converting all
+  nine call sites across `ArtifactCache.pm`, `AppImage.pm`, `AppServer.pm`,
+  `CLI.pm`, `CodeUnitCompiler.pm` (6 sites), `ProfileGuidedAOT.pm`, and
+  `StandaloneImage.pm`. `Pax/Capture.pm`'s isolated child-probe call site
+  (piped via `open3($^X, '-', ...)` with no guaranteed `-I lib` path) is a
+  documented, deliberate exception, left as a direct `JSON::XS->new` call.
+  `t/208-json-centralization.t` proves the new function reproduces every
+  option combination byte-identically to the pre-change chains, scans for
+  any remaining undocumented direct `JSON::XS->new` construction site, and
+  directly exercises the 4 changed files (`ArtifactCache`, `AppImage`,
+  `AppServer`, `Pax::CLI`) that no other existing test in the suite loads at
+  all - including a real forked UNIX-socket server for
+  `AppServer::run_client` so the socket-connected branch is genuinely
+  reached rather than falling through to its `_direct_exec` fallback.
+
 ## 4.71
 
 - **DD-1006**: `Pax::StandaloneImage::_compile_launcher` ran a build eval
