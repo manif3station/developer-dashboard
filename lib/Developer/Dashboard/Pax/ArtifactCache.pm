@@ -27,12 +27,24 @@ sub write_artifact {
     my $dir = File::Spec->catdir($self->{root}, substr($id, 0, 2));
     make_path($dir);
     my $path = File::Spec->catfile($dir, "$id.json");
-    open my $fh, '>', $path or die "cannot write $path: $!";
+    # DD-1009: write to a sibling temp path first, then rename() onto
+    # $path - matching PaxCache.pm's own md5_file fix (DD-1003) exactly.
+    # A plain open('>', $path) truncates $path to zero bytes the instant
+    # it opens, well before the content is written; any interruption in
+    # that window (kill, OOM, crash) leaves a real, existing, truncated
+    # JSON file on disk. rename(2) on the same filesystem is atomic, so a
+    # reader can only ever see the complete previous content or the
+    # complete new content.
+    my $tmp = "$path.tmp.$$";
+    # uncoverable branch false
+    open my $fh, '>', $tmp or die "cannot write $tmp: $!";
     print {$fh} json_encode_with_options( {
         metadata => $metadata,
         artifact => $artifact,
     }, pretty => 1 );
     close $fh;
+    # uncoverable branch false
+    rename $tmp, $path or die "cannot rename $tmp to $path: $!";
     return {
         id => $id,
         path => $path,
