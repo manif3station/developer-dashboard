@@ -10,6 +10,7 @@ use File::Find ();
 use File::Path qw(make_path);
 use File::Spec;
 use JSON::XS qw(decode_json);
+use Developer::Dashboard::JSON qw(json_encode_with_options);
 
 # new(%args)
 # Constructs the app-image manager rooted at the directory where named app
@@ -422,7 +423,7 @@ sub _c_string {
 sub _write_json {
     my ($path, $data) = @_;
     open my $fh, '>', $path or die "cannot write $path: $!";
-    print {$fh} JSON::XS->new->ascii(1)->canonical(1)->pretty(1)->encode($data);
+    print {$fh} json_encode_with_options( $data, ascii => 1, pretty => 1 );
     close $fh;
 }
 

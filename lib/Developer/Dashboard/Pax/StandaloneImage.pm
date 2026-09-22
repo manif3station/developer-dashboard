@@ -14,6 +14,7 @@ use File::Basename qw(dirname basename);
 use File::Spec;
 use File::Temp qw(tempdir tempfile);
 use JSON::XS ();
+use Developer::Dashboard::JSON qw(json_encode_with_options);
 use Developer::Dashboard::Pax::CodeUnitCompiler;
 use Developer::Dashboard::Pax::StandaloneAnalysis;
 
@@ -1453,7 +1454,7 @@ sub _toolchain_path {
 
 sub _launcher_source {
     my ($manifest) = @_;
-    my $manifest_json = JSON::XS->new->ascii(1)->canonical(1)->encode(_manifest_without_bytes($manifest));
+    my $manifest_json = json_encode_with_options( _manifest_without_bytes($manifest), ascii => 1 );
     my $manifest_literal = _c_string($manifest_json);
     my $entrypoint_logical = _c_string($manifest->{entrypoint}{logical_path});
     my $source_hash = _c_string($manifest->{source_hash} // '');
@@ -2473,10 +2474,10 @@ print encode_json(\@files);
 PL
     close $fh;
 
-    my $payload = JSON::XS->new->ascii(1)->canonical(1)->encode({
+    my $payload = json_encode_with_options( {
         modules => \@modules,
         lib_dirs => [ map { abs_path($_) || $_ } @{ $args{lib_dirs} // [] } ],
-    });
+    }, ascii => 1 );
     local $ENV{PAX_RUNTIME_PROBE_PAYLOAD} = $payload;
     # DD-882 (vulnerability-scan hardening): list-form system() via
     # Capture::Tiny instead of qx{}, matching this project's own Perl
@@ -2705,7 +2706,7 @@ sub _write_json {
     my $dir = dirname($path);
     make_path($dir) if length $dir && !-d $dir;
     open my $fh, '>', $path or die "cannot write $path: $!";
-    print {$fh} JSON::XS->new->ascii(1)->canonical(1)->pretty(1)->encode(_manifest_without_bytes($data));
+    print {$fh} json_encode_with_options( _manifest_without_bytes($data), ascii => 1, pretty => 1 );
     close $fh;
 }
 

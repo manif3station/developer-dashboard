@@ -300,6 +300,13 @@ my $result = {
     diagnostics => \@diagnostics,
 };
 
+# DD-1002: this line runs inside an isolated CHILD process (this whole
+# heredoc is the source of the probe script _run_perl_probe pipes to
+# `open3($^X, '-', $entrypoint, $mode)` with no -I lib path), so its @INC
+# has no guaranteed way to find Developer::Dashboard::JSON - converting it
+# to the shared wrapper would make the probe fragile in exactly the
+# packaged/installed scenarios this whole Pax subsystem exists to support.
+# Deliberately kept as a direct JSON::XS->new call.
 print JSON::XS->new->ascii(1)->canonical(1)->encode($result);
 exit($ok ? 0 : 1);
 

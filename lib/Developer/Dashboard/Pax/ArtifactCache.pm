@@ -8,6 +8,7 @@ use Digest::SHA qw(sha256_hex);
 use File::Path qw(make_path);
 use File::Spec;
 use JSON::XS qw(decode_json);
+use Developer::Dashboard::JSON qw(json_encode_with_options);
 
 sub new {
     my ($class, %args) = @_;
@@ -27,10 +28,10 @@ sub write_artifact {
     make_path($dir);
     my $path = File::Spec->catfile($dir, "$id.json");
     open my $fh, '>', $path or die "cannot write $path: $!";
-    print {$fh} JSON::XS->new->canonical(1)->pretty(1)->encode({
+    print {$fh} json_encode_with_options( {
         metadata => $metadata,
         artifact => $artifact,
-    });
+    }, pretty => 1 );
     close $fh;
     return {
         id => $id,
@@ -42,7 +43,7 @@ sub write_artifact {
 sub metadata_for {
     my ($self, $manifest, $artifact) = @_;
     my $module_graph_hash = sha256_hex(join "\n", @{ $manifest->{module_graph}{modules} // [] });
-    my $capture_manifest_hash = sha256_hex(JSON::XS->new->canonical(1)->encode($manifest));
+    my $capture_manifest_hash = sha256_hex(json_encode_with_options($manifest));
     my $cpu_target = join('-', $^O, $manifest->{runtime}{archname} // 'unknown');
     my $id_input = join "\n",
         $manifest->{runtime}{perl_config_version} // '',
