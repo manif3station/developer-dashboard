@@ -83,9 +83,9 @@ ELF (Linux, DD-1020) and COFF (Windows, DD-1015) formats the same
 probe-based detection strategy already handles - the entry point
 C<_compile_launcher> needs to route macOS builds to a structurally
 different mechanism (C<-sectcreate> at link time, no objcopy-equivalent
-step at all - see C<docs/pax-macos-binary-embedding.md>) rather than
-attempting (and silently failing or misbehaving on) the objcopy path
-that only works for ELF/COFF.
+step at all - see this subsystem's own vault documentation page)
+rather than attempting (and silently failing or misbehaving on) the
+objcopy path that only works for ELF/COFF.
 
 =head1 WHY IT EXISTS
 

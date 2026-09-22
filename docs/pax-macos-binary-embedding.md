@@ -5,24 +5,36 @@ mechanism (DD-1014). Everything below is marked with its actual
 confidence level; nothing here should be treated as proven until a
 "VERIFIED LIVE" note says so - and as of this writing, nothing has one.
 
-## Current status: implemented, not yet confirmed on real macOS
+## windows-amd64-style status: VERIFIED LIVE (DD-1014)
 
-`StandaloneImage.pm` now has a real macOS code path:
-`_is_macho_magic`, `_compile_probe_target_format`, and
-`_compile_launcher_darwin` (the `-sectcreate` mechanism below),
-plus an `#ifdef __APPLE__` branch in `_launcher_source` reading
-payloads back via `getsectiondata()`. `_compile_launcher` routes to
-this path automatically when its object-format probe detects Mach-O.
-`pax-release.yml`'s `macos-arm64` job now runs a real build + smoke-
-verify step instead of the old placeholder.
+Confirmed via a real GitHub Actions `macos-14` runner build (PAX
+Release run 35764156339, job "Build macos-arm64") - first attempt,
+no fixes needed. The build step (`cc -sectcreate __DATA __codepkg
+code.pkg -sectcreate ... -o pax-output/d2 <source.c>`) succeeded, and
+the smoke-verify step confirmed:
 
-None of this has been confirmed by actually compiling and running
-anything on real macOS - no macOS host (macdev or otherwise) was
-reachable this session. `t/218-standaloneimage-macho-detection.t`
-covers everything testable without one (magic-byte recognition, and
-that the darwin path fails cleanly - not silently - when run on a
-non-Mach-O-producing host). The real proof is the next `macos-14`
-GitHub Actions run of `pax-release.yml`.
+- `file pax-output/d2` reports **"Mach-O 64-bit executable arm64"** -
+  a genuine compiled Mach-O binary, not a shell script or stub.
+- The compiled binary's own `d2 version` output matched the
+  source-Perl CLI's `dashboard version` output exactly.
+
+`StandaloneImage.pm` has a real macOS code path: `_is_macho_magic`,
+`_compile_probe_target_format`, and `_compile_launcher_darwin` (the
+`-sectcreate` mechanism), plus an `#ifdef __APPLE__` branch in
+`_launcher_source` reading payloads back via `getsectiondata()`
+(Apple's combined `<mach-o/getsect.h>` API - simpler than the
+two-step `getsectbyname()` + separate data lookup originally
+researched). `_compile_launcher` routes to this path automatically
+when its object-format probe detects Mach-O.
+`pax-release.yml`'s `macos-arm64` job runs the real build + smoke-
+verify step. `t/218-standaloneimage-macho-detection.t` covers the
+detection logic and clean-failure path (9/9, TDD).
+
+**Still open:** deeper functional E2E (does every dashboard
+subcommand actually work correctly on the compiled binary, not just
+`version`) has not been exercised - the smoke-verify step is
+intentionally minimal, matching this project's own Linux/Windows
+smoke checks.
 
 ## Why the Linux mechanism doesn't transfer
 

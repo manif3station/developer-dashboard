@@ -778,11 +778,23 @@ sub _code_manifest {
         label => sprintf('Compile entrypoint unit (%s)', _logical_name($entrypoint)),
     }) if $progress;
 
-    my $entry_unit = $compiler->compile(
-        path => $entrypoint,
-        kind => 'entrypoint',
-        logical_path => _safe_logical_path(File::Spec->catfile('entrypoint', _logical_name($entrypoint))),
-    );
+    # DD-1015/DD-1027: same 60s per-unit guard as the other two
+    # $compiler->compile() call sites in this file.
+    my $entry_unit = eval {
+        local $SIG{ALRM} = sub { die "compile unit timed out after 60s: $entrypoint\n" };
+        alarm(60);
+        my $r = $compiler->compile(
+            path => $entrypoint,
+            kind => 'entrypoint',
+            logical_path => _safe_logical_path(File::Spec->catfile('entrypoint', _logical_name($entrypoint))),
+        );
+        alarm(0);
+        $r;
+    };
+    if ( my $err = $@ ) {
+        alarm(0);
+        die $err;
+    }
     $entry_unit->{source_bytes} = _slurp_bytes($entrypoint);
     push @manifest, $entry_unit;
     $progress->({
@@ -1051,11 +1063,26 @@ sub _pure_perl_dependency_units {
         next if _dependency_runtime_only($path);
         next if $seen->{$path}++;
         my $logical = _safe_logical_path(File::Spec->catfile('dependency', split(/::/, $module))) . '.pm';
-        my $compiled = $compiler->compile(
-            path => $path,
-            kind => 'dependency',
-            logical_path => $logical,
-        );
+        # DD-1015/DD-1027: same 60s per-unit guard as the application-units
+        # loop above - a genuine Windows hang was found compiling an
+        # application unit, and dependency units go through the identical
+        # $compiler->compile() call, so they are equally exposed until the
+        # real root cause (DD-1027) is found.
+        my $compiled = eval {
+            local $SIG{ALRM} = sub { die "compile unit timed out after 60s: $path\n" };
+            alarm(60);
+            my $r = $compiler->compile(
+                path => $path,
+                kind => 'dependency',
+                logical_path => $logical,
+            );
+            alarm(0);
+            $r;
+        };
+        if ( my $err = $@ ) {
+            alarm(0);
+            die $err;
+        }
         next if (($compiled->{packaging} // '') eq 'source_payload_fallback');
         if (($compiled->{packaging} // '') eq 'hybrid_compiled_pcu_v1') {
             my $record = eval { JSON::XS::decode_json($compiled->{bytes}) };
@@ -1107,6 +1134,15 @@ sub _declared_modules {
         push @modules, $1;
     }
     while ($source =~ /\brequire\s+([A-Za-z_][A-Za-z0-9_:]*)\b/g) {
+        push @modules, $1;
+    }
+    # DD-1029: `no Module;` genuinely LOADS Module - Perl implements it as
+    # `use Module (); Module->unimport(...)`, not a no-op - but this scanner
+    # only recognized `use`/`require` until now. Root cause of overload.pm's
+    # own `no overloading;` (confirmed in the real installed core module,
+    # not a hypothetical) being invisible to dependency discovery and never
+    # bundled, crashing the real published release binary.
+    while ($source =~ /\bno\s+([A-Za-z_][A-Za-z0-9_:]*)\b/g) {
         push @modules, $1;
     }
     while ($source =~ /\buse\s+(?:base|parent)\s+qw\(([^)]*)\)/g) {
@@ -1638,6 +1674,17 @@ sub _compile_launcher {
         _objcopy_target_for_compiler($cc);
     };
     return { status => 'not_built', reason => $@ } if !$objcopy_target;
+    # DD-1015/DD-1027: a real windows-amd64 CI run still hung 60+ minutes
+    # with THIS same guard already covering the application-units compile
+    # loop (proving it got PAST that step - the alarm never fired there),
+    # meaning the hang moved to a later, previously-unguarded stage. This
+    # objcopy+link block is the next likely candidate: it is the only
+    # remaining unguarded subprocess sequence in the standalone-launcher
+    # build path. A generous 300s covers real, legitimate multi-payload
+    # objcopy+link work while still turning an indefinite hang into a
+    # diagnosable failure.
+    local $SIG{ALRM} = sub { die "launcher objcopy/link step timed out after 300s\n" };
+    alarm(300);
     my $ok = eval {
         local $ENV{PATH} = $tool_path if defined $tool_path && $tool_path ne '';
         chdir $build_dir or die "cannot chdir to $build_dir: $!";
@@ -1672,6 +1719,7 @@ sub _compile_launcher {
         die "launcher compile failed" if ($? >> 8) != 0;
         1;
     };
+    alarm(0);
     # DD-1006: capture each eval's $@ into its own variable IMMEDIATELY
     # after that eval returns, before the other eval can run and clobber
     # the shared $@ (Perl resets $@ at the start and on the successful
