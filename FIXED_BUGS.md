@@ -1,6 +1,23 @@
 # Fixed Bugs
 
 
+## 4.81
+
+- **DD-1020** (real fix for t/183, misdiagnosed as DD-1023): the
+  compiler probe `_objcopy_target_for_compiler` ran before
+  `_compile_launcher`'s own `local $ENV{PATH} = $tool_path` restoration
+  was applied. t/183's self-hosted pax-build scenarios deliberately run
+  a compiled pax binary under `env -i PATH=/nonexistent` to prove true
+  standalone execution needs no external PATH - under that, `cc` could
+  still be resolved via an absolute path but then could not find its
+  own `as` subprocess, since gcc's internal assembler lookup needs a
+  PATH to search regardless of how `cc` itself was resolved. Confirmed
+  live: DD-1023's explicit `binutils` install changed nothing in real
+  CI, because `as` was never actually missing. Fixed by moving the
+  probe call inside the same PATH-restoration scope the objcopy/cc
+  calls below it already use.
+
+
 ## 4.80
 
 - **DD-1019**: t/159-dollar-question-guard-sweep.t and

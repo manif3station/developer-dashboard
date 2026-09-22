@@ -101,3 +101,27 @@ whether macOS ships an `objcopy` compatible with this mechanism at all
 (Apple's own toolchain differs from GNU binutils) is a separate, deeper
 question, left for whichever ticket does real macOS verification of the
 PAX standalone build.
+
+## The probe must run under the SAME restored PATH as the rest of the build
+
+A third, separate defect (found via real CI on t/183, initially
+misdiagnosed as a missing `as`/`binutils` gap on the runner): the
+compiler probe originally ran *before* `_compile_launcher`'s own
+`local $ENV{PATH} = _toolchain_path($cc, $objcopy)` restoration was
+applied. t/183's self-hosted pax-build scenarios deliberately run a
+compiled `pax` binary under `env -i PATH=/nonexistent` to prove true
+standalone execution needs no external `PATH` at all - and under that,
+`cc` could still be resolved via an absolute path (`_which` searches
+well-known absolute locations), but the probe's own `system($cc, '-c',
+...)` call then failed with `cc: fatal error: cannot execute 'as':
+execvp: No such file or directory` - gcc's own internal search for the
+assembler subprocess needs *some* `PATH` to search, regardless of how
+`cc` itself was resolved.
+
+Installing `binutils` explicitly on the CI runner (the first attempted
+fix, DD-1023) changed nothing in real CI, because `as` was never
+actually missing - it just could not be found without a `PATH`. The
+real fix moves the probe call inside the same `local $ENV{PATH} =
+$tool_path` scope the objcopy/cc calls below it already use, so it
+sees the identical restored `PATH` regardless of what the caller's own
+ambient environment looks like.

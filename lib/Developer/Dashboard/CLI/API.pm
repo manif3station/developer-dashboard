@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::API;
 use strict;
 use warnings;
 
-our $VERSION = '4.80';
+our $VERSION = '4.81';
 
 use Digest::SHA qw(sha256_hex);
 use Getopt::Long qw(GetOptionsFromArray);
