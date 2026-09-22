@@ -48,3 +48,38 @@ binary) while the cwd restore succeeds, and asserts the returned `reason`
 contains the real objcopy failure text rather than an empty string. It
 also proves the cwd-restore failure path reports its own distinct message,
 and that the happy path (`status => 'built'`) is unaffected.
+
+## Architecture detection for objcopy (DD-1020)
+
+`_compile_launcher`'s four `objcopy` calls previously hardcoded
+`--output elf64-x86-64 --binary-architecture i386:x86-64` unconditionally
+- correct only when the build host itself is x86_64. Confirmed live in
+real CI: `linux-arm64` failed outright (`objcopy code.pkg failed` -
+objcopy cannot honor an x86-64 spec on an aarch64 toolchain), and
+`linux-i686` failed at the final link (`launcher compile failed` - a
+32-bit/64-bit object mismatch, since objcopy kept emitting 64-bit x86-64
+objects while DD-1013's `-m32` `cc` wrapper linked for 32-bit).
+
+Fixed by detecting the build host's architecture from `$Config{archname}`
+and selecting the correct `objcopy` target pair from a small lookup
+table. Every value was verified against the *real* tool, not assumed:
+
+| Architecture | `--output`             | `--binary-architecture` |
+|--------------|-------------------------|--------------------------|
+| x86_64       | `elf64-x86-64`          | `i386:x86-64`            |
+| i686 / i386  | `elf32-i386`            | `i386`                   |
+| aarch64      | `elf64-littleaarch64`   | `aarch64`                |
+
+The i686 and aarch64 rows were confirmed by installing real cross-binutils
+(`binutils-aarch64-linux-gnu`) in a fresh container and running
+`aarch64-linux-gnu-objcopy --info` directly - not by trusting an
+unverified web search result, since the aarch64 BFD target name
+(`elf64-littleaarch64`) is exactly the kind of specific claim this
+project's own discipline requires checking against the real tool before
+relying on it.
+
+**Scope note:** this only covers Linux hosts (amd64/i686/aarch64) -
+whether macOS ships an `objcopy` compatible with this mechanism at all
+(Apple's own toolchain differs from GNU binutils) is a separate, deeper
+question, left for whichever ticket does real macOS verification of the
+PAX standalone build.
