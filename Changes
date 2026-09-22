@@ -1,3 +1,13 @@
+4.77  2026-09-22
+
+  - DD-1018 (follow-up): a real PAX Release CI run of v4.76's two prior
+    fixes surfaced a third defect - `share/private-cli/pax`'s FindBin-
+    based lib resolution failed in the actual GitHub Actions environment
+    ("Can't locate Developer/Dashboard/Pax/CLI.pm"), though every local
+    invocation this session ran succeeded. Fixed by passing `-Ilib`
+    explicitly on the `perl` invocation in `pax-release.yml`'s Linux
+    build step, sidestepping FindBin+cwd inference entirely.
+
 4.76  2026-09-22
 
   - DD-1018: `pax-release.yml`'s Linux matrix jobs now bootstrap Perl and
