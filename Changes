@@ -1,3 +1,17 @@
+4.72  2026-09-22
+
+  - DD-1002: nine `lib/Developer/Dashboard/Pax/*.pm` modules each hand-rolled
+    their own `JSON::XS->new->...->encode()` chain with independently
+    drifted option sets, instead of using the shared
+    `Developer::Dashboard::JSON` wrapper the rest of the codebase already
+    uses. Added `json_encode_with_options($value, %opts)` supporting the
+    ascii/pretty/utf8 combinations these call sites need, and converted all
+    nine sites (`ArtifactCache.pm`, `AppImage.pm`, `AppServer.pm`, `CLI.pm`,
+    `CodeUnitCompiler.pm` (6 sites), `ProfileGuidedAOT.pm`,
+    `StandaloneImage.pm`) - `Pax/Capture.pm`'s isolated child-probe call
+    site is a documented, deliberate exception (runs with no guaranteed
+    `-I lib` path).
+
 4.71  2026-09-22
 
   - DD-1006: `_compile_launcher` in `Pax::StandaloneImage` ran a build eval
