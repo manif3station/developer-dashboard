@@ -1,6 +1,32 @@
 # Fixed Bugs
 
 
+## 4.76
+
+- **DD-1018**: every real GitHub Actions run of `pax-release.yml`
+  (added by DD-1012, wired for Linux by DD-1013) failed from the moment
+  it first shipped, from two separate root causes found via live
+  `gh run`/`gh api` verification. First: GitHub-hosted
+  `ubuntu-latest`/`ubuntu-24.04-arm` runners do not ship `cpanm`
+  pre-installed - "cpanm: command not found", exit 127, on all 3 Linux
+  matrix jobs, every single run. Fixed by adding the same
+  `shogo82148/actions-setup-perl` step `test.yml` already uses (identical
+  pinned SHA, `perl-version: '5.44'`) before the `cpanm`-dependent step.
+  Second: `actions/upload-artifact@ea165f8d65b6...` (v4.6.2) declares
+  `node20`, below this project's enforced `node24` floor (DD-449: a
+  `node20` action died under GitHub's forced `node24` upgrade and cost
+  ten days of CI) - caught via "Audit action pin provenance" failing in
+  real CI on DD-1017's own push, a second real defect in the same
+  not-yet-landed file, fixed together rather than fragmenting into
+  another ticket. Re-pinned to v7.0.1
+  (`043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`), verified `node24`
+  independently via `gh api` and `script/audit-action-pins` itself.
+  `t/213-pax-release-perl-setup.t` proves the Perl-setup step's presence,
+  ordering, and exact pin match against `test.yml` (RED-then-GREEN
+  verified), plus a network-dependent block running
+  `script/audit-action-pins` itself and asserting no pin reports below
+  the node floor.
+
 ## 4.75
 
 - **DD-1017** (found live while implementing DD-1013, part of epic

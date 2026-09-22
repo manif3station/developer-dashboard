@@ -1,3 +1,14 @@
+4.76  2026-09-22
+
+  - DD-1018: `pax-release.yml`'s Linux matrix jobs now bootstrap Perl and
+    `cpanm` via the same `shogo82148/actions-setup-perl` step `test.yml`
+    already uses (real CI runs failed with "cpanm: command not found"
+    otherwise). Also re-pinned `actions/upload-artifact` from v4.6.2
+    (node20, below this project's enforced node24 floor) to v7.0.1
+    (node24-verified) - a second real defect found via the same live CI
+    investigation. Every real PAX Release workflow run failed from one
+    of these two causes until now.
+
 4.75  2026-09-22
 
   - DD-1017: `bin/d2`'s dispatch line unconditionally routed through the
