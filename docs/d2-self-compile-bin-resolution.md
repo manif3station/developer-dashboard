@@ -68,3 +68,48 @@ different claims. Seeding a fake binary proves only the dispatch decision; it
 says nothing about what the real compiled artifact does once it starts
 running its own body. Any test that stands in for "the compiled output
 behaves correctly" needs to run compiled output, not a stand-in for it.
+
+## A second, related gap: dispatching TO a compiled sibling (DD-1017)
+
+The fix above gets the *path* to `$dashboard` right even inside a compiled
+`d2` binary. It says nothing about *what kind of file* `$dashboard` is once
+resolved — and the line that actually uses it,
+
+```perl
+exec { $^X } $^X, $dashboard, @ARGV;
+```
+
+unconditionally routes through the perl interpreter (`$^X`), assuming
+`$dashboard` is always Perl source. That assumption breaks under
+`DDE-006`'s multi-platform PAX CI goal: a user who downloads BOTH a
+compiled `d2` and a compiled `dashboard` binary, with no Perl installed at
+all, gets `perl` invoked against a compiled ELF/PE/Mach-O file — which
+cannot parse it as source. Reproduced live, 2026-09-22: a compiled `d2`
+binary crashed trying to run a compiled `dashboard` binary this way.
+
+The fix (DD-1017) is a small addition in the same spirit as the `$Bin`
+fix above — detect the two cases and dispatch differently, rather than
+assuming one shape everywhere:
+
+```perl
+my $dashboard_is_compiled = do {
+    open my $fh, '<:raw', $dashboard or die "cannot check $dashboard: $!";
+    my $magic;
+    read $fh, $magic, 2;
+    close $fh;
+    !defined($magic) || $magic ne '#!';
+};
+
+if ($dashboard_is_compiled) {
+    exec { $dashboard } $dashboard, @ARGV;
+}
+else {
+    exec { $^X } $^X, $dashboard, @ARGV;
+}
+```
+
+A Perl script always opens with a `#!` shebang; a PAX-compiled binary
+never does. This keeps the *existing* interpreted path (and
+`t/49-d2-entrypoint.t`'s exact regex assertions against it) completely
+unchanged, and adds the compiled-binary case as a genuinely new branch
+rather than a modification of the old one.

@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::CoreSuite;
 
-our $VERSION = '4.74';
+our $VERSION = '4.75';
 
 use strict;
 use warnings;
