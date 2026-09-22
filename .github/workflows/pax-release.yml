@@ -113,7 +113,17 @@ jobs:
         if: startsWith(matrix.target, 'linux-')
         run: |
           mkdir -p pax-output
-          perl share/private-cli/pax build --compact -o pax-output/dashboard bin/dashboard
+          # DD-1018 (third finding, same investigation): share/private-cli/pax
+          # resolves its own lib/ via `use FindBin qw($Bin); use lib
+          # "$Bin/../lib";`, which works in every local invocation this
+          # project's own tests and sandboxes use - but a real GitHub Actions
+          # run of this exact command failed with "Can't locate
+          # Developer/Dashboard/Pax/CLI.pm in @INC", even though
+          # share/private-cli/../lib WAS listed as a checked @INC entry.
+          # Root cause not fully diagnosed (FindBin's $Bin+cwd resolution
+          # behaves differently in this CI environment); -Ilib sidesteps it
+          # entirely by being explicit rather than relying on inference.
+          perl -Ilib share/private-cli/pax build --compact -o pax-output/dashboard bin/dashboard
 
       - name: PAX build (placeholder, non-Linux)
         if: ${{ !startsWith(matrix.target, 'linux-') }}
