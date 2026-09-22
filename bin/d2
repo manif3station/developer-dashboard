@@ -28,8 +28,37 @@ my $dashboard = $ENV{DEVELOPER_DASHBOARD_D2_DASHBOARD_PATH}
 
 _maybe_exec_self_compiled_d2();
 
-exec { $^X } $^X, $dashboard, @ARGV;
+# DD-1017: $dashboard may be either ordinary Perl source (the shipped
+# bin/dashboard, or another interpreted copy) or a PAX-compiled standalone
+# binary - and the two must be dispatched differently. Unconditionally
+# routing through $^X (the previous behavior) crashes the moment
+# $dashboard is a compiled binary, since perl cannot parse an ELF/PE/
+# Mach-O file as Perl source. A Perl script always opens with a '#!'
+# shebang; a compiled binary never does, so that first two bytes is the
+# discriminator.
+if ( _dashboard_is_compiled_binary($dashboard) ) {
+    exec { $dashboard } $dashboard, @ARGV;
+}
+else {
+    exec { $^X } $^X, $dashboard, @ARGV;
+}
 die "Unable to exec dashboard entrypoint at $dashboard from d2: $!\n";
+
+# _dashboard_is_compiled_binary($path)
+# DD-1017: distinguishes a compiled PAX standalone binary from ordinary
+# Perl source by its first two bytes - Perl source always opens with a
+# '#!' shebang, a compiled binary never does.
+# Input: path to the sibling dashboard entrypoint.
+# Output: true if $path is not Perl source (i.e. should be exec'd
+# directly, with no perl interpreter); false otherwise.
+sub _dashboard_is_compiled_binary {
+    my ($path) = @_;
+    open my $fh, '<:raw', $path or return 0;
+    my $magic;
+    read $fh, $magic, 2;
+    close $fh;
+    return !defined($magic) || $magic ne '#!';
+}
 
 # _maybe_exec_self_compiled_d2()
 # DD-882 (owner correction, Telegram msg #2001, 2026-09-15): d2 checks
@@ -133,8 +162,10 @@ installed executable.
 
 Run C<d2> followed by any dashboard subcommand and arguments, exactly as you
 would run C<dashboard>. The script resolves its sibling C<dashboard> file from
-its own install directory and re-execs it under the same Perl interpreter, so
-the full command surface, hooks, and shell bootstrap output are identical.
+its own install directory and re-execs it - under the same Perl interpreter
+when that sibling is ordinary Perl source, or directly with no interpreter at
+all when it is a PAX-compiled standalone binary (DD-1017) - so the full
+command surface, hooks, and shell bootstrap output are identical either way.
 
 =head1 WHAT USES IT
 
