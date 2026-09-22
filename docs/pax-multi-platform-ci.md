@@ -75,6 +75,41 @@ Exact runner labels should be re-confirmed against GitHub's current
 documentation when DD-1013/DD-1014/DD-1015 actually wire their build
 steps — GitHub's runner-image naming has changed before and will again.
 
+## Build invocation: no paxfile.yml needed
+
+`t/182-dashboard-self-compile.t` already proves the simplest working
+form: `pax build --compact -o <output> bin/dashboard` — a direct
+positional entrypoint argument, no `paxfile.yml` at all. The build tool
+auto-discovers dependencies via its own capture/manifest step. DD-1013's
+Linux CI jobs mirror this exact proven local invocation rather than
+authoring a new build-spec file — simpler, and more directly "wire the
+EXISTING pax build command" (DDE-006's own stated intent) than inventing
+a new mechanism.
+
+**Dashboard only, not d2, for now.** `bin/d2`'s re-exec line
+unconditionally shells through `perl` to invoke its sibling `dashboard`,
+with no handling for the case where that sibling is a *compiled* binary
+rather than Perl source — found live while implementing DD-1013, filed
+as DD-1017, blocks the d2 half of every platform-build ticket under this
+epic until fixed.
+
+## The i686 workaround
+
+The only one of the 6 targets with no native GitHub-hosted runner
+(verified 2026-09-22): install `gcc-multilib`/`g++-multilib` on an
+`ubuntu-latest` (amd64) runner, then put a wrapper named `cc` earlier on
+`PATH` that forces `-m32` — `StandaloneImage.pm`'s `_compile_launcher`
+hardcodes `_which('cc') || _which('gcc')` and never reads `$ENV{CC}`, so
+a plain `CC=...` override is silently ignored.
+
+**The wrapper must exec an absolute `cc` path, never the bare name.**
+DD-1013 caught this live: a wrapper written as `exec cc -m32 "$@"`
+resolves `cc` through the very `PATH` it was just prepended to, finds
+itself, and calls itself forever — observed as an 18+ minute CPU-pegged
+runaway with zero output. Resolve the real `cc` first
+(`real_cc=$(command -v cc)`), then have the wrapper `exec` that absolute
+path.
+
 ## Structure
 
 This capability is broken into an epic (DDE-006) containing:

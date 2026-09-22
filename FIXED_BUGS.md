@@ -1,6 +1,38 @@
 # Fixed Bugs
 
 
+## 4.74
+
+- **DD-1013** (part of epic DDE-006, Multi-platform PAX CI): DD-1012's
+  workflow skeleton left the linux-amd64/arm64/i686 matrix jobs with a
+  placeholder build step only - nothing actually built or verified a
+  Linux dashboard binary. Fixed by wiring each to a real
+  `dashboard pax build --compact -o pax-output/dashboard bin/dashboard`
+  invocation, mirroring `t/182-dashboard-self-compile.t`'s own proven
+  local pattern (no `paxfile.yml` needed - the build tool auto-discovers
+  dependencies). For linux-i686, `gcc-multilib`/`g++-multilib` are
+  installed and a PATH-prepended wrapper forces `-m32`, since
+  `StandaloneImage.pm`'s `_compile_launcher` hardcodes
+  `_which('cc') || _which('gcc')` and never reads `$ENV{CC}` - a plain
+  `CC=...` override is silently ignored. **A real bug was caught and fixed
+  in that wrapper before landing**: its first version execed the bare
+  name `cc` rather than an absolute path, so it resolved through the same
+  `PATH` it had just been prepended to and called *itself* forever -
+  observed live as an 18+ minute CPU-pegged runaway producing zero
+  output. Fixed by resolving the real `cc`'s absolute path
+  (`command -v cc`) before writing the wrapper. Each job then
+  smoke-verifies its own binary - `file` confirms genuine 32-bit ELF for
+  i686, and the binary's `version` output is compared byte-for-byte
+  against the source-Perl CLI's, failing the job on any divergence.
+  `t/211-pax-release-linux-build-wiring.t` proves the wiring and
+  explicitly forbids the self-recursion regression class this ticket
+  found. **d2 is deferred**: while implementing this ticket it was found
+  that `bin/d2`'s re-exec line unconditionally shells through `perl` to
+  invoke its sibling `dashboard`, with no handling for the case where
+  that sibling is a compiled binary - filed as DD-1017, which blocks the
+  d2 half of every platform-build ticket under DDE-006, not just this
+  one.
+
 ## 4.73
 
 - **DD-1012** (part of epic DDE-006, Multi-platform PAX CI): there was no

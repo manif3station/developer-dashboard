@@ -1,3 +1,18 @@
+4.74  2026-09-22
+
+  - DD-1013: wired `.github/workflows/pax-release.yml`'s linux-amd64/
+    arm64/i686 matrix jobs (part of epic DDE-006) to a real `dashboard pax
+    build` invocation and a native smoke check comparing the compiled
+    binary's own `version` output against the source-Perl CLI's, failing
+    the job on any divergence. linux-i686 installs gcc-multilib and
+    routes around `_which('cc')`'s hardcoded PATH resolution (it never
+    reads `$ENV{CC}`) with a PATH-prepended wrapper forcing `-m32` -
+    caught and fixed a self-recursion bug in that wrapper before landing
+    (it execed the bare name `cc` instead of an absolute path, so it
+    called itself forever). d2 is deferred pending DD-1017 (bin/d2's
+    re-exec line cannot currently dispatch to a compiled dashboard
+    binary, found live while implementing this ticket).
+
 4.73  2026-09-22
 
   - DD-1012: added `.github/workflows/pax-release.yml`, part of epic
