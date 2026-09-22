@@ -1,6 +1,34 @@
 # Fixed Bugs
 
 
+## 4.75
+
+- **DD-1017** (found live while implementing DD-1013, part of epic
+  DDE-006): `bin/d2`'s dispatch line -
+  `exec { $^X } $^X, $dashboard, @ARGV;` - unconditionally invoked the
+  perl interpreter against its sibling `dashboard` file, assuming
+  `$dashboard` was always Perl source. This broke the moment
+  `$dashboard` was itself a PAX-compiled standalone binary (an ELF/PE/
+  Mach-O executable rather than Perl source) - reproduced live: a
+  compiled `d2` binary crashed trying to run a compiled `dashboard`
+  binary this way, since perl cannot parse an executable as source.
+  Fixed by adding `_dashboard_is_compiled_binary`, which reads the
+  sibling's first two bytes - a Perl script always opens with a `#!`
+  shebang, a compiled binary never does - and branching the dispatch
+  accordingly: `exec { $dashboard } $dashboard, @ARGV` directly for a
+  compiled sibling, the existing `$^X`-routed exec unchanged for Perl
+  source. Also corrected `bin/d2`'s own POD, which claimed the re-exec
+  always happens "under the same Perl interpreter" - no longer
+  universally true. `t/212-d2-dispatch-to-compiled-dashboard.t` proves
+  both paths: a fast synthetic-file slice confirms d2 no longer attempts
+  to perl-parse a non-shebang file (the exact pre-fix crash signature),
+  and a real slice builds a genuine pax-compiled `dashboard` binary and
+  confirms `d2` execs it directly with matching output.
+  `t/49-d2-entrypoint.t` (17/17, unmodified) and `t/184-d2-self-compile.t`
+  (12/12, including its DD-924 test which exercises a REAL compiled `d2`
+  binary's own embedded copy of this exact fix) both confirmed
+  unaffected.
+
 ## 4.74
 
 - **DD-1013** (part of epic DDE-006, Multi-platform PAX CI): DD-1012's

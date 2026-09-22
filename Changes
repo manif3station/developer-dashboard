@@ -1,3 +1,15 @@
+4.75  2026-09-22
+
+  - DD-1017: `bin/d2`'s dispatch line unconditionally routed through the
+    perl interpreter to invoke its sibling `dashboard` file, assuming it
+    was always Perl source - crashing whenever that sibling was itself a
+    PAX-compiled standalone binary. Fixed by detecting compiled-vs-
+    interpreted via the sibling's first two bytes (Perl source always
+    opens with a `#!` shebang, a compiled binary never does) and
+    execing the compiled binary directly with no perl interpreter when
+    appropriate. The existing interpreted-source dispatch path is
+    completely unchanged.
+
 4.74  2026-09-22
 
   - DD-1013: wired `.github/workflows/pax-release.yml`'s linux-amd64/
