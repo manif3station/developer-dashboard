@@ -1,6 +1,21 @@
 # Fixed Bugs
 
 
+## 4.70
+
+- **DD-1005**: `d2 path add`/`d2 file add` had no way to mark an alias as
+  lazily creatable - resolving an alias whose target was missing always
+  failed with today's existing not-found handling, with no opt-in path to
+  auto-create it. Fixed by adding a `-c`/`--create` flag (optional octal
+  chmod mode, accepted bare or as `--create 0777`/`--create=0777`/`-c 0777`)
+  that marks the saved alias, and a shared create-on-resolve check in
+  `PathRegistry::resolve_dir`/`FileRegistry::resolve_file` - the ONE place
+  this logic lives, so `cdr`, workspace routes, and every direct Perl
+  caller of the resolver get it for free with no per-call-site duplication.
+  A file alias's create-on-resolve creates only the target's PARENT
+  directory (Q-184), leaving the file itself for the caller to write.
+  Documented in `docs/path-and-file-alias-lazy-create.md`.
+
 ## 4.69
 
 - **DD-1003**: `PaxCache::_run_compile_and_install` wrote its `md5_file`
