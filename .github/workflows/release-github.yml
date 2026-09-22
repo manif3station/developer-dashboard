@@ -103,6 +103,18 @@ jobs:
         with:
           perl-version: '5.44'
 
+      # DD-1023: t/183's self-hosted pax-build scenarios compile real C code
+      # (the standalone launcher) and failed here with "cc: fatal error:
+      # cannot execute 'as': execvp: No such file or directory" - the GNU
+      # assembler was missing entirely on this runner, confirmed by a real
+      # CI run (this is DIFFERENT from pax-release.yml's linux-i686 job,
+      # which explicitly installs gcc-multilib/g++-multilib for its own
+      # 32-bit cross-compile and does not hit this). binutils provides `as`;
+      # installing it explicitly here removes the dependency on whatever the
+      # runner image happens to ship by default.
+      - name: Install C toolchain (as/binutils, for t/183's self-hosted pax builds)
+        run: sudo apt-get update && sudo apt-get install -y build-essential binutils
+
       - name: Install release dependencies
         run: |
           cpanm --installdeps --notest .
