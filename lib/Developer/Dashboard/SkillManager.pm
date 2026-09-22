@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillManager;
 use strict;
 use warnings;
 
-our $VERSION = '4.75';
+our $VERSION = '4.76';
 
 use Cwd qw(realpath);
 use File::Copy qw(copy);

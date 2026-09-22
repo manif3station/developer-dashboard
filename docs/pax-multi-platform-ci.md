@@ -86,12 +86,29 @@ authoring a new build-spec file — simpler, and more directly "wire the
 EXISTING pax build command" (DDE-006's own stated intent) than inventing
 a new mechanism.
 
-**Dashboard only, not d2, for now.** `bin/d2`'s re-exec line
-unconditionally shells through `perl` to invoke its sibling `dashboard`,
-with no handling for the case where that sibling is a *compiled* binary
-rather than Perl source — found live while implementing DD-1013, filed
-as DD-1017, blocks the d2 half of every platform-build ticket under this
-epic until fixed.
+**Dashboard first, d2 followed once unblocked.** `bin/d2`'s re-exec line
+used to unconditionally shell through `perl` to invoke its sibling
+`dashboard`, with no handling for the case where that sibling is a
+*compiled* binary rather than Perl source — found live while implementing
+DD-1013, fixed by DD-1017 (a shebang-byte check now branches the dispatch
+correctly for either case). DD-1013 itself still ships dashboard-only;
+adding d2 to its CI matrix entries is natural follow-up work now that the
+blocker is cleared.
+
+## CI environment gap: cpanm is not preinstalled
+
+Found live (DD-1018, 2026-09-22): every real `pax-release.yml` CI run
+failed from the moment it first shipped, because GitHub-hosted
+`ubuntu-latest`/`ubuntu-24.04-arm` runners do not ship `cpanm`
+pre-installed — they are generic runners, not Perl-specific images. The
+local `dashboard pax build` invocation this file wires in was never in
+question (proven working by DD-1013's own local and container-based
+tests); the gap was purely that CI never got as far as running it.
+
+The fix already exists in this repo: `test.yml` bootstraps Perl and
+`cpanm` via `shogo82148/actions-setup-perl` (a pinned SHA, `perl-version:
+'5.44'`) before any `cpanm`-dependent step. `pax-release.yml`'s Linux jobs
+need the identical step.
 
 ## The i686 workaround
 
