@@ -1,3 +1,14 @@
+4.81  2026-09-22
+
+  - DD-1020 (real fix for t/183, found via real CI on v4.80): the
+    compiler probe added for DD-1020's objcopy architecture detection
+    ran BEFORE _compile_launcher's own PATH restoration was applied,
+    so it failed under a caller that deliberately strips $ENV{PATH}
+    (t/183's own standalone-execution test) - misdiagnosed as DD-1023
+    ("as"/binutils missing from the runner, which was never actually
+    true). Fixed by moving the probe inside the same PATH-restoration
+    scope the objcopy/cc calls already use.
+
 4.80  2026-09-22
 
   - DD-1019: t/159 and t/185 were failing for real, deterministic reasons
