@@ -2,11 +2,20 @@ name: PAX Release
 
 # DD-1012: workflow skeleton + trigger, part of epic DDE-006 (Multi-platform
 # PAX CI). Trigger mirrors package-ghcr.yml's established push-to-master
-# convention. The matrix defines all 6 owner-confirmed platform/arch targets;
-# the "PAX build (placeholder)" step below is replaced with a real
-# `dashboard pax build` invocation per-platform by sibling tickets
-# DD-1013 (Linux), DD-1014 (macOS), and DD-1015 (Windows). The functional
-# verification harness (DD-1016) is wired in alongside those.
+# convention. The matrix defines all 6 owner-confirmed platform/arch targets.
+#
+# DD-1013 wired the 3 Linux targets to a real `dashboard pax build` +
+# native smoke check, mirroring t/182-dashboard-self-compile.t's own
+# proven local invocation (no paxfile.yml - the build tool auto-discovers
+# dependencies). The macOS/Windows targets (DD-1014/DD-1015) still show the
+# placeholder below.
+#
+# DASHBOARD ONLY FOR NOW, NOT d2: DD-1017 (filed 2026-09-22, linked under
+# this same epic) found that bin/d2's re-exec line unconditionally shells
+# through perl to invoke its sibling `dashboard`, with no handling for the
+# case where that sibling is a COMPILED binary - so a standalone-compiled
+# d2 cannot currently exec a standalone-compiled dashboard. d2 will be
+# added to this matrix's build step once DD-1017 lands.
 
 on:
   push:
@@ -40,9 +49,9 @@ jobs:
             artifact_name: d2-dashboard-linux-arm64
           - target: linux-i686
             # No native 32-bit GitHub-hosted runner exists (verified
-            # 2026-09-22). This runs on an amd64 host under a 32-bit
-            # toolchain/QEMU-user setup - the exact mechanism is DD-1013's
-            # to implement; this entry only reserves the matrix slot.
+            # 2026-09-22). Runs on an amd64 host with gcc-multilib and a
+            # PATH-wrapped cc forcing -m32 - see the "Install 32-bit
+            # toolchain" step below.
             runs_on: ubuntu-latest
             artifact_name: d2-dashboard-linux-i686
           - target: macos-arm64
@@ -62,8 +71,56 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: PAX build (placeholder)
-        run: echo "TODO (DD-1013/1014/1015) - dashboard pax build for ${{ matrix.target }}"
+      - name: Install 32-bit toolchain (linux-i686 only)
+        if: matrix.target == 'linux-i686'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib g++-multilib
+          # StandaloneImage.pm's _compile_launcher hardcodes
+          # `_which('cc') || _which('gcc')` - it never reads $ENV{CC} - so a
+          # CC=... override is silently ignored. Put a wrapper named `cc`
+          # earlier on PATH that always adds -m32, so the PATH lookup this
+          # build resolver already does finds the 32-bit-forcing wrapper.
+          # MUST resolve the real cc's absolute path BEFORE prepending the
+          # wrapper dir to PATH, and the wrapper must exec that absolute
+          # path, not the bare name `cc` - otherwise the wrapper's own
+          # `exec cc ...` re-resolves through the same PATH and calls
+          # itself, recursing forever (caught locally: an 18+ minute
+          # runaway at 96% CPU with zero output before this fix).
+          real_cc=$(command -v cc)
+          mkdir -p "$RUNNER_TEMP/cc32"
+          printf '#!/bin/sh\nexec %s -m32 "$@"\n' "$real_cc" > "$RUNNER_TEMP/cc32/cc"
+          chmod +x "$RUNNER_TEMP/cc32/cc"
+          echo "$RUNNER_TEMP/cc32" >> "$GITHUB_PATH"
+
+      - name: Install Perl dependencies (Linux only)
+        if: startsWith(matrix.target, 'linux-')
+        run: cpanm --quiet --notest --installdeps .
+
+      - name: PAX build dashboard (Linux only)
+        if: startsWith(matrix.target, 'linux-')
+        run: |
+          mkdir -p pax-output
+          perl share/private-cli/pax build --compact -o pax-output/dashboard bin/dashboard
+
+      - name: PAX build (placeholder, non-Linux)
+        if: ${{ !startsWith(matrix.target, 'linux-') }}
+        run: echo "TODO (DD-1014/1015) - dashboard pax build for ${{ matrix.target }}"
+
+      - name: Smoke-verify the compiled dashboard binary (Linux only)
+        if: startsWith(matrix.target, 'linux-')
+        run: |
+          set -e
+          file pax-output/dashboard
+          if [ "${{ matrix.target }}" = "linux-i686" ]; then
+            file pax-output/dashboard | grep -q "ELF 32-bit" || { echo "expected a 32-bit ELF binary"; exit 1; }
+          fi
+          compiled_version=$(./pax-output/dashboard version)
+          source_version=$(perl bin/dashboard version)
+          if [ "$compiled_version" != "$source_version" ]; then
+            echo "compiled binary version ($compiled_version) does not match source-Perl CLI version ($source_version)"
+            exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
