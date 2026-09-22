@@ -1353,30 +1353,77 @@ sub _pax_launcher_build_dir_name {
     return '.pax-launcher-build-' . $uid;
 }
 
-# Purpose: map a Perl $Config{archname} to the objcopy --output/
-# --binary-architecture pair that produces a linkable object on that
-# host's architecture. Input: an archname string (e.g.
-# 'x86_64-linux-gnu-thread-multi'). Output: a hashref {output=>...,
-# binary_architecture=>...}, or dies naming the unrecognized arch.
+# Purpose: map a compiled object file's real ELF class + machine fields
+# to the objcopy --output/--binary-architecture pair that can link
+# against it. Input: EI_CLASS integer (1=32-bit, 2=64-bit) and e_machine
+# integer (3=EM_386, 62=EM_X86_64, 183=EM_AARCH64). Output: a hashref
+# {output=>..., binary_architecture=>...}, or dies naming the
+# unrecognized (class, machine) pair.
 #
 # DD-1020: _compile_launcher previously hardcoded the x86_64 pair
 # unconditionally, which produced objects objcopy could not honor on
-# non-x86_64 hosts (confirmed live in CI on linux-arm64/linux-i686).
-# Every pair below was verified against the real objcopy/binutils, not
-# assumed - see docs/standaloneimage-compile-launcher-error-reporting.md.
-sub _objcopy_target_for_arch {
-    my ($archname) = @_;
-    my ($arch) = $archname =~ m{\A([^-]+)};
-    if ( $arch eq 'x86_64' ) {
+# non-x86_64 hosts (confirmed live in CI on linux-arm64). Every pair
+# below was verified against the real objcopy/binutils, not assumed -
+# see docs/standaloneimage-compile-launcher-error-reporting.md.
+sub _objcopy_target_for_elf_header {
+    my ( $ei_class, $e_machine ) = @_;
+    if ( $ei_class == 2 && $e_machine == 62 ) {
         return { output => 'elf64-x86-64', binary_architecture => 'i386:x86-64' };
     }
-    if ( $arch eq 'i686' || $arch eq 'i386' ) {
+    if ( $ei_class == 1 && $e_machine == 3 ) {
         return { output => 'elf32-i386', binary_architecture => 'i386' };
     }
-    if ( $arch eq 'aarch64' ) {
+    if ( $ei_class == 2 && $e_machine == 183 ) {
         return { output => 'elf64-littleaarch64', binary_architecture => 'aarch64' };
     }
-    die "objcopy: unrecognized build architecture '$arch' (from archname '$archname') - no known --output/--binary-architecture pair for it\n";
+    die "objcopy: unrecognized compiler target (ELF class $ei_class, machine $e_machine) - no known --output/--binary-architecture pair for it\n";
+}
+
+# Purpose: compile a trivial probe source with the ACTUAL cc that will
+# build the launcher, and read back the real ELF class/machine the
+# result carries. Input: cc executable path/name. Output: (ei_class,
+# e_machine) integer pair.
+#
+# DD-1020 (real root cause of the linux-i686 failure this fix's first
+# version missed): $Config{archname} reflects the PERL INTERPRETER's own
+# build architecture, not the actual compilation target - linux-i686 CI
+# cross-compiles 32-bit objects via a `-m32`-forcing cc wrapper on a
+# perfectly ordinary NATIVE x86_64 Perl, so $Config{archname} there is
+# 'x86_64-linux-gnu-thread-multi' regardless, and the archname-based
+# version of this detection silently selected the wrong (64-bit) target
+# on that exact runner - confirmed live: `gcc -m32 -dumpmachine` ALSO
+# does not report the 32-bit target on this codebase's own CI/dev hosts,
+# so no available metadata-only signal is trustworthy here. Compiling a
+# real probe object and reading its own ELF header is the only method
+# that reflects what $cc will ACTUALLY produce for the real build,
+# whatever flags a PATH wrapper silently adds.
+sub _compile_probe_object_header {
+    my ($cc) = @_;
+    local $?;    # DD-1020/DD-670: guard $? so this sub's own probe-compile system() call never leaks a mutated exit status to whatever runs in the caller after it returns.
+    my $probe_dir = tempdir( CLEANUP => 1 );
+    my $probe_c = File::Spec->catfile( $probe_dir, 'probe.c' );
+    my $probe_o = File::Spec->catfile( $probe_dir, 'probe.o' );
+    open my $fh, '>', $probe_c or die "cannot write probe source: $!";
+    print {$fh} "int main(void) { return 0; }\n";
+    close $fh;
+    system( $cc, '-c', '-o', $probe_o, $probe_c );
+    die "objcopy: probe compile with '$cc' failed, cannot determine build target\n" if ( $? >> 8 ) != 0 || !-f $probe_o;
+    open my $ofh, '<:raw', $probe_o or die "cannot read probe object: $!";
+    read $ofh, my $header, 20;
+    close $ofh;
+    die "objcopy: probe object is not a valid ELF file\n" if substr( $header, 0, 4 ) ne "\x7fELF";
+    my $ei_class = unpack( 'C', substr( $header, 4, 1 ) );
+    my $e_machine = unpack( 'v', substr( $header, 18, 2 ) );
+    return ( $ei_class, $e_machine );
+}
+
+# Purpose: the combined "what objcopy target does this cc actually build
+# for" answer _compile_launcher needs. Input: cc executable path/name.
+# Output: a hashref {output=>..., binary_architecture=>...}.
+sub _objcopy_target_for_compiler {
+    my ($cc) = @_;
+    my ( $ei_class, $e_machine ) = _compile_probe_object_header($cc);
+    return _objcopy_target_for_elf_header( $ei_class, $e_machine );
 }
 
 sub _compile_launcher {
@@ -1410,7 +1457,7 @@ sub _compile_launcher {
     my $tool_path = _toolchain_path($cc, $objcopy);
     require Cwd;
     my $cwd = Cwd::getcwd();
-    my $objcopy_target = eval { _objcopy_target_for_arch($Config::Config{archname}) };
+    my $objcopy_target = eval { _objcopy_target_for_compiler($cc) };
     return { status => 'not_built', reason => $@ } if !$objcopy_target;
     my $ok = eval {
         local $ENV{PATH} = $tool_path if defined $tool_path && $tool_path ne '';
