@@ -12,6 +12,15 @@ use Developer::Dashboard::Pax::CLI;
 binmode STDOUT, ':encoding(UTF-8)';
 binmode STDERR, ':encoding(UTF-8)';
 
+# DD-1015: Perl fully block-buffers STDOUT when it is not attached to a
+# TTY (GitHub Actions' pwsh-piped case on Windows is exactly this) - a
+# real windows-amd64 run showed zero visible build-progress output for
+# over 40 minutes before hitting its job timeout, indistinguishable in
+# the log from a genuine hang even though local reproduction of the
+# same work took under a minute. Force unbuffered (autoflush) output so
+# progress is written as it happens, not queued until the process exits.
+$| = 1;
+
 if ( !defined $ENV{HOME} || $ENV{HOME} eq '' ) {
     if ( defined $ENV{USERPROFILE} && $ENV{USERPROFILE} ne '' ) {
         $ENV{HOME} = $ENV{USERPROFILE};
