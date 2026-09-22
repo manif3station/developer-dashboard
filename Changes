@@ -1,3 +1,15 @@
+4.78  2026-09-22
+
+  - DD-1020: `_compile_launcher`'s objcopy invocations previously hardcoded
+    an x86_64 `--output`/`--binary-architecture` spec unconditionally,
+    breaking non-x86_64 PAX build hosts - confirmed live in real CI, where
+    linux-arm64 and linux-i686 both failed at the objcopy step while
+    linux-amd64 succeeded fully. Added `_objcopy_target_for_arch`, which
+    detects the build host's real architecture from `$Config{archname}`
+    and selects the correct objcopy target pair, verified against the
+    real objcopy/binutils tool for x86_64/i686/aarch64. Unblocks DDE-006's
+    linux-i686 and linux-arm64 multi-platform PAX CI targets.
+
 4.77  2026-09-22
 
   - DD-1018 (follow-up): a real PAX Release CI run of v4.76's two prior
