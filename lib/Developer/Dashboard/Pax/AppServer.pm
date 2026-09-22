@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::AppServer;
 
-our $VERSION = '4.72';
+our $VERSION = '4.73';
 
 use strict;
 use warnings;

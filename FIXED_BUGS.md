@@ -1,6 +1,28 @@
 # Fixed Bugs
 
 
+## 4.73
+
+- **DD-1012** (part of epic DDE-006, Multi-platform PAX CI): there was no
+  GitHub Actions workflow wiring a push-to-master trigger to a
+  multi-platform PAX build matrix. Added
+  `.github/workflows/pax-release.yml`, modeled on `package-ghcr.yml`'s
+  established convention (`on: push: branches:[master], tags:['v*'],
+  workflow_dispatch`; concurrency group with `cancel-in-progress`;
+  minimized permissions; action refs pinned to a full commit SHA with a
+  version comment - one such SHA was initially guessed wrong and caught
+  before landing by verifying it against `gh api
+  repos/actions/upload-artifact/git/refs/tags/v4.6.2` directly). The
+  matrix defines all 6 owner-confirmed platform/arch targets (mac arm64;
+  linux arm64/amd64/i686; windows arm64/amd64), each with a placeholder
+  build step and a distinct per-target `actions/upload-artifact` step, so
+  sibling tickets (DD-1013 Linux, DD-1014 macOS, DD-1015 Windows, DD-1016
+  the shared functional-verification harness) only need to replace the
+  placeholder with a real `dashboard pax build` invocation.
+  `t/210-pax-release-workflow-skeleton.t` proves the file is valid YAML,
+  matches `package-ghcr.yml`'s trigger byte for byte (compared directly
+  against the live file), and that the matrix/artifact wiring is correct.
+
 ## 4.72
 
 - **DD-1002**: nine `lib/Developer/Dashboard/Pax/*.pm` modules each
