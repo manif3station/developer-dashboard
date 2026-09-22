@@ -225,6 +225,78 @@ jobs:
               --title "${tag}"
           fi
 
+  # DD-1025: builds the compiled PAX standalone binaries in the SAME
+  # workflow run as the release itself, as a reusable-workflow call to
+  # pax-release.yml (not a duplicated copy of its build matrix) - so
+  # attach-pax-binaries below can pull them via actions/download-artifact
+  # and attach them to the release page, instead of them only ever
+  # existing as a separate, ephemeral workflow-run artifact nobody would
+  # think to look for there. Runs in parallel with `release` (no `needs:`
+  # between them - neither depends on the other's own output), so this
+  # adds no wall-clock time to the release on top of whichever of the two
+  # takes longer.
+  pax-binaries:
+    uses: ./.github/workflows/pax-release.yml
+
+  # Attaching binaries is a separate job (not folded into `release`
+  # above) because it needs `pax-binaries` to have finished first, and
+  # `release` itself must not wait on a build matrix it has no other
+  # reason to depend on - keeping them parallel-then-join like this is
+  # what keeps this addition from slowing down an ordinary release that
+  # nobody looks at the binaries for.
+  attach-pax-binaries:
+    needs: [release, pax-binaries]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download the compiled binaries from the pax-binaries job
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131  # v7.0.0
+        with:
+          path: pax-binaries
+          pattern: d2-dashboard-*
+          merge-multiple: false
+
+      - name: Attach each compiled binary to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # Each pattern-matched artifact download lands in its own
+          # subdirectory named after the artifact (d2-dashboard-linux-amd64/,
+          # etc, per actions/download-artifact's own documented layout when
+          # merge-multiple is false) - rename each binary to embed that
+          # target name before upload, since pax-output/dashboard on its own
+          # would collide across every platform once uploaded flat to one
+          # release.
+          found=0
+          for dir in pax-binaries/*/; do
+            target="$(basename "${dir}")"
+            for bin in "${dir}"dashboard "${dir}"dashboard.exe; do
+              [ -f "${bin}" ] || continue
+              ext="${bin##*.}"
+              renamed="${target}"
+              [ "${ext}" = "exe" ] && renamed="${target}.exe"
+              cp "${bin}" "${renamed}"
+              gh release upload "${RELEASE_TAG}" --clobber \
+                --repo "${GITHUB_REPOSITORY}" \
+                "${renamed}"
+              found=$((found + 1))
+            done
+          done
+          # A silent no-op here (every target still a placeholder, or the
+          # pax-binaries job produced nothing) would look identical to a
+          # correctly-empty result - fail loudly instead so a real gap gets
+          # noticed at release time, not discovered later on the page.
+          if [ "${found}" -eq 0 ]; then
+            echo "No compiled binaries were found to attach to ${RELEASE_TAG} - pax-binaries job produced nothing" >&2
+            exit 1
+          fi
+          echo "Attached ${found} compiled binary asset(s) to ${RELEASE_TAG}"
+
   # Build provenance lives in its own job on purpose. `id-token: write` is what
   # lets a job mint an OIDC token that speaks as this repository, and the release
   # job above runs the whole Perl suite, the Devel::Cover pass and `dzil build` -

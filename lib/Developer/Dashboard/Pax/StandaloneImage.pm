@@ -1387,6 +1387,31 @@ sub _objcopy_target_for_elf_header {
     die "objcopy: unrecognized compiler target (ELF class $ei_class, machine $e_machine) - no known --output/--binary-architecture pair for it\n";
 }
 
+# Purpose: map a COFF object file's real e_machine field to the objcopy
+# --output/--binary-architecture pair that can link against it, mirroring
+# _objcopy_target_for_elf_header's role for Windows/MinGW targets. Input:
+# COFF e_machine integer (0x8664=IMAGE_FILE_MACHINE_AMD64, per Microsoft's
+# own winnt.h reference). Output: a hashref {output=>...,
+# binary_architecture=>...}, or dies naming the unrecognized machine.
+#
+# DD-1015: MinGW-w64 ships real GNU binutils (unlike macOS's llvm-objcopy,
+# which cannot do this binary-to-object conversion at all for Mach-O), so
+# the same --input binary --output <target> mechanism DD-1020 established
+# for ELF extends here, targeting PE-COFF instead.
+#
+# arm64 PE deliberately NOT included yet: binutils' PE-ARM64 objcopy
+# target name was not confirmed against the real tool before this landed
+# (this project's own hard rule against unverified specific claims) - it
+# dies with a clear, actionable message rather than guessing a target
+# name that could silently produce a corrupt binary.
+sub _objcopy_target_for_coff_header {
+    my ($e_machine) = @_;
+    if ( $e_machine == 0x8664 ) {
+        return { output => 'pe-x86-64', binary_architecture => 'i386:x86-64' };
+    }
+    die "objcopy: unrecognized or not-yet-supported COFF machine (0x" . sprintf( '%04x', $e_machine ) . ") - no known --output/--binary-architecture pair for it\n";
+}
+
 # Purpose: compile a trivial probe source with the ACTUAL cc that will
 # build the launcher, and read back the real ELF class/machine the
 # result carries. Input: cc executable path/name. Output: (ei_class,
@@ -1425,13 +1450,56 @@ sub _compile_probe_object_header {
     return ( $ei_class, $e_machine );
 }
 
+# Purpose: like _compile_probe_object_header, but detects EITHER ELF or
+# COFF (Windows/MinGW) object format from the real compiled probe, since
+# there is no single header shape shared by both. Input: cc executable
+# path/name. Output: a hashref {output=>..., binary_architecture=>...}
+# from whichever of _objcopy_target_for_elf_header /
+# _objcopy_target_for_coff_header matches.
+#
+# DD-1015: COFF object files (as MinGW's `gcc -c` produces) carry NO
+# magic signature the way ELF's "\x7fELF" is unambiguous - the format
+# is distinguished here by first checking for the ELF magic, and if
+# absent, reading the first 2 bytes as a COFF Machine field and
+# confirming it matches a known, real value (0x8664) rather than
+# assuming every non-ELF object must be COFF.
+sub _compile_probe_object_header_multi_format {
+    my ($cc) = @_;
+    local $?;    # DD-1015/DD-670: same $? guard as _compile_probe_object_header.
+    my $probe_dir = tempdir( CLEANUP => 1 );
+    my $probe_c = File::Spec->catfile( $probe_dir, 'probe.c' );
+    my $probe_o = File::Spec->catfile( $probe_dir, 'probe.o' );
+    open my $fh, '>', $probe_c or die "cannot write probe source: $!";
+    print {$fh} "int main(void) { return 0; }\n";
+    close $fh;
+    system( $cc, '-c', '-o', $probe_o, $probe_c );
+    die "objcopy: probe compile with '$cc' failed, cannot determine build target\n" if ( $? >> 8 ) != 0 || !-f $probe_o;
+    open my $ofh, '<:raw', $probe_o or die "cannot read probe object: $!";
+    read $ofh, my $header, 20;
+    close $ofh;
+    if ( substr( $header, 0, 4 ) eq "\x7fELF" ) {
+        my $ei_class = unpack( 'C', substr( $header, 4, 1 ) );
+        my $e_machine = unpack( 'v', substr( $header, 18, 2 ) );
+        return _objcopy_target_for_elf_header( $ei_class, $e_machine );
+    }
+    my $coff_machine = unpack( 'v', substr( $header, 0, 2 ) );
+    if ( $coff_machine == 0x8664 ) {
+        return _objcopy_target_for_coff_header($coff_machine);
+    }
+    die "objcopy: probe object is neither a recognized ELF file nor a known COFF machine (first bytes: " . unpack( 'H*', substr( $header, 0, 4 ) ) . ")\n";
+}
+
 # Purpose: the combined "what objcopy target does this cc actually build
 # for" answer _compile_launcher needs. Input: cc executable path/name.
 # Output: a hashref {output=>..., binary_architecture=>...}.
+#
+# DD-1015: delegates to the multi-format detector so this single entry
+# point (the one _compile_launcher actually calls) works on both ELF
+# (Linux) and COFF (Windows/MinGW) hosts without _compile_launcher itself
+# needing to know or care which platform it is running on.
 sub _objcopy_target_for_compiler {
     my ($cc) = @_;
-    my ( $ei_class, $e_machine ) = _compile_probe_object_header($cc);
-    return _objcopy_target_for_elf_header( $ei_class, $e_machine );
+    return _compile_probe_object_header_multi_format($cc);
 }
 
 sub _compile_launcher {

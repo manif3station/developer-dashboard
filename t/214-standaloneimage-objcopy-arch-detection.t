@@ -110,6 +110,26 @@ SKIP: {
     is( $fixed_out, 'OK', 'AC-5: the probe succeeds under a stripped ambient PATH once the SAME toolchain-path restoration _compile_launcher uses is applied around it' );
 }
 
+# AC-6 (DD-1015): the pure COFF (Windows/MinGW) mapping function, unit
+# tested the same way the ELF mapping (_objcopy_target_for_elf_header)
+# already is - this cannot be verified against a REAL compiled COFF
+# object on this (Linux) host, so it is deliberately scoped to the pure
+# mapping logic only. Real verification happens via a real GitHub Actions
+# windows-amd64 runner (this workflow's own CI run is the actual proof,
+# matching this project's established discipline for anything that
+# cannot be exercised on the dev host).
+{
+    my $amd64 = Developer::Dashboard::Pax::StandaloneImage::_objcopy_target_for_coff_header(0x8664);
+    is( $amd64->{output}, 'pe-x86-64', 'COFF machine 0x8664 (IMAGE_FILE_MACHINE_AMD64) resolves to the correct --output target' );
+    is( $amd64->{binary_architecture}, 'i386:x86-64', 'COFF machine 0x8664 resolves to the correct --binary-architecture' );
+
+    my $result = eval { Developer::Dashboard::Pax::StandaloneImage::_objcopy_target_for_coff_header(0xAA64) };    # IMAGE_FILE_MACHINE_ARM64
+    my $error = $@;
+    ok( !defined $result, 'an unsupported COFF machine (arm64 - not yet verified against the real tool) returns nothing rather than guessing' );
+    like( $error, qr/aa64/i, 'the die message names the specific unsupported machine value' );
+    like( $error, qr/objcopy/i, 'the die message explains what it was trying to configure' );
+}
+
 # AC-2: the existing amd64 build path is provably unaffected - a real
 # local build on this (x86_64) host succeeds and produces a working
 # binary, exactly as it did before this ticket's change.
