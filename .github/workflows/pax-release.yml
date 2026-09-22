@@ -48,7 +48,17 @@ jobs:
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.runs_on }}
-    timeout-minutes: 45
+    # DD-1015: windows-amd64's real PAX build was cancelled by this
+    # timeout with ZERO visible progress for 40+ minutes (frozen at
+    # "Compile application units (4/117: ...)") before share/private-cli/
+    # pax set $| = 1 (t/217) - Perl fully block-buffers STDOUT when not
+    # attached to a TTY, which is exactly GitHub Actions' pwsh-piped case
+    # on Windows, so the build's actual progress was invisible in the log
+    # regardless of how much real work was happening. Raised generously
+    # so the NEXT real run, now with genuine per-step visibility, can
+    # show where time is actually spent rather than being cut off before
+    # anyone can tell "still working" from "stuck".
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
