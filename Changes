@@ -1,3 +1,14 @@
+4.73  2026-09-22
+
+  - DD-1012: added `.github/workflows/pax-release.yml`, part of epic
+    DDE-006 (Multi-platform PAX CI) - a push-to-master workflow skeleton
+    matching `package-ghcr.yml`'s established trigger convention, with a
+    6-entry build matrix covering the owner-confirmed platform/arch
+    targets (mac arm64; linux arm64/amd64/i686; windows arm64/amd64) and
+    per-target artifact-upload wiring. The real `dashboard pax build`
+    invocation and functional verification per platform are deferred to
+    sibling tickets under the same epic.
+
 4.72  2026-09-22
 
   - DD-1002: nine `lib/Developer/Dashboard/Pax/*.pm` modules each hand-rolled
