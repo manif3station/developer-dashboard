@@ -110,6 +110,26 @@ The fix already exists in this repo: `test.yml` bootstraps Perl and
 '5.44'`) before any `cpanm`-dependent step. `pax-release.yml`'s Linux jobs
 need the identical step.
 
+## CI environment gap: `as` is not reliably present (DD-1023)
+
+Found live (2026-09-22): `release-github.yml` and `test.yml`'s
+`ubuntu-latest` runners failed t/183's self-hosted pax-build scenarios
+(which compile real C code) with `cc: fatal error: cannot execute
+'as': execvp: No such file or directory` - the GNU assembler was
+missing entirely on the runner, in a way neither workflow had ever
+installed explicitly. `pax-release.yml`'s own `linux-i686` job does not
+hit this, because it already installs `gcc-multilib`/`g++-multilib`
+explicitly for its own 32-bit cross-compile - the other two workflows
+never had an equivalent step, because neither previously needed to
+compile anything.
+
+Fixed by adding an explicit `apt-get install -y build-essential
+binutils` step to both `release-github.yml` and `test.yml`, before
+dependency installation - matching the same "install the toolchain
+explicitly, never assume the runner image provides it" discipline this
+page already documents for `cpanm` and the i686 32-bit workaround
+above.
+
 ## The i686 workaround
 
 The only one of the 6 targets with no native GitHub-hosted runner

@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::NativeRunner;
 
-our $VERSION = '4.79';
+our $VERSION = '4.80';
 
 use strict;
 use warnings;

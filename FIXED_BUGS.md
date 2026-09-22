@@ -1,6 +1,32 @@
 # Fixed Bugs
 
 
+## 4.80
+
+- **DD-1019**: t/159-dollar-question-guard-sweep.t and
+  t/185-paxcache-lock-survives-benchmark-reentry.t were both failing for
+  real, deterministic reasons, not CI-load timing flakiness as first
+  assumed. t/159: a refactor moved CollectorRunner.pm's
+  _terminate_command_process body into shared
+  CommandRunner.pm::terminate_command_process without carrying its
+  `local $?;` guard, leaving the DD-670 setter baseline stale and 2
+  genuinely-unguarded $?-setters undetected; a 3rd flagged hit
+  (CLI/Ask.pm::_docs_context) was a false positive from the sweep's
+  backtick regex matching markdown code-spans inside a documentation
+  heredoc, which _strip_comments had no concept of. t/185: DD-936 added
+  an opt-in kill switch (DD_PAX=on) after this file was written, and it
+  was never updated to opt in, so neither of its resolve() calls ever
+  spawned a real background compile at all.
+- **DD-1011**: t/43-explicit-coverage-qa.t asserted the pre-DD-1005
+  usage strings for `dashboard file add`/`dashboard path add`, missing
+  the `[-c|--create[=MODE]]` flag DD-1005 added.
+- **DD-1023**: `release-github.yml` and `test.yml`'s `ubuntu-latest`
+  runners lacked a working assembler (`as`), breaking t/183's
+  self-hosted pax-build scenarios which compile real C code. Fixed by
+  installing `binutils` explicitly, matching `pax-release.yml`'s own
+  established toolchain-install precedent.
+
+
 ## 4.79
 
 - **DD-1020** (correction, same day): the objcopy architecture detection

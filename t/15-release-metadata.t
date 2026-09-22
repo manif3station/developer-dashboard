@@ -82,7 +82,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.79', 'repo version bumped per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-1020 (correction - real compiler-probe fix for linux-i686 cross-compilation, found via a real CI run of v4.78)' );
+is( $version, '4.80', 'repo version bumped per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-1019/DD-1011/DD-1023 (landed together to make real CI green: $?-guard sweep fix, stale usage-string regex, missing as assembler in CI)' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;

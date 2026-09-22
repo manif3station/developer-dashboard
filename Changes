@@ -1,3 +1,16 @@
+4.80  2026-09-22
+
+  - DD-1019: t/159 and t/185 were failing for real, deterministic reasons
+    (not CI-load flakiness as first assumed) - a stale $?-guard baseline
+    entry, 2 genuinely-unguarded local $?; gaps, a heredoc blind spot in
+    the sweep's own comment-stripper, and t/185 missing the DD_PAX=on
+    opt-in that a later change required. All fixed and verified.
+  - DD-1011: t/43's usage-string regexes for 'file add'/'path add' were
+    stale since DD-1005 added the -c/--create flag. Corrected.
+  - DD-1023: release-github.yml and test.yml's runners lacked a working
+    assembler (as), breaking t/183's self-hosted pax-build scenarios.
+    Fixed by installing binutils explicitly.
+
 4.79  2026-09-22
 
   - DD-1020 (correction, same day as v4.78's fix): the archname-based
