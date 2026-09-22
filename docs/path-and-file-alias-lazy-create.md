@@ -62,3 +62,18 @@ project's `d2 path add`/`d2 file add` dotted-name support already
 establishes - a lazy-create marker on a nested alias is stored exactly
 where that alias's own entry would be stored, with no separate tracking
 structure.
+
+## Usage strings (DD-1011)
+
+Both commands' own usage errors reflect the flag:
+
+```
+Usage: dashboard file add <name> <path> [-c|--create[=MODE]] [-o json|table]
+Usage: dashboard path add <name> <path> [-c|--create[=MODE]] [-o json|table]
+```
+
+A test asserting the exact usage text (`t/43-explicit-coverage-qa.t`) went
+stale when this flag was added and had to be corrected separately (DD-1011)
+- worth noting here because any FUTURE change to either usage string must
+update both the real string above and that test's regex together, or the
+same drift recurs.
