@@ -1353,6 +1353,32 @@ sub _pax_launcher_build_dir_name {
     return '.pax-launcher-build-' . $uid;
 }
 
+# Purpose: map a Perl $Config{archname} to the objcopy --output/
+# --binary-architecture pair that produces a linkable object on that
+# host's architecture. Input: an archname string (e.g.
+# 'x86_64-linux-gnu-thread-multi'). Output: a hashref {output=>...,
+# binary_architecture=>...}, or dies naming the unrecognized arch.
+#
+# DD-1020: _compile_launcher previously hardcoded the x86_64 pair
+# unconditionally, which produced objects objcopy could not honor on
+# non-x86_64 hosts (confirmed live in CI on linux-arm64/linux-i686).
+# Every pair below was verified against the real objcopy/binutils, not
+# assumed - see docs/standaloneimage-compile-launcher-error-reporting.md.
+sub _objcopy_target_for_arch {
+    my ($archname) = @_;
+    my ($arch) = $archname =~ m{\A([^-]+)};
+    if ( $arch eq 'x86_64' ) {
+        return { output => 'elf64-x86-64', binary_architecture => 'i386:x86-64' };
+    }
+    if ( $arch eq 'i686' || $arch eq 'i386' ) {
+        return { output => 'elf32-i386', binary_architecture => 'i386' };
+    }
+    if ( $arch eq 'aarch64' ) {
+        return { output => 'elf64-littleaarch64', binary_architecture => 'aarch64' };
+    }
+    die "objcopy: unrecognized build architecture '$arch' (from archname '$archname') - no known --output/--binary-architecture pair for it\n";
+}
+
 sub _compile_launcher {
     local $?;    # DD-882 (vendored-in from PAX): guard $? so this sub's own subprocess call never leaks a mutated exit status to whatever runs in the caller after it returns.
     my ($manifest) = @_;
@@ -1384,16 +1410,18 @@ sub _compile_launcher {
     my $tool_path = _toolchain_path($cc, $objcopy);
     require Cwd;
     my $cwd = Cwd::getcwd();
+    my $objcopy_target = eval { _objcopy_target_for_arch($Config::Config{archname}) };
+    return { status => 'not_built', reason => $@ } if !$objcopy_target;
     my $ok = eval {
         local $ENV{PATH} = $tool_path if defined $tool_path && $tool_path ne '';
         chdir $build_dir or die "cannot chdir to $build_dir: $!";
-        system($objcopy, '--input', 'binary', '--output', 'elf64-x86-64', '--binary-architecture', 'i386:x86-64', 'code.pkg', 'code.pkg.o');
+        system($objcopy, '--input', 'binary', '--output', $objcopy_target->{output}, '--binary-architecture', $objcopy_target->{binary_architecture}, 'code.pkg', 'code.pkg.o');
         die "objcopy code.pkg failed" if ($? >> 8) != 0;
-        system($objcopy, '--input', 'binary', '--output', 'elf64-x86-64', '--binary-architecture', 'i386:x86-64', 'runtime.pkg', 'runtime.pkg.o');
+        system($objcopy, '--input', 'binary', '--output', $objcopy_target->{output}, '--binary-architecture', $objcopy_target->{binary_architecture}, 'runtime.pkg', 'runtime.pkg.o');
         die "objcopy runtime.pkg failed" if ($? >> 8) != 0;
-        system($objcopy, '--input', 'binary', '--output', 'elf64-x86-64', '--binary-architecture', 'i386:x86-64', 'assets.pkg', 'assets.pkg.o');
+        system($objcopy, '--input', 'binary', '--output', $objcopy_target->{output}, '--binary-architecture', $objcopy_target->{binary_architecture}, 'assets.pkg', 'assets.pkg.o');
         die "objcopy assets.pkg failed" if ($? >> 8) != 0;
-        system($objcopy, '--input', 'binary', '--output', 'elf64-x86-64', '--binary-architecture', 'i386:x86-64', 'native.pkg', 'native.pkg.o');
+        system($objcopy, '--input', 'binary', '--output', $objcopy_target->{output}, '--binary-architecture', $objcopy_target->{binary_architecture}, 'native.pkg', 'native.pkg.o');
         die "objcopy native.pkg failed" if ($? >> 8) != 0;
         # DD-935: -O0, not -O2. This launcher is a thin bootstrap stub (parse
         # the embedded manifest, mmap the payload blobs, exec the runtime) -
