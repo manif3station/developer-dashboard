@@ -1,6 +1,24 @@
 # Fixed Bugs
 
 
+## 4.79
+
+- **DD-1020** (correction, same day): the objcopy architecture detection
+  shipped in v4.78 used `$Config{archname}` to decide the target, which
+  is wrong for a cross-compiling build - confirmed live in real CI,
+  `linux-i686` still failed at the launcher link
+  (`i386:x86-64 architecture of input file 'code.pkg.o' is incompatible
+  with i386 output`) even after v4.78 landed, because that runner
+  cross-compiles 32-bit objects via a `-m32`-forcing `cc` wrapper on an
+  ordinary native x86_64 Perl - `$Config{archname}` there never changes
+  regardless of the actual compilation target. `linux-arm64` (a native
+  aarch64 runner) genuinely was fixed by v4.78, confirmed by a real
+  artifact produced in CI - only the i686 cross-compile case was wrong.
+  Fixed by compiling a trivial probe object with the ACTUAL `cc` that
+  will build the launcher and reading back its genuine ELF
+  class/machine, rather than trusting any metadata about the host.
+
+
 ## 4.78
 
 - **DD-1020**: `StandaloneImage.pm::_compile_launcher`'s 4 `objcopy` calls

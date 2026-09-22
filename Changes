@@ -1,3 +1,15 @@
+4.79  2026-09-22
+
+  - DD-1020 (correction, same day as v4.78's fix): the archname-based
+    objcopy architecture detection was itself wrong for linux-i686
+    cross-compilation - a real GitHub Actions run confirmed linux-arm64
+    genuinely fixed (native aarch64 runner) while linux-i686 still
+    failed, because `$Config{archname}` reflects the Perl interpreter's
+    own build, not a `-m32`-wrapped cross-compile target. Replaced with
+    a real compiler probe (`_compile_probe_object_header`) that compiles
+    a trivial source with the actual `cc` and reads back the genuine
+    ELF class/machine the result carries, honoring any PATH wrapper.
+
 4.78  2026-09-22
 
   - DD-1020: `_compile_launcher`'s objcopy invocations previously hardcoded
