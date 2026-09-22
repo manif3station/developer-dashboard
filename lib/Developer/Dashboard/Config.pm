@@ -521,17 +521,22 @@ sub split_skill_alias_name {
 # and target path string.
 # Output: hash reference containing the fully-qualified dotted alias name and
 # its stored (expanded) path.
-sub save_skill_path_alias { my ( $self, $segments, $alias, $path ) = @_; return $self->_save_skill_alias( 'path_aliases', $segments, $alias, $path ) }
-sub save_skill_file_alias { my ( $self, $segments, $alias, $path ) = @_; return $self->_save_skill_alias( 'file_aliases', $segments, $alias, $path ) }
+sub save_skill_path_alias { my ( $self, $segments, $alias, $path, %opts ) = @_; return $self->_save_skill_alias( 'path_aliases', $segments, $alias, $path, %opts ) }
+sub save_skill_file_alias { my ( $self, $segments, $alias, $path, %opts ) = @_; return $self->_save_skill_alias( 'file_aliases', $segments, $alias, $path, %opts ) }
 
-# _save_skill_alias($alias_key, \@segments, $alias, $path)
+# _save_skill_alias($alias_key, \@segments, $alias, $path, %opts)
 # Shared implementation behind save_skill_path_alias/save_skill_file_alias.
 # Input: config domain key ("path_aliases"/"file_aliases"), array reference
-# of skill-name segments, trailing alias name string, and target path string.
+# of skill-name segments, trailing alias name string, target path string,
+# and optional %opts ("create"/"mode", DD-1005's lazy-create support - see
+# save_global_path_alias for the full contract). The stored leaf value is a
+# metadata hash when "create" is given, a bare path string otherwise -
+# identical shape to the non-skill-depth storage, so
+# _nested_skill_alias_entries's read side needs no change to see it.
 # Output: hash reference containing the fully-qualified dotted alias name and
-# its stored (expanded) path.
+# its stored (expanded) path, plus "create"/"mode" when lazy-create.
 sub _save_skill_alias {
-    my ( $self, $alias_key, $segments, $alias, $path ) = @_;
+    my ( $self, $alias_key, $segments, $alias, $path, %opts ) = @_;
     die 'Missing skill-depth segments' if ref($segments) ne 'ARRAY' || !@{$segments};
     die 'Missing alias name' if !defined $alias || $alias eq '';
     die 'Missing alias target' if !defined $path || $path eq '';
@@ -539,6 +544,10 @@ sub _save_skill_alias {
     my $location = $self->{paths}->skill_config_write_location($segments)
       or die "Unable to resolve installed skill path for '" . join( '.', @{$segments} ) . "'\n";
     my $stored_path = $self->_normalize_home_path($path);
+    my $mode = defined $opts{mode} && $opts{mode} ne '' ? $opts{mode} : undef;
+    my $stored_value = $opts{create}
+      ? { path => $stored_path, create => 1, ( defined $mode ? ( mode => $mode ) : () ) }
+      : $stored_path;
 
     if ( $location->{kind} eq 'skill' ) {
         my $config_dir = File::Spec->catdir( $location->{dir}, 'config' );
@@ -551,7 +560,7 @@ sub _save_skill_alias {
             $target = $target->{$seg};
         }
         $target->{$alias_key} = {} if ref( $target->{$alias_key} ) ne 'HASH';
-        $target->{$alias_key}{$alias} = $stored_path;
+        $target->{$alias_key}{$alias} = $stored_value;
         $self->_write_json_atomic( $config_file, json_encode($cfg) );
     }
     else {
@@ -564,13 +573,14 @@ sub _save_skill_alias {
             $target = $target->{$seg};
         }
         $target->{$alias_key} = {} if ref( $target->{$alias_key} ) ne 'HASH';
-        $target->{$alias_key}{$alias} = $stored_path;
+        $target->{$alias_key}{$alias} = $stored_value;
         $self->save_global($cfg);
     }
 
     return {
         name => join( '.', @{$segments}, $alias ),
         path => $self->_expand_config_path($stored_path),
+        ( $opts{create} ? ( create => 1, ( defined $mode ? ( mode => $mode ) : () ) ) : () ),
     };
 }
 
@@ -897,24 +907,34 @@ sub _normalize_ssl_subject_alt_names {
     return \@normalized;
 }
 
-# save_global_path_alias($name, $path)
+# save_global_path_alias($name, $path, %opts)
 # Persists or updates a user-global path alias without disturbing other config domains.
-# Input: alias name string and target path string.
-# Output: hash reference containing the stored alias mapping.
+# Input: alias name string, target path string, and optional %opts
+# ("create" boolean flag and "mode" octal-string, DD-1005's lazy-create
+# support). When "create" is true, the alias is stored as a metadata hash
+# ({path=>,create=>1,mode=>}) instead of a bare path string; omitting
+# "create" preserves today's plain-string storage exactly (backward
+# compatible with every alias written before DD-1005).
+# Output: hash reference containing the stored alias mapping, plus "create"
+# and "mode" when the alias was marked lazy-create.
 sub save_global_path_alias {
-    my ( $self, $name, $path ) = @_;
+    my ( $self, $name, $path, %opts ) = @_;
     die 'Missing path alias name' if !defined $name || $name eq '';
     die 'Missing path alias target' if !defined $path || $path eq '';
 
     my $cfg = $self->_load_writable_global;
     $cfg->{path_aliases} = {} if ref( $cfg->{path_aliases} ) ne 'HASH';
     my $stored_path = $self->_normalize_home_path($path);
-    $cfg->{path_aliases}{$name} = $stored_path;
+    my $mode = defined $opts{mode} && $opts{mode} ne '' ? $opts{mode} : undef;
+    $cfg->{path_aliases}{$name} = $opts{create}
+      ? { path => $stored_path, create => 1, ( defined $mode ? ( mode => $mode ) : () ) }
+      : $stored_path;
     $self->save_global($cfg);
 
     return {
         name => $name,
         path => $self->_expand_config_path($stored_path),
+        ( $opts{create} ? ( create => 1, ( defined $mode ? ( mode => $mode ) : () ) ) : () ),
     };
 }
 
@@ -937,24 +957,31 @@ sub remove_global_path_alias {
     };
 }
 
-# save_global_file_alias($name, $path)
+# save_global_file_alias($name, $path, %opts)
 # Persists or updates a user-global file alias without disturbing other config domains.
-# Input: alias name string and target file path string.
-# Output: hash reference containing the stored alias mapping.
+# Input: alias name string, target file path string, and optional %opts
+# ("create" boolean flag and "mode" octal-string, DD-1005's lazy-create
+# support) - same contract as save_global_path_alias.
+# Output: hash reference containing the stored alias mapping, plus "create"
+# and "mode" when the alias was marked lazy-create.
 sub save_global_file_alias {
-    my ( $self, $name, $path ) = @_;
+    my ( $self, $name, $path, %opts ) = @_;
     die 'Missing file alias name' if !defined $name || $name eq '';
     die 'Missing file alias target' if !defined $path || $path eq '';
 
     my $cfg = $self->_load_writable_global;
     $cfg->{file_aliases} = {} if ref( $cfg->{file_aliases} ) ne 'HASH';
     my $stored_path = $self->_normalize_home_path($path);
-    $cfg->{file_aliases}{$name} = $stored_path;
+    my $mode = defined $opts{mode} && $opts{mode} ne '' ? $opts{mode} : undef;
+    $cfg->{file_aliases}{$name} = $opts{create}
+      ? { path => $stored_path, create => 1, ( defined $mode ? ( mode => $mode ) : () ) }
+      : $stored_path;
     $self->save_global($cfg);
 
     return {
         name => $name,
         path => $self->_expand_config_path($stored_path),
+        ( $opts{create} ? ( create => 1, ( defined $mode ? ( mode => $mode ) : () ) ) : () ),
     };
 }
 
@@ -988,20 +1015,20 @@ sub remove_global_file_alias {
 # Input: alias name string as typed on the command line, and target path
 # string.
 # Output: hash reference containing the stored alias name and path.
-sub save_path_alias { my ( $self, $name, $path ) = @_; return $self->_save_named_alias( 'path', $name, $path ) }
-sub save_file_alias { my ( $self, $name, $path ) = @_; return $self->_save_named_alias( 'file', $name, $path ) }
+sub save_path_alias { my ( $self, $name, $path, %opts ) = @_; return $self->_save_named_alias( 'path', $name, $path, %opts ) }
+sub save_file_alias { my ( $self, $name, $path, %opts ) = @_; return $self->_save_named_alias( 'file', $name, $path, %opts ) }
 
-# _save_named_alias($domain, $name, $path)
+# _save_named_alias($domain, $name, $path, %opts)
 # Shared implementation behind save_path_alias/save_file_alias.
 # Input: domain string ("path" or "file"), alias name string, target path
-# string.
+# string, and optional %opts ("create"/"mode", DD-1005).
 # Output: hash reference containing the stored alias name and path.
 sub _save_named_alias {
-    my ( $self, $domain, $name, $path ) = @_;
+    my ( $self, $domain, $name, $path, %opts ) = @_;
     my ( $segments, $alias ) = $self->split_skill_alias_name($name);
     return $segments
-      ? ( $domain eq 'file' ? $self->save_skill_file_alias( $segments, $alias, $path ) : $self->save_skill_path_alias( $segments, $alias, $path ) )
-      : ( $domain eq 'file' ? $self->save_global_file_alias( $name, $path ) : $self->save_global_path_alias( $name, $path ) );
+      ? ( $domain eq 'file' ? $self->save_skill_file_alias( $segments, $alias, $path, %opts ) : $self->save_skill_path_alias( $segments, $alias, $path, %opts ) )
+      : ( $domain eq 'file' ? $self->save_global_file_alias( $name, $path, %opts ) : $self->save_global_path_alias( $name, $path, %opts ) );
 }
 
 # remove_path_alias($name)
@@ -1062,13 +1089,23 @@ sub _expand_config_path {
 
 # _expand_path_aliases($aliases)
 # Expands stored path-alias targets into runtime-ready absolute paths.
-# Input: hash reference of alias-to-path mappings.
-# Output: hash reference with expanded path values.
+# Input: hash reference of alias-to-path mappings, where each value is
+# either a bare path string (the pre-DD-1005 shape) or a DD-1005 lazy-create
+# metadata hash ({path=>,create=>1,mode=>}).
+# Output: hash reference with expanded values - a bare path string stays a
+# bare path string, and a metadata hash stays a metadata hash with its
+# "path" field expanded, so PathRegistry/FileRegistry's resolver can see the
+# create/mode metadata without every OTHER caller of this method (which
+# expects a plain string) needing to change.
 sub _expand_path_aliases {
     my ( $self, $aliases ) = @_;
     my %expanded;
     for my $name ( keys %{ $aliases || {} } ) {
-        $expanded{$name} = $self->_expand_config_path( $aliases->{$name} );
+        my $value = $aliases->{$name};
+        $expanded{$name} =
+          ref($value) eq 'HASH'
+          ? { %{$value}, path => $self->_expand_config_path( $value->{path} ) }
+          : $self->_expand_config_path($value);
     }
     return \%expanded;
 }
@@ -1539,6 +1576,17 @@ via _skill_collectors(). A skill's own path_aliases/file_aliases already
 merge across every DD-OOP-LAYER that skill participates in (the same
 recursive _merge_hashes every nested config key gets), so this is
 layer-safe without any new merge logic.
+
+save_global_path_alias(), save_global_file_alias(), save_skill_path_alias()
+and save_skill_file_alias() (DD-1005) accept optional C<create> and C<mode>
+opts for lazy path/file creation: passing C<create =E<gt> 1> stores the
+alias as a metadata hash (C<{path=E<gt>...,create=E<gt>1,mode=E<gt>...}>)
+instead of a bare path string, which C<Developer::Dashboard::PathRegistry>'s
+resolve_dir() and C<Developer::Dashboard::FileRegistry>'s resolve_file()
+detect and act on (creating the missing target - a directory for a path
+alias, only the parent directory for a file alias - on first resolution).
+An alias saved without C<create> stores and reads back exactly as it did
+before this feature existed.
 
 =for comment FULL-POD-DOC START
 

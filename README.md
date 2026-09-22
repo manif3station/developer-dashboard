@@ -1296,12 +1296,15 @@ Inspect resolved paths:
     dashboard path add foobar /tmp/foobar
     dashboard path add foobar /tmp/foobar -o json
     dashboard path add .
+    dashboard path add scratch /tmp/scratch --create
+    dashboard path add scratch /tmp/scratch --create 0777
     dashboard path del foobar
     dashboard path rm foobar
     dashboard files
     dashboard files -o json
     dashboard file add notes ~/notes.txt
     dashboard file add notes ~/notes.txt -o json
+    dashboard file add scratch /tmp/scratch/notes.txt --create
     dashboard file resolve notes
     dashboard file del notes
     dashboard which jq
@@ -1368,6 +1371,19 @@ unscoped CPAN-global module names.
 target for an explicit alias. `dashboard path del .` and `dashboard path rm .`
 remove the alias that points at the current working directory instead of
 treating `.` as a literal error token.
+
+`dashboard path add <name> <path> -c|--create[=MODE]` (DD-1005)
+marks the alias as lazily creatable: the first time `cdr`, a workspace
+route, or any direct Perl caller resolves it and the target directory does
+not yet exist, it is created (with parents) before being returned - chmod'd
+to the given octal mode (bare, `--create 0777`, `--create=0777`, or
+`-c 0777` all work) when one is provided, or left at the implicit
+umask-governed default otherwise. An alias saved without `-c`/`--create`
+behaves exactly as before this feature existed. `dashboard file add`
+accepts the identical flag, but since a file alias points at a file rather
+than a directory, "lazy create" there means only the file's PARENT
+directory chain is created - the file itself is left absent for the
+caller to write.
 
 Use `Developer::Dashboard::File` for runtime file helpers. It resolves the
 same built-in and config-backed file aliases exposed by `dashboard files` and
