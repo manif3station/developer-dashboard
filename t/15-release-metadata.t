@@ -82,7 +82,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.69', 'repo version bumped per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-1003 (PaxCache.pm md5_file atomic write)' );
+is( $version, '4.70', 'repo version bumped per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-1005 (d2 path/file add lazy-create flag)' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;

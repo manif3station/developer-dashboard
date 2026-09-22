@@ -1,3 +1,18 @@
+4.70  2026-09-22
+
+  - DD-1005: `d2 path add`/`d2 file add` now accept a `-c`/`--create` flag
+    (with an optional octal chmod mode, in bare/space-separated/=-form/
+    short-flag syntax) marking an alias as lazily creatable. The first
+    time anything resolves a lazy-create alias whose target is missing,
+    it is created - a directory (with parents) for a path alias via
+    `PathRegistry::resolve_dir`, or just the parent directory chain for a
+    file alias via `FileRegistry::resolve_file` (per Q-184: a file
+    alias's own target file is left absent, since the caller intends to
+    write it). The create/mode metadata composes cleanly with DD-1004's
+    nested skill-depth alias storage, and is fully backward compatible -
+    an alias saved without `-c`/`--create` stores and reads back exactly
+    as a plain path string, as it always did.
+
 4.69  2026-09-21
 
   - DD-1003: `PaxCache::_run_compile_and_install`'s `md5_file` digest write
