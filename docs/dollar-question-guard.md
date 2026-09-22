@@ -125,6 +125,34 @@ corrupt a `#` inside a string or regex and produce a false *negative*, which
 silently un-guards a real offender. That failure mode is strictly worse than
 the false positive it would be fixing.
 
+## The sweep also cannot see inside a heredoc (DD-1019)
+
+`_strip_comments` tracks single- and double-quote state so a `#` or backtick
+*inside a `'...'` or `"..."` string* is left alone. It has no equivalent
+tracking for a heredoc (`<<'DOCS' ... DOCS`) - the scanner has no concept of
+"currently inside a heredoc body", so heredoc content is swept as ordinary
+code just like everything else.
+
+That is harmless for most heredocs, but not for one built as prose: a long
+onboarding/documentation string that itself uses markdown-style single
+backticks for inline code spans (`` `dashboard` ``, `` `d2` ``, ...) reads to
+the setter sweep's `` /`[^`]*`/ `` regex as a real Perl backtick
+command-execution operator, exactly the same false-positive shape DD-693
+already fixed for comments - one level deeper, because a heredoc body is not
+"inside a string" the way the existing quote-tracker understands it.
+
+`CLI/Ask.pm::_docs_context` hit this directly: its entire body is one such
+documentation heredoc, and the setter sweep flagged it as an unguarded `$?`
+setter purely from its markdown backticks, with zero actual `waitpid`/
+`system`/backtick command-execution anywhere in the sub.
+
+**The fix (DD-1019) extends `_strip_comments`'s quote-state tracking to
+heredocs**: on seeing a `<<'TAG'` or `<<"TAG"` (or bare `<<TAG`) opener, the
+scanner enters a heredoc state and discards every line verbatim - without
+looking for `#`/backtick matches inside it - until it sees a line consisting
+of exactly the closing tag. This is the same principle as the string-tracking
+fix, applied to the one syntactic form quotes don't cover.
+
 ## Where to look
 
 - `t/159-dollar-question-guard-sweep.t` - both sweeps and both baselines, run
