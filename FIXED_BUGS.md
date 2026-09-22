@@ -1,6 +1,32 @@
 # Fixed Bugs
 
 
+## 4.83
+
+- **DD-1015**: wired a real Windows amd64 PAX build into
+  `pax-release.yml`, replacing the `echo TODO` placeholder. MinGW-w64
+  ships real GNU binutils, so `StandaloneImage.pm`'s compiler probe now
+  detects either ELF (Linux) or COFF (Windows/MinGW) object format
+  from a real compiled probe and dispatches to the matching objcopy
+  target table (`pe-x86-64` for amd64). `windows-arm64` stays a
+  placeholder - binutils' PE-ARM64 objcopy target name was not
+  confirmed against the real tool, and this project's rule against
+  unverified specific claims means the code dies with a clear message
+  rather than guessing a target name.
+- **DD-1025**: the GitHub Release page only ever attached the source
+  distribution tarball (`Developer-Dashboard-X.XX.tar.gz` and its
+  `.sha256`/`.asc`/provenance files) - the compiled PAX standalone
+  binaries built by `pax-release.yml` existed only as ephemeral GitHub
+  Actions workflow-run artifacts, never attached to the release page,
+  not discoverable there, and subject to the default 90-day artifact
+  expiry unlike release assets. Fixed by making `pax-release.yml`
+  callable as a reusable workflow (`workflow_call`) and adding it as a
+  sibling job in `release-github.yml`, with a new `attach-pax-binaries`
+  job that downloads its build outputs and uploads each to the release
+  via `gh release upload` once both the release and the binaries
+  exist.
+
+
 ## 4.82
 
 - **DD-1022**: `StandaloneImage.pm::_skip_dependency_module` wrongly

@@ -82,7 +82,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.82', 'repo version bumped per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-1022 (overload.pm was wrongly skip-listed from the standalone binary dependency bundler, breaking most subcommands, found via a real CI artifact run of v4.81)' );
+is( $version, '4.83', 'repo version bumped per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-1015/DD-1025 (real Windows amd64 PAX build wired, compiled binaries attached to the GitHub Release page)' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;

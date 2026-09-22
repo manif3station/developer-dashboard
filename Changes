@@ -1,3 +1,18 @@
+4.83  2026-09-22
+
+  - DD-1015: real Windows amd64 PAX build wired into pax-release.yml,
+    replacing the placeholder - MinGW-w64's real GNU objcopy supports
+    the same binary-to-object conversion the Linux path already uses,
+    targeting PE-COFF. windows-arm64 stays a placeholder pending
+    verification of binutils' PE-ARM64 target name against the real
+    tool.
+  - DD-1025: the GitHub Release page only ever attached the source
+    tarball - the compiled PAX binaries existed only as ephemeral
+    workflow-run artifacts, not discoverable on the release page and
+    subject to expiry. Fixed by calling pax-release.yml as a reusable
+    workflow from release-github.yml and attaching its build outputs
+    to the release as real assets.
+
 4.82  2026-09-22
 
   - DD-1022: `_skip_dependency_module` wrongly treated `overload` as a
