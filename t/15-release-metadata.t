@@ -82,7 +82,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.77', 'repo version bumped per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-1018 (PAX build FindBin lib-resolution fix, found via a real CI run of v4.76)' );
+is( $version, '4.78', 'repo version bumped per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-1020 (StandaloneImage.pm objcopy architecture-detection fix for non-x86_64 PAX build hosts, found via a real CI run of v4.77)' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;

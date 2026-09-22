@@ -1,6 +1,25 @@
 # Fixed Bugs
 
 
+## 4.78
+
+- **DD-1020**: `StandaloneImage.pm::_compile_launcher`'s 4 `objcopy` calls
+  hardcoded `--output elf64-x86-64 --binary-architecture i386:x86-64`
+  unconditionally, correct only on an x86_64 build host. Confirmed live
+  in real CI (PAX Release workflow): `linux-arm64` failed with
+  `objcopy code.pkg failed` (objcopy cannot honor an x86-64 spec on an
+  aarch64 toolchain), `linux-i686` failed at the final link (a 32-bit/
+  64-bit object mismatch, since objcopy kept emitting 64-bit x86-64
+  objects while DD-1013's `-m32` `cc` wrapper linked for 32-bit).
+  Fixed by adding `_objcopy_target_for_arch($archname)`, which detects
+  the build host's real architecture from `$Config{archname}` and
+  selects the correct objcopy `--output`/`--binary-architecture` pair
+  from a table verified against the real objcopy/binutils tool (a fresh
+  container with `binutils-aarch64-linux-gnu` installed, not an
+  unverified web search) for x86_64/i686/i386/aarch64, dying with a
+  clear message naming the unrecognized architecture otherwise.
+
+
 ## 4.77
 
 - **DD-1018** (follow-up to v4.76's two fixes): a real GitHub Actions run
