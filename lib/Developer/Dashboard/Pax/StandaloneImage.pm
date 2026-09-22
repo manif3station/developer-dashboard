@@ -1457,7 +1457,21 @@ sub _compile_launcher {
     my $tool_path = _toolchain_path($cc, $objcopy);
     require Cwd;
     my $cwd = Cwd::getcwd();
-    my $objcopy_target = eval { _objcopy_target_for_compiler($cc) };
+    # DD-1020 (this fix's own follow-up correction, filed as DD-1023 and
+    # misdiagnosed there as a missing 'as'/binutils gap): the compiler
+    # probe must run with the SAME restored PATH the objcopy/cc calls
+    # below get, not the caller's ambient one - a caller that deliberately
+    # strips PATH (t/183's own env -i PATH=/nonexistent scenario, proving
+    # true standalone execution) leaves cc unable to find its own `as`
+    # subprocess, since gcc's internal assembler lookup needs a PATH to
+    # search even when cc itself was already resolved via an absolute
+    # path. Confirmed live in real CI: installing binutils explicitly
+    # changed nothing, because binutils was never missing - the probe was
+    # simply run before $tool_path got applied.
+    my $objcopy_target = eval {
+        local $ENV{PATH} = $tool_path if defined $tool_path && $tool_path ne '';
+        _objcopy_target_for_compiler($cc);
+    };
     return { status => 'not_built', reason => $@ } if !$objcopy_target;
     my $ok = eval {
         local $ENV{PATH} = $tool_path if defined $tool_path && $tool_path ne '';
