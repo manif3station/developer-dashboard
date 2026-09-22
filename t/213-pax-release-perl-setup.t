@@ -18,7 +18,7 @@ my @steps = @{ $job->{steps} };
 # pattern (the exact fix for "cpanm: command not found" on GitHub-hosted
 # runners, which do not ship cpanm pre-installed).
 my ($setup_idx) = grep { ( $steps[$_]{uses} // '' ) =~ m{^shogo82148/actions-setup-perl} } 0 .. $#steps;
-my ($deps_idx)  = grep { $steps[$_]{name} eq 'Install Perl dependencies (Linux only)' } 0 .. $#steps;
+my ($deps_idx)  = grep { $steps[$_]{name} eq 'Install Perl dependencies (Linux and Windows)' } 0 .. $#steps;
 
 ok( defined $setup_idx, 'a shogo82148/actions-setup-perl step exists in pax-release.yml' );
 ok( defined $deps_idx, 'the Install Perl dependencies step still exists' );
@@ -39,9 +39,12 @@ if ( defined $setup_idx ) {
     is( $setup_step->{uses}, $test_yml_setup_step->{uses}, 'pax-release.yml pins the identical actions-setup-perl SHA as test.yml' );
     is( $setup_step->{with}{'perl-version'}, $test_yml_setup_step->{with}{'perl-version'}, 'pax-release.yml requests the identical perl-version as test.yml' );
 
-    # Gated the same way as the steps it precedes - Linux only, since
-    # DD-1014/1015 will need their own macOS/Windows Perl bootstrap later.
-    is( $setup_step->{if}, q{startsWith(matrix.target, 'linux-')}, 'the Perl-setup step is gated to Linux targets, matching its dependent steps' );
+    # Gated the same way as the steps it precedes - Linux plus windows-amd64
+    # now that DD-1015 landed a real Windows build step (windows-arm64 is
+    # deliberately excluded: no Perl 5.44 binary exists for windows-11-arm
+    # at all - see the workflow's own comment - and macOS/DD-1014 remains
+    # fully unimplemented).
+    is( $setup_step->{if}, q{startsWith(matrix.target, 'linux-') || matrix.target == 'windows-amd64'}, 'the Perl-setup step is gated to Linux and windows-amd64 targets, matching its dependent steps' );
 }
 
 # AC-4 (found via a REAL PAX Release CI run, not a local test - share/

@@ -19,12 +19,16 @@ my %step_by_name = map { $_->{name} => $_ } @steps;
 my $build_step = $step_by_name{'PAX build dashboard (Linux only)'};
 ok( $build_step, 'a real "PAX build dashboard" step exists' );
 is( $build_step->{if}, q{startsWith(matrix.target, 'linux-')}, 'the build step is gated to Linux targets only' );
-like( $build_step->{run}, qr/pax build --compact -o pax-output\/dashboard bin\/dashboard/, 'the build step invokes pax build against bin/dashboard, no paxfile' );
+like( $build_step->{run}, qr/pax build --compact -o pax-output\/d2 bin\/dashboard/, 'the build step invokes pax build against bin/dashboard, no paxfile - output named d2 (DD-1015/DD-1025)' );
 
-# the non-Linux placeholder must still exist, with the NEGATED condition.
-my $placeholder_step = $step_by_name{'PAX build (placeholder, non-Linux)'};
-ok( $placeholder_step, 'the non-Linux placeholder step still exists' );
-like( $placeholder_step->{if}, qr/!\s*startsWith\(matrix\.target,\s*'linux-'\)/, 'the placeholder step is gated to NON-Linux targets' );
+# the still-unimplemented-targets placeholder must still exist, gated to
+# exactly windows-arm64 and macOS (windows-amd64 got a real build step -
+# DD-1015 - so it is no longer part of this placeholder's condition).
+my $placeholder_step = $step_by_name{'PAX build (placeholder, windows-arm64 and macOS)'};
+ok( $placeholder_step, 'the windows-arm64/macOS placeholder step still exists' );
+like( $placeholder_step->{if}, qr/windows-arm64/, 'the placeholder step still covers windows-arm64' );
+like( $placeholder_step->{if}, qr/macos-/, 'the placeholder step still covers macOS' );
+unlike( $placeholder_step->{if}, qr/windows-amd64/, 'the placeholder step no longer covers windows-amd64 (it has a real build step)' );
 
 # AC-3: the i686 toolchain step, and specifically the self-recursion fix.
 my $i686_step = $step_by_name{'Install 32-bit toolchain (linux-i686 only)'};
@@ -38,16 +42,17 @@ like( $i686_step->{run}, qr/exec %s -m32/, 'the wrapper script template execs th
             'Caught live: an 18+ minute runaway at 96% CPU with zero output before this was fixed.');
 unlike( $i686_step->{run}, qr/exec cc -m32/, 'the wrapper does NOT exec the bare name "cc" (the self-recursion bug this ticket caught and fixed)' );
 
-# AC-1 (unchanged from DD-1012): dependency install for Linux jobs.
-my $deps_step = $step_by_name{'Install Perl dependencies (Linux only)'};
-ok( $deps_step, 'a Perl dependency install step exists for Linux' );
+# AC-1 (unchanged from DD-1012, step later widened to also cover Windows -
+# DD-1015): dependency install for Linux (and now Windows amd64) jobs.
+my $deps_step = $step_by_name{'Install Perl dependencies (Linux and Windows)'};
+ok( $deps_step, 'a Perl dependency install step exists for Linux (and Windows)' );
 like( $deps_step->{run}, qr/cpanm.*--installdeps/, 'installs dependencies via cpanm --installdeps' );
 
 # AC-4: the smoke-verify step compares compiled-binary output to source-Perl.
 my $smoke_step = $step_by_name{'Smoke-verify the compiled dashboard binary (Linux only)'};
 ok( $smoke_step, 'a smoke-verify step exists for Linux' );
 is( $smoke_step->{if}, q{startsWith(matrix.target, 'linux-')}, 'the smoke-verify step is gated to Linux targets' );
-like( $smoke_step->{run}, qr/compiled_version=.*pax-output\/dashboard version/, 'reads the compiled binary\'s own version output' );
+like( $smoke_step->{run}, qr/compiled_version=.*pax-output\/d2 version/, 'reads the compiled binary\'s own version output' );
 like( $smoke_step->{run}, qr/source_version=.*perl bin\/dashboard version/, 'reads the source-Perl CLI\'s version output for comparison' );
 like( $smoke_step->{run}, qr/if \[ "\$compiled_version" != "\$source_version" \]/, 'fails the job when compiled and source-Perl output diverge' );
 like( $smoke_step->{run}, qr/ELF 32-bit/, 'asserts the i686 binary is genuinely 32-bit, not just successfully built' );
