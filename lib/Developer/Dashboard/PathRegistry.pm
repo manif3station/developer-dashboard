@@ -106,12 +106,25 @@ sub unregister_named_path {
 }
 
 # named_paths()
-# Returns the currently registered logical path aliases.
+# Returns the currently registered logical path aliases as plain path
+# strings for display (e.g. "dashboard path list"). DD-1005: a lazy-create
+# alias is stored internally as a metadata hash ({path=>,create=>1,mode=>});
+# this accessor collapses it to its bare "path" field so callers that only
+# ever expected a path string (aliases_table, prefix-matching completion)
+# see one, matching every alias registered before this feature existed.
+# resolve_dir reads the raw internal hash directly rather than through this
+# accessor, so the create/mode metadata is never lost - only hidden from
+# display consumers that have no use for it.
 # Input: none.
 # Output: hash reference of alias-to-path mappings.
 sub named_paths {
     my ($self) = @_;
-    return { %{ $self->{named_paths} || {} } };    # uncoverable branch true
+    my %plain;
+    for my $name ( keys %{ $self->{named_paths} || {} } ) {    # uncoverable branch true
+        my $entry = $self->{named_paths}{$name};
+        $plain{$name} = ref($entry) eq 'HASH' ? $entry->{path} : $entry;
+    }
+    return \%plain;
 }
 
 # all_paths() and all_path_aliases()
@@ -985,7 +998,16 @@ my %RESOLVABLE_ACCESSOR = map { $_ => 1 } qw(
 );
 
 # resolve_dir($name)
-# Resolves a logical directory name or absolute path.
+# Resolves a logical directory name or absolute path. DD-1005: when the
+# registered alias carries lazy-create metadata (a hash, not a bare path
+# string - see Config::save_global_path_alias) and the resolved target does
+# not exist on disk, it is created here (with parents, mkdir -p semantics)
+# and chmod'd to the stored mode if one was given, before being returned.
+# This is the ONE place that logic lives, so cdr, workspace routes, and
+# every direct Perl caller of resolve_dir all get it for free with no
+# per-call-site duplication. A non-create-marked alias (a bare string, or a
+# hash with no "create" key) behaves exactly as before this feature existed
+# - resolve_dir has never itself checked existence, only returned the path.
 # Input: logical directory name or absolute path.
 # Output: resolved directory path string.
 sub resolve_dir {
@@ -998,8 +1020,14 @@ sub resolve_dir {
     return $self->$name() if $RESOLVABLE_ACCESSOR{$name};
 
     if ( exists $self->{named_paths}{$name} ) {
-        my $path = $self->{named_paths}{$name};
+        my $entry = $self->{named_paths}{$name};
+        my ( $path, $create, $mode ) =
+          ref($entry) eq 'HASH' ? ( $entry->{path}, $entry->{create}, $entry->{mode} ) : ( $entry, undef, undef );
         $path = $self->_expand_home($path);
+        if ( $create && !-d $path ) {
+            make_path($path);
+            chmod( oct($mode), $path ) if defined $mode && $mode ne '';
+        }
         return $path;
     }
 
@@ -1589,6 +1617,16 @@ Construct the path registry.
 =head2 resolve_dir, resolve_any, locate_projects, locate_dirs_under, current_project_root, project_root_for
 
 Resolve and discover project-related directories.
+
+resolve_dir() (DD-1005) additionally creates a registered alias's target
+directory (with parents) on first resolution when that alias was saved with
+C<create =E<gt> 1> (see C<Developer::Dashboard::Config>'s
+save_global_path_alias()/save_skill_path_alias() C<%opts>), chmod'ing it to
+the alias's stored octal mode when one was given. named_paths() collapses
+such an alias back to a bare path string for display consumers
+(C<dashboard path list>, prefix completion) that have no use for the
+metadata; resolve_dir() itself always reads the raw internal registration,
+so the create/mode metadata is never lost between the two.
 
 =head2 current_working_directory, cwd
 

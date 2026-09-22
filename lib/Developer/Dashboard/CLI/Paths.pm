@@ -152,8 +152,31 @@ sub _paths_action_complete_cdr {
     return 1;
 }
 
+# _parse_create_option($raw_value)
+# Validates and normalizes a "-c|--create[:s]" option's raw Getopt::Long
+# value into (create boolean, mode string-or-undef) for DD-1005's lazy-create
+# support. Getopt::Long's ":s" optional-argument spec leaves $raw_value
+# undef when the flag was not given at all, '' when given bare
+# (--create/-c with no value), or the literal argument text otherwise -
+# covering all four required syntax forms (bare, "--create 0777",
+# "--create=0777", "-c 0777") because ":s" consumes the next argv token as
+# the value unless that token itself looks like another option.
+# Input: the raw scalar Getopt::Long populated (undef, '', or a string).
+# Output: two-element list (create boolean, octal mode string or undef). A
+# non-empty value that is not a valid octal digit string (a leading 0
+# followed by digits 0-7) dies with a usage message rather than being
+# silently misread as decimal, per the ticket's explicit requirement.
+sub _parse_create_option {
+    my ($raw_value) = @_;
+    return ( 0, undef ) if !defined $raw_value;
+    return ( 1, undef ) if $raw_value eq '';
+    die "Usage: --create/-c mode must be an octal string like 0777, got '$raw_value'\n"
+      if $raw_value !~ /\A0[0-7]+\z/;
+    return ( 1, $raw_value );
+}
+
 # _paths_action_add(%args)
-# Implements "dashboard path add <name> <path> [-o json|table]".
+# Implements "dashboard path add <name> <path> [-c|--create[=MODE]] [-o json|table]".
 # Input: paths registry, config, and argv under "paths", "config", and "argv".
 # Output: prints the saved alias as JSON or a mutation summary table;
 # returns 1.
@@ -162,11 +185,13 @@ sub _paths_action_add {
     my ( $paths, $config, $argv ) = @args{qw(paths config argv)};
     my @argv = @{$argv};
     my $output = 'table';
-    GetOptionsFromArray( \@argv, 'o|output=s' => \$output );
-    die "Usage: dashboard path add <name> <path> [-o json|table]\n" if $output ne 'json' && $output ne 'table';
+    my $create_raw;
+    GetOptionsFromArray( \@argv, 'o|output=s' => \$output, 'c|create:s' => \$create_raw );
+    die "Usage: dashboard path add <name> <path> [-c|--create[=MODE]] [-o json|table]\n" if $output ne 'json' && $output ne 'table';
+    my ( $create, $mode ) = _parse_create_option($create_raw);
     my ( $name, $path ) = _normalize_add_arguments(@argv);
-    my $saved = $config->save_path_alias( $name, $path );
-    $paths->register_named_paths( { $saved->{name} => $saved->{path} } );
+    my $saved = $config->save_path_alias( $name, $path, ( $create ? ( create => 1, ( defined $mode ? ( mode => $mode ) : () ) ) : () ) );
+    $paths->register_named_paths( { $saved->{name} => ( $saved->{create} ? { path => $saved->{path}, create => 1, ( defined $saved->{mode} ? ( mode => $saved->{mode} ) : () ) } : $saved->{path} ) } );
     $saved->{resolved} = $paths->resolve_dir( $saved->{name} );
     if ( $output eq 'json' ) {
         print json_encode($saved);
@@ -513,6 +538,8 @@ output.
   dashboard path complete-cdr 2 cdr project alp
   dashboard path add work ~/projects/work
   dashboard path add .
+  dashboard path add scratch /tmp/scratch --create
+  dashboard path add scratch /tmp/scratch --create 0777
   dashboard path rm work
   dashboard path list
 
