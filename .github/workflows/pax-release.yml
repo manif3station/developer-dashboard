@@ -24,6 +24,18 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+  # DD-1025: release-github.yml calls this workflow directly (as a
+  # reusable workflow, via `uses: ./.github/workflows/pax-release.yml`)
+  # so the compiled binaries land in the SAME run as the GitHub Release
+  # it creates and can be attached to it as release assets, rather than
+  # only existing as separate, ephemeral workflow-run artifacts nobody
+  # would think to look for on the release page. The push/tag triggers
+  # above are unchanged and still run this workflow standalone (its own
+  # existing purpose: build-testing every push, independent of releasing)
+  # - the two paths building for the same tag push is intentional
+  # redundancy, not a bug: this workflow's own conclusion still matters
+  # on its own for ordinary master pushes that never become a release.
+  workflow_call: {}
 
 permissions:
   contents: read
@@ -93,20 +105,27 @@ jobs:
           chmod +x "$RUNNER_TEMP/cc32/cc"
           echo "$RUNNER_TEMP/cc32" >> "$GITHUB_PATH"
 
-      - name: Setup Perl (Linux only)
+      - name: Setup Perl (Linux and Windows)
         # DD-1018: GitHub-hosted ubuntu-latest/ubuntu-24.04-arm runners do
         # not ship cpanm pre-installed - they are generic runners, not
         # Perl-specific images. Every real CI run of this workflow failed
         # with "cpanm: command not found" until this step was added.
         # Matches test.yml's own established Perl-setup pattern exactly
         # (same pinned SHA, same perl-version).
-        if: startsWith(matrix.target, 'linux-')
+        #
+        # DD-1015: also covers windows-latest/windows-11-arm - this action
+        # installs Strawberry Perl on Windows, which bundles its own
+        # MinGW-w64 C toolchain (gcc/ld/objcopy under its own c/bin
+        # directory) specifically so XS module compilation works out of
+        # the box - the same toolchain this job's own Windows PAX build
+        # step below needs, with no separate install step required.
+        if: startsWith(matrix.target, 'linux-') || startsWith(matrix.target, 'windows-')
         uses: shogo82148/actions-setup-perl@53e33bb27be492a926eee378e8a5f7ff6618b061  # v1.43.1
         with:
           perl-version: '5.44'
 
-      - name: Install Perl dependencies (Linux only)
-        if: startsWith(matrix.target, 'linux-')
+      - name: Install Perl dependencies (Linux and Windows)
+        if: startsWith(matrix.target, 'linux-') || startsWith(matrix.target, 'windows-')
         run: cpanm --quiet --notest --installdeps .
 
       - name: PAX build dashboard (Linux only)
@@ -125,9 +144,24 @@ jobs:
           # entirely by being explicit rather than relying on inference.
           perl -Ilib share/private-cli/pax build --compact -o pax-output/dashboard bin/dashboard
 
-      - name: PAX build (placeholder, non-Linux)
-        if: ${{ !startsWith(matrix.target, 'linux-') }}
-        run: echo "TODO (DD-1014/1015) - dashboard pax build for ${{ matrix.target }}"
+      - name: PAX build dashboard (Windows amd64 only)
+        # DD-1015: windows-arm64 stays on the placeholder below - the
+        # objcopy PE target name for ARM64 was not confirmed against the
+        # real binutils tool before this landed, and this project's own
+        # rule against unverified specific claims means it dies with a
+        # clear message (StandaloneImage.pm::_objcopy_target_for_coff_header)
+        # rather than guessing. amd64's PE target (pe-x86-64) is
+        # well-documented, standard binutils naming, verified via this
+        # exact CI run - see this job's own conclusion for the real result.
+        if: matrix.target == 'windows-amd64'
+        shell: bash
+        run: |
+          mkdir -p pax-output
+          perl -Ilib share/private-cli/pax build --compact -o pax-output/dashboard.exe bin/dashboard
+
+      - name: PAX build (placeholder, windows-arm64 and macOS)
+        if: matrix.target == 'windows-arm64' || startsWith(matrix.target, 'macos-')
+        run: echo "TODO (DD-1014 for macOS, DD-1015 for windows-arm64) - dashboard pax build for ${{ matrix.target }}"
 
       - name: Smoke-verify the compiled dashboard binary (Linux only)
         if: startsWith(matrix.target, 'linux-')
@@ -138,6 +172,18 @@ jobs:
             file pax-output/dashboard | grep -q "ELF 32-bit" || { echo "expected a 32-bit ELF binary"; exit 1; }
           fi
           compiled_version=$(./pax-output/dashboard version)
+          source_version=$(perl bin/dashboard version)
+          if [ "$compiled_version" != "$source_version" ]; then
+            echo "compiled binary version ($compiled_version) does not match source-Perl CLI version ($source_version)"
+            exit 1
+          fi
+
+      - name: Smoke-verify the compiled dashboard binary (Windows amd64 only)
+        if: matrix.target == 'windows-amd64'
+        shell: bash
+        run: |
+          set -e
+          compiled_version=$(./pax-output/dashboard.exe version)
           source_version=$(perl bin/dashboard version)
           if [ "$compiled_version" != "$source_version" ]; then
             echo "compiled binary version ($compiled_version) does not match source-Perl CLI version ($source_version)"
