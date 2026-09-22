@@ -1,6 +1,22 @@
 # Fixed Bugs
 
 
+## 4.77
+
+- **DD-1018** (follow-up to v4.76's two fixes): a real GitHub Actions run
+  of `pax-release.yml` surfaced a THIRD defect after the cpanm-bootstrap
+  and node24-floor fixes landed. `share/private-cli/pax`'s own lib
+  resolution (`use FindBin qw($Bin); use lib "$Bin/../lib";`) failed with
+  `Can't locate Developer/Dashboard/Pax/CLI.pm in @INC`, even though
+  `share/private-cli/../lib` was listed as a checked `@INC` entry in the
+  error - despite every local invocation this session ran succeeding
+  with the identical command. Root cause not fully diagnosed (FindBin's
+  `$Bin`+cwd resolution appears to behave differently in the GitHub
+  Actions runner environment); fixed by passing `-Ilib` explicitly on
+  the `perl` invocation in the workflow's Linux build step, sidestepping
+  the inference entirely rather than depending on it.
+  `t/213-pax-release-perl-setup.t` extended to assert `-Ilib` is present.
+
 ## 4.76
 
 - **DD-1018**: every real GitHub Actions run of `pax-release.yml`
