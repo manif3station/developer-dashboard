@@ -368,13 +368,54 @@ sub main {
     return _judge( $checker, $database, $stdout . $stderr );
 }
 
+# Purpose: the set of directories under t/ whose contents are a KNOWN,
+#          deliberate byproduct of the suite's own tests - not evidence
+#          that anything external touched the tree, which is what
+#          _grading_identity() exists to catch. t/tmp-sow03/ (DD-1036)
+#          is a real, .gitignore-documented test-artifact directory that
+#          t/183 and its PAX-build sibling tests genuinely write real
+#          compiled binaries and .c intermediates into during a normal
+#          `prove -lr t` run, and never clean up afterward
+#          (.gitignore's own comment: "only remove_tree()s t/tmp-sow03/
+#          BEFORE each run, never after"). Confirmed live on 5
+#          consecutive real CI Test-workflow runs across 5 unrelated
+#          commits, on a fully isolated GitHub Actions runner: this
+#          churn alone made _grading_identity() see "the tree changed"
+#          on EVERY run, refusing to report a coverage number ever.
+#          Computed as a sub, not a top-level `my`, because a top-level
+#          statement positioned (as this one originally was) textually
+#          AFTER the script's own `exit main(@ARGV);` line never runs -
+#          `exit` unconditionally ends the process before control flow
+#          reaches it, silently leaving the "excluded" list empty. That
+#          exact bug shipped once already: t/149's own DD-1036 addition
+#          caught it immediately (the exclusion had zero effect at
+#          runtime despite being syntactically correct and present in
+#          the file), which is the tell that the position of code in a
+#          script whose main body is one `exit main(@ARGV);` line
+#          matters as much as its content.
+# Input:   none.
+# Output:  a list of relative directory paths (t/... form) to prune.
+sub _excluded_artifact_dirs {
+    return ( File::Spec->catdir( 't', 'tmp-sow03' ) );
+}
+
 sub _grading_identity {
+    my @excluded = _excluded_artifact_dirs();
     my @facts;
     File::Find::find(
         {
             no_chdir => 1,
             wanted   => sub {
                 my $path = $File::Find::name;
+                if ( -d $path ) {
+                    for my $excluded (@excluded) {
+                        if ( $path eq $excluded || $path =~ m{\A\Q$excluded\E/} ) {
+                            $File::Find::prune = 1;
+                            return;
+                        }
+                    }
+                    return;
+                }
                 return if !-f $path;
                 my @stat = stat $path;
                 push @facts, join '|', $path, $stat[7], $stat[9];
