@@ -55,7 +55,10 @@ sub dispatch {
     my $command_spec = $self->_command_spec( $skill_name, $command );
     my $cmd_path = $command_spec ? $command_spec->{cmd_path} : undef;
     my $command_skill_path = $command_spec ? $command_spec->{skill_path} : undef;
-    return { error => $suggest->unknown_skill_command_message( $skill_name, $command ) } if !$cmd_path;
+    if ( !$cmd_path ) {
+        return $self->_native_version_fallback($skill_name) if $command eq 'version';
+        return { error => $suggest->unknown_skill_command_message( $skill_name, $command ) };
+    }
 
     my $hook_result = $self->execute_hooks( $skill_name, $command, @args );
     return $hook_result if $hook_result->{error};
@@ -115,7 +118,13 @@ sub exec_command {
     my $command_spec = $self->_command_spec( $skill_name, $command );
     my $cmd_path = $command_spec ? $command_spec->{cmd_path} : undef;
     my $command_skill_path = $command_spec ? $command_spec->{skill_path} : undef;
-    return { error => $suggest->unknown_skill_command_message( $skill_name, $command ) } if !$cmd_path;
+    if ( !$cmd_path ) {
+        if ( $command eq 'version' ) {
+            my $fallback = $self->_native_version_fallback($skill_name);
+            return $self->_exec_resolved_command( '<native version fallback>', [ $^X, '-e', 'print $ARGV[0]' ], [ $fallback->{stdout} ] );
+        }
+        return { error => $suggest->unknown_skill_command_message( $skill_name, $command ) };
+    }
 
     my @skill_layers = @{ $command_spec->{skill_layers} };
     my $hook_result = $self->_execute_hooks_streaming( $skill_name, $command_spec->{command_name}, \@skill_layers, @args );
@@ -871,6 +880,29 @@ sub _command_spec {
     return;
 }
 
+# _native_version_fallback($skill_name)
+# Answers `d2 <skill>.version` natively when the skill ships no cli/version
+# script of its own, by reading a raw VERSION= line from the skill's own
+# layered .env files (leaf-most layer first, same precedence order
+# _command_spec already uses for resolving a real command file).
+# Input: skill repository name string.
+# Output: hash reference with stdout, stderr, and exit_code (never an error -
+# a missing .env or a missing VERSION= key are reported in stdout, not failed).
+sub _native_version_fallback {
+    my ( $self, $skill_name ) = @_;
+    for my $skill_path ( reverse $self->_skill_layers($skill_name) ) {
+        my $env_file = File::Spec->catfile( $skill_path, '.env' );
+        next if !-f $env_file;
+        open my $fh, '<:raw', $env_file or next;    # uncoverable branch false the file just passed -f
+        local $/;
+        my $body = <$fh>;
+        close $fh;    # uncoverable branch true closing a read-only handle does not fail on the test host
+        next if !defined $body;
+        return { stdout => "$1\n", stderr => '', exit_code => 0 } if $body =~ /^\s*VERSION\s*=\s*(\S+)\s*$/m;
+    }
+    return { stdout => "no version number found\n", stderr => '', exit_code => 0 };
+}
+
 # _command_root_specs(\@segments)
 # Builds candidate nested-skill command roots from the dotted command tail.
 # Input: array reference of dotted command segments.
@@ -1459,7 +1491,7 @@ This module executes installed skill commands and serves skill bookmark routes. 
 
 =head1 WHY IT EXISTS
 
-It exists because the skill system needs a boundary between skill installation and skill execution. Dispatching commands, hook chaining, isolated environment variables, and bookmark routing all belong in one module instead of being hand-built in the web layer or CLI wrappers.
+It exists because the skill system needs a boundary between skill installation and skill execution. Dispatching commands, hook chaining, isolated environment variables, and bookmark routing all belong in one module instead of being hand-built in the web layer or CLI wrappers. It also answers C<E<lt>skillE<gt>.version> natively (DD-1043) by reading a raw C<VERSION=> line from the skill's own layered C<.env> when the skill ships no C<cli/version> script of its own, so no skill needs to hand-write one just to expose a version number.
 
 =head1 WHEN TO USE
 

@@ -54,6 +54,38 @@ mechanism:
 skill's own `__init__` fallback. The fallback only fires when nothing more
 specific resolves.
 
+## The `version` command: a native fallback, not a skill convention
+
+`d2 <skill>.version` (DD-1043) is resolved by `_command_spec` exactly like
+any other dotted command first - if the skill (or a nested skill it walks
+into) ships a real `cli/version[.ext]` file, that always wins. Only when
+`_command_spec` returns nothing for `version` does `dispatch()` and
+`exec_command()` fall back to `SkillDispatcher::_native_version_fallback`,
+which reads a raw `VERSION=` line straight out of the skill's own layered
+`.env` files (checked leaf-most layer first, same precedence order
+`_command_spec` itself uses for `provider_layers`) and prints the bare
+value. A skill with no `.env` at all, or one with no `VERSION=` key, gets
+`no version number found` printed to stdout with exit 0 - never an error,
+since "this skill doesn't declare a version" is a legitimate, common state.
+
+This is deliberately a **dispatcher-level fallback**, not a per-skill
+convention every skill has to implement (unlike `skills`/`SKILL.md`, which
+today is answered by each skill shipping its own `cli/skills` script - no
+native fallback exists for that one). The reasoning: most skills already
+carry a bare `VERSION=X.YY` line in their own `.env` for unrelated reasons,
+so requiring a hand-written `cli/version` script just to expose it would be
+pure duplication.
+
+`exec_command`'s fallback path routes the printed value through
+`_exec_resolved_command` - the same `exec` mechanism every other resolved
+command uses (via a tiny `$^X -e 'print $ARGV[0]'` child) - rather than
+calling `exit` directly in-process. This keeps it consistent with
+`exec_command`'s own "never returns on success; otherwise returns an error
+hash" contract (a bare error string from `_exec_replacement` would make a
+caller's `$result->{error}` die on a string dereference) and exercisable by
+the same test shim that covers every other exec-replacing path in this
+module.
+
 ## Out of scope: a bare top-level `cli/__init__.<ext>`
 
 A `cli/__init__.<ext>` sitting at a *layer's* top-level `cli/` root (e.g.

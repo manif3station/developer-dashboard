@@ -1249,6 +1249,50 @@ ok( grep { $_ eq 'shared-skill' } @remaining_skills, 'uninstall preserves shared
     ok( -f File::Spec->catfile( $project, 'ddfile.local' ), 'the ddfile.local manifest itself survives its own traversal source' );
 }
 
+# ---------------------------------------------------------------------------
+# DD-1043: d2 <skill>.version natively reads VERSION= from the skill's own
+# .env when the skill ships no cli/version script of its own - no skill
+# should need to hand-write a version command just to answer this.
+# ---------------------------------------------------------------------------
+{
+    my $version_home = tempdir( CLEANUP => 1 );
+    make_path( File::Spec->catdir( $version_home, '.developer-dashboard' ) );
+    my $version_paths     = Developer::Dashboard::PathRegistry->new( home => $version_home );
+    my $version_manager   = Developer::Dashboard::SkillManager->new( paths => $version_paths );
+    my $version_dispatcher = Developer::Dashboard::SkillDispatcher->new( paths => $version_paths );
+
+    my $versioned_skill_root = File::Spec->catdir( $version_paths->skills_root, 'versioned-skill' );
+    make_path( File::Spec->catdir( $versioned_skill_root, 'cli' ) );
+    _write_file( File::Spec->catfile( $versioned_skill_root, '.env' ), "VERSION=5.187\n", 0644 );
+
+    my $version_dispatch = $version_dispatcher->dispatch( 'versioned-skill', 'version' );
+    is( $version_dispatch->{exit_code}, 0, 'd2 <skill>.version exits 0 when the skill .env carries VERSION=' );
+    like( $version_dispatch->{stdout}, qr/\A5\.187\n\z/, 'd2 <skill>.version prints the bare VERSION= value from the skill .env' );
+
+    my $versionless_skill_root = File::Spec->catdir( $version_paths->skills_root, 'versionless-skill' );
+    make_path( File::Spec->catdir( $versionless_skill_root, 'cli' ) );
+    _write_file( File::Spec->catfile( $versionless_skill_root, '.env' ), "SOME_OTHER_KEY=1\n", 0644 );
+
+    my $versionless_dispatch = $version_dispatcher->dispatch( 'versionless-skill', 'version' );
+    like( $versionless_dispatch->{stdout}, qr/no version number found/i, 'a skill .env with no VERSION= key reports no version number found' );
+
+    my $no_env_skill_root = File::Spec->catdir( $version_paths->skills_root, 'no-env-skill' );
+    make_path( File::Spec->catdir( $no_env_skill_root, 'cli' ) );
+    my $no_env_dispatch = $version_dispatcher->dispatch( 'no-env-skill', 'version' );
+    like( $no_env_dispatch->{stdout}, qr/no version number found/i, 'a skill with no .env at all also reports no version number found, not an error' );
+
+    my $own_script_skill_root = File::Spec->catdir( $version_paths->skills_root, 'own-version-script-skill' );
+    make_path( File::Spec->catdir( $own_script_skill_root, 'cli' ) );
+    _write_file( File::Spec->catfile( $own_script_skill_root, '.env' ), "VERSION=1.00\n", 0644 );
+    _write_file(
+        File::Spec->catfile( $own_script_skill_root, 'cli', 'version' ),
+        "#!/usr/bin/env perl\nprint \"custom-version-output\\n\";\n",
+        0755,
+    );
+    my $own_script_dispatch = $version_dispatcher->dispatch( 'own-version-script-skill', 'version' );
+    like( $own_script_dispatch->{stdout}, qr/custom-version-output/, 'a skill-provided cli/version script still wins over the native .env fallback' );
+}
+
 done_testing();
 
 # _write_file_at($path, $body, $mode): writes one file at an absolute path.
