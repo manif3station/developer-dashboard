@@ -1992,6 +1992,16 @@ END {
 
 {
     no warnings 'redefine';
+
+    # DD-1021: _listener_pids_for_port checks command_in_path('ss') BEFORE
+    # ever reaching the mocked capture() below - on a host/container with no
+    # real ss binary, that check alone routes it to the lsof/proc fallback
+    # and the capture() mock is never called at all. Stub the gate too, or
+    # this test's correctness depends on the runner's own tool inventory.
+    local *Developer::Dashboard::RuntimeManager::command_in_path = sub {
+        return 1 if $_[0] eq 'ss';
+        return Developer::Dashboard::Platform::command_in_path(@_);
+    };
     local *Developer::Dashboard::RuntimeManager::capture = sub (&) {
         return ( "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nLISTEN 0 1024 127.0.0.1:7906 0.0.0.0:* users:((\"starman worker \",pid=123,fd=4),(\"starman master \",pid=456,fd=4))\n", '', 0 );
     };
