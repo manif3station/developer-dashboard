@@ -59,3 +59,22 @@ code exposed, and asserts the resulting file content - confirming the
 unfixed pattern destroys a pre-existing valid digest (reproduced), and
 that the fixed code path never leaves `md5_file` in a truncated state
 regardless of when it is interrupted.
+
+## A third instance of the same defect class (DD-1009)
+
+`Developer::Dashboard::Pax::ArtifactCache::write_artifact` had the exact
+same shape: a plain `open('>', $path)` followed by `print`/`close` for its
+per-artifact metadata JSON, truncating the cache entry to zero bytes the
+instant `open` succeeded, well before the JSON content was written. Worse
+than this page's own `md5_file` case: `read_artifact` calls
+`decode_json(<$fh>)` with no eval guard, so a truncated file left by an
+interrupted write does not read back as merely "stale" - `decode_json` on
+an empty or partial string throws a hard exception, and any caller of
+`read_artifact` against a corrupted entry crashes outright.
+
+Fixed the same way: write to a sibling temp path (`"$path.tmp.$$"`), then
+`rename()` onto the real path - the third module in this codebase to adopt
+this exact pattern for this exact defect class, after `IndicatorStore.pm`
+(DD-989) and this page's own `PaxCache.pm` (DD-1003, above).
+`t/216-artifactcache-atomic-write.t` proves it with a real fork-based
+interruption test, matching this page's own verification approach.
