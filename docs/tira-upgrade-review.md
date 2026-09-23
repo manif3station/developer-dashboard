@@ -528,3 +528,14 @@ text (TKT-1084) - retroactively confirms every exemption call made on this
 board today took effect correctly.
 
 `d2 tira.policy.undeclared` returned empty.
+
+## 5.185-5.191 (DD-1047)
+
+Seven entries, nothing binds a new command/field/rule differently. Two worth
+knowing: `d2 tira.version` (names the running $Tira::VERSION with no board
+context needed) and `ticket.show -o human` now rendering a `## Required
+Actions` section alongside `## Checklist` - required items, not the
+checklist, are what actually gate a column departure. See
+`.claude/rules/tira-board-contract.md` §57 for the full breakdown.
+
+`d2 tira.policy.undeclared` returned empty.
