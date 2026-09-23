@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::ProfileStore;
 
-our $VERSION = '4.84';
+our $VERSION = '4.85';
 
 use strict;
 use warnings;
