@@ -1,3 +1,25 @@
+4.84  2026-09-23
+
+  - DD-1021: t/09-runtime-manager.t and t/105-web-app-coverage-2.t now
+    pass in a root, ss-less, file-less container - t/09 stubbed
+    command_in_path('ss') alongside the existing capture() mock; t/105
+    uses an attempt-based (not identity-based) skip for its
+    unreadable-file assertion, matching t/78's established pattern.
+  - DD-1043: d2 <skill>.version now natively reads VERSION= from a
+    skill's own .env when the skill ships no cli/version script,
+    instead of requiring every skill to hand-write one.
+  - DD-1044: EnvLoader::_load_env_pl_file now records a .env.pl's
+    same-value re-assignment ($ENV{KEY} set to the value it already
+    had) in DEVELOPER_DASHBOARD_ENV_AUDIT - a pure before/after value
+    diff could never see this case.
+  - DD-1009: Pax::ArtifactCache::write_artifact now writes its
+    cache-metadata JSON atomically (temp path + rename), closing the
+    same truncate-on-interrupt defect class already fixed in DD-989
+    and DD-1003.
+  - DD-1023: release-github.yml and test.yml now install binutils
+    explicitly before their build-dependent steps, fixing t/183's
+    self-hosted pax-build scenarios on a runner missing `as`.
+
 4.83  2026-09-22
 
   - DD-1015: real Windows amd64 PAX build wired into pax-release.yml,

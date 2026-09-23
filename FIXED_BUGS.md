@@ -1,6 +1,32 @@
 # Fixed Bugs
 
 
+## 4.84
+
+- **DD-1021**: `t/09-runtime-manager.t` test 202 stubbed `capture()` to
+  fake `ss` output but never stubbed `command_in_path()`, so on a
+  container with no real `ss` binary the code under test silently took
+  the lsof/proc fallback instead, routing around the mock entirely.
+  `t/105-web-app-coverage-2.t` test 382 asserted a chmod-0000 file is
+  404-unreadable, false under root (a real capability, not a `-r` stat
+  lie). Fixed with an attempt-based skip matching `t/78`'s established
+  pattern.
+- **DD-1044**: `EnvLoader::_load_env_pl_file`'s audit recording relied
+  purely on a before/after `%ENV` value diff, so a `.env.pl` assigning
+  `$ENV{KEY}` to the value it already had was silently never recorded.
+  A new `_env_pl_assigned_keys()` statically scans the file's own
+  source for literal assignment targets and unions that set with the
+  existing diff.
+- **DD-1009**: `Pax::ArtifactCache::write_artifact` truncated its
+  cache-metadata JSON to zero bytes on `open`, well before the content
+  was written - the same defect class already fixed in DD-989 and
+  DD-1003. Fixed with the same temp-path-then-rename pattern.
+- **DD-1023**: `release-github.yml` and `test.yml` were missing an
+  explicit `binutils` install step, so `t/183`'s self-hosted pax-build
+  scenarios failed with `cc: fatal error: cannot execute 'as'` on a
+  runner where it wasn't already present.
+
+
 ## 4.83
 
 - **DD-1015**: wired a real Windows amd64 PAX build into
