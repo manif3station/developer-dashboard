@@ -39,8 +39,9 @@ die "usage: $0 --compiled PATH --source-perl PERL_EXE --source-script PATH [--li
 
 my $all_passed = 1;
 for my $check (@checks) {
-    my ( $expected, $expected_ok ) = _run_source( $check, $source_perl, $source_script, \@lib_dirs );
-    my ( $actual,   $actual_ok )   = _run_compiled( $check, $compiled );
+    my ( $expected, $expected_ok, $expected_stderr, $expected_exit ) =
+        _run_source( $check, $source_perl, $source_script, \@lib_dirs );
+    my ( $actual, $actual_ok, $actual_stderr, $actual_exit ) = _run_compiled( $check, $compiled );
 
     if ( $expected_ok && $actual_ok && $expected eq $actual ) {
         print "PASS $check->{name}\n";
@@ -51,6 +52,14 @@ for my $check (@checks) {
     print "FAIL $check->{name}\n";
     print "  expected: $expected\n";
     print "  actual:   $actual\n";
+    if ( !$actual_ok ) {
+        print "  actual exit code: $actual_exit\n";
+        print "  actual stderr:    $actual_stderr\n" if length $actual_stderr;
+    }
+    if ( !$expected_ok ) {
+        print "  expected-side exit code: $expected_exit\n";
+        print "  expected-side stderr:    $expected_stderr\n" if length $expected_stderr;
+    }
 }
 
 exit( $all_passed ? 0 : 1 );
@@ -101,20 +110,24 @@ sub _run_source {
     my ( $stdout, $stderr, $exit ) = capture {
         system( $source_perl, @lib_args, $source_script, @{ $check->{args} } );
     };
-    return ( _normalize( $check, $stdout ), $exit == 0 );
+    $exit = $exit >> 8;
+    return ( _normalize( $check, $stdout ), $exit == 0, $stderr, $exit );
 }
 
 # Purpose: run one check against the compiled binary directly and capture
 #          its normalized stdout.
 # Input:   $check (hashref), $compiled (path to the compiled binary).
-# Output:  ($normalized_stdout, $ok) - $ok is false if the process failed
-#          to run or exited non-zero.
+# Output:  ($normalized_stdout, $ok, $stderr, $exit) - $ok is false if the
+#          process failed to run or exited non-zero; $stderr/$exit are the
+#          raw captured values, so a genuine crash can be reported with
+#          its real diagnostic rather than only a blank actual value.
 sub _run_compiled {
     my ( $check, $compiled ) = @_;
     my ( $stdout, $stderr, $exit ) = capture {
         system( $compiled, @{ $check->{args} } );
     };
-    return ( _normalize( $check, $stdout ), $exit == 0 );
+    $exit = $exit >> 8;
+    return ( _normalize( $check, $stdout ), $exit == 0, $stderr, $exit );
 }
 
 # Purpose: apply a check's own normalization (if any) and always chomp a

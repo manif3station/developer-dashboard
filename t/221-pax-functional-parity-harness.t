@@ -56,6 +56,27 @@ my $wrong   = File::Spec->catfile( 't', 'fixtures', 'parity-fake-wrong.pl' );
     like( $stdout, qr/PASS/, 'the checks that genuinely matched are still reported as PASS' );
 }
 
+# AC-4 (added after a real CI failure this reveals was hard to diagnose,
+# DD-1032/DD-1016's git-workflow-gate): when the "compiled" side genuinely
+# CRASHES on a check (non-zero exit, real stderr, nothing on stdout), the
+# FAIL line must show the exit code and stderr - not just a blank
+# "actual:" value indistinguishable from "printed nothing but exited
+# cleanly".
+{
+    my $crashes = File::Spec->catfile( 't', 'fixtures', 'parity-fake-crashes.pl' );
+    my ( $stdout, $stderr, $exit ) = capture {
+        system( $^X, $harness,
+            '--compiled',      $crashes,
+            '--source-perl',   $^X,
+            '--source-script', $correct,
+        );
+    };
+    isnt( $exit, 0, 'harness exits non-zero when the compiled side crashes' );
+    like( $stdout, qr/FAIL help/, 'the crashing check is reported as FAIL' );
+    like( $stdout, qr/exit(?:\s*code)?\W*1\b/i, 'the FAIL line names the real non-zero exit code, not just a blank actual' );
+    like( $stdout, qr/simulated crash: cannot load help text/, "the FAIL line surfaces the compiled side's real stderr" );
+}
+
 # AC-3: the representative command set is real and multi-part - not
 # just a single version-string check (which is what the ad hoc
 # per-platform steps in pax-release.yml did before this harness
