@@ -6,6 +6,7 @@ use utf8;
 
 use Test::More;
 use File::Spec;
+use File::Temp qw(tempdir);
 
 use lib 'lib';
 use Developer::Dashboard::Pax::Capture;
@@ -84,7 +85,13 @@ SKIP: {
     my $hir = Developer::Dashboard::Pax::HIR->new( manifest => $manifest, regions => $regions->{selected} )->lower_all;
     my $ssa = Developer::Dashboard::Pax::GuardedSSA->new( hir_units => $hir )->build_all;
 
-    my $out_dir = File::Spec->catdir( 't', 'tmp-t220-native' );
+    # A real File::Temp tempdir, outside t/ entirely (CLEANUP => 1) -
+    # not a fixed path under t/, so a real native compile here can never
+    # trip script/coverage-gate's tree-fingerprint check the way a
+    # fixed t/tmp-* path did before this fix (DD-1036 found the same
+    # class of gap in t/183's own long-standing t/tmp-sow03/ artifact
+    # dir; this test had never been fixed to use a real tempdir either).
+    my $out_dir = tempdir( CLEANUP => 1 );
     for my $unit (@$ssa) {
         next if ( $unit->{native_shape}{op} // '' ) !~ /^(?:bitwise_and|bitwise_xor)$/;
         my $artifact = Developer::Dashboard::Pax::Tier1->new( out_dir => $out_dir )->compile($unit);

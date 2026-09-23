@@ -26,7 +26,7 @@ my $gate       = File::Spec->catfile( $repository, 'script', 'coverage-gate' );
 
 plan skip_all => "the coverage gate is not present at $gate" if !-f $gate;
 
-plan tests => 6;
+plan tests => 8;
 
 my $probe = File::Spec->catfile( $repository, 't', 'dd528-moving-target-probe.tmp' );
 
@@ -86,6 +86,38 @@ _write_stub( File::Spec->catfile( $quiet_dir, 'cover' ), "#!/bin/sh\nexit 0\n" )
 my ( $quiet_status, undef ) = _run_gate( $quiet_dir, '--database', $database );
 
 isnt( $quiet_status, 5, 'a run whose tree stayed put is not refused, so the check is not simply always on' );
+
+# DD-1036: t/tmp-sow03/ is a real, documented, git-ignored test-artifact
+# directory (see .gitignore's own comment) that t/183 and its PAX-build
+# siblings genuinely write real compiled binaries and .c intermediates
+# into during a normal `prove -lr t` run, and never clean up afterward.
+# Confirmed live on 5 consecutive real CI Test-workflow runs across 5
+# unrelated commits: the naive whole-subtree fingerprint below caught
+# t/183's own legitimate writes as "the tree changed" and refused to
+# report EVERY time, even on a fully isolated GitHub Actions runner
+# where nothing else could possibly be touching the checkout. A gate
+# that always refuses on any real suite run is exactly as useless as
+# one that never refuses - this is the second complement the first one
+# already established the pattern for.
+my $artifact_dir = getcwd();
+my $artifact_path = File::Spec->catfile( $artifact_dir, 't', 'tmp-sow03', 'dd1036-probe.tmp' );
+END { unlink $artifact_path if defined $artifact_path }
+
+my $artifact_writing_dir = tempdir( CLEANUP => 1 );
+_write_stub(
+    File::Spec->catfile( $artifact_writing_dir, 'prove' ),
+    "#!/bin/sh\nmkdir -p '" . File::Spec->catdir( $artifact_dir, 't', 'tmp-sow03' ) . "'\nprintf 'artifact\\n' > '$artifact_path'\nexit 0\n"
+);
+_write_stub( File::Spec->catfile( $artifact_writing_dir, 'cover' ), "#!/bin/sh\nexit 0\n" );
+
+my ( $artifact_status, $artifact_output ) = _run_gate( $artifact_writing_dir, '--database', $database );
+
+ok( -e $artifact_path, 'the staged write into t/tmp-sow03/ really happened' );
+isnt( $artifact_status, 5,
+    'a run that only wrote into the documented test-artifact directory t/tmp-sow03/ is NOT refused - that churn is expected, not interference' )
+    or diag "gate output was:\n$artifact_output";
+
+unlink $artifact_path;
 
 # Purpose: write an executable stand-in onto the throwaway PATH.
 # Input: the path to write, and the script body.
