@@ -496,3 +496,22 @@ forwarders at every call site still using the old fully-qualified name -
 exactly the "confirmed zero `$self->{...}` instance-state coupling before
 extracting" discipline DD-641's own CollectorRunner research already
 applied on this board, independently, the same week.
+
+## 5.164-5.174 (DD-1008)
+
+Eleven entries, ten binding nothing (internal Tira engine/CLI/test-suite/
+dev-tooling work with no command, field, or rule this board reads - see
+`.claude/rules/tira-board-contract.md` §55 for the per-entry breakdown).
+
+One load-bearing change: **`comment.add` now accepts a repeatable
+`--key-detail TEXT` (TKT-1090)**, writing the comment AND the key_detail
+field(s) in one atomic call. This directly replaces the two-call
+comment-then-fold pattern this project's own rules have documented
+repeatedly as a friction point (§13/§29a of the board-contract rule) -
+the ordering hazard (comment must strictly precede the field write, or
+`conversation-not-folded` stays firing) disappears entirely when both
+land in the same write. Confirmed live via `d2 tira.comment.add --help`
+and used on this review's own card. Adopt `--key-detail` on every future
+`comment.add` call that also needs folding into fields.
+
+`d2 tira.policy.undeclared` returned empty.
