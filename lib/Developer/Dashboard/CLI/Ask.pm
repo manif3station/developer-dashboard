@@ -59,6 +59,16 @@ sub run_ask {
     my $env = $args{env} || \%ENV;
     my $opts = _parse_args( [ @{$argv} ] );
 
+    # DD-1038: --help used to fall straight into GetOptionsFromArray as an
+    # unrecognized option ("Unknown option: help", then die "Unable to
+    # parse ask options") - the single most basic thing a CLI command can
+    # support. Handled here, before any backend/transcript work, exactly
+    # like --docs already is a step below.
+    if ( $opts->{help} ) {
+        _emit( $args{out}, _usage_text() );
+        return 0;
+    }
+
     # DD-938: --docs is a pure, cheap, static stdout path - print curated
     # onboarding context and return immediately, before any of the
     # backend/transcript/prompt machinery below ever runs. Never touches an
@@ -76,8 +86,7 @@ sub run_ask {
         $piped =~ s/\s+\z//;
         $prompt = $prompt eq '' ? $piped : "$prompt\n\n$piped";
     }
-    die "No question provided.\nUsage: dashboard ask [--claude|--codex|--copilot|--gemini] [--model M] [--file PATH]... <question>\n"
-      if $prompt eq '';
+    die "No question provided.\n" . _usage_text() if $prompt eq '';
 
     my $config = $args{config} || _build_config( $env );    # uncoverable condition false _build_config always returns a blessed config object
     my $paths  = $args{paths}  || $config->{paths};         # uncoverable condition false a config object always carries its path registry
@@ -147,6 +156,7 @@ sub _parse_args {
     my $reset     = 0;
     my $no_memory = 0;
     my $docs      = 0;
+    my $help      = 0;
     GetOptionsFromArray(
         $argv,
         'claude'    => \$flag{claude},
@@ -159,6 +169,7 @@ sub _parse_args {
         'new|reset' => \$reset,
         'no-memory' => \$no_memory,
         'docs'      => \$docs,
+        'help|h'    => \$help,
     ) or die "Unable to parse ask options\n";
 
     my @chosen = grep { $flag{$_} } @BACKENDS;
@@ -171,8 +182,37 @@ sub _parse_args {
         reset     => $reset ? 1 : 0,
         no_memory => $no_memory ? 1 : 0,
         docs      => $docs ? 1 : 0,
+        help      => $help ? 1 : 0,
         prompt    => join( ' ', @{$argv} ),
     };
+}
+
+# _usage_text()
+# The real, complete usage text for `dashboard ask --help` - every
+# backend flag (DD-1039: --nova already has a full working
+# implementation but was never mentioned in any usage string, which is
+# what made it look unsupported) and every other real option.
+# Input: none.
+# Output: usage text string, trailing newline included.
+sub _usage_text {
+    return <<'USAGE';
+Usage: dashboard ask [--claude|--codex|--copilot|--gemini|--nova] [--model M] [--file PATH]... <question>
+
+Backend selection (default: claude):
+  --claude              Use Claude (Anthropic API, falling back to the local claude CLI)
+  --codex               Use Codex
+  --copilot             Use GitHub Copilot
+  --gemini              Use Gemini
+  --nova                Use Amazon Nova (requires NOVA_API_KEY)
+
+Options:
+  --model, -m MODEL     Override the backend's default model
+  --file, -f PATH        Attach a file (repeatable) - images are attached natively, other files inlined as text
+  --new, --reset          Start a fresh conversation, discarding this workspace's saved transcript
+  --no-memory            Do not save this turn to the workspace transcript
+  --docs                 Print curated onboarding context and exit, without contacting any backend
+  --help, -h              Show this help and exit
+USAGE
 }
 
 # _docs_context()
