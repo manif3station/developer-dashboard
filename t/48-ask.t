@@ -923,6 +923,30 @@ subtest 'argument validation errors' => sub {
     like( $@, qr/Attachment not found/, 'missing attachment' );
 };
 
+# ------------------------------------------------------------------
+# DD-1038/DD-1039: --help must work (not die as an unrecognized
+# option), and the usage text (both the --help output and the
+# no-question-provided error) must name every real backend, including
+# --nova - which already has a complete, working implementation
+# (_ask_nova/_call_nova_api/NOVA_API_KEY) but was never mentioned in
+# either usage string, making it look unsupported.
+# ------------------------------------------------------------------
+subtest '--help and usage text completeness' => sub {
+    my $exit;
+    my $out = '';
+    eval { $exit = $M->can('run_ask')->( args => ['--help'], out => \$out ); 1 };
+    is( $@, '', '--help does not die (DD-1038: it used to fail GetOptionsFromArray as an unrecognized option)' );
+    is( $exit, 0, '--help exits 0' );
+    like( $out, qr/--claude/, '--help output names --claude' );
+    like( $out, qr/--codex/, '--help output names --codex' );
+    like( $out, qr/--copilot/, '--help output names --copilot' );
+    like( $out, qr/--gemini/, '--help output names --gemini' );
+    like( $out, qr/--nova/, '--help output names --nova (DD-1039: nova already works, it was just never documented in any usage text)' );
+
+    eval { $M->can('run_ask')->( args => [], out => \my $o ); 1 };
+    like( $@, qr/--nova/, 'the No-question-provided usage line also names --nova, not just claude/codex/copilot/gemini' );
+};
+
 subtest 'API error handling' => sub {
     local $ENV{ANTHROPIC_API_KEY} = 'sk-env';
     local $ENV{WORKSPACE_REF}     = 'ws/apierr';
