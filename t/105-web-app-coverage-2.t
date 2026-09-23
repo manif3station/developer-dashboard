@@ -1476,11 +1476,22 @@ is_deeply( { Developer::Dashboard::Web::App::_parse_query('a=1&&b=2') }, { a => 
 }
 
 # ---- static serving: unreadable file and undef path (2918, 2987) ----
-{
+SKIP: {
     my $root2918 = File::Spec->catdir( $home, 'root2918' );
     make_path($root2918);
     my $unread = File::Spec->catfile( $root2918, 'x.js' );
     wfile( $unread, "x\n", 0000 );
+
+    # DD-1021: root (or any process holding CAP_DAC_OVERRIDE) genuinely CAN
+    # read a mode-0000 file - not a -r stat lie, a real open() succeeds too.
+    # Attempt the actual capability the code under test relies on, rather
+    # than predicating on identity ($> == 0), per t/78-doctor-coverage.t's
+    # established fix for the same class of defect.
+    if ( open my $probe, '<', $unread ) {
+        close $probe or die "Unable to close probe on $unread: $!";
+        chmod 0644, $unread;
+        skip 'this process can read a mode-0000 file, so the unreadable-file 404 cannot occur', 1;
+    }
     is( $m->_serve_static_file_from_roots( 'js', 'x.js', $root2918 )->[0], 404, 'file present but unreadable (2918 l&&!r)' );
     chmod 0644, $unread;
 }
