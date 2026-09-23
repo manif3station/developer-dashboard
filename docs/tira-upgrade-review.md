@@ -515,3 +515,16 @@ and used on this review's own card. Adopt `--key-detail` on every future
 `comment.add` call that also needs folding into fields.
 
 `d2 tira.policy.undeclared` returned empty.
+
+## 5.175-5.184 (DD-1046)
+
+Ten entries, all internal Tira engine hardening - lock races, ownership
+races, alias-fallback resolution, `--dry-run` timing, job-command `$PATH`
+resolution, a duplication cleanup. Nothing binds a new command, field, or
+rule this board reads. See `.claude/rules/tira-board-contract.md` §56 for
+the per-entry breakdown and one notable confirmation: `--exempt-required`
+now matches a required item by its `REQ-NNN` id, not only its descriptive
+text (TKT-1084) - retroactively confirms every exemption call made on this
+board today took effect correctly.
+
+`d2 tira.policy.undeclared` returned empty.
