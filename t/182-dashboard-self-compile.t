@@ -57,8 +57,8 @@ sub seed_cache_for_dashboard {
 # minutes a SECOND, independent defect surfaced (EnvAudit->record failing
 # inside the compiled binary's "legacy namespace", never reachable before
 # since self-exec had been off since DD-905), so DD-930 (2026-09-17)
-# disabled it again. A cache hit is detected (the resolve() call still
-# runs, keeping a background compile warm) but never acted on.
+# disabled it again. DD-1010 (2026-09-23) re-enabled it once DD-930's own
+# root cause shipped: a cache hit is now exec'd directly.
 {
     my $home = tempdir( CLEANUP => 1 );
     my $sentinel_bin = seed_cache_for_dashboard(
@@ -71,13 +71,12 @@ sub seed_cache_for_dashboard {
         local $ENV{HARNESS_ACTIVE} = 0;
         system( $^X, '-I', $lib, $dashboard, 'version' );
     };
-    is( $exit >> 8, 0, 'DD-930: dashboard exits cleanly with a matching self-compiled binary cached' );
-    unlike(
+    is( $exit >> 8, 0, 'DD-1010: dashboard exits cleanly with a matching self-compiled binary cached' );
+    like(
         $out,
         qr/DD882-SENTINEL-COMPILED-OUTPUT/,
-        'DD-930: dashboard does NOT exec the cached self-compiled binary on a cache hit - the exec side stays disabled'
+        'DD-1010: dashboard DOES exec the cached self-compiled binary on a cache hit - the exec side is live again'
     );
-    like( $out, qr/\A\d+\.\d+\s*\z/, 'DD-930: dashboard runs its own interpreted body and produces correct output' );
 }
 
 # A stale/no-cache case must still work exactly as before: run interpreted,
@@ -123,16 +122,14 @@ sub seed_cache_for_dashboard {
     like( $out, qr/\A\d+\.\d+\s*\z/, 'DD-882: with the guard pre-set, dashboard runs its own interpreted body normally' );
 }
 
-# DD-930's own regression coverage: even with a REAL PAX compile of
-# dashboard cached (not a hand-written sentinel), and even though DD-922
-# fixed the ORIGINAL $/ defect, `dashboard` itself must never be corrupted
-# by acting on that cache hit - a DIFFERENT, previously-unreachable defect
-# (EnvAudit->record failing inside the compiled binary's "legacy namespace")
-# surfaced the moment DD-922 re-enabled self-exec, so DD-930 disabled it
-# again. The guaranteed property is the same shape DD-905 established: the
-# interpreted `dashboard` entrypoint must run correctly regardless of
-# whether the cached compiled binary is itself broken. Skipped when pax is
-# not resolvable (no vendored Pax CLI staged) or when explicitly disabled,
+# DD-1010's own regression coverage: with a REAL PAX compile of dashboard
+# cached (not a hand-written sentinel), self-exec is now live again -
+# `dashboard version` execs the cached compiled binary directly rather than
+# running interpreted. DD-930's own defect (EnvAudit->record failing inside
+# the compiled binary's "legacy namespace") has shipped, so the exec'd real
+# binary must now produce the correct version output, not merely fail to
+# corrupt the (bypassed) interpreted path. Skipped when pax is not
+# resolvable (no vendored Pax CLI staged) or when explicitly disabled,
 # since a real compile is slow and heavy.
 SKIP: {
     skip 'DD_SKIP_REAL_PAX_COMPILE_TEST is set', 3 if $ENV{DD_SKIP_REAL_PAX_COMPILE_TEST};
@@ -222,12 +219,13 @@ SKIP: {
         unlink $env_file;
     }
 
-    is( $exit >> 8, 0, 'DD-930 regression: dashboard exits cleanly even with a REAL compiled binary cached' );
+    is( $exit >> 8, 0, 'DD-1010 regression: dashboard exits cleanly when it execs a REAL compiled binary via self-exec' );
     like(
         $out,
         qr/\A\d+\.\d+\s*\z/,
-        'DD-930 regression: dashboard runs its own interpreted body and produces correct output, never touching the cached compiled binary'
+        'DD-1010 regression: self-exec\'d real compiled binary produces correct version output - DD-930\'s defect stays fixed under a real self-exec, not just a direct invocation'
     );
+    is( $out, $direct_out, 'DD-1010: self-exec\'s output matches the same binary invoked directly - self-exec adds no distortion of its own' );
 }
 
 done_testing;
@@ -240,19 +238,21 @@ t/182-dashboard-self-compile.t - dashboard's own MD5-checked self-compile hook
 
 =head1 PURPOSE
 
-Exercises bin/dashboard's self-compile check: it still checks its own
-source MD5 against PaxCache's cache (keeping a background compile warm),
-but never acts on a cache hit - dashboard always runs its own interpreted
-body. DD-905 first disabled acting on a hit after a real compiled binary
-silently corrupted config loading; DD-922 root-caused and fixed THAT
-defect and re-enabled the exec side; within minutes a DIFFERENT,
-previously-unreachable defect surfaced (EnvAudit->record failing inside
-the compiled binary's "legacy namespace" - never reachable before because
-self-exec had been off since DD-905), so DD-930 disabled it again. This
-file is the executable proof that dashboard's own interpreted behavior is
-never corrupted by whatever state the cached compiled binary happens to be
-in - the actual safety property, independent of which specific upstream
-defect the cached binary carries at any given time.
+Exercises bin/dashboard's self-compile-and-exec hook: it checks its own
+source MD5 against PaxCache's cache and, on a hit, execs the matching
+compiled binary directly rather than running interpreted. DD-905 first
+disabled acting on a hit after a real compiled binary silently corrupted
+config loading; DD-922 root-caused and fixed THAT defect and briefly
+re-enabled the exec side; within minutes a DIFFERENT, previously-
+unreachable defect surfaced (EnvAudit->record failing inside the compiled
+binary's "legacy namespace" - never reachable before because self-exec had
+been off since DD-905), so DD-930 disabled it again. DD-1010 re-enabled it
+once DD-930's own root cause shipped. This file is the executable proof
+that a cache hit is genuinely exec'd into, that a miss or guard-suppressed
+check still runs interpreted with zero behavior change, and that a REAL
+compiled binary's own config loading (the actual property DD-905/922/930
+were all about) now succeeds under a real self-exec, not just a direct
+invocation of the binary.
 
 =head1 WHY IT EXISTS
 
@@ -272,10 +272,13 @@ Pax CodeUnitCompiler's own narrow special-case handling of EnvLoader.pm's
 C<_load_env_pl_file> sub substitutes a runtime op whose C<EnvAudit->record>
 call never resolves in the compiled binary) and disabled the exec side
 again, since it had never actually been exercised against real config
-before DD-922 turned it back on. This file is the executable proof that a
-cache hit is still detected (the mechanism DD-882 built) but never acted
-on, and that dashboard's own interpreted execution is unaffected by
-whatever state - correct or broken - the cached compiled binary is in.
+before DD-922 turned it back on. DD-1010 re-enabled the exec side once
+DD-930's fix shipped and this file's own regression block (run against a
+real PAX compile) confirmed a real self-exec'd binary now produces correct
+output. This file is the executable proof of the whole contract: a cache
+hit is genuinely exec'd, a miss falls through unaffected, the
+anti-infinite-loop guard still holds, and the previously-fatal real-binary
+defects stay fixed under an actual self-exec.
 
 =head1 WHEN TO USE
 

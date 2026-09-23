@@ -491,7 +491,15 @@ sub _skill_bare_init_command_name {
 # substitutes a custom runtime op whose EnvAudit->record call never
 # resolves in the compiled binary's "legacy namespace"). Never surfaced
 # before DD-922 because self-exec had been off the whole time since DD-905.
-# Re-enable only after DD-930's own root cause is fixed.
+#
+# DD-1010 (2026-09-23) RE-ENABLED the exec side: DD-930's own root cause
+# shipped (the EnvLoader.pm special-case in CodeUnitCompiler was fixed), and
+# t/182 (DD-905/922/930's own regression coverage) still passes cleanly
+# against that fix. A resolved cache hit is now exec'd via the same
+# _exec_switchboard_command() every other resolved PAX target in this file
+# already uses (see the ps1 allowlist at line ~80), with the anti-infinite-
+# loop guard set immediately before the exec call so it is present in the
+# child's environment from its very first instruction.
 #
 # Guarded by an environment variable so the compiled binary - which embeds
 # this exact same self-check code, since PAX compiles the whole script
@@ -526,10 +534,18 @@ sub _maybe_exec_self_compiled_dashboard {
         if ( -f $self_path ) {
             require Developer::Dashboard::PaxCache;
             my $cache = Developer::Dashboard::PaxCache->new( paths => _switchboard_paths() );
-            # DD-930: still resolve() so a background compile stays warm for
-            # whoever fixes the real defect, but never act on a defined hit -
-            # see this sub's own DD-930 comment above for why.
-            $cache->resolve($self_path);
+            # DD-1010: a defined hit is exec'd via the same
+            # _exec_switchboard_command() every other resolved PAX target
+            # already uses. The guard is set BEFORE the exec call (not after)
+            # so it is present in the child's environment from its very first
+            # instruction - the child is the same compiled source running this
+            # exact sub again, and without the guard already set it would
+            # recompute the identical cache hit and exec itself, forever.
+            my $cached = $cache->resolve($self_path);
+            if ( defined $cached ) {
+                $ENV{DEVELOPER_DASHBOARD_PAX_SELF_EXECED} = 1;
+                _exec_switchboard_command( $cached, @ARGV );
+            }
         }
     }
     delete $ENV{DEVELOPER_DASHBOARD_PAX_SELF_EXECED};

@@ -1,6 +1,20 @@
 # Fixed Bugs
 
 
+## 4.85
+
+- **DD-1010**: `bin/dashboard`'s self-compile mechanism (DD-882) resolved a
+  PAX cache hit but discarded it rather than exec'ing it, left disabled
+  since DD-905/DD-930 found real compiled-binary defects. Both root causes
+  had since shipped (DD-922, and DD-930's own fix), but the exec call
+  itself was never added back. Now execs a resolved hit via
+  `_exec_switchboard_command()`, the same mechanism the `ps1` allowlist
+  already used, with the anti-infinite-loop guard set immediately before
+  the exec call. Verified with a full container suite run (9 pre-existing
+  environmental failures found, none caused by this change) and real
+  timing measurements (cold compile 86.8s, warm self-exec 129-138ms, the
+  bare compiled binary 2-4ms).
+
 ## 4.84
 
 - **DD-1021**: `t/09-runtime-manager.t` test 202 stubbed `capture()` to
