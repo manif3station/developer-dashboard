@@ -143,6 +143,9 @@ write_exec( File::Spec->catfile( $proj_runner, 'cli', 'solo' ),  "#!/bin/sh\nech
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'exectest' ), "#!/bin/sh\necho exec-out\n" );
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'failcmd' ), "#!/bin/sh\necho failcmd-out\nexit 1\n" );
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'hookfail' ), "#!/bin/sh\necho hookfail-out\n" );
+# DD-1043: no cli/version script for 'runner', but a .env carrying VERSION= -
+# exercises _native_version_fallback via both dispatch() and exec_command().
+write_file( File::Spec->catfile( $proj_runner, '.env' ), "VERSION=9.99\n" );
 # greet hooks: a non-runnable file (skipped) plus two runnable hooks, one of
 # which writes to both stdout and stderr.
 write_file( File::Spec->catfile( $proj_runner, 'cli', 'greet.d', '00-skip' ), "not runnable\n" );
@@ -267,6 +270,18 @@ ok( $disp->exec_command( 'disabledskill', 'greet' )->{error}, 'exec_command refu
     local $Local::ExecShim::FAIL_RE = qr{/exectest\z};
     my $exec_hooked = quietly( sub { $disp->exec_command( 'runner', 'exectest' ) } );
     like( $exec_hooked->{error}, qr/\AUnable to exec /, 'exec_command runs streaming hooks then reports the exec failure' );
+}
+
+# DD-1043: exec_command's native .version fallback - no cli/version script
+# exists for 'runner', so it reads VERSION=9.99 from the .env staged above
+# and hands it to _exec_replacement, going through the same shimmed exec()
+# every other exec_command path already uses.
+{
+    is( $disp->dispatch( 'runner', 'version' )->{stdout}, "9.99\n", 'dispatch native .version fallback prints the .env VERSION=' );
+
+    local $Local::ExecShim::FAIL_RE = qr/./s;
+    my $exec_version = $disp->exec_command( 'runner', 'version' );
+    like( $exec_version->{error}, qr/\AUnable to exec /, 'exec_command native .version fallback routes through the shimmed exec()' );
 }
 
 # ---------------------------------------------------------------------------
