@@ -76,5 +76,10 @@ elsewhere, here applied to a release gate rather than a test.
   - the skip list itself.
 - `lib/Developer/Dashboard/Pax/StandaloneImage.pm::_pure_perl_dependency_units`
   - the recursive dependency walk that consults it.
-- `.github/workflows/pax-release.yml` - the smoke-verify step, widened
-  to exercise more than one subcommand after this finding.
+- `.github/workflows/pax-release.yml` - the smoke-verify step. Widening it
+  to exercise more than `dashboard version` was implemented and then
+  **reverted**: doing so uncovered a separate, still-unresolved bug
+  (a genuinely different missing-dependency defect, tracked as DD-1035)
+  that would make the release gate fail again - on a different subcommand,
+  for a different reason. Widening the smoke check stays a real, open gap
+  (this section's own lesson still holds), deferred until DD-1035 lands.
