@@ -352,6 +352,30 @@ write_file( File::Spec->catfile( $ab,  '.env' ),    "AK=abval\n" );
     ok( !exists $ENV{qq_QK}, 'a same-prefix override within one layer does not create a parent alias' );
 }
 
+# ---------------------------------------------------------------------------
+# DD-1044: a .env.pl that assigns $ENV{KEY} to the SAME value it already had
+# (inherited from the OS environment, or from an earlier layer) must still be
+# recorded in the audit - the file genuinely set it, even though the value
+# didn't change. The pre/post %ENV value-diff alone cannot see this: it
+# only detects keys whose VALUE changed, not keys a .env.pl explicitly
+# assigned.
+# ---------------------------------------------------------------------------
+{
+    local %ENV                                   = %ENV;
+    local $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT}    = undef;
+    local %Developer::Dashboard::EnvAudit::AUDIT = ();
+    local $ENV{SAME_VALUE_KEY} = 'unchanged';
+
+    my $pl = write_file(
+        File::Spec->catfile( $home, 'samevalue', '.env.pl' ),
+        "\$ENV{SAME_VALUE_KEY} = 'unchanged';\n1;\n",
+    );
+    $EL->_load_env_pl_file($pl);
+    my $recorded = Developer::Dashboard::EnvAudit->key('SAME_VALUE_KEY');
+    ok( defined $recorded, 'a .env.pl assignment that keeps the same value is still recorded in the audit (DD-1044)' );
+    is( $recorded->{envfile}, $pl, 'the audit records the correct .env.pl source file for a same-value assignment' );
+}
+
 {
     local %ENV                                   = %ENV;
     local $ENV{DEVELOPER_DASHBOARD_ENV_AUDIT}    = undef;

@@ -372,8 +372,9 @@ sub _load_env_file {
 }
 
 # _load_env_pl_file($file)
-# Executes one .env.pl file and records every added or changed environment key
-# against that file in the shared audit inventory.
+# Executes one .env.pl file and records every added, changed, or explicitly
+# re-assigned environment key against that file in the shared audit
+# inventory.
 # Input: absolute .env.pl file path.
 # Output: true value.
 sub _load_env_pl_file {
@@ -381,20 +382,51 @@ sub _load_env_pl_file {
     my %before = %ENV;
     delete $INC{$file};
     require $file;
+
+    # DD-1044: a .env.pl that assigns $ENV{KEY} to the value it already had
+    # (inherited from the OS environment or an earlier layer) genuinely set
+    # that key, but a pre/post %ENV value-diff alone cannot see it - the
+    # value never changed. _env_pl_assigned_keys names every key this
+    # specific file's own source explicitly assigns, so it is unioned with
+    # the value-diff below rather than replacing it (a file can also touch
+    # %ENV through constructs this static scan cannot see, e.g. a loop over
+    # a computed key list - the diff still catches those).
+    my %assigned_by_file = map { $_ => 1 } $class->_env_pl_assigned_keys($file);
+
     my @changed = grep {
         $_ ne 'DEVELOPER_DASHBOARD_ENV_AUDIT'
           && (
-            !exists $before{$_}
+            $assigned_by_file{$_}
+            || !exists $before{$_}
             || ( defined $before{$_} && defined $ENV{$_} && $before{$_} ne $ENV{$_} )
             || ( defined $before{$_} xor defined $ENV{$_} )
           )
     } sort keys %ENV;
     for my $key (@changed) {
-        # The grep above already selects only genuinely new or changed keys,
-        # so every key reaching this point is recorded without re-filtering.
+        # The grep above already selects only genuinely new, changed, or
+        # explicitly re-assigned keys, so every key reaching this point is
+        # recorded without re-filtering.
         Developer::Dashboard::EnvAudit->record( $key, $ENV{$key}, $file );
     }
     return 1;
+}
+
+# _env_pl_assigned_keys($file)
+# Statically scans one .env.pl file's own source text for literal
+# $ENV{KEY} = ... assignment targets, so a same-value re-assignment (which a
+# runtime %ENV diff cannot detect) is still attributed to this file.
+# Input: absolute .env.pl file path.
+# Output: list of environment key name strings (may be empty; duplicates
+# removed).
+sub _env_pl_assigned_keys {
+    my ( $class, $file ) = @_;
+    open my $fh, '<:raw', $file or return ();    # uncoverable branch true the caller already required this exact file successfully
+    local $/;
+    my $source = <$fh>;
+    close $fh;    # uncoverable branch true closing a read-only handle does not fail on the test host
+    return () if !defined $source;
+    my %seen;
+    return grep { !$seen{$_}++ } ( $source =~ /\$ENV\{\s*['"]?(\w+)['"]?\s*\}\s*=(?!=)/g );
 }
 
 # _path_identity($path)
