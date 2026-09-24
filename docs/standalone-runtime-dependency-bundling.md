@@ -16,7 +16,8 @@ it can reach was copied in at build time.
 Not every `use X;` names a real, loadable file worth bundling.
 `_skip_dependency_module` excludes a short list of names -
 `strict warnings utf8 lib parent base constant feature vars integer
-bytes mro overload if open re` - from the walk. The list exists because
+bytes mro if open re` (`overload` was removed from this list by DD-1022,
+see below) - from the walk. The list exists because
 several of these are effectively **compile-time-only**: `strict` and
 `warnings` set compiler pragmas and carry no meaningful runtime state:
 by the time the program is actually running, whether their `.pm` file
@@ -58,6 +59,40 @@ version` only) never caught this - see the lesson below.
 **The fix**: `overload` was removed from `_skip_dependency_module`'s
 skip list, so it is walked and bundled exactly like any other real
 dependency.
+
+## `no Module;` genuinely loads Module, and the dependency walk didn't know that (DD-1029)
+
+`_declared_modules` finds what a source file depends on by matching
+`\buse\s+(\w+)` and `\brequire\s+(\w+)` against the file's text. That
+missed a third, real form: `no Module;`. Perl implements `no` as
+`use Module (); Module->unimport(LIST)` - it genuinely loads `Module`
+at compile time, exactly like `use` does, just calling `unimport`
+instead of `import` afterwards (see `perldoc -f use`). A module whose
+own source declares `no SomeModule;` and nothing else has a real,
+load-bearing dependency on `SomeModule` that the text scan never saw.
+
+This bit for real: the actual installed `overload.pm` core module
+declares `no overloading;` (not `use overloading;`) at its own top
+level. Once `overload` itself was correctly bundled (DD-1022, above),
+its own `no overloading;` statement was invisible to the scanner, so
+`overloading.pm` - a real, distinct sibling module implementing the
+lexically-scoped subset of `overload`'s behavior - was never discovered
+or bundled. Any compiled binary that reached `overload.pm`'s own BEGIN
+block (which is unconditional, not code-path-dependent) crashed:
+
+```
+Can't locate overloading.pm in @INC (you may need to install the
+overloading module) ... at .../runtime/inc/NNN/overload.pm line 84.
+```
+
+Confirmed live against a real GitHub Release `linux-amd64` binary in a
+fresh `ubuntu:24.04` container - `dashboard init` and `dashboard jq`
+both crashed with this exact error.
+
+**The fix**: `_declared_modules` now also matches `/\bno\s+([A-Za-z_][A-Za-z0-9_:]*)\b/`,
+so a `no Module;` statement anywhere in a scanned file's source - our
+own code, or a bundled dependency's own source, since the walk
+recurses - is treated as a real dependency exactly like `use`/`require`.
 
 ## A one-subcommand smoke check proves almost nothing
 
@@ -146,6 +181,9 @@ exclusion in place, doing nothing until (1) also lands.
   - the skip list itself.
 - `lib/Developer/Dashboard/Pax/StandaloneImage.pm::_pure_perl_dependency_units`
   - the recursive dependency walk that consults it.
+- `lib/Developer/Dashboard/Pax/StandaloneImage.pm::_declared_modules`
+  - the source-text scan itself; recognizes `use`, `require`, and (DD-1029)
+    `no Module;`.
 - `lib/Developer/Dashboard/Pax/StandaloneImage.pm::_runtime_manifest`,
   `_runtime_selected_files`, `_locate_module_runtime_file`,
   `_file_list_payloads` - the separate `hybrid_compiled_pcu_v1`
