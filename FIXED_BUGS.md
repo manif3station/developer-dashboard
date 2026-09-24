@@ -1,6 +1,17 @@
 # Fixed Bugs
 
 
+## 4.88
+
+- **DD-1029**: standalone compiled binaries crashed with `Can't locate
+  overloading.pm in @INC` on most subcommands - `overload.pm`'s own
+  internal implementation transitively requires `overloading.pm` (a
+  distinct, similarly-named sibling module), several hops deep inside
+  Perl core rather than directly `use`'d by our own code, so dependency
+  discovery never saw it. Fixed by widening `_declared_modules`'s
+  no-Module regex; functional fix shipped in `d79cc09b` (no version bump
+  at the time, corrected here per the ticket-level version gate).
+
 ## 4.87
 
 - **DD-1035 follow-up**: v4.86's own fix broke `t/183`'s "self-built pax
