@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::StandaloneImage;
 
-our $VERSION = '4.85';
+our $VERSION = '4.86';
 
 use strict;
 use warnings;
@@ -2273,6 +2273,25 @@ sub _string_array_c {
     return join '', @chunks;
 }
 
+# The vendored root directory this Pax::* module tree lives under, so a
+# standalone build never embeds this project's OWN development lib/ into
+# someone else's compiled binary - computed from this file's own install
+# location rather than a hardcoded absolute path, so it stays correct
+# regardless of where the vendoring project is checked out.
+my $PAX_OWN_LIB_ROOT = do {
+    my $this_file = abs_path(__FILE__);
+    my $unresolved = File::Spec->catdir( dirname($this_file), File::Spec->updir, File::Spec->updir, File::Spec->updir );
+    # DD-1035: the exclusion this feeds (_runtime_inc_dirs, below) compares
+    # against abs_path()'d @INC entries with no ".." segments left in them.
+    # catdir() alone does not resolve ".."/"." - it only concatenates path
+    # segments - so without abs_path() here, this string can never equal
+    # (or prefix-match) a real @INC entry, and the exclusion this variable
+    # exists for was silently a no-op: this checkout's own lib/ was never
+    # actually excluded from runtime_inc bundling despite the comment above
+    # saying it is.
+    abs_path($unresolved) || $unresolved;
+};
+
 sub _runtime_manifest {
     my (%args) = @_;
     my $mode = $args{mode} // 'bundled_perl';
@@ -2346,6 +2365,49 @@ sub _runtime_manifest {
                 push @payloads, _tree_payloads($dir, $prefix, 'runtime_inc', $args{exclude_files} // []);
             }
         }
+
+        # DD-1035: a hybrid_compiled_pcu_v1 dependency's real source_path is
+        # already known here (@force_runtime_source_files, built above from
+        # $args{dependencies} - the dependency scan that classified it in
+        # the first place). The two loops above only ever bundle it if a
+        # SEPARATE, independent @INC walk (_locate_module_runtime_file,
+        # inside _runtime_selected_files) happens to also resolve it - which
+        # fails whenever nothing else on @INC carries a copy of this
+        # project's OWN package (true of a genuinely clean build host; only
+        # ever masked here because every host this ticket was diagnosed on
+        # happened to have a stray installed copy somewhere on @INC). Bundle
+        # every such dependency directly and unconditionally from its own
+        # known source_path, rather than depending on that second lookup to
+        # independently rediscover it.
+        # uncoverable branch false
+        # @force_runtime_source_files always contains at least the 4
+        # runtime-helper module files (StandaloneRuntime.pm and friends),
+        # resolved by _pax_runtime_helper_module_files() from this very
+        # file's own location - which always exists, because this code
+        # is executing from it. The list can never be empty in a real
+        # invocation.
+        if (@force_runtime_source_files) {
+            my %already_bundled = map { (abs_path($_->{source_path} // '') || '') => 1 }
+                grep { ($_->{unit_kind} // '') eq 'runtime_inc' } @payloads;
+            my @missing = grep {
+                my $abs = abs_path($_) || $_;
+                -f $abs && !$already_bundled{$abs}++
+            } @force_runtime_source_files;
+            # uncoverable branch false
+            # @force_runtime_source_files always includes the 4 runtime-helper
+            # module files, which live under $PAX_OWN_LIB_ROOT exactly like a
+            # real hybrid_compiled_pcu_v1 dependency does - so, structurally,
+            # they can never already be in %already_bundled (that only ever
+            # gets populated from the normal by-@inc_dirs selection, which
+            # deliberately excludes $PAX_OWN_LIB_ROOT). @missing can therefore
+            # never be empty in a real invocation.
+            if (@missing) {
+                my $prefix = sprintf('inc/%03d', $index++);
+                push @bundled_inc_roots, $prefix;
+                push @payloads, _file_list_payloads($PAX_OWN_LIB_ROOT, $prefix, 'runtime_inc', \@missing, [], \@missing);
+            }
+        }
+
         my @runtime_shared_objects = map { $_->{source_path} // () }
             grep {
                 (($_->{unit_kind} // '') eq 'runtime_inc')
@@ -2556,16 +2618,6 @@ sub _runtime_core_libs_from_inc_dirs {
     }
     return @libs;
 }
-
-# The vendored root directory this Pax::* module tree lives under, so a
-# standalone build never embeds this project's OWN development lib/ into
-# someone else's compiled binary - computed from this file's own install
-# location rather than a hardcoded absolute path, so it stays correct
-# regardless of where the vendoring project is checked out.
-my $PAX_OWN_LIB_ROOT = do {
-    my $this_file = abs_path(__FILE__);
-    File::Spec->catdir( dirname($this_file), File::Spec->updir, File::Spec->updir, File::Spec->updir );
-};
 
 sub _runtime_inc_dirs {
     my ($exclude_dirs) = @_;

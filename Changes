@@ -1,3 +1,26 @@
+4.86  2026-09-24
+
+  - DD-1035: fixed a real, published-release-breaking bug where a
+    standalone PAX binary could crash with "Can't locate
+    Developer/Dashboard/SeedSync.pm in @INC" on --help/jq (any subcommand
+    reaching a hybrid_compiled_pcu_v1-packaged dependency). Two coupled
+    defects in StandaloneImage.pm: (1) $PAX_OWN_LIB_ROOT was computed via
+    File::Spec->catdir(...,updir,updir,updir) with no abs_path() wrap, so
+    its own exclusion of this checkout's lib/ from runtime_inc bundling
+    was silently a no-op; (2) the force-include mechanism for
+    hybrid_compiled_pcu_v1 dependencies only ever protected an
+    already-selected file from exclusion, never added a file the normal
+    by-@INC selection failed to find. Fixed both together (fixing either
+    alone would have made things worse). Affects all 46
+    hybrid_compiled_pcu_v1-packaged modules in this project, not just
+    SeedSync. Never reproduced on any local/container host this ticket
+    was diagnosed on - every one happened to have a stray installed copy
+    of this project's own package somewhere on @INC, masking the gap that
+    only a genuinely clean GitHub Actions runner exposes. New regression
+    test t/223 (4 assertions), 2 branches genuinely unreachable and
+    annotated. Verified clean on Alpine (musl libc, distinct Perl
+    version) in addition to the Debian-based gate container.
+
 4.85  2026-09-23
 
   - DD-1010: bin/dashboard's self-compile mechanism (DD-882) now actually
