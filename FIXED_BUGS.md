@@ -1,6 +1,17 @@
 # Fixed Bugs
 
 
+## 4.89
+
+- **DD-1052**: tmux ticket-status hook crashed on macOS zsh with a glob
+  `NOMATCH` error - `_dd_apply_tmux_ticket_status` in
+  `share/private-cli/_dashboard-core` referenced `status-format[N]`
+  unquoted in its zsh/bash/sh blocks, and zsh treats an unquoted,
+  unmatched glob-shaped token as a fatal error by default (unlike
+  bash/sh). Fixed by quoting every occurrence in the POSIX-family
+  blocks; the PowerShell block is unaffected (different
+  argument-parsing model) and was left as-is.
+
 ## 4.88
 
 - **DD-1029**: standalone compiled binaries crashed with `Can't locate

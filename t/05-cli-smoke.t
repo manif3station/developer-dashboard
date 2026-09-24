@@ -1342,10 +1342,10 @@ like( $shell_bootstrap, qr/TICKET_REF/, 'dashboard shell bash bootstrap also rec
 like( $shell_bootstrap, qr/tmux set-option -q status-position bottom/, 'dashboard shell bash bootstrap keeps the normal tmux status bar at the bottom in ticket sessions' );
 like( $shell_bootstrap, qr/tmux set-option -q status 2/, 'dashboard shell bash bootstrap enables a two-line tmux status block for ticket sessions' );
 like( $shell_bootstrap, qr/tmux set-option -q status-interval 15/, 'dashboard shell bash bootstrap refreshes the tmux status block automatically for ticket sessions without hot-looping' );
-like( $shell_bootstrap, qr/tmux set-option -q status-format\[0\].*tmux-status-top --width #\{client_width\}/s, 'dashboard shell bash bootstrap renders the indicator strip into the first tmux status row' );
-like( $shell_bootstrap, qr/status-format\[0\] "#\('\Q$dashboard\E' ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'dashboard shell bash bootstrap renders the tmux ticket indicator row through the explicit dashboard entrypoint path' );
-unlike( $shell_bootstrap, qr/status-format\[0\] "#\(dashboard ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'dashboard shell bash bootstrap does not depend on a bare dashboard PATH lookup for tmux ticket status rendering' );
-like( $shell_bootstrap, qr/tmux set-option -q status-format\[1\] "\$_dd_default_status"/, 'dashboard shell bash bootstrap restores the normal tmux status row beneath the indicators' );
+like( $shell_bootstrap, qr/tmux set-option -q 'status-format\[0\]'.*tmux-status-top --width #\{client_width\}/s, 'dashboard shell bash bootstrap renders the indicator strip into the first tmux status row' );
+like( $shell_bootstrap, qr/status-format\[0\]' "#\('\Q$dashboard\E' ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'dashboard shell bash bootstrap renders the tmux ticket indicator row through the explicit dashboard entrypoint path' );
+unlike( $shell_bootstrap, qr/status-format\[0\]'? "#\(dashboard ps1 --mode tmux-status-top --width #\{client_width\}\)"/, 'dashboard shell bash bootstrap does not depend on a bare dashboard PATH lookup for tmux ticket status rendering' );
+like( $shell_bootstrap, qr/tmux set-option -q 'status-format\[1\]' "\$_dd_default_status"/, 'dashboard shell bash bootstrap restores the normal tmux status row beneath the indicators' );
 like( $shell_bootstrap, qr/_dd_update_prompt\(\)/, 'dashboard shell bash bootstrap centralizes prompt refresh through one helper so later distro PS1 assignments cannot permanently override it' );
 like( $shell_bootstrap, qr/PROMPT_COMMAND=.*_dd_update_prompt/s, 'dashboard shell bash bootstrap installs a PROMPT_COMMAND refresh hook so the dashboard prompt survives later bashrc prompt assignments' );
 like( $shell_bootstrap, qr/ps1 --jobs \\j --mode compact --no-indicators/, 'dashboard shell bash bootstrap suppresses prompt indicators when tmux owns the status line' );
@@ -1358,8 +1358,8 @@ like( $zsh_bootstrap, qr/TICKET_REF/, 'dashboard shell zsh bootstrap also recogn
 like( $zsh_bootstrap, qr/tmux set-option -q status-position bottom/, 'dashboard shell zsh bootstrap keeps the normal tmux status bar at the bottom in ticket sessions' );
 like( $zsh_bootstrap, qr/tmux set-option -q status 2/, 'dashboard shell zsh bootstrap enables a two-line tmux status block for ticket sessions' );
 like( $zsh_bootstrap, qr/tmux set-option -q status-interval 15/, 'dashboard shell zsh bootstrap refreshes the tmux status block automatically for ticket sessions without hot-looping' );
-like( $zsh_bootstrap, qr/tmux set-option -q status-format\[0\].*tmux-status-top --width #\{client_width\}/s, 'dashboard shell zsh bootstrap renders the indicator strip into the first tmux status row' );
-like( $zsh_bootstrap, qr/tmux set-option -q status-format\[1\] "\$default_status"/, 'dashboard shell zsh bootstrap restores the normal tmux status row beneath the indicators' );
+like( $zsh_bootstrap, qr/tmux set-option -q 'status-format\[0\]'.*tmux-status-top --width #\{client_width\}/s, 'dashboard shell zsh bootstrap renders the indicator strip into the first tmux status row' );
+like( $zsh_bootstrap, qr/tmux set-option -q 'status-format\[1\]' "\$default_status"/, 'dashboard shell zsh bootstrap restores the normal tmux status row beneath the indicators' );
 like( $zsh_bootstrap, qr/ps1 --jobs \$\{#jobstates\} --mode compact --no-indicators/, 'dashboard shell zsh bootstrap suppresses prompt indicators when tmux owns the status line' );
 like( $zsh_bootstrap, qr/path cdr/, 'dashboard shell zsh bootstrap keeps the cdr path helper functions' );
 unlike( $zsh_bootstrap, qr/\bd2\(\)\s*\{/, 'dashboard shell zsh bootstrap no longer defines a d2 shell function because d2 is now a real installed command' );
@@ -1378,8 +1378,8 @@ like( $sh_bootstrap, qr/TICKET_REF/, 'dashboard shell sh bootstrap also recogniz
 like( $sh_bootstrap, qr/tmux set-option -q status-position bottom/, 'dashboard shell sh bootstrap keeps the normal tmux status bar at the bottom in ticket sessions' );
 like( $sh_bootstrap, qr/tmux set-option -q status 2/, 'dashboard shell sh bootstrap enables a two-line tmux status block for ticket sessions' );
 like( $sh_bootstrap, qr/tmux set-option -q status-interval 15/, 'dashboard shell sh bootstrap refreshes the tmux status block automatically for ticket sessions without hot-looping' );
-like( $sh_bootstrap, qr/tmux set-option -q status-format\[0\].*tmux-status-top --width #\{client_width\}/s, 'dashboard shell sh bootstrap renders the indicator strip into the first tmux status row' );
-like( $sh_bootstrap, qr/tmux set-option -q status-format\[1\] "\$_dd_default_status"/, 'dashboard shell sh bootstrap restores the normal tmux status row beneath the indicators' );
+like( $sh_bootstrap, qr/tmux set-option -q 'status-format\[0\]'.*tmux-status-top --width #\{client_width\}/s, 'dashboard shell sh bootstrap renders the indicator strip into the first tmux status row' );
+like( $sh_bootstrap, qr/tmux set-option -q 'status-format\[1\]' "\$_dd_default_status"/, 'dashboard shell sh bootstrap restores the normal tmux status row beneath the indicators' );
 like( $sh_bootstrap, qr/ps1 --mode compact --no-indicators/, 'dashboard shell sh bootstrap suppresses prompt indicators when tmux owns the status line' );
 unlike( $sh_bootstrap, qr/\\j/, 'dashboard shell sh bootstrap does not rely on bash-specific job expansion' );
 unlike( $sh_bootstrap, qr/\bperl\s+-MJSON::XS\b/, 'dashboard shell sh bootstrap does not decode helper JSON through a bare perl command either' );
