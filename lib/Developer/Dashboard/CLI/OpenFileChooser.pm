@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::OpenFileChooser;
 use strict;
 use warnings;
 
-our $VERSION = '4.86';
+our $VERSION = '4.87';
 
 use Exporter 'import';
 

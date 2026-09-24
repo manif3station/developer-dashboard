@@ -1,6 +1,19 @@
 # Fixed Bugs
 
 
+## 4.87
+
+- **DD-1035 follow-up**: v4.86's own fix broke `t/183`'s "self-built pax
+  runs without source checkout in its working directory" - caught by real
+  GitHub Actions CI. The exclusion fix in v4.86 correctly stopped
+  `hybrid_compiled_pcu_v1` dependencies from bundling via the normal path
+  (why a force-include pass was needed), but also correctly stopped
+  `bundled_pure_perl`/`bundled_xs` dependencies living under the same
+  excluded root (e.g. `Developer::Dashboard::Pax::CLI` when `pax` compiles
+  itself) - and nothing was force-including those. Widened the
+  force-include condition to cover any dependency under
+  `$PAX_OWN_LIB_ROOT`, regardless of packaging class.
+
 ## 4.86
 
 - **DD-1035**: a compiled PAX standalone binary could crash with `Can't
