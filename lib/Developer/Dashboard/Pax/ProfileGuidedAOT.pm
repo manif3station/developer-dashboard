@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::ProfileGuidedAOT;
 
-our $VERSION = '4.89';
+our $VERSION = '4.90';
 
 use strict;
 use warnings;

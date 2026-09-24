@@ -1,6 +1,18 @@
 # Fixed Bugs
 
 
+## 4.90
+
+- **DD-1050**: standalone binaries crashed on `--help`/`jq` (and any
+  subcommand reaching the real dispatcher) with `Can't locate lib.pm in
+  @INC` - `_skip_dependency_module` wrongly excluded `lib` as a
+  zero-runtime-footprint compiler pragma. `use lib LIST` is really
+  `BEGIN { unshift(@INC, LIST) }`, a genuine runtime `import()` that
+  needs `lib.pm` physically bundled, exactly like `overload` (DD-1022).
+  Fixed by removing `lib` from the skip-list regex; `parent`, `base`,
+  `constant`, `mro` and `if` remain on it, with no confirmed live crash
+  for any of them.
+
 ## 4.89
 
 - **DD-1052**: tmux ticket-status hook crashed on macOS zsh with a glob
