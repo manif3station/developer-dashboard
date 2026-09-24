@@ -1,3 +1,15 @@
+4.90  2026-09-25
+
+  - DD-1050: removed 'lib' from _skip_dependency_module's skip-list
+    regex in StandaloneImage.pm. Unlike strict/warnings (true
+    compile-time-only pragmas), lib.pm is a real, physically-requirable
+    module whose import() runs real code (unshift @INC) - any 'use lib'
+    reached through StandaloneRuntime.pm's require wrapper at runtime
+    needs the actual lib.pm file bundled. Confirmed live via a real
+    GitHub Release linux-amd64 binary (commit bf1c4ccc/v4.87) crashing
+    --help and jq with "Can't locate lib.pm in @INC" in a hostile env -i
+    container. Same class of defect as DD-1022 (overload).
+
 4.89  2026-09-24
 
   - DD-1052: quoted every status-format[N] literal in the zsh/bash/sh

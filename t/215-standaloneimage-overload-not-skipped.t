@@ -26,8 +26,12 @@ ok(
 
 # AC-3 (regression guard): the genuinely compile-time-only pragmas this
 # skip list exists for must stay skipped - this fix must not widen the
-# list into bundling things that were never the problem.
-for my $pragma (qw(strict warnings utf8 lib parent base constant feature vars integer bytes mro if open re)) {
+# list into bundling things that were never the problem. `lib` is
+# deliberately absent from this list - DD-1050 removed it from the skip
+# list for the same reason `overload` was removed here (it is a real,
+# physically-requirable module, not a zero-footprint pragma), so it is
+# no longer expected to stay skipped.
+for my $pragma (qw(strict warnings utf8 parent base constant feature vars integer bytes mro if open re)) {
     ok(
         Developer::Dashboard::Pax::StandaloneImage::_skip_dependency_module($pragma),
         "$pragma stays skipped - compile-time-only pragmas are unaffected by this fix"

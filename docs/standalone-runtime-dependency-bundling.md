@@ -15,9 +15,9 @@ it can reach was copied in at build time.
 
 Not every `use X;` names a real, loadable file worth bundling.
 `_skip_dependency_module` excludes a short list of names -
-`strict warnings utf8 lib parent base constant feature vars integer
-bytes mro if open re` (`overload` was removed from this list by DD-1022,
-see below) - from the walk. The list exists because
+`strict warnings utf8 parent base constant feature vars integer
+bytes mro if open re` (`overload` was removed by DD-1022 and `lib` by
+DD-1050, both explained below) - from the walk. The list exists because
 several of these are effectively **compile-time-only**: `strict` and
 `warnings` set compiler pragmas and carry no meaningful runtime state:
 by the time the program is actually running, whether their `.pm` file
@@ -93,6 +93,40 @@ both crashed with this exact error.
 so a `no Module;` statement anywhere in a scanned file's source - our
 own code, or a bundled dependency's own source, since the walk
 recurses - is treated as a real dependency exactly like `use`/`require`.
+
+## `lib` does not belong on that list either (DD-1050)
+
+`lib` is not compile-time-only in the sense the skip list assumes.
+`use lib LIST` is documented as almost exactly
+`BEGIN { unshift(@INC, LIST) }` - a real, callable `import()` that
+genuinely runs, which means `lib.pm` itself must be physically loadable
+wherever that `use lib` statement is reached, exactly like `overload`
+(DD-1022, above). The skip list's own comment described these entries
+as pragmas "with no meaningful runtime state" - true of `strict`/
+`warnings`, false of `lib`, which was simply miscategorized alongside
+them.
+
+This was found live: a real GitHub Release `linux-amd64` binary
+(commit `bf1c4ccc`/v4.87), run in a hostile `env -i` container with no
+inherited `PERL5LIB`/`@INC`, crashed on ordinary subcommands:
+
+```
+Can't locate lib.pm in @INC (you may need to install the lib module)
+... at .../StandaloneRuntime.pm line 305.
+BEGIN failed--compilation aborted at .../virtual/entrypoint.pl line 10.
+```
+
+Notably `dashboard version` succeeded (a documented fast-path that
+bypasses full runtime extraction) while `--help` and `jq` - which reach
+the real dispatcher - both crashed, which is why a smoke check limited
+to `version` alone (see the lesson below) did not catch this either.
+
+**The fix**: `lib` was removed from `_skip_dependency_module`'s skip
+list, so it is walked and bundled exactly like any other real
+dependency. `parent`, `base`, `constant`, `mro` and `if` remain on the
+list - they share the same theoretical risk shape, but with no
+confirmed live crash for any of them, they were deliberately left
+alone rather than fixed speculatively.
 
 ## A one-subcommand smoke check proves almost nothing
 

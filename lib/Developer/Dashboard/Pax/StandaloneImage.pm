@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::StandaloneImage;
 
-our $VERSION = '4.89';
+our $VERSION = '4.90';
 
 use strict;
 use warnings;
@@ -1167,6 +1167,11 @@ sub _strip_pod {
     return $source;
 }
 
+# Purpose: decide whether a module name found by _declared_modules is a
+# genuinely zero-runtime-footprint compiler pragma safe to omit from the
+# bundled runtime, versus a real dependency that must be bundled.
+# Input: $module - a module name (e.g. 'strict', 'File::Temp').
+# Output: true if $module should be excluded from bundling.
 sub _skip_dependency_module {
     my ($module) = @_;
     return 1 if !$module;
@@ -1178,7 +1183,16 @@ sub _skip_dependency_module {
     # like any real dependency, or a module that triggers the overload
     # (e.g. File::Temp) crashes with overload.pm missing from @INC.
     # Confirmed live via a real GitHub Actions CI artifact.
-    return 1 if $module =~ /^(?:strict|warnings|utf8|lib|parent|base|constant|feature|vars|integer|bytes|mro|if|open|re)$/;
+    #
+    # DD-1050: 'lib' deliberately excluded from this list too, same
+    # reason. Unlike strict/warnings (truly inert pragmas with no
+    # requirable file a running binary ever needs again once compiled),
+    # lib.pm is a real, physically-requirable module whose import() runs
+    # real code (unshift @INC) - any `use lib` reached through
+    # StandaloneRuntime.pm's require wrapper at runtime needs the actual
+    # file bundled. Confirmed live via a real GitHub Actions CI artifact
+    # run in a hostile env -i container: "Can't locate lib.pm in @INC".
+    return 1 if $module =~ /^(?:strict|warnings|utf8|parent|base|constant|feature|vars|integer|bytes|mro|if|open|re)$/;
     return 1 if $module =~ /^Developer::Dashboard::Pax::/;
     return 0;
 }
