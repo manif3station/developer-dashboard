@@ -1,3 +1,11 @@
+4.88  2026-09-24
+
+  - DD-1029 follow-up: added the standard purpose/input/output header
+    comment to _declared_modules (missed in the original overloading.pm
+    fix), and extended the docs vault page explaining the
+    overload.pm -> overloading.pm transitive-dependency discovery gap.
+    No executable change - the functional fix already shipped in v4.87.
+
 4.87  2026-09-24
 
   - DD-1035 follow-up: fixed a real regression in v4.86's own fix, caught

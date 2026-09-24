@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::HIR;
 
-our $VERSION = '4.87';
+our $VERSION = '4.88';
 
 use strict;
 use warnings;
