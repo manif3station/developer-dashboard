@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::CodeUnitCompiler;
 
-our $VERSION = '4.86';
+our $VERSION = '4.87';
 
 use strict;
 use warnings;

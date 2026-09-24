@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::StandaloneImage;
 
-our $VERSION = '4.86';
+our $VERSION = '4.87';
 
 use strict;
 use warnings;
@@ -2305,14 +2305,36 @@ sub _runtime_manifest {
         $args{app_legacy_namespace} // '',
     );
     my @helper_module_files = _pax_runtime_helper_module_files();
+    # DD-1035 follow-up: any dependency whose real source_path resolves
+    # under $PAX_OWN_LIB_ROOT needs this same force-include treatment,
+    # not only hybrid_compiled_pcu_v1-packaged ones. _runtime_inc_dirs
+    # deliberately excludes $PAX_OWN_LIB_ROOT from the normal by-@INC
+    # selection (so an app never accidentally embeds this project's own
+    # dev lib/ wholesale) - but that exclusion applies equally to a
+    # bundled_pure_perl/bundled_xs-classified dependency that ALSO
+    # happens to live under that root (e.g. Developer::Dashboard::Pax::CLI
+    # when `pax` itself is the entrypoint being compiled - a genuine
+    # self-hosting case, not a hybrid dependency). Found live: the first
+    # real GitHub Actions run of the original fix broke exactly this case
+    # (t/183's self-built-pax contract test), because the abs_path() fix
+    # above made the exclusion genuinely fire for the first time - which
+    # is correct - but nothing was force-including this class of
+    # dependency the way it already did for hybrid_compiled_pcu_v1 ones.
     my @force_runtime_source_files = (
         @helper_module_files,
         map {
             my $path = $_->{source_path} // ();
             $path ? ($path) : ()
         } grep {
-            ($_->{class} // '') eq 'compiled_dependency'
-                && (($_->{packaging} // '') eq 'hybrid_compiled_pcu_v1')
+            my $source_path = $_->{source_path} // '';
+            my $abs_source = $source_path ne '' ? (abs_path($source_path) || $source_path) : '';
+            (($_->{class} // '') eq 'compiled_dependency'
+                && (($_->{packaging} // '') eq 'hybrid_compiled_pcu_v1'))
+                || (
+                    $abs_source ne ''
+                        && (index($abs_source, $PAX_OWN_LIB_ROOT . '/') == 0 || $abs_source eq $PAX_OWN_LIB_ROOT)
+                        && (($_->{class} // '') eq 'bundled_pure_perl' || ($_->{class} // '') eq 'bundled_xs')
+                )
         } @{ $args{dependencies} // [] },
     );
 

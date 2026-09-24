@@ -179,6 +179,38 @@ SKIP: {
         'a hybrid_compiled_pcu_v1 dependency already bundled by the normal selection path is not duplicated by the force-include pass' );
 }
 
+# AC-5 (real regression caught by GitHub Actions CI on the first push of
+# this ticket's fix, t/183-pax-cli-build-run-contract.t): a
+# bundled_pure_perl (or bundled_xs) dependency whose source_path ALSO
+# lives under $PAX_OWN_LIB_ROOT - e.g. Developer::Dashboard::Pax::CLI,
+# hit when `pax` itself is the entrypoint being compiled (a genuine
+# self-hosting build, not a hybrid_compiled_pcu_v1 case) - must ALSO be
+# force-bundled, for the same structural reason as AC-1. Using the same
+# NeverOnInc.pm fixture under $PAX_OWN_LIB_ROOT as AC-1, but classified
+# bundled_pure_perl this time instead of hybrid_compiled_pcu_v1.
+my $bundled_pure_perl_path = File::Spec->catfile( $lib_root, qw(Fixture DD1035 NeverOnInc.pm) );
+my $manifest_bundled_under_root = Developer::Dashboard::Pax::StandaloneImage::_runtime_manifest(
+    mode                 => 'bundled_perl',
+    app_namespace        => 'Fixture::DD1035',
+    app_legacy_namespace => '',
+    dependencies         => [
+        {
+            class       => 'bundled_pure_perl',
+            module      => 'Fixture::DD1035::NeverOnInc',
+            source_path => $bundled_pure_perl_path,
+        },
+    ],
+    lib_dirs      => [],
+    exclude_files => [],
+    exclude_dirs  => [],
+);
+my @bundled_under_root_matches = grep {
+    ( $_->{source_path} // '' ) eq $bundled_pure_perl_path
+        || ( $_->{logical_path} // '' ) =~ m{Fixture/DD1035/NeverOnInc\.pm\z}
+} @{ $manifest_bundled_under_root->{payloads} // [] };
+ok( scalar(@bundled_under_root_matches) >= 1,
+    'a bundled_pure_perl dependency living under $PAX_OWN_LIB_ROOT (e.g. Pax::CLI when pax self-compiles) is still bundled, not silently dropped by the exclusion' );
+
 done_testing();
 
 __END__

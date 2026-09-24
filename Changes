@@ -1,3 +1,22 @@
+4.87  2026-09-24
+
+  - DD-1035 follow-up: fixed a real regression in v4.86's own fix, caught
+    by real GitHub Actions CI before this ticket reached a terminal
+    column (Test workflow's "Run tests" step, t/183's "self-built pax
+    runs without source checkout in its working directory"). v4.86 made
+    $PAX_OWN_LIB_ROOT's exclusion from the normal by-@INC selection
+    genuinely work for the first time - correct for hybrid_compiled_pcu_v1
+    dependencies (that's what it fixed) - but the same exclusion also
+    stopped bundled_pure_perl/bundled_xs dependencies whose real
+    source_path happens to live under that root (e.g.
+    Developer::Dashboard::Pax::CLI, hit when the pax tool compiles
+    itself - a genuine self-hosting case). Widened the force-include
+    mechanism to cover any dependency living under $PAX_OWN_LIB_ROOT,
+    not only hybrid_compiled_pcu_v1-packaged ones. New regression test
+    AC-5 in t/223. Reproduced and fixed locally using the exact
+    hostile-environment condition t/183 constructs (env -i, no
+    inherited PERL5LIB/@INC) before landing.
+
 4.86  2026-09-24
 
   - DD-1035: fixed a real, published-release-breaking bug where a
