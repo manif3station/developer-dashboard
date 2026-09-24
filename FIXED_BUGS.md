@@ -1,6 +1,21 @@
 # Fixed Bugs
 
 
+## 4.86
+
+- **DD-1035**: a compiled PAX standalone binary could crash with `Can't
+  locate Developer/Dashboard/SeedSync.pm in @INC` on `--help`/`jq` (any
+  subcommand reaching a `hybrid_compiled_pcu_v1`-packaged dependency) -
+  confirmed live on two real GitHub Actions PAX Release runs. Root cause:
+  `StandaloneImage.pm`'s `$PAX_OWN_LIB_ROOT` exclusion was silently inert
+  (missing `abs_path()` around an unresolved `catdir(...,updir,updir,updir)`
+  string), and the separate force-include mechanism for hybrid
+  dependencies only ever protected an already-selected file from
+  exclusion, never added one the normal selection missed. Fixed both
+  together. Never reproducible locally - every host this ticket touched
+  happened to mask the gap with a stray installed copy of this project's
+  own package somewhere on `@INC`.
+
 ## 4.85
 
 - **DD-1010**: `bin/dashboard`'s self-compile mechanism (DD-882) resolved a
