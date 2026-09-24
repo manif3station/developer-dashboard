@@ -1126,6 +1126,10 @@ sub _dependency_codegen_safe {
     return 1;
 }
 
+# Purpose: scan one file's raw source text for module names it depends on.
+# Input: $source - the file's full text.
+# Output: a deduplicated list of module names found via use/require/no
+# statements and base/parent's qw()-style import lists.
 sub _declared_modules {
     my ($source) = @_;
     $source = _strip_pod($source);
