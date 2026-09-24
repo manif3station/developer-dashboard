@@ -1569,17 +1569,17 @@ _dd_tmux_status_active() {
 _dd_apply_tmux_ticket_status() {
   _dd_default_status="$(tmux show-options -gqv @dd_ticket_status_default 2>/dev/null)"
   if [ -z "$_dd_default_status" ]; then
-    _dd_default_status="$(tmux show-options -gqv status-format[0] 2>/dev/null)"
+    _dd_default_status="$(tmux show-options -gqv 'status-format[0]' 2>/dev/null)"
     [ -n "$_dd_default_status" ] && tmux set-option -gq @dd_ticket_status_default "$_dd_default_status" >/dev/null 2>&1
   fi
   tmux set-option -q status-position bottom >/dev/null 2>&1
   tmux set-option -q status 2 >/dev/null 2>&1
   tmux set-option -q status-interval 15 >/dev/null 2>&1
-  tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status-top --width #{client_width})" >/dev/null 2>&1
+  tmux set-option -q 'status-format[0]' "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status-top --width #{client_width})" >/dev/null 2>&1
   if [ -n "$_dd_default_status" ]; then
-    tmux set-option -q status-format[1] "$_dd_default_status" >/dev/null 2>&1
+    tmux set-option -q 'status-format[1]' "$_dd_default_status" >/dev/null 2>&1
   fi
-  tmux set-option -uq status-format[2] >/dev/null 2>&1
+  tmux set-option -uq 'status-format[2]' >/dev/null 2>&1
 }
 _dd_update_prompt() {
   if [ -n "$TMUX" ] && _dd_tmux_status_active; then
@@ -1615,17 +1615,17 @@ _dd_apply_tmux_ticket_status() {
   local default_status
   default_status="$(tmux show-options -gqv @dd_ticket_status_default 2>/dev/null)"
   if [[ -z "$default_status" ]]; then
-    default_status="$(tmux show-options -gqv status-format[0] 2>/dev/null)"
+    default_status="$(tmux show-options -gqv 'status-format[0]' 2>/dev/null)"
     [[ -n "$default_status" ]] && tmux set-option -gq @dd_ticket_status_default "$default_status" >/dev/null 2>&1
   fi
   tmux set-option -q status-position bottom >/dev/null 2>&1
   tmux set-option -q status 2 >/dev/null 2>&1
   tmux set-option -q status-interval 15 >/dev/null 2>&1
-  tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status-top --width #{client_width})" >/dev/null 2>&1
+  tmux set-option -q 'status-format[0]' "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status-top --width #{client_width})" >/dev/null 2>&1
   if [[ -n "$default_status" ]]; then
-    tmux set-option -q status-format[1] "$default_status" >/dev/null 2>&1
+    tmux set-option -q 'status-format[1]' "$default_status" >/dev/null 2>&1
   fi
-  tmux set-option -uq status-format[2] >/dev/null 2>&1
+  tmux set-option -uq 'status-format[2]' >/dev/null 2>&1
 }
 _dd_update_prompt() {
   if _dd_tmux_status_active; then
@@ -1648,17 +1648,17 @@ _dd_tmux_status_active() {
 _dd_apply_tmux_ticket_status() {
   _dd_default_status="$(tmux show-options -gqv @dd_ticket_status_default 2>/dev/null)"
   if [ -z "$_dd_default_status" ]; then
-    _dd_default_status="$(tmux show-options -gqv status-format[0] 2>/dev/null)"
+    _dd_default_status="$(tmux show-options -gqv 'status-format[0]' 2>/dev/null)"
     [ -n "$_dd_default_status" ] && tmux set-option -gq @dd_ticket_status_default "$_dd_default_status" >/dev/null 2>&1
   fi
   tmux set-option -q status-position bottom >/dev/null 2>&1
   tmux set-option -q status 2 >/dev/null 2>&1
   tmux set-option -q status-interval 15 >/dev/null 2>&1
-  tmux set-option -q status-format[0] "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status-top --width #{client_width})" >/dev/null 2>&1
+  tmux set-option -q 'status-format[0]' "#(__DASHBOARD_TMUX_STATUS_CMD__ ps1 --mode tmux-status-top --width #{client_width})" >/dev/null 2>&1
   if [ -n "$_dd_default_status" ]; then
-    tmux set-option -q status-format[1] "$_dd_default_status" >/dev/null 2>&1
+    tmux set-option -q 'status-format[1]' "$_dd_default_status" >/dev/null 2>&1
   fi
-  tmux set-option -uq status-format[2] >/dev/null 2>&1
+  tmux set-option -uq 'status-format[2]' >/dev/null 2>&1
 }
 _dd_prompt_command() {
   if _dd_tmux_status_active; then

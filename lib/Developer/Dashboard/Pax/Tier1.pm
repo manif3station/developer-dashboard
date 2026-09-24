@@ -1,5 +1,5 @@
 package Developer::Dashboard::Pax::Tier1;
-our $VERSION = '4.88';
+our $VERSION = '4.89';
 
 use strict;
 use warnings;

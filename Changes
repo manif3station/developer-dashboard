@@ -1,3 +1,14 @@
+4.89  2026-09-24
+
+  - DD-1052: quoted every status-format[N] literal in the zsh/bash/sh
+    POSIX-family shell blocks of _dd_apply_tmux_ticket_status inside
+    share/private-cli/_dashboard-core. An unquoted status-format[N]
+    is treated as a glob pattern by zsh, which aborts the shell hook
+    with a NOMATCH error under zsh's default options - crashing the
+    tmux ticket-status integration on macOS, whose default shell is
+    zsh. PowerShell block left unquoted (different argument-parsing
+    model, does not reproduce the bug).
+
 4.88  2026-09-24
 
   - DD-1029 follow-up: added the standard purpose/input/output header
