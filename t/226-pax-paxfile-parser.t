@@ -234,3 +234,78 @@ my $dir = tempdir(CLEANUP => 1);
 }
 
 done_testing();
+
+__END__
+
+=head1 NAME
+
+226-pax-paxfile-parser.t - full coverage regression test for Developer::Dashboard::Pax::Paxfile
+
+=head1 DESCRIPTION
+
+This test exercises every statement, branch, condition and subroutine in
+Developer::Dashboard::Pax::Paxfile's paxfile.yml parser: the default-path
+and missing-file behavior of load_optional, every line-parsing branch in
+load (blank/comment lines, scalar keys, section headers, section items,
+unsupported syntax, an open() failure), and the quote-stripping behavior
+of _scalar.
+
+=for comment FULL-POD-DOC START
+
+=head1 PURPOSE
+
+This test is the executable regression contract that closes DD-1059's
+coverage gap for Paxfile.pm. Read it when you need to see exactly which
+paxfile.yml shapes this parser accepts and rejects, instead of inferring
+that from the module alone.
+
+=head1 WHY IT EXISTS
+
+Paxfile.pm had no dedicated test file before DD-1059, so real CI coverage
+sat at 11.5 percent - only the package/use lines had ever run. This file
+exists to make every parsing path (and its failure modes) an explicit,
+checkable assertion rather than an assumption.
+
+=head1 WHEN TO USE
+
+Use this file when changing paxfile.yml's accepted syntax, the shape of
+the hash/array structure load() returns, or _scalar's quote-stripping
+rules - or when a focused CI/coverage failure points here.
+
+=head1 HOW TO USE
+
+Run it directly with C<prove -lv t/226-pax-paxfile-parser.t> while
+iterating, then keep it green under C<prove -lr t> and confirm
+C<cover -report -select_re '^lib/Developer/Dashboard/Pax/Paxfile\.pm$'>
+still reads 100.0 on all four metrics before release.
+
+=head1 WHAT USES IT
+
+Developers during TDD, the full C<prove -lr t> suite, the Devel::Cover
+gate for this file, and the release verification loop all rely on this
+file to keep Paxfile.pm's parsing behavior from drifting unnoticed.
+
+=head1 EXAMPLES
+
+Example 1:
+
+  prove -lv t/226-pax-paxfile-parser.t
+
+Run the focused regression test by itself while changing Paxfile.pm.
+
+Example 2:
+
+  HARNESS_PERL_SWITCHES=-MDevel::Cover prove -lv t/226-pax-paxfile-parser.t
+
+Exercise the same focused test while collecting coverage for Paxfile.pm.
+
+Example 3:
+
+  prove -lr t
+
+Put the focused fix back through the whole repository suite before
+calling the work finished.
+
+=for comment FULL-POD-DOC END
+
+=cut
