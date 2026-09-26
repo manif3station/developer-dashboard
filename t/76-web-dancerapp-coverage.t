@@ -5,6 +5,8 @@ use warnings;
 use utf8;
 
 use Test::More;
+use File::Path qw(make_path);
+use File::Spec;
 use File::Temp qw(tempdir);
 use HTTP::Request::Common qw(GET);
 
@@ -12,6 +14,7 @@ use lib 'lib';
 use lib 't/lib';
 
 use Developer::Dashboard::PathRegistry;
+use Developer::Dashboard::PageRuntime ();
 use Developer::Dashboard::Web::DancerApp;
 use Local::PSGITest;
 
@@ -448,6 +451,10 @@ is( run_authorized_body( Local::NoAuthBackend->new ), 'root-noauth',
             my ( $self, %args ) = @_;
             return [ 200, 'text/plain; charset=utf-8', "real:$args{path}", { 'X-Real' => 'yes' } ];
         };
+        *Local::RealBackend::authorize_request = sub {
+            my ($self) = @_;
+            return $self->{deny} ? [ 403, 'text/plain; charset=utf-8', 'skill-denied', {} ] : undef;
+        };
     }
     my $psgi_app = Developer::Dashboard::Web::DancerApp->build_psgi_app(
         app             => $backend,
@@ -459,6 +466,58 @@ is( run_authorized_body( Local::NoAuthBackend->new ), 'root-noauth',
     is( $res->header('X-Default'), 'dv',                'a real PSGI route merges backend default headers' );
     is( $res->header('X-Real'),    'yes',               'a real PSGI route merges per-response headers' );
 }
+
+{
+    my $skill_lib = File::Spec->catdir( $paths->skills_root, 'dashboard-route-skill', 'lib' );
+    make_path($skill_lib);
+    my $dashboard_module = File::Spec->catfile( $skill_lib, 'Dashboard.pm' );
+    open my $module_fh, '>', $dashboard_module or die "Unable to write $dashboard_module: $!";
+    print {$module_fh} <<'PERL';
+package Local::DashboardRouteSkill;
+use Dancer2 appname => 'DeveloperDashboard';
+set skill_setting => 'loaded';
+get '/skill-dashboard-hook' => sub { return 'skill-dashboard-loaded'; };
+1;
+PERL
+    close $module_fh or die "Unable to close $dashboard_module: $!";
+
+    my $second_skill_lib = File::Spec->catdir( $paths->skills_root, 'second-dashboard-route-skill', 'lib' );
+    make_path($second_skill_lib);
+    my $second_dashboard_module = File::Spec->catfile( $second_skill_lib, 'Dashboard.pm' );
+    open my $second_module_fh, '>', $second_dashboard_module or die "Unable to write $second_dashboard_module: $!";
+    print {$second_module_fh} <<'PERL';
+package Local::SecondDashboardRouteSkill;
+use Dancer2 appname => 'DeveloperDashboard';
+get '/second-skill-dashboard-hook' => sub { return 'second-skill-dashboard-loaded'; };
+1;
+PERL
+    close $second_module_fh or die "Unable to close $second_dashboard_module: $!";
+
+    my $psgi_app = Developer::Dashboard::Web::DancerApp->build_psgi_app(
+        app   => bless( { deny => 1 }, 'Local::RealBackend' ),
+        paths => $paths,
+    );
+    my $res = Local::PSGITest::request( $psgi_app, GET 'http://127.0.0.1/skill-dashboard-hook' );
+    is( $res->code, 403, 'skill Dashboard.pm routes pass through the dashboard authorization gate' );
+    $Developer::Dashboard::Web::DancerApp::BACKEND_APP->{app}{deny} = 0;
+    $res = Local::PSGITest::request( $psgi_app, GET 'http://127.0.0.1/skill-dashboard-hook' );
+    is( $res->code,    200,                       'Dancer2 loads each installed skill Dashboard.pm route at app startup' );
+    is( $res->content, 'skill-dashboard-loaded', 'a skill Dashboard.pm route joins the dashboard Dancer2 app' );
+    my $second_res = Local::PSGITest::request( $psgi_app, GET 'http://127.0.0.1/second-skill-dashboard-hook' );
+    is( $second_res->content, 'second-skill-dashboard-loaded', 'Dancer2 loads Dashboard.pm from every installed skill' );
+    my ($dancer_app) = grep { $_->name eq 'DeveloperDashboard' } @{ Dancer2->runner->apps };
+    is( $dancer_app->config->{skill_setting}, 'loaded', 'a skill Dashboard.pm can modify the shared Dancer2 app settings' );
+}
+
+like(
+    Developer::Dashboard::PageRuntime->new( paths => $paths )->_code_header({}),
+    qr/^use Developer::Dashboard::DataHelper qw\(j je\);$/m,
+    'every page CODE sandpit imports DataHelper without requiring repeated user imports'
+);
+my $code_block = Developer::Dashboard::PageRuntime->new( paths => $paths )->_run_single_block(
+    code => 'print j({ ready => 1 });',
+);
+like( $code_block->{stdout}, qr/"ready"\s*:\s*1/, 'a page CODE block can call j without adding a DataHelper import' );
 
 done_testing;
 

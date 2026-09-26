@@ -1,5 +1,24 @@
 # Fixed Bugs
 
+## 5.01
+
+- **Problem 12:** `dashboard workspace` now resolves bare registered aliases,
+  including skill-qualified aliases such as `bar.foo`, and starts the tmux
+  session in the resolved directory without requiring `-c`.
+- **Problem 13:** Page CODE blocks automatically import the namespaced
+  `Developer::Dashboard::DataHelper` JSON functions, so authors do not need to
+  repeat the import in each block.
+- **Problem 14:** Web startup discovers active skills' `lib/Dashboard.pm`
+  extensions, loads their routes/settings into the shared Dancer2 app, and
+  enforces the dashboard authorization gate for added routes.
+- Release packaging excludes the generated `t/tmp-sow03/` PAX test outputs;
+  `GatherDir` had included an ELF executable and `AutoPrereqs` failed decoding
+  it as UTF-8.
+- Inline `env` and `Developer::Dashboard::Handle::Proxy` packages are now
+  excluded from package-index metadata because they intentionally live inside
+  other modules rather than standalone `.pm` files.
+- Added regression coverage and operator documentation for Problems 12–14.
+
 ## 5.00
 
 - Synchronized the release metadata, module versions, POD, and generated

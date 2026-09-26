@@ -85,7 +85,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '5.00', 'repo version bumped for skill lib, completion, env loading, and ticket alias fixes' );
+is( $version, '5.01', 'repo version bumped for skill-qualified workspace aliases' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
@@ -170,6 +170,8 @@ if ( $dist ne '' ) {
     like( $dist, qr/^skip = \^Module::CPANTS::Kwalitee\$$/m, 'dist.ini skips release-only Module::CPANTS::Kwalitee from generated install-time prereqs' );
     like( $dist, qr/^exclude_filename = LICENSE$/m, 'dist.ini excludes the tracked LICENSE so dzil does not build duplicate LICENSE files' );
     like( $dist, qr/^exclude_match = \^cover_db\/$/m, 'dist.ini excludes cover_db so coverage artifacts do not leak into release tarballs' );
+    like( $dist, qr/^package = env$/m, 'dist.ini prevents the env helper package from being advertised as a standalone module' );
+    like( $dist, qr/^package = Developer::Dashboard::Handle::Proxy$/m, 'dist.ini prevents the nested handle proxy package from being advertised as a standalone module' );
     like( $dist, qr/^exclude_match = \^node_modules\/$/m, 'dist.ini excludes node_modules so JavaScript dependency trees do not leak into release tarballs' );
     like( $dist, qr/^exclude_match = \^test_by_michael\/$/m, 'dist.ini excludes test_by_michael so private scratch fixtures do not leak into release tarballs' );
     like( $dist, qr/^exclude_match = \^updates\/$/m, 'dist.ini excludes checkout-only update scripts so user-defined update remains the installed runtime contract' );
@@ -370,6 +372,7 @@ my @operator_local_files = qw(
 
     my @must_be_excluded = qw(
         cover_db/coverage.html
+        t/tmp-sow03/isolated-app
         local/lib/perl5/Net/SSLeay.pod
         audit-local/lib/perl5/CPANSA/DB.pm
         logs/ft99.log
