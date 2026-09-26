@@ -1,5 +1,13 @@
 # Fixed Bugs
 
+## 5.02
+
+- **DD-1059:** `lib/Developer/Dashboard/Pax/Paxfile.pm` had only 11.5 percent
+  Devel::Cover coverage (real CI job 107060018763, run 35823444473) - no
+  dedicated test file existed for its paxfile.yml parser, so only the
+  package/use lines had ever run. Added `t/226-pax-paxfile-parser.t`,
+  bringing it to 100.0 percent on all four metrics.
+
 ## 5.01
 
 - **Problem 12:** `dashboard workspace` now resolves bare registered aliases,
