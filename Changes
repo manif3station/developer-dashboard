@@ -1,3 +1,21 @@
+5.03  2026-09-26
+
+  - Fixed a background-job grandchild surviving the process-group SIGKILL in
+    `Local::BoundedCommand::run_bounded` (t/lib/, test harness) when run
+    inside a container started without an init that reaps orphans - the
+    kind of container this project's own gate scripts use. The group kill
+    already reached and killed the grandchild; nothing ever reaped it once
+    its immediate parent died, so it was a permanent zombie and `kill 0`
+    kept reporting it alive. `run_bounded` now declares itself a Linux/
+    x86_64 subreaper before forking (best-effort, a documented no-op
+    elsewhere), and the cleanup sweep now runs on both its polite (TERM)
+    and escalated (KILL) exit paths - the first version of the fix only
+    swept on the escalated path and missed the common case where TERM
+    alone already finishes the job. (DD-1051)
+  - Documented the mechanism at docs/bounded-command-orphan-reaping.md.
+  - Filed DD-1067 for the same defect class found, independently and
+    pre-existing, in PageRuntime's own `_terminate_saved_ajax_process`.
+
 5.02  2026-09-26
 
   - DD-1059: brought lib/Developer/Dashboard/Pax/Paxfile.pm to 100.0 percent

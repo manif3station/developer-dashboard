@@ -1,5 +1,15 @@
 # Fixed Bugs
 
+## 5.03
+
+- **Problem 15:** `Local::BoundedCommand::run_bounded` (t/152's test harness)
+  killed a backgrounded grandchild but never reaped it once its immediate
+  parent died, leaving a permanent zombie inside any container run without an
+  init that reaps orphans - exactly the shape this project's own gate
+  containers run in. It now declares itself a Linux/x86_64 subreaper before
+  forking and sweeps for the orphan on both its TERM and KILL exit paths.
+  (DD-1051)
+
 ## 5.02
 
 - **DD-1059:** `lib/Developer/Dashboard/Pax/Paxfile.pm` had only 11.5 percent
