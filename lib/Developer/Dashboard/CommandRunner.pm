@@ -1,6 +1,6 @@
 package Developer::Dashboard::CommandRunner;
 
-our $VERSION = '5.01';
+our $VERSION = '5.02';
 
 use strict;
 use warnings;

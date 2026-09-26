@@ -1,3 +1,13 @@
+5.02  2026-09-26
+
+  - DD-1059: brought lib/Developer/Dashboard/Pax/Paxfile.pm to 100.0 percent
+    Devel::Cover on all four metrics (statement, branch, condition,
+    subroutine), up from 11.5 percent. Added t/226-pax-paxfile-parser.t (17
+    assertions) covering every load_optional/load/_scalar code path,
+    including the open()-failure branch and both directions of the
+    defined-or section-reuse condition. Added missing purpose/input/output
+    comments to all three subroutines.
+
 5.01  2026-09-26
 
   - Resolved bare skill-qualified workspace aliases (for example,
