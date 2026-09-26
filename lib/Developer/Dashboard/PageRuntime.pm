@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '5.00';
+our $VERSION = '5.01';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
@@ -1101,9 +1101,10 @@ sub _code_header {
     $state ||= {};
 
     my @keys = grep { /^[A-Za-z_][A-Za-z0-9_]*$/ } sort keys %$state;
-    return '' if !@keys;
+    my $header = "use Developer::Dashboard::DataHelper qw(j je);\n";
+    return $header if !@keys;
 
-    my $header = sprintf 'my (%s) = @{ $stash }{qw(%s)};' . "\n",
+    $header .= sprintf 'my (%s) = @{ $stash }{qw(%s)};' . "\n",
       join( ', ', map { '$' . $_ } @keys ),
       join( ' ', @keys );
     $header .= sprintf 'my (%s) = map { \\$stash->{$_} } qw(%s);' . "\n",
@@ -1124,7 +1125,6 @@ sub _sandpit_package_source {
 package $package;
 use strict;
 use warnings;
-use Developer::Dashboard::DataHelper qw(j je);
 use Developer::Dashboard::Zipper qw(Ajax acmdx zip unzip);
 
 our \$stash = {};
@@ -1313,6 +1313,9 @@ Developer::Dashboard::PageRuntime - older bookmark renderer and CODE executor
 
 This module applies Template Toolkit rendering to bookmark HTML and executes
 older C<CODE*> blocks while capturing STDOUT and STDERR for in-page display.
+Each CODE block imports C<j> and C<je> from
+C<Developer::Dashboard::DataHelper> automatically, so saved code does not need
+to repeat that import.
 
 =head1 METHODS
 
@@ -1351,11 +1354,11 @@ It exists because bookmark execution is the heart of the product. Rendering, cod
 
 =head1 WHEN TO USE
 
-Use this file when changing bookmark rendering, Template Toolkit exposure, code-block execution, or Ajax helper generation.
+Use this file when changing bookmark rendering, Template Toolkit exposure, code-block execution, automatic DataHelper imports, or Ajax helper generation.
 
 =head1 HOW TO USE
 
-Construct it with the file and path registries plus any path aliases, then feed it a normalized page document. Let it return render fragments or runtime errors rather than building bookmark execution logic in routes or helper scripts.
+Construct it with the file and path registries plus any path aliases, then feed it a normalized page document. Every CODE block receives the standard C<Developer::Dashboard::DataHelper qw(j je)> import, and skill-page CODE also sees the owning skill's C<lib/> directories in C<@INC>. Let the runtime return render fragments or errors rather than building bookmark execution logic in routes or helper scripts.
 
 =head1 WHAT USES IT
 

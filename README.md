@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-5.00
+5.01
 
 # INTRODUCTION
 
@@ -405,7 +405,8 @@ under this namespace:
 
 Project-owned modules now live only under the `Developer::Dashboard::`
 namespace so the distribution does not pollute the CPAN ecosystem with
-generic package names.
+generic package names. The bookmark CODE runtime imports the short JSON helper
+names from `Developer::Dashboard::DataHelper` automatically for every block.
 
 ## Main Concepts
 
@@ -465,7 +466,9 @@ generic package names.
     `Developer::Dashboard::Web::Server` provide the browser interface on port
     `7890`, with Dancer2 owning the HTTP route table while the web-app service
     handles page rendering, login/logout, helper sessions, and the
-    exact-loopback admin trust model.
+    exact-loopback admin trust model. At web startup, active skills may contribute
+    Dancer2 routes and settings through `skills/<name`/lib/Dashboard.pm>; these
+    trusted extension routes remain behind the dashboard authorization gate.
 
 - Open File Commands
 
@@ -525,15 +528,15 @@ generic package names.
     shell completion is enabled. The older `dashboard ticket` spelling has been
     removed; use `dashboard workspace`.
 
-    Passing `-c` before or after the workspace name changes directory first. When
-    the workspace name is registered in the dashboard paths inventory, the same
-    registered names the shell `cdr` helper resolves, the command changes into
-    that registered directory before planning the session, so
-    `dashboard workspace -c foobar` behaves like running `cdr foobar` followed
-    by `dashboard workspace foobar`: the tmux session and its layered `.env`
-    refresh both start from the registered project directory. When the name is not
-    a registered dashboard path, `-c` fails with an explicit error instead of
-    silently starting the workspace from the wrong directory.
+    When the workspace name is registered in the dashboard paths inventory, the
+    command changes into that registered directory before planning the session.
+    This includes skill-qualified aliases such as `bar.foo`, just like the shell
+    `cdr` helper. For example, `dashboard workspace bar.foo` names the session
+    `bar.foo` and starts it in the registered directory. Passing `-c` before or
+    after the workspace name remains available to explicitly request this behavior;
+    when `-c` is used with an unregistered name, the command fails with an explicit
+    error instead of silently starting from the wrong directory. The tmux session
+    and its layered `.env` refresh both start from the resolved directory.
 
 - Runtime Manager
 

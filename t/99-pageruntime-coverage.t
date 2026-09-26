@@ -750,8 +750,10 @@ is( $runtime->_system_context( runtime_context => {}, source => '' )->{cwd}, '.'
 
 # ---- _code_header (L895) ------------------------------------------------------
 {
-    is( $runtime->_code_header(undef), '', '_code_header returns empty for an undefined stash' );
-    is( $runtime->_code_header( {} ),  '', '_code_header returns empty for a stash without usable keys' );
+    like( $runtime->_code_header(undef), qr/^use Developer::Dashboard::DataHelper qw\(j je\);$/m,
+        '_code_header imports DataHelper for an undefined stash' );
+    like( $runtime->_code_header( {} ), qr/^use Developer::Dashboard::DataHelper qw\(j je\);$/m,
+        '_code_header imports DataHelper for a stash without usable keys' );
     like( $runtime->_code_header( { name => 1 } ), qr/\$name/, '_code_header emits lexical bindings for stash keys' );
 }
 

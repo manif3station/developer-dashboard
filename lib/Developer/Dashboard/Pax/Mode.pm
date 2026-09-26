@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::Mode;
 
-our $VERSION = '5.00';
+our $VERSION = '5.01';
 
 use strict;
 use warnings;

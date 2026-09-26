@@ -167,6 +167,7 @@ my $runtime = Developer::Dashboard::RuntimeManager->new(
         );
         return Developer::Dashboard::Web::Server->new(
             app     => $app,
+            paths   => $paths,
             host    => $args{host},
             port    => $args{port},
             workers => $args{workers},

@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::Server;
 use strict;
 use warnings;
 
-our $VERSION = '5.00';
+our $VERSION = '5.01';
 
 use Capture::Tiny qw(capture);
 use Errno qw(EINTR);
@@ -25,7 +25,7 @@ our %SSL_PREVIOUS_SIGNAL;
 
 # new(%args)
 # Constructs the local PSGI web server wrapper.
-# Input: app object plus optional host, port, worker count, and ssl flag.
+# Input: app object, optional path registry, host, port, worker count, and ssl flag.
 # Output: Developer::Dashboard::Web::Server object.
 sub new {
     my ( $class, %args ) = @_;
@@ -50,6 +50,7 @@ sub new {
 
     return bless {
         app                   => $app,
+        paths                 => $args{paths},
         host                  => $host,
         port                  => $port,
         workers               => $workers + 0,
@@ -146,6 +147,7 @@ sub psgi_app {
     my $app = Developer::Dashboard::Web::DancerApp->build_psgi_app(
         app             => $self->{app},
         default_headers => $self->_default_headers,
+        paths           => $self->{paths},
     );
     return $app if !$self->{ssl};
     return sub {
@@ -1011,12 +1013,13 @@ Developer::Dashboard::Web::Server - PSGI server bridge for Developer Dashboard
 
 =head1 SYNOPSIS
 
-  my $server = Developer::Dashboard::Web::Server->new(app => $app);
+  my $server = Developer::Dashboard::Web::Server->new(app => $app, paths => $paths);
   $server->run;
 
 =head1 DESCRIPTION
 
 This module reserves the local listen address, builds the Dancer2 PSGI app,
+passes the path registry so skill C<lib/Dashboard.pm> extensions can load,
 and runs it under Starman through Plack::Runner.
 
 =head1 METHODS
@@ -1092,7 +1095,7 @@ Use this file when changing listen host or port behavior, SSL certificate genera
 
 =head1 HOW TO USE
 
-Construct it with the backend app object and desired host, port, worker, and SSL settings, then call C<run>, C<start_daemon>, or C<serve_daemon>. Keep route behavior in C<Developer::Dashboard::Web::App> and keep the transport wiring here.
+Construct it with the backend app object, path registry, and desired host, port, worker, and SSL settings, then call C<run>, C<start_daemon>, or C<serve_daemon>. The path registry is passed into C<Developer::Dashboard::Web::DancerApp> so installed skills can register their Dancer2 routes and settings during startup. Keep transport wiring here.
 
 =head1 WHAT USES IT
 

@@ -173,6 +173,12 @@ Do not skip the version alignment or README/POD synchronization steps. The
 release metadata tests are expected to fail if any module, POD, changelog, or
 generated manual still carries the previous version.
 
+Generated test workspaces under `t/tmp-sow03/` are excluded from `GatherDir`:
+tests can leave native executables there, and those binaries must not be scanned
+as Perl source or included in a source release. `MetaNoIndex` also lists the
+inline helper packages `env` and `Developer::Dashboard::Handle::Proxy`; both
+are implemented inside existing modules, not shipped as standalone modules.
+
 Run:
 
 ```bash
