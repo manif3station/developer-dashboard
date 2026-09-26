@@ -85,16 +85,36 @@ guard, or there is nothing to compare against afterwards.
 
 The platform gate names container images, and they differ:
 
-| image | product installed | Devel::Cover | runtime deps |
-|---|---|---|---|
-| `developer-dashboard:latest` | yes (`cpanm` of a built tarball) | **no** | yes, as of its build date |
-| `developer-dashboard:test` | **no** — stock `perl` plus a version marker | no | no |
+| image | product installed | Devel::Cover | cpan-audit | runtime deps |
+|---|---|---|---|---|
+| `developer-dashboard:latest` | yes (`cpanm` of a built tarball) | **no** | no | yes, as of its build date |
+| `developer-dashboard:test` | yes — `FROM developer-dashboard:latest` (owner's 2026-09-21 dev/d2 docker reorg, `.developer-dashboard/config/docker/dev/Dockerfile`) | no | yes, DD-1045 | yes, inherited from `:latest` |
 
-Two consequences follow. Coverage-tooling specs will skip in either image, which
-is the correct behaviour and not a gap. And `:test` cannot exercise the *installed*
-product at all, because there is no installed product in it — mounting a source
-tree and running `perl -Ilib` tests the source on that distro, which is a
-different and weaker claim than the image's name suggests.
+**This table was wrong for `:test` between the 2026-09-21 reorg and DD-1045
+(2026-09-26) and nobody had corrected it.** It used to read "no product
+installed — stock `perl` plus a version marker", which described an earlier,
+superseded build path. Since the reorg, `:test` is built by
+`.developer-dashboard/config/docker/dev/Dockerfile` (`FROM
+developer-dashboard:latest`, then re-tagged) — it genuinely does carry the
+installed product and every one of `:latest`'s runtime deps. Read
+`.developer-dashboard/config/docker/dev/Dockerfile` directly before trusting
+this table again; it is git-ignored project-local state (DD-OOP-LAYERS), so it
+can drift without a commit announcing it, and the "test_by_michael/" directory
+sitting beside it at the checkout root is a stale, unused earlier attempt at
+this same image — do not confuse the two or edit the stale one.
+
+Devel::Cover still skips in both images by design (it is a dev-only coverage
+instrument, never bundled). `cpan-audit` (the `CPAN::Audit` distribution,
+providing the `cpan-audit` binary and its bundled `CPAN::Audit::DB` advisory
+data) is now installed in `:test` only, into an isolated location — never in
+`:latest`, and never inside the project's own `local/lib/perl5`, for the same
+reason CI installs it into a separate `-L audit-local` tree
+(`.github/workflows/test.yml`): `script/cpan-audit-project`'s declared-chain
+scan of `local/lib/perl5` must never pick up the audit tool's own dependencies
+as findings against itself.
+
+One consequence still follows. Coverage-tooling specs will skip in either
+image, which is the correct behaviour and not a gap.
 
 Adding Devel::Cover to a platform image is the wrong fix for a failing spec here.
 A platform gate answers "does this work on that distro"; it does not need a
@@ -125,3 +145,32 @@ drift of this kind is caught the moment it's introduced, not months later by
 whoever next hits the missing module through an unrelated symptom. The table
 above is accurate again as of the rebuild; it will drift again if the
 Dockerfile ever reverts to referencing itself.
+
+### `cpan-audit` was missing from `:test`, and so was an accurate table (DD-1045)
+
+`t/108-cpan-security-metadata.t`'s 15 vulnerable-fixture assertions (tests
+116-130) reported `script/cpan-audit-project`'s own documented UNUSABLE(4)
+verdict instead of a real FINDING(5)/etc. verdict when run inside a
+`developer-dashboard:test` dev container, because `cpan-audit` was genuinely
+absent from `PATH` there — confirmed live (`which cpan-audit`, rc=1) and on
+the bare host (same file, 142/142, with `cpan-audit` installed via `~/perl5`).
+Tests 138-142 (the deliberate missing-tool path) already covered this exact
+shape correctly, so the gate itself was never wrong — only the image.
+
+Fixed by adding an isolated `cpanm ... CPAN::Audit` install to
+`.developer-dashboard/config/docker/dev/Dockerfile` (never to `:latest` —
+`cpan-audit` is a dev/test tool, not a declared runtime dependency, and must
+not reach end users), in a location outside the project's own
+`local/lib/perl5` so `script/cpan-audit-project`'s declared-chain scan never
+audits the audit tool's own dependencies — the same isolation
+`.github/workflows/test.yml` already uses for CI. `CPAN::Audit` ships its
+advisory database bundled as `CPAN::Audit::DB`, so this needs no network
+access once the image is built.
+
+While tracing the build chain for this fix, the table above was found to have
+been stale since the owner's 2026-09-21 dev/d2 docker reorg: `:test` inherits
+`FROM developer-dashboard:latest` now (a different, newer build path than the
+one described in the "as of its build date" section above, which predates the
+reorg), so it does carry the installed product and every runtime dependency
+`:latest` has — the opposite of what the table said. Corrected in the same
+change as the `cpan-audit` fix, since both were found together.
