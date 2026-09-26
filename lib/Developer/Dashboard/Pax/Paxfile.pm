@@ -1,10 +1,13 @@
 package Developer::Dashboard::Pax::Paxfile;
 
-our $VERSION = '5.01';
+our $VERSION = '5.02';
 
 use strict;
 use warnings;
 
+# Purpose: load a paxfile.yml if one exists, tolerating its absence.
+# Input: $path (optional, defaults to 'paxfile.yml' in the current directory).
+# Output: a hashref of parsed data, or {} if the file does not exist.
 sub load_optional {
     my ($class, $path) = @_;
     $path //= 'paxfile.yml';
@@ -12,6 +15,11 @@ sub load_optional {
     return $class->load($path);
 }
 
+# Purpose: parse a paxfile.yml into a normalized hash/array structure.
+# Input: $path, a required file path that must exist and be readable.
+# Output: a hashref keyed by top-level key; a key with an empty value opens
+# a list section, subsequent keys/list items populate scalars or arrays.
+# Dies on an unreadable file or a line matching neither form.
 sub load {
     my ($class, $path) = @_;
     open my $fh, '<', $path or die "cannot read $path: $!";
@@ -47,6 +55,9 @@ sub load {
     return \%data;
 }
 
+# Purpose: trim a scalar value and strip one layer of matching quotes.
+# Input: $value, the raw right-hand-side text of a key:value or "- value" line.
+# Output: the unquoted, trimmed scalar.
 sub _scalar {
     my ($value) = @_;
     $value =~ s/\A\s+|\s+\z//g;
