@@ -8,6 +8,11 @@ use File::Spec;
 use FindBin qw($RealBin);
 use Test::More;
 
+plan skip_all => 'checkout-only dependency/security metadata gate; release tarballs exclude .github and cpan-audit fixtures'
+    if !-f '.github/workflows/test.yml' || !-f 'SECURITY_CHECKS.md';
+plan skip_all => 'cpan-audit is not installed; advisory fixture checks require the audit tool'
+    if !-x '/usr/bin/cpan-audit' && !`command -v cpan-audit 2>/dev/null`;
+
 # Unbuffered, because this file forks a subprocess for almost every assertion.
 # Test::More's output is block-buffered when STDOUT is not a terminal, so each
 # backtick inherited a copy of the not-yet-flushed TAP buffer, the child flushed
@@ -36,7 +41,7 @@ my %secure_minimum = (
     'Capture::Tiny'          => '0.24',
     'Compress::Raw::Zlib'    => '2.220',
     'Cpanel::JSON::XS'       => '4.41',
-    'Dancer2'                => '0.206000',
+    'Dancer2'                => '2.2.0',
     'Digest::MD5'            => '2.25',
     'Digest::SHA'            => '5.96',
     'HTML::Parser'           => '3.84',
@@ -274,7 +279,7 @@ for my $case (
     _write_file( $stub, "#!/bin/sh\nprintf '%s\\n' 'Perl API version v5.38.0 of encoding.c does not match v5.44.0' >&2\nexit 1\n" );
     chmod 0755, $stub or die "chmod $stub: $!";
     {
-        local $ENV{PATH} = join ':', $fake_bin, '/usr/local/bin', '/usr/bin', '/bin';
+        local $ENV{PATH} = join ':', $fake_bin, '/usr/bin', '/bin';
         my $out = `bash $gate $scan_root 2>&1`;
         my $rc  = ${^CHILD_ERROR_NATIVE} >> 8;
         is( $rc, 4, 'a crashed cpan-audit is reported UNUSABLE (4), not as a finding' );
@@ -318,7 +323,7 @@ for my $case (
     # - a test failing for a reason that had nothing to do with what it asserts.
     unlink $stub or die "unlink $stub: $!";
     {
-        local $ENV{PATH} = join ':', $fake_bin, '/usr/local/bin', '/usr/bin', '/bin';
+        local $ENV{PATH} = join ':', $fake_bin, '/usr/bin', '/bin';
         my $out = `bash $gate $scan_root 2>&1`;
         my $rc  = ${^CHILD_ERROR_NATIVE} >> 8;
         isnt( $rc, 0, 'a missing cpan-audit never reports the product clean' );

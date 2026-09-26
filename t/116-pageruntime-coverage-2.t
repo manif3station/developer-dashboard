@@ -5,6 +5,7 @@ use warnings;
 use utf8;
 
 use Test::More;
+use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
 use POSIX ();
@@ -193,6 +194,28 @@ sub fail_first_template_new {
         qr/Can't exec/,
         '_exec_saved_ajax_command really attempted the exec before reporting the failure',
     );
+}
+
+{
+    my $skill_root = File::Spec->catdir( $home, 'skill-root' );
+    make_path( File::Spec->catdir( $skill_root, 'lib' ) );
+    open my $module_fh, '>', File::Spec->catfile( $skill_root, 'lib', 'SkillRuntimeLocal.pm' )
+      or die "Unable to write SkillRuntimeLocal.pm: $!";
+    print {$module_fh} "package SkillRuntimeLocal;\nuse strict;\nuse warnings;\nsub value { return 'skill-code-lib-ok' }\n1;\n";
+    close $module_fh or die "Unable to close SkillRuntimeLocal.pm: $!";
+
+    my $page = Developer::Dashboard::PageDocument->new(
+        id   => 'skill-code-lib',
+        meta => {
+            codes        => [ { body => "use SkillRuntimeLocal;\nprint SkillRuntimeLocal::value(), qq(\\n);\n" } ],
+            skill_path   => $skill_root,
+            skill_layers => [$skill_root],
+        },
+        layout => { body => 'body' },
+    );
+    my $result = $runtime->run_code_blocks( page => $page, source => 'skill' );
+    is_deeply( $result->{errors}, [], 'skill CODE sections can load modules from the skill lib directory' );
+    is_deeply( $result->{outputs}, ["skill-code-lib-ok\n"], 'skill CODE sections print output after loading a skill-local module' );
 }
 
 done_testing;

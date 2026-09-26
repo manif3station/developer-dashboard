@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Suggest;
 use strict;
 use warnings;
 
-our $VERSION = '4.90';
+our $VERSION = '5.00';
 
 use File::Basename qw(basename);
 use File::Spec;
@@ -200,7 +200,7 @@ sub _collect_skill_commands {
             my $logical = _logical_command_name($entry);
             next if !$logical;
             next if !is_runnable_file( File::Spec->catfile( $cli_root, $logical ) );
-            push @entries, { full => "$prefix.$logical" };
+            push @entries, { full => $logical eq '__init__' ? $prefix : "$prefix.$logical" };
         }
         closedir $dh;
     }

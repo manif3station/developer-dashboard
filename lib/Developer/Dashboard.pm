@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '4.90';
+our $VERSION = '5.00';
 
 our @EXPORT = ('d2');
 
@@ -65,7 +65,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-4.90
+5.00
 
 =head1 INTRODUCTION
 
@@ -115,8 +115,9 @@ privately under F<~/.developer-dashboard/cli/dd/> and dispatched by
 C<dashboard> without polluting the global PATH. That keeps dashboard-owned
 built-ins separate from user commands and hooks under
 F<~/.developer-dashboard/cli/>. Compatibility aliases C<pjq>, C<pyq>,
-C<ptomq>, C<pjp>, and C<ticket> still normalize to the current commands when
-they are invoked through C<dashboard>. The public switchboard now keeps the
+C<ptomq>, and C<pjp> still normalize to the current commands when they are invoked
+through C<dashboard>. The older C<ticket> alias has been removed; use
+C<workspace> for tmux workspace sessions. The public switchboard now keeps the
 prompt path lighter as well: once the managed helper files are already staged,
 C<dashboard ps1> refreshes only the requested helper, reuses one path registry
 for the whole invocation, and avoids loading the suggestion and skill dispatch
@@ -742,14 +743,18 @@ F<~/.developer-dashboard/cli/>. While those staged helpers run, their process
 title is normalized to the public C<developer-dashboard ...> form so C<ps>
 output shows the user-facing command instead of the staged helper path.
 
+Both C<dashboard init> and C<d2 init> preserve this boundary: dashboard
+helpers remain in F<cli/dd/>, while existing files directly in F<cli/> are
+treated as user-owned and are never overwritten by helper staging.
+
 C<dashboard workspace> creates or reuses a tmux session for the requested
 workspace reference, seeds C<WORKSPACE_REF>, keeps C<TICKET_REF> for
 compatibility with older shells, refreshes plain-directory C<.env> files from
 the highest ancestor down to the current directory when it creates or resumes a
 session, attaches through a dashboard-managed private helper instead of a
 public standalone binary, and completes already-open tmux session names when
-shell completion is enabled. The older C<dashboard ticket> spelling remains as
-a compatibility alias.
+shell completion is enabled. The older C<dashboard ticket> spelling has been
+removed; use C<dashboard workspace>.
 
 Passing C<-c> before or after the workspace name changes directory first. When
 the workspace name is registered in the dashboard paths inventory, the same
@@ -1165,6 +1170,12 @@ This means a deeper skill env can override a shared runtime key, but that
 override stays isolated to the skill execution path and does not leak into
 unrelated commands.
 
+The runtime chain is collected from the DD-OOP layers rooted at the current
+working directory, walking its existing parent directories toward the leaf,
+before the skill chain is applied. Therefore a nested command such as
+C<d2 foo.bar.bob> receives both the current directory's inherited
+C<.env>/C<.env.pl> values and the C<foo> then C<bar> skill values.
+
 For nested skill commands such as C<dashboard foo.bar.zzz.show>, the skill env
 chain expands from the root nested skill to the leaf skill before the command
 runs:
@@ -1578,7 +1589,7 @@ Dashboard-managed built-in helpers are different from user commands. All
 built-in helper assets are always staged only under
 F<~/.developer-dashboard/cli/dd/>. Dedicated helper bodies are used for
 C<jq>, C<yq>, C<tomq>, C<propq>, C<iniq>, C<csvq>, C<xmlq>, C<of>,
-C<open-file>, C<ticket>, C<path>, C<paths>, and C<ps1>, while the remaining
+C<open-file>, C<workspace>, C<path>, C<paths>, and C<ps1>, while the remaining
 built-in commands stage thin wrappers that delegate into the shared private
 C<_dashboard-core> runtime. Under C<DD-OOP-LAYERS>, layered lookup still
 applies to user-provided commands and hook directories, but C<dashboard init>
@@ -1997,6 +2008,23 @@ C<HTML:>, for example with C<[% title %]>.
 C</apps> redirects to C</app/index>, and C</app/E<lt>nameE<gt>> can load
 either a saved bookmark document, a saved ajax/url bookmark file, or an
 installed skill index page when the smart route resolves to a skill.
+
+Saved URL bookmark compatibility is preserved. A saved bookmark whose raw
+content is an HTTP(S) URL returns a C<302> redirect to that URL and appends the
+current query string. A local route is forwarded inside the dashboard instead;
+bookmark parameters are merged with request parameters, and array
+parameters are reduced using C<E<lt>nameE<gt>.selected.pos> before forwarding.
+
+Template Toolkit includes are skill-aware. A skill bookmark can use
+C<[% INCLUDE "fragment.tt" %]> for a file beside its dashboard, or
+C<[% INCLUDE "skills/foobar/dashboards/fragment.tt" %]> for an explicit
+runtime skill path. Normal dashboard bookmarks continue to resolve includes
+from their layered dashboards roots.
+
+Saved Ajax helpers also render the supplied C<code> as a Template Toolkit
+template when C<data =E<gt> \{ ... \}> is provided. For example,
+C<Ajax( code =E<gt> 'print [% args %];', data =E<gt> \{ args =E<gt> 123 \}, ... )>
+stores C<print 123;> for the Ajax worker to execute.
 
 =head2 Working With Collectors
 

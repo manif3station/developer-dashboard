@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '4.90';
+our $VERSION = '5.00';
 
 use Config ();
 use Developer::Dashboard::DirEntries qw(sorted_dir_entries);
@@ -14,6 +14,8 @@ use JSON::XS qw(encode_json decode_json);
 use Capture::Tiny qw(capture);
 use File::Basename qw(dirname basename);
 use Symbol qw(gensym);
+use URI;
+use URI::Escape qw(uri_escape uri_unescape);
 use Developer::Dashboard::CLI::Suggest;
 use Developer::Dashboard::StreamDrain qw(_drain_ready_handle);
 use Developer::Dashboard::EnvLoader;
@@ -63,11 +65,12 @@ sub dispatch {
     my $hook_result = $self->execute_hooks( $skill_name, $command, @args );
     return $hook_result if $hook_result->{error};
     my @skill_layers = @{ $command_spec->{skill_layers} };
+    my @env_skill_layers = @{ $command_spec->{env_skill_layers} || \@skill_layers };
 
     my %env = $self->_skill_env(
         skill_name   => $skill_name,
         skill_path   => $command_skill_path,
-        skill_layers => \@skill_layers,
+        skill_layers => \@env_skill_layers,
         command      => $command_spec->{command_name},
         result_state => $hook_result->{result_state},
     );
@@ -82,8 +85,9 @@ sub dispatch {
         else {
             Developer::Dashboard::Runtime::Result::clear_last_result();
         }
+        Developer::Dashboard::EnvLoader->load_skill_layers( skill_layers => \@env_skill_layers );
+        Developer::Dashboard::EnvLoader->load_skill_cli_layers( skill_layers => \@env_skill_layers );
         Developer::Dashboard::EnvLoader->load_runtime_layers( paths => $self->{manager}{paths} );
-        Developer::Dashboard::EnvLoader->load_skill_layers( skill_layers => \@skill_layers );
         system( @command, @args );
     };
     my $hook_stdout = join '', map { $_->{stdout} } values %{ $hook_result->{hooks} };
@@ -127,13 +131,14 @@ sub exec_command {
     }
 
     my @skill_layers = @{ $command_spec->{skill_layers} };
-    my $hook_result = $self->_execute_hooks_streaming( $skill_name, $command_spec->{command_name}, \@skill_layers, @args );
+    my @env_skill_layers = @{ $command_spec->{env_skill_layers} || \@skill_layers };
+    my $hook_result = $self->_execute_hooks_streaming( $skill_name, $command_spec->{command_name}, \@skill_layers, { env_skill_layers => \@env_skill_layers }, @args );
     return $hook_result if $hook_result->{error};
 
     my %env = $self->_skill_env(
         skill_name   => $skill_name,
         skill_path   => $command_skill_path,
-        skill_layers => \@skill_layers,
+        skill_layers => \@env_skill_layers,
         command      => $command_spec->{command_name},
         result_state => $hook_result->{result_state},
     );
@@ -146,8 +151,9 @@ sub exec_command {
     else {
         Developer::Dashboard::Runtime::Result::clear_last_result();
     }
+    Developer::Dashboard::EnvLoader->load_skill_layers( skill_layers => \@env_skill_layers );
+    Developer::Dashboard::EnvLoader->load_skill_cli_layers( skill_layers => \@env_skill_layers );
     Developer::Dashboard::EnvLoader->load_runtime_layers( paths => $self->{manager}{paths} );
-    Developer::Dashboard::EnvLoader->load_skill_layers( skill_layers => \@skill_layers );
     return $self->_exec_resolved_command( $cmd_path, \@command, \@args );
 }
 
@@ -163,6 +169,7 @@ sub execute_hooks {
     return { hooks => {}, result_state => {} } if !$self->{manager}->is_enabled($skill_name);
     my $command_spec = $self->_command_spec( $skill_name, $command );
     my @skill_layers = $command_spec ? @{ $command_spec->{skill_layers} } : $self->_skill_layers($skill_name);
+    my @env_skill_layers = $command_spec ? @{ $command_spec->{env_skill_layers} || \@skill_layers } : @skill_layers;
     return { hooks => {}, result_state => {} } if !@skill_layers;
     my $resolved_command = $command_spec ? $command_spec->{command_name} : $command;
 
@@ -179,7 +186,7 @@ sub execute_hooks {
             my %env = $self->_skill_env(
                 skill_name   => $skill_name,
                 skill_path   => $layer_path,
-                skill_layers => \@skill_layers,
+                skill_layers => \@env_skill_layers,
                 command      => $resolved_command,
                 result_state => \%results,
             );
@@ -193,8 +200,9 @@ sub execute_hooks {
                 else {
                     Developer::Dashboard::Runtime::Result::clear_last_result();
                 }
+                Developer::Dashboard::EnvLoader->load_skill_layers( skill_layers => \@env_skill_layers );
+                Developer::Dashboard::EnvLoader->load_skill_cli_layers( skill_layers => \@env_skill_layers );
                 Developer::Dashboard::EnvLoader->load_runtime_layers( paths => $self->{manager}{paths} );
-                Developer::Dashboard::EnvLoader->load_skill_layers( skill_layers => \@skill_layers );
                 system( @command, @args );
             };
             my $result_key = $entry;
@@ -237,7 +245,9 @@ sub _execute_hooks_streaming {
     return { hooks => {}, result_state => {} } if !$skill_name || !$command;
     my @skill_layers = @{ $self->_arrayref_or_empty($skill_layers) };
     return { hooks => {}, result_state => {} } if !@skill_layers;
-
+    my $options = @args && ref( $args[0] ) eq 'HASH' && exists $args[0]{env_skill_layers} ? shift @args : {};
+    my @env_layers = @{ $self->_arrayref_or_empty( $options->{env_skill_layers} ) };
+    @env_layers = @skill_layers if !@env_layers;
     my %results;
     my $last_result = {};
     for my $layer_path (@skill_layers) {
@@ -251,7 +261,7 @@ sub _execute_hooks_streaming {
             my %env = $self->_skill_env(
                 skill_name   => $skill_name,
                 skill_path   => $layer_path,
-                skill_layers => \@skill_layers,
+                skill_layers => \@env_layers,
                 command      => $command,
                 result_state => \%results,
             );
@@ -260,7 +270,7 @@ sub _execute_hooks_streaming {
                 command      => \@hook_command,
                 args         => \@args,
                 env          => \%env,
-                skill_layers => \@skill_layers,
+                skill_layers => \@env_layers,
                 result_state => \%results,
                 last_result  => $last_result,
                 stdin_mode   => 'null',
@@ -333,8 +343,9 @@ sub _run_child_command_streaming {
         else {
             Developer::Dashboard::Runtime::Result::clear_last_result();
         }
-        Developer::Dashboard::EnvLoader->load_runtime_layers( paths => $self->{manager}{paths} );
         Developer::Dashboard::EnvLoader->load_skill_layers( skill_layers => \@skill_layers );
+        Developer::Dashboard::EnvLoader->load_skill_cli_layers( skill_layers => \@skill_layers );
+        Developer::Dashboard::EnvLoader->load_runtime_layers( paths => $self->{manager}{paths} );
         $pid = open3( $stdin_spec, $stdout, $stderr, @command, @argv );
     }
     close $stdin_fh if $stdin_fh;
@@ -662,6 +673,15 @@ sub _skill_page_response {
         );
     };
     return [ 404, 'text/plain; charset=utf-8', "Skill bookmark '$args{route_id}' not found\n" ] if !$page;
+    if ( $args{app} && ($page->{meta}{source_format} || '') eq 'raw-url' ) {
+        my $target = _merge_saved_url_query(
+            $page->{meta}{raw_url},
+            { %{ $args{query_params} || {} }, %{ $args{body_params} || {} } },
+        );
+        return [ 302, 'text/plain; charset=utf-8', "Redirecting\n", { Location => $target } ];
+    }
+    return [ 200, 'text/plain; charset=utf-8', $page->{meta}{raw_url} ]
+      if ($page->{meta}{source_format} || '') eq 'raw-url';
     return [ 200, 'text/plain; charset=utf-8', $page->{meta}{raw_instruction} || $page->canonical_instruction ]
       if !$args{app};    # uncoverable condition false
 
@@ -684,6 +704,31 @@ sub _skill_page_response {
     return $app->_page_response( $page, 'render' );
 }
 
+# _merge_saved_url_query($target, $params)
+# Merges request parameters into a saved skill bookmark URL, replacing matching
+# keys while preserving saved keys that were not supplied by the request.
+# Input: absolute or path URL string and flat request parameter hash reference.
+# Output: URL string with the merged, encoded query string.
+sub _merge_saved_url_query {
+    my ( $target, $params ) = @_;
+    my $uri = URI->new($target);
+    my %merged;
+    for my $pair ( split /&/, scalar( $uri->query // '' ) ) {
+        next if $pair eq '';
+        my ( $key, $value ) = split /=/, $pair, 2;
+        $merged{ uri_unescape($key) } = uri_unescape( defined $value ? $value : '' );
+    }
+    for my $key ( keys %{ $params || {} } ) {
+        next if !defined $key || $key eq 'splat';
+        my $value = $params->{$key};
+        $value = $value->[ -1 ] if ref($value) eq 'ARRAY';
+        $merged{$key} = defined $value ? $value : '';
+    }
+    $uri->query( join '&', map { uri_escape($_) . '=' . uri_escape( defined $merged{$_} ? $merged{$_} : '' ) } sort keys %merged )
+      if %merged;
+    return $uri->as_string;
+}
+
 # _load_skill_page(%args)
 # Loads one layered skill page document from dashboards/<id> and namespaces its
 # page id under /app/<skill>/...
@@ -703,6 +748,17 @@ sub _load_skill_page {
     close $fh;
 
     my $page = eval { Developer::Dashboard::PageDocument->from_instruction($instruction) };
+    my $parse_error = $@;
+    my $raw_url = $instruction;
+    $raw_url =~ s/\A\s+|\s+\z//g if defined $raw_url;
+    if ( !$page && defined $raw_url && $raw_url =~ m{\A(?:https?:)?//[^\s]+\z} ) {
+        $page = Developer::Dashboard::PageDocument->new(
+            id     => $skill_name . ( $route_id eq 'index' ? '' : '/' . $route_id ),
+            title  => $route_id,
+            layout => { body => $raw_url },
+            meta   => { source_format => 'raw-url', raw_url => $raw_url },
+        );
+    }
     if ( !$page && $route_id =~ m{\Anav/.+\.tt\z} ) {
         $page = Developer::Dashboard::PageDocument->new(
             id     => $skill_name . '/' . $route_id,
@@ -711,13 +767,14 @@ sub _load_skill_page {
             meta   => { source_format => 'raw-nav-tt' },
         );
     }
-    die $@ if !$page;
+    die $parse_error if !$page;
 
     $page->{id} = $skill_name . ( $route_id eq 'index' ? '' : '/' . $route_id );
     $page->{meta}{source_kind}      = 'skill';
     $page->{meta}{skill_name}       = $skill_name;
     $page->{meta}{skill_route_id}   = $route_id;
     $page->{meta}{skill_path}       = $skill_path;
+    $page->{meta}{skill_layers}     = [ $self->_skill_layers($skill_name) ];
     $page->{meta}{raw_instruction}  = $instruction;
     return $page;
 }
@@ -739,6 +796,8 @@ sub _skill_env {
         push @perl5lib_extra, $shared_lib if -d $shared_lib;
     }
     for my $layer_path ( reverse @{ $args{skill_layers} || [] } ) {
+        my $skill_lib = File::Spec->catdir( $layer_path, 'lib' );
+        push @perl5lib_extra, $skill_lib if -d $skill_lib;
         for my $local_lib (
             File::Spec->catdir( $layer_path, 'perl5', 'lib', 'perl5' ),
             File::Spec->catdir( $layer_path, 'perl5', 'lib', 'perl5', $Config::Config{archname} ),
@@ -837,7 +896,8 @@ sub resolve_route_segments {
 # including nested skills/<repo>/cli command trees addressed through dotted
 # command tails such as foo.bar.
 # Input: skill repository name string and command name string.
-# Output: hash reference containing cmd_path, skill_path, skill_layers, and command_name.
+# Output: hash reference containing cmd_path, skill_path, command-provider
+# skill_layers, inherited env_skill_layers, and command_name.
 sub _command_spec {
     my ( $self, $skill_name, $command ) = @_;
     return if !$skill_name || !$command;
@@ -868,10 +928,23 @@ sub _command_spec {
             # one is, with no separate recursive walk needed.
             $cmd_path ||= resolve_runnable_file( File::Spec->catfile( $provider_path, 'cli', '__init__' ) );
             next if !$cmd_path;
+            my @env_skill_layers;
+            my @env_frontier = $self->_skill_layers($skill_name);
+            push @env_skill_layers, @env_frontier;
+            for my $nested_segment ( @{ $command_root_spec->{nested_segments} } ) {
+                my @next_frontier;
+                for my $root_path (@env_frontier) {
+                    my $nested_path = $self->_nested_skill_path( $root_path, [$nested_segment] );
+                    push @next_frontier, $nested_path if -d $nested_path;
+                }
+                @env_frontier = @next_frontier;
+                push @env_skill_layers, @env_frontier;
+            }
             return {
                 cmd_path      => $cmd_path,
                 skill_path    => $provider_path,
                 skill_layers  => \@provider_layers,
+                env_skill_layers => \@env_skill_layers,
                 command_name  => $command_root_spec->{command_name},
             };
         }

@@ -82,7 +82,7 @@ sub complete { return Developer::Dashboard::CLI::Complete::complete(@_) }
         'index 1 drops candidates that do not share the current prefix' );
 }
 
-# --- workspace/ticket second word (index 2) -------------------------------
+# --- workspace second word (index 2) --------------------------------------
 
 {
     my @candidates = complete( words => [ 'dashboard', 'workspace' ], index => 2 );
@@ -99,7 +99,7 @@ sub complete { return Developer::Dashboard::CLI::Complete::complete(@_) }
         index           => 2,
         ticket_sessions => sub { return ( 'ta', 'tb' ) },
     );
-    is_deeply( \@candidates, [ 'ta', 'tb' ], 'ticket at index 2 uses an injected session provider' );
+    is_deeply( \@candidates, [], 'ticket no longer uses the workspace session provider' );
 }
 
 {
@@ -259,7 +259,7 @@ t/69-cli-complete-coverage.t - branch and condition coverage for the shell-compl
 
 This test is the executable coverage contract for
 C<Developer::Dashboard::CLI::Complete>. It drives every dispatch arm of
-C<complete()> - top-level candidates, the workspace/ticket session branch, the
+C<complete()> - top-level candidates, the workspace session branch, the
 restart/stop and log/logs collector branches, the static subcommand fallback,
 and the current-word prefix filter - together with the collector-name provider
 so both sides of each branch and short-circuit condition actually execute.

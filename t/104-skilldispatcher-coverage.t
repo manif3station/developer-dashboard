@@ -124,6 +124,7 @@ chdir $proj_dir or die $!;
 my $HOME = abs_path($tmp);
 my $PROJ = abs_path($proj_dir);
 local $ENV{HOME} = $HOME;
+write_file( File::Spec->catfile( $PROJ, '.env' ), "FOO=here\n" );
 
 my $home_skills = File::Spec->catdir( $HOME, '.developer-dashboard', 'skills' );
 my $proj_skills = File::Spec->catdir( $PROJ, '.developer-dashboard', 'skills' );
@@ -140,12 +141,14 @@ write_file( File::Spec->catfile( $home_runner, 'dashboards', 'nav', 'common.tt' 
 # --- project (deepest) layer of runner ---
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'greet' ), "#!/bin/sh\necho greet-out\n" );
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'solo' ),  "#!/bin/sh\necho solo-out\n" );
+write_exec( File::Spec->catfile( $proj_runner, 'cli', 'libcheck.pl' ), "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nuse RunnerLocal;\nprint RunnerLocal::value(), qq(\\n);\n" );
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'exectest' ), "#!/bin/sh\necho exec-out\n" );
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'failcmd' ), "#!/bin/sh\necho failcmd-out\nexit 1\n" );
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'hookfail' ), "#!/bin/sh\necho hookfail-out\n" );
 # DD-1043: no cli/version script for 'runner', but a .env carrying VERSION= -
 # exercises _native_version_fallback via both dispatch() and exec_command().
-write_file( File::Spec->catfile( $proj_runner, '.env' ), "VERSION=9.99\n" );
+write_file( File::Spec->catfile( $proj_runner, '.env' ), "VERSION=9.99\nRUNNER_ENV=1\nFOO=runner\n" );
+write_file( File::Spec->catfile( $proj_runner, 'lib', 'RunnerLocal.pm' ), "package RunnerLocal;\nuse strict;\nuse warnings;\nsub value { return 'local-lib-ok' }\n1;\n" );
 # greet hooks: a non-runnable file (skipped) plus two runnable hooks, one of
 # which writes to both stdout and stderr.
 write_file( File::Spec->catfile( $proj_runner, 'cli', 'greet.d', '00-skip' ), "not runnable\n" );
@@ -166,6 +169,7 @@ Runner Index
 === HTML ===
 runner index body
 PAGE
+write_file( File::Spec->catfile( $proj_runner, 'dashboards', 'saved-url' ), "http://127.0.0.1:7890/app/ch/sql?abc=123&def=456\n" );
 write_file( File::Spec->catfile( $proj_runner, 'dashboards', 'welcome' ), <<'PAGE' );
 === TITLE ===
 Runner Welcome
@@ -183,6 +187,10 @@ write_file( File::Spec->catfile( $proj_runner, 'dashboards', 'public', 'js', 'ap
 
 # nested + disabled-nested skills under runner
 write_exec( File::Spec->catfile( $proj_runner, 'skills', 'child', 'cli', 'sub' ), "#!/bin/sh\necho child-sub\n" );
+write_file( File::Spec->catfile( $proj_runner, 'skills', 'child', '.env' ), "CHILD_ENV=1\nFOO=child\n" );
+write_file( File::Spec->catfile( $proj_runner, 'skills', 'child', 'cli', '.env' ), "CLI_ENV=1\n" );
+write_exec( File::Spec->catfile( $proj_runner, 'skills', 'child', 'cli', 'envcheck' ), "#!/bin/sh\nprintf '%s\\n' \"\$RUNNER_ENV\" \"\$CHILD_ENV\" \"\$CLI_ENV\" \"\$FOO\"\n" );
+write_exec( File::Spec->catfile( $proj_runner, 'skills', 'child', 'skills', 'grand', 'cli', 'deep' ), "#!/bin/sh\necho grand-deep\n" );
 write_file( File::Spec->catfile( $proj_runner, 'skills', 'child', 'dashboards', 'nav', 'n.tt' ), "child-nav\n" );
 mkd( File::Spec->catdir( $proj_runner, 'skills', 'disabledchild', 'cli' ) );
 write_file( File::Spec->catfile( $proj_runner, 'skills', 'disabledchild', '.disabled' ), "" );
@@ -233,6 +241,15 @@ ok( exists $run->{hooks}{'01-run'}, 'dispatch returns the hook capture map' );
 
 my $run_solo = $disp->dispatch( 'runner', 'solo' );
 like( $run_solo->{stdout}, qr/solo-out/, 'dispatch runs a command that has no hooks (clears last_result)' );
+
+my $run_libcheck = $disp->dispatch( 'runner', 'libcheck' );
+is( $run_libcheck->{stdout}, "local-lib-ok\n", 'dispatch exposes skill lib directories through PERL5LIB' );
+
+my $run_envcheck = $disp->dispatch( 'runner', 'child.envcheck' );
+is( $run_envcheck->{stdout}, "1\n1\n1\nhere\n", 'dispatch loads skill, nested skill, skill cli, and cwd env files with cwd overriding skill values' );
+
+my $run_deep = $disp->dispatch( 'runner', 'child.grand.deep' );
+is( $run_deep->{stdout}, "grand-deep\n", 'dispatch resolves multi-level nested skill commands addressed through dotted names' );
 
 # DD-883: a genuinely-failing command must report its real shifted exit code
 # (1), never the raw wait-status Capture::Tiny's capture() hands back from a
@@ -409,6 +426,7 @@ is( $disp->command_spec( 'runner', '' ), undef, 'command_spec guards a missing c
 ok( $disp->command_spec( 'runner', 'greet' ), 'command_spec resolves a runnable command' );
 is( $disp->_command_spec( 'runner', '.' ), undef, '_command_spec guards a dotted command that splits to nothing' );
 ok( $disp->_command_spec( 'runner', 'child.sub' ), '_command_spec resolves a nested dotted command' );
+ok( $disp->_command_spec( 'runner', 'child.grand.deep' ), '_command_spec resolves a multi-level nested dotted command' );
 is( $disp->_command_spec( 'runner', 'missingchild.sub' ), undef, '_command_spec skips a missing nested provider path' );
 
 # DD-954: a nested skill's cli/<command> never exists, but its cli/__init__
@@ -469,12 +487,23 @@ ok( scalar @{ $disp->all_skill_nav_pages },       'all_skill_nav_pages aggregate
 
 my $raw = $disp->_skill_page_response( skill_name => 'runner', route_id => 'index' );
 is( $raw->[0], 200, '_skill_page_response returns a raw page without an app' );
+my $saved_url = $disp->_skill_page_response( skill_name => 'runner', route_id => 'saved-url' );
+is( $saved_url->[0], 200, '_skill_page_response loads a saved URL skill bookmark without parsing it as instructions' );
+is( $saved_url->[2], 'http://127.0.0.1:7890/app/ch/sql?abc=123&def=456', '_skill_page_response preserves the saved URL content' );
 my $zero = $disp->_skill_page_response( skill_name => 'runner', route_id => 'nav/zero.tt' );
 is( $zero->[0], 200, '_skill_page_response falls back to canonical_instruction for a false raw body' );
 my $missing = $disp->_skill_page_response( skill_name => 'runner', route_id => 'ghost' );
 is( $missing->[0], 404, '_skill_page_response returns 404 for a missing page' );
 
 my $app = Local::StubApp->new;
+my $saved_url_redirect = $disp->_skill_page_response(
+    skill_name   => 'runner',
+    route_id     => 'saved-url',
+    app          => $app,
+    query_params => { abc => 111, hij => 999 },
+);
+is( $saved_url_redirect->[0], 302, '_skill_page_response redirects a saved URL skill bookmark through the web app' );
+is( $saved_url_redirect->[3]{Location}, 'http://127.0.0.1:7890/app/ch/sql?abc=111&def=456&hij=999', 'saved URL skill bookmark merges request query values into its target' );
 my $with_app = $disp->_skill_page_response(
     skill_name   => 'runner',
     route_id     => 'index',

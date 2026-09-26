@@ -69,7 +69,7 @@ WriteMakefile(
         'Compress::Raw::Zlib'   => '2.220',
         'IO::Compress::Gzip'    => '2.220',
         'IO::Uncompress::Gunzip'=> '2.220',
-        'Dancer2'               => '0.206000',
+        'Dancer2'               => '2.2.0',
         'Plack'                 => '1.0054',
         'Socket'                => '2.041',
         'Starman'               => '0.4018',

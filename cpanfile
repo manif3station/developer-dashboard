@@ -19,7 +19,7 @@ requires 'Compress::Raw::Zlib', '2.220';
 requires 'IO::Compress::Gzip', '2.220';
 requires 'IO::Uncompress::Gunzip', '2.220';
 requires 'Cpanel::JSON::XS', '4.41';
-requires 'Dancer2', '0.206000';
+requires 'Dancer2', '2.2.0';
 requires 'Plack', '1.0054';
 requires 'YAML', '1.28';
 requires 'Socket', '2.041';

@@ -3,7 +3,7 @@ package Developer::Dashboard::Web::App;
 use strict;
 use warnings;
 
-our $VERSION = '4.90';
+our $VERSION = '5.00';
 
 use Capture::Tiny qw(capture);
 use Digest::SHA qw(sha256_hex);
@@ -1027,6 +1027,7 @@ sub legacy_app_response {
         id           => $args{id},
         query_params => $params,
         body_params  => $body_params,
+        raw_query    => $args{query},
         remote_addr  => $args{remote_addr},
         headers      => $args{headers} || {},
     );
@@ -2448,8 +2449,18 @@ sub _encoded_action_response {
 # Output: page document object.
 sub _load_named_page {
     my ( $self, $id ) = @_;
-    return $self->{resolver}->load_named_page($id) if $self->{resolver};
-    return $self->{pages}->load_saved_page($id);
+    my $page = eval {
+        $self->{resolver}
+          ? $self->{resolver}->load_named_page($id)
+          : $self->{pages}->load_saved_page($id);
+    };
+    return $page if defined $page;
+    # Legacy saved-url bookmarks are intentionally not instruction documents.
+    # Let the caller's raw-entry forwarding path handle them instead of leaking
+    # PageDocument's parser error to the user.
+    return if $@ =~ /Instruction document did not contain any sections/;
+    die $@ if $@;
+    return;
 }
 
 # _legacy_app_response(%args)
@@ -2485,13 +2496,37 @@ sub _legacy_app_response {
     }
     my $target = _trim($raw);
     my $uri = URI->new($target);
+    my $has_external_authority = ( defined $uri->scheme && $uri->scheme ne '' )
+      || ( !defined $uri->scheme && $target =~ m{\A//} && defined $uri->host );
+    if ($has_external_authority) {
+        my $scheme = lc( $uri->scheme || 'http' );
+        return [ 400, 'text/plain; charset=utf-8', "Unsupported bookmark URL scheme\n" ]
+          if $scheme ne 'http' && $scheme ne 'https';
+
+        my $port = defined $ENV{_PORT} ? $ENV{_PORT} : '';
+        my $is_local_token = $scheme eq 'http'
+          && ( $uri->host || '' ) eq '127.0.0.1'
+          && $port ne ''
+          && defined $uri->port
+          && $uri->port eq $port
+          && ( $uri->query || '' ) =~ /(?:^|&)token=/;
+        if ( !$is_local_token ) {
+            return $self->_legacy_external_redirect_response(
+                target    => $target,
+                raw_query => $args{raw_query},
+                params    => { %{ $args{query_params} || {} }, %{ $args{body_params} || {} } },
+            );
+        }
+    }
     my $path = $uri->path;
+    return [ 400, 'text/plain; charset=utf-8', "Invalid bookmark target\n" ] if !defined $path || $path eq '';
     my %bookmark_params = _parse_query( scalar( $uri->query // '' ) );
     my %forward_params = (
         %bookmark_params,
         %{ $args{query_params} || {} },
         %{ $args{body_params}  || {} },
     );
+    _resolve_legacy_selected_params(\%forward_params);
     my $query = _build_query( \%forward_params );
     return $self->dispatch_request(
         path        => $path,
@@ -2501,6 +2536,46 @@ sub _legacy_app_response {
         remote_addr => $args{remote_addr},
         headers     => $args{headers} || {},
     );
+}
+
+# _legacy_external_redirect_response(%args)
+# Redirects a saved bookmark whose target is an external HTTP(S) URL.
+# Input: target URL, optional raw incoming query, and parsed request params.
+# Output: HTTP 302 response with the saved URL and incoming query appended.
+sub _legacy_external_redirect_response {
+    my ( $self, %args ) = @_;
+    my $target = $args{target} || '';
+    return [ 400, 'text/plain; charset=utf-8', "Invalid bookmark target\n" ]
+      if $target =~ /[\x00-\x1f\x7f]/;
+    my $incoming = defined $args{raw_query} && $args{raw_query} ne ''
+      ? $args{raw_query}
+      : _build_query( $args{params} || {} );
+    return [ 400, 'text/plain; charset=utf-8', "Invalid bookmark query\n" ]
+      if $incoming =~ /[\x00-\x1f\x7f]/;
+    if ( $incoming ne '' ) {
+        $target .= ( $target =~ /\?/ ? '&' : '?' ) . $incoming;
+    }
+    return [ 302, 'text/plain; charset=utf-8', "Redirecting\n", { Location => $target } ];
+}
+
+# _resolve_legacy_selected_params($params)
+# Replaces legacy array-valued parameters with the element selected by their
+# companion `name.selected.pos` field before forwarding a saved bookmark.
+# Input: mutable hash reference of bookmark and request parameters.
+# Output: none; the hash is updated in place.
+sub _resolve_legacy_selected_params {
+    my ($params) = @_;
+    return if ref($params) ne 'HASH';
+    for my $key ( keys %{$params} ) {
+        next if $key !~ /\A(.+)\.selected\.pos\z/;
+        my $name = $1;
+        my $value = $params->{$name};
+        next if ref($value) ne 'ARRAY';
+        my $position = $params->{$key};
+        next if !defined $position || $position !~ /\A\d+\z/;
+        next if $position >= @{$value};
+        $params->{$name} = $value->[$position];
+    }
 }
 
 # _skill_app_fallback_response(%args)
@@ -3505,6 +3580,19 @@ clients and browsers too old to send it working unchanged.
 =head2 new, handle
 
 Construct and dispatch the local web application.
+
+=head2 legacy_app_response
+
+Loads a saved C</app/E<lt>idE<gt>> bookmark. Structured bookmark documents
+render normally; raw local route bookmarks are forwarded internally with
+bookmark and request parameters merged, including legacy
+C<E<lt>nameE<gt>.selected.pos> array selection. Raw HTTP(S) URL bookmarks
+return a C<302> redirect with the request query appended. Unsupported URL
+schemes and malformed targets are rejected.
+
+Input: saved bookmark id and normalized request metadata.
+Output: response array reference of status, content type, body, and optional
+headers.
 
 =head2 _serve_static_file($type, $filename)
 

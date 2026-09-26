@@ -1218,11 +1218,11 @@ PL
     is( $skill_env->{root}, 'root', 'dashboard dotted skill commands still inherit the home .env layer' );
     is( $skill_env->{child}, 'child', 'dashboard dotted skill commands still inherit the child .env layer' );
     is( $skill_env->{skill_only}, 'skill', 'dashboard dotted skill commands additionally load skill-local env files' );
-    is( $skill_env->{shared}, 'skill', 'skill-local env files override the inherited non-skill layered env when the skill is running' );
+    is( $skill_env->{shared}, 'child', 'the invocation cwd env overrides skill-local values when a skill is running' );
     is(
         _portable_path( $skill_env->{audit}{envfile} ),
-        _portable_path( File::Spec->catfile( $env_project, '.developer-dashboard', 'skills', 'envskill', '.env' ) ),
-        'dashboard dotted skill commands expose env audit metadata for the effective skill-local override',
+        _portable_path( File::Spec->catfile( $env_project, '.env' ) ),
+        'dashboard dotted skill commands expose env audit metadata for the effective cwd env override',
     );
 }
 {

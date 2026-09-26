@@ -652,11 +652,11 @@ PL
     is( $env_dispatch_payload->{skill_only}, 'home-skill', 'skill dispatch loads the base skill .env file' );
     is( $env_dispatch_payload->{skill_chain}, 'skill-home/from-skill-env', 'skill dispatch expands skill .env values from earlier keys in the same skill env file' );
     is( $env_dispatch_payload->{skill_pl_chain}, 'skill-home/from-skill-env/from-skill-pl', 'skill dispatch loads skill .env before skill .env.pl within the same skill layer' );
-    is( $env_dispatch_payload->{shared}, 'skill-child', 'skill-local env files override inherited runtime values for the running skill' );
+    is( $env_dispatch_payload->{shared}, 'runtime-child', 'the child runtime env overrides skill-local values for the running skill' );
     is(
         _portable_path( $env_dispatch_payload->{audit}{envfile} ),
-        _portable_path( File::Spec->catfile( $env_child_skill_root, '.env.pl' ) ),
-        'skill dispatch exposes env audit metadata for the effective deepest skill env source',
+        _portable_path( File::Spec->catfile( $env_child_root, '.env' ) ),
+        'skill dispatch exposes env audit metadata for the effective child runtime env source',
     );
 
     my ( $dotted_stdout, $dotted_stderr, $dotted_exit ) = capture {
@@ -664,7 +664,7 @@ PL
     };
     is( $dotted_exit >> 8, 0, 'dashboard <skill>.<command> loads runtime and skill env layers through the public dotted switchboard path' );
     my $dotted_payload = decode_json($dotted_stdout);
-    is( $dotted_payload->{shared}, 'skill-child', 'dashboard <skill>.<command> keeps the deepest skill env override through the public path' );
+    is( $dotted_payload->{shared}, 'runtime-child', 'dashboard <skill>.<command> keeps the child runtime env override through the public path' );
     chdir $previous_cwd or die "Unable to chdir back to $previous_cwd: $!";
 }
 

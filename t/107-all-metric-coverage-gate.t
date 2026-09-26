@@ -6,6 +6,9 @@ use File::Spec;
 use File::Temp qw(tempdir);
 use Test::More;
 
+plan skip_all => 'checkout-only workflow coverage validation; release tarballs exclude .github'
+    if !-f '.github/workflows/test.yml';
+
 my $gate  = File::Spec->catfile( 'script', 'check-all-metric-coverage' );
 my $entry = File::Spec->catfile( 'script', 'coverage-gate' );
 
