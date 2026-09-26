@@ -1,5 +1,17 @@
 # Fixed Bugs
 
+## 5.04
+
+- **DD-1059:** the v5.03 release (edab2938, DD-1051) shipped
+  `t/226-pax-paxfile-parser.t` without its required full-POD-DOC block -
+  the fix existed only as an uncommitted working-tree edit in the shared
+  main checkout when DD-1051's own git-gate work built on top of my merge
+  commit and pushed before I committed it. Master's own t/15 gate was
+  broken (8 failing subtests) between edab2938 and the fix commit
+  (593dc904). Root cause: two tickets' git-gate work sharing one
+  uncommitted-work-visible checkout directory - see DD-1070 for the
+  related docker.images.build staleness this same race exposed.
+
 ## 5.03
 
 - **Problem 15:** `Local::BoundedCommand::run_bounded` (t/152's test harness)

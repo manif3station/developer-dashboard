@@ -1,3 +1,10 @@
+5.04  2026-09-26
+
+  - DD-1059: added the missing full-POD-DOC block to
+    t/226-pax-paxfile-parser.t (a race in the shared main checkout meant
+    this fix landed only as an uncommitted working-tree change before
+    5.03 was tagged - see FIXED_BUGS.md).
+
 5.03  2026-09-26
 
   - Fixed a background-job grandchild surviving the process-group SIGKILL in
