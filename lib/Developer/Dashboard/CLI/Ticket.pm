@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Ticket;
 use strict;
 use warnings;
 
-our $VERSION = '5.00';
+our $VERSION = '5.01';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -523,27 +523,36 @@ sub build_ticket_plan {
 }
 
 # run_workspace_command(%args)
-# Creates a tmux workspace session when needed and attaches to it.
-# Input: args array reference plus optional cwd/env_ticket/env_workspace values and optional tmux runner coderef.
+# Creates a tmux workspace session when needed and attaches to it; a registered
+# path alias also selects the starting directory when -c was not requested.
+# Input: args array reference plus optional cwd/env_ticket/env_workspace values
+# and optional tmux runner, attach runner, and directory resolver coderefs.
 # Output: plan hash reference after successful tmux create/attach operations.
 sub run_workspace_command {
     my (%args) = @_;
     my $tmux = $args{tmux} || \&tmux_command;
     my ( $workspace_args, $change_dir ) = split_workspace_change_dir_args( $args{args} || [] );
+    my $workspace = resolve_workspace_request(
+        args          => $workspace_args,
+        env_workspace => $args{env_workspace},
+        env_ticket    => $args{env_ticket},
+    );
+    my $resolver = $args{resolve_dir} || \&registered_workspace_dir;
+    my $target = $resolver->($workspace);
     if ($change_dir) {
-        my $workspace = resolve_workspace_request(
-            args          => $workspace_args,
-            env_workspace => $args{env_workspace},
-            env_ticket    => $args{env_ticket},
-        );
-        my $resolver = $args{resolve_dir} || \&registered_workspace_dir;
-        my $target = $resolver->($workspace);
         die "Workspace '$workspace' is not a registered dashboard path, so -c has no directory to change into\n"
           if !defined $target || $target eq '';
         die "Workspace '$workspace' resolves to '$target', which is not a directory\n"
           if !-d $target;
         chdir $target
           or die "Unable to change directory to '$target' for workspace '$workspace': $!\n";
+        $args{cwd} = $target;
+    }
+    elsif ( defined $target && $target ne '' ) {
+        die "Workspace path alias '$workspace' resolves to '$target', which is not a directory\n"
+          if !-d $target;
+        chdir $target
+          or die "Unable to change directory to '$target' for workspace path alias '$workspace': $!\n";
         $args{cwd} = $target;
     }
     my $plan = build_workspace_plan(

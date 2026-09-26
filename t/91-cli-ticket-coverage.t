@@ -38,6 +38,7 @@ use Developer::Dashboard::CLI::Ticket qw(
 use Developer::Dashboard::Config      ();
 use Developer::Dashboard::FileRegistry ();
 use Developer::Dashboard::PathRegistry ();
+use Developer::Dashboard::JSON qw(json_encode);
 
 # Warnings are fatal in this repository: collect any and assert none escaped.
 my @warnings;
@@ -148,6 +149,26 @@ my $ws_env_file = File::Spec->catfile( abs_path($ws_dir), '.env' );
 {
     is( registered_workspace_dir( File::Spec->rootdir ), File::Spec->rootdir, 'registered_workspace_dir passes an absolute path straight through' );
     is( registered_workspace_dir('dd-ticket-unregistered-workspace'), '', 'registered_workspace_dir returns empty for a name no layer registers' );
+}
+
+{
+    my $skill_target = File::Spec->catdir( $home, 'skill-project' );
+    my $skill_config = File::Spec->catfile( $home, '.developer-dashboard', 'skills', 'bar', 'config', 'config.json' );
+    make_path($skill_target);
+    write_file( $skill_config, json_encode( { path_aliases => { foo => $skill_target } } ) );
+
+    is( registered_workspace_dir('bar.foo'), $skill_target,
+        'registered_workspace_dir resolves a path alias qualified by its owning skill' );
+
+    my $old_cwd = cwd();
+    my $plan = run_workspace_command(
+        args   => ['bar.foo'],
+        tmux   => ok_tmux(),
+        attach => sub { return { exit_code => 0 } },
+    );
+    is( $plan->{session}, 'bar.foo', 'workspace keeps the qualified skill alias as the tmux session name' );
+    is( $plan->{cwd}, $skill_target, 'workspace alias starts the session in its resolved skill path without requiring -c' );
+    chdir $old_cwd or die "Unable to restore cwd to $old_cwd: $!";
 }
 
 {

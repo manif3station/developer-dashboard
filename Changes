@@ -1,3 +1,20 @@
+5.01  2026-09-26
+
+  - Resolved bare skill-qualified workspace aliases (for example,
+    `bar.foo`) without requiring `-c`, starting the tmux session in the
+    registered directory.
+  - Automatically imported the namespaced DataHelper JSON functions in every
+    saved-page CODE block.
+  - Loaded trusted skill `lib/Dashboard.pm` extensions into the shared Dancer2
+    app at web startup, including on restart and serve commands, with routes
+    behind the dashboard authorization gate.
+  - Excluded generated PAX test executables from distribution scanning so
+    Dist::Zilla no longer decodes binary scratch output as UTF-8 source.
+  - Marked inline helper packages as no-index metadata so the provides scan
+    does not warn that they lack standalone module files.
+  - Added focused regression coverage and operator documentation for all three
+    changes.
+
 5.00  2026-09-26
 
   - Prepared the 5.00 release metadata and synchronized module versions,

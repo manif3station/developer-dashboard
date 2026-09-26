@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.00';
+our $VERSION = '5.01';
 
 our @EXPORT = ('d2');
 
@@ -65,7 +65,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-5.00
+5.01
 
 =head1 INTRODUCTION
 
@@ -634,7 +634,8 @@ Hook result environment variable decoding and access for command runners.
 
 Project-owned modules now live only under the C<Developer::Dashboard::>
 namespace so the distribution does not pollute the CPAN ecosystem with
-generic package names.
+generic package names. The bookmark CODE runtime imports the short JSON helper
+names from C<Developer::Dashboard::DataHelper> automatically for every block.
 
 =head2 Main Concepts
 
@@ -696,7 +697,9 @@ C<Developer::Dashboard::Web::App>, and
 C<Developer::Dashboard::Web::Server> provide the browser interface on port
 C<7890>, with Dancer2 owning the HTTP route table while the web-app service
 handles page rendering, login/logout, helper sessions, and the
-exact-loopback admin trust model.
+exact-loopback admin trust model. At web startup, active skills may contribute
+Dancer2 routes and settings through C<skills/<name>/lib/Dashboard.pm>; these
+trusted extension routes remain behind the dashboard authorization gate.
 
 =item * Open File Commands
 
@@ -756,15 +759,15 @@ public standalone binary, and completes already-open tmux session names when
 shell completion is enabled. The older C<dashboard ticket> spelling has been
 removed; use C<dashboard workspace>.
 
-Passing C<-c> before or after the workspace name changes directory first. When
-the workspace name is registered in the dashboard paths inventory, the same
-registered names the shell C<cdr> helper resolves, the command changes into
-that registered directory before planning the session, so
-C<dashboard workspace -c foobar> behaves like running C<cdr foobar> followed
-by C<dashboard workspace foobar>: the tmux session and its layered C<.env>
-refresh both start from the registered project directory. When the name is not
-a registered dashboard path, C<-c> fails with an explicit error instead of
-silently starting the workspace from the wrong directory.
+When the workspace name is registered in the dashboard paths inventory, the
+command changes into that registered directory before planning the session.
+This includes skill-qualified aliases such as C<bar.foo>, just like the shell
+C<cdr> helper. For example, C<dashboard workspace bar.foo> names the session
+C<bar.foo> and starts it in the registered directory. Passing C<-c> before or
+after the workspace name remains available to explicitly request this behavior;
+when C<-c> is used with an unregistered name, the command fails with an explicit
+error instead of silently starting from the wrong directory. The tmux session
+and its layered C<.env> refresh both start from the resolved directory.
 
 =item * Runtime Manager
 
