@@ -15,7 +15,7 @@ use version ();
 use Archive::Tar;
 
 plan skip_all => 'source-tree release metadata/citation gate; installed tarballs omit checkout-only files'
-    if !-d '.git';
+    if !-e '.git';
 
 my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
 
