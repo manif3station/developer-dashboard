@@ -3,7 +3,7 @@ package Developer::Dashboard::InternalCLI;
 use strict;
 use warnings;
 
-our $VERSION = '4.90';
+our $VERSION = '5.00';
 
 use Cwd qw(abs_path);
 use File::Basename qw(dirname);
@@ -36,7 +36,6 @@ sub helper_aliases {
         pyq   => 'yq',
         ptomq => 'tomq',
         pjp   => 'propq',
-        ticket => 'workspace',
         skill => 'skills',
         logs  => 'log',
     };

@@ -7,6 +7,9 @@ use utf8;
 use Test::More;
 use YAML::XS qw(LoadFile);
 
+plan skip_all => 'checkout-only workflow validation; release tarballs exclude .github'
+    if !-f '.github/workflows/pax-release.yml';
+
 my $path = '.github/workflows/pax-release.yml';
 my $raw = do { local $/; open my $fh, '<', $path or die "cannot read $path: $!"; <$fh> };
 my $workflow = LoadFile($path);

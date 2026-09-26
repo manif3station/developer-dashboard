@@ -255,10 +255,12 @@ sub main {
     #
     # File::Spec->case_tolerant() is FALSE on Linux, so this leaves the
     # behaviour on this host exactly as the specs already measure it.
-    my $diverged =
-      File::Spec->case_tolerant()
-      ? ( lc($caller_checkout) ne lc($repo_checkout) )
-      : ( $caller_checkout ne $repo_checkout );
+    my $diverged = 0;
+    if ( defined $caller_checkout && defined $repo_checkout ) {
+        $diverged = File::Spec->case_tolerant()
+          ? ( lc($caller_checkout) ne lc($repo_checkout) )
+          : ( $caller_checkout ne $repo_checkout );
+    }
 
     if ( defined $caller_checkout && defined $repo_checkout && $diverged ) {
         return _unusable(

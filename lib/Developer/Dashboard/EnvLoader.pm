@@ -3,7 +3,7 @@ package Developer::Dashboard::EnvLoader;
 use strict;
 use warnings;
 
-our $VERSION = '4.90';
+our $VERSION = '5.00';
 
 use Cwd qw(cwd);
 use File::Basename qw(dirname);
@@ -38,6 +38,20 @@ sub load_skill_layers {
     return $class->_load_skill_layer_specs(
         specs => $class->_skill_layer_specs( @{ $args{skill_layers} || [] } ),
     );
+}
+
+# load_skill_cli_layers(%args)
+# Loads .env files that live directly under each participating skill's cli
+# directory after the skill root env files have loaded.
+# Input: hash with skill_layers => array reference of skill root paths.
+# Output: ordered array reference of the env files that were actually loaded.
+sub load_skill_cli_layers {
+    my ( $class, %args ) = @_;
+    my @files;
+    for my $spec ( @{ $class->_skill_layer_specs( @{ $args{skill_layers} || [] } ) } ) {
+        push @files, $class->_env_file_candidates( File::Spec->catdir( $spec->{root}, 'cli' ) );
+    }
+    return $class->load_files( files => \@files );
 }
 
 # load_skill_layers_into_hash(%args)
@@ -181,7 +195,7 @@ sub _plain_directory_layers {
         $stop_dir = $project_root;
     }
     else {
-        return ();
+        $stop_dir = $cwd;
     }
 
     my @layers;

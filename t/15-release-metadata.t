@@ -14,6 +14,9 @@ use Test::More;
 use version ();
 use Archive::Tar;
 
+plan skip_all => 'source-tree release metadata/citation gate; installed tarballs omit checkout-only files'
+    if !-d '.git';
+
 my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
 
 my $pm = _slurp( _repo_path('lib', 'Developer', 'Dashboard.pm') );
@@ -82,7 +85,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '4.90', 'repo version bumped per owner instruction 2026-09-16 (version bump now happens per-ticket in the distro column, not only at the epic-level VERSION GATE): DD-1052 follow-up' );
+is( $version, '5.00', 'repo version bumped for skill lib, completion, env loading, and ticket alias fixes' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
@@ -246,7 +249,7 @@ my %runtime_prereq_minimum = (
     'IO::Compress::Gzip'     => '2.220',
     'IO::Uncompress::Gunzip' => '2.220',
     'Cpanel::JSON::XS'       => '4.41',
-    'Dancer2'                => '0.206000',
+    'Dancer2'                => '2.2.0',
     'YAML'                   => '1.28',
     'Plack'                  => '1.0054',
     'Socket'                 => '2.041',
@@ -293,7 +296,7 @@ for my $uri_module (qw(URI URI::Escape)) {
         "the canonical runtime floor for $uri_module is at least 5.36, so the declared chain cannot permit CVE-2026-19953"
     ) or diag( "canonical floor for $uri_module is " . ( defined $declared ? "'$declared'" : 'undefined' ) );
 }
-for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file ticket workspace path paths ps1 encode decode indicator collector config auth api ask init cpan page action docker serve stop restart shell doctor housekeeper skills which upgrade)) {
+for my $helper (qw(_dashboard-core jq yq tomq propq iniq csvq xmlq of open-file workspace path paths ps1 encode decode indicator collector config auth api ask init cpan page action docker serve stop restart shell doctor housekeeper skills which upgrade)) {
     ok( -f _repo_path( 'share', 'private-cli', $helper ), "share/private-cli/$helper is shipped as a private helper asset" );
 }
 ok( -f _repo_path( 'share', 'public', 'js', 'jquery-4.0.0.min.js' ), 'share/public/js/jquery-4.0.0.min.js is shipped as a bundled public asset' );

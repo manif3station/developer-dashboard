@@ -639,3 +639,26 @@ guests do not fail while pulling `Test::SharedFork`.
 The supported Windows runtime baseline is PowerShell plus Strawberry Perl.
 Git Bash is optional. Scoop is optional. They remain setup helpers, not
 runtime requirements for Developer Dashboard itself.
+
+## Docker Coverage Environment Notes
+
+Run the coverage gate from the repository directory through `d2 docker compose`;
+do not run the Perl suite on the host. The development container must trust the
+mounted checkout before tests that inspect Git metadata run:
+
+```sh
+d2 docker compose exec -T dev git config --global --add safe.directory /work
+d2 docker compose exec -T dev git config --global user.email tira-tests@example.invalid
+d2 docker compose exec -T dev git config --global user.name TiraTests
+```
+
+These settings are disposable container state. If a previous container created
+root-owned files under the local runtime configuration, restore readability
+before invoking `d2` again; never replace or discard the user's configuration.
+
+The repository-wide gate also executes operator-local specifications under
+`.claude/tools/`. A clean Docker result for the product suite does not imply
+those external checks can pass: `t-ci-health` requires a valid live GitHub
+credential, and `t-tira-author` requires the separate Tira project-person
+command. Record those as environment blockers rather than attributing them to
+Developer Dashboard code changes.

@@ -67,6 +67,12 @@ for my $case (
 }
 
 is_deeply(
+    [ Developer::Dashboard::CLI::Complete::complete( words => [ 'dashboard', 'ticket', 'DD-' ], index => 2 ) ],
+    [],
+    'complete no longer treats ticket as a workspace alias',
+);
+
+is_deeply(
     [ Developer::Dashboard::CLI::Complete::_subcommand_candidates('unknown') ],
     [],
     '_subcommand_candidates returns an empty list for unsupported built-ins',
@@ -139,6 +145,7 @@ make_path( File::Spec->catdir( $skill_alpha_root, 'cli' ) );
 make_path( File::Spec->catdir( $skill_alpha_root, 'skills', 'nested', 'cli' ) );
 make_path( File::Spec->catdir( $skill_disabled_root, 'cli' ) );
 _write_executable( File::Spec->catfile( $skill_alpha_root, 'cli', 'run-test' ), "#!/usr/bin/env perl\n" );
+_write_executable( File::Spec->catfile( $skill_alpha_root, 'cli', '__init__.pl' ), "#!/usr/bin/env perl\n" );
 _write_executable( File::Spec->catfile( $skill_alpha_root, 'skills', 'nested', 'cli', 'deep' ), "#!/usr/bin/env perl\n" );
 _write_executable( File::Spec->catfile( $skill_disabled_root, 'cli', 'run-test' ), "#!/usr/bin/env perl\n" );
 _write_plain_file( File::Spec->catfile( $skill_alpha_root, 'cli', 'skip-me' ), "plain\n" );
@@ -206,8 +213,8 @@ is( scalar grep( $_ eq 'jq', @top ), 1, 'top_level_candidates keeps canonical he
 
 is_deeply(
     [ $suggest->skill_commands('alpha-skill') ],
-    [ qw(alpha-skill.run-test alpha-skill.nested.deep) ],
-    'skill_commands lists one explicit skill including nested skill trees',
+    [ qw(alpha-skill alpha-skill.run-test alpha-skill.nested.deep) ],
+    'skill_commands lists one explicit skill including a bare __init__ skill command and nested skill trees',
 );
 is_deeply(
     [ $suggest->skill_commands('missing-skill') ],
@@ -216,7 +223,7 @@ is_deeply(
 );
 is_deeply(
     [ $suggest->skill_commands() ],
-    [ qw(alpha-skill.run-test alpha-skill.nested.deep disabled-skill.run-test) ],
+    [ qw(alpha-skill alpha-skill.run-test alpha-skill.nested.deep disabled-skill.run-test) ],
     'skill_commands without an explicit skill scans all installed skill roots including disabled ones',
 );
 {
@@ -254,12 +261,12 @@ is_deeply( [ $suggest->skill_command_suggestions('zzzzzzzz') ], [], 'skill_comma
 
 is_deeply(
     [ map { $_->{full} } $suggest->_all_skill_command_entries ],
-    [ qw(alpha-skill.run-test alpha-skill.nested.deep disabled-skill.run-test) ],
+    [ qw(alpha-skill alpha-skill.run-test alpha-skill.nested.deep disabled-skill.run-test) ],
     '_all_skill_command_entries traverses every installed skill root',
 );
 is_deeply(
     [ map { $_->{full} } $suggest->_skill_command_entries('alpha-skill') ],
-    [ qw(alpha-skill.run-test alpha-skill.nested.deep) ],
+    [ qw(alpha-skill alpha-skill.run-test alpha-skill.nested.deep) ],
     '_skill_command_entries traverses one concrete skill root',
 );
 is_deeply(
@@ -269,7 +276,7 @@ is_deeply(
 );
 is_deeply(
     [ map { $_->{full} } $suggest->_collect_skill_commands( $skill_alpha_root, 'alpha-skill' ) ],
-    [ qw(alpha-skill.run-test alpha-skill.nested.deep) ],
+    [ qw(alpha-skill alpha-skill.run-test alpha-skill.nested.deep) ],
     '_collect_skill_commands recurses into nested skill trees',
 );
 

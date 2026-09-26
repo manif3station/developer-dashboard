@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-4.90
+5.00
 
 # INTRODUCTION
 
@@ -55,8 +55,9 @@ privately under `~/.developer-dashboard/cli/dd/` and dispatched by
 `dashboard` without polluting the global PATH. That keeps dashboard-owned
 built-ins separate from user commands and hooks under
 `~/.developer-dashboard/cli/`. Compatibility aliases `pjq`, `pyq`,
-`ptomq`, `pjp`, and `ticket` still normalize to the current commands when
-they are invoked through `dashboard`. The public switchboard now keeps the
+`ptomq`, and `pjp` still normalize to the current commands when they are invoked
+through `dashboard`. The older `ticket` alias has been removed; use
+`workspace` for tmux workspace sessions. The public switchboard now keeps the
 prompt path lighter as well: once the managed helper files are already staged,
 `dashboard ps1` refreshes only the requested helper, reuses one path registry
 for the whole invocation, and avoids loading the suggestion and skill dispatch
@@ -511,14 +512,18 @@ generic package names.
     title is normalized to the public `developer-dashboard ...` form so `ps`
     output shows the user-facing command instead of the staged helper path.
 
+    Both `dashboard init` and `d2 init` preserve this boundary: dashboard
+    helpers remain in `cli/dd/`, while existing files directly in `cli/` are
+    treated as user-owned and are never overwritten by helper staging.
+
     `dashboard workspace` creates or reuses a tmux session for the requested
     workspace reference, seeds `WORKSPACE_REF`, keeps `TICKET_REF` for
     compatibility with older shells, refreshes plain-directory `.env` files from
     the highest ancestor down to the current directory when it creates or resumes a
     session, attaches through a dashboard-managed private helper instead of a
     public standalone binary, and completes already-open tmux session names when
-    shell completion is enabled. The older `dashboard ticket` spelling remains as
-    a compatibility alias.
+    shell completion is enabled. The older `dashboard ticket` spelling has been
+    removed; use `dashboard workspace`.
 
     Passing `-c` before or after the workspace name changes directory first. When
     the workspace name is registered in the dashboard paths inventory, the same
@@ -876,6 +881,12 @@ to the deepest matching child skill layer, applying:
 This means a deeper skill env can override a shared runtime key, but that
 override stays isolated to the skill execution path and does not leak into
 unrelated commands.
+
+The runtime chain is collected from the DD-OOP layers rooted at the current
+working directory, walking its existing parent directories toward the leaf,
+before the skill chain is applied. Therefore a nested command such as
+`d2 foo.bar.bob` receives both the current directory's inherited
+`.env`/`.env.pl` values and the `foo` then `bar` skill values.
 
 For nested skill commands such as `dashboard foo.bar.zzz.show`, the skill env
 chain expands from the root nested skill to the leaf skill before the command
@@ -1236,7 +1247,7 @@ Dashboard-managed built-in helpers are different from user commands. All
 built-in helper assets are always staged only under
 `~/.developer-dashboard/cli/dd/`. Dedicated helper bodies are used for
 `jq`, `yq`, `tomq`, `propq`, `iniq`, `csvq`, `xmlq`, `of`,
-`open-file`, `ticket`, `path`, `paths`, and `ps1`, while the remaining
+`open-file`, `workspace`, `path`, `paths`, and `ps1`, while the remaining
 built-in commands stage thin wrappers that delegate into the shared private
 `_dashboard-core` runtime. Under `DD-OOP-LAYERS`, layered lookup still
 applies to user-provided commands and hook directories, but `dashboard init`
@@ -1655,6 +1666,23 @@ bookmark should show its title in the page body, add it explicitly inside
 `/apps` redirects to `/app/index`, and `/app/<name>` can load
 either a saved bookmark document, a saved ajax/url bookmark file, or an
 installed skill index page when the smart route resolves to a skill.
+
+Saved URL bookmark compatibility is preserved. A saved bookmark whose raw
+content is an HTTP(S) URL returns a `302` redirect to that URL and appends the
+current query string. A local route is forwarded inside the dashboard instead;
+bookmark parameters are merged with request parameters, and array
+parameters are reduced using `<name>.selected.pos` before forwarding.
+
+Template Toolkit includes are skill-aware. A skill bookmark can use
+`[% INCLUDE "fragment.tt" %]` for a file beside its dashboard, or
+`[% INCLUDE "skills/foobar/dashboards/fragment.tt" %]` for an explicit
+runtime skill path. Normal dashboard bookmarks continue to resolve includes
+from their layered dashboards roots.
+
+Saved Ajax helpers also render the supplied `code` as a Template Toolkit
+template when `data => \{ ... \}` is provided. For example,
+`Ajax( code => 'print [% args %];', data => \{ args => 123 \}, ... )`
+stores `print 123;` for the Ajax worker to execute.
 
 ## Working With Collectors
 

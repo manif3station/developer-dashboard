@@ -7,6 +7,9 @@ use utf8;
 use Test::More;
 use YAML::XS qw(LoadFile);
 
+plan skip_all => 'checkout-only workflow validation; release tarballs exclude .github'
+    if !-f '.github/workflows/pax-release.yml';
+
 # DD-1016 (child of DDE-006): every platform's smoke-verify step must call
 # the SHARED script/pax-functional-parity-check harness instead of each
 # duplicating its own ad hoc single-command (version-only) comparison.

@@ -1,5 +1,65 @@
 # Fixed Bugs
 
+## 5.00
+
+- Synchronized the release metadata, module versions, POD, and generated
+  README for the 5.00 distribution.
+
+## 4.99
+
+- The all-metric coverage workflow test now skips explicitly in release
+  tarballs that do not contain the source checkout's `.github/` directory.
+
+## 4.98
+
+- Release tarball test runs now skip source-checkout-only workflow, security,
+  audit, and metadata gates when their intentionally excluded inputs are absent.
+- The UTF-8 PAX regression test now declares its POD encoding, keeping the
+  packaged POD syntax gate clean.
+- The coverage gate no longer emits uninitialized-value warnings when run from
+  an installed tarball without checkout metadata.
+
+## 4.97
+
+- Skill command scripts can now load modules shipped under their skill's
+  `lib/` directory because skill lib roots are added to the managed
+  `PERL5LIB`.
+- Skill dashboard `CODE` sections can now `use` modules from the owning
+  skill's `lib/` directory through a scoped `@INC` update.
+- Skill command env loading now includes participating `cli/.env` files, then
+  applies the invocation cwd `.env` last so local project values can override
+  skill defaults.
+- `d2` now loads the invocation cwd `.env` even when it is run from a directory
+  outside the user's home or detected project root.
+- Shell completion now exposes a skill `cli/__init__` command as the bare skill
+  name instead of `skill.__init__`.
+- The confusing public `ticket` helper alias has been removed; users should use
+  `workspace`.
+- Multi-level nested skill commands are covered so `skill.child.grand.command`
+  continues to resolve through repeated `skills/<name>` directories.
+- Release tarball installs no longer fail on checkout-only GitHub workflow
+  validation; the workflow test still runs in a source checkout and skips when
+  `.github/` is absent from the intentionally trimmed release payload.
+
+## 4.91
+
+- Restored the saved `/app/<name>` bookmark forwarding contract from the
+  saved URL bookmark handler: external HTTP(S) targets redirect with the
+  incoming query, local routes continue through internal dispatch, and
+  `<name>.selected.pos` selects one value from array parameters.
+- Skill bookmark Template Toolkit includes now resolve both relative dashboard
+  fragments and explicit `skills/<name>/dashboards/<file>` paths.
+- Saved Ajax helpers now process `code` as a Template Toolkit template when
+  `data => { ... }` is supplied before storing the executable handler.
+- `dashboard init` and `d2 init` now keep dashboard-owned helpers under the
+  private `cli/dd` namespace; user-owned files in the surrounding `cli`
+  directory remain untouched.
+- Nested skill commands such as `d2 foo.bar.bob` now receive the current
+  DD-OOP runtime environment and the parent-to-leaf skill `.env`/`.env.pl`
+  chain before `bob` executes.
+- Raised the Dancer2 dependency floor to 2.2.0 to exclude newly reported
+  vulnerable releases below that fixed range.
+
 
 ## 4.90
 

@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '4.90';
+our $VERSION = '5.00';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
@@ -194,7 +194,7 @@ sub _render_templates {
     );
 
     my $system = $self->_system_context(%args);
-    my @tt_roots = $self->{paths} ? $self->{paths}->dashboards_roots : '.';
+    my @tt_roots = $self->_template_include_roots($page);
     my $tt = Template->new(
         {
             EVAL_PERL   => 1,
@@ -277,6 +277,58 @@ sub _render_templates {
     }
 }
 
+# _template_include_roots($page)
+# Builds the allow-listed Template Toolkit include roots for one bookmark.
+# Input: page document, optionally carrying the skill_path metadata stamped by
+# SkillDispatcher.
+# Output: ordered, de-duplicated directory paths for INCLUDE resolution.
+sub _template_include_roots {
+    my ( $self, $page ) = @_;
+    my @roots;
+    my %seen;
+    my $add = sub {
+        my ($root) = @_;
+        return if !defined $root || $root eq '' || $seen{$root}++;
+        push @roots, $root;
+    };
+    if ( $self->{paths} ) {
+        my $skill_path = ref($page) && ref( $page->{meta} ) eq 'HASH' ? $page->{meta}{skill_path} : undef;
+        $add->( File::Spec->catdir( $skill_path, 'dashboards' ) ) if defined $skill_path && $skill_path ne '';
+        $add->($_) for $self->{paths}->dashboards_roots;
+        # Runtime roots make the documented skills/<name>/dashboards/... form
+        # resolvable without permitting arbitrary filesystem paths.
+        if ( $self->{paths}->can('runtime_roots') ) {
+            $add->($_) for $self->{paths}->runtime_roots;
+        }
+    }
+    $add->('.') if !@roots;
+    return @roots;
+}
+
+# _code_inc_roots($page)
+# Builds the skill-local Perl library roots exposed to older CODE sections for
+# one skill page.
+# Input: optional page document carrying skill_layers or skill_path metadata.
+# Output: ordered list of existing lib directory paths, leaf layer first.
+sub _code_inc_roots {
+    my ( $self, $page ) = @_;
+    return () if !ref($page) || ref( $page->{meta} ) ne 'HASH';
+    my @layers = ref( $page->{meta}{skill_layers} ) eq 'ARRAY'
+      ? @{ $page->{meta}{skill_layers} }
+      : ();
+    push @layers, $page->{meta}{skill_path}
+      if !@layers && defined $page->{meta}{skill_path} && $page->{meta}{skill_path} ne '';
+
+    my @roots;
+    my %seen;
+    for my $layer ( reverse @layers ) {
+        my $lib = File::Spec->catdir( $layer, 'lib' );
+        next if !-d $lib || $seen{$lib}++;
+        push @roots, $lib;
+    }
+    return @roots;
+}
+
 # _system_context(%args)
 # Builds the generic SYSTEM hash exposed to bookmark Template Toolkit rendering.
 # Input: runtime context hash.
@@ -346,6 +398,7 @@ sub _run_single_block {
         source       => $args{source} || '',
     };
     my ( $stdout, $stderr, $exit_code ) = capture {
+        local @INC = ( $self->_code_inc_roots( $args{page} ), @INC );
         @returns = $package->__run_code($wrapped_code);
         return $?;
     };
@@ -409,7 +462,10 @@ sub stream_code_block {
     my $old_stderr = select STDERR;
     $| = 1;
     select $old_stderr;
-    @returns = $package->__run_code($wrapped_code);
+    {
+        local @INC = ( $self->_code_inc_roots( $args{page} ), @INC );
+        @returns = $package->__run_code($wrapped_code);
+    }
     untie *STDOUT;
     untie *STDERR;
 
@@ -1271,6 +1327,17 @@ Cleanup sends SIGTERM first and then waits a bounded, elapsed-time grace window
 for the worker and its group to exit on their own, so a worker that installs a
 SIGTERM handler can reap its children, remove scratch files, and flush partial
 output before the SIGKILL escalation clears whatever is left.
+
+=head2 _template_include_roots
+
+Builds the safe Template Toolkit C<INCLUDE_PATH> for a bookmark. It includes
+the ordinary layered dashboard roots, the active skill's dashboards root, and
+the runtime roots so a skill template can explicitly include
+C<skills/foo/dashboards/fragment.tt>. Relative includes such as
+C<fragment.tt> continue to resolve from the current skill dashboard first.
+
+Input: page document, optionally carrying C<meta.skill_path>.
+Output: ordered list of include-root directory paths.
 
 =for comment FULL-POD-DOC START
 

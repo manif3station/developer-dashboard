@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Complete;
 use strict;
 use warnings;
 
-our $VERSION = '4.90';
+our $VERSION = '5.00';
 
 use Developer::Dashboard::Collector;
 use Developer::Dashboard::Config;
@@ -33,7 +33,7 @@ sub complete {
             $suggest->skill_commands,
         );
     }
-    elsif ( ( $words[1] || '' ) =~ /\A(?:workspace|ticket)\z/ && $index == 2 ) {
+    elsif ( ( $words[1] || '' ) eq 'workspace' && $index == 2 ) {
         my $provider = $args{ticket_sessions} || \&_ticket_sessions;
         @candidates = $provider->();
     }

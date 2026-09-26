@@ -982,10 +982,81 @@ like($stream_data_body, qr{set_chain_value\(foo,'bar','/ajax/foobar\?type=text&s
     print {$fh} '/ajax/demo.json?type=text';
     close $fh;
 }
+my $raw_named_page = eval { $app->_load_named_page('legacy-forward') };
+ok(!defined($raw_named_page) && !$@, 'saved URL entries do not leak PageDocument section errors through named-page loading');
 my ($code8, $type8, $body8) = @{ $app->handle(path => '/app/legacy-forward', query => '', remote_addr => '127.0.0.1', headers => { host => '127.0.0.1' }) };
 is($code8, 200, 'legacy /app saved-url forwarding works');
 like($type8, qr/text\/plain/, 'forwarded saved-url bookmark preserves content type');
 like(drain_stream_body($body8), qr/"ok"\s*:\s*1/, 'forwarded saved-url bookmark reaches ajax payload through the stream response');
+
+{
+    open my $fh, '>', $store->page_file('legacy-external-forward') or die $!;
+    print {$fh} 'https://example.test/bookmark?from=saved';
+    close $fh;
+}
+my ($external_code, $external_type, $external_body, $external_headers) = @{ $app->handle(
+    path        => '/app/legacy-external-forward',
+    query       => 'from=request',
+    remote_addr => '127.0.0.1',
+    headers     => { host => '127.0.0.1' },
+) };
+is($external_code, 302, 'legacy external URL bookmark redirects');
+like($external_type, qr/text\/plain/, 'external URL redirect uses a plain response');
+is($external_headers->{Location}, 'https://example.test/bookmark?from=saved&from=request', 'external URL redirect appends the incoming query');
+is($external_body, "Redirecting\n", 'external URL redirect has a concise body');
+
+my $selected_forward = $app->_legacy_app_response(
+    id            => 'legacy-forward',
+    query_params  => { choice => [qw(first second)], 'choice.selected.pos' => 1 },
+    body_params   => {},
+    remote_addr   => '127.0.0.1',
+    headers       => { host => '127.0.0.1' },
+);
+ok($selected_forward->[0], 'legacy URL forwarding resolves selected array parameters');
+my %selected_params = ( choice => [qw(first second)], 'choice.selected.pos' => 1 );
+Developer::Dashboard::Web::App::_resolve_legacy_selected_params(\%selected_params);
+is($selected_params{choice}, 'second', 'legacy selected.pos forwards the selected array value');
+
+for my $case (
+    [ 'legacy-unsupported-scheme', 'ftp://example.test/file', 400, 'Unsupported bookmark URL scheme' ],
+    [ 'legacy-empty-target', '', 400, 'Invalid bookmark target' ],
+) {
+    open my $fh, '>', $store->page_file($case->[0]) or die $!;
+    print {$fh} $case->[1];
+    close $fh;
+    my ( $status, undef, $body ) = @{ $app->handle(
+        path        => '/app/' . $case->[0],
+        query       => '',
+        remote_addr => '127.0.0.1',
+        headers     => { host => '127.0.0.1' },
+    ) };
+    is($status, $case->[2], "$case->[0] is rejected");
+    like($body, qr/\Q$case->[3]\E/, "$case->[0] explains the rejection");
+}
+my ( $fallback_redirect_status, undef, $fallback_redirect_body, $fallback_redirect_headers ) =
+  @{ $app->_legacy_external_redirect_response( target => 'https://example.test/fallback', params => { a => '1' } ) };
+is($fallback_redirect_status, 302, 'external redirect can build a query from parsed parameters');
+is($fallback_redirect_headers->{Location}, 'https://example.test/fallback?a=1', 'parsed parameters are appended when raw query is absent');
+is($fallback_redirect_body, "Redirecting\n", 'parsed-parameter redirect uses the standard body');
+my ($control_query_status) =
+  @{ $app->_legacy_external_redirect_response( target => 'https://example.test/fallback', raw_query => "bad\nquery" ) };
+is($control_query_status, 400, 'external redirect rejects control characters in the incoming query');
+my %not_a_hash;
+is(Developer::Dashboard::Web::App::_resolve_legacy_selected_params(undef), undef, 'selected parameter helper ignores an undefined input');
+Developer::Dashboard::Web::App::_resolve_legacy_selected_params(\%not_a_hash);
+is_deeply(\%not_a_hash, {}, 'selected parameter helper leaves an empty hash unchanged');
+my %invalid_selection = (
+    plain => 'value',
+    scalar => 'value',
+    'scalar.selected.pos' => 0,
+    array => [qw(one)],
+    'array.selected.pos' => 'not-a-number',
+    out_of_range => [qw(one)],
+    'out_of_range.selected.pos' => 2,
+);
+Developer::Dashboard::Web::App::_resolve_legacy_selected_params(\%invalid_selection);
+is($invalid_selection{array}[0], 'one', 'invalid selected.pos leaves array parameters unchanged');
+is_deeply($invalid_selection{out_of_range}, ['one'], 'out-of-range selected.pos leaves array parameters unchanged');
 
 {
     open my $fh, '>', $store->page_file('legacy-forward-override') or die $!;

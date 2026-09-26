@@ -99,6 +99,8 @@ __END__
 
 =pod
 
+=encoding UTF-8
+
 =head1 NAME
 
 t/196-codeunitcompiler-utf8-round-trip.t - DD-923 regression: PAX-compiled

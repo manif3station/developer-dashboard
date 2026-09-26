@@ -1,3 +1,72 @@
+5.00  2026-09-26
+
+  - Prepared the 5.00 release metadata and synchronized module versions,
+    POD, and the generated README.
+
+4.99  2026-09-26
+
+  - Made the final checkout-only coverage workflow gate skip cleanly in
+    installed release tarballs where .github/ is intentionally excluded.
+
+4.98  2026-09-26
+
+  - Made source-checkout-only release gates skip cleanly in installed tarballs,
+    added UTF-8 POD metadata to the non-ASCII regression test, and removed a
+    coverage-gate warning when checkout paths are unavailable.
+
+4.97  2026-09-26
+
+  - Added skill C<lib/> directories to skill CLI C<PERL5LIB> and skill page
+    CODE C<@INC> so both command scripts and dashboard CODE blocks can load
+    modules shipped by their skill.
+  - Loaded skill C<cli/.env> files and changed skill-command env precedence so
+    the invocation cwd C<.env> is applied last and can override skill values.
+  - Allowed cwd C<.env> loading even when C<d2> is launched outside the home or
+    project-root ancestry.
+  - Rendered skill C<cli/__init__> completion entries as the bare skill name
+    instead of C<skill.__init__>.
+  - Removed the public C<ticket> helper alias in favour of C<workspace>.
+  - Added regression coverage for multi-level nested skill command resolution.
+  - Fixed checkout-only GitHub workflow validation so packaged tarball installs
+    skip it cleanly when C<.github/> is intentionally excluded from the
+    release payload.
+
+4.95  2026-09-25
+
+  - Merged incoming query parameters into saved skill bookmark URLs, replacing
+    matching keys while preserving saved parameters and appending new values.
+
+4.94  2026-09-25
+
+  - Fixed skill bookmark files containing saved HTTP(S) URLs so they forward
+    to the target instead of being parsed as instruction documents.
+
+4.93  2026-09-25
+
+  - Fixed saved URL bookmark forwarding so instruction parsing errors are not
+    leaked when a legacy entry is routed through named-page loading.
+
+4.92  2026-09-25
+
+  - Bumped the release metadata and every library version to 4.92.
+  - Restored legacy saved URL bookmark compatibility: external HTTP(S)
+    bookmarks redirect with the incoming query, local routes forward
+    internally, and legacy selected array parameters are resolved.
+  - Made Template Toolkit bookmark includes skill-aware, supporting both
+    relative skill dashboard fragments and explicit skills/<name>/dashboards
+    include paths.
+  - Made saved Ajax C<code> templates render their supplied C<data> values
+    before the generated handler is stored.
+  - Kept dashboard-owned init helpers inside the private C<cli/dd> namespace
+    for both C<dashboard init> and C<d2 init>, without overwriting user CLI files.
+  - Nested skill CLI commands now inherit the DD-OOP runtime env chain and
+    every parent skill's C<.env> and C<.env.pl> before the leaf command runs.
+
+4.91  2026-09-25
+
+  - Raised the Dancer2 dependency floor to 2.2.0, the first release outside
+    the newly reported vulnerable ranges.
+
 4.90  2026-09-25
 
   - DD-1050: removed 'lib' from _skip_dependency_module's skip-list

@@ -112,6 +112,14 @@ sub write_file {
         'ARRAY',
         'load_skill_layers accepts an explicit skill_layers list',
     );
+    my $skill_cli_root = File::Spec->catdir( $home, 'skills', 'foo', 'cli' );
+    write_file( File::Spec->catfile( $skill_cli_root, '.env' ), "SKILL_CLI_ENV=loaded\n" );
+    is_deeply(
+        $EL->load_skill_cli_layers( skill_layers => [ File::Spec->catdir( $home, 'skills', 'foo' ) ] ),
+        [ File::Spec->catfile( $skill_cli_root, '.env' ) ],
+        'load_skill_cli_layers loads .env files from participating skill cli directories',
+    );
+    is( $ENV{SKILL_CLI_ENV}, 'loaded', 'load_skill_cli_layers applies the skill cli env file' );
 }
 
 {
@@ -442,14 +450,14 @@ write_file( File::Spec->catfile( $ab,  '.env' ),    "AK=abval\n" );
 
     is_deeply(
         [ $EL->_plain_directory_layers( Local::MockPaths->new( cwd => '/x/y/z', home => '/other', project_root => '' ) ) ],
-        [],
-        '_plain_directory_layers returns nothing when cwd is outside home and there is no project root',
+        ['/x/y/z'],
+        '_plain_directory_layers loads the invocation cwd when it is outside home and there is no project root',
     );
 
     is_deeply(
         [ $EL->_plain_directory_layers( Local::MockPaths->new( cwd => '/x/y/z', home => '/other', project_root => '/p/q' ) ) ],
-        [],
-        '_plain_directory_layers returns nothing when cwd is under neither home nor the project root',
+        ['/x/y/z'],
+        '_plain_directory_layers still loads the invocation cwd when it is under neither home nor the project root',
     );
 
     is_deeply(

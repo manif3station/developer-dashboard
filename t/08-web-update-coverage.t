@@ -145,6 +145,8 @@ ok( !$dancer_skill_install->{error}, 'dancer route skill installs cleanly for PS
         my $page = $cb->( GET 'http://127.0.0.1/app/dancer-route-skill' );
         is( $page->code, 200, 'Dancer app route serves the top-level skill bookmark page' );
         like( decode_body_text( $page->content ), qr/Dancer Skill Index/, 'Dancer app route renders the top-level skill bookmark body' );
+        like( decode_body_text( $page->content ), qr/skill-local-include/, 'skill bookmark INCLUDE resolves a template relative to its skill dashboards root' );
+        is( () = decode_body_text( $page->content ) =~ /skill-local-include/g, 2, 'skill bookmark INCLUDE resolves the explicit skills dashboards path' );
 
         my $custom_nested_page = $cb->( GET 'http://127.0.0.1/apps/dancer-route-skill/child' );
         is( $custom_nested_page->code, 200, 'Dancer custom app route serves the nested skill bookmark page' );
@@ -1432,9 +1434,14 @@ TITLE: Dancer Skill Index
 BOOKMARK: index
 :--------------------------------------------------------------------------------:
 HTML:
-Dancer Skill Index
+Dancer Skill Index [% INCLUDE something.tt %] [% INCLUDE "skills/dancer-route-skill/dashboards/something.tt" %]
 BOOKMARK
     close $index or die "Unable to close top-level skill index bookmark: $!";
+
+    open my $skill_include, '>:raw', File::Spec->catfile( $repo, 'dashboards', 'something.tt' )
+      or die "Unable to write top-level skill include template: $!";
+    print {$skill_include} "skill-local-include\n";
+    close $skill_include or die "Unable to close top-level skill include template: $!";
 
     open my $js, '>:raw', File::Spec->catfile( $repo, 'dashboards', 'public', 'js', 'skill.js' )
       or die "Unable to write top-level skill js asset: $!";

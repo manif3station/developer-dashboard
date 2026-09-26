@@ -10,6 +10,9 @@ use YAML::XS qw(LoadFile);
 my $path = '.github/workflows/pax-release.yml';
 
 # AC-1: the workflow file exists and is valid YAML.
+plan skip_all => 'checkout-only GitHub workflow validation; release tarballs intentionally exclude .github'
+  if !-d '.github';
+
 ok( -e $path, "$path exists" ) or BAIL_OUT("$path does not exist yet - nothing else in this file can run");
 
 my $workflow = eval { LoadFile($path) };
@@ -72,6 +75,9 @@ owner-confirmed platform/arch matrix entries with a runner and a distinct
 artifact name each, and give every matrix job a placeholder build step
 plus an C<actions/upload-artifact> step ready for sibling tickets
 (DD-1013/1014/1015) to wire real C<dashboard pax build> invocations into.
+The check is source-checkout only: release tarballs intentionally exclude
+C<.github/>, so packaged installs skip this file rather than failing on
+checkout-only CI metadata.
 
 =head1 WHY IT EXISTS
 
@@ -88,6 +94,9 @@ Run this file whenever C<.github/workflows/pax-release.yml> changes, or
 whenever C<package-ghcr.yml>'s trigger convention changes (this file
 compares against it directly rather than hardcoding a copy, so drift
 between the two is caught automatically).
+When the distribution is tested from a CPAN tarball, the test reports a
+skip because the workflows are deliberately not part of the shipped
+runtime payload.
 
 =head1 HOW TO USE
 

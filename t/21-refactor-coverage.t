@@ -274,7 +274,6 @@ is_deeply(
         pyq    => 'yq',
         ptomq  => 'tomq',
         pjp    => 'propq',
-        ticket => 'workspace',
         skill  => 'skills',
         logs   => 'log',
     },
@@ -283,7 +282,7 @@ is_deeply(
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('pjq'), 'jq', 'legacy helper alias normalizes to jq' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('skill'), 'skills', 'singular skill helper alias normalizes to skills' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('xmlq'), 'xmlq', 'current helper name stays unchanged' );
-is( Developer::Dashboard::InternalCLI::canonical_helper_name('ticket'), 'workspace', 'ticket helper name now aliases to workspace' );
+is( Developer::Dashboard::InternalCLI::canonical_helper_name('ticket'), '', 'ticket helper name is no longer a workspace alias' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('workspace'), 'workspace', 'workspace helper name stays unchanged' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('paths'), 'paths', 'paths helper name stays unchanged' );
 is( Developer::Dashboard::InternalCLI::canonical_helper_name('bogus'), '', 'unsupported helper names normalize to empty string' );
