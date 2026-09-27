@@ -7968,7 +7968,12 @@ PERL_EVAL
             my %merged = (%{$left});
             for my $key (keys %{$right}) {
                 if (ref($left->{$key}) eq 'HASH' && ref($right->{$key}) eq 'HASH') {
-                    $merged{$key} = _code_for($name)->($self, $left->{$key}, $right->{$key});
+                    # DD-1040: must be $full (package-qualified), not $name -
+                    # _code_for() does a raw *{$full}{CODE} lookup, so a bare
+                    # name resolves relative to THIS package
+                    # (Developer::Dashboard::Pax::StandaloneRuntime), not the
+                    # package this sub was actually installed into.
+                    $merged{$key} = _code_for($full)->($self, $left->{$key}, $right->{$key});
                     next;
                 }
                 if (ref($left->{$key}) eq 'ARRAY' && ref($right->{$key}) eq 'ARRAY') {
@@ -8640,7 +8645,9 @@ PERL
             my %merged = (%{$left});
             for my $key (keys %{$right}) {
                 if (ref($left->{$key}) eq 'HASH' && ref($right->{$key}) eq 'HASH') {
-                    $merged{$key} = _code_for($name)->($self, $left->{$key}, $right->{$key});
+                    # DD-1040: $full, not $name - see the identical fix in
+                    # config_merge_hashes above for why the bare name is wrong.
+                    $merged{$key} = _code_for($full)->($self, $left->{$key}, $right->{$key});
                     next;
                 }
                 if (ref($left->{$key}) eq 'ARRAY' && ref($right->{$key}) eq 'ARRAY') {
@@ -13172,7 +13179,8 @@ JS
             if (-d $nested_root) {
                 opendir(my $dh, $nested_root) or die "Unable to read $nested_root: $!";
                 for my $entry (sort grep { $_ ne '.' && $_ ne '..' && -d File::Spec->catdir($nested_root, $_) } readdir($dh)) {
-                    push @entries, _code_for($name)->($self, File::Spec->catdir($nested_root, $entry), "$prefix.$entry");
+                    # DD-1040: $full, not $name - same bare-vs-qualified bug.
+                    push @entries, _code_for($full)->($self, File::Spec->catdir($nested_root, $entry), "$prefix.$entry");
                 }
                 closedir($dh);
             }
