@@ -3,7 +3,7 @@ package Developer::Dashboard::PerlEnv;
 use strict;
 use warnings;
 
-our $VERSION = '5.09';
+our $VERSION = '5.10';
 
 use Config ();
 use Cwd qw(abs_path);

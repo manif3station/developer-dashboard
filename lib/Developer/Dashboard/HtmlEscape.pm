@@ -3,7 +3,7 @@ package Developer::Dashboard::HtmlEscape;
 use strict;
 use warnings;
 
-our $VERSION = '5.09';
+our $VERSION = '5.10';
 
 use Exporter 'import';
 

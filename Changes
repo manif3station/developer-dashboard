@@ -1,3 +1,17 @@
+5.10  2026-09-27
+
+  - Fixed a `dashboard serve --foreground` startup hang for any skill
+    declaring a collector: CollectorRunner::_find_running_loop scanned
+    every /proc PID and fell back to spawning a `ps -o args= -p $pid`
+    subprocess whenever a candidate's cmdline was readable-but-empty -
+    the permanent, non-racy shape of a kernel thread, not just a
+    vanished-process race. On a host with hundreds of kernel threads that
+    cost one subprocess spawn per thread, sequentially, making the
+    startup hang 90+ seconds with zero output. Now skips a
+    readable-but-empty cmdline candidate before ever calling
+    _read_process_title, since it can never match a collector's own
+    non-empty process title.
+
 5.09  2026-09-27
 
   - Fixed a dependency-scan masking defect: _locate_module_runtime_file

@@ -1,5 +1,15 @@
 # Fixed Bugs
 
+## 5.10
+
+- Fixed DD-1054: `dashboard serve --foreground` hung indefinitely with zero
+  output for any skill declaring a collector. `CollectorRunner::_find_running_loop`
+  scanned every `/proc` PID and fell back to a per-pid `ps` subprocess spawn
+  whenever a candidate's cmdline was readable-but-empty - the permanent shape
+  of a kernel thread, not a race. On a host with hundreds of kernel threads
+  that made startup cost one subprocess spawn per thread. Now skips such a
+  candidate before ever calling `_read_process_title`.
+
 ## 5.09
 
 - Fixed DD-1049: `_locate_module_runtime_file` returned the FIRST @INC/roots

@@ -85,7 +85,7 @@ my $skills_pod = _extract_pod($skills_pm);
 
 like( $pm, qr/our \$VERSION = '([^']+)'/, 'main module declares a version' );
 my ($version) = $pm =~ /our \$VERSION = '([^']+)'/;
-is( $version, '5.09', 'repo version bumped for Docker Compose development overlays' );
+is( $version, '5.10', 'repo version bumped for the CollectorRunner ps-fallback fix (DD-1054)' );
 like( $pm, qr/^\Q$version\E$/m, 'main POD version matches the module version' );
 {
     my @module_files;
