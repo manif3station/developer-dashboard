@@ -3,7 +3,7 @@ package Developer::Dashboard::Pax;
 use strict;
 use warnings;
 
-our $VERSION = '5.07';
+our $VERSION = '5.08';
 
 1;
 

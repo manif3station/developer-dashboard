@@ -1,3 +1,15 @@
+5.08  2026-09-27
+
+  - Fixed a compiled-standalone-binary crash: three closures in
+    StandaloneRuntime.pm's recursive merge/collect ops
+    (config_merge_hashes, skill_dispatcher_merge_skill_hashes,
+    suggest_collect_skill_commands) resolved their own recursion via
+    _code_for($name), the bare unqualified sub name, instead of
+    _code_for($full), the package-qualified name available in the same
+    scope - _code_for() does a raw typeglob lookup, so the bare name
+    resolved against the wrong package and returned undef, crashing
+    `dashboard init`.
+
 5.07  2026-09-27
 
   - Added explicit Docker development overlay toggles through

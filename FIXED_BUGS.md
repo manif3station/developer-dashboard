@@ -1,5 +1,13 @@
 # Fixed Bugs
 
+## 5.08
+
+- Fixed DD-1040: compiled `dashboard init` crashed with an undefined-coderef
+  error. Three self-recursive closures in StandaloneRuntime.pm's merge/collect
+  helpers looked up their own recursion by bare sub name instead of the
+  package-qualified name, so the lookup resolved against the wrong package and
+  returned undef.
+
 ## 5.07
 
 - Fixed Docker Compose service-file selection so `compose.yml` always remains

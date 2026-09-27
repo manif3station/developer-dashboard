@@ -3,7 +3,7 @@ package Developer::Dashboard::CLI::Upgrade;
 use strict;
 use warnings;
 
-our $VERSION = '5.07';
+our $VERSION = '5.08';
 
 use Developer::Dashboard::Platform ();
 use File::Temp qw(tempfile);
