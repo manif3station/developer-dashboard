@@ -3,7 +3,7 @@ package Developer::Dashboard::DockerCompose;
 use strict;
 use warnings;
 
-our $VERSION = '5.06';
+our $VERSION = '5.07';
 
 use Capture::Tiny qw(capture);
 use Cwd qw(cwd);
@@ -324,9 +324,9 @@ sub _home_docker_config_root {
 }
 
 # _discover_service_files(%args)
-# Discovers the preferred old-style isolated compose file for a named service from repo-local and global docker config roots.
+# Discovers isolated compose files for a named service from all active docker config roots.
 # Input: service name and optional project_root.
-# Output: ordered list of discovered compose file paths, preferring development.compose.yml over compose.yml per folder.
+# Output: ordered file paths, with each compose.yml base followed by an opted-in development.compose.yml overlay.
 sub _discover_service_files {
     my ( $self, %args ) = @_;
     my $service      = $args{service} || return;
@@ -343,19 +343,21 @@ sub _discover_service_files {
 
     my @files;
     my %seen;
+    my $development_enabled = $self->_service_folder_is_development(
+        project_root => $project_root,
+        service      => $service,
+    );
     for my $root (@roots) {
         next if !defined $root;    # uncoverable branch true lookup roots are interpolated paths, never undef
         my $service_root = File::Spec->catdir( $root, $service );
         next if !-d $service_root;    # uncoverable branch true lookup roots already filtered to existing service folders
 
-        my $development = File::Spec->catfile( $service_root, 'development.compose.yml' );
-        if ( -f $development ) {
-            push @files, $development if !$seen{$development}++;    # uncoverable branch false lookup roots are deduplicated so each development path is seen once
-            next;
-        }
-
         my $compose = File::Spec->catfile( $service_root, 'compose.yml' );
-        push @files, $compose if -f $compose && !$seen{$compose}++;    # uncoverable condition right lookup roots are deduplicated so each compose path is seen once
+        push @files, $compose if -f $compose && !$seen{$compose}++;
+
+        next if !$development_enabled;
+        my $development = File::Spec->catfile( $service_root, 'development.compose.yml' );
+        push @files, $development if -f $development && !$seen{$development}++;
     }
 
     return @files;
@@ -559,6 +561,26 @@ sub _service_folder_is_disabled {
     return 0;
 }
 
+# _service_folder_is_development(%args)
+# Checks whether the effective isolated service folder opts into its development compose overlay.
+# Input: service name and optional project_root.
+# Output: boolean true when the deepest existing service folder contains develop.yml.
+sub _service_folder_is_development {
+    my ( $self, %args ) = @_;
+    my $service      = $args{service} || return 0;
+    my $project_root = $args{project_root} || cwd();
+    my @roots = $self->_service_lookup_roots(
+        project_root => $project_root,
+        service      => $service,
+    );
+    for my $root ( reverse @roots ) {
+        my $service_root = File::Spec->catdir( $root, $service );
+        next if !-d $service_root;
+        return -f File::Spec->catfile( $service_root, 'develop.yml' ) ? 1 : 0;
+    }
+    return 0;
+}
+
 # _service_lookup_roots(%args)
 # Returns the docker roots that should be searched for one isolated service across
 # home config, installed skills, and deeper runtime-layer config/docker roots.
@@ -714,6 +736,54 @@ sub enable_service {
         disabled => 0,
         marker   => $marker,
         service  => $service,
+    };
+}
+
+# enable_service_development(%args)
+# Writes the opt-in marker that enables a service's development compose overlay.
+# Input: service name and optional project_root.
+# Output: hash reference describing the enabled development state and marker path.
+sub enable_service_development {
+    my ( $self, %args ) = @_;
+    my $service = $args{service} || die "Usage: dashboard docker development enable <service>\n";
+    my $marker = $self->_service_development_marker_path(
+        project_root => $args{project_root},
+        service      => $service,
+    );
+    die "Refusing service name that escapes the docker config root: $service\n"
+      if !defined $marker;
+    my ( undef, $dir ) = File::Spec->splitpath($marker);
+    make_path($dir) if !-d $dir;
+    open my $fh, '>', $marker or die "Unable to write $marker: $!";
+    print {$fh} "---\ndevelopment: 1\n";
+    close $fh or die "Unable to close $marker: $!";
+    return {
+        action      => 'development-enable',
+        development => 1,
+        marker      => $marker,
+        service     => $service,
+    };
+}
+
+# disable_service_development(%args)
+# Removes the opt-in marker that enables a service's development compose overlay.
+# Input: service name and optional project_root.
+# Output: hash reference describing the disabled development state and marker path.
+sub disable_service_development {
+    my ( $self, %args ) = @_;
+    my $service = $args{service} || die "Usage: dashboard docker development disable <service>\n";
+    my $marker = $self->_service_development_marker_path(
+        project_root => $args{project_root},
+        service      => $service,
+    );
+    die "Refusing service name that escapes the docker config root: $service\n"
+      if !defined $marker;
+    unlink $marker or die "Unable to remove $marker: $!" if -e $marker;
+    return {
+        action      => 'development-disable',
+        development => 0,
+        marker      => $marker,
+        service     => $service,
     };
 }
 
@@ -891,6 +961,19 @@ sub _service_disabled_marker_path {
     return File::Spec->catfile( $dir, 'disabled.yml' );
 }
 
+# _service_development_marker_path(%args)
+# Resolves a contained service path for the development-mode marker file.
+# Input: service name and optional project_root.
+# Output: absolute develop.yml marker path string, or undef if the service escapes its root.
+sub _service_development_marker_path {
+    my ( $self, %args ) = @_;
+    my $service = $args{service} || die "Missing service\n";
+    my $root = $self->_service_toggle_root(%args);
+    my $service_root = _contained_service_path( $root, $service );
+    return if !defined $service_root;
+    return File::Spec->catfile( $service_root, 'develop.yml' );
+}
+
 # _service_toggle_root(%args)
 # Returns the deepest participating config/docker root where isolated-service
 # toggle markers should be written.
@@ -929,6 +1012,17 @@ docker compose command line and can optionally execute it.
 =head2 new, resolve, list_services, run
 
 Construct, resolve, list, and optionally execute compose operations.
+
+=head2 enable_service_development, disable_service_development
+
+Create or remove the deepest-layer C<develop.yml> marker for one isolated
+service. The marker controls only whether C<development.compose.yml> is added;
+an existing C<compose.yml> remains the base and is loaded first. If the marker
+is present but the development file is absent, resolution continues with the
+base file and does not report an error.
+
+  $docker->enable_service_development( service => 'web' );
+  $docker->disable_service_development( service => 'web' );
 
 =head2 disable_service, enable_service
 

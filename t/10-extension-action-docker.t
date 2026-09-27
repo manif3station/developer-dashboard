@@ -167,6 +167,9 @@ make_path($local_docker_green_root);
 open my $local_green_dev_fh, '>', File::Spec->catfile( $local_docker_green_root, 'development.compose.yml' ) or die $!;
 print {$local_green_dev_fh} "services:\n  green:\n    environment:\n      GREEN_DEV: local\n";
 close $local_green_dev_fh;
+open my $local_green_development_marker_fh, '>', File::Spec->catfile( $local_docker_green_root, 'develop.yml' ) or die $!;
+print {$local_green_development_marker_fh} "---\ndevelopment: 1\n";
+close $local_green_development_marker_fh;
 
 my $paths = Developer::Dashboard::PathRegistry->new(
     home => $home,
@@ -379,6 +382,7 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
     ok( grep( { /compose\.worker\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes service overlay' );
     ok( grep( { /compose\.dev\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes mode overlay' );
     ok( grep( { /compose\.mailhog\.yaml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes config addon overlay' );
+    ok( grep( { /green\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes the isolated base file before its development overlays' );
     ok( grep( { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes isolated development compose files automatically for selected services' );
     ok( !grep( { /skills\/beta-skill\/config\/docker\/green\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver excludes docker roots contributed by disabled skills' );
     is( $resolved->{env}{APP_MODE}, 'dev', 'docker compose resolver merges mode env' );
@@ -420,7 +424,8 @@ like( $allowed_result->{stdout}, qr/allowed/, 'transient encoded page can opt in
     ok( grep( { $_ eq 'orange' } @{ $resolved->{services} } ), 'docker compose resolver auto-loads isolated services contributed by installed skills' );
     ok( grep( { $_ eq 'purple' } @{ $resolved->{services} } ), 'docker compose resolver auto-loads isolated services without requiring activation markers' );
     ok( !grep( { $_ eq 'blue' } @{ $resolved->{services} } ), 'docker compose resolver skips isolated services marked disabled' );
-    ok( grep( { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes isolated development compose files during plain docker compose passthrough' );
+    ok( grep( { /green\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes the isolated base file during plain docker compose passthrough' );
+    ok( grep( { /green\/development\.compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes the opted-in development overlay during plain docker compose passthrough' );
     ok( !grep( { /skills\/beta-skill\/config\/docker\/green\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose passthrough excludes compose roots contributed by disabled skills' );
     ok( grep( { /skills\/alpha-skill\/config\/docker\/orange\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes skill docker compose roots during plain docker compose passthrough' );
     ok( grep( { /purple\/compose\.yml$/ } @{ $resolved->{files} } ), 'docker compose resolver includes non-disabled isolated compose folders during plain docker compose passthrough' );
@@ -698,13 +703,14 @@ __END__
 =head1 DESCRIPTION
 
 This test verifies config-driven extensions, page actions, encoded action
-transport, and docker compose resolution behavior.
+transport, and docker compose resolution behavior, including the base compose
+file and its explicitly enabled development overlay.
 
 =for comment FULL-POD-DOC START
 
 =head1 PURPOSE
 
-This test is the executable regression contract for extension resolution, action transport, and Docker-aware runtime behavior. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
+This test is the executable regression contract for extension resolution, action transport, and Docker-aware runtime behavior. Its Docker fixtures verify that `compose.yml` remains the service base while `development.compose.yml` is layered only when `develop.yml` is present. Read it when you need to understand the real fixture setup, assertions, and failure modes for this slice of the repository instead of guessing from the module names alone.
 
 =head1 WHY IT EXISTS
 
@@ -712,7 +718,7 @@ It exists because extension resolution, action transport, and Docker-aware runti
 
 =head1 WHEN TO USE
 
-Use this file when changing extension resolution, action transport, and Docker-aware runtime behavior, when a focused CI failure points here, or when you want a faster regression loop than running the entire suite.
+Use this file when changing extension resolution, action transport, Docker-aware runtime behavior, service-file ordering, or development marker state, when a focused CI failure points here, or when you want a faster regression loop than running the entire suite.
 
 =head1 HOW TO USE
 

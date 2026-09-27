@@ -354,6 +354,61 @@ chmod 0755, File::Spec->catfile( $logbin, 'docker' );
     is( $e2->{disabled}, 0, 'enable_service is idempotent when no marker exists' );
 }
 
+# Development compose files are opt-in overlays, not alternatives to the base.
+{
+    my $old = getcwd();
+    chdir $repo or die $!;
+    my $service = 'dualcompose';
+    my $service_root = File::Spec->catdir( $repo, '.developer-dashboard', 'config', 'docker', $service );
+    mkfile( File::Spec->catfile( $service_root, 'compose.yml' ), "services:\n  dualcompose: {}\n" );
+    mkfile( File::Spec->catfile( $service_root, 'development.compose.yml' ), "services:\n  dualcompose:\n    environment:\n      MODE: development\n" );
+
+    my $base_only = $docker->resolve(
+        project_root => $repo,
+        args         => [ 'config', $service ],
+    );
+    ok( grep( { /\/dualcompose\/compose\.yml\z/ } @{ $base_only->{files} } ), 'base compose file loads without a development marker' );
+    ok( !grep( { /\/dualcompose\/development\.compose\.yml\z/ } @{ $base_only->{files} } ), 'development compose file stays opt-in without develop.yml' );
+
+    my $development_enabled = $docker->enable_service_development(
+        project_root => $repo,
+        service      => $service,
+    );
+    ok( -f $development_enabled->{marker}, 'development enable creates the develop.yml marker' );
+    my $both = $docker->resolve(
+        project_root => $repo,
+        args         => [ 'config', $service ],
+    );
+    my ($base_index) = grep { $both->{files}[$_] =~ /\/dualcompose\/compose\.yml\z/ } 0 .. $#{ $both->{files} };
+    my ($dev_index)  = grep { $both->{files}[$_] =~ /\/dualcompose\/development\.compose\.yml\z/ } 0 .. $#{ $both->{files} };
+    ok( defined $base_index && defined $dev_index, 'base and development files both load when the marker is enabled' );
+    ok( $base_index < $dev_index, 'development file overlays the base file' );
+
+    my $development_disabled = $docker->disable_service_development(
+        project_root => $repo,
+        service      => $service,
+    );
+    ok( !-e $development_disabled->{marker}, 'development disable removes the develop.yml marker' );
+    my $base_again = $docker->resolve(
+        project_root => $repo,
+        args         => [ 'config', $service ],
+    );
+    ok( grep( { /\/dualcompose\/compose\.yml\z/ } @{ $base_again->{files} } ), 'base compose remains loaded after development is disabled' );
+    ok( !grep( { /\/dualcompose\/development\.compose\.yml\z/ } @{ $base_again->{files} } ), 'development overlay is omitted after development is disabled' );
+
+    $docker->enable_service_development( project_root => $repo, service => $service );
+    unlink File::Spec->catfile( $service_root, 'development.compose.yml' ) or die $!;
+    my $missing_overlay = eval {
+        $docker->resolve(
+            project_root => $repo,
+            args         => [ 'config', $service ],
+        );
+    };
+    ok( !$@, 'an enabled development marker with no overlay file is a no-op' );
+    ok( grep( { /\/dualcompose\/compose\.yml\z/ } @{ $missing_overlay->{files} } ), 'base compose remains when the enabled overlay is missing' );
+    chdir $old or die $!;
+}
+
 # disable into a not-yet-created marker directory (make_path branch), and into a
 # marker path blocked by a directory (open-for-write failure branch).
 {
@@ -717,8 +772,9 @@ This test drives every reachable branch and condition of
 L<Developer::Dashboard::DockerCompose> so the module holds at 100% on all four
 Devel::Cover metrics. It exercises rich, empty, and deliberately malformed
 runtime configurations, the isolated-service toggle helpers, the passthrough
-service inference, the skill docker-root discovery, and the direct low-level
-helpers with edge inputs that the higher-level paths never generate.
+service inference, the development marker/base-overlay contract, the skill
+docker-root discovery, and the direct low-level helpers with edge inputs that
+the higher-level paths never generate.
 
 =head1 WHY IT EXISTS
 
@@ -732,9 +788,10 @@ still pass the suite, and so the coverage gate stays honest for this module.
 =head1 WHEN TO USE
 
 Use this file when changing compose file discovery, service inference, the
-disabled-marker toggle helpers, skill docker-root resolution, environment
-export, or the dry-run versus execute behaviour of the docker helper. Extend it
-with a new failing case first whenever a new branch or condition appears.
+disabled or development marker helpers, base/overlay ordering, skill docker-root
+resolution, environment export, or the dry-run versus execute behaviour of the
+docker helper. Extend it with a new failing case first whenever a new branch or
+condition appears.
 
 =head1 HOW TO USE
 
@@ -774,5 +831,14 @@ Example 4:
   prove -lr t
 
 Put any resolver change back through the whole repository suite before release.
+
+Example 5:
+
+  dashboard docker development enable green
+  dashboard docker compose --dry-run config green
+  dashboard docker development disable green
+
+Exercise the public opt-in marker command and inspect the base-plus-overlay
+resolution without starting containers.
 
 =cut

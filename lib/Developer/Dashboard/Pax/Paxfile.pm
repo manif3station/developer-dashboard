@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::Paxfile;
 
-our $VERSION = '5.06';
+our $VERSION = '5.07';
 
 use strict;
 use warnings;

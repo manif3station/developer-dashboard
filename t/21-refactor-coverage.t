@@ -223,7 +223,7 @@ like(
         is_deeply(
             [ $docker->_discover_service_files( service => 'redis', project_root => $compose_only_root ) ],
             [$compose_only_file],
-            'DockerCompose falls back to compose.yml when a service folder has no development.compose.yml',
+            'DockerCompose loads the compose.yml base when no develop.yml marker opts into a development overlay',
         );
     }
 

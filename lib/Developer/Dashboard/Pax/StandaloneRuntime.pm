@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::StandaloneRuntime;
 
-our $VERSION = '5.06';
+our $VERSION = '5.07';
 
 use strict;
 use warnings;
@@ -5897,6 +5897,27 @@ PERL
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }
 
+    if (($sub->{op} // '') eq 'docker_compose_service_development_marker_path') {
+        my $toggle_root_method = $sub->{toggle_root_method} // die 'compiled sub toggle-root method missing';
+        $impl = sub {
+            my ($self, %args) = @_;
+            my $service = $args{service} || die 'Missing service';
+            my @parts;
+            for my $part (grep { $_ ne '' && $_ ne '.' } split m{[\\/]+}, $service) {
+                if ($part eq '..') {
+                    return if !@parts;
+                    pop @parts;
+                    next;
+                }
+                push @parts, $part;
+            }
+            return if !@parts;
+            my $root = _code_for($toggle_root_method)->($self, %args);
+            return File::Spec->catfile($root, @parts, 'develop.yml');
+        };
+        return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
+    }
+
     if (($sub->{op} // '') eq 'docker_compose_service_lookup_roots') {
         $impl = sub {
             my ($self, %args) = @_;
@@ -5942,6 +5963,23 @@ PERL
                 next if !-d $service_root;
                 return 1 if -f File::Spec->catfile($service_root, 'disabled.yml');
                 return 0;
+            }
+            return 0;
+        };
+        return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
+    }
+
+    if (($sub->{op} // '') eq 'docker_compose_service_folder_is_development') {
+        my $lookup_roots_method = $sub->{lookup_roots_method} // die 'compiled sub lookup-roots method missing';
+        $impl = sub {
+            my ($self, %args) = @_;
+            my $service = $args{service} || return 0;
+            my $project_root = $args{project_root} || Cwd::cwd();
+            my @roots = _code_for($lookup_roots_method)->($self, project_root => $project_root, service => $service);
+            for my $root (reverse @roots) {
+                my $service_root = File::Spec->catdir($root, $service);
+                next if !-d $service_root;
+                return -f File::Spec->catfile($service_root, 'develop.yml') ? 1 : 0;
             }
             return 0;
         };
@@ -6005,6 +6043,7 @@ PERL
 
     if (($sub->{op} // '') eq 'docker_compose_discover_service_files') {
         my $service_disabled_method = $sub->{service_disabled_method} // die 'compiled sub service-disabled method missing';
+        my $service_development_method = $sub->{service_development_method} // die 'compiled sub service-development method missing';
         my $lookup_roots_method = $sub->{lookup_roots_method} // die 'compiled sub lookup-roots method missing';
         $impl = sub {
             my ($self, %args) = @_;
@@ -6014,17 +6053,16 @@ PERL
             my @roots = _code_for($lookup_roots_method)->($self, project_root => $project_root, service => $service);
             my @files;
             my %seen;
+            my $development_enabled = _code_for($service_development_method)->($self, project_root => $project_root, service => $service);
             for my $root (@roots) {
                 next if !defined $root || $root eq '';
                 my $service_root = File::Spec->catdir($root, $service);
                 next if !-d $service_root;
-                my $development = File::Spec->catfile($service_root, 'development.compose.yml');
-                if (-f $development) {
-                    push @files, $development if !$seen{$development}++;
-                    next;
-                }
                 my $compose = File::Spec->catfile($service_root, 'compose.yml');
                 push @files, $compose if -f $compose && !$seen{$compose}++;
+                next if !$development_enabled;
+                my $development = File::Spec->catfile($service_root, 'development.compose.yml');
+                push @files, $development if -f $development && !$seen{$development}++;
             }
             return @files;
         };
@@ -6153,6 +6191,36 @@ PERL
             my $marker = _code_for($disabled_marker_method)->($self, project_root => $args{project_root}, service => $service);
             unlink $marker or die "Unable to remove $marker: $!" if -e $marker;
             return { action => 'enable', disabled => 0, marker => $marker, service => $service };
+        };
+        return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
+    }
+
+    if (($sub->{op} // '') eq 'docker_compose_enable_service_development') {
+        my $development_marker_method = $sub->{development_marker_method} // die 'compiled sub development-marker method missing';
+        $impl = sub {
+            my ($self, %args) = @_;
+            my $service = $args{service} || die "Usage: dashboard docker development enable <service>\n";
+            my $marker = _code_for($development_marker_method)->($self, project_root => $args{project_root}, service => $service);
+            die "Refusing service name that escapes the docker config root: $service\n" if !defined $marker;
+            my (undef, $dir) = File::Spec->splitpath($marker);
+            File::Path::make_path($dir) if !-d $dir;
+            open my $fh, '>', $marker or die "Unable to write $marker: $!";
+            print {$fh} "---\ndevelopment: 1\n";
+            close $fh or die "Unable to close $marker: $!";
+            return { action => 'development-enable', development => 1, marker => $marker, service => $service };
+        };
+        return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
+    }
+
+    if (($sub->{op} // '') eq 'docker_compose_disable_service_development') {
+        my $development_marker_method = $sub->{development_marker_method} // die 'compiled sub development-marker method missing';
+        $impl = sub {
+            my ($self, %args) = @_;
+            my $service = $args{service} || die "Usage: dashboard docker development disable <service>\n";
+            my $marker = _code_for($development_marker_method)->($self, project_root => $args{project_root}, service => $service);
+            die "Refusing service name that escapes the docker config root: $service\n" if !defined $marker;
+            unlink $marker or die "Unable to remove $marker: $!" if -e $marker;
+            return { action => 'development-disable', development => 0, marker => $marker, service => $service };
         };
         return _install_sub_impl($package, $name, $sub->{prototype}, $impl);
     }

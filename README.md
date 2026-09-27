@@ -5,7 +5,8 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-5.06
+
+5.07
 
 # INTRODUCTION
 
@@ -908,9 +909,11 @@ sees `VERSION` from `zzz`, `foo_VERSION` from `foo`, and
 The Docker Compose resolver also loads `<skill-root>/.env` for each installed
 skill whose `config/docker/<service>/compose.yml` or
 `config/docker/<service>/development.compose.yml` file actually participates in
-the resolved compose stack. That compose-only skill env layer stays isolated to
-the compose resolver, respects disabled skills, and does not execute
-`<skill-root>/.env.pl`. Nested skill compose services use that same
+the resolved compose stack. A service's `compose.yml` is its base and is loaded
+whenever present; `development.compose.yml` is loaded afterward only while the
+service's `develop.yml` marker is enabled. That compose-only skill env layer
+stays isolated to the compose resolver, respects disabled skills, and does not
+execute `<skill-root>/.env.pl`. Nested skill compose services use that same
 root-to-leaf env expansion, so a participating leaf service such as
 `skills/foo/skills/bar/skills/zzz/config/docker/zzz/compose.yml` loads the
 env chain from `foo` to `foo.bar` to `foo.bar.zzz` and preserves parent
@@ -1884,6 +1887,8 @@ Include addons or modes:
     dashboard docker list --enabled
     dashboard docker disable green
     dashboard docker enable green
+    dashboard docker development enable green
+    dashboard docker development disable green
 
 The resolver also supports isolated service folders without adding entries to
 dashboard JSON config. If
@@ -1895,9 +1900,17 @@ project it wins; otherwise the resolver falls back to
 inferring service names from the passthrough compose args before the real
 `docker compose` command is assembled. If no service name is passed, the
 resolver scans isolated service folders and preloads every non-disabled folder.
-If a folder contains `disabled.yml` it is skipped. Each isolated folder
-contributes `development.compose.yml` when present, otherwise `compose.yml`.
-To toggle that marker without creating or deleting the file manually, use
+If a folder contains `disabled.yml` it is skipped. Each enabled isolated folder
+contributes `compose.yml` as its base whenever it exists. Its optional
+`development.compose.yml` is layered after the base only when `develop.yml`
+exists in the effective service folder; without that marker, the development
+file is ignored even when present. If the marker exists but the development
+file does not, only the base is loaded and no error is raised. Toggle
+development mode without creating or deleting the file manually with
+`dashboard docker development enable <service>` or
+`dashboard docker development disable <service>`. The marker is written
+to the deepest runtime service folder. To toggle the disabled marker without
+creating or deleting the file manually, use
 `dashboard docker disable <service>` or
 `dashboard docker enable <service>`. The toggle writes to the
 deepest runtime `config/docker` root, so a child project layer can locally

@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::CodeUnitCompiler;
 
-our $VERSION = '5.06';
+our $VERSION = '5.07';
 
 use strict;
 use warnings;
@@ -2482,6 +2482,22 @@ sub _compile_simple_transform_sub_from_source {
     }
 
     if (
+        $short_name eq '_service_development_marker_path'
+        && _package_tail_is($package, '')
+        && $body =~ /_service_toggle_root/
+        && $body =~ /develop\.yml/
+    ) {
+        my $prototype = _sub_prototype_from_source($source, $short_name);
+        return {
+            name => $short_name,
+            full_name => $full_name,
+            op => 'docker_compose_service_development_marker_path',
+            toggle_root_method => $package . '::_service_toggle_root',
+            prototype => $prototype,
+        };
+    }
+
+    if (
         $short_name eq '_service_lookup_roots'
         && _package_tail_is($package, '')
         && $body =~ /runtime_layers/
@@ -2508,6 +2524,22 @@ sub _compile_simple_transform_sub_from_source {
             name => $short_name,
             full_name => $full_name,
             op => 'docker_compose_service_folder_is_disabled',
+            lookup_roots_method => $package . '::_service_lookup_roots',
+            prototype => $prototype,
+        };
+    }
+
+    if (
+        $short_name eq '_service_folder_is_development'
+        && _package_tail_is($package, '')
+        && $body =~ /_service_lookup_roots/
+        && $body =~ /develop\.yml/
+    ) {
+        my $prototype = _sub_prototype_from_source($source, $short_name);
+        return {
+            name => $short_name,
+            full_name => $full_name,
+            op => 'docker_compose_service_folder_is_development',
             lookup_roots_method => $package . '::_service_lookup_roots',
             prototype => $prototype,
         };
@@ -2568,6 +2600,7 @@ sub _compile_simple_transform_sub_from_source {
         $short_name eq '_discover_service_files'
         && _package_tail_is($package, '')
         && $body =~ /_service_folder_is_disabled/
+        && $body =~ /_service_folder_is_development/
         && $body =~ /_service_lookup_roots/
         && $body =~ /development\.compose\.yml/
     ) {
@@ -2577,6 +2610,7 @@ sub _compile_simple_transform_sub_from_source {
             full_name => $full_name,
             op => 'docker_compose_discover_service_files',
             service_disabled_method => $package . '::_service_folder_is_disabled',
+            service_development_method => $package . '::_service_folder_is_development',
             lookup_roots_method => $package . '::_service_lookup_roots',
             prototype => $prototype,
         };
@@ -2598,6 +2632,7 @@ sub _compile_simple_transform_sub_from_source {
             infer_services_method => $package . '::_infer_services_from_args',
             discover_enabled_method => $package . '::_discover_enabled_services',
             discover_service_files_method => $package . '::_discover_service_files',
+            service_development_method => $package . '::_service_folder_is_development',
             expand_path_method => $package . '::_expand_env_path',
             config_root_method => $package . '::_docker_config_root',
             prototype => $prototype,
@@ -2632,6 +2667,38 @@ sub _compile_simple_transform_sub_from_source {
             full_name => $full_name,
             op => 'docker_compose_enable_service',
             disabled_marker_method => $package . '::_service_disabled_marker_path',
+            prototype => $prototype,
+        };
+    }
+
+    if (
+        $short_name eq 'enable_service_development'
+        && _package_tail_is($package, '')
+        && $body =~ /_service_development_marker_path/
+        && $body =~ /development: 1/
+    ) {
+        my $prototype = _sub_prototype_from_source($source, $short_name);
+        return {
+            name => $short_name,
+            full_name => $full_name,
+            op => 'docker_compose_enable_service_development',
+            development_marker_method => $package . '::_service_development_marker_path',
+            prototype => $prototype,
+        };
+    }
+
+    if (
+        $short_name eq 'disable_service_development'
+        && _package_tail_is($package, '')
+        && $body =~ /_service_development_marker_path/
+        && $body =~ /Unable to remove/
+    ) {
+        my $prototype = _sub_prototype_from_source($source, $short_name);
+        return {
+            name => $short_name,
+            full_name => $full_name,
+            op => 'docker_compose_disable_service_development',
+            development_marker_method => $package . '::_service_development_marker_path',
             prototype => $prototype,
         };
     }

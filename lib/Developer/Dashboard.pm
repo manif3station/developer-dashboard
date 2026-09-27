@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.06';
+our $VERSION = '5.07';
 
 our @EXPORT = ('d2');
 
@@ -65,7 +65,8 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-5.06
+
+5.07
 
 =head1 INTRODUCTION
 
@@ -1208,9 +1209,11 @@ C<foo_bar_VERSION> from C<foo.bar>.
 The Docker Compose resolver also loads F<E<lt>skill-rootE<gt>/.env> for each installed
 skill whose C<config/docker/E<lt>serviceE<gt>/compose.yml> or
 C<config/docker/E<lt>serviceE<gt>/development.compose.yml> file actually participates in
-the resolved compose stack. That compose-only skill env layer stays isolated to
-the compose resolver, respects disabled skills, and does not execute
-F<E<lt>skill-rootE<gt>/.env.pl>. Nested skill compose services use that same
+the resolved compose stack. A service's C<compose.yml> is its base and is loaded
+whenever present; C<development.compose.yml> is loaded afterward only while the
+service's C<develop.yml> marker is enabled. That compose-only skill env layer
+stays isolated to the compose resolver, respects disabled skills, and does not
+execute F<E<lt>skill-rootE<gt>/.env.pl>. Nested skill compose services use that same
 root-to-leaf env expansion, so a participating leaf service such as
 F<skills/foo/skills/bar/skills/zzz/config/docker/zzz/compose.yml> loads the
 env chain from C<foo> to C<foo.bar> to C<foo.bar.zzz> and preserves parent
@@ -2259,6 +2262,8 @@ Include addons or modes:
   dashboard docker list --enabled
   dashboard docker disable green
   dashboard docker enable green
+  dashboard docker development enable green
+  dashboard docker development disable green
 
 The resolver also supports isolated service folders without adding entries to
 dashboard JSON config. If
@@ -2270,9 +2275,17 @@ C<dashboard docker compose up green> will pick it up automatically by
 inferring service names from the passthrough compose args before the real
 C<docker compose> command is assembled. If no service name is passed, the
 resolver scans isolated service folders and preloads every non-disabled folder.
-If a folder contains C<disabled.yml> it is skipped. Each isolated folder
-contributes C<development.compose.yml> when present, otherwise C<compose.yml>.
-To toggle that marker without creating or deleting the file manually, use
+If a folder contains C<disabled.yml> it is skipped. Each enabled isolated folder
+contributes C<compose.yml> as its base whenever it exists. Its optional
+C<development.compose.yml> is layered after the base only when C<develop.yml>
+exists in the effective service folder; without that marker, the development
+file is ignored even when present. If the marker exists but the development
+file does not, only the base is loaded and no error is raised. Toggle
+development mode without creating or deleting the file manually with
+C<dashboard docker development enable E<lt>serviceE<gt>> or
+C<dashboard docker development disable E<lt>serviceE<gt>>. The marker is written
+to the deepest runtime service folder. To toggle the disabled marker without
+creating or deleting the file manually, use
 C<dashboard docker disable E<lt>serviceE<gt>> or
 C<dashboard docker enable E<lt>serviceE<gt>>. The toggle writes to the
 deepest runtime C<config/docker> root, so a child project layer can locally

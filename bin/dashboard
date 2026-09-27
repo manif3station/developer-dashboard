@@ -743,6 +743,7 @@ dashboard - thin command switchboard for Developer Dashboard
   dashboard docker list [--enabled|--disabled]
   dashboard docker enable <service> [service...]
   dashboard docker disable <service> [service...]
+  dashboard docker development {enable|disable} <service> [service...]
       dashboard serve [logs [-f] [-n N]|workers <N>] [--host HOST] [--port PORT] [--workers N] [--foreground] [--no-editor|--no-endit] [--no-indicators|--no-indicator]
   dashboard stop
   dashboard restart [--host HOST] [--port PORT] [--workers N]

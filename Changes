@@ -1,3 +1,14 @@
+5.07  2026-09-27
+
+  - Added explicit Docker development overlay toggles through
+    `dashboard docker development enable|disable <service>` and the
+    `develop.yml` service marker.
+  - Kept each service `compose.yml` as the base and append
+    `development.compose.yml` only when opted in; a missing opted-in overlay
+    is skipped while the base remains active.
+  - Added regression coverage for overlay ordering, marker commands, missing
+    overlays, safe service paths, and PAX standalone runtime parity.
+
 5.06  2026-09-27
 
   - Made the skill directory providing an `/app/<skill>/<page>` dashboard the

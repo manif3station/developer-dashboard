@@ -1,5 +1,15 @@
 # Fixed Bugs
 
+## 5.07
+
+- Fixed Docker Compose service-file selection so `compose.yml` always remains
+  the base file. `development.compose.yml` is appended only when the service
+  has a `develop.yml` opt-in marker.
+- Added `docker development enable|disable <service>` commands to write or
+  remove that marker, with contained-path validation and explicit errors.
+- A marker without its development compose file now resolves to the base file
+  without error; tests cover source and PAX standalone runtime behavior.
+
 ## 5.06
 
 - Skill dashboard CODE now puts the exact skill layer that supplied the page

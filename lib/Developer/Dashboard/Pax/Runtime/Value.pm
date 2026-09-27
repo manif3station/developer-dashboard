@@ -1,6 +1,6 @@
 package Developer::Dashboard::Pax::Runtime::Value;
 
-our $VERSION = '5.06';
+our $VERSION = '5.07';
 
 use strict;
 use warnings;
