@@ -119,7 +119,7 @@ __END__
 
 =head1 NAME
 
-227-docker-compose-development-overlay-runtime.t - PAX runtime parity tests for Docker development overlays
+228-docker-compose-development-overlay-runtime.t - PAX runtime parity tests for Docker development overlays
 
 =head1 PURPOSE
 
@@ -135,7 +135,7 @@ Use this test when changing Docker service discovery, development marker command
 
 =head1 HOW TO USE
 
-Run C<prove -lv t/227-docker-compose-development-overlay-runtime.t> from the repository root. The test creates an isolated temporary service folder, invokes the real standalone runtime dispatcher, and removes its fixture directory automatically.
+Run C<prove -lv t/228-docker-compose-development-overlay-runtime.t> from the repository root. The test creates an isolated temporary service folder, invokes the real standalone runtime dispatcher, and removes its fixture directory automatically.
 
 =head1 WHAT USES IT
 
@@ -147,7 +147,7 @@ The repository test suite and the PAX compiler/runtime regression checks use thi
 
 =item 1
 
-  prove -lv t/227-docker-compose-development-overlay-runtime.t
+  prove -lv t/228-docker-compose-development-overlay-runtime.t
 
 Verify the PAX development-marker operation mappings and overlay ordering.
 
