@@ -170,7 +170,7 @@ __END__
 
 =head1 NAME
 
-227-standaloneimage-known-source-path-preferred.t - DD-1049 RED/GREEN test
+229-standaloneimage-known-source-path-preferred.t - DD-1049 RED/GREEN test
 
 =head1 PURPOSE
 
@@ -203,7 +203,7 @@ C<_runtime_selected_files>, or C<_runtime_manifest> change.
 
 =head1 HOW TO USE
 
-    PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/227-standaloneimage-known-source-path-preferred.t
+    PERL5LIB="$HOME/perl5/lib/perl5" prove -lv t/229-standaloneimage-known-source-path-preferred.t
 
 =head1 WHAT USES IT
 
@@ -216,7 +216,7 @@ still-open first-match gap for C<bundled_pure_perl>/C<bundled_xs> (DD-1049).
 
 Example 1:
 
-    prove -lv t/227-standaloneimage-known-source-path-preferred.t
+    prove -lv t/229-standaloneimage-known-source-path-preferred.t
 
 Confirm the fix is present: a module with a known source_path resolves to
 that path, never an earlier @INC entry's stale duplicate; a module with no
