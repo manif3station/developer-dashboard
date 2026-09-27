@@ -218,6 +218,30 @@ sub fail_first_template_new {
     is_deeply( $result->{outputs}, ["skill-code-lib-ok\n"], 'skill CODE sections print output after loading a skill-local module' );
 }
 
+{
+    my $page_skill_root = File::Spec->catdir( $home, 'skill-page-layer' );
+    my $newer_skill_root = File::Spec->catdir( $home, 'skill-newer-layer' );
+    make_path( File::Spec->catdir( $page_skill_root, 'lib' ) );
+    make_path( File::Spec->catdir( $newer_skill_root, 'lib' ) );
+    my $page = Developer::Dashboard::PageDocument->new(
+        id   => 'skill-code-lib-precedence',
+        meta => {
+            codes        => [ { body => 'print join ",", @INC;' } ],
+            skill_path   => $page_skill_root,
+            skill_layers => [ $page_skill_root, $newer_skill_root ],
+        },
+        layout => { body => 'body' },
+    );
+    my $result = $runtime->run_code_blocks( page => $page, source => 'skill' );
+    is_deeply( $result->{errors}, [], 'layered skill CODE sections can print the runtime @INC without errors' );
+    my ($first_inc) = split /,/, $result->{outputs}[0] || '', 2;
+    is(
+        $first_inc,
+        File::Spec->catdir( $page_skill_root, 'lib' ),
+        'the exact skill path serving the dashboard page is the first runtime @INC entry',
+    );
+}
+
 done_testing;
 
 __END__

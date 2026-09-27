@@ -3,7 +3,7 @@ package Developer::Dashboard::PageRuntime;
 use strict;
 use warnings;
 
-our $VERSION = '5.04';
+our $VERSION = '5.06';
 
 use Capture::Tiny qw(capture);
 use Developer::Dashboard::DataHelper qw(j je);
@@ -309,18 +309,23 @@ sub _template_include_roots {
 # Builds the skill-local Perl library roots exposed to older CODE sections for
 # one skill page.
 # Input: optional page document carrying skill_layers or skill_path metadata.
-# Output: ordered list of existing lib directory paths, leaf layer first.
+# Output: ordered list of existing lib directory paths, page-owning skill first
+# followed by inherited skill layers from leaf to home.
 sub _code_inc_roots {
     my ( $self, $page ) = @_;
     return () if !ref($page) || ref( $page->{meta} ) ne 'HASH';
     my @layers = ref( $page->{meta}{skill_layers} ) eq 'ARRAY'
       ? @{ $page->{meta}{skill_layers} }
       : ();
-    push @layers, $page->{meta}{skill_path}
-      if !@layers && defined $page->{meta}{skill_path} && $page->{meta}{skill_path} ne '';
-
     my @roots;
     my %seen;
+    my $page_skill_path = $page->{meta}{skill_path};
+    if ( defined $page_skill_path && $page_skill_path ne '' ) {
+        my $page_lib = File::Spec->catdir( $page_skill_path, 'lib' );
+        if ( -d $page_lib && !$seen{$page_lib}++ ) {
+            push @roots, $page_lib;
+        }
+    }
     for my $layer ( reverse @layers ) {
         my $lib = File::Spec->catdir( $layer, 'lib' );
         next if !-d $lib || $seen{$lib}++;
@@ -1358,7 +1363,7 @@ Use this file when changing bookmark rendering, Template Toolkit exposure, code-
 
 =head1 HOW TO USE
 
-Construct it with the file and path registries plus any path aliases, then feed it a normalized page document. Every CODE block receives the standard C<Developer::Dashboard::DataHelper qw(j je)> import, and skill-page CODE also sees the owning skill's C<lib/> directories in C<@INC>. Let the runtime return render fragments or errors rather than building bookmark execution logic in routes or helper scripts.
+Construct it with the file and path registries plus any path aliases, then feed it a normalized page document. Every CODE block receives the standard C<Developer::Dashboard::DataHelper qw(j je)> import. For skill pages, the exact skill layer that supplied the page is the first scoped C<@INC> entry, followed by the other active skill layers, so module lookup respects the page provider before inherited skill libraries. Let the runtime return render fragments or errors rather than building bookmark execution logic in routes or helper scripts.
 
 =head1 WHAT USES IT
 

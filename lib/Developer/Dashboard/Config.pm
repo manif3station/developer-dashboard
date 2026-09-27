@@ -3,7 +3,7 @@ package Developer::Dashboard::Config;
 use strict;
 use warnings;
 
-our $VERSION = '5.04';
+our $VERSION = '5.06';
 
 use File::Spec;
 use File::Path qw(make_path);

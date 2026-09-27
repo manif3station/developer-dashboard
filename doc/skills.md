@@ -12,6 +12,7 @@ Use it when you need:
 - the expected skill directory structure
 - the meaning of each folder
 - the skill CLI and `cli/<command>.d/` hook model, including `RESULT`, `LAST_RESULT`, and `[[STOP]]`
+- skill Perl library lookup: the command/page-providing skill's `lib/` is first in CLI and dashboard CODE `@INC`
 - executable `.go` hook files running through `go run` and executable `.java` hook files compiling through `javac` before they run through `java`
 - the difference between skill-local commands and dashboard-wide custom CLI hooks
 - bookmark syntax, bookmark browser helpers, and route details

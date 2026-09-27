@@ -142,6 +142,23 @@ my ( $ajax_stdout, undef, $ajax_result ) = capture {
 };
 like( $ajax_stdout, qr/set_chain_value/, 'Ajax prints the legacy config-binding script' );
 is( $ajax_result, 'HIDE-THIS', 'Ajax returns the legacy hide marker' );
+my $templated_ajax_expected_url = acmdx(
+    type => 'text',
+    code => 'my $foobar = 123;',
+)->{url}{tokenised};
+my ( $templated_ajax_stdout, undef, $templated_ajax_result ) = capture {
+    return Ajax(
+        jvar => 'configs.coverage.template',
+        data => { args => 123 },
+        code => 'my $foobar = [% args %];',
+    );
+};
+like(
+    $templated_ajax_stdout,
+    qr/\Q$templated_ajax_expected_url\E/,
+    'Ajax templates its Perl code using data before encoding the transient URL payload',
+);
+is( $templated_ajax_result, 'HIDE-THIS', 'templated Ajax code still returns the legacy hide marker' );
 my ( $ajax_singleton_stdout, undef, $ajax_singleton_result ) = capture {
     return Ajax( jvar => 'configs.coverage.endpoint', code => 'print qq{{}};', singleton => 'TRANSIENT' );
 };

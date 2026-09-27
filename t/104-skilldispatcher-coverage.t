@@ -142,6 +142,12 @@ write_file( File::Spec->catfile( $home_runner, 'dashboards', 'nav', 'common.tt' 
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'greet' ), "#!/bin/sh\necho greet-out\n" );
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'solo' ),  "#!/bin/sh\necho solo-out\n" );
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'libcheck.pl' ), "#!/usr/bin/env perl\nuse strict;\nuse warnings;\nuse RunnerLocal;\nprint RunnerLocal::value(), qq(\\n);\n" );
+write_exec( File::Spec->catfile( $proj_runner, 'cli', 'inc.pl' ), <<'SCRIPT' );
+#!/usr/bin/env perl
+use strict;
+use warnings;
+print join( ',', @INC ), "\n";
+SCRIPT
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'exectest' ), "#!/bin/sh\necho exec-out\n" );
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'failcmd' ), "#!/bin/sh\necho failcmd-out\nexit 1\n" );
 write_exec( File::Spec->catfile( $proj_runner, 'cli', 'hookfail' ), "#!/bin/sh\necho hookfail-out\n" );
@@ -244,6 +250,13 @@ like( $run_solo->{stdout}, qr/solo-out/, 'dispatch runs a command that has no ho
 
 my $run_libcheck = $disp->dispatch( 'runner', 'libcheck' );
 is( $run_libcheck->{stdout}, "local-lib-ok\n", 'dispatch exposes skill lib directories through PERL5LIB' );
+my $run_inc_check = $disp->dispatch( 'runner', 'inc' );
+my ($first_cli_inc) = split /,/, $run_inc_check->{stdout}, 2;
+is(
+    $first_cli_inc,
+    File::Spec->catdir( $proj_runner, 'lib' ),
+    'the exact skill path providing a CLI script is the first entry in that child Perl process @INC',
+);
 
 my $run_envcheck = $disp->dispatch( 'runner', 'child.envcheck' );
 is( $run_envcheck->{stdout}, "1\n1\n1\nhere\n", 'dispatch loads skill, nested skill, skill cli, and cwd env files with cwd overriding skill values' );
@@ -371,6 +384,13 @@ my %env = $disp->_skill_env(
 );
 is( $env{DEVELOPER_DASHBOARD_SKILL_NAME}, 'runner', '_skill_env exports the skill name' );
 like( $env{PERL5LIB}, qr/\Q$proj_runner\E/, '_skill_env prepends an existing skill-local perl5 lib' );
+my $perl5lib_sep = Developer::Dashboard::PerlEnv::path_separator();
+my ($first_skill_perl5lib) = split /\Q$perl5lib_sep\E/, $env{PERL5LIB}, 2;
+is(
+    $first_skill_perl5lib,
+    File::Spec->catdir( $proj_runner, 'lib' ),
+    '_skill_env puts the command-providing skill lib first in PERL5LIB before shared libraries',
+);
 my %env_min = $disp->_skill_env( skill_path => $proj_runner );
 ok( $env_min{PERL5LIB}, '_skill_env works without an explicit skill_layers list' );
 {

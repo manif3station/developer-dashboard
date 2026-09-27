@@ -68,6 +68,11 @@ singleton workers during `dashboard stop`, `dashboard restart`, and browser
 or `stream_value()` against a finite saved Ajax handler and assert the final
 DOM after incremental chunks land.
 
+The Ajax helper regression also checks transient code templating:
+`data => { args => 123 }` must encode `my $foobar = 123;` rather than leaving
+`[% args %]` in the token payload. Run the focused regression test when
+changing the `Ajax` helper.
+
 ### Source-tree gates and git worktrees
 
 Some test files only make sense against a checkout rather than an installed

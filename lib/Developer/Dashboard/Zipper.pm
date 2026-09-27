@@ -3,7 +3,7 @@ package Developer::Dashboard::Zipper;
 use strict;
 use warnings;
 
-our $VERSION = '5.04';
+our $VERSION = '5.06';
 
 use Exporter 'import';
 use File::Basename qw(dirname);
@@ -127,6 +127,7 @@ sub Ajax {
         }
     my $ajax = acmdx(
         %args,
+        code => $code,
         path => '/ajax',
         type => $type,
     );
@@ -381,6 +382,10 @@ older bookmark code without carrying forward any project-specific logic.
 Encode and decode token payloads and generate older-style ajax links. Saved
 bookmark Ajax file handlers are stored under the dashboards ajax tree as
 executable files so the web runtime can run them as real processes.
+When callers supply C<data>, C<Ajax> renders its C<code> string with Template
+Toolkit before either storing a saved handler or encoding a transient token.
+This ordering ensures the encoded payload contains executable Perl rather than
+unrendered C<[% ... %]> directives.
 
 =for comment FULL-POD-DOC START
 

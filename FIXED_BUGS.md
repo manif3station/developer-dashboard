@@ -1,5 +1,25 @@
 # Fixed Bugs
 
+## 5.06
+
+- Skill dashboard CODE now puts the exact skill layer that supplied the page
+  first in localized `@INC`, followed by other active skill layers.
+- Skill Perl CLI scripts now receive the supplying skill's `lib/` as the first
+  `@INC` path, even though the generic dashboard library is also passed with
+  Perl's `-I` option. `PERL5LIB` likewise orders the command skill's `lib/`
+  before inherited skill and shared local Perl libraries.
+- Regression tests print the actual `@INC` inside dashboard CODE and a
+  dispatched CLI Perl script and assert the respective owning skill `lib/`
+  directory is first.
+
+## 5.05
+
+- Fixed transient `Ajax` URL generation to encode rendered Template Toolkit
+  code, not the original template source. `data => { args => 123 }` now renders
+  `my $foobar = [% args %];` as `my $foobar = 123;` before tokenization.
+- Added a regression test for the transient encoded payload and documented the
+  behavior for transient URLs and saved Ajax files.
+
 ## 5.04
 
 - **DD-1059:** the v5.03 release (edab2938, DD-1051) shipped

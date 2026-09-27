@@ -3,7 +3,7 @@ package Developer::Dashboard::SkillDispatcher;
 use strict;
 use warnings;
 
-our $VERSION = '5.04';
+our $VERSION = '5.06';
 
 use Config ();
 use Developer::Dashboard::DirEntries qw(sorted_dir_entries);
@@ -75,6 +75,7 @@ sub dispatch {
         result_state => $hook_result->{result_state},
     );
     my @command = command_argv_for_path($cmd_path);
+    _prepend_skill_lib_to_perl_argv( \@command, $command_skill_path );
 
     my ( $stdout, $stderr, $exit ) = capture {
         local %ENV = ( %ENV, %env );
@@ -143,6 +144,7 @@ sub exec_command {
         result_state => $hook_result->{result_state},
     );
     my @command = command_argv_for_path($cmd_path);
+    _prepend_skill_lib_to_perl_argv( \@command, $command_skill_path );
     %ENV = ( %ENV, %env );
     Developer::Dashboard::Runtime::Result::set_current( $hook_result->{result_state} );
     if ( ref( $hook_result->{last_result} ) eq 'HASH' ) {
@@ -191,6 +193,7 @@ sub execute_hooks {
                 result_state => \%results,
             );
             my @command = command_argv_for_path($hook_path);
+            _prepend_skill_lib_to_perl_argv( \@command, $layer_path );
             my ( $stdout, $stderr, $exit ) = capture {
                 local %ENV = ( %ENV, %env );
                 Developer::Dashboard::Runtime::Result::set_current( \%results );
@@ -266,6 +269,7 @@ sub _execute_hooks_streaming {
                 result_state => \%results,
             );
             my @hook_command = command_argv_for_path($hook_path);
+            _prepend_skill_lib_to_perl_argv( \@hook_command, $layer_path );
             my $run = $self->_run_child_command_streaming(
                 command      => \@hook_command,
                 args         => \@args,
@@ -789,20 +793,29 @@ sub _skill_env {
     my $local_root = File::Spec->catdir( $skill_path, 'perl5' );
     my $shared_root = File::Spec->catdir( $self->{manager}{paths}->home, 'perl5' );
     my @perl5lib_extra;
-    for my $shared_lib (
-        File::Spec->catdir( $shared_root, 'lib', 'perl5' ),
-        File::Spec->catdir( $shared_root, 'lib', 'perl5', $Config::Config{archname} ),
-    ) {
-        push @perl5lib_extra, $shared_lib if -d $shared_lib;
-    }
-    for my $layer_path ( reverse @{ $args{skill_layers} || [] } ) {
+    my %seen_perl5lib_extra;
+    my @skill_paths = ( $skill_path, reverse @{ $args{skill_layers} || [] } );
+    for my $layer_path (@skill_paths) {
+        next if !defined $layer_path || $layer_path eq '';
         my $skill_lib = File::Spec->catdir( $layer_path, 'lib' );
-        push @perl5lib_extra, $skill_lib if -d $skill_lib;
+        if ( -d $skill_lib && !$seen_perl5lib_extra{$skill_lib}++ ) {
+            push @perl5lib_extra, $skill_lib;
+        }
         for my $local_lib (
             File::Spec->catdir( $layer_path, 'perl5', 'lib', 'perl5' ),
             File::Spec->catdir( $layer_path, 'perl5', 'lib', 'perl5', $Config::Config{archname} ),
         ) {
-            push @perl5lib_extra, $local_lib if -d $local_lib;
+            if ( -d $local_lib && !$seen_perl5lib_extra{$local_lib}++ ) {
+                push @perl5lib_extra, $local_lib;
+            }
+        }
+    }
+    for my $shared_lib (
+        File::Spec->catdir( $shared_root, 'lib', 'perl5' ),
+        File::Spec->catdir( $shared_root, 'lib', 'perl5', $Config::Config{archname} ),
+    ) {
+        if ( -d $shared_lib && !$seen_perl5lib_extra{$shared_lib}++ ) {
+            push @perl5lib_extra, $shared_lib;
         }
     }
 
@@ -820,6 +833,21 @@ sub _skill_env {
             extra => \@perl5lib_extra,
         ) },
     );
+}
+
+# _prepend_skill_lib_to_perl_argv($argv, $skill_path)
+# Makes the skill providing one Perl CLI script its first Perl module lookup
+# root, before the generic dashboard library injected by command_argv_for_path.
+# Input: mutable command argv array reference and skill directory path.
+# Output: same array reference, with a leading skill-lib -I pair for Perl argv.
+sub _prepend_skill_lib_to_perl_argv {
+    my ( $argv, $skill_path ) = @_;
+    return $argv if ref($argv) ne 'ARRAY' || @$argv < 3 || $argv->[0] ne $^X;
+    return $argv if !defined $skill_path || $skill_path eq '';
+    my $skill_lib = File::Spec->catdir( $skill_path, 'lib' );
+    return $argv if !-d $skill_lib;
+    splice @$argv, 1, 0, ( '-I', $skill_lib );
+    return $argv;
 }
 
 # _skill_layers($skill_name)

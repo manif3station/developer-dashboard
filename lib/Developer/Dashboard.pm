@@ -7,7 +7,7 @@ use Exporter 'import';
 use Cwd ();
 use Developer::Dashboard::Handle;
 
-our $VERSION = '5.04';
+our $VERSION = '5.06';
 
 our @EXPORT = ('d2');
 
@@ -65,7 +65,7 @@ __END__
 Developer::Dashboard - a local home for development work
 
 =head1 VERSION
-5.04
+5.06
 
 =head1 INTRODUCTION
 
@@ -2024,10 +2024,11 @@ C<[% INCLUDE "skills/foobar/dashboards/fragment.tt" %]> for an explicit
 runtime skill path. Normal dashboard bookmarks continue to resolve includes
 from their layered dashboards roots.
 
-Saved Ajax helpers also render the supplied C<code> as a Template Toolkit
-template when C<data =E<gt> \{ ... \}> is provided. For example,
+The C<Ajax> helper renders supplied C<code> as a Template Toolkit template
+before either transient URL encoding or saved-file storage when C<data
+=E<gt> \{ ... \}> is provided. For example,
 C<Ajax( code =E<gt> 'print [% args %];', data =E<gt> \{ args =E<gt> 123 \}, ... )>
-stores C<print 123;> for the Ajax worker to execute.
+encodes or stores C<print 123;> for the Ajax worker to execute.
 
 =head2 Working With Collectors
 
@@ -2997,6 +2998,14 @@ accepted as a singular alias for the C<dashboard skills> management command
 family, so C<dashboard skill list> and C<dashboard skill install browser> are
 equivalent to the plural form. It does not replace dotted skill execution;
 installed skill commands still run as C<dashboard E<lt>skillE<gt>.E<lt>commandE<gt>>.
+
+For Perl commands, the C<lib/> directory of the skill layer providing the
+command is the first module search path in the child process C<@INC>. Other
+participating skill libraries follow it, then shared local libraries. For
+C</app/E<lt>skillE<gt>/E<lt>pageE<gt>> pages, CODE blocks similarly place the
+exact skill layer supplying the page first in their scoped C<@INC>, followed
+by the remaining skill layers. A skill can therefore use a module such as
+C<DB.pm> with C<use DB;> without adding a manual library path.
 
 Git sources are cloned. Direct local checked-out directories are synced in
 place instead of recloned, using C<rsync> when it is available and the

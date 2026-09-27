@@ -5,7 +5,7 @@
 Developer::Dashboard - a local home for development work
 
 # VERSION
-5.04
+5.06
 
 # INTRODUCTION
 
@@ -1682,10 +1682,11 @@ Template Toolkit includes are skill-aware. A skill bookmark can use
 runtime skill path. Normal dashboard bookmarks continue to resolve includes
 from their layered dashboards roots.
 
-Saved Ajax helpers also render the supplied `code` as a Template Toolkit
-template when `data => \{ ... \}` is provided. For example,
+The `Ajax` helper renders supplied `code` as a Template Toolkit template
+before either transient URL encoding or saved-file storage when `data
+&#x3d;> \{ ... \}` is provided. For example,
 `Ajax( code => 'print [% args %];', data => \{ args => 123 \}, ... )`
-stores `print 123;` for the Ajax worker to execute.
+encodes or stores `print 123;` for the Ajax worker to execute.
 
 ## Working With Collectors
 
@@ -2513,6 +2514,14 @@ accepted as a singular alias for the `dashboard skills` management command
 family, so `dashboard skill list` and `dashboard skill install browser` are
 equivalent to the plural form. It does not replace dotted skill execution;
 installed skill commands still run as `dashboard <skill>.<command>`.
+
+For Perl commands, the `lib/` directory of the skill layer providing the
+command is the first module search path in the child process `@INC`. Other
+participating skill libraries follow it, then shared local libraries. For
+`/app/<skill>/<page>` pages, CODE blocks similarly place the
+exact skill layer supplying the page first in their scoped `@INC`, followed
+by the remaining skill layers. A skill can therefore use a module such as
+`DB.pm` with `use DB;` without adding a manual library path.
 
 Git sources are cloned. Direct local checked-out directories are synced in
 place instead of recloned, using `rsync` when it is available and the
