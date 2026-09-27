@@ -483,3 +483,46 @@ to call them.**
 So a reader should still not assume a helper of a given name is shared. Check
 whether it is imported or defined locally; `t/160` pins which are which, and
 fails by design if a divergent one is moved into the shared module.
+
+## A full-/proc scan must never fall back to `ps` per PID (DD-1054)
+
+`CollectorRunner::_find_running_loop` answers a different question from
+`is process N alive` above: *"is some already-running process THIS collector's
+supervisor?"* — it has no candidate pid to start from, so it opens `/proc`,
+lists every numeric entry, and asks each one's process title.
+
+That per-candidate question is answered by `_read_process_title`, which reads
+`/proc/$pid/cmdline` first and falls back to spawning a `ps -o args= -p $pid`
+**subprocess** when that read comes back empty. The fallback exists for a real
+race — a process can vanish between `readdir` and the read — and for *that*
+case it is correct and cheap: races are rare.
+
+**A kernel thread's `/proc/$pid/cmdline` is also always empty, and that is not
+a race** — it is the permanent, unconditional shape of every `kworker`,
+`ksoftirqd`, and similar thread the kernel exposes with no argv at all. A
+full-`/proc` scan meets these far more often than it meets a genuinely-vanished
+process, and every one of them previously took the `ps`-subprocess path.
+
+**Measured on one real host:** 943 of 1474 `/proc` entries had empty cmdlines.
+At realistic fork+exec overhead, scanning them all costs on the order of a
+minute and a half of sequential subprocess spawns — and this scan runs every
+time a collector starts or is checked, which is every `dashboard serve
+--foreground` invocation for any skill that declares one. The visible symptom
+was total silence: no startup banner, no bound port, indefinitely, because the
+scan runs *before* the web server's own first line of output.
+
+**The fix is to never ask `ps` about a candidate whose cmdline is
+readable-but-empty in the first place.** An empty cmdline can never equal a
+collector's own process title (always a non-empty string like
+`"dashboard collector: NAME"`), so the candidate can never be a match — skipping
+it before calling `_read_process_title` at all costs nothing correct and
+removes the pathological cost entirely. Only a genuinely **unreadable**
+cmdline (the vanished-between-readdir-and-read race the fallback was actually
+built for) still reaches `_read_process_title` and its `ps` fallback.
+
+**How to apply:** any code that scans a whole population of PIDs (not a single
+already-known candidate) must never spawn a subprocess per candidate for a
+condition that is the *common* case rather than a rare race. Distinguish "this
+candidate cannot possibly match" (skip cheaply, in-process) from "I cannot
+currently tell" (the narrow case a fallback belongs to) — collapsing the two
+turns an occasional-race fallback into a per-population-member cost.
