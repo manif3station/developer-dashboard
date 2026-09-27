@@ -1,5 +1,14 @@
 # Fixed Bugs
 
+## 5.09
+
+- Fixed DD-1049: `_locate_module_runtime_file` returned the FIRST @INC/roots
+  match for a module name, discarding the dependency scan's own known
+  source_path for that module. An earlier @INC entry holding a
+  stale/duplicate copy of the same module name could silently win and be
+  bundled into a compiled standalone binary instead of the real copy. Now
+  prefers a known source_path when the caller supplies one.
+
 ## 5.08
 
 - Fixed DD-1040: compiled `dashboard init` crashed with an undefined-coderef

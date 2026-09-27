@@ -1,3 +1,14 @@
+5.09  2026-09-27
+
+  - Fixed a dependency-scan masking defect: _locate_module_runtime_file
+    walked @INC/roots and returned the FIRST existing file for a module
+    name, discarding the dependency scan's own already-known source_path
+    for that module. If an earlier @INC entry held a stale/duplicate copy
+    of the module, the wrong file was silently bundled into a compiled
+    standalone binary. _locate_module_runtime_file now accepts an optional
+    known_source_paths lookup (built in _runtime_selected_files from
+    %args{dependencies}) and prefers it over the @INC walk.
+
 5.08  2026-09-27
 
   - Fixed a compiled-standalone-binary crash: three closures in
