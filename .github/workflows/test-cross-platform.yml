@@ -48,7 +48,28 @@ jobs:
       - name: Install project dependencies
         run: cpanm --installdeps --notest -L local .
 
+      # DD-1055: forcing `shell: bash` here made Windows resolve `prove` and
+      # its interpreter through Git for Windows' own bundled MSYS perl
+      # instead of the one shogo82148/actions-setup-perl just installed -
+      # PERL5LIB was exported correctly but the perl actually running the
+      # shebang never saw it (missing core TAP::Harness::Env, confirmed live:
+      # the failing @INC list did not include the actions-setup-perl path at
+      # all). Using each runner's own default shell (pwsh on Windows, bash
+      # elsewhere) keeps PATH resolution inside the toolchain setup-perl put
+      # there.
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          $perl5lib = "$env:GITHUB_WORKSPACE\local\lib\perl5"
+          if (-not (Test-Path $perl5lib)) {
+            Write-Error "dependency tree missing at $perl5lib - cpanm --installdeps did not populate it"
+            exit 1
+          }
+          $env:PERL5LIB = $perl5lib
+          prove -lr t
+
       - name: Run tests
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           perl5lib="$GITHUB_WORKSPACE/local/lib/perl5"
