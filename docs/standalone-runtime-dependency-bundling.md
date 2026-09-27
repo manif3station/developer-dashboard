@@ -209,6 +209,41 @@ dependency's bundling (closing the accidental loophole that was
 compensating for (2)'s dead force-list); (2) alone leaves (1)'s inert
 exclusion in place, doing nothing until (1) also lands.
 
+## `_locate_module_runtime_file` returns the first `@INC` match, not necessarily the project's own copy - a documented open gap (DD-1049)
+
+DD-1035 (above) fixed the case where the walk found *nothing* for a
+`hybrid_compiled_pcu_v1` module. `_locate_module_runtime_file` and
+`_helper_module_path` share the opposite, still-unfixed risk: for the
+other two dependency classes (`bundled_pure_perl`, `bundled_xs`), and
+for every transitively-declared module `_expand_runtime_module_files`
+discovers by scanning `use`/`require` inside already-selected files,
+the resolver walks a candidate list (`@INC`, or a roots array) and
+returns the **first** existing file for a module name - with no
+mechanism to prefer or cross-check the dependency scan's own
+already-known `source_path` for that module, even though every
+`%args{dependencies}` entry carries one (it is used elsewhere in the
+same function for the hybrid-dependency case, just never consulted
+here).
+
+If an earlier `@INC` entry happens to hold a stale or same-named
+copy of a module the scan already resolved correctly - the exact
+masking condition DD-1035's own investigation found already present on
+this project's development hosts (a leftover installed copy of this
+project's own package on `PERL5LIB`) - the wrong file is bundled
+silently: no warning, no build failure, just a quietly-wrong runtime
+payload. Not confirmed to have fired for a *pure_perl/xs* dependency in
+practice as of this writing (DD-1035's confirmed live impact was for
+the `hybrid_compiled_pcu_v1` class specifically); tracked as an open
+hardening ticket (DD-1049) with a concrete fix already scoped: extend
+`_locate_module_runtime_file` with an optional `module => source_path`
+lookup built from `%args{dependencies}`, consulted before the `@INC`
+loop, falling back to the walk only when no known `source_path` exists
+for that module. `_helper_module_path` shares the same shape but is
+lower-risk in practice - its own root list already prefers the
+currently-loaded `StandaloneImage.pm`'s own directory tree first - and
+is deliberately left out of DD-1049's scope pending a confirmed live
+incident.
+
 ## Where to look
 
 - `lib/Developer/Dashboard/Pax/StandaloneImage.pm::_skip_dependency_module`
@@ -221,7 +256,10 @@ exclusion in place, doing nothing until (1) also lands.
 - `lib/Developer/Dashboard/Pax/StandaloneImage.pm::_runtime_manifest`,
   `_runtime_selected_files`, `_locate_module_runtime_file`,
   `_file_list_payloads` - the separate `hybrid_compiled_pcu_v1`
-  force-bundling path (DD-1035).
+  force-bundling path (DD-1035), and (same functions plus
+  `_helper_module_path`, `_expand_runtime_module_files`) the still-open
+  first-match-vs-known-source_path gap for the other dependency classes
+  (DD-1049, above).
 - `.github/workflows/pax-release.yml` - the smoke-verify step. Widening it
   to exercise more than `dashboard version` was implemented and then
   **reverted**: doing so uncovered DD-1035 (documented above, now fixed)
