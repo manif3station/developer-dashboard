@@ -83,3 +83,43 @@ generates it.
   between a call site and the function it calls, not a data-content bug -
   check the argument COUNT at each call site before investigating the
   values.
+
+## `_code_for()` must be called with the package-qualified name, never the bare one (DD-1040)
+
+`_code_for($full)` does a raw `*{$full}{CODE}` typeglob lookup. It resolves
+a **bare, unqualified** sub name relative to whatever package `_code_for`
+itself happens to be compiled in - `Developer::Dashboard::Pax::StandaloneRuntime`
+- not the package the sub was actually installed into via
+`_install_sub_impl($package, ...)`.
+
+`_install_compiled_sub` captures both forms in the same scope: `$name` (the
+bare sub name) and `$full` (`$package . '::' . $name`, the qualified form),
+two lines apart. Any op closure that recurses into *itself* - a merge/collect
+helper calling back into its own compiled implementation - must call
+`_code_for($full)`. Three ops didn't:
+`config_merge_hashes`, `skill_dispatcher_merge_skill_hashes`, and
+`suggest_collect_skill_commands` all called `_code_for($name)` on their own
+recursive branch. The bare-name lookup always missed (nothing is installed
+into `StandaloneRuntime`'s own package under that name), returned `undef`,
+and the immediately-following `->(...)` call died with *"Can't use an
+undefined value as a subroutine reference"` - but only the first time the
+recursive branch actually fired, which for these three ops meant only on a
+deep, plain-HASH-shaped config section (the array-merge-by-name paths for
+`collectors`/`providers` use a separately-qualified method variable and were
+never affected).
+
+**How to apply:**
+- Any compiled-sub closure in `StandaloneRuntime.pm` that calls `_code_for()`
+  on itself (direct recursion, not calling a different named op) must pass
+  `$full`, never `$name` - even though both are in scope and both compile
+  without a warning.
+- A test exercising this must install the op into a scratch package
+  *distinct from* `StandaloneRuntime`'s own package (see
+  `t/230-standalone-runtime-recursive-merge.t`) - installing into the same
+  package the bare name would accidentally resolve into hides the bug
+  entirely, because the wrong lookup happens to land on the right sub by
+  coincidence.
+- The symptom is narrow and easy to misdiagnose as unrelated: the crash only
+  fires on the specific data shape that triggers the closure's *recursive*
+  branch, not on every call to the op - a shallow config with no nested
+  section of that kind never exercises the broken path at all.
