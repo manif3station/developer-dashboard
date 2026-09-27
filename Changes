@@ -8,6 +8,9 @@
   - Added tests that print and check the actual `@INC` from dashboard CODE and
     a dispatched Perl CLI script; both verify the page/command skill's `lib/`
     directory comes first.
+  - Excluded and pruned generated `pax-output/` binaries from distribution
+    scans and tarballs; an ignored 90+ MB compiled dashboard and deep excluded
+    trees had made `dzil build` spend minutes walking build output.
 
 5.05  2026-09-27
 

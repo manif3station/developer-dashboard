@@ -11,6 +11,11 @@
 - Regression tests print the actual `@INC` inside dashboard CODE and a
   dispatched CLI Perl script and assert the respective owning skill `lib/`
   directory is first.
+- Excluded and pruned generated `pax-output/` binaries and other excluded
+  build/runtime trees from Dist::Zilla gathering. Git-ignored files can still
+  sit in the source tree; `exclude_match` alone filters files after traversal,
+  so pruning the excluded directories prevents expensive scans and accidental
+  packaging.
 
 ## 5.05
 

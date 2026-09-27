@@ -176,6 +176,8 @@ if ( $dist ne '' ) {
     like( $dist, qr/^exclude_match = \^test_by_michael\/$/m, 'dist.ini excludes test_by_michael so private scratch fixtures do not leak into release tarballs' );
     like( $dist, qr/^exclude_match = \^updates\/$/m, 'dist.ini excludes checkout-only update scripts so user-defined update remains the installed runtime contract' );
     like( $dist, qr/^exclude_match = \^dogfood-output\/$/m, 'dist.ini excludes dogfood-output so browser QA evidence and screenshots do not leak into release tarballs' );
+    like( $dist, qr/^exclude_match = \^pax-output\/$/m, 'dist.ini excludes pax-output so locally compiled dashboard binaries do not stall or leak into release tarballs' );
+    like( $dist, qr/^prune_directory = \^pax-output\$$/m, 'dist.ini prunes pax-output before scanning its generated binaries' );
     like( $dist, qr/^exclude_match = \^\\\.worktrees\/$/m, 'dist.ini excludes .worktrees so ticket worktrees do not leak into release tarballs' );
     like( $dist, qr/^exclude_match = \^\\\.developer-dashboard\/$/m, 'dist.ini excludes .developer-dashboard so operator runtime state does not leak into release tarballs' );
     like( $dist, qr/^exclude_match = \^_developer-dashboard\/$/m, 'dist.ini excludes _developer-dashboard so a non-dot rename of the runtime root does not leak into release tarballs (DD-432 class)' );
@@ -378,6 +380,7 @@ my @operator_local_files = qw(
         logs/ft99.log
         Developer-Dashboard-9.99/lib/Developer/Dashboard.pm
         dogfood-output/screenshot.png
+        pax-output/d2
         .worktrees/dd-432/lib/Developer/Dashboard.pm
         .developer-dashboard/config/auth.json
         _developer-dashboard/config/auth.json
@@ -393,6 +396,14 @@ my @operator_local_files = qw(
         blogs/2026-release-notes.md
     );
     ok( $excluded->($_), "dist.ini exclusions actually match $_ so it cannot be gathered" ) for @must_be_excluded;
+
+    my @prune_directory = map { qr/$_/ } ( $dist_ini =~ /^prune_directory = (.+)$/mg );
+    my $pruned = sub {
+        my ($directory) = @_;
+        return scalar grep { $directory =~ $_ } @prune_directory;
+    };
+    ok( $pruned->($_), "dist.ini prunes excluded generated directory $_ before walking it" )
+      for qw(pax-output .worktrees node_modules test_by_michael);
 
     # DERIVE BOTH HALVES, NOT ONE. The patterns above are compiled out of
     # dist.ini, so a new exclusion is picked up automatically - but the sample

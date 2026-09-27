@@ -178,6 +178,11 @@ tests can leave native executables there, and those binaries must not be scanned
 as Perl source or included in a source release. `MetaNoIndex` also lists the
 inline helper packages `env` and `Developer::Dashboard::Handle::Proxy`; both
 are implemented inside existing modules, not shipped as standalone modules.
+The generated standalone dashboard under `pax-output/` is excluded and pruned
+for the same reason; it can be a large local binary and is not a distribution
+input. `GatherDir`'s `exclude_match` prevents files from being gathered but
+still traverses excluded trees, so release-only directories also use
+`prune_directory` to avoid scanning worktrees, runtime state, and local output.
 
 Run:
 
