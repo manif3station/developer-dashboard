@@ -413,6 +413,47 @@ END {
         'and with the real reader restored the answer is unchanged' );
 }
 
+# DD-1054: _find_running_loop must not fall back to spawning a `ps` subprocess
+# for a candidate whose /proc/$pid/cmdline is READABLE but EMPTY - the ordinary,
+# permanent state of a kernel thread (kworker, ksoftirqd, etc), never a race.
+# Falling back to `ps -o args= -p $pid` for every such PID makes the scan cost
+# one subprocess spawn per kernel thread on the host - reproduced live: a host
+# with 943 empty-cmdline /proc entries made `dashboard serve --foreground` hang
+# for 90+ seconds with zero output whenever any skill declared a collector,
+# because starting/checking that collector calls this exact scan.
+#
+# An empty cmdline can NEVER equal a collector loop's process title (a non-empty
+# string), so there is nothing to gain by asking `ps` about it - skipping it
+# immediately, without a subprocess, changes no correct outcome and removes the
+# pathological cost entirely.
+{
+    my $kthread_like = "kthread-probe-$$";
+    no warnings 'redefine';
+    my $real_proc_reader = \&Developer::Dashboard::CollectorRunner::_read_proc_file;
+    my $real_title_reader = \&Developer::Dashboard::CollectorRunner::_read_process_title;
+
+    my $title_reader_calls = 0;
+    local *Developer::Dashboard::CollectorRunner::_read_process_title = sub {
+        $title_reader_calls++;
+        return $real_title_reader->(@_);
+    };
+
+    # Force EVERY candidate's cmdline read to report "readable but empty" -
+    # the exact shape a kernel thread's /proc/$pid/cmdline always has.
+    local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub {
+        my ( undef, $file ) = @_;
+        return '' if $file =~ m{/cmdline\z};
+        return $real_proc_reader->(@_);
+    };
+
+    is( $runner->_find_running_loop($kthread_like), undef,
+        'a scan where every candidate looks like a kernel thread finds no managed loop' );
+    is( $title_reader_calls, 0,
+        '_read_process_title (and its ps subprocess fallback) is never called for an empty-cmdline candidate' );
+
+    local *Developer::Dashboard::CollectorRunner::_read_proc_file = $real_proc_reader;
+}
+
 done_testing;
 
 __END__

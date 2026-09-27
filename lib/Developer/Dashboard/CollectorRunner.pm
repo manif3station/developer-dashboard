@@ -1165,6 +1165,24 @@ sub _find_running_loop {
     my $title = $self->_process_title($name);
     for my $pid (@candidates) {
         next if $pid == $$;
+
+        # DD-1054: skip a candidate whose /proc/$pid/cmdline is READABLE but
+        # EMPTY before ever calling _read_process_title - that is the ordinary,
+        # permanent shape of a kernel thread (kworker, ksoftirqd, ...), never a
+        # race, and _read_process_title falls back to spawning a `ps` SUBPROCESS
+        # per pid when cmdline is empty. On a host with hundreds of kernel
+        # threads that made every collector start/check scan cost one subprocess
+        # spawn per thread - reproduced live: 943 empty-cmdline /proc entries on
+        # one host made `dashboard serve --foreground` hang 90+ seconds with zero
+        # output whenever any skill declared a collector. An empty cmdline can
+        # never equal $title (a non-empty string), so skipping it here costs
+        # nothing correct and removes the pathological cost entirely. Only a
+        # genuinely UNREADABLE cmdline (undef - the process vanished between
+        # readdir and this read) still falls through to the ps fallback below,
+        # which is the race _read_process_title's own fallback exists for.
+        my $cmdline = $self->_read_proc_file("/proc/$pid/cmdline");
+        next if defined $cmdline && $cmdline eq '';
+
         my $running = $self->_read_process_title($pid);
         next if !defined $running || $running ne $title;
         # A process carrying this collector's exact title while living in a
