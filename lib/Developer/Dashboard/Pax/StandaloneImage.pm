@@ -2716,6 +2716,10 @@ sub _runtime_tree_family_dirs {
     return @dirs;
 }
 
+# DD-1049: %known_source_path (built below from %args{dependencies}) is
+# passed into _locate_module_runtime_file so a bundled_pure_perl/bundled_xs
+# dependency already resolved by the scan is never re-derived from a bare
+# @INC walk that could pick up an earlier, stale/duplicate copy instead.
 sub _runtime_selected_files {
     my (%args) = @_;
     my @modules = map { $_->{module} }
@@ -2745,8 +2749,11 @@ sub _runtime_selected_files {
         modules => \@modules,
         lib_dirs => $args{lib_dirs} // [],
     );
+    my %known_source_path = map { ( $_->{module} // '' ) => $_->{source_path} }
+        grep { ($_->{module} // '') ne '' && ($_->{source_path} // '') ne '' }
+        @{ $args{dependencies} // [] };
     for my $module (@modules) {
-        my $path = _locate_module_runtime_file($module) or next;
+        my $path = _locate_module_runtime_file($module, \%known_source_path) or next;
         push @loaded, $path;
     }
     my %selected = map { $_ => 1 } _expand_runtime_module_files(
@@ -2829,9 +2836,20 @@ sub _runtime_family_files_for {
     return @files;
 }
 
+# DD-1049: locate a module's file on disk. If the caller already knows this
+# module's real source_path (e.g. from a dependency scan), that path is
+# preferred over the @INC walk below - an earlier @INC entry may hold a
+# stale/duplicate copy of the same module name, which would otherwise win
+# silently. Input: $module (a "Foo::Bar" string), optional $known_source_paths
+# (a hashref of module => source_path, built by the caller). Output: an
+# absolute file path, or undef if nothing resolves either way.
 sub _locate_module_runtime_file {
-    my ($module) = @_;
+    my ($module, $known_source_paths) = @_;
     return if !$module;
+    if ( $known_source_paths && ref($known_source_paths) eq 'HASH' ) {
+        my $known = $known_source_paths->{$module};
+        return abs_path($known) || $known if $known && -f $known;
+    }
     my $rel = $module;
     $rel =~ s{::}{/}g;
     $rel .= '.pm';
