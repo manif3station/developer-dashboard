@@ -1,0 +1,60 @@
+name: Test (cross-platform)
+
+# DD-1055 / Q-196: real Windows and macOS runs of the Perl test suite,
+# treated as this project's platform-test evidence for changes that are not
+# OS-conditional (the forced-Windows unit-test precheck on Linux, t/07/t/05,
+# was never a substitute for this - it is a fast pre-check only). Separate
+# from test.yml deliberately: this workflow does not run the CVE audits or
+# the Devel::Cover gate, both of which are Linux-only concerns tied to the
+# release pipeline, not to whether the suite itself behaves the same across
+# operating systems.
+
+on:
+  push:
+    branches:
+      - master
+      - DD-1055*
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-cross-platform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      PERL_MM_USE_DEFAULT: 1
+      NONINTERACTIVE_TESTING: 1
+      PERL_EXTUTILS_AUTOINSTALL: --defaultdeps
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Setup Perl
+        uses: shogo82148/actions-setup-perl@53e33bb27be492a926eee378e8a5f7ff6618b061  # v1.43.1
+        with:
+          perl-version: '5.44'
+
+      - name: Install project dependencies
+        run: cpanm --installdeps --notest -L local .
+
+      - name: Run tests
+        shell: bash
+        run: |
+          perl5lib="$GITHUB_WORKSPACE/local/lib/perl5"
+          if [ ! -d "$perl5lib" ]; then
+            echo "dependency tree missing at $perl5lib - cpanm --installdeps did not populate it" >&2
+            exit 1
+          fi
+          export PERL5LIB="$perl5lib"
+          prove -lr t
