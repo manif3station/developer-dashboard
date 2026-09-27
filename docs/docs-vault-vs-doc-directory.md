@@ -111,13 +111,50 @@ prunes matching *directories* during traversal rather than filtering file by
 file. The samples verify the pattern; `t/36-release-kwalitee.t` verifies a real
 built archive. Neither replaces the other.
 
+## A missing `doc/` whitelist entry doesn't just fail to ship - it can lose the edit entirely
+
+Forgetting `docs/`'s glob costs nothing (a new page is covered automatically).
+Forgetting `doc/`'s per-file entry is a different failure shape, and it is
+worse than "the page doesn't ship": since every ticket sandbox is disposable
+and gets cleaned up after merge, an untracked edit inside `doc/` that nobody
+ever `git add`ed is not lying dormant somewhere waiting to be whitelisted -
+it is gone the moment that sandbox is removed.
+
+Measured directly (DD-1042): a ticket's own comment claimed it had "updated
+the existing SYSTEM-scoped `doc/ask.md`" for a CLI feature. Checked later -
+`git log --all -- doc/ask.md` returned nothing, ever, on any branch, and the
+file did not exist on disk in any sandbox. The edit, if it was ever written,
+was a plain file sitting in that ticket's own sandbox, invisible to git
+because `doc/`'s whitelist had no line for it, and it stopped existing the
+day that sandbox was cleaned up. No error, no warning - the next person to
+look just finds nothing where a page was claimed to be.
+
+It cost nothing real here only because the feature turned out to already be
+correctly documented elsewhere, in `docs/` (the plural vault), under a
+different name than the one the ticket's comment used - the "existing
+SYSTEM-scoped" phrasing was itself a symptom of the confusion this page
+exists to prevent: `doc/` (singular) is the shipped/process-doc directory,
+never the SYSTEM-scoped-mechanism one, and a per-CLI-feature page belongs in
+`docs/`, not `doc/`, regardless of whitelisting.
+
+**The lesson: before writing into `doc/`, ask whether the page is really a
+shipped/process doc (security, testing, release process) rather than a
+SYSTEM-scoped mechanism description - the latter belongs in `docs/` and needs
+no whitelist edit at all. If a page genuinely belongs in `doc/`, add its
+whitelist line in the SAME commit that adds the page**, not as a follow-up -
+an untracked file in a sandbox that will be deleted is not a "add the
+whitelist line later" TODO, it is a page with an expiry date nobody set on
+purpose.
+
 ## How to apply
 
 - Writing an operator-facing page describing a mechanism? It goes in
   `docs/` and needs no `.gitignore` change - the glob already covers it.
 - Writing a page meant to ship with the distribution? It goes in `doc/`,
   and does need its own explicit whitelist entry (per-file, since `doc/`'s
-  pages are curated individually, not a flat auto-included set).
+  pages are curated individually, not a flat auto-included set) - add that
+  entry in the same commit as the page, or the edit can be lost outright
+  once its sandbox is cleaned up, not merely left unshipped.
 - Before assuming a `.gitignore` change affects what ships, check
   `dist.ini`'s `[GatherDir]` - `.gitignore` and the release manifest are
   governed by different mechanisms, and the only way to be sure which
