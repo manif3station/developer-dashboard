@@ -100,6 +100,32 @@ PERL5LIB="/tmp/fresh-cpansa/lib/perl5:$HOME/perl5/lib/perl5" \
   perl script/cpan-audit-declared-chain <library-root>
 ```
 
+## An exclusion recorded because no fix existed is a claim with an expiry date
+
+`cpan-audit-exclusions.txt` lets a real, unfixed advisory be excluded when this
+project's own code cannot reach the vulnerable path. That is correct the day
+it is written, and each entry's comment says exactly why. It is not correct
+forever: the exclusion is a claim about the advisory's **fixed range being
+empty**, and that field changes the moment upstream ships a fix — which the
+exclusion's own text does not know has happened until somebody re-reads the
+database.
+
+Observed directly (DD-1055): `CPANSA-Dancer2-2026-13577` was excluded under
+DD-451 on 2026-08-08 with exactly this shape — no fixed release existed, this
+project never uses the vulnerable code path, "revisit if a fixed Dancer2
+ships." Dancer2 2.2.0 shipped a fix on 2026-09-16, thirty-nine days later. The
+exclusion kept silencing the finding regardless, because nothing re-checks an
+exclusion's premise once it is declared — the gate only asks whether the
+distribution is excluded, never whether the reason still holds.
+
+**So an exclusion of this shape is not a closed decision, it is an open one
+with a re-check condition named in its own comment.** When raising any other
+distribution's floor for an unrelated advisory, re-read every exclusion whose
+comment says "revisit if a fixed release ships" against the current database
+in the same pass — the two are unrelated in cause and identical in mechanism,
+and a floor-raise ticket is exactly the moment the database is already being
+read fresh.
+
 ## Do not let the gate's silence be your only instrument
 
 When a floor is raised in response to an advisory, prove the fix by

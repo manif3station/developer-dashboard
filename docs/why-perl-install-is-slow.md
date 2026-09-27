@@ -44,7 +44,7 @@ drop-in:
 | Template | 3.103 | `libtemplate-perl` 2.27 | **no** - below floor |
 | Plack | 1.0054 | `libplack-perl` 1.0051 | **no** - below floor |
 | JSON::XS | 4.04 | `libjson-xs-perl` 4.040 | yes, but see below |
-| Dancer2 | 0.206000 | `libdancer2-perl` 1.1.0+dfsg | version-scheme mismatch, unverified |
+| Dancer2 | 2.2.0 | `libdancer2-perl` 1.1.0+dfsg | **no** - below floor (DD-1055 raised the floor to close CPANSA-Dancer2-2026-93711/93709/93712/93710/13577) |
 
 Several of this project's `cpanfile` floors were raised specifically to
 close CVEs (e.g. DD-433's `HTTP::Date` 6.08 floor). Swapping any dependency
