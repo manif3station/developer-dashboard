@@ -9,6 +9,10 @@ use YAML::XS ();
 
 my $ROOT = abs_path( File::Spec->catdir( $RealBin, File::Spec->updir ) );
 
+# _slurp($path)
+# Purpose: read a whole text file into one string.
+# Input: a filesystem path.
+# Output: the file's full content, or dies on open failure.
 # Matches t/15-release-metadata.t's own _slurp helper, rather than adding a
 # new slurp dependency this project's other tests do not already use.
 sub _slurp {
@@ -19,9 +23,13 @@ sub _slurp {
     return $content;
 }
 
-# Read the ACTUAL on: block of a workflow file, never by assuming a key name -
-# YAML 1.1 reads a bare `on` as the boolean true, and this file is parsed by
-# whichever YAML::XS the host happens to carry (t/34's own documented gotcha).
+# trigger_block($workflow_file)
+# Purpose: resolve a GitHub Actions workflow's `on:` trigger block by value,
+#   never by assuming a key name - YAML 1.1 reads a bare `on` as the boolean
+#   true, and this file is parsed by whichever YAML::XS the host happens to
+#   carry (t/34's own documented gotcha).
+# Input: a workflow filename under .github/workflows/ (e.g. 'test.yml').
+# Output: a hashref of that workflow's trigger block, or {} if none is found.
 sub trigger_block {
     my ($workflow_file) = @_;
     my $doc = YAML::XS::LoadFile( File::Spec->catfile( $ROOT, '.github', 'workflows', $workflow_file ) );
