@@ -454,6 +454,40 @@ END {
     local *Developer::Dashboard::CollectorRunner::_read_proc_file = $real_proc_reader;
 }
 
+# The other half of the new condition at line 1184 (defined $cmdline && $cmdline
+# eq ''): an UNREADABLE cmdline (undef, not empty) is the genuine vanished-
+# between-readdir-and-read race the ps fallback was always meant for, and it
+# must still reach _read_process_title rather than being skipped by the new
+# empty-cmdline guard - undef is not empty-string, so the new `next` must NOT
+# fire for it.
+{
+    my $vanished_like = "vanished-probe-$$";
+    no warnings 'redefine';
+    my $real_proc_reader = \&Developer::Dashboard::CollectorRunner::_read_proc_file;
+    my $real_title_reader = \&Developer::Dashboard::CollectorRunner::_read_process_title;
+
+    my $title_reader_calls = 0;
+    local *Developer::Dashboard::CollectorRunner::_read_process_title = sub {
+        $title_reader_calls++;
+        return $real_title_reader->(@_);
+    };
+
+    # Force EVERY candidate's cmdline read to report UNREADABLE (undef) - the
+    # shape a process vanishing between readdir and this read produces.
+    local *Developer::Dashboard::CollectorRunner::_read_proc_file = sub {
+        my ( undef, $file ) = @_;
+        return if $file =~ m{/cmdline\z};
+        return $real_proc_reader->(@_);
+    };
+
+    is( $runner->_find_running_loop($vanished_like), undef,
+        'a scan where every candidate looks vanished finds no managed loop' );
+    ok( $title_reader_calls > 0,
+        'an unreadable (undef) cmdline still reaches _read_process_title - the new guard only skips empty-string, not undef' );
+
+    local *Developer::Dashboard::CollectorRunner::_read_proc_file = $real_proc_reader;
+}
+
 done_testing;
 
 __END__
