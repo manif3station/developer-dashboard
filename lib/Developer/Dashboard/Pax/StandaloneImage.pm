@@ -2848,6 +2848,12 @@ sub _locate_module_runtime_file {
     return if !$module;
     if ( $known_source_paths && ref($known_source_paths) eq 'HASH' ) {
         my $known = $known_source_paths->{$module};
+        # DD-1049: $known is guaranteed truthy here by the preceding
+        # "if $known && -f $known" guard on this same statement, so
+        # "abs_path($known) fails AND $known is falsy" cannot occur -
+        # the only two reachable states are abs_path succeeding, or
+        # abs_path failing while $known (truthy) is returned instead.
+        # uncoverable condition false
         return abs_path($known) || $known if $known && -f $known;
     }
     my $rel = $module;

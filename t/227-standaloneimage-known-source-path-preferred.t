@@ -117,6 +117,51 @@ END {
         '_runtime_manifest bundles the REAL copy named by the dependency scan\'s own source_path' );
 }
 
+# AC-3 / condition-coverage: $known_source_paths passed but NOT a hashref
+# (e.g. a plain scalar) - the "ref $known_source_paths eq 'HASH'" half of the
+# guard must be false, so the code falls through to the ordinary @INC walk
+# rather than dereferencing a non-hash as one.
+{
+    local @INC = ( $stale_dir, $real_dir, @INC );
+    my $resolved_bad_ref = Developer::Dashboard::Pax::StandaloneImage::_locate_module_runtime_file(
+        'Foo::Bar', 'not-a-hashref',
+    );
+    is( $resolved_bad_ref, $stale_path,
+        'a truthy but non-hashref $known_source_paths falls through to the ordinary @INC walk, never dereferenced as a hash' );
+}
+
+# AC-4 / condition-coverage: $known resolves via the guard (exists, -f true)
+# but Cwd::abs_path fails to resolve it (returns empty) - the "|| $known"
+# fallback half of "abs_path($known) || $known" must be exercised, returning
+# $known as-written rather than a resolved absolute path. Cwd::abs_path is
+# locally overridden for this one call only, matching this project's own
+# precedent for simulating an external dependency's failure path that real
+# input cannot reliably trigger.
+{
+    local @INC = ();
+    local *Developer::Dashboard::Pax::StandaloneImage::abs_path = sub { return '' };
+    my $known_paths = { 'Foo::Bar' => $real_path };
+    my $resolved_abs_path_fails = Developer::Dashboard::Pax::StandaloneImage::_locate_module_runtime_file(
+        'Foo::Bar', $known_paths,
+    );
+    is( $resolved_abs_path_fails, $real_path,
+        'when Cwd::abs_path fails to resolve a known, existing source_path, the original $known path is returned unchanged' );
+}
+
+# AC-5 / condition-coverage: $known is present and truthy but points to a
+# file that does not actually exist on disk - the "-f $known" half of the
+# "$known && -f $known" guard must be false, so the known-source_path branch
+# is skipped entirely and the ordinary @INC walk runs instead.
+{
+    local @INC = ( $stale_dir, $real_dir, @INC );
+    my $known_paths = { 'Foo::Bar' => File::Spec->catfile( $real_dir, qw(Foo DoesNotExist.pm) ) };
+    my $resolved_missing_known = Developer::Dashboard::Pax::StandaloneImage::_locate_module_runtime_file(
+        'Foo::Bar', $known_paths,
+    );
+    is( $resolved_missing_known, $stale_path,
+        'a known source_path that does not exist on disk is skipped, falling through to the ordinary @INC walk' );
+}
+
 done_testing();
 
 __END__
