@@ -16,8 +16,12 @@ anyone building or contributing to the distribution itself.
   pages/ajax), `CollectorRunner` (scheduled checks), `Housekeeper` (cleanup),
   `PathRegistry`/`Config` (the layered `.developer-dashboard/` directory stack).
 - `t/*.t` covers `lib/`; each carries POD naming what it covers.
-- `.github/workflows/` runs Test, CodeQL, Package GHCR, and JS Fuzz on every
-  push to `master`.
+- `.github/workflows/` runs four workflows, each with its own trigger set:
+  Test and JS Fuzz run on every push to `master` and every pull request; JS
+  Fuzz also takes manual dispatch. Package GHCR runs on every push to
+  `master`, on version tags (`v*`), and manual dispatch. CodeQL is the widest
+  - push to every branch, every pull request, and a weekly schedule - not
+  scoped to `master` at all.
 
 ## Running the tests
 
